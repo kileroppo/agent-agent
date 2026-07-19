@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "agent.army/v1",
+  "manifestVersion": "0.1.0",
+  "agentId": "xiaod",
+  "name": "小D",
+  "department": "内容组",
+  "role": "把已获授权的音视频素材转成可核验的原始转录和整理文档",
+  "responsibilities": [
+    "接收已获授权的公开链接或本地媒体素材",
+    "优先提取已有字幕，必要时转录音频",
+    "保留原始转录并生成结构化整理稿",
+    "验证产物存在、可读和接收人权限后交付"
+  ],
+  "nonResponsibilities": [
+    "绕过登录、付费、Cookie、地区限制或来源访问控制",
+    "未经批准向外部接收人发送或公开发布内容",
+    "把模型润色稿冒充逐字原始转录",
+    "对素材中的事实真实性作最终背书"
+  ],
+  "acceptedTaskTypes": [
+    "media.transcribe-and-refine"
+  ],
+  "toolAllowlist": [
+    "xiaod.media.acquire",
+    "xiaod.media.transcribe",
+    "xiaod.text.refine",
+    "xiaod.artifact.write",
+    "lark.document.create",
+    "lark.document.permission.verify",
+    "lark.message.reply"
+  ],
+  "dataScopes": [
+    {
+      "scope": "task-input",
+      "access": ["read"],
+      "boundary": "仅当前任务明确提交或引用的素材"
+    },
+    {
+      "scope": "task-artifacts",
+      "access": ["read", "write"],
+      "boundary": "仅当前任务工作目录和产物"
+    },
+    {
+      "scope": "lark-delivery",
+      "access": ["write"],
+      "boundary": "仅预先授权的内部接收人和测试空间"
+    }
+  ],
+  "approvalPolicies": [
+    {
+      "action": "external-send-or-public-publish",
+      "riskLevel": "high",
+      "decision": "require-approval"
+    },
+    {
+      "action": "permission-expansion",
+      "riskLevel": "high",
+      "decision": "require-approval"
+    },
+    {
+      "action": "authorized-internal-delivery",
+      "riskLevel": "low",
+      "decision": "auto"
+    }
+  ],
+  "qualityGates": [
+    {
+      "gate": "raw-transcript-present",
+      "required": true
+    },
+    {
+      "gate": "refined-document-present",
+      "required": true
+    },
+    {
+      "gate": "artifacts-readable-and-non-empty",
+      "required": true
+    },
+    {
+      "gate": "recipient-permission-verified",
+      "required": true
+    }
+  ],
+  "budgetPolicy": {
+    "maxAttempts": 3,
+    "maxRuntimeMinutes": 180,
+    "onLimit": "pause-and-report"
+  },
+  "promptRef": "agents/xiaod/prompts/system.md",
+  "runtimeProfileRef": "integrations/hermes/profiles/xiaod.profile.json",
+  "appRef": "apps/xiaod-media-transcriber",
+  "operationalPolicy": {
+    "heartbeatSeconds": 60,
+    "inputTimeoutMinutes": 1440,
+    "retryStrategy": "bounded-from-safe-checkpoint"
+  },
+  "evalRefs": [
+    "agents/xiaod/evals/cases.json"
+  ],
+  "owner": "A 君",
+  "status": "draft"
+}

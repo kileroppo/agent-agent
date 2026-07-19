@@ -1,0 +1,18 @@
+{
+  "type": "design",
+  "designSystems": [],
+  "primaryDesignSystem": null,
+  "assets": {
+    "feishu-xiaod-task-flow": {
+      "versions": [
+        {
+          "path": "feishu-xiaod-task-flow.html",
+          "createdAt": "2026-07-18T13:10:48.198Z",
+          "status": "approved"
+        }
+      ]
+    }
+  },
+  "createdAt": "2026-07-18T13:10:48.199Z",
+  "updatedAt": "2026-07-18T14:16:29.413Z"
+}

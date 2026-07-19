@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent军团 M1 · 小D飞书任务闭环原型</title>
+  <!--
+    Context: M1 only, Feishu is the primary user surface, Paperclip remains the governance console.
+    Assumptions: one primary user, internal delivery by default, long-running task stages are truthful but not percentages.
+    Design reasoning: preserve Feishu's calm conversation model, place one task card beside the relevant message,
+    and reveal logs/governance details only on demand. This prototype uses mock state only and calls no service.
+  -->
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f5f7;
+      --surface: #ffffff;
+      --surface-muted: #f7f8fa;
+      --sidebar: #f1f4f9;
+      --text: #1f2329;
+      --text-2: #646a73;
+      --text-3: #8f959e;
+      --border: #dee0e3;
+      --border-soft: #eff0f1;
+      --blue: #3370ff;
+      --blue-hover: #2859d9;
+      --blue-soft: #e8f0ff;
+      --green: #2e8b57;
+      --green-soft: #e9f7ef;
+      --orange: #b76400;
+      --orange-soft: #fff3df;
+      --red: #c43e3e;
+      --red-soft: #fdecec;
+      --radius-sm: 8px;
+      --radius: 12px;
+      --shadow: 0 12px 34px rgba(31, 35, 41, 0.08);
+      font-family: -apple-system, "SF Pro Text", "PingFang SC", "Noto Sans SC", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body, #root { width: 100%; min-height: 100%; margin: 0; }
+    body { background: #e9ebef; color: var(--text); }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+
+    .prototype-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .prototype-bar {
+      min-height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 10px 18px;
+      background: #20242c;
+      color: #fff;
+    }
+
+    .prototype-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+    .prototype-title strong { font-size: 14px; white-space: nowrap; }
+    .prototype-title span { color: #b8bdc7; font-size: 12px; white-space: nowrap; }
+    .state-switcher { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; scrollbar-width: none; }
+    .state-switcher::-webkit-scrollbar { display: none; }
+    .state-switcher button {
+      min-height: 32px;
+      padding: 0 10px;
+      border: 1px solid #414753;
+      border-radius: 7px;
+      background: transparent;
+      color: #d7dae0;
+      font-size: 12px;
+    }
+    .state-switcher button:hover { background: #303640; }
+    .state-switcher button.active { background: #fff; color: #20242c; border-color: #fff; }
+
+    .app-frame {
+      width: min(1440px, calc(100vw - 32px));
+      height: calc(100vh - 78px);
+      min-height: 680px;
+      margin: 12px auto;
+      display: grid;
+      grid-template-columns: 252px minmax(0, 1fr);
+      overflow: hidden;
+      background: var(--surface);
+      border: 1px solid rgba(31, 35, 41, 0.08);
+      border-radius: 14px;
+      box-shadow: var(--shadow);
+    }
+
+    .sidebar {
+      background: var(--sidebar);
+      border-right: 1px solid #e3e7ee;
+      padding: 16px 10px;
+      overflow: auto;
+    }
+    .workspace { display: flex; align-items: center; gap: 10px; padding: 0 8px 16px; }
+    .workspace-avatar, .agent-avatar {
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      color: #fff;
+      font-weight: 650;
+    }
+    .workspace-avatar { width: 34px; height: 34px; background: #00a995; font-size: 13px; }
+    .workspace strong { font-size: 14px; }
+    .search {
+      height: 38px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 11px;
+      margin: 0 4px 18px;
+      border: 1px solid #dce1e9;
+      border-radius: 8px;
+      background: rgba(255,255,255,.72);
+      color: var(--text-2);
+      font-size: 13px;
+    }
+    .nav-label { padding: 5px 8px; color: var(--text-2); font-size: 12px; font-weight: 650; }
+    .agent-list { display: grid; gap: 3px; margin-bottom: 12px; }
+    .agent-row {
+      width: 100%;
+      min-height: 40px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 6px 9px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text);
+      text-align: left;
+    }
+    .agent-row:hover { background: rgba(255,255,255,.72); }
+    .agent-row.active { background: #fff; box-shadow: 0 1px 2px rgba(31,35,41,.06); }
+    .agent-avatar { width: 26px; height: 26px; background: #5069c9; font-size: 11px; }
+    .agent-avatar.teal { background: #18a999; }
+    .agent-avatar.gold { background: #b8842c; }
+    .agent-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+
+    .chat { min-width: 0; min-height: 0; display: grid; grid-template-rows: 64px minmax(0, 1fr) auto; background: var(--surface); }
+    .chat-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 22px;
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .chat-identity { min-width: 0; display: flex; align-items: center; gap: 11px; }
+    .chat-identity .agent-avatar { width: 36px; height: 36px; font-size: 13px; }
+    .chat-name { min-width: 0; }
+    .chat-name strong { display: block; font-size: 15px; }
+    .chat-name span { display: block; margin-top: 2px; color: var(--text-3); font-size: 12px; }
+    .header-actions { display: flex; gap: 7px; }
+    .icon-button {
+      width: 34px;
+      height: 34px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-2);
+      font-size: 17px;
+    }
+    .icon-button:hover { background: var(--surface-muted); }
+
+    .conversation {
+      min-height: 0;
+      overflow: auto;
+      padding: 26px clamp(20px, 6vw, 84px) 34px;
+      background: #f7f8fa;
+    }
+    .day-label { margin: 0 auto 22px; color: var(--text-3); text-align: center; font-size: 12px; }
+    .message { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 22px; }
+    .message.user { justify-content: flex-end; }
+    .message .agent-avatar { width: 30px; height: 30px; margin-top: 2px; font-size: 11px; }
+    .message-body { width: min(650px, calc(100% - 42px)); }
+    .message.user .message-body { width: auto; max-width: min(650px, calc(100% - 42px)); }
+    .bubble {
+      display: inline-block;
+      padding: 10px 14px;
+      border-radius: 10px;
+      background: #fff;
+      color: var(--text);
+      line-height: 1.65;
+      font-size: 14px;
+      box-shadow: 0 1px 2px rgba(31,35,41,.05);
+    }
+    .message.user .bubble { background: #dfeaff; }
+    .message-time { margin-top: 5px; color: var(--text-3); font-size: 11px; }
+    .message.user .message-time { text-align: right; }
+
+    .task-card {
+      margin-top: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+      box-shadow: 0 2px 7px rgba(31,35,41,.04);
+    }
+    .task-card-main { padding: 18px; }
+    .task-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+    .task-heading h2 { margin: 8px 0 0; font-size: 17px; line-height: 1.45; }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 26px;
+      padding: 0 9px;
+      border-radius: 999px;
+      background: var(--blue-soft);
+      color: #2859d9;
+      font-size: 12px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+    .status-pill.success { background: var(--green-soft); color: var(--green); }
+    .status-pill.warning { background: var(--orange-soft); color: var(--orange); }
+    .status-pill.error { background: var(--red-soft); color: var(--red); }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .status-pill.running .status-dot { animation: pulse 1.6s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: .28; transform: scale(.7); } }
+    @media (prefers-reduced-motion: reduce) { .status-pill.running .status-dot { animation: none; } }
+
+    .task-copy { margin: 12px 0 0; color: var(--text-2); font-size: 14px; line-height: 1.7; }
+    .stage-list { display: grid; gap: 9px; margin-top: 16px; padding: 13px 14px; border-radius: 9px; background: var(--surface-muted); }
+    .stage-row { display: flex; align-items: center; gap: 9px; color: var(--text-3); font-size: 13px; }
+    .stage-row.done { color: var(--text-2); }
+    .stage-row.current { color: var(--text); font-weight: 600; }
+    .stage-mark { width: 16px; height: 16px; display: grid; place-items: center; border: 1px solid #c9cdd4; border-radius: 50%; font-size: 10px; }
+    .stage-row.done .stage-mark { border-color: var(--green); background: var(--green); color: #fff; }
+    .stage-row.current .stage-mark { border: 4px solid #cbd9ff; background: var(--blue); }
+
+    .notice {
+      margin-top: 15px;
+      padding: 12px 13px;
+      border-radius: 9px;
+      background: var(--orange-soft);
+      color: #704100;
+      font-size: 13px;
+      line-height: 1.65;
+    }
+    .notice.error { background: var(--red-soft); color: #7b2828; }
+    .notice.success { background: var(--green-soft); color: #276942; }
+    .result-preview { margin-top: 15px; padding: 15px; border: 1px solid var(--border-soft); border-radius: 9px; }
+    .result-preview strong { font-size: 14px; }
+    .result-preview p { margin: 7px 0 0; color: var(--text-2); font-size: 13px; line-height: 1.65; }
+    .meta-row { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 13px; color: var(--text-3); font-size: 11px; }
+    .card-actions { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin-top: 18px; }
+    .button {
+      min-height: 38px;
+      padding: 0 15px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--text);
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .button:hover { background: var(--surface-muted); }
+    .button.primary { border-color: var(--blue); background: var(--blue); color: #fff; }
+    .button.primary:hover { border-color: var(--blue-hover); background: var(--blue-hover); }
+    .button.danger { color: var(--red); }
+    .button:focus-visible, .icon-button:focus-visible, .state-switcher button:focus-visible, input:focus-visible { outline: 3px solid rgba(51,112,255,.25); outline-offset: 2px; }
+    .task-card-footer {
+      min-height: 42px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 0 18px;
+      border-top: 1px solid var(--border-soft);
+      color: var(--text-3);
+      font-size: 11px;
+    }
+    .link-button { border: 0; background: transparent; color: var(--blue); font-size: 12px; }
+
+    .composer-wrap { padding: 12px 18px 16px; border-top: 1px solid var(--border-soft); background: #fff; }
+    .validation { min-height: 18px; margin: 0 0 5px 12px; color: var(--red); font-size: 12px; }
+    .composer {
+      min-height: 54px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      padding: 7px 7px 7px 15px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: 0 1px 3px rgba(31,35,41,.04);
+    }
+    .composer:focus-within { border-color: #8fb0ff; box-shadow: 0 0 0 3px rgba(51,112,255,.1); }
+    .composer input { width: 100%; border: 0; outline: 0; color: var(--text); font-size: 14px; }
+    .composer input::placeholder { color: #a8adb5; }
+    .send-button { width: 40px; height: 40px; border: 0; border-radius: 8px; background: var(--blue); color: #fff; font-size: 18px; }
+    .send-button:hover { background: var(--blue-hover); }
+
+    .drawer-backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(31,35,41,.28); }
+    .drawer {
+      position: fixed;
+      top: 0;
+      right: 0;
+      z-index: 21;
+      width: min(420px, 92vw);
+      height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      background: #fff;
+      box-shadow: -16px 0 40px rgba(31,35,41,.12);
+    }
+    .drawer-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px; border-bottom: 1px solid var(--border-soft); }
+    .drawer-header strong { font-size: 16px; }
+    .drawer-content { overflow: auto; padding: 20px; }
+    .detail-section { margin-bottom: 24px; }
+    .detail-section h3 { margin: 0 0 10px; font-size: 13px; }
+    .detail-grid { display: grid; grid-template-columns: 96px 1fr; gap: 9px 12px; font-size: 12px; line-height: 1.6; }
+    .detail-grid dt { color: var(--text-3); }
+    .detail-grid dd { margin: 0; color: var(--text-2); word-break: break-word; }
+    .toast { position: fixed; left: 50%; bottom: 28px; z-index: 40; transform: translateX(-50%); padding: 11px 15px; border-radius: 8px; background: #20242c; color: #fff; box-shadow: var(--shadow); font-size: 13px; }
+
+    @media (max-width: 760px) {
+      .prototype-shell { grid-template-rows: auto 1fr; }
+      .prototype-bar { align-items: flex-start; flex-direction: column; gap: 8px; }
+      .prototype-title span { display: none; }
+      .state-switcher { justify-content: flex-start; width: 100%; overflow-x: auto; flex-wrap: nowrap; padding-bottom: 2px; }
+      .state-switcher button { flex: 0 0 auto; }
+      .app-frame { width: 100%; height: calc(100vh - 108px); min-height: 620px; margin: 0; grid-template-columns: 1fr; border: 0; border-radius: 0; }
+      .sidebar { display: none; }
+      .chat-header { padding: 0 14px; }
+      .conversation { padding: 20px 12px 24px; }
+      .message-body { width: calc(100% - 40px); }
+      .message.user .message-body { max-width: calc(100% - 40px); }
+      .task-card-main { padding: 15px; }
+      .task-heading { display: grid; gap: 4px; }
+      .card-actions { display: grid; grid-template-columns: 1fr; }
+      .button { width: 100%; min-height: 44px; }
+      .task-card-footer { align-items: flex-start; flex-direction: column; padding: 10px 15px; }
+      .composer-wrap { padding: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <script type="text/babel">
+    const { useEffect, useMemo, useRef, useState } = React;
+
+    const stateOptions = [
+      ["received", "已接收"],
+      ["running", "处理中"],
+      ["needs_input", "需补充"],
+      ["approval", "待审批"],
+      ["failed", "失败恢复"],
+      ["success", "已交付"]
+    ];
+
+    const stageLabels = ["获取素材", "转录音频", "整理文章", "生成产物", "验证并交付"];
+
+    function Sidebar() {
+      return (
+        <aside className="sidebar" aria-label="Agent 列表">
+          <div className="workspace"><div className="workspace-avatar">亦仁</div><strong>Agent军团</strong></div>
+          <div className="search"><span aria-hidden="true">⌕</span><span>搜索</span></div>
+          <div className="nav-label">Agent 组织部</div>
+          <div className="agent-list">
+            <button className="agent-row"><span className="agent-avatar gold">佳</span><span className="agent-name">小佳 · Agent 架构师</span></button>
+            <button className="agent-row"><span className="agent-avatar">维</span><span className="agent-name">小维 · Agent 运维官</span></button>
+            <button className="agent-row"><span className="agent-avatar gold">审</span><span className="agent-name">小审 · Agent 审核官</span></button>
+          </div>
+          <div className="nav-label">数据组</div>
+          <div className="agent-list">
+            <button className="agent-row active"><span className="agent-avatar teal">D</span><span className="agent-name">小D · 视频转录助手</span></button>
+            <button className="agent-row"><span className="agent-avatar">G</span><span className="agent-name">小G · GitHub 检索</span></button>
+          </div>
+          <div className="nav-label">内容组</div>
+          <div className="agent-list">
+            <button className="agent-row"><span className="agent-avatar gold">星</span><span className="agent-name">小星 · 选题官</span></button>
+          </div>
+        </aside>
+      );
+    }
+
+    function StageList({ current = 1 }) {
+      return (
+        <div className="stage-list" aria-label="处理阶段">
+          {stageLabels.map((label, index) => {
+            const status = index < current ? "done" : index === current ? "current" : "";
+            return (
+              <div className={`stage-row ${status}`} key={label}>
+                <span className="stage-mark">{index < current ? "✓" : ""}</span>
+                <span>{label}</span>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    function StatusPill({ tone = "", label, running = false }) {
+      return <span className={`status-pill ${tone} ${running ? "running" : ""}`}><span className="status-dot"></span>{label}</span>;
+    }
+
+    function TaskCard({ state, onState, onDetails, notify }) {
+      const content = useMemo(() => {
+        if (state === "received") return {
+          pill: <StatusPill label="已接收" />,
+          title: "正在识别视频信息",
+          copy: "已创建转录整理任务。确认来源可访问后，小D会开始获取素材。",
+          meta: ["任务 AGT-240718-001", "刚刚更新"],
+          actions: <button className="button primary" onClick={() => onState("running")}>开始处理</button>
+        };
+        if (state === "running") return {
+          pill: <StatusPill label="处理中" running={true} />,
+          title: "正在转录音视频",
+          copy: "素材已经获取，当前正在生成原始转录。长任务会在关键阶段更新，不显示无法验证的百分比。",
+          extra: <StageList current={1} />,
+          meta: ["任务 AGT-240718-001", "运行 18 分钟", "下次阶段变化时通知"],
+          actions: null
+        };
+        if (state === "needs_input") return {
+          pill: <StatusPill label="需要补充" tone="warning" />,
+          title: "请选择要处理的视频范围",
+          copy: "这个链接中识别到 3 个视频。当前任务需要你确认处理范围后才能继续。",
+          extra: <div className="notice">处理全部视频预计会增加处理时间与模型消耗。本次默认推荐只处理当前视频。</div>,
+          meta: ["任务 AGT-240718-001", "等待你的回复"],
+          actions: <><button className="button primary" onClick={() => onState("running")}>处理当前视频</button><button className="button" onClick={() => { onState("running"); notify("已选择处理全部 3 个视频"); }}>全部处理</button></>
+        };
+        if (state === "approval") return {
+          pill: <StatusPill label="待审批" tone="warning" />,
+          title: "是否发送给外部联系人？",
+          copy: "整理稿已经生成。下一步会把飞书文档发送给项目外部联系人，该动作需要你的批准。",
+          extra: <div className="notice"><strong>发送范围：</strong>仅本次整理稿<br/><strong>接收人：</strong>外部联系人（1 人）<br/><strong>有效期：</strong>批准后 30 分钟</div>,
+          meta: ["任务 AGT-240718-001", "安全产物已保留"],
+          actions: <><button className="button primary" onClick={() => onState("success")}>批准并继续</button><button className="button danger" onClick={() => { onState("received"); notify("已拒绝外部发送，安全产物仍保留"); }}>拒绝</button></>
+        };
+        if (state === "failed") return {
+          pill: <StatusPill label="已暂停" tone="error" />,
+          title: "转录在中途暂停",
+          copy: "本地转录进程意外退出。已保存完成的音频分片，可以从最近 checkpoint 继续。",
+          extra: <div className="notice error"><strong>可恢复：</strong>不会重新下载素材，也不会重复已完成的分片。</div>,
+          meta: ["任务 AGT-240718-001", "失败阶段 transcribing", "第 1 次尝试"],
+          actions: <button className="button primary" onClick={() => { onState("running"); notify("已从 checkpoint 继续任务"); }}>继续任务</button>
+        };
+        return {
+          pill: <StatusPill label="已完成" tone="success" />,
+          title: "Claude Code 的 Agentic Engineering 实践",
+          copy: "已完成转录整理，并创建飞书文档。目录结构和访问权限已验证。",
+          extra: <><div className="notice success">原始转录与整理稿均已生成，预期接收人可以访问。</div><div className="result-preview"><strong>整理稿预览</strong><p>内容围绕 Agentic Engineering 的工作方式展开，保留了原视频中的机制解释、实践步骤与关键案例。</p></div></>,
+          meta: ["任务 AGT-240718-001", "来源：公开视频", "权限已验证"],
+          actions: <><button className="button primary" onClick={() => notify("原型：这里将打开真实飞书文档")}>打开飞书文档</button><button className="button" onClick={() => notify("原型：这里将下载原始转录")}>原始转录</button></>
+        };
+      }, [state, onState, notify]);
+
+      return (
+        <article className="task-card" data-screen-label={`task-${state}`}>
+          <div className="task-card-main">
+            <div className="task-heading"><div>{content.pill}<h2>{content.title}</h2></div></div>
+            <p className="task-copy">{content.copy}</p>
+            {content.extra}
+            <div className="meta-row">{content.meta.map(item => <span key={item}>{item}</span>)}</div>
+            {content.actions ? <div className="card-actions">{content.actions}</div> : null}
+          </div>
+          <div className="task-card-footer"><span>小D · 视频转录助手</span><button className="link-button" onClick={onDetails}>任务详情</button></div>
+        </article>
+      );
+    }
+
+    function DetailDrawer({ state, onClose }) {
+      return (
+        <>
+          <div className="drawer-backdrop" onClick={onClose}></div>
+          <aside className="drawer" aria-label="任务详情">
+            <div className="drawer-header"><strong>任务详情</strong><button className="icon-button" aria-label="关闭" onClick={onClose}>×</button></div>
+            <div className="drawer-content">
+              <section className="detail-section"><h3>基本信息</h3><dl className="detail-grid"><dt>任务 ID</dt><dd>AGT-240718-001</dd><dt>承接 Agent</dt><dd>xiaod-media-transcriber</dd><dt>当前状态</dt><dd>{state}</dd><dt>来源</dt><dd>飞书会话事件（原型数据）</dd></dl></section>
+              <section className="detail-section"><h3>执行与恢复</h3><dl className="detail-grid"><dt>当前尝试</dt><dd>1</dd><dt>幂等键</dt><dd>lark-event-demo-001</dd><dt>Checkpoint</dt><dd>transcribing/segment-18</dd><dt>同步状态</dt><dd>Paperclip：待接入验证</dd></dl></section>
+              <section className="detail-section"><h3>设计说明</h3><dl className="detail-grid"><dt>展示层</dt><dd>只展示用户需要的当前状态</dd><dt>真实状态</dt><dd>由运行时任务存储持久化</dd><dt>凭据</dt><dd>原型不读取或保存任何凭据</dd></dl></section>
+            </div>
+          </aside>
+        </>
+      );
+    }
+
+    function App() {
+      const [state, setState] = useState("running");
+      const [input, setInput] = useState("");
+      const [validation, setValidation] = useState("");
+      const [detailsOpen, setDetailsOpen] = useState(false);
+      const [toast, setToast] = useState("");
+      const toastTimer = useRef(null);
+
+      const notify = (message) => {
+        window.clearTimeout(toastTimer.current);
+        setToast(message);
+        toastTimer.current = window.setTimeout(() => setToast(""), 2400);
+      };
+
+      useEffect(() => () => window.clearTimeout(toastTimer.current), []);
+
+      const submit = (event) => {
+        event.preventDefault();
+        const value = input.trim();
+        if (!value) { setValidation("请粘贴音视频链接或说明任务要求"); return; }
+        setValidation("");
+        if (!/^https?:\/\//i.test(value)) {
+          setState("needs_input");
+          notify("需要补充可访问的音视频链接");
+          return;
+        }
+        setState("received");
+        setInput("");
+        notify("已创建任务 AGT-240718-001");
+      };
+
+      return (
+        <main className="prototype-shell" data-screen-label="m1-feishu-prototype">
+          <header className="prototype-bar">
+            <div className="prototype-title"><strong>M1 飞书交互原型</strong><span>评审状态，不连接真实服务</span></div>
+            <nav className="state-switcher" aria-label="原型状态切换">
+              {stateOptions.map(([value, label]) => <button key={value} className={state === value ? "active" : ""} onClick={() => setState(value)}>{label}</button>)}
+            </nav>
+          </header>
+          <section className="app-frame">
+            <Sidebar />
+            <section className="chat">
+              <header className="chat-header">
+                <div className="chat-identity"><div className="agent-avatar teal">D</div><div className="chat-name"><strong>小D · 视频转录助手</strong><span>转录、整理并交付飞书文档</span></div></div>
+                <div className="header-actions"><button className="icon-button" aria-label="搜索">⌕</button><button className="icon-button" aria-label="设置">···</button></div>
+              </header>
+              <div className="conversation">
+                <div className="day-label">今天</div>
+                <div className="message user"><div className="message-body"><div className="bubble">请把这个视频转录并整理成中文文章，保留原意和原始转录。<br/>https://example.com/video</div><div className="message-time">20:38</div></div><div className="workspace-avatar">亦仁</div></div>
+                <div className="message"><div className="agent-avatar teal">D</div><div className="message-body"><div className="bubble">任务状态有变化时我会在这里更新，完成后直接交付文档和原始转录。</div><TaskCard state={state} onState={setState} onDetails={() => setDetailsOpen(true)} notify={notify}/><div className="message-time">20:39</div></div></div>
+              </div>
+              <form className="composer-wrap" onSubmit={submit}>
+                <div className="validation" role="alert">{validation}</div>
+                <div className="composer"><input value={input} onChange={(event) => { setInput(event.target.value); setValidation(""); }} placeholder="发送音视频链接或任务要求" aria-label="任务输入"/><button className="send-button" aria-label="发送" type="submit">↑</button></div>
+              </form>
+            </section>
+          </section>
+          {detailsOpen ? <DetailDrawer state={state} onClose={() => setDetailsOpen(false)} /> : null}
+          {toast ? <div className="toast" role="status">{toast}</div> : null}
+        </main>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

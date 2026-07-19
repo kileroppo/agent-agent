@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "agent.army/hermes-profile-map/v1",
+  "status": "draft",
+  "profileId": "xiaod",
+  "localProfile": {
+    "created": true,
+    "gatewayStarted": true,
+    "credentialedTransportVerified": true
+  },
+  "agentManifestRef": "agents/xiaod/manifest.json",
+  "promptRef": "agents/xiaod/prompts/system.md",
+  "appRef": "apps/xiaod-media-transcriber",
+  "gateway": {
+    "platform": "feishu",
+    "connectionMode": "websocket",
+    "allowAllUsers": false,
+    "allowedUsersSource": "environment:FEISHU_ALLOWED_USERS"
+  },
+  "kanban": {
+    "enabled": true,
+    "dispatcherIntervalSeconds": 60,
+    "taskTypes": ["media.transcribe-and-refine"]
+  },
+  "toolAllowlist": [
+    "xiaod.media.acquire",
+    "xiaod.media.transcribe",
+    "xiaod.text.refine",
+    "xiaod.artifact.write",
+    "lark.document.create",
+    "lark.document.permission.verify",
+    "lark.message.reply"
+  ],
+  "secrets": {
+    "source": "environment-only",
+    "valuesStoredHere": false
+  }
+}

@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A君 · 独立软件运行时架构</title>
+  <!--
+    Context: Product-deployment view of the M2 authorization-runtime plan.
+    Scope: product architecture visualization only. It does not claim that a desktop
+    installer, browser companion, or platform integration is implemented today.
+  -->
+  <style>
+    :root {
+      --ink: #18202c;
+      --muted: #68727e;
+      --subtle: #a1aab4;
+      --bg: #edf0ed;
+      --paper: #f8f9f7;
+      --card: #ffffff;
+      --line: #d8ddd9;
+      --blue: #3370ff;
+      --blue-deep: #234eb8;
+      --blue-soft: #e9f0ff;
+      --teal: #087a6e;
+      --teal-soft: #e5f5f1;
+      --amber: #9b6500;
+      --amber-soft: #fff3d7;
+      --red: #b94141;
+      --red-soft: #fceaea;
+      --radius: 18px;
+      --shadow: 0 22px 50px rgba(20, 31, 41, .09), 0 2px 7px rgba(20,31,41,.04);
+      font-family: -apple-system, "SF Pro Display", "PingFang SC", "Noto Sans SC", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { min-width: 320px; margin: 0; background: var(--bg); color: var(--ink); }
+    button { font: inherit; }
+    .shell { width: min(1510px, calc(100vw - 40px)); margin: 0 auto; padding: 30px 0 42px; }
+    .bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 30px; }
+    .brand { display: flex; align-items: center; gap: 11px; font-size: 14px; font-weight: 750; }
+    .mark { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 11px; background: var(--ink); color: #fff; font-weight: 850; letter-spacing: -.06em; }
+    .brand span { color: var(--muted); font-weight: 500; }
+    .draft { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+    .draft::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 0 4px var(--amber-soft); }
+
+    .headline { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 34px; align-items: end; margin-bottom: 24px; }
+    h1 { max-width: 900px; margin: 0; font-size: clamp(34px, 4.15vw, 62px); line-height: 1.04; letter-spacing: -.06em; text-wrap: balance; }
+    .headline p { margin: 16px 0 0; max-width: 720px; color: var(--muted); font-size: 15px; line-height: 1.72; text-wrap: pretty; }
+    .promise { padding: 18px 20px; border: 1px solid var(--line); border-radius: 15px; background: rgba(255,255,255,.76); color: var(--muted); font-size: 13px; line-height: 1.65; }
+    .promise b { display: block; margin-bottom: 5px; color: var(--ink); }
+
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 18px; padding: 10px 12px 10px 18px; border: 1px solid var(--line); border-radius: 15px; background: rgba(255,255,255,.72); }
+    .legend { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; color: var(--muted); font-size: 12px; }
+    .legend span { display: inline-flex; align-items: center; gap: 7px; }
+    .legend i { width: 9px; height: 9px; border-radius: 50%; }
+    .legend .internal { background: var(--blue); }
+    .legend .optional { background: var(--amber); }
+    .legend .external { background: var(--teal); }
+    .modes { display: flex; gap: 5px; padding: 3px; border-radius: 10px; background: #edf0ee; }
+    .mode { min-height: 31px; padding: 0 11px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; }
+    .mode.active { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(20,30,40,.11); font-weight: 750; }
+    .mode:focus-visible { outline: 3px solid rgba(51,112,255,.25); outline-offset: 2px; }
+
+    .board { position: relative; display: grid; grid-template-columns: 252px minmax(510px, 1fr) 252px; gap: 26px; min-height: 665px; padding: 26px; overflow: hidden; border: 1px solid #dfe3df; border-radius: 25px; background: var(--paper); box-shadow: var(--shadow); }
+    .board::before { content: ""; position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(rgba(20, 34, 45, .035) 1px, transparent 1px), linear-gradient(90deg, rgba(20, 34, 45, .035) 1px, transparent 1px); background-size: 28px 28px; mask-image: linear-gradient(to bottom, transparent, #000 10%, #000 90%, transparent); }
+    .side, .app { position: relative; z-index: 1; min-width: 0; }
+    .side { display: flex; flex-direction: column; gap: 13px; padding-top: 82px; }
+    .side.right { padding-top: 82px; }
+    .eyebrow { margin-bottom: 4px; color: var(--subtle); font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+    .eyebrow::before { content: ""; display: inline-block; width: 24px; height: 1px; margin: 0 8px 4px 0; background: currentColor; vertical-align: middle; }
+    .card { padding: 17px; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(255,255,255,.94); box-shadow: 0 4px 11px rgba(20, 31, 41, .035); transition: transform .2s ease, box-shadow .2s ease, opacity .2s ease; }
+    .card:hover { transform: translateY(-2px); box-shadow: 0 14px 26px rgba(20,31,41,.08); }
+    .card-icon { width: 33px; height: 33px; display: grid; place-items: center; margin-bottom: 13px; border-radius: 10px; background: var(--blue-soft); color: var(--blue-deep); font-weight: 850; }
+    .card h2, .card h3 { margin: 0; letter-spacing: -.03em; }
+    .card h2 { font-size: 17px; }
+    .card h3 { font-size: 15px; }
+    .card p { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.62; text-wrap: pretty; }
+    .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 13px; }
+    .tag { display: inline-flex; align-items: center; min-height: 22px; padding: 0 8px; border-radius: 999px; background: #f0f2f2; color: #5d6873; font-size: 10px; font-weight: 750; }
+    .tag.blue { background: var(--blue-soft); color: var(--blue-deep); }
+    .tag.green { background: var(--teal-soft); color: var(--teal); }
+    .tag.gold { background: var(--amber-soft); color: var(--amber); }
+
+    .app { display: flex; flex-direction: column; gap: 13px; padding: 22px; border: 2px solid rgba(51,112,255,.48); border-radius: 25px; background: rgba(233,240,255,.56); box-shadow: inset 0 0 0 5px rgba(255,255,255,.6); }
+    .app-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 0 2px; }
+    .app-name { color: var(--blue-deep); font-size: 11px; font-weight: 850; letter-spacing: .085em; }
+    .app h2 { margin: 5px 0 0; font-size: 27px; letter-spacing: -.045em; }
+    .app p { margin: 7px 0 0; color: #53627d; font-size: 12px; line-height: 1.58; }
+    .single-install { flex: 0 0 auto; padding: 8px 10px; border-radius: 9px; background: #1d2a43; color: #e9efff; font-size: 10px; font-weight: 750; white-space: nowrap; }
+    .core { display: grid; grid-template-columns: 1fr 1.3fr; gap: 11px; }
+    .core-card { min-height: 130px; padding: 15px; border: 1px solid rgba(51,112,255,.2); border-radius: 15px; background: rgba(255,255,255,.8); }
+    .core-card.wide { grid-column: 1 / -1; min-height: 108px; }
+    .core-card h3 { margin: 0; font-size: 14px; letter-spacing: -.02em; }
+    .core-card p { margin: 7px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .core-label { display: inline-block; margin-bottom: 8px; color: var(--blue-deep); font-size: 10px; font-weight: 800; letter-spacing: .06em; }
+    .broker { border-color: rgba(8,122,110,.26); background: rgba(242,252,249,.95); }
+    .broker .core-label { color: var(--teal); }
+    .code { margin-top: 11px; padding: 8px 9px; overflow-wrap: anywhere; border-radius: 8px; background: #1c2a42; color: #e8efff; font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 10px; line-height: 1.5; }
+    .code b { color: #8ee0cf; }
+    .worker-list { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 7px; margin-top: 10px; }
+    .worker-item { padding: 8px; border-radius: 9px; background: #f3f6f5; color: #66717a; font-size: 10px; line-height: 1.35; }
+    .worker-item b { display: block; margin-bottom: 3px; color: var(--ink); font-size: 10px; }
+    .safe-bar { display: flex; align-items: center; gap: 8px; margin-top: auto; padding: 11px 12px; border-radius: 11px; background: var(--red-soft); color: #873838; font-size: 11px; font-weight: 650; line-height: 1.48; }
+    .safe-bar::before { content: "×"; width: 18px; height: 18px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 50%; background: #f5cccc; color: var(--red); font-weight: 850; }
+
+    .browser .card-icon { background: var(--amber-soft); color: var(--amber); }
+    .platform .card-icon { background: var(--teal-soft); color: var(--teal); }
+    .external-link { display: flex; align-items: center; gap: 8px; margin-top: 12px; color: var(--teal); font-size: 11px; font-weight: 750; }
+    .external-link::before { content: "→"; font-size: 14px; }
+    .connection { margin-top: auto; border-color: #bddfd7; background: #f5fcf9; }
+    .connection .card-icon { background: var(--teal); color: #fff; }
+
+    .arrow { position: absolute; z-index: 0; top: 49%; width: 38px; height: 2px; background: #b2bdca; }
+    .arrow::after { content: ""; position: absolute; top: 50%; right: -1px; width: 8px; height: 8px; border-top: 2px solid #b2bdca; border-right: 2px solid #b2bdca; transform: translateY(-50%) rotate(45deg); }
+    .arrow.left { left: calc(16.7% - 20px); }
+    .arrow.right { right: calc(16.7% - 20px); }
+    .arrow-label { position: absolute; z-index: 1; top: calc(49% - 27px); padding: 3px 7px; border-radius: 6px; background: var(--paper); color: #8190a0; font-size: 10px; font-weight: 750; white-space: nowrap; }
+    .arrow-label.left { left: calc(16.7% - 44px); }
+    .arrow-label.right { right: calc(16.7% - 47px); }
+
+    .roadmap { display: grid; grid-template-columns: auto 1fr auto; gap: 15px; align-items: center; margin-top: 18px; padding: 15px 18px; border: 1px solid var(--line); border-radius: 15px; background: #fff; }
+    .roadmap b { color: var(--blue-deep); font-size: 12px; white-space: nowrap; }
+    .roadmap p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .roadmap code { padding: 2px 5px; border-radius: 5px; background: #edf1ef; color: #56626c; font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 10px; }
+    .roadmap .phase { padding: 7px 9px; border-radius: 8px; background: var(--amber-soft); color: var(--amber); font-size: 10px; font-weight: 800; white-space: nowrap; }
+
+    .board.user-view .app { background: rgba(233,240,255,.7); }
+    .board.user-view .core { opacity: .22; filter: saturate(.7); }
+    .board.user-view .safe-bar { opacity: .35; }
+    .board.runtime-view .side { opacity: .36; }
+    .board.runtime-view .app { box-shadow: 0 0 0 6px rgba(51,112,255,.12), inset 0 0 0 5px rgba(255,255,255,.6); }
+    .board.runtime-view .safe-bar { box-shadow: 0 0 0 4px rgba(185,65,65,.1); }
+
+    @media (max-width: 1240px) {
+      .board { grid-template-columns: 1fr; gap: 16px; }
+      .side, .side.right { padding-top: 0; }
+      .side.left { order: 2; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .side.right { order: 3; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .side .eyebrow { grid-column: 1 / -1; }
+      .connection { margin-top: 0; }
+      .arrow, .arrow-label { display: none; }
+    }
+    @media (max-width: 720px) {
+      .shell { width: min(100% - 24px, 1510px); padding-top: 18px; }
+      .bar, .headline, .toggle-row, .roadmap { align-items: flex-start; flex-direction: column; }
+      .headline { display: grid; gap: 14px; }
+      .headline { grid-template-columns: 1fr; }
+      h1 { font-size: 38px; }
+      .toggle-row { padding: 14px; }
+      .modes { width: 100%; }
+      .mode { flex: 1; }
+      .board { padding: 14px; border-radius: 19px; }
+      .app { padding: 16px; }
+      .app-top { display: block; }
+      .single-install { display: inline-block; margin-top: 11px; }
+      .core, .side.left, .side.right { grid-template-columns: 1fr; }
+      .core-card.wide, .side .eyebrow { grid-column: auto; }
+      .worker-list { grid-template-columns: 1fr; }
+      .roadmap { gap: 8px; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
+  </style>
+</head>
+<body>
+  <main class="shell" data-screen-label="A君独立软件运行时架构图">
+    <header class="bar">
+      <div class="brand"><span class="mark">A</span> A君 <span>Product Runtime / M2</span></div>
+      <div class="draft">产品化部署草案 · 未实施</div>
+    </header>
+
+    <section class="headline" aria-labelledby="title">
+      <div>
+        <h1 id="title">A君是一个软件，<br>不是一套待维护的工具。</h1>
+        <p>最终用户安装 A君.app，日常通过飞书或 A君交给小D。媒体处理、模型、连接治理与平台适配由 A君本地运行时管理；只有需要登录的平台，才按需引导用户启用 A君自己的浏览器伴侣。</p>
+      </div>
+      <aside class="promise"><b>产品承诺</b>用户不需要知道 yt-dlp、CookieBridge、MediaCrawlerPro、AutoCLI 或 bb-browser。它们是内部实现候选，不是用户侧产品。</aside>
+    </section>
+
+    <section class="toggle-row" aria-label="架构图显示模式">
+      <div class="legend"><span><i class="internal"></i>A君内部自动管理</span><span><i class="optional"></i>按需用户授权</span><span><i class="external"></i>外部系统与平台</span></div>
+      <div class="modes" role="tablist" aria-label="架构视角">
+        <button class="mode active" role="tab" type="button" data-view="all" aria-selected="true">全貌</button>
+        <button class="mode" role="tab" type="button" data-view="user" aria-selected="false">用户视角</button>
+        <button class="mode" role="tab" type="button" data-view="runtime" aria-selected="false">运行时视角</button>
+      </div>
+    </section>
+
+    <section class="board" id="board" aria-label="A君独立软件部署架构">
+      <span class="arrow left" aria-hidden="true"></span><span class="arrow right" aria-hidden="true"></span>
+      <span class="arrow-label left" aria-hidden="true">交付任务</span><span class="arrow-label right" aria-hidden="true">受控访问</span>
+
+      <section class="side left" aria-labelledby="user-side">
+        <div class="eyebrow" id="user-side">用户与入口</div>
+        <article class="card">
+          <div class="card-icon">1</div>
+          <h2>只安装 A君.app</h2>
+          <p>首次打开后，A君自动准备并启动自己的本地运行时；不要求用户手工安装 Python、Node 或启动终端服务。</p>
+          <div class="tags"><span class="tag blue">一个产品</span><span class="tag blue">统一更新</span></div>
+        </article>
+        <article class="card">
+          <div class="card-icon">F</div>
+          <h3>飞书 / A君界面</h3>
+          <p>用户发链接、上传文件、查看任务、连接账户、撤销授权与获取恢复提示。</p>
+          <div class="tags"><span class="tag">任务入口</span><span class="tag">状态投影</span></div>
+        </article>
+      </section>
+
+      <section class="app" aria-labelledby="app-title">
+        <div class="app-top">
+          <div><div class="app-name">A君.app / LOCAL RUNTIME</div><h2 id="app-title">A君内部：一套受控运行时</h2><p>依赖在这里被封装、升级、健康检查和替换；业务 Agent 不直接拥有平台或登录态能力。</p></div>
+          <div class="single-install">用户不手工启服务</div>
+        </div>
+        <div class="core">
+          <article class="core-card"><span class="core-label">AGENT CORE</span><h3>任务与业务 Agent</h3><p>Hermes 适配、任务状态、治理投影、小D工作流与飞书交付。</p><div class="tags"><span class="tag blue">本地运行</span><span class="tag">可恢复</span></div></article>
+          <article class="core-card broker"><span class="core-label">AUTHORIZATION</span><h3>Connection Broker</h3><p>检查连接、动作、Agent、范围、有效期和审批；唯一能调用受限执行器的网关。</p><div class="code"><b>execute</b>(connectionId, operation, source)</div></article>
+          <article class="core-card wide"><span class="core-label">MANAGED WORKERS & ADAPTERS</span><h3>媒体 Worker 与平台适配器</h3><p>把下载、字幕、ASR、格式转换与平台读取封装成可替换组件。A君负责生命周期、版本、许可证、健康状态与脱敏诊断。</p><div class="worker-list"><div class="worker-item"><b>Media</b>公开下载、音视频处理</div><div class="worker-item"><b>ASR</b>本地模型、模型管理</div><div class="worker-item"><b>Connectors</b>平台路由、受限读取</div></div></article>
+        </div>
+        <div class="safe-bar">原始 Cookie、token、密码与浏览器会话只存在于受控边界，绝不进入飞书、任务、日志或模型上下文。</div>
+      </section>
+
+      <section class="side right" aria-labelledby="external-side">
+        <div class="eyebrow" id="external-side">按需外部边界</div>
+        <article class="card browser">
+          <div class="card-icon">◒</div>
+          <h2>A君浏览器伴侣</h2>
+          <p>仅当目标平台需要登录时，A君才引导用户启用。用户本人在浏览器完成登录；伴侣只接受网关批准的单次读取请求。</p>
+          <div class="tags"><span class="tag gold">可选安装</span><span class="tag gold">可撤销</span></div>
+        </article>
+        <article class="card platform">
+          <div class="card-icon">↗</div>
+          <h3>平台与官方 OAuth</h3>
+          <p>视频、内容、软件平台仍由其自身规则控制。验证码、二次验证、付费墙与访问限制不被绕过。</p>
+          <div class="external-link">A君只请求已授予范围</div>
+        </article>
+        <article class="card connection">
+          <div class="card-icon">✓</div>
+          <h3>返回给小D的只有</h3>
+          <p>素材引用、字幕引用、规范化元数据，或可恢复的脱敏失败原因。</p>
+          <div class="tags"><span class="tag green">可审计</span><span class="tag green">不含凭据</span></div>
+        </article>
+      </section>
+    </section>
+
+    <footer class="roadmap"><b>首个产品化切片</b><p><code>A君启动器</code> 自动拉起本地核心与媒体 Worker → 在 A君内显示脱敏健康 → 用户无需手工运行任何内部服务。之后才接入首个只读、已授权的平台。</p><span class="phase">M2 · 待实现</span></footer>
+  </main>
+  <script>
+    (function () {
+      var board = document.getElementById("board");
+      var modes = Array.prototype.slice.call(document.querySelectorAll(".mode"));
+      modes.forEach(function (mode) {
+        mode.addEventListener("click", function () {
+          var view = mode.getAttribute("data-view");
+          board.className = "board" + (view === "all" ? "" : " " + view + "-view");
+          modes.forEach(function (item) {
+            var active = item === mode;
+            item.classList.toggle("active", active);
+            item.setAttribute("aria-selected", active ? "true" : "false");
+          });
+        });
+      });
+    }());
+  </script>
+</body>
+</html>

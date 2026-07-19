@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent军团 · M2 授权连接器架构</title>
+  <!--
+    Context: M2 authorization connector planning. This is a presentation artifact only;
+    no platform, account, credential, or running service is implied by the diagram.
+    Visual intent: make the credential boundary unmistakable, while preserving the
+    calm, operational visual language of the existing M1 Feishu task-flow prototype.
+  -->
+  <style>
+    :root {
+      --ink: #18202b;
+      --muted: #6d7580;
+      --quiet: #9aa2ad;
+      --paper: #f6f6f3;
+      --canvas: #eceeea;
+      --line: #d9ddd8;
+      --card: #ffffff;
+      --blue: #3370ff;
+      --blue-deep: #244fbe;
+      --blue-soft: #e9f0ff;
+      --teal: #007e72;
+      --teal-soft: #e6f5f1;
+      --gold: #9b6500;
+      --gold-soft: #fff3d9;
+      --red: #bd4141;
+      --red-soft: #fdecec;
+      --shadow: 0 22px 50px rgba(22, 31, 40, .09), 0 2px 8px rgba(22, 31, 40, .05);
+      --radius: 18px;
+      font-family: -apple-system, "SF Pro Display", "PingFang SC", "Noto Sans SC", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html { background: var(--canvas); }
+    body { min-width: 320px; margin: 0; background: var(--canvas); color: var(--ink); }
+    button { font: inherit; }
+
+    .page-shell { width: min(1560px, calc(100vw - 40px)); margin: 0 auto; padding: 32px 0 42px; }
+    .topline { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 22px; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-mark { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 11px; background: var(--ink); color: #fff; font-size: 16px; font-weight: 800; letter-spacing: -.06em; }
+    .brand-name { font-size: 14px; font-weight: 750; letter-spacing: .01em; }
+    .brand-name span { margin-left: 8px; color: var(--muted); font-weight: 500; }
+    .status { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 0 4px var(--gold-soft); }
+
+    .hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .38fr); gap: 28px; align-items: end; margin-bottom: 24px; }
+    h1 { max-width: 800px; margin: 0; font-size: clamp(32px, 4vw, 58px); letter-spacing: -.055em; line-height: 1.05; text-wrap: balance; }
+    .hero-copy { margin: 15px 0 0; max-width: 690px; color: var(--muted); font-size: 15px; line-height: 1.75; text-wrap: pretty; }
+    .hero-note { padding: 18px 20px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.64); color: var(--muted); font-size: 13px; line-height: 1.65; }
+    .hero-note strong { display: block; margin-bottom: 4px; color: var(--ink); font-size: 13px; }
+
+    .control-bar { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 10px 12px 10px 18px; border: 1px solid var(--line); border-radius: 15px; background: rgba(255,255,255,.72); }
+    .legend { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; color: var(--muted); font-size: 12px; }
+    .legend-item { display: inline-flex; align-items: center; gap: 7px; }
+    .legend-swatch { width: 9px; height: 9px; border-radius: 50%; }
+    .legend-swatch.blue { background: var(--blue); }
+    .legend-swatch.teal { background: var(--teal); }
+    .legend-swatch.gold { background: var(--gold); }
+    .legend-swatch.red { background: var(--red); }
+    .view-tabs { display: flex; align-items: center; gap: 5px; padding: 3px; border-radius: 11px; background: #edf0ee; }
+    .view-tab { min-height: 31px; padding: 0 11px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; transition: .18s ease; }
+    .view-tab:hover { color: var(--ink); }
+    .view-tab.active { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(20,30,40,.1); font-weight: 700; }
+    .view-tab:focus-visible { outline: 3px solid rgba(51,112,255,.25); outline-offset: 2px; }
+
+    .diagram { position: relative; display: grid; grid-template-columns: 1.02fr 1.18fr 1.02fr; gap: 48px; min-height: 700px; margin-top: 20px; padding: 30px; overflow: hidden; border: 1px solid #dfe2de; border-radius: 24px; background: var(--paper); box-shadow: var(--shadow); }
+    .diagram::before { content: ""; position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(rgba(20, 35, 50, .035) 1px, transparent 1px), linear-gradient(90deg, rgba(20, 35, 50, .035) 1px, transparent 1px); background-size: 28px 28px; mask-image: linear-gradient(to bottom, transparent, #000 12%, #000 88%, transparent); }
+    .lane { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+    .lane-kicker { display: flex; align-items: center; gap: 8px; margin-bottom: 1px; color: var(--quiet); font-size: 11px; font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
+    .lane-kicker::before { content: ""; width: 24px; height: 1px; background: currentColor; }
+
+    .node { position: relative; padding: 19px; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(255,255,255,.9); box-shadow: 0 5px 12px rgba(18, 30, 42, .035); transition: transform .22s ease, box-shadow .22s ease, opacity .22s ease; }
+    .node:hover { transform: translateY(-2px); box-shadow: 0 13px 25px rgba(18, 30, 42, .08); }
+    .node-icon { width: 34px; height: 34px; display: grid; place-items: center; margin-bottom: 14px; border-radius: 10px; background: var(--blue-soft); color: var(--blue-deep); font-size: 17px; font-weight: 800; }
+    .node h2, .node h3 { margin: 0; letter-spacing: -.025em; }
+    .node h2 { font-size: 18px; }
+    .node h3 { font-size: 15px; }
+    .node p { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.65; text-wrap: pretty; }
+    .node-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+    .pill { display: inline-flex; min-height: 22px; align-items: center; padding: 0 8px; border-radius: 999px; background: #f0f2f2; color: #5e6670; font-size: 10px; font-weight: 700; letter-spacing: .01em; }
+    .pill.good { background: var(--teal-soft); color: var(--teal); }
+    .pill.warn { background: var(--gold-soft); color: var(--gold); }
+    .pill.danger { background: var(--red-soft); color: var(--red); }
+
+    .entry-stack { padding-top: 52px; }
+    .entry-card { background: #fff; }
+    .entry-card .node-icon { background: #edf1ff; color: #3856c8; }
+    .feishu-thread { display: grid; gap: 8px; margin-top: 15px; padding-top: 14px; border-top: 1px solid #edf0ef; }
+    .thread-row { display: flex; align-items: center; gap: 8px; color: #77808a; font-size: 11px; }
+    .thread-row span { width: 18px; height: 18px; display: grid; place-items: center; border-radius: 7px; background: #e9edf6; color: #596a90; font-size: 10px; }
+    .mini-flow { display: grid; gap: 7px; margin-top: 2px; }
+    .mini-step { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 10px; border-radius: 9px; background: #f7f8f8; color: #5e6771; font-size: 11px; }
+    .mini-step i { width: 7px; height: 7px; border-radius: 50%; background: #a5acb4; }
+    .mini-step:first-child i { background: var(--blue); }
+
+    .broker-zone { align-items: stretch; padding: 23px; border: 2px solid rgba(51,112,255,.48); border-radius: 24px; background: rgba(233,240,255,.62); box-shadow: inset 0 0 0 5px rgba(255,255,255,.58); }
+    .broker-zone::before { content: "唯一可触碰授权引用与浏览器会话的边界"; display: block; margin-bottom: 2px; color: var(--blue-deep); font-size: 11px; font-weight: 800; letter-spacing: .05em; }
+    .broker-head { padding: 0 2px 3px; }
+    .broker-head h2 { margin: 0; font-size: 24px; letter-spacing: -.04em; }
+    .broker-head p { margin: 7px 0 0; color: #53627e; font-size: 12px; line-height: 1.6; }
+    .policy-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px; margin-top: 14px; }
+    .policy { min-height: 70px; padding: 11px; border: 1px solid rgba(51,112,255,.18); border-radius: 12px; background: rgba(255,255,255,.75); }
+    .policy b { display: block; font-size: 11px; }
+    .policy span { display: block; margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.45; }
+    .broker-call { margin: 17px 0 2px; padding: 12px; border-radius: 12px; background: #1d2a43; color: #f4f7ff; font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 11px; line-height: 1.6; word-break: break-word; }
+    .broker-call em { color: #b9caff; font-style: normal; }
+    .broker-call strong { color: #8ee0cf; font-weight: 650; }
+    .broker-result { margin-top: 10px; padding: 12px; border-radius: 12px; background: #fff; color: #52606a; font-size: 11px; line-height: 1.58; }
+    .broker-result b { color: var(--teal); }
+    .security-rail { display: flex; align-items: center; gap: 8px; margin-top: auto; padding: 11px 12px; border-radius: 11px; background: var(--red-soft); color: #863838; font-size: 11px; font-weight: 650; line-height: 1.45; }
+    .security-rail::before { content: "×"; width: 18px; height: 18px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 50%; background: #f7cfcf; color: var(--red); font-weight: 800; }
+
+    .platform-stack { padding-top: 52px; }
+    .platform-node { background: #fff; }
+    .platform-node .node-icon { background: var(--teal-soft); color: var(--teal); }
+    .platform-node.browser .node-icon { background: var(--gold-soft); color: var(--gold); }
+    .platform-node.risk { border-color: #edd7b0; background: #fffdf8; }
+    .platform-node.risk .node-icon { background: var(--gold-soft); color: var(--gold); }
+    .output-card { margin-top: auto; border-color: #b9dfd6; background: #f5fcf9; }
+    .output-card .node-icon { background: var(--teal); color: #fff; }
+
+    .arrow { position: absolute; z-index: 0; top: 50%; width: 48px; height: 2px; background: #aeb9c8; transform: translateY(-50%); }
+    .arrow::after { content: ""; position: absolute; top: 50%; right: -1px; width: 8px; height: 8px; border-top: 2px solid #aeb9c8; border-right: 2px solid #aeb9c8; transform: translateY(-50%) rotate(45deg); }
+    .arrow.left { left: calc(33.5% - 24px); }
+    .arrow.right { right: calc(33.5% - 24px); }
+    .arrow-label { position: absolute; z-index: 1; top: calc(50% - 29px); padding: 3px 7px; border-radius: 6px; background: var(--paper); color: #8290a0; font-size: 10px; font-weight: 750; white-space: nowrap; }
+    .arrow-label.left { left: calc(33.5% - 53px); }
+    .arrow-label.right { right: calc(33.5% - 44px); }
+
+    .footer-strip { display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: center; margin-top: 18px; padding: 15px 18px; border: 1px solid var(--line); border-radius: 15px; background: #fff; }
+    .footer-label { color: var(--teal); font-size: 12px; font-weight: 800; white-space: nowrap; }
+    .footer-copy { color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .footer-copy code { padding: 2px 5px; border-radius: 5px; background: #edf1ef; color: #54616a; font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 10px; }
+    .scope-badge { padding: 7px 9px; border-radius: 8px; background: var(--blue-soft); color: var(--blue-deep); font-size: 10px; font-weight: 800; white-space: nowrap; }
+
+    .diagram.focus-entry .broker-zone, .diagram.focus-platform .broker-zone, .diagram.focus-guard .broker-zone { opacity: .38; }
+    .diagram.focus-entry .platform-stack, .diagram.focus-platform .entry-stack, .diagram.focus-guard .entry-stack, .diagram.focus-guard .platform-stack { opacity: .34; }
+    .diagram.focus-entry .entry-stack, .diagram.focus-platform .platform-stack { opacity: 1; }
+    .diagram.focus-guard .broker-zone { opacity: 1; border-color: var(--red); background: rgba(253,236,236,.68); }
+    .diagram.focus-guard .broker-zone::before { color: var(--red); }
+    .diagram.focus-guard .security-rail { box-shadow: 0 0 0 4px rgba(189,65,65,.11); }
+
+    @media (max-width: 1380px) {
+      .diagram { grid-template-columns: 1fr; gap: 18px; padding: 22px; }
+      .entry-stack, .platform-stack { padding-top: 0; }
+      .broker-zone { order: -1; }
+      .arrow, .arrow-label { display: none; }
+      .platform-stack { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); align-items: start; }
+      .platform-stack .output-card { grid-column: 1 / -1; }
+    }
+    @media (max-width: 700px) {
+      .page-shell { width: min(100% - 24px, 1560px); padding-top: 18px; }
+      .topline, .hero, .control-bar, .footer-strip { align-items: flex-start; flex-direction: column; }
+      .hero { display: grid; gap: 15px; }
+      .control-bar { padding: 14px; }
+      .view-tabs { width: 100%; }
+      .view-tab { flex: 1; }
+      .diagram { min-height: 0; padding: 14px; border-radius: 18px; }
+      .broker-zone { padding: 17px; }
+      .policy-grid, .platform-stack { grid-template-columns: 1fr; }
+      .platform-stack .output-card { grid-column: auto; }
+      h1 { font-size: 36px; }
+      .footer-strip { gap: 8px; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
+  </style>
+</head>
+<body>
+  <main class="page-shell" data-screen-label="M2 授权连接器架构图">
+    <header class="topline">
+      <div class="brand">
+        <div class="brand-mark">A</div>
+        <div class="brand-name">Agent军团 <span>Architecture / M2</span></div>
+      </div>
+      <div class="status"><span class="status-dot"></span>规划中 · 尚未接入真实外部账号</div>
+    </header>
+
+    <section class="hero" aria-labelledby="page-title">
+      <div>
+        <h1 id="page-title">让 Agent 能用网站，<br>但永远碰不到登录态。</h1>
+        <p class="hero-copy">小D与未来业务 Agent 只发出受限任务；所有平台访问先经过授权网关。网关把“你允许谁、做什么、用哪个连接”变成确定性的代码判断，再调用对应的媒体或浏览器适配器。</p>
+      </div>
+      <aside class="hero-note">
+        <strong>这一张图的核心</strong>
+        Cookie、密码、token、浏览器会话不进入飞书、任务、日志、模型上下文，也不会被“运维官”或“技术专家”导出。
+      </aside>
+    </section>
+
+    <section class="control-bar" aria-label="图层聚焦控制">
+      <div class="legend">
+        <span class="legend-item"><i class="legend-swatch blue"></i>受控调用</span>
+        <span class="legend-item"><i class="legend-swatch teal"></i>规范化结果</span>
+        <span class="legend-item"><i class="legend-swatch gold"></i>需用户授权</span>
+        <span class="legend-item"><i class="legend-swatch red"></i>禁止外泄</span>
+      </div>
+      <div class="view-tabs" role="tablist" aria-label="架构图聚焦层">
+        <button class="view-tab active" type="button" data-focus="all" role="tab" aria-selected="true">全链路</button>
+        <button class="view-tab" type="button" data-focus="entry" role="tab" aria-selected="false">业务入口</button>
+        <button class="view-tab" type="button" data-focus="platform" role="tab" aria-selected="false">平台执行</button>
+        <button class="view-tab" type="button" data-focus="guard" role="tab" aria-selected="false">安全边界</button>
+      </div>
+    </section>
+
+    <section class="diagram" id="diagram" aria-label="M2 授权连接器总体架构">
+      <div class="arrow left" aria-hidden="true"></div>
+      <div class="arrow right" aria-hidden="true"></div>
+      <div class="arrow-label left" aria-hidden="true">任务意图</div>
+      <div class="arrow-label right" aria-hidden="true">受控执行</div>
+
+      <section class="lane entry-stack" aria-labelledby="entry-title">
+        <div class="lane-kicker" id="entry-title">01 / 业务入口</div>
+        <article class="node entry-card">
+          <div class="node-icon">F</div>
+          <h2>飞书 · 小D</h2>
+          <p>用户发送平台链接或媒体任务。Hermes 负责消息桥接；小D负责理解、转录、总结与交付。</p>
+          <div class="feishu-thread">
+            <div class="thread-row"><span>1</span>发送“转录这个链接”</div>
+            <div class="thread-row"><span>2</span>预检来源与所需权限</div>
+            <div class="thread-row"><span>3</span>返回交付或可恢复状态</div>
+          </div>
+          <div class="node-meta"><span class="pill">不保存凭据</span><span class="pill">不直接下载</span></div>
+        </article>
+        <article class="node">
+          <div class="node-icon">A</div>
+          <h3>业务 Agent</h3>
+          <p>只声明任务与所需动作，例如读取媒体元数据、获取已授权视频、下载字幕。</p>
+          <div class="broker-call">connectionId + <em>operation</em> + source</div>
+          <div class="node-meta"><span class="pill good">最小权限</span><span class="pill">平台无关</span></div>
+        </article>
+        <article class="node">
+          <div class="node-icon">◎</div>
+          <h3>任务与治理</h3>
+          <p>记录真实阶段、脱敏审计与失败分类；飞书消息只是投影，不是任务真相。</p>
+          <div class="mini-flow">
+            <div class="mini-step"><i></i>needs_input：需要用户授权</div>
+            <div class="mini-step"><i></i>waiting_approval：范围待确认</div>
+            <div class="mini-step"><i></i>manual：平台需要人工处理</div>
+          </div>
+        </article>
+      </section>
+
+      <section class="lane broker-zone" aria-labelledby="broker-title">
+        <div class="broker-head">
+          <h2 id="broker-title">Connection Broker</h2>
+          <p>唯一的授权网关。它不是 AI，也不替用户登录；它只执行已获授予的、确定性的连接能力。</p>
+        </div>
+        <div class="policy-grid">
+          <div class="policy"><b>连接身份</b><span>connectionId、平台、账户别名、状态</span></div>
+          <div class="policy"><b>动作范围</b><span>只读 / 下载 / 数据范围 / 有效期</span></div>
+          <div class="policy"><b>调用主体</b><span>allowedAgentIds 与审批策略</span></div>
+          <div class="policy"><b>健康与审计</b><span>脱敏健康、失败事件、可撤销</span></div>
+        </div>
+        <div class="broker-call"><strong>ConnectionBroker.execute</strong>(<em>connectionId</em>, <em>operation</em>, <em>source</em>)</div>
+        <div class="broker-result"><b>允许 →</b> 选择受限适配器并返回 <code>SourceAssetRef</code> / <code>SubtitleRef</code><br><b>拒绝 →</b> 返回 <code>needs_input</code>、<code>waiting_approval</code> 或脱敏失败原因</div>
+        <div class="security-rail">没有策略通过，就没有平台调用；没有任何接口把原始 Cookie、token 或浏览器会话返回给 Agent。</div>
+      </section>
+
+      <section class="lane platform-stack" aria-labelledby="platform-title">
+        <div class="lane-kicker" id="platform-title">03 / 受限执行器</div>
+        <article class="node platform-node">
+          <div class="node-icon">↓</div>
+          <h3>Public Media Adapter</h3>
+          <p>适合公开来源。使用 yt-dlp 等确定性工具，优先字幕，再处理媒体文件。</p>
+          <div class="node-meta"><span class="pill good">公开来源</span><span class="pill">字幕优先</span></div>
+        </article>
+        <article class="node platform-node">
+          <div class="node-icon">M</div>
+          <h3>MediaCrawler Adapter</h3>
+          <p>承接 MediaCrawlerPro 的平台路由和素材解析能力；仅由网关进程内部调用。</p>
+          <div class="node-meta"><span class="pill warn">需连接授权</span><span class="pill">受限读取</span></div>
+        </article>
+        <article class="node platform-node browser risk">
+          <div class="node-icon">◒</div>
+          <h3>Browser Session Adapter</h3>
+          <p>可参考 web-access、AutoCLI、bb-browser 的真实浏览器会话能力，但只接受网关给出的单次读取请求。</p>
+          <div class="node-meta"><span class="pill warn">用户自行登录</span><span class="pill danger">禁任意 eval / 拦截</span></div>
+        </article>
+        <article class="node output-card">
+          <div class="node-icon">✓</div>
+          <h3>规范化交付物</h3>
+          <p>只把素材引用、字幕引用或脱敏失败交回小D；随后转录、AI 精炼、飞书文档交付。</p>
+          <div class="node-meta"><span class="pill good">可审计</span><span class="pill good">可恢复</span></div>
+        </article>
+      </section>
+    </section>
+
+    <footer class="footer-strip">
+      <div class="footer-label">首个验收切片</div>
+      <div class="footer-copy">一个由用户明确授权的平台 + 一个只读动作 + 一个具体 URL。完成 <code>授权 → 受限读取 → 脱敏审计 → 撤销/过期恢复</code> 后，才扩展到第二个平台。</div>
+      <div class="scope-badge">M2 · Draft</div>
+    </footer>
+  </main>
+
+  <script>
+    (function () {
+      var diagram = document.getElementById("diagram");
+      var tabs = Array.prototype.slice.call(document.querySelectorAll(".view-tab"));
+      tabs.forEach(function (tab) {
+        tab.addEventListener("click", function () {
+          var focus = tab.getAttribute("data-focus");
+          diagram.className = "diagram" + (focus === "all" ? "" : " focus-" + focus);
+          tabs.forEach(function (item) {
+            var active = item === tab;
+            item.classList.toggle("active", active);
+            item.setAttribute("aria-selected", active ? "true" : "false");
+          });
+        });
+      });
+    }());
+  </script>
+</body>
+</html>

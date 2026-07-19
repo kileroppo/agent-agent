@@ -1,0 +1,11 @@
+node_modules/
+data/
+.env
+.env.*
+!.env.example
+.DS_Store
+.idea/
+*.log
+*.sqlite
+*.sqlite3
+*-preview.png

@@ -1,0 +1,39 @@
+{
+  "type": "design",
+  "designSystems": [],
+  "primaryDesignSystem": null,
+  "assets": {
+    "m2-authorization-architecture": {
+      "versions": [
+        {
+          "path": "authorization-architecture.html",
+          "createdAt": "2026-07-19T13:21:32.778Z",
+          "status": "needs-review",
+          "subtitle": "Agent军团 M2 授权连接器总体架构",
+          "viewport": {
+            "width": 1560,
+            "height": 1060
+          },
+          "section": "architecture"
+        }
+      ]
+    },
+    "a-jun-product-runtime": {
+      "versions": [
+        {
+          "path": "a-jun-product-runtime.html",
+          "createdAt": "2026-07-19T13:38:06.953Z",
+          "status": "needs-review",
+          "subtitle": "A君独立软件与本地运行时部署架构",
+          "viewport": {
+            "width": 1510,
+            "height": 980
+          },
+          "section": "architecture"
+        }
+      ]
+    }
+  },
+  "createdAt": "2026-07-19T13:21:32.779Z",
+  "updatedAt": "2026-07-19T13:39:02.508Z"
+}

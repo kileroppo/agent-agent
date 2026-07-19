@@ -1,0 +1,287 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { config } from './config.js';
+import { cleanTranscript, composeDelivery, qualityCheck } from './domain.js';
+import { classifyFailure } from './recovery.js';
+import { createOneShotFailpoint } from './test-failpoint.js';
+
+const REFINER_PROMPT = `你是中文音视频内容编辑。你只负责写“内容导览”，完整校对文本会由系统另行附在后面。
+
+目标：让读者先在几分钟内掌握长内容讲了什么、每个判断的理由和案例，再按需回到完整校对文本核对细节。
+
+严格要求：
+1. 忠实于原文。保留关键判断、案例、数字、类比、论证链和有辨识度的原话；不新增事实、不猜测身份或动机、不替原文下结论。
+2. 不是十条要点式摘要。每个主题写成连贯、可读的短段落；必要时用短列表列出互相并列的对象、步骤或案例。
+3. 不要复述寒暄、抽奖、刷屏、口头重复和无意义转场；但不要为了“精炼”删掉支撑判断的限定条件。
+4. 标题必须来自真实内容，具体到读者能预测该段会讲什么；禁止“其他有效观点”“补充说明”等垃圾桶标题。
+5. 重要判断、数字、案例或金句可适度加粗。不要使用表格，不要写“以下是总结”之类套话。
+
+只返回以下 Markdown 结构，不要另写总标题或“完整校对文本”：
+## 概述
+一到两段，交代内容主题、说话者在讨论什么以及最重要的结论范围。
+
+## 主题详述
+### 具体主题标题
+连贯阐述该主题的主张、理由、案例和限定条件。根据实际内容写 3–7 个主题。
+
+## 核心观点与洞察
+### 具体观点标题
+写出重要观点及其依据；根据实际内容写 2–5 条。
+
+如果原文确实没有足够证据，不要硬造“逻辑分析”“框架与心智模型”等章节。`;
+
+export class MediaPipeline {
+  constructor({ store, workDir, failpoint = createOneShotFailpoint(config.testFailOnceAt) }) {
+    this.store = store;
+    this.workDir = workDir;
+    this.failpoint = failpoint;
+  }
+
+  async run(jobId) {
+    const job = this.store.get(jobId);
+    if (!job) return;
+    const jobDir = path.join(this.workDir, 'jobs', job.id);
+    try {
+      await fs.mkdir(jobDir, { recursive: true });
+      await this.stage(job.id, 'preparing', 8, '正在检查素材格式与可读性');
+      const acquired = await this.acquire(this.store.get(job.id), jobDir);
+      await this.stage(job.id, 'transcribing', 45, acquired.kind === 'subtitle' ? '正在读取可用字幕' : '正在进行本地 ASR 转录');
+      // The source has already been copied/normalized into jobDir. Failing here
+      // exercises retry without creating any external delivery side effect.
+      this.failpoint('transcribing');
+      const rawTranscript = acquired.kind === 'subtitle'
+        ? await fs.readFile(acquired.path, 'utf8')
+        : await this.transcribe(acquired.path, jobDir);
+      const transcript = cleanTranscript(rawTranscript);
+      if (transcript.length < 20) throw new Error('未得到有效文字，请检查素材是否有声音、是否受限或更换转录模型。');
+      const transcriptPath = path.join(jobDir, 'transcript-clean.txt');
+      await fs.writeFile(transcriptPath, transcript);
+
+      await this.stage(job.id, 'distilling', 70, '正在去噪并按内容组织文稿');
+      const refined = await refineText(this.store.get(job.id).title, transcript);
+      const guidePath = path.join(jobDir, '内容导览.md');
+      const proofreadPath = path.join(jobDir, '完整校对文本.md');
+      const markdown = composeDelivery(this.store.get(job.id).title, refined.markdown, transcript);
+      const markdownPath = path.join(jobDir, '分享式整理稿.md');
+      await fs.writeFile(guidePath, refined.markdown);
+      await fs.writeFile(proofreadPath, `# ${this.store.get(job.id).title}\n\n${transcript}\n`);
+      await fs.writeFile(markdownPath, markdown);
+      const quality = qualityCheck(markdown, { usedRefiner: refined.usedRefiner, refinerFallback: Boolean(refined.refinerFallbackReason) });
+
+      await this.stage(job.id, 'delivering', 88, '正在准备本地交付物');
+      const lark = await deliverToLark(this.store.get(job.id).title, markdown).catch((error) => ({ error: error.message }));
+      const warnings = [...quality.issues];
+      if (refined.refinerFallbackReason) warnings.unshift(refined.refinerFallbackReason);
+      if (lark.error) warnings.push(`飞书交付未完成：${lark.error}`);
+      if (lark.configured === false) warnings.push('未配置飞书 App；已生成本地 Markdown 交付物。');
+      await this.store.update(job.id, {
+        status: 'completed', progress: 100, stageMessage: warnings.length ? '本地稿件已完成，存在待处理事项' : '处理与交付均已完成',
+        completedAt: new Date().toISOString(), quality, warnings,
+        output: {
+          transcriptPath, guidePath, proofreadPath, markdownPath,
+          rawCharacters: transcript.length, guideCharacters: refined.markdown.length,
+          larkUrl: lark.url || null, larkPermissionGranted: lark.permissionGranted || false
+        }
+      }, { stage: 'completed', message: '任务完成' });
+    } catch (error) {
+      const errorMessage = humanizeError(error);
+      const failure = classifyFailure(error);
+      const current = this.store.get(job.id);
+      await this.store.update(job.id, {
+        status: 'failed', progress: 100, stageMessage: '处理失败', error: errorMessage, failure,
+        failureHistory: [...(current?.failureHistory || []), { at: new Date().toISOString(), error: errorMessage, failure }]
+      }, { stage: 'failed', message: errorMessage });
+    }
+  }
+
+  async stage(id, status, progress, message) {
+    await this.store.update(id, { status, progress, stageMessage: message, error: null }, { stage: status, message });
+  }
+
+  async acquire(job, jobDir) {
+    if (job.sourceType === 'upload') {
+      const normalized = path.join(jobDir, 'audio.wav');
+      await run('ffmpeg', ['-y', '-i', job.sourcePath, '-vn', '-ac', '1', '-ar', '16000', normalized]);
+      return { kind: 'audio', path: normalized };
+    }
+    await this.stage(job.id, 'acquiring', 22, '正在优先查找可用字幕');
+    const subtitleTemplate = path.join(jobDir, 'subtitle.%(ext)s');
+    await run('yt-dlp', ['--no-playlist', '--write-subs', '--write-auto-subs', '--sub-langs', 'zh.*,en.*', '--skip-download', '-o', subtitleTemplate, job.sourceUrl], { allowFailure: true });
+    const subtitle = await findFirst(jobDir, (name) => /\.vtt$|\.srt$/i.test(name));
+    if (subtitle) return { kind: 'subtitle', path: subtitle };
+
+    await this.stage(job.id, 'acquiring', 32, '未找到字幕，正在下载音频');
+    const audioTemplate = path.join(jobDir, 'source.%(ext)s');
+    await run('yt-dlp', ['--no-playlist', '-f', 'ba[ext=m4a]/ba/b', '-x', '--audio-format', 'mp3', '-o', audioTemplate, job.sourceUrl]);
+    const downloaded = await findFirst(jobDir, (name) => /^source\./.test(name));
+    if (!downloaded) throw new Error('下载命令结束但没有找到音频文件。');
+    const normalized = path.join(jobDir, 'audio.wav');
+    await run('ffmpeg', ['-y', '-i', downloaded, '-vn', '-ac', '1', '-ar', '16000', normalized]);
+    return { kind: 'audio', path: normalized };
+  }
+
+  async transcribe(audioPath, jobDir) {
+    await run(config.asrBin, [audioPath, '--model', config.asrModel, '--output-dir', jobDir, '--output-name', 'transcript', '--output-format', 'txt', '--language', 'zh', '--verbose', 'False']);
+    const transcript = path.join(jobDir, 'transcript.txt');
+    try { await fs.access(transcript); } catch { throw new Error('ASR 已运行但没有生成 transcript.txt。'); }
+    return fs.readFile(transcript, 'utf8');
+  }
+}
+
+async function findFirst(directory, predicate) {
+  const files = await fs.readdir(directory);
+  const name = files.find(predicate);
+  return name ? path.join(directory, name) : null;
+}
+
+export async function refineText(title, transcript) {
+  if (!config.refiner.url || !config.refiner.model) return { markdown: fallbackGuide(title), usedRefiner: false };
+  return requestRefinement(config.refiner, title, transcript);
+}
+
+export async function requestRefinement(refiner, title, transcript, fetchImpl = fetch) {
+  try {
+    const request = buildRefinerRequest(refiner, title, transcript);
+    const response = await fetchImpl(request.url, request.options);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(formatRefinerError(request.provider, response.status, payload));
+    const markdown = extractRefinerMarkdown(payload);
+    if (!markdown) throw new Error('语义整理服务没有返回正文。');
+    return { markdown, usedRefiner: true };
+  } catch (error) {
+    return {
+      markdown: fallbackGuide(title),
+      usedRefiner: false,
+      refinerFallbackReason: `语义整理未完成（${error.message}）；已生成完整校对文本和待人工确认导览。`
+    };
+  }
+}
+
+export function extractRefinerMarkdown(payload) {
+  const candidates = [
+    payload?.content,
+    payload?.choices?.[0]?.message?.content,
+    payload?.choices?.[0]?.text,
+    payload?.output_text,
+    payload?.response?.output_text,
+    payload?.output
+  ];
+  return candidates.map(extractText).find(Boolean) || '';
+}
+
+function extractText(value) {
+  if (typeof value === 'string') return value.trim();
+  if (Array.isArray(value)) return value.map(extractText).filter(Boolean).join('\n').trim();
+  if (!value || typeof value !== 'object') return '';
+  return [value.text, value.value, value.content].map(extractText).find(Boolean) || '';
+}
+
+export function fallbackGuide(title) {
+  return `## 概述\n\n《${title}》已完成时间轴、标签、重复行和明显格式噪音的机械清理。未配置语义整理模型，因此系统不对主题、观点或术语作推断。\n\n## 主题详述\n\n### 完整校对文本\n\n请直接阅读下方完整校对文本；它保留了可用于人工复核的全部有效内容。\n\n## 核心观点与洞察\n\n### 待人工确认\n\n未启用语义模型时，不自动提炼观点，以避免把原文误写成摘要。`;
+}
+
+export function buildRefinerRequest(refiner, title, transcript) {
+  const userContent = `标题：${title}\n\n原始转录：\n${transcript}`;
+  const target = new URL(refiner.url);
+  if (target.hostname === 'api.stepfun.com') {
+    const stepPlan = refiner.model === 'step-router-v1';
+    target.pathname = stepPlan ? '/step_plan/v1/messages' : '/v1/messages';
+    target.search = '';
+    return {
+      provider: 'stepfun', url: target.toString(),
+      options: {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(refiner.apiKey ? { Authorization: `Bearer ${refiner.apiKey}` } : {}) },
+        body: JSON.stringify({ model: refiner.model, max_tokens: refiner.maxTokens || 8192, temperature: 0.2, system: REFINER_PROMPT, messages: [{ role: 'user', content: userContent }] })
+      }
+    };
+  }
+  return {
+    provider: 'openai-compatible', url: target.toString(),
+    options: {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(refiner.apiKey ? { Authorization: `Bearer ${refiner.apiKey}` } : {}) },
+      body: JSON.stringify({ model: refiner.model, temperature: 0.2, messages: [{ role: 'system', content: REFINER_PROMPT }, { role: 'user', content: userContent }] })
+    }
+  };
+}
+
+function formatRefinerError(provider, status, payload) {
+  const detail = payload.error?.message || payload.message || payload.msg || payload.error?.code || payload.code;
+  return `${provider === 'stepfun' ? 'StepFun' : '语义整理服务'} 返回 HTTP ${status}${detail ? `：${String(detail).slice(0, 500)}` : ''}`;
+}
+
+async function deliverToLark(title, markdown) {
+  if (!config.lark.appId || !config.lark.appSecret) return { configured: false };
+  const tokenResponse = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ app_id: config.lark.appId, app_secret: config.lark.appSecret })
+  });
+  const tokenPayload = await tokenResponse.json();
+  if (!tokenResponse.ok || tokenPayload.code) throw new Error(tokenPayload.msg || '无法获取飞书 tenant_access_token');
+  const headers = { Authorization: `Bearer ${tokenPayload.tenant_access_token}`, 'Content-Type': 'application/json' };
+  const create = await fetch('https://open.feishu.cn/open-apis/docx/v1/documents', { method: 'POST', headers, body: JSON.stringify({ title }) });
+  const created = await create.json();
+  if (!create.ok || created.code) throw new Error(created.msg || '无法创建飞书文档');
+  const document = created.data?.document || created.data;
+  if (!document?.document_id) throw new Error('飞书未返回文档标识。');
+  const children = markdownToBlocks(markdown);
+  // Feishu permits at most 50 children per request. The document id is also its
+  // root block id, so the new document can be populated without a second read.
+  for (const childrenBatch of chunk(children, 50)) {
+    const write = await fetch(`https://open.feishu.cn/open-apis/docx/v1/documents/${document.document_id}/blocks/${document.document_id}/children`, {
+      method: 'POST', headers, body: JSON.stringify({ index: -1, children: childrenBatch })
+    });
+    const written = await write.json();
+    if (!write.ok || written.code) throw new Error(written.msg || '飞书文档已创建，但写入正文失败');
+    if (children.length > 50) await delay(360);
+  }
+  let permissionGranted = false;
+  if (config.lark.userOpenId) {
+    const permission = await fetch(`https://open.feishu.cn/open-apis/drive/v1/permissions/${document.document_id}/members?type=docx&need_notification=false`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ member_type: 'openid', member_id: config.lark.userOpenId, perm: 'full_access' })
+    });
+    const permissionResult = await permission.json().catch(() => ({}));
+    permissionGranted = permission.ok && !permissionResult.code;
+  }
+  return { configured: true, url: `https://feishu.cn/docx/${document.document_id}`, permissionGranted };
+}
+
+function chunk(items, size) {
+  return Array.from({ length: Math.ceil(items.length / size) }, (_, index) => items.slice(index * size, index * size + size));
+}
+
+function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+
+function markdownToBlocks(markdown) {
+  return markdown.split('\n').filter((line) => line.trim() && !line.startsWith('>')).map((line) => {
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    const content = heading ? heading[2] : line;
+    const blockType = heading ? (heading[1].length === 1 ? 3 : 4) : 2;
+    const key = blockType === 2 ? 'text' : blockType === 3 ? 'heading1' : 'heading2';
+    return { block_type: blockType, [key]: { elements: [{ text_run: { content } }] } };
+  });
+}
+
+function run(command, args, { allowFailure = false } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let output = '';
+    child.stdout.on('data', (chunk) => { output += chunk; });
+    child.stderr.on('data', (chunk) => { output += chunk; });
+    child.on('error', (error) => reject(new Error(`${command} 无法启动：${error.message}`)));
+    child.on('close', (code) => {
+      if (code === 0 || allowFailure) return resolve(output);
+      reject(new Error(`${command} 执行失败（退出码 ${code}）：${output.slice(-900)}`));
+    });
+  });
+}
+
+function humanizeError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/HTTP 403|private|login|sign in|cookies/i.test(message)) return '素材需要登录、Cookie 或额外授权；本服务不会绕过访问控制。';
+  if (/^ffmpeg 执行失败|Error opening input|Invalid data found/i.test(message)) return '素材无法被识别为可转录的音视频文件，请重新上传原始音频或视频文件。';
+  if (new RegExp(`^${config.asrBin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} 执行失败`).test(message)) return '本地转录未成功完成，请检查转录模型与素材格式后重试。';
+  return message.slice(0, 1400);
+}

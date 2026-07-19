@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>音视频整理 Agent</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/">小D <span>音视频整理</span></a>
+      <div id="capabilities" class="capabilities" aria-label="能力状态"></div>
+    </header>
+    <main>
+      <section class="hero">
+        <p class="eyebrow">LOCAL-FIRST MEDIA WORKFLOW</p>
+        <h1>把音视频，整理成可读的分享稿。</h1>
+        <p class="intro">优先使用已有字幕；没有字幕才下载音频做本地转录。不会绕过登录、Cookie 或平台访问限制。</p>
+      </section>
+
+      <section class="workbench" aria-labelledby="new-job-heading">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">01 / 提交素材</p>
+            <h2 id="new-job-heading">选一个入口，然后开始处理</h2>
+          </div>
+          <details class="advanced">
+            <summary>处理规则</summary>
+            <p>默认交付分享式提纯稿。未配置语义整理模型时，只做机械清洗，并明确标记为待人工校对。</p>
+          </details>
+        </div>
+        <div class="source-tabs" role="tablist">
+          <button class="tab active" role="tab" aria-selected="true" data-source="url">公开链接</button>
+          <button class="tab" role="tab" aria-selected="false" data-source="upload">本地文件</button>
+        </div>
+        <form id="url-form" class="source-form">
+          <label for="url">视频、播客或公开网页链接</label>
+          <div class="input-action">
+            <input id="url" name="url" type="url" placeholder="https://…" autocomplete="url" required />
+            <button class="primary" type="submit">开始整理</button>
+          </div>
+          <p class="field-note">支持可公开访问的 HTTP(S) 链接。系统会先试读字幕，再决定是否下载音频。</p>
+        </form>
+        <form id="upload-form" class="source-form hidden">
+          <label for="media">音频或视频文件</label>
+          <div class="upload-action">
+            <input id="media" name="media" type="file" accept="audio/*,video/*,.m4a,.mp3,.wav,.mp4,.mov,.mkv" required />
+            <button class="primary" type="submit">上传并整理</button>
+          </div>
+          <p class="field-note">单文件不超过 1GB。文件只保留在此机器的任务目录中。</p>
+        </form>
+        <p id="form-message" class="form-message" role="status"></p>
+      </section>
+
+      <section class="jobs-section" aria-labelledby="jobs-heading">
+        <div class="section-head jobs-head">
+          <div>
+            <p class="eyebrow">02 / 跟进交付</p>
+            <h2 id="jobs-heading">处理队列</h2>
+          </div>
+          <button id="refresh" class="quiet" type="button">刷新状态</button>
+        </div>
+        <div id="empty-state" class="empty-state">还没有任务。提交一个链接或文件后，进度、告警和交付物会在这里出现。</div>
+        <div id="jobs" class="job-list" aria-live="polite"></div>
+      </section>
+    </main>
+    <template id="job-template">
+      <article class="job-card">
+        <div class="job-main">
+          <div class="job-title-row"><h3 class="job-title"></h3><span class="status"></span></div>
+          <p class="job-source"></p>
+          <div class="progress-track"><div class="progress-bar"></div></div>
+          <p class="stage-message"></p>
+          <div class="warnings"></div>
+        </div>
+        <div class="job-actions"></div>
+        <details class="job-log"><summary>查看处理记录</summary><ol></ol></details>
+      </article>
+    </template>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
