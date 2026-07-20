@@ -1,6 +1,6 @@
 # Agent军团
 
-Agent军团是一套以飞书为工作入口、以 A君本地运行时承载智能体与业务执行、以 Hermes 为当前运行适配底座、并从 M2 引入 Paperclip 组织治理控制面的数字员工系统。
+Agent军团是一套以飞书为日常业务入口、以 Hermes 等运行时承载各 Agent、以 Paperclip 作为军团总控、以 A君本地运行时承载通用能力与故障恢复的数字员工系统。A君局域网页只作为授权、诊断和应急入口，不与飞书重复日常派活。
 
 这个仓库的根目录用于承载军团级架构、岗位定义、公共能力、平台集成和运维设施。每个可独立运行的业务 Agent 放在 `apps/` 下，不再让某一个 Agent 代表整个项目。
 
@@ -19,6 +19,10 @@ agent-agent/
 └── designs/        可运行的 UI 原型与设计资产
 ```
 
+### 局域网项目进度看板
+
+多项目进度 H5 位于 `apps/project-progress-board/`，项目、阶段和任务保存在本机 SQLite，默认访问 `http://127.0.0.1:4320`。详见 [项目进度看板 README](./apps/project-progress-board/README.md) 和 [设计说明](./docs/design/project-progress-board.md)。
+
 这些目录先定义清楚职责，不提前引入 monorepo、统一构建或部署框架。出现第二个真实应用或共享模块后，再根据实际依赖补充工作区工具。
 
 ## 当前状态
@@ -27,9 +31,10 @@ agent-agent/
 - 已确认 Agent军团长期目标、M0–M4 路线和 M1 小D需求。
 - 已建立文档治理、系统架构、核心契约、代码/目录规范和测试门禁。
 - M1 飞书交互原型已通过 A 君人工评审。
-- 小D版本化 AgentManifest、Prompt、评测样例和 Hermes Profile 映射骨架已建立并通过本地契约检查，岗位状态仍为 `draft`。
+- 小D版本化 AgentManifest、Prompt、评测样例和 Hermes Profile 映射已建立并通过本地契约检查；A君可把带公开链接的素材任务委派给本机小D并跟踪其状态，真实素材验收仍按 M1 节奏受控进行。
 - 隔离 `xiaod` Hermes Profile 与传统飞书机器人测试应用已创建并发布；传统机器人已完成真实文本消息收发与模型回复验证。短媒体已真实完成转录、飞书文档权限与交付，并通过一次“受控失败 → 飞书重试 → 同一任务单次交付”回归；约 10 分钟媒体已完成真实阶段与交付验证；后台阶段更新故障与其余M1场景仍待验证；Paperclip 已确认延后到 M2。
-- M2 已将跨网站/软件登录授权收敛为“A君独立运行时 + 按需浏览器伴侣”的待确认 PRD；尚未实现启动器、连接器或浏览器伴侣，也未授权任何真实外部账号。
+- M2 已进入首轮实施：小D 已接入统一账号管家、通用内容获取中心和脱敏运维事件；当前可创建/撤销只读浏览器会话引用，也可登记 CookieBridge 管理的本机账号标识。MediaCrawlerPro 深度适配器只在本机内部临时传递登录态，不向任务、页面或日志返回 Cookie。尚未完成真实平台内容读取、官方浏览器伴侣/OAuth、安全密钥存储或深度通道的端到端验收。
+- M2 军团方向已校正：飞书是日常派活与交付入口，Hermes 负责各 Agent 的角色、模型、技能与运行；Paperclip 是组织、任务、heartbeat、预算、审批和审计的唯一总控；A君是可扩展的本机能力底座，提供连接授权、内容获取、组件托管、执行适配和故障恢复，不再建设第二个任务控制台。已在本机 Paperclip `2026.707.0` 用内置 HTTP Adapter 验证“任务分配 → heartbeat → A君低风险本机健康检查 → 回报同一任务单 → done”闭环；外部授权读取和小D的 Paperclip 接入仍待后续验证。
 
 ## 正式文档入口
 
@@ -38,7 +43,9 @@ agent-agent/
 - [Agent军团项目说明](./docs/Agent军团项目说明.md)
 - [Agent军团总 PRD](./tasks/prd-agent-army-master.md)
 - [M1 小D飞书业务闭环 PRD](./tasks/prd-m1-xiaod-feishu-closure.md)
-- [M2 A君独立运行时、授权连接器与治理控制面 PRD](./tasks/prd-m2-authorization-connectors.md)
+- [M2 A君独立运行时、通用连接与内容获取、治理控制面 PRD](./tasks/prd-m2-authorization-connectors.md)
+- [M2 通用访问底座实施计划](./docs/plans/m2-common-access-foundation-implementation-plan.md)
+- [M2 军团运行骨架实施约定](./docs/plans/m2-army-runtime-skeleton-plan.md)
 - [任务与 PRD 状态](./tasks/README.md)
 
 ### 设计
@@ -46,6 +53,7 @@ agent-agent/
 - [M1 飞书用户流程](./docs/design/m1-feishu-user-flow.md)
 - [M1 飞书交互规范](./docs/design/m1-feishu-interaction-spec.md)
 - [M1 可点击原型](./designs/agent-army-m1/feishu-xiaod-task-flow.html)
+- [M2 通用访问底座设计](./docs/design/m2-common-access-foundation.md)
 
 ### 技术与工程
 
@@ -56,8 +64,9 @@ agent-agent/
 - [目录与代码规范](./docs/standards/repository-and-code.md)
 - [测试与验收规范](./docs/standards/testing-and-acceptance.md)
 - [ADR-0001：控制面、运行时与交互通道分离](./docs/adr/0001-control-plane-runtime-and-channel.md)
-- [ADR-0002：先闭合运行链路，再接入 Paperclip 治理](./docs/adr/0002-phase-paperclip-after-m1-runtime-closure.md)
+- [ADR-0002：先闭合运行链路，再接入 Paperclip 军团总控](./docs/adr/0002-phase-paperclip-after-m1-runtime-closure.md)
 - [ADR-0003：M1 使用传统飞书机器人接入 Hermes](./docs/adr/0003-m1-use-traditional-feishu-bot.md)
+- [ADR-0004：通用账号连接、内容获取与运维观察边界](./docs/adr/0004-common-access-foundation.md)
 - [现成能力复用调研与采用边界](./docs/research/2026-07-agent-army-reuse-landscape.md)
 
 ### 治理与依据
@@ -89,3 +98,13 @@ npm run dev
 默认访问地址：`http://127.0.0.1:4318`。
 
 凭据保存在应用自己的 `.env` 中，不应放在仓库根目录、任务正文或项目文档里。
+
+## 运行 A君运行台
+
+```bash
+cd apps/ajun-runtime
+npm test
+npm run dev
+```
+
+默认访问地址：`http://127.0.0.1:4321`。它是本机连接授权、组件健康、恢复和脱敏诊断页；已能作为本机 Paperclip HTTP Agent 的执行适配端，完成低风险健康任务并回报同一 Paperclip 任务单。日常派活与结果交付在飞书完成，Paperclip 承担组织、任务、heartbeat、预算、审批和审计总控；A君不维护第二套军团队列。小D任务仅调用本机 `4318` 服务，公开链接以外的外部账号、飞书和 Hermes 不由运行台直接调用。

@@ -17,3 +17,5 @@ docs/reviews/
 
 - [M0 文档与设计基线验收](./m0-documentation-baseline/acceptance.md)
 - [M1 小D飞书受控验证](./m1-xiaod-feishu-closure/acceptance.md)
+- [M2 授权连接与内容获取验收](./m2-authorization-connectors/acceptance.md)：公开视频字幕闭环、撤销恢复已验证；浏览器授权媒体获取未通过。
+- [M2 A君运行台与基础岗位骨架验收](./m2-army-runtime-skeleton/acceptance.md)：本地任务协调、岗位登记与审批占位已验证。

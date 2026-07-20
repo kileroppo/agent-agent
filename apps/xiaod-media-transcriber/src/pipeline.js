@@ -5,6 +5,7 @@ import { config } from './config.js';
 import { cleanTranscript, composeDelivery, qualityCheck } from './domain.js';
 import { classifyFailure } from './recovery.js';
 import { createOneShotFailpoint } from './test-failpoint.js';
+import { ContentAcquisitionError } from '../../../integrations/access/content-acquisition-center.js';
 
 const REFINER_PROMPT = `你是中文音视频内容编辑。你只负责写“内容导览”，完整校对文本会由系统另行附在后面。
 
@@ -32,9 +33,10 @@ const REFINER_PROMPT = `你是中文音视频内容编辑。你只负责写“�
 如果原文确实没有足够证据，不要硬造“逻辑分析”“框架与心智模型”等章节。`;
 
 export class MediaPipeline {
-  constructor({ store, workDir, failpoint = createOneShotFailpoint(config.testFailOnceAt) }) {
+  constructor({ store, workDir, contentCenter = null, failpoint = createOneShotFailpoint(config.testFailOnceAt) }) {
     this.store = store;
     this.workDir = workDir;
+    this.contentCenter = contentCenter;
     this.failpoint = failpoint;
   }
 
@@ -46,6 +48,9 @@ export class MediaPipeline {
       await fs.mkdir(jobDir, { recursive: true });
       await this.stage(job.id, 'preparing', 8, '正在检查素材格式与可读性');
       const acquired = await this.acquire(this.store.get(job.id), jobDir);
+      const resolvedTitle = deliveryTitle(this.store.get(job.id), acquired.contentPackage);
+      if (resolvedTitle !== this.store.get(job.id).title) await this.store.update(job.id, { title: resolvedTitle });
+      const currentJob = this.store.get(job.id);
       await this.stage(job.id, 'transcribing', 45, acquired.kind === 'subtitle' ? '正在读取可用字幕' : '正在进行本地 ASR 转录');
       // The source has already been copied/normalized into jobDir. Failing here
       // exercises retry without creating any external delivery side effect.
@@ -59,18 +64,18 @@ export class MediaPipeline {
       await fs.writeFile(transcriptPath, transcript);
 
       await this.stage(job.id, 'distilling', 70, '正在去噪并按内容组织文稿');
-      const refined = await refineText(this.store.get(job.id).title, transcript);
+      const refined = await refineText(currentJob.title, transcript);
       const guidePath = path.join(jobDir, '内容导览.md');
       const proofreadPath = path.join(jobDir, '完整校对文本.md');
-      const markdown = composeDelivery(this.store.get(job.id).title, refined.markdown, transcript);
+      const markdown = composeDelivery(currentJob.title, refined.markdown, transcript);
       const markdownPath = path.join(jobDir, '分享式整理稿.md');
       await fs.writeFile(guidePath, refined.markdown);
-      await fs.writeFile(proofreadPath, `# ${this.store.get(job.id).title}\n\n${transcript}\n`);
+      await fs.writeFile(proofreadPath, `# ${currentJob.title}\n\n${transcript}\n`);
       await fs.writeFile(markdownPath, markdown);
       const quality = qualityCheck(markdown, { usedRefiner: refined.usedRefiner, refinerFallback: Boolean(refined.refinerFallbackReason) });
 
       await this.stage(job.id, 'delivering', 88, '正在准备本地交付物');
-      const lark = await deliverToLark(this.store.get(job.id).title, markdown).catch((error) => ({ error: error.message }));
+      const lark = await deliverToLark(currentJob.title, markdown).catch((error) => ({ error: error.message }));
       const warnings = [...quality.issues];
       if (refined.refinerFallbackReason) warnings.unshift(refined.refinerFallbackReason);
       if (lark.error) warnings.push(`飞书交付未完成：${lark.error}`);
@@ -81,7 +86,13 @@ export class MediaPipeline {
         output: {
           transcriptPath, guidePath, proofreadPath, markdownPath,
           rawCharacters: transcript.length, guideCharacters: refined.markdown.length,
-          larkUrl: lark.url || null, larkPermissionGranted: lark.permissionGranted || false
+          larkUrl: lark.url || null, larkPermissionGranted: lark.permissionGranted || false,
+          sourceAcquisition: acquired.contentPackage ? {
+            provider: acquired.contentPackage.provider,
+            acquisitionPath: acquired.contentPackage.acquisitionPath,
+            providedCapabilities: acquired.contentPackage.providedCapabilities,
+            adapterRef: acquired.contentPackage.adapterRef
+          } : null
         }
       }, { stage: 'completed', message: '任务完成' });
     } catch (error) {
@@ -105,6 +116,36 @@ export class MediaPipeline {
       await run('ffmpeg', ['-y', '-i', job.sourcePath, '-vn', '-ac', '1', '-ar', '16000', normalized]);
       return { kind: 'audio', path: normalized };
     }
+    if (this.contentCenter) {
+      const acquired = await this.contentCenter.fetch({
+        taskId: job.id,
+        source: job.sourceUrl,
+        requestedCapabilities: ['basic_content', 'subtitles', 'media'],
+        connectionId: job.connectionId,
+        requestingAgentId: 'xiaod',
+        workspace: jobDir,
+        runtimeRequirement: 'media_transcription',
+        onProgress: ({ stage, progress, message }) => this.stage(job.id, stage, progress, message)
+      });
+      if (!acquired.ok) throw new ContentAcquisitionError(acquired);
+      if (acquired.runtime?.kind === 'video' && acquired.runtime.path) {
+        await this.stage(job.id, 'acquiring', 35, '正在将已授权媒体转为本地转录音频');
+        const normalized = path.join(jobDir, 'audio.wav');
+        await run('ffmpeg', ['-y', '-i', acquired.runtime.path, '-vn', '-ac', '1', '-ar', '16000', normalized]);
+        return { kind: 'audio', path: normalized, contentPackage: acquired.contentPackage };
+      }
+      if (acquired.runtime?.kind === 'remote_media' && acquired.runtime.url) {
+        await this.stage(job.id, 'acquiring', 35, '正在将已授权媒体转为本地转录音频');
+        const normalized = path.join(jobDir, 'audio.wav');
+        await run('ffmpeg', ['-y', '-i', acquired.runtime.url, '-vn', '-ac', '1', '-ar', '16000', normalized]);
+        return { kind: 'audio', path: normalized, contentPackage: acquired.contentPackage };
+      }
+      return { ...acquired.runtime, contentPackage: acquired.contentPackage };
+    }
+    return this.acquireLegacyUrl(job, jobDir);
+  }
+
+  async acquireLegacyUrl(job, jobDir) {
     await this.stage(job.id, 'acquiring', 22, '正在优先查找可用字幕');
     const subtitleTemplate = path.join(jobDir, 'subtitle.%(ext)s');
     await run('yt-dlp', ['--no-playlist', '--write-subs', '--write-auto-subs', '--sub-langs', 'zh.*,en.*', '--skip-download', '-o', subtitleTemplate, job.sourceUrl], { allowFailure: true });
@@ -127,6 +168,16 @@ export class MediaPipeline {
     try { await fs.access(transcript); } catch { throw new Error('ASR 已运行但没有生成 transcript.txt。'); }
     return fs.readFile(transcript, 'utf8');
   }
+}
+
+export function deliveryTitle(job, contentPackage = null) {
+  const acquiredTitle = String(contentPackage?.contentItems?.basic_content?.title || '').trim();
+  if (acquiredTitle && isUrlLikeTitle(job?.title)) return acquiredTitle.slice(0, 200);
+  return job?.title || '未命名素材';
+}
+
+function isUrlLikeTitle(value) {
+  try { return ['http:', 'https:'].includes(new URL(String(value)).protocol); } catch { return false; }
 }
 
 async function findFirst(directory, predicate) {
@@ -212,7 +263,7 @@ function formatRefinerError(provider, status, payload) {
   return `${provider === 'stepfun' ? 'StepFun' : '语义整理服务'} 返回 HTTP ${status}${detail ? `：${String(detail).slice(0, 500)}` : ''}`;
 }
 
-async function deliverToLark(title, markdown) {
+export async function deliverToLark(title, markdown) {
   if (!config.lark.appId || !config.lark.appSecret) return { configured: false };
   const tokenResponse = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ app_id: config.lark.appId, app_secret: config.lark.appSecret })
@@ -254,14 +305,40 @@ function chunk(items, size) {
 
 function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
-function markdownToBlocks(markdown) {
-  return markdown.split('\n').filter((line) => line.trim() && !line.startsWith('>')).map((line) => {
+export function markdownToBlocks(markdown) {
+  let firstMeaningfulLine = true;
+  return markdown.split('\n').flatMap((rawLine) => {
+    const line = rawLine.trim();
+    if (!line || line === '---' || line.startsWith('>')) return [];
     const heading = line.match(/^(#{1,3})\s+(.+)$/);
-    const content = heading ? heading[2] : line;
-    const blockType = heading ? (heading[1].length === 1 ? 3 : 4) : 2;
-    const key = blockType === 2 ? 'text' : blockType === 3 ? 'heading1' : 'heading2';
-    return { block_type: blockType, [key]: { elements: [{ text_run: { content } }] } };
+    // The Feishu document already has a title. Repeating the Markdown H1 makes
+    // URL-sourced tasks show a distracting second, auto-linked URL heading.
+    if (firstMeaningfulLine && heading?.[1].length === 1) {
+      firstMeaningfulLine = false;
+      return [];
+    }
+    firstMeaningfulLine = false;
+    if (heading) {
+      const level = heading[1].length;
+      const blockType = level === 1 ? 3 : level === 2 ? 4 : 5;
+      const key = level === 1 ? 'heading1' : level === 2 ? 'heading2' : 'heading3';
+      return [{ block_type: blockType, [key]: { elements: inlineElements(heading[2]) } }];
+    }
+    const bullet = line.match(/^[-*]\s+(.+)$/);
+    if (bullet) return [{ block_type: 12, bullet: { elements: inlineElements(bullet[1]) } }];
+    return [{ block_type: 2, text: { elements: inlineElements(line) } }];
   });
+}
+
+function inlineElements(value) {
+  const elements = [];
+  const parts = String(value).split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
+  for (const part of parts) {
+    const bold = part.startsWith('**') && part.endsWith('**');
+    const content = bold ? part.slice(2, -2) : part;
+    if (content) elements.push({ text_run: { content, ...(bold ? { text_element_style: { bold: true } } : {}) } });
+  }
+  return elements.length ? elements : [{ text_run: { content: String(value) } }];
 }
 
 function run(command, args, { allowFailure = false } = {}) {

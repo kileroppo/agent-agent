@@ -12,4 +12,8 @@
 
 | Agent | 岗位 | 状态 | 入口 |
 | --- | --- | --- | --- |
-| 小D (`xiaod`) | 音视频素材转录与整理专员 | `draft`，待 Hermes/飞书实机验证 | [岗位说明](./xiaod/README.md) |
+| 小D (`xiaod`) | 音视频素材转录与整理专员 | `active`，A君可委派本机公开链接任务；飞书/Hermes实机验收仍受控进行 | [岗位说明](./xiaod/README.md) |
+| 任务协调官 (`task-coordinator`) | 统一登记与路由 | `active`，由 A君运行台承载本地接收与下一步建议 | [岗位说明](./task-coordinator/README.md) |
+| 架构师 (`architect`) | 共享能力与演进评估 | `active`，可生成本地岗位能力、缺口与下一阶段建议 | [岗位说明](./architect/README.md) |
+| 审核官 (`reviewer`) | 高风险范围审核 | `active`，只给范围与风险结论，最终决定仍由 A君完成 | [岗位说明](./reviewer/README.md) |
+| 运维官 (`operator`) | 脱敏健康与安全恢复 | `active`，可生成 A君与 Paperclip 的本机健康报告 | [岗位说明](./operator/README.md) |

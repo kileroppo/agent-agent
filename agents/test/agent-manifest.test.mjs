@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(testDirectory, "../..");
 const manifestPath = path.join(repositoryRoot, "agents/xiaod/manifest.json");
+const skeletonAgentIds = ["task-coordinator", "architect", "reviewer", "operator"];
 
 const requiredFields = [
   "schemaVersion",
@@ -37,7 +38,7 @@ test("小D Manifest 具备必填字段和默认拒绝边界", async () => {
 
   assert.equal(manifest.schemaVersion, "agent.army/v1");
   assert.equal(manifest.agentId, "xiaod");
-  assert.equal(manifest.status, "draft");
+  assert.equal(manifest.status, "active");
   for (const field of requiredFields) {
     assert.ok(Object.hasOwn(manifest, field), `missing required field: ${field}`);
   }
@@ -80,5 +81,19 @@ test("Manifest 和 Hermes 映射不包含秘密值字段", async () => {
 
   for (const document of documents) {
     assert.doesNotMatch(document, forbiddenKeys);
+  }
+});
+
+test("基础岗位遵循 Manifest 边界，且只启用已有本地执行器的岗位", async () => {
+  for (const agentId of skeletonAgentIds) {
+    const manifest = await readJson(path.join(repositoryRoot, "agents", agentId, "manifest.json"));
+    assert.equal(manifest.schemaVersion, "agent.army/v1");
+    assert.equal(manifest.agentId, agentId);
+    assert.equal(manifest.status, ["operator", "task-coordinator", "reviewer", "architect"].includes(agentId) ? "active" : "draft");
+    assert.ok(manifest.acceptedTaskTypes.length > 0);
+    assert.ok(manifest.nonResponsibilities.length > 0);
+    assert.ok(manifest.approvalPolicies.some((policy) => policy.decision !== "auto"));
+    await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.promptRef)));
+    await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.appRef)));
   }
 });

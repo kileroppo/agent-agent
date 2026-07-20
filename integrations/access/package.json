@@ -1,0 +1,8 @@
+{
+  "name": "ajun-common-access",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}

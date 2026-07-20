@@ -7,6 +7,7 @@ test('configuration reports only complete optional integrations', () => {
   const capabilities = configuredCapabilities();
   assert.equal(typeof capabilities.aiRefinement, 'boolean');
   assert.equal(typeof capabilities.lark, 'boolean');
+  assert.equal(typeof capabilities.mediaCrawlerDeep, 'boolean');
   assert.equal(typeof capabilities.testFailpointArmed, 'boolean');
 });
 

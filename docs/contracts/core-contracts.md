@@ -2,10 +2,10 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | v2 设计基线，M2 授权连接器字段待实现与验证 |
+| 状态 | v3 实施中：M2 通用连接、内容获取与运维字段已有本地实现和契约测试；真实外部验证待进行 |
 | 负责人 | 技术负责人 / Codex 工作台 |
-| 版本 | v2.0 |
-| 最后更新 | 2026-07-18 |
+| 版本 | v3.0 |
+| 最后更新 | 2026-07-20 |
 | 更新触发 | 字段、状态、兼容性、权限或完成定义变化 |
 
 ## 1. 契约原则
@@ -177,9 +177,97 @@ delivering
 | `lastHealthAt` | 否 | 最近一次脱敏健康检查时间 |
 | `createdAt` / `updatedAt` | 是 | ISO 8601 时间 |
 
-调用必须使用 `connectionId + operation`，并验证 `provider`、`grantedOperations`、`dataScope`、`allowedAgentIds`、有效期与审批。拒绝时返回标准错误分类；连接健康只能说明连接可用，不能证明具体业务素材可获取或任务已完成。
+调用必须使用 `connectionId + operation`，并验证 `provider`、`grantedOperations`、`dataScope`、`allowedAgentIds`、有效期与审批。登录输入可由受控浏览器、OAuth、CookieBridge 或其他本机导入适配器提供；所有执行器只得到受限连接使用权，而不是原始凭据。拒绝时返回标准错误分类；连接健康只能说明连接可用，不能证明具体业务素材可获取或任务已完成。
 
-## 7. 跨系统映射要求
+## 7. ContentAcquisitionContract
+
+定义业务 Agent 请求网站或软件内容、内容获取中心选择通道、并向上层交付统一内容包的边界。业务 Agent 只依赖本契约，不依赖 MediaCrawlerPro、`yt-dlp`、CookieBridge、浏览器或未来替代工具。
+
+### 7.1 ContentAcquisitionRequest
+
+| 字段 | 必填 | 含义 |
+| --- | --- | --- |
+| `requestId` | 是 | 单次内容获取请求的稳定 ID |
+| `taskId` | 是 | 关联业务任务 |
+| `source` | 是 | 来源 URL 或受控来源引用 |
+| `requestedCapabilities` | 是 | 希望读取的能力，如 `basic_content`、`images`、`media`、`subtitles`、`comments` |
+| `connectionId` | 否 | 需要登录时使用的命名连接 |
+| `requestingAgentId` | 是 | 发起请求的 Agent ID |
+| `routingPolicy` | 是 | 当前固定为 `specialized_first_general_fallback` |
+| `createdAt` | 是 | ISO 8601 时间 |
+
+请求不能指定具体适配器、Cookie、浏览器标签页、命令行参数或原始凭据。平台识别、连接检查和工具选择属于内容获取中心。
+
+### 7.2 ContentPackage
+
+| 字段 | 必填 | 含义 |
+| --- | --- | --- |
+| `packageId` | 是 | 统一内容包 ID |
+| `requestId` / `taskId` | 是 | 关联请求与业务任务 |
+| `provider` | 是 | 已识别的平台标识；未知时为受控未知值 |
+| `sourceRef` | 是 | 可追溯的安全来源引用 |
+| `acquisitionPath` | 是 | `specialized` 或 `general`，只说明本次通道 |
+| `providedCapabilities` | 是 | 本次实际提供的内容能力集合 |
+| `capabilityNotes` | 否 | 面向用户或 Agent 的安全能力说明，不把通用结果称作“内容不完整” |
+| `contentItems` | 是 | 标准化正文、图片、媒体、字幕、评论和基本信息引用 |
+| `adapterRef` | 是 | 脱敏适配器标识与版本 |
+| `validation` | 是 | 存在性、可读性、来源与访问范围校验结果 |
+| `createdAt` | 是 | ISO 8601 时间 |
+
+`comments` 是一项独立能力：MediaCrawlerPro 等深度通道可提供时写入 `providedCapabilities`；通用通道未声明该能力不构成失败。只有请求明确要求某能力且没有任何允许通道能提供时，才返回标准 `capability_not_available` 错误。
+
+### 7.3 AdapterCapabilityRecord
+
+| 字段 | 必填 | 含义 |
+| --- | --- | --- |
+| `adapterId` | 是 | 稳定适配器标识 |
+| `providerMatchers` | 是 | 支持的平台或来源匹配规则 |
+| `capabilities` | 是 | 可提供的标准内容能力 |
+| `accessMode` | 是 | `public`、`authorized` 或 `either` |
+| `priorityClass` | 是 | `specialized` 或 `general` |
+| `healthStatus` | 是 | 脱敏可用状态 |
+| `versionRef` | 是 | 受控版本引用 |
+
+内容获取中心以注册表的 `priorityClass` 和 `healthStatus` 路由；上层 Agent 不可覆盖路由策略。MediaCrawlerPro 应注册为固定平台的 `specialized` 适配器，`yt-dlp`、受限浏览器读取等可注册为 `general` 适配器。
+
+## 8. LocalCapabilityProviderContract
+
+定义 A君 托管的可替换本机能力边界。业务 Agent、Hermes 与 Paperclip 只依赖受控请求和结果契约，不直接绑定下载器、ASR、浏览器伴侣、平台 SDK 或具体命令。
+
+| 字段 | 必填 | 含义 |
+| --- | --- | --- |
+| `providerId` | 是 | 稳定能力提供者标识 |
+| `versionRef` | 是 | 受控版本引用 |
+| `capabilities` | 是 | 标准化可执行动作集合 |
+| `inputContractRef` / `outputContractRef` | 是 | 输入和输出的版本化契约引用 |
+| `requiredConnectionOperations` | 否 | 需要的命名连接动作；不能包含凭据原文 |
+| `allowedAgentIds` | 是 | 可调用该能力的 Agent ID |
+| `healthProbeRef` | 是 | 脱敏健康检查定义 |
+| `lifecycle` | 是 | 安装、启动、停止、更新与卸载的受控策略引用 |
+| `failureClasses` | 是 | 可恢复、需授权、需人工或永久失败的映射 |
+| `recoveryActions` | 是 | 允许的低风险恢复动作集合 |
+
+新能力先以 `draft` Provider 注册并通过契约测试和健康检查，再由策略启用。替换 Provider 不得改变上层 Agent 的任务语义；需要新增权限、外部副作用或高成本动作时，仍须经过 ConnectionAuthorizationContract 和 ApprovalContract。
+
+## 9. OperationsHealthEventContract
+
+定义 Agent 运维官消费的脱敏健康事件。它用于诊断和恢复，不携带原始凭据、完整浏览器会话或受限内容。
+
+| 字段 | 必填 | 含义 |
+| --- | --- | --- |
+| `eventId` | 是 | 稳定事件 ID |
+| `subjectType` / `subjectRef` | 是 | `connection`、`adapter`、`task` 或 `component` 及其安全引用 |
+| `eventType` | 是 | 如 `connection_expired`、`adapter_unavailable`、`fallback_used`、`repeated_failure` |
+| `severity` | 是 | `info`、`warning`、`error`、`critical` |
+| `safeMessage` | 是 | 不泄密的诊断说明 |
+| `recommendedAction` | 是 | `reauthorize`、`retry`、`restart_managed_component`、`manual_review` 等 |
+| `attemptedRecovery` | 否 | 已执行的低风险恢复与结果 |
+| `taskRefs` | 否 | 受影响任务的引用集合 |
+| `createdAt` / `resolvedAt` | 是/否 | 时间记录 |
+
+运维官可以通知、重试和恢复 A君自管组件；它不能根据事件读取凭据、执行登录、绕过平台限制或扩大授权。
+
+## 10. 跨系统映射要求
 
 - 每个适配器必须有契约测试样例；
 - 平台缺少字段时必须明确使用扩展字段、本地存储或降级，不得丢弃；

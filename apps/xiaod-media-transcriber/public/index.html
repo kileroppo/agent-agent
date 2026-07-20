@@ -35,12 +35,16 @@
           <button class="tab" role="tab" aria-selected="false" data-source="upload">本地文件</button>
         </div>
         <form id="url-form" class="source-form">
-          <label for="url">视频、播客或公开网页链接</label>
+          <label for="url">视频、播客或网页链接</label>
           <div class="input-action">
             <input id="url" name="url" type="url" placeholder="https://…" autocomplete="url" required />
             <button class="primary" type="submit">开始整理</button>
           </div>
-          <p class="field-note">支持可公开访问的 HTTP(S) 链接。系统会先试读字幕，再决定是否下载音频。</p>
+          <div class="connection-picker">
+            <label for="connection-id">可选：使用已连接的网站账号</label>
+            <select id="connection-id" name="connectionId"><option value="">不使用账号连接（仅尝试公开读取）</option></select>
+          </div>
+          <p class="field-note">系统会先试读字幕，再决定是否下载音频。需要登录的视频请先在下方连接账号；不用粘贴 Cookie。</p>
         </form>
         <form id="upload-form" class="source-form hidden">
           <label for="media">音频或视频文件</label>
@@ -51,6 +55,38 @@
           <p class="field-note">单文件不超过 1GB。文件只保留在此机器的任务目录中。</p>
         </form>
         <p id="form-message" class="form-message" role="status"></p>
+      </section>
+
+      <section class="connections-section" aria-labelledby="connections-heading">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">账号连接</p>
+            <h2 id="connections-heading">需要登录时，在这里授权</h2>
+          </div>
+          <p class="connection-summary">只授予小D读取视频信息、字幕和音频的权限。</p>
+        </div>
+        <form id="connection-form" class="connection-form">
+          <div class="connection-fields">
+            <label for="connection-alias">连接名称<input id="connection-alias" name="accountAlias" value="我的 YouTube" maxlength="80" required /></label>
+            <label for="connection-browser">已登录 YouTube 的浏览器<select id="connection-browser" name="browser"><option value="chrome">Chrome</option><option value="safari">Safari</option><option value="firefox">Firefox</option><option value="brave">Brave</option><option value="edge">Edge</option></select></label>
+          </div>
+          <div class="connection-actions"><button class="secondary" type="submit">连接 YouTube</button><p>只保存一个受控浏览器会话引用；不会显示、上传或要求你粘贴 Cookie。</p></div>
+        </form>
+        <details class="cookie-bridge-form">
+          <summary>连接已由 CookieBridge 管理的账号</summary>
+          <p>仅登记 CookieBridge 里的账号标识；不在这里粘贴或显示 Cookie。</p>
+          <form id="cookie-bridge-connection-form" class="connection-form">
+            <div class="connection-fields">
+              <label for="cookie-bridge-provider">平台<select id="cookie-bridge-provider" name="provider"><option value="xhs">小红书</option><option value="dy">抖音</option><option value="bili">哔哩哔哩</option><option value="ks">快手</option></select></label>
+              <label for="cookie-bridge-alias">连接名称<input id="cookie-bridge-alias" name="accountAlias" maxlength="80" placeholder="例如：我的小红书" required /></label>
+              <label for="cookie-bridge-client-id">CookieBridge 已登录账号<select id="cookie-bridge-client-id" name="clientId" required><option value="">正在读取本机账号…</option></select></label>
+            </div>
+            <div class="connection-actions"><button class="secondary" type="submit">登记受控账号</button><p>执行时仅在本机 CookieBridge 与 MediaCrawlerPro 之间临时使用登录状态。</p></div>
+          </form>
+        </details>
+        <div id="connections-empty" class="connection-empty">还没有账号连接。公开视频不需要创建连接。</div>
+        <div id="connections" class="connection-list" aria-live="polite"></div>
+        <details class="operations-panel"><summary>查看运维官的最近健康事件</summary><div id="operations-events" class="operations-events">暂无健康事件。</div></details>
       </section>
 
       <section class="jobs-section" aria-labelledby="jobs-heading">

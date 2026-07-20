@@ -13,7 +13,7 @@ export const STAGES = [
 
 export const ACTIVE_STATUSES = new Set(STAGES.slice(0, -1).map(([status]) => status));
 
-export function makeJob({ sourceType, sourceUrl = null, originalName = null, sourcePath = null, ingress = null }) {
+export function makeJob({ sourceType, sourceUrl = null, originalName = null, sourcePath = null, ingress = null, connectionId = null }) {
   const now = new Date().toISOString();
   return {
     id: crypto.randomUUID(),
@@ -22,6 +22,7 @@ export function makeJob({ sourceType, sourceUrl = null, originalName = null, sou
     originalName,
     sourcePath,
     ingress,
+    connectionId,
     title: originalName?.replace(/\.[^.]+$/, '') || sourceUrl || '未命名素材',
     status: 'queued',
     stageMessage: '已进入队列',
@@ -52,7 +53,7 @@ export function validatePublicHttpUrl(value) {
     return { ok: false, reason: '请输入完整的 HTTP(S) 链接。' };
   }
   if (!['http:', 'https:'].includes(parsed.protocol)) {
-    return { ok: false, reason: '只支持 HTTP(S) 公开链接。' };
+    return { ok: false, reason: '只支持 HTTP(S) 链接。' };
   }
   const host = parsed.hostname.toLowerCase();
   if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')) {

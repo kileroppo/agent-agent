@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f5f7f4" />
+    <title>项目进度看板</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar"><a class="brand" href="#">项目进度<span>局域网看板</span></a><div class="topbar-actions"><span id="sync-state" class="sync-state">正在同步</span><button id="new-project" class="button primary">新建项目</button></div></header>
+    <main id="app" class="shell">
+      <section class="hero"><div><p class="eyebrow">PROJECT CONTROL BOARD</p><h1>知道现在在哪，<br><em>下一步做什么。</em></h1><p class="hero-copy">把多个项目的规划、进度和阻塞收在一个安静的工作台里。</p></div><div class="today-note"><span class="dot"></span><div><strong>本地看板</strong><p>数据保存在当前机器 · 局域网可访问</p></div></div></section>
+      <section id="stats" class="stats" aria-label="总体进度"></section>
+      <section class="focus-section"><div class="section-heading"><div><p class="eyebrow">NOW</p><h2>现在要关注的</h2></div><p>先处理进行中和阻塞的任务。</p></div><div id="focus-list" class="focus-list"></div></section>
+      <section class="projects-section"><div class="section-heading"><div><p class="eyebrow">ALL PROJECTS</p><h2>所有项目</h2></div><button id="refresh" class="button quiet">刷新</button></div><div id="project-grid" class="project-grid"></div></section>
+    </main>
+    <section id="detail" class="detail-view hidden" aria-hidden="true"><div class="detail-inner"><button id="back" class="back-button">← 所有项目</button><div id="detail-content"></div></div></section>
+    <dialog id="project-dialog"><form id="project-form" method="dialog"><div class="dialog-head"><div><p class="eyebrow">NEW PROJECT</p><h2>新建项目</h2></div><button type="button" class="icon-button" data-close>×</button></div><label>项目名称<input name="name" required placeholder="例如：内容工作台" /></label><label>项目说明<textarea name="description" rows="3" placeholder="这个项目要完成什么？"></textarea></label><div class="form-grid"><label>当前阶段<input name="currentPhase" value="规划" /></label><label>项目状态<select name="status"><option value="planning">规划中</option><option value="active">进行中</option></select></label></div><label>Git 仓库（可选）<input name="repository" type="url" placeholder="https://github.com/..." /></label><div class="dialog-actions"><button type="button" class="button quiet" data-close>取消</button><button class="button primary">创建项目</button></div></form></dialog>
+    <dialog id="task-dialog"><form id="task-form" method="dialog"><div class="dialog-head"><div><p class="eyebrow">TASK</p><h2 id="task-dialog-title">新增任务</h2></div><button type="button" class="icon-button" data-close>×</button></div><label>任务名称<input name="title" required placeholder="下一件明确要完成的事" /></label><div class="form-grid"><label>任务状态<select name="status"><option value="todo">未开始</option><option value="doing">进行中</option><option value="done">已完成</option><option value="blocked">阻塞</option></select></label><label>进度 <output id="progress-output">0%</output><input name="progress" type="range" min="0" max="100" value="0" /></label></div><div class="form-grid"><label>所属阶段<input name="phase" value="规划" /></label><label>负责人<input name="owner" value="本人" /></label></div><label>下一步<input name="nextAction" placeholder="完成后要接着做什么？" /></label><label>阻塞原因（有阻塞时填写）<textarea name="blockedReason" rows="2"></textarea></label><label>备注<textarea name="notes" rows="2"></textarea></label><div class="dialog-actions"><button type="button" class="button quiet" data-close>取消</button><button class="button primary">保存任务</button></div></form></dialog>
+    <div id="toast" class="toast" role="status"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

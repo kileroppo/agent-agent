@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 已接受；Paperclip 进入 M1 的时点由 ADR-0002 修订 |
+| 状态 | 已接受；Paperclip 的总控职责由 ADR-0002 修订 |
 | 日期 | 2026-07-18 |
 | 决策人 | A 君 |
 
@@ -13,8 +13,8 @@ Agent军团需要同时解决用户交互、Agent 执行、组织任务治理和
 ## 决策
 
 - 飞书作为主要交互通道；
-- Paperclip 作为组织与任务治理控制面；
-- Hermes 作为 Agent 运行时；
+- Paperclip 作为军团唯一总控，承担组织、任务、heartbeat、预算、审批和审计；
+- Hermes 与其他 Agent 运行时作为 Paperclip 管理的执行运行时；
 - 业务 Agent 只实现领域流程；
 - 所有平台通过适配层连接标准任务、产物和审批契约；
 - Codex 或其他工程模型作为建设工作台，不作为线上任务控制面。
@@ -35,7 +35,7 @@ Agent军团需要同时解决用户交互、Agent 执行、组织任务治理和
 
 ## 后果
 
-- M1 先验证飞书、Hermes 与业务执行器，Paperclip 按 ADR-0002 从 M2 接入；
+- M1 先验证飞书、Hermes 与业务执行器，Paperclip 按 ADR-0002 从 M2 接入并承担军团总控；
 - 必须定义统一任务 ID、状态映射和补偿机制；
 - 不允许业务代码直接依赖 Paperclip 或飞书 SDK；
 - 未来替换平台不应改变小D领域逻辑；
@@ -43,4 +43,4 @@ Agent军团需要同时解决用户交互、Agent 执行、组织任务治理和
 
 ## 后续修订
 
-- [ADR-0002：先闭合运行链路，再接入 Paperclip 治理](./0002-phase-paperclip-after-m1-runtime-closure.md)
+- [ADR-0002：先闭合运行链路，再接入 Paperclip 军团总控](./0002-phase-paperclip-after-m1-runtime-closure.md)

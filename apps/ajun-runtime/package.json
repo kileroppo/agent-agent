@@ -1,0 +1,12 @@
+{
+  "name": "ajun-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first Agent Army coordination skeleton",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "test": "node --test"
+  }
+}

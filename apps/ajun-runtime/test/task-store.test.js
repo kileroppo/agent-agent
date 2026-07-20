@@ -1,0 +1,34 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+import { TaskStore } from '../src/task-store.js';
+
+test('并发登记任务不会丢失记录', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-task-store-'));
+  try {
+    const store = new TaskStore(path.join(directory, 'runtime.json'));
+    const created = await Promise.all(Array.from({ length: 24 }, (_, index) => store.createTask({ taskType: 'army.intake', input: { title: `任务 ${index}` }, status: 'queued', currentStage: 'queued_for_execution' })));
+    const tasks = await store.list();
+    assert.equal(tasks.length, 24);
+    assert.equal(new Set(created.map((task) => task.taskId)).size, 24);
+    assert.deepEqual(new Set(tasks.map((task) => task.input.title)), new Set(Array.from({ length: 24 }, (_, index) => `任务 ${index}`)));
+  } finally { await fs.rm(directory, { recursive: true, force: true }); }
+});
+
+test('并发状态更新不会互相覆盖字段', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-task-store-'));
+  try {
+    const store = new TaskStore(path.join(directory, 'runtime.json'));
+    const task = await store.createTask({ taskType: 'army.intake', input: { title: '保留状态' }, status: 'queued', currentStage: 'queued_for_execution' });
+    await Promise.all([
+      store.updateTask(task.taskId, { status: 'running', currentStage: 'starting' }),
+      store.updateTask(task.taskId, { execution: { executor: 'task-coordinator' } })
+    ]);
+    const saved = (await store.list()).find((item) => item.taskId === task.taskId);
+    assert.equal(saved.status, 'running');
+    assert.equal(saved.currentStage, 'starting');
+    assert.deepEqual(saved.execution, { executor: 'task-coordinator' });
+  } finally { await fs.rm(directory, { recursive: true, force: true }); }
+});

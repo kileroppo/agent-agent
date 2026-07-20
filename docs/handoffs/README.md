@@ -57,4 +57,5 @@
 
 - [M1 小D媒体强制路由与验收交接](./current/m1-xiaod-media-routing-acceptance-handoff.md)：首条真实媒体任务已完成系统交付，等待人工读取确认与其余M1场景验收。
 - [M1 小D飞书运行环境交接](./current/m1-xiaod-feishu-runtime-setup.md)：待所有者完成隔离 Profile 的本地配置后，执行首条受控飞书消息验证。
-- [M2 A君运行时与授权连接器规划交接](./current/m2-authorization-connectors-planning-handoff.md)：等待确认单一产品安装边界与首个低风险授权平台后开始实现。
+- [M2 Paperclip 总控与通用访问底座交接](./current/m2-authorization-connectors-planning-handoff.md)：通用底座与 A君本地骨架已实现；下一步先验证 Paperclip 的真实 Agent 调度链路。
+- [M2 飞书 Agent 入口与 Paperclip 总控交接](./current/m2-feishu-agent-entry-handoff.md)：飞书原生会话是用户入口，小D不重做；下一步先核对官方机器人能力和现有接入，禁止克隆侧栏或新建第二个总控。

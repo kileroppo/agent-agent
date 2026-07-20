@@ -1,4 +1,11 @@
 export function classifyFailure(error) {
+  if (error?.accessFailure) {
+    return {
+      category: error.accessFailure.category || 'manual',
+      retryable: false,
+      recovery: error.accessFailure.safeMessage
+    };
+  }
   const message = error instanceof Error ? error.message : String(error);
   if (/^ffmpeg 执行失败|Error opening input|Invalid data found/i.test(message)) {
     return {
