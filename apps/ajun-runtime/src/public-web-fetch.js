@@ -1,10 +1,13 @@
+import dns from 'node:dns/promises';
+import net from 'node:net';
+
 const MAX_BYTES = 1_000_000;
 
 export class PublicWebFetch {
-  constructor({ fetchImpl = fetch } = {}) { this.fetch = fetchImpl; }
+  constructor({ fetchImpl = fetch, lookupImpl = dns.lookup } = {}) { this.fetch = fetchImpl; this.lookup = lookupImpl; }
 
   async acquire({ sourceUrl }) {
-    const source = publicUrl(sourceUrl);
+    const source = await publicUrl(sourceUrl, this.lookup);
     const response = await this.fetch(source, { redirect: 'error', headers: { accept: 'text/html, text/plain;q=0.9' }, signal: AbortSignal.timeout(8000) });
     if (!response.ok) throw new PublicWebFetchError('source_unavailable', `公开页面返回 ${response.status}。`);
     const contentType = String(response.headers.get('content-type') || '').toLowerCase();
@@ -23,16 +26,25 @@ export class PublicWebFetch {
 
 export class PublicWebFetchError extends Error { constructor(code, message) { super(message); this.code = code; } }
 
-function publicUrl(value) {
+async function publicUrl(value, lookup) {
   let parsed;
   try { parsed = new URL(String(value)); } catch { throw new PublicWebFetchError('invalid_source_url', '需要一个公开 HTTP(S) 链接。'); }
   if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname || privateHost(parsed.hostname)) throw new PublicWebFetchError('source_not_public', '只能读取公开 HTTP(S) 页面，不能访问本机、内网或私有地址。');
   if (parsed.username || parsed.password) throw new PublicWebFetchError('source_not_public', '公开链接不能包含账号信息。');
+  if (!net.isIP(parsed.hostname)) {
+    let addresses;
+    try { addresses = await lookup(parsed.hostname, { all: true, verbatim: true }); }
+    catch { throw new PublicWebFetchError('source_unavailable', '公开页面域名无法解析。'); }
+    if (!addresses.length || addresses.some(({ address }) => privateHost(address))) throw new PublicWebFetchError('source_not_public', '只能读取公开 HTTP(S) 页面，不能访问本机、内网或私有地址。');
+  }
   return parsed.toString();
 }
 function privateHost(host) {
   const value = host.toLowerCase().replace(/^\[|\]$/g, '');
-  return value === 'localhost' || value.endsWith('.localhost') || value === '::1' || value.startsWith('127.') || value.startsWith('10.') || value.startsWith('192.168.') || /^172\.(1[6-9]|2\d|3[0-1])\./.test(value) || value.startsWith('169.254.') || value.startsWith('0.');
+  if (value === 'localhost' || value.endsWith('.localhost')) return true;
+  if (net.isIP(value) === 4) return value.startsWith('127.') || value.startsWith('10.') || value.startsWith('192.168.') || /^172\.(1[6-9]|2\d|3[0-1])\./.test(value) || value.startsWith('169.254.') || value.startsWith('0.') || /^100\.(6[4-9]|[789]\d|1[01]\d|12[0-7])\./.test(value) || value === '255.255.255.255';
+  if (net.isIP(value) === 6) return value === '::' || value === '::1' || value.startsWith('fc') || value.startsWith('fd') || value.startsWith('fe8') || value.startsWith('fe9') || value.startsWith('fea') || value.startsWith('feb') || value.startsWith('::ffff:127.') || value.startsWith('::ffff:10.') || value.startsWith('::ffff:192.168.') || /^::ffff:172\.(1[6-9]|2\d|3[0-1])\./.test(value);
+  return false;
 }
 async function limitedText(response) {
   const reader = response.body?.getReader(); if (!reader) return '';
