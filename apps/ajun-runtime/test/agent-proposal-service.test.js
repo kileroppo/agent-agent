@@ -55,6 +55,15 @@ test('第一批拒绝未审核的能力，阻止自动扩权', async (t) => {
   await assert.rejects(() => service.create({ requestedOutcome: '自动发布内容', requestedCapabilities: ['content.private.publish'] }), /只能请求已审核/);
 });
 
+test('测试产物可以回报审计，但不会把候选岗位提前激活', async (t) => {
+  const service = await setup(t);
+  const proposal = await service.create({ requestedOutcome: '输出公开资料报告' });
+  await service.submit(proposal.proposalId); await service.approveForTest(proposal.proposalId); await service.createTestInstance(proposal.proposalId);
+  const updated = await service.recordTestEvidence(proposal.proposalId, { artifactTitle: '受限报告', artifactRef: 'runtime://test/report.md' });
+  assert.equal(updated.status, 'testing');
+  assert.equal(updated.audit.at(-1).action, 'test_evidence_recorded');
+});
+
 test('有 Paperclip 投影时，必须先成功批准组织级审核才进入测试', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-proposal-governance-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));

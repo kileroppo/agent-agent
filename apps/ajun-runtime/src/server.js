@@ -58,7 +58,7 @@ const server = http.createServer(async (req, res) => {
       const proposal = await proposals.create(await body(req), { source: 'feishu' });
       return json(res, 202, { proposal: proposal.status === 'draft' ? await proposals.submit(proposal.proposalId) : proposal, reply: '已生成岗位草案并提交审核；通过受限测试前不会上线。' });
     }
-    const proposalAction = req.url?.match(/^\/api\/agent-proposals\/([0-9a-f-]+)\/(submit|approve-for-test|reject|test-instance|acceptance)$/i);
+    const proposalAction = req.url?.match(/^\/api\/agent-proposals\/([0-9a-f-]+)\/(submit|approve-for-test|reject|test-instance|test-evidence|acceptance)$/i);
     if (req.method === 'POST' && proposalAction) {
       if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error: '草案审核与测试操作只能由本机主人发起。' });
       const [, proposalId, action] = proposalAction; const input = await body(req);
@@ -66,6 +66,7 @@ const server = http.createServer(async (req, res) => {
       if (action === 'approve-for-test') return json(res, 200, { proposal: await proposals.approveForTest(proposalId) });
       if (action === 'reject') return json(res, 200, { proposal: await proposals.reject(proposalId) });
       if (action === 'test-instance') return json(res, 201, { testInstance: await proposals.createTestInstance(proposalId, { hermesProfileName: String(input.hermesProfileName || '').trim() || null }) });
+      if (action === 'test-evidence') return json(res, 200, { proposal: await proposals.recordTestEvidence(proposalId, input) });
       return json(res, 200, { proposal: await proposals.recordAcceptance(proposalId, input) });
     }
     if (req.method === 'POST' && req.url === '/api/tasks') { const input = await body(req); if (!isLocalAddress(req.socket.remoteAddress) && !String(input.requesterName || '').trim()) throw new ValidationError('局域网协作者请先填写自己的称呼。'); return json(res, 201, { task: await tasks.create(input) }); }

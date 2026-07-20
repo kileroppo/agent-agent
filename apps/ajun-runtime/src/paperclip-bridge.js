@@ -65,8 +65,9 @@ export class PaperclipBridge {
     const projection = proposal.governance;
     if (!projection?.paperclipIssueId) return projection || { status: 'not_projected' };
     try {
+      const evidence = (proposal.audit || []).filter((item) => item.action === 'test_evidence_recorded').at(-1);
       await this.request(`/api/issues/${encodeURIComponent(projection.paperclipIssueId)}`, {
-        method: 'PATCH', body: { status: proposal.status === 'active' ? 'done' : proposal.status === 'needs_revision' || proposal.status === 'rejected' ? 'blocked' : 'backlog', comment: `A君创建闭环状态：${proposal.status}。草案 ID：${proposal.proposalId}` }
+        method: 'PATCH', body: { status: proposal.status === 'active' ? 'done' : proposal.status === 'needs_revision' || proposal.status === 'rejected' ? 'blocked' : 'backlog', comment: `A君创建闭环状态：${proposal.status}。草案 ID：${proposal.proposalId}${evidence ? `\n${evidence.detail}` : ''}` }
       });
       return { ...projection, status: 'synced', syncedAt: new Date().toISOString() };
     } catch (error) { return { ...projection, status: 'sync_pending', reason: safeError(error), syncedAt: new Date().toISOString() }; }

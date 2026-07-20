@@ -5,7 +5,7 @@
   "localProfile": {
     "created": true,
     "gatewayStarted": false,
-    "credentialedTransportVerified": false,
+    "credentialedTransportVerified": true,
     "skillsSeeded": false
   },
   "agentProposalRef": "runtime://agent-proposals/dab109e8-12ce-48c0-8e38-64f86b095d17",
@@ -22,6 +22,11 @@
     "capabilityAllowlist": ["content.public.fetch"],
     "maxRuns": 1,
     "externalSpendAllowed": false
+  },
+  "model": {
+    "provider": "openai-codex",
+    "default": "gpt-5.4",
+    "verifiedForRestrictedAcceptance": true
   },
   "secrets": {
     "source": "profile-environment-only",

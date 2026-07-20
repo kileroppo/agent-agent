@@ -83,6 +83,20 @@ export class AgentProposalService {
     return updated;
   }
 
+  async recordTestEvidence(proposalId, { artifactTitle, artifactRef } = {}) {
+    const proposal = await this.get(proposalId);
+    if (proposal.status !== 'testing') throw new ProposalValidationError('只有测试中的草案可以登记测试产物。');
+    if (!artifactTitle || !artifactRef) throw new ProposalValidationError('测试产物必须提供标题与引用。');
+    const instance = (await this.store.listTestInstances()).find((item) => item.proposalId === proposalId && item.status === 'ready');
+    if (!instance) throw new ProposalValidationError('请先准备受限测试实例。');
+    const evidence = [...(instance.evidence || []), { title: String(artifactTitle).slice(0, 160), ref: String(artifactRef).slice(0, 500), recordedAt: this.now().toISOString() }];
+    await this.store.updateTestInstance(instance.testInstanceId, { evidence });
+    const audit = [...(proposal.audit || []), { at: this.now().toISOString(), actor: 'operator', action: 'test_evidence_recorded', detail: `已登记测试产物：${evidence.at(-1).title}；尚未激活。` }];
+    let updated = await this.store.updateProposal(proposalId, { audit });
+    if (this.governance) updated = await this.store.updateProposal(proposalId, { governance: await this.governance.updateProposal(updated) });
+    return updated;
+  }
+
   async reject(proposalId, decisionBy = 'A君') { return this.transition(proposalId, 'rejected', decisionBy, '负责人拒绝草案；未启动任何运行实例。'); }
   async get(proposalId) { const proposal = (await this.store.listProposals()).find((item) => item.proposalId === proposalId); if (!proposal) throw new ProposalValidationError('找不到 Agent 草案。'); return proposal; }
 
