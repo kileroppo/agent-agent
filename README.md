@@ -44,8 +44,10 @@ agent-agent/
 - [Agent军团总 PRD](./tasks/prd-agent-army-master.md)
 - [M1 小D飞书业务闭环 PRD](./tasks/prd-m1-xiaod-feishu-closure.md)
 - [M2 A君独立运行时、通用连接与内容获取、治理控制面 PRD](./tasks/prd-m2-authorization-connectors.md)
+- [M2 第一批 Agent 创建与治理闭环 PRD](./tasks/prd-m2-first-batch-agent-governance.md)
 - [M2 通用访问底座实施计划](./docs/plans/m2-common-access-foundation-implementation-plan.md)
 - [M2 军团运行骨架实施约定](./docs/plans/m2-army-runtime-skeleton-plan.md)
+- [M2 第一批 Agent 创建与治理闭环实施计划](./docs/plans/m2-first-batch-agent-governance-plan.md)
 - [任务与 PRD 状态](./tasks/README.md)
 
 ### 设计

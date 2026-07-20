@@ -7,6 +7,8 @@ export class TaskStore {
 
   async list() { await this.pendingMutation; return (await this.read()).tasks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); }
   async listApprovals() { await this.pendingMutation; return (await this.read()).approvals.sort((a, b) => b.createdAt.localeCompare(a.createdAt)); }
+  async listProposals() { await this.pendingMutation; return (await this.read()).proposals.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); }
+  async listTestInstances() { await this.pendingMutation; return (await this.read()).testInstances.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); }
 
   async createTask(task) {
     return this.mutate(async () => {
@@ -43,6 +45,44 @@ export class TaskStore {
     });
   }
 
+  async createProposal(proposal) {
+    return this.mutate(async () => {
+      const data = await this.read(); const now = new Date().toISOString();
+      if (proposal.sourceEventRef) {
+        const existing = data.proposals.find((item) => item.sourceEventRef === proposal.sourceEventRef);
+        if (existing) return existing;
+      }
+      const record = { schemaVersion: 'agent.army/proposal/v1', proposalId: crypto.randomUUID(), version: 1, reviewRefs: [], audit: [], createdAt: now, updatedAt: now, ...proposal };
+      data.proposals.push(record); await this.write(data); return record;
+    });
+  }
+
+  async updateProposal(proposalId, patch) {
+    return this.mutate(async () => {
+      const data = await this.read(); const proposal = data.proposals.find((item) => item.proposalId === proposalId);
+      if (!proposal) throw new Error('找不到 Agent 草案。');
+      Object.assign(proposal, patch, { updatedAt: new Date().toISOString() });
+      await this.write(data); return proposal;
+    });
+  }
+
+  async createTestInstance(instance) {
+    return this.mutate(async () => {
+      const data = await this.read(); const now = new Date().toISOString();
+      const record = { schemaVersion: 'agent.army/test-instance/v1', testInstanceId: crypto.randomUUID(), createdAt: now, updatedAt: now, ...instance };
+      data.testInstances.push(record); await this.write(data); return record;
+    });
+  }
+
+  async updateTestInstance(testInstanceId, patch) {
+    return this.mutate(async () => {
+      const data = await this.read(); const instance = data.testInstances.find((item) => item.testInstanceId === testInstanceId);
+      if (!instance) throw new Error('找不到受限测试实例。');
+      Object.assign(instance, patch, { updatedAt: new Date().toISOString() });
+      await this.write(data); return instance;
+    });
+  }
+
   async mutate(operation) {
     const previous = this.pendingMutation;
     let release;
@@ -53,8 +93,11 @@ export class TaskStore {
   }
 
   async read() {
-    try { return JSON.parse(await fs.readFile(this.filePath, 'utf8')); }
-    catch (error) { if (error.code === 'ENOENT') return { tasks: [], approvals: [] }; throw error; }
+    try {
+      const data = JSON.parse(await fs.readFile(this.filePath, 'utf8'));
+      return { tasks: [], approvals: [], proposals: [], testInstances: [], ...data };
+    }
+    catch (error) { if (error.code === 'ENOENT') return { tasks: [], approvals: [], proposals: [], testInstances: [] }; throw error; }
   }
 
   async write(data) {

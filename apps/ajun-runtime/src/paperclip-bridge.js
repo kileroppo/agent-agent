@@ -42,6 +42,43 @@ export class PaperclipBridge {
     } catch { return { status: 'offline', version: null }; }
   }
 
+  async projectProposal(proposal) {
+    try {
+      const company = await this.companyForRuntime();
+      const issue = await this.request(`/api/companies/${company.id}/issues`, {
+        method: 'POST', body: {
+          title: `招聘审核：${proposal.candidateManifest.name}`,
+          description: describeProposal(proposal), status: 'blocked', priority: 'medium'
+        }
+      });
+      const approval = await this.request(`/api/companies/${company.id}/approvals`, {
+        method: 'POST', body: {
+          type: 'request_board_approval', issueIds: [issue.id],
+          payload: { source: 'ajun-runtime', proposalId: proposal.proposalId, candidateAgentId: proposal.candidateManifest.agentId, requestedCapabilities: proposal.requestedCapabilities, desiredSkills: proposal.desiredSkills, budgetPolicy: proposal.budgetPolicy }
+        }
+      });
+      return { status: 'synced', paperclipIssueId: issue.id, paperclipIssueIdentifier: issue.identifier, paperclipApprovalId: approval.id, syncedAt: new Date().toISOString() };
+    } catch (error) { return { status: 'sync_pending', reason: safeError(error), syncedAt: new Date().toISOString() }; }
+  }
+
+  async updateProposal(proposal) {
+    const projection = proposal.governance;
+    if (!projection?.paperclipIssueId) return projection || { status: 'not_projected' };
+    try {
+      await this.request(`/api/issues/${encodeURIComponent(projection.paperclipIssueId)}`, {
+        method: 'PATCH', body: { status: proposal.status === 'active' ? 'done' : proposal.status === 'needs_revision' || proposal.status === 'rejected' ? 'blocked' : 'backlog', comment: `A君创建闭环状态：${proposal.status}。草案 ID：${proposal.proposalId}` }
+      });
+      return { ...projection, status: 'synced', syncedAt: new Date().toISOString() };
+    } catch (error) { return { ...projection, status: 'sync_pending', reason: safeError(error), syncedAt: new Date().toISOString() }; }
+  }
+
+  async approveProposal(proposal, decisionNote = '负责人批准受限测试；不代表生产上线。') {
+    const approvalId = proposal.governance?.paperclipApprovalId;
+    if (!approvalId) throw new Error('Paperclip 审核投影不存在，不能绕过组织级批准。');
+    await this.request(`/api/approvals/${encodeURIComponent(approvalId)}/approve`, { method: 'POST', body: { decisionNote } });
+    return { ...proposal.governance, status: 'synced', paperclipApprovalStatus: 'approved', syncedAt: new Date().toISOString() };
+  }
+
   async update(task) {
     const projection = task.governance;
     if (!projection?.paperclipIssueId) return projection || { status: 'not_projected' };
@@ -120,6 +157,18 @@ function describe(task) {
   ];
   if (task.input.description) parts.push(`说明：${task.input.description}`);
   return parts.join('\n\n');
+}
+
+function describeProposal(proposal) {
+  return [
+    '由飞书/A君创建入口生成的 Agent 草案。此条仅用于组织级审核；不包含原始聊天、凭据、Cookie 或业务素材。',
+    `草案 ID：${proposal.proposalId}`,
+    `候选岗位：${proposal.candidateManifest.name}（${proposal.candidateManifest.agentId}）`,
+    `目标：${proposal.requestedOutcome}`,
+    `能力：${proposal.requestedCapabilities.join('、') || '无外部能力'}`,
+    `Skills：${proposal.desiredSkills.join('、') || '无'}`,
+    `验收：${proposal.acceptanceTask.title}`
+  ].join('\n\n');
 }
 
 function priorityFor(priority) { return ({ low: 'low', high: 'high', urgent: 'urgent' })[priority] || 'medium'; }

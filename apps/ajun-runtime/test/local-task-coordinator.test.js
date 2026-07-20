@@ -35,3 +35,12 @@ test('协调官把岗位能力评估交给架构师', async () => {
   assert.equal(record.recommendedAgentId, 'architect');
   assert.equal(record.externalActionStarted, false);
 });
+
+test('协调官识别创建 Agent 请求但只建议创建草案', async () => {
+  const coordinator = new LocalTaskCoordinator();
+  const result = await coordinator.execute({ taskId:'task-create', createdAt:'2026-07-20T00:00:00.000Z', input:{ title:'创建一个公开资料报告 Agent', description:'每日输出摘要', sourceUrl:null } });
+  const record = result.artifactRefs[0].data;
+  assert.equal(record.recommendedTaskType, 'governance.agent-proposal');
+  assert.equal(record.recommendedAgentId, 'creator');
+  assert.match(record.nextAction, /不会直接创建生产 Agent/);
+});

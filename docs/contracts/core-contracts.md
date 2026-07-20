@@ -46,6 +46,28 @@
 
 Manifest 不保存 secret，也不直接嵌入不可审计的长 Prompt；Prompt 使用版本化引用。
 
+### 2.1 AgentProposalContract
+
+定义由飞书创建入口和治理 Agent 生成的新岗位草案。它不是已上线 Agent，不能拥有生产运行、外部账号或未批准权限。
+
+| 字段 | 必填 | 含义 |
+| --- | --- | --- |
+| `proposalId` | 是 | 稳定草案 ID |
+| `sourceEventRef` | 飞书入口是 | 飞书创建请求的安全引用与幂等关联；本机草案入口可为空 |
+| `requestedOutcome` | 是 | 用户希望新岗位持续产出的可验证结果 |
+| `candidateManifest` | 是 | 待审核的 AgentManifest 快照 |
+| `promptRef` | 是 | 版本化 Prompt 草案引用 |
+| `desiredSkills` | 是 | 仅可引用已审核公司技能库中的候选 Skills |
+| `runtimePlan` | 是 | Hermes/A君/其他运行时及隔离方式 |
+| `requestedCapabilities` | 是 | 需要的受控本机能力与连接动作 |
+| `budgetPolicy` | 是 | 测试与上线后的预算上限 |
+| `acceptanceTask` | 是 | 受限测试任务、预期产物和质量门禁 |
+| `status` | 是 | `idea`、`draft`、`pending_approval`、`testing`、`active`、`needs_revision`、`rejected` |
+| `reviewRefs` / `paperclipAgentRef` | 否 | 审核和 Paperclip Agent 记录引用 |
+| `createdAt` / `updatedAt` | 是 | ISO 8601 时间 |
+
+状态推进仅允许：`idea → draft → pending_approval → testing → active`。审核拒绝进入 `rejected`；草案、测试或验收失败进入 `needs_revision`。`active` 的前提是负责人批准、运行时隔离实例可用、验收任务通过、预算和工具白名单已生效。不得把自然语言需求、私密上下文、Cookie、token 或浏览器会话复制到草案。
+
 ## 3. TaskContract
 
 ### 3.1 核心字段
@@ -118,6 +140,24 @@ delivering
 - `stage`：失败阶段；
 - `causeRef`：原始错误或日志引用；
 - `occurredAt`：发生时间。
+
+### 3.5 PaperclipTaskProjection
+
+定义进入组织级治理的最小任务信封。仅当任务跨 Agent、需要长任务调度、预算、审批、暂停/终止或跨岗位审计时才创建或关联该投影；低风险、单 Agent、可立即完成的飞书请求不应仅为记录而增加 Paperclip 中转。
+
+| 字段 | 必填 | 含义 |
+| --- | --- | --- |
+| `taskId` | 是 | 对应 TaskContract 的稳定 ID |
+| `sourceEventRef` | 是 | 飞书或其他入口事件的安全引用，用于幂等关联 |
+| `governanceReasons` | 是 | 触发组织级治理的原因集合 |
+| `assigneeAgentId` | 是 | 当前负责人 |
+| `statusSummary` | 是 | 不含业务细节的组织级状态摘要 |
+| `budgetRef` / `approvalRefs` | 否 | 关联预算与审批引用 |
+| `artifactRefs` | 否 | 已验证产物的安全引用 |
+| `failureSummary` | 否 | 脱敏失败分类与恢复状态 |
+| `paperclipIssueRef` | 否 | 已创建或关联的 Paperclip 任务引用 |
+
+不得将原始聊天正文、媒体文件、字幕全文、Cookie、token、浏览器会话或业务 checkpoint 写入该投影。Paperclip 的终态不能覆盖业务存储中的产物验证结果。
 
 ## 4. ArtifactContract
 

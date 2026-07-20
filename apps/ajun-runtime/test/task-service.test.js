@@ -34,6 +34,15 @@ test('治理台不可用不阻断任务登记，留下待同步记录', async ()
   const { service } = setup({ agents:[coordinator], governance }); const task = await service.create({ title:'登记治理任务', taskType:'army.route-task' });
   assert.equal(task.governance.status, 'sync_pending');
 });
+test('简单小D业务任务不重复投影到 Paperclip，治理任务才进入组织总控', async () => {
+  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  let projected = 0;
+  const governance = { async project() { projected += 1; return { status:'synced' }; }, async health() { return { status:'ready' }; } };
+  const { service } = setup({ agents:[xiaod], governance });
+  service.executors.xiaod = { async execute() { return { status:'needs_input', currentStage:'source_url_required' }; } };
+  const task = await service.create({ title:'整理公开视频', taskType:'media.transcribe-and-refine' });
+  assert.equal(projected, 0); assert.equal(task.governance, undefined);
+});
 test('已启用的运维官会完成低风险健康任务并留下报告', async () => {
   const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
   const governance = { async project() { return { status: 'synced', paperclipIssueId: 'issue-1' }; }, async update(task) { return task.governance; }, async health() { return { status: 'ready', version: 'test' }; } };

@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { PublicWebFetch, PublicWebFetchError } from '../src/public-web-fetch.js';
+
+function response(body, type = 'text/html; charset=utf-8') { return new Response(body, { status: 200, headers: { 'content-type': type } }); }
+
+test('公开网页能力只返回脱敏公开正文，不返回查询参数', async () => {
+  const fetcher = new PublicWebFetch({ fetchImpl: async () => response('<html><title>示例</title><body><script>secret()</script><h1>公开正文</h1></body></html>') });
+  const result = await fetcher.acquire({ sourceUrl: 'https://example.com/article?private=ignored' });
+  assert.equal(result.title, '示例'); assert.match(result.text, /公开正文/); assert.doesNotMatch(result.text, /secret/); assert.equal(result.sourceRef, 'https://example.com/article');
+});
+
+test('公开网页能力拒绝内网、本机和非网页内容', async () => {
+  const fetcher = new PublicWebFetch({ fetchImpl: async () => response('binary', 'application/pdf') });
+  await assert.rejects(() => fetcher.acquire({ sourceUrl: 'http://127.0.0.1:4321/private' }), PublicWebFetchError);
+  await assert.rejects(() => fetcher.acquire({ sourceUrl: 'https://example.com/file.pdf' }), /HTML/);
+});

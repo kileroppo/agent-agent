@@ -13,7 +13,7 @@
 
 - Goal: 把飞书作为用户日常调用 Agent 的入口，把 Paperclip 作为组织、任务、heartbeat、预算、审批与审计的唯一总控；A君作为可扩展的本机能力底座，只保留连接授权、内容获取、组件健康、执行适配、结果诊断和恢复。
 - User constraints: 小D转录已经可用，不重做它；截图是飞书原生聊天侧栏，不单独做一模一样的目录页；新造轮子前先查有没有现成能力；不要用文档替代实际推进。
-- Done means: 用户能从飞书中现有的 Agent 会话发起至少一种真实业务请求；小D的既有转录流程不被改坏；对应任务能进入 Paperclip 管理链路或明确记录其尚未接入的边界。
+- Done means: 用户能从飞书中现有的 Agent 会话发起至少一种真实业务请求；小D的既有转录流程不被改坏；简单单 Agent 请求不被强制插入 Paperclip，符合组织级治理条件的任务能以最小信封进入其管理链路。
 - Exact next action: 先查飞书官方对机器人/应用会话的真实能力，并核对本仓库小D现有飞书接入，确定“把小D作为飞书会话入口”所需的最小接线；不得克隆截图中的会话侧栏。
 - Continue only when: 使用官方资料和现有代码确认可行入口；若需要新建飞书应用、进入管理后台、发消息或改权限，先取得所有者对该外部操作的明确授权。
 
@@ -38,7 +38,7 @@
 ## Completed and decided
 
 - Completed scope: Paperclip `2026.707.0` 以私有 loopback 模式运行；`A君本机健康官` 通过内置 HTTP Adapter 完成 `AGE-18` 的“任务分配 → heartbeat → A君低风险检查 → 回报同一任务 → done”闭环。重复 heartbeat 按任务 ID 去重。
-- Durable decisions and invariants: Paperclip 是唯一军团总控；飞书是日常派活与交付入口；A君不是第二套组织图、任务队列、排程、预算、审批或审计后台，其页面只承担授权、组件健康、恢复和脱敏诊断；新增本机能力必须经由能力、连接、内容、执行和恢复契约扩展；小D是已可用的业务 Agent，后续只接入口与治理，不重写转录能力。
+- Durable decisions and invariants: Paperclip 是唯一军团总控，但不是每条飞书消息的必经中转；低风险、单 Agent、可立即完成的请求直达 Hermes，跨 Agent、长任务、预算、审批、暂停/终止或统一审计需求才以事件幂等键进入 Paperclip 最小任务信封；飞书是日常派活与交付入口；A君不是第二套组织图、任务队列、排程、预算、审批或审计后台，其页面只承担授权、组件健康、恢复和脱敏诊断；新增本机能力必须经由能力、连接、内容、执行和恢复契约扩展；小D是已可用的业务 Agent，后续只接入口与治理，不重写转录能力。
 - Important changed files: `apps/ajun-runtime/src/paperclip-heartbeat.js`、`apps/ajun-runtime/src/paperclip-bridge.js`、`apps/ajun-runtime/src/server.js`、`apps/ajun-runtime/test/paperclip-heartbeat.test.js`；相关 M2 文档见下列入口。
 - Existing artifacts to read instead of duplicating here: `docs/handoffs/current/m2-authorization-connectors-planning-handoff.md`（M2总接手事实）、`tasks/prd-agent-army-master.md`、`tasks/prd-m2-authorization-connectors.md`、`docs/plans/m2-army-runtime-skeleton-plan.md`、`integrations/feishu/README.md`。
 

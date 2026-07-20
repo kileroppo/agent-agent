@@ -65,8 +65,9 @@ Agent军团要建立的不是一批聊天机器人，而是一套有组织、有
 ```mermaid
 flowchart LR
     U["A 君 / 团队成员"] --> FC["飞书业务入口<br/>消息、群聊、文档评论、结果交付"]
-    FC --> PC["Paperclip 军团总控<br/>目标、组织、任务、heartbeat、预算、审批、审计"]
-    PC --> RT["执行运行时适配层<br/>Hermes、Codex、Claude、Cursor、OpenClaw、脚本、HTTP"]
+    FC --> RT["运行时适配层<br/>Hermes、Codex、Claude、Cursor、OpenClaw、脚本、HTTP"]
+    FC -.跨 Agent / 长任务 / 预算审批审计.-> PC["Paperclip 军团总控<br/>目标、组织、任务、heartbeat、预算、审批、审计"]
+    PC --> RT
     RT --> M["AI 模型<br/>Codex 或其他适配模型"]
     RT --> SK["岗位 Skills 与业务工具"]
     RT --> LC["Lark CLI / 飞书开放能力"]
@@ -127,7 +128,7 @@ Codex 的首要角色是 A 君和技术 Agent 的工程工作台，用于创建�
 ```text
 用户在飞书发起任务
 → 识别目标岗位与任务类型
-→ 在 Paperclip 建立可追踪任务
+→ 简单单 Agent 请求直达 Hermes；跨 Agent、长任务或需治理的请求在 Paperclip 建立最小可追踪任务
 → Hermes 加载岗位身份、记忆和工具
 → Agent 执行业务步骤
 → 进行岗位质量检查
@@ -213,7 +214,7 @@ Codex 的首要角色是 A 君和技术 Agent 的工程工作台，用于创建�
 
 ```text
 A 君把音视频链接发给飞书里的小D
-→ 小D确认收到并创建 Paperclip 任务
+→ 小D确认收到并直接创建本地业务任务；只有满足组织级治理条件时才创建或关联 Paperclip 任务
 → Hermes 调用现有转录流水线
 → 任务过程持续回写状态和 heartbeat
 → 小D创建飞书文档并验证权限
@@ -225,7 +226,7 @@ A 君把音视频链接发给飞书里的小D
 ### 8.4 第一阶段验收标准
 
 1. A 君只在飞书中发送一次链接即可发起任务。
-2. Paperclip 中能看到对应任务、负责人、状态和执行记录。
+2. 需要组织级治理的任务在 Paperclip 中能看到负责人、状态和执行记录；简单小D任务保留本地任务与飞书交付证据即可。
 3. Agent 中断后不会静默消失，能够标记失败、说明原因并安全重试。
 4. 最终交付的是可打开、目录正常、权限正确的飞书文档，并经过独立只读回查验证。
 5. Paperclip 中保留文档链接、耗时、模型/工具使用和异常记录。

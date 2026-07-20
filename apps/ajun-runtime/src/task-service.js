@@ -23,21 +23,21 @@ export class TaskService {
       await this.store.createApproval({ taskId: task.taskId, action: 'manual-risk-review', riskLevel: 'high', reason: '任务描述包含高风险动作，必须人工确认范围。', requestedBy: 'task-coordinator', approverScope: 'A君', requestedScope: { taskType, title }, validUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() });
       task = (await this.store.list()).find((item) => item.taskId === task.taskId);
     }
-    if (this.governance) {
+    if (this.governance && shouldProjectToPaperclip(task)) {
       const approval = task.approvalRefs.length ? (await this.store.listApprovals()).find((item) => item.approvalId === task.approvalRefs[0]) : null;
       task = await this.store.updateTask(task.taskId, { governance: await this.governance.project(task, approval) });
     }
     const executor = agent?.status === 'active' ? this.executors[agent.agentId] : null;
     if (executor && task.status !== 'waiting_approval') {
       task = await this.store.updateTask(task.taskId, { status: 'running', currentStage: 'starting', execution: { executor: agent.agentId, startedAt: new Date().toISOString() } });
-      if (this.governance) task = await this.store.updateTask(task.taskId, { governance: await this.governance.update(task) });
+      if (this.governance && task.governance?.paperclipIssueId) task = await this.store.updateTask(task.taskId, { governance: await this.governance.update(task) });
       try {
         task = await this.store.updateTask(task.taskId, await executor.execute(task));
         if (task.status === 'running' && typeof executor.observe === 'function') executor.observe(task);
       } catch (error) {
         task = await this.store.updateTask(task.taskId, { status: 'failed', currentStage: 'execution_failed', error: { code: 'executor_failed', message: String(error?.message || '执行器失败。'), userMessage: '本地任务未能完成，请查看安全诊断。', category: 'manual', stage: 'execution', occurredAt: new Date().toISOString() } });
       }
-      if (this.governance) task = await this.store.updateTask(task.taskId, { governance: await this.governance.update(task) });
+      if (this.governance && task.governance?.paperclipIssueId) task = await this.store.updateTask(task.taskId, { governance: await this.governance.update(task) });
     }
     return task;
   }
@@ -71,7 +71,7 @@ export class TaskService {
     const task = (await this.store.list()).find((item) => item.taskId === approval.taskId);
     if (!task) throw new ValidationError('找不到关联任务。');
     let updated = await this.store.updateTask(task.taskId, { status:'cancelled', currentStage:'approval_rejected', error:{ code:'approval_rejected', message:'本机主人拒绝了当前审批范围。', userMessage:'这项高风险任务已被拒绝并关闭，未执行任何外部动作。', category:'manual', stage:'approval', occurredAt:new Date().toISOString() } });
-    if (this.governance) updated = await this.store.updateTask(updated.taskId, { governance: await this.governance.update(updated) });
+    if (this.governance && updated.governance?.paperclipIssueId) updated = await this.store.updateTask(updated.taskId, { governance: await this.governance.update(updated) });
     return updated;
   }
 
@@ -81,6 +81,7 @@ export class TaskService {
       { id: 'task-coordination', name: '统一任务协调', status: 'ready', detail: '创建、路由和状态真相已就绪。' },
       { id: 'agent-registry', name: '岗位注册表', status: 'ready', detail: '岗位职责、任务类型和权限边界从 Manifest 读取。' },
       { id: 'approval-gate', name: '审批闸门', status: 'ready', detail: '高风险描述先进入待审批，不自动执行。' },
+      { id: 'content-public-web-fetch', name: '公开网页内容获取', status: 'ready', detail: '仅读取公开 HTML/纯文本，拒绝内网、登录态和非网页内容。' },
       { id: 'governance', name: 'Paperclip 治理投影', status: governance.status, detail: governance.status === 'ready' ? `本机 Paperclip 已连接（${governance.version || '未知版本'}）。` : 'Paperclip 未连接；任务仍可登记，后续可补同步。' },
       { id: 'external-execution', name: '外部执行', status: 'planned', detail: 'Hermes、授权连接和外部动作尚未接入。' }
     ] };
@@ -90,6 +91,9 @@ export class TaskService {
 export class ValidationError extends Error {}
 function cryptoSafe(value) { return Buffer.from(value).toString('base64url').slice(0, 24); }
 function extractPublicUrl(value) { return String(value).match(/https?:\/\/[^\s<>"]+/i)?.[0]?.replace(/[),.;，。；]+$/, '') || ''; }
+function shouldProjectToPaperclip(task) {
+  return Boolean(task.approvalRefs?.length) || task.source?.channel === 'paperclip' || task.taskType.startsWith('governance.') || task.taskType.startsWith('army.');
+}
 
 function buildTaskFocus(tasks, approvals) {
   const counts = Object.fromEntries(['queued', 'running', 'waiting_approval', 'needs_input', 'succeeded', 'failed'].map((status) => [status, tasks.filter((task) => task.status === status).length]));

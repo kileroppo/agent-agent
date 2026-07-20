@@ -9,6 +9,7 @@
 | [Agent军团总 PRD](./prd-agent-army-master.md) | 长期目标、M0–M4、全局边界和成功指标 | 已确认 |
 | [M1 小D飞书业务闭环 PRD](./prd-m1-xiaod-feishu-closure.md) | M1 用户故事、功能要求和验收 | 已确认，首批实装中，待真实环境验收 |
 | [M2 A君独立运行时、通用连接与内容获取、治理控制面 PRD](./prd-m2-authorization-connectors.md) | Paperclip 军团总控、A君本地执行适配、账号连接、双通道内容获取、运维治理与验收 | 实施中：已验证一个 Paperclip HTTP Agent 调度 A君完成本机健康任务；外部验收与其他岗位执行接入待进行 |
+| [M2 第一批 Agent 创建与治理闭环 PRD](./prd-m2-first-batch-agent-governance.md) | 飞书创建请求、治理 Agent、Paperclip 审核、受限测试实例与上线门禁 | 已确认，待实施 |
 
 M2 当前优先把 Paperclip 接成军团总控，并用 A君完成一个本机业务执行适配闭环；不继续扩张 A君 的组织、排程、预算、审批或审计页面。YouTube 与 MediaCrawlerPro 的单点外部验收已按负责人决定后置。
 
