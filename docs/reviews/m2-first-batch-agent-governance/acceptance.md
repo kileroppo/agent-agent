@@ -14,12 +14,13 @@
 | 未批准不可建测试实例；失败验收不能上线 | 自动化测试 | 通过 |
 | Paperclip 审核投影 | 本机 Paperclip 创建了审核任务 `AGE-19` 与审批记录；审批状态读取为 `approved` | 通过 |
 | Hermes 隔离身份 | 本机创建 `publicreport` Profile；无 Skills，Gateway 停止；未复制生产配置 | 通过 |
+| 飞书创建入口连通性 | 隔离 `xiaod` Hermes Gateway 已真实建立飞书长连接；创建官路由补丁通过语法、幂等和本机入口测试 | 连接通过；真实入站待验收 |
 | A君公开网页能力 | 对 `https://example.com/` 实际返回公开正文；对 `127.0.0.1` 请求返回 422 拒绝 | 通过 |
 | 小D直达边界 | TaskService 回归测试确认简单小D任务不投影 Paperclip | 通过 |
 
 ## 尚未通过或未执行
 
-- 真实飞书入站消息尚未接到创建官入口：当前以本机 `POST /api/feishu/agent-proposals` 模拟 Hermes/飞书适配器调用，不能称为真实飞书验收。
+- 真实飞书入站消息尚未接到创建官入口：Gateway 已连通，但尚未收到一条真实“创建 Agent”消息，因此不能称为完整飞书验收。
 - `publicreport` Profile 未配置独立模型身份，未运行 Hermes 业务生成；因此没有真实“公开链接 → 报告产物 → 飞书交付”证据。
 - 首个候选岗位保持 `testing`，没有创建正式 Manifest、生产 Profile 或飞书路由。
 

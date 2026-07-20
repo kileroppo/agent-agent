@@ -13,6 +13,8 @@ M1 约束：
 - 不读取或复用个人默认 Profile；
 - REST/插件接口不暴露公网。
 
+M2 创建官入口见 [飞书创建 Agent 强制路由](./ajun-feishu-agent-proposal-router.md)。它把特定飞书文本直接交给 A君草案门禁，不让模型自行上线 Agent。
+
 ## Profile 作用域注意事项
 
 本机验证发现，单独设置 `HERMES_PROFILE=xiaod` 不足以让所有 Hermes CLI 命令切换到隔离 Profile；通用状态命令仍可能读取默认环境。小D的启动与验收必须显式使用其独立 Profile 目录作为 Hermes Home，不能把通用 `hermes status` 的输出当作小D Profile 的凭据或模型证明。
