@@ -10,7 +10,7 @@
 ## Continue with this
 
 - Goal: 用一个飞书“ A君·军团总管”证明“手机命令 → Mac 路由 → Agent 执行 → 飞书结果”的日常闭环；创建 Agent 再走 Paperclip 审核、受限测试与上线。
-- Exact next action: 在手机飞书确认“检查系统状态”的同会话回执；随后发送“外发本次健康摘要”点击 local 审批卡，再发送“公开发布系统摘要”点击组织级审批卡，确认卡片点击后 Paperclip 审批状态与 A君任务状态一致。最后发送“小D整理 + 公开链接”和“创建一个 Agent”。
+- Exact next action: 在手机飞书搜索并私聊“ A君·军团总管”，发送“检查系统状态”并确认同会话回执；随后发送“外发本次健康摘要”点击 local 审批卡，再发送“公开发布系统摘要”点击组织级审批卡，确认卡片点击后 Paperclip 审批状态与 A君任务状态一致。最后发送“小D整理 + 公开链接”和“创建一个 Agent”。
 - Continue only when: Mac 运行时保持本机受控；测试仍保持公开、只读、无生产账号；不得把模型配置、密钥或飞书用户信息写入仓库、日志或验收记录。
 
 ## 已确认决策
@@ -28,7 +28,7 @@
 | --- | --- | --- |
 | 文档与契约 | 第一批 PRD、飞书手机控制流程、审批分流 ADR、`AgentProposalContract`、治理 SOP 已写入；已明确 Paperclip 离线时组织级请求必须等待治理、不可降级为 local | 组织级 Paperclip 卡待实现 |
 | 本机运行时 | 创建草案、状态机、受限测试实例、公开网页能力与防内网读取已验证；`publicreport` 已生成受限报告产物；军团总管可路由三类命令并以飞书事件幂等；local 审批批准后只恢复原任务；飞书卡补丁与回调 API 已接通 | 真实手机点击待验证 |
-| 外部平台 | Paperclip 审核任务与批准记录曾真实创建；2026-07-21 已恢复为 `ai.agent-army.paperclip` LaunchAgent，`127.0.0.1:3100` 健康检查通过；Hermes 隔离 Profile 已创建；xiaod Gateway 已连接飞书长连接；军团总管已收到一条真实飞书健康检查并使运维官完成任务 | 飞书回执可见性、local/组织级真实卡片点击、小D/创建 Agent 真实路由与候选 Agent 上线未验证 |
+| 外部平台 | Paperclip 审核任务与批准记录曾真实创建；2026-07-21 已恢复为 `ai.agent-army.paperclip` LaunchAgent；Hermes 隔离 Profile 已创建。独立的“ A君·军团总管”飞书机器人已启用长连接消息订阅，本机 Hermes 已建立 WebSocket 连接 | 飞书搜索/私聊、回执可见性、local/组织级真实卡片点击、小D/创建 Agent 真实路由与候选 Agent 上线未验证 |
 
 ## 当前本机运行事实（2026-07-21）
 
@@ -37,6 +37,7 @@
 - 本机已实测军团总管“检查系统状态”返回运维结果，重复事件不二次执行；另已实测 `waiting_approval → approve → health_report_ready`；
 - 这些是本机运行证据，不等同于飞书用户收到消息。真实入站仍须由飞书客户端发送一条命令验证。
 - Paperclip 已恢复：`ai.agent-army.paperclip` 以 `--no-repair` 常驻运行，`127.0.0.1:3100/health` 返回 200。组织级飞书审批服务层会先调用 Paperclip 原生 approve/reject API，再更新 A君任务；真实手机点击尚未验证。
+- “ A君·军团总管”现为独立飞书应用，而非此前挂接的 Hermes 应用；本机凭证仅在当前用户 LaunchAgent 中保存，未进入仓库或交接材料。机器人能力、长连接接收消息事件和发布确认已完成，Hermes 已建立 WebSocket 连接；是否已在用户飞书客户端可搜索和可收回执，仍需用一条真实私聊验收。
 
 ## 风险与关闭条件
 
