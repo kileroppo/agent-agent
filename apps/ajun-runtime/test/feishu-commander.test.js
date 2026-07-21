@@ -42,3 +42,14 @@ test('缺少飞书事件引用时拒绝登记，避免重复副作用', async ()
   const { commander } = setup();
   await assert.rejects(() => commander.handle({ text: '检查系统状态' }), FeishuCommanderValidationError);
 });
+
+test('待审批飞书任务会返回可渲染的 local 审批卡摘要', async () => {
+  const approval = { approvalId:'approval-1', status:'pending', governanceMode:'local', action:'manual-risk-review', riskLevel:'high', reason:'需要确认范围。', requestedScope:{ taskType:'operations.health-review' }, validUntil:'2030-01-01T00:00:00.000Z' };
+  const commander = new FeishuCommander({
+    tasks: { async create() { return { taskId:'task-approval', status:'waiting_approval', approvalRefs:['approval-1'], input:{ sourceUrl:null }, artifactRefs:[] }; } },
+    proposals: {}, store: { async listApprovals() { return [approval]; } }
+  });
+  const result = await commander.handle({ text:'外发系统健康摘要', sourceEventRef:'feishu:approval-1', chatRef:'chat-safe-ref' });
+  assert.equal(result.approval.approvalId, 'approval-1');
+  assert.equal(result.approval.governanceMode, 'local');
+});

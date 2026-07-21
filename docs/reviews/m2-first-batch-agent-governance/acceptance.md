@@ -20,7 +20,8 @@
 | 小D直达边界 | TaskService 回归测试确认简单小D任务不投影 Paperclip | 通过 |
 | 飞书军团总管本机切片 | `FeishuCommander` 自动化测试覆盖“小D素材、系统检查、创建 Agent、缺稳定事件引用拒绝”；任务存储覆盖飞书事件幂等；A君 `POST /api/feishu/commander` 在本机 `4331` 返回 422 输入校验 | 通过代码与本机接口验证 |
 | 飞书健康检查真实入站 | A君任务记录中已有一条 `source.channel=feishu` 的任务，带稳定事件引用，路由为 `operations.health-review → operator → health_report_ready → succeeded`；无审批、无 Paperclip 投影 | 飞书入站与 Mac 执行通过；原会话回执是否可见尚待手机侧确认 |
-| 普通审批本机恢复 | 自动化测试覆盖 local / Paperclip 分流、范围校验、过期/重复拒绝与批准后单次执行；本机 `POST /api/tasks` → `waiting_approval` → `POST /api/approvals/:id/approve` 实测由运维官完成健康报告 | 通过本机运行验证；尚未连到飞书卡片按钮 |
+| 普通审批本机恢复 | 自动化测试覆盖 local / Paperclip 分流、范围校验、过期/重复拒绝与批准后单次执行；本机 `POST /api/tasks` → `waiting_approval` → `POST /api/approvals/:id/approve` 实测由运维官完成健康报告 | 通过本机运行验证 |
+| 飞书 local 审批卡链路 | Hermes 复用现有交互卡与回调能力，已安装审批卡补丁并通过 Python 语法校验；A君 `POST /api/feishu/commander` 返回 `local` 卡片摘要，`POST /api/feishu/approvals/:id/approve` 以同会话引用恢复任务并实测成功 | 代码、适配器与本机回调接口通过；真实手机点击待验证 |
 | A君常驻运行 | `ops/launchd/ai.agent-army.ajun-runtime.plist` 通过 `plutil` 校验，已安装为当前用户 LaunchAgent；监听者工作目录为本仓库 `apps/ajun-runtime`，仅监听 `127.0.0.1:4321` | 通过本机运行验证 |
 | 飞书手机控制设计 | 已确认单一“ A君·军团总管”入口、普通审批 local / 组织级审批 Paperclip 分流，见 `docs/adr/0005-feishu-mobile-command-and-approval-boundary.md` | 设计已确认，未实现 |
 
@@ -30,7 +31,7 @@
 - 尚未获得真实“飞书创建请求 → 报告产物 → 飞书交付”证据：当前报告来自受限本机验收输入。
 - 首个候选岗位保持 `testing`，没有创建正式 Manifest、生产 Profile 或飞书路由。
 - 飞书军团总管补丁已安装、入口已配置，并已收到一条真实健康检查入站；尚缺手机侧确认同会话回执，以及小D与创建 Agent 两条真实命令，不能称为完整手机控制军团闭环。
-- 飞书审批卡、卡片按钮幂等回调、Mac 离线状态和组织级审批卡均未实现；当前 local 审批只能由 A君本机界面/API处理，不能冒充为手机审批闭环。
+- local 飞书审批卡与回调已实现但未收到真实手机点击证据；Mac 离线状态和组织级 Paperclip 审批卡仍未实现，不能称为完整手机审批闭环。
 
 ## 唯一下一步
 

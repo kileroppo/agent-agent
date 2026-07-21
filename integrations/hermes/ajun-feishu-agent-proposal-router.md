@@ -15,6 +15,8 @@ AJUN_FEISHU_COMMANDER_INGRESS_URL=http://127.0.0.1:4321/api/feishu/commander \
 
 每条任务用 `feishu:<message-id>` 幂等；普通小D和本机健康检查不投影 Paperclip。创建 Agent 只创建幂等的 `AgentProposal` 并提交 Paperclip 审核；不会创建生产 Agent、外部连接或权限。
 
+当 A君 返回 `local` 一次性审批时，适配器会在同一会话发送“批准本次范围 / 拒绝并关闭”交互卡。按钮回调只调用本机 A君审批接口，带飞书会话与决定人引用；A君会二次校验审批状态、有效期、范围和原会话后才恢复任务。`paperclip` 审批不会被这张 local 卡放行，仍由 Paperclip 决定。
+
 未配置军团总管入口时，可保留旧的“只拦截创建 Agent”兼容入口：
 
 ```sh

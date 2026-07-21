@@ -57,19 +57,21 @@ export class TaskService {
     });
   }
 
-  async rejectApproval(approvalId) {
+  async rejectApproval(approvalId, { decisionBy = 'A君', decisionReason = '本机主人拒绝当前请求范围。', chatRef = '' } = {}) {
     const approval = (await this.store.listApprovals()).find((item) => item.approvalId === approvalId);
     if (!approval) throw new ValidationError('找不到这条审批。');
     if (approval.status !== 'pending') throw new ValidationError('这条审批已经处理过了。');
-    await this.store.updateApproval(approvalId, { status:'rejected', decisionBy:'A君', decisionReason:'本机主人拒绝当前请求范围。', decidedAt:new Date().toISOString() });
     const task = (await this.store.list()).find((item) => item.taskId === approval.taskId);
     if (!task) throw new ValidationError('找不到关联任务。');
+    if (approval.governanceMode === 'paperclip' && chatRef) throw new ValidationError('这条组织级审批必须在 Paperclip 完成决定，不能由本机直接拒绝。');
+    validateApprovalChat(task, chatRef);
+    await this.store.updateApproval(approvalId, { status:'rejected', decisionBy:String(decisionBy).slice(0, 120), decisionReason:String(decisionReason).slice(0, 300), decidedAt:new Date().toISOString() });
     let updated = await this.store.updateTask(task.taskId, { status:'cancelled', currentStage:'approval_rejected', error:{ code:'approval_rejected', message:'本机主人拒绝了当前审批范围。', userMessage:'这项高风险任务已被拒绝并关闭，未执行任何外部动作。', category:'manual', stage:'approval', occurredAt:new Date().toISOString() } });
     if (this.governance && updated.governance?.paperclipIssueId) updated = await this.store.updateTask(updated.taskId, { governance: await this.governance.update(updated) });
     return updated;
   }
 
-  async approveApproval(approvalId, { decisionBy = 'A君', decisionReason = '已确认本次范围。' } = {}) {
+  async approveApproval(approvalId, { decisionBy = 'A君', decisionReason = '已确认本次范围。', chatRef = '' } = {}) {
     const approval = (await this.store.listApprovals()).find((item) => item.approvalId === approvalId);
     if (!approval) throw new ValidationError('找不到这条审批。');
     if (approval.governanceMode === 'paperclip') throw new ValidationError('这条组织级审批必须在 Paperclip 完成决定，不能由本机直接放行。');
@@ -80,6 +82,7 @@ export class TaskService {
     }
     const task = (await this.store.list()).find((item) => item.taskId === approval.taskId);
     if (!task) throw new ValidationError('找不到关联任务。');
+    validateApprovalChat(task, chatRef);
     validateApprovalScope(task, approval);
     await this.store.updateApproval(approvalId, { status:'approved', decisionBy:String(decisionBy).slice(0, 120), decisionReason:String(decisionReason).slice(0, 300), decidedAt:new Date().toISOString() });
     const agent = (await this.registry.list()).find((item) => item.agentId === task.assigneeAgentId) || null;
@@ -128,6 +131,10 @@ function validateApprovalScope(task, approval) {
   if (scope.taskType !== task.taskType || scope.title !== task.input?.title || scope.assigneeAgentId !== (task.assigneeAgentId || null)) {
     throw new ValidationError('审批范围与当前任务不一致，未执行任务。');
   }
+}
+function validateApprovalChat(task, chatRef) {
+  const expected = String(task.source?.chatRef || '').trim(); const actual = String(chatRef || '').trim();
+  if (actual && expected && actual !== expected) throw new ValidationError('审批卡会话与原任务不一致，未执行任务。');
 }
 
 function buildTaskFocus(tasks, approvals) {

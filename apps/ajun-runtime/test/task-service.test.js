@@ -43,6 +43,13 @@ test('公开发布等组织级审批投影 Paperclip，不能由本机直接放�
   assert.equal(task.status, 'waiting_approval'); assert.equal(records.approvals[0].governanceMode, 'paperclip'); assert.equal(projected, 1);
   await assert.rejects(() => service.approveApproval(records.approvals[0].approvalId), /Paperclip/);
 });
+test('飞书审批卡不能跨会话批准原任务', async () => {
+  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  const { service, records } = setup({ agents:[operator] });
+  const task = await service.create({ title:'外发本次健康摘要', taskType:'operations.health-review', source:{ channel:'feishu', chatRef:'chat-a' } });
+  await assert.rejects(() => service.approveApproval(records.approvals[0].approvalId, { chatRef:'chat-b' }), /会话与原任务不一致/);
+  assert.equal(task.status, 'waiting_approval');
+});
 test('本机主人拒绝审批会关闭任务，不会执行任务', async () => {
   const { service, records } = setup({ agents:[coordinator] }); const task = await service.create({ title:'向外发布周报', taskType:'army.route-task' });
   const closed = await service.rejectApproval(records.approvals[0].approvalId);

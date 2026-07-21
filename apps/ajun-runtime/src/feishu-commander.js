@@ -3,7 +3,7 @@ const HEALTH_RE = /健康|状态|服务|运行|paperclip|检查系统/i;
 const MEDIA_RE = /视频|音频|转录|字幕|整理素材|youtube|bilibili|抖音|快手|transcri/i;
 
 export class FeishuCommander {
-  constructor({ tasks, proposals } = {}) { this.tasks = tasks; this.proposals = proposals; }
+  constructor({ tasks, proposals, store } = {}) { this.tasks = tasks; this.proposals = proposals; this.store = store; }
 
   async handle(input) {
     const text = String(input?.text || '').trim();
@@ -18,7 +18,9 @@ export class FeishuCommander {
       title: text, description: '', taskType, requester, source,
       idempotencyKey: `feishu:${sourceEventRef}`
     });
-    return replyFor(task, taskType);
+    const result = replyFor(task, taskType);
+    const approval = task.status === 'waiting_approval' ? await this.approvalFor(task) : null;
+    return approval ? { ...result, approval } : result;
   }
 
   async createProposal({ text, sourceEventRef }) {
@@ -29,6 +31,18 @@ export class FeishuCommander {
       reply: submitted.status === 'pending_approval'
         ? `已生成 Agent 草案「${submitted.proposalId}」并提交组织级审核；通过受限测试前不会上线。`
         : `已找到 Agent 草案「${submitted.proposalId}」，当前状态：${submitted.status}。`
+    };
+  }
+
+  async approvalFor(task) {
+    const approvalId = task.approvalRefs?.[0];
+    if (!approvalId || !this.store) return null;
+    const approval = (await this.store.listApprovals()).find((item) => item.approvalId === approvalId && item.status === 'pending');
+    if (!approval) return null;
+    return {
+      approvalId: approval.approvalId, governanceMode: approval.governanceMode,
+      action: approval.action, riskLevel: approval.riskLevel, reason: approval.reason,
+      requestedScope: approval.requestedScope, validUntil: approval.validUntil
     };
   }
 }

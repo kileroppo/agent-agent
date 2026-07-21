@@ -28,7 +28,7 @@ const operator = new LocalHealthOperator({ governance });
 const proposals = new AgentProposalService({ store, registry, governance });
 const publicWebFetch = new PublicWebFetch();
 const tasks = new TaskService({ registry, store, governance, executors: { operator, xiaod, creator: new LocalCreator({ proposals }), 'task-coordinator': new LocalTaskCoordinator(), reviewer: new LocalReviewer(), architect: new LocalArchitect({ registry }) } });
-const commander = new FeishuCommander({ tasks, proposals });
+const commander = new FeishuCommander({ tasks, proposals, store });
 const paperclipHeartbeat = new PaperclipHeartbeatHandler({ operator, governance });
 const port = Number(process.env.PORT || 4321);
 const host = process.env.AJUN_HOST || '0.0.0.0';
@@ -80,6 +80,13 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && rejectMatch) { if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error:'只有本机主人可以拒绝审批。' }); return json(res, 200, { task: await tasks.rejectApproval(rejectMatch[1]) }); }
     const approveMatch = req.url?.match(/^\/api\/approvals\/([0-9a-f-]+)\/approve$/i);
     if (req.method === 'POST' && approveMatch) { if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error:'只有本机主人可以批准审批。' }); return json(res, 200, { task: await tasks.approveApproval(approveMatch[1], await body(req)) }); }
+    const feishuApprovalMatch = req.url?.match(/^\/api\/feishu\/approvals\/([0-9a-f-]+)\/(approve|reject)$/i);
+    if (req.method === 'POST' && feishuApprovalMatch) {
+      if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error:'飞书审批回调只能由本机 Hermes 适配器调用。' });
+      const [, approvalId, action] = feishuApprovalMatch; const input = await body(req);
+      const options = { decisionBy: String(input.requesterRef || 'feishu-approver'), decisionReason: '由飞书审批卡确认。', chatRef: String(input.chatRef || '') };
+      return json(res, 200, { task: action === 'approve' ? await tasks.approveApproval(approvalId, options) : await tasks.rejectApproval(approvalId, options) });
+    }
     const continueMatch = req.url?.match(/^\/api\/tasks\/([0-9a-f-]+)\/continue$/i);
     if (req.method === 'POST' && continueMatch) return json(res, 201, { task: await tasks.continueFromRecommendation(continueMatch[1]) });
     if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) return file(res, 'index.html', 'text/html; charset=utf-8');
