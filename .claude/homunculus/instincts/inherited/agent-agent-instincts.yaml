@@ -1,0 +1,483 @@
+# Instincts generated from https://github.com/kileroppo/agent-agent
+# Generated: 2026-07-21T00:56:29.147Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: agent-agent-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/kileroppo/agent-agent
+---
+
+# Agent Agent Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: feat, fix, docs
+
+## Evidence
+
+- 6 commits analyzed
+- Detected conventional commit pattern
+- Examples: feat: add M2 agent runtime foundation, fix: harden public web fetch boundary
+
+---
+id: agent-agent-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/kileroppo/agent-agent
+---
+
+# Agent Agent Commit Length
+
+## Action
+
+Keep commit messages concise (~41 characters)
+
+## Evidence
+
+- Average commit message length: 41 chars
+- Based on 6 commits
+
+---
+id: agent-agent-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/kileroppo/agent-agent
+---
+
+# Agent Agent Naming Files
+
+## Action
+
+Use camelCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: camelCase
+
+---
+id: agent-agent-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/kileroppo/agent-agent
+---
+
+# Agent Agent Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: agent-agent-test-naming
+trigger: "when creating a test file"
+confidence: 0.85
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/kileroppo/agent-agent
+---
+
+# Agent Agent Test Naming
+
+## Action
+
+Name test files using the pattern: *.test.js
+
+## Evidence
+
+- File pattern: *.test.js
+- Consistent across test files
+
+---
+id: agent-agent-test-types
+trigger: "when planning tests for a feature"
+confidence: 0.7
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/kileroppo/agent-agent
+---
+
+# Agent Agent Test Types
+
+## Action
+
+Write unit, integration tests to match project standards
+
+## Evidence
+
+- Test types detected: unit, integration
+- Coverage config: no
+
+---
+id: agent-agent-workflow-feature-development
+trigger: "when implementing a new feature"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/kileroppo/agent-agent
+---
+
+# Agent Agent Workflow Feature Development
+
+## Action
+
+Follow the feature-development workflow:
+1. Add feature implementation
+2. Add tests for feature
+3. Update documentation
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~25x per month
+- Files: **/*.test.*, **/api/**
+
+---
+id: agent-agent-workflow-add-new-agent
+trigger: "when doing add new agent"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/kileroppo/agent-agent
+---
+
+# Agent Agent Workflow Add New Agent
+
+## Action
+
+Follow the add-new-agent workflow:
+1. Create or update agent directory under agents/
+2. Add or update manifest.json and prompts/system.md for the agent
+3. Add or update README.md for the agent
+4. Update or create corresponding runtime integration files in apps/ajun-runtime/src/ (e.g., local-<agent>.js, agent-proposal-service.js)
+5. Add or update related tests in apps/ajun-runtime/test/
+6. Update system documentation (docs/architecture/, docs/design/, docs/handoffs/, etc.)
+7. Update tasks and plans as needed
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: agents/*/manifest.json, agents/*/prompts/system.md, agents/*/README.md
+
+---
+id: agent-agent-workflow-update-agent-governance-or-workflow
+trigger: "when doing update agent governance or workflow"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/kileroppo/agent-agent
+---
+
+# Agent Agent Workflow Update Agent Governance Or Workflow
+
+## Action
+
+Follow the update-agent-governance-or-workflow workflow:
+1. Update or add governance workflow documentation in docs/handoffs/current/ and docs/reviews/
+2. Update or add acceptance criteria in docs/reviews/<workflow>/acceptance.md
+3. Update or add implementation plan in docs/plans/
+4. Update or add PRD in tasks/
+5. Update or add related runtime logic in apps/ajun-runtime/src/
+6. Update or add related tests in apps/ajun-runtime/test/
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: docs/handoffs/current/*-handoff.md, docs/reviews/*/acceptance.md, docs/plans/*.md
+
+---
+id: agent-agent-workflow-integrate-or-update-external-adapter
+trigger: "when doing integrate or update external adapter"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/kileroppo/agent-agent
+---
+
+# Agent Agent Workflow Integrate Or Update External Adapter
+
+## Action
+
+Follow the integrate-or-update-external-adapter workflow:
+1. Add or update adapter implementation in integrations/<adapter>/
+2. Add or update test files for the adapter
+3. Add or update adapter documentation (README.md, profiles, scripts)
+4. Update related handoff or review documentation if needed
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: integrations/*/*.js, integrations/*/*.md, integrations/*/test/*.test.*
+
+---
+id: agent-agent-instinct-file-naming-camelCase
+trigger: "When creating or renaming a file in the codebase (excluding classes and constants)"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: kileroppo/agent-agent
+---
+
+# Agent Agent Instinct File Naming CamelCase
+
+## Action
+
+Use camelCase for file names
+
+## Evidence
+
+- Pattern in namingConventions.files: camelCase
+
+---
+id: agent-agent-instinct-function-naming-camelCase
+trigger: "When defining a function"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: kileroppo/agent-agent
+---
+
+# Agent Agent Instinct Function Naming CamelCase
+
+## Action
+
+Name the function using camelCase
+
+## Evidence
+
+- Pattern in namingConventions.functions: camelCase
+
+---
+id: agent-agent-instinct-class-naming-PascalCase
+trigger: "When defining a class"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: kileroppo/agent-agent
+---
+
+# Agent Agent Instinct Class Naming PascalCase
+
+## Action
+
+Name the class using PascalCase
+
+## Evidence
+
+- Pattern in namingConventions.classes: PascalCase
+
+---
+id: agent-agent-instinct-constant-naming-SCREAMING_SNAKE_CASE
+trigger: "When defining a constant"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: kileroppo/agent-agent
+---
+
+# Agent Agent Instinct Constant Naming SCREAMING_SNAKE_CASE
+
+## Action
+
+Name the constant using SCREAMING_SNAKE_CASE
+
+## Evidence
+
+- Pattern in namingConventions.constants: SCREAMING_SNAKE_CASE
+
+---
+id: agent-agent-instinct-import-style-mixed
+trigger: "When importing modules"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: kileroppo/agent-agent
+---
+
+# Agent Agent Instinct Import Style Mixed
+
+## Action
+
+Use either default or named imports as appropriate (mixed style)
+
+## Evidence
+
+- Pattern in importStyle: mixed
+
+---
+id: agent-agent-instinct-export-named
+trigger: "When exporting functions or objects"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: kileroppo/agent-agent
+---
+
+# Agent Agent Instinct Export Named
+
+## Action
+
+Use named exports
+
+## Evidence
+
+- Pattern in exportStyle: named
+
+---
+id: agent-agent-instinct-test-file-pattern
+trigger: "When creating a test file"
+confidence: 0.9
+domain: testing
+source: repo-analysis
+source_repo: kileroppo/agent-agent
+---
+
+# Agent Agent Instinct Test File Pattern
+
+## Action
+
+Name the test file with the pattern *.test.js
+
+## Evidence
+
+- Pattern in testing.filePattern: *.test.js
+- Files like apps/ajun-runtime/test/*.test.js
+
+---
+id: agent-agent-instinct-test-types-unit-integration
+trigger: "When writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: kileroppo/agent-agent
+---
+
+# Agent Agent Instinct Test Types Unit Integration
+
+## Action
+
+Write both unit and integration tests as appropriate
+
+## Evidence
+
+- Pattern in testing.testTypes: unit, integration
+
+---
+id: agent-agent-instinct-commit-conventional-format
+trigger: "When making a git commit"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: kileroppo/agent-agent
+---
+
+# Agent Agent Instinct Commit Conventional Format
+
+## Action
+
+Use conventional commit prefixes: feat, fix, or docs
+
+## Evidence
+
+- Pattern in commits.prefixes: feat, fix, docs
+- Examples: 'feat: add M2 agent runtime foundation'
+
+---
+id: agent-agent-instinct-commit-average-length
+trigger: "When writing a commit message"
+confidence: 0.7
+domain: git
+source: repo-analysis
+source_repo: kileroppo/agent-agent
+---
+
+# Agent Agent Instinct Commit Average Length
+
+## Action
+
+Keep the commit message concise (around 41 characters on average)
+
+## Evidence
+
+- Pattern in commits.averageLength: 41
+
+---
+id: agent-agent-instinct-add-new-agent-workflow
+trigger: "When someone wants to introduce a new agent role or capability"
+confidence: 0.95
+domain: workflow
+source: repo-analysis
+source_repo: kileroppo/agent-agent
+---
+
+# Agent Agent Instinct Add New Agent Workflow
+
+## Action
+
+Follow the add-new-agent workflow: create/update agent directory, manifest, prompts, documentation, runtime integration, tests, and update system docs and plans
+
+## Evidence
+
+- Workflow: add-new-agent
+- Files: agents/*/manifest.json, apps/ajun-runtime/src/local-*.js, etc.
+
+---
+id: agent-agent-instinct-update-governance-workflow
+trigger: "When someone wants to change or add governance processes for agent creation or operation"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: kileroppo/agent-agent
+---
+
+# Agent Agent Instinct Update Governance Workflow
+
+## Action
+
+Follow the update-agent-governance-or-workflow: update governance docs, acceptance criteria, implementation plan, PRD, runtime logic, and related tests
+
+## Evidence
+
+- Workflow: update-agent-governance-or-workflow
+- Files: docs/handoffs/current/*-handoff.md, docs/reviews/*/acceptance.md, etc.
+
+---
+id: agent-agent-instinct-integrate-update-adapter-workflow
+trigger: "When someone wants to connect to or modify an external system or service"
+confidence: 0.85
+domain: workflow
+source: repo-analysis
+source_repo: kileroppo/agent-agent
+---
+
+# Agent Agent Instinct Integrate Update Adapter Workflow
+
+## Action
+
+Follow the integrate-or-update-external-adapter workflow: update adapter implementation, tests, documentation, and related handoff/review docs
+
+## Evidence
+
+- Workflow: integrate-or-update-external-adapter
+- Files: integrations/*/*.js, integrations/*/test/*.test.*, etc.
+
