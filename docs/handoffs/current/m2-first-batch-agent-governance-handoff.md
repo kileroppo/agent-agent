@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 实施中：本机治理闭环、军团总管路由与 local 审批恢复已验证；飞书审批与真实业务验收待完成 |
+| 状态 | 实施中：本机治理闭环、军团总管路由与 local 审批恢复已验证；Paperclip 当前离线待恢复，飞书审批与真实业务验收待完成 |
 | 创建时间 | 2026-07-20 CST |
 | 关联 PRD | `tasks/prd-m2-first-batch-agent-governance.md` |
 | 关联计划 | `docs/plans/m2-first-batch-agent-governance-plan.md` |
@@ -10,7 +10,7 @@
 ## Continue with this
 
 - Goal: 用一个飞书“ A君·军团总管”证明“手机命令 → Mac 路由 → Agent 执行 → 飞书结果”的日常闭环；创建 Agent 再走 Paperclip 审核、受限测试与上线。
-- Exact next action: 在手机飞书确认已发送的“检查系统状态”是否收到同会话回执；随后发送“外发本次健康摘要”并点击 local 审批卡，验证真实卡片发送/点击；再分别发送“小D整理 + 公开链接”和“创建一个 Agent”。
+- Exact next action: 先定位并恢复既有 Paperclip 本机启动入口（不初始化、不迁移数据），复验 3100 健康与既有低风险 heartbeat；与此同时可在手机飞书确认“检查系统状态”的同会话回执，并发送“外发本次健康摘要”点击 local 审批卡。Paperclip 恢复后才验证“创建一个 Agent”的组织级审批卡。
 - Continue only when: Mac 运行时保持本机受控；测试仍保持公开、只读、无生产账号；不得把模型配置、密钥或飞书用户信息写入仓库、日志或验收记录。
 
 ## 已确认决策
@@ -26,9 +26,9 @@
 
 | 层级 | 当前事实 | 未完成 |
 | --- | --- | --- |
-| 文档与契约 | 第一批 PRD、飞书手机控制流程、审批分流 ADR、`AgentProposalContract`、治理 SOP 已写入 | 组织级 Paperclip 卡待实现 |
+| 文档与契约 | 第一批 PRD、飞书手机控制流程、审批分流 ADR、`AgentProposalContract`、治理 SOP 已写入；已明确 Paperclip 离线时组织级请求必须等待治理、不可降级为 local | 组织级 Paperclip 卡待实现 |
 | 本机运行时 | 创建草案、状态机、受限测试实例、公开网页能力与防内网读取已验证；`publicreport` 已生成受限报告产物；军团总管可路由三类命令并以飞书事件幂等；local 审批批准后只恢复原任务；飞书卡补丁与回调 API 已接通 | 真实手机点击待验证 |
-| 外部平台 | Paperclip 审核任务与批准记录已真实创建；Hermes 隔离 Profile 已创建；xiaod Gateway 已连接飞书长连接；军团总管已收到一条真实飞书健康检查并使运维官完成任务 | 飞书回执可见性、小D/创建 Agent 真实路由与候选 Agent 上线未验证 |
+| 外部平台 | Paperclip 审核任务与批准记录曾真实创建；Hermes 隔离 Profile 已创建；xiaod Gateway 已连接飞书长连接；军团总管已收到一条真实飞书健康检查并使运维官完成任务 | 2026-07-21 快照中 Paperclip `127.0.0.1:3100` 无监听；还需恢复后复验。飞书回执可见性、小D/创建 Agent 真实路由与候选 Agent 上线未验证 |
 
 ## 当前本机运行事实（2026-07-21）
 
@@ -36,8 +36,9 @@
 - A君当前由 `ai.agent-army.ajun-runtime` LaunchAgent 在 `127.0.0.1:4321` 运行，工作目录为本仓库 `apps/ajun-runtime`；启动项来源为 `ops/launchd/ai.agent-army.ajun-runtime.plist`，不向局域网开放；
 - 本机已实测军团总管“检查系统状态”返回运维结果，重复事件不二次执行；另已实测 `waiting_approval → approve → health_report_ready`；
 - 这些是本机运行证据，不等同于飞书用户收到消息。真实入站仍须由飞书客户端发送一条命令验证。
+- Paperclip 的历史闭环不能视为当前运行态：2026-07-21 本机检查显示 `127.0.0.1:3100` 无监听，且未发现 Paperclip LaunchAgent；恢复前组织级审批和新 Agent 上线保持等待治理。
 
 ## 风险与关闭条件
 
-- 风险：当前 Paperclip 本机版本、飞书卡片回调、飞书统一入口和 Hermes Profile 自动创建能力均需实测，不能从文档推断可用；
+- 风险：Paperclip 当前本机启动入口尚未定位，3100 无监听；飞书卡片回调、飞书统一入口和 Hermes Profile 自动创建能力也均需实测，不能从文档推断可用；
 - 关闭条件：手机飞书可完成三条首批命令与一次 local 审批；首个新 Agent 经 Paperclip 审核、受限测试、真实飞书调用和产物验证后上线；失败、拒绝和权限不足路径也有可验证记录；小D回归通过。
