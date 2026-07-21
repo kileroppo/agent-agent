@@ -1,0 +1,20 @@
+{
+  "type": "design",
+  "designSystems": [],
+  "primaryDesignSystem": null,
+  "assets": {
+    "feishu-mobile-army-control": {
+      "versions": [
+        {
+          "path": "feishu-mobile-army-control.html",
+          "createdAt": "2026-07-21T00:53:57.640Z",
+          "status": "needs-review",
+          "subtitle": "飞书手机控制 Agent 军团的应用架构、日常流程与审批流程",
+          "section": "architecture"
+        }
+      ]
+    }
+  },
+  "createdAt": "2026-07-21T00:53:57.640Z",
+  "updatedAt": "2026-07-21T00:53:57.640Z"
+}
