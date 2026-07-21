@@ -24,6 +24,8 @@ test('小D只在任务记录完成后开始跟踪下游任务', async () => {
   });
   const result = await delegate.execute({ taskId: 'task-1', input: { sourceUrl: 'https://example.com/video' }, routing: {} });
   assert.equal(result.status, 'running');
+  assert.equal(result.execution.polling.state, 'pending');
+  assert.equal(result.execution.polling.consecutiveFailures, 0);
   assert.equal(started.length, 0);
   delegate.observe({ taskId: 'task-1', execution: result.execution });
   assert.deepEqual(started, [{ taskId: 'task-1', xiaodJobId: 'xiaod-1' }]);

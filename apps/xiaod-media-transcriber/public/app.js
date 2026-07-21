@@ -154,7 +154,7 @@ function renderJob(job) {
   if (job.output?.guidePath) { const link = document.createElement('a'); link.className = 'link-button'; link.href = `/api/jobs/${job.id}/download/guide`; link.textContent = '内容导览'; actions.append(link); }
   if (job.output?.proofreadPath) { const link = document.createElement('a'); link.className = 'link-button'; link.href = `/api/jobs/${job.id}/download/proofread`; link.textContent = '校对文本'; actions.append(link); }
   if (job.output?.larkUrl) { const link = document.createElement('a'); link.className = 'link-button'; link.href = job.output.larkUrl; link.target = '_blank'; link.rel = 'noreferrer'; link.textContent = '打开飞书'; actions.append(link); }
-  if (['failed', 'completed'].includes(job.status)) { const retry = document.createElement('button'); retry.className = 'secondary'; retry.textContent = '重新处理'; retry.onclick = () => retryJob(job.id); actions.append(retry); }
+  if (job.status === 'failed' && job.failure?.retryable === true) { const retry = document.createElement('button'); retry.className = 'secondary'; retry.textContent = '重试任务'; retry.onclick = () => retryJob(job.id); actions.append(retry); }
   const log = card.querySelector('.job-log ol'); job.log.slice().reverse().forEach((item) => { const li = document.createElement('li'); li.textContent = `${new Date(item.at).toLocaleString()} · ${item.message}`; log.append(li); });
   jobsEl.append(card);
 }

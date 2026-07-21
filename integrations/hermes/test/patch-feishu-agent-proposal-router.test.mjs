@@ -36,10 +36,13 @@ test('Hermes 飞书补丁把单一军团总管文本路由到本机 A君入口�
   assert.equal(applyPatch(patched), patched);
 });
 
-test('总管补丁可升级为 A君 local 审批卡与按钮回调', () => {
+test('总管补丁可升级为 local 与 Paperclip 组织级审批卡', () => {
   const upgraded = applyPatch(applyPatch(fixture));
   assert.match(upgraded, /_send_ajun_approval_card/);
+  assert.match(upgraded, /AJUN_APPROVAL_CARD_V2/);
   assert.match(upgraded, /ajun_approval_action/);
+  assert.match(upgraded, /governance_mode/);
+  assert.match(upgraded, /governance-approvals/);
   assert.match(upgraded, /_resolve_ajun_approval/);
   assert.equal(applyPatch(upgraded), upgraded);
 });

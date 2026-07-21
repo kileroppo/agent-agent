@@ -43,6 +43,30 @@ test('公开发布等组织级审批投影 Paperclip，不能由本机直接放�
   assert.equal(task.status, 'waiting_approval'); assert.equal(records.approvals[0].governanceMode, 'paperclip'); assert.equal(projected, 1);
   await assert.rejects(() => service.approveApproval(records.approvals[0].approvalId), /Paperclip/);
 });
+test('组织级飞书决定必须先回写 Paperclip，批准后才恢复原任务', async () => {
+  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  let resolved = 0; let executed = 0;
+  const governance = {
+    async project() { return { status:'synced', paperclipIssueId:'issue-1', paperclipApprovalId:'paperclip-approval-1' }; },
+    async resolveApproval(id, decision) { resolved += 1; assert.equal(id, 'paperclip-approval-1'); assert.equal(decision, 'approve'); return { status:'approved' }; },
+    async update(task) { return task.governance; }, async health() { return { status:'ready' }; }
+  };
+  const { service, records } = setup({ agents:[operator], governance });
+  service.executors.operator = { async execute() { executed += 1; return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[] }; } };
+  const task = await service.create({ title:'公开发布系统摘要', taskType:'operations.health-review', source:{ channel:'feishu', chatRef:'chat-a' } });
+  const result = await service.resolvePaperclipApproval(records.approvals[0].approvalId, 'approve', { decisionBy:'feishu-user', chatRef:'chat-a' });
+  assert.equal(resolved, 1); assert.equal(executed, 1); assert.equal(records.approvals[0].status, 'approved'); assert.equal(result.status, 'succeeded');
+});
+test('组织级拒绝先回写 Paperclip，关闭任务且不执行', async () => {
+  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  let resolved = 0;
+  const governance = { async project() { return { status:'synced', paperclipIssueId:'issue-1', paperclipApprovalId:'paperclip-approval-1' }; }, async resolveApproval(_id, decision) { resolved += 1; assert.equal(decision, 'reject'); return { status:'rejected' }; }, async update(task) { return task.governance; }, async health() { return { status:'ready' }; } };
+  const { service, records } = setup({ agents:[operator], governance });
+  service.executors.operator = { async execute() { throw new Error('must not run'); } };
+  await service.create({ title:'公开发布系统摘要', taskType:'operations.health-review' });
+  const result = await service.resolvePaperclipApproval(records.approvals[0].approvalId, 'reject');
+  assert.equal(resolved, 1); assert.equal(records.approvals[0].status, 'rejected'); assert.equal(result.status, 'cancelled'); assert.equal(result.currentStage, 'governance_rejected');
+});
 test('飞书审批卡不能跨会话批准原任务', async () => {
   const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
   const { service, records } = setup({ agents:[operator] });

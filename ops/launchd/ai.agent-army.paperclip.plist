@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.agent-army.paperclip</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/pengaro/.local/bin/node</string>
+    <string>/Users/pengaro/.npm/_npx/0aa74679bec75e15/node_modules/paperclipai/dist/index.js</string>
+    <string>run</string>
+    <string>--no-repair</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/pengaro/.paperclip/instances/default/logs/paperclip.launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/pengaro/.paperclip/instances/default/logs/paperclip.launchd.error.log</string>
+</dict>
+</plist>

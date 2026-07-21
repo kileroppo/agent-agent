@@ -28,6 +28,14 @@ export function classifyFailure(error) {
   };
 }
 
+export function interruptedByRestartFailure() {
+  return {
+    category: 'retryable',
+    retryable: true,
+    recovery: '服务已恢复，可在飞书回复“重试小D任务”从安全断点继续，无需重复上传。'
+  };
+}
+
 export function canRetryJob(job) {
   return job?.status === 'failed' && job.failure?.retryable === true;
 }

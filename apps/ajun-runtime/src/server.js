@@ -11,6 +11,7 @@ import { LocalTaskCoordinator } from './local-task-coordinator.js';
 import { LocalReviewer } from './local-reviewer.js';
 import { LocalArchitect } from './local-architect.js';
 import { XiaodDelegate } from './xiaod-delegate.js';
+import { XiaodReconciler } from './xiaod-reconciler.js';
 import { PaperclipHeartbeatHandler } from './paperclip-heartbeat.js';
 import { AgentProposalService, ProposalValidationError } from './agent-proposal-service.js';
 import { LocalCreator } from './local-creator.js';
@@ -23,7 +24,8 @@ const publicDir = path.join(root, 'apps/ajun-runtime/public');
 const registry = new AgentRegistry({ agentsDir: path.join(root, 'agents') });
 const store = new TaskStore(path.join(root, 'apps/ajun-runtime/data/runtime.json'));
 const governance = new PaperclipBridge();
-const xiaod = new XiaodDelegate({ onStarted: ({ taskId, xiaodJobId }) => void followXiaod(taskId, xiaodJobId) });
+const xiaod = new XiaodDelegate({ onStarted: () => void xiaodReconciler.reconcile() });
+const xiaodReconciler = new XiaodReconciler({ store, xiaod, governance });
 const operator = new LocalHealthOperator({ governance });
 const proposals = new AgentProposalService({ store, registry, governance });
 const publicWebFetch = new PublicWebFetch();
@@ -87,6 +89,13 @@ const server = http.createServer(async (req, res) => {
       const options = { decisionBy: String(input.requesterRef || 'feishu-approver'), decisionReason: '由飞书审批卡确认。', chatRef: String(input.chatRef || '') };
       return json(res, 200, { task: action === 'approve' ? await tasks.approveApproval(approvalId, options) : await tasks.rejectApproval(approvalId, options) });
     }
+    const feishuGovernanceApprovalMatch = req.url?.match(/^\/api\/feishu\/governance-approvals\/([0-9a-f-]+)\/(approve|reject)$/i);
+    if (req.method === 'POST' && feishuGovernanceApprovalMatch) {
+      if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error:'飞书组织级审批回调只能由本机 Hermes 适配器调用。' });
+      const [, approvalId, action] = feishuGovernanceApprovalMatch; const input = await body(req);
+      const options = { decisionBy: String(input.requesterRef || 'feishu-approver'), decisionReason: '由飞书组织级审批卡确认。', chatRef: String(input.chatRef || '') };
+      return json(res, 200, { task: await tasks.resolvePaperclipApproval(approvalId, action, options) });
+    }
     const continueMatch = req.url?.match(/^\/api\/tasks\/([0-9a-f-]+)\/continue$/i);
     if (req.method === 'POST' && continueMatch) return json(res, 201, { task: await tasks.continueFromRecommendation(continueMatch[1]) });
     if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) return file(res, 'index.html', 'text/html; charset=utf-8');
@@ -96,29 +105,8 @@ const server = http.createServer(async (req, res) => {
   } catch (error) { json(res, error instanceof ValidationError || error instanceof ProposalValidationError || error instanceof PublicWebFetchError || error instanceof FeishuCommanderValidationError ? 422 : 500, { error: error.message || '运行台暂时不可用。' }); }
 });
 server.listen(port, host, () => console.log(`A君运行台：http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}${lanEnabled ? '（局域网共享已开启）' : ''}`));
+xiaodReconciler.start();
 
 async function body(req) { let raw = ''; for await (const chunk of req) raw += chunk; return raw ? JSON.parse(raw) : {}; }
 async function file(res, name, type) { res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' }); res.end(await fs.readFile(path.join(publicDir, name))); }
 function json(res, status, data) { res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }); res.end(JSON.stringify(data)); }
-
-async function followXiaod(taskId, jobId) {
-  try {
-    const job = await xiaod.getJob(jobId); const task = (await store.list()).find((item) => item.taskId === taskId);
-    if (!task) return;
-    const status = job.status === 'completed' ? 'succeeded' : job.status === 'failed' ? 'failed' : 'running';
-    const patch = {
-      status, currentStage: `xiaod_${job.status}`,
-      execution: { ...task.execution, xiaodStatus: job.status, xiaodProgress: job.progress, updatedAt: new Date().toISOString() }
-    };
-    if (status === 'succeeded') patch.artifactRefs = [{ artifactId: `xiaod-job:${job.id}`, taskId, type: 'xiaod_media_delivery', title: job.title, location: `${xiaod.baseUrl}/api/jobs/${job.id}`, mimeType: 'application/json', accessScope: 'local-owner', validation: { exists: true, readable: true, nonEmpty: Boolean(job.output?.markdownPath), qualityPassed: Boolean(job.quality?.passed) }, createdAt: new Date().toISOString() }];
-    if (status === 'failed') patch.error = { code: 'xiaod_job_failed', message: job.error?.message || '小D任务失败。', userMessage: '小D未能完成素材处理，请根据任务提示补充素材或稍后重试。', category: 'manual', stage: job.status, occurredAt: new Date().toISOString() };
-    let updated = await store.updateTask(taskId, patch);
-    updated = await store.updateTask(taskId, { governance: await governance.update(updated) });
-    if (status === 'running') setTimeout(() => void followXiaod(taskId, jobId), 3000);
-  } catch (error) {
-    const task = (await store.list()).find((item) => item.taskId === taskId);
-    if (!task || task.status !== 'running') return;
-    const updated = await store.updateTask(taskId, { status: 'failed', currentStage: 'xiaod_status_unavailable', error: { code: 'xiaod_status_unavailable', message: String(error?.message || '小D状态不可用。'), userMessage: '无法确认小D任务状态，未将其标记为完成。', category: 'manual', stage: 'delegated_to_xiaod', occurredAt: new Date().toISOString() } });
-    await store.updateTask(taskId, { governance: await governance.update(updated) });
-  }
-}

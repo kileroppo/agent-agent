@@ -90,6 +90,35 @@ export class TaskService {
     return this.executeTask(queued, agent);
   }
 
+  async resolvePaperclipApproval(approvalId, decision, { decisionBy = 'A君', decisionReason = '由飞书组织级审批卡确认。', chatRef = '' } = {}) {
+    const approval = (await this.store.listApprovals()).find((item) => item.approvalId === approvalId);
+    if (!approval) throw new ValidationError('找不到这条审批。');
+    if (approval.governanceMode !== 'paperclip') throw new ValidationError('这不是组织级审批。');
+    if (approval.status !== 'pending') throw new ValidationError('这条审批已经处理过了。');
+    if (Date.parse(approval.validUntil) <= Date.now()) {
+      await this.store.updateApproval(approvalId, { status:'expired' });
+      throw new ValidationError('这条审批已过期，未执行任务。');
+    }
+    const task = (await this.store.list()).find((item) => item.taskId === approval.taskId);
+    if (!task) throw new ValidationError('找不到关联任务。');
+    validateApprovalChat(task, chatRef); validateApprovalScope(task, approval);
+    const paperclipApprovalId = String(task.governance?.paperclipApprovalId || '').trim();
+    if (!paperclipApprovalId || !this.governance?.resolveApproval) throw new ValidationError('Paperclip 审批投影不存在，未执行任务。');
+    const normalized = String(decision || '').trim().toLowerCase();
+    if (!['approve', 'reject'].includes(normalized)) throw new ValidationError('组织级审批决定无效。');
+    await this.governance.resolveApproval(paperclipApprovalId, normalized, decisionReason);
+    if (normalized === 'reject') {
+      await this.store.updateApproval(approvalId, { status:'rejected', decisionBy:String(decisionBy).slice(0,120), decisionReason:String(decisionReason).slice(0,300), decidedAt:new Date().toISOString(), paperclipApprovalId });
+      let closed = await this.store.updateTask(task.taskId, { status:'cancelled', currentStage:'governance_rejected', error:{ code:'governance_rejected', message:'Paperclip 组织级审批已拒绝。', userMessage:'该组织级请求已被拒绝，未执行任何外部动作。', category:'manual', stage:'governance_approval', occurredAt:new Date().toISOString() } });
+      if (closed.governance?.paperclipIssueId) closed = await this.store.updateTask(closed.taskId, { governance: await this.governance.update(closed) });
+      return closed;
+    }
+    await this.store.updateApproval(approvalId, { status:'approved', decisionBy:String(decisionBy).slice(0,120), decisionReason:String(decisionReason).slice(0,300), decidedAt:new Date().toISOString(), paperclipApprovalId });
+    const agent = (await this.registry.list()).find((item) => item.agentId === task.assigneeAgentId) || null;
+    const queued = await this.store.updateTask(task.taskId, { status:'queued', currentStage:'governance_approved', error: undefined });
+    return this.executeTask(queued, agent);
+  }
+
   async executeTask(task, agent) {
     const executor = agent?.status === 'active' ? this.executors[agent.agentId] : null;
     if (!executor || task.status === 'waiting_approval') return task;

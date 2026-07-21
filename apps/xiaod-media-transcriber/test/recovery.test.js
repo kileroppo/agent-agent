@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canRetryJob, classifyFailure, retryPatch } from '../src/recovery.js';
+import { canRetryJob, classifyFailure, interruptedByRestartFailure, retryPatch } from '../src/recovery.js';
 
 test('invalid media needs a replacement instead of retrying', () => {
   const failure = classifyFailure(new Error('ffmpeg 执行失败（退出码 1）：Invalid data found when processing input'));
@@ -30,4 +30,11 @@ test('the explicit local acceptance failpoint is classified as retryable', () =>
 test('completed and non-retryable failed jobs never become retry candidates', () => {
   assert.equal(canRetryJob({ status: 'completed', failure: { retryable: true } }), false);
   assert.equal(canRetryJob({ status: 'failed', failure: { retryable: false } }), false);
+});
+
+test('a service restart produces the standard retryable failure', () => {
+  const failure = interruptedByRestartFailure();
+  assert.equal(failure.category, 'retryable');
+  assert.equal(failure.retryable, true);
+  assert.equal(canRetryJob({ status: 'failed', failure }), true);
 });

@@ -21,7 +21,10 @@ export class XiaodDelegate {
     const job = payload.job;
     return {
       status: 'running', currentStage: 'delegated_to_xiaod',
-      execution: { executor: 'xiaod', mode: 'local_media_delegate', startedAt: new Date().toISOString(), xiaodJobId: job.id, sourceUrl },
+      execution: {
+        executor: 'xiaod', mode: 'local_media_delegate', startedAt: new Date().toISOString(), xiaodJobId: job.id, sourceUrl,
+        polling: { state: 'pending', consecutiveFailures: 0, nextPollAt: new Date().toISOString() }
+      },
       artifactRefs: []
     };
   }

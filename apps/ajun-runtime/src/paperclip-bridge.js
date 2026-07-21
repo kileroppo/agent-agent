@@ -80,6 +80,15 @@ export class PaperclipBridge {
     return { ...proposal.governance, status: 'synced', paperclipApprovalStatus: 'approved', syncedAt: new Date().toISOString() };
   }
 
+  async resolveApproval(approvalId, decision, decisionNote = '由飞书组织级审批卡确认。') {
+    const normalized = String(decision || '').trim().toLowerCase();
+    if (!['approve', 'reject'].includes(normalized)) throw new Error('组织级审批决定无效。');
+    const approval = await this.request(`/api/approvals/${encodeURIComponent(String(approvalId || ''))}/${normalized}`, { method: 'POST', body: { decisionNote } });
+    const expected = normalized === 'approve' ? 'approved' : 'rejected';
+    if (approval.status !== expected) throw new Error(`Paperclip 审批未进入预期状态：${approval.status || 'unknown'}。`);
+    return approval;
+  }
+
   async update(task) {
     const projection = task.governance;
     if (!projection?.paperclipIssueId) return projection || { status: 'not_projected' };

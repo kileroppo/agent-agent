@@ -5,6 +5,7 @@ import path from 'node:path';
 const defaultAdapter = path.join(process.env.HERMES_HOME || path.join(process.env.HOME || '', '.hermes', 'hermes-agent'), 'plugins/platforms/feishu/adapter.py');
 
 export function applyPatch(source) {
+  if (source.includes('AJUN_APPROVAL_CARD_V2')) return source;
   if (source.includes('AJUN_APPROVAL_CARD_V1')) return source;
   if (source.includes('AJUN_FEISHU_COMMANDER_INGRESS_URL')) return upgradeCommanderApprovalPatch(source);
   if (source.includes('def _route_ajun_agent_proposal_event(')) return upgradeLegacyProposalPatch(source);
@@ -16,7 +17,17 @@ export function applyPatch(source) {
 }
 
 function upgradeCommanderApprovalPatch(source) {
-  let result = insert(source, '            reply = body.get("reply") if isinstance(body, dict) else None\n            if status in {200, 201, 202} and isinstance(reply, str) and reply:\n                if chat_id:\n                    await self.send(chat_id, reply, reply_to=event.message_id)\n                return True\n', '            reply = body.get("reply") if isinstance(body, dict) else None\n            approval = body.get("approval") if isinstance(body, dict) else None\n            if status in {200, 201, 202} and isinstance(reply, str) and reply:\n                if chat_id and isinstance(approval, dict) and approval.get("governanceMode") == "local":\n                    card_result = await self._send_ajun_approval_card(chat_id, approval, reply_to=event.message_id)\n                    if not card_result.success:\n                        await self.send(chat_id, reply, reply_to=event.message_id)\n                elif chat_id:\n                    await self.send(chat_id, reply, reply_to=event.message_id)\n                return True\n');
+  let result = insert(source, '            reply = body.get("reply") if isinstance(body, dict) else None\n            if status in {200, 201, 202} and isinstance(reply, str) and reply:\n                if chat_id:\n                    await self.send(chat_id, reply, reply_to=event.message_id)\n                return True\n', `            reply = body.get("reply") if isinstance(body, dict) else None
+            approval = body.get("approval") if isinstance(body, dict) else None
+            if status in {200, 201, 202} and isinstance(reply, str) and reply:
+                if chat_id and isinstance(approval, dict) and approval.get("governanceMode") in {"local", "paperclip"}:
+                    card_result = await self._send_ajun_approval_card(chat_id, approval, reply_to=event.message_id)
+                    if not card_result.success:
+                        await self.send(chat_id, reply, reply_to=event.message_id)
+                elif chat_id:
+                    await self.send(chat_id, reply, reply_to=event.message_id)
+                return True
+`);
   result = insert(result, '    async def _route_ajun_agent_proposal_event(self, event: MessageEvent) -> bool:\n', `${approvalCardMethods}\n\n    async def _route_ajun_agent_proposal_event(self, event: MessageEvent) -> bool:\n`);
   result = insert(result, '        if hermes_action:\n', '        ajun_approval_action = action_value.get("ajun_approval_action") if isinstance(action_value, dict) else None\n        if ajun_approval_action:\n            return self._handle_ajun_approval_card_action(event=event, action_value=action_value, loop=loop)\n        if hermes_action:\n');
   result = insert(result, '    def _handle_approval_card_action(self, *, event: Any, action_value: Dict[str, Any], loop: Any) -> Any:\n', `${approvalCardCallback}\n\n    def _handle_approval_card_action(self, *, event: Any, action_value: Dict[str, Any], loop: Any) -> Any:\n`);
@@ -74,7 +85,7 @@ const commanderRouter = `    async def _route_ajun_commander_event(self, event: 
             await self.send(chat_id, "军团总管暂时无法登记这条命令；未启动任何外部动作，请稍后重试。", reply_to=event.message_id)
         return True`;
 const approvalCardMethods = `    async def _send_ajun_approval_card(self, chat_id: str, approval: Dict[str, Any], *, reply_to: Optional[str] = None) -> SendResult:
-        """AJUN_APPROVAL_CARD_V1: send a one-off A君 local approval card."""
+        """AJUN_APPROVAL_CARD_V2: send a local or Paperclip-governed approval card."""
         approval_id = str(approval.get("approvalId", "") or "")
         if not approval_id:
             return SendResult(success=False, error="missing A君 approval id")
@@ -82,11 +93,15 @@ const approvalCardMethods = `    async def _send_ajun_approval_card(self, chat_i
         scope_text = str(scope.get("title") or scope.get("taskType") or "本次任务")[:500]
         reason = str(approval.get("reason") or "需要确认本次范围。")[:500]
         valid_until = str(approval.get("validUntil") or "")[:80]
+        governance_mode = str(approval.get("governanceMode") or "local")
+        is_governance = governance_mode == "paperclip"
         def _button(label: str, action: str, style: str) -> dict:
-            return {"tag": "button", "text": {"tag": "plain_text", "content": label}, "type": style, "value": {"ajun_approval_action": action, "approval_id": approval_id}}
-        card = {"config": {"wide_screen_mode": True}, "header": {"title": {"tag": "plain_text", "content": "A君 · 本次审批"}, "template": "orange"}, "elements": [
-            {"tag": "markdown", "content": f"**事项**：{scope_text}\\n**原因**：{reason}\\n**有效期**：{valid_until or '本次任务'}\\n\\n只会批准卡片所列范围，不会永久扩权。"},
-            {"tag": "action", "actions": [_button("批准本次范围", "approve", "primary"), _button("拒绝并关闭", "reject", "danger")]}
+            return {"tag": "button", "text": {"tag": "plain_text", "content": label}, "type": style, "value": {"ajun_approval_action": action, "approval_id": approval_id, "governance_mode": governance_mode}}
+        title = "A君 · 组织级审批" if is_governance else "A君 · 本次审批"
+        note = "决定会先写入 Paperclip；确认范围、有效期后才会继续任务。" if is_governance else "只会批准卡片所列范围，不会永久扩权。"
+        card = {"config": {"wide_screen_mode": True}, "header": {"title": {"tag": "plain_text", "content": title}, "template": "orange"}, "elements": [
+            {"tag": "markdown", "content": f"**事项**：{scope_text}\\n**原因**：{reason}\\n**有效期**：{valid_until or '本次任务'}\\n\\n{note}"},
+            {"tag": "action", "actions": [_button("批准所列范围", "approve", "primary"), _button("拒绝并关闭", "reject", "danger")]}
         ]}
         try:
             response = await self._feishu_send_with_retry(chat_id=chat_id, msg_type="interactive", payload=json.dumps(card, ensure_ascii=False), reply_to=reply_to, metadata=None)
@@ -97,12 +112,13 @@ const approvalCardMethods = `    async def _send_ajun_approval_card(self, chat_i
 const approvalCardCallback = `    def _handle_ajun_approval_card_action(self, *, event: Any, action_value: Dict[str, Any], loop: Any) -> Any:
         approval_id = str(action_value.get("approval_id", "") or "")
         action = str(action_value.get("ajun_approval_action", "") or "")
+        governance_mode = str(action_value.get("governance_mode", "local") or "local")
         operator = getattr(event, "operator", None)
         open_id = str(getattr(operator, "open_id", "") or "")
         chat_id = str(getattr(getattr(event, "context", None), "open_chat_id", "") or "")
-        if not approval_id or action not in {"approve", "reject"} or not self._is_interactive_operator_authorized(open_id):
+        if not approval_id or action not in {"approve", "reject"} or governance_mode not in {"local", "paperclip"} or not self._is_interactive_operator_authorized(open_id):
             return P2CardActionTriggerResponse() if P2CardActionTriggerResponse else None
-        self._submit_on_loop(loop, self._resolve_ajun_approval(approval_id, action, open_id, chat_id))
+        self._submit_on_loop(loop, self._resolve_ajun_approval(approval_id, action, open_id, chat_id, governance_mode))
         if P2CardActionTriggerResponse is None:
             return None
         response = P2CardActionTriggerResponse()
@@ -111,13 +127,14 @@ const approvalCardCallback = `    def _handle_ajun_approval_card_action(self, *,
             card.data = {"config": {"wide_screen_mode": True}, "header": {"title": {"tag": "plain_text", "content": "A君 · 审批处理中"}, "template": "blue"}, "elements": [{"tag": "markdown", "content": "已收到你的决定，正在校验范围并更新任务。"}]}
             response.card = card
         return response`;
-const approvalCardResolver = `    async def _resolve_ajun_approval(self, approval_id: str, action: str, open_id: str, chat_id: str) -> None:
+const approvalCardResolver = `    async def _resolve_ajun_approval(self, approval_id: str, action: str, open_id: str, chat_id: str, governance_mode: str = "local") -> None:
         ingress_url = os.getenv("AJUN_FEISHU_COMMANDER_INGRESS_URL", "").strip()
         if not ingress_url.startswith("http://127.0.0.1:"):
             logger.error("[Feishu] Refusing non-local A君 approval ingress URL")
             return
         base = ingress_url.split("/api/feishu/commander", 1)[0]
-        endpoint = f"{base}/api/feishu/approvals/{approval_id}/{action}"
+        endpoint_group = "governance-approvals" if governance_mode == "paperclip" else "approvals"
+        endpoint = f"{base}/api/feishu/{endpoint_group}/{approval_id}/{action}"
         payload = json.dumps({"requesterRef": open_id, "chatRef": chat_id}, ensure_ascii=False).encode("utf-8")
         def _post_to_ajun() -> tuple[int, dict]:
             request = Request(endpoint, data=payload, headers={"Content-Type": "application/json"}, method="POST")
