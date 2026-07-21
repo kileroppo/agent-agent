@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.agent-army.ajun-runtime</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/pengaro/.local/bin/node</string>
+    <string>/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/apps/ajun-runtime/src/server.js</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/apps/ajun-runtime</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PORT</key>
+    <string>4321</string>
+    <key>AJUN_HOST</key>
+    <string>127.0.0.1</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/apps/ajun-runtime/data/ajun-runtime.launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/apps/ajun-runtime/data/ajun-runtime.launchd.error.log</string>
+</dict>
+</plist>

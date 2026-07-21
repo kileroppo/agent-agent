@@ -1,4 +1,5 @@
 const highRiskWords = /外发|发布|删除|付款|付费|扩权|敏感/;
+const organizationGovernanceWords = /创建.*(?:agent|智能体|岗位)|新建.*(?:agent|智能体|岗位)|扩权|账号|连接|公开发布|对外发布|付款|付费|预算|暂停|终止|跨\s*agent/i;
 
 export class TaskService {
   constructor({ registry, store, governance = null, executors = {} }) { this.registry = registry; this.store = store; this.governance = governance; this.executors = executors; }
@@ -7,6 +8,11 @@ export class TaskService {
     const title = String(input?.title || '').trim(); const taskType = String(input?.taskType || '').trim();
     if (!title) throw new ValidationError('请说明要完成什么。');
     if (!taskType) throw new ValidationError('请选择任务类型。');
+    const suppliedIdempotencyKey = String(input?.idempotencyKey || '').trim();
+    if (suppliedIdempotencyKey) {
+      const existing = (await this.store.list()).find((item) => item.idempotencyKey === suppliedIdempotencyKey);
+      if (existing) return existing;
+    }
     const requesterName = String(input?.requesterName || '').trim() || 'A君';
     const requestedAgentId = String(input?.agentId || '').trim() || null;
     let candidates = await this.registry.candidates(taskType);
@@ -14,32 +20,20 @@ export class TaskService {
     const agent = candidates.length === 1 ? candidates[0] : null;
     const description = String(input?.description || '').trim(); const sourceUrl = String(input?.sourceUrl || '').trim() || extractPublicUrl(`${title}\n${description}`);
     let task = await this.store.createTask({
-      taskType, idempotencyKey: `local:${cryptoSafe(title)}:${Date.now()}`, requester: { kind: requesterName === 'A君' ? 'local-owner' : 'lan-collaborator', ref: requesterName }, source: { channel: 'ajun-runtime' },
+      taskType, idempotencyKey: suppliedIdempotencyKey || `local:${cryptoSafe(title)}:${Date.now()}`, requester: input?.requester || { kind: requesterName === 'A君' ? 'local-owner' : 'lan-collaborator', ref: requesterName }, source: input?.source || { channel: 'ajun-runtime' },
       assigneeAgentId: agent?.agentId || null, parentTaskId: String(input?.parentTaskId || '').trim() || null, input: { title, description, sourceUrl: sourceUrl || null },
       status: agent?.status === 'active' ? 'queued' : 'needs_input', currentStage: agent?.status === 'active' ? 'queued_for_execution' : agent ? 'waiting_for_agent_activation' : 'routing_needed',
       routing: { requestedAgentId, candidateAgentIds: candidates.map((item) => item.agentId), reason: agent?.status === 'active' ? '已路由到已启用的本地执行器。' : agent ? '岗位骨架已登记，等待启用真实执行器。' : candidates.length === 0 ? '没有岗位声明支持该任务类型。' : '多个岗位匹配，请明确选择承接岗位。' }
     });
     if (highRiskWords.test(`${title} ${description}`) && !['army.intake', 'governance.approval-review'].includes(taskType)) {
-      await this.store.createApproval({ taskId: task.taskId, action: 'manual-risk-review', riskLevel: 'high', reason: '任务描述包含高风险动作，必须人工确认范围。', requestedBy: 'task-coordinator', approverScope: 'A君', requestedScope: { taskType, title }, validUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() });
+      await this.store.createApproval({ taskId: task.taskId, governanceMode: requiresOrganizationGovernance(title, description) ? 'paperclip' : 'local', decisionChannel: 'feishu_card', action: 'manual-risk-review', riskLevel: 'high', reason: '任务描述包含高风险动作，必须人工确认范围。', requestedBy: 'task-coordinator', approverScope: 'A君', requestedScope: { taskType, title, assigneeAgentId: agent?.agentId || null }, validUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() });
       task = (await this.store.list()).find((item) => item.taskId === task.taskId);
     }
-    if (this.governance && shouldProjectToPaperclip(task)) {
-      const approval = task.approvalRefs.length ? (await this.store.listApprovals()).find((item) => item.approvalId === task.approvalRefs[0]) : null;
+    const approval = task.approvalRefs.length ? (await this.store.listApprovals()).find((item) => item.approvalId === task.approvalRefs[0]) : null;
+    if (this.governance && shouldProjectToPaperclip(task, approval)) {
       task = await this.store.updateTask(task.taskId, { governance: await this.governance.project(task, approval) });
     }
-    const executor = agent?.status === 'active' ? this.executors[agent.agentId] : null;
-    if (executor && task.status !== 'waiting_approval') {
-      task = await this.store.updateTask(task.taskId, { status: 'running', currentStage: 'starting', execution: { executor: agent.agentId, startedAt: new Date().toISOString() } });
-      if (this.governance && task.governance?.paperclipIssueId) task = await this.store.updateTask(task.taskId, { governance: await this.governance.update(task) });
-      try {
-        task = await this.store.updateTask(task.taskId, await executor.execute(task));
-        if (task.status === 'running' && typeof executor.observe === 'function') executor.observe(task);
-      } catch (error) {
-        task = await this.store.updateTask(task.taskId, { status: 'failed', currentStage: 'execution_failed', error: { code: 'executor_failed', message: String(error?.message || '执行器失败。'), userMessage: '本地任务未能完成，请查看安全诊断。', category: 'manual', stage: 'execution', occurredAt: new Date().toISOString() } });
-      }
-      if (this.governance && task.governance?.paperclipIssueId) task = await this.store.updateTask(task.taskId, { governance: await this.governance.update(task) });
-    }
-    return task;
+    return this.executeTask(task, agent);
   }
 
   async continueFromRecommendation(taskId) {
@@ -75,6 +69,39 @@ export class TaskService {
     return updated;
   }
 
+  async approveApproval(approvalId, { decisionBy = 'A君', decisionReason = '已确认本次范围。' } = {}) {
+    const approval = (await this.store.listApprovals()).find((item) => item.approvalId === approvalId);
+    if (!approval) throw new ValidationError('找不到这条审批。');
+    if (approval.governanceMode === 'paperclip') throw new ValidationError('这条组织级审批必须在 Paperclip 完成决定，不能由本机直接放行。');
+    if (approval.status !== 'pending') throw new ValidationError('这条审批已经处理过了。');
+    if (Date.parse(approval.validUntil) <= Date.now()) {
+      await this.store.updateApproval(approvalId, { status:'expired' });
+      throw new ValidationError('这条审批已过期，未执行任务。');
+    }
+    const task = (await this.store.list()).find((item) => item.taskId === approval.taskId);
+    if (!task) throw new ValidationError('找不到关联任务。');
+    validateApprovalScope(task, approval);
+    await this.store.updateApproval(approvalId, { status:'approved', decisionBy:String(decisionBy).slice(0, 120), decisionReason:String(decisionReason).slice(0, 300), decidedAt:new Date().toISOString() });
+    const agent = (await this.registry.list()).find((item) => item.agentId === task.assigneeAgentId) || null;
+    const queued = await this.store.updateTask(task.taskId, { status:'queued', currentStage:'approval_approved', error: undefined });
+    return this.executeTask(queued, agent);
+  }
+
+  async executeTask(task, agent) {
+    const executor = agent?.status === 'active' ? this.executors[agent.agentId] : null;
+    if (!executor || task.status === 'waiting_approval') return task;
+    let updated = await this.store.updateTask(task.taskId, { status: 'running', currentStage: 'starting', execution: { executor: agent.agentId, startedAt: new Date().toISOString() } });
+    if (this.governance && updated.governance?.paperclipIssueId) updated = await this.store.updateTask(updated.taskId, { governance: await this.governance.update(updated) });
+    try {
+      updated = await this.store.updateTask(updated.taskId, await executor.execute(updated));
+      if (updated.status === 'running' && typeof executor.observe === 'function') executor.observe(updated);
+    } catch (error) {
+      updated = await this.store.updateTask(updated.taskId, { status: 'failed', currentStage: 'execution_failed', error: { code: 'executor_failed', message: String(error?.message || '执行器失败。'), userMessage: '本地任务未能完成，请查看安全诊断。', category: 'manual', stage: 'execution', occurredAt: new Date().toISOString() } });
+    }
+    if (this.governance && updated.governance?.paperclipIssueId) updated = await this.store.updateTask(updated.taskId, { governance: await this.governance.update(updated) });
+    return updated;
+  }
+
   async overview() {
     const [agents, tasks, approvals, governance] = await Promise.all([this.registry.list(), this.store.list(), this.store.listApprovals(), this.governance?.health() || { status: 'planned', version: null }]);
     return { agents, tasks, approvals, taskFocus: buildTaskFocus(tasks, approvals), capabilities: [
@@ -91,8 +118,16 @@ export class TaskService {
 export class ValidationError extends Error {}
 function cryptoSafe(value) { return Buffer.from(value).toString('base64url').slice(0, 24); }
 function extractPublicUrl(value) { return String(value).match(/https?:\/\/[^\s<>"]+/i)?.[0]?.replace(/[),.;，。；]+$/, '') || ''; }
-function shouldProjectToPaperclip(task) {
-  return Boolean(task.approvalRefs?.length) || task.source?.channel === 'paperclip' || task.taskType.startsWith('governance.') || task.taskType.startsWith('army.');
+function shouldProjectToPaperclip(task, approval = null) {
+  return approval?.governanceMode === 'paperclip' || task.source?.channel === 'paperclip' || task.taskType.startsWith('governance.') || task.taskType === 'army.route-task';
+}
+
+function requiresOrganizationGovernance(title, description) { return organizationGovernanceWords.test(`${title} ${description}`); }
+function validateApprovalScope(task, approval) {
+  const scope = approval.requestedScope || {};
+  if (scope.taskType !== task.taskType || scope.title !== task.input?.title || scope.assigneeAgentId !== (task.assigneeAgentId || null)) {
+    throw new ValidationError('审批范围与当前任务不一致，未执行任务。');
+  }
 }
 
 function buildTaskFocus(tasks, approvals) {

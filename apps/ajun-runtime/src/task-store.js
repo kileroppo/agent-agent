@@ -13,6 +13,10 @@ export class TaskStore {
   async createTask(task) {
     return this.mutate(async () => {
       const data = await this.read(); const now = new Date().toISOString();
+      if (task.idempotencyKey) {
+        const existing = data.tasks.find((item) => item.idempotencyKey === task.idempotencyKey);
+        if (existing) return existing;
+      }
       const record = { schemaVersion: 'agent.army/task/v1', taskId: crypto.randomUUID(), attempt: 1, priority: 'normal', artifactRefs: [], approvalRefs: [], createdAt: now, updatedAt: now, ...task };
       data.tasks.push(record); await this.write(data); return record;
     });

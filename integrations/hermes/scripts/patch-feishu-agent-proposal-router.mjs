@@ -5,12 +5,19 @@ import path from 'node:path';
 const defaultAdapter = path.join(process.env.HERMES_HOME || path.join(process.env.HOME || '', '.hermes', 'hermes-agent'), 'plugins/platforms/feishu/adapter.py');
 
 export function applyPatch(source) {
-  if (source.includes('def _route_ajun_agent_proposal_event(')) return source;
+  if (source.includes('AJUN_FEISHU_COMMANDER_INGRESS_URL')) return source;
+  if (source.includes('def _route_ajun_agent_proposal_event(')) return upgradeLegacyProposalPatch(source);
   let result = insert(source, '_XIAOD_HTTP_URL_RE = re.compile(r"https?://[^\\s<>\\u3002\\uff0c\\uff01\\uff1f]+", re.IGNORECASE)\n', `${proposalPattern}\n`);
-  result = insert(result, '            if await self._route_xiaod_retry_query(event):\n                return\n            await self.handle_message(event)\n', '            if await self._route_xiaod_retry_query(event):\n                return\n            if await self._route_ajun_agent_proposal_event(event):\n                return\n            await self.handle_message(event)\n');
-  result = insert(result, '    async def _route_xiaod_status_query(self, event: MessageEvent) -> bool:\n', `${proposalRouter}\n\n    async def _route_xiaod_status_query(self, event: MessageEvent) -> bool:\n`);
-  result = insert(result, '        if await self._route_xiaod_retry_query(event):\n            return\n        if event.message_type == MessageType.TEXT', '        if await self._route_xiaod_retry_query(event):\n            return\n        if await self._route_ajun_agent_proposal_event(event):\n            return\n        if event.message_type == MessageType.TEXT');
+  result = insert(result, '            if await self._route_xiaod_retry_query(event):\n                return\n            await self.handle_message(event)\n', '            if await self._route_xiaod_retry_query(event):\n                return\n            if await self._route_ajun_commander_event(event):\n                return\n            if await self._route_ajun_agent_proposal_event(event):\n                return\n            await self.handle_message(event)\n');
+  result = insert(result, '    async def _route_xiaod_status_query(self, event: MessageEvent) -> bool:\n', `${commanderRouter}\n\n${proposalRouter}\n\n    async def _route_xiaod_status_query(self, event: MessageEvent) -> bool:\n`);
+  result = insert(result, '        if await self._route_xiaod_retry_query(event):\n            return\n        if event.message_type == MessageType.TEXT', '        if await self._route_xiaod_retry_query(event):\n            return\n        if await self._route_ajun_commander_event(event):\n            return\n        if await self._route_ajun_agent_proposal_event(event):\n            return\n        if event.message_type == MessageType.TEXT');
   return result;
+}
+
+function upgradeLegacyProposalPatch(source) {
+  let result = insert(source, '            if await self._route_xiaod_retry_query(event):\n                return\n            if await self._route_ajun_agent_proposal_event(event):\n', '            if await self._route_xiaod_retry_query(event):\n                return\n            if await self._route_ajun_commander_event(event):\n                return\n            if await self._route_ajun_agent_proposal_event(event):\n');
+  result = insert(result, '        if await self._route_xiaod_retry_query(event):\n            return\n        if await self._route_ajun_agent_proposal_event(event):\n', '        if await self._route_xiaod_retry_query(event):\n            return\n        if await self._route_ajun_commander_event(event):\n            return\n        if await self._route_ajun_agent_proposal_event(event):\n');
+  return insert(result, '    async def _route_ajun_agent_proposal_event(self, event: MessageEvent) -> bool:\n', `${commanderRouter}\n\n    async def _route_ajun_agent_proposal_event(self, event: MessageEvent) -> bool:\n`);
 }
 
 function insert(source, marker, replacement) {
@@ -19,6 +26,43 @@ function insert(source, marker, replacement) {
 }
 
 const proposalPattern = `_AJUN_AGENT_PROPOSAL_RE = re.compile(\n    r"(?:创建|新建|招募|招)\\s*(?:一个\\s*)?(?:agent|智能体|岗位)",\n    re.IGNORECASE,\n)`;
+const commanderRouter = `    async def _route_ajun_commander_event(self, event: MessageEvent) -> bool:
+        """Relay the one Feishu commander entry to the local A君 runtime."""
+        ingress_url = os.getenv("AJUN_FEISHU_COMMANDER_INGRESS_URL", "").strip()
+        if not ingress_url or event.message_type != MessageType.TEXT:
+            return False
+        if not ingress_url.startswith("http://127.0.0.1:"):
+            logger.error("[Feishu] Refusing non-local A君 commander ingress URL")
+            return False
+        if getattr(event, "_ajun_commander_routed", False):
+            return True
+        setattr(event, "_ajun_commander_routed", True)
+        chat_id = getattr(event.source, "chat_id", "") if event.source else ""
+        sender = getattr(event.source, "sender_id", "") if event.source else ""
+        payload = json.dumps({
+            "sourceEventRef": f"feishu:{event.message_id or ''}",
+            "text": (event.text or "").strip(),
+            "chatRef": chat_id,
+            "requesterRef": sender,
+        }, ensure_ascii=False).encode("utf-8")
+
+        def _post_to_ajun() -> tuple[int, dict]:
+            request = Request(ingress_url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+            with urlopen(request, timeout=8) as response:
+                return int(response.status), json.loads(response.read().decode("utf-8"))
+
+        try:
+            status, body = await self._run_blocking(_post_to_ajun)
+            reply = body.get("reply") if isinstance(body, dict) else None
+            if status in {200, 201, 202} and isinstance(reply, str) and reply:
+                if chat_id:
+                    await self.send(chat_id, reply, reply_to=event.message_id)
+                return True
+        except (HTTPError, URLError, OSError, ValueError, json.JSONDecodeError) as exc:
+            logger.warning("[Feishu] A君 commander ingress failed: %s", exc)
+        if chat_id:
+            await self.send(chat_id, "军团总管暂时无法登记这条命令；未启动任何外部动作，请稍后重试。", reply_to=event.message_id)
+        return True`;
 const proposalRouter = `    async def _route_ajun_agent_proposal_event(self, event: MessageEvent) -> bool:
         """Route Feishu natural-language Agent creation to the local A君 proposal gate.
 
@@ -70,9 +114,9 @@ async function main() {
   const filePath = process.argv[2] || defaultAdapter;
   const original = await fs.readFile(filePath, 'utf8');
   const patched = applyPatch(original);
-  if (patched === original) return console.log(`Hermes 创建官飞书路由已存在：${filePath}`);
+  if (patched === original) return console.log(`Hermes 飞书军团总管路由已存在：${filePath}`);
   await fs.writeFile(filePath, patched);
-  console.log(`已安装 Hermes 创建官飞书路由：${filePath}`);
+  console.log(`已安装 Hermes 飞书军团总管路由：${filePath}`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => { console.error(error.message); process.exitCode = 1; });

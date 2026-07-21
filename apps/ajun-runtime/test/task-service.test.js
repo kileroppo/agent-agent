@@ -21,6 +21,28 @@ test('高风险描述创建待审批记录', async () => {
   const { service, records } = setup({ agents:[coordinator] }); const task = await service.create({ title:'向外发布周报', taskType:'army.route-task' });
   assert.equal(records.approvals.length, 1); assert.equal(task.status, 'waiting_approval'); assert.equal(task.currentStage, 'approval_required');
 });
+test('一次性外发审批留在 A君，批准后只恢复原任务一次', async () => {
+  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  let executed = 0; let projected = 0;
+  const governance = { async project() { projected += 1; return { status:'synced' }; }, async health() { return { status:'ready' }; } };
+  const { service, records } = setup({ agents:[operator], governance });
+  service.executors.operator = { async execute() { executed += 1; return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[] }; } };
+  const task = await service.create({ title:'外发本次健康摘要', taskType:'operations.health-review' });
+  assert.equal(task.status, 'waiting_approval'); assert.equal(records.approvals[0].governanceMode, 'local'); assert.equal(projected, 0); assert.equal(executed, 0);
+  const resumed = await service.approveApproval(records.approvals[0].approvalId, { decisionBy:'A君' });
+  assert.equal(resumed.status, 'succeeded'); assert.equal(records.approvals[0].status, 'approved'); assert.equal(executed, 1);
+  await assert.rejects(() => service.approveApproval(records.approvals[0].approvalId), /已经处理/);
+  assert.equal(executed, 1);
+});
+test('公开发布等组织级审批投影 Paperclip，不能由本机直接放行', async () => {
+  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  let projected = 0;
+  const governance = { async project() { projected += 1; return { status:'synced', paperclipIssueId:'issue-1' }; }, async health() { return { status:'ready' }; } };
+  const { service, records } = setup({ agents:[operator], governance });
+  const task = await service.create({ title:'公开发布系统摘要', taskType:'operations.health-review' });
+  assert.equal(task.status, 'waiting_approval'); assert.equal(records.approvals[0].governanceMode, 'paperclip'); assert.equal(projected, 1);
+  await assert.rejects(() => service.approveApproval(records.approvals[0].approvalId), /Paperclip/);
+});
 test('本机主人拒绝审批会关闭任务，不会执行任务', async () => {
   const { service, records } = setup({ agents:[coordinator] }); const task = await service.create({ title:'向外发布周报', taskType:'army.route-task' });
   const closed = await service.rejectApproval(records.approvals[0].approvalId);
@@ -42,6 +64,17 @@ test('简单小D业务任务不重复投影到 Paperclip，治理任务才进入
   service.executors.xiaod = { async execute() { return { status:'needs_input', currentStage:'source_url_required' }; } };
   const task = await service.create({ title:'整理公开视频', taskType:'media.transcribe-and-refine' });
   assert.equal(projected, 0); assert.equal(task.governance, undefined);
+});
+test('相同飞书幂等键直接返回原任务，不会二次执行 Agent', async () => {
+  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  let executed = 0;
+  const { service, records } = setup({ agents:[operator] });
+  service.executors.operator = { async execute() { executed += 1; return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[] }; } };
+  const input = { title:'检查系统状态', taskType:'operations.health-review', idempotencyKey:'feishu:message-42', source:{ channel:'feishu', eventRef:'feishu:message-42' } };
+  const first = await service.create(input); const duplicate = await service.create(input);
+  assert.equal(first.taskId, duplicate.taskId);
+  assert.equal(records.tasks.length, 1);
+  assert.equal(executed, 1);
 });
 test('已启用的运维官会完成低风险健康任务并留下报告', async () => {
   const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };

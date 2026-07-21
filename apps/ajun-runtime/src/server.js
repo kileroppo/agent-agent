@@ -15,6 +15,7 @@ import { PaperclipHeartbeatHandler } from './paperclip-heartbeat.js';
 import { AgentProposalService, ProposalValidationError } from './agent-proposal-service.js';
 import { LocalCreator } from './local-creator.js';
 import { PublicWebFetch, PublicWebFetchError } from './public-web-fetch.js';
+import { FeishuCommander, FeishuCommanderValidationError } from './feishu-commander.js';
 import { canAccessApi, isLocalAddress, isLoopbackHost, lanAddresses, loadLanShareKey, rotateLanShareKey } from './lan-access.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -27,6 +28,7 @@ const operator = new LocalHealthOperator({ governance });
 const proposals = new AgentProposalService({ store, registry, governance });
 const publicWebFetch = new PublicWebFetch();
 const tasks = new TaskService({ registry, store, governance, executors: { operator, xiaod, creator: new LocalCreator({ proposals }), 'task-coordinator': new LocalTaskCoordinator(), reviewer: new LocalReviewer(), architect: new LocalArchitect({ registry }) } });
+const commander = new FeishuCommander({ tasks, proposals });
 const paperclipHeartbeat = new PaperclipHeartbeatHandler({ operator, governance });
 const port = Number(process.env.PORT || 4321);
 const host = process.env.AJUN_HOST || '0.0.0.0';
@@ -58,6 +60,10 @@ const server = http.createServer(async (req, res) => {
       const proposal = await proposals.create(await body(req), { source: 'feishu' });
       return json(res, 202, { proposal: proposal.status === 'draft' ? await proposals.submit(proposal.proposalId) : proposal, reply: '已生成岗位草案并提交审核；通过受限测试前不会上线。' });
     }
+    if (req.method === 'POST' && req.url === '/api/feishu/commander') {
+      if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error: '飞书军团总管入口只能由本机 Hermes 适配器调用。' });
+      return json(res, 202, await commander.handle(await body(req)));
+    }
     const proposalAction = req.url?.match(/^\/api\/agent-proposals\/([0-9a-f-]+)\/(submit|approve-for-test|reject|test-instance|test-evidence|acceptance)$/i);
     if (req.method === 'POST' && proposalAction) {
       if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error: '草案审核与测试操作只能由本机主人发起。' });
@@ -72,13 +78,15 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && req.url === '/api/tasks') { const input = await body(req); if (!isLocalAddress(req.socket.remoteAddress) && !String(input.requesterName || '').trim()) throw new ValidationError('局域网协作者请先填写自己的称呼。'); return json(res, 201, { task: await tasks.create(input) }); }
     const rejectMatch = req.url?.match(/^\/api\/approvals\/([0-9a-f-]+)\/reject$/i);
     if (req.method === 'POST' && rejectMatch) { if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error:'只有本机主人可以拒绝审批。' }); return json(res, 200, { task: await tasks.rejectApproval(rejectMatch[1]) }); }
+    const approveMatch = req.url?.match(/^\/api\/approvals\/([0-9a-f-]+)\/approve$/i);
+    if (req.method === 'POST' && approveMatch) { if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error:'只有本机主人可以批准审批。' }); return json(res, 200, { task: await tasks.approveApproval(approveMatch[1], await body(req)) }); }
     const continueMatch = req.url?.match(/^\/api\/tasks\/([0-9a-f-]+)\/continue$/i);
     if (req.method === 'POST' && continueMatch) return json(res, 201, { task: await tasks.continueFromRecommendation(continueMatch[1]) });
     if (req.method === 'GET' && (req.url === '/' || req.url === '/index.html')) return file(res, 'index.html', 'text/html; charset=utf-8');
     if (req.method === 'GET' && req.url === '/app.js') return file(res, 'app.js', 'text/javascript; charset=utf-8');
     if (req.method === 'GET' && req.url === '/styles.css') return file(res, 'styles.css', 'text/css; charset=utf-8');
     json(res, 404, { error: '未找到该入口。' });
-  } catch (error) { json(res, error instanceof ValidationError || error instanceof ProposalValidationError || error instanceof PublicWebFetchError ? 422 : 500, { error: error.message || '运行台暂时不可用。' }); }
+  } catch (error) { json(res, error instanceof ValidationError || error instanceof ProposalValidationError || error instanceof PublicWebFetchError || error instanceof FeishuCommanderValidationError ? 422 : 500, { error: error.message || '运行台暂时不可用。' }); }
 });
 server.listen(port, host, () => console.log(`A君运行台：http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}${lanEnabled ? '（局域网共享已开启）' : ''}`));
 

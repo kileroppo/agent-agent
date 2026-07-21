@@ -17,6 +17,19 @@ test('并发登记任务不会丢失记录', async () => {
   } finally { await fs.rm(directory, { recursive: true, force: true }); }
 });
 
+test('相同飞书幂等键只创建一条任务', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-task-store-'));
+  try {
+    const store = new TaskStore(path.join(directory, 'runtime.json'));
+    const [first, duplicate] = await Promise.all([
+      store.createTask({ idempotencyKey: 'feishu:message-1', taskType: 'army.intake', input: { title: '检查系统状态' }, status: 'queued' }),
+      store.createTask({ idempotencyKey: 'feishu:message-1', taskType: 'army.intake', input: { title: '检查系统状态' }, status: 'queued' })
+    ]);
+    assert.equal(first.taskId, duplicate.taskId);
+    assert.equal((await store.list()).length, 1);
+  } finally { await fs.rm(directory, { recursive: true, force: true }); }
+});
+
 test('并发状态更新不会互相覆盖字段', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-task-store-'));
   try {

@@ -1,6 +1,6 @@
 # Agent军团
 
-Agent军团是一套以飞书为日常业务入口、以 Hermes 等运行时承载各 Agent、以 Paperclip 作为军团总控、以 A君本地运行时承载通用能力与故障恢复的数字员工系统。A君局域网页只作为授权、诊断和应急入口，不与飞书重复日常派活。
+Agent军团是一套以飞书为日常业务入口、以 Hermes 等运行时承载各 Agent、以 Paperclip 作为组织级治理总控、以 A君本地运行时承载通用能力与故障恢复的数字员工系统。用户日常只与飞书中的“ A君·军团总管”交互：手机可在任何地点下任务、看进度、收结果和处理审批；A君局域网页只作为授权、诊断和应急入口，不与飞书重复日常派活。
 
 这个仓库的根目录用于承载军团级架构、岗位定义、公共能力、平台集成和运维设施。每个可独立运行的业务 Agent 放在 `apps/` 下，不再让某一个 Agent 代表整个项目。
 
@@ -34,7 +34,7 @@ agent-agent/
 - 小D版本化 AgentManifest、Prompt、评测样例和 Hermes Profile 映射已建立并通过本地契约检查；A君可把带公开链接的素材任务委派给本机小D并跟踪其状态，真实素材验收仍按 M1 节奏受控进行。
 - 隔离 `xiaod` Hermes Profile 与传统飞书机器人测试应用已创建并发布；传统机器人已完成真实文本消息收发与模型回复验证。短媒体已真实完成转录、飞书文档权限与交付，并通过一次“受控失败 → 飞书重试 → 同一任务单次交付”回归；约 10 分钟媒体已完成真实阶段与交付验证；后台阶段更新故障与其余M1场景仍待验证；Paperclip 已确认延后到 M2。
 - M2 已进入首轮实施：小D 已接入统一账号管家、通用内容获取中心和脱敏运维事件；当前可创建/撤销只读浏览器会话引用，也可登记 CookieBridge 管理的本机账号标识。MediaCrawlerPro 深度适配器只在本机内部临时传递登录态，不向任务、页面或日志返回 Cookie。尚未完成真实平台内容读取、官方浏览器伴侣/OAuth、安全密钥存储或深度通道的端到端验收。
-- M2 军团方向已校正：飞书是日常派活与交付入口，Hermes 负责各 Agent 的角色、模型、技能与运行；Paperclip 是组织、任务、heartbeat、预算、审批和审计的唯一总控；A君是可扩展的本机能力底座，提供连接授权、内容获取、组件托管、执行适配和故障恢复，不再建设第二个任务控制台。已在本机 Paperclip `2026.707.0` 用内置 HTTP Adapter 验证“任务分配 → heartbeat → A君低风险本机健康检查 → 回报同一任务单 → done”闭环；外部授权读取和小D的 Paperclip 接入仍待后续验证。
+- M2 军团方向已校正：飞书“ A君·军团总管”是唯一日常派活、状态、交付与手机审批入口；Hermes 负责把飞书命令送到 Mac 并承载各 Agent 的角色、模型、技能与运行；A君提供连接授权、内容获取、组件托管、执行适配和故障恢复。普通一次性审批由飞书卡片与 A君审批记录闭环；仅新 Agent、扩权、外发、花钱、跨 Agent 长任务进入 Paperclip 的组织级任务、预算、审批与审计。已在本机 Paperclip `2026.707.0` 用内置 HTTP Adapter 验证“任务分配 → heartbeat → A君低风险本机健康检查 → 回报同一任务单 → done”闭环；军团总管已安装到当前 Hermes 并在本机完成任务路由、回显数据和幂等验证，local 审批已能在 A君恢复原任务；飞书真实入站、审批卡和按钮回调尚待验证。
 
 ## 正式文档入口
 
@@ -56,6 +56,8 @@ agent-agent/
 - [M1 飞书交互规范](./docs/design/m1-feishu-interaction-spec.md)
 - [M1 可点击原型](./designs/agent-army-m1/feishu-xiaod-task-flow.html)
 - [M2 通用访问底座设计](./docs/design/m2-common-access-foundation.md)
+- [飞书手机控制军团流程](./docs/design/feishu-mobile-army-control.md)
+- [飞书手机控制交互图](./designs/feishu-mobile-army-control/feishu-mobile-army-control.html)
 
 ### 技术与工程
 
@@ -69,6 +71,7 @@ agent-agent/
 - [ADR-0002：先闭合运行链路，再接入 Paperclip 军团总控](./docs/adr/0002-phase-paperclip-after-m1-runtime-closure.md)
 - [ADR-0003：M1 使用传统飞书机器人接入 Hermes](./docs/adr/0003-m1-use-traditional-feishu-bot.md)
 - [ADR-0004：通用账号连接、内容获取与运维观察边界](./docs/adr/0004-common-access-foundation.md)
+- [ADR-0005：飞书手机总管与审批分流边界](./docs/adr/0005-feishu-mobile-command-and-approval-boundary.md)
 - [现成能力复用调研与采用边界](./docs/research/2026-07-agent-army-reuse-landscape.md)
 
 ### 治理与依据
@@ -109,4 +112,4 @@ npm test
 npm run dev
 ```
 
-默认访问地址：`http://127.0.0.1:4321`。它是本机连接授权、组件健康、恢复和脱敏诊断页；已能作为本机 Paperclip HTTP Agent 的执行适配端，完成低风险健康任务并回报同一 Paperclip 任务单。日常派活与结果交付在飞书完成，Paperclip 承担组织、任务、heartbeat、预算、审批和审计总控；A君不维护第二套军团队列。小D任务仅调用本机 `4318` 服务，公开链接以外的外部账号、飞书和 Hermes 不由运行台直接调用。
+默认访问地址：`http://127.0.0.1:4321`。它是本机连接授权、组件健康、恢复和脱敏诊断页；已能作为本机 Paperclip HTTP Agent 的执行适配端，完成低风险健康任务并回报同一 Paperclip 任务单。日常派活、结果交付和用户审批在飞书完成；A君不维护第二套军团队列。小D任务仅调用本机 `4318` 服务，公开链接以外的外部账号、飞书和 Hermes 不由运行台直接调用。

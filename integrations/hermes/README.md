@@ -13,7 +13,7 @@ M1 约束：
 - 不读取或复用个人默认 Profile；
 - REST/插件接口不暴露公网。
 
-M2 创建官入口见 [飞书创建 Agent 强制路由](./ajun-feishu-agent-proposal-router.md)。它把特定飞书文本直接交给 A君草案门禁，不让模型自行上线 Agent。
+M2 飞书入口见 [飞书军团总管路由](./ajun-feishu-agent-proposal-router.md)。它把同一个飞书会话中的文本先交给 A君：小D素材、运维检查和创建 Agent 各有固定边界；创建 Agent 仍只会产生草案，不让模型自行上线 Agent。
 
 ## Profile 作用域注意事项
 
