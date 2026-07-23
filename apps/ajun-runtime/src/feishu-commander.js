@@ -1,3 +1,5 @@
+import { formatPublicReportReply } from './public-report-presentation.js';
+
 // Allow the user to name the new role between “创建一个” and “Agent”, such as
 // “创建一个公开网页摘要 Agent”.  The previous expression only recognised an
 // immediate “Agent”, so normal named requests were sent to the generic intake.
@@ -595,7 +597,7 @@ function replyFor(task, taskType) {
   }
   if (taskType === 'report.public-material') {
     const report = task.artifactRefs?.find((item) => item.type === 'public_web_report')?.data;
-    if (report) return { kind: 'public_report', task, reply: report.sourceCount > 1 ? `公开网页对比报告已完成：${report.summary}` : `公开网页摘要已完成：${report.summary}。` };
+    if (report) return { kind: 'public_report', task, reply: formatPublicReportReply(report, { taskTitle:task.input?.title }) };
     if (task.status === 'needs_input') return { kind: 'public_report', task, reply: task.error?.userMessage || '这次公开网页整理还缺少必要信息，暂时没有开始读取。' };
     if (!task.input?.sourceUrl) return { kind: 'public_report', task, reply: `已收到公开网页整理请求。请再发送一条能直接打开的网页链接；未开始读取。任务号：${task.taskId}。` };
     return { kind: 'public_report', task, reply: `已交给公开网页摘要员工处理，任务号：${task.taskId}。完成后会回到当前飞书会话。` };
@@ -655,7 +657,7 @@ function progressReply(task) {
   const title = `“${shortTitle(task)}”`;
   const report = task.artifactRefs?.find((item) => item.type === 'public_web_report')?.data;
   if (task.status === 'running' || task.status === 'queued') return `${title}正在由${worker}处理。完成后会回到当前飞书会话。`;
-  if (task.status === 'succeeded' && report?.summary) return `${title}已经由${worker}完成。摘要：${report.summary}`;
+  if (task.status === 'succeeded' && report?.summary) return formatPublicReportReply(report, { taskTitle:shortTitle(task) });
   if (task.status === 'succeeded') return `${title}已经完成，结果已发回当前飞书会话。`;
   if (task.status === 'failed' && task.error?.code === 'executor_failed' && !task.execution?.xiaodJobId) {
     return '这条任务当时没能交到小D处理，现在已经恢复。请重新发送同一个视频链接，我会重新处理。';

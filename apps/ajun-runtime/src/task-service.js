@@ -1,4 +1,5 @@
 import { recordTaskUsage, summarizeTaskUsage } from './task-usage.js';
+import { formatPublicReportReply } from './public-report-presentation.js';
 
 const highRiskWords = /外发|发布|删除|付款|付费|扩权|敏感/;
 const organizationGovernanceWords = /创建.*(?:agent|智能体|岗位)|新建.*(?:agent|智能体|岗位)|扩权|账号|连接|公开发布|对外发布|付款|付费|预算|暂停|终止|跨\s*agent/i;
@@ -354,7 +355,7 @@ export class TaskService {
     if (current.status === 'succeeded') {
       if (current.taskType === 'report.public-material') {
         const report = current.artifactRefs?.find((item) => item.type === 'public_web_report')?.data;
-        if (report?.summary) return { terminal:true, status:'succeeded', taskId:root.taskId, message:`公开资料报告员已经完成“${shortTaskTitle(root)}”。\n摘要：${report.summary}` };
+        if (report?.summary) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatPublicReportReply(report, { taskTitle:shortTaskTitle(root) }) };
         return { terminal:true, status:'succeeded', taskId:root.taskId, message:`公开资料报告员已经完成“${shortTaskTitle(root)}”，但摘要产物没有通过读取确认；系统不会把它当作完整交付。` };
       }
       const delivery = current.artifactRefs?.find((item) => item.type === 'xiaod_media_delivery');

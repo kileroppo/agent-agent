@@ -412,7 +412,8 @@ test('飞书跟进会按公开资料报告员的真实摘要回话，不冒充�
   const result = await service.notificationStatus('task-web', 'chat-a');
   assert.equal(result.terminal, true);
   assert.match(result.message, /公开资料报告员/);
-  assert.match(result.message, /可读的公开网页摘要/);
+  assert.match(result.message, /内容概览/);
+  assert.match(result.message, /来源/);
   assert.doesNotMatch(result.message, /小D/);
 });
 

@@ -14,7 +14,7 @@ export class PublicWebFetch {
     if (!contentType.includes('text/html') && !contentType.startsWith('text/plain')) throw new PublicWebFetchError('unsupported_content_type', '当前公开网页能力只读取 HTML 或纯文本。');
     const raw = await limitedText(response);
     const title = contentType.includes('html') ? decode((raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '')).trim() : null;
-    const text = contentType.includes('html') ? toText(raw) : raw.trim();
+    const text = contentType.includes('html') ? htmlToText(raw) : raw.trim();
     if (!text) throw new PublicWebFetchError('empty_content', '公开页面没有可用正文。');
     return {
       schemaVersion: 'agent.army/public-web-content/v1', sourceRef: safeSourceRef(source),
@@ -53,6 +53,17 @@ async function limitedText(response) {
   return new TextDecoder().decode(concat(chunks));
 }
 function concat(chunks) { const size = chunks.reduce((sum, item) => sum + item.byteLength, 0); const out = new Uint8Array(size); let offset = 0; for (const item of chunks) { out.set(item, offset); offset += item.byteLength; } return out; }
-function toText(html) { return decode(html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')).trim(); }
+export function htmlToText(html) {
+  const body = String(html || '')
+    .replace(/<(script|style|noscript|svg|template)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<(br|\/p|\/div|\/section|\/article|\/main|\/li|\/h[1-6]|\/blockquote)[^>]*>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '\n- ')
+    .replace(/<[^>]+>/g, ' ');
+  return decode(body)
+    .split(/\n+/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n');
+}
 function decode(value) { return value.replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&quot;/gi, '"').replace(/&#39;/gi, "'"); }
 function safeSourceRef(value) { const parsed = new URL(value); return `${parsed.protocol}//${parsed.host}${parsed.pathname}`; }

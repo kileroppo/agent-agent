@@ -689,7 +689,9 @@ test('飞书军团总管会在进度回复中带回已完成网页任务的真�
     }
   };
   const result = await commander.handle({ text: '结果呢', sourceEventRef: 'feishu:progress-web-2', chatRef: 'chat-safe-ref' });
-  assert.match(result.reply, /公开资料报告员完成/);
+  assert.match(result.reply, /公开资料报告员已完成/);
+  assert.match(result.reply, /内容概览/);
+  assert.match(result.reply, /来源/);
   assert.match(result.reply, /这篇文章主要讲公开资料整理/);
 });
 

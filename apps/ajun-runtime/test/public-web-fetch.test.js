@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PublicWebFetch, PublicWebFetchError } from '../src/public-web-fetch.js';
+import { PublicWebFetch, PublicWebFetchError, htmlToText } from '../src/public-web-fetch.js';
 
 function response(body, type = 'text/html; charset=utf-8') { return new Response(body, { status: 200, headers: { 'content-type': type } }); }
+
+test('HTML extraction preserves readable block boundaries instead of flattening the entire page', () => {
+  assert.equal(htmlToText('<main><h1>标题</h1><p>第一段。</p><p>第二段。</p><ul><li>要点</li></ul></main>'), '标题\n第一段。\n第二段。\n- 要点');
+});
 
 test('公开网页能力只返回脱敏公开正文，不返回查询参数', async () => {
   const fetcher = new PublicWebFetch({ fetchImpl: async () => response('<html><title>示例</title><body><script>secret()</script><h1>公开正文</h1></body></html>'), lookupImpl: async () => [{ address:'93.184.216.34' }] });

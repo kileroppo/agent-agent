@@ -1,3 +1,5 @@
+import { extractReportFocus } from './public-report-presentation.js';
+
 export class LocalPublicReport {
   constructor({ publicWebFetch, publicWebSearch = null, comparisonAdvisor = null, now = () => new Date() } = {}) {
     this.publicWebFetch = publicWebFetch;
@@ -89,7 +91,7 @@ function fallbackComparison(sources) {
 }
 
 function summarize(text) {
-  const compact = String(text || '').replace(/\s+/g, ' ').trim();
+  const compact = extractReportFocus(text);
   if (!compact) return '网页没有可用正文。';
   const parts = compact.split(/(?<=[。！？.!?])\s*/).filter(Boolean);
   return parts.slice(0, 3).join(' ').slice(0, 900);
