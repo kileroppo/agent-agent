@@ -9,6 +9,17 @@ export class TaskStore {
   async listApprovals() { await this.pendingMutation; return (await this.read()).approvals.sort((a, b) => b.createdAt.localeCompare(a.createdAt)); }
   async listProposals() { await this.pendingMutation; return (await this.read()).proposals.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); }
   async listTestInstances() { await this.pendingMutation; return (await this.read()).testInstances.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); }
+  async getConversationContext(chatRef) { await this.pendingMutation; return (await this.read()).conversationContexts[String(chatRef || '')] || null; }
+
+  async setConversationContext(chatRef, context) {
+    const key = String(chatRef || '').trim().slice(0, 240);
+    if (!key) return null;
+    return this.mutate(async () => {
+      const data = await this.read();
+      data.conversationContexts[key] = { schemaVersion:'agent.army/conversation-context/v1', updatedAt:new Date().toISOString(), ...context };
+      await this.write(data); return data.conversationContexts[key];
+    });
+  }
 
   async createTask(task) {
     return this.mutate(async () => {
@@ -27,7 +38,11 @@ export class TaskStore {
       const data = await this.read(); const now = new Date().toISOString();
       const record = { schemaVersion: 'agent.army/approval/v1', approvalId: crypto.randomUUID(), status: 'pending', createdAt: now, ...approval };
       data.approvals.push(record); const task = data.tasks.find((item) => item.taskId === approval.taskId);
-      if (task) { task.approvalRefs.push(record.approvalId); task.status = 'waiting_approval'; task.currentStage = 'approval_required'; task.updatedAt = now; }
+      if (task) {
+        task.approvalRefs.push(record.approvalId);
+        if (approval.holdTask !== false) { task.status = 'waiting_approval'; task.currentStage = 'approval_required'; }
+        task.updatedAt = now;
+      }
       await this.write(data); return record;
     });
   }
@@ -99,9 +114,9 @@ export class TaskStore {
   async read() {
     try {
       const data = JSON.parse(await fs.readFile(this.filePath, 'utf8'));
-      return { tasks: [], approvals: [], proposals: [], testInstances: [], ...data };
+      return { tasks: [], approvals: [], proposals: [], testInstances: [], conversationContexts: {}, ...data };
     }
-    catch (error) { if (error.code === 'ENOENT') return { tasks: [], approvals: [], proposals: [], testInstances: [] }; throw error; }
+    catch (error) { if (error.code === 'ENOENT') return { tasks: [], approvals: [], proposals: [], testInstances: [], conversationContexts: {} }; throw error; }
   }
 
   async write(data) {

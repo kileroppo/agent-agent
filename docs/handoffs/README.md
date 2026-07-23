@@ -59,4 +59,6 @@
 - [M1 小D飞书运行环境交接](./current/m1-xiaod-feishu-runtime-setup.md)：待所有者完成隔离 Profile 的本地配置后，执行首条受控飞书消息验证。
 - [M2 Paperclip 总控与通用访问底座交接](./current/m2-authorization-connectors-planning-handoff.md)：通用底座与 A君本地骨架已实现；下一步先验证 Paperclip 的真实 Agent 调度链路。
 - [M2 飞书 Agent 入口与 Paperclip 总控交接](./current/m2-feishu-agent-entry-handoff.md)：飞书原生会话是用户入口，小D不重做；下一步先核对官方机器人能力和现有接入，禁止克隆侧栏或新建第二个总控。
-- [M2 第一批 Agent 创建与治理闭环交接](./current/m2-first-batch-agent-governance-handoff.md)：已确认飞书创建草案、Paperclip 审核、受限测试和上线门禁；下一步从治理 Agent 契约测试开始。
+- [M2 第一批 Agent 创建与治理闭环交接](./current/m2-first-batch-agent-governance-handoff.md)：飞书草案、审批点击、受限测试和小D真实文档交付已验证；下一步补齐同会话自动完成提醒，再继续新 Agent 上线验收。
+- [音视频转录 Agent Hermes / 飞书接线交接](./current/av-transcriber-feishu-provisioning-handoff.md)：独立 Profile 与飞书应用已创建；下一步由负责人写入隔离凭据后完成私聊、群内 @ 真实收发验收。
+- [M2 独立 AI 员工与 A君切换交接](./current/m2-ai-first-independent-agents-handoff.md)：岗位卡和独立身份已建立；下一步安全配置 A君独立模型后切换，再验收运维官独立飞书小任务。

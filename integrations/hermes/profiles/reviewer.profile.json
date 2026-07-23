@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "agent.army/hermes-profile-map/v1",
+  "status": "verified-local",
+  "profileId": "reviewer",
+  "role": "审核官独立身份；只做受限审核建议验收。",
+  "localProfile": { "created": true, "gatewayStarted": false, "modelSelectionConfigured": true, "modelConfigured": true, "credentialedTransportVerified": true, "skillsSeeded": false },
+  "agentManifestRef": "agents/reviewer/manifest.json",
+  "promptRef": "agents/reviewer/prompts/system.md",
+  "appRef": "apps/ajun-runtime",
+  "gateway": { "platform": "feishu", "enabled": false, "reason": "独立飞书 Bot 尚未创建；不允许复用其他员工身份。" },
+  "toolAllowlist": ["army.approval.read", "army.approval.decide", "army.task.status.read"],
+  "secrets": { "source": "profile-environment-only", "valuesStoredHere": false }
+}

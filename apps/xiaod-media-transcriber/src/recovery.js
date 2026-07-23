@@ -2,7 +2,7 @@ export function classifyFailure(error) {
   if (error?.accessFailure) {
     return {
       category: error.accessFailure.category || 'manual',
-      retryable: false,
+      retryable: error.accessFailure.category === 'retryable',
       recovery: error.accessFailure.safeMessage
     };
   }

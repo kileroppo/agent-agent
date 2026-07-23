@@ -9,8 +9,8 @@ const TRANSITIONS = {
 };
 
 export class AgentProposalService {
-  constructor({ store, registry, governance = null, now = () => new Date() } = {}) {
-    this.store = store; this.registry = registry; this.governance = governance; this.now = now;
+  constructor({ store, registry, governance = null, taskService = null, restrictedAcceptanceRunner = null, now = () => new Date() } = {}) {
+    this.store = store; this.registry = registry; this.governance = governance; this.taskService = taskService; this.restrictedAcceptanceRunner = restrictedAcceptanceRunner; this.now = now;
   }
 
   async create(input, { source = 'ajun-runtime' } = {}) {
@@ -21,35 +21,75 @@ export class AgentProposalService {
       if (existing) return existing;
     }
     const candidateManifest = candidate(input, requestedOutcome);
-    const requestedCapabilities = capabilities(input?.requestedCapabilities);
+    const requestedCapabilities = capabilities(input?.requestedCapabilities, requestedOutcome);
+    const trialReadiness = currentTrialReadiness(candidateManifest, requestedCapabilities);
     const now = this.now().toISOString();
     let proposal = await this.store.createProposal({
-      source, sourceEventRef, requestedOutcome, candidateManifest,
+      source, sourceEventRef, sourceChatRef: optional(input?.sourceChatRef), requestedOutcome, candidateManifest,
       promptRef: `runtime://agent-proposals/${candidateManifest.agentId}/system-prompt`,
       promptDraft: promptFor(candidateManifest, requestedOutcome),
       desiredSkills: strings(input?.desiredSkills), requestedCapabilities,
-      runtimePlan: { profileMode: 'isolated-test-only', profileRef: `runtime://agent-proposals/${candidateManifest.agentId}/hermes-test-profile`, productionProfileCreated: false },
+      trialReadiness,
+      runtimePlan: { profileMode: trialReadiness.status === 'ready' ? 'isolated-test-only' : 'needs-capability-build', profileRef: `runtime://agent-proposals/${candidateManifest.agentId}/hermes-test-profile`, productionProfileCreated: false },
       budgetPolicy: { maxRuns: 1, externalSpendAllowed: false, maxTokens: Number(input?.maxTokens || 12000) },
       acceptanceTask: acceptanceTask(input, candidateManifest),
       status: 'draft',
-      reviewRefs: [architectReview(candidateManifest, requestedCapabilities, now), reviewerReview(candidateManifest, requestedCapabilities, now)],
+      reviewRefs: [architectReview(candidateManifest, requestedCapabilities, now)],
       audit: [{ at: now, actor: 'creator', action: 'draft_created', detail: '只创建岗位草案；未创建生产 Agent、外部连接或账号权限。' }]
     });
     return proposal;
   }
 
   async submit(proposalId) {
+    const draft = await this.get(proposalId);
+    if (draft.status !== 'draft') throw new ProposalValidationError(`草案状态“${draft.status}”不能提交审核。`);
+    const reviewer = await this.runReviewerTask(draft);
+    await this.store.updateProposal(proposalId, { reviewRefs: [...(draft.reviewRefs || []).filter((item) => item.role !== 'reviewer'), reviewer] });
     let proposal = await this.transition(proposalId, 'pending_approval', 'creator', '已提交组织级审核；未启动测试实例。');
     if (this.governance) proposal = await this.store.updateProposal(proposalId, { governance: await this.governance.projectProposal(proposal) });
     return proposal;
   }
 
+  async runReviewerTask(proposal) {
+    const at = this.now().toISOString();
+    if (!this.taskService) return reviewerReview(proposal.candidateManifest, proposal.requestedCapabilities, at);
+    const reviewTask = await this.taskService.create({
+      title: `审查新岗位草案：${proposal.candidateManifest.name}`,
+      description: [
+        `岗位目标：${proposal.requestedOutcome}`,
+        `申请能力：${proposal.requestedCapabilities.join('、') || '无外部能力'}`,
+        `测试范围：仅公开素材、一次受限测试、不登录、不外发、不付费、不扩权。`,
+        `有效期：本次岗位草案。交付条件：给出风险、缺失信息和是否可进入负责人决定。`
+      ].join('\n'),
+      taskType: 'governance.approval-review', agentId: 'reviewer',
+      idempotencyKey: `agent-proposal-review:${proposal.proposalId}`,
+      requester: { kind:'local-system', ref:'creator' },
+      source: { channel:'agent-proposal', eventRef:`agent-proposal:${proposal.proposalId}` },
+      context: { proposalId:proposal.proposalId, candidateAgentId:proposal.candidateManifest.agentId }
+    });
+    const report = reviewTask.artifactRefs?.find((item) => item.type === 'review_report');
+    if (reviewTask.status !== 'succeeded' || !report?.validation?.exists || !report?.validation?.nonEmpty) {
+      throw new ProposalValidationError('审核官尚未形成可验证结论，岗位草案仍保留为草稿。');
+    }
+    return {
+      reviewId: `reviewer-task:${reviewTask.taskId}`, role:'reviewer', result:report.data?.recommendation || 'human_owner_required',
+      summary:report.data?.nextAction || '审核官已完成范围与风险审查，等待负责人决定。', at:report.createdAt || at,
+      taskId:reviewTask.taskId, artifactRef:report.location
+    };
+  }
+
   async approveForTest(proposalId, decisionBy = 'A君') {
     const proposal = await this.get(proposalId);
     if (proposal.status !== 'pending_approval') throw new ProposalValidationError(`草案状态“${proposal.status}”不能进入受限测试。`);
+    const trialReadiness = currentTrialReadiness(proposal.candidateManifest, proposal.requestedCapabilities);
     if (this.governance) {
       const governance = await this.governance.approveProposal(proposal);
       await this.store.updateProposal(proposalId, { governance });
+    }
+    if (trialReadiness.status !== 'ready') {
+      let revised = await this.transition(proposalId, 'needs_revision', decisionBy, '负责人已确认岗位方向；当前没有对应的真实执行能力，草案转为待补能力，不会进入试用或上线。');
+      if (this.governance) revised = await this.store.updateProposal(proposalId, { governance: await this.governance.updateProposal(revised) });
+      return revised;
     }
     return this.transition(proposalId, 'testing', decisionBy, '负责人批准受限测试；仅允许白名单能力与验收任务。');
   }
@@ -57,6 +97,7 @@ export class AgentProposalService {
   async createTestInstance(proposalId, { hermesProfileName = null } = {}) {
     const proposal = await this.get(proposalId);
     if (proposal.status !== 'testing') throw new ProposalValidationError('草案未获批准，不能创建受限测试实例。');
+    assertRunnableCandidate(proposal);
     const existing = (await this.store.listTestInstances()).find((item) => item.proposalId === proposalId && item.status !== 'stopped');
     if (existing) return existing;
     const active = (await this.store.listTestInstances()).find((item) => item.status === 'ready' || item.status === 'running');
@@ -74,13 +115,35 @@ export class AgentProposalService {
     const proposal = await this.get(proposalId);
     if (proposal.status !== 'testing') throw new ProposalValidationError('只有测试中的草案可以登记验收。');
     if (!artifactTitle || !artifactRef) throw new ProposalValidationError('验收必须提供可验证产物标题与引用。');
+    if (passed) assertRunnableCandidate(proposal);
     const instance = (await this.store.listTestInstances()).find((item) => item.proposalId === proposalId && item.status === 'ready');
     if (!instance) throw new ProposalValidationError('请先准备受限测试实例。');
     await this.store.updateTestInstance(instance.testInstanceId, { status: passed ? 'passed' : 'failed', artifact: { title: String(artifactTitle).slice(0, 160), ref: String(artifactRef).slice(0, 500), passed: Boolean(passed), recordedAt: this.now().toISOString() } });
     if (!passed) return this.transition(proposalId, 'needs_revision', 'operator', '验收未通过；未创建正式 Agent 或飞书路由。');
     let updated = await this.transition(proposalId, 'active', 'A君', '受限测试验收通过，允许建立正式运行投影。');
     if (this.governance) updated = await this.store.updateProposal(proposalId, { governance: await this.governance.updateProposal(updated) });
+    const rosterSync = await this.syncActivatedRoster();
+    if (rosterSync) updated = await this.store.updateProposal(proposalId, { governance: { ...(updated.governance || {}), rosterSync } });
     return updated;
+  }
+
+  async runRestrictedAcceptance(proposalId, { sourceUrl } = {}) {
+    const proposal = await this.get(proposalId);
+    if (proposal.status !== 'testing') throw new ProposalValidationError('只有测试中的草案可以运行受限试用。');
+    const instance = (await this.store.listTestInstances()).find((item) => item.proposalId === proposalId && item.status === 'ready');
+    if (!instance) throw new ProposalValidationError('请先准备受限测试实例。');
+    if (!this.restrictedAcceptanceRunner) throw new ProposalValidationError('当前没有可用的受限试用执行器。');
+    let result;
+    try {
+      result = await this.restrictedAcceptanceRunner.run({ proposal, testInstance: instance, sourceUrl: String(sourceUrl || '').trim() });
+    } catch (error) {
+      return this.recordAcceptance(proposalId, { artifactTitle:'受限试用失败记录', artifactRef:`runtime://agent-proposals/${proposalId}/acceptance-failed`, passed:false });
+    }
+    const artifact = result?.artifactRefs?.find((item) => item.validation?.exists && item.validation?.readable && item.validation?.nonEmpty);
+    if (result?.status !== 'succeeded' || !artifact?.title || !artifact?.location) {
+      return this.recordAcceptance(proposalId, { artifactTitle:'受限试用失败记录', artifactRef:`runtime://agent-proposals/${proposalId}/acceptance-failed`, passed:false });
+    }
+    return this.recordAcceptance(proposalId, { artifactTitle:artifact.title, artifactRef:artifact.location, passed:true });
   }
 
   async recordTestEvidence(proposalId, { artifactTitle, artifactRef } = {}) {
@@ -97,8 +160,25 @@ export class AgentProposalService {
     return updated;
   }
 
-  async reject(proposalId, decisionBy = 'A君') { return this.transition(proposalId, 'rejected', decisionBy, '负责人拒绝草案；未启动任何运行实例。'); }
+  async reject(proposalId, decisionBy = 'A君') {
+    const proposal = await this.get(proposalId);
+    if (proposal.status !== 'pending_approval') throw new ProposalValidationError(`草案状态“${proposal.status}”不能拒绝。`);
+    if (this.governance) {
+      const governance = await this.governance.rejectProposal(proposal);
+      await this.store.updateProposal(proposalId, { governance });
+    }
+    return this.transition(proposalId, 'rejected', decisionBy, '负责人拒绝草案；未启动任何运行实例。');
+  }
   async get(proposalId) { const proposal = (await this.store.listProposals()).find((item) => item.proposalId === proposalId); if (!proposal) throw new ProposalValidationError('找不到 Agent 草案。'); return proposal; }
+
+  async syncActivatedRoster() {
+    if (!this.governance?.syncRoster || !this.registry?.list) return null;
+    try {
+      return await this.governance.syncRoster(await this.registry.list());
+    } catch {
+      return { status: 'sync_pending', reason: '新岗位已在本机上岗，管理台登记待下次同步补上。', syncedAt: this.now().toISOString() };
+    }
+  }
 
   async transition(proposalId, target, actor, detail) {
     const proposal = await this.get(proposalId);
@@ -128,7 +208,26 @@ function acceptanceTask(input, manifest) { return { taskType: manifest.acceptedT
 function architectReview(manifest, capabilities, at) { return { reviewId: `architect:${at}`, role: 'architect', result: 'recommend_pending_approval', summary: `复用 A君能力边界；候选岗位仅请求：${capabilities.join('、') || '无外部能力'}。`, at }; }
 function reviewerReview(manifest, capabilities, at) { return { reviewId: `reviewer:${at}`, role: 'reviewer', result: 'human_owner_required', summary: `默认拒绝账号、发布、付费与扩权；测试预算仅一次。`, at }; }
 function promptFor(manifest, outcome) { return `你是${manifest.name}。目标：${outcome}\n只处理公开素材并输出可验证报告；不得读取凭据、登录账号、外发、发布、付费或扩权。缺少必要材料时停止并说明。`; }
-function capabilities(value) { const selected = strings(value); if (selected.some((item) => !SAFE_CAPABILITIES.has(item))) throw new ProposalValidationError('第一批测试实例只能请求已审核的公开内容获取能力。'); return selected; }
+function capabilities(value, outcome = '') {
+  const inferred = /公开.*(?:网页|页面|文章|资料|素材)|(?:网页|页面|文章|资料|素材).*?(?:摘要|报告|整理)|公开.*(?:摘要|报告|整理)/.test(String(outcome)) ? ['content.public.fetch'] : [];
+  const selected = strings(value, inferred);
+  if (selected.some((item) => !SAFE_CAPABILITIES.has(item))) throw new ProposalValidationError('第一批测试实例只能请求已审核的公开内容获取能力。');
+  return selected;
+}
+function assertRunnableCandidate(proposal) {
+  if (currentTrialReadiness(proposal?.candidateManifest, proposal?.requestedCapabilities).status !== 'ready') {
+    throw new ProposalValidationError('第一批真实试用目前只支持只读公开网页报告员；请修改岗位范围后再试。');
+  }
+}
+function currentTrialReadiness(manifest, requestedCapabilities) {
+  const taskTypes = manifest?.acceptedTaskTypes || [];
+  const supportsPublicReport = taskTypes.length === 1
+    && taskTypes[0] === 'report.public-material'
+    && requestedCapabilities?.includes('content.public.fetch');
+  return supportsPublicReport
+    ? { status:'ready', message:'当前可进入只读公开网页的受限试用；通过真实产物验收后才会上岗。' }
+    : { status:'needs_capability', message:'这个岗位的草案可以先审核，但军团目前还没有对应的真实执行能力；不会进入试用，更不会上线。' };
+}
 function strings(value, fallback = []) { const items = Array.isArray(value) ? value : value ? [value] : fallback; return [...new Set(items.map((item) => String(item).trim()).filter(Boolean))]; }
 function optional(value) { return String(value || '').trim() || null; }
 function text(value, message) { const result = optional(value); if (!result) throw new ProposalValidationError(message); return result.slice(0, 500); }

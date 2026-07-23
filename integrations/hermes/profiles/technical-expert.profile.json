@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "agent.army/hermes-profile-map/v1",
+  "status": "verified-local",
+  "profileId": "technical-expert",
+  "role": "技术专家独立身份；只做受限技术诊断与修复验收。",
+  "localProfile": { "created": true, "gatewayStarted": false, "modelSelectionConfigured": true, "modelConfigured": true, "credentialedTransportVerified": true, "skillsSeeded": false },
+  "agentManifestRef": "agents/technical-expert/manifest.json",
+  "promptRef": "agents/technical-expert/prompts/system.md",
+  "appRef": "apps/ajun-runtime",
+  "gateway": { "platform": "feishu", "enabled": false, "reason": "独立飞书 Bot 尚未创建；不允许复用其他员工身份。" },
+  "toolAllowlist": ["army.task.status.read", "army.operations.event.read", "army.technical-repair.record"],
+  "secrets": { "source": "profile-environment-only", "valuesStoredHere": false }
+}

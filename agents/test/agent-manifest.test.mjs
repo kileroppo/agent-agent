@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url";
 const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(testDirectory, "../..");
 const manifestPath = path.join(repositoryRoot, "agents/xiaod/manifest.json");
-const skeletonAgentIds = ["task-coordinator", "architect", "reviewer", "operator"];
+const ajunManifestPath = path.join(repositoryRoot, "agents/ajun/manifest.json");
+const independentAgentIds = ["task-coordinator", "architect", "reviewer", "operator", "creator", "technical-expert"];
 
 const requiredFields = [
   "schemaVersion",
@@ -84,16 +85,45 @@ test("Manifest 和 Hermes 映射不包含秘密值字段", async () => {
   }
 });
 
-test("基础岗位遵循 Manifest 边界，且只启用已有本地执行器的岗位", async () => {
-  for (const agentId of skeletonAgentIds) {
+test("A君也有完整岗位卡和独立身份资料，但不会被当成普通员工派活", async () => {
+  const manifest = await readJson(ajunManifestPath);
+  assert.equal(manifest.agentId, "ajun");
+  assert.equal(manifest.kind, "manager");
+  assert.deepEqual(manifest.acceptedTaskTypes, []);
+  for (const field of requiredFields) assert.ok(Object.hasOwn(manifest, field), `missing required field: ${field}`);
+  await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.promptRef)));
+  await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.runtimeProfileRef)));
+  await assert.doesNotReject(() => stat(path.join(repositoryRoot, "agents/ajun/岗位卡.md")));
+  const profile = await readJson(path.join(repositoryRoot, manifest.runtimeProfileRef));
+  assert.equal(profile.agentManifestRef, "agents/ajun/manifest.json");
+  assert.equal(profile.promptRef, manifest.promptRef);
+  assert.deepEqual(profile.toolAllowlist, manifest.toolAllowlist);
+  assert.equal(profile.secrets.valuesStoredHere, false);
+});
+
+test("现有后台岗位都有独立身份映射，且独立入口不会被误当成已上线", async () => {
+  for (const agentId of independentAgentIds) {
     const manifest = await readJson(path.join(repositoryRoot, "agents", agentId, "manifest.json"));
     assert.equal(manifest.schemaVersion, "agent.army/v1");
     assert.equal(manifest.agentId, agentId);
-    assert.equal(manifest.status, ["operator", "task-coordinator", "reviewer", "architect"].includes(agentId) ? "active" : "draft");
+    assert.equal(manifest.status, "active");
     assert.ok(manifest.acceptedTaskTypes.length > 0);
     assert.ok(manifest.nonResponsibilities.length > 0);
     assert.ok(manifest.approvalPolicies.some((policy) => policy.decision !== "auto"));
     await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.promptRef)));
     await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.appRef)));
+    await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.runtimeProfileRef)));
+    await assert.doesNotReject(() => stat(path.join(repositoryRoot, "agents", agentId, "岗位卡.md")));
+
+    const profile = await readJson(path.join(repositoryRoot, manifest.runtimeProfileRef));
+    assert.equal(profile.profileId, agentId);
+    assert.equal(profile.status, "verified-local");
+    assert.equal(profile.localProfile.created, true);
+    assert.equal(profile.localProfile.modelSelectionConfigured, true);
+    assert.equal(profile.localProfile.modelConfigured, true);
+    assert.equal(profile.localProfile.credentialedTransportVerified, true);
+    assert.equal(profile.gateway.enabled, false);
+    assert.deepEqual(profile.toolAllowlist, manifest.toolAllowlist);
+    assert.equal(profile.secrets.valuesStoredHere, false);
   }
 });

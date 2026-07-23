@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "agent.army/v1",
+  "manifestVersion": "0.1.0",
+  "agentId": "av-transcriber",
+  "name": "音视频转录 Agent",
+  "department": "内容组",
+  "role": "待配置的音视频转录岗位；当前只用于飞书接线验收，不承接业务任务。",
+  "responsibilities": [
+    "在负责人配置完成前，仅回应接线测试状态，不创建或执行业务任务。"
+  ],
+  "nonResponsibilities": [
+    "不转录、整理、下载或交付任何音视频素材",
+    "不读取现有小D Profile、会话、凭据或数据",
+    "不使用未获明确批准的工具、账号或外部权限"
+  ],
+  "acceptedTaskTypes": [
+    "agent.setup-placeholder"
+  ],
+  "toolAllowlist": [],
+  "dataScopes": [],
+  "approvalPolicies": [
+    {
+      "action": "any-business-execution-or-permission-change",
+      "riskLevel": "high",
+      "decision": "require-approval"
+    }
+  ],
+  "qualityGates": [
+    {
+      "gate": "owner-configured-role-and-capabilities",
+      "required": true
+    }
+  ],
+  "budgetPolicy": {
+    "maxAttempts": 0,
+    "maxRuntimeMinutes": 0,
+    "onLimit": "do-not-start"
+  },
+  "promptRef": "agents/av-transcriber/prompts/system.md",
+  "runtimeProfileRef": "integrations/hermes/profiles/av-transcriber.profile.json",
+  "appRef": "apps/xiaod-media-transcriber",
+  "operationalPolicy": {
+    "heartbeatSeconds": 0,
+    "inputTimeoutMinutes": 0,
+    "retryStrategy": "disabled-until-configured"
+  },
+  "owner": "A 君",
+  "status": "draft"
+}

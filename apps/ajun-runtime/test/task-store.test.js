@@ -45,3 +45,17 @@ test('并发状态更新不会互相覆盖字段', async () => {
     assert.deepEqual(saved.execution, { executor: 'task-coordinator' });
   } finally { await fs.rm(directory, { recursive: true, force: true }); }
 });
+
+test('会话上下文只保存结构化事实，可在重启后继续接住追问', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-task-store-'));
+  try {
+    const filePath = path.join(directory, 'runtime.json');
+    const store = new TaskStore(filePath);
+    await store.setConversationContext('chat-safe-ref', { kind:'usage_report', recordedTaskCount:18, taskIds:['task-1'], expiresAt:'2026-07-23T00:00:00.000Z' });
+    const restarted = new TaskStore(filePath);
+    assert.deepEqual(await restarted.getConversationContext('chat-safe-ref'), {
+      schemaVersion:'agent.army/conversation-context/v1',
+      kind:'usage_report', recordedTaskCount:18, taskIds:['task-1'], expiresAt:'2026-07-23T00:00:00.000Z', updatedAt:(await store.getConversationContext('chat-safe-ref')).updatedAt
+    });
+  } finally { await fs.rm(directory, { recursive: true, force: true }); }
+});

@@ -3,10 +3,11 @@ const MAX_BACKOFF_MS = 30_000;
 const MAX_UNAVAILABLE_POLLS = 5;
 
 export class XiaodReconciler {
-  constructor({ store, xiaod, governance = null, now = () => Date.now(), intervalMs = 3_000 } = {}) {
+  constructor({ store, xiaod, governance = null, onFailure = null, now = () => Date.now(), intervalMs = 3_000 } = {}) {
     this.store = store;
     this.xiaod = xiaod;
     this.governance = governance;
+    this.onFailure = onFailure;
     this.now = now;
     this.intervalMs = intervalMs;
     this.timer = null;
@@ -42,18 +43,19 @@ export class XiaodReconciler {
   async reconcileTask(task) {
     try {
       const job = await this.xiaod.getJob(task.execution.xiaodJobId);
-      const status = job.status === 'completed' ? 'succeeded' : job.status === 'failed' ? 'failed' : 'running';
+      const status = job.status === 'completed' ? 'succeeded' : job.status === 'failed' ? 'failed' : job.status === 'paused' ? 'paused' : job.status === 'pausing' ? 'pausing' : 'running';
       const execution = {
         ...task.execution,
         xiaodStatus: job.status,
         xiaodProgress: job.progress,
         updatedAt: new Date(this.now()).toISOString(),
-        polling: { state: status === 'running' ? 'watching' : 'settled', consecutiveFailures: 0, nextPollAt: status === 'running' ? new Date(this.now() + this.intervalMs).toISOString() : null }
+        polling: { state: ['running', 'pausing'].includes(status) ? 'watching' : 'settled', consecutiveFailures: 0, nextPollAt: ['running', 'pausing'].includes(status) ? new Date(this.now() + this.intervalMs).toISOString() : null }
       };
       const patch = { status, currentStage: `xiaod_${job.status}`, execution };
       if (status === 'succeeded') patch.artifactRefs = [artifactFor(task, job, this.xiaod.baseUrl)];
       if (status === 'failed') patch.error = failureFor(job);
-      await this.persist(task.taskId, patch);
+      const updated = await this.persist(task.taskId, patch);
+      if (status === 'failed') await this.coordinateFailure(updated);
     } catch (error) {
       await this.deferUnavailableTask(task, error);
     }
@@ -64,11 +66,12 @@ export class XiaodReconciler {
     const consecutiveFailures = priorFailures + 1;
     const message = String(error?.message || '小D状态不可用。');
     if (consecutiveFailures >= MAX_UNAVAILABLE_POLLS) {
-      await this.persist(task.taskId, {
+      const updated = await this.persist(task.taskId, {
         status: 'failed', currentStage: 'xiaod_status_unavailable',
         execution: { ...task.execution, updatedAt: new Date(this.now()).toISOString(), polling: { state: 'exhausted', consecutiveFailures, nextPollAt: null } },
         error: { code: 'xiaod_status_unavailable', message, userMessage: '多次无法确认小D任务状态，已停止自动查询；请稍后检查小D服务后重试。', category: 'retryable', stage: 'delegated_to_xiaod', occurredAt: new Date(this.now()).toISOString() }
       });
+      await this.coordinateFailure(updated);
       return;
     }
     const delay = Math.min(BASE_BACKOFF_MS * (2 ** (consecutiveFailures - 1)), MAX_BACKOFF_MS);
@@ -86,10 +89,23 @@ export class XiaodReconciler {
     }
     return updated;
   }
+
+  async coordinateFailure(task) {
+    if (typeof this.onFailure !== 'function') return;
+    try { await this.onFailure(task); }
+    catch (error) {
+      await this.persist(task.taskId, {
+        recovery: {
+          ...(task.recovery || {}),
+          coordination: { status: 'pending', reason: String(error?.message || '恢复协调暂时失败。'), updatedAt: new Date(this.now()).toISOString() }
+        }
+      });
+    }
+  }
 }
 
 function isRunningXiaodTask(task) {
-  return task.status === 'running' && task.execution?.executor === 'xiaod' && Boolean(task.execution.xiaodJobId);
+  return ['running', 'pausing'].includes(task.status) && task.execution?.executor === 'xiaod' && Boolean(task.execution.xiaodJobId);
 }
 
 function isPollDue(task, now) {
@@ -98,7 +114,7 @@ function isPollDue(task, now) {
 }
 
 function artifactFor(task, job, baseUrl) {
-  return { artifactId: `xiaod-job:${job.id}`, taskId: task.taskId, type: 'xiaod_media_delivery', title: job.title, location: `${baseUrl}/api/jobs/${job.id}`, mimeType: 'application/json', accessScope: 'local-owner', validation: { exists: true, readable: true, nonEmpty: Boolean(job.output?.markdownPath), qualityPassed: Boolean(job.quality?.passed) }, createdAt: new Date().toISOString() };
+  return { artifactId: `xiaod-job:${job.id}`, taskId: task.taskId, type: 'xiaod_media_delivery', title: job.title, location: `${baseUrl}/api/jobs/${job.id}`, mimeType: 'application/json', accessScope: 'local-owner', validation: { exists: true, readable: true, nonEmpty: Boolean(job.output?.markdownPath), qualityPassed: Boolean(job.quality?.passed) }, createdAt: new Date().toISOString(), data: { larkUrl: typeof job.output?.larkUrl === 'string' ? job.output.larkUrl : null, larkPermissionGranted: job.output?.larkPermissionGranted === true } };
 }
 
 function failureFor(job) {

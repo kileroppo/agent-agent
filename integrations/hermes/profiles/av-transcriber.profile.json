@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "agent.army/hermes-profile-map/v1",
+  "status": "draft",
+  "profileId": "av-transcriber",
+  "localProfile": {
+    "created": true,
+    "gatewayStarted": true,
+    "credentialedTransportVerified": true,
+    "skillsSeeded": false
+  },
+  "agentManifestRef": "agents/av-transcriber/manifest.json",
+  "promptRef": "agents/av-transcriber/prompts/system.md",
+  "appRef": "apps/xiaod-media-transcriber",
+  "gateway": {
+    "platform": "feishu",
+    "connectionMode": "websocket",
+    "appId": "cli_aaea06d08bf85cba",
+    "allowAllUsers": false,
+    "allowedUsersSource": "environment:FEISHU_ALLOWED_USERS",
+    "groupMentionRequired": true,
+    "events": ["im.message.receive_v1"],
+    "status": "connected-private-and-group-e2e-passed"
+  },
+  "kanban": {
+    "enabled": false,
+    "taskTypes": []
+  },
+  "toolAllowlist": [],
+  "secrets": {
+    "source": "profile-environment-only",
+    "valuesStoredHere": false
+  }
+}

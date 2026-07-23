@@ -84,10 +84,23 @@ function operationsFor(capabilities) {
 
 function priority(priorityClass) { return priorityClass === 'specialized' ? 0 : 1; }
 function safeSourceRef(source) { const parsed = new URL(source); return `${parsed.protocol}//${parsed.host}${parsed.pathname}`; }
-function failure(code, safeMessage, recommendedAction) { return { ok: false, code, safeMessage, recommendedAction, category: code.includes('connection') || code.includes('granted') || code === 'agent_not_allowed' ? 'needs_input' : 'manual' }; }
+function failure(code, safeMessage, recommendedAction) {
+  const category = code.includes('connection') || code.includes('granted') || code === 'agent_not_allowed'
+    ? 'needs_input'
+    : recommendedAction === 'retry'
+      ? 'retryable'
+      : 'manual';
+  return { ok: false, code, safeMessage, recommendedAction, category };
+}
 
 function safeAdapterFailure(error) {
   const raw = error instanceof Error ? error.message : String(error);
+  if (error?.code === 'source_rate_limited' || /\b429\b|too many requests|rate limit/i.test(raw)) {
+    return { code: 'source_rate_limited', safeMessage: '视频站临时限制读取，请稍后重试或改用本地文件。', recommendedAction: 'retry' };
+  }
+  if (error?.code === 'tool_unavailable') {
+    return { code: 'tool_unavailable', safeMessage: '本机缺少读取公开视频所需工具，请由运维官检查。', recommendedAction: 'repair' };
+  }
   if (/private|login|sign in|cookies|403|401|authorization/i.test(raw)) return { code: 'authorization_required', safeMessage: '素材需要登录或额外授权；请在 A君中重新授权，或改用本地文件。', recommendedAction: 'reauthorize' };
   if (error?.code === 'capability_not_available') return { code: error.code, safeMessage: '当前通道不能提供所需内容能力。', recommendedAction: 'manual_review' };
   return { code: 'adapter_unavailable', safeMessage: '内容获取通道当前不可用，请稍后重试或改用本地文件。', recommendedAction: 'retry' };

@@ -25,6 +25,7 @@ export class XiaodDelegate {
         executor: 'xiaod', mode: 'local_media_delegate', startedAt: new Date().toISOString(), xiaodJobId: job.id, sourceUrl,
         polling: { state: 'pending', consecutiveFailures: 0, nextPollAt: new Date().toISOString() }
       },
+      usage: { tools:[{ id:'xiaod-local-api', name:'小D本机处理', calls:1 }] },
       artifactRefs: []
     };
   }
@@ -38,6 +39,18 @@ export class XiaodDelegate {
     const response = await this.fetch(`${this.baseUrl}/api/jobs/${encodeURIComponent(jobId)}`, { signal: AbortSignal.timeout(5000) });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || !payload.job) throw new Error(payload.error || `小D任务读取失败 ${response.status}`);
+    return payload.job;
+  }
+
+  async pause(task) { return this.control(task, 'pause'); }
+  async resume(task) { return this.control(task, 'resume'); }
+
+  async control(task, action) {
+    const jobId = String(task.execution?.xiaodJobId || '').trim();
+    if (!jobId) throw new Error('这条任务没有可控制的小D工作。');
+    const response = await this.fetch(`${this.baseUrl}/api/jobs/${encodeURIComponent(jobId)}/${action}`, { method:'POST', signal:AbortSignal.timeout(5000) });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.job) throw new Error(payload.error || `小D${action === 'pause' ? '暂停' : '继续'}请求失败 ${response.status}`);
     return payload.job;
   }
 }

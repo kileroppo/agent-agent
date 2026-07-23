@@ -11,7 +11,7 @@ export const STAGES = [
   ['completed', '已完成']
 ];
 
-export const ACTIVE_STATUSES = new Set(STAGES.slice(0, -1).map(([status]) => status));
+export const ACTIVE_STATUSES = new Set([...STAGES.slice(0, -1).map(([status]) => status), 'pausing']);
 
 export function makeJob({ sourceType, sourceUrl = null, originalName = null, sourcePath = null, ingress = null, connectionId = null }) {
   const now = new Date().toISOString();

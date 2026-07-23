@@ -7,6 +7,7 @@ import { makeJob, validatePublicHttpUrl } from './domain.js';
 import { canRetryJob, retryPatch } from './recovery.js';
 import { IntakeError, createFeishuMediaJob } from './feishu-media-intake.js';
 import { MediaPipeline, deliverToLark } from './pipeline.js';
+import { JobPauseController, JobPauseError } from './job-pause-controller.js';
 import { JobStore } from './store.js';
 import { createContentRuntime } from './content-runtime.js';
 import { ConnectionInputError } from '../../../integrations/access/connection-store.js';
@@ -17,7 +18,8 @@ await fs.mkdir(uploadsDir, { recursive: true });
 const store = new JobStore(config.workDir);
 await store.init();
 const contentRuntime = await createContentRuntime(config.workDir);
-const pipeline = new MediaPipeline({ store, workDir: config.workDir, contentCenter: contentRuntime.contentCenter });
+const pauseController = new JobPauseController({ store });
+const pipeline = new MediaPipeline({ store, workDir: config.workDir, contentCenter: contentRuntime.contentCenter, pauseController });
 const upload = multer({ dest: uploadsDir, limits: { fileSize: 1024 * 1024 * 1024 } });
 const app = express();
 app.use(express.json({ limit: '64kb' }));
@@ -137,6 +139,27 @@ app.post('/api/jobs/:id/retry', async (req, res, next) => {
     void pipeline.run(job.id);
     res.status(202).json({ job: store.get(job.id) });
   } catch (error) { next(error); }
+});
+
+app.post('/api/jobs/:id/pause', async (req, res, next) => {
+  try {
+    const job = await pauseController.request(req.params.id);
+    res.status(202).json({ job });
+  } catch (error) {
+    if (error instanceof JobPauseError) return res.status(409).json({ error: error.message });
+    next(error);
+  }
+});
+
+app.post('/api/jobs/:id/resume', async (req, res, next) => {
+  try {
+    const job = await pauseController.resume(req.params.id);
+    void pipeline.run(job.id);
+    res.status(202).json({ job });
+  } catch (error) {
+    if (error instanceof JobPauseError) return res.status(409).json({ error: error.message });
+    next(error);
+  }
 });
 
 app.post('/api/jobs/:id/redeliver', async (req, res, next) => {

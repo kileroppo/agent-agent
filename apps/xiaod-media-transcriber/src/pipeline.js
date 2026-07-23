@@ -5,6 +5,7 @@ import { config } from './config.js';
 import { cleanTranscript, composeDelivery, qualityCheck } from './domain.js';
 import { classifyFailure } from './recovery.js';
 import { createOneShotFailpoint } from './test-failpoint.js';
+import { JobPausedError } from './job-pause-controller.js';
 import { ContentAcquisitionError } from '../../../integrations/access/content-acquisition-center.js';
 
 const REFINER_PROMPT = `你是中文音视频内容编辑。你只负责写“内容导览”，完整校对文本会由系统另行附在后面。
@@ -33,10 +34,11 @@ const REFINER_PROMPT = `你是中文音视频内容编辑。你只负责写“�
 如果原文确实没有足够证据，不要硬造“逻辑分析”“框架与心智模型”等章节。`;
 
 export class MediaPipeline {
-  constructor({ store, workDir, contentCenter = null, failpoint = createOneShotFailpoint(config.testFailOnceAt) }) {
+  constructor({ store, workDir, contentCenter = null, pauseController = null, failpoint = createOneShotFailpoint(config.testFailOnceAt) }) {
     this.store = store;
     this.workDir = workDir;
     this.contentCenter = contentCenter;
+    this.pauseController = pauseController;
     this.failpoint = failpoint;
   }
 
@@ -45,9 +47,11 @@ export class MediaPipeline {
     if (!job) return;
     const jobDir = path.join(this.workDir, 'jobs', job.id);
     try {
+      await this.checkpoint(job.id, '开始处理前');
       await fs.mkdir(jobDir, { recursive: true });
       await this.stage(job.id, 'preparing', 8, '正在检查素材格式与可读性');
       const acquired = await this.acquire(this.store.get(job.id), jobDir);
+      await this.checkpoint(job.id, '素材检查完成');
       const resolvedTitle = deliveryTitle(this.store.get(job.id), acquired.contentPackage);
       if (resolvedTitle !== this.store.get(job.id).title) await this.store.update(job.id, { title: resolvedTitle });
       const currentJob = this.store.get(job.id);
@@ -58,6 +62,7 @@ export class MediaPipeline {
       const rawTranscript = acquired.kind === 'subtitle'
         ? await fs.readFile(acquired.path, 'utf8')
         : await this.transcribe(acquired.path, jobDir);
+      await this.checkpoint(job.id, '转录完成');
       const transcript = cleanTranscript(rawTranscript);
       if (transcript.length < 20) throw new Error('未得到有效文字，请检查素材是否有声音、是否受限或更换转录模型。');
       const transcriptPath = path.join(jobDir, 'transcript-clean.txt');
@@ -65,6 +70,7 @@ export class MediaPipeline {
 
       await this.stage(job.id, 'distilling', 70, '正在去噪并按内容组织文稿');
       const refined = await refineText(currentJob.title, transcript);
+      await this.checkpoint(job.id, '文稿整理完成');
       const guidePath = path.join(jobDir, '内容导览.md');
       const proofreadPath = path.join(jobDir, '完整校对文本.md');
       const markdown = composeDelivery(currentJob.title, refined.markdown, transcript);
@@ -75,6 +81,7 @@ export class MediaPipeline {
       const quality = qualityCheck(markdown, { usedRefiner: refined.usedRefiner, refinerFallback: Boolean(refined.refinerFallbackReason) });
 
       await this.stage(job.id, 'delivering', 88, '正在准备本地交付物');
+      await this.checkpoint(job.id, '交付前');
       const lark = await deliverToLark(currentJob.title, markdown).catch((error) => ({ error: error.message }));
       const warnings = [...quality.issues];
       if (refined.refinerFallbackReason) warnings.unshift(refined.refinerFallbackReason);
@@ -96,6 +103,7 @@ export class MediaPipeline {
         }
       }, { stage: 'completed', message: '任务完成' });
     } catch (error) {
+      if (error instanceof JobPausedError) return;
       const errorMessage = humanizeError(error);
       const failure = classifyFailure(error);
       const current = this.store.get(job.id);
@@ -107,7 +115,12 @@ export class MediaPipeline {
   }
 
   async stage(id, status, progress, message) {
+    await this.checkpoint(id, '进入下一步前');
     await this.store.update(id, { status, progress, stageMessage: message, error: null }, { stage: status, message });
+  }
+
+  async checkpoint(id, safePoint) {
+    if (this.pauseController) await this.pauseController.checkpoint(id, safePoint);
   }
 
   async acquire(job, jobDir) {
@@ -148,7 +161,7 @@ export class MediaPipeline {
   async acquireLegacyUrl(job, jobDir) {
     await this.stage(job.id, 'acquiring', 22, '正在优先查找可用字幕');
     const subtitleTemplate = path.join(jobDir, 'subtitle.%(ext)s');
-    await run('yt-dlp', ['--no-playlist', '--write-subs', '--write-auto-subs', '--sub-langs', 'zh.*,en.*', '--skip-download', '-o', subtitleTemplate, job.sourceUrl], { allowFailure: true });
+    await run('yt-dlp', ['--no-playlist', '--write-subs', '--write-auto-subs', '--sub-langs', 'zh-Hans,zh-Hant,en', '--skip-download', '-o', subtitleTemplate, job.sourceUrl], { allowFailure: true });
     const subtitle = await findFirst(jobDir, (name) => /\.vtt$|\.srt$/i.test(name));
     if (subtitle) return { kind: 'subtitle', path: subtitle };
 

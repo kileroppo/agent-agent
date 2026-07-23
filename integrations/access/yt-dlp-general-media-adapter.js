@@ -36,7 +36,10 @@ export class YtDlpGeneralMediaAdapter {
     if (wantsSubtitles) {
       await onProgress?.({ stage: 'acquiring', progress: 22, message: '正在优先查找可用字幕' });
       const subtitleTemplate = path.join(workspace, 'subtitle.%(ext)s');
-      await this.runCommand('yt-dlp', [...authArgs, '--no-playlist', '--write-subs', '--write-auto-subs', '--sub-langs', 'zh.*,en.*', '--skip-download', '-o', subtitleTemplate, source], { allowFailure: true });
+      // Ask for the useful originals first. Wildcards make yt-dlp request every
+      // translated variant, which is slow and can make a public video look
+      // unavailable when one surplus subtitle request is rate-limited.
+      await this.runCommand('yt-dlp', [...authArgs, '--no-playlist', '--write-subs', '--write-auto-subs', '--sub-langs', 'zh-Hans,zh-Hant,en', '--skip-download', '-o', subtitleTemplate, source], { allowFailure: true });
       const subtitlePath = await findFirst(workspace, (name) => /\.vtt$|\.srt$/i.test(name));
       if (subtitlePath) {
         contentItems.subtitles = [{ localRef: path.basename(subtitlePath), mimeType: subtitlePath.endsWith('.srt') ? 'application/x-subrip' : 'text/vtt' }];
@@ -101,12 +104,26 @@ function defaultRunCommand(command, args, { allowFailure = false } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '';
+    let errorOutput = '';
     child.stdout.on('data', (chunk) => { output += chunk; });
-    child.on('error', (error) => reject(new Error(`${command} 无法启动：${error.message}`)));
+    child.stderr.on('data', (chunk) => { errorOutput += chunk; });
+    child.on('error', (error) => {
+      const failure = new Error(`${command} 无法启动：${error.message}`);
+      failure.code = error.code === 'ENOENT' ? 'tool_unavailable' : 'adapter_unavailable';
+      reject(failure);
+    });
     child.on('close', (code) => {
       if (code === 0) return resolve(output.trim());
       if (allowFailure) return resolve('');
-      reject(new Error(`${command} 执行失败（退出码 ${code}）。`));
+      const failure = new Error(`${command} 执行失败（退出码 ${code}）。`);
+      failure.code = commandFailureCode(errorOutput);
+      reject(failure);
     });
   });
+}
+
+function commandFailureCode(errorOutput) {
+  if (/\b429\b|too many requests|rate limit/i.test(errorOutput)) return 'source_rate_limited';
+  if (/\b401\b|\b403\b|private|login|sign in|cookies|authorization/i.test(errorOutput)) return 'authorization_required';
+  return 'adapter_unavailable';
 }

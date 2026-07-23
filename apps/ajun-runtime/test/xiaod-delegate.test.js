@@ -26,6 +26,7 @@ test('小D只在任务记录完成后开始跟踪下游任务', async () => {
   assert.equal(result.status, 'running');
   assert.equal(result.execution.polling.state, 'pending');
   assert.equal(result.execution.polling.consecutiveFailures, 0);
+  assert.deepEqual(result.usage.tools, [{ id:'xiaod-local-api', name:'小D本机处理', calls:1 }]);
   assert.equal(started.length, 0);
   delegate.observe({ taskId: 'task-1', execution: result.execution });
   assert.deepEqual(started, [{ taskId: 'task-1', xiaodJobId: 'xiaod-1' }]);
@@ -33,4 +34,16 @@ test('小D只在任务记录完成后开始跟踪下游任务', async () => {
 
 test('小D下游地址只能是本机回环地址', () => {
   assert.throws(() => new XiaodDelegate({ baseUrl: 'https://example.com' }), /本机回环地址/);
+});
+
+test('小D暂停和继续只调用本机工作接口', async () => {
+  const calls = [];
+  const delegate = new XiaodDelegate({ fetchImpl: async (url, options) => {
+    calls.push({ url, method:options.method });
+    return new Response(JSON.stringify({ job:{ id:'xiaod-1', status:url.endsWith('/pause') ? 'pausing' : 'queued', progress:45 } }), { status:202 });
+  } });
+  const task = { taskId:'task-1', execution:{ xiaodJobId:'xiaod-1' } };
+  const paused = await delegate.pause(task); const resumed = await delegate.resume(task);
+  assert.equal(paused.status, 'pausing'); assert.equal(resumed.status, 'queued');
+  assert.deepEqual(calls.map((call) => call.url), ['http://127.0.0.1:4318/api/jobs/xiaod-1/pause', 'http://127.0.0.1:4318/api/jobs/xiaod-1/resume']);
 });

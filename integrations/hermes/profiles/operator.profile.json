@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "agent.army/hermes-profile-map/v1",
+  "status": "verified-local",
+  "profileId": "operator",
+  "role": "运维官独立身份；只做受限本机健康检查验收。",
+  "localProfile": {
+    "created": true,
+    "gatewayStarted": false,
+    "modelSelectionConfigured": true,
+    "modelConfigured": true,
+    "credentialedTransportVerified": true,
+    "skillsSeeded": false
+  },
+  "agentManifestRef": "agents/operator/manifest.json",
+  "promptRef": "agents/operator/prompts/system.md",
+  "appRef": "apps/ajun-runtime",
+  "gateway": { "platform": "feishu", "enabled": false, "reason": "独立飞书 Bot 尚未创建；不允许复用其他员工身份。" },
+  "toolAllowlist": ["army.operations.event.read", "army.runtime.health.read", "army.operations.diagnose", "army.task.retry.safe", "army.task.escalate.technical"],
+  "secrets": { "source": "profile-environment-only", "valuesStoredHere": false }
+}

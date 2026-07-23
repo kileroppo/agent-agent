@@ -18,6 +18,31 @@ test('协调官不会把未知请求伪装成已路由', async () => {
   assert.match(result.artifactRefs[0].data.nextAction, /没有唯一可执行岗位/);
 });
 
+test('未知工作会调用任务理解 AI，并安全交给架构师评估能力缺口', async () => {
+  const advisor = { async advise() { return { understanding:'把竞品整理成行动清单', deliverable:'中文竞品行动清单', missing:['竞品名称'], safeNextStep:'先确认公开资料范围' }; } };
+  const registry = { async list() { return [{ agentId:'public-reporter', name:'公开资料报告员', status:'active', acceptedTaskTypes:['report.public-material'] }, { agentId:'architect', name:'架构师', status:'active', acceptedTaskTypes:['governance.architecture-review'] }]; } };
+  const coordinator = new LocalTaskCoordinator({ advisor, registry });
+  const result = await coordinator.execute({ taskId:'task-1', createdAt:'2026-07-22T10:00:00.000Z', input:{ title:'帮我研究竞品' }, execution:{} });
+  const record = result.artifactRefs[0].data;
+  assert.equal(result.status, 'succeeded');
+  assert.equal(record.recommendedTaskType, 'governance.architecture-review');
+  assert.equal(record.recommendedAgentId, 'architect');
+  assert.equal(record.autoContinue, true);
+  assert.match(record.nextAction, /竞品整理成行动清单/);
+  assert.match(record.nextAction, /中文竞品行动清单/);
+  assert.match(record.nextAction, /竞品名称/);
+  assert.equal(record.externalActionStarted, false);
+});
+
+test('包含登录、付费等风险描述的工作会交给审核官，不自动继续', async () => {
+  const advisor = { async advise() { return { understanding:'购买一项服务', deliverable:'购买结果', missing:[], safeNextStep:'先确认范围' }; } };
+  const registry = { async list() { return [{ agentId:'architect', name:'架构师', status:'active', acceptedTaskTypes:['governance.architecture-review'] }]; } };
+  const record = (await new LocalTaskCoordinator({ advisor, registry }).execute({ taskId:'task-risk', input:{ title:'帮我登录账号并付费购买服务' }, execution:{} })).artifactRefs[0].data;
+  assert.equal(record.recommendedTaskType, 'governance.approval-review');
+  assert.equal(record.recommendedAgentId, 'reviewer');
+  assert.equal(record.autoContinue, false);
+});
+
 test('协调官把审核和高风险描述交给审核官，只形成审查建议', async () => {
   const coordinator = new LocalTaskCoordinator();
   const result = await coordinator.execute({ taskId: 'task-3', input: { title: '审核发布范围', description: '', sourceUrl: null }, execution: {} });

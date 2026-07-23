@@ -2,10 +2,10 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | v3.1 实施中：M2 通用连接、内容获取与运维字段已有本地实现和契约测试；飞书军团总管与审批回调待实现 |
+| 状态 | v3.2 实施中：M2 通用连接、内容获取与运维字段已有本地实现和契约测试；飞书军团总管与审批回调已接入，暂停/继续仍待真实飞书验收 |
 | 负责人 | 技术负责人 / Codex 工作台 |
-| 版本 | v3.1 |
-| 最后更新 | 2026-07-21 |
+| 版本 | v3.2 |
+| 最后更新 | 2026-07-22 |
 | 更新触发 | 字段、状态、兼容性、权限或完成定义变化 |
 
 ## 1. 契约原则
@@ -100,6 +100,8 @@ received
 needs_input
 queued
 running
+pausing
+paused
 waiting_approval
 succeeded
 failed
@@ -125,6 +127,8 @@ delivering
 - `needs_input` 补充有效信息后进入 `queued`，超时后进入 `expired`；
 - `queued` 启动后进入 `running`；
 - `running` 遇到高风险动作进入 `waiting_approval`；
+- `running` 收到暂停确认后先进入 `pausing`；只有运行时到达安全位置后才能进入 `paused`，不得提前显示为已暂停；
+- `paused` 的继续操作必须重新走组织级确认，批准后回到 `queued` 或 `running`；
 - `waiting_approval` 批准后回到 `running`，拒绝后进入 `cancelled` 或受控失败；
 - `succeeded`、`failed`、`cancelled`、`expired` 为终态；
 - 从终态重试时创建新的 attempt 记录，不擦除原历史。

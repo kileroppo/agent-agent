@@ -27,6 +27,15 @@ test('the explicit local acceptance failpoint is classified as retryable', () =>
   assert.match(failure.recovery, /重试小D任务/);
 });
 
+test('公开视频站暂时限流时可以安全重试，不升级成技术故障', () => {
+  const failure = classifyFailure(Object.assign(new Error('视频站临时限制读取'), {
+    accessFailure: { category: 'retryable', safeMessage: '视频站临时限制读取，请稍后重试或改用本地文件。' }
+  }));
+  assert.equal(failure.category, 'retryable');
+  assert.equal(failure.retryable, true);
+  assert.equal(canRetryJob({ status: 'failed', failure }), true);
+});
+
 test('completed and non-retryable failed jobs never become retry candidates', () => {
   assert.equal(canRetryJob({ status: 'completed', failure: { retryable: true } }), false);
   assert.equal(canRetryJob({ status: 'failed', failure: { retryable: false } }), false);

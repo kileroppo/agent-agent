@@ -7,7 +7,7 @@ import { ConnectionStore } from '../connection-store.js';
 import { ConnectionBroker } from '../connection-broker.js';
 import { ContentAcquisitionCenter } from '../content-acquisition-center.js';
 import { OperationsEventStore } from '../operations-event-store.js';
-import { browserSessionArgs } from '../yt-dlp-general-media-adapter.js';
+import { browserSessionArgs, YtDlpGeneralMediaAdapter } from '../yt-dlp-general-media-adapter.js';
 import { MediaCrawlerProAdapter } from '../mediacrawler-pro-adapter.js';
 
 async function sandbox(t) {
@@ -83,6 +83,21 @@ test('content center prefers specialized, records safe fallback, and returns a n
   assert.equal(operations.list().some((event) => event.eventType === 'fallback_used'), true);
 });
 
+test('公开视频站临时限流时，任务会说明真实原因而不是泛泛说通道不可用', async (t) => {
+  const { broker, operations } = await sandbox(t);
+  const adapter = {
+    id: 'limited-video-source', versionRef: 'test', capabilities: ['subtitles'], accessMode: 'public', priorityClass: 'general', healthStatus: 'healthy',
+    matches: () => true, providerFor: () => 'youtube',
+    acquire: async () => { throw Object.assign(new Error('temporary rate limit'), { code: 'source_rate_limited' }); }
+  };
+  const center = new ContentAcquisitionCenter({ adapters: [adapter], connectionBroker: broker, operations });
+  const result = await center.fetch({ taskId: 'task-rate-limit', source: 'https://youtube.com/watch?v=example', requestedCapabilities: ['subtitles'], requestingAgentId: 'xiaod' });
+  assert.equal(result.code, 'source_rate_limited');
+  assert.match(result.safeMessage, /临时限制/);
+  assert.equal(result.recommendedAction, 'retry');
+  assert.equal(result.category, 'retryable');
+});
+
 test('content center refuses a missing required connection without calling the adapter', async (t) => {
   const { broker, operations } = await sandbox(t);
   let called = false;
@@ -137,6 +152,28 @@ test('an adapter requests only permissions for capabilities it can actually prov
 test('browser adapter arguments contain only a browser selector, never raw credential material', () => {
   assert.deepEqual(browserSessionArgs({ credentialKind: 'browser_session', browser: 'chrome' }), ['--cookies-from-browser', 'chrome']);
   assert.throws(() => browserSessionArgs({ credentialKind: 'cookie', browser: 'chrome' }), /不受当前媒体适配器支持/);
+});
+
+test('公开视频先只请求常用中英文字幕，避免为所有翻译版本重复请求', async (t) => {
+  const { root } = await sandbox(t);
+  let subtitleArgs = null;
+  const adapter = new YtDlpGeneralMediaAdapter({
+    runCommand: async (_command, args) => {
+      if (args.includes('--print')) return '公开视频标题\n说明';
+      if (args.includes('--write-subs')) {
+        subtitleArgs = args;
+        const template = args[args.indexOf('-o') + 1];
+        await fs.writeFile(path.join(path.dirname(template), 'subtitle.zh-Hans.vtt'), 'WEBVTT');
+        return '';
+      }
+      throw new Error('不应下载音频');
+    }
+  });
+  const acquired = await adapter.acquire({
+    source: 'https://www.youtube.com/watch?v=example', requestedCapabilities: ['basic_content', 'subtitles', 'media'], workspace: root
+  });
+  assert.deepEqual(subtitleArgs.slice(subtitleArgs.indexOf('--sub-langs') + 1, subtitleArgs.indexOf('--sub-langs') + 2), ['zh-Hans,zh-Hant,en']);
+  assert.deepEqual(acquired.providedCapabilities, ['basic_content', 'subtitles']);
 });
 
 test('CookieBridge connection stores an internal account reference without returning its client identifier', async (t) => {
