@@ -187,9 +187,15 @@ test('AI 临时不可用时，闲聊不会被误登记为泛任务', async () =>
 
 test('飞书军团总管将小D请求保留为同一飞书事件任务', async () => {
   const { commander, calls } = setup();
+  commander.tasks.create = async (input) => {
+    calls.tasks.push(input);
+    return { taskId:'task-1', taskType:input.taskType, status:'running', assigneeAgentId:'xiaod', execution:{ executor:'xiaod' }, input:{ sourceUrl:'https://example.com/demo.mp4' }, artifactRefs:[] };
+  };
   const result = await commander.handle({ text: '整理视频 https://example.com/demo.mp4', sourceEventRef: 'feishu:media-1' });
   assert.equal(calls.tasks[0].taskType, 'media.transcribe-and-refine');
   assert.equal(calls.tasks[0].source.eventRef, 'feishu:media-1');
+  assert.equal(result.task.assigneeAgentId, 'xiaod');
+  assert.equal(result.task.execution.executor, 'xiaod');
   assert.match(result.reply, /已交给小D/);
 });
 

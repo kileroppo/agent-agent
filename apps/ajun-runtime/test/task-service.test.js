@@ -17,6 +17,14 @@ test('多个岗位匹配时要求明确路由', async () => {
   const { service } = setup({ agents:[coordinator, {...coordinator, agentId:'backup'}] }); const task = await service.create({ title:'安排一次任务', taskType:'army.route-task' });
   assert.equal(task.assigneeAgentId, null); assert.equal(task.currentStage, 'routing_needed');
 });
+test('已启用的小D接到公开素材任务后，任务记录明确归属小D', async () => {
+  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const { service } = setup({ agents:[xiaod] });
+  const task = await service.create({ title:'整理公开视频', taskType:'media.transcribe-and-refine', sourceUrl:'https://example.com/demo.mp4' });
+  assert.equal(task.assigneeAgentId, 'xiaod');
+  assert.equal(task.status, 'queued');
+  assert.equal(task.routing.reason, '已路由到已启用的本地执行器。');
+});
 test('高风险描述创建待审批记录', async () => {
   const { service, records } = setup({ agents:[coordinator] }); const task = await service.create({ title:'向外发布周报', taskType:'army.route-task' });
   assert.equal(records.approvals.length, 1); assert.equal(task.status, 'waiting_approval'); assert.equal(task.currentStage, 'approval_required');
