@@ -62,3 +62,4 @@
 - [M2 第一批 Agent 创建与治理闭环交接](./current/m2-first-batch-agent-governance-handoff.md)：飞书草案、审批点击、受限测试和小D真实文档交付已验证；下一步补齐同会话自动完成提醒，再继续新 Agent 上线验收。
 - [音视频转录 Agent Hermes / 飞书接线交接](./current/av-transcriber-feishu-provisioning-handoff.md)：独立 Profile 与飞书应用已创建；下一步由负责人写入隔离凭据后完成私聊、群内 @ 真实收发验收。
 - [M2 独立 AI 员工与 A君切换交接](./current/m2-ai-first-independent-agents-handoff.md)：岗位卡和独立身份已建立；下一步安全配置 A君独立模型后切换，再验收运维官独立飞书小任务。
+- [M2 小G、小R治理验收交接](./current/m2-github-scout-and-intel-researcher-handoff.md)：两个只读公开资料岗位已实现并保持草案；下一步先做审核官的权限检查。

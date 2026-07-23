@@ -59,6 +59,13 @@ test('AI理解器允许把优先级和员工安排交给军团规划', async () 
   assert.deepEqual(await planner.decide('帮我判断现在最优先做什么，安排合适的人去做'), { intent:'army_planning' });
 });
 
+test('AI 理解器区分 GitHub 检索和主题情报研究', async () => {
+  const github = new HermesIntentPlanner({ hermesHome:'/tmp/hermes', run:async () => '{"intent":"github_search"}' });
+  assert.deepEqual(await github.decide('帮我在 GitHub 找开源项目'), { intent:'github_search' });
+  const intel = new HermesIntentPlanner({ hermesHome:'/tmp/hermes', run:async () => '{"intent":"intel_research"}' });
+  assert.deepEqual(await intel.decide('研究这个主题并给结论和行动建议'), { intent:'intel_research' });
+});
+
 test('AI只能从当前已经上岗的员工和任务里选择派活，不能编造岗位', async () => {
   const planner = new HermesIntentPlanner({ hermesHome:'/tmp/hermes', run:async () => '{"intent":"route_task","taskType":"report.public-material","agentId":"public-reporter"}' });
   assert.deepEqual(await planner.decide('把这篇文章整理成中文摘要', { routes:[{ taskType:'report.public-material', agentId:'public-reporter', name:'公开资料报告员' }] }), { intent:'route_task', taskType:'report.public-material', agentId:'public-reporter' });

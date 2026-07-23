@@ -97,11 +97,13 @@ export class FeishuCommander {
     const feedback = feedbackSentiment(text);
     if (feedback) return this.recordFeedback(source.chatRef, text, feedback);
     if (FOLLOW_UP_RE.test(text)) return this.followUp(source.chatRef);
-    const taskType = plan.taskType || (intent === 'health_check' ? 'operations.health-review' : intent === 'media_task' ? 'media.transcribe-and-refine' : intent === 'public_report' ? 'report.public-material' : ['architecture_review', 'army_planning'].includes(intent) ? 'governance.architecture-review' : 'army.intake');
+    const taskType = plan.taskType || (intent === 'health_check' ? 'operations.health-review' : intent === 'media_task' ? 'media.transcribe-and-refine' : intent === 'public_report' ? 'report.public-material' : intent === 'github_search' ? 'research.github-search' : intent === 'intel_research' ? 'research.intel-report' : ['architecture_review', 'army_planning'].includes(intent) ? 'governance.architecture-review' : 'army.intake');
     const entryAgentId = await this.resolveEntryAgent(targetAgentId, taskType);
+    const defaultAgentId = taskType === 'research.github-search' ? 'github-scout' : taskType === 'research.intel-report' ? 'intel-researcher' : undefined;
+    const researchInput = taskType === 'research.github-search' ? githubTaskInput(text) : taskType === 'research.intel-report' ? { topic:text } : {};
     const task = await this.tasks.create({
       title: text, description: '', taskType, requester, source,
-      agentId: entryAgentId || plan.agentId || undefined, idempotencyKey: `feishu:${sourceEventRef}`
+      agentId: entryAgentId || plan.agentId || defaultAgentId, ...researchInput, idempotencyKey: `feishu:${sourceEventRef}`
     });
     const intake = task.artifactRefs?.find((item) => item.type === 'task_intake_record')?.data;
     if (taskType === 'army.intake' && intake?.autoContinue === true && typeof this.tasks.continueFromRecommendation === 'function') {
@@ -491,6 +493,8 @@ export class FeishuCommander {
       }
       if (planned?.intent === 'clarify' && isXiaodLinkRequest(text)) return linkClarificationPlan(text, planned.reply);
       if (planned?.intent === 'usage_report' && !USAGE_RE.test(text)) return { intent:'clarify', reply:'我没看出你是在问今天的使用情况。你想让我怎么处理这条内容？' };
+      if (planned?.intent === 'intake' && isGithubRequest(text)) return { intent:'github_search' };
+      if (planned?.intent === 'intake' && isIntelResearchRequest(text)) return { intent:'intel_research' };
       if (planned?.intent === 'intake' && isSafePublicResearchRequest(text)) return { intent:'public_report' };
       if (planned?.intent) return planned;
     } catch { /* AI 临时不可用时，继续使用现有安全识别。 */ }
@@ -498,6 +502,8 @@ export class FeishuCommander {
     if (direct.intent !== 'intake') return direct;
     // AI 偶尔会把“查公开竞品”保守地归成普通待办。这个兜底只接住
     // 目标明确、且没有登录/付费/外发风险的公开资料请求，避免负责人反复补链接。
+    if (isGithubRequest(text)) return { intent:'github_search' };
+    if (isIntelResearchRequest(text)) return { intent:'intel_research' };
     if (isSafePublicResearchRequest(text)) return { intent:'public_report' };
     // AI 临时不可用时，也不能把一句闲聊、编号或模糊追问登记为一项
     // “泛任务”。只有看上去确实在交代工作时，才交给现有的能力评估流程。
@@ -546,6 +552,8 @@ function directIntent(text) {
     if (/(?:你|军团|现在).*(?:能干什么|能做什么|可以做什么|能帮我什么|有什么能力)|(?:能干什么|能做什么|可以做什么|能帮我什么|有什么能力).*(?:你|军团|现在)?/i.test(text)) return { intent:'army_capabilities' };
     if (HEALTH_RE.test(text)) return { intent:'health_check' };
     if (MEDIA_RE.test(text)) return { intent:'media_task' };
+    if (isGithubRequest(text)) return { intent:'github_search' };
+    if (isIntelResearchRequest(text)) return { intent:'intel_research' };
     if (publicUrl(text)) return { intent:'public_report' };
     if (/优先.*(?:做|处理)|怎么推进|安排.*(?:合适|员工|人).*做|最值得.*(?:做|处理)|下一步.*(?:做|处理)/.test(text)) return { intent:'army_planning' };
     if (/重复.*工作|反复.*事情|需要.*新员工|岗位.*缺口|能力.*缺口|架构.*评估|复盘.*工作/.test(text)) return { intent:'architecture_review' };
@@ -556,6 +564,26 @@ function isSafePublicResearchRequest(text) {
   const value = String(text || '');
   if (/(?:登录|账号|密码|cookie|付费|购买|下单|外发|发送给|私密|内部资料|绕过)/i.test(value)) return false;
   return /(?:查找|搜索|查一查|研究|对比|了解|收集|整理).{0,80}(?:公开|竞品|产品介绍|产品资料|网页|文章|案例)/i.test(value);
+}
+
+function isGithubRequest(text) {
+  const value = String(text || '');
+  if (/(?:github|git\s*hub|开源项目|开源仓库)/i.test(value)) return true;
+  return /(?:^|\s|[“"'`（(])([A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+)(?=$|\s|[，。,.；;）)"'`])/i.test(value);
+}
+function isIntelResearchRequest(text) {
+  const value = String(text || '');
+  if (/(?:登录|账号|密码|cookie|付费|购买|下单|外发|发送给|私密|内部资料|绕过)/i.test(value)) return false;
+  return /(?:研究|调研|情报).{0,100}(?:主题|结论|建议|行动|背景|发现|问题)|(?:背景|关键发现|结论|行动建议|未决问题)/i.test(value);
+}
+function githubTaskInput(text) {
+  const value = String(text || '');
+  const urlMatch = value.match(/https?:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)(?:\/[^\s]*)?/i);
+  const shortMatch = value.match(/\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\b/);
+  const repo = urlMatch ? `${urlMatch[1]}/${urlMatch[2]}` : shortMatch?.[1] || '';
+  if (!repo) return { query:value };
+  const explicitPath = value.match(/(?:文件|file|路径|path)\s*[：:]?\s*([A-Za-z0-9_./-]+)/i)?.[1];
+  return { repo, ...(explicitPath ? { path:explicitPath } : {}) };
 }
 
 function looksLikeWorkRequest(text) {
@@ -601,6 +629,18 @@ function replyFor(task, taskType) {
     if (task.status === 'needs_input') return { kind: 'public_report', task, reply: task.error?.userMessage || '这次公开网页整理还缺少必要信息，暂时没有开始读取。' };
     if (!task.input?.sourceUrl) return { kind: 'public_report', task, reply: `已收到公开网页整理请求。请再发送一条能直接打开的网页链接；未开始读取。任务号：${task.taskId}。` };
     return { kind: 'public_report', task, reply: `已交给公开网页摘要员工处理，任务号：${task.taskId}。完成后会回到当前飞书会话。` };
+  }
+  if (taskType === 'research.github-search') {
+    const artifact = task.artifactRefs?.find((item) => ['research_github_report', 'github_code_read'].includes(item.type))?.data;
+    if (artifact) return { kind:'github_search', task, reply:formatGithubReply(artifact) };
+    if (task.status === 'needs_input') return { kind:'github_search', task, reply:task.currentStage === 'waiting_for_agent_activation' ? '小G目前还是草案，尚未通过审核和受限测试，不能开始检索。' : task.error?.userMessage || '小G还缺少检索条件，暂未开始。' };
+    return { kind:'github_search', task, reply:`已交给小G检索公开 GitHub 信息，任务号：${task.taskId}。完成后会回到当前飞书会话。` };
+  }
+  if (taskType === 'research.intel-report') {
+    const report = task.artifactRefs?.find((item) => item.type === 'intel_research_report')?.data;
+    if (report) return { kind:'intel_research', task, reply:formatIntelReply(report) };
+    if (task.status === 'needs_input') return { kind:'intel_research', task, reply:task.currentStage === 'waiting_for_agent_activation' ? '小R目前还是草案，尚未通过审核和受限测试，不能开始研究。' : task.error?.userMessage || '小R还缺少研究条件，暂未开始。' };
+    return { kind:'intel_research', task, reply:`已交给小R研究，任务号：${task.taskId}。完成后会回到当前飞书会话。` };
   }
   if (taskType === 'governance.architecture-review') {
     const report = task.artifactRefs?.find((item) => item.type === 'architecture_review')?.data;
@@ -715,6 +755,8 @@ function feedbackSentiment(text) {
 function taskTime(task) { return Date.parse(task.updatedAt || task.createdAt || 0) || 0; }
 function workerName(task) {
   if (task.taskType === 'report.public-material') return '公开资料报告员';
+  if (task.taskType === 'research.github-search') return '小G';
+  if (task.taskType === 'research.intel-report') return '小R';
   if (task.taskType === 'media.transcribe-and-refine') return '小D';
   if (task.taskType === 'operations.health-review') return '运维官';
   if (task.taskType === 'governance.architecture-review') return '架构师';
@@ -732,6 +774,8 @@ function employeeRole(agent) {
   const roles = {
     xiaod: '负责整理公开视频和音频',
     'public-reporter': '负责读取公开网页并写中文报告',
+    'github-scout': '负责检索公开 GitHub 项目和代码',
+    'intel-researcher': '负责围绕主题综合公开资料并给行动建议',
     operator: '负责检查运行情况和恢复异常',
     reviewer: '负责把关需要你确认的事项',
     architect: '负责评估能力缺口和下一步',
@@ -740,6 +784,15 @@ function employeeRole(agent) {
     'task-coordinator': '负责安排合适的员工接手工作'
   };
   return roles[agent.agentId] || agent.role || '负责已分配的工作';
+}
+
+function formatGithubReply(data) {
+  if (data.repo) return [`【小G 已读取公开仓库】`, `${data.repo} · ${data.path}`, '', data.summary || '没有可提炼的文本要点。', '', `来源：${data.source || `https://github.com/${data.repo}`}`].join('\n');
+  const lines = (data.results || []).map((item, index) => `${index + 1}. ${item.fullName}（★ ${item.stars}，${item.language || '语言未提供'}）\n   ${item.assessment || ''}\n   ${item.url}`);
+  return ['【小G 公开 GitHub 检索】', `关键词：${data.query || '未提供'}`, '', ...lines, '', data.conclusion || '仅根据本次读取的公开 GitHub 元数据整理。'].join('\n');
+}
+function formatIntelReply(report) {
+  return ['【小R 研究报告】', `主题：${report.topic || '未提供'}`, '', `背景：${report.background || '仅根据已读取来源整理。'}`, `关键发现：${(report.findings || []).map((item) => `- ${item}`).join('\n') || '- 暂无可确认发现。'}`, `结论：${report.conclusion || '无法仅根据已读取来源确认更多结论。'}`, `行动建议：${(report.recommendations || []).map((item) => `- ${item}`).join('\n') || '- 先补充可公开读取的来源。'}`, `未决问题：${(report.openQuestions || []).map((item) => `- ${item}`).join('\n') || '- 暂无。'}`, '', `来源：${(report.sources || []).map((item) => item.source).filter(Boolean).join('；') || '无'}`].join('\n');
 }
 
 function employeeWorkState(agent, tasks) {

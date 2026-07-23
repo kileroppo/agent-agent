@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "agent.army/hermes-profile-map/v1",
+  "status": "draft",
+  "profileId": "intel-researcher",
+  "role": "小R：只综合已经读取的公开来源，输出有来源的结构化中文研究报告。",
+  "localProfile": {
+    "created": false,
+    "gatewayStarted": false,
+    "credentialedTransportVerified": false,
+    "skillsSeeded": false
+  },
+  "agentManifestRef": "agents/intel-researcher/manifest.json",
+  "promptRef": "agents/intel-researcher/prompts/system.md",
+  "appRef": "apps/ajun-runtime",
+  "gateway": {
+    "platform": "feishu",
+    "enabled": false,
+    "reason": "岗位仍为草案，尚未通过审核和受限测试。"
+  },
+  "toolAllowlist": ["content.public.fetch", "github.public.search", "github.public.read"],
+  "secrets": { "source": "profile-environment-only", "valuesStoredHere": false }
+}

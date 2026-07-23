@@ -13,6 +13,16 @@ test('唯一岗位匹配时登记到该岗位，但草稿岗位不冒充执行',
   const { service } = setup({ agents:[coordinator] }); const task = await service.create({ title:'安排一次任务', taskType:'army.route-task' });
   assert.equal(task.assigneeAgentId, 'task-coordinator'); assert.equal(task.status, 'needs_input'); assert.equal(task.currentStage, 'waiting_for_agent_activation');
 });
+test('GitHub 和研究任务保留受限执行器需要的公开输入字段', async () => {
+  const github = { agentId:'github-scout', name:'小G', status:'draft', acceptedTaskTypes:['research.github-search'] };
+  const intel = { agentId:'intel-researcher', name:'小R', status:'draft', acceptedTaskTypes:['research.intel-report'] };
+  const { service } = setup({ agents:[github, intel] });
+  const githubTask = await service.create({ title:'读公开仓库', taskType:'research.github-search', agentId:'github-scout', repo:'openai/example', path:'README' });
+  assert.deepEqual({ repo:githubTask.input.repo, path:githubTask.input.path }, { repo:'openai/example', path:'README' });
+  const intelTask = await service.create({ title:'研究主题', taskType:'research.intel-report', agentId:'intel-researcher', topic:'Agent 运行时', sourceUrls:['https://example.com/a'] });
+  assert.equal(intelTask.input.topic, 'Agent 运行时');
+  assert.deepEqual(intelTask.input.sourceUrls, ['https://example.com/a']);
+});
 test('多个岗位匹配时要求明确路由', async () => {
   const { service } = setup({ agents:[coordinator, {...coordinator, agentId:'backup'}] }); const task = await service.create({ title:'安排一次任务', taskType:'army.route-task' });
   assert.equal(task.assigneeAgentId, null); assert.equal(task.currentStage, 'routing_needed');
@@ -415,6 +425,21 @@ test('飞书跟进会按公开资料报告员的真实摘要回话，不冒充�
   assert.match(result.message, /内容概览/);
   assert.match(result.message, /来源/);
   assert.doesNotMatch(result.message, /小D/);
+});
+
+test('飞书跟进会把小G和小R的可读研究产物回到原会话', async () => {
+  const { service, records } = setup();
+  records.tasks.push(
+    { taskId:'github-result', taskType:'research.github-search', status:'succeeded', source:{ chatRef:'chat-a' }, input:{ title:'找开源项目' }, updatedAt:'2026-07-23T10:00:00.000Z', artifactRefs:[{ type:'research_github_report', data:{ query:'agent', results:[{ fullName:'openai/example', stars:100, language:'JavaScript', assessment:'近三个月仍有更新。', url:'https://github.com/openai/example' }] } }] },
+    { taskId:'intel-result', taskType:'research.intel-report', status:'succeeded', source:{ chatRef:'chat-a' }, input:{ title:'研究主题' }, updatedAt:'2026-07-23T10:01:00.000Z', artifactRefs:[{ type:'intel_research_report', data:{ topic:'Agent 运行时', background:'公开背景', findings:['公开发现'], conclusion:'公开结论', recommendations:['先验证'], openQuestions:['还需来源'], sources:[{ title:'资料', source:'https://example.com/a' }] } }] }
+  );
+  const github = await service.notificationStatus('github-result', 'chat-a');
+  assert.match(github.message, /小G/);
+  assert.match(github.message, /https:\/\/github\.com\/openai\/example/);
+  const intel = await service.notificationStatus('intel-result', 'chat-a');
+  assert.match(intel.message, /【小R 研究报告】/);
+  assert.match(intel.message, /公开结论/);
+  assert.match(intel.message, /https:\/\/example\.com\/a/);
 });
 
 test('飞书跟进会越过第一次失败，继续等待运维官发起的重试', async () => {

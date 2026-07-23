@@ -14,11 +14,12 @@ export class PublicWebTransport {
   async fetch(url, { headers = {}, signal, timeoutMs = 20_000 } = {}) {
     if (signal?.aborted) throw new Error('公开网页读取已取消。');
     const accept = String(headers.accept || headers.Accept || 'text/html, text/plain;q=0.9');
+    const userAgent = String(headers['user-agent'] || headers['User-Agent'] || PUBLIC_READER_USER_AGENT).replace(/[\r\n]/g, '').slice(0, 240) || PUBLIC_READER_USER_AGENT;
     let raw;
     try {
       raw = await this.run(this.command, [
         '--silent', '--show-error', '--request', 'GET', '--max-time', String(Math.max(1, Math.ceil(Number(timeoutMs) / 1000) || 20)), '--max-filesize', String(MAX_BYTES),
-        '--proto', '=http,https', '--max-redirs', '0', '--user-agent', PUBLIC_READER_USER_AGENT, '--header', `accept: ${accept}`, '--include', String(url)
+        '--proto', '=http,https', '--max-redirs', '0', '--user-agent', userAgent, '--header', `accept: ${accept}`, '--include', String(url)
       ]);
     } catch {
       throw new Error('公开网页暂时无法读取。');

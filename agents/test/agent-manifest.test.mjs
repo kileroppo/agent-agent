@@ -9,6 +9,7 @@ const repositoryRoot = path.resolve(testDirectory, "../..");
 const manifestPath = path.join(repositoryRoot, "agents/xiaod/manifest.json");
 const ajunManifestPath = path.join(repositoryRoot, "agents/ajun/manifest.json");
 const independentAgentIds = ["task-coordinator", "architect", "reviewer", "operator", "creator", "technical-expert"];
+const draftAgentIds = ["github-scout", "intel-researcher"];
 
 const requiredFields = [
   "schemaVersion",
@@ -124,6 +125,26 @@ test("现有后台岗位都有独立身份映射，且独立入口不会被误�
     assert.equal(profile.localProfile.credentialedTransportVerified, true);
     assert.equal(profile.gateway.enabled, false);
     assert.deepEqual(profile.toolAllowlist, manifest.toolAllowlist);
+    assert.equal(profile.secrets.valuesStoredHere, false);
+  }
+});
+
+test("新增岗位在审核前保持草案，并有完整的无凭据身份映射", async () => {
+  for (const agentId of draftAgentIds) {
+    const manifest = await readJson(path.join(repositoryRoot, "agents", agentId, "manifest.json"));
+    assert.equal(manifest.schemaVersion, "agent.army/v1");
+    assert.equal(manifest.agentId, agentId);
+    assert.equal(manifest.status, "draft");
+    for (const field of requiredFields) assert.ok(Object.hasOwn(manifest, field), `missing required field: ${field}`);
+    await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.promptRef)));
+    await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.runtimeProfileRef)));
+    await assert.doesNotReject(() => stat(path.join(repositoryRoot, "agents", agentId, "岗位卡.md")));
+    const profile = await readJson(path.join(repositoryRoot, manifest.runtimeProfileRef));
+    assert.equal(profile.status, "draft");
+    assert.equal(profile.profileId, agentId);
+    assert.equal(profile.agentManifestRef, `agents/${agentId}/manifest.json`);
+    assert.deepEqual(profile.toolAllowlist, manifest.toolAllowlist);
+    assert.equal(profile.gateway.enabled, false);
     assert.equal(profile.secrets.valuesStoredHere, false);
   }
 });

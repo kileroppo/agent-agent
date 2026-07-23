@@ -268,6 +268,34 @@ test('飞书军团总管把普通公开网页交给已上岗的网页摘要员�
   assert.match(result.reply, /公开网页摘要员工/);
 });
 
+test('GitHub 意图路由到小G，并保留公开仓库输入和回执', async () => {
+  const { commander, calls } = setup();
+  commander.planner = { async decide() { return { intent:'github_search' }; } };
+  commander.tasks.create = async (input) => {
+    calls.tasks.push(input);
+    return { taskId:'github-1', taskType:input.taskType, status:'running', assigneeAgentId:'github-scout', input:{ repo:input.repo }, artifactRefs:[] };
+  };
+  const result = await commander.handle({ text:'读 openai/example 的 README，说明它怎么实现 Agent', sourceEventRef:'feishu:github-1' });
+  assert.equal(calls.tasks[0].taskType, 'research.github-search');
+  assert.equal(calls.tasks[0].agentId, 'github-scout');
+  assert.equal(calls.tasks[0].repo, 'openai/example');
+  assert.match(result.reply, /已交给小G/);
+});
+
+test('主题研究意图路由到小R，并保留主题与原会话回执', async () => {
+  const { commander, calls } = setup();
+  commander.planner = { async decide() { return { intent:'intel_research' }; } };
+  commander.tasks.create = async (input) => {
+    calls.tasks.push(input);
+    return { taskId:'intel-1', taskType:input.taskType, status:'running', assigneeAgentId:'intel-researcher', input:{ topic:input.topic }, artifactRefs:[] };
+  };
+  const result = await commander.handle({ text:'帮我研究 Agent 运行时这个主题，给结论和行动建议', sourceEventRef:'feishu:intel-1', chatRef:'chat-intel' });
+  assert.equal(calls.tasks[0].taskType, 'research.intel-report');
+  assert.equal(calls.tasks[0].agentId, 'intel-researcher');
+  assert.match(calls.tasks[0].topic, /Agent 运行时/);
+  assert.match(result.reply, /已交给小R研究/);
+});
+
 test('公开资料超过单次上限时，总管如实要求分批，不假装已经派活', async () => {
   const commander = new FeishuCommander({
     tasks: { async create() { return { taskId:'web-limit', status:'needs_input', input:{ sourceUrl:'https://example.com/1' }, error:{ userMessage:'一次最多对比五条公开网页链接；请分两次发送。' }, artifactRefs:[] }; } },

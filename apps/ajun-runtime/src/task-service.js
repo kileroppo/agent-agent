@@ -28,7 +28,7 @@ export class TaskService {
     const sourceUrl = sourceUrls[0] || null;
     let task = await this.store.createTask({
       taskType, idempotencyKey: suppliedIdempotencyKey || `local:${cryptoSafe(title)}:${Date.now()}`, requester: input?.requester || { kind: requesterName === 'A君' ? 'local-owner' : 'lan-collaborator', ref: requesterName }, source: input?.source || { channel: 'ajun-runtime' },
-      assigneeAgentId: agent?.agentId || null, parentTaskId: String(input?.parentTaskId || '').trim() || null, recovery: input?.recovery || undefined, input: { title, description, sourceUrl, sourceUrls, context: input?.context || undefined },
+      assigneeAgentId: agent?.agentId || null, parentTaskId: String(input?.parentTaskId || '').trim() || null, recovery: input?.recovery || undefined, input: { title, description, sourceUrl, sourceUrls, query:optionalInput(input?.query), repo:optionalInput(input?.repo), path:optionalInput(input?.path), topic:optionalInput(input?.topic), context: input?.context || undefined },
       status: agent?.status === 'active' ? 'queued' : 'needs_input', currentStage: agent?.status === 'active' ? 'queued_for_execution' : agent ? 'waiting_for_agent_activation' : 'routing_needed',
       routing: { requestedAgentId, candidateAgentIds: candidates.map((item) => item.agentId), reason: agent?.status === 'active' ? '已路由到已启用的本地执行器。' : agent ? '岗位骨架已登记，等待启用真实执行器。' : candidates.length === 0 ? '没有岗位声明支持该任务类型。' : '多个岗位匹配，请明确选择承接岗位。' }
     });
@@ -358,6 +358,18 @@ export class TaskService {
         if (report?.summary) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatPublicReportReply(report, { taskTitle:shortTaskTitle(root) }) };
         return { terminal:true, status:'succeeded', taskId:root.taskId, message:`公开资料报告员已经完成“${shortTaskTitle(root)}”，但摘要产物没有通过读取确认；系统不会把它当作完整交付。` };
       }
+      if (current.taskType === 'research.github-search') {
+        const report = current.artifactRefs?.find((item) => item.type === 'research_github_report')?.data;
+        const read = current.artifactRefs?.find((item) => item.type === 'github_code_read')?.data;
+        if (report?.results?.length) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatGithubSearchDelivery(report) };
+        if (read?.summary) return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小G已读取 ${read.repo} 的 ${read.path}：${read.summary}\n来源：${read.source || `https://github.com/${read.repo}`}` };
+        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小G已经完成“${shortTaskTitle(root)}”，但公开 GitHub 产物不可读；系统不会把它当作完整交付。` };
+      }
+      if (current.taskType === 'research.intel-report') {
+        const report = current.artifactRefs?.find((item) => item.type === 'intel_research_report')?.data;
+        if (report?.conclusion && Array.isArray(report?.sources) && report.sources.length) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatIntelResearchDelivery(report) };
+        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小R已经完成“${shortTaskTitle(root)}”，但结构化研究产物或来源未通过读取确认；系统不会把它当作完整交付。` };
+      }
       const delivery = current.artifactRefs?.find((item) => item.type === 'xiaod_media_delivery');
       const url = delivery?.data?.larkUrl;
       const verified = delivery?.data?.larkPermissionGranted === true;
@@ -385,6 +397,15 @@ export class TaskService {
 }
 
 export class ValidationError extends Error {}
+function optionalInput(value) { const text = String(value || '').trim(); return text || undefined; }
+function formatGithubSearchDelivery(report) {
+  const items = report.results.slice(0, 5).map((item, index) => `${index + 1}. ${item.fullName}（★ ${item.stars}，${item.language || '语言未提供'}）\n${item.assessment || ''}\n${item.url}`);
+  return ['【小G 公开 GitHub 检索】', `关键词：${report.query || '未提供'}`, '', ...items].join('\n');
+}
+function formatIntelResearchDelivery(report) {
+  const list = (items) => (Array.isArray(items) && items.length ? items.map((item) => `- ${item}`).join('\n') : '- 暂无。');
+  return ['【小R 研究报告】', `主题：${report.topic || '未提供'}`, `背景：${report.background || '仅根据已读取来源整理。'}`, `关键发现：\n${list(report.findings)}`, `结论：${report.conclusion}`, `行动建议：\n${list(report.recommendations)}`, `未决问题：\n${list(report.openQuestions)}`, `来源：\n${report.sources.slice(0, 5).map((source) => `- ${source.title || '公开来源'}\n  ${source.source}`).join('\n')}`].join('\n\n');
+}
 function channelCapability(source) {
   const state = typeof source === 'function' ? source() : source;
   if (state?.status === 'connected') return { status:'ready', detail:'官方飞书入口已连接；消息、审批卡会回到原聊天，现有 A君入口仍可保留。' };
