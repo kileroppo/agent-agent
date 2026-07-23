@@ -185,7 +185,7 @@ export class FeishuCommander {
     const inThisChat = tasks.filter((task) => task.source?.channel === 'feishu' && task.source?.chatRef === chatRef);
     const task = taskId
       ? inThisChat.find((item) => item.taskId === taskId) || null
-      : mostRelevantTask(agentId ? inThisChat.filter((item) => isTaskForAgent(item, agentId)) : inThisChat);
+      : mostRecentTask(agentId ? inThisChat.filter((item) => isTaskForAgent(item, agentId)) : inThisChat);
     if (taskId && !task) return { kind:'task_progress', reply:'这个任务号不属于当前飞书会话，或本机已经没有它的记录。' };
     if (agentId && !task) return { kind:'task_progress', reply:`当前会话里没有可核对的${agentDisplayName(agentId)}任务。` };
     if (!task) return { kind: 'task_progress', reply: '当前会话还没有正在处理的任务。' };
@@ -659,6 +659,10 @@ function mostRelevantTask(tasks) {
     if (priority) return priority;
     return taskTime(right) - taskTime(left);
   })[0] || null;
+}
+
+function mostRecentTask(tasks) {
+  return [...tasks].sort((left, right) => taskTime(right) - taskTime(left))[0] || null;
 }
 
 function progressQueryFor(text) {

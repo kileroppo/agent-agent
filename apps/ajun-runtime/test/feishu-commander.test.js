@@ -610,6 +610,22 @@ test('短进度追问直接查询当前会话最近任务，不交给模型反�
   assert.match(result.reply, /任务号：media-current/);
 });
 
+test('查询进度优先返回同一会话最新任务，不被旧的待补任务劫持', async () => {
+  const { commander } = setup();
+  commander.store = {
+    async list() {
+      return [
+        { taskId:'older-needs-input', taskType:'media.transcribe-and-refine', status:'needs_input', source:{ channel:'feishu', chatRef:'chat-progress' }, input:{ title:'旧公开视频' }, updatedAt:'2026-07-23T04:23:03.155Z' },
+        { taskId:'latest-running', taskType:'media.transcribe-and-refine', status:'running', assigneeAgentId:'xiaod', source:{ channel:'feishu', chatRef:'chat-progress' }, input:{ title:'新公开视频' }, updatedAt:'2026-07-23T04:38:31.890Z' }
+      ];
+    }
+  };
+  commander.tasks.notificationStatus = async (taskId) => ({ message:`${taskId}：正在由小D处理。` });
+  const result = await commander.handle({ text:'查询进度', sourceEventRef:'feishu:progress-latest-1', chatRef:'chat-progress' });
+  assert.equal(result.task.taskId, 'latest-running');
+  assert.match(result.reply, /正在由小D处理/);
+});
+
 test('粘贴当前会话任务号时直接返回该任务进度，不把编号当成新问题', async () => {
   const { commander, calls } = setup();
   const taskId = 'f0cf67b0-dac8-40fc-824e-b5ce360a1b80';
