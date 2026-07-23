@@ -5,6 +5,7 @@ import multer from 'multer';
 import { config, configuredCapabilities } from './config.js';
 import { makeJob, validatePublicHttpUrl } from './domain.js';
 import { canRetryJob, retryPatch } from './recovery.js';
+import { createPersistentOneShotFailpoint, resetPersistentOneShotFailpoint } from './test-failpoint.js';
 import { IntakeError, createFeishuMediaJob } from './feishu-media-intake.js';
 import { MediaPipeline, deliverToLark } from './pipeline.js';
 import { JobPauseController, JobPauseError } from './job-pause-controller.js';
@@ -19,7 +20,15 @@ const store = new JobStore(config.workDir);
 await store.init();
 const contentRuntime = await createContentRuntime(config.workDir);
 const pauseController = new JobPauseController({ store });
-const pipeline = new MediaPipeline({ store, workDir: config.workDir, contentCenter: contentRuntime.contentCenter, pauseController });
+const failpointMarkerPath = path.join(config.workDir, '.acceptance-test-failpoint-consumed');
+if (!config.testFailOnceAt) await resetPersistentOneShotFailpoint(failpointMarkerPath);
+const pipeline = new MediaPipeline({
+  store,
+  workDir: config.workDir,
+  contentCenter: contentRuntime.contentCenter,
+  pauseController,
+  failpoint: createPersistentOneShotFailpoint(config.testFailOnceAt, failpointMarkerPath)
+});
 const upload = multer({ dest: uploadsDir, limits: { fileSize: 1024 * 1024 * 1024 } });
 const app = express();
 app.use(express.json({ limit: '64kb' }));

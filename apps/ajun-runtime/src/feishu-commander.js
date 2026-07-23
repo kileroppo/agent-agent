@@ -7,6 +7,7 @@ const USAGE_RE = /花了多少|花费|成本|费用|消耗|用量|token|账单|�
 const FOLLOW_UP_RE = /^(?:需要|处理|继续|好的|好|行|可以|开始)$/;
 const PAUSE_RE = /(?:暂停|先别做|先停)/;
 const RESUME_RE = /(?:恢复|继续).*(?:任务|处理|执行)|^(?:继续|恢复)$/;
+const RETRY_XIAOD_RE = /^\s*重试\s*小\s*D\s*任务(?:\s+[0-9a-f-]{8,})?\s*$/i;
 const POSITIVE_FEEDBACK_RE = /(?:不错|满意|有用|很好|挺好|做得好|谢谢|辛苦了)/;
 const NEGATIVE_FEEDBACK_RE = /(?:不行|不对|有问题|重做|重新做|改一下|需要改进|没用|不好)/;
 const HEALTH_RE = /健康|状态|服务|运行|paperclip|检查系统/i;
@@ -27,6 +28,9 @@ export class FeishuCommander {
     const requester = { kind: 'feishu-user', ref: safeRef(input?.requesterRef) || 'feishu-requester' };
     const direct = await this.handleDirectAgent(targetAgentId, { text, sourceEventRef, source, requester });
     if (direct) return direct;
+    // A君 owns URL-created media work and its recovery chain.  Do not let the
+    // old direct-Xiaod retry phrase fall through to a generic LLM conversation.
+    if (RETRY_XIAOD_RE.test(text)) return this.retryXiaodTask(source.chatRef);
     // A progress question, a pasted task ID, or "小D 的进度" is a lookup of
     // facts already in this chat. Never send it to the model for a vague reply.
     const progressQuery = progressQueryFor(text);
@@ -194,6 +198,18 @@ export class FeishuCommander {
       return { kind: 'task_progress', task, status, reply: progressHeading(task, agentId, status.message) };
     }
     return { kind: 'task_progress', task, reply: progressHeading(task, agentId, progressReply(task)) };
+  }
+
+  async retryXiaodTask(chatRef) {
+    if (!this.store || !chatRef) return { kind:'xiaod_retry', reply:'我暂时找不到当前会话里的小D任务。请回复原任务消息后再试。' };
+    const tasks = await this.store.list();
+    const task = mostRecentTask(tasks.filter((item) => item.source?.channel === 'feishu' && item.source?.chatRef === chatRef && item.taskType === 'media.transcribe-and-refine'));
+    if (!task) return { kind:'xiaod_retry', reply:'当前会话没有可继续的小D任务。请发送需要整理的公开视频链接。' };
+    if (typeof this.tasks?.notificationStatus === 'function') {
+      const status = await this.tasks.notificationStatus(task.taskId, chatRef);
+      return { kind:'xiaod_retry', task, status, reply:status.message };
+    }
+    return { kind:'xiaod_retry', task, reply:progressReply(task) };
   }
 
   async employeeStatus(agentId) {

@@ -96,3 +96,7 @@ M1 的主要问题是验证一个真实 Agent 闭环。先让 Hermes 承载运�
 - ADR、系统架构、M1 PRD、总 PRD和 README 已同步；
 - 小D Manifest、Hermes Profile 映射和适配器骨架是 M1 首批实现；
 - 下一门禁是凭据写入后的真实飞书与 Hermes 隔离验证；测试应用和 Profile 已准备，但未接触凭据。
+
+## 9. 2026-07-23 M1 关闭记录
+
+本文件第 2 节保留 2026-07-19 的准备态快照。后续真实验证已完成：公开视频任务在原飞书会话交付；受控失败先通知运维官接手，重启飞书入口后自动恢复并仅回执一次。证据见 [M2 真实小军团验收账本：ARMY-008 / ARMY-009](../reviews/m2-real-small-army/acceptance.md#army-008--army-009)。M1 由总 PRD 标记为已完成；Paperclip 的组织治理仍属于 M2，不改变本文件的分阶段边界。

@@ -21,6 +21,17 @@ test('飞书军团总管将系统检查直接路由给运维官，且不创建 P
   assert.match(result.reply, /【运维官检查结果】/);
 });
 
+test('重试小D任务不会落入普通对话，而是返回当前任务链真相', async () => {
+  const records = [{ taskId:'media-root', taskType:'media.transcribe-and-refine', status:'failed', source:{ channel:'feishu', chatRef:'chat-retry' }, updatedAt:'2026-07-23T07:00:00.000Z' }];
+  const commander = new FeishuCommander({
+    tasks:{ async notificationStatus(taskId, chatRef) { assert.equal(taskId, 'media-root'); assert.equal(chatRef, 'chat-retry'); return { status:'recovery_pending', terminal:false, message:'运维官正在接手这项任务。' }; } },
+    proposals:{}, store:{ async list() { return records; } }
+  });
+  const result = await commander.handle({ text:'重试小 D 任务', sourceEventRef:'feishu:retry-command-1', chatRef:'chat-retry' });
+  assert.equal(result.kind, 'xiaod_retry');
+  assert.match(result.reply, /运维官正在接手/);
+});
+
 test('正常中文会先交给 AI 理解，而不是先被关键词规则截走', async () => {
   const { commander, calls } = setup();
   let plannerCalls = 0;

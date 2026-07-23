@@ -6,7 +6,8 @@ const defaultAdapter = path.join(process.env.HERMES_HOME || path.join(process.en
 
 export function applyPatch(source) {
   let result = source;
-  if (result.includes('AJUN_COMMANDER_TASK_NOTIFY_V4')) return upgradeCommanderIngressTimeoutPatch(upgradeProposalTrialReadinessPatch(upgradeTaskControlCardPatch(result)));
+  if (result.includes('AJUN_COMMANDER_INGRESS_PRECEDENCE_V1')) return upgradeCommanderIngressTimeoutPatch(upgradeProposalTrialReadinessPatch(upgradeTaskControlCardPatch(result)));
+  if (result.includes('AJUN_COMMANDER_TASK_NOTIFY_V4')) return upgradeCommanderIngressPrecedencePatch(upgradeCommanderIngressTimeoutPatch(upgradeProposalTrialReadinessPatch(upgradeTaskControlCardPatch(result))));
   if (result.includes('AJUN_COMMANDER_TASK_NOTIFY_V3')) return upgradeCommanderIngressTimeoutPatch(upgradeProposalTrialReadinessPatch(upgradeTaskControlCardPatch(upgradeCommanderProgressNotificationPatch(result))));
   if (!result.includes('AJUN_FEISHU_COMMANDER_INGRESS_URL')) {
     if (result.includes('def _route_ajun_agent_proposal_event(')) result = upgradeLegacyProposalPatch(result);
@@ -18,7 +19,36 @@ export function applyPatch(source) {
     }
   }
   if (!result.includes('AJUN_APPROVAL_CARD_V2') && !result.includes('AJUN_APPROVAL_CARD_V1')) result = upgradeCommanderApprovalPatch(result);
-  return upgradeCommanderIngressTimeoutPatch(upgradeProposalTrialReadinessPatch(upgradeTaskControlCardPatch(upgradeCommanderProgressNotificationPatch(upgradeCommanderCompletionPersistencePatch(upgradeCommanderCompletionPatch(result))))));
+  return upgradeCommanderIngressPrecedencePatch(upgradeCommanderIngressTimeoutPatch(upgradeProposalTrialReadinessPatch(upgradeTaskControlCardPatch(upgradeCommanderProgressNotificationPatch(upgradeCommanderCompletionPersistencePatch(upgradeCommanderCompletionPatch(result)))))));
+}
+
+function upgradeCommanderIngressPrecedencePatch(source) {
+  if (source.includes('AJUN_COMMANDER_INGRESS_PRECEDENCE_V1') || !source.includes('AJUN_FEISHU_COMMANDER_INGRESS_URL')) return source;
+  let result = source;
+  for (const indent of ['        ', '            ']) {
+    const childIndent = `${indent}    `;
+    const legacyOrder = `${indent}if await self._route_xiaod_url_event(event):
+${childIndent}return
+${indent}if await self._route_xiaod_status_query(event):
+${childIndent}return
+${indent}if await self._route_xiaod_retry_query(event):
+${childIndent}return
+${indent}if await self._route_ajun_commander_event(event):
+${childIndent}return
+`;
+    const commanderFirst = `${indent}# AJUN_COMMANDER_INGRESS_PRECEDENCE_V1: one A君 task chain owns text URLs and recovery.
+${indent}if await self._route_ajun_commander_event(event):
+${childIndent}return
+${indent}if await self._route_xiaod_url_event(event):
+${childIndent}return
+${indent}if await self._route_xiaod_status_query(event):
+${childIndent}return
+${indent}if await self._route_xiaod_retry_query(event):
+${childIndent}return
+`;
+    result = result.replaceAll(legacyOrder, commanderFirst);
+  }
+  return result;
 }
 
 function upgradeCommanderIngressTimeoutPatch(source) {

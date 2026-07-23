@@ -436,6 +436,15 @@ test('飞书跟进不会在运维官接手前过早宣布任务失败', async ()
   assert.equal(result.status, 'recovery_pending');
 });
 
+test('安全重试已登记但子任务尚未读到时，飞书先回执运维官接手', async () => {
+  const { service, records } = setup();
+  records.tasks.push({ taskId:'task-media', taskType:'media.transcribe-and-refine', status:'failed', source:{ chatRef:'chat-a' }, input:{ title:'整理公开视频' }, recovery:{ coordination:{ status:'retrying' } }, updatedAt:'2026-07-21T10:00:00.000Z' });
+  const result = await service.notificationStatus('task-media', 'chat-a');
+  assert.equal(result.terminal, false);
+  assert.equal(result.status, 'recovery_pending');
+  assert.match(result.message, /运维官已接手/);
+});
+
 test('飞书跟进在技术专家接手后给出明确结论', async () => {
   const { service, records } = setup();
   records.tasks.push(

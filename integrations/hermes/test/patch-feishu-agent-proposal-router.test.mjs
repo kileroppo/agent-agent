@@ -135,3 +135,11 @@ test('旧补丁留下重复总管入口时，实际生效的后一个入口也�
   assert.match(upgraded, /我这次没能及时理解完这句话/);
   assert.equal(applyPatch(upgraded), upgraded);
 });
+
+test('已安装 V4 补丁时，文本链接先进入 A君任务链，避免直连小D与总管重复通知', () => {
+  const v4 = `${applyPatch(fixture)}\n    async def _dispatch_inbound_event(self, event: MessageEvent) -> None:\n        if await self._route_xiaod_url_event(event):\n            return\n        if await self._route_xiaod_status_query(event):\n            return\n        if await self._route_xiaod_retry_query(event):\n            return\n        if await self._route_ajun_commander_event(event):\n            return\n`;
+  const upgraded = applyPatch(v4);
+  assert.match(upgraded, /AJUN_COMMANDER_INGRESS_PRECEDENCE_V1/);
+  assert.match(upgraded, /AJUN_COMMANDER_INGRESS_PRECEDENCE_V1:[\s\S]*?_route_ajun_commander_event[\s\S]*?_route_xiaod_url_event/);
+  assert.equal(applyPatch(upgraded), upgraded);
+});

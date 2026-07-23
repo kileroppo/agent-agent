@@ -369,6 +369,9 @@ export class TaskService {
     if (current.status === 'failed' && current.recovery?.coordination?.status === 'pending') {
       return { terminal: false, status: 'recovery_pending', taskId: root.taskId, message: `“${shortTaskTitle(root)}”遇到故障，正在交给运维官判断恢复办法。` };
     }
+    if (current.status === 'failed' && current.recovery?.coordination?.status === 'retrying') {
+      return { terminal: false, status: 'recovery_pending', taskId: root.taskId, message: `“${shortTaskTitle(root)}”遇到故障，运维官已接手并正在从安全断点恢复；不需要你重复提交。` };
+    }
     if (current.status === 'failed' && current.taskType === 'media.transcribe-and-refine' && !current.recovery?.coordination) {
       return { terminal: false, status: 'recovery_pending', taskId: root.taskId, message: `“${shortTaskTitle(root)}”遇到故障，正在交给运维官判断恢复办法。` };
     }

@@ -58,7 +58,7 @@ export class MediaPipeline {
       await this.stage(job.id, 'transcribing', 45, acquired.kind === 'subtitle' ? '正在读取可用字幕' : '正在进行本地 ASR 转录');
       // The source has already been copied/normalized into jobDir. Failing here
       // exercises retry without creating any external delivery side effect.
-      this.failpoint('transcribing');
+      await this.failpoint('transcribing');
       const rawTranscript = acquired.kind === 'subtitle'
         ? await fs.readFile(acquired.path, 'utf8')
         : await this.transcribe(acquired.path, jobDir);
