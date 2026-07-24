@@ -43,7 +43,7 @@ export class YtDlpGeneralMediaAdapter {
       const subtitlePath = await findFirst(workspace, (name) => /\.vtt$|\.srt$/i.test(name));
       if (subtitlePath) {
         contentItems.subtitles = [{ localRef: path.basename(subtitlePath), mimeType: subtitlePath.endsWith('.srt') ? 'application/x-subrip' : 'text/vtt' }];
-        return result(contentItems, { kind: 'subtitle', path: subtitlePath });
+        return result(contentItems, { kind: 'subtitle', path: subtitlePath }, accessValidation(authArgs));
       }
     }
 
@@ -60,7 +60,7 @@ export class YtDlpGeneralMediaAdapter {
     const normalized = path.join(workspace, 'audio.wav');
     await this.runCommand('ffmpeg', ['-y', '-i', downloaded, '-vn', '-ac', '1', '-ar', '16000', normalized]);
     contentItems.media = [{ localRef: path.basename(normalized), mimeType: 'audio/wav' }];
-    return result(contentItems, { kind: 'audio', path: normalized });
+    return result(contentItems, { kind: 'audio', path: normalized }, accessValidation(authArgs));
   }
 
   async readMetadata(source, authArgs) {
@@ -71,7 +71,7 @@ export class YtDlpGeneralMediaAdapter {
   }
 }
 
-function result(contentItems, runtime) {
+function result(contentItems, runtime, validation) {
   const providedCapabilities = [];
   if (contentItems.basic_content) providedCapabilities.push('basic_content');
   if (contentItems.subtitles) providedCapabilities.push('subtitles');
@@ -80,18 +80,25 @@ function result(contentItems, runtime) {
     providedCapabilities,
     contentItems,
     runtime,
+    validation,
     capabilityNotes: providedCapabilities.includes('subtitles')
       ? '已获取可用字幕。'
       : '未找到可用字幕，已按允许范围获取音频供本地转录。'
   };
 }
 
+function accessValidation(authArgs) {
+  return { exists:true, readable:true, accessScope:authArgs.length ? 'authorized_read' : 'public_read' };
+}
+
 export function browserSessionArgs(connectionUse) {
   if (!connectionUse) return [];
-  if (connectionUse.credentialKind !== 'browser_session' || !connectionUse.browser) {
-    throw new Error('受控连接类型不受当前媒体适配器支持。');
+  if (connectionUse.credentialKind === 'browser_session') {
+    const error = new Error('旧浏览器连接不能读取浏览器 Cookie；请改用公开视频读取或已批准的受控连接器。');
+    error.code = 'browser_session_forbidden';
+    throw error;
   }
-  return ['--cookies-from-browser', connectionUse.browser];
+  throw new Error('受控连接类型不受当前媒体适配器支持。');
 }
 
 async function findFirst(directory, predicate) {

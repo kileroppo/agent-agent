@@ -25,8 +25,13 @@ export class ProposalAgentRegistry {
 }
 
 function canWork(proposal) {
-  return proposal?.status === 'active'
-    && proposal.requestedCapabilities?.includes('content.public.fetch')
-    && proposal.candidateManifest?.acceptedTaskTypes?.length === 1
-    && proposal.candidateManifest.acceptedTaskTypes[0] === 'report.public-material';
+  if (proposal?.status !== 'active' || proposal.candidateManifest?.acceptedTaskTypes?.length !== 1) return false;
+  const taskType = proposal.candidateManifest.acceptedTaskTypes[0];
+  const capabilities = proposal.requestedCapabilities || [];
+  if (taskType === 'report.public-material') return capabilities.includes('content.public.fetch');
+  if (proposal.candidateManifest?.agentId === 'github-scout' && taskType === 'research.github-search') return sameItems(capabilities, ['github.public.search', 'github.public.read']);
+  if (proposal.candidateManifest?.agentId === 'intel-researcher' && taskType === 'research.intel-report') return sameItems(capabilities, ['content.public.fetch', 'github.public.search', 'github.public.read']);
+  return false;
 }
+
+function sameItems(items, expected) { return Array.isArray(items) && items.length === expected.length && expected.every((item) => items.includes(item)); }

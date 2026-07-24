@@ -52,7 +52,10 @@ test('失败验收只能回到修订，成功验收必须带可验证产物才�
   const passed = await service.create({ requestedOutcome: '输出公开素材报告', candidateName: '通过报告员' });
   await service.submit(passed.proposalId); await service.approveForTest(passed.proposalId); await service.createTestInstance(passed.proposalId);
   await assert.rejects(() => service.recordAcceptance(passed.proposalId, { passed: true }), ProposalValidationError);
-  const active = await service.recordAcceptance(passed.proposalId, { artifactTitle: '公开素材报告', artifactRef: 'runtime://test/report.json', passed: true });
+  const accepted = await service.recordAcceptance(passed.proposalId, { artifactTitle: '公开素材报告', artifactRef: 'runtime://test/report.json', passed: true });
+  assert.equal(accepted.status, 'testing');
+  assert.equal(accepted.acceptance.status, 'passed');
+  const active = await service.activate(passed.proposalId);
   assert.equal(active.status, 'active');
 });
 
@@ -72,7 +75,8 @@ test('新岗位试用通过后会立刻登记到 Paperclip，不需要重启 A�
   await service.submit(proposal.proposalId);
   await service.approveForTest(proposal.proposalId);
   await service.createTestInstance(proposal.proposalId);
-  const active = await service.recordAcceptance(proposal.proposalId, { artifactTitle: '公开素材报告', artifactRef: 'runtime://test/instant-roster.json', passed: true });
+  await service.recordAcceptance(proposal.proposalId, { artifactTitle: '公开素材报告', artifactRef: 'runtime://test/instant-roster.json', passed: true });
+  const active = await service.activate(proposal.proposalId);
   assert.equal(active.status, 'active');
   assert.equal(syncCalls.length, 1);
   assert.equal(syncCalls[0][0].agentId, '即时登记报告员');
@@ -125,7 +129,9 @@ test('受限试用必须由真实执行结果决定是否上岗，不能只填�
   const service = new AgentProposalService({ store:new TaskStore(path.join(root, 'runtime.json')), registry:{ async list() { return []; } }, restrictedAcceptanceRunner:runner });
   const proposal = await service.create({ requestedOutcome:'只读取公开网页，输出中文摘要报告' });
   await service.submit(proposal.proposalId); await service.approveForTest(proposal.proposalId); await service.createTestInstance(proposal.proposalId);
-  const active = await service.runRestrictedAcceptance(proposal.proposalId, { sourceUrl:'https://example.com/readme' });
+  const accepted = await service.runRestrictedAcceptance(proposal.proposalId, { sourceUrl:'https://example.com/readme' });
+  assert.equal(accepted.status, 'testing');
+  const active = await service.activate(proposal.proposalId);
   assert.equal(active.status, 'active');
   const failing = await service.create({ requestedOutcome:'只读取公开网页，输出中文摘要报告' });
   await service.submit(failing.proposalId); await service.approveForTest(failing.proposalId); await service.createTestInstance(failing.proposalId);
@@ -175,4 +181,47 @@ test('审核官没有可验证结论时草案停在草稿，不冒充已审核',
   const draft = await service.create({ requestedOutcome:'整理公开网页标题' });
   await assert.rejects(() => service.submit(draft.proposalId), /尚未形成可验证结论/);
   assert.equal((await service.get(draft.proposalId)).status, 'draft');
+});
+
+test('审核官可将已登记的小G、小R草案投影为可追溯审核，而不启用岗位', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-proposal-registered-drafts-'));
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const roster = [
+    { agentId:'github-scout', name:'小G', status:'draft', role:'检索公开 GitHub 项目', promptRef:'agents/github-scout/prompts/system.md', runtimeProfileRef:'integrations/hermes/profiles/github-scout.profile.json', acceptedTaskTypes:['research.github-search'], toolAllowlist:['github.public.search', 'github.public.read'], dataScopes:[{ scope:'public-github-metadata', access:['read'] }], nonResponsibilities:['不登录'], qualityGates:[{ gate:'sources-have-public-url-and-fetched-at', required:true }] },
+    { agentId:'intel-researcher', name:'小R', status:'draft', role:'综合公开来源', promptRef:'agents/intel-researcher/prompts/system.md', runtimeProfileRef:'integrations/hermes/profiles/intel-researcher.profile.json', acceptedTaskTypes:['research.intel-report'], toolAllowlist:['content.public.fetch', 'github.public.search', 'github.public.read'], dataScopes:[{ scope:'public-research-sources', access:['read'] }], nonResponsibilities:['不外发'], qualityGates:[{ gate:'research-report-has-required-structure', required:true }] }
+  ];
+  const calls = [];
+  const service = new AgentProposalService({
+    store:new TaskStore(path.join(root, 'runtime.json')), registry:{ async list() { return roster; } },
+    taskService:{ async create(input) {
+      calls.push(input);
+      return { taskId:`review-${calls.length}`, status:'succeeded', artifactRefs:[{ type:'review_report', location:`runtime://review-${calls.length}/report`, createdAt:'2026-07-23T12:00:00.000Z', validation:{ exists:true, nonEmpty:true }, data:{ recommendation:'human_owner_decision_required', nextAction:'范围已核对，等待负责人决定。' } }] };
+    } }
+  });
+  const reviewed = await service.reviewRegisteredDrafts('审核一下小G和小R这两个新员工草案');
+  assert.equal(reviewed.length, 2);
+  assert.deepEqual(reviewed.map((item) => item.candidateManifest.agentId).sort(), ['github-scout', 'intel-researcher']);
+  assert.ok(reviewed.every((item) => item.status === 'pending_approval'));
+  assert.ok(reviewed.every((item) => item.trialReadiness.status === 'ready'));
+  assert.deepEqual(reviewed.find((item) => item.manifestAgentId === 'github-scout').requestedCapabilities, ['github.public.search', 'github.public.read']);
+  assert.equal(calls.length, 2);
+  const repeated = await service.reviewRegisteredDrafts('审查 小G 和 小R');
+  assert.deepEqual(repeated.map((item) => item.proposalId).sort(), reviewed.map((item) => item.proposalId).sort());
+  assert.equal(calls.length, 2);
+});
+
+test('小G、小R经负责人批准后可准备一次受限公开只读测试，但不会直接激活', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-proposal-research-trial-'));
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const manifest = { agentId:'github-scout', name:'小G', status:'draft', role:'检索公开 GitHub 项目', promptRef:'agents/github-scout/prompts/system.md', runtimeProfileRef:'integrations/hermes/profiles/github-scout.profile.json', acceptedTaskTypes:['research.github-search'], toolAllowlist:['github.public.search', 'github.public.read'], dataScopes:[{ scope:'public-github-metadata', access:'read' }], nonResponsibilities:['不登录'], qualityGates:[{ gate:'sources-have-public-url-and-fetched-at', required:true }] };
+  const service = new AgentProposalService({
+    store:new TaskStore(path.join(root, 'runtime.json')), registry:{ async list() { return [manifest]; } },
+    taskService:{ async create() { return { taskId:'review-g', status:'succeeded', artifactRefs:[{ type:'review_report', location:'runtime://review-g/report', createdAt:'2026-07-23T12:00:00.000Z', validation:{ exists:true, nonEmpty:true }, data:{ recommendation:'human_owner_decision_required', nextAction:'等待负责人决定。' } }] }; } }
+  });
+  const [draft] = await service.reviewRegisteredDrafts('审核小G草案');
+  const testing = await service.approveForTest(draft.proposalId);
+  assert.equal(testing.status, 'testing');
+  const instance = await service.createTestInstance(draft.proposalId);
+  assert.equal(instance.status, 'ready');
+  assert.deepEqual(instance.capabilityAllowlist, ['github.public.search', 'github.public.read']);
 });

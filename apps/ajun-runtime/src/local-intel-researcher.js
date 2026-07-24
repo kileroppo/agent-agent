@@ -23,7 +23,7 @@ export class LocalIntelResearcher {
     }
     const { sources, failures } = await this.readSources(sourceUrls);
     if (!sources.length && discovery?.githubSources?.length) sources.push(...discovery.githubSources);
-    if (!sources.length) return needsInput(this.now(), 'research_sources_unavailable', `${failures[0] || '没有得到可读取的公开来源。'} 请补充公开来源链接或换一个更具体的主题。`);
+    if (!sources.length) return needsInput(this.now(), 'research_sources_unavailable', `${failures[0] || discovery?.failures?.[0] || '没有得到可读取的公开来源。'} 请补充公开来源链接或换一个更具体的主题。`);
     const analysis = await this.analyze(topic, sources);
     const completedAt = this.now().toISOString();
     const report = { topic, sources, ...analysis };
@@ -43,25 +43,29 @@ export class LocalIntelResearcher {
   }
 
   async discover(topic) {
+    const query = discoveryQuery(topic);
+    const failures = [];
     if (this.publicWebSearch?.search) {
       try {
-        const search = await this.publicWebSearch.search({ query:topic, limit:3 });
-        return { urls:search.results.map((item) => item.url).filter(Boolean), searched:true, githubSearched:false };
-      } catch {
+        const search = await this.publicWebSearch.search({ query, limit:3 });
+        const urls = search.results.map((item) => item.url).filter(Boolean);
+        if (urls.length) return { urls, searched:true, githubSearched:false, failures };
+      } catch (error) {
+        failures.push(error?.message || '公开搜索暂时无法读取。');
         // GitHub is a bounded fallback discovery source, not an assertion that
         // every research topic is an open-source topic.
       }
     }
     if (this.githubSearch?.search) {
       try {
-        const search = await this.githubSearch.search({ query:topic, limit:3 });
+        const search = await this.githubSearch.search({ query, limit:3 });
         return {
-          urls:[], searched:false, githubSearched:true,
+          urls:[], searched:Boolean(this.publicWebSearch), githubSearched:true, failures,
           githubSources:search.results.map((item) => ({ kind:'github_metadata', title:item.fullName, source:item.url, summary:item.description || '仓库没有提供描述。', fetchedAt:search.searchedAt, truncated:false }))
         };
-      } catch { /* The caller gets a transparent needs_input result below. */ }
+      } catch (error) { failures.push(error?.message || '公开 GitHub 来源暂时无法读取。'); }
     }
-    return { urls:[], searched:Boolean(this.publicWebSearch), githubSearched:Boolean(this.githubSearch), githubSources:[] };
+    return { urls:[], searched:Boolean(this.publicWebSearch), githubSearched:Boolean(this.githubSearch), githubSources:[], failures };
   }
 
   async readSources(urls) {
@@ -83,6 +87,12 @@ export class LocalIntelResearcher {
 }
 
 function sourceList(input) { return [...new Set([...(Array.isArray(input?.sourceUrls) ? input.sourceUrls : []), input?.sourceUrl].map((value) => String(value || '').trim()).filter(Boolean))]; }
+function discoveryQuery(topic) {
+  const value = String(topic || '');
+  if (/(?:agent|智能体).{0,12}(?:治理|管控|权限)|(?:治理|管控|权限).{0,12}(?:agent|智能体)/i.test(value)) return 'agent governance';
+  if (/多智能体|multi[\s-]?agent/i.test(value)) return 'multi-agent governance';
+  return value;
+}
 function needsInput(now, code, userMessage) { return { status:'needs_input', currentStage:code, error:{ code, userMessage, category:'needs_input', stage:'input', occurredAt:now.toISOString() } }; }
 function summarize(text) {
   const compact = String(text || '').replace(/\s+/g, ' ').trim();

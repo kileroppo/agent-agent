@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { TaskService, ValidationError } from '../src/task-service.js';
 
-function setup({ agents = [], governance = null, onTaskFailed = null } = {}) {
+function setup({ agents = [], governance = null, onTaskFailed = null, agentChannelStates = null } = {}) {
   const records = { tasks: [], approvals: [] };
   const store = { async createTask(task) { const record = { taskId: `task-${records.tasks.length + 1}`, approvalRefs: [], ...task }; records.tasks.push(record); return record; }, async createApproval(approval) { const record = { approvalId: `approval-${records.approvals.length + 1}`, status:'pending', ...approval }; records.approvals.push(record); const task = records.tasks.find((item) => item.taskId === approval.taskId); task.approvalRefs.push(record.approvalId); if (approval.holdTask !== false) { task.status='waiting_approval'; task.currentStage='approval_required'; } return record; }, async updateApproval(approvalId, patch) { const approval = records.approvals.find((item) => item.approvalId === approvalId); Object.assign(approval, patch); return approval; }, async updateTask(taskId, patch) { const task = records.tasks.find((item) => item.taskId === taskId); Object.assign(task, patch); return task; }, async list(){return records.tasks}, async listApprovals(){return records.approvals} };
-  return { records, service: new TaskService({ registry: { async list(){return agents}, async candidates(type){return agents.filter((agent)=>agent.acceptedTaskTypes.includes(type))} }, store, governance, onTaskFailed }) };
+  return { records, service: new TaskService({ registry: { async list(){return agents}, async candidates(type){return agents.filter((agent)=>agent.acceptedTaskTypes.includes(type))} }, store, governance, onTaskFailed, agentChannelStates }) };
 }
 const coordinator = { agentId:'task-coordinator', name:'任务协调官', status:'draft', acceptedTaskTypes:['army.route-task'] };
 
@@ -38,6 +38,14 @@ test('已启用的小D接到公开素材任务后，任务记录明确归属小D
 test('高风险描述创建待审批记录', async () => {
   const { service, records } = setup({ agents:[coordinator] }); const task = await service.create({ title:'向外发布周报', taskType:'army.route-task' });
   assert.equal(records.approvals.length, 1); assert.equal(task.status, 'waiting_approval'); assert.equal(task.currentStage, 'approval_required');
+});
+test('明确不外发的只读任务不触发审批', async () => {
+  const reporter = { agentId:'public-reporter', name:'公开资料报告员', status:'active', acceptedTaskTypes:['report.public-material'], runtime:{ kind:'proposal-public-report' } };
+  const { service, records } = setup({ agents:[reporter] });
+  service.fallbackExecutor = { supports(agent) { return agent.agentId === 'public-reporter'; }, async execute() { return { status:'succeeded', currentStage:'public_report_ready', artifactRefs:[] }; } };
+  const task = await service.create({ title:'整理公开网页', description:'只读公开页面，不外发、不发布、不付费。', taskType:'report.public-material', sourceUrl:'https://example.com' });
+  assert.equal(records.approvals.length, 0);
+  assert.equal(task.status, 'succeeded');
 });
 test('一次性外发审批留在 A君，批准后只恢复原任务一次', async () => {
   const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
@@ -404,6 +412,33 @@ test('概览会如实显示官方飞书入口已经连接，不把等待状态�
   const feishu = overview.capabilities.find((item) => item.id === 'feishu-channel');
   assert.equal(feishu.status, 'ready');
   assert.match(feishu.detail, /已连接/);
+});
+
+test('概览优先显示独立飞书应用的实时连接状态，不把静态 Profile 当成入口真相', async () => {
+  const operator = {
+    agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'],
+    independentRuntime:{ state:'channel_pending' }
+  };
+  const { service } = setup({
+    agents:[operator],
+    agentChannelStates:() => ({ operator:{ agentId:'operator', status:'connected', message:'运维官飞书智能体应用已连接。' } })
+  });
+  const overview = await service.overview();
+  assert.deepEqual(overview.agents[0].feishuChannel, {
+    status:'connected', message:'运维官飞书智能体应用已连接。'
+  });
+  assert.equal(overview.agents[0].independentRuntime.state, 'channel_pending');
+});
+
+test('概览只在独立飞书入口已有终态任务证据时标记为已验证', async () => {
+  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  const { service, records } = setup({
+    agents:[operator],
+    agentChannelStates:() => ({ operator:{ status:'connected', message:'运维官飞书智能体应用已连接。' } })
+  });
+  records.tasks.push({ taskId:'operator-feishu-1', status:'succeeded', source:{ channel:'feishu', targetAgentId:'operator' }, input:{ title:'检查军团状态' } });
+  const overview = await service.overview();
+  assert.equal(overview.agents[0].feishuChannel.verified, true);
 });
 
 test('飞书跟进在小D完成并确认文档权限后返回真实交付链接', async () => {

@@ -1,13 +1,14 @@
 import { recordTaskUsage, summarizeTaskUsage } from './task-usage.js';
 import { formatPublicReportReply } from './public-report-presentation.js';
 
-const highRiskWords = /外发|发布|删除|付款|付费|扩权|敏感/;
+const highRiskActions = ['外发', '发布', '删除', '付款', '付费', '扩权', '敏感'];
 const organizationGovernanceWords = /创建.*(?:agent|智能体|岗位)|新建.*(?:agent|智能体|岗位)|扩权|账号|连接|公开发布|对外发布|付款|付费|预算|暂停|终止|跨\s*agent/i;
 
 export class TaskService {
-  constructor({ registry, store, governance = null, executors = {}, fallbackExecutor = null, onTaskFailed = null, feishuChannelStatus = null }) { this.registry = registry; this.store = store; this.governance = governance; this.executors = executors; this.fallbackExecutor = fallbackExecutor; this.onTaskFailed = onTaskFailed; this.feishuChannelStatus = feishuChannelStatus; }
+  constructor({ registry, store, governance = null, executors = {}, fallbackExecutor = null, onTaskFailed = null, feishuChannelStatus = null, agentChannelStates = null }) { this.registry = registry; this.store = store; this.governance = governance; this.executors = executors; this.fallbackExecutor = fallbackExecutor; this.onTaskFailed = onTaskFailed; this.feishuChannelStatus = feishuChannelStatus; this.agentChannelStates = agentChannelStates; }
 
   setFeishuChannelStatus(status) { this.feishuChannelStatus = status; }
+  setAgentChannelStates(status) { this.agentChannelStates = status; }
 
   async create(input) {
     const title = String(input?.title || '').trim(); const taskType = String(input?.taskType || '').trim();
@@ -32,7 +33,7 @@ export class TaskService {
       status: agent?.status === 'active' ? 'queued' : 'needs_input', currentStage: agent?.status === 'active' ? 'queued_for_execution' : agent ? 'waiting_for_agent_activation' : 'routing_needed',
       routing: { requestedAgentId, candidateAgentIds: candidates.map((item) => item.agentId), reason: agent?.status === 'active' ? '已路由到已启用的本地执行器。' : agent ? '岗位骨架已登记，等待启用真实执行器。' : candidates.length === 0 ? '没有岗位声明支持该任务类型。' : '多个岗位匹配，请明确选择承接岗位。' }
     });
-    if (highRiskWords.test(`${title} ${description}`) && !['army.intake', 'governance.approval-review'].includes(taskType)) {
+    if (hasAffirmativeHighRiskIntent(`${title} ${description}`) && !['army.intake', 'governance.approval-review'].includes(taskType)) {
       await this.store.createApproval({ taskId: task.taskId, governanceMode: requiresOrganizationGovernance(title, description) ? 'paperclip' : 'local', decisionChannel: 'feishu_card', action: 'manual-risk-review', riskLevel: 'high', reason: '任务描述包含高风险动作，必须人工确认范围。', requestedBy: 'task-coordinator', approverScope: 'A君', requestedScope: { taskType, title, assigneeAgentId: agent?.agentId || null }, validUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() });
       task = (await this.store.list()).find((item) => item.taskId === task.taskId);
     }
@@ -305,7 +306,9 @@ export class TaskService {
   async overview() {
     const [agents, tasks, approvals, governance] = await Promise.all([this.registry.list(), this.store.list(), this.store.listApprovals(), this.governance?.health() || { status: 'planned', version: null }]);
     const feishuChannel = channelCapability(this.feishuChannelStatus);
-    return { agents, tasks, approvals, taskFocus: buildTaskFocus(tasks, approvals), usage:summarizeTaskUsage(tasks, { since:startOfToday() }), capabilities: [
+    const agentChannels = safeAgentChannelStates(this.agentChannelStates);
+    const visibleAgents = agents.map((agent) => ({ ...agent, ...(agentChannels[agent.agentId] ? { feishuChannel:withFeishuTaskEvidence(agentChannels[agent.agentId], agent.agentId, tasks) } : {}) }));
+    return { agents:visibleAgents, tasks, approvals, taskFocus: buildTaskFocus(tasks, approvals), usage:summarizeTaskUsage(tasks, { since:startOfToday() }), capabilities: [
       { id: 'task-coordination', name: '统一任务协调', status: 'ready', detail: '创建、路由和状态真相已就绪。' },
       { id: 'agent-registry', name: '岗位注册表', status: 'ready', detail: '岗位职责、任务类型和权限边界从 Manifest 读取。' },
       { id: 'approval-gate', name: '审批闸门', status: 'ready', detail: '高风险描述先进入待审批，不自动执行。' },
@@ -396,6 +399,24 @@ export class TaskService {
   }
 }
 
+function safeAgentChannelStates(source) {
+  try {
+    const states = typeof source === 'function' ? source() : source;
+    return Object.fromEntries(Object.entries(states || {}).flatMap(([agentId, state]) => {
+      const status = String(state?.status || '').trim();
+      const message = String(state?.message || '').trim();
+      return status && message ? [[agentId, { status, message }]] : [];
+    }));
+  } catch { return {}; }
+}
+
+function withFeishuTaskEvidence(channel, agentId, tasks) {
+  const verified = channel.status === 'connected' && (tasks || []).some((task) => task.source?.channel === 'feishu'
+    && task.source?.targetAgentId === agentId
+    && ['succeeded', 'failed', 'waiting_test', 'cancelled'].includes(task.status));
+  return verified ? { ...channel, verified:true } : channel;
+}
+
 export class ValidationError extends Error {}
 function optionalInput(value) { const text = String(value || '').trim(); return text || undefined; }
 function formatGithubSearchDelivery(report) {
@@ -416,6 +437,20 @@ function channelCapability(source) {
 function cryptoSafe(value) { return Buffer.from(value).toString('base64url').slice(0, 24); }
 function extractPublicUrls(value) { return [...String(value).matchAll(/https?:\/\/[^\s<>"]+/gi)].map((match) => match[0].replace(/[),.;，。；]+$/, '')); }
 function uniquePublicUrls(values) { return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))]; }
+function hasAffirmativeHighRiskIntent(value) {
+  const text = String(value || '');
+  return highRiskActions.some((action) => {
+    let startAt = 0;
+    while (startAt < text.length) {
+      const index = text.indexOf(action, startAt);
+      if (index < 0) return false;
+      if (!isExplicitlyNegated(text.slice(0, index))) return true;
+      startAt = index + action.length;
+    }
+    return false;
+  });
+}
+function isExplicitlyNegated(prefix) { return /(?:不|无|禁止|不得|不可|不能|无需|不用|不需要|不允许)\s*$/.test(prefix); }
 function shouldProjectToPaperclip(task, approval = null) {
   return approval?.governanceMode === 'paperclip' || task.source?.channel === 'paperclip' || task.source?.channel === 'army-mission' || task.taskType.startsWith('governance.') || task.taskType === 'army.route-task' || task.taskType === 'army.cross-agent-mission' || task.taskType === 'operations.technical-repair';
 }

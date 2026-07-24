@@ -65,13 +65,7 @@
           </div>
           <p class="connection-summary">只授予小D读取视频信息、字幕和音频的权限。</p>
         </div>
-        <form id="connection-form" class="connection-form">
-          <div class="connection-fields">
-            <label for="connection-alias">连接名称<input id="connection-alias" name="accountAlias" value="我的 YouTube" maxlength="80" required /></label>
-            <label for="connection-browser">已登录 YouTube 的浏览器<select id="connection-browser" name="browser"><option value="chrome">Chrome</option><option value="safari">Safari</option><option value="firefox">Firefox</option><option value="brave">Brave</option><option value="edge">Edge</option></select></label>
-          </div>
-          <div class="connection-actions"><button class="secondary" type="submit">连接 YouTube</button><p>只保存一个受控浏览器会话引用；不会显示、上传或要求你粘贴 Cookie。</p></div>
-        </form>
+        <p class="connection-summary">YouTube 公开视频优先使用内置 yt-dlp 读取字幕；不需要登录，也不读取 Cookie。</p>
         <details class="cookie-bridge-form">
           <summary>连接已由 CookieBridge 管理的账号</summary>
           <p>仅登记 CookieBridge 里的账号标识；不在这里粘贴或显示 Cookie。</p>

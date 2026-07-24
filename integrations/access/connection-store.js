@@ -29,30 +29,8 @@ export class ConnectionStore {
   getSafe(connectionId) { return toSafeConnection(this.get(connectionId)); }
 
   async createBrowserSessionConnection(input) {
-    const definition = validateBrowserSessionConnection(input);
-    const now = new Date().toISOString();
-    const connectionId = crypto.randomUUID();
-    const connection = {
-      schemaVersion: '3.0',
-      connectionId,
-      provider: definition.provider,
-      accountAlias: definition.accountAlias,
-      credentialRef: `browser-session:${definition.browser}:${connectionId}`,
-      credentialKind: 'browser_session',
-      browser: definition.browser,
-      grantedOperations: definition.grantedOperations,
-      dataScope: definition.dataScope,
-      allowedAgentIds: definition.allowedAgentIds,
-      approvalPolicyRef: null,
-      status: 'active',
-      expiresAt: null,
-      lastHealthAt: null,
-      createdAt: now,
-      updatedAt: now
-    };
-    this.connections.set(connectionId, connection);
-    await this.persist();
-    return toSafeConnection(connection);
+    validateBrowserSessionConnection(input);
+    throw new ConnectionInputError('不能建立浏览器会话账号连接。请勿把浏览器登录态交给 A君或 yt-dlp。');
   }
 
   async createCookieBridgeConnection(input) {

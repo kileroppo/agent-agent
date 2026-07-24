@@ -27,38 +27,25 @@ function browserConnection() {
   };
 }
 
-test('browser session connection stores only an opaque credential reference and never returns it', async (t) => {
+test('拒绝登记浏览器会话而不是读取浏览器数据', async (t) => {
   const { root, connectionStore } = await sandbox(t);
-  const connection = await connectionStore.createBrowserSessionConnection(browserConnection());
-  assert.equal(connection.status, 'active');
-  assert.equal(connection.credentialRef, undefined);
-  assert.equal(connection.hasCredentialReference, true);
-  const saved = await fs.readFile(path.join(root, 'connections.json'), 'utf8');
-  assert.doesNotMatch(saved, /cookie|token|password/i);
   await assert.rejects(
-    connectionStore.createBrowserSessionConnection({ ...browserConnection(), cookie: 'forbidden' }),
-    /不得包含 Cookie/
+    connectionStore.createBrowserSessionConnection(browserConnection()),
+    /不能建立浏览器会话账号连接/
   );
+  const saved = await fs.readdir(root);
+  assert.equal(saved.includes('connections.json'), false);
 });
 
-test('broker grants only an active connection scoped to the expected agent and operation', async (t) => {
+test('broker refuses a legacy browser connection before any adapter can read browser data', async (t) => {
   const { connectionStore, broker } = await sandbox(t);
-  const connection = await connectionStore.createBrowserSessionConnection(browserConnection());
-  const granted = await broker.authorize({
-    connectionId: connection.connectionId, provider: 'youtube', operations: ['read_media_subtitles'], requestingAgentId: 'xiaod'
-  });
-  assert.equal(granted.ok, true);
-  assert.deepEqual(granted.connectionUse.operations, ['read_media_subtitles']);
-  assert.equal(granted.connectionUse.credentialRef, undefined);
+  const connection = { connectionId:'legacy-browser', provider:'youtube', credentialKind:'browser_session', browser:'chrome', status:'active', allowedAgentIds:['xiaod'], grantedOperations:['read_media_subtitles'], dataScope:['content:read'] };
+  connectionStore.connections.set(connection.connectionId, connection);
   const denied = await broker.authorize({
-    connectionId: connection.connectionId, provider: 'youtube', operations: ['read_content_comments'], requestingAgentId: 'xiaod'
-  });
-  assert.equal(denied.code, 'operation_not_granted');
-  await connectionStore.revoke(connection.connectionId);
-  const revoked = await broker.authorize({
     connectionId: connection.connectionId, provider: 'youtube', operations: ['read_media_subtitles'], requestingAgentId: 'xiaod'
   });
-  assert.equal(revoked.code, 'connection_unavailable');
+  assert.equal(denied.code, 'browser_session_forbidden');
+  assert.match(denied.safeMessage, /不能读取浏览器 Cookie/);
 });
 
 test('content center prefers specialized, records safe fallback, and returns a normalized package', async (t) => {
@@ -149,8 +136,8 @@ test('an adapter requests only permissions for capabilities it can actually prov
   assert.equal(result.ok, true);
 });
 
-test('browser adapter arguments contain only a browser selector, never raw credential material', () => {
-  assert.deepEqual(browserSessionArgs({ credentialKind: 'browser_session', browser: 'chrome' }), ['--cookies-from-browser', 'chrome']);
+test('媒体适配器拒绝从浏览器读取 Cookie', () => {
+  assert.throws(() => browserSessionArgs({ credentialKind: 'browser_session', browser: 'chrome' }), (error) => error.code === 'browser_session_forbidden');
   assert.throws(() => browserSessionArgs({ credentialKind: 'cookie', browser: 'chrome' }), /不受当前媒体适配器支持/);
 });
 

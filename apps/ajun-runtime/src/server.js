@@ -23,6 +23,7 @@ import { HermesIntentPlanner } from './hermes-intent-planner.js';
 import { HermesConversationAdvisor } from './hermes-conversation-advisor.js';
 import { HermesTaskAdvisor } from './hermes-task-advisor.js';
 import { HermesPublicComparisonAdvisor } from './hermes-public-comparison-advisor.js';
+import { HermesPublicSummaryAdvisor } from './hermes-public-summary-advisor.js';
 import { HermesIntelResearchAdvisor } from './hermes-intel-research-advisor.js';
 import { LocalTechnicalExpert } from './local-technical-expert.js';
 import { IsolatedRepairWorkspace } from './isolated-repair-workspace.js';
@@ -66,6 +67,7 @@ const technicalRepairWatchdog = new TechnicalRepairWatchdog({ store, governance 
 const technicalRepairDiagnoser = new TechnicalRepairDiagnoser();
 const taskAdvisor = new HermesTaskAdvisor();
 const publicComparisonAdvisor = new HermesPublicComparisonAdvisor();
+const publicSummaryAdvisor = new HermesPublicSummaryAdvisor();
 const intelResearchAdvisor = new HermesIntelResearchAdvisor();
 const xiaod = new XiaodDelegate({ onStarted: () => void xiaodReconciler.reconcile() });
 const xiaodReconciler = new XiaodReconciler({ store, xiaod, governance });
@@ -75,12 +77,14 @@ const publicWebTransport = new PublicWebTransport();
 const publicWebFetch = new PublicWebFetch({ fetchImpl: (...args) => publicWebTransport.fetch(...args) });
 const publicWebSearch = new PublicWebSearch({ fetchImpl: (...args) => publicWebTransport.fetch(...args) });
 const githubSearch = new GithubSearch({ fetchImpl: (...args) => publicWebTransport.fetch(...args) });
-const publicReport = new LocalPublicReport({ publicWebFetch, publicWebSearch, comparisonAdvisor:publicComparisonAdvisor });
-const proposals = new AgentProposalService({ store, registry, governance, restrictedAcceptanceRunner:new ProposalAcceptanceRunner({ publicReport }) });
+const publicReport = new LocalPublicReport({ publicWebFetch, publicWebSearch, comparisonAdvisor:publicComparisonAdvisor, refineAdvisor:publicSummaryAdvisor });
+const githubScout = new LocalGithubScout({ githubSearch });
+const intelResearcher = new LocalIntelResearcher({ publicWebFetch, publicWebSearch, githubSearch, researchAdvisor:intelResearchAdvisor });
+const proposals = new AgentProposalService({ store, registry, governance, restrictedAcceptanceRunner:new ProposalAcceptanceRunner({ publicReport, githubScout, intelResearcher }) });
 const port = Number(process.env.PORT || 4321);
 const host = process.env.AJUN_HOST || '0.0.0.0';
 let failureRecovery;
-const tasks = new TaskService({ registry, store, governance, executors: { operator, xiaod, creator: new LocalCreator({ proposals }), 'task-coordinator': new LocalTaskCoordinator({ advisor:taskAdvisor, registry }), reviewer: new LocalReviewer(), architect: new LocalArchitect({ registry, store }), 'technical-expert': new LocalTechnicalExpert({ workspace:repairWorkspace, runner:technicalExpertRunner, promotion:technicalRepairPromotion }), 'github-scout':new LocalGithubScout({ githubSearch }), 'intel-researcher':new LocalIntelResearcher({ publicWebFetch, publicWebSearch, githubSearch, researchAdvisor:intelResearchAdvisor }) }, fallbackExecutor: publicReport, onTaskFailed: (task) => failureRecovery?.handle(task) });
+const tasks = new TaskService({ registry, store, governance, executors: { operator, xiaod, creator: new LocalCreator({ proposals }), 'task-coordinator': new LocalTaskCoordinator({ advisor:taskAdvisor, registry }), reviewer: new LocalReviewer(), architect: new LocalArchitect({ registry, store }), 'technical-expert': new LocalTechnicalExpert({ workspace:repairWorkspace, runner:technicalExpertRunner, promotion:technicalRepairPromotion }), 'github-scout':githubScout, 'intel-researcher':intelResearcher }, fallbackExecutor: publicReport, onTaskFailed: (task) => failureRecovery?.handle(task) });
 const approvalExpiryReconciler = new ApprovalExpiryReconciler({ tasks, onResult:(result) => { if (result.status !== 'synced') console.warn('过期确认暂时无法自动整理，将自动重试。'); } });
 proposals.taskService = tasks;
 const missions = new CrossAgentMissionService({ tasks, store, governance });
@@ -111,6 +115,7 @@ const feishuChannelStartup = feishuChannelStartupPlan({
 tasks.setFeishuChannelStatus(() => feishuChannelStartup.startLegacyAJun
   ? officialFeishuChannelRunner.snapshot()
   : agentFeishuChannelFleet.snapshot().ajun || { status:'connecting', message:'A君智能体入口正在连接。' });
+tasks.setAgentChannelStates(() => agentFeishuChannelFleet.snapshot());
 const paperclipHeartbeat = new PaperclipHeartbeatHandler({ operator, governance });
 const lanEnabled = !isLoopbackHost(host);
 const lanAccess = { enabled: lanEnabled, key: await loadLanShareKey(path.join(root, 'apps/ajun-runtime/data/lan-share-key'), lanEnabled) };
@@ -163,12 +168,13 @@ const server = http.createServer(async (req, res) => {
       const [, proposalId, action] = feishuProposalApprovalMatch; const input = await body(req);
       return json(res, 200, await resolveFeishuApproval({ approvalId:proposalId, action, governanceMode:'proposal', chatRef:input.chatRef, requesterRef:input.requesterRef }));
     }
-    const proposalAction = req.url?.match(/^\/api\/agent-proposals\/([0-9a-f-]+)\/(submit|approve-for-test|reject|test-instance|test-evidence|acceptance|run-acceptance)$/i);
+    const proposalAction = req.url?.match(/^\/api\/agent-proposals\/([0-9a-f-]+)\/(submit|approve-for-test|activate|reject|test-instance|test-evidence|acceptance|run-acceptance)$/i);
     if (req.method === 'POST' && proposalAction) {
       if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error: '草案审核与测试操作只能由本机主人发起。' });
       const [, proposalId, action] = proposalAction; const input = await body(req);
       if (action === 'submit') return json(res, 200, { proposal: await proposals.submit(proposalId) });
       if (action === 'approve-for-test') return json(res, 200, { proposal: await proposals.approveForTest(proposalId) });
+      if (action === 'activate') return json(res, 200, { proposal: await proposals.activate(proposalId) });
       if (action === 'reject') return json(res, 200, { proposal: await proposals.reject(proposalId) });
       if (action === 'test-instance') return json(res, 201, { testInstance: await proposals.createTestInstance(proposalId, { hermesProfileName: String(input.hermesProfileName || '').trim() || null }) });
       if (action === 'test-evidence') return json(res, 200, { proposal: await proposals.recordTestEvidence(proposalId, input) });

@@ -85,7 +85,7 @@ function operationsFor(capabilities) {
 function priority(priorityClass) { return priorityClass === 'specialized' ? 0 : 1; }
 function safeSourceRef(source) { const parsed = new URL(source); return `${parsed.protocol}//${parsed.host}${parsed.pathname}`; }
 function failure(code, safeMessage, recommendedAction) {
-  const category = code.includes('connection') || code.includes('granted') || code === 'agent_not_allowed'
+  const category = code.includes('connection') || code.includes('granted') || code === 'agent_not_allowed' || code === 'browser_session_forbidden'
     ? 'needs_input'
     : recommendedAction === 'retry'
       ? 'retryable'
@@ -95,6 +95,9 @@ function failure(code, safeMessage, recommendedAction) {
 
 function safeAdapterFailure(error) {
   const raw = error instanceof Error ? error.message : String(error);
+  if (error?.code === 'browser_session_forbidden') {
+    return { code: error.code, safeMessage: '不能读取浏览器登录态。请改用公开视频读取、已批准的受控连接器或本地文件。', recommendedAction: 'reauthorize' };
+  }
   if (error?.code === 'source_rate_limited' || /\b429\b|too many requests|rate limit/i.test(raw)) {
     return { code: 'source_rate_limited', safeMessage: '视频站临时限制读取，请稍后重试或改用本地文件。', recommendedAction: 'retry' };
   }

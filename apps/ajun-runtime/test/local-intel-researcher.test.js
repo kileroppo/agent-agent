@@ -20,3 +20,19 @@ test('小R 没有来源且读取失败时明确 needs_input，不编造报告', 
   assert.equal(result.error.code, 'research_sources_unavailable');
   assert.match(result.error.userMessage, /公开来源/);
 });
+
+test('小R 会将中文 Agent 权限治理主题转为公开可检索词，并在网页搜索无结果时回退 GitHub 元数据', async () => {
+  let publicQuery = null;
+  let githubQuery = null;
+  const worker = new LocalIntelResearcher({
+    now,
+    publicWebFetch:{ async acquire() { throw new Error('不应读取空搜索结果'); } },
+    publicWebSearch:{ async search({ query }) { publicQuery = query; return { results:[] }; } },
+    githubSearch:{ async search({ query }) { githubQuery = query; return { searchedAt:now().toISOString(), results:[{ fullName:'example/agent-governance', description:'Public agent governance controls.', url:'https://github.com/example/agent-governance' }] }; } }
+  });
+  const result = await worker.execute({ taskId:'intel-governance', assigneeAgentId:'intel-researcher', input:{ topic:'帮我研究 Agent 军团的权限治理，给结论和建议。' } });
+  assert.equal(publicQuery, 'agent governance');
+  assert.equal(githubQuery, 'agent governance');
+  assert.equal(result.status, 'succeeded');
+  assert.equal(result.artifactRefs[0].data.sources[0].kind, 'github_metadata');
+});

@@ -82,6 +82,38 @@ test('从技术专家自己的飞书智能体进入时，先索要故障证据�
   assert.match(result.reply, /故障任务号/);
 });
 
+test('从任务协调官自己的飞书智能体进入时，不冒充 A君，受控登记协调请求', async () => {
+  const { commander, calls } = setup();
+  commander.planner = { async decide(_text, input) { assert.equal(input.agentId, 'task-coordinator'); return { intent:'army_intake' }; } };
+  const result = await commander.handle({ text:'请协调现有员工检查军团状态。', sourceEventRef:'feishu:coordinator-direct-1', targetAgentId:'task-coordinator' });
+  assert.equal(calls.tasks.length, 1);
+  assert.equal(calls.tasks[0].agentId, 'task-coordinator');
+  assert.equal(calls.tasks[0].taskType, 'army.intake');
+  assert.doesNotMatch(result.reply, /我是 A君·军团总管/);
+});
+
+test('从审核官入口可按自然语言审查小G、小R草案，不要求负责人先提供内部编号', async () => {
+  const calls = [];
+  const commander = new FeishuCommander({
+    tasks:{ async create() { throw new Error('审核草案不应创建普通业务任务'); } },
+    proposals:{ async reviewRegisteredDrafts(text) {
+      calls.push(text);
+      return [
+        { proposalId:'proposal-g', trialReadiness:{ message:'等待负责人确认受限测试。' }, requestedCapabilities:['github.public.search', 'github.public.read'], candidateManifest:{ name:'小G', dataScopes:[{ scope:'public-github-metadata', access:'read' }], nonResponsibilities:['不登录'], qualityGates:[{ gate:'sources-have-public-url-and-fetched-at' }] }, reviewRefs:[{ role:'reviewer', result:'human_owner_decision_required' }] },
+        { proposalId:'proposal-r', trialReadiness:{ message:'等待负责人确认受限测试。' }, requestedCapabilities:['content.public.fetch'], candidateManifest:{ name:'小R', dataScopes:[{ scope:'public-research-sources', access:['read'] }], nonResponsibilities:['不外发'], qualityGates:[{ gate:'research-report-has-required-structure' }] }, reviewRefs:[{ role:'reviewer', result:'human_owner_decision_required' }] }
+      ];
+    } },
+    planner:{ async decide() { throw new Error('明确的草案审查不应等待模型判断'); } }
+  });
+  const result = await commander.handle({ text:'审核一下小G和小R这两个新员工草案', sourceEventRef:'feishu:review-drafts-1', targetAgentId:'reviewer' });
+  assert.equal(result.kind, 'registered_draft_review');
+  assert.deepEqual(calls, ['审核一下小G和小R这两个新员工草案']);
+  assert.match(result.reply, /【审核官 · 小G】/);
+  assert.match(result.reply, /【审核官 · 小R】/);
+  assert.match(result.reply, /github\.public\.search/);
+  assert.match(result.reply, /草案号：proposal-r/);
+});
+
 test('AI 临时不可用时，已有安全路由仍能接住明确的系统检查', async () => {
   const { commander, calls } = setup();
   commander.planner = { async decide() { throw new Error('model unavailable'); } };
@@ -282,6 +314,16 @@ test('GitHub 意图路由到小G，并保留公开仓库输入和回执', async 
   assert.match(result.reply, /已交给小G/);
 });
 
+test('中文 Agent 治理检索会转成 GitHub 可检索的核心查询', async () => {
+  const { commander, calls } = setup();
+  commander.planner = { async decide() { return { intent:'github_search' }; } };
+  await commander.handle({ text:'帮我在 GitHub 找几个做 Agent 治理的开源项目，比较 star、语言、最近更新时间和适用场景。', sourceEventRef:'feishu:github-governance-1' });
+  assert.equal(calls.tasks[0].taskType, 'research.github-search');
+  assert.equal(calls.tasks[0].agentId, 'github-scout');
+  assert.equal(calls.tasks[0].query, 'agent governance');
+  assert.match(calls.tasks[0].title, /Agent 治理/);
+});
+
 test('主题研究意图路由到小R，并保留主题与原会话回执', async () => {
   const { commander, calls } = setup();
   commander.planner = { async decide() { return { intent:'intel_research' }; } };
@@ -465,12 +507,16 @@ test('用户问你能干什么时，总管直接说明当前可办的事情，�
     { agentId:'operator', status:'active', acceptedTaskTypes:['operations.health-review'] },
     { agentId:'xiaod', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] },
     { agentId:'candidate-public-researcher', status:'active', acceptedTaskTypes:['report.public-material'] },
+    { agentId:'github-scout', status:'active', acceptedTaskTypes:['research.github-search'] },
+    { agentId:'intel-researcher', status:'active', acceptedTaskTypes:['research.intel-report'] },
     { agentId:'architect', status:'active', acceptedTaskTypes:['governance.architecture-review'] }
   ] });
   const result = await commander.handle({ text:'你现在能干什么？', sourceEventRef:'feishu:capabilities-1' });
   assert.equal(calls.tasks.length, 0);
   assert.equal(result.kind, 'army_capabilities');
   assert.match(result.reply, /公开网页/);
+  assert.match(result.reply, /小G.*GitHub/);
+  assert.match(result.reply, /小R.*公开来源/);
   assert.match(result.reply, /固定说法/);
 });
 

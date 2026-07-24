@@ -25,7 +25,6 @@ document.querySelector('#upload-form').addEventListener('submit', async (event) 
   await submit('/api/jobs/upload', { method: 'POST', body: new FormData(event.currentTarget) });
 });
 document.querySelector('#refresh').addEventListener('click', loadJobs);
-document.querySelector('#connection-form').addEventListener('submit', createConnection);
 document.querySelector('#cookie-bridge-connection-form').addEventListener('submit', createCookieBridgeConnection);
 
 async function submit(url, options) {
@@ -44,25 +43,6 @@ async function loadJobs() {
   const { jobs } = await response.json();
   emptyEl.hidden = jobs.length > 0; jobsEl.replaceChildren();
   jobs.forEach(renderJob);
-}
-
-async function createConnection(event) {
-  event.preventDefault();
-  const form = event.currentTarget; const data = new FormData(form);
-  setMessage('正在保存只读账号连接…');
-  try {
-    const response = await fetch('/api/connections/browser-session', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        provider: 'youtube', accountAlias: data.get('accountAlias'), browser: data.get('browser'),
-        grantedOperations: ['read_media_metadata', 'read_media_subtitles', 'download_authorized_media'],
-        dataScope: ['content:read'], allowedAgentIds: ['xiaod']
-      })
-    });
-    const payload = await response.json(); if (!response.ok) throw new Error(payload.error || '连接账号失败');
-    setMessage('YouTube 只读连接已保存。提交链接时可选择使用它。');
-    await loadConnections(payload.connection.connectionId);
-  } catch (error) { setMessage(error.message, true); }
 }
 
 async function createCookieBridgeConnection(event) {
@@ -105,7 +85,7 @@ async function loadConnections(selectedId = connectionSelect.value) {
   connectionSelect.replaceChildren(new Option('不使用账号连接（仅尝试公开读取）', ''));
   connectionsEl.replaceChildren(); connectionsEmptyEl.hidden = connections.length > 0;
   connections.forEach((connection) => {
-    if (connection.credentialKind === 'browser_session' || connection.credentialKind === 'cookie_bridge') {
+    if (connection.credentialKind === 'cookie_bridge') {
       const option = new Option(`${connection.provider} · ${connection.accountAlias} · ${connectionStatusLabel(connection.status)}`, connection.connectionId);
       if (connection.connectionId === selectedId && connection.status === 'active') option.selected = true;
       option.disabled = connection.status !== 'active'; connectionSelect.append(option);
@@ -113,7 +93,11 @@ async function loadConnections(selectedId = connectionSelect.value) {
     const row = document.createElement('article'); row.className = 'connection-row';
     const main = document.createElement('div');
     const title = document.createElement('strong'); title.textContent = `${connection.provider} · ${connection.accountAlias}`;
-    const detail = document.createElement('p'); detail.textContent = `只读 · ${connection.browser || (connection.credentialKind === 'cookie_bridge' ? 'CookieBridge 受控入口' : '受控入口')} · ${connection.grantedOperations.join('、')}`;
+    const detail = document.createElement('p'); detail.textContent = connection.credentialKind === 'browser_session'
+      ? '旧浏览器连接已停用；不能读取浏览器登录态。'
+      : connection.credentialKind === 'browser_companion'
+        ? '已撤销的旧浏览器伴侣连接，不再使用。'
+        : `只读 · CookieBridge 受控入口 · ${connection.grantedOperations.join('、')}`;
     main.append(title, detail);
     const actions = document.createElement('div');
     const state = document.createElement('span'); state.className = `connection-status ${connection.status}`; state.textContent = connectionStatusLabel(connection.status); actions.append(state);

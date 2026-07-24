@@ -66,7 +66,7 @@ Manifest 不保存 secret，也不直接嵌入不可审计的长 Prompt；Prompt
 | `reviewRefs` / `paperclipAgentRef` | 否 | 审核和 Paperclip Agent 记录引用 |
 | `createdAt` / `updatedAt` | 是 | ISO 8601 时间 |
 
-状态推进仅允许：`idea → draft → pending_approval → testing → active`。审核拒绝进入 `rejected`；草案、测试或验收失败进入 `needs_revision`。`active` 的前提是负责人批准、运行时隔离实例可用、验收任务通过、预算和工具白名单已生效。不得把自然语言需求、私密上下文、Cookie、token 或浏览器会话复制到草案。
+状态推进仅允许：`idea → draft → pending_approval → testing → active`。审核拒绝进入 `rejected`；草案、测试或验收失败进入 `needs_revision`。受限测试通过时草案仍保持 `testing`，必须由负责人另一次明确激活决定才可进入 `active`；激活前提是隔离实例可用、验收任务通过、预算和工具白名单已生效。不得把自然语言需求、私密上下文、Cookie、token 或浏览器会话复制到草案。
 
 ## 3. TaskContract
 
@@ -223,7 +223,7 @@ delivering
 | `lastHealthAt` | 否 | 最近一次脱敏健康检查时间 |
 | `createdAt` / `updatedAt` | 是 | ISO 8601 时间 |
 
-调用必须使用 `connectionId + operation`，并验证 `provider`、`grantedOperations`、`dataScope`、`allowedAgentIds`、有效期与审批。登录输入可由受控浏览器、OAuth、CookieBridge 或其他本机导入适配器提供；所有执行器只得到受限连接使用权，而不是原始凭据。拒绝时返回标准错误分类；连接健康只能说明连接可用，不能证明具体业务素材可获取或任务已完成。
+调用必须使用 `connectionId + operation`，并验证 `provider`、`grantedOperations`、`dataScope`、`allowedAgentIds`、有效期与审批。登录输入可由受控浏览器、OAuth、CookieBridge 或其他本机导入适配器提供；所有执行器只得到受限连接使用权，而不是原始凭据。`browser_companion` 必须使用独立配置目录和仅回环控制通道；业务 Agent 只能请求已登记的只读动作，不能读取、导出或回显浏览器 Cookie。拒绝时返回标准错误分类；连接健康只能说明连接可用，不能证明具体业务素材可获取或任务已完成。
 
 ## 7. ContentAcquisitionContract
 

@@ -51,14 +51,15 @@ export class FeishuCommander {
   }
 
   async handleDirectAgent(agentId, { text, sourceEventRef, source, requester }) {
-    if (!agentId || agentId === 'ajun' || agentId === 'task-coordinator') return null;
+    if (!agentId || agentId === 'ajun') return null;
+    if (agentId === 'reviewer' && isRegisteredDraftReviewRequest(text)) return this.reviewRegisteredDrafts(text);
     const directPlan = await this.directAgentIntent(agentId, text);
     if (directPlan?.intent === 'identity') return directAgentIdentity(agentId);
     if (directPlan?.intent === 'clarify') return this.clarify(directPlan.reply);
     if (agentId === 'creator') return this.createProposal({ text, sourceEventRef, chatRef:source.chatRef });
     if (agentId === 'reviewer') return this.clarify('我是审核官。请发需要审核的任务号或新员工草案编号，并说明你希望我核对的范围。');
     if (agentId === 'technical-expert') return this.clarify('我是技术专家。请发故障任务号和现象；我会先限定排查范围，不会直接改动生产环境。');
-    const directTaskTypes = { operator:'operations.health-review', architect:'governance.architecture-review' };
+    const directTaskTypes = { operator:'operations.health-review', architect:'governance.architecture-review', 'task-coordinator':'army.intake' };
     const taskType = directTaskTypes[agentId];
     if (!taskType) return null;
     const task = await this.tasks.create({
@@ -66,6 +67,16 @@ export class FeishuCommander {
       agentId, idempotencyKey:`feishu:${sourceEventRef}`
     });
     return replyFor(task, taskType);
+  }
+
+  async reviewRegisteredDrafts(text) {
+    if (typeof this.proposals?.reviewRegisteredDrafts !== 'function') return this.clarify('请发需要审核的任务号或新员工草案编号，并说明你希望我核对的范围。');
+    const proposals = await this.proposals.reviewRegisteredDrafts(text);
+    if (!proposals.length) return this.clarify('没有找到你点名的草案岗位。请直接说岗位名称，例如“小G”或“小R”。');
+    return {
+      kind:'registered_draft_review', proposals,
+      reply:proposals.map((proposal) => registeredDraftReviewReply(proposal)).join('\n\n')
+    };
   }
 
   async directAgentIntent(agentId, text) {
@@ -336,6 +347,8 @@ export class FeishuCommander {
       activeTaskTypes.has('operations.health-review') ? '检查本机军团是否正常，异常会如实说出来' : null,
       activeTaskTypes.has('media.transcribe-and-refine') ? '整理公开视频或音频，完成后把结果发回原聊天' : null,
       activeTaskTypes.has('report.public-material') ? '读一到五条公开网页，做中文重点、共同点和差别对比' : null,
+      activeTaskTypes.has('research.github-search') ? '让小G在公开 GitHub 找开源项目，比较 star、语言、最近更新时间和适用场景' : null,
+      activeTaskTypes.has('research.intel-report') ? '让小R围绕一个主题综合公开来源，给出结论、行动建议和来源' : null,
       activeTaskTypes.has('governance.architecture-review') ? '遇到当前没人能直接完成的低风险事情，先自己请架构师评估怎么补能力' : null,
       '创建新员工草案；必须先审核和小范围试用，不会直接上线'
     ].filter(Boolean);
@@ -581,9 +594,18 @@ function githubTaskInput(text) {
   const urlMatch = value.match(/https?:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)(?:\/[^\s]*)?/i);
   const shortMatch = value.match(/\b([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\b/);
   const repo = urlMatch ? `${urlMatch[1]}/${urlMatch[2]}` : shortMatch?.[1] || '';
-  if (!repo) return { query:value };
+  if (!repo) return { query:githubSearchQuery(value) };
   const explicitPath = value.match(/(?:文件|file|路径|path)\s*[：:]?\s*([A-Za-z0-9_./-]+)/i)?.[1];
   return { repo, ...(explicitPath ? { path:explicitPath } : {}) };
+}
+
+function githubSearchQuery(value) {
+  // GitHub repository search does not reliably match a full Chinese request.
+  // Keep the original request as the task title, but pass a precise public
+  // repository query to the API for the common governance vocabulary.
+  if (/(?:agent|智能体).{0,12}(?:治理|管控|权限)|(?:治理|管控|权限).{0,12}(?:agent|智能体)/i.test(value)) return 'agent governance';
+  if (/多智能体|multi[\s-]?agent/i.test(value)) return 'multi-agent';
+  return value.trim();
 }
 
 function looksLikeWorkRequest(text) {
@@ -665,10 +687,35 @@ function directAgentIdentity(agentId) {
     creator:'我是创建官。我把岗位需求整理成可审核的智能体草案，不会直接上线或扩权。',
     reviewer:'我是审核官。我核对权限、预算和外部动作的范围；最终敏感决定仍由负责人确认。',
     architect:'我是架构师。我根据真实任务记录评估能力缺口和最小验证方案。',
-    'technical-expert':'我是技术专家。我只在有故障证据和受控范围时排查、修复和验证。'
+    'technical-expert':'我是技术专家。我只在有故障证据和受控范围时排查、修复和验证。',
+    'task-coordinator':'我是任务协调官。我只在现有员工与权限范围内安排工作；不确定时会先说明缺口，不会冒充 A君。'
   };
   return { kind:'identity', reply:messages[agentId] || '我是军团的受限岗位智能体，只处理本岗位允许的工作。' };
 }
+
+function isRegisteredDraftReviewRequest(text) {
+  return /(?:审核|审查).*(?:草案|岗位|员工|agent|智能体|小\s*[gr])/i.test(String(text || ''));
+}
+
+function registeredDraftReviewReply(proposal) {
+  const manifest = proposal.candidateManifest || {};
+  const scopes = (manifest.dataScopes || []).map((item) => `${item.scope || '未命名范围'}（${stringList(item.access).join('、') || '未声明'}）`).join('；') || '未声明';
+  const tools = (proposal.requestedCapabilities || []).join('、') || '无';
+  const gates = (manifest.qualityGates || []).map((item) => item.gate).filter(Boolean).join('、') || '未声明';
+  const reviewer = (proposal.reviewRefs || []).find((item) => item.role === 'reviewer');
+  return [
+    `【审核官 · ${manifest.name || '草案岗位'}】`,
+    `结论：${reviewer?.result === 'needs_scope_before_owner_decision' ? '信息不足，暂不能提交决定' : '已完成范围审查，等待负责人决定'}`,
+    `权限：${tools}`,
+    `数据范围：${scopes}`,
+    `质量门禁：${gates}`,
+    `限制：${(manifest.nonResponsibilities || []).join('；') || '无'}`,
+    `下一步：${proposal.trialReadiness?.message || reviewer?.summary || '负责人确认后才能进入受限测试；当前仍是草案，不会启用。'}`,
+    `草案号：${proposal.proposalId}`
+  ].join('\n');
+}
+
+function stringList(value) { return (Array.isArray(value) ? value : value ? [value] : []).map((item) => String(item).trim()).filter(Boolean); }
 
 function healthReviewReply(task, report) {
   const components = Array.isArray(report?.components) ? report.components : [];

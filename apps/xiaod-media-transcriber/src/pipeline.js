@@ -204,10 +204,12 @@ export async function refineText(title, transcript) {
   return requestRefinement(config.refiner, title, transcript);
 }
 
-export async function requestRefinement(refiner, title, transcript, fetchImpl = fetch) {
+export async function requestRefinement(refiner, title, transcript, fetchImpl = fetch, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new Error(`语义整理请求超过 ${timeoutMs}ms`)), timeoutMs);
   try {
     const request = buildRefinerRequest(refiner, title, transcript);
-    const response = await fetchImpl(request.url, request.options);
+    const response = await fetchImpl(request.url, { ...request.options, signal: controller.signal });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(formatRefinerError(request.provider, response.status, payload));
     const markdown = extractRefinerMarkdown(payload);
@@ -219,6 +221,8 @@ export async function requestRefinement(refiner, title, transcript, fetchImpl = 
       usedRefiner: false,
       refinerFallbackReason: `语义整理未完成（${error.message}）；已生成完整校对文本和待人工确认导览。`
     };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
