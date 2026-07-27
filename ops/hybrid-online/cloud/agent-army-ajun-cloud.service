@@ -1,0 +1,26 @@
+[Unit]
+Description=Agent Army private cloud office
+After=network-online.target agent-army-paperclip.service
+Wants=network-online.target agent-army-paperclip.service
+
+[Service]
+Type=simple
+User=agentarmy
+Group=agentarmy
+WorkingDirectory=/opt/agent-army/current/apps/ajun-runtime
+Environment=HOME=/var/lib/agent-army
+EnvironmentFile=/etc/agent-army/cloud.env
+ExecStart=/usr/local/bin/node /opt/agent-army/current/apps/ajun-runtime/src/server.js
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/agent-army
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

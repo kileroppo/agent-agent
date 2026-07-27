@@ -40,6 +40,45 @@
     "promptRef": { "type": "string", "minLength": 1 },
     "runtimeProfileRef": { "type": "string", "minLength": 1 },
     "appRef": { "type": "string", "minLength": 1 },
+    "interaction": {
+      "type": "object",
+      "required": ["runtime", "directFeishu", "visibility", "groupPolicy"],
+      "properties": {
+        "runtime": { "enum": ["hermes-profile"] },
+        "directFeishu": { "enum": ["required", "disabled"] },
+        "visibility": { "enum": ["on-demand", "always-visible"] },
+        "groupPolicy": { "enum": ["mention-only", "disabled"] }
+      },
+      "additionalProperties": false
+    },
+    "executionOwner": { "enum": ["ajun-local", "paperclip-hermes"] },
+    "runtimeCapabilities": {
+      "type": "object",
+      "required": ["skills", "mcpTools", "feishuToolsets", "paperclipToolsets"],
+      "properties": {
+        "skills": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+          "uniqueItems": true
+        },
+        "mcpTools": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "uniqueItems": true
+        },
+        "feishuToolsets": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "uniqueItems": true
+        },
+        "paperclipToolsets": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
     "operationalPolicy": { "type": "object" },
     "evalRefs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
     "owner": { "type": "string", "minLength": 1 },

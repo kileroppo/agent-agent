@@ -102,6 +102,22 @@ test('所有公开来源都不可读时等待用户补充，不伪造失败恢�
   assert.match(result.error.userMessage, /不会登录、不会读取私密内容/);
 });
 
+test('明确启用的受控故障只按限定次数触发，随后恢复真实公开网页执行', async () => {
+  const worker = new LocalPublicReport({
+    environment:{
+      AJUN_TEST_PUBLIC_REPORT_FAILURE_TITLE:'受控恢复验收',
+      AJUN_TEST_PUBLIC_REPORT_FAILURE_COUNT:'2'
+    },
+    publicWebFetch:{ async acquire() {
+      return { sourceRef:'https://example.com', title:'Example Domain', text:'公开正文。', fetchedAt:'2026-07-24T00:00:00.000Z', truncated:false };
+    } }
+  });
+  const task = { taskId:'controlled-failure', assigneeAgentId:'public-reporter', input:{ title:'受控恢复验收', sourceUrl:'https://example.com' } };
+  await assert.rejects(() => worker.execute(task), (error) => error.code === 'controlled_public_report_failure' && error.retryable === true);
+  await assert.rejects(() => worker.execute(task), (error) => error.code === 'controlled_public_report_failure' && error.retryable === true);
+  assert.equal((await worker.execute(task)).status, 'succeeded');
+});
+
 test('公开网页员工会逐条读取多份公开资料并交付可追踪对比报告', async () => {
   const requested = [];
   const worker = new LocalPublicReport({ publicWebFetch:{ async acquire({ sourceUrl }) {

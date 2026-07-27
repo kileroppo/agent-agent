@@ -56,6 +56,69 @@ export class TaskStore {
     });
   }
 
+  async claimWorkerTask({ workerId, taskTypes, leaseMs = 120_000, now = Date.now() }) {
+    return this.mutate(async () => {
+      const data = await this.read();
+      const allowedTypes = new Set(Array.isArray(taskTypes) ? taskTypes.map((item) => String(item || '').trim()).filter(Boolean) : []);
+      const candidates = data.tasks
+        .filter((task) => allowedTypes.has(task.taskType) && (
+          task.status === 'waiting_worker'
+          || (task.status === 'running'
+            && task.execution?.mode === 'mac_worker'
+            && Date.parse(task.execution?.worker?.leaseExpiresAt || '') <= now)
+        ))
+        .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+      const task = candidates[0];
+      if (!task) return null;
+      const leasedAt = new Date(now).toISOString();
+      const leaseId = crypto.randomUUID();
+      task.status = 'running';
+      task.currentStage = 'mac_worker_claimed';
+      task.execution = {
+        ...(task.execution || {}),
+        executor:'xiaod',
+        mode:'mac_worker',
+        worker:{
+          state:'leased',
+          workerId:String(workerId),
+          leaseId,
+          leasedAt,
+          lastHeartbeatAt:leasedAt,
+          leaseExpiresAt:new Date(now + leaseMs).toISOString()
+        }
+      };
+      task.updatedAt = leasedAt;
+      await this.write(data);
+      return task;
+    });
+  }
+
+  async updateWorkerTask(taskId, { workerId, leaseId, patch, leaseMs = 120_000, now = Date.now(), extendLease = false }) {
+    return this.mutate(async () => {
+      const data = await this.read();
+      const task = data.tasks.find((item) => item.taskId === taskId);
+      if (!task) throw new Error('找不到这条 Mac 工作间任务。');
+      const lease = task.execution?.worker;
+      if (task.execution?.mode !== 'mac_worker' || lease?.workerId !== workerId || lease?.leaseId !== leaseId) {
+        const error = new Error('Mac 工作间租约不匹配，未更新任务。');
+        error.code = 'worker_lease_mismatch';
+        throw error;
+      }
+      const at = new Date(now).toISOString();
+      const worker = {
+        ...lease,
+        ...(extendLease ? { state:'working', lastHeartbeatAt:at, leaseExpiresAt:new Date(now + leaseMs).toISOString() } : {}),
+        ...(patch?.execution?.worker || {})
+      };
+      Object.assign(task, patch, {
+        execution:{ ...(task.execution || {}), ...(patch?.execution || {}), mode:'mac_worker', worker },
+        updatedAt:at
+      });
+      await this.write(data);
+      return task;
+    });
+  }
+
   async updateApproval(approvalId, patch) {
     return this.mutate(async () => {
       const data = await this.read(); const approval = data.approvals.find((item) => item.approvalId === approvalId);

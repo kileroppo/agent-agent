@@ -57,6 +57,26 @@ test('任务因过期确认关闭时，Paperclip 也显示为阻塞', async () =
   assert.equal(JSON.parse(request.options.body).status, 'blocked');
 });
 
+test('Hermes heartbeat 回写沿用 Paperclip run 身份，不触发重复唤醒', async () => {
+  const requests = [];
+  const bridge = new PaperclipBridge({ fetchImpl:async (url, options = {}) => {
+    requests.push({ url, options });
+    return { ok:true, status:200, async json(){ return {}; } };
+  } });
+  await bridge.completePaperclipIssue('issue-1', {
+    runId:'run-1234',
+    agentId:'architect',
+    result:{
+      status:'succeeded',
+      currentStage:'paperclip_hermes_completed',
+      execution:{ owner:'paperclip-hermes' },
+      artifactRefs:[{ type:'employee_role_report', data:{ summary:'复用评估完成' } }]
+    }
+  });
+  assert.equal(requests[0].options.headers['x-paperclip-run-id'], 'run-1234');
+  assert.equal(JSON.parse(requests[0].options.body).status, 'done');
+});
+
 test('多人协作的子工作会挂在同一张 Paperclip 总任务下', async () => {
   const requests = [];
   const bridge = new PaperclipBridge({ fetchImpl:async (url, options = {}) => {

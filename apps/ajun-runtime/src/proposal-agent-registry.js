@@ -15,7 +15,14 @@ export class ProposalAgentRegistry {
         source: 'approved-proposal'
       }));
     const byId = new Map(registered.map((agent) => [agent.agentId, agent]));
-    for (const agent of liveProposals) byId.set(agent.agentId, agent);
+    for (const agent of liveProposals) {
+      const existing = byId.get(agent.agentId);
+      if (existing?.status === 'active') continue;
+      byId.set(agent.agentId, {
+        ...agent,
+        ...(existing?.independentRuntime ? { independentRuntime:existing.independentRuntime } : {})
+      });
+    }
     return [...byId.values()].sort((left, right) => left.name.localeCompare(right.name, 'zh-Hans-CN'));
   }
 

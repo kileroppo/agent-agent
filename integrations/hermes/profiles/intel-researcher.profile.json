@@ -1,12 +1,14 @@
 {
   "schemaVersion": "agent.army/hermes-profile-map/v1",
-  "status": "draft",
+  "status": "verified-local",
   "profileId": "intel-researcher",
   "role": "小R：只综合已经读取的公开来源，输出有来源的结构化中文研究报告。",
   "localProfile": {
-    "created": false,
-    "gatewayStarted": false,
-    "credentialedTransportVerified": false,
+    "created": true,
+    "gatewayStarted": true,
+    "modelSelectionConfigured": true,
+    "modelConfigured": true,
+    "credentialedTransportVerified": true,
     "skillsSeeded": false
   },
   "agentManifestRef": "agents/intel-researcher/manifest.json",
@@ -14,9 +16,18 @@
   "appRef": "apps/ajun-runtime",
   "gateway": {
     "platform": "feishu",
-    "enabled": false,
-    "reason": "岗位仍为草案，尚未通过审核和受限测试。"
+    "enabled": true,
+    "reason": "独立 Hermes Profile Gateway 已接管该员工飞书应用，并通过真实任务、同会话追问和单次回复验收。"
   },
-  "toolAllowlist": ["content.public.fetch", "github.public.search", "github.public.read"],
+  "mcp": {
+    "server": "agent-army",
+    "tools": ["capabilities", "task_list", "task_get", "task_create"],
+    "scope": {
+      "agentIds": ["intel-researcher"],
+      "taskTypes": ["research.intel-report"],
+      "allowMissions": false
+    }
+  },
+  "toolAllowlist": ["content.public.fetch", "github.public.search", "github.public.read", "army.task.read", "army.task.create"],
   "secrets": { "source": "profile-environment-only", "valuesStoredHere": false }
 }

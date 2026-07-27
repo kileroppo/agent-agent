@@ -9,6 +9,7 @@ export class LocalTechnicalExpert {
     const preparedWorkspace = this.workspace ? await this.workspace.prepare(task) : null;
     const run = preparedWorkspace && this.runner ? await this.runner.run(task, preparedWorkspace.workspace) : null;
     const promotion = run?.status === 'evidence_ready' && this.promotion ? await this.promotion.promote({ ...task, execution:{ ...(task.execution || {}), workspace:{ path:preparedWorkspace.workspace } } }, run.evidence) : null;
+    const verification = verifiedRepairEvidence(task, run, promotion);
     const caseRecord = {
       failedTaskId: context.failedTaskId || task.parentTaskId || null,
       failure: {
@@ -22,6 +23,7 @@ export class LocalTechnicalExpert {
       implementationStarted: ['evidence_ready', 'evidence_missing', 'failed', 'waiting_for_test'].includes(run?.status),
       engineeringAssigned,
       workspacePrepared: Boolean(preparedWorkspace),
+      ...(verification ? { verification } : {}),
       paperclipIssueRef: task.governance?.paperclipIssueIdentifier || null,
       createdAt
     };
@@ -34,6 +36,7 @@ export class LocalTechnicalExpert {
         startedAt: task.execution?.startedAt || createdAt,
         finishedAt: this.now().toISOString(),
         outcome: promotion?.status || run?.status || (preparedWorkspace ? 'workspace_prepared' : engineeringAssigned ? 'engineering_assigned' : 'repair_required'),
+        ...(verification ? { verification } : {}),
         ...(run?.reason ? { runnerError:run.reason } : {}),
         ...(preparedWorkspace ? { workspace:{ path:preparedWorkspace.workspace, reused:preparedWorkspace.reused } } : {})
       },
@@ -55,6 +58,23 @@ export class LocalTechnicalExpert {
       }] : [])]
     };
   }
+}
+
+function verifiedRepairEvidence(task, run, promotion) {
+  if (promotion?.status !== 'promoted') return null;
+  const proof = run?.evidence?.metadata?.agentArmyRepairEvidence || {};
+  if (proof.testsPassed !== true || proof.recoveryVerified !== true) return null;
+  return {
+    verified:true,
+    changedFiles:Array.isArray(promotion.changedFiles) ? promotion.changedFiles : [],
+    testsPassed:true,
+    testCommand:String(task.input?.context?.repairScope?.testCommand || '').slice(0, 1000),
+    testSummary:String(proof.testSummary || '').slice(0, 2000),
+    recoveryVerified:true,
+    recoveryCheck:String(task.input?.context?.repairScope?.recoveryCheck || '').slice(0, 1000),
+    recoverySummary:String(proof.recoverySummary || '').slice(0, 2000),
+    remainingTests:Array.isArray(proof.remainingTests) ? proof.remainingTests.slice(0, 20).map((item) => String(item || '').slice(0, 500)) : []
+  };
 }
 
 function requiresFollowUpTest(run, promotion) {

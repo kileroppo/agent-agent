@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 export class FileAgentFeishuAppStore {
-  constructor({ directory = path.join(os.homedir(), '.agent-army') } = {}) { this.directory = directory; }
+  constructor({ directory = process.env.AGENT_ARMY_PRIVATE_DIR || path.join(os.homedir(), '.agent-army') } = {}) { this.directory = directory; }
 
   async listApps() {
     const data = await this.read('feishu-agent-apps.json', { apps:[] });

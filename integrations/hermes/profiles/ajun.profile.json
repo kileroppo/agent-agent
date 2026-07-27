@@ -5,7 +5,7 @@
   "role": "A君·军团总管独立 AI 身份；理解自然语言、安排已上岗员工、跟进真实状态。",
   "localProfile": {
     "created": true,
-    "gatewayStarted": false,
+    "gatewayStarted": true,
     "modelSelectionConfigured": true,
     "modelConfigured": true,
     "credentialedTransportVerified": true,
@@ -16,8 +16,9 @@
   "appRef": "apps/ajun-runtime",
   "gateway": {
     "platform": "feishu",
-    "enabled": false,
-    "reason": "A君已使用独立大脑；飞书入口仍复用现有 A君应用，尚未重新做真实私聊验收。"
+    "enabled": true,
+    "runtimeProfile": "default",
+    "reason": "当前 A君飞书应用由 Hermes default Profile 常驻 Gateway 承载；独立 ajun Profile 保留为隔离与回退身份。"
   },
   "toolAllowlist": ["army.registry.read", "army.task.create", "army.task.route", "army.task.status.read", "army.approval.read", "army.mission.plan", "army.operations.diagnose"],
   "secrets": { "source": "profile-environment-only", "valuesStoredHere": false }

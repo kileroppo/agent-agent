@@ -19,6 +19,12 @@
     <string>4321</string>
     <key>AJUN_HOST</key>
     <string>127.0.0.1</string>
+    <key>AGENT_ARMY_EMPLOYEE_FEISHU_OWNER</key>
+    <string>local</string>
+    <key>AJUN_HERMES_NATIVE_EMPLOYEE_IDS</key>
+    <string>intel-researcher,office-assistant,creator,task-coordinator,reviewer,architect,operator,technical-expert</string>
+    <key>AJUN_HERMES_NATIVE_FEISHU</key>
+    <string>true</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>

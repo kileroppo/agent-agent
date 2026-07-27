@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 const MAX_POINTS = 4;
 
 export class HermesPublicSummaryAdvisor {
-  constructor({ command = '/Users/pengaro/.local/bin/hermes', hermesHome = process.env.AJUN_HERMES_HOME || '', timeoutMs = 18_000, run = runCommand } = {}) {
+  constructor({ command = process.env.AJUN_HERMES_COMMAND || '/Users/pengaro/.local/bin/hermes', hermesHome = process.env.AJUN_HERMES_HOME || '', timeoutMs = 18_000, run = runCommand } = {}) {
     this.command = command;
     this.hermesHome = hermesHome;
     this.timeoutMs = timeoutMs;

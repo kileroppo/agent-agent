@@ -66,6 +66,11 @@ test('AI 理解器区分 GitHub 检索和主题情报研究', async () => {
   assert.deepEqual(await intel.decide('研究这个主题并给结论和行动建议'), { intent:'intel_research' });
 });
 
+test('AI 理解器允许把材料和员工结果整理交给办公执行助理', async () => {
+  const planner = new HermesIntentPlanner({ hermesHome:'/tmp/hermes', run:async () => '{"intent":"office_briefing"}' });
+  assert.deepEqual(await planner.decide('把这些员工结果整理成办公汇报包'), { intent:'office_briefing' });
+});
+
 test('AI只能从当前已经上岗的员工和任务里选择派活，不能编造岗位', async () => {
   const planner = new HermesIntentPlanner({ hermesHome:'/tmp/hermes', run:async () => '{"intent":"route_task","taskType":"report.public-material","agentId":"public-reporter"}' });
   assert.deepEqual(await planner.decide('把这篇文章整理成中文摘要', { routes:[{ taskType:'report.public-material', agentId:'public-reporter', name:'公开资料报告员' }] }), { intent:'route_task', taskType:'report.public-material', agentId:'public-reporter' });

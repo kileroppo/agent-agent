@@ -210,6 +210,23 @@ test('审核官可将已登记的小G、小R草案投影为可追溯审核，而
   assert.equal(calls.length, 2);
 });
 
+test('审核官可只读复核已经上岗的小G边界，不重复创建草案或审批', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-proposal-active-review-'));
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const manifest = { agentId:'github-scout', name:'小G', status:'active', role:'检索公开 GitHub 项目', acceptedTaskTypes:['research.github-search'], toolAllowlist:['github.public.search', 'github.public.read'], dataScopes:[{ scope:'public-github-metadata', access:['read'] }], nonResponsibilities:['不登录'], qualityGates:[{ gate:'sources-have-public-url-and-fetched-at', required:true }] };
+  const store = new TaskStore(path.join(root, 'runtime.json'));
+  const service = new AgentProposalService({
+    store,
+    registry:{ async list() { return [manifest]; } },
+    taskService:{ async create() { throw new Error('在岗只读复核不应创建审批任务'); } }
+  });
+  const [reviewed] = await service.reviewRegisteredDrafts('审查小G岗位');
+  assert.equal(reviewed.registryStatus, 'active');
+  assert.equal(reviewed.status, 'active');
+  assert.equal(reviewed.proposalId, 'registered:github-scout');
+  assert.equal((await store.listProposals()).length, 0);
+});
+
 test('小G、小R经负责人批准后可准备一次受限公开只读测试，但不会直接激活', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-proposal-research-trial-'));
   t.after(() => fs.rm(root, { recursive:true, force:true }));

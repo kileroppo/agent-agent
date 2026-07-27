@@ -6,7 +6,7 @@ import path from 'node:path';
 const execFile = promisify(execFileCallback);
 
 export class TechnicalExpertRunner {
-  constructor({ command = '/Users/pengaro/.local/bin/codex', execFileImpl = execFile, fsImpl = fs, maxRunMs = 90_000 } = {}) {
+  constructor({ command = process.env.AJUN_CODEX_COMMAND || '/Users/pengaro/.local/bin/codex', execFileImpl = execFile, fsImpl = fs, maxRunMs = 150_000 } = {}) {
     this.command = command;
     this.execFile = execFileImpl;
     this.fs = fsImpl;

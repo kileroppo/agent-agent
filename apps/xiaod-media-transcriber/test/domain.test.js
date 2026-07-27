@@ -1,12 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanTranscript, composeDelivery, mechanicalDraft, qualityCheck, validatePublicHttpUrl } from '../src/domain.js';
+import { cleanTranscript, composeDelivery, mechanicalDraft, normalizeIdempotencyKey, qualityCheck, validatePublicHttpUrl } from '../src/domain.js';
 import { markdownToBlocks } from '../src/pipeline.js';
 
 test('rejects internal and malformed URLs', () => {
   assert.equal(validatePublicHttpUrl('http://127.0.0.1:3000/a').ok, false);
   assert.equal(validatePublicHttpUrl('file:///private/a.mp3').ok, false);
   assert.equal(validatePublicHttpUrl('https://www.example.com/watch').ok, true);
+});
+
+test('Mac工作间幂等标识只接受有限长度的安全字符', () => {
+  assert.equal(normalizeIdempotencyKey('agent-army:task-1234'), 'agent-army:task-1234');
+  assert.equal(normalizeIdempotencyKey('short'), null);
+  assert.equal(normalizeIdempotencyKey('agent army secret'), null);
 });
 
 test('cleans common VTT markers, timestamps, speaker labels, and repeated lines', () => {

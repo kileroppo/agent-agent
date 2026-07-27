@@ -1,1 +1,67 @@
-{"schemaVersion":"agent.army/v1","manifestVersion":"0.3.0","agentId":"operator","name":"运维官","department":"军团中枢","role":"观察公共能力的脱敏健康状态并执行安全恢复","responsibilities":["汇总任务、连接和适配器健康事件","识别连续失败与待处理恢复","执行一次受限自动重试或升级给技术专家"],"nonResponsibilities":["读取或导出凭据","代替用户登录、通过验证码或二次验证","自行扩大连接范围或重启未知外部服务"],"acceptedTaskTypes":["operations.health-review","operations.failure-recovery"],"toolAllowlist":["army.operations.event.read","army.runtime.health.read","army.operations.diagnose","army.task.retry.safe","army.task.escalate.technical"],"dataScopes":[{"scope":"operations-health","access":["read","write"],"boundary":"仅脱敏健康、事件、组件状态和安全恢复记录"}],"approvalPolicies":[{"action":"permission-expansion-or-external-recovery","riskLevel":"high","decision":"require-approval"}],"qualityGates":[{"gate":"safe-recovery-action-stated","required":true}],"promptRef":"agents/operator/prompts/system.md","runtimeProfileRef":"integrations/hermes/profiles/operator.profile.json","appRef":"apps/ajun-runtime","owner":"A 君","status":"active"}
+{
+  "schemaVersion": "agent.army/v1",
+  "manifestVersion": "0.4.0",
+  "agentId": "operator",
+  "name": "运维官",
+  "department": "军团中枢",
+  "role": "观察公共能力的脱敏健康状态并执行安全恢复",
+  "responsibilities": [
+    "汇总任务、连接和适配器健康事件",
+    "识别连续失败与待处理恢复",
+    "执行一次受限自动重试或升级给技术专家"
+  ],
+  "nonResponsibilities": [
+    "读取或导出凭据",
+    "代替用户登录、通过验证码或二次验证",
+    "自行扩大连接范围或重启未知外部服务"
+  ],
+  "acceptedTaskTypes": ["operations.health-review", "operations.failure-recovery"],
+  "toolAllowlist": [
+    "army.operations.event.read",
+    "army.runtime.health.read",
+    "army.operations.diagnose",
+    "army.task.retry.safe",
+    "army.task.escalate.technical"
+  ],
+  "dataScopes": [
+    {
+      "scope": "operations-health",
+      "access": ["read", "write"],
+      "boundary": "仅脱敏健康、事件、组件状态和安全恢复记录"
+    }
+  ],
+  "approvalPolicies": [
+    {
+      "action": "permission-expansion-or-external-recovery",
+      "riskLevel": "high",
+      "decision": "require-approval"
+    }
+  ],
+  "qualityGates": [{ "gate": "safe-recovery-action-stated", "required": true }],
+  "promptRef": "agents/operator/prompts/system.md",
+  "runtimeProfileRef": "integrations/hermes/profiles/operator.profile.json",
+  "appRef": "apps/ajun-runtime",
+  "interaction": {
+    "runtime": "hermes-profile",
+    "directFeishu": "required",
+    "visibility": "on-demand",
+    "groupPolicy": "mention-only"
+  },
+  "executionOwner": "paperclip-hermes",
+  "runtimeCapabilities": {
+    "skills": ["paperclip"],
+    "mcpTools": [
+      "status",
+      "employee_status",
+      "task_list",
+      "task_get",
+      "task_create",
+      "paperclip_assignment_get",
+      "paperclip_assignment_complete"
+    ],
+    "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
+    "paperclipToolsets": ["agent-army", "clarify"]
+  },
+  "owner": "A 君",
+  "status": "active"
+}

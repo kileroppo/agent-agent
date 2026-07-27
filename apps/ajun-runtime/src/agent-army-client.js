@@ -1,0 +1,517 @@
+import crypto from 'node:crypto';
+
+const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'waiting_test', 'needs_input', 'paused']);
+
+export class AgentArmyClient {
+  constructor({
+    baseUrl = process.env.AGENT_ARMY_BASE_URL || 'http://127.0.0.1:4321',
+    fetchImpl = globalThis.fetch,
+    now = () => Date.now(),
+    sleepImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    missionWaitMs = Number(process.env.AGENT_ARMY_MISSION_WAIT_MS || 45_000),
+    missionPollMs = Number(process.env.AGENT_ARMY_MISSION_POLL_MS || 1_000)
+  } = {}) {
+    this.baseUrl = loopbackBaseUrl(baseUrl);
+    if (typeof fetchImpl !== 'function') throw new AgentArmyClientError('Agent Army MCP 缺少 HTTP 客户端。');
+    this.fetchImpl = fetchImpl;
+    this.now = now;
+    this.sleep = sleepImpl;
+    this.missionWaitMs = boundedDuration(missionWaitMs, 0, 120_000, 45_000);
+    this.missionPollMs = boundedDuration(missionPollMs, 50, 10_000, 1_000);
+  }
+
+  async capabilities() {
+    const overview = await this.overview();
+    return {
+      capabilities: (overview.capabilities || []).map(capabilityView),
+      employees: (overview.agents || []).filter((agent) => agent.status === 'active').map(employeeCapabilityView)
+    };
+  }
+
+  async armyStatus() {
+    const overview = await this.overview();
+    return {
+      taskFocus: overview.taskFocus || {},
+      usage: overview.usage || {},
+      capabilities: (overview.capabilities || []).map(capabilityView),
+      employees: (overview.agents || []).map((agent) => ({
+        agentId: agent.agentId,
+        name: agent.name || agent.agentId,
+        status: agent.status,
+        feishuChannel: safeChannel(agent.feishuChannel)
+      }))
+    };
+  }
+
+  async employeeStatus(employee) {
+    const overview = await this.overview();
+    const agent = findEmployee(overview.agents || [], employee);
+    if (!agent) throw new AgentArmyClientError(`没有找到员工“${safeText(employee, 80)}”。`);
+    const recentTasks = (overview.tasks || [])
+      .filter((task) => task.assigneeAgentId === agent.agentId || task.routing?.requestedAgentId === agent.agentId)
+      .sort(newestFirst)
+      .slice(0, 5)
+      .map((task) => taskView(task, overview.approvals || []));
+    return {
+      agentId: agent.agentId,
+      name: agent.name || agent.agentId,
+      status: agent.status,
+      role: safeText(agent.role, 300),
+      responsibilities: safeStringList(agent.responsibilities, 8, 240),
+      acceptedTaskTypes: safeStringList(agent.acceptedTaskTypes, 20, 120),
+      recentTasks
+    };
+  }
+
+  async listTasks({ status = null, employee = null, limit = 10 } = {}) {
+    const overview = await this.overview();
+    const agent = employee ? findEmployee(overview.agents || [], employee) : null;
+    if (employee && !agent) throw new AgentArmyClientError(`没有找到员工“${safeText(employee, 80)}”。`);
+    const wantedStatuses = normalizeStatuses(status);
+    return (overview.tasks || [])
+      .filter((task) => !wantedStatuses.length || wantedStatuses.includes(task.status))
+      .filter((task) => !agent || task.assigneeAgentId === agent.agentId || task.routing?.requestedAgentId === agent.agentId)
+      .sort(newestFirst)
+      .slice(0, boundedLimit(limit))
+      .map((task) => taskView(task, overview.approvals || []));
+  }
+
+  async getTask(taskId, { chatRef = '' } = {}) {
+    const id = requiredId(taskId, '任务编号无效。');
+    const overview = await this.overview();
+    const task = (overview.tasks || []).find((item) => item.taskId === id);
+    if (!task) throw new AgentArmyClientError('没有找到这条任务。');
+    let notification = null;
+    try {
+      notification = await this.request('/api/feishu/task-status', {
+        method: 'POST',
+        body: { taskId:id, chatRef:safeText(chatRef, 240) }
+      });
+    } catch (error) {
+      if (chatRef || !String(error?.message || '').includes('当前会话不能读取')) throw error;
+    }
+    return {
+      ...taskView(task, overview.approvals || []),
+      terminal: notification?.terminal ?? TERMINAL_STATUSES.has(task.status),
+      userMessage: safeText(notification?.message || task.error?.userMessage || '', 2000)
+    };
+  }
+
+  async createTask(input = {}) {
+    const title = safeText(input.title, 500);
+    const taskType = safeText(input.taskType, 120);
+    if (!title) throw new AgentArmyClientError('请说明要完成什么。');
+    if (!taskType) throw new AgentArmyClientError('请提供任务类型；不确定时先调用 capabilities。');
+    const chatRef = safeText(input.chatRef, 240);
+    const requestRef = safeText(input.requestRef, 240);
+    const idempotencyKey = requestRef
+      ? `hermes:${requestRef}`
+      : `hermes:${chatRef || 'local'}:${shortHash([title, taskType, input.agentId || '', Math.floor(this.now() / 30_000)].join('|'))}`;
+    const source = chatRef
+      ? { channel:'feishu', chatRef, messageRef:requestRef || undefined }
+      : { channel:'hermes-native' };
+    const response = await this.request('/api/tasks', {
+      method:'POST',
+      body:{
+        title,
+        description:safeText(input.description, 2000),
+        taskType,
+        agentId:safeText(input.agentId, 80) || undefined,
+        sourceUrls:safeStringList(input.sourceUrls, 5, 2000),
+        requester:{ kind:'local-owner', ref:'A君' },
+        requesterName:'A君',
+        source,
+        context:Array.isArray(input.sourceTaskIds) && input.sourceTaskIds.length
+          ? { sourceTaskIds:safeStringList(input.sourceTaskIds, 20, 100), dependsOnPrevious:true }
+          : undefined,
+        idempotencyKey
+      }
+    });
+    return this.getTask(response.task?.taskId, { chatRef });
+  }
+
+  async createMission(input = {}) {
+    const title = safeText(input.title, 500);
+    const items = normalizeMissionItems(input.items);
+    if (!title) throw new AgentArmyClientError('请说明这组工作的总目标。');
+    if (!items.length) throw new AgentArmyClientError('多人任务必须包含 1 到 3 项有效员工分工。');
+    const chatRef = safeText(input.chatRef, 240);
+    const requestRef = safeText(input.requestRef, 240);
+    const idempotencyKey = requestRef
+      ? `hermes-mission:${requestRef}`
+      : `hermes-mission:${chatRef || 'local'}:${shortHash([title, JSON.stringify(items), Math.floor(this.now() / 30_000)].join('|'))}`;
+    const source = chatRef
+      ? { channel:'feishu', chatRef, messageRef:requestRef || undefined }
+      : { channel:'hermes-native' };
+    const response = await this.request('/api/mcp/missions', {
+      method:'POST',
+      body:{
+        title,
+        items,
+        requester:{ kind:'local-owner', ref:'A君' },
+        source,
+        idempotencyKey
+      }
+    });
+    let overview = await this.overview();
+    let missionTask = findMissionTask(overview, response);
+    if (input.waitForTerminal === true && missionTask && !TERMINAL_STATUSES.has(missionTask.status)) {
+      const maxPolls = Math.ceil(this.missionWaitMs / this.missionPollMs);
+      for (let poll = 0; poll < maxPolls && !TERMINAL_STATUSES.has(missionTask.status); poll += 1) {
+        await this.sleep(this.missionPollMs);
+        overview = await this.overview();
+        missionTask = findMissionTask(overview, response);
+      }
+    }
+    const missionId = missionTask?.taskId || response.mission?.taskId;
+    const childIds = new Set((response.children || []).map((task) => task.taskId));
+    const children = (overview.tasks || []).filter((task) => (
+      task.parentTaskId === missionId || childIds.has(task.taskId)
+    ));
+    const missionView = taskView(missionTask, overview.approvals || []);
+    return {
+      mission:missionView,
+      children:children.map((task) => taskView(task, overview.approvals || [])),
+      userMessage:missionResultMessage(missionView, response.reply)
+    };
+  }
+
+  async controlTask(taskId, action) {
+    const id = requiredId(taskId, '任务编号无效。');
+    const normalized = String(action || '').trim().toLowerCase();
+    if (!['pause', 'resume'].includes(normalized)) throw new AgentArmyClientError('任务控制只支持 pause 或 resume。');
+    const response = await this.request(`/api/mcp/tasks/${encodeURIComponent(id)}/${normalized}`, { method:'POST', body:{} });
+    const overview = await this.overview();
+    return {
+      task:taskView(response.task, overview.approvals || []),
+      approval:response.approval ? approvalView(response.approval) : null,
+      duplicate:response.duplicate === true
+    };
+  }
+
+  async listApprovals({ status = 'pending', limit = 10 } = {}) {
+    const overview = await this.overview();
+    const normalized = String(status || '').trim();
+    return (overview.approvals || [])
+      .filter((approval) => !normalized || normalized === 'all' || approval.status === normalized)
+      .sort((left, right) => String(right.createdAt || '').localeCompare(String(left.createdAt || '')))
+      .slice(0, boundedLimit(limit))
+      .map(approvalView);
+  }
+
+  async resolveApproval(approvalId, decision) {
+    const id = requiredId(approvalId, '审批编号无效。');
+    const normalized = String(decision || '').trim().toLowerCase();
+    if (!['approve', 'reject'].includes(normalized)) throw new AgentArmyClientError('审批决定只支持 approve 或 reject。');
+    const response = await this.request(`/api/mcp/approvals/${encodeURIComponent(id)}/${normalized}`, { method:'POST', body:{} });
+    const overview = await this.overview();
+    return {
+      task:taskView(response.task, overview.approvals || []),
+      approval:approvalView((overview.approvals || []).find((approval) => approval.approvalId === id) || { approvalId:id, status:normalized === 'approve' ? 'approved' : 'rejected' })
+    };
+  }
+
+  async getPaperclipAssignment(input = {}) {
+    const response = await this.request('/api/mcp/paperclip-assignment', {
+      method:'POST',
+      body:paperclipAssignmentIdentity(input),
+      paperclipApiKey:process.env.PAPERCLIP_API_KEY
+    });
+    return {
+      assignment:{
+        issueId:safeText(response.assignment?.issueId, 128),
+        identifier:safeText(response.assignment?.identifier, 80) || null,
+        title:safeText(response.assignment?.title, 500),
+        description:safeText(response.assignment?.description, 4000),
+        agentId:safeText(response.assignment?.agentId, 80),
+        runId:safeText(response.assignment?.runId, 128)
+      },
+      task:{
+        taskId:safeText(response.task?.taskId, 128),
+        taskType:safeText(response.task?.taskType, 120),
+        status:safeText(response.task?.status, 60),
+        currentStage:safeText(response.task?.currentStage, 120),
+        ...(response.assignment?.agentId === 'technical-expert'
+          ? { repairScope:technicalRepairScopeView(response.task?.input?.context?.repairScope) }
+          : {})
+      }
+    };
+  }
+
+  async completePaperclipAssignment(input = {}) {
+    return this.request('/api/mcp/paperclip-assignment/complete', {
+      method:'POST',
+      body:{
+        ...paperclipAssignmentIdentity(input),
+        status:safeText(input.status || 'succeeded', 40),
+        summary:safeText(input.summary, 4000),
+        evidence:safeText(input.evidence, 4000),
+        remainingRisks:safeText(input.remainingRisks, 2000)
+      },
+      paperclipApiKey:process.env.PAPERCLIP_API_KEY
+    });
+  }
+
+  async executeTechnicalRepair(input = {}) {
+    return this.request('/api/mcp/technical-repair-execute', {
+      method:'POST',
+      body:paperclipAssignmentIdentity(input),
+      paperclipApiKey:process.env.PAPERCLIP_API_KEY,
+      timeoutMs:180_000
+    });
+  }
+
+  async overview() {
+    return this.request('/api/overview');
+  }
+
+  async request(pathname, { method = 'GET', body = null, paperclipApiKey = '', timeoutMs = 30_000 } = {}) {
+    let response;
+    try {
+      response = await this.fetchImpl(`${this.baseUrl}${pathname}`, {
+        method,
+        headers:{
+          ...(body ? { 'content-type':'application/json' } : {}),
+          ...(paperclipApiKey ? { authorization:`Bearer ${paperclipApiKey}` } : {})
+        },
+        body:body ? JSON.stringify(body) : undefined,
+        signal:AbortSignal.timeout(Math.max(1_000, Math.min(Number(timeoutMs) || 30_000, 180_000)))
+      });
+    } catch (error) {
+      throw new AgentArmyClientError(`A君运行时不可用：${safeText(error?.message || '连接失败', 240)}`);
+    }
+    let payload = {};
+    try { payload = await response.json(); }
+    catch { /* HTTP status below remains the authoritative failure. */ }
+    if (!response.ok) throw new AgentArmyClientError(safeText(payload?.error || `A君运行时返回 HTTP ${response.status}`, 500));
+    return payload;
+  }
+}
+
+export class AgentArmyClientError extends Error {}
+
+function loopbackBaseUrl(value) {
+  let url;
+  try { url = new URL(String(value || '')); }
+  catch { throw new AgentArmyClientError('Agent Army MCP 地址无效。'); }
+  if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) {
+    throw new AgentArmyClientError('Agent Army MCP 只允许连接本机 loopback HTTP 服务。');
+  }
+  return url.origin;
+}
+
+function paperclipAssignmentIdentity(input) {
+  return {
+    issueId:safeText(input.issueId, 128),
+    runId:safeText(input.runId, 128),
+    paperclipAgentId:safeText(input.paperclipAgentId, 128),
+    agentArmyId:safeText(input.agentArmyId, 80)
+  };
+}
+
+function technicalRepairScopeView(scope = {}) {
+  return {
+    files:safeStringList(scope?.files, 4, 500),
+    testCommand:safeText(scope?.testCommand, 1000),
+    recoveryCheck:safeText(scope?.recoveryCheck, 1000)
+  };
+}
+
+function findEmployee(agents, value) {
+  const key = String(value || '').trim().toLowerCase();
+  return agents.find((agent) => String(agent.agentId || '').toLowerCase() === key)
+    || agents.find((agent) => String(agent.name || '').toLowerCase() === key)
+    || null;
+}
+
+function employeeCapabilityView(agent) {
+  return {
+    agentId:agent.agentId,
+    name:agent.name || agent.agentId,
+    role:safeText(agent.role, 240),
+    acceptedTaskTypes:safeStringList(agent.acceptedTaskTypes, 20, 120)
+  };
+}
+
+function capabilityView(capability) {
+  return {
+    id:safeText(capability?.id, 100),
+    name:safeText(capability?.name, 120),
+    status:safeText(capability?.status, 40),
+    detail:safeText(capability?.detail, 500)
+  };
+}
+
+function taskView(task = {}, approvals = []) {
+  const taskApprovals = (approvals || []).filter((approval) => (task.approvalRefs || []).includes(approval.approvalId));
+  return {
+    taskId:task.taskId,
+    title:safeText(task.input?.title, 500),
+    taskType:safeText(task.taskType, 120),
+    agentId:safeText(task.assigneeAgentId || task.routing?.requestedAgentId, 80) || null,
+    status:safeText(task.status, 60),
+    currentStage:safeText(task.currentStage, 120),
+    updatedAt:task.updatedAt || null,
+    progress:task.execution?.xiaodProgress ?? null,
+    requiresApproval:taskApprovals.some((approval) => approval.status === 'pending'),
+    approvals:taskApprovals.map(approvalView),
+    error:task.error ? {
+      code:safeText(task.error.code, 120),
+      category:safeText(task.error.category, 80),
+      retryable:task.error.retryable === true,
+      userMessage:safeText(task.error.userMessage, 1000)
+    } : null,
+    artifacts:(task.artifactRefs || []).map(artifactView)
+  };
+}
+
+function findMissionTask(overview, response) {
+  return (overview.tasks || []).find((task) => task.taskId === response.mission?.taskId) || response.mission;
+}
+
+function missionResultMessage(mission, fallback) {
+  if (!TERMINAL_STATUSES.has(mission?.status)) return safeText(fallback, 2000);
+  const summary = (mission.artifacts || []).find((artifact) => artifact.type === 'cross_agent_mission_summary')?.report;
+  if (!summary) return safeText(fallback, 2000);
+  const done = (summary.statuses || []).filter((item) => item.status === 'succeeded').length;
+  return `总任务已进入终态：${mission.status}，${done}/${summary.statuses?.length || 0} 项分工完成。请根据 mission 和 children 中的已验证产物直接向负责人做最终汇报，不要再返回中间进度。`;
+}
+
+function artifactView(artifact = {}) {
+  const validation = artifact.validation || {};
+  const view = {
+    type:safeText(artifact.type, 120),
+    ref:safeText(artifact.ref || artifact.url || artifact.location || artifact.data?.larkUrl, 1000) || null,
+    verified:artifact.data?.larkPermissionGranted === true
+      || artifact.verified === true
+      || (validation.exists === true && validation.readable === true && validation.nonEmpty === true)
+  };
+  if (artifact.type === 'health_report' && artifact.data) {
+    view.report = {
+      checkedAt:artifact.data.checkedAt || null,
+      overall:safeText(artifact.data.overall, 40),
+      components:(Array.isArray(artifact.data.components) ? artifact.data.components : []).slice(0, 12).map((item) => ({
+        id:safeText(item?.id, 80),
+        name:safeText(item?.name, 120),
+        status:safeText(item?.status, 40),
+        detail:safeText(item?.detail, 500)
+      })),
+      recommendedAction:safeText(artifact.data.recommendedAction, 500)
+    };
+  }
+  if (artifact.type === 'intel_research_report' && artifact.data) {
+    view.report = {
+      topic:safeText(artifact.data.topic, 500),
+      background:safeText(artifact.data.background, 1200),
+      findings:safeStringList(artifact.data.findings, 8, 800),
+      conclusion:safeText(artifact.data.conclusion, 1200),
+      recommendations:safeStringList(artifact.data.recommendations, 8, 800),
+      openQuestions:safeStringList(artifact.data.openQuestions, 8, 800),
+      sources:(Array.isArray(artifact.data.sources) ? artifact.data.sources : []).slice(0, 5).map((item) => ({
+        title:safeText(item?.title, 300),
+        source:safeText(item?.source, 1000),
+        summary:safeText(item?.summary, 900)
+      }))
+    };
+  }
+  if (artifact.type === 'office_briefing_package' && artifact.data) {
+    view.report = {
+      title:safeText(artifact.data.title, 500),
+      summary:safeText(artifact.data.summary, 1200),
+      sourceTasks:(Array.isArray(artifact.data.sourceTasks) ? artifact.data.sourceTasks : []).slice(0, 10).map((item) => ({
+        taskId:safeText(item?.taskId, 100),
+        title:safeText(item?.title, 500),
+        employeeId:safeText(item?.employeeId, 80) || null,
+        status:safeText(item?.status, 60)
+      })),
+      openItems:safeStringList(artifact.data.openItems, 8, 600),
+      nextAction:safeText(artifact.data.nextAction, 800)
+    };
+  }
+  if (artifact.type === 'cross_agent_mission_summary' && artifact.data) {
+    view.report = {
+      kind:safeText(artifact.data.kind, 60),
+      summary:safeText(artifact.data.summary, 1000),
+      completed:artifact.data.completed === true,
+      terminal:artifact.data.terminal === true,
+      statuses:(Array.isArray(artifact.data.statuses) ? artifact.data.statuses : []).slice(0, 3).map((item) => ({
+        title:safeText(item?.title, 500),
+        employeeId:safeText(item?.employeeId, 80) || null,
+        taskId:safeText(item?.taskId, 100) || null,
+        status:safeText(item?.status, 60),
+        artifactTypes:safeStringList(item?.artifactTypes, 10, 120)
+      })),
+      outcome:safeText(artifact.data.decision?.outcome, 60),
+      briefing:artifact.data.decision?.briefing ? {
+        title:safeText(artifact.data.decision.briefing.title, 500),
+        summary:safeText(artifact.data.decision.briefing.summary, 1000),
+        openItems:safeStringList(artifact.data.decision.briefing.openItems, 5, 500),
+        nextAction:safeText(artifact.data.decision.briefing.nextAction, 500)
+      } : null
+    };
+  }
+  return view;
+}
+
+function approvalView(approval = {}) {
+  return {
+    approvalId:approval.approvalId,
+    taskId:approval.taskId || null,
+    status:safeText(approval.status, 40),
+    governanceMode:safeText(approval.governanceMode, 40),
+    action:safeText(approval.action, 100),
+    riskLevel:safeText(approval.riskLevel, 40),
+    reason:safeText(approval.reason, 700),
+    requestedScope:approval.requestedScope ? {
+      title:safeText(approval.requestedScope.title, 500),
+      taskType:safeText(approval.requestedScope.taskType, 120),
+      assigneeAgentId:safeText(approval.requestedScope.assigneeAgentId, 80) || null
+    } : null,
+    validUntil:approval.validUntil || null
+  };
+}
+
+function safeChannel(channel) {
+  if (!channel) return null;
+  return { status:safeText(channel.status, 40), message:safeText(channel.message, 300), verified:channel.verified === true };
+}
+
+function safeText(value, limit = 500) {
+  return String(value || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, limit);
+}
+
+function safeStringList(value, maxItems, maxChars) {
+  const values = Array.isArray(value) ? value : value == null ? [] : [value];
+  return [...new Set(values.map((item) => safeText(item, maxChars)).filter(Boolean))].slice(0, maxItems);
+}
+
+function normalizeStatuses(value) {
+  const values = Array.isArray(value) ? value : String(value || '').split(',');
+  return [...new Set(values.map((item) => safeText(item, 60)).filter(Boolean))];
+}
+
+function requiredId(value, message) {
+  const id = String(value || '').trim();
+  if (!/^[0-9a-z-]{8,100}$/i.test(id)) throw new AgentArmyClientError(message);
+  return id;
+}
+
+function shortHash(value) { return crypto.createHash('sha256').update(value).digest('hex').slice(0, 24); }
+function boundedLimit(value) { const parsed = Number(value); return Number.isFinite(parsed) ? Math.max(1, Math.min(50, Math.floor(parsed))) : 10; }
+function boundedDuration(value, min, max, fallback) { const parsed = Number(value); return Number.isFinite(parsed) ? Math.max(min, Math.min(max, Math.floor(parsed))) : fallback; }
+function newestFirst(left, right) { return String(right.updatedAt || right.createdAt || '').localeCompare(String(left.updatedAt || left.createdAt || '')); }
+
+function normalizeMissionItems(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 3) return [];
+  const items = value.map((item, index) => ({
+    key:safeText(item?.key, 80) || `work-${index + 1}`,
+    title:safeText(item?.title, 500),
+    taskType:safeText(item?.taskType, 120),
+    agentId:safeText(item?.agentId, 80),
+    description:safeText(item?.description, 2000),
+    acceptance:safeText(item?.acceptance, 500),
+    sourceUrls:safeStringList(item?.sourceUrls, 5, 2000),
+    dependsOnPrevious:item?.dependsOnPrevious === true
+  }));
+  return items.every((item) => item.title && item.taskType && item.agentId) ? items : [];
+}

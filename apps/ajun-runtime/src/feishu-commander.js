@@ -1,4 +1,5 @@
 import { formatPublicReportReply } from './public-report-presentation.js';
+import { formatOfficeBriefingReply } from './local-office-assistant.js';
 
 // Allow the user to name the new role between “创建一个” and “Agent”, such as
 // “创建一个公开网页摘要 Agent”.  The previous expression only recognised an
@@ -13,8 +14,10 @@ const RETRY_XIAOD_RE = /^\s*重试\s*小\s*D\s*任务(?:\s+[0-9a-f-]{8,})?\s*$/i
 const POSITIVE_FEEDBACK_RE = /(?:不错|满意|有用|很好|挺好|做得好|谢谢|辛苦了)/;
 const NEGATIVE_FEEDBACK_RE = /(?:不行|不对|有问题|重做|重新做|改一下|需要改进|没用|不好)/;
 const HEALTH_RE = /健康|状态|服务|运行|paperclip|检查系统/i;
+const CAPABILITIES_RE = /(?:你|军团|现在).*(?:能干什么|能做什么|可以做什么|能帮我什么|有什么能力)|(?:能干什么|能做什么|可以做什么|能帮我什么|有什么能力).*(?:你|军团|现在)?/i;
 const OPERATIONS_TRIAGE_RE = /(?:怀疑|担心|看看|查(?:一下|下)?|检查|判断).{0,48}(?:异常|故障|出问题|卡住|卡死)|(?:异常|故障|出问题|卡住|卡死).{0,80}(?:安全(?:处理|恢复)|谁(?:来|该)接手|怎么处理|需要我做什么)/i;
 const MEDIA_RE = /视频|音频|转录|字幕|整理素材|youtube|bilibili|抖音|快手|transcri/i;
+const OFFICE_RE = /办公汇报|汇报包|整理成(?:文档|表格|清单)|任务清单|会议材料|会议纪要|把.{0,40}(?:结果|材料).{0,20}整理/i;
 const TASK_ID_RE = /\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\b/i;
 
 export class FeishuCommander {
@@ -39,6 +42,11 @@ export class FeishuCommander {
     if (progressQuery) return this.taskProgress(source.chatRef, progressQuery);
     const pendingLinkResult = await this.handlePendingLink(text, { sourceEventRef, source, requester, targetAgentId });
     if (pendingLinkResult) return pendingLinkResult;
+    // An explicit question about one named employee is a factual lookup, not
+    // an open-ended chat turn. Resolve it before conversation/intent models so
+    // “小D目前在干嘛” cannot degrade into a generic clarification.
+    const explicitEmployeeStatus = await this.explicitEmployeeStatus(text);
+    if (explicitEmployeeStatus) return explicitEmployeeStatus;
     // 短确认、暂停和评价必须依赖当前任务真相，不能交给模型猜。
     // 其他正常中文先交给 AI 理解；旧关键词只在 AI 临时不可用时兜底。
     const control = conversationControlIntent(text);
@@ -58,13 +66,31 @@ export class FeishuCommander {
     if (directPlan?.intent === 'clarify') return this.clarify(directPlan.reply);
     if (agentId === 'creator') return this.createProposal({ text, sourceEventRef, chatRef:source.chatRef });
     if (agentId === 'reviewer') return this.clarify('我是审核官。请发需要审核的任务号或新员工草案编号，并说明你希望我核对的范围。');
-    if (agentId === 'technical-expert') return this.clarify('我是技术专家。请发故障任务号和现象；我会先限定排查范围，不会直接改动生产环境。');
-    const directTaskTypes = { operator:'operations.health-review', architect:'governance.architecture-review', 'task-coordinator':'army.intake' };
+    if (agentId === 'technical-expert') {
+      const taskId = text.match(TASK_ID_RE)?.[0];
+      return taskId
+        ? this.technicalTriage(taskId)
+        : this.clarify('我是技术专家。请发故障任务号和现象；我会先限定排查范围，不会直接改动生产环境。');
+    }
+    const directTaskTypes = {
+      operator:'operations.health-review',
+      architect:'governance.architecture-review',
+      'task-coordinator':'army.intake',
+      xiaod:'media.transcribe-and-refine',
+      'intel-researcher':'research.intel-report',
+      'office-assistant':'office.briefing-package'
+    };
     const taskType = directTaskTypes[agentId];
     if (!taskType) return null;
     const task = await this.tasks.create({
-      title:text, description:'', taskType, requester, source,
-      agentId, idempotencyKey:`feishu:${sourceEventRef}`
+      title:text,
+      description:taskType === 'office.briefing-package' ? text : '',
+      taskType,
+      requester,
+      source,
+      agentId,
+      ...(taskType === 'research.intel-report' ? { topic:text } : {}),
+      idempotencyKey:`feishu:${sourceEventRef}`
     });
     return replyFor(task, taskType);
   }
@@ -79,6 +105,38 @@ export class FeishuCommander {
     };
   }
 
+  async technicalTriage(taskId) {
+    const tasks = typeof this.store?.list === 'function' ? await this.store.list() : [];
+    const root = tasks.find((task) => task.taskId === taskId);
+    if (!root) return this.clarify(`没有找到任务 ${taskId}。请核对任务号；本轮没有修改系统。`);
+    const related = tasks.filter((task) => task.parentTaskId === taskId || task.recovery?.rootTaskId === taskId);
+    const recovered = related
+      .filter((task) => task.status === 'succeeded' && task.recovery?.rootTaskId === taskId)
+      .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))[0];
+    const failure = root.error;
+    const evidence = failure
+      ? `${failure.code || 'unknown_failure'}；阶段 ${failure.stage || root.currentStage || 'unknown'}；${failure.retryable === true ? '可安全重试' : '未标记为可重试'}`
+      : `未记录失败错误；当前阶段 ${root.currentStage || 'unknown'}`;
+    const recovery = recovered
+      ? `运维官安排的自动重试任务 ${recovered.taskId} 已完成`
+      : root.recovery?.coordination?.status
+        ? `恢复协调状态：${root.recovery.coordination.status}`
+        : '尚无恢复任务记录';
+    return {
+      kind:'technical_triage',
+      task:root,
+      relatedTasks:related,
+      reply:[
+        '【技术专家只读判断】',
+        `任务：${root.input?.title || taskId}`,
+        `状态：原任务${taskStatusLabel(root.status)}`,
+        `故障证据：${evidence}`,
+        `恢复链：${recovery}`,
+        '范围：本轮只读取任务记录，没有修改系统、没有扩权、没有外发。'
+      ].join('\n')
+    };
+  }
+
   async directAgentIntent(agentId, text) {
     if (typeof this.planner?.decide !== 'function') return null;
     try { return await this.planner.decide(text, { agentId }); }
@@ -87,6 +145,9 @@ export class FeishuCommander {
 
   async handlePlannedIntent(plan, { text, sourceEventRef, source, requester, targetAgentId = null }) {
     const intent = plan.intent;
+    // Keep normal Chinese on the AI path, but do not let an identity-shaped
+    // misclassification replace the factual capability menu the user asked for.
+    if (CAPABILITIES_RE.test(text)) return this.armyCapabilities(source.chatRef);
     if (intent === 'identity') return this.identity();
     if (intent === 'clarify') {
       if (plan.awaitingLinkFor) await this.rememberPendingLink(source.chatRef, plan.awaitingLinkFor);
@@ -108,12 +169,12 @@ export class FeishuCommander {
     const feedback = feedbackSentiment(text);
     if (feedback) return this.recordFeedback(source.chatRef, text, feedback);
     if (FOLLOW_UP_RE.test(text)) return this.followUp(source.chatRef);
-    const taskType = plan.taskType || (intent === 'health_check' ? 'operations.health-review' : intent === 'media_task' ? 'media.transcribe-and-refine' : intent === 'public_report' ? 'report.public-material' : intent === 'github_search' ? 'research.github-search' : intent === 'intel_research' ? 'research.intel-report' : ['architecture_review', 'army_planning'].includes(intent) ? 'governance.architecture-review' : 'army.intake');
+    const taskType = plan.taskType || (intent === 'health_check' ? 'operations.health-review' : intent === 'media_task' ? 'media.transcribe-and-refine' : intent === 'public_report' ? 'report.public-material' : intent === 'github_search' ? 'research.github-search' : intent === 'intel_research' ? 'research.intel-report' : intent === 'office_briefing' ? 'office.briefing-package' : ['architecture_review', 'army_planning'].includes(intent) ? 'governance.architecture-review' : 'army.intake');
     const entryAgentId = await this.resolveEntryAgent(targetAgentId, taskType);
-    const defaultAgentId = taskType === 'research.github-search' ? 'github-scout' : taskType === 'research.intel-report' ? 'intel-researcher' : undefined;
+    const defaultAgentId = taskType === 'research.github-search' ? 'github-scout' : taskType === 'research.intel-report' ? 'intel-researcher' : taskType === 'office.briefing-package' ? 'office-assistant' : undefined;
     const researchInput = taskType === 'research.github-search' ? githubTaskInput(text) : taskType === 'research.intel-report' ? { topic:text } : {};
     const task = await this.tasks.create({
-      title: text, description: '', taskType, requester, source,
+      title: text, description:taskType === 'office.briefing-package' ? text : '', taskType, requester, source,
       agentId: entryAgentId || plan.agentId || defaultAgentId, ...researchInput, idempotencyKey: `feishu:${sourceEventRef}`
     });
     const intake = task.artifactRefs?.find((item) => item.type === 'task_intake_record')?.data;
@@ -227,13 +288,23 @@ export class FeishuCommander {
     return { kind:'xiaod_retry', task, reply:progressReply(task) };
   }
 
-  async employeeStatus(agentId) {
-    if (!this.tasks?.overview || !agentId) return this.clarify('你想看哪一位员工最近的工作？');
+  async explicitEmployeeStatus(text) {
+    if (!this.tasks?.overview || !isEmployeeStatusQuestion(text)) return null;
     const overview = await this.tasks.overview();
+    const employees = (overview.agents || [])
+      .filter((agent) => agent.status === 'active' && isVisibleEmployee(agent))
+      .map((agent) => ({ agentId:agent.agentId, name:agent.name || agent.agentId }));
+    const agentId = namedEmployeeStatusTarget(text, employees);
+    return agentId ? this.employeeStatus(agentId, overview) : null;
+  }
+
+  async employeeStatus(agentId, knownOverview = null) {
+    if (!this.tasks?.overview || !agentId) return this.clarify('你想看哪一位员工最近的工作？');
+    const overview = knownOverview || await this.tasks.overview();
     const employee = (overview.agents || []).find((agent) => agent.agentId === agentId);
     if (!employee) return this.clarify('我暂时找不到你说的这位员工。你可以直接说它的名字。');
     const recent = uniqueTasks((overview.tasks || [])
-      .filter((task) => task.assigneeAgentId === employee.agentId)
+      .filter((task) => isTaskForAgent(task, employee.agentId))
       .sort((left, right) => taskTime(right) - taskTime(left)))
       .slice(0, 3);
     const active = recent.filter((task) => ['queued', 'running', 'pausing', 'paused'].includes(task.status));
@@ -286,6 +357,15 @@ export class FeishuCommander {
     const tasks = (await this.store.list()).filter((task) => task.source?.channel === 'feishu' && task.source?.chatRef === chatRef);
     const task = mostRelevantTask(tasks.filter((item) => action === 'pause' ? ['queued', 'running', 'pausing'].includes(item.status) : item.status === 'paused'));
     if (!task) {
+      if (action === 'resume') {
+        const latestXiaod = mostRelevantTask(tasks.filter((item) => item.taskType === 'media.transcribe-and-refine' && item.execution?.executor === 'xiaod'));
+        if (latestXiaod?.status === 'succeeded') {
+          return { kind:'task_control', task:latestXiaod, reply:`“${shortTitle(latestXiaod)}”已经完成，不能继续；我没有新建任务或交给其他员工。` };
+        }
+        if (latestXiaod?.status === 'cancelled') {
+          return { kind:'task_control', task:latestXiaod, reply:`“${shortTitle(latestXiaod)}”已经关闭，不能继续；我没有新建任务或交给其他员工。` };
+        }
+      }
       if (returnNothingWhenMissing) return null;
       return { kind:'task_control', reply:action === 'pause' ? '当前会话没有可以暂停的工作。' : '当前会话没有已暂停、可以继续的工作。' };
     }
@@ -501,7 +581,12 @@ export class FeishuCommander {
       // “谁在干什么”才是概览；用户要求判断故障、给恢复边界时，必须真正交给运维官。
       // 模型偶尔会把“任务卡住”误归到概览，这里以明确的运维意图兜底。
       if (isOperationsTriageRequest(text) && ['army_overview', 'army_report', 'task_progress'].includes(planned?.intent)) return { intent:'health_check' };
-      if (planned?.intent === 'employee_status' && !isEmployeeStatusQuestion(text)) {
+      // “复盘最近工作”是架构师基于真实记录的改进请求，不是日报。
+      if (isArchitectureReviewRequest(text) && ['army_overview', 'army_report', 'task_progress'].includes(planned?.intent)) return { intent:'architecture_review' };
+      // 用户明确要做竞品研究和行动清单，但当前岗位没有被指定可直接完成时，
+      // 先给架构师评估最小能力缺口，不把它降级为要求负责人补固定材料。
+      if (isCapabilityGapRequest(text) && ['clarify', 'intake', 'public_report', 'intel_research', 'github_search'].includes(planned?.intent)) return { intent:'architecture_review' };
+      if (planned?.intent === 'employee_status' && namedEmployeeStatusTarget(text, employees) !== planned.agentId) {
         return linkClarificationPlan(text);
       }
       if (planned?.intent === 'clarify' && isXiaodLinkRequest(text)) return linkClarificationPlan(text, planned.reply);
@@ -540,7 +625,9 @@ export class FeishuCommander {
   completionWatchFor(result) {
     const taskId = String(result?.task?.taskId || '').trim();
     const status = String(result?.task?.status || '').trim();
-    if (!taskId || !['queued', 'running'].includes(status) || !this.ajunBaseUrl) return result;
+    const recoveryStarted = status === 'failed'
+      && ['pending', 'retrying', 'escalated'].includes(String(result?.task?.recovery?.coordination?.status || ''));
+    if (!taskId || (!['queued', 'running'].includes(status) && !recoveryStarted) || !this.ajunBaseUrl) return result;
     return { ...result, completionWatch: { kind:'ajun_task', taskId, baseUrl:this.ajunBaseUrl } };
   }
 }
@@ -562,9 +649,10 @@ function directIntent(text) {
     if (/(?:日报|工作汇报|工作总结|今天.*(?:完成了什么|做了什么|干了什么|工作情况)|(?:总结|汇报).*(?:今天|军团|工作))/i.test(text)) return { intent:'army_report' };
     if (isOperationsTriageRequest(text)) return { intent:'health_check' };
     if (/多少.*(?:员工|agent|助手)|谁.*(?:在干|忙|卡住)|(?:员工|军团).*(?:状态|情况|进度)|(?:今天|现在|目前).*(?:需要我|要我).*(?:处理|决定|确认|补充)|(?:有什么|哪些).*(?:需要我|要我).*(?:处理|决定|确认|补充)/i.test(text)) return { intent:'army_overview' };
-    if (/(?:你|军团|现在).*(?:能干什么|能做什么|可以做什么|能帮我什么|有什么能力)|(?:能干什么|能做什么|可以做什么|能帮我什么|有什么能力).*(?:你|军团|现在)?/i.test(text)) return { intent:'army_capabilities' };
+    if (CAPABILITIES_RE.test(text)) return { intent:'army_capabilities' };
     if (HEALTH_RE.test(text)) return { intent:'health_check' };
     if (MEDIA_RE.test(text)) return { intent:'media_task' };
+    if (OFFICE_RE.test(text)) return { intent:'office_briefing' };
     if (isGithubRequest(text)) return { intent:'github_search' };
     if (isIntelResearchRequest(text)) return { intent:'intel_research' };
     if (publicUrl(text)) return { intent:'public_report' };
@@ -613,7 +701,22 @@ function looksLikeWorkRequest(text) {
 }
 
 function isEmployeeStatusQuestion(text) {
-  return /(?:看(?:下|一下|看一看)?|查(?:下|一下)?|了解|问一下).{0,24}(?:最近|正在|在干|忙|状态|情况|进展|卡住|做了什么|干了啥)|(?:最近|正在|在干|忙|状态|情况|进展|卡住).{0,24}(?:小D|员工|助手|agent)/i.test(String(text || ''));
+  return /(?:最近(?:在)?(?:干|做)(?:了)?(?:啥|什么)|目前(?:在)?(?:干嘛|干什么|做什么|忙什么)|现在(?:在)?(?:干嘛|干什么|做什么|忙什么)|当前(?:在)?(?:干嘛|干什么|做什么|忙什么)|正在(?:干嘛|干什么|做什么|忙什么)|在干(?:嘛|什么)|在做(?:嘛|什么)|忙(?:什么|啥)|(?:工作)?状态|(?:最近|当前|工作)?情况|(?:工作)?进展|卡住)/i.test(String(text || ''));
+}
+
+function namedEmployeeStatusTarget(text, employees) {
+  const value = compactMention(text);
+  const matches = (employees || []).filter((employee) => {
+    const names = [employee.name, employee.agentId]
+      .map(compactMention)
+      .filter((name) => name.length >= 2);
+    return names.some((name) => value.includes(name));
+  });
+  return matches.length === 1 ? matches[0].agentId : null;
+}
+
+function compactMention(value) {
+  return String(value || '').toLocaleLowerCase('zh-CN').replace(/\s+/g, '');
 }
 
 function isXiaodLinkRequest(text) {
@@ -664,11 +767,28 @@ function replyFor(task, taskType) {
     if (task.status === 'needs_input') return { kind:'intel_research', task, reply:task.currentStage === 'waiting_for_agent_activation' ? '小R目前还是草案，尚未通过审核和受限测试，不能开始研究。' : task.error?.userMessage || '小R还缺少研究条件，暂未开始。' };
     return { kind:'intel_research', task, reply:`已交给小R研究，任务号：${task.taskId}。完成后会回到当前飞书会话。` };
   }
+  if (taskType === 'office.briefing-package') {
+    const report = task.artifactRefs?.find((item) => item.type === 'office_briefing_package')?.data;
+    if (report) return { kind:'office_briefing', task, reply:formatOfficeBriefingReply(report) };
+    if (task.status === 'needs_input') return { kind:'office_briefing', task, reply:task.error?.userMessage || '办公执行助理还缺少需要整理的材料。' };
+    return { kind:'office_briefing', task, reply:`已交给办公执行助理整理，任务号：${task.taskId}。完成后会回到当前飞书会话。` };
+  }
   if (taskType === 'governance.architecture-review') {
     const report = task.artifactRefs?.find((item) => item.type === 'architecture_review')?.data;
     const patterns = report?.workEvidence?.frequentPatterns || [];
     const opportunities = report?.roleOpportunities || [];
     const nextAction = report?.nextAction || '这些建议不会自动上线；先用一条真实验收任务确认后再继续。';
+    const understood = report?.understoodRequest;
+    if (understood?.outcome && understood?.deliverable) {
+      const missing = Array.isArray(understood.missing) && understood.missing.length
+        ? understood.missing.slice(0, 4).join('、')
+        : '暂时没有确认可供处理的原始材料';
+      return {
+        kind:'architecture_review',
+        task,
+        reply:`我已让架构师评估这件具体工作。\n目标：${understood.outcome}\n交付物：${understood.deliverable}\n当前缺少：${missing}\n安全下一步：${nextAction}\n边界：没有创建新员工、登录账号、外发或假装已经完成。`
+      };
+    }
     if (opportunities.length) return { kind:'architecture_review', task, reply:`我已让架构师复盘真实工作：发现 ${patterns.length} 类重复事项，并形成 ${opportunities.length} 个新岗位草案建议；建议：${nextAction}` };
     return { kind:'architecture_review', task, reply:patterns.length ? `我已让架构师复盘真实工作：发现 ${patterns.length} 类重复事项。建议：${nextAction}` : `我已让架构师复盘真实工作。建议：${nextAction}` };
   }
@@ -680,9 +800,19 @@ function isOperationsTriageRequest(text) {
   const value = String(text || '');
   return OPERATIONS_TRIAGE_RE.test(value) || (HEALTH_RE.test(value) && /(?:异常|故障|问题|卡住|处理建议|恢复|接手)/i.test(value));
 }
+function isArchitectureReviewRequest(text) {
+  return /(?:复盘|回顾|总结).{0,24}(?:最近|这次|当前|已有)?.{0,24}(?:工作|任务|结果|问题|重复)/.test(String(text || ''));
+}
+function isCapabilityGapRequest(text) {
+  const value = String(text || '');
+  return /(?:研究|分析|对比).{0,30}(?:竞品|竞争对手).{0,30}(?:行动清单|行动建议|执行清单)|(?:行动清单|行动建议|执行清单).{0,30}(?:竞品|竞争对手)/.test(value);
+}
 
 function directAgentIdentity(agentId) {
   const messages = {
+    xiaod:'我是小D。我把已获授权的音视频素材转成可核验的转录和整理文档。',
+    'intel-researcher':'我是资料研究员。我只读取公开来源，形成带证据、结论、建议和未决问题的研究报告。',
+    'office-assistant':'我是办公执行助理。我把你提供的材料和其他员工的真实结果整理成文档、清单和汇报包。',
     operator:'我是运维官。我检查军团运行状态、判断能否安全恢复；不能安全处理的会交给技术专家。',
     creator:'我是创建官。我把岗位需求整理成可审核的智能体草案，不会直接上线或扩权。',
     reviewer:'我是审核官。我核对权限、预算和外部动作的范围；最终敏感决定仍由负责人确认。',
@@ -699,18 +829,19 @@ function isRegisteredDraftReviewRequest(text) {
 
 function registeredDraftReviewReply(proposal) {
   const manifest = proposal.candidateManifest || {};
+  const active = proposal.registryStatus === 'active' || proposal.status === 'active';
   const scopes = (manifest.dataScopes || []).map((item) => `${item.scope || '未命名范围'}（${stringList(item.access).join('、') || '未声明'}）`).join('；') || '未声明';
   const tools = (proposal.requestedCapabilities || []).join('、') || '无';
   const gates = (manifest.qualityGates || []).map((item) => item.gate).filter(Boolean).join('、') || '未声明';
   const reviewer = (proposal.reviewRefs || []).find((item) => item.role === 'reviewer');
   return [
     `【审核官 · ${manifest.name || '草案岗位'}】`,
-    `结论：${reviewer?.result === 'needs_scope_before_owner_decision' ? '信息不足，暂不能提交决定' : '已完成范围审查，等待负责人决定'}`,
+    `结论：${active ? '已完成在岗权限边界复核' : reviewer?.result === 'needs_scope_before_owner_decision' ? '信息不足，暂不能提交决定' : '已完成范围审查，等待负责人决定'}`,
     `权限：${tools}`,
     `数据范围：${scopes}`,
     `质量门禁：${gates}`,
     `限制：${(manifest.nonResponsibilities || []).join('；') || '无'}`,
-    `下一步：${proposal.trialReadiness?.message || reviewer?.summary || '负责人确认后才能进入受限测试；当前仍是草案，不会启用。'}`,
+    `下一步：${active ? '当前岗位已经上岗；本轮只是只读复核，没有批准、上线或变更任何权限。' : proposal.trialReadiness?.message || reviewer?.summary || '负责人确认后才能进入受限测试；当前仍是草案，不会启用。'}`,
     `草案号：${proposal.proposalId}`
   ].join('\n');
 }
@@ -804,6 +935,7 @@ function workerName(task) {
   if (task.taskType === 'report.public-material') return '公开资料报告员';
   if (task.taskType === 'research.github-search') return '小G';
   if (task.taskType === 'research.intel-report') return '小R';
+  if (task.taskType === 'office.briefing-package') return '办公执行助理';
   if (task.taskType === 'media.transcribe-and-refine') return '小D';
   if (task.taskType === 'operations.health-review') return '运维官';
   if (task.taskType === 'governance.architecture-review') return '架构师';
@@ -823,6 +955,7 @@ function employeeRole(agent) {
     'public-reporter': '负责读取公开网页并写中文报告',
     'github-scout': '负责检索公开 GitHub 项目和代码',
     'intel-researcher': '负责围绕主题综合公开资料并给行动建议',
+    'office-assistant': '负责把材料和员工结果整理成办公汇报包',
     operator: '负责检查运行情况和恢复异常',
     reviewer: '负责把关需要你确认的事项',
     architect: '负责评估能力缺口和下一步',
@@ -875,6 +1008,11 @@ function isToday(task) {
 function taskList(tasks) { return tasks.slice(0, 3).map((task) => `“${shortTitle(task)}”`).join('、') + (tasks.length > 3 ? '等' : ''); }
 function taskStatusLine(task) {
   const title = `“${shortTitle(task)}”`;
+  if (task.status === 'succeeded') return `${title}已完成`;
+  if (task.status === 'running') return `${title}正在处理`;
+  if (task.status === 'queued') return `${title}等待开始`;
+  if (task.status === 'paused') return `${title}已暂停，等待继续确认`;
+  if (task.status === 'pausing') return `${title}正在暂停，等待安全位置`;
   if (task.status === 'waiting_approval') return `${title}在等你确认范围`;
   if (task.status === 'needs_input') return `${title}缺少必要信息`;
   if (task.status === 'waiting_test') return `${title}在待测试，其他工作不受影响`;
@@ -915,7 +1053,7 @@ function isCurrentPendingLinkContext(context) {
 function shouldShowRecentUsageItems(text, context) {
   if (String(context?.kind || '') !== 'usage_report') return false;
   const value = String(text || '').trim();
-  return value.length <= 48 && /(?:哪|哪些|明细|具体|展开|刚才|上面|这.*项|那.*项)/.test(value);
+  return value.length <= 48 && /(?:哪|哪些|明细|具体|展开|刚才|上面|这.*项|那.*项|这.*包括什么|这.*包含什么)/.test(value);
 }
 function capabilityMenuIntent(text, context) {
   if (String(context?.kind || '') !== 'capabilities_menu') return null;
@@ -924,7 +1062,9 @@ function capabilityMenuIntent(text, context) {
   return ({ '1':'army_overview', '2':'health_check', '3':'media_task', '4':'public_report', '5':'architecture_review', '6':'agent_proposal_prompt' })[choice] || null;
 }
 
-function publicUrl(text) { return String(text).match(/https?:\/\/[^\s<>"]+/i)?.[0]?.replace(/[),.;，。；]+$/, '') || null; }
+function publicUrl(text) {
+  return String(text).match(/https?:\/\/[^\s<>"'，。；：！？、【】（）《》“”‘’]+/i)?.[0]?.replace(/[)\]},.;]+$/, '') || null;
+}
 function safeRef(value) { return String(value || '').trim().slice(0, 240) || null; }
 function safeAgentId(value) {
   const agentId = String(value || '').trim();

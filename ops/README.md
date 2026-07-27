@@ -8,7 +8,7 @@
 
 ## A君常驻运行
 
-`launchd/ai.agent-army.ajun-runtime.plist` 是 A君本机运行台的受控启动项：仅监听 `127.0.0.1:4321`，供同机 Hermes 调用，不向局域网开放。安装或更新后使用：
+`launchd/ai.agent-army.ajun-runtime.plist` 是 A君本机运行台的受控启动项：仅监听 `127.0.0.1:4321`，供同机 Hermes 调用，不向局域网开放。默认 `AGENT_ARMY_EMPLOYEE_FEISHU_OWNER=local`，员工飞书长连接只由这台 Mac 接管；迁移云端时必须按混合在线部署包的唯一接管顺序切换。安装或更新后使用：
 
 ```sh
 cp ops/launchd/ai.agent-army.ajun-runtime.plist ~/Library/LaunchAgents/

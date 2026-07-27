@@ -2,12 +2,48 @@
   "schemaVersion": "agent.army/hermes-profile-map/v1",
   "status": "verified-local",
   "profileId": "task-coordinator",
-  "role": "任务协调官独立身份；只做受限任务分工验收。",
-  "localProfile": { "created": true, "gatewayStarted": false, "modelSelectionConfigured": true, "modelConfigured": true, "credentialedTransportVerified": true, "skillsSeeded": false },
+  "role": "任务协调官：校验任务、路由岗位并建立安全的多人分工。",
+  "localProfile": {
+    "created": true,
+    "gatewayStarted": true,
+    "modelSelectionConfigured": true,
+    "modelConfigured": true,
+    "credentialedTransportVerified": true,
+    "skillsSeeded": true
+  },
   "agentManifestRef": "agents/task-coordinator/manifest.json",
   "promptRef": "agents/task-coordinator/prompts/system.md",
   "appRef": "apps/ajun-runtime",
-  "gateway": { "platform": "feishu", "enabled": false, "reason": "独立飞书 Bot 尚未创建；不允许复用其他员工身份。" },
-  "toolAllowlist": ["army.task.create", "army.task.route", "army.task.status.read", "army.mission.plan"],
-  "secrets": { "source": "profile-environment-only", "valuesStoredHere": false }
+  "gateway": {
+    "platform": "feishu",
+    "enabled": true,
+    "reason": "独立 Hermes Profile Gateway 已连接；Paperclip heartbeat 分工任务、老板真实飞书私聊和独立会话均已验证。"
+  },
+  "mcp": {
+    "server": "agent-army",
+    "tools": [
+      "capabilities",
+      "task_list",
+      "task_get",
+      "task_create",
+      "mission_create",
+      "paperclip_assignment_get",
+      "paperclip_assignment_complete"
+    ],
+    "scope": {
+      "agentIds": ["task-coordinator"],
+      "taskTypes": ["army.route-task", "army.intake", "army.cross-agent-mission"],
+      "allowMissions": true
+    }
+  },
+  "toolAllowlist": [
+    "army.task.create",
+    "army.task.route",
+    "army.task.status.read",
+    "army.mission.plan"
+  ],
+  "secrets": {
+    "source": "profile-environment-only",
+    "valuesStoredHere": false
+  }
 }

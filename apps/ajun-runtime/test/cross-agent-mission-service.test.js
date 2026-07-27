@@ -88,3 +88,177 @@ test('父任务已批准时，会恢复此前被重复审批拦住的安全子�
   assert.deepEqual(resumed, ['child-recover-1']);
   assert.equal(result.mission.status, 'succeeded');
 });
+
+test('老板多人任务按顺序分派三名员工并由办公助理统一汇总', async () => {
+  const created = [];
+  let mission = null;
+  const allTasks = [];
+  const tasks = {
+    async create(input) {
+      created.push(input);
+      if (input.taskType === 'army.cross-agent-mission') {
+        mission = {
+          taskId:'mission-business-1',
+          idempotencyKey:input.idempotencyKey,
+          requester:input.requester,
+          source:input.source,
+          status:'running',
+          artifactRefs:[{
+            type:'cross_agent_mission_plan',
+            data:{
+              kind:'business',
+              safeOnly:true,
+              summary:input.title,
+              subtasks:input.context.businessMissionItems
+            }
+          }]
+        };
+        allTasks.push(mission);
+        return mission;
+      }
+      const child = {
+        taskId:`business-child-${created.length}`,
+        idempotencyKey:input.idempotencyKey,
+        parentTaskId:input.parentTaskId,
+        assigneeAgentId:input.agentId,
+        taskType:input.taskType,
+        status:'succeeded',
+        artifactRefs:[{
+          type:input.agentId === 'office-assistant' ? 'office_briefing_package' : `${input.agentId}_delivery`,
+          validation:{ exists:true, readable:true, nonEmpty:true },
+          data:input.agentId === 'office-assistant'
+            ? { title:'老板周报', summary:'三项工作已汇总。', openItems:[], nextAction:'请审阅。' }
+            : {}
+        }]
+      };
+      allTasks.push(child);
+      return child;
+    }
+  };
+  const store = {
+    async list(){ return allTasks; },
+    async updateTask(_id, patch){ mission = { ...mission, ...patch }; allTasks[0] = mission; return mission; }
+  };
+  const result = await new CrossAgentMissionService({ tasks, store, governance:{} }).createBusinessMission({
+    title:'完成老板本周内容任务',
+    requester:{ kind:'local-owner', ref:'A君' },
+    source:{ channel:'hermes-native' },
+    idempotencyKey:'hermes-mission:week-1',
+    items:[
+      { title:'整理公开视频', taskType:'media.transcribe-and-refine', agentId:'xiaod', sourceUrls:['https://example.com/video'] },
+      { title:'研究公开资料', taskType:'research.intel-report', agentId:'intel-researcher' },
+      { title:'等待前两项完成后整理老板汇报', taskType:'research.intel-report', agentId:'intel-researcher' }
+    ]
+  });
+
+  assert.equal(created.length, 4);
+  assert.equal(created[1].sourceUrls[0], 'https://example.com/video');
+  assert.equal(created[3].agentId, 'office-assistant');
+  assert.equal(created[3].taskType, 'office.briefing-package');
+  assert.equal(result.mission.status, 'succeeded');
+  assert.equal(result.mission.artifactRefs.at(-1).data.kind, 'business');
+  assert.equal(result.mission.artifactRefs.at(-1).data.statuses.length, 3);
+  assert.equal(result.mission.artifactRefs.at(-1).data.decision.briefing.summary, '三项工作已汇总。');
+  assert.match(result.reply, /均已交付/);
+});
+
+test('模型误选小R时仍会把最终汇报规范为依赖任务并等待前置员工', async () => {
+  const created = [];
+  const allTasks = [];
+  let mission = null;
+  const service = new CrossAgentMissionService({
+    tasks:{
+      async create(input) {
+        created.push(input);
+        if (input.taskType === 'army.cross-agent-mission') {
+          mission = {
+            taskId:'mission-canonical-1',
+            idempotencyKey:input.idempotencyKey,
+            requester:input.requester,
+            source:input.source,
+            status:'running',
+            artifactRefs:[{
+              type:'cross_agent_mission_plan',
+              data:{
+                kind:'business',
+                safeOnly:true,
+                summary:input.title,
+                subtasks:input.context.businessMissionItems
+              }
+            }]
+          };
+          allTasks.push(mission);
+          return mission;
+        }
+        const child = {
+          taskId:`canonical-child-${created.length}`,
+          idempotencyKey:input.idempotencyKey,
+          parentTaskId:input.parentTaskId,
+          assigneeAgentId:input.agentId,
+          taskType:input.taskType,
+          status:'running',
+          artifactRefs:[]
+        };
+        allTasks.push(child);
+        return child;
+      }
+    },
+    store:{
+      async list(){ return allTasks; },
+      async updateTask(_id, patch){ mission = { ...mission, ...patch }; allTasks[0] = mission; return mission; }
+    },
+    governance:{}
+  });
+
+  const result = await service.createBusinessMission({
+    title:'完成内容整理和老板汇报',
+    requester:{ kind:'local-owner', ref:'A君' },
+    source:{ channel:'hermes-native' },
+    idempotencyKey:'hermes-mission:canonical-1',
+    items:[
+      { title:'整理公开视频', taskType:'media.transcribe-and-refine', agentId:'xiaod' },
+      { title:'研究公开资料', taskType:'research.intel-report', agentId:'intel-researcher' },
+      { title:'等待前两项结果后生成最终老板汇报', taskType:'research.intel-report', agentId:'intel-researcher' }
+    ]
+  });
+
+  const plan = result.mission.artifactRefs.find((item) => item.type === 'cross_agent_mission_plan').data;
+  assert.equal(plan.subtasks[2].agentId, 'office-assistant');
+  assert.equal(plan.subtasks[2].taskType, 'office.briefing-package');
+  assert.equal(plan.subtasks[2].dependsOnPrevious, true);
+  assert.equal(created.filter((item) => item.taskType !== 'army.cross-agent-mission').length, 2);
+  assert.equal(result.mission.status, 'running');
+  assert.equal(result.mission.artifactRefs.at(-1).data.statuses[2].status, 'planned');
+});
+
+test('办公助理会等待仍在运行的前置员工，不提前生成汇报', async () => {
+  let mission = {
+    taskId:'mission-wait-1',
+    idempotencyKey:'mission:wait-1',
+    status:'running',
+    artifactRefs:[{
+      type:'cross_agent_mission_plan',
+      data:{
+        kind:'business',
+        safeOnly:true,
+        summary:'完成两项工作',
+        subtasks:[
+          { key:'media', title:'整理视频', taskType:'media.transcribe-and-refine', agentId:'xiaod' },
+          { key:'brief', title:'统一汇报', taskType:'office.briefing-package', agentId:'office-assistant', dependsOnPrevious:true }
+        ]
+      }
+    }]
+  };
+  const created = [];
+  const service = new CrossAgentMissionService({
+    tasks:{ async create(input){ created.push(input); return { taskId:'media-running-1', idempotencyKey:input.idempotencyKey, parentTaskId:mission.taskId, assigneeAgentId:'xiaod', taskType:input.taskType, status:'running', artifactRefs:[] }; } },
+    store:{ async list(){ return [mission]; }, async updateTask(_id, patch){ mission = { ...mission, ...patch }; return mission; } },
+    governance:{}
+  });
+
+  const result = await service.dispatch(mission);
+  assert.equal(created.length, 1);
+  assert.equal(result.children.length, 1);
+  assert.equal(result.mission.status, 'running');
+  assert.equal(result.mission.artifactRefs.at(-1).data.statuses[1].status, 'planned');
+});

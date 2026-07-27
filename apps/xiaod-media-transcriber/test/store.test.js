@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { makeJob } from '../src/domain.js';
 import { JobStore } from '../src/store.js';
 
 test('restart recovery preserves a retryable failure that the retry route accepts', async () => {
@@ -19,4 +20,23 @@ test('restart recovery preserves a retryable failure that the retry route accept
     assert.match(job.failure.recovery, /重试小D任务/);
     assert.equal(job.failureHistory.length, 1);
   } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('Mac工作间重复提交同一云端任务只创建一个小D工作', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'xiaod-worker-dedupe-'));
+  try {
+    const store = new JobStore(root);
+    await store.init();
+    const input = {
+      sourceType:'url',
+      sourceUrl:'https://example.com/video.mp4',
+      ingress:{ platform:'agent-army-mac-worker', idempotencyKey:'agent-army:task-1234' }
+    };
+    const first = await store.createOrGetByIngressKey(makeJob(input));
+    const second = await store.createOrGetByIngressKey(makeJob(input));
+    assert.equal(first.created, true);
+    assert.equal(second.created, false);
+    assert.equal(second.job.id, first.job.id);
+    assert.equal(store.list().length, 1);
+  } finally { await fs.rm(root, { recursive:true, force:true }); }
 });

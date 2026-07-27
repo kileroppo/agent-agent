@@ -41,10 +41,20 @@ export class AgentProposalService {
   }
 
   async reviewRegisteredDrafts(text) {
-    const manifests = (await this.registry.list()).filter((manifest) => manifest?.status === 'draft' && mentionsDraft(text, manifest));
+    const manifests = (await this.registry.list()).filter((manifest) => ['draft', 'active'].includes(manifest?.status) && mentionsDraft(text, manifest));
     const reviewed = [];
     for (const manifest of manifests) {
       let proposal = (await this.store.listProposals()).find((item) => item.manifestAgentId === manifest.agentId) || null;
+      if (manifest.status === 'active') {
+        proposal ||= {
+          ...manifestProposal(manifest, this.now()),
+          proposalId:`registered:${manifest.agentId}`,
+          status:'active',
+          reviewRefs:[reviewerReview(manifest, strings(manifest.toolAllowlist), this.now().toISOString())]
+        };
+        reviewed.push({ ...proposal, registryStatus:'active', candidateManifest:manifest });
+        continue;
+      }
       if (!proposal) proposal = await this.store.createProposal(manifestProposal(manifest, this.now()));
       if (proposal.status === 'draft') proposal = await this.submit(proposal.proposalId);
       const trialReadiness = currentTrialReadiness(proposal.candidateManifest, proposal.requestedCapabilities);

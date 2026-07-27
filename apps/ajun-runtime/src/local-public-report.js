@@ -1,17 +1,20 @@
 import { extractReportFocus } from './public-report-presentation.js';
 
 export class LocalPublicReport {
-  constructor({ publicWebFetch, publicWebSearch = null, comparisonAdvisor = null, refineAdvisor = null, now = () => new Date() } = {}) {
+  constructor({ publicWebFetch, publicWebSearch = null, comparisonAdvisor = null, refineAdvisor = null, now = () => new Date(), environment = process.env } = {}) {
     this.publicWebFetch = publicWebFetch;
     this.publicWebSearch = publicWebSearch;
     this.comparisonAdvisor = comparisonAdvisor;
     this.refineAdvisor = refineAdvisor;
     this.now = now;
+    this.testFailureTitle = String(environment?.AJUN_TEST_PUBLIC_REPORT_FAILURE_TITLE || '').trim();
+    this.testFailuresRemaining = Math.min(Math.max(Number(environment?.AJUN_TEST_PUBLIC_REPORT_FAILURE_COUNT) || 0, 0), 2);
   }
 
   supports(agent) { return agent?.runtime?.kind === 'proposal-public-report'; }
 
   async execute(task) {
+    this.triggerControlledFailure(task);
     let sourceUrls = sourceList(task.input);
     let search = null;
     if (!sourceUrls.length) {
@@ -60,6 +63,17 @@ export class LocalPublicReport {
       usage: { tools:[...(search ? [{ id:'public-web-search', name:'公开网页搜索', calls:1 }] : []), { id:'public-web-fetch', name:'公开网页读取', calls:sourceUrls.length }] },
       artifactRefs: [{ artifactId: `public-report:${task.taskId}`, taskId: task.taskId, type: 'public_web_report', title: sources.length > 1 ? '公开网页对比报告' : '公开网页中文摘要', location: `runtime://${task.taskId}/public-web-report`, mimeType: 'application/json', accessScope: 'local-owner', validation: { exists: true, readable: true, nonEmpty: true, publicReadOnly: true, sourceCount:sources.length, sourceAttemptCount:sourceUrls.length }, createdAt: completedAt, data: report }]
     };
+  }
+
+  triggerControlledFailure(task) {
+    const title = String(task?.input?.title || '').trim();
+    if (!this.testFailureTitle || title !== this.testFailureTitle || this.testFailuresRemaining < 1) return;
+    this.testFailuresRemaining -= 1;
+    const error = new Error('受控公开资料执行故障；仅用于真实恢复链路验收。');
+    error.code = 'controlled_public_report_failure';
+    error.category = 'transient';
+    error.retryable = true;
+    throw error;
   }
 
   async compareSources(sources) {

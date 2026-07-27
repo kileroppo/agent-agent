@@ -28,6 +28,7 @@ test('未知工作会调用任务理解 AI，并安全交给架构师评估能�
   assert.equal(record.recommendedTaskType, 'governance.architecture-review');
   assert.equal(record.recommendedAgentId, 'architect');
   assert.equal(record.autoContinue, true);
+  assert.equal(record.advisor.deliverable, '中文竞品行动清单');
   assert.match(record.nextAction, /竞品整理成行动清单/);
   assert.match(record.nextAction, /中文竞品行动清单/);
   assert.match(record.nextAction, /竞品名称/);

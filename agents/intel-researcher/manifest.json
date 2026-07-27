@@ -1,6 +1,6 @@
 {
   "schemaVersion": "agent.army/v1",
-  "manifestVersion": "0.1.0",
+  "manifestVersion": "0.2.0",
   "agentId": "intel-researcher",
   "name": "小R",
   "department": "实战组",
@@ -31,5 +31,5 @@
   "appRef": "apps/ajun-runtime",
   "operationalPolicy": { "heartbeatSeconds": 0, "inputTimeoutMinutes": 15, "retryStrategy": "single-safe-retry" },
   "owner": "A 君",
-  "status": "draft"
+  "status": "active"
 }

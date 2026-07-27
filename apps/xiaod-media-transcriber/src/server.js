@@ -3,7 +3,7 @@ import path from 'node:path';
 import express from 'express';
 import multer from 'multer';
 import { config, configuredCapabilities } from './config.js';
-import { makeJob, validatePublicHttpUrl } from './domain.js';
+import { makeJob, normalizeIdempotencyKey, validatePublicHttpUrl } from './domain.js';
 import { canRetryJob, retryPatch } from './recovery.js';
 import { createPersistentOneShotFailpoint, resetPersistentOneShotFailpoint } from './test-failpoint.js';
 import { IntakeError, createFeishuMediaJob } from './feishu-media-intake.js';
@@ -85,12 +85,22 @@ app.post('/api/jobs', async (req, res, next) => {
   try {
     const valid = validatePublicHttpUrl(req.body?.url || '');
     if (!valid.ok) return res.status(422).json({ error: valid.reason });
+    const idempotencyKey = normalizeIdempotencyKey(req.body?.idempotencyKey);
+    if (req.body?.idempotencyKey !== undefined && !idempotencyKey) return res.status(422).json({ error:'幂等标识格式不正确。' });
     const requestedConnectionId = req.body?.connectionId || null;
     const connectionId = requestedConnectionId || await contentRuntime.resolveConnectionForSource(valid.url);
     if (requestedConnectionId !== null && (typeof requestedConnectionId !== 'string' || !requestedConnectionId.trim())) return res.status(422).json({ error: '连接标识格式不正确。' });
-    const job = await store.create(makeJob({ sourceType: 'url', sourceUrl: valid.url, connectionId }));
-    void pipeline.run(job.id);
-    res.status(202).json({ job });
+    const candidate = makeJob({
+      sourceType:'url',
+      sourceUrl:valid.url,
+      connectionId,
+      ingress:idempotencyKey ? { platform:'agent-army-mac-worker', idempotencyKey } : null
+    });
+    const result = idempotencyKey
+      ? await store.createOrGetByIngressKey(candidate)
+      : { job:await store.create(candidate), created:true };
+    if (result.created) void pipeline.run(result.job.id);
+    res.status(result.created ? 202 : 200).json({ job:result.job, duplicate:!result.created });
   } catch (error) { next(error); }
 });
 

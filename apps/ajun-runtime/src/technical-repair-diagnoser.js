@@ -7,7 +7,7 @@ const SAFE_TEST_COMMAND = /^(?:node --test [A-Za-z0-9_./ -]+|npm test --prefix a
 const SENSITIVE_PATH = /(?:^|\/)(?:\.env(?:\.|$)|credentials?|secrets?|tokens?|cookies?)(?:\/|$)/i;
 
 export class TechnicalRepairDiagnoser {
-  constructor({ command = '/Users/pengaro/.local/bin/codex', execFileImpl = execFile, maxRunMs = 60_000 } = {}) {
+  constructor({ command = process.env.AJUN_CODEX_COMMAND || '/Users/pengaro/.local/bin/codex', execFileImpl = execFile, maxRunMs = 60_000 } = {}) {
     this.command = command;
     this.execFile = execFileImpl;
     this.maxRunMs = maxRunMs;

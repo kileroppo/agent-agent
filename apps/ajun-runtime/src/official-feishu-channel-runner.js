@@ -103,7 +103,14 @@ export class OfficialFeishuChannelRunner {
         chatRef:event.chatId,
         requesterRef:event.operator?.openId
       });
-      return { toast:{ type:'success', content:approvalToast(response.action.action, response.result) } };
+      const toast = approvalToast(response.action.action, response.result, value.taskControlAction);
+      return {
+        toast:{ type:'success', content:toast },
+        // A toast alone leaves the original buttons live and visually selected.
+        // Replace the source card synchronously so a decision is final in both
+        // the task truth and the chat UI.
+        card:{ type:'raw', data:approvalResultCard(value, toast) }
+      };
     } catch (error) {
       this.logger.warn?.(`官方飞书审批未能处理：${safeError(error)}`);
       return { toast:{ type:'error', content:'这次确认没有生效；原任务保持不变。' } };
@@ -148,24 +155,46 @@ export function officialChannelOptions(environment = process.env) {
 export function approvalCard(approval) {
   const title = approval.governanceMode === 'proposal' ? 'A君 · 新员工审核' : 'A君 · 请你确认';
   const scope = approval.requestedScope?.title || approval.reason || '本次工作范围';
+  const labels = approvalLabels(approval.action);
   return {
     config:{ wide_screen_mode:true },
     header:{ title:{ tag:'plain_text', content:title }, template:'orange' },
     elements:[
       { tag:'markdown', content:`**事项**：${safeCardText(scope)}\n\n${safeCardText(approval.reason || '请确认本次范围。')}` },
       { tag:'action', actions:[
-        { tag:'button', text:{ tag:'plain_text', content:'批准本次范围' }, type:'primary', value:approvalValue(approval, 'approve') },
-        { tag:'button', text:{ tag:'plain_text', content:'拒绝并关闭' }, type:'danger', value:approvalValue(approval, 'reject') }
+        { tag:'button', text:{ tag:'plain_text', content:labels.approve }, type:'primary', value:approvalValue(approval, 'approve') },
+        { tag:'button', text:{ tag:'plain_text', content:labels.reject }, type:'danger', value:approvalValue(approval, 'reject') }
       ] }
     ]
   };
 }
 
-function approvalValue(approval, action) { return { approvalId:approval.approvalId, governanceMode:approval.governanceMode, action }; }
+function approvalValue(approval, action) { return { approvalId:approval.approvalId, governanceMode:approval.governanceMode, action, taskControlAction:approval.action || null }; }
+function approvalLabels(action) {
+  if (action === 'pause-task') return { approve:'同意暂停', reject:'保持继续处理' };
+  if (action === 'resume-task') return { approve:'同意继续', reject:'保持暂停' };
+  return { approve:'批准本次范围', reject:'拒绝并关闭' };
+}
+function approvalResultCard(value, message) {
+  const approved = value.action === 'approve';
+  const action = value.taskControlAction === 'pause-task' ? (approved ? '已同意暂停' : '已保持继续处理')
+    : value.taskControlAction === 'resume-task' ? (approved ? '已同意继续' : '已保持暂停')
+      : approved ? '已批准' : '已拒绝并关闭';
+  return {
+    config:{ wide_screen_mode:true },
+    header:{ title:{ tag:'plain_text', content:'A君 · 审批已处理' }, template:approved ? 'green' : 'grey' },
+    elements:[{ tag:'markdown', content:`**${action}**\n\n${safeCardText(message)}` }]
+  };
+}
 function listEnv(value) { return [...new Set(String(value || '').split(',').map((item) => item.trim()).filter(Boolean))]; }
 function requiredEnv(environment, key, message) { const value = String(environment?.[key] || '').trim(); if (!value) throw new OfficialFeishuChannelRunnerError(message); return value; }
 function safeCardText(value) { return String(value || '').replace(/[<>]/g, '').slice(0, 1500); }
 function safeError(error) { return String(error?.message || '未知问题').replace(/[\r\n]/g, ' ').slice(0, 180); }
-function approvalToast(action, result) { if (action === 'reject') return '已拒绝，草案或任务已关闭。'; return result?.task ? '已批准，任务会按确认范围继续。' : '已批准，后续会按确认范围继续。'; }
+function approvalToast(action, result, taskControlAction) {
+  if (taskControlAction === 'pause-task') return action === 'approve' ? '已同意暂停；小D会在安全位置停下。' : '已保持继续处理。';
+  if (taskControlAction === 'resume-task') return action === 'approve' ? '已同意继续；小D会从安全位置恢复。' : '已保持暂停。';
+  if (action === 'reject') return '已拒绝，草案或任务已关闭。';
+  return result?.task ? '已批准，任务会按确认范围继续。' : '已批准，后续会按确认范围继续。';
+}
 function channelState(status, message) { return { status, message, updatedAt:new Date().toISOString() }; }
 function safeAgentId(value) { const id = String(value || '').trim(); return /^[a-z][a-z0-9-]{0,63}$/.test(id) ? id : null; }

@@ -2,10 +2,10 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | v3.2 实施中：M2 通用连接、内容获取与运维字段已有本地实现和契约测试；飞书军团总管与审批回调已接入，暂停/继续仍待真实飞书验收 |
+| 状态 | v3.4 实施中：M2 通用连接、内容获取、运维与独立 Hermes 员工 Fleet 已有本地实现和契约测试 |
 | 负责人 | 技术负责人 / Codex 工作台 |
-| 版本 | v3.2 |
-| 最后更新 | 2026-07-22 |
+| 版本 | v3.3 |
+| 最后更新 | 2026-07-26 |
 | 更新触发 | 字段、状态、兼容性、权限或完成定义变化 |
 
 ## 1. 契约原则
@@ -46,7 +46,30 @@
 
 Manifest 不保存 secret，也不直接嵌入不可审计的长 Prompt；Prompt 使用版本化引用。
 
-### 2.1 AgentProposalContract
+### 2.1 独立员工就绪投影
+
+`runtimeProfileRef` 的本机状态只能按以下顺序投影，不能把“选过模型”或“填过飞书应用”冒充成独立员工已经可用：
+
+| 状态 | 事实含义 |
+| --- | --- |
+| `not_created` / `missing_profile` / `invalid_reference` | 独立身份尚未建立或资料无效 |
+| `model_pending` | 独立身份已建立，但尚未完成模型选择 |
+| `model_transport_pending` | 已选择模型，但凭据授权与一次真实无副作用调用尚未验证 |
+| `channel_pending` | 模型调用已验证，独立飞书入口尚未启用 |
+| `waiting_verification` | 模型和入口均已配置，但尚无真实消息闭环证据 |
+| `ready` | 独立模型调用和运行入口已有验证证据 |
+
+`modelConfigured` 只代表模型选择已写入；只有 `credentialedTransportVerified=true` 才代表模型传输已经通过。飞书实时连接状态与模型状态应分开展示；App ID、Secret、允许人员 ID 和授权链接不得进入读取接口。
+
+模型授权入口复用 Hermes 官方 Dashboard，并且必须：
+
+- 只由本机老板打开；
+- 固定绑定 `127.0.0.1`，拒绝公网、局域网和端口冲突；
+- 只接受白名单员工 ID，并用 `?profile=<员工 Profile>` 明确作用域；
+- 不读取、不代理、不记录模型 token/API Key；
+- 打开授权页不等于授权完成；仍需一次真实、无副作用模型调用才能把状态改为 `credentialedTransportVerified=true`。
+
+### 2.2 AgentProposalContract
 
 定义由飞书创建入口和治理 Agent 生成的新岗位草案。它不是已上线 Agent，不能拥有生产运行、外部账号或未批准权限。
 
@@ -100,6 +123,7 @@ received
 needs_input
 queued
 running
+waiting_worker
 pausing
 paused
 waiting_approval
@@ -126,6 +150,7 @@ delivering
 - `received` 可以进入 `needs_input` 或 `queued`；
 - `needs_input` 补充有效信息后进入 `queued`，超时后进入 `expired`；
 - `queued` 启动后进入 `running`；
+- 云端任务需要本机文件、私人账号或重型媒体能力时进入 `waiting_worker`；Mac 工作间以短租约领取后进入 `running`，租约过期可重新领取；
 - `running` 遇到高风险动作进入 `waiting_approval`；
 - `running` 收到暂停确认后先进入 `pausing`；只有运行时到达安全位置后才能进入 `paused`，不得提前显示为已暂停；
 - `paused` 的继续操作必须重新走组织级确认，批准后回到 `queued` 或 `running`；
@@ -133,7 +158,24 @@ delivering
 - `succeeded`、`failed`、`cancelled`、`expired` 为终态；
 - 从终态重试时创建新的 attempt 记录，不擦除原历史。
 
-### 3.4 标准错误
+### 3.4 MacWorkerLeaseContract
+
+私人云端办公室只通过出站轮询把需要本机能力的工作交给 Mac 工作间，不把本机服务直接暴露到公网。
+
+| 字段 | 必填 | 含义 |
+| --- | --- | --- |
+| `taskId` | 是 | 云端任务的稳定 ID，同时作为本机执行幂等键 |
+| `workerId` | 是 | 脱敏的工作设备标识 |
+| `leaseId` | 是 | 单次短租约标识；旧租约不得覆盖新结果 |
+| `leaseExpiresAt` | 是 | 租约过期时间 |
+| `capability` | 是 | 当前只允许白名单能力，如 `media.transcribe-and-refine` |
+| `stage` / `progress` | 否 | 工作阶段和真实进度 |
+| `artifactRefs` | 完成时是 | 已验证且脱敏的产物引用 |
+| `error` | 失败时是 | 脱敏标准错误 |
+
+Worker API 必须使用独立 Bearer Token；云端地址必须为 HTTPS（回环验收除外），本机小D地址必须为回环 HTTP。成功回写必须带通过存在性、可读性和权限检查的产物；不得回传本机路径、Cookie、token、浏览器会话或原始凭据。Mac 离线时任务保持 `waiting_worker`，不能误报执行中、失败或完成。
+
+### 3.5 标准错误
 
 `error` 至少包含：
 
@@ -145,7 +187,7 @@ delivering
 - `causeRef`：原始错误或日志引用；
 - `occurredAt`：发生时间。
 
-### 3.5 PaperclipTaskProjection
+### 3.6 PaperclipTaskProjection
 
 定义进入组织级治理的最小任务信封。仅当任务涉及新 Agent、扩权/账号连接、公开发布、付费/预算、跨 Agent、长任务调度、暂停/终止或跨岗位审计时才创建或关联该投影；低风险、单 Agent、可立即完成的飞书请求，以及本次范围明确的一次性审批，都不应仅为记录而增加 Paperclip 中转。
 
@@ -313,7 +355,24 @@ delivering
 
 运维官可以通知、重试和恢复 A君自管组件；它不能根据事件读取凭据、执行登录、绕过平台限制或扩大授权。
 
-## 10. 跨系统映射要求
+## 10. Agent Army MCP Tool Contract
+
+定义 Hermes Profile 访问军团真相的受控工具边界。传输使用本机 `stdio`，HTTP 下游只能是 loopback A君运行时。
+
+| 工具类别 | 当前工具 | 约束 |
+| --- | --- | --- |
+| 只读能力与状态 | `capabilities`、`status`、`employee_status` | 不创建任务；回答必须来自当前运行概览 |
+| 只读任务 | `task_list`、`task_get` | 只返回脱敏任务、错误、审批与白名单产物摘要 |
+| 任务动作 | `task_create`、`mission_create`、`task_control` | 必须使用已上岗任务类型和幂等引用；`mission_create` 限 1–3 项并形成一个总任务；高风险只进入既有审批 |
+| 审批 | `approval_list`、`approval_resolve` | 批准前必须经当前 Hermes 会话 elicitation；明确拒绝直接安全关闭，批准超时或会话离开时不执行 |
+| Paperclip heartbeat | `paperclip_assignment_get`、`paperclip_assignment_complete` | 只允许存在当前 issue/run/agent 环境身份时调用；每个 heartbeat 读取和完成各最多一次；回写必须携带当前 Paperclip API key 与 run 身份，不能关闭别人的任务或以用户身份回写 |
+| 受控技术修复 | `technical_repair_execute` | 仅技术专家、仅当前 `operations.technical-repair` 指派；只暴露白名单文件、测试命令和恢复检查。只有 A君返回 `verified=true`、测试与恢复检查通过并安全带回后，员工才可回报 `succeeded` |
+
+Hermes Session 只保存对话和上下文；A君/业务 Agent 保存任务与 checkpoint；Paperclip 保存组织级真相。MCP Server 不保存 secret、聊天正文、会话数据库、任务副本或审批副本。新增工具必须复用现有服务契约、声明只读/副作用注解，并具有失败关闭和脱敏测试。
+
+正式员工 Manifest 的 `runtimeCapabilities` 是 Profile 配置输入：`skills`、`mcpTools`、`feishuToolsets` 与 `paperclipToolsets` 必须显式列出。配置器只能从该白名单生成独立 Profile 和 Adapter；新员工不得继承另一个员工的会话、记忆或扩大后的工具集合。
+
+## 11. 跨系统映射要求
 
 - 每个适配器必须有契约测试样例；
 - 平台缺少字段时必须明确使用扩展字段、本地存储或降级，不得丢弃；

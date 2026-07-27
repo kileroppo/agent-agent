@@ -7,10 +7,13 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
+    "acceptance:governance-feishu": "NODE_NO_WARNINGS=1 node scripts/verify-governance-feishu-acceptance.mjs",
     "test": "node --test"
   },
   "dependencies": {
     "@larksuite/channel": "^0.4.0",
-    "@larksuiteoapi/node-sdk": "^1.71.1"
+    "@larksuiteoapi/node-sdk": "^1.71.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.76"
   }
 }

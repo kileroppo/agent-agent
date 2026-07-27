@@ -2,12 +2,47 @@
   "schemaVersion": "agent.army/hermes-profile-map/v1",
   "status": "verified-local",
   "profileId": "reviewer",
-  "role": "审核官独立身份；只做受限审核建议验收。",
-  "localProfile": { "created": true, "gatewayStarted": false, "modelSelectionConfigured": true, "modelConfigured": true, "credentialedTransportVerified": true, "skillsSeeded": false },
+  "role": "审核官：核对范围、权限、预算和外部副作用，只给建议而不替老板授权。",
+  "localProfile": {
+    "created": true,
+    "gatewayStarted": true,
+    "modelSelectionConfigured": true,
+    "modelConfigured": true,
+    "credentialedTransportVerified": true,
+    "skillsSeeded": true
+  },
   "agentManifestRef": "agents/reviewer/manifest.json",
   "promptRef": "agents/reviewer/prompts/system.md",
   "appRef": "apps/ajun-runtime",
-  "gateway": { "platform": "feishu", "enabled": false, "reason": "独立飞书 Bot 尚未创建；不允许复用其他员工身份。" },
-  "toolAllowlist": ["army.approval.read", "army.approval.decide", "army.task.status.read"],
-  "secrets": { "source": "profile-environment-only", "valuesStoredHere": false }
+  "gateway": {
+    "platform": "feishu",
+    "enabled": true,
+    "reason": "独立 Hermes Profile Gateway 已连接；Paperclip heartbeat 审核任务、老板真实飞书私聊和独立会话均已验证。"
+  },
+  "mcp": {
+    "server": "agent-army",
+    "tools": [
+      "capabilities",
+      "task_list",
+      "task_get",
+      "task_create",
+      "approval_list",
+      "paperclip_assignment_get",
+      "paperclip_assignment_complete"
+    ],
+    "scope": {
+      "agentIds": ["reviewer"],
+      "taskTypes": ["governance.approval-review"],
+      "allowMissions": false
+    }
+  },
+  "toolAllowlist": [
+    "army.approval.read",
+    "army.approval.decide",
+    "army.task.status.read"
+  ],
+  "secrets": {
+    "source": "profile-environment-only",
+    "valuesStoredHere": false
+  }
 }

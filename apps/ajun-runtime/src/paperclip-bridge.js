@@ -1,3 +1,5 @@
+import { paperclipHermesAdapterConfig, usesPaperclipHermesExecution } from './governance-hermes-runtime.js';
+
 const DEFAULT_URL = 'http://127.0.0.1:3100';
 const COMPANY_NAME = 'Agent军团';
 
@@ -66,24 +68,42 @@ export class PaperclipBridge {
         const current = existing.find((agent) => agent.metadata?.agentArmyId === manifest.agentId && agent.status !== 'terminated')
           || (manifest.agentId === 'operator' ? existing.find((agent) => agent.name === 'A君本机健康官' && agent.adapterType === 'http' && agent.status !== 'terminated') : null);
         if (current) {
-          if (manifest.agentId === 'operator' && current.metadata?.agentArmyId !== 'operator') {
-            await this.request(`/api/agents/${encodeURIComponent(current.id)}`, { method:'PATCH', body:{ metadata:{ ...(current.metadata || {}), agentArmyId:'operator', agentArmyRole:manifest.role, agentArmyManagedOnly:false } } });
-          } else if (current.metadata?.agentArmyManagedOnly === true && rosterNeedsRefresh(current, manifest)) {
-            const desired = paperclipRosterEntry(manifest);
+          const desired = paperclipRosterEntry(manifest);
+          if (manifest.agentId === 'operator' && current.metadata?.agentArmyId !== 'operator' && !usesPaperclipHermesExecution(manifest)) {
+            await this.request(`/api/agents/${encodeURIComponent(current.id)}`, {
+              method:'PATCH',
+              body:{ metadata:{ ...(current.metadata || {}), agentArmyId:'operator', agentArmyRole:manifest.role, agentArmyManagedOnly:false } }
+            });
+          } else if (rosterNeedsRefresh(current, manifest)) {
+            const hermesOwned = usesPaperclipHermesExecution(manifest);
             await this.request(`/api/agents/${encodeURIComponent(current.id)}`, {
               method:'PATCH', body:{
                 name:desired.name, role:desired.role, title:desired.title, icon:desired.icon, capabilities:desired.capabilities,
+                ...(hermesOwned ? {
+                  adapterType:desired.adapterType,
+                  adapterConfig:desired.adapterConfig
+                } : {}),
+                ...(current.status === 'paused' && hermesOwned ? { status:'idle' } : {}),
                 metadata:{ ...(current.metadata || {}), ...desired.metadata }
               }
             });
+          }
+          if (usesPaperclipHermesExecution(manifest)) {
+            await this.syncAgentSkills(current.id, manifest.runtimeCapabilities?.skills);
           }
           synced.push({ agentArmyId:manifest.agentId, paperclipAgentId:current.id, name:current.name, created:false });
           continue;
         }
         const created = await this.request(`/api/companies/${company.id}/agents`, { method:'POST', body:paperclipRosterEntry(manifest) });
-        const paused = await this.request(`/api/agents/${encodeURIComponent(created.id)}`, { method:'PATCH', body:{ status:'paused' } });
-        existing.push(paused);
-        synced.push({ agentArmyId:manifest.agentId, paperclipAgentId:paused.id, name:paused.name, created:true });
+        const configured = await this.request(`/api/agents/${encodeURIComponent(created.id)}`, {
+          method:'PATCH',
+          body:{ status:usesPaperclipHermesExecution(manifest) ? 'idle' : 'paused' }
+        });
+        existing.push(configured);
+        if (usesPaperclipHermesExecution(manifest)) {
+          await this.syncAgentSkills(configured.id, manifest.runtimeCapabilities?.skills);
+        }
+        synced.push({ agentArmyId:manifest.agentId, paperclipAgentId:configured.id, name:configured.name, created:true });
       }
       return { status:'synced', companyId:company.id, agents:synced, syncedAt:new Date().toISOString() };
     } catch (error) {
@@ -108,6 +128,14 @@ export class PaperclipBridge {
       });
       return { status: 'synced', paperclipIssueId: issue.id, paperclipIssueIdentifier: issue.identifier, paperclipApprovalId: approval.id, syncedAt: new Date().toISOString() };
     } catch (error) { return { status: 'sync_pending', reason: safeError(error), syncedAt: new Date().toISOString() }; }
+  }
+
+  async syncAgentSkills(paperclipAgentId, skills = []) {
+    const desiredSkills = [...new Set((Array.isArray(skills) ? skills : []).map((item) => String(item || '').trim()).filter(Boolean))];
+    return this.request(`/api/agents/${encodeURIComponent(paperclipAgentId)}/skills/sync`, {
+      method:'POST',
+      body:{ desiredSkills }
+    });
   }
 
   async updateProposal(proposal) {
@@ -161,14 +189,17 @@ export class PaperclipBridge {
     }
   }
 
-  async completePaperclipIssue(issueId, { runId, agentId, result }) {
+  async completePaperclipIssue(issueId, { runId, agentId, apiKey, result }) {
     const report = result.artifactRefs?.find((item) => item.type === 'health_report')?.data;
-    const outcome = report?.overall || result.execution?.outcome || 'unknown';
+    const employeeReport = result.artifactRefs?.find((item) => item.type === 'employee_role_report')?.data;
+    const outcome = report?.overall || employeeReport?.summary || result.execution?.outcome || 'unknown';
     await this.request(`/api/issues/${encodeURIComponent(issueId)}`, {
-      method: 'PATCH', body: {
+      method: 'PATCH', runId, apiKey, body: {
         status: result.status === 'succeeded' ? 'done' : 'blocked',
         comment: [
-          'A君本机执行回报（Paperclip HTTP Adapter）。',
+          result.execution?.owner === 'paperclip-hermes'
+            ? '员工 Hermes Profile 执行回报。'
+            : 'A君本机执行回报（Paperclip HTTP Adapter）。',
           `运行：${runId}`,
           `岗位：${agentId}`,
           `阶段：${result.currentStage || 'unknown'}`,
@@ -188,6 +219,28 @@ export class PaperclipBridge {
 
   async getPaperclipIssueRuns(issueId) {
     return this.request(`/api/issues/${encodeURIComponent(issueId)}/runs`);
+  }
+
+  async verifyHermesAssignment({ issueId, runId, paperclipAgentId, agentArmyId } = {}) {
+    const safeIssueId = requiredIdentifier(issueId, 'Paperclip 任务标识缺失。');
+    const safeRunId = requiredIdentifier(runId, 'Paperclip 运行标识缺失。');
+    const safePaperclipAgentId = requiredIdentifier(paperclipAgentId, 'Paperclip 员工标识缺失。');
+    const safeAgentArmyId = String(agentArmyId || '').trim();
+    if (!/^[a-z][a-z0-9-]{0,63}$/.test(safeAgentArmyId)) throw new Error('军团员工标识无效。');
+    const [issue, paperclipAgent, runDocument] = await Promise.all([
+      this.getPaperclipIssue(safeIssueId),
+      this.getPaperclipAgent(safePaperclipAgentId),
+      this.getPaperclipIssueRuns(safeIssueId)
+    ]);
+    if (!paperclipAgent || paperclipAgent.metadata?.agentArmyId !== safeAgentArmyId) {
+      throw new Error('Paperclip 员工与 Hermes Profile 身份不一致。');
+    }
+    if (issue.assigneeAgentId !== paperclipAgent.id) throw new Error('该任务没有指派给当前员工。');
+    const runs = Array.isArray(runDocument) ? runDocument : Array.isArray(runDocument?.runs) ? runDocument.runs : [];
+    const rawRun = runs.find((item) => (item?.id || item?.runId) === safeRunId && (!item.agentId || item.agentId === paperclipAgent.id));
+    if (!rawRun) throw new Error('Paperclip 当前运行与任务指派不一致。');
+    const run = { ...rawRun, id:rawRun.id || rawRun.runId };
+    return { issue, run, paperclipAgent, agentArmyId:safeAgentArmyId };
   }
 
   async getExecutionWorkspace(workspaceId) {
@@ -240,8 +293,12 @@ export class PaperclipBridge {
   }
 
   async request(path, options = {}) {
+    const headers = {};
+    if (options.body) headers['content-type'] = 'application/json';
+    if (options.runId) headers['x-paperclip-run-id'] = String(options.runId);
+    if (options.apiKey) headers.authorization = `Bearer ${options.apiKey}`;
     const response = await this.fetch(`${this.baseUrl}${path}`, {
-      method: options.method || 'GET', headers: options.body ? { 'content-type': 'application/json' } : undefined,
+      method: options.method || 'GET', headers:Object.keys(headers).length ? headers : undefined,
       body: options.body ? JSON.stringify(options.body) : undefined, signal: AbortSignal.timeout(2500)
     });
     const payload = await response.json().catch(() => ({}));
@@ -290,18 +347,24 @@ function issueStatusFor(status) { return ({ running: 'backlog', pausing:'backlog
 function safeError(error) { return String(error?.message || 'Paperclip 暂不可用。').slice(0, 240); }
 
 function paperclipRosterEntry(manifest) {
+  const hermesOwned = usesPaperclipHermesExecution(manifest);
   return {
     name:manifest.name,
     role:paperclipRoleFor(manifest),
     title:manifest.role,
     icon:paperclipIconFor(manifest),
     capabilities:(manifest.responsibilities || []).join('；') || manifest.role,
-    // These entries are organization records only.  A君 still owns the local
-    // executor and reports the verified result back to Paperclip; starting an
-    // extra Paperclip runtime here could duplicate a real task.
-    adapterType:'http', adapterConfig:{}, budgetMonthlyCents:0,
+    adapterType:hermesOwned ? 'hermes_local' : 'http',
+    adapterConfig:hermesOwned ? paperclipHermesAdapterConfig(manifest) : {},
+    budgetMonthlyCents:0,
     permissions:{ canCreateAgents:false, canCreateSkills:false, canAssignTasks:false },
-    metadata:{ agentArmyId:manifest.agentId, agentArmyRole:manifest.role, agentArmyManagedOnly:true }
+    metadata:{
+      agentArmyId:manifest.agentId,
+      agentArmyRole:manifest.role,
+      agentArmyManagedOnly:true,
+      executionOwner:manifest.executionOwner || 'ajun-local',
+      hermesProfileId:hermesOwned ? manifest.agentId : null
+    }
   };
 }
 
@@ -319,10 +382,29 @@ function paperclipIconFor(manifest) {
 
 function rosterNeedsRefresh(current, manifest) {
   const desired = paperclipRosterEntry(manifest);
+  const hermesOwned = usesPaperclipHermesExecution(manifest);
+  if (!hermesOwned && current.metadata?.agentArmyManagedOnly !== true) return false;
   return current.name !== desired.name
     || current.role !== desired.role
     || current.title !== desired.title
     || current.icon !== desired.icon
     || current.capabilities !== desired.capabilities
-    || current.metadata?.agentArmyRole !== desired.metadata.agentArmyRole;
+    || (hermesOwned && current.adapterType !== desired.adapterType)
+    || (hermesOwned && stableJson(current.adapterConfig || {}) !== stableJson(desired.adapterConfig || {}))
+    || current.metadata?.agentArmyRole !== desired.metadata.agentArmyRole
+    || current.metadata?.executionOwner !== desired.metadata.executionOwner
+    || current.metadata?.hermesProfileId !== desired.metadata.hermesProfileId
+    || (current.status === 'paused' && usesPaperclipHermesExecution(manifest));
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (!value || typeof value !== 'object') return JSON.stringify(value);
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
+}
+
+function requiredIdentifier(value, message) {
+  const identifier = String(value || '').trim();
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/.test(identifier)) throw new Error(message);
+  return identifier;
 }

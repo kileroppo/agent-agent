@@ -1,3 +1,5 @@
+import { canonicalizeBusinessAssignment } from './business-task-routing.js';
+
 export class LocalTaskCoordinator {
   constructor({ now = () => new Date(), advisor = null, registry = null } = {}) { this.now = now; this.advisor = advisor; this.registry = registry; }
 
@@ -14,6 +16,7 @@ export class LocalTaskCoordinator {
       recommendedAgentId: recommendation.agentId,
       nextAction: recommendation.nextAction,
       autoContinue: recommendation.autoContinue === true,
+      ...(recommendation.advisor ? { advisor:recommendation.advisor } : {}),
       externalActionStarted: false
     };
     return {
@@ -54,8 +57,22 @@ function safeForCapabilityReview(input) {
 }
 
 function missionPlan(task, createdAt) {
+  const businessItems = normalizeBusinessMissionItems(task.input?.context?.businessMissionItems);
+  if (businessItems.length) {
+    const plan = {
+      missionId:task.taskId,
+      kind:'business',
+      safeOnly:task.input?.context?.missionSafeOnly === true,
+      summary:String(task.input?.context?.businessMissionSummary || task.input?.title || '完成老板交办的多人协作任务。').trim().slice(0, 500),
+      subtasks:businessItems,
+      prohibitedActions:['未经批准的登录','未经批准的外发','未经批准的付费','未经批准的公开发布','未经批准的删除','未经批准的扩权'],
+      createdAt
+    };
+    return missionPlanResult(task, plan, createdAt);
+  }
   const plan = {
     missionId: task.taskId,
+    kind:'army-review',
     safeOnly: true,
     summary: '盘点军团当前运行状态，并提出下一步改进建议。',
     subtasks: [
@@ -65,11 +82,29 @@ function missionPlan(task, createdAt) {
     prohibitedActions:['登录','外发','付费','公开发布','删除','扩权'],
     createdAt
   };
+  return missionPlanResult(task, plan, createdAt);
+}
+
+function missionPlanResult(task, plan, createdAt) {
   return {
     status:'running', currentStage:'mission_planned',
     execution:{ executor:'task-coordinator', mode:'cross_agent_mission_plan', startedAt:task.execution?.startedAt || createdAt, finishedAt:createdAt, outcome:'subtasks_ready' },
     artifactRefs:[{ artifactId:`mission-plan:${task.taskId}`, taskId:task.taskId, type:'cross_agent_mission_plan', title:'多人协作分工', location:`runtime://${task.taskId}/mission-plan`, mimeType:'application/json', accessScope:'local-owner', validation:{ exists:true, readable:true, nonEmpty:true, safeOnly:true }, createdAt, data:plan }]
   };
+}
+
+function normalizeBusinessMissionItems(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 3) return [];
+  return value.map((item, index) => canonicalizeBusinessAssignment({
+    key:String(item?.key || `work-${index + 1}`).trim().slice(0, 80),
+    agentId:String(item?.agentId || '').trim().slice(0, 80),
+    taskType:String(item?.taskType || '').trim().slice(0, 120),
+    title:String(item?.title || '').trim().slice(0, 500),
+    description:String(item?.description || '').trim().slice(0, 2000),
+    acceptance:String(item?.acceptance || '交付可验证结果；无法完成时明确说明卡点和下一步。').trim().slice(0, 500),
+    sourceUrls:Array.isArray(item?.sourceUrls) ? item.sourceUrls.map((url) => String(url || '').trim()).filter(Boolean).slice(0, 5) : [],
+    dependsOnPrevious:item?.dependsOnPrevious === true || String(item?.agentId || '').trim() === 'office-assistant'
+  }, { index })).filter((item) => item.agentId && item.taskType && item.title);
 }
 
 function recommend(input) {

@@ -57,5 +57,17 @@ test('技术专家留下完整结果且可安全带回时，A君 等待治理记
   const result = await expert.execute({ taskId:'technical-task', governance:{ paperclipAssigneeAgentId:'paperclip-tech-1' }, input:{ context:{ repairScope:{ files:['apps/a.js'], testCommand:'npm test', recoveryCheck:'检查恢复' } } }, execution:{} });
   assert.equal(result.status, 'running');
   assert.equal(result.currentStage, 'repair_promoted_awaiting_record');
+  assert.deepEqual(result.execution.verification, {
+    verified:true,
+    changedFiles:['apps/a.js'],
+    testsPassed:true,
+    testCommand:'npm test',
+    testSummary:'',
+    recoveryVerified:true,
+    recoveryCheck:'检查恢复',
+    recoverySummary:'',
+    remainingTests:[]
+  });
+  assert.equal(result.artifactRefs[0].data.verification.verified, true);
   assert.match(result.artifactRefs[0].data.nextAction, /安全带回主工程/);
 });

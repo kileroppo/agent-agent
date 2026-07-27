@@ -5,7 +5,7 @@ const ACTIONS = new Set(['show_last_usage_items', 'not_applicable']);
 // Hermes is used here to understand a follow-up in a conversation, not to
 // invent a response. The only accepted action is mapped back to local facts.
 export class HermesConversationAdvisor {
-  constructor({ command = '/Users/pengaro/.local/bin/hermes', hermesHome = process.env.AJUN_HERMES_HOME || '', timeoutMs = 18_000, run = runCommand } = {}) {
+  constructor({ command = process.env.AJUN_HERMES_COMMAND || '/Users/pengaro/.local/bin/hermes', hermesHome = process.env.AJUN_HERMES_HOME || '', timeoutMs = 18_000, run = runCommand } = {}) {
     this.command = command;
     this.hermesHome = hermesHome;
     this.timeoutMs = timeoutMs;

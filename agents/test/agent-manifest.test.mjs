@@ -9,7 +9,8 @@ const repositoryRoot = path.resolve(testDirectory, "../..");
 const manifestPath = path.join(repositoryRoot, "agents/xiaod/manifest.json");
 const ajunManifestPath = path.join(repositoryRoot, "agents/ajun/manifest.json");
 const independentAgentIds = ["task-coordinator", "architect", "reviewer", "operator", "creator", "technical-expert"];
-const draftAgentIds = ["github-scout", "intel-researcher"];
+const configuredFirstTeamAgentIds = ["intel-researcher", "office-assistant"];
+const draftAgentIds = ["github-scout"];
 
 const requiredFields = [
   "schemaVersion",
@@ -102,7 +103,7 @@ test("A君也有完整岗位卡和独立身份资料，但不会被当成普通�
   assert.equal(profile.secrets.valuesStoredHere, false);
 });
 
-test("现有后台岗位都有独立身份映射，且独立入口不会被误当成已上线", async () => {
+test("现有治理岗位都有独立 Hermes 身份、岗位能力和已启用 Gateway", async () => {
   for (const agentId of independentAgentIds) {
     const manifest = await readJson(path.join(repositoryRoot, "agents", agentId, "manifest.json"));
     assert.equal(manifest.schemaVersion, "agent.army/v1");
@@ -111,6 +112,23 @@ test("现有后台岗位都有独立身份映射，且独立入口不会被误�
     assert.ok(manifest.acceptedTaskTypes.length > 0);
     assert.ok(manifest.nonResponsibilities.length > 0);
     assert.ok(manifest.approvalPolicies.some((policy) => policy.decision !== "auto"));
+    assert.deepEqual(manifest.interaction, {
+      runtime:"hermes-profile",
+      directFeishu:"required",
+      visibility:"on-demand",
+      groupPolicy:"mention-only"
+    });
+    assert.equal(manifest.executionOwner, "paperclip-hermes");
+    assert.ok(manifest.runtimeCapabilities.skills.includes("paperclip"));
+    assert.ok(manifest.runtimeCapabilities.mcpTools.includes("paperclip_assignment_get"));
+    assert.ok(manifest.runtimeCapabilities.mcpTools.includes("paperclip_assignment_complete"));
+    assert.ok(!manifest.runtimeCapabilities.feishuToolsets.some((toolset) => [
+      "terminal",
+      "file",
+      "browser",
+      "computer_use",
+      "code_execution"
+    ].includes(toolset)));
     await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.promptRef)));
     await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.appRef)));
     await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.runtimeProfileRef)));
@@ -123,7 +141,12 @@ test("现有后台岗位都有独立身份映射，且独立入口不会被误�
     assert.equal(profile.localProfile.modelSelectionConfigured, true);
     assert.equal(profile.localProfile.modelConfigured, true);
     assert.equal(profile.localProfile.credentialedTransportVerified, true);
-    assert.equal(profile.gateway.enabled, false);
+    assert.equal(profile.localProfile.skillsSeeded, true);
+    assert.equal(profile.gateway.enabled, true);
+    assert.equal(profile.mcp.server, "agent-army");
+    assert.deepEqual(profile.mcp.scope.agentIds, [agentId]);
+    assert.ok(profile.mcp.tools.includes("paperclip_assignment_get"));
+    assert.ok(profile.mcp.tools.includes("paperclip_assignment_complete"));
     assert.deepEqual(profile.toolAllowlist, manifest.toolAllowlist);
     assert.equal(profile.secrets.valuesStoredHere, false);
   }
@@ -145,6 +168,32 @@ test("新增岗位在审核前保持草案，并有完整的无凭据身份映�
     assert.equal(profile.agentManifestRef, `agents/${agentId}/manifest.json`);
     assert.deepEqual(profile.toolAllowlist, manifest.toolAllowlist);
     assert.equal(profile.gateway.enabled, false);
+    assert.equal(profile.secrets.valuesStoredHere, false);
+  }
+});
+
+test("首批业务员工已由独立 Hermes Profile Gateway 承接飞书连续会话", async () => {
+  for (const agentId of configuredFirstTeamAgentIds) {
+    const manifest = await readJson(path.join(repositoryRoot, "agents", agentId, "manifest.json"));
+    assert.equal(manifest.schemaVersion, "agent.army/v1");
+    assert.equal(manifest.agentId, agentId);
+    assert.equal(manifest.status, "active");
+    for (const field of requiredFields) assert.ok(Object.hasOwn(manifest, field), `missing required field: ${field}`);
+    await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.promptRef)));
+    await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.runtimeProfileRef)));
+    await assert.doesNotReject(() => stat(path.join(repositoryRoot, "agents", agentId, "岗位卡.md")));
+
+    const profile = await readJson(path.join(repositoryRoot, manifest.runtimeProfileRef));
+    assert.equal(profile.status, "verified-local");
+    assert.equal(profile.profileId, agentId);
+    assert.equal(profile.agentManifestRef, `agents/${agentId}/manifest.json`);
+    assert.equal(profile.localProfile.created, true);
+    assert.equal(profile.localProfile.modelSelectionConfigured, true);
+    assert.equal(profile.localProfile.modelConfigured, true);
+    assert.equal(profile.localProfile.credentialedTransportVerified, true);
+    assert.equal(profile.localProfile.gatewayStarted, true);
+    assert.equal(profile.gateway.enabled, true);
+    assert.ok(manifest.toolAllowlist.every((tool) => profile.toolAllowlist.includes(tool)));
     assert.equal(profile.secrets.valuesStoredHere, false);
   }
 });

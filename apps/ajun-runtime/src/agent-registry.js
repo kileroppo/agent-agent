@@ -35,6 +35,7 @@ export class AgentRegistry {
       if (!local.created) return { state: 'not_created' };
       if (local.credentialedTransportVerified === true && (gateway.enabled !== false || local.gatewayStarted === true)) return { state: 'ready' };
       if (local.modelConfigured !== true) return { state: 'model_pending' };
+      if (local.credentialedTransportVerified !== true) return { state: 'model_transport_pending' };
       if (gateway.enabled !== true) return { state: 'channel_pending' };
       return { state: 'waiting_verification' };
     } catch {

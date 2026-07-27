@@ -2,12 +2,46 @@
   "schemaVersion": "agent.army/hermes-profile-map/v1",
   "status": "verified-local",
   "profileId": "technical-expert",
-  "role": "技术专家独立身份；只做受限技术诊断与修复验收。",
-  "localProfile": { "created": true, "gatewayStarted": false, "modelSelectionConfigured": true, "modelConfigured": true, "credentialedTransportVerified": true, "skillsSeeded": false },
+  "role": "技术专家：通过 A君隔离 Codex 修复执行器实施最小修复、测试和恢复检查。",
+  "localProfile": {
+    "created": true,
+    "gatewayStarted": true,
+    "modelSelectionConfigured": true,
+    "modelConfigured": true,
+    "credentialedTransportVerified": true,
+    "skillsSeeded": true
+  },
   "agentManifestRef": "agents/technical-expert/manifest.json",
   "promptRef": "agents/technical-expert/prompts/system.md",
   "appRef": "apps/ajun-runtime",
-  "gateway": { "platform": "feishu", "enabled": false, "reason": "独立飞书 Bot 尚未创建；不允许复用其他员工身份。" },
-  "toolAllowlist": ["army.task.status.read", "army.operations.event.read", "army.technical-repair.record"],
-  "secrets": { "source": "profile-environment-only", "valuesStoredHere": false }
+  "gateway": {
+    "platform": "feishu",
+    "enabled": true,
+    "reason": "独立 Hermes Profile Gateway 已连接；Paperclip heartbeat 隔离修复、测试、恢复检查、安全带回、老板真实飞书私聊和独立会话均已验证。"
+  },
+  "mcp": {
+    "server": "agent-army",
+    "tools": [
+      "task_list",
+      "task_get",
+      "task_create",
+      "paperclip_assignment_get",
+      "technical_repair_execute",
+      "paperclip_assignment_complete"
+    ],
+    "scope": {
+      "agentIds": ["technical-expert"],
+      "taskTypes": ["operations.technical-repair"],
+      "allowMissions": false
+    }
+  },
+  "toolAllowlist": [
+    "army.task.status.read",
+    "army.operations.event.read",
+    "army.technical-repair.record"
+  ],
+  "secrets": {
+    "source": "profile-environment-only",
+    "valuesStoredHere": false
+  }
 }

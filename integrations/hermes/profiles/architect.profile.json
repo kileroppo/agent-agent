@@ -2,12 +2,46 @@
   "schemaVersion": "agent.army/hermes-profile-map/v1",
   "status": "verified-local",
   "profileId": "architect",
-  "role": "架构师独立身份；只做受限能力评估验收。",
-  "localProfile": { "created": true, "gatewayStarted": false, "modelSelectionConfigured": true, "modelConfigured": true, "credentialedTransportVerified": true, "skillsSeeded": false },
+  "role": "架构师：识别复用能力、边界和可验证的分阶段演进方案。",
+  "localProfile": {
+    "created": true,
+    "gatewayStarted": true,
+    "modelSelectionConfigured": true,
+    "modelConfigured": true,
+    "credentialedTransportVerified": true,
+    "skillsSeeded": true
+  },
   "agentManifestRef": "agents/architect/manifest.json",
   "promptRef": "agents/architect/prompts/system.md",
   "appRef": "apps/ajun-runtime",
-  "gateway": { "platform": "feishu", "enabled": false, "reason": "独立飞书 Bot 尚未创建；不允许复用其他员工身份。" },
-  "toolAllowlist": ["army.registry.read", "army.task.status.read", "army.architecture.note"],
-  "secrets": { "source": "profile-environment-only", "valuesStoredHere": false }
+  "gateway": {
+    "platform": "feishu",
+    "enabled": true,
+    "reason": "独立 Hermes Profile Gateway 已连接；Paperclip heartbeat 架构评估、老板真实飞书私聊和独立会话均已验证。"
+  },
+  "mcp": {
+    "server": "agent-army",
+    "tools": [
+      "capabilities",
+      "task_list",
+      "task_get",
+      "task_create",
+      "paperclip_assignment_get",
+      "paperclip_assignment_complete"
+    ],
+    "scope": {
+      "agentIds": ["architect"],
+      "taskTypes": ["governance.architecture-review"],
+      "allowMissions": false
+    }
+  },
+  "toolAllowlist": [
+    "army.registry.read",
+    "army.task.status.read",
+    "army.architecture.note"
+  ],
+  "secrets": {
+    "source": "profile-environment-only",
+    "valuesStoredHere": false
+  }
 }

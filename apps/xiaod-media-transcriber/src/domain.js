@@ -45,6 +45,13 @@ export function makeIngressKey({ platform, messageId, attachmentIndex = 0 }) {
   return `${platform}:${messageId}:${attachmentIndex}`;
 }
 
+export function normalizeIdempotencyKey(value) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string') return null;
+  const key = value.trim();
+  return /^[a-zA-Z0-9:_-]{8,240}$/.test(key) ? key : null;
+}
+
 export function validatePublicHttpUrl(value) {
   let parsed;
   try {

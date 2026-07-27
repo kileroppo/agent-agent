@@ -2,19 +2,49 @@
   "schemaVersion": "agent.army/hermes-profile-map/v1",
   "status": "verified-local",
   "profileId": "operator",
-  "role": "运维官独立身份；只做受限本机健康检查验收。",
+  "role": "运维官：核对脱敏健康证据，执行安全恢复或升级技术专家。",
   "localProfile": {
     "created": true,
-    "gatewayStarted": false,
+    "gatewayStarted": true,
     "modelSelectionConfigured": true,
     "modelConfigured": true,
     "credentialedTransportVerified": true,
-    "skillsSeeded": false
+    "skillsSeeded": true
   },
   "agentManifestRef": "agents/operator/manifest.json",
   "promptRef": "agents/operator/prompts/system.md",
   "appRef": "apps/ajun-runtime",
-  "gateway": { "platform": "feishu", "enabled": false, "reason": "独立飞书 Bot 尚未创建；不允许复用其他员工身份。" },
-  "toolAllowlist": ["army.operations.event.read", "army.runtime.health.read", "army.operations.diagnose", "army.task.retry.safe", "army.task.escalate.technical"],
-  "secrets": { "source": "profile-environment-only", "valuesStoredHere": false }
+  "gateway": {
+    "platform": "feishu",
+    "enabled": true,
+    "reason": "独立 Hermes Profile Gateway 已连接；Paperclip heartbeat 健康核对、老板真实飞书私聊和独立会话均已验证。"
+  },
+  "mcp": {
+    "server": "agent-army",
+    "tools": [
+      "status",
+      "employee_status",
+      "task_list",
+      "task_get",
+      "task_create",
+      "paperclip_assignment_get",
+      "paperclip_assignment_complete"
+    ],
+    "scope": {
+      "agentIds": ["operator"],
+      "taskTypes": ["operations.health-review", "operations.failure-recovery"],
+      "allowMissions": false
+    }
+  },
+  "toolAllowlist": [
+    "army.operations.event.read",
+    "army.runtime.health.read",
+    "army.operations.diagnose",
+    "army.task.retry.safe",
+    "army.task.escalate.technical"
+  ],
+  "secrets": {
+    "source": "profile-environment-only",
+    "valuesStoredHere": false
+  }
 }

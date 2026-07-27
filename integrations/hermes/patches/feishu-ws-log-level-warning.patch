@@ -1,0 +1,15 @@
+diff --git a/plugins/platforms/feishu/adapter.py b/plugins/platforms/feishu/adapter.py
+--- a/plugins/platforms/feishu/adapter.py
++++ b/plugins/platforms/feishu/adapter.py
+@@ -5415,7 +5415,10 @@ class FeishuAdapter(BasePlatformAdapter):
+         self._ws_client = FeishuWSClient(
+             app_id=self._app_id,
+             app_secret=self._app_secret,
+-            log_level=lark.LogLevel.INFO,
++            # The SDK's INFO connection line includes the full WebSocket URL,
++            # including short-lived access parameters. Keep those out of
++            # persistent gateway logs.
++            log_level=lark.LogLevel.WARNING,
+             event_handler=self._event_handler,
+             domain=domain,
+             # Channel SDK signaling tag: without this UA tag the Feishu

@@ -1,0 +1,11 @@
+{
+  "name": "agent-army-mac-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Outbound-only Mac workplace bridge for Agent Army",
+  "type": "module",
+  "scripts": {
+    "start": "node src/worker.js",
+    "test": "node --test"
+  }
+}
