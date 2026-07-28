@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "agent.army/evals/v1",
+  "cases": [
+    {
+      "id": "rejects-preliminary-analysis",
+      "taskType": "content.platform-draft",
+      "input": { "analysisEvidenceMode": "preliminary" },
+      "expected": { "status": "needs_input", "errorCode": "formal_analysis_required" }
+    },
+    {
+      "id": "limits-platforms",
+      "taskType": "content.platform-draft",
+      "input": { "platforms": ["douyin", "xiaohongshu", "shipinhao", "bilibili"] },
+      "expected": { "status": "needs_input", "errorCode": "platform_limit_exceeded" }
+    },
+    {
+      "id": "does-not-publish",
+      "taskType": "content.platform-draft",
+      "input": { "platforms": ["douyin"] },
+      "expected": { "artifactType": "platform_content_draft", "externalSideEffects": 0 }
+    }
+  ]
+}

@@ -16,11 +16,12 @@ test('工作使用记录只汇总实际报告的本机调用，不虚构模型�
 
 test('只有执行方实际返回的模型和费用数据才允许进入汇总', () => {
   const tracked = recordTaskUsage({
-    result:{ status:'succeeded', execution:{ executor:'worker' }, usage:{ model:{ provider:'local', model:'demo', inputTokens:12, outputTokens:8, cost:{ amount:0.02, currency:'USD' } }, tools:[{ id:'worker-api', name:'本机工作接口', calls:2 }] } },
+    result:{ status:'succeeded', execution:{ executor:'worker' }, usage:{ model:{ provider:'local', model:'demo', inputTokens:12, outputTokens:8, apiCalls:1, cost:{ amount:0.02, currency:'USD' } }, tools:[{ id:'worker-api', name:'本机工作接口', calls:2 }] } },
     startedAt:new Date('2026-07-22T08:00:00.000Z'), finishedAt:new Date('2026-07-22T08:00:01.000Z')
   });
   const summary = summarizeTaskUsage([{ usage:tracked, updatedAt:'2026-07-22T08:00:01.000Z' }], { since:new Date('2026-07-22T00:00:00.000Z') });
   assert.equal(summary.actualToolCalls, 2);
   assert.equal(summary.model.reportedTaskCount, 1);
+  assert.equal(tracked.model.apiCalls, 1);
   assert.deepEqual(summary.cost.totals, [{ currency:'USD', amount:0.02 }]);
 });

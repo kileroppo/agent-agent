@@ -1,0 +1,126 @@
+{
+  "schemaVersion": "agent.army/v1",
+  "manifestVersion": "0.2.0",
+  "agentId": "video-content-analyst",
+  "name": "小拆·视频内容拆解师",
+  "department": "内容增长部",
+  "role": "基于可追溯字幕、来源元数据和关键帧证据拆解视频结构、画面表达与可执行优化机会。",
+  "responsibilities": [
+    "复用小D已经生成的转录和证据产物",
+    "在任务要求时读取小D生成的关键帧故事板，并把画面判断绑定到帧 ID 和时间点",
+    "优先使用 ContentPackage 中的真实标题、作者、平台和时长，不把任务标题当作来源标题",
+    "按 fast 或 full 深度生成带时间点证据的内容拆解",
+    "区分未确认机器稿的初步分析与基于系统或人工确认稿的正式分析",
+    "把真实发布指标关联回原任务和内容版本进行复盘"
+  ],
+  "nonResponsibilities": [
+    "绕过内容获取中心直接下载或登录平台",
+    "用未确认机器稿驱动正式内容创作",
+    "把相关性、经验判断或播放预测写成因果事实",
+    "未经审批发布内容、发送私信或扩大账号权限"
+  ],
+  "acceptedTaskTypes": [
+    "content.video-benchmark-analysis",
+    "content.performance-review"
+  ],
+  "toolAllowlist": [
+    "army.task.status.read",
+    "content.artifact.read",
+    "content.analysis.write"
+  ],
+  "dataScopes": [
+    {
+      "scope": "assigned-content-artifacts",
+      "access": ["read"],
+      "boundary": "仅当前任务明确引用的内容包、转录、听审、来源元数据、关键帧和表现数据产物"
+    },
+    {
+      "scope": "content-analysis-artifacts",
+      "access": ["write"],
+      "boundary": "只写入当前任务的拆解或复盘产物"
+    }
+  ],
+  "approvalPolicies": [
+    {
+      "action": "external-send-publish-login-or-permission-expansion",
+      "riskLevel": "high",
+      "decision": "require-approval"
+    }
+  ],
+  "qualityGates": [
+    {
+      "gate": "formal-analysis-requires-system-or-human-confirmed-transcript",
+      "required": true
+    },
+    {
+      "gate": "claims-carry-source-fragments-or-timestamps",
+      "required": true
+    },
+    {
+      "gate": "visual-claims-carry-frame-ref-and-timestamp",
+      "required": true
+    },
+    {
+      "gate": "preliminary-evidence-cannot-feed-creation",
+      "required": true
+    }
+  ],
+  "evidencePolicy": {
+    "formalTranscriptApproval": {
+      "action": "confirm-transcript-after-complete-listen",
+      "approverScope": "A君本人（local-owner）或原飞书任务明确授权的负责人",
+      "decisionChannel": "原任务飞书审批卡或本机负责人入口",
+      "requiredStatement": "completeListen=true",
+      "hardFailuresCannotBeOverridden": true
+    }
+  },
+  "budgetPolicy": {
+    "fast": { "maxAttempts": 2, "maxRuntimeMinutes": 5 },
+    "full": { "maxAttempts": 2, "maxRuntimeMinutes": 12 },
+    "onLimit": "stop-and-deliver-partial"
+  },
+  "promptRef": "agents/video-content-analyst/prompts/system.md",
+  "runtimeProfileRef": "integrations/hermes/profiles/video-content-analyst.profile.json",
+  "appRef": "apps/ajun-runtime",
+  "interaction": {
+    "runtime": "hermes-profile",
+    "directFeishu": "disabled",
+    "visibility": "on-demand",
+    "groupPolicy": "mention-only"
+  },
+  "executionOwner": "paperclip-hermes",
+  "runtimeCapabilities": {
+    "modelSelection": {
+      "provider": "openai-codex",
+      "model": "gpt-5.6-terra"
+    },
+    "skills": ["paperclip", "agent-army-video-content"],
+    "skillReviews": [
+      {
+        "slug": "agent-army-video-content",
+        "companySkillId": "741c8f25-dbb7-4b18-845f-651b69c1c933",
+        "auditVerdict": "pass",
+        "auditHash": "sha256:78a669659243e504b2c31d5f7a8d25b8ec4734d310be3b308bd30aa52a4e201f",
+        "auditedAt": "2026-07-27T10:18:53.180Z"
+      }
+    ],
+    "mcpTools": [
+      "paperclip_assignment_get",
+      "video_content_analyze_execute",
+      "content_performance_review_execute",
+      "paperclip_assignment_complete"
+    ],
+    "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
+    "paperclipToolsets": ["agent-army", "clarify"]
+  },
+  "operationalPolicy": {
+    "heartbeatSeconds": 0,
+    "inputTimeoutMinutes": 60,
+    "retryStrategy": "bounded-by-depth"
+  },
+  "evalRefs": [
+    "agents/video-content-analyst/evals/cases.json"
+  ],
+  "owner": "A 君",
+  "status": "active"
+}

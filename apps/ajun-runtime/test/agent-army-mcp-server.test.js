@@ -25,7 +25,7 @@ test('Agent Army MCP exposes factual read and controlled action tools', async (t
   const tools = await client.listTools();
   assert.deepEqual(
     tools.tools.map((tool) => tool.name).sort(),
-    ['approval_list', 'approval_resolve', 'capabilities', 'employee_status', 'mission_create', 'paperclip_assignment_complete', 'paperclip_assignment_get', 'status', 'task_control', 'task_create', 'task_get', 'task_list', 'technical_repair_execute']
+    ['approval_list', 'approval_resolve', 'capabilities', 'content_performance_review_execute', 'employee_status', 'mission_create', 'paperclip_assignment_complete', 'paperclip_assignment_get', 'platform_content_draft_execute', 'status', 'task_control', 'task_create', 'task_get', 'task_list', 'technical_repair_execute', 'video_content_analyze_execute']
   );
 
   const capabilities = await client.callTool({ name:'capabilities', arguments:{} });
@@ -43,15 +43,31 @@ test('Agent Army MCP exposes factual read and controlled action tools', async (t
     arguments:{
       title:'完成老板本周内容任务',
       items:[
-        { title:'整理公开视频', task_type:'media.transcribe-and-refine', agent_id:'xiaod', source_urls:['https://example.com/video'] },
+        { title:'整理公开视频', task_type:'media.transcribe-and-refine', agent_id:'xiaod', source_urls:['https://example.com/video'], review_policy:'required' },
         { title:'研究公开资料', task_type:'research.intel-report', agent_id:'intel-researcher' },
-        { title:'整理统一汇报', task_type:'office.briefing-package', agent_id:'office-assistant', depends_on_previous:true }
+        {
+          title:'整理统一汇报',
+          task_type:'office.briefing-package',
+          agent_id:'office-assistant',
+          depends_on_previous:true,
+          evidence_mode:'formal',
+          depth:'full',
+          focus:'结论',
+          platforms:['douyin'],
+          content_goal:'形成老板汇报'
+        }
       ]
     }
   });
   assert.equal(mission.structuredContent.mission.taskId, 'mission-created');
   assert.equal(calls[1][1].items[2].agentId, 'office-assistant');
   assert.equal(calls[1][1].items[2].dependsOnPrevious, true);
+  assert.equal(calls[1][1].items[0].reviewPolicy, 'required');
+  assert.equal(calls[1][1].items[2].evidenceMode, 'formal');
+  assert.equal(calls[1][1].items[2].depth, 'full');
+  assert.equal(calls[1][1].items[2].focus, '结论');
+  assert.deepEqual(calls[1][1].items[2].platforms, ['douyin']);
+  assert.equal(calls[1][1].items[2].contentGoal, '形成老板汇报');
   assert.equal(calls[1][1].waitForTerminal, true);
 });
 

@@ -1,6 +1,6 @@
 const MAX_TEXT_CHARS = 30_000;
 const GITHUB_ACCEPT = 'application/vnd.github+json';
-const GITHUB_USER_AGENT = 'agent-army-github-scout';
+const GITHUB_USER_AGENT = 'agent-army-intel-researcher';
 
 export class GithubSearch {
   constructor({ fetchImpl = fetch, now = () => new Date() } = {}) {

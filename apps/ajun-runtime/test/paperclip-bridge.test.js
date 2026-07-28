@@ -81,13 +81,26 @@ test('多人协作的子工作会挂在同一张 Paperclip 总任务下', async 
   const requests = [];
   const bridge = new PaperclipBridge({ fetchImpl:async (url, options = {}) => {
     requests.push({ url, options });
-    return { ok:true, status:200, async json(){ return { id:'child-1', identifier:'AGE-201' }; } };
+    const pathname = new URL(url).pathname;
+    let payload;
+    if (pathname === '/api/companies') payload = [{ id:'company-1', name:'Agent军团' }];
+    else if (pathname === '/api/companies/company-1/agents') payload = [{
+      id:'paperclip-operator',
+      name:'运维官',
+      status:'idle',
+      metadata:{ agentArmyId:'operator' }
+    }];
+    else if (pathname === '/api/issues/parent-1/children') payload = { id:'child-1', identifier:'AGE-201' };
+    else throw new Error(`unexpected request ${pathname}`);
+    return { ok:true, status:200, async json(){ return payload; } };
   } });
   const projection = await bridge.projectChild({ taskId:'child-local-1', priority:'normal', taskType:'operations.health-review', assigneeAgentId:'operator', status:'queued', input:{ title:'检查军团本机运行状态', description:'来自军团盘点。' } }, 'parent-1');
-  assert.equal(new URL(requests[0].url).pathname, '/api/issues/parent-1/children');
-  const body = JSON.parse(requests[0].options.body);
+  const create = requests.find((item) => new URL(item.url).pathname === '/api/issues/parent-1/children');
+  const body = JSON.parse(create.options.body);
   assert.equal(body.blockParentUntilDone, true);
+  assert.equal(body.assigneeAgentId, 'paperclip-operator');
   assert.equal(projection.paperclipParentIssueId, 'parent-1');
+  assert.equal(projection.paperclipAssigneeAgentId, 'paperclip-operator');
 });
 
 test('Paperclip 会登记已有军团岗位，但不会把本机岗位变成可自行启动的重复执行器', async () => {
@@ -155,4 +168,76 @@ test('已登记的新员工会按真实职责刷新岗位标签，但保持暂�
   assert.equal(body.icon, 'search');
   assert.equal(body.metadata.agentArmyManagedOnly, true);
   assert.equal(Object.hasOwn(body, 'status'), false);
+});
+
+test('受管 Hermes 岗位修正模型配置后会从 error 恢复为 idle', async () => {
+  const requests = [];
+  const fetchImpl = async (url, options = {}) => {
+    requests.push({ url, options });
+    const pathname = new URL(url).pathname;
+    let payload;
+    if (pathname === '/api/companies') payload = [{ id:'company-1', name:'Agent军团' }];
+    else if (pathname === '/api/companies/company-1/agents') payload = [{
+      id:'video-agent', name:'小拆·视频内容拆解师', role:'general', title:'旧职责', icon:'bot',
+      capabilities:'旧能力', adapterType:'hermes_local', adapterConfig:{ model:'auto' }, status:'error',
+      metadata:{ agentArmyId:'video-content-analyst', agentArmyManagedOnly:true, executionOwner:'paperclip-hermes' }
+    }];
+    else if (pathname === '/api/agents/video-agent') payload = { id:'video-agent', status:'idle' };
+    else if (pathname === '/api/agents/video-agent/skills/sync') payload = { status:'synced' };
+    else throw new Error(`unexpected request ${pathname}`);
+    return { ok:true, status:200, async json(){ return payload; } };
+  };
+  const bridge = new PaperclipBridge({ fetchImpl });
+  const result = await bridge.syncRoster([{
+    agentId:'video-content-analyst',
+    name:'小拆·视频内容拆解师',
+    role:'受控拆解',
+    status:'active',
+    promptRef:'agents/video-content-analyst/prompts/system.md',
+    executionOwner:'paperclip-hermes',
+    interaction:{ runtime:'hermes-profile', directFeishu:'disabled' },
+    acceptedTaskTypes:['content.video-benchmark-analysis'],
+    responsibilities:['拆解视频'],
+    runtimeCapabilities:{
+      modelSelection:{ provider:'openai-codex', model:'gpt-5.6-terra' },
+      skills:['paperclip'],
+      paperclipToolsets:['agent-army'],
+      mcpTools:['video_content_analyze_execute']
+    }
+  }]);
+  assert.equal(result.status, 'synced');
+  const refresh = requests.find((item) => new URL(item.url).pathname === '/api/agents/video-agent' && item.options.method === 'PATCH');
+  const body = JSON.parse(refresh.options.body);
+  assert.equal(body.status, 'idle');
+  assert.equal(body.adapterConfig.provider, 'openai-codex');
+  assert.equal(body.adapterConfig.model, 'gpt-5.6-terra');
+});
+
+test('正式 Manifest 已移除的军团员工会终止，测试实例和历史记录不受影响', async () => {
+  const requests = [];
+  const fetchImpl = async (url, options = {}) => {
+    requests.push({ url, options });
+    const pathname = new URL(url).pathname;
+    let payload;
+    if (pathname === '/api/companies') payload = [{ id:'company-1', name:'Agent军团' }];
+    else if (pathname === '/api/companies/company-1/agents') payload = [
+      { id:'active-reviewer', name:'审核官', status:'idle', metadata:{ agentArmyId:'reviewer', agentArmyManagedOnly:true } },
+      { id:'retired-coordinator', name:'任务协调官', status:'paused', metadata:{ agentArmyId:'task-coordinator', agentArmyManagedOnly:true } },
+      { id:'sandbox', name:'技术专家练习实例', status:'idle', metadata:{ agentArmyId:'technical-expert-sandbox', testOnly:true } }
+    ];
+    else if (pathname === '/api/agents/active-reviewer') payload = { id:'active-reviewer', name:'审核官', status:'idle' };
+    else if (pathname === '/api/agents/retired-coordinator/terminate') payload = { id:'retired-coordinator', status:'terminated' };
+    else throw new Error(`unexpected request ${pathname}`);
+    return { ok:true, status:200, async json(){ return payload; } };
+  };
+  const bridge = new PaperclipBridge({ fetchImpl });
+  const result = await bridge.syncRoster([{
+    agentId:'reviewer', name:'审核官', role:'范围审查', status:'active',
+    runtime:{ kind:'paperclip-hermes' }, interaction:{ directFeishu:'disabled' },
+    acceptedTaskTypes:['governance.approval-review'], responsibilities:['审查风险']
+  }]);
+
+  assert.deepEqual(result.retired.map((item) => item.agentArmyId), ['task-coordinator']);
+  assert.equal(requests.filter((item) => new URL(item.url).pathname.endsWith('/terminate')).length, 1);
+  assert.equal(requests.some((item) => new URL(item.url).pathname.includes('/sandbox/terminate')), false);
 });

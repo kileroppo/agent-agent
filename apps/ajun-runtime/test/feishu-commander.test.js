@@ -102,14 +102,11 @@ test('从技术专家自己的飞书智能体提供故障任务号时，只读�
   assert.match(result.reply, /没有修改系统/);
 });
 
-test('从任务协调官自己的飞书智能体进入时，不冒充 A君，受控登记协调请求', async () => {
+test('已退役的任务协调官入口不会再创建任务', async () => {
   const { commander, calls } = setup();
   commander.planner = { async decide(_text, input) { assert.equal(input.agentId, 'task-coordinator'); return { intent:'army_intake' }; } };
-  const result = await commander.handle({ text:'请协调现有员工检查军团状态。', sourceEventRef:'feishu:coordinator-direct-1', targetAgentId:'task-coordinator' });
-  assert.equal(calls.tasks.length, 1);
-  assert.equal(calls.tasks[0].agentId, 'task-coordinator');
-  assert.equal(calls.tasks[0].taskType, 'army.intake');
-  assert.doesNotMatch(result.reply, /我是 A君·军团总管/);
+  await commander.handle({ text:'请协调现有员工检查军团状态。', sourceEventRef:'feishu:coordinator-direct-1', targetAgentId:'task-coordinator' });
+  assert.equal(calls.tasks.length, 0);
 });
 
 test('从审核官入口可按自然语言审查小G、小R草案，不要求负责人先提供内部编号', async () => {
@@ -358,18 +355,18 @@ test('飞书军团总管把普通公开网页交给已上岗的网页摘要员�
   assert.match(result.reply, /公开网页摘要员工/);
 });
 
-test('GitHub 意图路由到小G，并保留公开仓库输入和回执', async () => {
+test('GitHub 意图路由到小R，并保留公开仓库输入和回执', async () => {
   const { commander, calls } = setup();
   commander.planner = { async decide() { return { intent:'github_search' }; } };
   commander.tasks.create = async (input) => {
     calls.tasks.push(input);
-    return { taskId:'github-1', taskType:input.taskType, status:'running', assigneeAgentId:'github-scout', input:{ repo:input.repo }, artifactRefs:[] };
+    return { taskId:'github-1', taskType:input.taskType, status:'running', assigneeAgentId:'intel-researcher', input:{ repo:input.repo }, artifactRefs:[] };
   };
   const result = await commander.handle({ text:'读 openai/example 的 README，说明它怎么实现 Agent', sourceEventRef:'feishu:github-1' });
   assert.equal(calls.tasks[0].taskType, 'research.github-search');
-  assert.equal(calls.tasks[0].agentId, 'github-scout');
+  assert.equal(calls.tasks[0].agentId, 'intel-researcher');
   assert.equal(calls.tasks[0].repo, 'openai/example');
-  assert.match(result.reply, /已交给小G/);
+  assert.match(result.reply, /已交给小R/);
 });
 
 test('中文 Agent 治理检索会转成 GitHub 可检索的核心查询', async () => {
@@ -377,7 +374,7 @@ test('中文 Agent 治理检索会转成 GitHub 可检索的核心查询', async
   commander.planner = { async decide() { return { intent:'github_search' }; } };
   await commander.handle({ text:'帮我在 GitHub 找几个做 Agent 治理的开源项目，比较 star、语言、最近更新时间和适用场景。', sourceEventRef:'feishu:github-governance-1' });
   assert.equal(calls.tasks[0].taskType, 'research.github-search');
-  assert.equal(calls.tasks[0].agentId, 'github-scout');
+  assert.equal(calls.tasks[0].agentId, 'intel-researcher');
   assert.equal(calls.tasks[0].query, 'agent governance');
   assert.match(calls.tasks[0].title, /Agent 治理/);
 });
@@ -658,7 +655,6 @@ test('AI理解“大家都在干嘛”后如实说明全部员工、工作与卡
   assert.match(result.reply, /小D：负责整理公开视频和音频；正在处理/);
   assert.match(result.reply, /\n- /);
   assert.match(result.reply, /创建官：.*当前没有待办/);
-  assert.match(result.reply, /任务协调官：.*当前没有待办/);
   assert.match(result.reply, /小D：.*正在处理/);
   assert.match(result.reply, /运维官：.*没有完成/);
   assert.match(result.reply, /技术专家：.*待测试/);
@@ -686,16 +682,14 @@ test('用户问你能干什么时，总管直接说明当前可办的事情，�
   commander.tasks.overview = async () => ({ agents:[
     { agentId:'operator', status:'active', acceptedTaskTypes:['operations.health-review'] },
     { agentId:'xiaod', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] },
-    { agentId:'candidate-public-researcher', status:'active', acceptedTaskTypes:['report.public-material'] },
-    { agentId:'github-scout', status:'active', acceptedTaskTypes:['research.github-search'] },
-    { agentId:'intel-researcher', status:'active', acceptedTaskTypes:['research.intel-report'] },
+    { agentId:'intel-researcher', status:'active', acceptedTaskTypes:['report.public-material', 'research.github-search', 'research.intel-report'] },
     { agentId:'architect', status:'active', acceptedTaskTypes:['governance.architecture-review'] }
   ] });
   const result = await commander.handle({ text:'你现在能干什么？', sourceEventRef:'feishu:capabilities-1' });
   assert.equal(calls.tasks.length, 0);
   assert.equal(result.kind, 'army_capabilities');
   assert.match(result.reply, /公开网页/);
-  assert.match(result.reply, /小G.*GitHub/);
+  assert.match(result.reply, /小R.*GitHub/);
   assert.match(result.reply, /小R.*公开来源/);
   assert.match(result.reply, /固定说法/);
 });

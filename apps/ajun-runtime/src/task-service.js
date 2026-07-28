@@ -1,14 +1,37 @@
 import { recordTaskUsage, summarizeTaskUsage } from './task-usage.js';
 import { formatPublicReportReply } from './public-report-presentation.js';
 import { formatOfficeBriefingReply } from './local-office-assistant.js';
-import { canonicalizeBusinessAssignment } from './business-task-routing.js';
+import { canonicalizeBusinessAssignment, githubRepositoryQuery } from './business-task-routing.js';
 import { usesPaperclipHermesExecution } from './governance-hermes-runtime.js';
 
 const highRiskActions = ['外发', '发布', '删除', '付款', '付费', '扩权', '敏感'];
 const organizationGovernanceWords = /创建.*(?:agent|智能体|岗位)|新建.*(?:agent|智能体|岗位)|扩权|账号|连接|公开发布|对外发布|付款|付费|预算|暂停|终止|跨\s*agent/i;
 
 export class TaskService {
-  constructor({ registry, store, governance = null, executors = {}, fallbackExecutor = null, onTaskFailed = null, feishuChannelStatus = null, agentChannelStates = null, workerStatus = null }) { this.registry = registry; this.store = store; this.governance = governance; this.executors = executors; this.fallbackExecutor = fallbackExecutor; this.onTaskFailed = onTaskFailed; this.feishuChannelStatus = feishuChannelStatus; this.agentChannelStates = agentChannelStates; this.workerStatus = workerStatus; }
+  constructor({
+    registry,
+    store,
+    governance = null,
+    executors = {},
+    fallbackExecutor = null,
+    onTaskFailed = null,
+    feishuChannelStatus = null,
+    agentChannelStates = null,
+    workerStatus = null,
+    contentGrowthWaitMs = 240_000
+  }) {
+    this.registry = registry;
+    this.store = store;
+    this.governance = governance;
+    this.executors = executors;
+    this.fallbackExecutor = fallbackExecutor;
+    this.onTaskFailed = onTaskFailed;
+    this.feishuChannelStatus = feishuChannelStatus;
+    this.agentChannelStates = agentChannelStates;
+    this.workerStatus = workerStatus;
+    this.contentGrowthWaitMs = Math.max(1, Math.min(Number(contentGrowthWaitMs) || 240_000, 240_000));
+    this.contentGrowthRuns = new Map();
+  }
 
   setFeishuChannelStatus(status) { this.feishuChannelStatus = status; }
   setAgentChannelStates(status) { this.agentChannelStates = status; }
@@ -51,12 +74,37 @@ export class TaskService {
     const sourceUrl = sourceUrls[0] || null;
     let task = await this.store.createTask({
       taskType, idempotencyKey: suppliedIdempotencyKey || `local:${cryptoSafe(title)}:${Date.now()}`, requester: input?.requester || { kind: requesterName === 'A君' ? 'local-owner' : 'lan-collaborator', ref: requesterName }, source: input?.source || { channel: 'ajun-runtime' },
-      assigneeAgentId: agent?.agentId || null, parentTaskId: String(input?.parentTaskId || '').trim() || null, recovery: input?.recovery || undefined, input: { title, description, sourceUrl, sourceUrls, query:optionalInput(input?.query), repo:optionalInput(input?.repo), path:optionalInput(input?.path), topic:optionalInput(input?.topic), context: input?.context || undefined },
+      assigneeAgentId: agent?.agentId || null, parentTaskId: String(input?.parentTaskId || '').trim() || null, recovery: input?.recovery || undefined, input: {
+        title,
+        description,
+        sourceUrl,
+        sourceUrls,
+        query:githubQueryInput(taskType, input?.query, `${title}\n${description}`),
+        repo:optionalInput(input?.repo),
+        path:optionalInput(input?.path),
+        topic:optionalInput(input?.topic),
+        reviewPolicy:input?.reviewPolicy === 'required' ? 'required' : 'optional',
+        evidenceMode:input?.evidenceMode === 'preliminary' ? 'preliminary' : 'formal',
+        depth:input?.depth === 'full' ? 'full' : 'fast',
+        visualMode:input?.visualMode === 'auto' || input?.visualMode === 'required'
+          ? input.visualMode
+          : input?.visualMode === 'off'
+            ? 'off'
+            : taskType === 'content.video-benchmark-analysis'
+              ? 'auto'
+              : 'off',
+        focus:optionalInput(input?.focus),
+        platforms:Array.isArray(input?.platforms) ? input.platforms.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 10) : undefined,
+        contentGoal:optionalInput(input?.contentGoal),
+        metrics:input?.metrics && typeof input.metrics === 'object' && !Array.isArray(input.metrics) ? input.metrics : undefined,
+        context: input?.context || undefined
+      },
       status: agent?.status === 'active' ? 'queued' : 'needs_input', currentStage: agent?.status === 'active' ? 'queued_for_execution' : agent ? 'waiting_for_agent_activation' : 'routing_needed',
       routing: { requestedAgentId, candidateAgentIds: candidates.map((item) => item.agentId), reason: agent?.status === 'active' ? '已路由到已启用的本地执行器。' : agent ? '岗位骨架已登记，等待启用真实执行器。' : candidates.length === 0 ? '没有岗位声明支持该任务类型。' : '多个岗位匹配，请明确选择承接岗位。' }
     });
-    if (hasAffirmativeHighRiskIntent(`${title} ${description}`) && !['army.intake', 'governance.approval-review'].includes(taskType)) {
-      await this.store.createApproval({ taskId: task.taskId, governanceMode: requiresOrganizationGovernance(title, description) ? 'paperclip' : 'local', decisionChannel: 'feishu_card', action: 'manual-risk-review', riskLevel: 'high', reason: '任务描述包含高风险动作，必须人工确认范围。', requestedBy: 'task-coordinator', approverScope: 'A君', requestedScope: { taskType, title, assigneeAgentId: agent?.agentId || null }, validUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() });
+    if (hasAffirmativeHighRiskIntent(`${title} ${description}`)
+      && !['army.intake', 'governance.approval-review', 'office.knowledge-summary', 'content.platform-draft'].includes(taskType)) {
+      await this.store.createApproval({ taskId: task.taskId, governanceMode: requiresOrganizationGovernance(title, description) ? 'paperclip' : 'local', decisionChannel: 'feishu_card', action: 'manual-risk-review', riskLevel: 'high', reason: '任务描述包含高风险动作，必须人工确认范围。', requestedBy: 'ajun', approverScope: 'A君', requestedScope: { taskType, title, assigneeAgentId: agent?.agentId || null }, validUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() });
       task = (await this.store.list()).find((item) => item.taskId === task.taskId);
     }
     const approval = task.approvalRefs.length ? (await this.store.listApprovals()).find((item) => item.approvalId === task.approvalRefs[0]) : null;
@@ -110,6 +158,9 @@ export class TaskService {
     if (!task) throw new ValidationError('找不到关联任务。');
     if (approval.governanceMode === 'paperclip' && chatRef) throw new ValidationError('这条组织级审批必须在 Paperclip 完成决定，不能由本机直接拒绝。');
     validateApprovalChat(task, chatRef);
+    if (approval.action === 'confirm-transcript-after-complete-listen' && typeof this.executors.xiaod?.rejectTranscript === 'function') {
+      await this.executors.xiaod.rejectTranscript(task, { reviewerRef:decisionBy });
+    }
     await this.store.updateApproval(approvalId, { status:'rejected', decisionBy:String(decisionBy).slice(0, 120), decisionReason:String(decisionReason).slice(0, 300), decidedAt:new Date().toISOString() });
     let updated = await this.store.updateTask(task.taskId, { status:'cancelled', currentStage:'approval_rejected', error:{ code:'approval_rejected', message:'本机主人拒绝了当前审批范围。', userMessage:'这项高风险任务已被拒绝并关闭，未执行任何外部动作。', category:'manual', stage:'approval', occurredAt:new Date().toISOString() } });
     if (this.governance && updated.governance?.paperclipIssueId) updated = await this.store.updateTask(updated.taskId, { governance: await this.governance.update(updated) });
@@ -146,6 +197,17 @@ export class TaskService {
     validateApprovalChat(task, chatRef);
     validateApprovalScope(task, approval);
     await this.store.updateApproval(approvalId, { status:'approved', decisionBy:String(decisionBy).slice(0, 120), decisionReason:String(decisionReason).slice(0, 300), decidedAt:new Date().toISOString() });
+    if (approval.action === 'confirm-transcript-after-complete-listen') {
+      const xiaod = this.executors.xiaod;
+      if (typeof xiaod?.confirmTranscript !== 'function') throw new ValidationError('小D确认稿能力当前不可用，未生成确认稿。');
+      await xiaod.confirmTranscript(task, { reviewerRef:decisionBy });
+      return this.store.updateTask(task.taskId, {
+        status:'running',
+        currentStage:'xiaod_review_confirmed',
+        error:undefined,
+        execution:{ ...(task.execution || {}), polling:{ state:'pending', consecutiveFailures:0, nextPollAt:new Date().toISOString() } }
+      });
+    }
     const agent = (await this.registry.list()).find((item) => item.agentId === task.assigneeAgentId) || null;
     const queued = await this.store.updateTask(task.taskId, { status:'queued', currentStage:'approval_approved', error: undefined });
     return this.executeTask(queued, agent);
@@ -525,6 +587,160 @@ export class TaskService {
     };
   }
 
+  async executeContentGrowthAssignment(input = {}) {
+    const { task, assignment } = await this.getPaperclipAssignment(input);
+    const allowed = {
+      'video-content-analyst':new Set(['content.video-benchmark-analysis', 'content.performance-review']),
+      'content-creator':new Set(['content.platform-draft'])
+    };
+    if (!allowed[assignment.agentId]?.has(task.taskType)) throw new ValidationError('当前指派不是受控内容增长任务。');
+    const artifactTypes = {
+      'content.video-benchmark-analysis':'video_content_analysis_report',
+      'content.performance-review':'content_performance_report',
+      'content.platform-draft':'platform_content_draft'
+    };
+    const expectedType = artifactTypes[task.taskType];
+    const existing = (task.artifactRefs || []).find((item) => item.type === expectedType && item.validation?.exists === true && item.validation?.readable === true);
+    if (existing) {
+      const verified = contentGrowthArtifactVerified(task, existing);
+      return {
+        assignment,
+        result:{
+          status:verified ? 'succeeded' : 'waiting_test',
+          currentStage:task.currentStage,
+          verified,
+          recommendedCompletionStatus:verified ? 'succeeded' : 'waiting_test',
+          artifacts:[artifactExecutionView(existing)]
+        },
+        task:{ taskId:task.taskId, status:task.status, currentStage:task.currentStage },
+        currentStage:task.currentStage,
+        duplicate:true
+      };
+    }
+    const settled = storedContentGrowthResult(task, expectedType);
+    if (settled) {
+      return {
+        assignment,
+        result:settled,
+        task:{ taskId:task.taskId, status:task.status, currentStage:task.currentStage },
+        duplicate:true
+      };
+    }
+    const executor = this.executors[assignment.agentId];
+    if (!executor?.execute) throw new ValidationError('内容增长受控执行器不可用。');
+    let run = this.contentGrowthRuns.get(task.taskId);
+    const joined = Boolean(run);
+    if (!run) {
+      const promise = this.runContentGrowthAssignment({ task, assignment, expectedType, executor });
+      run = { promise };
+      this.contentGrowthRuns.set(task.taskId, run);
+      void promise.finally(() => {
+        if (this.contentGrowthRuns.get(task.taskId) === run) this.contentGrowthRuns.delete(task.taskId);
+      }).catch(() => {});
+    }
+    const outcome = await settleWithin(run.promise, this.contentGrowthWaitMs);
+    if (outcome.settled) return outcome.value;
+    const latest = (await this.store.list()).find((item) => item.taskId === task.taskId) || task;
+    return {
+      assignment,
+      result:{
+        status:'running',
+        currentStage:'content_growth_background_running',
+        verified:false,
+        recommendedCompletionStatus:'running',
+        continuePolling:true,
+        pollAfterSeconds:2,
+        message:'同一项内容分析仍在 A君后台执行；请再次调用当前受控执行工具继续等待，不要回报任务完成。'
+      },
+      task:{ taskId:latest.taskId, status:latest.status, currentStage:latest.currentStage },
+      duplicate:joined
+    };
+  }
+
+  async runContentGrowthAssignment({ task, assignment, expectedType, executor }) {
+    const executionStartedAt = new Date();
+    const started = await this.store.updateTask(task.taskId, {
+      status:'running',
+      currentStage:'content_growth_background_running',
+      execution:{
+        ...(task.execution || {}),
+        contentGrowth:{
+          state:'running',
+          executor:assignment.agentId,
+          startedAt:executionStartedAt.toISOString()
+        }
+      },
+      error:undefined
+    });
+    let result;
+    try {
+      result = await executor.execute(started);
+    } catch (error) {
+      const completedAt = new Date().toISOString();
+      result = {
+        status:'waiting_test',
+        currentStage:'content_growth_execution_failed',
+        artifactRefs:[],
+        execution:{
+          executor:assignment.agentId,
+          startedAt:executionStartedAt.toISOString(),
+          finishedAt:completedAt,
+          outcome:'failed'
+        },
+        error:{
+          code:String(error?.code || 'content_growth_executor_failed').slice(0, 120),
+          message:String(error?.message || '内容增长执行器失败。').slice(0, 500),
+          userMessage:'内容分析未完成，已保留真实失败原因。',
+          category:'manual',
+          stage:'content_growth_execution',
+          retryable:false,
+          occurredAt:completedAt
+        }
+      };
+    }
+    const artifacts = Array.isArray(result.artifactRefs) ? result.artifactRefs : [];
+    const verified = result.status === 'succeeded'
+      && artifacts.some((item) => item.type === expectedType && contentGrowthArtifactVerified(task, item));
+    const recommendedCompletionStatus = verified
+      ? 'succeeded'
+      : result.status === 'needs_input'
+        ? 'failed'
+        : 'waiting_test';
+    const latest = (await this.store.list()).find((item) => item.taskId === task.taskId) || task;
+    const preserveTerminal = isTerminalTask(latest);
+    const updated = await this.store.updateTask(task.taskId, {
+      status:preserveTerminal ? latest.status : 'running',
+      currentStage:result.currentStage || 'content_growth_executed',
+      artifactRefs:[...(latest.artifactRefs || []), ...artifacts],
+      execution:{
+        ...(latest.execution || {}),
+        contentGrowth:{
+          ...(result.execution || {}),
+          state:'settled',
+          status:result.status,
+          verified,
+          recommendedCompletionStatus,
+          settledAt:new Date().toISOString()
+        }
+      },
+      usage:recordTaskUsage({ task, result, startedAt:executionStartedAt }),
+      ...(result.error ? { error:result.error } : preserveTerminal ? { error:latest.error } : {})
+    });
+    return {
+      assignment,
+      result:{
+        status:result.status,
+        currentStage:result.currentStage,
+        verified,
+        recommendedCompletionStatus,
+        error:result.error || null,
+        artifacts:artifacts.map(artifactExecutionView)
+      },
+      task:{ taskId:updated.taskId, status:updated.status, currentStage:updated.currentStage },
+      duplicate:false
+    };
+  }
+
   async recordFeedback(taskId, { sentiment, note = '' } = {}) {
     const task = (await this.store.list()).find((item) => item.taskId === taskId);
     if (!task) throw new ValidationError('找不到要评价的工作。');
@@ -543,12 +759,22 @@ export class TaskService {
   }
 
   async overview() {
-    const [agents, tasks, approvals, governance] = await Promise.all([this.registry.list(), this.store.list(), this.store.listApprovals(), this.governance?.health() || { status: 'planned', version: null }]);
+    const [agents, manager, tasks, approvals, governance] = await Promise.all([this.registry.list(), this.registry.get('ajun'), this.store.list(), this.store.listApprovals(), this.governance?.health() || { status: 'planned', version: null }]);
     const feishuChannel = channelCapability(this.feishuChannelStatus);
     const agentChannels = safeAgentChannelStates(this.agentChannelStates);
     const worker = safeWorkerStatus(this.workerStatus, tasks);
-    const visibleAgents = agents.map((agent) => ({ ...agent, ...(agentChannels[agent.agentId] ? { feishuChannel:withFeishuTaskEvidence(agentChannels[agent.agentId], agent.agentId, tasks) } : {}) }));
-    return { agents:visibleAgents, tasks, approvals, taskFocus: buildTaskFocus(tasks, approvals), usage:summarizeTaskUsage(tasks, { since:startOfToday() }), capabilities: [
+    const visibleAgents = agents.map((agent) => ({
+      ...agent,
+      ...(agent.interaction?.directFeishu !== 'disabled' && agentChannels[agent.agentId]
+        ? { feishuChannel:withFeishuTaskEvidence(agentChannels[agent.agentId], agent.agentId, tasks) }
+        : {})
+    }));
+    const onDemandAgents = visibleAgents.filter((agent) => agent.interaction?.directFeishu === 'disabled');
+    const alwaysOnAgents = [
+      ...(manager ? [manager] : []),
+      ...visibleAgents.filter((agent) => agent.interaction?.directFeishu !== 'disabled')
+    ];
+    return { agents:visibleAgents, alwaysOnAgents, onDemandAgents, tasks, approvals, taskFocus: buildTaskFocus(tasks, approvals), usage:summarizeTaskUsage(tasks, { since:startOfToday() }), capabilities: [
       { id: 'task-coordination', name: '统一任务协调', status: 'ready', detail: '创建、路由和状态真相已就绪。' },
       { id: 'agent-registry', name: '岗位注册表', status: 'ready', detail: '岗位职责、任务类型和权限边界从 Manifest 读取。' },
       { id: 'approval-gate', name: '审批闸门', status: 'ready', detail: '高风险描述先进入待审批，不自动执行。' },
@@ -597,7 +823,11 @@ export class TaskService {
     const current = latestTask(attempts) || root;
     const retried = current.taskId !== root.taskId;
     if (current.taskType === 'army.cross-agent-mission') {
-      return missionNotification(current);
+      return missionNotification(current, {
+        chain,
+        approvals:await this.store.listApprovals(),
+        xiaod:this.executors.xiaod
+      });
     }
     if (current.status === 'succeeded') {
       if (current.taskType === 'operations.health-review') {
@@ -616,8 +846,8 @@ export class TaskService {
         const report = current.artifactRefs?.find((item) => item.type === 'research_github_report')?.data;
         const read = current.artifactRefs?.find((item) => item.type === 'github_code_read')?.data;
         if (report?.results?.length) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatGithubSearchDelivery(report) };
-        if (read?.summary) return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小G已读取 ${read.repo} 的 ${read.path}：${read.summary}\n来源：${read.source || `https://github.com/${read.repo}`}` };
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小G已经完成“${shortTaskTitle(root)}”，但公开 GitHub 产物不可读；系统不会把它当作完整交付。` };
+        if (read?.summary) return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小R已读取 ${read.repo} 的 ${read.path}：${read.summary}\n来源：${read.source || `https://github.com/${read.repo}`}` };
+        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小R已经完成“${shortTaskTitle(root)}”，但公开 GitHub 产物不可读；系统不会把它当作完整交付。` };
       }
       if (current.taskType === 'research.intel-report') {
         const report = current.artifactRefs?.find((item) => item.type === 'intel_research_report')?.data;
@@ -629,6 +859,30 @@ export class TaskService {
         if (report?.summary && report?.markdown) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatOfficeBriefingReply(report) };
         return { terminal:true, status:'succeeded', taskId:root.taskId, message:`办公执行助理已经完成“${shortTaskTitle(root)}”，但汇报包没有通过读取确认；系统不会把它当作完整交付。` };
       }
+      if (current.taskType === 'office.knowledge-summary') {
+        const note = current.artifactRefs?.find((item) => item.type === 'knowledge_summary_note');
+        if (note?.validation?.readable && note?.location) return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小办已完成知识归档“${note.title}”。\n受控文件：${note.location}\n校验值：${note.checksum || '未提供'}` };
+        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小办已经完成“${shortTaskTitle(root)}”，但知识笔记没有通过可读性检查；系统不会把它当作完整归档。` };
+      }
+      if (current.taskType === 'content.video-benchmark-analysis') {
+        const report = current.artifactRefs?.find((item) => item.type === 'video_content_analysis_report')?.data;
+        if (report?.modules?.length) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatVideoAnalysisDelivery(report) };
+        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小拆已经完成“${shortTaskTitle(root)}”，但拆解报告没有通过读取确认；系统不会把它当作完整交付。` };
+      }
+      if (current.taskType === 'content.platform-draft') {
+        const draft = current.artifactRefs?.find((item) => item.type === 'platform_content_draft')?.data;
+        if (draft?.drafts?.length) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatPlatformDraftDelivery(draft) };
+        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小创已经完成“${shortTaskTitle(root)}”，但草稿产物没有通过读取确认；系统不会把它当作完整交付。` };
+      }
+      if (current.taskType === 'content.performance-review') {
+        const report = current.artifactRefs?.find((item) => item.type === 'content_performance_report')?.data;
+        if (report?.metrics) return { terminal:true, status:'succeeded', taskId:root.taskId, message:`【小拆内容表现复盘】\n${report.summary}\n${(report.observations || []).slice(0, 5).map((item) => `- ${item}`).join('\n')}` };
+      }
+      const roleReport = current.artifactRefs?.find((item) => item.type === 'employee_role_report')?.data;
+      if (roleReport?.summary) {
+        const worker = await taskWorkerName(this.registry, current);
+        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`${worker}已完成“${shortTaskTitle(root)}”。\n${roleReport.summary}` };
+      }
       const delivery = current.artifactRefs?.find((item) => item.type === 'xiaod_media_delivery');
       const url = delivery?.data?.larkUrl;
       const verified = delivery?.data?.larkPermissionGranted === true;
@@ -636,7 +890,8 @@ export class TaskService {
       return { terminal: true, status: 'succeeded', taskId: root.taskId, message: url && verified ? `${prefix}“${shortTaskTitle(root)}”。\n交付文档：${url}` : `${prefix}“${shortTaskTitle(root)}”，但飞书文档权限尚未确认；系统不会把它冒充完整交付。` };
     }
     if (['queued', 'running'].includes(current.status)) {
-      return { terminal: false, status: current.status, taskId: root.taskId, message: retried ? `“${shortTaskTitle(root)}”第一次处理失败，运维官已自动重试，当前仍在处理中。` : `“${shortTaskTitle(root)}”正在由小D处理。` };
+      const worker = await taskWorkerName(this.registry, current);
+      return { terminal: false, status: current.status, taskId: root.taskId, message: retried ? `“${shortTaskTitle(root)}”第一次处理失败，运维官已自动重试，当前仍在处理中。` : `“${shortTaskTitle(root)}”正在由${worker}处理。` };
     }
     if (current.status === 'waiting_worker') {
       return { terminal:false, status:'waiting_worker', taskId:root.taskId, message:`“${shortTaskTitle(root)}”需要老板的 Mac工作间处理。云端已安全排队；Mac 上线后会自动领取，不需要你重复提交。` };
@@ -688,10 +943,68 @@ function withFeishuTaskEvidence(channel, agentId, tasks) {
 }
 
 export class ValidationError extends Error {}
+function artifactExecutionView(item) {
+  return {
+    type:item.type,
+    title:item.title,
+    checksum:item.checksum || null,
+    validation:item.validation,
+    data:item.data
+  };
+}
+function contentGrowthArtifactVerified(task, artifact) {
+  const readable = artifact?.validation?.exists === true
+    && artifact?.validation?.readable === true
+    && artifact?.validation?.nonEmpty === true;
+  if (!readable) return false;
+  const formalFullAnalysis = task?.taskType === 'content.video-benchmark-analysis'
+    && task?.input?.evidenceMode === 'formal'
+    && task?.input?.depth === 'full';
+  return !formalFullAnalysis || artifact.validation?.semanticValidationPassed === true;
+}
+function storedContentGrowthResult(task) {
+  const execution = task?.execution?.contentGrowth;
+  if (execution?.state !== 'settled') return null;
+  const recommendedCompletionStatus = ['succeeded', 'failed', 'waiting_test'].includes(execution.recommendedCompletionStatus)
+    ? execution.recommendedCompletionStatus
+    : 'waiting_test';
+  return {
+    status:String(execution.status || recommendedCompletionStatus),
+    currentStage:task.currentStage,
+    verified:execution.verified === true,
+    recommendedCompletionStatus,
+    error:task.error || null,
+    artifacts:[]
+  };
+}
+async function settleWithin(promise, timeoutMs) {
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({ settled:false }), timeoutMs);
+  });
+  try {
+    return await Promise.race([
+      promise.then((value) => ({ settled:true, value })),
+      timeout
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 function optionalInput(value) { const text = String(value || '').trim(); return text || undefined; }
+function githubQueryInput(taskType, suppliedQuery, requestText) {
+  const explicit = optionalInput(suppliedQuery);
+  if (explicit || taskType !== 'research.github-search') return explicit;
+  return githubRepositoryQuery(requestText) || undefined;
+}
+async function taskWorkerName(registry, task) {
+  const agentId = String(task?.assigneeAgentId || task?.execution?.executor || '').trim();
+  const agent = agentId && typeof registry?.get === 'function' ? await registry.get(agentId) : null;
+  return String(agent?.name || agentId || '承接员工').trim();
+}
 function formatGithubSearchDelivery(report) {
-  const items = report.results.slice(0, 5).map((item, index) => `${index + 1}. ${item.fullName}（★ ${item.stars}，${item.language || '语言未提供'}）\n${item.assessment || ''}\n${item.url}`);
-  return ['【小G 公开 GitHub 检索】', `关键词：${report.query || '未提供'}`, '', ...items].join('\n');
+  const items = report.results.slice(0, 5).map((item, index) => `${index + 1}. ${item.fullName}（★ ${item.stars}，${item.language || '语言未提供'}）\n${item.suitability || item.assessment || ''}${item.suitability && item.assessment ? `\n元数据判断：${item.assessment}` : ''}\n${item.url}`);
+  return ['【小R 公开 GitHub 检索】', `关键词：${report.query || '未提供'}`, '', ...items].join('\n');
 }
 function formatIntelResearchDelivery(report) {
   const list = (items) => (Array.isArray(items) && items.length ? items.map((item) => `- ${item}`).join('\n') : '- 暂无。');
@@ -705,11 +1018,36 @@ function formatHealthReportReply(report) {
   }).join('\n');
   return `【运维官健康检查】\n整体：${overall}\n${components}\n建议：${report.recommendedAction || '暂无。'}`;
 }
+function formatVideoAnalysisDelivery(report) {
+  const modules = report.modules.slice(0, 13).map((item, index) => `${index + 1}. ${item.name}：${item.finding}\n   证据：${item.evidence?.timestamp ? `[${item.evidence.timestamp}] ` : ''}${item.evidence?.fragment || '证据缺失'}`).join('\n');
+  const actions = Array.isArray(report.actionItems) && report.actionItems.length
+    ? `\n\n行动清单：\n${report.actionItems.slice(0, 5).map((item) => `- ${item}`).join('\n')}`
+    : '';
+  const visual = Array.isArray(report.visualFindings) && report.visualFindings.length
+    ? `\n\n画面观察：\n${report.visualFindings.slice(0, 5).map((item) => `- [${item.evidence?.timestamp || '时间点缺失'}｜${item.evidence?.frameRef || '帧缺失'}] ${item.finding}`).join('\n')}`
+    : '';
+  const completeness = report.completeness === 'complete'
+    ? '图文分析完整'
+    : '部分完成：字幕拆解已交付，画面分析未通过完整门禁';
+  const source = report.sourceMetadata?.title
+    ? `\n来源：${report.sourceMetadata.title}${report.sourceMetadata.author ? `｜${report.sourceMetadata.author}` : ''}${report.sourceMetadata.platform ? `｜${report.sourceMetadata.platform}` : ''}`
+    : '';
+  const generation = report.generationMode === 'hermes_advisor'
+    ? 'Hermes 深度分析'
+    : report.generationMode === 'hermes_advisor_evidence_repaired'
+      ? 'Hermes 深度分析（证据结构已按确认稿修复）'
+      : '本机证据化兜底（模型结果未通过结构校验）';
+  return `【小拆视频内容拆解】\n模式：${generation}\n完整度：${completeness}\n证据：${report.evidenceLabel || report.evidenceMode}${source}\n${report.summary}\n\n${modules}${visual}${actions}`;
+}
+function formatPlatformDraftDelivery(report) {
+  const drafts = report.drafts.slice(0, 3).map((item) => `- ${item.platform}：${item.titleCandidates?.[0] || '已生成草稿'}\n  开场：${item.opening || ''}`).join('\n');
+  return `【小创平台草稿】\n仅生成草稿，未发布。\n${drafts}\n发布前仍需真人检查。`;
+}
 
-function missionNotification(task) {
+async function missionNotification(task, { chain = [], approvals = [], xiaod = null } = {}) {
   const report = task.artifactRefs?.find((item) => item.type === 'cross_agent_mission_summary')?.data;
   const statuses = Array.isArray(report?.statuses) ? report.statuses.slice(0, 3) : [];
-  const names = { xiaod:'小D', 'intel-researcher':'小R', 'office-assistant':'办公执行助理', operator:'运维官', architect:'架构师' };
+  const names = { xiaod:'小D', 'intel-researcher':'小R', 'office-assistant':'办公执行助理', 'video-content-analyst':'小拆', 'content-creator':'小创', operator:'运维官', architect:'架构师' };
   const lines = statuses.map((item) => `- ${names[item.employeeId] || item.employeeId || '待定员工'}：${missionStatusLabel(item.status)}｜${String(item.title || '未命名分工').replace(/\s+/g, ' ').slice(0, 120)}`);
   const terminal = ['succeeded', 'failed', 'cancelled', 'needs_input', 'waiting_test'].includes(task.status);
   if (!report || !statuses.length) {
@@ -722,6 +1060,9 @@ function missionNotification(task) {
   }
   const briefing = report.decision?.briefing;
   const completed = statuses.filter((item) => item.status === 'succeeded').length;
+  const progressStatus = !terminal && statuses.some((item) => item.status === 'waiting_approval')
+    ? 'waiting_approval'
+    : task.status;
   const summary = [
     `【A君总任务】${String(report.summary || shortTaskTitle(task)).replace(/\s+/g, ' ').slice(0, 300)}`,
     `进度：${completed}/${statuses.length} 项完成`,
@@ -731,12 +1072,36 @@ function missionNotification(task) {
     summary.push(`统一汇报：${String(briefing.summary).replace(/\s+/g, ' ').slice(0, 800)}`);
     if (Array.isArray(briefing.openItems) && briefing.openItems.length) summary.push(`仍需处理：${briefing.openItems.slice(0, 3).join('；')}`);
     if (briefing.nextAction) summary.push(`下一步：${String(briefing.nextAction).replace(/\s+/g, ' ').slice(0, 500)}`);
+  } else if (terminal && completed === statuses.length) {
+    const analysisTaskId = statuses.find((item) => item.employeeId === 'video-content-analyst' && item.status === 'succeeded')?.taskId;
+    const analysisTask = chain.find((item) => item.taskId === analysisTaskId);
+    const analysis = analysisTask?.artifactRefs?.find((item) => item.type === 'video_content_analysis_report')?.data;
+    if (analysis?.modules?.length) summary.push('', formatVideoAnalysisDelivery(analysis));
+    else summary.push('所有分工已完成，但最终业务产物未通过读取确认；系统不会只用“完成”状态冒充交付。');
   } else if (terminal && completed < statuses.length) {
     summary.push('未完成部分已如实保留，没有被冒充为成功。');
+  } else if (progressStatus === 'waiting_approval') {
+    const reviewTask = chain.find((item) => item.status === 'waiting_approval'
+      && item.execution?.executor === 'xiaod'
+      && approvals.some((approval) => approval.taskId === item.taskId
+        && approval.status === 'pending'
+        && approval.action === 'confirm-transcript-after-complete-listen'));
+    let reviewUrl = '';
+    if (reviewTask?.execution?.xiaodJobId && typeof xiaod?.getJob === 'function') {
+      try {
+        const job = await xiaod.getJob(reviewTask.execution.xiaodJobId);
+        if (job.output?.larkPermissionGranted === true && /^https:\/\//.test(String(job.output?.larkUrl || ''))) {
+          reviewUrl = String(job.output.larkUrl);
+        }
+      } catch { /* 保留可操作的文字提醒，下一轮跟进可再次读取链接。 */ }
+    }
+    summary.push('机器稿已通过自动完整性检查；正式拆解仍未启动。');
+    if (reviewUrl) summary.push(`机器稿：${reviewUrl}`);
+    summary.push('请完整听完后在本会话回复“我已完整听审并确认”。A君会再弹出一次批准确认；未确认前不会启动小拆。');
   } else if (!terminal) {
     summary.push('A君会继续跟进这个总任务，不需要你分别追问每位员工。');
   }
-  return { terminal, status:task.status, taskId:task.taskId, message:summary.join('\n') };
+  return { terminal, status:progressStatus, taskId:task.taskId, message:summary.join('\n') };
 }
 
 function missionStatusLabel(status) {
@@ -804,8 +1169,13 @@ function isExpiredApproval(approval, now = Date.now()) {
 function buildTaskFocus(tasks, approvals) {
   const counts = Object.fromEntries(['queued', 'running', 'waiting_worker', 'pausing', 'paused', 'waiting_approval', 'waiting_test', 'needs_input', 'succeeded', 'failed'].map((status) => [status, tasks.filter((task) => task.status === status).length]));
   const priority = ['waiting_approval', 'needs_input', 'pausing', 'running', 'waiting_worker', 'queued', 'paused', 'failed', 'waiting_test'];
-  const pendingContinuation = tasks.find((task) => task.status === 'succeeded' && intakeRecommendation(task) && !tasks.some((child) => child.parentTaskId === task.taskId));
-  const current = priority.flatMap((status) => tasks.filter((task) => task.status === status))[0] || pendingContinuation || null;
+  const pendingContinuation = tasks.find((task) =>
+    task.status === 'succeeded'
+    && intakeRecommendation(task)
+    && !tasks.some((child) => child.parentTaskId === task.taskId)
+    && !hasLaterUserOutcome(task, tasks)
+  );
+  const current = priority.flatMap((status) => tasks.filter((task) => task.status === status && isOwnerActionable(task, tasks)))[0] || pendingContinuation || null;
   const approval = current ? approvals.find((item) => current.approvalRefs?.includes(item.approvalId) && item.status === 'pending') : null;
   return {
     total: tasks.length,
@@ -823,6 +1193,43 @@ function buildTaskFocus(tasks, approvals) {
       action: nextActionFor(current, approval)
     } : null
   };
+}
+
+function isOwnerActionable(task, tasks) {
+  if (!['needs_input', 'failed', 'waiting_test'].includes(task.status)) return true;
+  if (isSupersededBySuccess(task, tasks)) return false;
+  const channel = String(task.source?.channel || '').trim();
+  const originChannel = String(task.source?.originChannel || '').trim();
+  if (!channel && !originChannel) return true;
+  if (hasLaterUserOutcome(task, tasks)) return false;
+  return channel === 'feishu' || originChannel === 'feishu' || channel === 'local-ui' || channel === 'hermes-native';
+}
+
+function isSupersededBySuccess(task, tasks) {
+  const sourceUrl = String(task.input?.sourceUrl || '').trim();
+  if (!sourceUrl) return false;
+  const taskTime = Date.parse(task.updatedAt || task.createdAt || '') || 0;
+  return tasks.some((candidate) =>
+    candidate.taskId !== task.taskId
+    && candidate.status === 'succeeded'
+    && candidate.taskType === task.taskType
+    && String(candidate.input?.sourceUrl || '').trim() === sourceUrl
+    && (Date.parse(candidate.updatedAt || candidate.createdAt || '') || 0) > taskTime
+  );
+}
+
+function hasLaterUserOutcome(task, tasks) {
+  const taskTime = Date.parse(task.updatedAt || task.createdAt || '') || 0;
+  return tasks.some((candidate) => {
+    if (!['succeeded', 'cancelled'].includes(candidate.status)) return false;
+    const candidateChannel = String(candidate.source?.channel || '').trim();
+    const candidateOrigin = String(candidate.source?.originChannel || '').trim();
+    const userFacing = candidateChannel === 'feishu'
+      || candidateOrigin === 'feishu'
+      || candidateChannel === 'local-ui'
+      || candidateChannel === 'hermes-native';
+    return userFacing && (Date.parse(candidate.updatedAt || candidate.createdAt || '') || 0) > taskTime;
+  });
 }
 
 function nextActionFor(task, approval) {

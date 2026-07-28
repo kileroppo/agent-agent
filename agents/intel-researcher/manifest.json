@@ -1,21 +1,26 @@
 {
   "schemaVersion": "agent.army/v1",
-  "manifestVersion": "0.2.0",
+  "manifestVersion": "0.3.0",
   "agentId": "intel-researcher",
   "name": "小R",
   "department": "实战组",
-  "role": "围绕一个主题综合多个公开来源，产出结构化中文研究报告。",
+  "role": "读取公开网页与 GitHub 来源，完成公开资料整理、项目检索和结构化中文研究报告。",
   "responsibilities": [
     "围绕明确主题读取多条公开资料，交付背景、关键发现、结论、行动建议和未决问题",
+    "按需读取公开网页或 GitHub 仓库，交付带来源的摘要、项目比较或代码说明",
     "保留每项结论的公开来源，且只依据本次已读取内容综合",
     "来源不足或读取失败时如实说明，不编造研究结论"
   ],
   "nonResponsibilities": [
     "不登录、不读取私密资料、不使用 Cookie、token 或付费内容",
-    "不把公开资料报告员的逐页摘要冒充为主题研究结论",
+    "不把单页摘要或 GitHub 元数据冒充为跨来源研究结论",
     "不外发、发布、付费或执行任何未批准的外部动作"
   ],
-  "acceptedTaskTypes": ["research.intel-report"],
+  "acceptedTaskTypes": [
+    "report.public-material",
+    "research.github-search",
+    "research.intel-report"
+  ],
   "toolAllowlist": ["content.public.fetch", "github.public.search", "github.public.read"],
   "dataScopes": [{ "scope": "public-research-sources", "access": "read" }],
   "approvalPolicies": [

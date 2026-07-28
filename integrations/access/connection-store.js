@@ -72,6 +72,33 @@ export class ConnectionStore {
 
   async revoke(connectionId) { return this.updateStatus(connectionId, 'revoked'); }
 
+  async disable(connectionId) { return this.updateStatus(connectionId, 'disabled'); }
+
+  async reauthorizeCookieBridgeConnection(connectionId, input = {}) {
+    const connection = this.get(connectionId);
+    if (!connection) return null;
+    if (connection.credentialKind !== 'cookie_bridge') throw new ConnectionInputError('该连接不支持通过受控账号重新授权。');
+    if (input.provider !== undefined && String(input.provider).trim().toLowerCase() !== connection.provider) {
+      throw new ConnectionInputError('重新授权的平台与原连接不一致。');
+    }
+    const definition = validateCookieBridgeConnection({
+      ...input,
+      provider:connection.provider,
+      grantedOperations:connection.grantedOperations,
+      dataScope:connection.dataScope,
+      allowedAgentIds:connection.allowedAgentIds
+    });
+    const now = new Date().toISOString();
+    connection.accountAlias = definition.accountAlias;
+    connection.credentialRef = `cookiebridge:${connection.provider}:${definition.clientId}:${connection.connectionId}`;
+    connection.cookieBridgeClientId = definition.clientId;
+    connection.status = 'active';
+    connection.expiresAt = null;
+    connection.updatedAt = now;
+    await this.persist();
+    return toSafeConnection(connection);
+  }
+
   async markHealth(connectionId) {
     const connection = this.get(connectionId);
     if (!connection) return null;

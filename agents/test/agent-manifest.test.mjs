@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -8,9 +8,10 @@ const testDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(testDirectory, "../..");
 const manifestPath = path.join(repositoryRoot, "agents/xiaod/manifest.json");
 const ajunManifestPath = path.join(repositoryRoot, "agents/ajun/manifest.json");
-const independentAgentIds = ["task-coordinator", "architect", "reviewer", "operator", "creator", "technical-expert"];
+const onDemandAgentIds = ["architect", "reviewer", "creator", "technical-expert"];
+const alwaysOnGovernanceAgentIds = ["operator"];
 const configuredFirstTeamAgentIds = ["intel-researcher", "office-assistant"];
-const draftAgentIds = ["github-scout"];
+const m3ContentAgentIds = ["video-content-analyst", "content-creator"];
 
 const requiredFields = [
   "schemaVersion",
@@ -67,7 +68,7 @@ test("Manifest 引用的仓库文件存在且 Hermes 映射一致", async () => 
   }
 
   const profile = await readJson(path.join(repositoryRoot, manifest.runtimeProfileRef));
-  assert.equal(profile.status, "draft");
+  assert.equal(profile.status, "active");
   assert.equal(profile.profileId, manifest.agentId);
   assert.equal(profile.agentManifestRef, "agents/xiaod/manifest.json");
   assert.deepEqual(profile.toolAllowlist, manifest.toolAllowlist);
@@ -91,7 +92,7 @@ test("A君也有完整岗位卡和独立身份资料，但不会被当成普通�
   const manifest = await readJson(ajunManifestPath);
   assert.equal(manifest.agentId, "ajun");
   assert.equal(manifest.kind, "manager");
-  assert.deepEqual(manifest.acceptedTaskTypes, []);
+  assert.deepEqual(manifest.acceptedTaskTypes, ["army.intake", "army.route-task", "army.cross-agent-mission"]);
   for (const field of requiredFields) assert.ok(Object.hasOwn(manifest, field), `missing required field: ${field}`);
   await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.promptRef)));
   await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.runtimeProfileRef)));
@@ -103,8 +104,8 @@ test("A君也有完整岗位卡和独立身份资料，但不会被当成普通�
   assert.equal(profile.secrets.valuesStoredHere, false);
 });
 
-test("现有治理岗位都有独立 Hermes 身份、岗位能力和已启用 Gateway", async () => {
-  for (const agentId of independentAgentIds) {
+test("治理岗位保留独立 Hermes 身份，只有运维官常驻飞书入口", async () => {
+  for (const agentId of [...onDemandAgentIds, ...alwaysOnGovernanceAgentIds]) {
     const manifest = await readJson(path.join(repositoryRoot, "agents", agentId, "manifest.json"));
     assert.equal(manifest.schemaVersion, "agent.army/v1");
     assert.equal(manifest.agentId, agentId);
@@ -114,7 +115,7 @@ test("现有治理岗位都有独立 Hermes 身份、岗位能力和已启用 Ga
     assert.ok(manifest.approvalPolicies.some((policy) => policy.decision !== "auto"));
     assert.deepEqual(manifest.interaction, {
       runtime:"hermes-profile",
-      directFeishu:"required",
+      directFeishu:alwaysOnGovernanceAgentIds.includes(agentId) ? "required" : "disabled",
       visibility:"on-demand",
       groupPolicy:"mention-only"
     });
@@ -142,7 +143,7 @@ test("现有治理岗位都有独立 Hermes 身份、岗位能力和已启用 Ga
     assert.equal(profile.localProfile.modelConfigured, true);
     assert.equal(profile.localProfile.credentialedTransportVerified, true);
     assert.equal(profile.localProfile.skillsSeeded, true);
-    assert.equal(profile.gateway.enabled, true);
+    assert.equal(profile.gateway.enabled, alwaysOnGovernanceAgentIds.includes(agentId));
     assert.equal(profile.mcp.server, "agent-army");
     assert.deepEqual(profile.mcp.scope.agentIds, [agentId]);
     assert.ok(profile.mcp.tools.includes("paperclip_assignment_get"));
@@ -152,24 +153,13 @@ test("现有治理岗位都有独立 Hermes 身份、岗位能力和已启用 Ga
   }
 });
 
-test("新增岗位在审核前保持草案，并有完整的无凭据身份映射", async () => {
-  for (const agentId of draftAgentIds) {
-    const manifest = await readJson(path.join(repositoryRoot, "agents", agentId, "manifest.json"));
-    assert.equal(manifest.schemaVersion, "agent.army/v1");
-    assert.equal(manifest.agentId, agentId);
-    assert.equal(manifest.status, "draft");
-    for (const field of requiredFields) assert.ok(Object.hasOwn(manifest, field), `missing required field: ${field}`);
-    await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.promptRef)));
-    await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.runtimeProfileRef)));
-    await assert.doesNotReject(() => stat(path.join(repositoryRoot, "agents", agentId, "岗位卡.md")));
-    const profile = await readJson(path.join(repositoryRoot, manifest.runtimeProfileRef));
-    assert.equal(profile.status, "draft");
-    assert.equal(profile.profileId, agentId);
-    assert.equal(profile.agentManifestRef, `agents/${agentId}/manifest.json`);
-    assert.deepEqual(profile.toolAllowlist, manifest.toolAllowlist);
-    assert.equal(profile.gateway.enabled, false);
-    assert.equal(profile.secrets.valuesStoredHere, false);
-  }
+test("任务协调官已退役，不再被配置器或派活名单发现", async () => {
+  const manifest = await readJson(path.join(repositoryRoot, "agents/task-coordinator/manifest.json"));
+  const profile = await readJson(path.join(repositoryRoot, manifest.runtimeProfileRef));
+  assert.equal(manifest.status, "retired");
+  assert.equal(manifest.interaction.directFeishu, "disabled");
+  assert.equal(profile.status, "retired");
+  assert.equal(profile.gateway.enabled, false);
 });
 
 test("首批业务员工已由独立 Hermes Profile Gateway 承接飞书连续会话", async () => {
@@ -195,5 +185,73 @@ test("首批业务员工已由独立 Hermes Profile Gateway 承接飞书连续�
     assert.equal(profile.gateway.enabled, true);
     assert.ok(manifest.toolAllowlist.every((tool) => profile.toolAllowlist.includes(tool)));
     assert.equal(profile.secrets.valuesStoredHere, false);
+  }
+});
+
+test("M3 内容增长岗位通过受限验收后以最小权限按需上岗，仍不开独立飞书入口", async () => {
+  for (const agentId of m3ContentAgentIds) {
+    const manifest = await readJson(path.join(repositoryRoot, "agents", agentId, "manifest.json"));
+    const profile = await readJson(path.join(repositoryRoot, manifest.runtimeProfileRef));
+    assert.equal(manifest.agentId, agentId);
+    assert.equal(manifest.status, "active");
+    assert.equal(manifest.executionOwner, "paperclip-hermes");
+    assert.deepEqual(manifest.runtimeCapabilities.modelSelection, {
+      provider:"openai-codex",
+      model:"gpt-5.6-terra"
+    });
+    assert.equal(manifest.interaction.directFeishu, "disabled");
+    assert.ok(manifest.acceptedTaskTypes.length > 0);
+    assert.ok(manifest.qualityGates.every((gate) => gate.required === true));
+    assert.ok(!manifest.toolAllowlist.some((tool) => /browser|cookie|publish|message\.reply/.test(tool)));
+    await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.promptRef)));
+    await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.appRef)));
+    for (const evalRef of manifest.evalRefs) await assert.doesNotReject(() => stat(path.join(repositoryRoot, evalRef)));
+    assert.equal(profile.status, "active");
+    assert.equal(profile.profileId, agentId);
+    assert.equal(profile.gateway.enabled, false);
+    assert.equal(profile.localProfile.created, true);
+    assert.equal(profile.localProfile.skillsSeeded, true);
+    assert.equal(profile.localProfile.restrictedTestingConfigured, true);
+    assert.equal(profile.localProfile.modelSelectionConfigured, true);
+    assert.equal(profile.localProfile.modelConfigured, true);
+    assert.equal(profile.localProfile.credentialedTransportVerified, true);
+    assert.deepEqual(profile.modelSelection, {
+      provider:"openai-codex",
+      model:"gpt-5.6-terra",
+      secretStoredHere:false
+    });
+    assert.deepEqual(profile.toolAllowlist, manifest.toolAllowlist);
+    assert.equal(profile.secrets.valuesStoredHere, false);
+  }
+});
+
+test("M3 候选抓取和私密数据技能没有进入任何正式岗位工具白名单", async () => {
+  const forbidden = [
+    "wechat-local-vault",
+    "wechat-mp-batch-exporter",
+    "chatgpt-web-research",
+    "douyin-fetcher",
+    "xiaohongshu-fetch"
+  ];
+  const entries = await readdir(path.join(repositoryRoot, "agents"), { withFileTypes:true });
+  const forbiddenTaskTypes = [
+    "research.external-second-opinion",
+    "data.wechat-local-vault"
+  ];
+  for (const entry of entries.filter((item) => item.isDirectory())) {
+    const filePath = path.join(repositoryRoot, "agents", entry.name, "manifest.json");
+    try {
+      const manifest = await readJson(filePath);
+      const serializedTools = JSON.stringify({
+        toolAllowlist:manifest.toolAllowlist || [],
+        mcpTools:manifest.runtimeCapabilities?.mcpTools || []
+      });
+      for (const candidate of forbidden) assert.ok(!serializedTools.includes(candidate), `${entry.name} 不得直接注册 ${candidate}`);
+      for (const taskType of forbiddenTaskTypes) {
+        assert.ok(!(manifest.acceptedTaskTypes || []).includes(taskType), `${entry.name} 不得在候选验证前承接 ${taskType}`);
+      }
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
   }
 });

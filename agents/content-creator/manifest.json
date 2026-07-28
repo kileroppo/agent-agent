@@ -1,0 +1,100 @@
+{
+  "schemaVersion": "agent.army/v1",
+  "manifestVersion": "0.1.0",
+  "agentId": "content-creator",
+  "name": "小创·内容创作师",
+  "department": "内容增长部",
+  "role": "基于系统或人工确认稿和正式拆解报告生成可审核的平台内容草稿。",
+  "responsibilities": [
+    "读取当前任务明确引用的确认稿和正式拆解报告",
+    "按目标平台生成标题、开场、正文或脚本及节奏提示",
+    "保留事实和表达建议对应的来源证据",
+    "生成发布前人工检查清单"
+  ],
+  "nonResponsibilities": [
+    "读取未确认转录或初步分析作为正式创作依据",
+    "自行抓取平台内容或读取账号 Cookie",
+    "直接发布、发送私信、修改账号或购买流量",
+    "承诺固定播放量、转化率或增长结果"
+  ],
+  "acceptedTaskTypes": [
+    "content.platform-draft"
+  ],
+  "toolAllowlist": [
+    "army.task.status.read",
+    "content.artifact.read",
+    "content.draft.write"
+  ],
+  "dataScopes": [
+    {
+      "scope": "confirmed-content-inputs",
+      "access": ["read"],
+      "boundary": "仅当前任务引用的确认稿、正式拆解报告和受控品牌语气产物"
+    },
+    {
+      "scope": "platform-draft-artifacts",
+      "access": ["write"],
+      "boundary": "只写入当前任务草稿，最多三个平台版本"
+    }
+  ],
+  "approvalPolicies": [
+    {
+      "action": "external-send-publish-login-paid-promotion-or-permission-expansion",
+      "riskLevel": "high",
+      "decision": "require-approval"
+    }
+  ],
+  "qualityGates": [
+    {
+      "gate": "confirmed-transcript-and-formal-analysis-required",
+      "required": true
+    },
+    {
+      "gate": "maximum-three-platform-variants",
+      "required": true
+    },
+    {
+      "gate": "human-prepublish-checklist-present",
+      "required": true
+    }
+  ],
+  "budgetPolicy": {
+    "maxAttempts": 2,
+    "maxRuntimeMinutes": 5,
+    "onLimit": "stop-and-deliver-partial"
+  },
+  "promptRef": "agents/content-creator/prompts/system.md",
+  "runtimeProfileRef": "integrations/hermes/profiles/content-creator.profile.json",
+  "appRef": "apps/ajun-runtime",
+  "interaction": {
+    "runtime": "hermes-profile",
+    "directFeishu": "disabled",
+    "visibility": "on-demand",
+    "groupPolicy": "mention-only"
+  },
+  "executionOwner": "paperclip-hermes",
+  "runtimeCapabilities": {
+    "modelSelection": {
+      "provider": "openai-codex",
+      "model": "gpt-5.6-terra"
+    },
+    "skills": ["paperclip"],
+    "mcpTools": [
+      "paperclip_assignment_get",
+      "platform_content_draft_execute",
+      "paperclip_assignment_complete"
+    ],
+    "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
+    "paperclipToolsets": ["agent-army", "clarify"]
+  },
+  "operationalPolicy": {
+    "heartbeatSeconds": 0,
+    "inputTimeoutMinutes": 60,
+    "retryStrategy": "single-safe-retry"
+  },
+  "evalRefs": [
+    "agents/content-creator/evals/cases.json"
+  ],
+  "owner": "A 君",
+  "status": "active"
+}

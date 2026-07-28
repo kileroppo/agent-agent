@@ -11,7 +11,7 @@ test('GitHub 公开检索解析仓库元数据，不携带认证头', async () =
   const result = await search.search({ query:'agent runtime', limit:3 });
   assert.match(request.url, /q=agent\+runtime/);
   assert.equal(request.options.headers.Accept, 'application/vnd.github+json');
-  assert.equal(request.options.headers['User-Agent'], 'agent-army-github-scout');
+  assert.equal(request.options.headers['User-Agent'], 'agent-army-intel-researcher');
   assert.equal(request.options.headers.Authorization, undefined);
   assert.equal(result.results[0].fullName, 'openai/example');
   assert.equal(result.results[0].stars, 1234);

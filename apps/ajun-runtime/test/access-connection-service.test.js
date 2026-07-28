@@ -66,3 +66,52 @@ test('撤销连接只调用本机小D安全入口，并拒绝非法标识和非�
   assert.throws(() => new AccessConnectionService({ baseUrl:'http://0.0.0.0:4318' }), /本机回环地址/);
   assert.throws(() => new AccessConnectionService({ baseUrl:'https://127.0.0.1:4318' }), /本机回环地址/);
 });
+
+test('A君只展示已连接的受控账号，并只打开白名单平台登录页', async () => {
+  const launched = [];
+  const service = new AccessConnectionService({
+    browserLauncher:async (url) => launched.push(url),
+    fetchImpl:async () => response({ accounts:[
+      { clientId:'safe-client', connected:true, platforms:['xhs', 'unknown'], nicknames:{ xhs:'我的账号', unknown:'不应显示' } },
+      { clientId:'offline-client', connected:false, platforms:['xhs'], nicknames:{ xhs:'离线账号' } },
+      { clientId:'bad client id', connected:true, platforms:['xhs'], nicknames:{} }
+    ] })
+  });
+  const options = await service.loginOptions();
+  assert.deepEqual(options.accounts, [{
+    clientId:'safe-client', connected:true, platforms:['xhs'], nicknames:{ xhs:'我的账号' }
+  }]);
+  assert.equal(options.providers.some((provider) => provider.id === 'xhs' && provider.label === '小红书'), true);
+  const opened = await service.openLogin('xhs');
+  assert.equal(opened.status, 'opened');
+  assert.deepEqual(launched, ['https://www.xiaohongshu.com/']);
+  await assert.rejects(() => service.openLogin('https://evil.example'), /暂未开放/);
+});
+
+test('A君创建、禁用和重新授权连接时固定小D只读权限且不接受原始凭据', async () => {
+  const calls = [];
+  const service = new AccessConnectionService({
+    fetchImpl:async (url, options = {}) => {
+      calls.push({ url:String(url), options });
+      const status = String(url).endsWith('/disable') ? 'disabled' : 'active';
+      return response({ connection:{
+        connectionId:CONNECTION_ID, provider:'xhs', accountAlias:'内容账号', status,
+        allowedAgentIds:['xiaod'], grantedOperations:['read_media_metadata', 'read_content_images', 'download_authorized_media'],
+        dataScope:['content:read'], hasCredentialReference:true
+      } });
+    }
+  });
+  await service.create({ provider:'xhs', accountAlias:'内容账号', clientId:'safe-client' });
+  const createBody = JSON.parse(calls[0].options.body);
+  assert.deepEqual(createBody.allowedAgentIds, ['xiaod']);
+  assert.deepEqual(createBody.dataScope, ['content:read']);
+  assert.equal(createBody.cookie, undefined);
+  await service.disable(CONNECTION_ID);
+  await service.reauthorize(CONNECTION_ID, { provider:'xhs', accountAlias:'续期账号', clientId:'safe-client' });
+  assert.equal(calls[1].url.endsWith(`/${CONNECTION_ID}/disable`), true);
+  assert.equal(calls[2].url.endsWith(`/${CONNECTION_ID}/reauthorize`), true);
+  await assert.rejects(
+    () => service.create({ provider:'xhs', accountAlias:'错误', clientId:'safe-client', token:'secret' }),
+    /不得包含/
+  );
+});

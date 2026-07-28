@@ -15,9 +15,9 @@ M1 约束：
 
 M2 当前总管路径见 [ADR-0007](../../docs/adr/0007-hermes-native-feishu-runtime-and-agent-army-mcp.md)：飞书消息先进入 Hermes 原生 Session；Hermes 负责上下文、压缩、Profile 记忆和工具选择，再按需调用本机 Agent Army MCP。A君仍保存任务、业务 checkpoint 与受控执行真相，Paperclip 仍保存组织级任务、预算、审批和审计。
 
-首批业务员工小R与小办，以及创建官、任务协调官、审核官、架构师、运维官和技术专家，都已按相同边界迁移：每人有独立 Hermes Home、Profile、SOUL、模型选择、飞书 Gateway 和 Session，不共享对话记忆；它们通过岗位作用域后的同一个 Agent Army MCP 读写同一家公司任务事实。六名治理员工还由 Paperclip 官方 `hermes_local` Adapter 以同一 Profile 执行 heartbeat，回写时携带当前 run 身份，避免完成评论再次唤醒自己。
+当前常驻 Gateway 固定为 A君、小D、小R、小办和运维官。创建官、审核官、架构师和技术专家保留独立 Hermes Home、Profile、SOUL、模型选择与岗位作用域 MCP，由 Paperclip 官方 `hermes_local` Adapter 按需执行，不再保持独立飞书 Gateway。任务协调官已并入 A君并退役；小G的 GitHub 能力已并入小R。
 
-治理员工清单不再维护第二份硬编码名单，而是自动发现所有 `active + hermes-profile + paperclip-hermes` Manifest。官方 `hermes gateway install` 后，配置器还会验证 macOS LaunchAgent 是否已注册；缺失时才补 `bootstrap`，随后 `enable + kickstart`。新增符合契约的员工后可沿用同一配置和真实飞书验收命令。
+治理员工清单不再维护第二份硬编码名单，而是自动发现所有 `active + hermes-profile + paperclip-hermes` Manifest。配置器按 `interaction.directFeishu` 调和生命周期：`required` 才执行 `enable + kickstart`；`disabled` 必须执行 `bootout + disable`，反复运行也不得重新拉起。新增符合契约的员工后可沿用同一配置和真实飞书验收命令。
 
 当前 Hermes 飞书 WebSocket SDK 在 INFO 级别会记录包含短期连接参数的完整 URL。本机安装已把该 SDK 日志级别收紧到 WARNING，并用六个 Gateway 二次重启验证新日志不再出现连接 URL。兼容补丁保存在 `patches/feishu-ws-log-level-warning.patch`；升级 Hermes 后先检查上游是否已经修复，只有仍为 INFO 时才重放补丁并复验，避免盲目覆盖新版本。
 

@@ -4,7 +4,15 @@ import path from 'node:path';
 export class AgentRegistry {
   constructor({ agentsDir }) { this.agentsDir = agentsDir; }
 
-  async list() {
+  async list({ includeInactive = false, includeManagers = false } = {}) {
+    const manifests = await this.readAll();
+    return manifests
+      .filter((manifest) => includeManagers || manifest.kind !== 'manager')
+      .filter((manifest) => includeInactive || manifest.status === 'active')
+      .sort((left, right) => left.name.localeCompare(right.name, 'zh-Hans-CN'));
+  }
+
+  async readAll() {
     const entries = await fs.readdir(this.agentsDir, { withFileTypes: true });
     const manifests = await Promise.all(entries.filter((entry) => entry.isDirectory()).map(async (entry) => {
       try {
@@ -12,12 +20,15 @@ export class AgentRegistry {
         return { ...manifest, independentRuntime: await this.independentRuntime(manifest) };
       } catch { return null; }
     }));
-    return manifests.filter((manifest) => manifest && manifest.kind !== 'manager').sort((left, right) => left.name.localeCompare(right.name, 'zh-Hans-CN'));
+    return manifests.filter(Boolean);
   }
 
-  async get(agentId) { return (await this.list()).find((agent) => agent.agentId === agentId) || null; }
+  async get(agentId, options = {}) { return (await this.list({ includeInactive:true, includeManagers:true, ...options })).find((agent) => agent.agentId === agentId) || null; }
 
-  async candidates(taskType) { return (await this.list()).filter((agent) => agent.acceptedTaskTypes.includes(taskType)); }
+  async candidates(taskType) {
+    return (await this.list({ includeManagers:true }))
+      .filter((agent) => agent.acceptedTaskTypes.includes(taskType));
+  }
 
   async independentRuntime(manifest) {
     const ref = String(manifest?.runtimeProfileRef || '').trim();
@@ -33,6 +44,9 @@ export class AgentRegistry {
       const local = profile.localProfile || {};
       const gateway = profile.gateway || {};
       if (!local.created) return { state: 'not_created' };
+      if (manifest?.interaction?.directFeishu === 'disabled') {
+        return local.credentialedTransportVerified === true ? { state:'on_demand' } : { state:'model_transport_pending' };
+      }
       if (local.credentialedTransportVerified === true && (gateway.enabled !== false || local.gatewayStarted === true)) return { state: 'ready' };
       if (local.modelConfigured !== true) return { state: 'model_pending' };
       if (local.credentialedTransportVerified !== true) return { state: 'model_transport_pending' };

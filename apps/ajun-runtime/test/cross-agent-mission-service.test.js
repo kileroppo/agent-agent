@@ -145,7 +145,7 @@ test('老板多人任务按顺序分派三名员工并由办公助理统一汇�
     source:{ channel:'hermes-native' },
     idempotencyKey:'hermes-mission:week-1',
     items:[
-      { title:'整理公开视频', taskType:'media.transcribe-and-refine', agentId:'xiaod', sourceUrls:['https://example.com/video'] },
+      { title:'整理公开视频', taskType:'media.transcribe-and-refine', agentId:'xiaod', sourceUrls:['https://example.com/video'], reviewPolicy:'required' },
       { title:'研究公开资料', taskType:'research.intel-report', agentId:'intel-researcher' },
       { title:'等待前两项完成后整理老板汇报', taskType:'research.intel-report', agentId:'intel-researcher' }
     ]
@@ -153,6 +153,7 @@ test('老板多人任务按顺序分派三名员工并由办公助理统一汇�
 
   assert.equal(created.length, 4);
   assert.equal(created[1].sourceUrls[0], 'https://example.com/video');
+  assert.equal(created[1].reviewPolicy, 'required');
   assert.equal(created[3].agentId, 'office-assistant');
   assert.equal(created[3].taskType, 'office.briefing-package');
   assert.equal(result.mission.status, 'succeeded');

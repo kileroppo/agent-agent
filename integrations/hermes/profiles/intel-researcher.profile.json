@@ -24,7 +24,7 @@
     "tools": ["capabilities", "task_list", "task_get", "task_create"],
     "scope": {
       "agentIds": ["intel-researcher"],
-      "taskTypes": ["research.intel-report"],
+      "taskTypes": ["report.public-material", "research.github-search", "research.intel-report"],
       "allowMissions": false
     }
   },

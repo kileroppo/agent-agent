@@ -4,15 +4,17 @@ import path from 'node:path';
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled', 'needs_input']);
 
 export class LocalOfficeAssistant {
-  constructor({ store, artifactsDir, now = () => new Date() } = {}) {
+  constructor({ store, artifactsDir, knowledgeArchive = null, now = () => new Date() } = {}) {
     this.store = store;
     this.artifactsDir = artifactsDir;
+    this.knowledgeArchive = knowledgeArchive;
     this.now = now;
   }
 
   supports(agent) { return agent?.agentId === 'office-assistant'; }
 
   async execute(task) {
+    if (task.taskType === 'office.knowledge-summary') return this.executeKnowledgeSummary(task);
     const title = clean(task?.input?.title);
     const description = clean(task?.input?.description);
     const allTasks = typeof this.store?.list === 'function' ? await this.store.list() : [];
@@ -71,6 +73,77 @@ export class LocalOfficeAssistant {
       }]
     };
   }
+
+  async executeKnowledgeSummary(task) {
+    if (!this.knowledgeArchive) return needsInput(this.now(), 'knowledge_archive_unavailable', '统一知识库写入能力尚未配置。');
+    const title = clean(task?.input?.title);
+    const description = clean(task?.input?.description);
+    const allTasks = typeof this.store?.list === 'function' ? await this.store.list() : [];
+    const sources = referencedTasks(task, allTasks);
+    if (!hasUsefulInput(title, description, sources)) {
+      return needsInput(this.now(), 'knowledge_material_required', '请提供当前任务材料，或明确引用需要归档的任务。');
+    }
+    const generatedAt = this.now().toISOString();
+    const decisions = sources.flatMap((item) => item.artifacts.map(knowledgeConclusion)).slice(0, 10);
+    const openItems = [
+      ...sources.filter((item) => item.status !== 'succeeded').map((item) => `${item.title}：${item.error || statusLabel(item.status)}`),
+      ...sources.flatMap((item) => item.artifacts.flatMap(knowledgeArtifactOpenItems))
+    ];
+    const markdown = [
+      `# ${title || 'Agent军团任务总结'}`,
+      '',
+      '## 摘要',
+      '',
+      sources.length ? `本笔记归档 ${sources.length} 项明确引用的军团工作和已验证产物。` : description,
+      '',
+      '## 关键结论',
+      '',
+      ...(decisions.length ? decisions.map((item) => `- ${item}`) : ['- 当前材料没有可验证的上游产物。']),
+      '',
+      '## 决定',
+      '',
+      '- 只归档当前任务明确提供或引用的脱敏材料。',
+      '- 原始凭据、Cookie、私密聊天和未确认转录不进入知识笔记。',
+      '',
+      '## 待办',
+      '',
+      ...(openItems.length ? openItems.map((item) => `- ${item}`) : ['- 无。']),
+      '',
+      '## 来源引用',
+      '',
+      ...(sources.length ? sources.map((item) => `- 任务 ${item.taskId}｜${item.title}｜${statusLabel(item.status)}`) : ['- 当前任务正文。']),
+      '',
+      `生成时间：${generatedAt}`,
+      `任务 ID：${task.taskId}`,
+      ''
+    ].join('\n');
+    const written = await this.knowledgeArchive.write({
+      taskId:task.taskId,
+      idempotencyKey:task.idempotencyKey,
+      title:title || 'Agent军团任务总结',
+      markdown
+    });
+    return {
+      status:'succeeded',
+      currentStage:'knowledge_summary_archived',
+      execution:{ executor:'office-assistant', mode:'knowledge_archive', startedAt:task.execution?.startedAt || generatedAt, finishedAt:generatedAt, outcome:'knowledge_note_ready' },
+      usage:{ tools:[{ id:'knowledge-archive-write', name:'统一知识库受限写入', calls:written.duplicate ? 0 : 1 }] },
+      artifactRefs:[{
+        artifactId:`knowledge-summary:${task.taskId}`,
+        taskId:task.taskId,
+        type:'knowledge_summary_note',
+        title:title || 'Agent军团任务总结',
+        sourceRefs:sources.map((item) => item.taskId),
+        location:`file://${written.filePath}`,
+        mimeType:'text/markdown',
+        checksum:written.checksum,
+        accessScope:'local-owner',
+        createdAt:generatedAt,
+        validation:{ exists:true, readable:written.readable, nonEmpty:written.bytes > 0, bytes:written.bytes, pathRestricted:true, idempotent:true, duplicate:written.duplicate },
+        data:{ title:title || 'Agent军团任务总结', summary:sources.length ? `已归档 ${sources.length} 项关联工作。` : description, sourceTasks:sources.map((item) => item.taskId), openItems, generatedAt }
+      }]
+    };
+  }
 }
 
 export function formatOfficeBriefingReply(report) {
@@ -109,10 +182,44 @@ function sourceTaskSummary(task) {
     artifacts:artifacts.map((artifact) => ({
       type:artifact.type,
       title:clean(artifact.title) || '未命名产物',
-      location:safeArtifactLocation(artifact.location)
+      location:safeArtifactLocation(artifact.location),
+      summary:knowledgeArtifactSummary(artifact),
+      publishingStatus:clean(artifact.data?.publishingStatus)
     })),
     error:task.error?.userMessage ? clean(task.error.userMessage).slice(0, 240) : null
   };
+}
+
+function knowledgeConclusion(artifact) {
+  return artifact.summary
+    ? `${artifact.title}：${artifact.summary}`
+    : artifact.title;
+}
+
+function knowledgeArtifactSummary(artifact) {
+  const data = artifact?.data || {};
+  if (artifact?.type === 'platform_content_draft') {
+    const platforms = list(data.platforms).join('、');
+    const title = clean(data.drafts?.[0]?.titleCandidates?.[0]);
+    return [
+      platforms ? `已生成 ${platforms} 待审草稿` : '已生成平台待审草稿',
+      title ? `首选标题“${title}”` : '',
+      data.publishingStatus === 'draft_only' ? '未发布' : ''
+    ].filter(Boolean).join('；');
+  }
+  if (artifact?.type === 'video_content_analysis_report') {
+    const summary = clean(data.summary);
+    const completeness = clean(data.completeness);
+    return [summary, completeness ? `完整度 ${completeness}` : ''].filter(Boolean).join('；').slice(0, 360);
+  }
+  return clean(data.summary).slice(0, 360);
+}
+
+function knowledgeArtifactOpenItems(artifact) {
+  if (artifact.type === 'platform_content_draft' && artifact.publishingStatus === 'draft_only') {
+    return ['人工审阅平台草稿；确认事实、隐私和表达后，再单独决定是否发布。'];
+  }
+  return [];
 }
 
 function buildReport({ title, description, sources, completedAt }) {

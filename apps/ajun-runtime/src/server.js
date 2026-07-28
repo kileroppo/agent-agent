@@ -11,9 +11,10 @@ import { PaperclipBridge } from './paperclip-bridge.js';
 import { PaperclipRosterReconciler } from './paperclip-roster-reconciler.js';
 import { ApprovalExpiryReconciler } from './approval-expiry-reconciler.js';
 import { PaperclipRepairReconciler } from './paperclip-repair-reconciler.js';
+import { PaperclipHermesTaskReconciler } from './paperclip-hermes-task-reconciler.js';
 import { TechnicalRepairEvidenceRelay } from './technical-repair-evidence-relay.js';
 import { LocalHealthOperator } from './local-health-operator.js';
-import { LocalTaskCoordinator } from './local-task-coordinator.js';
+import { LocalAjunCoordinator } from './local-ajun-coordinator.js';
 import { CrossAgentMissionService } from './cross-agent-mission-service.js';
 import { CrossAgentMissionReconciler } from './cross-agent-mission-reconciler.js';
 import { LocalReviewer } from './local-reviewer.js';
@@ -43,18 +44,23 @@ import { PublicWebSearch } from './public-web-search.js';
 import { PublicWebTransport } from './public-web-transport.js';
 import { LocalPublicReport } from './local-public-report.js';
 import { GithubSearch } from './github-search.js';
-import { LocalGithubScout } from './local-github-scout.js';
+import { LocalGithubResearch } from './local-github-research.js';
 import { LocalIntelResearcher } from './local-intel-researcher.js';
 import { LocalOfficeAssistant } from './local-office-assistant.js';
+import { KnowledgeArchiveWriter } from './knowledge-archive-writer.js';
+import { LocalContentCreator, LocalVideoContentAnalyst } from './local-content-growth.js';
+import { HermesContentGrowthAdvisor } from './hermes-content-growth-advisor.js';
 import { ProposalAcceptanceRunner } from './proposal-acceptance-runner.js';
 import { FeishuCommander, FeishuCommanderValidationError } from './feishu-commander.js';
 import { FeishuChannelBridge, FeishuChannelBridgeError } from './feishu-channel-bridge.js';
 import { OfficialFeishuChannelRunner } from './official-feishu-channel-runner.js';
 import { FileCompletionWatchStore, OfficialFeishuCompletionWatcher } from './official-feishu-completion-watcher.js';
+import { HermesFeishuSender } from './hermes-feishu-sender.js';
 import { FileAgentFeishuAppStore } from './agent-feishu-app-store.js';
 import { AgentFeishuChannelFleet, employeeFeishuChannelsEnabled, feishuChannelStartupPlan } from './agent-feishu-channel-fleet.js';
 import { EmployeeFeishuConnectionError, EmployeeFeishuConnectionService } from './employee-feishu-connection-service.js';
 import { HermesModelSetupError, HermesModelSetupService } from './hermes-model-setup-service.js';
+import { createHermesModelProfileResolver } from './hermes-model-profile-resolver.js';
 import { AccessConnectionError, AccessConnectionService } from './access-connection-service.js';
 import { canAccessApi, isLocalAddress, isLoopbackHost, lanAddresses, loadLanShareKey, rotateLanShareKey } from './lan-access.js';
 
@@ -78,6 +84,8 @@ const publicComparisonAdvisor = new HermesPublicComparisonAdvisor();
 const publicSummaryAdvisor = new HermesPublicSummaryAdvisor();
 const hermesProfileRoot = process.env.AGENT_ARMY_HERMES_PROFILE_ROOT || path.join(os.homedir(), '.hermes', 'profiles');
 const intelResearchAdvisor = new HermesIntelResearchAdvisor({ hermesHome:path.join(hermesProfileRoot, 'intel-researcher') });
+const videoContentAdvisor = new HermesContentGrowthAdvisor({ hermesHome:path.join(hermesProfileRoot, 'video-content-analyst'), timeoutMs:720_000 });
+const contentCreatorAdvisor = new HermesContentGrowthAdvisor({ hermesHome:path.join(hermesProfileRoot, 'content-creator'), timeoutMs:300_000 });
 const deploymentMode = String(process.env.AGENT_ARMY_DEPLOYMENT_MODE || 'local').trim().toLowerCase();
 const employeeFeishuOwner = String(process.env.AGENT_ARMY_EMPLOYEE_FEISHU_OWNER || 'local').trim().toLowerCase();
 const hermesNativeEmployeeIds = String(process.env.AJUN_HERMES_NATIVE_EMPLOYEE_IDS || '')
@@ -89,25 +97,62 @@ const localXiaod = new XiaodDelegate({ onStarted: () => void xiaodReconciler?.re
 const xiaod = deploymentMode === 'cloud' ? new CloudXiaodExecutor() : localXiaod;
 xiaodReconciler = new XiaodReconciler({ store, xiaod:localXiaod, governance });
 const paperclipRepairReconciler = new PaperclipRepairReconciler({ store, governance, evidenceRelay:new TechnicalRepairEvidenceRelay({ governance, projectRoot:root, allowedWorkspaceRoots:[process.env.PAPERCLIP_REPAIR_WORKTREE_PARENT || '/Users/pengaro/.paperclip/agent-army-worktrees'] }) });
+const paperclipHermesTaskReconciler = new PaperclipHermesTaskReconciler({ store, governance });
 const operator = new LocalHealthOperator({ governance });
 const publicWebTransport = new PublicWebTransport();
 const publicWebFetch = new PublicWebFetch({ fetchImpl: (...args) => publicWebTransport.fetch(...args) });
 const publicWebSearch = new PublicWebSearch({ fetchImpl: (...args) => publicWebTransport.fetch(...args) });
 const githubSearch = new GithubSearch({ fetchImpl: (...args) => publicWebTransport.fetch(...args) });
 const publicReport = new LocalPublicReport({ publicWebFetch, publicWebSearch, comparisonAdvisor:publicComparisonAdvisor, refineAdvisor:publicSummaryAdvisor });
-const githubScout = new LocalGithubScout({ githubSearch });
-const intelResearcher = new LocalIntelResearcher({ publicWebFetch, publicWebSearch, githubSearch, researchAdvisor:intelResearchAdvisor });
-const officeAssistant = new LocalOfficeAssistant({ store, artifactsDir:path.join(dataDir, 'office-artifacts') });
-const proposals = new AgentProposalService({ store, registry, governance, restrictedAcceptanceRunner:new ProposalAcceptanceRunner({ publicReport, githubScout, intelResearcher }) });
+const githubResearch = new LocalGithubResearch({ githubSearch });
+const intelResearcher = new LocalIntelResearcher({ publicWebFetch, publicWebSearch, githubSearch, publicReport, githubResearch, researchAdvisor:intelResearchAdvisor });
+const knowledgeArchive = new KnowledgeArchiveWriter({
+  autoWorkRoot:process.env.AUTO_WORK_ROOT || path.resolve(root, '../auto-work')
+});
+const officeAssistant = new LocalOfficeAssistant({ store, artifactsDir:path.join(dataDir, 'office-artifacts'), knowledgeArchive });
+const contentArtifactRoots = [
+  dataDir,
+  path.resolve(process.env.XIAOD_ARTIFACT_ROOT || path.join(root, 'apps/xiaod-media-transcriber/data'))
+];
+const videoContentAnalyst = new LocalVideoContentAnalyst({
+  store,
+  artifactsDir:path.join(dataDir, 'content-growth-artifacts'),
+  allowedArtifactRoots:contentArtifactRoots,
+  advisor:videoContentAdvisor
+});
+const contentCreator = new LocalContentCreator({
+  store,
+  artifactsDir:path.join(dataDir, 'content-growth-artifacts'),
+  allowedArtifactRoots:contentArtifactRoots,
+  advisor:contentCreatorAdvisor
+});
+const proposals = new AgentProposalService({
+  store,
+  registry,
+  governance,
+  restrictedAcceptanceRunner:new ProposalAcceptanceRunner({
+    publicReport,
+    intelResearcher,
+    videoContentAnalyst,
+    contentCreator,
+    artifactsDir:path.join(dataDir, 'proposal-acceptance-artifacts')
+  })
+});
 const port = Number(process.env.PORT || 4321);
 const host = process.env.AJUN_HOST || '0.0.0.0';
 let failureRecovery;
-const tasks = new TaskService({ registry, store, governance, executors: { operator, xiaod, creator: new LocalCreator({ proposals }), 'task-coordinator': new LocalTaskCoordinator({ advisor:taskAdvisor, registry }), reviewer: new LocalReviewer(), architect: new LocalArchitect({ registry, store }), 'technical-expert': new LocalTechnicalExpert({ workspace:repairWorkspace, runner:technicalExpertRunner, promotion:technicalRepairPromotion }), 'github-scout':githubScout, 'intel-researcher':intelResearcher, 'office-assistant':officeAssistant }, fallbackExecutor: publicReport, onTaskFailed: (task) => failureRecovery?.handle(task) });
+const tasks = new TaskService({ registry, store, governance, executors: { operator, xiaod, ajun: new LocalAjunCoordinator({ advisor:taskAdvisor, registry }), creator: new LocalCreator({ proposals }), reviewer: new LocalReviewer(), architect: new LocalArchitect({ registry, store }), 'technical-expert': new LocalTechnicalExpert({ workspace:repairWorkspace, runner:technicalExpertRunner, promotion:technicalRepairPromotion }), 'intel-researcher':intelResearcher, 'office-assistant':officeAssistant, 'video-content-analyst':videoContentAnalyst, 'content-creator':contentCreator }, fallbackExecutor: publicReport, onTaskFailed: (task) => failureRecovery?.handle(task) });
 const macWorker = new MacWorkerTaskBridge({ store, governance, onFailure:(task) => failureRecovery?.handle(task) });
 const approvalExpiryReconciler = new ApprovalExpiryReconciler({ tasks, onResult:(result) => { if (result.status !== 'synced') console.warn('过期确认暂时无法自动整理，将自动重试。'); } });
 proposals.taskService = tasks;
 const missions = new CrossAgentMissionService({ tasks, store, governance });
 const missionReconciler = new CrossAgentMissionReconciler({ store, missions });
+const hermesFeishuSender = new HermesFeishuSender();
+const hermesNativeCompletionWatcher = new OfficialFeishuCompletionWatcher({
+  taskStatus:(taskId, chatId) => tasks.notificationStatus(taskId, chatId),
+  send:(chatId, payload) => hermesFeishuSender.send(chatId, payload),
+  store:new FileCompletionWatchStore(path.join(dataDir, 'hermes-native-completion-watches.json'))
+});
 failureRecovery = new FailureRecoveryCoordinator({ tasks, store, diagnoser:technicalRepairDiagnoser, projectRoot:root });
 xiaodReconciler.onFailure = (task) => failureRecovery.handle(task);
 const commander = new FeishuCommander({ tasks, proposals, missions, store, planner: new HermesIntentPlanner(), conversationAdvisor:new HermesConversationAdvisor(), ajunBaseUrl: `http://127.0.0.1:${port}` });
@@ -136,19 +181,7 @@ const employeeFeishuConnections = new EmployeeFeishuConnectionService({
   fleet:agentFeishuChannelFleet
 });
 const employeeModelSetup = new HermesModelSetupService({
-  resolveProfile:async (agentId) => {
-    const agent = await registry.get(agentId);
-    if (agent?.status !== 'active' || !agent.runtimeProfileRef) return null;
-    const mappingPath = path.resolve(root, agent.runtimeProfileRef);
-    const profilesRoot = path.join(root, 'integrations/hermes/profiles');
-    if (!mappingPath.startsWith(`${profilesRoot}${path.sep}`)) return null;
-    try {
-      const mapping = JSON.parse(await fs.readFile(mappingPath, 'utf8'));
-      return mapping.profileId === agentId ? mapping.profileId : null;
-    } catch {
-      return null;
-    }
-  }
+  resolveProfile:createHermesModelProfileResolver({ registry, proposalStore:store, root })
 });
 const accessConnections = new AccessConnectionService();
 const feishuChannelStartup = feishuChannelStartupPlan({
@@ -209,10 +242,32 @@ const server = http.createServer(async (req, res) => {
       if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error:'账号连接状态只能在老板这台设备上查看。' });
       return json(res, 200, await accessConnections.list());
     }
+    if (req.method === 'GET' && req.url === '/api/access-login/options') {
+      if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error:'账号登录只能由老板在本机完成。' });
+      return json(res, 200, await accessConnections.loginOptions());
+    }
+    if (req.method === 'POST' && req.url === '/api/access-login/open') {
+      if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error:'账号登录只能由老板在本机打开。' });
+      return json(res, 200, { login:await accessConnections.openLogin((await body(req)).provider) });
+    }
+    if (req.method === 'POST' && req.url === '/api/access-connections') {
+      if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error:'账号连接只能由老板在本机创建。' });
+      return json(res, 201, { connection:await accessConnections.create(await body(req)) });
+    }
     const accessConnectionRevokeMatch = req.url?.match(/^\/api\/access-connections\/([0-9a-f-]{36})\/revoke$/i);
     if (req.method === 'POST' && accessConnectionRevokeMatch) {
       if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error:'账号连接只能由老板在本机撤销。' });
       return json(res, 200, { connection:await accessConnections.revoke(accessConnectionRevokeMatch[1]) });
+    }
+    const accessConnectionDisableMatch = req.url?.match(/^\/api\/access-connections\/([0-9a-f-]{36})\/disable$/i);
+    if (req.method === 'POST' && accessConnectionDisableMatch) {
+      if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error:'账号连接只能由老板在本机禁用。' });
+      return json(res, 200, { connection:await accessConnections.disable(accessConnectionDisableMatch[1]) });
+    }
+    const accessConnectionReauthorizeMatch = req.url?.match(/^\/api\/access-connections\/([0-9a-f-]{36})\/reauthorize$/i);
+    if (req.method === 'POST' && accessConnectionReauthorizeMatch) {
+      if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error:'账号连接只能由老板在本机重新授权。' });
+      return json(res, 200, { connection:await accessConnections.reauthorize(accessConnectionReauthorizeMatch[1], await body(req)) });
     }
     const employeeFeishuConnectionMatch = req.url?.match(/^\/api\/employee-feishu-connections\/([a-z][a-z0-9-]{0,63})$/);
     if (req.method === 'POST' && employeeFeishuConnectionMatch) {
@@ -249,6 +304,19 @@ const server = http.createServer(async (req, res) => {
       const input = await body(req);
       return json(res, 200, await tasks.notificationStatus(String(input.taskId || ''), String(input.chatRef || '')));
     }
+    if (req.method === 'POST' && req.url === '/api/mcp/completion-watches') {
+      if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error:'Hermes 任务跟进只能由本机 MCP 登记。' });
+      const input = await body(req);
+      const taskId = String(input.taskId || '').trim();
+      const chatRef = String(input.chatRef || '').trim();
+      const task = (await store.list()).find((item) => item.taskId === taskId);
+      if (!task) throw new ValidationError('找不到要跟进的任务。');
+      if (task.source?.channel !== 'feishu' || String(task.source?.chatRef || '').trim() !== chatRef) {
+        throw new ValidationError('只能为任务原飞书会话登记跟进。');
+      }
+      await hermesNativeCompletionWatcher.watch({ taskId, chatId:chatRef });
+      return json(res, 200, { registered:true, taskId });
+    }
     if (req.method === 'POST' && req.url === '/api/mcp/paperclip-assignment') {
       if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error:'Paperclip 指派只能由本机 Hermes MCP 读取。' });
       return json(res, 200, await tasks.getPaperclipAssignment({
@@ -270,13 +338,20 @@ const server = http.createServer(async (req, res) => {
         paperclipApiKey:bearerToken(req.headers.authorization)
       }));
     }
+    if (req.method === 'POST' && req.url === '/api/mcp/content-growth-execute') {
+      if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error:'内容增长执行只能由本机受限 Hermes MCP 调用。' });
+      return json(res, 200, await tasks.executeContentGrowthAssignment({
+        ...await body(req),
+        paperclipApiKey:bearerToken(req.headers.authorization)
+      }));
+    }
     const feishuProposalApprovalMatch = req.url?.match(/^\/api\/feishu\/proposal-approvals\/([0-9a-f-]+)\/(approve|reject)$/i);
     if (req.method === 'POST' && feishuProposalApprovalMatch) {
       if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error:'飞书岗位审批回调只能由本机 Hermes 适配器调用。' });
       const [, proposalId, action] = feishuProposalApprovalMatch; const input = await body(req);
       return json(res, 200, await resolveFeishuApproval({ approvalId:proposalId, action, governanceMode:'proposal', chatRef:input.chatRef, requesterRef:input.requesterRef }));
     }
-    const proposalAction = req.url?.match(/^\/api\/agent-proposals\/([0-9a-f-]+)\/(submit|approve-for-test|activate|reject|test-instance|test-evidence|acceptance|run-acceptance)$/i);
+    const proposalAction = req.url?.match(/^\/api\/agent-proposals\/([0-9a-f-]+)\/(submit|approve-for-test|activate|reject|archive|test-instance|test-evidence|acceptance|run-acceptance)$/i);
     if (req.method === 'POST' && proposalAction) {
       if (!isLocalAddress(req.socket.remoteAddress)) return json(res, 403, { error: '草案审核与测试操作只能由本机主人发起。' });
       const [, proposalId, action] = proposalAction; const input = await body(req);
@@ -284,6 +359,7 @@ const server = http.createServer(async (req, res) => {
       if (action === 'approve-for-test') return json(res, 200, { proposal: await proposals.approveForTest(proposalId) });
       if (action === 'activate') return json(res, 200, { proposal: await proposals.activate(proposalId) });
       if (action === 'reject') return json(res, 200, { proposal: await proposals.reject(proposalId) });
+      if (action === 'archive') return json(res, 200, { proposal: await proposals.archive(proposalId, { archivedBy:'本机负责人', reason:String(input.reason || '').trim() || undefined }) });
       if (action === 'test-instance') return json(res, 201, { testInstance: await proposals.createTestInstance(proposalId, { hermesProfileName: String(input.hermesProfileName || '').trim() || null }) });
       if (action === 'test-evidence') return json(res, 200, { proposal: await proposals.recordTestEvidence(proposalId, input) });
       if (action === 'run-acceptance') return json(res, 200, { proposal: await proposals.runRestrictedAcceptance(proposalId, input) });
@@ -339,7 +415,9 @@ paperclipRosterReconciler.start();
 approvalExpiryReconciler.start();
 if (deploymentMode !== 'cloud') xiaodReconciler.start();
 paperclipRepairReconciler.start();
+paperclipHermesTaskReconciler.start();
 missionReconciler.start();
+void hermesNativeCompletionWatcher.start().catch(() => undefined);
 technicalRepairWatchdog.start();
 if (feishuChannelStartup.startLegacyAJun) {
   void officialFeishuChannelRunner.start().catch((error) => console.warn(`官方飞书入口没有启用：${String(error?.message || '未知问题')}`));

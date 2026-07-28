@@ -29,13 +29,14 @@
     ],
     "scope": {
       "agentIds": ["office-assistant"],
-      "taskTypes": ["office.briefing-package"],
+      "taskTypes": ["office.briefing-package", "office.knowledge-summary"],
       "allowMissions": false
     }
   },
   "toolAllowlist": [
     "army.task.read",
-    "office.artifact.write"
+    "office.artifact.write",
+    "knowledge.archive.write"
   ],
   "secrets": {
     "source": "profile-environment-only",

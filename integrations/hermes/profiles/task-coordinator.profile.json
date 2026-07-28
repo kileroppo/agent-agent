@@ -1,6 +1,6 @@
 {
   "schemaVersion": "agent.army/hermes-profile-map/v1",
-  "status": "verified-local",
+  "status": "retired",
   "profileId": "task-coordinator",
   "role": "任务协调官：校验任务、路由岗位并建立安全的多人分工。",
   "localProfile": {
@@ -16,8 +16,8 @@
   "appRef": "apps/ajun-runtime",
   "gateway": {
     "platform": "feishu",
-    "enabled": true,
-    "reason": "独立 Hermes Profile Gateway 已连接；Paperclip heartbeat 分工任务、老板真实飞书私聊和独立会话均已验证。"
+    "enabled": false,
+    "reason": "任务登记与多人任务控制已并入 A君；历史 Profile 仅用于回滚审计，不再启动 Gateway。"
   },
   "mcp": {
     "server": "agent-army",

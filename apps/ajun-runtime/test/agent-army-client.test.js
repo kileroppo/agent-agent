@@ -42,6 +42,7 @@ test('AgentArmyClient creates an idempotent Hermes task and returns its read mod
       const key = `${options.method || 'GET'} ${new URL(url).pathname}`;
       requests.push({ key, body:options.body ? JSON.parse(options.body) : null });
       if (key === 'POST /api/tasks') return response(201, { task:{ taskId:'22222222-2222-2222-2222-222222222222' } });
+      if (key === 'POST /api/mcp/completion-watches') return response(200, { registered:true });
       if (key === 'GET /api/overview') return response(200, {
         ...overview,
         tasks:[{ ...overview.tasks[0], taskId:'22222222-2222-2222-2222-222222222222', source:{ channel:'feishu', chatRef:'oc_test' } }]
@@ -66,6 +67,173 @@ test('AgentArmyClient creates an idempotent Hermes task and returns its read mod
   assert.deepEqual(create.body.context.sourceTaskIds, ['source-task-1234']);
   assert.equal(create.body.context.dependsOnPrevious, true);
   assert.match(create.body.idempotencyKey, /^hermes:oc_test:/);
+  const watch = requests.find((item) => item.key === 'POST /api/mcp/completion-watches');
+  assert.deepEqual(watch.body, { taskId:'22222222-2222-2222-2222-222222222222', chatRef:'oc_test' });
+});
+
+test('只有视频 URL 的正式拆解默认自动质量确认并继续小拆分析', async () => {
+  const requests = [];
+  const missionId = '23232323-2323-2323-2323-232323232323';
+  const mediaId = '24242424-2424-2424-2424-242424242424';
+  const client = new AgentArmyClient({
+    fetchImpl:async (url, options = {}) => {
+      const key = `${options.method || 'GET'} ${new URL(url).pathname}`;
+      requests.push({ key, body:options.body ? JSON.parse(options.body) : null });
+      if (key === 'POST /api/mcp/missions') return response(201, {
+        mission:{ taskId:missionId },
+        children:[{ taskId:mediaId }],
+        reply:'总任务已建立，等待完整听审。'
+      });
+      if (key === 'POST /api/mcp/completion-watches') return response(200, { registered:true });
+      if (key === 'GET /api/overview') return response(200, {
+        ...overview,
+        tasks:[
+          {
+            taskId:missionId, taskType:'army.cross-agent-mission', assigneeAgentId:'ajun',
+            status:'running', currentStage:'mission_in_progress', input:{ title:'拆解公开视频｜受控获取与拆解' },
+            approvalRefs:[], artifactRefs:[]
+          },
+          {
+            taskId:mediaId, parentTaskId:missionId, taskType:'media.transcribe-and-refine', assigneeAgentId:'xiaod',
+            status:'running', currentStage:'xiaod_processing', input:{ title:'获取并整理：拆解公开视频' },
+            approvalRefs:[], artifactRefs:[]
+          }
+        ]
+      });
+      return response(404, { error:'missing' });
+    }
+  });
+
+  const result = await client.createTask({
+    title:'拆解公开视频',
+    taskType:'content.video-benchmark-analysis',
+    agentId:'video-content-analyst',
+    sourceUrls:['https://example.com/video'],
+    evidenceMode:'formal',
+    depth:'full',
+    focus:'开场钩子',
+    chatRef:'oc_content',
+    requestRef:'message-content-1'
+  });
+
+  assert.equal(result.mission.taskId, missionId);
+  assert.equal(requests.some((item) => item.key === 'POST /api/tasks'), false);
+  const create = requests.find((item) => item.key === 'POST /api/mcp/missions');
+  assert.equal(create.body.items.length, 2);
+  assert.equal(create.body.items[0].agentId, 'xiaod');
+  assert.equal(create.body.items[0].reviewPolicy, 'optional');
+  assert.deepEqual(create.body.items[0].sourceUrls, ['https://example.com/video']);
+  assert.equal(create.body.items[1].agentId, 'video-content-analyst');
+  assert.equal(create.body.items[1].dependsOnPrevious, true);
+  assert.equal(create.body.items[1].evidenceMode, 'formal');
+  assert.equal(create.body.items[1].depth, 'full');
+  assert.equal(create.body.items[1].focus, '开场钩子');
+  const watch = requests.find((item) => item.key === 'POST /api/mcp/completion-watches');
+  assert.deepEqual(watch.body, { taskId:missionId, chatRef:'oc_content' });
+});
+
+test('用户明确要求正式完整拆解时覆盖模型误传的 fast，但默认仍走自动质量确认', async () => {
+  const requests = [];
+  const missionId = '25252525-2525-2525-2525-252525252525';
+  const client = new AgentArmyClient({
+    fetchImpl:async (url, options = {}) => {
+      const key = `${options.method || 'GET'} ${new URL(url).pathname}`;
+      requests.push({ key, body:options.body ? JSON.parse(options.body) : null });
+      if (key === 'POST /api/mcp/missions') return response(201, {
+        mission:{ taskId:missionId },
+        children:[],
+        reply:'总任务已建立，等待完整听审。'
+      });
+      if (key === 'POST /api/mcp/completion-watches') return response(200, { registered:true });
+      if (key === 'GET /api/overview') return response(200, {
+        ...overview,
+        tasks:[{
+          taskId:missionId,
+          taskType:'army.cross-agent-mission',
+          assigneeAgentId:'ajun',
+          status:'running',
+          currentStage:'mission_in_progress',
+          input:{ title:'正式完整拆解 B站视频｜受控获取与拆解' },
+          approvalRefs:[],
+          artifactRefs:[]
+        }]
+      });
+      return response(404, { error:'missing' });
+    }
+  });
+
+  await client.createTask({
+    title:'正式完整拆解 B站视频',
+    description:'对公开视频进行正式完整拆解。',
+    taskType:'content.video-benchmark-analysis',
+    agentId:'video-content-analyst',
+    sourceUrls:['https://example.com/video'],
+    evidenceMode:'formal',
+    depth:'fast',
+    reviewPolicy:'optional',
+    chatRef:'oc_content',
+    requestRef:'message-content-2'
+  });
+
+  const create = requests.find((item) => item.key === 'POST /api/mcp/missions');
+  assert.equal(create.body.items[0].reviewPolicy, 'optional');
+  assert.equal(create.body.items[1].depth, 'full');
+});
+
+test('用户明确要求人工完整听审时保留人工确认门禁', async () => {
+  const requests = [];
+  const client = new AgentArmyClient({
+    fetchImpl:async (url, options = {}) => {
+      const key = `${options.method || 'GET'} ${new URL(url).pathname}`;
+      requests.push({ key, body:options.body ? JSON.parse(options.body) : null });
+      if (key === 'POST /api/mcp/missions') return response(201, {
+        mission:{ taskId:'26262626-2626-2626-2626-262626262626' },
+        children:[],
+        reply:'总任务已建立。'
+      });
+      if (key === 'POST /api/mcp/completion-watches') return response(200, { registered:true });
+      if (key === 'GET /api/overview') return response(200, { ...overview, tasks:[] });
+      return response(404, { error:'missing' });
+    }
+  });
+
+  await client.createTask({
+    title:'人工听审后拆解',
+    taskType:'content.video-benchmark-analysis',
+    sourceUrls:['https://example.com/video'],
+    evidenceMode:'formal',
+    reviewPolicy:'required',
+    chatRef:'oc_content',
+    requestRef:'message-content-human-review'
+  });
+
+  const create = requests.find((item) => item.key === 'POST /api/mcp/missions');
+  assert.equal(create.body.items[0].reviewPolicy, 'required');
+});
+
+test('内容增长单次等待早于 Hermes 300 秒桥返回，12 分钟预算留在 A君后台', async () => {
+  let capturedTimeoutMs;
+  const signal = new AbortController().signal;
+  const client = new AgentArmyClient({
+    timeoutSignalImpl:(timeoutMs) => {
+      capturedTimeoutMs = timeoutMs;
+      return signal;
+    },
+    fetchImpl:async (_url, options) => {
+      assert.equal(options.signal, signal);
+      return response(200, { result:{ verified:true } });
+    }
+  });
+
+  const result = await client.executeContentGrowth({
+    issueId:'issue-content-timeout',
+    runId:'run-content-timeout',
+    paperclipAgentId:'agent-content-timeout',
+    agentArmyId:'video-content-analyst'
+  });
+
+  assert.equal(result.result.verified, true);
+  assert.equal(capturedTimeoutMs, 270_000);
 });
 
 test('AgentArmyClient rejects non-loopback base URLs', () => {
@@ -93,7 +261,7 @@ test('AgentArmyClient creates one idempotent mission for up to three employee as
         ...overview,
         tasks:[
           {
-            taskId:missionId, taskType:'army.cross-agent-mission', assigneeAgentId:'task-coordinator',
+            taskId:missionId, taskType:'army.cross-agent-mission', assigneeAgentId:'ajun',
             status:'running', currentStage:'mission_in_progress', input:{ title:'完成本周任务' }, artifactRefs:[], approvalRefs:[]
           },
           {
@@ -109,7 +277,17 @@ test('AgentArmyClient creates one idempotent mission for up to three employee as
   const result = await client.createMission({
     title:'完成本周任务',
     chatRef:'oc_boss',
-    items:[{ title:'研究公开资料', taskType:'research.intel-report', agentId:'intel-researcher', dependsOnPrevious:true }]
+    items:[{
+      title:'研究公开资料',
+      taskType:'research.intel-report',
+      agentId:'intel-researcher',
+      dependsOnPrevious:true,
+      evidenceMode:'preliminary',
+      depth:'full',
+      focus:'来源差异',
+      platforms:['douyin'],
+      contentGoal:'形成行动清单'
+    }]
   });
 
   assert.equal(result.mission.taskId, missionId);
@@ -119,6 +297,11 @@ test('AgentArmyClient creates one idempotent mission for up to three employee as
   assert.match(create.body.idempotencyKey, /^hermes-mission:oc_boss:/);
   assert.equal(create.body.items[0].taskType, 'research.intel-report');
   assert.equal(create.body.items[0].dependsOnPrevious, true);
+  assert.equal(create.body.items[0].evidenceMode, 'preliminary');
+  assert.equal(create.body.items[0].depth, 'full');
+  assert.equal(create.body.items[0].focus, '来源差异');
+  assert.deepEqual(create.body.items[0].platforms, ['douyin']);
+  assert.equal(create.body.items[0].contentGoal, '形成行动清单');
 });
 
 test('AgentArmyClient waits for a short mission and returns the delayed office child with final guidance', async () => {
@@ -145,7 +328,7 @@ test('AgentArmyClient waits for a short mission and returns the delayed office c
             {
               taskId:missionId,
               taskType:'army.cross-agent-mission',
-              assigneeAgentId:'task-coordinator',
+              assigneeAgentId:'ajun',
               status:finished ? 'succeeded' : 'running',
               currentStage:finished ? 'mission_delivered' : 'mission_in_progress',
               input:{ title:'三员工总任务' },

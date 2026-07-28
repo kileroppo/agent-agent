@@ -26,7 +26,13 @@ test('A君控制台只在本机提供员工接线，不把应用凭据写进页�
   assert.match(script, /name="appSecret" type="password"/);
   assert.match(script, /<strong>模型：<\/strong>/);
   assert.match(script, /独立身份已建立，模型授权和真实调用待完成/);
-  assert.match(script, /打开模型授权/);
+  assert.match(html, /A君 Hermes 模型管理/);
+  assert.match(html, /data-model-setup-agent-id="ajun"/);
+  assert.match(html, /管理 API 与 Key/);
+  assert.match(script, /管理模型/);
+  assert.match(script, /data-model-setup-target="models"/);
+  assert.match(script, /data-model-setup-target="keys"/);
+  assert.match(script, /payload\.setup\.modelUrl/);
   assert.match(script, /employee-model-setup/);
   assert.match(script, /setupWindow\.opener = null/);
   assert.match(script, /employee-feishu-connections/);
@@ -37,15 +43,19 @@ test('A君控制台只在本机提供员工接线，不把应用凭据写进页�
   assert.match(script, /\/\^ou_\[a-zA-Z0-9\]\+\$\//);
 });
 
-test('A君控制台复用通用账号连接状态，只提供脱敏查看和撤销', async () => {
+test('A君控制台提供受控登录、续期、禁用和撤销，但不接收原始凭据', async () => {
   const [html, script] = await Promise.all([
     readFile(new URL('index.html', root), 'utf8'),
     readFile(new URL('app.js', root), 'utf8')
   ]);
-  assert.match(html, /账号连接状态/);
-  assert.match(html, /登录和续期仍在获批的连接器中完成/);
+  assert.match(html, /连接网站账号/);
+  assert.match(html, /打开 Chrome 登录页/);
+  assert.match(html, /不填写、显示或复制 Cookie、Token 和密码/);
   assert.match(script, /\/api\/access-connections/);
-  assert.match(script, /撤销连接/);
+  assert.match(script, /\/api\/access-login\/open/);
+  assert.match(script, /续期并恢复连接/);
+  assert.match(script, /暂时禁用/);
+  assert.match(script, /永久撤销/);
   assert.match(script, /受控凭据引用已登记/);
   assert.doesNotMatch(html, /name="(?:cookie|token|password|credential)"/i);
   assert.doesNotMatch(script, /connection\.(?:credentialRef|cookieBridgeClientId|cookie|token)/);

@@ -1,10 +1,12 @@
 import { fallbackResearch } from './hermes-intel-research-advisor.js';
 
 export class LocalIntelResearcher {
-  constructor({ publicWebFetch, publicWebSearch = null, githubSearch = null, researchAdvisor = null, now = () => new Date() } = {}) {
+  constructor({ publicWebFetch, publicWebSearch = null, githubSearch = null, publicReport = null, githubResearch = null, researchAdvisor = null, now = () => new Date() } = {}) {
     this.publicWebFetch = publicWebFetch;
     this.publicWebSearch = publicWebSearch;
     this.githubSearch = githubSearch;
+    this.publicReport = publicReport;
+    this.githubResearch = githubResearch;
     this.researchAdvisor = researchAdvisor;
     this.now = now;
   }
@@ -12,6 +14,14 @@ export class LocalIntelResearcher {
   supports(agent) { return agent?.agentId === 'intel-researcher'; }
 
   async execute(task) {
+    if (task?.taskType === 'report.public-material') {
+      if (!this.publicReport?.execute) return needsInput(this.now(), 'public_report_unavailable', '小R的公开网页整理能力暂时不可用。');
+      return this.publicReport.execute(task);
+    }
+    if (task?.taskType === 'research.github-search') {
+      if (!this.githubResearch?.execute) return needsInput(this.now(), 'github_research_unavailable', '小R的公开 GitHub 检索能力暂时不可用。');
+      return this.githubResearch.execute(task);
+    }
     const topic = String(task?.input?.topic || task?.input?.title || '').trim();
     if (!topic) return needsInput(this.now(), 'research_topic_required', '请说明要研究的主题。小R只会读取公开来源，不会猜测研究目标。');
     let sourceUrls = sourceList(task?.input);

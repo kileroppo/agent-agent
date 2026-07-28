@@ -9,6 +9,7 @@ import {
   AGENT_ARMY_REPOSITORY_ROOT,
   GOVERNANCE_HERMES_AGENT_IDS,
   hermesProfileHome,
+  requiresDirectFeishuGateway,
   usesPaperclipHermesExecution
 } from '../src/governance-hermes-runtime.js';
 
@@ -44,8 +45,11 @@ const ALL_FEISHU_TOOLSETS = [
 
 export async function configureGovernanceHermesRuntime({
   agentIds = GOVERNANCE_HERMES_AGENT_IDS,
+  allowDraftProfiles = false,
   run = runCommand,
   ensureGatewayLoaded = (agentId) => ensureLaunchAgentLoaded(agentId, run),
+  ensureGatewayStopped = (agentId) => ensureLaunchAgentStopped(agentId, run),
+  gatewayPlistExists = (agentId) => launchAgentPlistExists(agentId),
   fetchImpl = fetch,
   copyFile = fs.copyFile,
   copyDirectory = (source, target) => fs.cp(source, target, { recursive:true, force:true }),
@@ -53,7 +57,7 @@ export async function configureGovernanceHermesRuntime({
   stat = fs.stat,
   profileHomeFor = hermesProfileHome
 } = {}) {
-  const ids = normalizeAgentIds(agentIds);
+  const ids = normalizeAgentIds(agentIds, { allowDraftProfiles });
   if (!ids.length) throw new GovernanceHermesConfigurationError('至少需要指定一名治理员工。');
   const companySkills = await listPaperclipCompanySkills(fetchImpl);
   const results = [];
@@ -61,7 +65,12 @@ export async function configureGovernanceHermesRuntime({
   for (const agentId of ids) {
     const manifestPath = path.join(AGENT_ARMY_REPOSITORY_ROOT, 'agents', agentId, 'manifest.json');
     const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
-    if (!usesPaperclipHermesExecution(manifest)) {
+    const restrictedTestingDraft = allowDraftProfiles
+      && manifest.status === 'draft'
+      && manifest.interaction?.runtime === 'hermes-profile'
+      && manifest.interaction?.directFeishu === 'disabled'
+      && manifest.executionOwner === 'paperclip-hermes';
+    if (!usesPaperclipHermesExecution(manifest) && !restrictedTestingDraft) {
       throw new GovernanceHermesConfigurationError(`${agentId} 未声明 Paperclip Hermes 执行所有权。`);
     }
     const profileHome = profileHomeFor(agentId);
@@ -103,25 +112,38 @@ export async function configureGovernanceHermesRuntime({
       '--env', ...env,
       '--args', mcpServerPath
     ], { env:profileEnvironment, input:'\n' });
+    // 12 分钟业务预算由 A君后台执行持有；每次 MCP 等待必须早于
+    // Hermes 同步桥的 300 秒硬上限返回 running，再由同一工具续等。
+    await run(hermesCommand, [
+      'config', 'set', '--force', 'mcp_servers.agent-army.timeout', '290'
+    ], { env:profileEnvironment, input:'\n' });
     await run(hermesCommand, ['tools', 'disable', '--platform', 'feishu', ...ALL_FEISHU_TOOLSETS], { env:profileEnvironment });
     await run(hermesCommand, ['tools', 'enable', '--platform', 'feishu', ...manifest.runtimeCapabilities.feishuToolsets], { env:profileEnvironment });
     for (const toolName of manifest.runtimeCapabilities.mcpTools) {
       await run(hermesCommand, ['tools', 'enable', '--platform', 'feishu', `agent-army:${toolName}`], { env:profileEnvironment });
     }
-    await run(hermesCommand, [
-      'gateway', 'install',
-      '--force',
-      '--start-now',
-      '--start-on-login'
-    ], { env:profileEnvironment });
-    await ensureGatewayLoaded(agentId);
+    const directFeishu = requiresDirectFeishuGateway(manifest);
+    if (directFeishu) {
+      if (!await gatewayPlistExists(agentId)) {
+        await run(hermesCommand, [
+          'gateway', 'install',
+          '--force',
+          '--no-start-now',
+          '--start-on-login'
+        ], { env:profileEnvironment });
+      }
+      await ensureGatewayLoaded(agentId);
+    } else {
+      await ensureGatewayStopped(agentId);
+    }
     results.push({
       agentId,
       profileHome,
       skills:installedSkills,
       mcpTools:[...manifest.runtimeCapabilities.mcpTools],
       feishuToolsets:[...manifest.runtimeCapabilities.feishuToolsets],
-      gatewayInstalled:true
+      gatewayInstalled:directFeishu,
+      executionMode:restrictedTestingDraft ? 'restricted-testing' : directFeishu ? 'always-on-feishu' : 'paperclip-on-demand'
     });
   }
   return results;
@@ -141,6 +163,20 @@ async function ensureLaunchAgentLoaded(agentId, run) {
   await run('/bin/launchctl', ['kickstart', '-k', service]);
 }
 
+async function ensureLaunchAgentStopped(agentId, run) {
+  const uid = os.userInfo().uid;
+  const label = `ai.hermes.gateway-${agentId}`;
+  const service = `gui/${uid}/${label}`;
+  await run('/bin/launchctl', ['bootout', service], { allowFailure:true });
+  await run('/bin/launchctl', ['disable', service], { allowFailure:true });
+}
+
+async function launchAgentPlistExists(agentId) {
+  const plistPath = path.join(os.homedir(), 'Library/LaunchAgents', `ai.hermes.gateway-${agentId}.plist`);
+  const plistStat = await fs.stat(plistPath).catch(() => null);
+  return Boolean(plistStat?.isFile());
+}
+
 async function listPaperclipCompanySkills(fetchImpl) {
   const companyResponse = await fetchImpl(`${paperclipUrl}/api/companies`, { signal:AbortSignal.timeout(2500) });
   if (!companyResponse.ok) throw new GovernanceHermesConfigurationError('Paperclip 公司列表不可用。');
@@ -152,10 +188,12 @@ async function listPaperclipCompanySkills(fetchImpl) {
   return skillsResponse.json();
 }
 
-function normalizeAgentIds(value) {
+function normalizeAgentIds(value, { allowDraftProfiles = false } = {}) {
   const allowed = new Set(GOVERNANCE_HERMES_AGENT_IDS);
   const values = Array.isArray(value) ? value : String(value || '').split(',');
-  return [...new Set(values.map((item) => String(item || '').trim()).filter((item) => allowed.has(item)))];
+  return [...new Set(values
+    .map((item) => String(item || '').trim())
+    .filter((item) => allowDraftProfiles ? /^[a-z][a-z0-9-]{0,63}$/.test(item) : allowed.has(item)))];
 }
 
 function runCommand(command, args, { allowFailure = false, env = {}, input = '' } = {}) {
@@ -181,9 +219,14 @@ export class GovernanceHermesConfigurationError extends Error {}
 
 async function main() {
   try {
-    const results = await configureGovernanceHermesRuntime({ agentIds:process.argv.slice(2) });
+    const args = process.argv.slice(2);
+    const allowDraftProfiles = args.includes('--allow-draft-testing');
+    const requestedAgentIds = args.filter((item) => item !== '--allow-draft-testing');
+    const results = await configureGovernanceHermesRuntime(requestedAgentIds.length
+      ? { agentIds:requestedAgentIds, allowDraftProfiles }
+      : { allowDraftProfiles });
     for (const result of results) {
-      console.log(`已配置 ${result.agentId}：${result.skills.length} 个复用技能、${result.mcpTools.length} 个 MCP 工具、Gateway 登录自启。`);
+      console.log(`已配置 ${result.agentId}：${result.skills.length} 个复用技能、${result.mcpTools.length} 个 MCP 工具、${result.gatewayInstalled ? 'Gateway 登录自启' : 'Paperclip 按需运行且 Gateway 已停用'}。`);
     }
   } catch (error) {
     console.error(error instanceof GovernanceHermesConfigurationError ? error.message : '治理员工 Hermes 配置失败。');

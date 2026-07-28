@@ -67,13 +67,15 @@ function normalizeModel(value) {
   if (!value || typeof value !== 'object') return { status:'not_reported' };
   const inputTokens = nonNegativeInteger(value.inputTokens);
   const outputTokens = nonNegativeInteger(value.outputTokens);
+  const apiCalls = nonNegativeInteger(value.apiCalls);
   if (inputTokens === null && outputTokens === null) return { status:'not_reported' };
   return {
     status:'reported',
     ...(String(value.provider || '').trim() ? { provider:String(value.provider).trim().slice(0, 80) } : {}),
     ...(String(value.model || '').trim() ? { model:String(value.model).trim().slice(0, 120) } : {}),
     ...(inputTokens !== null ? { inputTokens } : {}),
-    ...(outputTokens !== null ? { outputTokens } : {})
+    ...(outputTokens !== null ? { outputTokens } : {}),
+    ...(apiCalls !== null ? { apiCalls } : {})
   };
 }
 

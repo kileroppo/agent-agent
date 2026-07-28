@@ -55,13 +55,14 @@
 
 ## 当前交接
 
+- [M3 内容增长与知识归档交接](./current/m3-content-growth-handoff.md)：旧链路真实飞书/听审、新版图文报告、真实草稿和 Obsidian 归档均已有证据；唯一下一步是负责人阅读新版报告与草稿并判断内容质量。
 - [M2 数字员工公司体验实施交接](./current/m2-digital-employee-company-handoff.md)：目标设计已确认并进入实施；唯一下一步是完成办公执行助理纵向切片。
 - [M1 小D媒体强制路由与验收交接](./current/m1-xiaod-media-routing-acceptance-handoff.md)：首条真实媒体任务已完成系统交付，等待人工读取确认与其余M1场景验收。
 - [M1 小D飞书运行环境交接](./current/m1-xiaod-feishu-runtime-setup.md)：待所有者完成隔离 Profile 的本地配置后，执行首条受控飞书消息验证。
-- [M2 Paperclip 总控与通用访问底座交接](./current/m2-authorization-connectors-planning-handoff.md)：通用底座与 A君本地骨架已实现；下一步先验证 Paperclip 的真实 Agent 调度链路。
+- [M2 Paperclip 总控与通用访问底座交接](./current/m2-authorization-connectors-planning-handoff.md)：已关闭；A君登录、续期/禁用与小红书从零登录、授权读取、撤销恢复均已验证。
 - [M2 飞书 Agent 入口与 Paperclip 总控交接](./current/m2-feishu-agent-entry-handoff.md)：已关闭；A君 官方私聊、卡片、重启恢复、原会话和真实群聊 @ 均已通过，旧 Hermes 总管入口已停止。
 - [M2 第一批 Agent 创建与治理闭环交接](./current/m2-first-batch-agent-governance-handoff.md)：飞书草案、审批点击、受限测试和小D真实文档交付已验证；下一步补齐同会话自动完成提醒，再继续新 Agent 上线验收。
-- [音视频转录 Agent Hermes / 飞书接线交接](./current/av-transcriber-feishu-provisioning-handoff.md)：独立 Profile 与飞书应用已创建；下一步由负责人写入隔离凭据后完成私聊、群内 @ 真实收发验收。
 - [M2 独立 AI 员工与 A君切换交接](./current/m2-ai-first-independent-agents-handoff.md)：岗位卡和独立身份已建立；下一步安全配置 A君独立模型后切换，再验收运维官独立飞书小任务。
-- [M2 小G、小R治理验收交接](./current/m2-github-scout-and-intel-researcher-handoff.md)：两个只读公开资料岗位已实现并保持草案；下一步先做审核官的权限检查。
+
+历史的音视频转录接线样板与小G/小R双岗位验收已移入 [`docs/archive/handoffs/`](../archive/handoffs/)；当前 GitHub 公开检索统一由小R承接。
 - [M2 Hermes 原生飞书总管迁移交接](./current/m2-hermes-native-feishu-migration-handoff.md)：已关闭；当前 A君 已由 Hermes 原生 Gateway 承载，9 个军团 MCP 工具、连续会话、重启恢复、拒绝不执行和真实健康任务均已通过。

@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "agent.army/evals/v1",
+  "cases": [
+    {
+      "id": "formal-requires-confirmed-transcript",
+      "taskType": "content.video-benchmark-analysis",
+      "input": { "evidenceMode": "formal", "depth": "fast" },
+      "expected": { "status": "needs_input", "errorCode": "confirmed_transcript_required" }
+    },
+    {
+      "id": "preliminary-is-clearly-labelled",
+      "taskType": "content.video-benchmark-analysis",
+      "input": { "evidenceMode": "preliminary", "depth": "fast" },
+      "expected": { "artifactType": "video_content_analysis_report", "evidenceLevel": "preliminary_unconfirmed" }
+    },
+    {
+      "id": "claims-require-evidence",
+      "taskType": "content.video-benchmark-analysis",
+      "input": { "evidenceMode": "formal", "depth": "full" },
+      "expected": { "validation": "claimsEvidenceLinked" }
+    },
+    {
+      "id": "visual-claims-require-frame-evidence",
+      "taskType": "content.video-benchmark-analysis",
+      "input": { "evidenceMode": "formal", "depth": "fast", "visualMode": "auto" },
+      "expected": { "validation": "visualClaimsEvidenceLinked" }
+    },
+    {
+      "id": "required-visual-cannot-silently-degrade",
+      "taskType": "content.video-benchmark-analysis",
+      "input": { "evidenceMode": "formal", "depth": "full", "visualMode": "required" },
+      "expected": { "status": "needs_input", "errorCode": "visual_evidence_required" }
+    }
+  ]
+}

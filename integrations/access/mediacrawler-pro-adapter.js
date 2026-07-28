@@ -19,7 +19,7 @@ export class MediaCrawlerProAdapter {
     this.capabilities = ['basic_content', 'images', 'media'];
     this.accessMode = 'authorized';
     this.priorityClass = 'specialized';
-    this.runtimeRequirements = ['content', 'media_transcription'];
+    this.runtimeRequirements = ['content', 'media_transcription', 'visual_analysis'];
     this.fetchImpl = fetchImpl;
     this.cookieBridgeUrl = normalizeLocalUrl(cookieBridgeUrl);
     this.downloadServerUrl = normalizeLocalUrl(downloadServerUrl);
@@ -35,7 +35,7 @@ export class MediaCrawlerProAdapter {
     return Object.entries(PROVIDERS).find(([, domains]) => domains.some((domain) => host === domain || host.endsWith(`.${domain}`)))?.[0] || null;
   }
 
-  async acquire({ source, connectionUse, workspace }) {
+  async acquire({ source, connectionUse, workspace, runtimeRequirement }) {
     const provider = this.providerFor(source);
     if (!provider) throw new Error('MediaCrawlerPro 不支持此来源。');
     if (connectionUse?.credentialKind !== 'cookie_bridge' || !connectionUse.cookieBridgeClientId) {
@@ -52,9 +52,15 @@ export class MediaCrawlerProAdapter {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload.isok === false || payload.biz_code) throw new Error('MediaCrawlerPro 内容读取未成功。');
-      const normalized = normalizeContent(payload?.data?.content);
-      if (normalized.runtime?.kind === 'remote_media' && workspace) {
-        normalized.runtime = await this.downloadAuthorizedMedia({ source, mediaUrl: normalized.runtime.url, cookies, workspace });
+      const normalized = normalizeContent(payload?.data?.content, { runtimeRequirement });
+      if (['remote_media', 'remote_audio'].includes(normalized.runtime?.kind) && workspace) {
+        normalized.runtime = await this.downloadAuthorizedMedia({
+          source,
+          mediaUrl:normalized.runtime.url,
+          cookies,
+          workspace,
+          kind:normalized.runtime.kind === 'remote_audio' ? 'audio' : 'video'
+        });
       }
       return normalized;
     } catch (error) {
@@ -79,7 +85,7 @@ export class MediaCrawlerProAdapter {
     return cookies;
   }
 
-  async downloadAuthorizedMedia({ source, mediaUrl, cookies, workspace }) {
+  async downloadAuthorizedMedia({ source, mediaUrl, cookies, workspace, kind = 'video' }) {
     const response = await this.fetchImpl(mediaUrl, {
       headers: {
         Accept: '*/*',
@@ -94,9 +100,9 @@ export class MediaCrawlerProAdapter {
       throw error;
     }
     await fs.mkdir(workspace, { recursive: true });
-    const outputPath = path.join(workspace, 'authorized-source.mp4');
+    const outputPath = path.join(workspace, kind === 'audio' ? 'authorized-audio.m4a' : 'authorized-source.mp4');
     await pipeline(Readable.fromWeb(response.body), createWriteStream(outputPath, { flags: 'w' }));
-    return { kind: 'video', path: outputPath };
+    return { kind, path: outputPath };
   }
 }
 
@@ -113,29 +119,48 @@ function isLoopback(host) {
   return host === '127.0.0.1' || host === '::1' || host === 'localhost';
 }
 
-function normalizeContent(content = {}) {
+function normalizeContent(content = {}, { runtimeRequirement } = {}) {
   const images = Array.isArray(content.image_urls) ? content.image_urls.filter(Boolean) : [];
   const video = isPublicHttpUrl(content.video_download_url) ? content.video_download_url : null;
+  const audio = isPublicHttpUrl(content.extria_info?.audio_url) ? content.extria_info.audio_url : null;
+  const durationSeconds = Number(content.extria_info?.duration);
   const basic = {
     title: String(content.title || '').slice(0, 500),
     description: String(content.desc || '').slice(0, 16000),
     sourceUrl: content.url || null,
-    author: content.author || null,
+    author: normalizeAuthor(content.author),
     interaction: content.interaction || null,
-    contentType: content.content_type || null
+    contentType: content.content_type || null,
+    ...(Number.isFinite(durationSeconds) && durationSeconds > 0 ? { durationSeconds } : {})
   };
   const contentItems = { basic_content: basic };
   if (images.length) contentItems.images = images.map((url) => ({ url }));
-  if (video) contentItems.media = [{ url: video }];
+  if (video || audio) {
+    contentItems.media = [
+      ...(video ? [{ url:video, role:'video' }] : []),
+      ...(audio ? [{ url:audio, role:'audio' }] : [])
+    ];
+  }
   const providedCapabilities = ['basic_content'];
   if (images.length) providedCapabilities.push('images');
-  if (video) providedCapabilities.push('media');
+  if (video || audio) providedCapabilities.push('media');
   return {
     providedCapabilities,
     contentItems,
-    runtime: video ? { kind: 'remote_media', url: video } : {},
+    runtime: runtimeRequirement === 'visual_analysis'
+      ? video ? { kind:'remote_media', url:video } : {}
+      : audio ? { kind:'remote_audio', url:audio } : video ? { kind:'remote_media', url:video } : {},
     capabilityNotes: '已通过已授权的 MediaCrawlerPro 深度通道读取内容结构与平台字段。'
   };
+}
+
+function normalizeAuthor(value) {
+  if (typeof value === 'string') return value.trim() || null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const candidate = value.name || value.nickname || value.display_name || value.unique_id || value.id;
+  return typeof candidate === 'string' || typeof candidate === 'number'
+    ? String(candidate).trim() || null
+    : null;
 }
 
 function isPublicHttpUrl(value) {

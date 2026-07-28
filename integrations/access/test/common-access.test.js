@@ -9,6 +9,7 @@ import { ContentAcquisitionCenter } from '../content-acquisition-center.js';
 import { OperationsEventStore } from '../operations-event-store.js';
 import { browserSessionArgs, YtDlpGeneralMediaAdapter } from '../yt-dlp-general-media-adapter.js';
 import { MediaCrawlerProAdapter } from '../mediacrawler-pro-adapter.js';
+import { BilibiliNativeSubtitleAdapter } from '../bilibili-native-subtitle-adapter.js';
 
 async function sandbox(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-access-'));
@@ -146,7 +147,7 @@ test('公开视频先只请求常用中英文字幕，避免为所有翻译版�
   let subtitleArgs = null;
   const adapter = new YtDlpGeneralMediaAdapter({
     runCommand: async (_command, args) => {
-      if (args.includes('--print')) return '公开视频标题\n说明';
+      if (args.includes('--dump-single-json')) return JSON.stringify({ title:'公开视频标题', description:'说明', uploader:'作者', duration:60, webpage_url:'https://www.youtube.com/watch?v=example' });
       if (args.includes('--write-subs')) {
         subtitleArgs = args;
         const template = args[args.indexOf('-o') + 1];
@@ -161,6 +162,197 @@ test('公开视频先只请求常用中英文字幕，避免为所有翻译版�
   });
   assert.deepEqual(subtitleArgs.slice(subtitleArgs.indexOf('--sub-langs') + 1, subtitleArgs.indexOf('--sub-langs') + 2), ['zh-Hans,zh-Hant,en']);
   assert.deepEqual(acquired.providedCapabilities, ['basic_content', 'subtitles']);
+});
+
+test('视觉分析通过内容获取中心单独取得视频，不重复请求字幕或误取纯音频', async (t) => {
+  const { root } = await sandbox(t);
+  const calls = [];
+  const adapter = new YtDlpGeneralMediaAdapter({
+    runCommand:async (_command, args) => {
+      calls.push(args);
+      if (args.includes('--dump-single-json')) return JSON.stringify({
+        title:'真实原标题',
+        description:'说明',
+        uploader:'真实作者',
+        duration:90,
+        webpage_url:'https://www.youtube.com/watch?v=visual'
+      });
+      if (args.includes('bv*[height<=720]/b[height<=720]/bv*/b')) {
+        const template = args[args.indexOf('-o') + 1];
+        await fs.writeFile(path.join(path.dirname(template), 'source-video.mp4'), 'video');
+        return '';
+      }
+      throw new Error(`不应调用：${args.join(' ')}`);
+    }
+  });
+  const result = await adapter.acquire({
+    source:'https://www.youtube.com/watch?v=visual',
+    requestedCapabilities:['media'],
+    runtimeRequirement:'visual_analysis',
+    workspace:root
+  });
+  assert.equal(result.runtime.kind, 'video');
+  assert.equal(result.contentItems.basic_content.title, '真实原标题');
+  assert.equal(result.contentItems.basic_content.author, '真实作者');
+  assert.equal(calls.some((args) => args.includes('--write-subs')), false);
+  assert.equal(calls.some((args) => args.includes('--audio-format')), false);
+});
+
+test('B站先读取原生字幕，不下载媒体也不运行 ASR', async (t) => {
+  const { root } = await sandbox(t);
+  const secret = 'secret_cookie_value';
+  const calls = [];
+  const adapter = new BilibiliNativeSubtitleAdapter({
+    cookieBridgeUrl: 'http://127.0.0.1:8274',
+    fetchImpl: async (url, options = {}) => {
+      const target = String(url);
+      calls.push({ target, options });
+      if (target.includes('/api/cookies/bili')) return jsonResponse({ isok: true, data: { cookies: secret } });
+      if (target.includes('/x/web-interface/view')) {
+        assert.equal(options.headers.Cookie, secret);
+        return jsonResponse({ code: 0, data: { title: 'B站测试视频', desc: '说明', duration: 6, cid: 10, pages: [{ cid: 10, duration: 6 }], owner: { name: '作者' } } });
+      }
+      if (target.includes('/x/player/v2')) {
+        assert.equal(options.headers.Cookie, secret);
+        return jsonResponse({ code: 0, data: { subtitle: { subtitles: [{ lan: 'ai-zh', lan_doc: '中文（自动生成）', subtitle_url: '//aisubtitle.hdslb.com/demo.json' }] } } });
+      }
+      assert.equal(target, 'https://aisubtitle.hdslb.com/demo.json');
+      return jsonResponse({ body: [{ from: 1.25, to: 3.5, content: '第一句字幕' }, { from: 3.5, to: 5, content: '第二句字幕' }] });
+    }
+  });
+
+  const result = await adapter.acquire({
+    source: 'https://www.bilibili.com/video/BV1GM796EENj',
+    requestedCapabilities: ['basic_content', 'subtitles', 'media'],
+    connectionUse: { credentialKind: 'cookie_bridge', cookieBridgeClientId: 'local_bili_account_1' },
+    workspace: root
+  });
+
+  assert.deepEqual(result.providedCapabilities, ['basic_content', 'subtitles']);
+  assert.equal(result.runtime.kind, 'subtitle');
+  assert.match(await fs.readFile(result.runtime.path, 'utf8'), /00:00:01.250 --> 00:00:03.500/);
+  assert.equal(calls.some(({ target }) => /audio|video_download|yt-dlp/.test(target)), false);
+  assert.equal(JSON.stringify(result).includes(secret), false);
+});
+
+test('非B站视频不会调用B站字幕适配器，而是按来源走通用通道', async (t) => {
+  const { root, broker, operations } = await sandbox(t);
+  const sources = [
+    'https://www.youtube.com/watch?v=example',
+    'https://www.douyin.com/video/123456',
+    'https://www.xiaohongshu.com/explore/example'
+  ];
+  let bilibiliCalls = 0;
+  const bilibili = new BilibiliNativeSubtitleAdapter({
+    fetchImpl: async () => {
+      bilibiliCalls += 1;
+      throw new Error('非B站来源不应调用B站接口');
+    }
+  });
+  const general = {
+    id: 'general-media-by-source',
+    versionRef: 'test',
+    capabilities: ['basic_content', 'subtitles', 'media'],
+    accessMode: 'public',
+    priorityClass: 'general',
+    healthStatus: 'healthy',
+    runtimeRequirements: ['media_transcription'],
+    matches: () => true,
+    providerFor: (source) => new URL(source).hostname,
+    acquire: async ({ source }) => ({
+      providedCapabilities: ['media'],
+      contentItems: { media: [{ localRef: 'audio.wav', source }] },
+      runtime: { kind: 'audio', path: path.join(root, 'audio.wav') }
+    })
+  };
+  const center = new ContentAcquisitionCenter({
+    adapters: [bilibili, general],
+    connectionBroker: broker,
+    operations
+  });
+
+  for (const source of sources) {
+    assert.equal(bilibili.matches(source), false);
+    const result = await center.fetch({
+      taskId: `non-bili-${new URL(source).hostname}`,
+      source,
+      requestedCapabilities: ['basic_content', 'subtitles', 'media'],
+      requestingAgentId: 'xiaod',
+      workspace: root,
+      runtimeRequirement: 'media_transcription'
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.contentPackage.adapterRef.adapterId, 'general-media-by-source');
+  }
+
+  assert.equal(bilibiliCalls, 0);
+});
+
+test('B站只有片头推广伪字幕时判为覆盖不足，不冒充完整转录', async (t) => {
+  const { root } = await sandbox(t);
+  const adapter = new BilibiliNativeSubtitleAdapter({
+    fetchImpl: async (url) => {
+      const target = String(url);
+      if (target.includes('/x/web-interface/view')) {
+        return jsonResponse({ code: 0, data: { title: '长视频', duration: 120, cid: 10, pages: [{ cid: 10, duration: 120 }] } });
+      }
+      if (target.includes('/x/player/v2')) {
+        return jsonResponse({ code: 0, data: { subtitle: { subtitles: [{ lan: 'zh-CN', subtitle_url: '//aisubtitle.hdslb.com/ad.json' }] } } });
+      }
+      return jsonResponse({ body: [{ from: 0, to: 9.5, content: '保存头像 扫码查看' }] });
+    }
+  });
+
+  await assert.rejects(
+    adapter.acquire({
+      source: 'https://www.bilibili.com/video/BV1GM796EENj',
+      requestedCapabilities: ['basic_content', 'subtitles', 'media'],
+      workspace: root
+    }),
+    (error) => error.code === 'capability_not_available' && /覆盖不足|不满足完整转录要求/.test(error.message)
+  );
+});
+
+test('B站没有原生字幕时跳过缺少授权的深度通道并继续获取音轨', async (t) => {
+  const { broker, operations } = await sandbox(t);
+  const calls = [];
+  const nativeSubtitle = new BilibiliNativeSubtitleAdapter({
+    fetchImpl: async (url) => {
+      const target = String(url);
+      calls.push('native');
+      if (target.includes('/x/web-interface/view')) return jsonResponse({ code: 0, data: { title: '无字幕视频', cid: 10, pages: [{ cid: 10 }] } });
+      return jsonResponse({ code: 0, data: { subtitle: { subtitles: [] } } });
+    }
+  });
+  const authorizedMedia = {
+    id: 'authorized-bili-media', versionRef: 'test', capabilities: ['media'], accessMode: 'authorized', priorityClass: 'specialized', healthStatus: 'healthy',
+    runtimeRequirements: ['media_transcription'], matches: () => true, providerFor: () => 'bili',
+    acquire: async () => { throw new Error('没有连接时不应调用'); }
+  };
+  const publicAudio = {
+    id: 'public-audio-fallback', versionRef: 'test', capabilities: ['media'], accessMode: 'public', priorityClass: 'general', healthStatus: 'healthy',
+    runtimeRequirements: ['media_transcription'], matches: () => true, providerFor: () => 'public_media',
+    acquire: async () => {
+      calls.push('audio');
+      return { providedCapabilities: ['media'], contentItems: { media: [{ localRef: 'audio.wav' }] }, runtime: { kind: 'audio', path: '/tmp/audio.wav' } };
+    }
+  };
+  const center = new ContentAcquisitionCenter({ adapters: [nativeSubtitle, authorizedMedia, publicAudio], connectionBroker: broker, operations });
+  const result = await center.fetch({
+    taskId: 'bili-no-subtitle',
+    source: 'https://www.bilibili.com/video/BV1GM796EENj',
+    requestedCapabilities: ['basic_content', 'subtitles', 'media'],
+    requestingAgentId: 'xiaod',
+    workspace: '/tmp',
+    runtimeRequirement: 'media_transcription'
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.runtime.kind, 'audio');
+  assert.equal(result.contentPackage.adapterRef.adapterId, 'public-audio-fallback');
+  assert.equal(calls.includes('audio'), true);
+  assert.equal(operations.list().some((event) => event.eventType === 'connection_required'), true);
+  assert.equal(operations.list().some((event) => event.eventType === 'fallback_used'), true);
 });
 
 test('CookieBridge connection stores an internal account reference without returning its client identifier', async (t) => {
@@ -189,6 +381,39 @@ test('CookieBridge connection stores an internal account reference without retur
   );
 });
 
+test('CookieBridge connection can be disabled and reauthorized without changing its identity or permissions', async (t) => {
+  const { connectionStore, broker } = await sandbox(t);
+  const connection = await connectionStore.createCookieBridgeConnection({
+    provider:'xhs', accountAlias:'旧连接', clientId:'local_xhs_account_1',
+    grantedOperations:['read_media_metadata'], dataScope:['content:read'], allowedAgentIds:['xiaod']
+  });
+  const disabled = await connectionStore.disable(connection.connectionId);
+  assert.equal(disabled.status, 'disabled');
+  const denied = await broker.authorize({
+    connectionId:connection.connectionId, provider:'xhs', operations:['read_media_metadata'], requestingAgentId:'xiaod'
+  });
+  assert.equal(denied.code, 'connection_unavailable');
+  const renewed = await connectionStore.reauthorizeCookieBridgeConnection(connection.connectionId, {
+    provider:'xhs', accountAlias:'续期后的连接', clientId:'local_xhs_account_2'
+  });
+  assert.equal(renewed.connectionId, connection.connectionId);
+  assert.equal(renewed.status, 'active');
+  assert.equal(renewed.accountAlias, '续期后的连接');
+  assert.deepEqual(renewed.grantedOperations, ['read_media_metadata']);
+  assert.equal(renewed.cookieBridgeClientId, undefined);
+  const granted = await broker.authorize({
+    connectionId:connection.connectionId, provider:'xhs', operations:['read_media_metadata'], requestingAgentId:'xiaod'
+  });
+  assert.equal(granted.ok, true);
+  assert.equal(granted.connectionUse.cookieBridgeClientId, 'local_xhs_account_2');
+  await assert.rejects(
+    connectionStore.reauthorizeCookieBridgeConnection(connection.connectionId, {
+      provider:'dy', accountAlias:'错误平台', clientId:'local_xhs_account_2'
+    }),
+    /平台与原连接不一致/
+  );
+});
+
 test('MediaCrawlerPro passes a CookieBridge value only between loopback services and never returns it', async () => {
   const secret = 'secret_cookie_value';
   const calls = [];
@@ -210,6 +435,85 @@ test('MediaCrawlerPro passes a CookieBridge value only between loopback services
   assert.equal(JSON.stringify(result).includes(secret), false);
   assert.deepEqual(result.providedCapabilities, ['basic_content', 'images', 'media']);
   assert.deepEqual(result.runtime, { kind: 'remote_media', url: 'https://media.example/video.mp4' });
+});
+
+test('MediaCrawlerPro 为 B站转录优先下载独立音轨而不是无声视频分片', async (t) => {
+  const { root } = await sandbox(t);
+  const secret = 'secret_cookie_value';
+  const requestedUrls = [];
+  const adapter = new MediaCrawlerProAdapter({
+    cookieBridgeUrl:'http://127.0.0.1:8274',
+    downloadServerUrl:'http://127.0.0.1:8205',
+    fetchImpl:async (url, options = {}) => {
+      requestedUrls.push(String(url));
+      if (String(url).includes('/api/cookies/bili')) return jsonResponse({ isok:true, data:{ cookies:secret } });
+      if (String(url).includes('/api/v1/content_detail')) {
+        assert.equal(JSON.parse(options.body).cookies, secret);
+        return jsonResponse({
+          isok:true,
+          data:{ content:{
+            title:'B站测试视频',
+            author:{ name:'B站作者' },
+            url:'https://www.bilibili.com/video/BV1TEST',
+            video_download_url:'https://media.example/video-only.m4s',
+            extria_info:{ audio_url:'https://media.example/audio-only.m4s', duration:585 }
+          } }
+        });
+      }
+      assert.equal(String(url), 'https://media.example/audio-only.m4s');
+      assert.equal(options.headers.Cookie, secret);
+      return new Response(Buffer.from('synthetic-audio-stream'));
+    }
+  });
+
+  const result = await adapter.acquire({
+    source:'https://www.bilibili.com/video/BV1TEST',
+    connectionUse:{ credentialKind:'cookie_bridge', cookieBridgeClientId:'local_bili_account_1' },
+    workspace:root
+  });
+
+  assert.equal(requestedUrls.includes('https://media.example/video-only.m4s'), false);
+  assert.equal(result.runtime.kind, 'audio');
+  assert.equal(path.basename(result.runtime.path), 'authorized-audio.m4a');
+  assert.equal((await fs.stat(result.runtime.path)).size > 0, true);
+  assert.equal(result.contentItems.basic_content.durationSeconds, 585);
+  assert.equal(result.contentItems.basic_content.author, 'B站作者');
+  assert.equal(JSON.stringify(result).includes(secret), false);
+});
+
+test('MediaCrawlerPro 为视觉分析返回视频而不是独立音轨', async (t) => {
+  const { root } = await sandbox(t);
+  const requestedUrls = [];
+  const adapter = new MediaCrawlerProAdapter({
+    cookieBridgeUrl:'http://127.0.0.1:8274',
+    downloadServerUrl:'http://127.0.0.1:8205',
+    fetchImpl:async (url) => {
+      requestedUrls.push(String(url));
+      if (String(url).includes('/api/cookies/bili')) return jsonResponse({ isok:true, data:{ cookies:'test-cookie' } });
+      if (String(url).includes('/api/v1/content_detail')) return jsonResponse({
+        isok:true,
+        data:{ content:{
+          title:'B站视觉样片',
+          url:'https://www.bilibili.com/video/BV1VISUAL',
+          video_download_url:'https://media.example/video-only.m4s',
+          extria_info:{ audio_url:'https://media.example/audio-only.m4s', duration:120 }
+        } }
+      });
+      return new Response(Buffer.from('synthetic-video-stream'));
+    }
+  });
+
+  const result = await adapter.acquire({
+    source:'https://www.bilibili.com/video/BV1VISUAL',
+    connectionUse:{ credentialKind:'cookie_bridge', cookieBridgeClientId:'local_bili_account_1' },
+    workspace:root,
+    runtimeRequirement:'visual_analysis'
+  });
+
+  assert.equal(requestedUrls.includes('https://media.example/audio-only.m4s'), false);
+  assert.equal(requestedUrls.includes('https://media.example/video-only.m4s'), true);
+  assert.equal(result.runtime.kind, 'video');
+  assert.equal(path.basename(result.runtime.path), 'authorized-source.mp4');
 });
 
 function jsonResponse(payload) {

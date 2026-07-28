@@ -10,7 +10,7 @@ export class YtDlpGeneralMediaAdapter {
     this.accessMode = 'either';
     this.priorityClass = 'general';
     this.healthStatus = 'healthy';
-    this.runtimeRequirements = ['media_transcription'];
+    this.runtimeRequirements = ['media_transcription', 'visual_analysis'];
     this.runCommand = runCommandImpl;
   }
 
@@ -26,14 +26,15 @@ export class YtDlpGeneralMediaAdapter {
     return host === 'youtu.be' || host.endsWith('.youtube.com') ? 'youtube' : 'public_media';
   }
 
-  async acquire({ source, requestedCapabilities, connectionUse, workspace, onProgress }) {
+  async acquire({ source, requestedCapabilities, connectionUse, workspace, runtimeRequirement, onProgress }) {
     const authArgs = browserSessionArgs(connectionUse);
     const metadata = await this.readMetadata(source, authArgs);
     const wantsSubtitles = requestedCapabilities.includes('subtitles');
     const wantsMedia = requestedCapabilities.includes('media');
+    const wantsVisualMedia = runtimeRequirement === 'visual_analysis';
     const contentItems = metadata ? { basic_content: metadata } : {};
 
-    if (wantsSubtitles) {
+    if (wantsSubtitles && !wantsVisualMedia) {
       await onProgress?.({ stage: 'acquiring', progress: 22, message: '正在优先查找可用字幕' });
       const subtitleTemplate = path.join(workspace, 'subtitle.%(ext)s');
       // Ask for the useful originals first. Wildcards make yt-dlp request every
@@ -52,6 +53,21 @@ export class YtDlpGeneralMediaAdapter {
       error.code = 'capability_not_available';
       throw error;
     }
+    if (wantsVisualMedia) {
+      await onProgress?.({ stage: 'acquiring', progress: 32, message: '正在获取受控低分辨率视频用于关键帧分析' });
+      const videoTemplate = path.join(workspace, 'source-video.%(ext)s');
+      await this.runCommand('yt-dlp', [
+        ...authArgs,
+        '--no-playlist',
+        '-f', 'bv*[height<=720]/b[height<=720]/bv*/b',
+        '-o', videoTemplate,
+        source
+      ]);
+      const downloadedVideo = await findFirst(workspace, (name) => /^source-video\./.test(name));
+      if (!downloadedVideo) throw new Error('下载结束但没有找到视频文件。');
+      contentItems.media = [{ localRef:path.basename(downloadedVideo), mimeType:videoMimeType(downloadedVideo) }];
+      return result(contentItems, { kind:'video', path:downloadedVideo }, accessValidation(authArgs), { visual:true });
+    }
     await onProgress?.({ stage: 'acquiring', progress: 32, message: '未找到字幕，正在下载音频' });
     const audioTemplate = path.join(workspace, 'source.%(ext)s');
     await this.runCommand('yt-dlp', [...authArgs, '--no-playlist', '-f', 'ba[ext=m4a]/ba/b', '-x', '--audio-format', 'mp3', '-o', audioTemplate, source]);
@@ -64,14 +80,24 @@ export class YtDlpGeneralMediaAdapter {
   }
 
   async readMetadata(source, authArgs) {
-    const output = await this.runCommand('yt-dlp', [...authArgs, '--no-playlist', '--skip-download', '--print', '%(title)s', '--print', '%(description)s', source], { allowFailure: true });
+    const output = await this.runCommand('yt-dlp', [...authArgs, '--no-playlist', '--skip-download', '--dump-single-json', source], { allowFailure: true });
     if (!output) return null;
-    const [title = '', ...description] = String(output).replace(/\r/g, '').split('\n');
-    return title.trim() ? { title: title.trim().slice(0, 500), description: description.join('\n').trim().slice(0, 8000) || null } : null;
+    let payload = null;
+    try { payload = JSON.parse(String(output)); } catch { payload = null; }
+    if (!payload?.title) return null;
+    const timestamp = Number(payload.timestamp || payload.release_timestamp);
+    return {
+      title:String(payload.title).trim().slice(0, 500),
+      description:String(payload.description || '').trim().slice(0, 8000) || null,
+      author:String(payload.uploader || payload.channel || payload.creator || '').trim().slice(0, 300) || null,
+      durationSeconds:Number.isFinite(Number(payload.duration)) ? Number(payload.duration) : null,
+      sourceUrl:String(payload.webpage_url || source).slice(0, 2000),
+      ...(Number.isFinite(timestamp) && timestamp > 0 ? { publishedAt:new Date(timestamp * 1000).toISOString() } : {})
+    };
   }
 }
 
-function result(contentItems, runtime, validation) {
+function result(contentItems, runtime, validation, { visual = false } = {}) {
   const providedCapabilities = [];
   if (contentItems.basic_content) providedCapabilities.push('basic_content');
   if (contentItems.subtitles) providedCapabilities.push('subtitles');
@@ -81,10 +107,17 @@ function result(contentItems, runtime, validation) {
     contentItems,
     runtime,
     validation,
-    capabilityNotes: providedCapabilities.includes('subtitles')
+    capabilityNotes: visual
+      ? '已获取受控视频副本，仅用于本机关键帧分析。'
+      : providedCapabilities.includes('subtitles')
       ? '已获取可用字幕。'
       : '未找到可用字幕，已按允许范围获取音频供本地转录。'
   };
+}
+
+function videoMimeType(filePath) {
+  const extension = path.extname(filePath).toLowerCase();
+  return extension === '.webm' ? 'video/webm' : extension === '.mov' ? 'video/quicktime' : 'video/mp4';
 }
 
 function accessValidation(authArgs) {

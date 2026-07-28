@@ -62,3 +62,46 @@ test('办公执行助理不会把未验证产物列入产物索引', async (t) =
   assert.equal(result.artifactRefs[0].data.sourceTasks[0].artifacts.length, 0);
   assert.match(result.artifactRefs[0].data.markdown, /当前没有经过验证的关联产物/);
 });
+
+test('知识归档会写入草稿核心结论和人工发布待办，不只罗列产物名', async () => {
+  let captured = null;
+  const tasks = [{
+    taskId:'draft-1',
+    assigneeAgentId:'content-creator',
+    status:'succeeded',
+    input:{ title:'生成真实草稿' },
+    artifactRefs:[{
+      type:'platform_content_draft',
+      title:'抖音待审草稿',
+      location:'file:///tmp/draft.md',
+      validation:{ exists:true, nonEmpty:true },
+      data:{
+        platforms:['douyin'],
+        publishingStatus:'draft_only',
+        drafts:[{ titleCandidates:['先核对事实，再表达情绪'] }]
+      }
+    }]
+  }];
+  const worker = new LocalOfficeAssistant({
+    now,
+    artifactsDir:'/tmp/unused-office-artifacts',
+    store:{ async list() { return tasks; } },
+    knowledgeArchive:{
+      async write(input) {
+        captured = input;
+        return { filePath:'/tmp/knowledge.md', checksum:'abc', readable:true, bytes:input.markdown.length, duplicate:false };
+      }
+    }
+  });
+  const result = await worker.execute({
+    taskId:'archive-1',
+    idempotencyKey:'archive-key-1',
+    taskType:'office.knowledge-summary',
+    input:{ title:'归档草稿闭环', context:{ sourceTaskIds:['draft-1'] } }
+  });
+  assert.equal(result.status, 'succeeded');
+  assert.match(captured.markdown, /已生成 douyin 待审草稿/);
+  assert.match(captured.markdown, /先核对事实，再表达情绪/);
+  assert.match(captured.markdown, /人工审阅平台草稿/);
+  assert.match(captured.markdown, /再单独决定是否发布/);
+});

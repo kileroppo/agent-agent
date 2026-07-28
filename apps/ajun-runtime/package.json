@@ -8,6 +8,9 @@
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "acceptance:governance-feishu": "NODE_NO_WARNINGS=1 node scripts/verify-governance-feishu-acceptance.mjs",
+    "acceptance:m3-content-growth": "node scripts/verify-m3-content-growth.mjs",
+    "acceptance:m3-hermes-content-growth": "node scripts/verify-m3-content-growth.mjs --with-hermes",
+    "acceptance:m3-paperclip-heartbeat": "node scripts/verify-m3-paperclip-heartbeat.mjs",
     "test": "node --test"
   },
   "dependencies": {

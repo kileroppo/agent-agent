@@ -2,35 +2,37 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 待验收 |
-| 创建时间 | 2026-07-23 Asia/Shanghai（更新） |
+| 状态 | 已关闭 |
+| 创建时间 | 2026-07-27 Asia/Shanghai（更新） |
 | 交出者 | Codex |
 | 接手者 | M2 实施负责人 |
 | 关联任务 | `tasks/prd-m2-authorization-connectors.md` |
-| 截止条件 | Paperclip 通过 A君执行适配器完成首个低风险任务闭环，且首个低风险授权连接完成真实闭环，或负责人调整范围 |
+| 截止条件 | 已完成：用户从 A君正式入口登录、刷新并授权，新连接完成真实只读任务 |
 
 ## 1. 接手目标
 
 - 目标：以 Paperclip 作为军团总控，交付 A君本地执行适配与业务入口；同时把跨网站/软件登录和内容获取从各 Agent 的隐式实现中移出。用户不维护内部工具，运行时提供账号管家、双通道内容获取中心和运维官。
 - 用户约束与不可做事项：不读取、回显、传输或记录密码、Cookie、token、授权 URL、用户标识或私密内容；不绕过验证码、二次验证、访问控制或付费墙；未经明确授权不得连接真实外部账号或外发。
 - 做完的定义：一个低风险任务完成“Paperclip 创建/分配 → heartbeat 唤醒 A君执行适配器 → 受控业务执行 → 回报阶段、产物、成本、失败 → Paperclip 显示预算、审批和审计”，并由一个已授权读取型平台完成“用户自行授权 → 深度通道优先/通用通道兜底 → 受限 Agent 消费统一内容包 → 脱敏运维事件 → 过期或撤销 → 安全恢复”的真实闭环。
-- 唯一下一步：当出现确有登录需求的平台时，先检索现成且合规的连接器；只有确定缺口后才定义最小适配范围。
-- 允许继续的前提：不得导入、复制或读取日常浏览器 Cookie、密码、token 或登录态；不得扩展到下载媒体、外发、发布、付费或写入。
+- 唯一下一步：无；M2 已完成。来源链接敏感参数安全保存仅在进入多人、云端或远程访问前重新立项。
+- 允许继续的前提：只由本机所有者操作，不在聊天或页面粘贴 Cookie、密码或 token；遇到验证码、二次验证或平台拒绝立即停下，由所有者本人处理。
 
 ## 2. 当前事实
 
 | 类别 | 事实 | 证据位置 | 状态 |
 | --- | --- | --- | --- |
-| 代码与文档 | 已移除旧 `--cookies-from-browser` 路径和自研 YouTube 浏览器读取器；公开视频字幕统一复用 `yt-dlp`，连接策略、内容中心、小D入口、契约与验收记录已同步 | `integrations/access/yt-dlp-general-media-adapter.js`、`apps/xiaod-media-transcriber/src/content-runtime.js`、[验收记录](../../reviews/m2-authorization-connectors/acceptance.md) | 已验证（本地） |
-| 本地运行时 | 小D本地 API 只提供公开视频字幕读取；此前临时 YouTube 浏览器连接已撤销，不保留无效登录入口 | 小D `GET /api/health`、`POST /api/jobs`、`POST /api/connections/:id/revoke` | 已验证（本地） |
+| 代码与文档 | A君已提供白名单平台登录、刷新已登录账号、创建连接、续期、暂时禁用和撤销；小D连接存储支持同 ID 续期恢复，所有动作保持原最小权限 | `apps/ajun-runtime/src/access-connection-service.js`、`apps/ajun-runtime/public/`、`apps/xiaod-media-transcriber/src/server.js`、`integrations/access/connection-store.js` | 已验证 |
+| 本地运行时 | launchd 管理的 A君与小D已重启加载当前工作区；`4321`、`4318` 和登录选项接口均返回 HTTP 200 | [验收记录](../../reviews/m2-authorization-connectors/acceptance.md) | 已验证 |
 | 运行台骨架 | A君运行台能读取五个岗位、登记标准任务、唯一路由和拦截高风险任务；该本地任务存储是过渡业务入口，不是军团控制面 | `apps/ajun-runtime/`、`docs/reviews/m2-army-runtime-skeleton/acceptance.md` | 已验证（本地） |
-| Paperclip 总控 | 本机 Paperclip `2026.707.0` 已以私有 loopback 模式运行；内置 HTTP Adapter 已完成 `AGE-18` 从任务分配、heartbeat、A君执行、同任务回报到 done 的闭环 | `apps/ajun-runtime/src/paperclip-heartbeat.js`、`apps/ajun-runtime/src/paperclip-bridge.js`、M2 PRD | 已验证（本机真实集成）；预算/审批待验证 |
-| 外部平台 | 同一条合法公开视频已通过 `yt-dlp` 字幕路径完成小D转录、整理和飞书交付；不要求登录 | [验收记录](../../reviews/m2-authorization-connectors/acceptance.md) | 已验证 |
-| 人工确认 | A 君已确认登录和内容获取是跨 Agent 通用能力；MediaCrawlerPro 优先、通用能力兜底；运维官纳入 M2；先搭底座后以 YouTube 验证 | 当前会话 | 已确认 |
+| Paperclip 总控 | 组织级任务、heartbeat、预算/审批门禁、审计投影、跨员工任务和失败恢复已有独立验收；A君不复制第二套控制面 | M2 PRD 与对应验收记录 | 已验证 |
+| 外部平台 | 小红书低风险素材已完成命名连接读取、转录、飞书交付、撤销前拦截、重新授权和恢复交付；连接随后又完成暂时禁用与同 ID 续期 | [验收记录](../../reviews/m2-authorization-connectors/acceptance.md) | 已验证 |
+| 人工确认 | 所有者已确认首次飞书文档，并从 A君入口完成实际登录和授权；新连接随后完成真实任务 | 当前会话、[验收记录](../../reviews/m2-authorization-connectors/acceptance.md) | 已确认 |
 
 ## 3. 变更与决策
 
 - 已完成：M2 子 PRD、总 PRD、系统架构、设计、README 和 ADR 已同步；Paperclip 是军团唯一总控，飞书承担日常业务入口，A君是本机能力、执行适配、授权、诊断和恢复底座的边界已明确。
+- 已完成：A君正式账号页只开放小红书、抖音、哔哩哔哩和快手的固定登录页；用户可刷新浏览器伴侣账号、授权给小D、续期、暂时禁用或永久撤销。
+- 已完成：真实小红书连接经 A君完成 `active → disabled → active`，连接 ID、允许员工、动作和数据范围保持不变；浏览器页面续期提交返回 HTTP 200。
 - 已完成：本机 Paperclip `2026.707.0` 已安装并以私有 loopback 模式运行；`A君本机健康官` 使用内置 HTTP Adapter 完成 `AGE-18` 真实闭环。Paperclip 的重复 heartbeat 由 A君按任务 ID 合并，只有一条业务执行回报。
 - 已完成：调研 `yt-dlp`、MediaCrawlerPro、`web-access`、`agent-reach`、`scout`、`last30days-skill`、AutoCLI 与 bb-browser；M2 PRD 已记录各自的可复用边界。它们只能作为授权网关内部的候选执行器或规则参考，不能向 Agent 暴露浏览器会话或原始凭据。
 - 关键文件：`tasks/prd-m2-authorization-connectors.md`、`tasks/prd-agent-army-master.md`、`docs/architecture/system-architecture.md`、`docs/contracts/core-contracts.md`。
@@ -44,16 +46,16 @@
 
 | 层级 | 结论 | 命令或证据 | 未证明部分 |
 | --- | --- | --- | --- |
-| 自动化 | PASSED | `apps/xiaod-media-transcriber npm test` 29/29；`integrations/access/test/common-access.test.js` 11/11 | 登录型授权读取 |
-| 运行时 | PASSED | 公开视频字幕路径、撤销与脱敏恢复已验证；本机服务重启后健康检查确认 `yt-dlp` 适配器就绪 | 登录型授权读取 |
-| 外部平台 | PASSED | 一条合法公开视频字幕路径已转录、整理并交付 | 登录型授权媒体获取 |
-| 人工验收 | PARTIAL | A 君授权了单条只读验证并收到飞书交付 | 修复后确认受限视频路径 |
-| Paperclip 总控 | PARTIAL | `AGE-18`：内置 HTTP Adapter → A君本机健康检查 → 同任务 done；重复 heartbeat 仅一条 A君业务执行回报 | 预算、审批、非健康岗位与外部能力 |
+| 自动化 | PASSED | A君 `411/411`；小D `31/31`；聚焦连接测试 `20/20` | 用户从零登录 |
+| 运行时 | PASSED | launchd 重启后 A君、小D与登录选项 HTTP 200；真实禁用、续期、非法平台拒绝和页面续期提交均通过 | 无 |
+| 外部平台 | PASSED | 小红书从零登录、真实读取、撤销拦截、重新授权和恢复交付均通过 | 无 |
+| 人工验收 | PASSED | 所有者确认首次飞书文档，并从 A君完成实际登录与新连接授权 | 无 |
+| Paperclip 总控 | PASSED | 组织任务、heartbeat、预算/审批和审计已有独立验收 | 本交接不重复验收 |
 
 ## 5. 风险、权限与关闭
 
-- 当前阻塞或风险：Paperclip HTTP Adapter 的低风险健康检查闭环已有真实证据；登录型授权读取尚无已验证连接器。不得以公开浏览器、CookieBridge 或浏览器 Cookie 参数绕过该前提。
+- 当前阻塞或风险：M2 无阻塞。当前单用户、本机回环阶段由负责人接受来源链接敏感参数保存在本机任务状态的已知风险；使用边界扩大前必须重新处理。
 - 不得复制或展示的信息：任何凭据、Cookie、token、授权 URL、浏览器会话、用户标识、私密媒体内容。
-- 需要谁确认：A 君指定首个平台与读取范围；审核策略负责人确认读取范围；实施者选择安全存储与授权入口后需架构复核。
-- 关闭条件：完成 Paperclip Agent 适配/heartbeat/预算/审批/审计/回报验证、M2 契约测试、受控运行时、深度/通用通道切换、运维事件和一个真实低风险连接的完整验收，并同步验收记录与 README。
+- 需要谁确认：已由所有者确认。
+- 关闭条件：已满足；新连接“授权测试0727”完成获准只读任务，PRD、验收记录和本交接已同步。
 - 关闭证据链接：[M2 授权连接与内容获取验收](../../reviews/m2-authorization-connectors/acceptance.md)。

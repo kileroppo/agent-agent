@@ -12,6 +12,7 @@ import { JobPauseController, JobPauseError } from './job-pause-controller.js';
 import { JobStore } from './store.js';
 import { createContentRuntime } from './content-runtime.js';
 import { ConnectionInputError } from '../../../integrations/access/connection-store.js';
+import { reviewTranscript, TranscriptReviewError } from './transcript-review.js';
 
 await fs.mkdir(config.workDir, { recursive: true });
 const uploadsDir = path.join(config.workDir, 'uploads');
@@ -94,6 +95,10 @@ app.post('/api/jobs', async (req, res, next) => {
       sourceType:'url',
       sourceUrl:valid.url,
       connectionId,
+      reviewPolicy:req.body?.reviewPolicy,
+      visualMode:req.body?.visualMode,
+      analysisDepth:req.body?.analysisDepth,
+      deliveryMode:req.body?.deliveryMode,
       ingress:idempotencyKey ? { platform:'agent-army-mac-worker', idempotencyKey } : null
     });
     const result = idempotencyKey
@@ -127,10 +132,36 @@ app.post('/api/connections/:id/revoke', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.post('/api/connections/:id/disable', async (req, res, next) => {
+  try {
+    const connection = await contentRuntime.connectionStore.disable(req.params.id);
+    if (!connection) return res.status(404).json({ error: '账号连接不存在。' });
+    await contentRuntime.operations.record({ subjectType:'connection', subjectRef:connection.connectionId, eventType:'connection_disabled', severity:'info', safeMessage:'账号连接已暂时禁用，后续任务将要求重新授权。', recommendedAction:'reauthorize' });
+    res.json({ connection });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/connections/:id/reauthorize', async (req, res, next) => {
+  try {
+    const connection = await contentRuntime.connectionStore.reauthorizeCookieBridgeConnection(req.params.id, req.body || {});
+    if (!connection) return res.status(404).json({ error: '账号连接不存在。' });
+    await contentRuntime.operations.record({ subjectType:'connection', subjectRef:connection.connectionId, eventType:'connection_reauthorized', severity:'info', safeMessage:'账号连接已重新授权，可以继续获准的只读任务。', recommendedAction:'retry' });
+    res.json({ connection });
+  } catch (error) { next(error); }
+});
+
 app.post('/api/jobs/upload', upload.single('media'), async (req, res, next) => {
   try {
     if (!req.file) return res.status(422).json({ error: '请选择一个音频或视频文件。' });
-    const job = await store.create(makeJob({ sourceType: 'upload', originalName: req.file.originalname, sourcePath: req.file.path }));
+    const job = await store.create(makeJob({
+      sourceType:'upload',
+      originalName:req.file.originalname,
+      sourcePath:req.file.path,
+      reviewPolicy:req.body?.reviewPolicy,
+      visualMode:req.body?.visualMode,
+      analysisDepth:req.body?.analysisDepth,
+      deliveryMode:req.body?.deliveryMode
+    }));
     void pipeline.run(job.id);
     res.status(202).json({ job });
   } catch (error) { next(error); }
@@ -193,6 +224,16 @@ app.post('/api/jobs/:id/redeliver', async (req, res, next) => {
     await store.update(job.id, { title, output: { ...job.output, larkUrl: lark.url, larkPermissionGranted: lark.permissionGranted || false } }, { stage: 'delivering', message: '已按新版阅读排版重新交付' });
     res.status(201).json({ job: store.get(job.id) });
   } catch (error) { next(error); }
+});
+
+app.post('/api/jobs/:id/transcript-review', async (req, res, next) => {
+  try {
+    const result = await reviewTranscript({ store, job:store.get(req.params.id), input:req.body || {} });
+    res.status(result.duplicate ? 200 : 201).json(result);
+  } catch (error) {
+    if (error instanceof TranscriptReviewError) return res.status(error.status).json({ error:error.message });
+    next(error);
+  }
 });
 
 app.use((error, _req, res, _next) => {

@@ -18,7 +18,14 @@ test('小D只在任务记录完成后开始跟踪下游任务', async () => {
     fetchImpl: async (url, options) => {
       assert.equal(url, 'http://127.0.0.1:4318/api/jobs');
       assert.equal(options.method, 'POST');
-      assert.deepEqual(JSON.parse(options.body), { url: 'https://example.com/video' });
+      assert.deepEqual(JSON.parse(options.body), {
+        url: 'https://example.com/video',
+        reviewPolicy: 'optional',
+        visualMode:'off',
+        analysisDepth:'fast',
+        deliveryMode:'local_only',
+        idempotencyKey: 'agent-army:task-1'
+      });
       return new Response(JSON.stringify({ job: { id: 'xiaod-1' } }), { status: 202 });
     }
   });
@@ -30,6 +37,29 @@ test('小D只在任务记录完成后开始跟踪下游任务', async () => {
   assert.equal(started.length, 0);
   delegate.observe({ taskId: 'task-1', execution: result.execution });
   assert.deepEqual(started, [{ taskId: 'task-1', xiaodJobId: 'xiaod-1' }]);
+});
+
+test('只有飞书来源的小D任务才允许创建飞书交付物', async () => {
+  const deliveryModes = [];
+  const delegate = new XiaodDelegate({
+    fetchImpl:async (_url, options) => {
+      deliveryModes.push(JSON.parse(options.body).deliveryMode);
+      return new Response(JSON.stringify({ job:{ id:`xiaod-${deliveryModes.length}` } }), { status:202 });
+    }
+  });
+  await delegate.execute({
+    taskId:'task-local',
+    input:{ sourceUrl:'https://example.com/local' },
+    source:{ channel:'army-mission', originChannel:'hermes-native' },
+    routing:{}
+  });
+  await delegate.execute({
+    taskId:'task-feishu',
+    input:{ sourceUrl:'https://example.com/feishu' },
+    source:{ channel:'army-mission', originChannel:'feishu', chatRef:'chat-1' },
+    routing:{}
+  });
+  assert.deepEqual(deliveryModes, ['local_only', 'feishu']);
 });
 
 test('小D下游地址只能是本机回环地址', () => {
@@ -46,4 +76,20 @@ test('小D暂停和继续只调用本机工作接口', async () => {
   const paused = await delegate.pause(task); const resumed = await delegate.resume(task);
   assert.equal(paused.status, 'pausing'); assert.equal(resumed.status, 'queued');
   assert.deepEqual(calls.map((call) => call.url), ['http://127.0.0.1:4318/api/jobs/xiaod-1/pause', 'http://127.0.0.1:4318/api/jobs/xiaod-1/resume']);
+});
+
+test('小D确认稿接口必须携带完整听审声明和受控审核人引用', async () => {
+  const calls = [];
+  const delegate = new XiaodDelegate({
+    fetchImpl:async (url, options) => {
+      calls.push({ url, body:JSON.parse(options.body) });
+      return new Response(JSON.stringify({ job:{ id:'xiaod-1', status:'completed' } }), { status:200 });
+    }
+  });
+  const task = { taskId:'task-1', execution:{ xiaodJobId:'xiaod-1' } };
+  await delegate.confirmTranscript(task, { reviewerRef:'A君' });
+  assert.deepEqual(calls, [{
+    url:'http://127.0.0.1:4318/api/jobs/xiaod-1/transcript-review',
+    body:{ decision:'confirm', completeListen:true, reviewerRef:'A君' }
+  }]);
 });

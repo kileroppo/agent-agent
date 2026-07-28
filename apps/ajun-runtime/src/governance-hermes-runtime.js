@@ -43,6 +43,11 @@ export function usesPaperclipHermesExecution(manifest) {
     && manifest?.executionOwner === 'paperclip-hermes';
 }
 
+export function requiresDirectFeishuGateway(manifest) {
+  return usesPaperclipHermesExecution(manifest)
+    && manifest?.interaction?.directFeishu === 'required';
+}
+
 export function hermesProfileHome(agentId) {
   const home = String(process.env.HOME || '').trim();
   if (!home || home === path.parse(home).root) throw new Error('无法确定安全的 Hermes Profile 根目录。');
@@ -57,10 +62,12 @@ export function paperclipHermesAdapterConfig(manifest) {
   const promptPath = path.resolve(AGENT_ARMY_REPOSITORY_ROOT, String(manifest.promptRef || ''));
   if (!promptPath.startsWith(`${AGENT_ARMY_REPOSITORY_ROOT}${path.sep}`)) throw new Error('员工 Prompt 路径越界。');
   const paperclipToolsets = safeStringList(manifest.runtimeCapabilities?.paperclipToolsets);
+  const modelSelection = safeModelSelection(manifest.runtimeCapabilities?.modelSelection);
   return {
     cwd:AGENT_ARMY_REPOSITORY_ROOT,
     instructionsFilePath:promptPath,
     hermesCommand:path.resolve(String(process.env.HOME || ''), '.local/bin/hermes'),
+    ...modelSelection,
     env:{
       HERMES_HOME:hermesProfileHome(manifest.agentId),
       AGENT_ARMY_AGENT_ID:manifest.agentId,
@@ -79,4 +86,22 @@ export function paperclipHermesAdapterConfig(manifest) {
 
 function safeStringList(value) {
   return [...new Set((Array.isArray(value) ? value : []).map((item) => String(item || '').trim()).filter(Boolean))];
+}
+
+function safeModelSelection(value) {
+  if (!value) return {};
+  const provider = String(value.provider || '').trim();
+  const model = String(value.model || '').trim();
+  const allowedProviders = new Set([
+    'openai-codex',
+    'openrouter',
+    'nous',
+    'zai',
+    'kimi-coding',
+    'minimax',
+    'minimax-cn'
+  ]);
+  if (!allowedProviders.has(provider)) throw new Error('Hermes Provider 不在受控白名单中。');
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._/-]{1,127}$/.test(model)) throw new Error('Hermes 模型标识不合法。');
+  return { provider, model };
 }

@@ -32,7 +32,7 @@ export class CrossAgentMissionService {
       title,
       description,
       taskType:'army.cross-agent-mission',
-      agentId:'task-coordinator',
+      agentId:'ajun',
       requester,
       source,
       idempotencyKey,
@@ -69,8 +69,20 @@ export class CrossAgentMissionService {
         taskType:subtask.taskType,
         agentId:subtask.agentId,
         sourceUrls:subtask.sourceUrls,
+        reviewPolicy:subtask.reviewPolicy,
+        evidenceMode:subtask.evidenceMode,
+        depth:subtask.depth,
+        visualMode:subtask.visualMode,
+        focus:subtask.focus,
+        platforms:subtask.platforms,
+        contentGoal:subtask.contentGoal,
         requester:mission.requester,
-        source:{ ...(mission.source || {}), channel:'army-mission', missionTaskId:mission.taskId },
+        source:{
+          ...(mission.source || {}),
+          originChannel:mission.source?.originChannel || mission.source?.channel || null,
+          channel:'army-mission',
+          missionTaskId:mission.taskId
+        },
         parentTaskId:mission.taskId,
         idempotencyKey,
         context:{ missionTaskId:mission.taskId, parentPaperclipIssueId:parentIssueId, missionSafeOnly:plan.safeOnly === true }
@@ -198,6 +210,13 @@ function normalizeBusinessItems(items) {
       description:clean(item?.description, 2000),
       acceptance:clean(item?.acceptance, 500) || '交付可验证结果；无法完成时明确说明卡点和下一步。',
       sourceUrls:Array.isArray(item?.sourceUrls) ? [...new Set(item.sourceUrls.map((url) => clean(url, 2000)).filter(Boolean))].slice(0, 5) : [],
+      reviewPolicy:item?.reviewPolicy === 'required' ? 'required' : 'optional',
+      evidenceMode:item?.evidenceMode === 'preliminary' ? 'preliminary' : 'formal',
+      depth:item?.depth === 'full' ? 'full' : 'fast',
+      visualMode:item?.visualMode === 'off' || item?.visualMode === 'required' ? item.visualMode : 'auto',
+      focus:clean(item?.focus, 500),
+      platforms:Array.isArray(item?.platforms) ? [...new Set(item.platforms.map((platform) => clean(platform, 40)).filter(Boolean))].slice(0, 3) : [],
+      contentGoal:clean(item?.contentGoal, 500),
       dependsOnPrevious:item?.dependsOnPrevious === true || agentId === 'office-assistant'
     }, { index });
   }).filter(Boolean);

@@ -6,6 +6,7 @@ export class AgentArmyClient {
   constructor({
     baseUrl = process.env.AGENT_ARMY_BASE_URL || 'http://127.0.0.1:4321',
     fetchImpl = globalThis.fetch,
+    timeoutSignalImpl = (ms) => AbortSignal.timeout(ms),
     now = () => Date.now(),
     sleepImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     missionWaitMs = Number(process.env.AGENT_ARMY_MISSION_WAIT_MS || 45_000),
@@ -14,6 +15,7 @@ export class AgentArmyClient {
     this.baseUrl = loopbackBaseUrl(baseUrl);
     if (typeof fetchImpl !== 'function') throw new AgentArmyClientError('Agent Army MCP 缺少 HTTP 客户端。');
     this.fetchImpl = fetchImpl;
+    this.timeoutSignal = timeoutSignalImpl;
     this.now = now;
     this.sleep = sleepImpl;
     this.missionWaitMs = boundedDuration(missionWaitMs, 0, 120_000, 45_000);
@@ -102,8 +104,57 @@ export class AgentArmyClient {
     const taskType = safeText(input.taskType, 120);
     if (!title) throw new AgentArmyClientError('请说明要完成什么。');
     if (!taskType) throw new AgentArmyClientError('请提供任务类型；不确定时先调用 capabilities。');
+    const description = safeText(input.description, 2000);
     const chatRef = safeText(input.chatRef, 240);
     const requestRef = safeText(input.requestRef, 240);
+    const sourceUrls = safeStringList(input.sourceUrls, 5, 2000);
+    const sourceTaskIds = safeStringList(input.sourceTaskIds, 20, 100);
+    const evidenceMode = input.evidenceMode === 'preliminary' ? 'preliminary' : 'formal';
+    const depth = requestedAnalysisDepth({ title, description, depth:input.depth });
+    const visualMode = input.visualMode === undefined
+      ? taskType === 'content.video-benchmark-analysis' ? 'auto' : 'off'
+      : normalizeVisualMode(input.visualMode);
+    if (taskType === 'content.video-benchmark-analysis' && sourceUrls.length && !sourceTaskIds.length) {
+      return this.createMission({
+        title:`${title}｜受控获取与拆解`,
+        chatRef,
+        requestRef,
+        waitForTerminal:false,
+        items:[
+          {
+            key:'acquire-transcript',
+            title:`获取并整理：${title}`,
+            taskType:'media.transcribe-and-refine',
+            agentId:'xiaod',
+            description:'只能通过内容获取中心获取公开或已授权素材；优先复用字幕，必要时才转录。',
+            acceptance:evidenceMode === 'formal'
+              ? input.reviewPolicy === 'required'
+                ? '生成来源证据、质量报告和机器稿，并按用户要求等待真人完整听审确认。'
+                : '生成来源证据和质量报告；质量门禁通过时自动生成系统确认稿，异常时才等待人工听审。'
+              : '生成来源证据、质量报告和可供初步分析使用的机器稿。',
+            sourceUrls,
+            reviewPolicy:input.reviewPolicy === 'required' ? 'required' : 'optional',
+            visualMode,
+            depth
+          },
+          {
+            key:'analyze-video',
+            title,
+            taskType,
+            agentId:'video-content-analyst',
+            description,
+            acceptance:evidenceMode === 'formal'
+              ? '只在系统质量确认稿或人工确认稿存在后生成带证据的正式拆解。'
+              : '基于机器稿生成明确降级的初步拆解。',
+            dependsOnPrevious:true,
+            evidenceMode,
+            depth,
+            visualMode,
+            focus:safeText(input.focus, 500)
+          }
+        ]
+      });
+    }
     const idempotencyKey = requestRef
       ? `hermes:${requestRef}`
       : `hermes:${chatRef || 'local'}:${shortHash([title, taskType, input.agentId || '', Math.floor(this.now() / 30_000)].join('|'))}`;
@@ -114,19 +165,28 @@ export class AgentArmyClient {
       method:'POST',
       body:{
         title,
-        description:safeText(input.description, 2000),
+        description,
         taskType,
         agentId:safeText(input.agentId, 80) || undefined,
-        sourceUrls:safeStringList(input.sourceUrls, 5, 2000),
+        sourceUrls,
+        reviewPolicy:input.reviewPolicy === 'required' ? 'required' : 'optional',
+        evidenceMode,
+        depth,
+        visualMode,
+        focus:safeText(input.focus, 500) || undefined,
+        platforms:safeStringList(input.platforms, 10, 40),
+        contentGoal:safeText(input.contentGoal, 500) || undefined,
+        metrics:safeMetrics(input.metrics),
         requester:{ kind:'local-owner', ref:'A君' },
         requesterName:'A君',
         source,
-        context:Array.isArray(input.sourceTaskIds) && input.sourceTaskIds.length
-          ? { sourceTaskIds:safeStringList(input.sourceTaskIds, 20, 100), dependsOnPrevious:true }
+        context:sourceTaskIds.length
+          ? { sourceTaskIds, dependsOnPrevious:true }
           : undefined,
         idempotencyKey
       }
     });
+    await this.registerCompletionWatch(response.task?.taskId, chatRef);
     return this.getTask(response.task?.taskId, { chatRef });
   }
 
@@ -153,6 +213,7 @@ export class AgentArmyClient {
         idempotencyKey
       }
     });
+    await this.registerCompletionWatch(response.mission?.taskId, chatRef);
     let overview = await this.overview();
     let missionTask = findMissionTask(overview, response);
     if (input.waitForTerminal === true && missionTask && !TERMINAL_STATUSES.has(missionTask.status)) {
@@ -174,6 +235,22 @@ export class AgentArmyClient {
       children:children.map((task) => taskView(task, overview.approvals || [])),
       userMessage:missionResultMessage(missionView, response.reply)
     };
+  }
+
+  async registerCompletionWatch(taskId, chatRef) {
+    const task = safeText(taskId, 100);
+    const chat = safeText(chatRef, 240);
+    if (!task || !chat) return { registered:false };
+    try {
+      return await this.request('/api/mcp/completion-watches', {
+        method:'POST',
+        body:{ taskId:task, chatRef:chat }
+      });
+    } catch {
+      // 任务已成功创建时，通知登记暂时失败不能篡改任务事实。
+      // 用户仍可通过 task_get 查询；运行台恢复后下一次请求会幂等补登记。
+      return { registered:false };
+    }
   }
 
   async controlTask(taskId, action) {
@@ -261,6 +338,17 @@ export class AgentArmyClient {
     });
   }
 
+  async executeContentGrowth(input = {}) {
+    return this.request('/api/mcp/content-growth-execute', {
+      method:'POST',
+      body:paperclipAssignmentIdentity(input),
+      paperclipApiKey:process.env.PAPERCLIP_API_KEY,
+      // 12 分钟业务预算由 A君后台运行持有；单次 Hermes MCP 等待必须
+      // 小于其 300 秒同步桥上限，超时前返回 running 并由同一工具续等。
+      timeoutMs:270_000
+    });
+  }
+
   async overview() {
     return this.request('/api/overview');
   }
@@ -275,7 +363,7 @@ export class AgentArmyClient {
           ...(paperclipApiKey ? { authorization:`Bearer ${paperclipApiKey}` } : {})
         },
         body:body ? JSON.stringify(body) : undefined,
-        signal:AbortSignal.timeout(Math.max(1_000, Math.min(Number(timeoutMs) || 30_000, 180_000)))
+        signal:this.timeoutSignal(Math.max(1_000, Math.min(Number(timeoutMs) || 30_000, 900_000)))
       });
     } catch (error) {
       throw new AgentArmyClientError(`A君运行时不可用：${safeText(error?.message || '连接失败', 240)}`);
@@ -286,6 +374,16 @@ export class AgentArmyClient {
     if (!response.ok) throw new AgentArmyClientError(safeText(payload?.error || `A君运行时返回 HTTP ${response.status}`, 500));
     return payload;
   }
+}
+
+function requestedAnalysisDepth({ title, description, depth }) {
+  const requestText = `${String(title || '')}\n${String(description || '')}`;
+  if (/完整.{0,8}(?:拆解|分析)|(?:拆解|分析).{0,8}完整|13\s*模块/u.test(requestText)) return 'full';
+  return depth === 'full' ? 'full' : 'fast';
+}
+
+function normalizeVisualMode(value) {
+  return value === 'off' || value === 'required' ? value : 'auto';
 }
 
 export class AgentArmyClientError extends Error {}
@@ -307,6 +405,14 @@ function paperclipAssignmentIdentity(input) {
     paperclipAgentId:safeText(input.paperclipAgentId, 128),
     agentArmyId:safeText(input.agentArmyId, 80)
   };
+}
+
+function safeMetrics(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  return Object.fromEntries(Object.entries(value).slice(0, 20).map(([key, item]) => [
+    safeText(key, 80),
+    typeof item === 'number' ? item : safeText(item, 120)
+  ]).filter(([key, item]) => key && item !== ''));
 }
 
 function technicalRepairScopeView(scope = {}) {
@@ -511,6 +617,13 @@ function normalizeMissionItems(value) {
     description:safeText(item?.description, 2000),
     acceptance:safeText(item?.acceptance, 500),
     sourceUrls:safeStringList(item?.sourceUrls, 5, 2000),
+    reviewPolicy:item?.reviewPolicy === 'required' ? 'required' : 'optional',
+    evidenceMode:item?.evidenceMode === 'preliminary' ? 'preliminary' : 'formal',
+    depth:item?.depth === 'full' ? 'full' : 'fast',
+    visualMode:normalizeVisualMode(item?.visualMode),
+    focus:safeText(item?.focus, 500),
+    platforms:safeStringList(item?.platforms, 3, 40),
+    contentGoal:safeText(item?.contentGoal, 500),
     dependsOnPrevious:item?.dependsOnPrevious === true
   }));
   return items.every((item) => item.title && item.taskType && item.agentId) ? items : [];

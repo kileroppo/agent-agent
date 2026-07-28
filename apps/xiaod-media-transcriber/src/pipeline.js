@@ -7,6 +7,9 @@ import { classifyFailure } from './recovery.js';
 import { createOneShotFailpoint } from './test-failpoint.js';
 import { JobPausedError } from './job-pause-controller.js';
 import { ContentAcquisitionError } from '../../../integrations/access/content-acquisition-center.js';
+import { automaticConfirmationDecision, buildEvidenceRecords, parseTimedTranscript, sha256, timedTranscriptMarkdown } from './transcript-evidence.js';
+import { createTranscriptConfirmationFiles } from './transcript-review.js';
+import { createVisualEvidencePackage, VisualEvidenceError } from './visual-evidence.js';
 
 const REFINER_PROMPT = `你是中文音视频内容编辑。你只负责写“内容导览”，完整校对文本会由系统另行附在后面。
 
@@ -59,14 +62,53 @@ export class MediaPipeline {
       // The source has already been copied/normalized into jobDir. Failing here
       // exercises retry without creating any external delivery side effect.
       await this.failpoint('transcribing');
-      const rawTranscript = acquired.kind === 'subtitle'
-        ? await fs.readFile(acquired.path, 'utf8')
+      const transcription = acquired.kind === 'subtitle'
+        ? { text:await fs.readFile(acquired.path, 'utf8'), timed:null }
         : await this.transcribe(acquired.path, jobDir);
+      const rawTranscript = transcription.text;
       await this.checkpoint(job.id, '转录完成');
       const transcript = cleanTranscript(rawTranscript);
       if (transcript.length < 20) throw new Error('未得到有效文字，请检查素材是否有声音、是否受限或更换转录模型。');
+      const rawTranscriptPath = path.join(jobDir, acquired.kind === 'subtitle' ? 'raw-transcript.vtt' : 'raw-transcript.txt');
+      await fs.writeFile(rawTranscriptPath, rawTranscript);
       const transcriptPath = path.join(jobDir, 'transcript-clean.txt');
       await fs.writeFile(transcriptPath, transcript);
+      const timedSource = transcription.timed || rawTranscript;
+      const segments = parseTimedTranscript(timedSource, { kind:transcription.timed ? 'subtitle' : acquired.kind });
+      const timedTranscriptPath = path.join(jobDir, 'transcript-timed.md');
+      await fs.writeFile(timedTranscriptPath, timedTranscriptMarkdown(currentJob.title, segments));
+      const reportedMediaDurationSeconds = Number(acquired.contentPackage?.contentItems?.basic_content?.durationSeconds) || null;
+      const audioDurationSeconds = acquired.kind === 'audio' ? await probeDuration(acquired.path) : null;
+      const mediaDurationSeconds = qualityGateDuration({
+        reportedDurationSeconds:reportedMediaDurationSeconds,
+        probedAudioDurationSeconds:audioDurationSeconds
+      });
+      const evidence = buildEvidenceRecords({
+        sourceType:currentJob.sourceType,
+        sourceUrl:currentJob.sourceUrl,
+        contentPackage:acquired.contentPackage,
+        rawTranscript,
+        cleanTranscript:transcript,
+        segments,
+        mediaDurationSeconds,
+        audioDurationSeconds
+      });
+      const sourceEvidencePath = path.join(jobDir, 'source-evidence.json');
+      const qualityReportPath = path.join(jobDir, 'transcript-quality-report.json');
+      await fs.writeFile(sourceEvidencePath, JSON.stringify(evidence.sourceEvidence, null, 2));
+      await fs.writeFile(qualityReportPath, JSON.stringify(evidence.qualityReport, null, 2));
+      if (evidence.qualityReport.hardFailures.length) {
+        const failure = new Error(`转录完整性检查未通过：${evidence.qualityReport.hardFailures.join(', ')}`);
+        failure.code = 'transcript_integrity_failed';
+        throw failure;
+      }
+      const visual = await this.prepareVisualEvidence({
+        job:currentJob,
+        jobDir,
+        acquired,
+        segments,
+        sourceMetadata:evidence.sourceEvidence.sourceMetadata
+      });
 
       await this.stage(job.id, 'distilling', 70, '正在去噪并按内容组织文稿');
       const refined = await refineText(currentJob.title, transcript);
@@ -82,18 +124,56 @@ export class MediaPipeline {
 
       await this.stage(job.id, 'delivering', 88, '正在准备本地交付物');
       await this.checkpoint(job.id, '交付前');
-      const lark = await deliverToLark(currentJob.title, markdown).catch((error) => ({ error: error.message }));
+      const lark = currentJob.deliveryMode === 'local_only'
+        ? { configured:false, localOnly:true }
+        : await deliverToLark(currentJob.title, markdown).catch((error) => ({ error: error.message }));
       const warnings = [...quality.issues];
       if (refined.refinerFallbackReason) warnings.unshift(refined.refinerFallbackReason);
       if (lark.error) warnings.push(`飞书交付未完成：${lark.error}`);
-      if (lark.configured === false) warnings.push('未配置飞书 App；已生成本地 Markdown 交付物。');
+      if (lark.configured === false && !lark.localOnly) warnings.push('未配置飞书 App；已生成本地 Markdown 交付物。');
+      if (visual.warning) warnings.unshift(visual.warning);
+      const autoConfirmation = automaticConfirmationDecision({ qualityReport:evidence.qualityReport, transcript });
+      const reviewRequired = currentJob.reviewPolicy === 'required' || !autoConfirmation.eligible;
+      const confirmation = reviewRequired
+        ? null
+        : await createTranscriptConfirmationFiles({
+            directory:jobDir,
+            jobId:job.id,
+            title:currentJob.title,
+            transcript:stripDocumentHeading(await fs.readFile(timedTranscriptPath, 'utf8')),
+            machineChecksum:sha256(transcript),
+            confirmationMode:'automatic',
+            confirmerRef:'xiaod-quality-gate',
+            version:1
+          });
+      if (currentJob.reviewPolicy !== 'required' && !autoConfirmation.eligible) {
+        warnings.unshift(`自动确认未通过：${autoConfirmation.reasons.join(', ')}`);
+      }
       await this.store.update(job.id, {
-        status: 'completed', progress: 100, stageMessage: warnings.length ? '本地稿件已完成，存在待处理事项' : '处理与交付均已完成',
-        completedAt: new Date().toISOString(), quality, warnings,
+        status: reviewRequired ? 'awaiting_review' : 'completed',
+        progress: reviewRequired ? 92 : 100,
+        stageMessage: reviewRequired
+          ? currentJob.reviewPolicy === 'required'
+            ? '已按要求保留人工完整听审确认'
+            : '自动质量确认未通过，等待人工完整听审'
+          : warnings.length
+            ? '系统已自动确认转录，存在非阻断提示'
+            : '系统已自动确认转录并完成交付',
+        completedAt: reviewRequired ? null : new Date().toISOString(), quality, warnings,
         output: {
-          transcriptPath, guidePath, proofreadPath, markdownPath,
+          rawTranscriptPath, transcriptPath, timedTranscriptPath, sourceEvidencePath, qualityReportPath,
+          visualEvidencePath:visual.manifestPath || null,
+          visualCoverage:visual.coverage,
+          visualFailureCode:visual.failureCode || null,
+          transcriptChecksum:sha256(transcript), evidenceLevel:evidence.qualityReport.evidenceLevel,
+          reviewStatus:reviewRequired ? 'awaiting_review' : 'auto_confirmed',
+          confirmationMode:reviewRequired ? null : 'automatic',
+          automaticConfirmation:autoConfirmation,
+          ...(confirmation || {}),
+          guidePath, proofreadPath, markdownPath,
           rawCharacters: transcript.length, guideCharacters: refined.markdown.length,
           larkUrl: lark.url || null, larkPermissionGranted: lark.permissionGranted || false,
+          deliveryMode:currentJob.deliveryMode,
           sourceAcquisition: acquired.contentPackage ? {
             provider: acquired.contentPackage.provider,
             acquisitionPath: acquired.contentPackage.acquisitionPath,
@@ -101,7 +181,10 @@ export class MediaPipeline {
             adapterRef: acquired.contentPackage.adapterRef
           } : null
         }
-      }, { stage: 'completed', message: '任务完成' });
+      }, {
+        stage:reviewRequired ? 'awaiting_review' : 'completed',
+        message:reviewRequired ? '自动确认未完成，等待人工听审' : '系统质量确认完成，确认稿已生成'
+      });
     } catch (error) {
       if (error instanceof JobPausedError) return;
       const errorMessage = humanizeError(error);
@@ -127,7 +210,7 @@ export class MediaPipeline {
     if (job.sourceType === 'upload') {
       const normalized = path.join(jobDir, 'audio.wav');
       await run('ffmpeg', ['-y', '-i', job.sourcePath, '-vn', '-ac', '1', '-ar', '16000', normalized]);
-      return { kind: 'audio', path: normalized };
+      return { kind: 'audio', path: normalized, visualSourcePath:job.sourcePath };
     }
     if (this.contentCenter) {
       const acquired = await this.contentCenter.fetch({
@@ -145,13 +228,22 @@ export class MediaPipeline {
         await this.stage(job.id, 'acquiring', 35, '正在将已授权媒体转为本地转录音频');
         const normalized = path.join(jobDir, 'audio.wav');
         await run('ffmpeg', ['-y', '-i', acquired.runtime.path, '-vn', '-ac', '1', '-ar', '16000', normalized]);
-        return { kind: 'audio', path: normalized, contentPackage: acquired.contentPackage };
+        return { kind: 'audio', path: normalized, contentPackage: acquired.contentPackage, visualSourcePath:acquired.runtime.path };
       }
       if (acquired.runtime?.kind === 'remote_media' && acquired.runtime.url) {
         await this.stage(job.id, 'acquiring', 35, '正在将已授权媒体转为本地转录音频');
         const normalized = path.join(jobDir, 'audio.wav');
         await run('ffmpeg', ['-y', '-i', acquired.runtime.url, '-vn', '-ac', '1', '-ar', '16000', normalized]);
         return { kind: 'audio', path: normalized, contentPackage: acquired.contentPackage };
+      }
+      if (acquired.runtime?.kind === 'audio' && acquired.runtime.path) {
+        const normalized = path.join(jobDir, 'audio.wav');
+        if (path.resolve(acquired.runtime.path) === path.resolve(normalized)) {
+          return { kind:'audio', path:normalized, contentPackage:acquired.contentPackage };
+        }
+        await this.stage(job.id, 'acquiring', 35, '正在规范化已授权音轨');
+        await run('ffmpeg', ['-y', '-i', acquired.runtime.path, '-vn', '-ac', '1', '-ar', '16000', normalized]);
+        return { kind:'audio', path:normalized, contentPackage:acquired.contentPackage };
       }
       return { ...acquired.runtime, contentPackage: acquired.contentPackage };
     }
@@ -176,11 +268,141 @@ export class MediaPipeline {
   }
 
   async transcribe(audioPath, jobDir) {
-    await run(config.asrBin, [audioPath, '--model', config.asrModel, '--output-dir', jobDir, '--output-name', 'transcript', '--output-format', 'txt', '--language', 'zh', '--verbose', 'False']);
+    await run(config.asrBin, [
+      audioPath,
+      '--model', config.asrModel,
+      '--output-dir', jobDir,
+      '--output-name', 'transcript',
+      '--output-format', 'all',
+      '--word-timestamps', 'True',
+      '--language', 'zh',
+      '--verbose', 'False'
+    ]);
     const transcript = path.join(jobDir, 'transcript.txt');
     try { await fs.access(transcript); } catch { throw new Error('ASR 已运行但没有生成 transcript.txt。'); }
-    return fs.readFile(transcript, 'utf8');
+    const text = await fs.readFile(transcript, 'utf8');
+    const vttPath = path.join(jobDir, 'transcript.vtt');
+    let timed = null;
+    try {
+      timed = await fs.readFile(vttPath, 'utf8');
+    } catch {
+      const jsonPath = path.join(jobDir, 'transcript.json');
+      try {
+        timed = jsonTranscriptToVtt(JSON.parse(await fs.readFile(jsonPath, 'utf8')));
+      } catch {
+        timed = null;
+      }
+    }
+    return { text, timed };
   }
+
+  async prepareVisualEvidence({ job, jobDir, acquired, segments, sourceMetadata }) {
+    const visualMode = job.visualMode === 'off' || job.visualMode === 'required' ? job.visualMode : 'auto';
+    if (visualMode === 'off') return {
+      manifestPath:null,
+      coverage:{ status:'disabled', mode:'off', selectedFrames:0 },
+      failureCode:null,
+      warning:null
+    };
+    try {
+      await this.stage(job.id, 'analyzing_visual', 62, '正在提取受控关键帧并建立画面证据');
+      let videoPath = acquired.visualSourcePath || null;
+      if (!videoPath && job.sourceType === 'upload') videoPath = job.sourcePath;
+      if (!videoPath && this.contentCenter && job.sourceUrl) {
+        const visualWorkspace = path.join(jobDir, 'visual-source');
+        await fs.mkdir(visualWorkspace, { recursive:true, mode:0o700 });
+        const visualSource = await this.contentCenter.fetch({
+          taskId:job.id,
+          source:job.sourceUrl,
+          requestedCapabilities:['media'],
+          connectionId:job.connectionId,
+          requestingAgentId:'xiaod',
+          workspace:visualWorkspace,
+          runtimeRequirement:'visual_analysis'
+        });
+        if (!visualSource.ok) throw new ContentAcquisitionError(visualSource);
+        if (visualSource.runtime?.kind !== 'video' || !visualSource.runtime.path) {
+          throw new VisualEvidenceError('visual_video_stream_required', '内容通道只返回了音频，无法建立画面证据。');
+        }
+        videoPath = visualSource.runtime.path;
+      }
+      if (!videoPath) throw new VisualEvidenceError('visual_video_stream_required', '没有取得可用于画面分析的视频。');
+      const created = await createVisualEvidencePackage({
+        videoPath,
+        outputDir:path.join(jobDir, 'visual-evidence'),
+        depth:job.analysisDepth,
+        transcriptSegments:segments,
+        sourceMetadata
+      });
+      return {
+        manifestPath:created.manifestPath,
+        coverage:{
+          status:'available',
+          mode:visualMode,
+          selectedFrames:created.payload.frames.length,
+          maxFrames:created.payload.selection.maxFrames,
+          storyboardCount:created.payload.storyboards.length
+        },
+        failureCode:null,
+        warning:null
+      };
+    } catch (error) {
+      if (visualMode === 'required') {
+        const failure = new VisualEvidenceError('visual_evidence_required', error?.message || '没有生成必须的画面证据。');
+        failure.cause = error;
+        throw failure;
+      }
+      return {
+        manifestPath:null,
+        coverage:{ status:'unavailable', mode:'auto', selectedFrames:0 },
+        failureCode:String(error?.code || error?.accessFailure?.code || 'visual_evidence_unavailable').slice(0, 120),
+        warning:'画面证据未生成；本次只交付字幕拆解，不能视为完整图文分析。'
+      };
+    }
+  }
+}
+
+function jsonTranscriptToVtt(payload) {
+  const segments = Array.isArray(payload?.segments) ? payload.segments : [];
+  const cues = segments.map((segment, index) => {
+    const start = Number(segment?.start);
+    const end = Number(segment?.end);
+    const text = String(segment?.text || '').trim();
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || !text) return null;
+    return `${index + 1}\n${vttTimestamp(start)} --> ${vttTimestamp(end)}\n${text}`;
+  }).filter(Boolean);
+  return cues.length ? `WEBVTT\n\n${cues.join('\n\n')}\n` : '';
+}
+
+function vttTimestamp(value) {
+  const milliseconds = Math.max(0, Math.round(Number(value) * 1000));
+  const hours = Math.floor(milliseconds / 3_600_000);
+  const minutes = Math.floor((milliseconds % 3_600_000) / 60_000);
+  const seconds = Math.floor((milliseconds % 60_000) / 1000);
+  const remainder = milliseconds % 1000;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(remainder).padStart(3, '0')}`;
+}
+
+function stripDocumentHeading(value) {
+  return String(value || '').replace(/^#\s+[^\n]+\n+/m, '').trim();
+}
+
+async function probeDuration(filePath) {
+  const output = await run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', filePath], { allowFailure:true });
+  const value = Number(String(output).trim());
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+export function qualityGateDuration({ reportedDurationSeconds, probedAudioDurationSeconds } = {}) {
+  const reported = Number(reportedDurationSeconds);
+  const probed = Number(probedAudioDurationSeconds);
+  if (!Number.isFinite(reported) || reported <= 0) return Number.isFinite(probed) && probed > 0 ? probed : null;
+  if (!Number.isFinite(probed) || probed <= 0) return reported;
+  // Platform metadata is commonly rounded to whole seconds. The local probe is
+  // more precise, so a sub-second difference must not become a false 99.9%
+  // coverage failure. A larger discrepancy still uses the platform duration
+  // and is rejected by the existing integrity gate.
+  return Math.abs(reported - probed) <= 1 ? probed : reported;
 }
 
 export function deliveryTitle(job, contentPackage = null) {

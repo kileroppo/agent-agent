@@ -86,12 +86,13 @@ export class FileCompletionWatchStore {
   async write(data) {
     await fs.mkdir(new URL('.', `file://${this.filePath}`).pathname, { recursive:true });
     const temporary = `${this.filePath}.tmp`;
-    await fs.writeFile(temporary, JSON.stringify({ watches:data.watches }, null, 2));
+    await fs.writeFile(temporary, JSON.stringify({ watches:data.watches }, null, 2), { mode:0o600 });
     await fs.rename(temporary, this.filePath);
+    await fs.chmod(this.filePath, 0o600);
   }
 }
 
-function shouldReportProgress(status) { return ['recovery_pending', 'technical_repair'].includes(String(status || '')); }
+function shouldReportProgress(status) { return ['waiting_approval', 'recovery_pending', 'technical_repair'].includes(String(status || '')); }
 function watchKey(taskId, chatId) { return `${taskId}:${chatId}`; }
 function required(value, message) { const text = String(value || '').trim(); if (!text) throw new OfficialFeishuCompletionWatcherError(message); return text; }
 function normalizeWatch(input) {

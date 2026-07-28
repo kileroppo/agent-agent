@@ -21,20 +21,23 @@ export class ContentAcquisitionCenter {
           connectionId, provider: adapter.providerFor(source), operations: operationsFor(requested.filter((capability) => adapter.capabilities.includes(capability))), requestingAgentId
         });
         if (!access.ok) {
-          // A connection for a specialized platform must not prevent the
-          // general adapter from attempting its own public-read capability.
-          if (adapter.accessMode === 'either' && access.code === 'connection_provider_mismatch') {
+          // An "either" adapter is allowed to retry the same public source
+          // without credentials. An authorized-only adapter may be skipped
+          // when a later public candidate can still satisfy the request.
+          if (adapter.accessMode === 'either') {
             connectionUse = null;
           } else {
-          await this.operations.record({ subjectType: 'connection', subjectRef: connectionId || adapter.providerFor(source), eventType: access.code, severity: 'warning', safeMessage: access.safeMessage, recommendedAction: access.recommendedAction, taskRefs: taskId ? [taskId] : [] });
-          return failure(access.code, access.safeMessage, access.recommendedAction);
+            await this.operations.record({ subjectType: 'connection', subjectRef: connectionId || adapter.providerFor(source), eventType: access.code, severity: 'warning', safeMessage: access.safeMessage, recommendedAction: access.recommendedAction, taskRefs: taskId ? [taskId] : [] });
+            lastFailure = { code: access.code, safeMessage: access.safeMessage, recommendedAction: access.recommendedAction };
+            if (index < candidates.length - 1) continue;
+            return failure(access.code, access.safeMessage, access.recommendedAction);
           }
         } else {
           connectionUse = access.connectionUse;
         }
       }
       try {
-        const acquired = await adapter.acquire({ source, requestedCapabilities: requested, connectionUse, workspace, onProgress });
+        const acquired = await adapter.acquire({ source, requestedCapabilities: requested, connectionUse, workspace, runtimeRequirement, onProgress });
         const providedCapabilities = normalizeCapabilities(acquired.providedCapabilities);
         if (providedCapabilities.length === 0) throw Object.assign(new Error('适配器没有返回可用内容。'), { code: 'adapter_empty_result' });
         if (index > 0) await this.operations.record({ subjectType: 'adapter', subjectRef: adapter.id, eventType: 'fallback_used', severity: 'info', safeMessage: '已切换到允许的通用内容获取通道。', recommendedAction: 'none', taskRefs: taskId ? [taskId] : [] });

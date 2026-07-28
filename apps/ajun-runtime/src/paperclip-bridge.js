@@ -42,10 +42,30 @@ export class PaperclipBridge {
 
   async projectChild(task, parentIssueId) {
     try {
+      const company = await this.companyForRuntime();
+      const managedAgent = task.assigneeAgentId ? await this.managedAgent(task.assigneeAgentId, company.id) : null;
       const issue = await this.request(`/api/issues/${encodeURIComponent(parentIssueId)}/children`, {
-        method:'POST', body:{ title:task.input.title, description:describe(task), status:'todo', priority:priorityFor(task.priority), blockParentUntilDone:true }
+        method:'POST',
+        body:{
+          title:task.input.title,
+          description:describe(task),
+          status:'todo',
+          priority:priorityFor(task.priority),
+          blockParentUntilDone:true,
+          ...(managedAgent ? { assigneeAgentId:managedAgent.id } : {})
+        }
       });
-      return { status:'synced', paperclipIssueId:issue.id, paperclipIssueIdentifier:issue.identifier, paperclipParentIssueId:parentIssueId, syncedAt:new Date().toISOString() };
+      return {
+        status:'synced',
+        paperclipIssueId:issue.id,
+        paperclipIssueIdentifier:issue.identifier,
+        paperclipParentIssueId:parentIssueId,
+        ...(managedAgent ? {
+          paperclipAssigneeAgentId:managedAgent.id,
+          paperclipAssigneeName:managedAgent.name
+        } : {}),
+        syncedAt:new Date().toISOString()
+      };
     } catch (error) {
       return { status:'sync_pending', paperclipParentIssueId:parentIssueId, reason:safeError(error), syncedAt:new Date().toISOString() };
     }
@@ -63,6 +83,7 @@ export class PaperclipBridge {
       const company = await this.companyForRuntime();
       const existing = await this.request(`/api/companies/${company.id}/agents`);
       const roster = (Array.isArray(manifests) ? manifests : []).filter((manifest) => manifest?.agentId && manifest?.name && manifest.status === 'active');
+      const desiredAgentIds = new Set(roster.map((manifest) => manifest.agentId));
       const synced = [];
       for (const manifest of roster) {
         const current = existing.find((agent) => agent.metadata?.agentArmyId === manifest.agentId && agent.status !== 'terminated')
@@ -83,7 +104,7 @@ export class PaperclipBridge {
                   adapterType:desired.adapterType,
                   adapterConfig:desired.adapterConfig
                 } : {}),
-                ...(current.status === 'paused' && hermesOwned ? { status:'idle' } : {}),
+                ...(['paused', 'error'].includes(current.status) && hermesOwned ? { status:'idle' } : {}),
                 metadata:{ ...(current.metadata || {}), ...desired.metadata }
               }
             });
@@ -105,7 +126,17 @@ export class PaperclipBridge {
         }
         synced.push({ agentArmyId:manifest.agentId, paperclipAgentId:configured.id, name:configured.name, created:true });
       }
-      return { status:'synced', companyId:company.id, agents:synced, syncedAt:new Date().toISOString() };
+      const retired = [];
+      for (const current of existing) {
+        const agentArmyId = String(current?.metadata?.agentArmyId || '').trim();
+        if (!agentArmyId
+          || desiredAgentIds.has(agentArmyId)
+          || current.status === 'terminated'
+          || current.metadata?.agentArmyManagedOnly !== true) continue;
+        await this.request(`/api/agents/${encodeURIComponent(current.id)}/terminate`, { method:'POST' });
+        retired.push({ agentArmyId, paperclipAgentId:current.id, name:current.name });
+      }
+      return { status:'synced', companyId:company.id, agents:synced, retired, syncedAt:new Date().toISOString() };
     } catch (error) {
       return { status:'sync_pending', reason:safeError(error), syncedAt:new Date().toISOString() };
     }
@@ -371,13 +402,13 @@ function paperclipRosterEntry(manifest) {
 function paperclipRoleFor(manifest) {
   const agentId = manifest?.agentId;
   if (manifest?.acceptedTaskTypes?.includes('report.public-material')) return 'researcher';
-  return ({ creator:'pm', 'task-coordinator':'pm', reviewer:'security', architect:'cto', xiaod:'researcher', operator:'devops', 'technical-expert':'engineer' })[agentId] || 'general';
+  return ({ creator:'pm', reviewer:'security', architect:'cto', xiaod:'researcher', operator:'devops', 'technical-expert':'engineer' })[agentId] || 'general';
 }
 
 function paperclipIconFor(manifest) {
   const agentId = manifest?.agentId;
   if (manifest?.acceptedTaskTypes?.includes('report.public-material')) return 'search';
-  return ({ creator:'sparkles', 'task-coordinator':'target', reviewer:'shield', architect:'brain', xiaod:'file-code', operator:'cog', 'technical-expert':'wrench' })[agentId] || 'bot';
+  return ({ creator:'sparkles', reviewer:'shield', architect:'brain', xiaod:'file-code', operator:'cog', 'technical-expert':'wrench' })[agentId] || 'bot';
 }
 
 function rosterNeedsRefresh(current, manifest) {
@@ -394,7 +425,7 @@ function rosterNeedsRefresh(current, manifest) {
     || current.metadata?.agentArmyRole !== desired.metadata.agentArmyRole
     || current.metadata?.executionOwner !== desired.metadata.executionOwner
     || current.metadata?.hermesProfileId !== desired.metadata.hermesProfileId
-    || (current.status === 'paused' && usesPaperclipHermesExecution(manifest));
+    || (['paused', 'error'].includes(current.status) && usesPaperclipHermesExecution(manifest));
 }
 
 function stableJson(value) {

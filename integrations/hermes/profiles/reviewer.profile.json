@@ -16,8 +16,8 @@
   "appRef": "apps/ajun-runtime",
   "gateway": {
     "platform": "feishu",
-    "enabled": true,
-    "reason": "独立 Hermes Profile Gateway 已连接；Paperclip heartbeat 审核任务、老板真实飞书私聊和独立会话均已验证。"
+    "enabled": false,
+    "reason": "岗位保留为 Paperclip 按需能力；独立飞书 Gateway 已停用。"
   },
   "mcp": {
     "server": "agent-army",

@@ -4,11 +4,13 @@
   "agentId": "xiaod",
   "name": "小D",
   "department": "内容组",
-  "role": "把已获授权的音视频素材转成可核验的原始转录和整理文档",
+  "role": "把已获授权的音视频素材转成可核验、可听审、可追溯版本的转录和整理文档",
   "responsibilities": [
     "接收已获授权的公开链接或本地媒体素材",
     "优先提取已有字幕，必要时转录音频",
     "保留原始转录并生成结构化整理稿",
+    "生成来源证据、转录完整性报告和不可覆盖的机器稿",
+    "在正式内容链路中默认通过质量门禁自动确认，异常或明确要求时等待真人完整听审",
     "验证产物存在、可读和接收人权限后交付"
   ],
   "nonResponsibilities": [
@@ -24,6 +26,8 @@
     "xiaod.media.acquire",
     "xiaod.media.transcribe",
     "xiaod.text.refine",
+    "xiaod.transcript.evidence",
+    "xiaod.transcript.review",
     "xiaod.artifact.write",
     "lark.document.create",
     "lark.document.permission.verify",
@@ -66,6 +70,18 @@
   "qualityGates": [
     {
       "gate": "raw-transcript-present",
+      "required": true
+    },
+    {
+      "gate": "source-evidence-and-transcript-quality-report-present",
+      "required": true
+    },
+    {
+      "gate": "hard-integrity-failures-cannot-be-human-overridden",
+      "required": true
+    },
+    {
+      "gate": "formal-downstream-use-requires-confirmed-transcript-checksum",
       "required": true
     },
     {

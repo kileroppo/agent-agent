@@ -1,13 +1,300 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>A君运行台</title><link rel="stylesheet" href="/styles.css"></head><body>
-<header><a class="brand" href="/">A君 <span>运行台</span></a><p><span id="sync-status">正在同步…</span> · 我的军团</p></header>
-<main><section class="hero"><p class="eyebrow">A君 · 运行与恢复</p><h1>飞书负责交办，<br>这里负责守住运行。</h1><p>日常任务、进度和审批都在飞书的“A君·军团总管”会话完成。这里仅显示授权状态、脱敏诊断、恢复进展和只读任务记录。</p></section>
-<section id="access-gate" class="access-gate" hidden><div><p class="eyebrow">开始使用</p><h2>输入共享口令</h2><p>请向本机主人获取口令。你的称呼会写入后续交办的工作。</p></div><form id="access-form"><label>你的称呼<input id="collaborator-name" autocomplete="name" required placeholder="例如：志鹏"></label><label>共享口令<input id="access-key" autocomplete="off" required></label><button>进入运行台</button><p id="access-message" role="status"></p></form></section>
-<section id="share-info" class="share-info" hidden><div><p class="eyebrow">邀请同事</p><h2>可以邀请同一网络的人使用</h2><p id="share-addresses"></p><button id="rotate-share-key" class="prepare-task" type="button">换新口令</button><p id="share-message" role="status"></p></div><label>共享口令<input id="share-key" readonly></label></section>
-<section id="employee-connections" class="employee-connections" hidden><div class="section-head"><div><p class="eyebrow">员工接线</p><h2>员工模型与飞书入口</h2></div><p class="hint">这里显示所有已声明独立入口员工的真实状态。由 Hermes 接管后不再暴露凭据输入；后续正式员工沿用同一入口。</p></div><div id="employee-connection-list" class="connection-grid"></div></section>
-<section id="access-connections" class="access-connections" hidden><div class="section-head"><div><p class="eyebrow">通用账号能力</p><h2>账号连接状态</h2></div><p class="hint">复用小D的通用连接管理，只显示脱敏状态与撤销入口。登录和续期仍在获批的连接器中完成，不在这里填写 Cookie 或 Token。</p></div><p id="access-connection-message" class="connection-message" role="status"></p><div id="access-connection-list" class="connection-grid"></div></section>
-<section class="focus" aria-labelledby="focus-title"><div class="section-head"><div><p class="eyebrow">当前重点</p><h2 id="focus-title">现在要关注的事</h2></div><p class="hint">只显示当前最需要处理的一步。</p></div><div id="focus-panel" class="focus-panel" aria-live="polite"></div></section>
-<section class="capabilities"><h2>军团现在能做什么</h2><div id="capability-list" class="grid"></div></section>
-<section class="workbench"><div><p class="eyebrow">日常入口</p><h2>请在飞书交办与审批</h2><p class="hint">在“A君·军团总管”原会话中下任务、补充材料、查看进度和批准或拒绝。A君运行台不会创建、重新提交、继续或批准业务任务。</p></div></section>
-<section class="agents"><div class="section-head"><div><p class="eyebrow">军团成员</p><h2>飞书可调用的业务员工与后台保障</h2></div><p class="hint">这是岗位状态，不是本地派活入口。</p></div><div id="agent-list" class="agent-grid"></div></section>
-<section class="tasks"><div class="section-head"><div><p class="eyebrow">只读记录</p><h2>任务与诊断状态</h2></div><p class="hint">需要继续、补充或审批时，请回到对应飞书原会话。</p></div><div id="task-list" class="task-list"></div></section>
-</main><template id="empty"><p class="empty">还没有任务记录。请在飞书的“A君·军团总管”会话中交办。</p></template><script type="module" src="/app.js"></script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f6f7f2">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%2325b887'/%3E%3Cpath d='M10 21V11h3v7l6-7h4l-6.2 7 6.2 3h-5l-5-2.6V21z' fill='white'/%3E%3C/svg%3E">
+  <title>A君运行台</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="is-loading">
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="icon-overview" viewBox="0 0 24 24"><path d="M4 13h6V4H4v9Zm0 7h6v-3H4v3Zm10 0h6v-9h-6v9Zm0-13h6V4h-6v3Z"/></symbol>
+    <symbol id="icon-employees" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3.5 20c.8-3.7 2.8-5.7 5.5-5.7s4.7 2 5.5 5.7M16 6.3a2.7 2.7 0 0 1 0 5.4M16 14.5c2.4.4 3.9 2.2 4.5 5.5"/></symbol>
+    <symbol id="icon-connections" viewBox="0 0 24 24"><path d="M8.2 14.8 6 17a3.5 3.5 0 1 0 5 5l2.2-2.2M15.8 9.2 18 7a3.5 3.5 0 1 0-5-5l-2.2 2.2M8.5 15.5l7-7"/></symbol>
+    <symbol id="icon-records" viewBox="0 0 24 24"><rect x="5" y="3.5" width="14" height="17" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></symbol>
+    <symbol id="icon-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="m15 9 5-5"/></symbol>
+    <symbol id="icon-spark" viewBox="0 0 24 24"><path d="M12 3 13.8 8.2 19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3ZM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16Z"/></symbol>
+    <symbol id="icon-message" viewBox="0 0 24 24"><path d="M4 5h16v12H9l-5 4V5Z"/><path d="M8 9h8M8 13h5"/></symbol>
+    <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="icon-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="icon-alert" viewBox="0 0 24 24"><path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v5M12 17.5v.1"/></symbol>
+    <symbol id="icon-share" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="m8.2 10.8 7.6-3.6M8.2 13.2l7.6 3.6"/></symbol>
+    <symbol id="icon-shield" viewBox="0 0 24 24"><path d="m12 3 7 3v5.5c0 4.3-2.9 8.1-7 9.5-4.1-1.4-7-5.2-7-9.5V6l7-3Z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></symbol>
+    <symbol id="icon-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+  </svg>
+
+  <header class="topbar">
+    <a class="brand" href="#overview" aria-label="A君运行台">
+      <span class="brand-mark">A</span>
+      <span>A君运行台</span>
+    </a>
+    <div class="sync-badge" role="status" aria-live="polite">
+      <span id="sync-indicator" class="sync-indicator syncing" aria-hidden="true"></span>
+      <span id="sync-status">正在同步…</span>
+    </div>
+  </header>
+
+  <div class="app-shell">
+    <nav class="module-nav" aria-label="运行台模块">
+      <a href="#overview" class="module-link is-active" data-module="overview" aria-current="page">
+        <svg aria-hidden="true"><use href="#icon-overview"></use></svg>
+        <span>总览</span>
+      </a>
+      <a href="#employees" class="module-link" data-module="employees">
+        <svg aria-hidden="true"><use href="#icon-employees"></use></svg>
+        <span>员工</span>
+      </a>
+      <a href="#connections" class="module-link" data-module="connections" data-owner-only hidden>
+        <svg aria-hidden="true"><use href="#icon-connections"></use></svg>
+        <span>连接</span>
+      </a>
+      <a href="#records" class="module-link" data-module="records">
+        <svg aria-hidden="true"><use href="#icon-records"></use></svg>
+        <span>记录</span>
+      </a>
+    </nav>
+
+    <main id="app-main">
+      <section id="access-gate" class="access-gate" hidden>
+        <div class="gate-visual" aria-hidden="true">
+          <svg><use href="#icon-shield"></use></svg>
+        </div>
+        <div>
+          <p class="eyebrow">局域网访问</p>
+          <h1>进入运行台</h1>
+          <p class="subtle">输入称呼和共享口令。</p>
+        </div>
+        <form id="access-form">
+          <label>你的称呼<input id="collaborator-name" autocomplete="name" required placeholder="例如：志鹏"></label>
+          <label>共享口令<input id="access-key" autocomplete="off" required></label>
+          <button>进入运行台</button>
+          <p id="access-message" class="form-message" role="status"></p>
+        </form>
+      </section>
+
+      <section id="module-overview" class="module-page is-active" data-module-page="overview" aria-labelledby="overview-title">
+        <div class="module-heading">
+          <div>
+            <p class="eyebrow">我的军团</p>
+            <h1 id="overview-title">运行尽在掌握</h1>
+          </div>
+          <div class="heading-orb" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </div>
+        </div>
+
+        <div id="overview-stats" class="stat-grid" aria-label="运行状态概览">
+          <div class="stat-card skeleton"></div>
+          <div class="stat-card skeleton"></div>
+          <div class="stat-card skeleton"></div>
+          <div class="stat-card skeleton"></div>
+        </div>
+
+        <section class="focus" aria-labelledby="focus-title">
+          <div class="section-head compact-head">
+            <div>
+              <p class="eyebrow"><svg aria-hidden="true"><use href="#icon-target"></use></svg>当前重点</p>
+              <h2 id="focus-title">下一步</h2>
+            </div>
+          </div>
+          <div id="focus-panel" class="focus-panel skeleton-panel" aria-live="polite"></div>
+        </section>
+
+        <section class="capabilities" aria-labelledby="capabilities-title">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow"><svg aria-hidden="true"><use href="#icon-spark"></use></svg>可用能力</p>
+              <h2 id="capabilities-title">军团能做什么</h2>
+            </div>
+          </div>
+          <div id="capability-list" class="capability-grid"></div>
+        </section>
+
+        <section class="overview-bottom">
+          <div class="feishu-callout">
+            <div class="callout-icon"><svg aria-hidden="true"><use href="#icon-message"></use></svg></div>
+            <div>
+              <p class="eyebrow">日常入口</p>
+              <h2>请在飞书交办与审批</h2>
+              <p>运行台只负责状态、连接和恢复。</p>
+            </div>
+          </div>
+          <div class="recent-records">
+            <div class="section-head">
+              <div>
+                <p class="eyebrow">最近动态</p>
+                <h2>最新记录</h2>
+              </div>
+              <a href="#records" class="text-link">查看全部</a>
+            </div>
+            <div id="recent-task-list" class="recent-task-list"></div>
+          </div>
+        </section>
+      </section>
+
+      <section id="module-employees" class="module-page" data-module-page="employees" aria-labelledby="employees-title">
+        <div class="module-heading">
+          <div>
+            <p class="eyebrow">军团成员</p>
+            <h1 id="employees-title">员工与岗位</h1>
+            <p class="subtle">状态一眼看清，能力按需展开。</p>
+          </div>
+          <div class="heading-icon" aria-hidden="true"><svg><use href="#icon-employees"></use></svg></div>
+        </div>
+        <div id="agent-list" class="agent-grid"></div>
+      </section>
+
+      <section id="module-connections" class="module-page" data-module-page="connections" data-owner-only aria-labelledby="connections-title">
+        <div class="module-heading">
+          <div>
+            <p class="eyebrow">本机所有者</p>
+            <h1 id="connections-title">连接与接入</h1>
+            <p class="subtle">只在需要时展开配置。</p>
+          </div>
+          <div class="heading-icon" aria-hidden="true"><svg><use href="#icon-connections"></use></svg></div>
+        </div>
+
+        <section id="hermes-model-management" class="surface-section access-connections">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow"><svg aria-hidden="true"><use href="#icon-spark"></use></svg>AI 模型</p>
+              <h2>A君 Hermes 模型管理</h2>
+            </div>
+            <p class="hint">切换模型、API 地址或 Key，只作用于 A君的独立 Profile。</p>
+          </div>
+          <div class="connection-actions" data-model-setup-scope>
+            <button type="button" data-model-setup-agent-id="ajun" data-model-setup-target="models">管理模型</button>
+            <button type="button" class="secondary-action" data-model-setup-agent-id="ajun" data-model-setup-target="keys">管理 API 与 Key</button>
+            <p class="model-setup-message connection-message" role="status">通过本机 Hermes 官方页面管理，不在 A君运行台读取或保存 Key。</p>
+          </div>
+        </section>
+
+        <section id="access-connections" class="surface-section access-connections" hidden>
+          <div class="section-head">
+            <div>
+              <p class="eyebrow"><svg aria-hidden="true"><use href="#icon-shield"></use></svg>网站账号</p>
+              <h2>连接网站账号</h2>
+            </div>
+            <p class="hint">不填写、显示或复制 Cookie、Token 和密码。</p>
+          </div>
+
+          <details id="access-login-disclosure" class="access-login-disclosure">
+            <summary>
+              <span class="summary-icon"><svg aria-hidden="true"><use href="#icon-connections"></use></svg></span>
+              <span><strong>添加或恢复连接</strong><small>登录、选择账号、完成授权</small></span>
+              <svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg>
+            </summary>
+            <form id="access-login-form" class="access-login-panel">
+              <ol class="auth-progress" aria-label="授权步骤">
+                <li class="is-active" data-access-step-indicator="1"><span>1</span>登录</li>
+                <li data-access-step-indicator="2"><span>2</span>账号</li>
+                <li data-access-step-indicator="3"><span>3</span>授权</li>
+              </ol>
+
+              <section class="auth-step" data-access-step-panel="1">
+                <div>
+                  <p class="step-kicker">第一步</p>
+                  <h3>登录平台</h3>
+                </div>
+                <label>平台<select id="access-login-provider" name="provider" required></select></label>
+                <div class="step-actions">
+                  <button id="open-platform-login" type="button">打开 Chrome 登录页</button>
+                  <button id="access-step-next-2" class="secondary-action" type="button">已经登录</button>
+                </div>
+              </section>
+
+              <section class="auth-step" data-access-step-panel="2" hidden>
+                <div>
+                  <p class="step-kicker">第二步</p>
+                  <h3>选择已登录账号</h3>
+                </div>
+                <label>Chrome 已登录账号<select id="access-login-account" name="clientId" required><option value="">正在读取…</option></select></label>
+                <div class="step-actions">
+                  <button id="refresh-login-accounts" type="button">刷新已登录账号</button>
+                  <button id="access-step-back-1" class="secondary-action" type="button">返回</button>
+                  <button id="access-step-next-3" class="secondary-action" type="button">继续</button>
+                </div>
+              </section>
+
+              <section class="auth-step" data-access-step-panel="3" hidden>
+                <div>
+                  <p class="step-kicker">第三步</p>
+                  <h3>命名并授权</h3>
+                </div>
+                <label>连接名称<input id="access-login-alias" name="accountAlias" maxlength="80" placeholder="例如：我的小红书" required></label>
+                <div class="step-actions">
+                  <button id="save-access-connection" type="submit">3. 授权给小D</button>
+                  <button id="access-step-back-2" class="secondary-action" type="button">返回</button>
+                  <button id="cancel-access-reauthorize" class="secondary-action" type="button" hidden>取消续期</button>
+                </div>
+              </section>
+              <p id="access-login-message" class="connection-message" role="status"></p>
+            </form>
+          </details>
+
+          <div class="connection-list-heading">
+            <h3>已登记连接</h3>
+            <p id="access-connection-message" class="connection-message" role="status"></p>
+          </div>
+          <div id="access-connection-list" class="connection-grid"></div>
+        </section>
+
+        <section id="employee-connections" class="surface-section employee-connections" hidden>
+          <div class="section-head">
+            <div>
+              <p class="eyebrow"><svg aria-hidden="true"><use href="#icon-employees"></use></svg>员工接线</p>
+              <h2>员工模型与飞书入口</h2>
+            </div>
+            <p class="hint">默认仅显示真实状态。</p>
+          </div>
+          <div id="employee-connection-list" class="connection-grid"></div>
+        </section>
+
+        <details id="share-info" class="surface-section share-info" hidden>
+          <summary>
+            <span class="summary-icon"><svg aria-hidden="true"><use href="#icon-share"></use></svg></span>
+            <span><strong>邀请同一网络的人</strong><small>查看地址与共享口令</small></span>
+            <svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg>
+          </summary>
+          <div class="share-body">
+            <div>
+              <p id="share-addresses"></p>
+              <button id="rotate-share-key" class="secondary-action" type="button">换新口令</button>
+              <p id="share-message" class="connection-message" role="status"></p>
+            </div>
+            <label>共享口令<input id="share-key" readonly></label>
+          </div>
+        </details>
+      </section>
+
+      <section id="module-records" class="module-page" data-module-page="records" aria-labelledby="records-title">
+        <div class="module-heading">
+          <div>
+            <p class="eyebrow">只读记录</p>
+            <h1 id="records-title">任务与诊断</h1>
+            <p class="subtle">继续、补充或审批请回到飞书原会话。</p>
+          </div>
+          <div class="heading-icon" aria-hidden="true"><svg><use href="#icon-records"></use></svg></div>
+        </div>
+
+        <div class="record-toolbar">
+          <div class="filter-group" aria-label="筛选任务状态">
+            <button type="button" class="filter-button is-active" data-task-filter="all" aria-pressed="true">全部</button>
+            <button type="button" class="filter-button" data-task-filter="active" aria-pressed="false">进行中</button>
+            <button type="button" class="filter-button" data-task-filter="attention" aria-pressed="false">待处理</button>
+            <button type="button" class="filter-button" data-task-filter="completed" aria-pressed="false">已结束</button>
+          </div>
+          <span id="task-count" class="task-count"></span>
+        </div>
+        <div id="task-list" class="task-list"></div>
+      </section>
+    </main>
+  </div>
+
+  <template id="empty"><div class="empty"><svg aria-hidden="true"><use href="#icon-records"></use></svg><p>还没有任务记录</p><span>请在飞书的“A君·军团总管”会话中交办。</span></div></template>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

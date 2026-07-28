@@ -75,16 +75,15 @@ export class FeishuCommander {
     const directTaskTypes = {
       operator:'operations.health-review',
       architect:'governance.architecture-review',
-      'task-coordinator':'army.intake',
       xiaod:'media.transcribe-and-refine',
       'intel-researcher':'research.intel-report',
       'office-assistant':'office.briefing-package'
     };
-    const taskType = directTaskTypes[agentId];
+    const taskType = directPlan?.intent === 'route_task' && directPlan.agentId === agentId ? directPlan.taskType : directTaskTypes[agentId];
     if (!taskType) return null;
     const task = await this.tasks.create({
       title:text,
-      description:taskType === 'office.briefing-package' ? text : '',
+      description:['office.briefing-package', 'office.knowledge-summary'].includes(taskType) ? text : '',
       taskType,
       requester,
       source,
@@ -98,7 +97,7 @@ export class FeishuCommander {
   async reviewRegisteredDrafts(text) {
     if (typeof this.proposals?.reviewRegisteredDrafts !== 'function') return this.clarify('请发需要审核的任务号或新员工草案编号，并说明你希望我核对的范围。');
     const proposals = await this.proposals.reviewRegisteredDrafts(text);
-    if (!proposals.length) return this.clarify('没有找到你点名的草案岗位。请直接说岗位名称，例如“小G”或“小R”。');
+    if (!proposals.length) return this.clarify('没有找到你点名的草案岗位。请直接说岗位名称，例如“小R”。');
     return {
       kind:'registered_draft_review', proposals,
       reply:proposals.map((proposal) => registeredDraftReviewReply(proposal)).join('\n\n')
@@ -171,7 +170,15 @@ export class FeishuCommander {
     if (FOLLOW_UP_RE.test(text)) return this.followUp(source.chatRef);
     const taskType = plan.taskType || (intent === 'health_check' ? 'operations.health-review' : intent === 'media_task' ? 'media.transcribe-and-refine' : intent === 'public_report' ? 'report.public-material' : intent === 'github_search' ? 'research.github-search' : intent === 'intel_research' ? 'research.intel-report' : intent === 'office_briefing' ? 'office.briefing-package' : ['architecture_review', 'army_planning'].includes(intent) ? 'governance.architecture-review' : 'army.intake');
     const entryAgentId = await this.resolveEntryAgent(targetAgentId, taskType);
-    const defaultAgentId = taskType === 'research.github-search' ? 'github-scout' : taskType === 'research.intel-report' ? 'intel-researcher' : taskType === 'office.briefing-package' ? 'office-assistant' : undefined;
+    const defaultAgentId = ['report.public-material', 'research.github-search', 'research.intel-report'].includes(taskType)
+      ? 'intel-researcher'
+      : ['office.briefing-package', 'office.knowledge-summary'].includes(taskType)
+        ? 'office-assistant'
+        : ['content.video-benchmark-analysis', 'content.performance-review'].includes(taskType)
+          ? 'video-content-analyst'
+          : taskType === 'content.platform-draft'
+            ? 'content-creator'
+            : undefined;
     const researchInput = taskType === 'research.github-search' ? githubTaskInput(text) : taskType === 'research.intel-report' ? { topic:text } : {};
     const task = await this.tasks.create({
       title: text, description:taskType === 'office.briefing-package' ? text : '', taskType, requester, source,
@@ -427,7 +434,7 @@ export class FeishuCommander {
       activeTaskTypes.has('operations.health-review') ? '检查本机军团是否正常，异常会如实说出来' : null,
       activeTaskTypes.has('media.transcribe-and-refine') ? '整理公开视频或音频，完成后把结果发回原聊天' : null,
       activeTaskTypes.has('report.public-material') ? '读一到五条公开网页，做中文重点、共同点和差别对比' : null,
-      activeTaskTypes.has('research.github-search') ? '让小G在公开 GitHub 找开源项目，比较 star、语言、最近更新时间和适用场景' : null,
+      activeTaskTypes.has('research.github-search') ? '让小R在公开 GitHub 找开源项目，比较 star、语言、最近更新时间和适用场景' : null,
       activeTaskTypes.has('research.intel-report') ? '让小R围绕一个主题综合公开来源，给出结论、行动建议和来源' : null,
       activeTaskTypes.has('governance.architecture-review') ? '遇到当前没人能直接完成的低风险事情，先自己请架构师评估怎么补能力' : null,
       '创建新员工草案；必须先审核和小范围试用，不会直接上线'
@@ -758,8 +765,8 @@ function replyFor(task, taskType) {
   if (taskType === 'research.github-search') {
     const artifact = task.artifactRefs?.find((item) => ['research_github_report', 'github_code_read'].includes(item.type))?.data;
     if (artifact) return { kind:'github_search', task, reply:formatGithubReply(artifact) };
-    if (task.status === 'needs_input') return { kind:'github_search', task, reply:task.currentStage === 'waiting_for_agent_activation' ? '小G目前还是草案，尚未通过审核和受限测试，不能开始检索。' : task.error?.userMessage || '小G还缺少检索条件，暂未开始。' };
-    return { kind:'github_search', task, reply:`已交给小G检索公开 GitHub 信息，任务号：${task.taskId}。完成后会回到当前飞书会话。` };
+    if (task.status === 'needs_input') return { kind:'github_search', task, reply:task.currentStage === 'waiting_for_agent_activation' ? '小R的 GitHub 检索能力尚未启用，不能开始检索。' : task.error?.userMessage || '小R还缺少检索条件，暂未开始。' };
+    return { kind:'github_search', task, reply:`已交给小R检索公开 GitHub 信息，任务号：${task.taskId}。完成后会回到当前飞书会话。` };
   }
   if (taskType === 'research.intel-report') {
     const report = task.artifactRefs?.find((item) => item.type === 'intel_research_report')?.data;
@@ -772,6 +779,20 @@ function replyFor(task, taskType) {
     if (report) return { kind:'office_briefing', task, reply:formatOfficeBriefingReply(report) };
     if (task.status === 'needs_input') return { kind:'office_briefing', task, reply:task.error?.userMessage || '办公执行助理还缺少需要整理的材料。' };
     return { kind:'office_briefing', task, reply:`已交给办公执行助理整理，任务号：${task.taskId}。完成后会回到当前飞书会话。` };
+  }
+  if (taskType === 'office.knowledge-summary') {
+    const note = task.artifactRefs?.find((item) => item.type === 'knowledge_summary_note');
+    if (note?.validation?.readable) return { kind:'knowledge_summary', task, reply:`小办已完成知识归档：${note.title}\n受控文件：${note.location}` };
+    if (task.status === 'needs_input') return { kind:'knowledge_summary', task, reply:task.error?.userMessage || '小办还缺少需要归档的任务或材料。' };
+    return { kind:'knowledge_summary', task, reply:`已交给小办总结并归档，任务号：${task.taskId}。` };
+  }
+  if (taskType === 'content.video-benchmark-analysis' || taskType === 'content.performance-review') {
+    if (task.status === 'needs_input') return { kind:'content_analysis', task, reply:task.error?.userMessage || '小拆还缺少确认稿或表现数据。' };
+    return { kind:'content_analysis', task, reply:`已交给小拆处理，任务号：${task.taskId}。完成后会回到当前飞书会话。` };
+  }
+  if (taskType === 'content.platform-draft') {
+    if (task.status === 'needs_input') return { kind:'content_draft', task, reply:task.error?.userMessage || '小创还缺少确认稿、正式分析或目标平台。' };
+    return { kind:'content_draft', task, reply:`已交给小创生成可审核草稿，任务号：${task.taskId}。不会自动发布。` };
   }
   if (taskType === 'governance.architecture-review') {
     const report = task.artifactRefs?.find((item) => item.type === 'architecture_review')?.data;
@@ -813,12 +834,13 @@ function directAgentIdentity(agentId) {
     xiaod:'我是小D。我把已获授权的音视频素材转成可核验的转录和整理文档。',
     'intel-researcher':'我是资料研究员。我只读取公开来源，形成带证据、结论、建议和未决问题的研究报告。',
     'office-assistant':'我是办公执行助理。我把你提供的材料和其他员工的真实结果整理成文档、清单和汇报包。',
+    'video-content-analyst':'我是小拆。我只基于可追溯转录证据拆解视频内容，不抓取、不发布。',
+    'content-creator':'我是小创。我只根据系统或人工确认稿和正式分析生成平台草稿，不自动发布。',
     operator:'我是运维官。我检查军团运行状态、判断能否安全恢复；不能安全处理的会交给技术专家。',
     creator:'我是创建官。我把岗位需求整理成可审核的智能体草案，不会直接上线或扩权。',
     reviewer:'我是审核官。我核对权限、预算和外部动作的范围；最终敏感决定仍由负责人确认。',
     architect:'我是架构师。我根据真实任务记录评估能力缺口和最小验证方案。',
     'technical-expert':'我是技术专家。我只在有故障证据和受控范围时排查、修复和验证。',
-    'task-coordinator':'我是任务协调官。我只在现有员工与权限范围内安排工作；不确定时会先说明缺口，不会冒充 A君。'
   };
   return { kind:'identity', reply:messages[agentId] || '我是军团的受限岗位智能体，只处理本岗位允许的工作。' };
 }
@@ -933,9 +955,12 @@ function feedbackSentiment(text) {
 function taskTime(task) { return Date.parse(task.updatedAt || task.createdAt || 0) || 0; }
 function workerName(task) {
   if (task.taskType === 'report.public-material') return '公开资料报告员';
-  if (task.taskType === 'research.github-search') return '小G';
+  if (task.taskType === 'research.github-search') return '小R';
   if (task.taskType === 'research.intel-report') return '小R';
   if (task.taskType === 'office.briefing-package') return '办公执行助理';
+  if (task.taskType === 'office.knowledge-summary') return '小办';
+  if (['content.video-benchmark-analysis', 'content.performance-review'].includes(task.taskType)) return '小拆';
+  if (task.taskType === 'content.platform-draft') return '小创';
   if (task.taskType === 'media.transcribe-and-refine') return '小D';
   if (task.taskType === 'operations.health-review') return '运维官';
   if (task.taskType === 'governance.architecture-review') return '架构师';
@@ -947,29 +972,29 @@ function workerName(task) {
 function shortTitle(task) { return String(task.input?.title || '未命名任务').replace(/\s+/g, ' ').slice(0, 48); }
 function uniqueTasks(tasks) { return [...new Map(tasks.map((task) => [shortTitle(task), task])).values()]; }
 
-function isVisibleEmployee(agent) { return !['creator', 'task-coordinator'].includes(agent.agentId); }
+function isVisibleEmployee(agent) { return agent.agentId !== 'creator'; }
 
 function employeeRole(agent) {
   const roles = {
     xiaod: '负责整理公开视频和音频',
     'public-reporter': '负责读取公开网页并写中文报告',
-    'github-scout': '负责检索公开 GitHub 项目和代码',
     'intel-researcher': '负责围绕主题综合公开资料并给行动建议',
     'office-assistant': '负责把材料和员工结果整理成办公汇报包',
+    'video-content-analyst': '负责基于确认稿拆解视频内容和复盘表现',
+    'content-creator': '负责根据正式分析生成可审核平台草稿',
     operator: '负责检查运行情况和恢复异常',
     reviewer: '负责把关需要你确认的事项',
     architect: '负责评估能力缺口和下一步',
     'technical-expert': '负责排查和修复技术问题',
-    creator: '负责准备新员工草案',
-    'task-coordinator': '负责安排合适的员工接手工作'
+    creator: '负责准备新员工草案'
   };
   return roles[agent.agentId] || agent.role || '负责已分配的工作';
 }
 
 function formatGithubReply(data) {
-  if (data.repo) return [`【小G 已读取公开仓库】`, `${data.repo} · ${data.path}`, '', data.summary || '没有可提炼的文本要点。', '', `来源：${data.source || `https://github.com/${data.repo}`}`].join('\n');
-  const lines = (data.results || []).map((item, index) => `${index + 1}. ${item.fullName}（★ ${item.stars}，${item.language || '语言未提供'}）\n   ${item.assessment || ''}\n   ${item.url}`);
-  return ['【小G 公开 GitHub 检索】', `关键词：${data.query || '未提供'}`, '', ...lines, '', data.conclusion || '仅根据本次读取的公开 GitHub 元数据整理。'].join('\n');
+  if (data.repo) return [`【小R 已读取公开仓库】`, `${data.repo} · ${data.path}`, '', data.summary || '没有可提炼的文本要点。', '', `来源：${data.source || `https://github.com/${data.repo}`}`].join('\n');
+  const lines = (data.results || []).map((item, index) => `${index + 1}. ${item.fullName}（★ ${item.stars}，${item.language || '语言未提供'}）\n   ${item.suitability || item.assessment || ''}${item.suitability && item.assessment ? `\n   元数据判断：${item.assessment}` : ''}\n   ${item.url}`);
+  return ['【小R 公开 GitHub 检索】', `关键词：${data.query || '未提供'}`, '', ...lines, '', data.conclusion || '仅根据本次读取的公开 GitHub 元数据整理。'].join('\n');
 }
 function formatIntelReply(report) {
   return ['【小R 研究报告】', `主题：${report.topic || '未提供'}`, '', `背景：${report.background || '仅根据已读取来源整理。'}`, `关键发现：${(report.findings || []).map((item) => `- ${item}`).join('\n') || '- 暂无可确认发现。'}`, `结论：${report.conclusion || '无法仅根据已读取来源确认更多结论。'}`, `行动建议：${(report.recommendations || []).map((item) => `- ${item}`).join('\n') || '- 先补充可公开读取的来源。'}`, `未决问题：${(report.openQuestions || []).map((item) => `- ${item}`).join('\n') || '- 暂无。'}`, '', `来源：${(report.sources || []).map((item) => item.source).filter(Boolean).join('；') || '无'}`].join('\n');

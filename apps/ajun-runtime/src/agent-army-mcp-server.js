@@ -69,11 +69,19 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
       agent_id:z.string().max(80).optional().describe('仅在需要点名且 capabilities 已确认支持时提供'),
       description:z.string().max(2000).optional(),
       source_urls:z.array(z.string().url()).max(5).optional(),
-      source_task_ids:z.array(z.string().min(8).max(100)).max(20).optional().describe('办公汇报需要引用的既有任务编号；没有时省略'),
+      source_task_ids:z.array(z.string().min(8).max(100)).max(20).optional().describe('需要引用的既有任务编号；内容拆解、创作和知识归档必须显式提供'),
+      review_policy:z.enum(['optional', 'required']).optional().describe('默认 optional：质量合格时系统自动确认，异常时转人工；只有用户明确要求完整听审时使用 required'),
+      evidence_mode:z.enum(['preliminary', 'formal']).optional(),
+      depth:z.enum(['fast', 'full']).optional(),
+      visual_mode:z.enum(['auto', 'off', 'required']).optional().describe('默认 auto：快速模式最多 12 帧，完整模式最多 48 帧；off 只分析文字；required 缺少画面时要求补充素材'),
+      focus:z.string().max(500).optional(),
+      platforms:z.array(z.string().min(1).max(40)).max(10).optional(),
+      content_goal:z.string().max(500).optional(),
+      metrics:z.record(z.union([z.string(), z.number()])).optional(),
       chat_ref:z.string().max(240).optional().describe('当前 Hermes 会话上下文中可见的原飞书 chat id；用于任务归属和恢复'),
       request_ref:z.string().max(240).optional().describe('当前消息或稳定请求引用；有则用于严格幂等')
     })
-  }, ({ title, task_type, agent_id, description, source_urls, source_task_ids, chat_ref, request_ref }) => {
+  }, ({ title, task_type, agent_id, description, source_urls, source_task_ids, review_policy, evidence_mode, depth, visual_mode, focus, platforms, content_goal, metrics, chat_ref, request_ref }) => {
     assertSingleTaskRequest({ title, description });
     const assignment = canonicalizeBusinessAssignment({
       title,
@@ -90,6 +98,14 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
       description:assignment.description,
       sourceUrls:source_urls,
       sourceTaskIds:source_task_ids,
+      reviewPolicy:review_policy,
+      evidenceMode:evidence_mode,
+      depth,
+      visualMode:visual_mode,
+      focus,
+      platforms,
+      contentGoal:content_goal,
+      metrics,
       chatRef:chat_ref,
       requestRef:request_ref
     });
@@ -108,6 +124,13 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
         description:z.string().max(2000).optional(),
         acceptance:z.string().max(500).optional(),
         source_urls:z.array(z.string().url()).max(5).optional(),
+        review_policy:z.enum(['optional', 'required']).optional().describe('默认自动质量确认；用户明确要求人工完整听审时传 required'),
+        evidence_mode:z.enum(['preliminary', 'formal']).optional(),
+        depth:z.enum(['fast', 'full']).optional(),
+        visual_mode:z.enum(['auto', 'off', 'required']).optional(),
+        focus:z.string().max(500).optional(),
+        platforms:z.array(z.string().min(1).max(40)).max(3).optional(),
+        content_goal:z.string().max(500).optional(),
         depends_on_previous:z.boolean().optional().describe('该项是否必须等待前面分工结束或明确卡点后再执行')
       })).min(1).max(3),
       chat_ref:z.string().max(240).optional(),
@@ -121,9 +144,16 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
       taskType:item.task_type,
       agentId:item.agent_id,
       description:item.description,
-      acceptance:item.acceptance,
-      sourceUrls:item.source_urls,
-      dependsOnPrevious:item.depends_on_previous === true
+        acceptance:item.acceptance,
+        sourceUrls:item.source_urls,
+        reviewPolicy:item.review_policy,
+        evidenceMode:item.evidence_mode,
+        depth:item.depth,
+        visualMode:item.visual_mode,
+        focus:item.focus,
+        platforms:item.platforms,
+        contentGoal:item.content_goal,
+        dependsOnPrevious:item.depends_on_previous === true
     })).map((item, index) => canonicalizeBusinessAssignment(item, { index }));
     for (const item of assignments) assertTaskScope(item, scope);
     return client.createMission({
@@ -214,6 +244,24 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
     inputSchema:z.object({})
   }, () => client.executeTechnicalRepair(paperclipIdentityFromEnvironment()));
 
+  action('video_content_analyze_execute', {
+    title:'执行当前受控视频拆解',
+    description:'仅供小拆在 Paperclip heartbeat 中使用。读取当前任务明确引用的转录产物，执行证据化拆解并写回报告；不抓取、不登录、不发布。长分析返回 running 时再次调用本工具继续等待，直到返回可回报的终态。',
+    inputSchema:z.object({})
+  }, () => client.executeContentGrowth(paperclipIdentityFromEnvironment()));
+
+  action('content_performance_review_execute', {
+    title:'执行当前受控内容表现复盘',
+    description:'仅供小拆在 Paperclip heartbeat 中使用。把真实指标关联到原分析和草稿版本；没有指标时安全拒绝。',
+    inputSchema:z.object({})
+  }, () => client.executeContentGrowth(paperclipIdentityFromEnvironment()));
+
+  action('platform_content_draft_execute', {
+    title:'执行当前受控平台草稿生成',
+    description:'仅供小创在 Paperclip heartbeat 中使用。必须引用确认稿和正式分析，最多生成三个平台草稿；不会发布或访问账号。返回 running 时再次调用本工具继续等待。',
+    inputSchema:z.object({})
+  }, () => client.executeContentGrowth(paperclipIdentityFromEnvironment()));
+
   return server;
 }
 
@@ -275,7 +323,14 @@ export function scopeFromEnvironment() {
     agentIds,
     taskTypes,
     allowedTools:paperclipHeartbeat
-      ? configuredTools.filter((name) => ['paperclip_assignment_get', 'technical_repair_execute', 'paperclip_assignment_complete'].includes(name))
+      ? configuredTools.filter((name) => [
+          'paperclip_assignment_get',
+          'technical_repair_execute',
+          'video_content_analyze_execute',
+          'content_performance_review_execute',
+          'platform_content_draft_execute',
+          'paperclip_assignment_complete'
+        ].includes(name))
       : configuredTools,
     allowMissions:restricted ? process.env.AGENT_ARMY_ALLOW_MISSIONS === 'true' : true
   };

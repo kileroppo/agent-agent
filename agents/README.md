@@ -10,16 +10,23 @@
 
 准备新员工时，先复制并填写[新建一个 Agent 员工模板](./templates/agent-creation-template.md)。
 
-## 当前岗位
+## 常驻员工
 
 | Agent | 岗位 | 状态 | 入口 |
 | --- | --- | --- | --- |
-| A君 (`ajun`) | 军团总管 | `active`，现有入口可用；独立大脑待验收 | [岗位说明](./ajun/岗位卡.md) |
-| 小D (`xiaod`) | 音视频素材转录与整理专员 | `active`，A君可委派本机公开链接任务；飞书/Hermes实机验收仍受控进行 | [岗位说明](./xiaod/README.md) |
-| 音视频转录 Agent (`av-transcriber`) | 独立飞书接线测试岗位 | `draft`，独立 Hermes Profile 已创建；等待岗位能力、工具和飞书凭据后只做私聊/群聊收发验收 | [岗位说明](./av-transcriber/README.md) |
-| 任务协调官 (`task-coordinator`) | 统一登记与路由 | `active`，A君内部可用；独立 Hermes 身份已建，模型和飞书入口待验收 | [岗位说明](./task-coordinator/README.md) |
-| 架构师 (`architect`) | 共享能力与演进评估 | `active`，A君内部可用；独立 Hermes 身份已建，模型和飞书入口待验收 | [岗位说明](./architect/README.md) |
-| 审核官 (`reviewer`) | 高风险范围审核 | `active`，A君内部可用；独立 Hermes 身份已建，模型和飞书入口待验收 | [岗位说明](./reviewer/README.md) |
-| 运维官 (`operator`) | 脱敏健康与安全恢复 | `active`，A君内部可用；独立 Hermes 身份已建，模型和飞书入口待验收 | [岗位说明](./operator/README.md) |
-| 创建官 (`creator`) | 新员工岗位草案 | `active`，A君内部可用；独立 Hermes 身份已建，模型和飞书入口待验收 | [岗位说明](./creator/README.md) |
-| 技术专家 (`technical-expert`) | 复杂故障诊断与修复任务 | `active`，A君内部可用；独立 Hermes 身份已建，模型和飞书入口待验收 | [岗位说明](./technical-expert/README.md) |
+| A君 (`ajun`) | 军团总管、任务接收、路由和多人总任务 | `active`，飞书 Gateway 常驻 | [岗位说明](./ajun/岗位卡.md) |
+| 小D (`xiaod`) | 音视频素材转录与整理专员 | `active`，飞书 Gateway 常驻 | [岗位说明](./xiaod/README.md) |
+| 小R (`intel-researcher`) | 公开资料、主题研究和 GitHub 公开检索 | `active`，飞书 Gateway 常驻 | [岗位说明](./intel-researcher/岗位卡.md) |
+| 小办 (`office-assistant`) | 办公汇报与统一交付 | `active`，飞书 Gateway 常驻 | [岗位说明](./office-assistant/岗位卡.md) |
+| 运维官 (`operator`) | 脱敏健康、定时巡检与安全恢复 | `active`，飞书 Gateway 常驻 | [岗位说明](./operator/README.md) |
+
+## 后台按需能力
+
+| Agent | 岗位 | 状态 | 入口 |
+| --- | --- | --- | --- |
+| 创建官 (`creator`) | 新员工岗位草案 | `active`，Paperclip/Hermes 按需运行，无独立飞书 Gateway | [岗位说明](./creator/README.md) |
+| 审核官 (`reviewer`) | 高风险范围审核 | `active`，Paperclip/Hermes 按需运行，无独立飞书 Gateway | [岗位说明](./reviewer/README.md) |
+| 架构师 (`architect`) | 共享能力与演进评估 | `active`，Paperclip/Hermes 按需运行，无独立飞书 Gateway | [岗位说明](./architect/README.md) |
+| 技术专家 (`technical-expert`) | 复杂故障诊断与修复任务 | `active`，Paperclip/Hermes 按需运行，无独立飞书 Gateway | [岗位说明](./technical-expert/README.md) |
+
+任务协调官已并入 A君并退役；小G的 GitHub 检索已并入小R。音视频转录接线样板和公开资料报告员候选岗位已归档，不进入活动名单。历史任务、审批、草案和验收产物仍保留。

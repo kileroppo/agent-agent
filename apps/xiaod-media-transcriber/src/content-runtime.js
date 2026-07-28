@@ -4,6 +4,7 @@ import { ContentAcquisitionCenter } from '../../../integrations/access/content-a
 import { OperationsEventStore } from '../../../integrations/access/operations-event-store.js';
 import { YtDlpGeneralMediaAdapter } from '../../../integrations/access/yt-dlp-general-media-adapter.js';
 import { MediaCrawlerProAdapter } from '../../../integrations/access/mediacrawler-pro-adapter.js';
+import { BilibiliNativeSubtitleAdapter } from '../../../integrations/access/bilibili-native-subtitle-adapter.js';
 import { config } from './config.js';
 
 export async function createContentRuntime(workDir) {
@@ -13,6 +14,7 @@ export async function createContentRuntime(workDir) {
   const connectionBroker = new ConnectionBroker({ connectionStore });
   const contentCenter = new ContentAcquisitionCenter({
     adapters: [
+      new BilibiliNativeSubtitleAdapter({ cookieBridgeUrl: config.mediaCrawler.cookieBridgeUrl }),
       new MediaCrawlerProAdapter(config.mediaCrawler),
       new YtDlpGeneralMediaAdapter()
     ],
@@ -33,7 +35,12 @@ export async function createContentRuntime(workDir) {
         provider,
         accountAlias: imported.accountAlias,
         clientId: imported.clientId,
-        grantedOperations: ['read_media_metadata', 'read_content_images', 'download_authorized_media'],
+        grantedOperations: [
+          'read_media_metadata',
+          'read_content_images',
+          'download_authorized_media',
+          ...(provider === 'bili' ? ['read_media_subtitles'] : [])
+        ],
         dataScope: ['content:read'],
         allowedAgentIds: ['xiaod']
       });

@@ -21,8 +21,38 @@ test('central reconciler settles a persisted running task after restart', async 
   await reconciler.reconcile();
   assert.equal(task.status, 'succeeded');
   assert.equal(task.execution.polling.state, 'settled');
-  assert.equal(task.artifactRefs[0].artifactId, 'xiaod-job:xiaod-1');
-  assert.equal(task.artifactRefs[0].data.larkPermissionGranted, true);
+  const delivery = task.artifactRefs.find((artifact) => artifact.type === 'xiaod_media_delivery');
+  assert.equal(delivery.artifactId, 'xiaod-job:xiaod-1');
+  assert.equal(delivery.data.larkPermissionGranted, true);
+});
+
+test('系统自动确认稿进入正式产物链，但不会标记为人工听审', async () => {
+  const { task, reconciler } = setup({
+    getJob:async () => ({
+      id:'xiaod-1',
+      status:'completed',
+      title:'自动确认素材',
+      output:{
+        markdownPath:'/tmp/result.md',
+        rawTranscriptPath:'/tmp/raw.txt',
+        qualityReportPath:'/tmp/quality.json',
+        confirmedTranscriptPath:'/tmp/confirmed.md',
+        confirmationAttestationPath:'/tmp/automatic-confirmation.json',
+        confirmedTranscriptChecksum:'checksum',
+        confirmedTranscriptVersion:1,
+        confirmationMode:'automatic',
+        evidenceLevel:'untimed_machine_transcript'
+      },
+      quality:{ passed:true }
+    })
+  });
+  await reconciler.reconcile();
+  const confirmation = task.artifactRefs.find((artifact) => artifact.type === 'automatic_transcript_attestation');
+  const transcript = task.artifactRefs.find((artifact) => artifact.type === 'confirmed_transcript');
+  assert.equal(confirmation.validation.completeListen, false);
+  assert.equal(transcript.validation.automaticConfirmed, true);
+  assert.equal(transcript.validation.humanConfirmed, false);
+  assert.deepEqual(transcript.sourceRefs, ['raw-transcript:xiaod-1', 'automatic-confirmation:xiaod-1:v1']);
 });
 
 test('小D已暂停时，A君保留已暂停状态并停止后续自动查询', async () => {
@@ -53,6 +83,49 @@ test('Xiaod retryable failure is preserved on the parent task', async () => {
   assert.equal(task.error.retryable, true);
   assert.equal(task.error.userMessage, '请重试小D任务。');
   assert.equal(recoveryTask.taskId, 'task-1');
+});
+
+test('小D完成后把视觉证据包登记为受控产物', async () => {
+  const { task, reconciler } = setup({
+    getJob:async () => ({
+      id:'xiaod-1',
+      status:'completed',
+      title:'视觉样片',
+      output:{
+        markdownPath:'/tmp/result.md',
+        sourceEvidencePath:'/tmp/source.json',
+        rawTranscriptPath:'/tmp/raw.vtt',
+        qualityReportPath:'/tmp/quality.json',
+        visualEvidencePath:'/tmp/visual-evidence.json',
+        visualCoverage:{ status:'available', selectedFrames:12, storyboardCount:1 }
+      },
+      quality:{ passed:true }
+    })
+  });
+  await reconciler.reconcile();
+  const visual = task.artifactRefs.find((artifact) => artifact.type === 'visual_evidence_package');
+  assert.equal(visual.location, 'file:///tmp/visual-evidence.json');
+  assert.equal(visual.validation.sourceControlled, true);
+  assert.equal(visual.validation.visualCoverage.selectedFrames, 12);
+});
+
+test('必须分析画面但没有视频时，A君把小D失败映射为 needs_input', async () => {
+  const { task, reconciler } = setup({
+    getJob:async () => ({
+      id:'xiaod-1',
+      status:'failed',
+      error:'没有取得可用于画面分析的视频。',
+      failure:{
+        category:'needs_input',
+        retryable:false,
+        recovery:'请补充本地视频、完成授权或改用自动模式。'
+      }
+    })
+  });
+  await reconciler.reconcile();
+  assert.equal(task.status, 'needs_input');
+  assert.equal(task.error.category, 'needs_input');
+  assert.match(task.error.userMessage, /补充本地视频/);
 });
 
 test('恢复协调暂时失败时保留待处理记录，不覆盖原始业务失败', async () => {

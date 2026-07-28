@@ -2,10 +2,10 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | v3.4 实施中：M2 通用连接、内容获取、运维与独立 Hermes 员工 Fleet 已有本地实现和契约测试 |
+| 状态 | v3.5 实施中：M2 基线稳定，M3 图文证据链、拆解、创作与知识归档已有本地实现和契约测试 |
 | 负责人 | 技术负责人 / Codex 工作台 |
-| 版本 | v3.3 |
-| 最后更新 | 2026-07-26 |
+| 版本 | v3.5 |
+| 最后更新 | 2026-07-28 |
 | 更新触发 | 字段、状态、兼容性、权限或完成定义变化 |
 
 ## 1. 契约原则
@@ -41,10 +41,11 @@
 | `appRef` | 是 | 业务执行器位置 |
 | `operationalPolicy` | 否 | heartbeat、超时、重试等运行边界 |
 | `evalRefs` | 否 | 岗位上线前必须通过的评测样例引用 |
+| `interaction.directFeishu` | 否 | `required` 表示独立 Gateway 常驻；`disabled` 表示保留 Profile 与 Paperclip 按需执行、但禁止独立 Gateway 自动拉起 |
 | `owner` | 是 | 业务负责人 |
 | `status` | 是 | `draft`、`active`、`paused`、`retired` |
 
-Manifest 不保存 secret，也不直接嵌入不可审计的长 Prompt；Prompt 使用版本化引用。
+Manifest 是活动岗位的唯一真相。运行时提案不能覆盖正式 Manifest 的状态，也不能单独生成活动员工；只有正式 Manifest 为 `active` 的岗位可进入活动注册表。Manifest 不保存 secret，也不直接嵌入不可审计的长 Prompt；Prompt 使用版本化引用。
 
 ### 2.1 独立员工就绪投影
 
@@ -85,11 +86,12 @@ Manifest 不保存 secret，也不直接嵌入不可审计的长 Prompt；Prompt
 | `requestedCapabilities` | 是 | 需要的受控本机能力与连接动作 |
 | `budgetPolicy` | 是 | 测试与上线后的预算上限 |
 | `acceptanceTask` | 是 | 受限测试任务、预期产物和质量门禁 |
-| `status` | 是 | `idea`、`draft`、`pending_approval`、`testing`、`active`、`needs_revision`、`rejected` |
+| `status` | 是 | `idea`、`draft`、`pending_approval`、`testing`、`active`、`needs_revision`、`rejected`、`archived` |
 | `reviewRefs` / `paperclipAgentRef` | 否 | 审核和 Paperclip Agent 记录引用 |
 | `createdAt` / `updatedAt` | 是 | ISO 8601 时间 |
+| `archivedAt` / `archivedBy` / `archiveReason` | 归档时是 | 归档时间、操作者和原因；不得删除原审计、测试实例或历史任务 |
 
-状态推进仅允许：`idea → draft → pending_approval → testing → active`。审核拒绝进入 `rejected`；草案、测试或验收失败进入 `needs_revision`。受限测试通过时草案仍保持 `testing`，必须由负责人另一次明确激活决定才可进入 `active`；激活前提是隔离实例可用、验收任务通过、预算和工具白名单已生效。不得把自然语言需求、私密上下文、Cookie、token 或浏览器会话复制到草案。
+状态推进仅允许：`idea → draft → pending_approval → testing → active`。审核拒绝进入 `rejected`；草案、测试或验收失败进入 `needs_revision`；任一既有状态可由本机负责人归档为终态 `archived`。受限测试通过时草案仍保持 `testing`，必须由负责人另一次明确激活决定才可进入 `active`；激活前提除隔离实例、验收、预算和工具白名单外，还必须存在同 `agentId` 且状态为 `active` 的正式 Manifest。不得把自然语言需求、私密上下文、Cookie、token 或浏览器会话复制到草案。
 
 ## 3. TaskContract
 
@@ -115,6 +117,19 @@ Manifest 不保存 secret，也不直接嵌入不可审计的长 Prompt；Prompt
 | `artifactRefs` | 否 | 关联产物 |
 | `error` | 否 | 标准错误信息 |
 | `createdAt` / `updatedAt` | 是 | ISO 8601 时间 |
+
+### 3.1.1 M3 内容增长任务类型
+
+顶层 `TaskContract` 不变，以下任务只扩展 `taskType` 和受控 `input`：
+
+| `taskType` | 承接岗位 | 必要输入 | 关键门禁 |
+| --- | --- | --- | --- |
+| `content.video-benchmark-analysis` | `video-content-analyst` | `source` 或明确的转录产物引用；`depth: fast\|full`；可选 `focus`、`visualMode: auto\|off\|required`（默认 `auto`） | 只有 URL 且未给转录任务时，A君自动展开为“小D经内容获取中心获取/转录确认/视觉取证 → 小拆”的同一总任务；正式模式等待系统或人工 `confirmed_transcript`；`required` 缺少视觉证据时进入 `needs_input` |
+| `content.platform-draft` | `content-creator` | `confirmed_transcript`、正式 `video_content_analysis_report`、1–3 个目标平台 | 只生成草稿；禁止外发和自动发布 |
+| `content.performance-review` | `video-content-analyst` | 原拆解、原草稿、真实结构化指标 | 不把相关性写成确定因果 |
+| `office.knowledge-summary` | `office-assistant` | 当前任务脱敏正文、明确的 `sourceTaskIds`/产物引用或受限会话快照 | 只写统一内容库 `Agent军团/`，不接受任意路径 |
+
+小拆 `fast` 最长 5 分钟、最多 2 次尝试；`full` 最长 12 分钟，最多一次安全重试。超限后停止扩大模型调用并交付已有可验证部分。小创一次最多生成三个平台版本。
 
 ### 3.2 标准状态
 
@@ -224,6 +239,24 @@ Worker API 必须使用独立 Bearer Token；云端地址必须为 HTTPS（回�
 
 关键产物必须通过：存在、非空、可读取、预期接收人有权限、内容类型正确。业务质量门禁按 AgentManifest 定义。
 
+### 4.1 M3 内容证据与知识产物
+
+| `type` | 生产者 | 必要验证 |
+| --- | --- | --- |
+| `source_evidence_record` | 小D | 来源引用、获取路径、真实标题/作者/平台/时长和脱敏标准链接可读取；缺失字段不编造 |
+| `raw_asr_transcript` | 小D | 原始机器稿不可静默覆盖，带校验值 |
+| `transcript_quality_report` | 小D | 覆盖、尾部、时间点与硬失败结论可读取 |
+| `automatic_transcript_attestation` | 小D质量门禁 | 记录 `confirmationMode=automatic`、`completeListen=false`、版本、时间和机器稿校验值 |
+| `human_review_attestation` | 小D听审确认入口 | 记录完整听审声明、版本、确认时间和校验值 |
+| `confirmed_transcript` | 小D质量门禁或听审确认入口 | 引用机器稿与对应确认记录；明确 `confirmationMode=automatic\|human`，不得把自动确认写成人工听审 |
+| `visual_evidence_package` | 小D | 视频校验值、精确时长、关键帧时间/原因/图片引用/校验值和故事板可读取；`fast≤12`、`full≤48`、每张故事板≤12 |
+| `video_content_analysis_report` | 小拆 | 正式/初步模式、模块数、来源产物、`sourceMetadata`、`visualCoverage`、`visualFindings`、`completeness` 和逐项证据关联明确；画面判断必须引用合法关键帧与时间点 |
+| `platform_content_draft` | 小创 | 使用确认稿和正式拆解；平台数不超过三；`externalSideEffects=0` |
+| `content_performance_report` | 小拆 | 引用原拆解和草稿，包含真实指标并避免因果过度推断 |
+| `knowledge_summary_note` | 小办 | 路径受限、回读成功、幂等、校验值和来源任务明确 |
+
+`confirmed_transcript` 是正式拆解和正式创作的证据门；默认由质量门禁自动生成，异常或用户明确要求时转人工听审。`raw_asr_transcript` 只能用于明确标记的初步分析。自动或人工确认都不能覆盖机器质量报告中的音频覆盖或尾部完整性硬失败。
+
 ## 5. ApprovalContract
 
 | 字段 | 必填 | 含义 |
@@ -279,6 +312,7 @@ Worker API 必须使用独立 Bearer Token；云端地址必须为 HTTPS（回�
 | `taskId` | 是 | 关联业务任务 |
 | `source` | 是 | 来源 URL 或受控来源引用 |
 | `requestedCapabilities` | 是 | 希望读取的能力，如 `basic_content`、`images`、`media`、`subtitles`、`comments` |
+| `runtimeRequirement` | 否 | 同一能力的受控运行用途，如 `media_transcription` 或 `visual_analysis`；只影响适配器选择的音轨/视频形态，不允许指定具体下载器 |
 | `connectionId` | 否 | 需要登录时使用的命名连接 |
 | `requestingAgentId` | 是 | 发起请求的 Agent ID |
 | `routingPolicy` | 是 | 当前固定为 `specialized_first_general_fallback` |
@@ -316,7 +350,7 @@ Worker API 必须使用独立 Bearer Token；云端地址必须为 HTTPS（回�
 | `healthStatus` | 是 | 脱敏可用状态 |
 | `versionRef` | 是 | 受控版本引用 |
 
-内容获取中心以注册表的 `priorityClass` 和 `healthStatus` 路由；上层 Agent 不可覆盖路由策略。MediaCrawlerPro 应注册为固定平台的 `specialized` 适配器，`yt-dlp`、受限浏览器读取等可注册为 `general` 适配器。
+内容获取中心以注册表的 `priorityClass` 和 `healthStatus` 路由；上层 Agent 不可覆盖路由策略。B站原生字幕和 MediaCrawlerPro 可注册为固定平台的 `specialized` 适配器，`yt-dlp` 等公开媒体读取可注册为 `general` 适配器。原生字幕只有通过条数、文本量和覆盖率门禁后才允许返回 `subtitles`；否则必须继续路由到媒体音轨和本机 ASR，不能把片头推广或残缺字幕当作完整转录。视觉分析另以 `runtimeRequirement=visual_analysis` 经同一中心受控取得视频；转录用途优先音轨，视觉用途必须返回含画面的媒体，业务 Agent 不得直接切换下载器。
 
 ## 8. LocalCapabilityProviderContract
 

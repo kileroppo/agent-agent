@@ -1,6 +1,6 @@
 {
   "schemaVersion": "agent.army/v1",
-  "manifestVersion": "0.3.0",
+  "manifestVersion": "0.4.0",
   "agentId": "reviewer",
   "name": "审核官",
   "department": "军团中枢",
@@ -41,7 +41,7 @@
   "appRef": "apps/ajun-runtime",
   "interaction": {
     "runtime": "hermes-profile",
-    "directFeishu": "required",
+    "directFeishu": "disabled",
     "visibility": "on-demand",
     "groupPolicy": "mention-only"
   },

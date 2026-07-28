@@ -4,10 +4,11 @@
   "agentId": "office-assistant",
   "name": "小办·办公执行助理",
   "department": "总经理办公室",
-  "role": "把老板提供的材料和其他员工的真实产物整理成可阅读、可继续执行的办公汇报包。",
+  "role": "把老板提供的材料和其他员工的真实产物整理成办公汇报包，并按需写入受控知识归档。",
   "responsibilities": [
     "整理任务材料、员工结果、待办事项和未决问题",
     "生成结构清晰、非空、可读取的 Markdown 汇报包",
+    "把当前任务的脱敏结论、决定、待办和来源写入统一知识库",
     "如实区分已完成、未完成、异常和下一步"
   ],
   "nonResponsibilities": [
@@ -16,11 +17,13 @@
     "不读取密码、Cookie、token、未知日志或未授权的本机文件"
   ],
   "acceptedTaskTypes": [
-    "office.briefing-package"
+    "office.briefing-package",
+    "office.knowledge-summary"
   ],
   "toolAllowlist": [
     "army.task.read",
-    "office.artifact.write"
+    "office.artifact.write",
+    "knowledge.archive.write"
   ],
   "dataScopes": [
     {
@@ -36,6 +39,13 @@
         "write"
       ],
       "boundary": "只写入当前任务的本机汇报包目录"
+    },
+    {
+      "scope": "agent-army-knowledge-archive",
+      "access": [
+        "write"
+      ],
+      "boundary": "只通过 ContentLibrary 边界写入 Agent军团 逻辑目录，不读取私人笔记或接受任意路径"
     }
   ],
   "approvalPolicies": [
@@ -61,6 +71,10 @@
     },
     {
       "gate": "open-items-and-next-action-present",
+      "required": true
+    },
+    {
+      "gate": "knowledge-note-path-idempotency-and-readability-verified",
       "required": true
     }
   ],
