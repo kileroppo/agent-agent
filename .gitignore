@@ -10,3 +10,4 @@ apps/ajun-runtime/data/
 *.sqlite
 *.sqlite3
 *-preview.png
+ajun-runtime-key-source-*.zip
