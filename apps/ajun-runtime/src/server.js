@@ -49,6 +49,7 @@ import { LocalIntelResearcher } from './local-intel-researcher.js';
 import { LocalOfficeAssistant } from './local-office-assistant.js';
 import { KnowledgeArchiveWriter } from './knowledge-archive-writer.js';
 import { LocalContentCreator, LocalVideoContentAnalyst } from './local-content-growth.js';
+import { LocalVideoScriptPackage } from './local-video-script-package.js';
 import { HermesContentGrowthAdvisor } from './hermes-content-growth-advisor.js';
 import { ProposalAcceptanceRunner } from './proposal-acceptance-runner.js';
 import { FeishuCommander, FeishuCommanderValidationError } from './feishu-commander.js';
@@ -120,11 +121,18 @@ const videoContentAnalyst = new LocalVideoContentAnalyst({
   allowedArtifactRoots:contentArtifactRoots,
   advisor:videoContentAdvisor
 });
+const videoScriptPackage = new LocalVideoScriptPackage({
+  store,
+  artifactsDir:path.join(dataDir, 'content-growth-artifacts'),
+  advisor:contentCreatorAdvisor,
+  researcher:intelResearcher
+});
 const contentCreator = new LocalContentCreator({
   store,
   artifactsDir:path.join(dataDir, 'content-growth-artifacts'),
   allowedArtifactRoots:contentArtifactRoots,
-  advisor:contentCreatorAdvisor
+  advisor:contentCreatorAdvisor,
+  scriptPackage:videoScriptPackage
 });
 const proposals = new AgentProposalService({
   store,

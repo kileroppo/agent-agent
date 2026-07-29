@@ -65,7 +65,10 @@ export class ProposalAcceptanceRunner {
       if (!sourceTaskIds.length) throw new Error('小拆受限测试必须明确引用确认稿任务或提供受控验收稿。');
       return this.videoContentAnalyst.execute(task);
     }
-    if (agentId === 'content-creator' && exactCapabilities(proposal, ['army.task.status.read', 'content.artifact.read', 'content.draft.write'])) {
+    if (agentId === 'content-creator' && (
+      exactCapabilities(proposal, ['army.task.status.read', 'content.artifact.read', 'content.draft.write'])
+      || exactCapabilities(proposal, ['army.task.status.read', 'content.artifact.read', 'content.draft.write', 'content.public.search', 'content.public.read'])
+    )) {
       if (!this.contentCreator) throw new Error('小创受限测试执行器不可用。');
       if (!platforms.length) throw new Error('小创受限测试必须明确目标平台。');
       if (acceptanceTranscript) {

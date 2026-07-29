@@ -1,12 +1,13 @@
 {
   "schemaVersion": "agent.army/v1",
-  "manifestVersion": "0.4.0",
+  "manifestVersion": "0.5.0",
   "agentId": "technical-expert",
   "name": "技术专家",
   "department": "军团中枢",
   "role": "接手自动恢复无法解决的技术故障并形成可执行修复任务",
   "responsibilities": [
     "接收运维官升级的技术故障",
+    "先把故障分为代码缺陷、授权权限、输入素材、临时外部依赖或未知类型",
     "根据脱敏失败信息定位故障范围",
     "记录修复动作、验证要求和剩余风险"
   ],
@@ -35,7 +36,11 @@
       "decision": "require-approval"
     }
   ],
-  "qualityGates": [{ "gate": "repair-evidence-and-unproven-items-stated", "required": true }],
+  "qualityGates": [
+    { "gate": "failure-class-route-and-minimum-next-action-stated", "required": true },
+    { "gate": "repair-scope-paths-exist-before-execution", "required": true },
+    { "gate": "repair-evidence-and-unproven-items-stated", "required": true }
+  ],
   "promptRef": "agents/technical-expert/prompts/system.md",
   "runtimeProfileRef": "integrations/hermes/profiles/technical-expert.profile.json",
   "appRef": "apps/ajun-runtime",

@@ -2,10 +2,10 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | v3.5 实施中：M2 基线稳定，M3 图文证据链、拆解、创作与知识归档已有本地实现和契约测试 |
+| 状态 | v3.7 实施中：架构师采用事实、判断、候选方案三层契约，技术专家保留故障分流门禁 |
 | 负责人 | 技术负责人 / Codex 工作台 |
-| 版本 | v3.5 |
-| 最后更新 | 2026-07-28 |
+| 版本 | v3.7 |
+| 最后更新 | 2026-07-29 |
 | 更新触发 | 字段、状态、兼容性、权限或完成定义变化 |
 
 ## 1. 契约原则
@@ -126,6 +126,7 @@ Manifest 是活动岗位的唯一真相。运行时提案不能覆盖正式 Mani
 | --- | --- | --- | --- |
 | `content.video-benchmark-analysis` | `video-content-analyst` | `source` 或明确的转录产物引用；`depth: fast\|full`；可选 `focus`、`visualMode: auto\|off\|required`（默认 `auto`） | 只有 URL 且未给转录任务时，A君自动展开为“小D经内容获取中心获取/转录确认/视觉取证 → 小拆”的同一总任务；正式模式等待系统或人工 `confirmed_transcript`；`required` 缺少视觉证据时进入 `needs_input` |
 | `content.platform-draft` | `content-creator` | `confirmed_transcript`、正式 `video_content_analysis_report`、1–3 个目标平台 | 只生成草稿；禁止外发和自动发布 |
+| `content.video-script-package` | `content-creator` | 一句话主题；可选明确引用的正式拆解、平台、时长和公开来源 | 自动匹配参考案例，只返回一版主脚本；内部生产包固定五个文件，禁止生成成片和发布 |
 | `content.performance-review` | `video-content-analyst` | 原拆解、原草稿、真实结构化指标 | 不把相关性写成确定因果 |
 | `office.knowledge-summary` | `office-assistant` | 当前任务脱敏正文、明确的 `sourceTaskIds`/产物引用或受限会话快照 | 只写统一内容库 `Agent军团/`，不接受任意路径 |
 
@@ -252,6 +253,7 @@ Worker API 必须使用独立 Bearer Token；云端地址必须为 HTTPS（回�
 | `visual_evidence_package` | 小D | 视频校验值、精确时长、关键帧时间/原因/图片引用/校验值和故事板可读取；`fast≤12`、`full≤48`、每张故事板≤12 |
 | `video_content_analysis_report` | 小拆 | 正式/初步模式、模块数、来源产物、`sourceMetadata`、`visualCoverage`、`visualFindings`、`completeness` 和逐项证据关联明确；画面判断必须引用合法关键帧与时间点 |
 | `platform_content_draft` | 小创 | 使用确认稿和正式拆解；平台数不超过三；`externalSideEffects=0` |
+| `video_script_package` | 小创 | 包含可读脚本、镜头、SRT、来源和 manifest；记录参考匹配、模板生命周期、校验值与 `externalSideEffects=0` |
 | `content_performance_report` | 小拆 | 引用原拆解和草稿，包含真实指标并避免因果过度推断 |
 | `knowledge_summary_note` | 小办 | 路径受限、回读成功、幂等、校验值和来源任务明确 |
 
@@ -403,6 +405,21 @@ Worker API 必须使用独立 Bearer Token；云端地址必须为 HTTPS（回�
 | 受控技术修复 | `technical_repair_execute` | 仅技术专家、仅当前 `operations.technical-repair` 指派；只暴露白名单文件、测试命令和恢复检查。只有 A君返回 `verified=true`、测试与恢复检查通过并安全带回后，员工才可回报 `succeeded` |
 
 Hermes Session 只保存对话和上下文；A君/业务 Agent 保存任务与 checkpoint；Paperclip 保存组织级真相。MCP Server 不保存 secret、聊天正文、会话数据库、任务副本或审批副本。新增工具必须复用现有服务契约、声明只读/副作用注解，并具有失败关闭和脱敏测试。
+
+### 10.1 架构师三层输出
+
+架构师的 Paperclip 指派必须附带由活动 Manifest 与 A君真实任务记录生成的 `groundTruth`，至少包含快照校验值、活动岗位、岗位真实任务类型、工具白名单、仓库引用、近期任务摘要和可引用证据。架构师报告分为：
+
+- `factClaims`：当前事实。每条必须绑定快照中真实存在的 `agent:*`、`task:*`、`task-type:*` 或 `repo:*` 引用；
+- `architectureJudgments`：架构判断。必须写明事实依据、假设和 `low | medium | high` 置信度，不能冒充事实；
+- `candidateProposals`：未来候选方案。允许提出当前不存在的新岗位、能力、接口或任务类型，但必须说明问题、最小验证计划、风险与非目标；
+- `currentStateUnknowns`：会影响现状判断但当前快照没有覆盖的信息。
+
+A君只对当前事实和判断引用的现状依据执行硬证据校验；不会因为候选方案超出现有能力而拒绝报告。候选方案通过验证和审批前仍不能写成已实现、已注册或已上线。旧字段 `evidenceRefs` 与 `unverifiedClaims` 仅作为兼容输入保留。快照只含脱敏数据，不包含聊天正文、secret、Cookie 或签名参数。
+
+### 10.2 技术故障分流
+
+普通员工故障升级技术专家前，A君必须保留脱敏错误文本并归类为 `code_defect_candidate`、`authorization_or_permission`、`input_or_source`、`transient_external_dependency` 或 `unknown`。只有 `code_defect_candidate` 且只读诊断给出的代码路径、测试路径在当前仓库真实存在时，才允许形成 `repairScope` 并进入隔离修复。授权/权限问题转授权恢复，输入/来源问题转补材料或适配器证据，外部瞬时故障遵守一次安全重试，未知或范围不足则产出 `technical_diagnosis_report` 并停在 `waiting_test`。诊断、改动、测试和恢复验证必须分别记录，不得把其中任一步冒充完整修复。
 
 正式员工 Manifest 的 `runtimeCapabilities` 是 Profile 配置输入：`skills`、`mcpTools`、`feishuToolsets` 与 `paperclipToolsets` 必须显式列出。配置器只能从该白名单生成独立 Profile 和 Adapter；新员工不得继承另一个员工的会话、记忆或扩大后的工具集合。
 

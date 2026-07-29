@@ -176,6 +176,10 @@ export class AgentArmyClient {
         focus:safeText(input.focus, 500) || undefined,
         platforms:safeStringList(input.platforms, 10, 40),
         contentGoal:safeText(input.contentGoal, 500) || undefined,
+        durationSeconds:Number.isFinite(Number(input.durationSeconds)) ? Number(input.durationSeconds) : undefined,
+        researchMode:input.researchMode === 'off' ? 'off' : 'auto',
+        approvedForUse:input.approvedForUse === true,
+        sourceScriptTaskId:safeText(input.sourceScriptTaskId, 100) || undefined,
         metrics:safeMetrics(input.metrics),
         requester:{ kind:'local-owner', ref:'A君' },
         requesterName:'A君',
@@ -301,7 +305,10 @@ export class AgentArmyClient {
         title:safeText(response.assignment?.title, 500),
         description:safeText(response.assignment?.description, 4000),
         agentId:safeText(response.assignment?.agentId, 80),
-        runId:safeText(response.assignment?.runId, 128)
+        runId:safeText(response.assignment?.runId, 128),
+        ...(response.assignment?.agentId === 'architect'
+          ? { groundTruth:architectureGroundTruthView(response.assignment?.groundTruth) }
+          : {})
       },
       task:{
         taskId:safeText(response.task?.taskId, 128),
@@ -309,7 +316,10 @@ export class AgentArmyClient {
         status:safeText(response.task?.status, 60),
         currentStage:safeText(response.task?.currentStage, 120),
         ...(response.assignment?.agentId === 'technical-expert'
-          ? { repairScope:technicalRepairScopeView(response.task?.input?.context?.repairScope) }
+          ? {
+              repairScope:technicalRepairScopeView(response.task?.input?.context?.repairScope),
+              diagnosis:technicalDiagnosisView(response.task?.input?.context)
+            }
           : {})
       }
     };
@@ -323,7 +333,13 @@ export class AgentArmyClient {
         status:safeText(input.status || 'succeeded', 40),
         summary:safeText(input.summary, 4000),
         evidence:safeText(input.evidence, 4000),
-        remainingRisks:safeText(input.remainingRisks, 2000)
+        remainingRisks:safeText(input.remainingRisks, 2000),
+        evidenceRefs:architectureEvidenceRefsView(input.evidenceRefs),
+        unverifiedClaims:safeStringList(input.unverifiedClaims, 20, 1000),
+        factClaims:architectureFactClaimsView(input.factClaims),
+        architectureJudgments:architectureJudgmentsView(input.architectureJudgments),
+        candidateProposals:architectureCandidateProposalsView(input.candidateProposals),
+        currentStateUnknowns:safeStringList(input.currentStateUnknowns, 20, 1000)
       },
       paperclipApiKey:process.env.PAPERCLIP_API_KEY
     });
@@ -411,7 +427,7 @@ function safeMetrics(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   return Object.fromEntries(Object.entries(value).slice(0, 20).map(([key, item]) => [
     safeText(key, 80),
-    typeof item === 'number' ? item : safeText(item, 120)
+    typeof item === 'number' || typeof item === 'boolean' ? item : safeText(item, 120)
   ]).filter(([key, item]) => key && item !== ''));
 }
 
@@ -421,6 +437,96 @@ function technicalRepairScopeView(scope = {}) {
     testCommand:safeText(scope?.testCommand, 1000),
     recoveryCheck:safeText(scope?.recoveryCheck, 1000)
   };
+}
+
+function technicalDiagnosisView(context = {}) {
+  const diagnosis = context?.diagnosis || {};
+  const classification = context?.failureClassification || {};
+  return {
+    route:safeText(context?.technicalRoute || classification.route, 120),
+    failureClass:safeText(diagnosis.failureClass || classification.failureClass, 120),
+    summary:safeText(diagnosis.summary || diagnosis.reason || classification.reason, 800),
+    evidence:safeStringList(diagnosis.evidence, 8, 500),
+    nextAction:safeText(diagnosis.nextAction, 800),
+    failure:{
+      code:safeText(context?.failure?.code, 120),
+      category:safeText(context?.failure?.category, 80),
+      stage:safeText(context?.failure?.stage, 120),
+      message:safeText(context?.failure?.message, 800)
+    }
+  };
+}
+
+function architectureGroundTruthView(value = {}) {
+  return {
+    schemaVersion:safeText(value?.schemaVersion, 100),
+    snapshotId:safeText(value?.snapshotId, 128),
+    generatedAt:safeText(value?.generatedAt, 80),
+    limitation:safeText(value?.limitation, 500),
+    agents:(Array.isArray(value?.agents) ? value.agents : []).slice(0, 30).map((item) => ({
+      ref:safeText(item?.ref, 120),
+      agentId:safeText(item?.agentId, 80),
+      name:safeText(item?.name, 120),
+      status:safeText(item?.status, 40),
+      acceptedTaskTypes:safeStringList(item?.acceptedTaskTypes, 20, 120),
+      toolAllowlist:safeStringList(item?.toolAllowlist, 30, 160),
+      repositoryRefs:safeStringList(item?.repositoryRefs, 6, 500)
+    })),
+    taskTypes:(Array.isArray(value?.taskTypes) ? value.taskTypes : []).slice(0, 100).map((item) => ({
+      ref:safeText(item?.ref, 180),
+      taskType:safeText(item?.taskType, 120),
+      agentIds:safeStringList(item?.agentIds, 20, 80),
+      taskCount:Number(item?.taskCount || 0)
+    })),
+    taskSummary:{
+      total:Number(value?.taskSummary?.total || 0),
+      byStatus:safeMetrics(value?.taskSummary?.byStatus),
+      byTaskType:safeMetrics(value?.taskSummary?.byTaskType)
+    },
+    taskEvidence:(Array.isArray(value?.taskEvidence) ? value.taskEvidence : []).slice(0, 60).map((item) => ({
+      ref:safeText(item?.ref, 160),
+      taskId:safeText(item?.taskId, 128),
+      taskType:safeText(item?.taskType, 120),
+      assigneeAgentId:safeText(item?.assigneeAgentId, 80) || null,
+      status:safeText(item?.status, 60),
+      title:safeText(item?.title, 240),
+      updatedAt:safeText(item?.updatedAt, 80),
+      artifactTypes:safeStringList(item?.artifactTypes, 20, 120)
+    }))
+  };
+}
+
+function architectureEvidenceRefsView(value) {
+  return (Array.isArray(value) ? value : []).slice(0, 30).map((item) => ({
+    ref:safeText(item?.ref, 500),
+    claim:safeText(item?.claim, 1000)
+  })).filter((item) => item.ref && item.claim);
+}
+
+function architectureFactClaimsView(value) {
+  return (Array.isArray(value) ? value : []).slice(0, 20).map((item) => ({
+    claim:safeText(item?.claim, 1000),
+    evidenceRefs:safeStringList(item?.evidence_refs || item?.evidenceRefs, 10, 500)
+  })).filter((item) => item.claim && item.evidenceRefs.length);
+}
+
+function architectureJudgmentsView(value) {
+  return (Array.isArray(value) ? value : []).slice(0, 20).map((item) => ({
+    judgment:safeText(item?.judgment, 1200),
+    basisRefs:safeStringList(item?.basis_refs || item?.basisRefs, 10, 500),
+    assumptions:safeStringList(item?.assumptions, 10, 600),
+    confidence:['low', 'medium', 'high'].includes(item?.confidence) ? item.confidence : 'low'
+  })).filter((item) => item.judgment && (item.basisRefs.length || item.assumptions.length));
+}
+
+function architectureCandidateProposalsView(value) {
+  return (Array.isArray(value) ? value : []).slice(0, 10).map((item) => ({
+    proposal:safeText(item?.proposal, 1200),
+    problem:safeText(item?.problem, 1000),
+    validationPlan:safeText(item?.validation_plan || item?.validationPlan, 1500),
+    risks:safeStringList(item?.risks, 10, 600),
+    nonGoals:safeStringList(item?.non_goals || item?.nonGoals, 10, 600)
+  })).filter((item) => item.proposal && item.problem && item.validationPlan);
 }
 
 function findEmployee(agents, value) {

@@ -18,6 +18,18 @@
       "taskType": "content.platform-draft",
       "input": { "platforms": ["douyin"] },
       "expected": { "artifactType": "platform_content_draft", "externalSideEffects": 0 }
+    },
+    {
+      "id": "topic-only-produces-one-package",
+      "taskType": "content.video-script-package",
+      "input": { "contentGoal": "一个明确的视频主题" },
+      "expected": { "artifactType": "video_script_package", "fileCount": 5, "externalSideEffects": 0 }
+    },
+    {
+      "id": "use-this-version-only-marks-trial",
+      "taskType": "content.video-script-package",
+      "input": { "approvedForUse": true, "sourceScriptTaskId": "existing-script-task" },
+      "expected": { "templateState": "trial", "publishingStatus": "draft_only", "externalSideEffects": 0 }
     }
   ]
 }

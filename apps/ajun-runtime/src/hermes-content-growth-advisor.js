@@ -50,6 +50,19 @@ export class HermesContentGrowthAdvisor {
     );
   }
 
+  async scriptPackage({ topic, platform, durationSeconds, reference, research, validate = null } = {}) {
+    if (!this.hermesHome) return null;
+    return this.invokeWithBudget(
+      scriptPackagePrompt({ topic, platform, durationSeconds, reference, research }),
+      {
+        maxAttempts:2,
+        maxRuntimeMs:300_000,
+        perAttemptMs:Math.min(this.timeoutMs, 150_000),
+        validate
+      }
+    );
+  }
+
   async invokeWithBudget(prompt, { maxAttempts, maxRuntimeMs, perAttemptMs, validate = null, toolsets = '' }) {
     const startedAt = this.nowMs();
     let attempts = 0;
@@ -161,6 +174,19 @@ function draftPrompt({ title, contentGoal, platforms, transcript, analysis }) {
     `目标平台：${JSON.stringify(platforms)}`,
     `正式分析：${JSON.stringify(analysis).slice(0, 30_000)}`,
     `已确认转录稿：${JSON.stringify(String(transcript || '').slice(0, 80_000))}`
+  ].join('\n');
+}
+
+function scriptPackagePrompt({ topic, platform, durationSeconds, reference, research }) {
+  return [
+    '你是小创的可拍短视频脚本执行器。用户只需要一版主方案，不要给模板选择题，不要解释内部 Agent、文件或任务系统。',
+    '先用第一性原理和对抗式检查修正脚本：开场三秒是否值得继续看、观点是否成立、是否有空话、是否像真实口播、是否能实际拍摄、是否复制参考视频的独特表达。',
+    '只能复用参考内容的结构作用，不能复制原句、身份、案例、数字和结果承诺。公开资料没有支持的事实不得写入脚本；资料不足时改写为观点或方法，不要编造。',
+    '只输出 JSON：{"headline":"标题","platform":"平台","durationSeconds":45,"aspectRatio":"9:16","audience":"受众","hook":"三秒钩子","fullScript":"完整口播稿，至少80字","shootingNotes":["拍摄提示"],"shots":[{"startSeconds":0,"endSeconds":5,"narration":"台词","visual":"画面"}],"qualityReview":{"factuality":"事实检查","imitation":"模仿边界","shootability":"可拍性","unresolved":[]},"structure":["开场","展开","收束"]}。',
+    `主题：${JSON.stringify(String(topic || '').slice(0, 1000))}`,
+    `平台与时长：${JSON.stringify({ platform, durationSeconds })}`,
+    `参考结构：${JSON.stringify(reference || null).slice(0, 12_000)}`,
+    `最多三条公开资料：${JSON.stringify(research || null).slice(0, 12_000)}`
   ].join('\n');
 }
 

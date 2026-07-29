@@ -26,7 +26,7 @@
 | --- | --- | --- | --- |
 | 创建官 (`creator`) | 新员工岗位草案 | `active`，Paperclip/Hermes 按需运行，无独立飞书 Gateway | [岗位说明](./creator/README.md) |
 | 审核官 (`reviewer`) | 高风险范围审核 | `active`，Paperclip/Hermes 按需运行，无独立飞书 Gateway | [岗位说明](./reviewer/README.md) |
-| 架构师 (`architect`) | 共享能力与演进评估 | `active`，Paperclip/Hermes 按需运行，无独立飞书 Gateway | [岗位说明](./architect/README.md) |
-| 技术专家 (`technical-expert`) | 复杂故障诊断与修复任务 | `active`，Paperclip/Hermes 按需运行，无独立飞书 Gateway | [岗位说明](./technical-expert/README.md) |
+| 架构师 (`architect`) | 以事实为基线进行架构推理、候选方案设计和最小验证 | `active`，Paperclip/Hermes 按需运行，无独立飞书 Gateway | [岗位说明](./architect/README.md) |
+| 技术专家 (`technical-expert`) | 故障分流、只读诊断与受控代码修复 | `active`，Paperclip/Hermes 按需运行，无独立飞书 Gateway | [岗位说明](./technical-expert/README.md) |
 
 任务协调官已并入 A君并退役；小G的 GitHub 检索已并入小R。音视频转录接线样板和公开资料报告员候选岗位已归档，不进入活动名单。历史任务、审批、草案和验收产物仍保留。

@@ -2,7 +2,7 @@
   "schemaVersion": "agent.army/hermes-profile-map/v1",
   "status": "verified-local",
   "profileId": "architect",
-  "role": "架构师：识别复用能力、边界和可验证的分阶段演进方案。",
+  "role": "架构师：以 A君事实快照为现状基线，区分事实、推理和候选方案，设计可验证的军团演进路径。",
   "localProfile": {
     "created": true,
     "gatewayStarted": true,

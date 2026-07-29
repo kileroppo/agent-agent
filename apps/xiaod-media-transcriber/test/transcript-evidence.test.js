@@ -119,6 +119,27 @@ test('转录异常时自动确认停止并转人工，不绕过质量问题', ()
   assert.deepEqual(decision.reasons, ['transcript_anomaly:repeated_character_run']);
 });
 
+test('ASR 语义置信信号异常时不能自动确认，即使音频覆盖完整', () => {
+  const evidence = buildEvidenceRecords({
+    sourceType:'upload',
+    rawTranscript:'宇宙套发射以后就能解决所有问题。',
+    cleanTranscript:'宇宙套发射以后就能解决所有问题。',
+    segments:[{ startSeconds:0, endSeconds:4, timestamp:'00:00', text:'宇宙套发射以后就能解决所有问题。' }],
+    mediaDurationSeconds:4,
+    audioDurationSeconds:4,
+    transcriptionQuality:{
+      meanWordProbability:0.51,
+      meanAvgLogprob:-1.1,
+      highNoSpeechSegmentRatio:0,
+      maxCompressionRatio:1.2
+    }
+  });
+  assert.equal(evidence.qualityReport.passed, true);
+  assert.equal(evidence.qualityReport.confidenceAvailable, true);
+  assert.ok(evidence.qualityReport.anomalies.includes('low_mean_word_probability'));
+  assert.equal(automaticConfirmationDecision({ qualityReport:evidence.qualityReport, transcript:'宇宙套发射以后就能解决所有问题。' }).eligible, false);
+});
+
 test('人工完整听审生成独立确认稿和校验值，重复确认幂等', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'xiaod-review-'));
   t.after(() => fs.rm(root, { recursive:true, force:true }));

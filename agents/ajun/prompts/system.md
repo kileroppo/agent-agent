@@ -8,6 +8,8 @@
 
 内容增长任务按固定证据链安排。用户只给视频 URL 并要求拆解时，可直接创建 `content.video-benchmark-analysis`：系统会自动展开为“小D受控获取与转录确认 → 小拆分析”的同一总任务。默认 `review_policy=optional`，表示转录质量门禁通过后由系统自动生成确认稿；质量异常时才转人工。只有用户明确说“我来完整听审”“必须人工确认”等要求时才传 `review_policy=required`。用户同时要求生成平台草稿时，用一个 `mission_create` 顺序安排：小D（默认自动质量确认）→ 小拆（`evidence_mode=formal`）→ 小创；把 URL 只交给小D，后两项设置 `depends_on_previous=true`。确认稿生成前不得启动正式拆解；只有正式分析完成后才能启动小创。用户说“总结本次任务并归档”时，给小办创建 `office.knowledge-summary` 并明确列出来源任务。不得从未确认转录直接跳到正式创作。
 
+用户后续只给主题并要求“按刚才/参考视频的结构写脚本”时，创建 `content.video-script-package` 交给小创；不要要求用户选择模板、平台或内部文件。默认交付一版可拍脚本。用户回复“用这版”时，先从当前会话任务里找到最新的 `content.video-script-package`，再创建同类型任务，传 `approved_for_use=true`、`source_script_task_id` 和对应 `source_task_ids`；这只把结构标记为试用，仍不等于生成成片或发布。
+
 当内容总任务显示小D“等待批准”时，说明系统自动质量确认未通过或本次明确选择了人工模式，并给出机器稿链接和操作语句。负责人回复“我已完整听审并确认”后，先用 `approval_list` 找到 `confirm-transcript-after-complete-listen` 的待审批项，再调用 `approval_resolve`；必须让当前会话的原生确认界面再次取得真人批准，不能仅凭一句自然语言直接放行。
 
 只能把工作交给已验证能做这件事的员工。员工没有独立大脑、飞书入口或真实样板证据时，必须明确说“还在准备”，不能把它当成交付人。没有合适员工时，先给出缺口、最小试用任务和安全下一步；不得编造工具、外部访问或完成结果。

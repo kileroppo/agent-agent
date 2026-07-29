@@ -17,6 +17,9 @@ const HEALTH_RE = /健康|状态|服务|运行|paperclip|检查系统/i;
 const CAPABILITIES_RE = /(?:你|军团|现在).*(?:能干什么|能做什么|可以做什么|能帮我什么|有什么能力)|(?:能干什么|能做什么|可以做什么|能帮我什么|有什么能力).*(?:你|军团|现在)?/i;
 const OPERATIONS_TRIAGE_RE = /(?:怀疑|担心|看看|查(?:一下|下)?|检查|判断).{0,48}(?:异常|故障|出问题|卡住|卡死)|(?:异常|故障|出问题|卡住|卡死).{0,80}(?:安全(?:处理|恢复)|谁(?:来|该)接手|怎么处理|需要我做什么)/i;
 const MEDIA_RE = /视频|音频|转录|字幕|整理素材|youtube|bilibili|抖音|快手|transcri/i;
+const VIDEO_SCRIPT_RE = /(?:写|生成|做|出).{0,20}(?:视频)?(?:脚本|口播稿|拍摄稿)|按.{0,40}(?:套路|结构|视频|案例).{0,40}(?:写|生成|做|出)|(?:脚本|口播稿).{0,40}(?:主题|关于)/i;
+const USE_THIS_VERSION_RE = /^\s*(?:用这版|就这版|采用这版|按这版做|这版可以)\s*[。！!]?\s*$/;
+const SCRIPT_REVISION_RE = /(?:更像我|更口语|更自然|节奏快|节奏慢|短一点|长一点|改(?:一下|成)|重写|开头.{0,12}(?:换|改)|语气.{0,12}(?:换|改))/i;
 const OFFICE_RE = /办公汇报|汇报包|整理成(?:文档|表格|清单)|任务清单|会议材料|会议纪要|把.{0,40}(?:结果|材料).{0,20}整理/i;
 const TASK_ID_RE = /\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\b/i;
 
@@ -33,6 +36,11 @@ export class FeishuCommander {
     const requester = { kind: 'feishu-user', ref: safeRef(input?.requesterRef) || 'feishu-requester' };
     const direct = await this.handleDirectAgent(targetAgentId, { text, sourceEventRef, source, requester });
     if (direct) return direct;
+    if (USE_THIS_VERSION_RE.test(text)) return this.approveLatestVideoScript({ sourceEventRef, source, requester });
+    if (SCRIPT_REVISION_RE.test(text)) {
+      const revision = await this.reviseLatestVideoScript({ text, sourceEventRef, source, requester });
+      if (revision) return revision;
+    }
     // A君 owns URL-created media work and its recovery chain.  Do not let the
     // old direct-Xiaod retry phrase fall through to a generic LLM conversation.
     if (RETRY_XIAOD_RE.test(text)) return this.retryXiaodTask(source.chatRef);
@@ -176,7 +184,7 @@ export class FeishuCommander {
         ? 'office-assistant'
         : ['content.video-benchmark-analysis', 'content.performance-review'].includes(taskType)
           ? 'video-content-analyst'
-          : taskType === 'content.platform-draft'
+          : ['content.platform-draft', 'content.video-script-package'].includes(taskType)
             ? 'content-creator'
             : undefined;
     const researchInput = taskType === 'research.github-search' ? githubTaskInput(text) : taskType === 'research.intel-report' ? { topic:text } : {};
@@ -357,6 +365,49 @@ export class FeishuCommander {
       return { kind:'task_feedback', task:updated, reply:`已记下：你觉得“${shortTitle(task)}”这次结果有用。以后遇到类似工作，我会保留这次有效的做法。` };
     }
     return { kind:'task_feedback', task:updated, reply:`已记下：“${shortTitle(task)}”这次结果需要改进。我不会假装已经重做；后续复盘会优先检查这类问题。你想改哪里时，直接说一句就行。` };
+  }
+
+  async approveLatestVideoScript({ sourceEventRef, source, requester }) {
+    const tasks = typeof this.store?.list === 'function' ? await this.store.list() : [];
+    const latest = tasks
+      .filter((item) => item.source?.chatRef === source.chatRef && item.taskType === 'content.video-script-package' && item.status === 'succeeded')
+      .sort((left, right) => taskTime(right) - taskTime(left))
+      .find((item) => item.artifactRefs?.some((artifact) => artifact.type === 'video_script_package' && artifact.data?.templateLifecycle?.approvedForUse !== true));
+    if (!latest) return { kind:'content_script', reply:'当前会话里没有可采用的脚本，请先告诉我想做什么主题。' };
+    const task = await this.tasks.create({
+      title:`采用脚本：${latest.input?.title || '当前版本'}`,
+      taskType:'content.video-script-package',
+      requester,
+      source,
+      agentId:'content-creator',
+      contentGoal:latest.input?.contentGoal || latest.input?.title,
+      approvedForUse:true,
+      sourceScriptTaskId:latest.taskId,
+      context:{ sourceTaskIds:[latest.taskId] },
+      idempotencyKey:`feishu:${sourceEventRef}`
+    });
+    return replyFor(task, task.taskType);
+  }
+
+  async reviseLatestVideoScript({ text, sourceEventRef, source, requester }) {
+    const tasks = typeof this.store?.list === 'function' ? await this.store.list() : [];
+    const latest = tasks
+      .filter((item) => item.source?.chatRef === source.chatRef && item.taskType === 'content.video-script-package' && item.status === 'succeeded')
+      .sort((left, right) => taskTime(right) - taskTime(left))[0];
+    if (!latest) return null;
+    const originalGoal = latest.input?.contentGoal || latest.input?.title || '当前视频主题';
+    const task = await this.tasks.create({
+      title:`修改脚本：${text}`,
+      taskType:'content.video-script-package',
+      requester,
+      source,
+      agentId:'content-creator',
+      contentGoal:`${originalGoal}。本次修改要求：${text}`,
+      sourceScriptTaskId:latest.taskId,
+      context:{ sourceTaskIds:[latest.taskId] },
+      idempotencyKey:`feishu:${sourceEventRef}`
+    });
+    return replyFor(task, task.taskType);
   }
 
   async requestTaskControl(chatRef, action, { returnNothingWhenMissing = false } = {}) {
@@ -581,6 +632,7 @@ export class FeishuCommander {
   }
 
   async intentFor(text) {
+    if (VIDEO_SCRIPT_RE.test(text)) return { intent:'route_task', taskType:'content.video-script-package', agentId:'content-creator' };
     if (typeof this.planner?.decide !== 'function') return directIntent(text);
     try {
       const [routes, employees] = await Promise.all([this.availableRoutes(), this.availableEmployees()]);
@@ -658,6 +710,7 @@ function directIntent(text) {
     if (/多少.*(?:员工|agent|助手)|谁.*(?:在干|忙|卡住)|(?:员工|军团).*(?:状态|情况|进度)|(?:今天|现在|目前).*(?:需要我|要我).*(?:处理|决定|确认|补充)|(?:有什么|哪些).*(?:需要我|要我).*(?:处理|决定|确认|补充)/i.test(text)) return { intent:'army_overview' };
     if (CAPABILITIES_RE.test(text)) return { intent:'army_capabilities' };
     if (HEALTH_RE.test(text)) return { intent:'health_check' };
+    if (VIDEO_SCRIPT_RE.test(text)) return { intent:'route_task', taskType:'content.video-script-package', agentId:'content-creator' };
     if (MEDIA_RE.test(text)) return { intent:'media_task' };
     if (OFFICE_RE.test(text)) return { intent:'office_briefing' };
     if (isGithubRequest(text)) return { intent:'github_search' };
@@ -739,6 +792,27 @@ function linkClarificationPlan(text, reply = '') {
   };
 }
 
+function formatVideoScriptReply(report) {
+  if (report.templateLifecycle?.approvedForUse === true) {
+    return '已采用这版。可拍脚本和制作包已经准备好；没有生成成片，也没有发布。';
+  }
+  const notes = Array.isArray(report.shootingNotes)
+    ? report.shootingNotes.slice(0, 3).map((item) => `- ${item}`).join('\n')
+    : '';
+  return [
+    '【可拍脚本】',
+    `标题：${report.headline}`,
+    `建议：${report.platform || 'douyin'}｜约 ${report.durationSeconds || 45} 秒`,
+    '',
+    `开场：${report.hook}`,
+    '',
+    report.fullScript,
+    ...(notes ? ['', '拍摄提示：', notes] : []),
+    '',
+    '下一步：满意就回复“用这版”；要改直接说一句，例如“更像我说话”或“节奏快一点”。'
+  ].join('\n');
+}
+
 function replyFor(task, taskType) {
   if (taskType === 'operations.health-review') {
     const report = task.artifactRefs?.find((item) => item.type === 'health_report')?.data;
@@ -793,6 +867,12 @@ function replyFor(task, taskType) {
   if (taskType === 'content.platform-draft') {
     if (task.status === 'needs_input') return { kind:'content_draft', task, reply:task.error?.userMessage || '小创还缺少确认稿、正式分析或目标平台。' };
     return { kind:'content_draft', task, reply:`已交给小创生成可审核草稿，任务号：${task.taskId}。不会自动发布。` };
+  }
+  if (taskType === 'content.video-script-package') {
+    const script = task.artifactRefs?.find((item) => item.type === 'video_script_package')?.data;
+    if (script?.fullScript) return { kind:'content_script', task, reply:formatVideoScriptReply(script) };
+    if (task.status === 'needs_input') return { kind:'content_script', task, reply:task.error?.userMessage || '小创还缺少视频主题。' };
+    return { kind:'content_script', task, reply:'已交给小创生成一版可拍脚本。完成后会回到当前飞书会话。' };
   }
   if (taskType === 'governance.architecture-review') {
     const report = task.artifactRefs?.find((item) => item.type === 'architecture_review')?.data;
@@ -961,6 +1041,7 @@ function workerName(task) {
   if (task.taskType === 'office.knowledge-summary') return '小办';
   if (['content.video-benchmark-analysis', 'content.performance-review'].includes(task.taskType)) return '小拆';
   if (task.taskType === 'content.platform-draft') return '小创';
+  if (task.taskType === 'content.video-script-package') return '小创';
   if (task.taskType === 'media.transcribe-and-refine') return '小D';
   if (task.taskType === 'operations.health-review') return '运维官';
   if (task.taskType === 'governance.architecture-review') return '架构师';

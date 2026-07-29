@@ -47,5 +47,6 @@ test('GitHub 中文编排请求归一成公开仓库可检索关键词', () => {
 test('内容增长任务只能路由给小拆、小创和小办的对应能力', () => {
   assert.equal(canonicalizeBusinessAssignment({ title:'拆解视频', taskType:'content.video-benchmark-analysis', agentId:'xiaod' }).agentId, 'video-content-analyst');
   assert.equal(canonicalizeBusinessAssignment({ title:'生成抖音草稿', taskType:'content.platform-draft', agentId:'video-content-analyst' }).agentId, 'content-creator');
+  assert.equal(canonicalizeBusinessAssignment({ title:'按参考结构写可拍脚本', taskType:'content.video-script-package', agentId:'xiaod' }).agentId, 'content-creator');
   assert.equal(canonicalizeBusinessAssignment({ title:'归档本次工作', taskType:'office.knowledge-summary', agentId:'content-creator' }).agentId, 'office-assistant');
 });

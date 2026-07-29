@@ -36,7 +36,19 @@ test('独立副本会带上检查所需的只读测试文件，但不把它加�
 
 test('技术专家先准备独立副本，再等待修复证据，不把准备工作说成已修好', async () => {
   const expert = new LocalTechnicalExpert({ now:() => new Date('2026-07-21T00:00:00.000Z'), workspace:{ async prepare() { return { workspace:'/safe/repairs/task-1', reused:false }; } } });
-  const result = await expert.execute({ taskId:'task-1', execution:{}, governance:{ paperclipAssigneeAgentId:'expert-1' }, input:{ context:{ failure:{ code:'executor_failed' } } } });
+  const result = await expert.execute({
+    taskId:'task-1',
+    execution:{},
+    governance:{ paperclipAssigneeAgentId:'expert-1' },
+    input:{ context:{
+      failure:{ code:'executor_failed' },
+      repairScope:{
+        files:['apps/ajun-runtime/src/example.js'],
+        testCommand:'node --test apps/ajun-runtime/test/example.test.js',
+        recoveryCheck:'确认原故障不再出现'
+      }
+    } }
+  });
   assert.equal(result.status, 'running');
   assert.equal(result.currentStage, 'isolated_workspace_ready');
   assert.equal(result.execution.workspace.path, '/safe/repairs/task-1');

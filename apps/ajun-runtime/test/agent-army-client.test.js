@@ -451,6 +451,96 @@ test('AgentArmyClient returns a compact Paperclip assignment without the full ta
   assert.equal(JSON.stringify(assignment).includes('large internal task envelope'), false);
 });
 
+test('AgentArmyClient 给架构师返回受控事实快照，不暴露任务正文或虚构路径', async () => {
+  const client = new AgentArmyClient({ fetchImpl:fakeFetch({
+    'POST /api/mcp/paperclip-assignment':{
+      assignment:{
+        issueId:'issue-architect',
+        identifier:'AGE-ARCH',
+        title:'评估小R',
+        description:'只读评估。',
+        agentId:'architect',
+        runId:'run-architect',
+        groundTruth:{
+          schemaVersion:'agent.army/architecture-ground-truth/v1',
+          snapshotId:'a'.repeat(64),
+          generatedAt:'2026-07-29T01:00:00.000Z',
+          limitation:'未列出的事实一律待验证。',
+          agents:[{
+            ref:'agent:intel-researcher',
+            agentId:'intel-researcher',
+            name:'小R',
+            status:'active',
+            acceptedTaskTypes:['research.intel-report'],
+            toolAllowlist:['research.public.search'],
+            repositoryRefs:['agents/intel-researcher/manifest.json']
+          }],
+          taskSummary:{ total:1, byStatus:{ succeeded:1 }, byTaskType:{ 'research.intel-report':1 } },
+          taskEvidence:[{
+            ref:'task:task-real',
+            taskId:'task-real',
+            taskType:'research.intel-report',
+            assigneeAgentId:'intel-researcher',
+            status:'succeeded',
+            title:'真实研究任务',
+            artifactTypes:['intel_research_report'],
+            rawDescription:'must-not-leak'
+          }]
+        }
+      },
+      task:{
+        taskId:'task-architect',
+        taskType:'governance.architecture-review',
+        status:'running',
+        currentStage:'paperclip_hermes_running',
+        input:{ description:'must-not-leak' }
+      }
+    }
+  }) });
+  const result = await client.getPaperclipAssignment({});
+  assert.deepEqual(result.assignment.groundTruth.agents[0].acceptedTaskTypes, ['research.intel-report']);
+  assert.equal(JSON.stringify(result).includes('must-not-leak'), false);
+  assert.equal(JSON.stringify(result).includes('agents/capability-registry.md'), false);
+});
+
+test('AgentArmyClient 分层回传架构事实、判断和候选方案，不把未来设计塞进未验证事实', async () => {
+  let requestBody = null;
+  const client = new AgentArmyClient({
+    fetchImpl:async (_url, options = {}) => {
+      requestBody = JSON.parse(options.body);
+      return response(200, { task:{ taskId:'task-architect', status:'succeeded' } });
+    }
+  });
+  await client.completePaperclipAssignment({
+    issueId:'issue-architect',
+    runId:'run-architect',
+    paperclipAgentId:'agent-architect',
+    agentArmyId:'architect',
+    status:'succeeded',
+    summary:'完成分层架构评估。',
+    factClaims:[{ claim:'小R已上岗。', evidence_refs:['agent:intel-researcher'] }],
+    architectureJudgments:[{
+      judgment:'优先复用小R。',
+      basis_refs:['agent:intel-researcher'],
+      assumptions:['公开资料足够支持第一轮判断。'],
+      confidence:'medium'
+    }],
+    candidateProposals:[{
+      proposal:'候选新增架构试验任务。',
+      problem:'当前缺少最小验证载体。',
+      validation_plan:'先跑一次本机无副作用验收。',
+      risks:['可能重复。'],
+      non_goals:['不直接上线。']
+    }],
+    currentStateUnknowns:['外部资料尚未核对。']
+  });
+  assert.deepEqual(requestBody.factClaims[0].evidenceRefs, ['agent:intel-researcher']);
+  assert.equal(requestBody.architectureJudgments[0].confidence, 'medium');
+  assert.match(requestBody.candidateProposals[0].proposal, /架构试验/);
+  assert.deepEqual(requestBody.currentStateUnknowns, ['外部资料尚未核对。']);
+  assert.deepEqual(requestBody.unverifiedClaims, []);
+});
+
 test('AgentArmyClient exposes only the approved repair scope to the technical expert', async () => {
   const client = new AgentArmyClient({ fetchImpl:fakeFetch({
     'POST /api/mcp/paperclip-assignment':{

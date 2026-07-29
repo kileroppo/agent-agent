@@ -91,7 +91,8 @@ export class MediaPipeline {
         cleanTranscript:transcript,
         segments,
         mediaDurationSeconds,
-        audioDurationSeconds
+        audioDurationSeconds,
+        transcriptionQuality:transcription.qualitySignals || null
       });
       const sourceEvidencePath = path.join(jobDir, 'source-evidence.json');
       const qualityReportPath = path.join(jobDir, 'transcript-quality-report.json');
@@ -282,18 +283,20 @@ export class MediaPipeline {
     try { await fs.access(transcript); } catch { throw new Error('ASR 已运行但没有生成 transcript.txt。'); }
     const text = await fs.readFile(transcript, 'utf8');
     const vttPath = path.join(jobDir, 'transcript.vtt');
+    const jsonPath = path.join(jobDir, 'transcript.json');
+    let asrJson = null;
+    try { asrJson = JSON.parse(await fs.readFile(jsonPath, 'utf8')); } catch { asrJson = null; }
     let timed = null;
     try {
       timed = await fs.readFile(vttPath, 'utf8');
     } catch {
-      const jsonPath = path.join(jobDir, 'transcript.json');
       try {
-        timed = jsonTranscriptToVtt(JSON.parse(await fs.readFile(jsonPath, 'utf8')));
+        timed = jsonTranscriptToVtt(asrJson);
       } catch {
         timed = null;
       }
     }
-    return { text, timed };
+    return { text, timed, qualitySignals:asrQualitySignals(asrJson) };
   }
 
   async prepareVisualEvidence({ job, jobDir, acquired, segments, sourceMetadata }) {
@@ -360,6 +363,26 @@ export class MediaPipeline {
       };
     }
   }
+}
+
+function asrQualitySignals(payload) {
+  const segments = Array.isArray(payload?.segments) ? payload.segments : [];
+  const words = segments.flatMap((segment) => Array.isArray(segment?.words) ? segment.words : []);
+  const probabilities = words.map((word) => Number(word?.probability)).filter(Number.isFinite);
+  const avgLogprobs = segments.map((segment) => Number(segment?.avg_logprob)).filter(Number.isFinite);
+  const noSpeech = segments.map((segment) => Number(segment?.no_speech_prob)).filter(Number.isFinite);
+  const compression = segments.map((segment) => Number(segment?.compression_ratio)).filter(Number.isFinite);
+  if (!probabilities.length && !avgLogprobs.length && !noSpeech.length && !compression.length) return null;
+  return {
+    meanWordProbability:mean(probabilities),
+    meanAvgLogprob:mean(avgLogprobs),
+    highNoSpeechSegmentRatio:noSpeech.length ? noSpeech.filter((value) => value > 0.6).length / noSpeech.length : null,
+    maxCompressionRatio:compression.length ? Math.max(...compression) : null
+  };
+}
+
+function mean(values) {
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
 }
 
 function jsonTranscriptToVtt(payload) {

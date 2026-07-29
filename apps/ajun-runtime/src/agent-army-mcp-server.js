@@ -69,7 +69,7 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
       agent_id:z.string().max(80).optional().describe('仅在需要点名且 capabilities 已确认支持时提供'),
       description:z.string().max(2000).optional(),
       source_urls:z.array(z.string().url()).max(5).optional(),
-      source_task_ids:z.array(z.string().min(8).max(100)).max(20).optional().describe('需要引用的既有任务编号；内容拆解、创作和知识归档必须显式提供'),
+      source_task_ids:z.array(z.string().min(8).max(100)).max(20).optional().describe('需要引用的既有任务编号；可拍脚本未提供时会自动匹配参考案例'),
       review_policy:z.enum(['optional', 'required']).optional().describe('默认 optional：质量合格时系统自动确认，异常时转人工；只有用户明确要求完整听审时使用 required'),
       evidence_mode:z.enum(['preliminary', 'formal']).optional(),
       depth:z.enum(['fast', 'full']).optional(),
@@ -77,11 +77,15 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
       focus:z.string().max(500).optional(),
       platforms:z.array(z.string().min(1).max(40)).max(10).optional(),
       content_goal:z.string().max(500).optional(),
-      metrics:z.record(z.union([z.string(), z.number()])).optional(),
+      duration_seconds:z.number().min(15).max(600).optional(),
+      research_mode:z.enum(['auto', 'off']).optional(),
+      approved_for_use:z.boolean().optional().describe('仅当用户明确回复“用这版”时为 true'),
+      source_script_task_id:z.string().min(8).max(100).optional(),
+      metrics:z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
       chat_ref:z.string().max(240).optional().describe('当前 Hermes 会话上下文中可见的原飞书 chat id；用于任务归属和恢复'),
       request_ref:z.string().max(240).optional().describe('当前消息或稳定请求引用；有则用于严格幂等')
     })
-  }, ({ title, task_type, agent_id, description, source_urls, source_task_ids, review_policy, evidence_mode, depth, visual_mode, focus, platforms, content_goal, metrics, chat_ref, request_ref }) => {
+  }, ({ title, task_type, agent_id, description, source_urls, source_task_ids, review_policy, evidence_mode, depth, visual_mode, focus, platforms, content_goal, duration_seconds, research_mode, approved_for_use, source_script_task_id, metrics, chat_ref, request_ref }) => {
     assertSingleTaskRequest({ title, description });
     const assignment = canonicalizeBusinessAssignment({
       title,
@@ -105,6 +109,10 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
       focus,
       platforms,
       contentGoal:content_goal,
+      durationSeconds:duration_seconds,
+      researchMode:research_mode,
+      approvedForUse:approved_for_use,
+      sourceScriptTaskId:source_script_task_id,
       metrics,
       chatRef:chat_ref,
       requestRef:request_ref
@@ -223,19 +231,51 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
 
   action('paperclip_assignment_complete', {
     title:'回报当前 Paperclip 指派结果',
-    description:'仅在 Paperclip heartbeat 中把当前指派的真实结果回写到同一张 Paperclip 任务和 A君任务信封。不得用它关闭别人的任务；失败或待测试必须如实选择对应状态。',
+    description:'仅在 Paperclip heartbeat 中把当前指派的真实结果回写到同一张 Paperclip 任务和 A君任务信封。不得用它关闭别人的任务；失败或待测试必须如实选择对应状态。架构师使用 fact_claims、architecture_judgments、candidate_proposals 分开回报事实、推理和未来方案；只有当前事实与判断所引用的 basis_refs 必须来自 groundTruth，候选方案可以提出当前不存在的能力，但必须附验证计划。',
     inputSchema:z.object({
       status:z.enum(['succeeded', 'failed', 'waiting_test']).default('succeeded'),
       summary:z.string().min(1).max(4000),
       evidence:z.string().max(4000).optional(),
-      remaining_risks:z.string().max(2000).optional()
+      remaining_risks:z.string().max(2000).optional(),
+      evidence_refs:z.array(z.object({
+        ref:z.string().min(1).max(500),
+        claim:z.string().min(1).max(1000)
+      })).max(30).optional(),
+      unverified_claims:z.array(z.string().min(1).max(1000)).max(20).optional(),
+      fact_claims:z.array(z.object({
+        claim:z.string().min(1).max(1000),
+        evidence_refs:z.array(z.string().min(1).max(500)).min(1).max(10)
+      })).max(20).optional(),
+      architecture_judgments:z.array(z.object({
+        judgment:z.string().min(1).max(1200),
+        basis_refs:z.array(z.string().min(1).max(500)).max(10).optional(),
+        assumptions:z.array(z.string().min(1).max(600)).max(10).optional(),
+        confidence:z.enum(['low', 'medium', 'high'])
+      })).max(20).optional(),
+      candidate_proposals:z.array(z.object({
+        proposal:z.string().min(1).max(1200),
+        problem:z.string().min(1).max(1000),
+        validation_plan:z.string().min(1).max(1500),
+        risks:z.array(z.string().min(1).max(600)).max(10).optional(),
+        non_goals:z.array(z.string().min(1).max(600)).max(10).optional()
+      })).max(10).optional(),
+      current_state_unknowns:z.array(z.string().min(1).max(1000)).max(20).optional()
     })
-  }, ({ status, summary, evidence, remaining_risks }) => client.completePaperclipAssignment({
+  }, ({
+    status, summary, evidence, remaining_risks, evidence_refs, unverified_claims,
+    fact_claims, architecture_judgments, candidate_proposals, current_state_unknowns
+  }) => client.completePaperclipAssignment({
     ...paperclipIdentityFromEnvironment(),
     status,
     summary,
     evidence,
-    remainingRisks:remaining_risks
+    remainingRisks:remaining_risks,
+    evidenceRefs:evidence_refs,
+    unverifiedClaims:unverified_claims,
+    factClaims:fact_claims,
+    architectureJudgments:architecture_judgments,
+    candidateProposals:candidate_proposals,
+    currentStateUnknowns:current_state_unknowns
   }));
 
   action('technical_repair_execute', {
@@ -259,6 +299,12 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
   action('platform_content_draft_execute', {
     title:'执行当前受控平台草稿生成',
     description:'仅供小创在 Paperclip heartbeat 中使用。必须引用确认稿和正式分析，最多生成三个平台草稿；不会发布或访问账号。返回 running 时再次调用本工具继续等待。',
+    inputSchema:z.object({})
+  }, () => client.executeContentGrowth(paperclipIdentityFromEnvironment()));
+
+  action('video_script_package_execute', {
+    title:'执行当前受控可拍脚本生成',
+    description:'仅供小创在 Paperclip heartbeat 中使用。自动匹配受控参考案例并生成一版可拍脚本和内部生产包；不会生成成片、发布或访问账号。',
     inputSchema:z.object({})
   }, () => client.executeContentGrowth(paperclipIdentityFromEnvironment()));
 

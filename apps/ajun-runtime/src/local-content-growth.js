@@ -179,16 +179,23 @@ export class LocalVideoContentAnalyst {
     const sources = Array.isArray(sourceArtifacts) ? sourceArtifacts : await referencedArtifacts(task, this.store);
     const analysis = findArtifact(sources, 'video_content_analysis_report');
     const draft = findArtifact(sources, 'platform_content_draft');
+    const script = findArtifact(sources, 'video_script_package');
     const metrics = normalizeMetrics(task.input?.metrics, task.input?.description);
-    if (!analysis || !draft) return needsInput(this.now(), 'content_lineage_required', '表现复盘必须同时引用原拆解报告和平台草稿。');
+    if ((!analysis || !draft) && !script) return needsInput(this.now(), 'content_lineage_required', '表现复盘必须引用原拆解与平台草稿，或明确引用已经采用的可拍脚本。');
     if (!Object.keys(metrics).length) return needsInput(this.now(), 'performance_metrics_required', '请提供真实发布指标或指标截图形成的结构化数据。');
+    const lifecycle = script ? await templateLifecycleForReview({ store:this.store, script, metrics }) : null;
     const completedAt = this.now().toISOString();
     const data = {
       summary:`已记录 ${Object.keys(metrics).length} 项真实表现指标；本报告只做版本关联和观察，不把单次结果解释为确定因果。`,
       metrics,
       observations:metricObservations(metrics),
       nextActions:['保留表现较好的开场和结构变量。', '下一次只调整一个主要变量，并继续关联原任务与版本。'],
-      lineage:{ analysisArtifactId:analysis.artifactId, draftArtifactId:draft.artifactId },
+      lineage:{
+        analysisArtifactId:analysis?.artifactId || null,
+        draftArtifactId:draft?.artifactId || null,
+        templateArtifactId:script?.artifactId || null
+      },
+      ...(lifecycle ? { templateLifecycle:lifecycle } : {}),
       generatedAt:completedAt
     };
     const artifact = await writeArtifact({
@@ -197,8 +204,8 @@ export class LocalVideoContentAnalyst {
       type:'content_performance_report',
       title:`${task.input?.title || '内容'}｜表现复盘`,
       data,
-      sourceRefs:[analysis.artifactId, draft.artifactId],
-      validation:{ exists:true, readable:true, nonEmpty:true, metricsProvided:true, causalClaimAvoided:true },
+      sourceRefs:[analysis?.artifactId, draft?.artifactId, script?.artifactId].filter(Boolean),
+      validation:{ exists:true, readable:true, nonEmpty:true, metricsProvided:true, causalClaimAvoided:true, ...(lifecycle ? { templateState:lifecycle.state } : {}) },
       completedAt
     });
     return successResult(task, artifact, completedAt, 'performance_review');
@@ -206,17 +213,22 @@ export class LocalVideoContentAnalyst {
 }
 
 export class LocalContentCreator {
-  constructor({ store, artifactsDir, allowedArtifactRoots = [], advisor = null, now = () => new Date() } = {}) {
+  constructor({ store, artifactsDir, allowedArtifactRoots = [], advisor = null, scriptPackage = null, now = () => new Date() } = {}) {
     this.store = store;
     this.artifactsDir = artifactsDir;
     this.allowedArtifactRoots = allowedArtifactRoots.map((item) => path.resolve(item));
     this.advisor = advisor;
+    this.scriptPackage = scriptPackage;
     this.now = now;
   }
 
   supports(agent) { return agent?.agentId === 'content-creator'; }
 
   async execute(task, { sourceArtifacts = null, allowAdvisor = true } = {}) {
+    if (task.taskType === 'content.video-script-package') {
+      if (!this.scriptPackage?.execute) return needsInput(this.now(), 'video_script_package_unavailable', '可拍脚本能力暂时不可用。');
+      return this.scriptPackage.execute(task, { allowAdvisor });
+    }
     const sources = Array.isArray(sourceArtifacts) ? sourceArtifacts : await referencedArtifacts(task, this.store);
     const transcriptArtifact = findArtifact(sources, 'confirmed_transcript');
     const analysisArtifact = findArtifact(sources, 'video_content_analysis_report');
@@ -790,14 +802,57 @@ function normalizePlatforms(value, text) {
 
 function normalizeMetrics(value, description) {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
-    return Object.fromEntries(Object.entries(value).slice(0, 20).map(([key, item]) => [clean(key, 80), clean(item, 120)]).filter(([key, item]) => key && item));
+    return Object.fromEntries(Object.entries(value).slice(0, 20).map(([key, item]) => [clean(key, 80), metricValue(item)]).filter(([key, item]) => key && item !== ''));
   }
   const matches = [...String(description || '').matchAll(/([\u4e00-\u9fa5A-Za-z0-9_-]{2,20})\s*[:：]\s*([0-9.]+%?|[0-9.]+[万亿]?)/g)];
   return Object.fromEntries(matches.slice(0, 20).map((match) => [match[1], match[2]]));
 }
 
+function metricValue(value) {
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  if (Number.isFinite(Number(value)) && value !== null && value !== '') return String(value).slice(0, 120);
+  return clean(value, 120);
+}
+
 function metricObservations(metrics) {
   return Object.entries(metrics).slice(0, 6).map(([key, value]) => `${key} 为 ${value}；仅记录观察，尚不能据此确认单一内容变量的因果影响。`);
+}
+
+async function templateLifecycleForReview({ store, script, metrics }) {
+  const tasks = typeof store?.list === 'function' ? await store.list() : [];
+  const previous = tasks
+    .flatMap((item) => item.artifactRefs || [])
+    .filter((artifact) => artifact.type === 'content_performance_report' && artifact.data?.lineage?.templateArtifactId === script.artifactId)
+    .map((artifact) => artifact.data?.templateLifecycle?.metBaseline)
+    .filter((value) => typeof value === 'boolean');
+  const metBaseline = metricBoolean(metrics.metBaseline ?? metrics.relativeToBaseline);
+  const outcomes = metBaseline === null ? previous : [...previous, metBaseline];
+  const baselineSampleSize = Math.max(0, Number(metrics.baselineSampleSize) || 0);
+  let state = 'trial';
+  let reason = '继续试用；还没有足够的可比较真实表现。';
+  if (outcomes.slice(-3).length === 3 && outcomes.slice(-3).every((value) => value === false)) {
+    state = 'retired';
+    reason = '连续三次低于账号基准，停止自动优先匹配。';
+  } else if (baselineSampleSize >= 5 && outcomes.length >= 3 && outcomes.filter(Boolean).length >= 2) {
+    state = 'validated';
+    reason = '至少使用三次、至少两次达到账号基准，且基准样本不少于五条。';
+  }
+  return {
+    state,
+    reason,
+    metBaseline,
+    comparableUseCount:outcomes.length,
+    metBaselineCount:outcomes.filter(Boolean).length,
+    baselineSampleSize,
+    templateArtifactId:script.artifactId
+  };
+}
+
+function metricBoolean(value) {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (['true', 'yes', '是', '达到', '高于', 'above', 'met'].includes(normalized)) return true;
+  if (['false', 'no', '否', '未达到', '低于', 'below', 'missed'].includes(normalized)) return false;
+  return null;
 }
 
 function platformAdaptation(platform) {

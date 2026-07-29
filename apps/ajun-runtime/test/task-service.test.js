@@ -431,14 +431,59 @@ test('Paperclip Hermes heartbeat 会关联原 A君任务并幂等回写同一终
     status:'succeeded',
     summary:'复用 Hermes Profile Distribution 与 Paperclip hermes_local。',
     evidence:'未新增第二套运行时。',
-    remainingRisks:'飞书真人回归待完成。'
+    remainingRisks:'飞书真人回归待完成。',
+    factClaims:[{
+      claim:'架构师当前登记为治理评估岗位。',
+      evidenceRefs:['agent:architect']
+    }],
+    architectureJudgments:[{
+      judgment:'应优先复用现有 Paperclip/Hermes 执行链，而不是再建一套调度系统。',
+      basisRefs:['agent:architect'],
+      assumptions:['现有执行链的任务审计仍满足本轮目标。'],
+      confidence:'medium'
+    }],
+    candidateProposals:[{
+      proposal:'候选新增 architecture.experiment 任务类型',
+      problem:'复杂架构建议缺少最小试验载体。',
+      validationPlan:'先用一条不改生产配置的本机任务验证输入、产物和失败恢复。',
+      risks:['可能与现有治理任务重复。'],
+      nonGoals:['本轮不注册该任务类型。']
+    }],
+    currentStateUnknowns:['飞书真人回归待完成。']
   };
+  await assert.rejects(
+    service.completePaperclipAssignment({
+      ...input,
+      factClaims:[{
+        claim:'假设存在统一能力注册表。',
+        evidenceRefs:['repo:agents/capability-registry.md']
+      }]
+    }),
+    /引用了快照中不存在的对象/
+  );
+  await assert.rejects(
+    service.completePaperclipAssignment({
+      ...input,
+      architectureJudgments:[{
+        judgment:'判断建立在不存在的仓库路径上。',
+        basisRefs:['repo:agents/capability-registry.md'],
+        assumptions:[],
+        confidence:'high'
+      }]
+    }),
+    /引用了快照中不存在的对象/
+  );
   const completed = await service.completePaperclipAssignment(input);
   const duplicate = await service.completePaperclipAssignment(input);
 
   assert.equal(completed.task.taskId, original.taskId);
   assert.equal(completed.task.status, 'succeeded');
   assert.equal(completed.task.artifactRefs[0].type, 'employee_role_report');
+  assert.equal(completed.task.artifactRefs[0].data.evidenceValidation.valid, true);
+  assert.equal(completed.task.artifactRefs[0].data.factClaims[0].evidenceRefs[0], 'agent:architect');
+  assert.equal(completed.task.artifactRefs[0].data.architectureJudgments[0].confidence, 'medium');
+  assert.match(completed.task.artifactRefs[0].data.candidateProposals[0].proposal, /architecture\.experiment/);
+  assert.deepEqual(completed.task.artifactRefs[0].data.currentStateUnknowns, ['飞书真人回归待完成。']);
   assert.equal(completions.length, 1);
   assert.equal(duplicate.duplicate, true);
 });

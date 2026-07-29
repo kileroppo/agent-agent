@@ -1,3 +1,5 @@
+import { buildArchitectureGroundTruth } from './architecture-evidence.js';
+
 export class LocalArchitect {
   constructor({ registry, store = null, now = () => new Date() } = {}) { this.registry = registry; this.store = store; this.now = now; }
 
@@ -7,11 +9,38 @@ export class LocalArchitect {
     const tasks = this.store?.list ? await this.store.list() : [];
     const active = agents.filter((agent) => agent.status === 'active');
     const draft = agents.filter((agent) => agent.status !== 'active');
+    const groundTruth = buildArchitectureGroundTruth({ agents, tasks, generatedAt:completedAt });
     const workEvidence = summarizeWork(tasks, agents);
     const roleOpportunities = findRoleOpportunities(workEvidence.frequentPatterns);
     const feedbackConcern = workEvidence.frequentPatterns.find((item) => item.negativeFeedback > 0);
     const intakeAdvisor = task.input?.context?.intakeAdvisor || null;
     const capabilityNextAction = nextActionForCapabilityGap(task, active, intakeAdvisor);
+    const evidenceRefs = [
+      ...active.slice(0, 12).map((agent) => ({
+        ref:`agent:${agent.agentId}`,
+        claim:`岗位“${agent.name}”当前登记任务类型：${(agent.acceptedTaskTypes || []).join('、') || '无'}。`
+      })),
+      ...workEvidence.frequentPatterns.flatMap((item) => (item.sampleTaskIds || []).slice(0, 2).map((taskId) => ({
+        ref:`task:${taskId}`,
+        claim:`“${item.title}”重复模式的任务样本。`
+      })))
+    ].slice(0, 30);
+    const factClaims = evidenceRefs.map((item) => ({ claim:item.claim, evidenceRefs:[item.ref] }));
+    const architectureJudgments = workEvidence.frequentPatterns.slice(0, 5).map((item) => ({
+      judgment:item.ownerAgentId
+        ? `“${item.title}”应优先优化现有岗位“${item.ownerName || item.ownerAgentId}”，而不是立即新增岗位。`
+        : `“${item.title}”可能形成独立能力，但当前仍需验证能否稳定复用。`,
+      basisRefs:(item.sampleTaskIds || []).slice(0, 3).map((taskId) => `task:${taskId}`),
+      assumptions:['重复任务标题代表相近业务目标，后续仍需抽查真实输入和产物质量。'],
+      confidence:item.count >= 3 ? 'medium' : 'low'
+    }));
+    const candidateProposals = roleOpportunities.slice(0, 5).map((item) => ({
+      proposal:item.title,
+      problem:item.reason,
+      validationPlan:item.acceptanceTask,
+      risks:['样本可能只是短期重复，过早独立成岗会增加维护成本。'],
+      nonGoals:['不在本次评估中创建岗位、扩权或上线。']
+    }));
     const report = {
       reviewedAt: completedAt,
       request: { title: task.input.title, scopeStated: Boolean(task.input.description) },
@@ -19,6 +48,20 @@ export class LocalArchitect {
       capabilityGaps: draft.map((agent) => ({ agentId: agent.agentId, name: agent.name, reason: '岗位尚未启用本地执行器。' })),
       ...(intakeAdvisor ? { understoodRequest:{ outcome:intakeAdvisor.understanding, deliverable:intakeAdvisor.deliverable, missing:Array.isArray(intakeAdvisor.missing) ? intakeAdvisor.missing : [] } } : {}),
       workEvidence, roleOpportunities,
+      groundTruth:{
+        snapshotId:groundTruth.snapshotId,
+        generatedAt:groundTruth.generatedAt,
+        agentCount:groundTruth.agents.length,
+        taskCount:groundTruth.taskSummary.total
+      },
+      evidenceRefs,
+      factClaims,
+      architectureJudgments,
+      candidateProposals,
+      currentStateUnknowns:[
+        ...(roleOpportunities.length ? ['新岗位机会仍需新的真实验收任务证明可独立交付。'] : []),
+        ...(intakeAdvisor ? ['用户补充材料后的可执行性尚未验证。'] : [])
+      ],
       boundary: '本次只读评估岗位注册表和脱敏任务记录；没有创建岗位、连接、修改权限、调用外部账号或改变系统边界。',
       nextAction: capabilityNextAction || (feedbackConcern
         ? `优先复盘“${feedbackConcern.title}”：已经收到 ${feedbackConcern.negativeFeedback} 次需要改进的结果评价；先把现有做法改稳，不急着新建员工。`
@@ -55,8 +98,9 @@ function summarizeWork(tasks, agents) {
   const grouped = new Map();
   for (const task of usable) {
     const key = normalizeTitle(task.input?.title);
-    const record = grouped.get(key) || { title:key, count:0, failures:0, needsInput:0, usefulFeedback:0, negativeFeedback:0, taskTypes:{}, assignees:{} };
+    const record = grouped.get(key) || { title:key, count:0, failures:0, needsInput:0, usefulFeedback:0, negativeFeedback:0, taskTypes:{}, assignees:{}, taskIds:[] };
     record.count += 1;
+    record.taskIds.push(task.taskId);
     if (task.status === 'failed') record.failures += 1;
     if (task.status === 'needs_input') record.needsInput += 1;
     if (task.feedback?.sentiment === 'useful') record.usefulFeedback += 1;
@@ -68,7 +112,7 @@ function summarizeWork(tasks, agents) {
   }
   const frequentPatterns = [...grouped.values()].filter((item) => item.count >= 2).sort((left, right) => right.count - left.count).map((item) => {
     const taskType = mostFrequent(item.taskTypes); const ownerAgentId = mostFrequent(item.assignees);
-    return { title:item.title, count:item.count, failures:item.failures, needsInput:item.needsInput, usefulFeedback:item.usefulFeedback, negativeFeedback:item.negativeFeedback, taskType, ownerAgentId:ownerAgentId === 'unassigned' ? null : ownerAgentId, ownerName:ownerAgentId === 'unassigned' ? null : agentNames[ownerAgentId] || ownerAgentId };
+    return { title:item.title, count:item.count, failures:item.failures, needsInput:item.needsInput, usefulFeedback:item.usefulFeedback, negativeFeedback:item.negativeFeedback, taskType, ownerAgentId:ownerAgentId === 'unassigned' ? null : ownerAgentId, ownerName:ownerAgentId === 'unassigned' ? null : agentNames[ownerAgentId] || ownerAgentId, sampleTaskIds:item.taskIds.slice(-3) };
   });
   const byStatus = {};
   for (const task of tasks) byStatus[task.status || 'unknown'] = (byStatus[task.status || 'unknown'] || 0) + 1;

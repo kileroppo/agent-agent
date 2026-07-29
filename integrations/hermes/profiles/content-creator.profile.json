@@ -2,7 +2,7 @@
   "schemaVersion": "agent.army/hermes-profile-map/v1",
   "status": "active",
   "profileId": "content-creator",
-  "role": "小创：基于确认稿和正式分析生成平台内容草稿。",
+  "role": "小创：基于正式分析和受控参考案例生成一版可拍脚本或平台草稿。",
   "localProfile": {
     "created": true,
     "gatewayStarted": false,
@@ -30,18 +30,21 @@
     "tools": [
       "paperclip_assignment_get",
       "platform_content_draft_execute",
+      "video_script_package_execute",
       "paperclip_assignment_complete"
     ],
     "scope": {
       "agentIds": ["content-creator"],
-      "taskTypes": ["content.platform-draft"],
+      "taskTypes": ["content.platform-draft", "content.video-script-package"],
       "allowMissions": false
     }
   },
   "toolAllowlist": [
     "army.task.status.read",
     "content.artifact.read",
-    "content.draft.write"
+    "content.draft.write",
+    "content.public.search",
+    "content.public.read"
   ],
   "secrets": {
     "source": "profile-environment-only",

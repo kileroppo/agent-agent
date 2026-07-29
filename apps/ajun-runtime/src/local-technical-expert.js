@@ -5,6 +5,8 @@ export class LocalTechnicalExpert {
     const createdAt = this.now().toISOString();
     const context = task.input?.context || {};
     const failure = context.failure || {};
+    const diagnosis = context.diagnosis || null;
+    const classification = context.failureClassification || null;
     const engineeringAssigned = Boolean(task.governance?.paperclipAssigneeAgentId);
     const preparedWorkspace = this.workspace ? await this.workspace.prepare(task) : null;
     const run = preparedWorkspace && this.runner ? await this.runner.run(task, preparedWorkspace.workspace) : null;
@@ -19,7 +21,17 @@ export class LocalTechnicalExpert {
         retryable: failure.retryable === true
       },
       diagnosis: diagnosisFor(failure),
-      nextAction: nextActionFor(preparedWorkspace, run, promotion, engineeringAssigned),
+      diagnosisDetail:diagnosis ? {
+        status:diagnosis.status || null,
+        failureClass:diagnosis.failureClass || classification?.failureClass || 'unknown',
+        summary:diagnosis.summary || diagnosis.reason || null,
+        evidence:Array.isArray(diagnosis.evidence) ? diagnosis.evidence : [],
+        nextAction:diagnosis.nextAction || null,
+        route:context.technicalRoute || classification?.route || null
+      } : classification,
+      nextAction: !context.repairScope
+        ? diagnosis?.nextAction || diagnosis?.reason || classification?.reason || '补充最小诊断证据后再决定是否进入代码修复。'
+        : nextActionFor(preparedWorkspace, run, promotion, engineeringAssigned),
       implementationStarted: ['evidence_ready', 'evidence_missing', 'failed', 'waiting_for_test'].includes(run?.status),
       engineeringAssigned,
       workspacePrepared: Boolean(preparedWorkspace),
@@ -28,14 +40,14 @@ export class LocalTechnicalExpert {
       createdAt
     };
     return {
-      status: requiresFollowUpTest(run, promotion) ? 'waiting_test' : preparedWorkspace || engineeringAssigned ? 'running' : 'succeeded',
-      currentStage: stageFor(preparedWorkspace, run, promotion, engineeringAssigned),
+      status: !context.repairScope || requiresFollowUpTest(run, promotion) ? 'waiting_test' : preparedWorkspace || engineeringAssigned ? 'running' : 'succeeded',
+      currentStage: !context.repairScope ? 'technical_diagnosis_ready' : stageFor(preparedWorkspace, run, promotion, engineeringAssigned),
       execution: {
         executor: 'technical-expert',
         mode: run ? 'isolated_technical_repair' : preparedWorkspace ? 'isolated_repair_workspace_prepared' : 'technical_repair_triage',
         startedAt: task.execution?.startedAt || createdAt,
         finishedAt: this.now().toISOString(),
-        outcome: promotion?.status || run?.status || (preparedWorkspace ? 'workspace_prepared' : engineeringAssigned ? 'engineering_assigned' : 'repair_required'),
+        outcome: !context.repairScope ? 'diagnosis_only' : promotion?.status || run?.status || (preparedWorkspace ? 'workspace_prepared' : engineeringAssigned ? 'engineering_assigned' : 'repair_required'),
         ...(verification ? { verification } : {}),
         ...(run?.reason ? { runnerError:run.reason } : {}),
         ...(preparedWorkspace ? { workspace:{ path:preparedWorkspace.workspace, reused:preparedWorkspace.reused } } : {})
@@ -51,7 +63,26 @@ export class LocalTechnicalExpert {
         validation: { exists: true, readable: true, nonEmpty: true },
         createdAt,
         data: caseRecord
-      }, ...(preparedWorkspace ? [{
+      }, ...(!context.repairScope ? [{
+        artifactId:`technical-diagnosis:${task.taskId}`,
+        taskId:task.taskId,
+        type:'technical_diagnosis_report',
+        title:'技术专家根因分流报告',
+        location:`runtime://${task.taskId}/technical-diagnosis`,
+        mimeType:'application/json',
+        accessScope:'local-owner',
+        validation:{ exists:true, readable:true,nonEmpty:true, codeRepairAttempted:false },
+        createdAt,
+        data:{
+          failedTaskId:caseRecord.failedTaskId,
+          failureClass:diagnosis?.failureClass || classification?.failureClass || 'unknown',
+          route:context.technicalRoute || classification?.route || 'diagnose_before_action',
+          summary:diagnosis?.summary || diagnosis?.reason || classification?.reason || caseRecord.diagnosis,
+          evidence:Array.isArray(diagnosis?.evidence) ? diagnosis.evidence : [],
+          nextAction:diagnosis?.nextAction || classification?.reason || '补充最小诊断证据后再决定是否进入代码修复。',
+          codeRepairAttempted:false
+        }
+      }] : []), ...(preparedWorkspace ? [{
         artifactId:`repair-workspace:${task.taskId}`, taskId:task.taskId, type:'isolated_repair_workspace', title:'本次修复的独立副本已准备',
         location:`file://${preparedWorkspace.workspace}`, mimeType:'application/json', accessScope:'local-owner', validation:{ exists:true, readable:true, nonEmpty:true }, createdAt,
         data:{ workspace:preparedWorkspace.workspace, reused:preparedWorkspace.reused, mainDirectoryUntouched:true }
@@ -78,7 +109,7 @@ function verifiedRepairEvidence(task, run, promotion) {
 }
 
 function requiresFollowUpTest(run, promotion) {
-  return ['waiting_for_test', 'waiting_for_scope', 'evidence_missing'].includes(run?.status)
+  return ['waiting_for_test', 'waiting_for_scope', 'evidence_missing', 'failed'].includes(run?.status)
     || ['rejected', 'conflict'].includes(promotion?.status);
 }
 

@@ -1,3 +1,5 @@
+import { classifyTechnicalFailure } from './technical-failure-classifier.js';
+
 const MAX_AUTOMATIC_RETRIES = 1;
 
 export class FailureRecoveryCoordinator {
@@ -44,16 +46,19 @@ export class FailureRecoveryCoordinator {
       return { status: 'retrying', operatorTask, retryTask };
     }
     const diagnosis = this.diagnoser && this.projectRoot ? await this.diagnoser.diagnose({ input:{ title:failedTask.input?.title, context }, taskId:failedTask.taskId }, this.projectRoot) : null;
+    const route = diagnosis?.repairScope ? 'isolated_code_repair' : context.failureClassification?.route || 'diagnose_before_action';
     const technicalTask = await this.tasks.create({
-      title: `修复任务故障：${failedTask.input?.title || '未命名任务'}`,
-      description: '自动恢复无法安全完成，已升级给技术专家。',
+      title: `${diagnosis?.repairScope ? '修复' : '诊断'}任务故障：${failedTask.input?.title || '未命名任务'}`,
+      description:diagnosis?.repairScope
+        ? '只读诊断已形成受控修复范围，交给技术专家在隔离副本实施和验证。'
+        : '自动恢复无法安全完成，交给技术专家形成根因分类、缺失证据和明确下一步；没有修复范围时不得猜测改代码。',
       taskType: 'operations.technical-repair',
       agentId: 'technical-expert',
       requester: failedTask.requester,
       source: { channel: 'internal-recovery', parentChannel: failedTask.source?.channel || null, chatRef: failedTask.source?.chatRef || null },
       parentTaskId: failedTask.taskId,
       idempotencyKey: `technical-repair:${rootTaskId}`,
-      context: { ...context, ...(diagnosis ? { diagnosis } : {}), ...(diagnosis?.repairScope ? { repairScope:diagnosis.repairScope } : {}) }
+      context: { ...context, technicalRoute:route, ...(diagnosis ? { diagnosis } : {}), ...(diagnosis?.repairScope ? { repairScope:diagnosis.repairScope } : {}) }
     });
     await this.markCoordination(failedTask, { status: 'escalated', operatorTaskId: operatorTask.taskId, technicalTaskId: technicalTask.taskId, attempt });
     return { status: 'escalated', operatorTask, technicalTask };
@@ -72,16 +77,23 @@ function shouldHandleFailure(task) {
 
 function safeContext(task, attempt, maxAutomaticRetries) {
   const error = task.error || {};
+  const failureClassification = classifyTechnicalFailure({
+    error,
+    taskType:task.taskType,
+    sourceUrl:task.input?.sourceUrl
+  });
   return {
     failedTaskId: task.taskId,
     sourceUrl: task.input?.sourceUrl || null,
     attempt,
     maxAutomaticRetries,
+    failureClassification,
     failure: {
       code: String(error.code || 'unknown_failure'),
       category: String(error.category || 'manual'),
       stage: String(error.stage || task.currentStage || 'unknown'),
-      retryable: error.retryable === true
+      retryable: error.retryable === true,
+      message:failureClassification.evidence.message
     }
   };
 }

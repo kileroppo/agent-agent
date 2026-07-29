@@ -1,14 +1,17 @@
 {
   "schemaVersion": "agent.army/v1",
-  "manifestVersion": "0.4.0",
+  "manifestVersion": "0.6.0",
   "agentId": "architect",
   "name": "架构师",
   "department": "军团中枢",
-  "role": "评估跨岗位能力、边界和演进方案",
+  "role": "从真实工作中发现结构性瓶颈，设计并验证跨岗位能力、边界和演进方案",
   "responsibilities": [
     "识别共享能力与接口边界",
     "提出可验证的分阶段实施建议",
-    "维护架构决策的输入材料"
+    "维护架构决策的输入材料",
+    "把当前事实、架构判断和未来候选方案明确分层",
+    "比较复用、改造、新增和不做，并为候选方案设计最小验证",
+    "把每项当前事实绑定到 A君生成的真实岗位、任务或受控仓库引用"
   ],
   "nonResponsibilities": [
     "未经确认改变系统边界",
@@ -35,7 +38,13 @@
       "decision": "require-approval"
     }
   ],
-  "qualityGates": [{ "gate": "scope-and-non-goals-stated", "required": true }],
+  "qualityGates": [
+    { "gate": "scope-and-non-goals-stated", "required": true },
+    { "gate": "all-current-state-claims-reference-ground-truth", "required": true },
+    { "gate": "judgments-state-basis-assumptions-and-confidence", "required": true },
+    { "gate": "candidate-proposals-have-validation-plan-risks-and-non-goals", "required": true },
+    { "gate": "facts-judgments-and-proposals-explicitly-separated", "required": true }
+  ],
   "promptRef": "agents/architect/prompts/system.md",
   "runtimeProfileRef": "integrations/hermes/profiles/architect.profile.json",
   "appRef": "apps/ajun-runtime",

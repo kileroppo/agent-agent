@@ -7,6 +7,7 @@ const FIXED_CONTENT_ASSIGNMENTS = new Map([
   ['content.video-benchmark-analysis', 'video-content-analyst'],
   ['content.performance-review', 'video-content-analyst'],
   ['content.platform-draft', 'content-creator'],
+  ['content.video-script-package', 'content-creator'],
   ['office.knowledge-summary', 'office-assistant']
 ]);
 

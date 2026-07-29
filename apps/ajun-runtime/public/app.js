@@ -54,6 +54,7 @@ const taskLabels = {
   'content.video-benchmark-analysis': '小拆：视频内容拆解',
   'content.performance-review': '小拆：内容表现复盘',
   'content.platform-draft': '小创：平台内容草稿',
+  'content.video-script-package': '小创：可拍视频脚本',
   'operations.health-review': '运维官：本机健康检查',
   'governance.approval-review': '审核官：范围与风险审查',
   'governance.architecture-review': '架构师：能力评估'

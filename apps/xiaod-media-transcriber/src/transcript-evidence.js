@@ -32,7 +32,8 @@ export function buildEvidenceRecords({
   cleanTranscript,
   segments = [],
   mediaDurationSeconds = null,
-  audioDurationSeconds = null
+  audioDurationSeconds = null,
+  transcriptionQuality = null
 } = {}) {
   const timed = segments.filter((segment) => Number.isFinite(segment.startSeconds) && Number.isFinite(segment.endSeconds));
   const lastEnd = timed.length ? Math.max(...timed.map((segment) => segment.endSeconds)) : null;
@@ -45,7 +46,7 @@ export function buildEvidenceRecords({
   if (!String(cleanTranscript || '').trim()) hardFailures.push('transcript_empty');
   if (audioCoverageRatio !== null && audioCoverageRatio < 0.999) hardFailures.push('audio_coverage_below_99_9_percent');
   if (tailGapSeconds !== null && tailGapSeconds > 1) hardFailures.push('transcript_tail_gap_over_1_second');
-  const anomalies = transcriptAnomalies(cleanTranscript);
+  const anomalies = [...transcriptAnomalies(cleanTranscript), ...confidenceAnomalies(transcriptionQuality)];
   const sourceEvidence = {
     schemaVersion:'agent.army/source-evidence/v1',
     sourceType:sourceType || 'unknown',
@@ -71,7 +72,8 @@ export function buildEvidenceRecords({
     audioDurationSeconds:finite(audioDurationSeconds),
     audioCoverageRatio,
     tailGapSeconds,
-    confidenceAvailable:false,
+    confidenceAvailable:Boolean(transcriptionQuality),
+    confidence:transcriptionQuality || null,
     anomalies,
     hardFailures,
     passed:hardFailures.length === 0,
@@ -219,6 +221,16 @@ function transcriptAnomalies(value) {
   if (text.includes('\uFFFD')) anomalies.push('replacement_character');
   if ((text.match(/[�□]/g) || []).length > 3) anomalies.push('suspicious_glyphs');
   if (/(.)\1{12,}/u.test(text)) anomalies.push('repeated_character_run');
+  return anomalies;
+}
+
+function confidenceAnomalies(value) {
+  if (!value || typeof value !== 'object') return [];
+  const anomalies = [];
+  if (Number.isFinite(value.meanWordProbability) && value.meanWordProbability < 0.72) anomalies.push('low_mean_word_probability');
+  if (Number.isFinite(value.meanAvgLogprob) && value.meanAvgLogprob < -0.85) anomalies.push('low_mean_segment_logprob');
+  if (Number.isFinite(value.highNoSpeechSegmentRatio) && value.highNoSpeechSegmentRatio > 0.35) anomalies.push('high_no_speech_segment_ratio');
+  if (Number.isFinite(value.maxCompressionRatio) && value.maxCompressionRatio > 2.4) anomalies.push('suspicious_compression_ratio');
   return anomalies;
 }
 

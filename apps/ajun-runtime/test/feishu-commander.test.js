@@ -21,6 +21,91 @@ test('飞书军团总管将系统检查直接路由给运维官，且不创建 P
   assert.match(result.reply, /【运维官检查结果】/);
 });
 
+test('自然语言要视频脚本时直接交给小创，不误当成小D素材转录', async () => {
+  const { commander, calls } = setup();
+  const result = await commander.handle({
+    text:'按刚才那个视频的结构，写一个关于 AI 会不会让人失业的口播脚本',
+    sourceEventRef:'feishu:video-script-1',
+    chatRef:'chat-video-script'
+  });
+  assert.equal(calls.tasks[0].taskType, 'content.video-script-package');
+  assert.equal(calls.tasks[0].agentId, 'content-creator');
+  assert.equal(result.kind, 'content_script');
+});
+
+test('用户一句话改稿时复用当前会话最新脚本，不要求重新讲背景', async () => {
+  const calls = [];
+  const latest = {
+    taskId:'script-v1',
+    taskType:'content.video-script-package',
+    status:'succeeded',
+    input:{ contentGoal:'家庭关系里为什么不要把试探当沟通' },
+    source:{ channel:'feishu', chatRef:'chat-script-revision' },
+    artifactRefs:[{ type:'video_script_package', data:{ headline:'别再用试探，消耗最亲近的人' } }],
+    updatedAt:'2026-07-28T09:00:00.000Z'
+  };
+  const commander = new FeishuCommander({
+    tasks:{ async create(input) {
+      calls.push(input);
+      return { taskId:'script-v2', taskType:input.taskType, status:'queued', input, artifactRefs:[] };
+    } },
+    proposals:{},
+    store:{ async list() { return [latest]; } }
+  });
+  const result = await commander.handle({
+    text:'更像我说话，节奏快一点',
+    sourceEventRef:'feishu:script-revision-1',
+    chatRef:'chat-script-revision'
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].taskType, 'content.video-script-package');
+  assert.equal(calls[0].sourceScriptTaskId, 'script-v1');
+  assert.deepEqual(calls[0].context.sourceTaskIds, ['script-v1']);
+  assert.match(calls[0].contentGoal, /本次修改要求：更像我说话，节奏快一点/);
+  assert.equal(result.kind, 'content_script');
+});
+
+test('用户回复用这版时只采用最新脚本，不生成成片或发布', async () => {
+  const calls = [];
+  const latest = {
+    taskId:'script-v2',
+    taskType:'content.video-script-package',
+    status:'succeeded',
+    input:{ contentGoal:'家庭关系里为什么不要把试探当沟通' },
+    source:{ channel:'feishu', chatRef:'chat-script-approval' },
+    artifactRefs:[{ type:'video_script_package', data:{ templateLifecycle:{ approvedForUse:false } } }],
+    updatedAt:'2026-07-28T09:10:00.000Z'
+  };
+  const commander = new FeishuCommander({
+    tasks:{ async create(input) {
+      calls.push(input);
+      return {
+        taskId:'script-approved',
+        taskType:input.taskType,
+        status:'succeeded',
+        input,
+        artifactRefs:[{
+          type:'video_script_package',
+          data:{ fullScript:'已采用脚本', templateLifecycle:{ approvedForUse:true } }
+        }]
+      };
+    } },
+    proposals:{},
+    store:{ async list() { return [latest]; } }
+  });
+  const result = await commander.handle({
+    text:'用这版',
+    sourceEventRef:'feishu:script-approval-1',
+    chatRef:'chat-script-approval'
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].approvedForUse, true);
+  assert.equal(calls[0].sourceScriptTaskId, 'script-v2');
+  assert.deepEqual(calls[0].context.sourceTaskIds, ['script-v2']);
+  assert.equal(result.kind, 'content_script');
+  assert.match(result.reply, /没有生成成片，也没有发布/);
+});
+
 test('重试小D任务不会落入普通对话，而是返回当前任务链真相', async () => {
   const records = [{ taskId:'media-root', taskType:'media.transcribe-and-refine', status:'failed', source:{ channel:'feishu', chatRef:'chat-retry' }, updatedAt:'2026-07-23T07:00:00.000Z' }];
   const commander = new FeishuCommander({

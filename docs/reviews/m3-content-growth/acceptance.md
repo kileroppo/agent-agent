@@ -167,6 +167,20 @@
 - 正式产物：`apps/ajun-runtime/data/content-growth-artifacts/9c9b745a-7d15-4315-b3b3-10ed076e638a/video_content_analysis_report.md`，23,847 bytes，SHA-256 `2d853e85c5e36cda47c5d03169f83d86abbce7813eb4643ea1c871802bb31898`。验证项为正式自动确认稿、13 模块、29 个连续证据段、48 帧/4 故事板、6 条画面结论覆盖 5 类视觉观察、文本与画面证据均合法，`completeness=complete`。
 - 边界：该任务来源为 `hermes-native`，未登记飞书 completion watch，也未创建飞书文档或发送测试消息；这次证据证明本机真实素材、Paperclip/Hermes 和真实产物，不替代负责人对内容质量的判断。
 
+### M3-REAL-007：参考案例到可拍脚本生产包
+
+- 状态：本机真实产物 PASS；飞书自然语言与负责人质量验收待验证。
+- 输入：明确引用真实图文报告任务 `9c9b745a-7d15-4315-b3b3-10ed076e638a`，新主题为“家庭关系里为什么不要把试探当沟通”。
+- 匹配：`user_specified_reference`，来源标题为“陈翔六点半：你有你的张良计，我有我的过墙梯”；只复用冲突开场、逐步加深、反转和收束的结构作用，没有复制人物、私房钱案例、金额、台词或笑点。
+- 真实 Hermes：`openai-codex / gpt-5.6-terra` 调用 1 次，输入 16,180 Token、输出 1,058 Token，执行器报告费用 0 USD。
+- 主脚本：`apps/ajun-runtime/data/content-growth-artifacts/m3-script-package-hermes-v2-20260728/video-script-package/script.md`，SHA-256 `22f92323ef11bce72228d71bbc28676da432a0c60323311f158ecdb0e43f1a0a`。
+- 生产包：`script.md`、`shots.json`、`subtitles.srt`、`sources.md`、`manifest.json` 均存在、可读、权限受控且有独立校验值；共 6 个镜头，默认抖音 9:16、45 秒。
+- 用户界面：默认交付只展示标题、平台/时长、开场、完整口播、拍摄提示和一个下一步“用这版”；内部文件、模板 ID 和评分不进入默认回复。
+- 生命周期：参考拆解先作为案例；“用这版”后才标记 `trial`。至少三次使用、至少两次达到账号基准且基准样本不少于五条时建议 `validated`；连续三次低于基准时建议 `retired`。
+- ASR 修复：本地 Whisper JSON 的词概率、段落平均 logprob、无语音比例和压缩率进入自动确认门禁；低置信信号即使音频覆盖完整也会转人工，避免只检查覆盖率。
+- 外部副作用：`0`；没有创建成片、发送飞书消息或发布。
+- 已知限制：本轮没有获准发送飞书测试消息，也没有真实发布表现截图；因此自然语言“主题 → 脚本 → 用这版”和生命周期变化目前只有自动化及本机产物证据。
+
 ## 候选能力状态
 
 | 能力 | 状态 | 结论 |

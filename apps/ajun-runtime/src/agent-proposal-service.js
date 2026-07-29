@@ -350,12 +350,17 @@ function currentTrialReadiness(manifest, requestedCapabilities) {
     && taskTypes.includes('content.performance-review')
     && sameItems(requestedCapabilities, ['army.task.status.read', 'content.artifact.read', 'content.analysis.write']);
   const supportsContentCreator = manifest?.agentId === 'content-creator'
-    && taskTypes.length === 1
-    && taskTypes[0] === 'content.platform-draft'
-    && sameItems(requestedCapabilities, ['army.task.status.read', 'content.artifact.read', 'content.draft.write']);
+    && (
+      (taskTypes.length === 1
+        && taskTypes[0] === 'content.platform-draft'
+        && sameItems(requestedCapabilities, ['army.task.status.read', 'content.artifact.read', 'content.draft.write']))
+      || (taskTypes.includes('content.platform-draft')
+        && taskTypes.includes('content.video-script-package')
+        && sameItems(requestedCapabilities, ['army.task.status.read', 'content.artifact.read', 'content.draft.write', 'content.public.search', 'content.public.read']))
+    );
   if (supportsIntelResearch) return { status:'ready', message:'可进入一次受限公开只读测试；负责人批准前不会启用，测试必须交出可验证产物。' };
   if (supportsVideoContentAnalyst) return { status:'ready', message:'可引用一份受控确认稿进入一次证据化拆解试用；测试不能抓取、登录、发布或绕过人工确认。' };
-  if (supportsContentCreator) return { status:'ready', message:'可引用确认稿和正式拆解进入一次草稿试用；只允许生成最多三个平台版本，不能发布。' };
+  if (supportsContentCreator) return { status:'ready', message:'可生成待审草稿或一版可拍脚本与受控生产包；不能生成成片或发布。' };
   return supportsPublicReport
     ? { status:'ready', message:'当前可进入只读公开网页的受限试用；通过真实产物验收后才会上岗。' }
     : { status:'needs_capability', message:'这个岗位的草案可以先审核，但军团目前还没有对应的真实执行能力；不会进入试用，更不会上线。' };

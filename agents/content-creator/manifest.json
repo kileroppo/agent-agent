@@ -4,12 +4,13 @@
   "agentId": "content-creator",
   "name": "小创·内容创作师",
   "department": "内容增长部",
-  "role": "基于系统或人工确认稿和正式拆解报告生成可审核的平台内容草稿。",
+  "role": "基于正式拆解、受控参考案例和公开资料生成一版可拍脚本或平台草稿。",
   "responsibilities": [
     "读取当前任务明确引用的确认稿和正式拆解报告",
     "按目标平台生成标题、开场、正文或脚本及节奏提示",
     "保留事实和表达建议对应的来源证据",
     "生成发布前人工检查清单"
+    ,"按主题自动匹配参考案例并生成脚本、镜头、字幕、来源和清单生产包"
   ],
   "nonResponsibilities": [
     "读取未确认转录或初步分析作为正式创作依据",
@@ -18,12 +19,15 @@
     "承诺固定播放量、转化率或增长结果"
   ],
   "acceptedTaskTypes": [
-    "content.platform-draft"
+    "content.platform-draft",
+    "content.video-script-package"
   ],
   "toolAllowlist": [
     "army.task.status.read",
     "content.artifact.read",
     "content.draft.write"
+    ,"content.public.search"
+    ,"content.public.read"
   ],
   "dataScopes": [
     {
@@ -35,6 +39,11 @@
       "scope": "platform-draft-artifacts",
       "access": ["write"],
       "boundary": "只写入当前任务草稿，最多三个平台版本"
+    },
+    {
+      "scope": "public-research-sources",
+      "access": ["read"],
+      "boundary": "仅在事实型主题缺少来源时读取最多三个公开网页；不登录、不付费"
     }
   ],
   "approvalPolicies": [
@@ -55,6 +64,10 @@
     },
     {
       "gate": "human-prepublish-checklist-present",
+      "required": true
+    },
+    {
+      "gate": "video-script-package-has-five-controlled-files",
       "required": true
     }
   ],
@@ -82,6 +95,7 @@
     "mcpTools": [
       "paperclip_assignment_get",
       "platform_content_draft_execute",
+      "video_script_package_execute",
       "paperclip_assignment_complete"
     ],
     "feishuToolsets": ["skills", "memory", "session_search", "clarify"],

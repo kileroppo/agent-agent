@@ -25,7 +25,7 @@ test('Agent Army MCP exposes factual read and controlled action tools', async (t
   const tools = await client.listTools();
   assert.deepEqual(
     tools.tools.map((tool) => tool.name).sort(),
-    ['approval_list', 'approval_resolve', 'capabilities', 'content_performance_review_execute', 'employee_status', 'mission_create', 'paperclip_assignment_complete', 'paperclip_assignment_get', 'platform_content_draft_execute', 'status', 'task_control', 'task_create', 'task_get', 'task_list', 'technical_repair_execute', 'video_content_analyze_execute']
+    ['approval_list', 'approval_resolve', 'capabilities', 'content_performance_review_execute', 'employee_status', 'mission_create', 'paperclip_assignment_complete', 'paperclip_assignment_get', 'platform_content_draft_execute', 'status', 'task_control', 'task_create', 'task_get', 'task_list', 'technical_repair_execute', 'video_content_analyze_execute', 'video_script_package_execute']
   );
 
   const capabilities = await client.callTool({ name:'capabilities', arguments:{} });

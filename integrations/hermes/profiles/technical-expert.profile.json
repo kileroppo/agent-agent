@@ -2,7 +2,7 @@
   "schemaVersion": "agent.army/hermes-profile-map/v1",
   "status": "verified-local",
   "profileId": "technical-expert",
-  "role": "技术专家：通过 A君隔离 Codex 修复执行器实施最小修复、测试和恢复检查。",
+  "role": "技术专家：先做故障分类与根因分流，仅对范围明确的代码缺陷通过 A君隔离 Codex 修复执行器实施修复、测试和恢复检查。",
   "localProfile": {
     "created": true,
     "gatewayStarted": true,

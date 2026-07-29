@@ -3,6 +3,7 @@ import { formatPublicReportReply } from './public-report-presentation.js';
 import { formatOfficeBriefingReply } from './local-office-assistant.js';
 import { canonicalizeBusinessAssignment, githubRepositoryQuery } from './business-task-routing.js';
 import { usesPaperclipHermesExecution } from './governance-hermes-runtime.js';
+import { buildArchitectureGroundTruth, validateArchitectureEvidenceRefs } from './architecture-evidence.js';
 
 const highRiskActions = ['外发', '发布', '删除', '付款', '付费', '扩权', '敏感'];
 const organizationGovernanceWords = /创建.*(?:agent|智能体|岗位)|新建.*(?:agent|智能体|岗位)|扩权|账号|连接|公开发布|对外发布|付款|付费|预算|暂停|终止|跨\s*agent/i;
@@ -36,6 +37,13 @@ export class TaskService {
   setFeishuChannelStatus(status) { this.feishuChannelStatus = status; }
   setAgentChannelStates(status) { this.agentChannelStates = status; }
   setWorkerStatus(status) { this.workerStatus = status; }
+
+  async architectureGroundTruth() {
+    return buildArchitectureGroundTruth({
+      agents:await this.registry.list({ includeInactive:true }),
+      tasks:await this.store.list()
+    });
+  }
 
   async create(input) {
     const rawRequested = {
@@ -96,6 +104,10 @@ export class TaskService {
         focus:optionalInput(input?.focus),
         platforms:Array.isArray(input?.platforms) ? input.platforms.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 10) : undefined,
         contentGoal:optionalInput(input?.contentGoal),
+        durationSeconds:Number.isFinite(Number(input?.durationSeconds)) ? Number(input.durationSeconds) : undefined,
+        researchMode:input?.researchMode === 'off' ? 'off' : 'auto',
+        approvedForUse:input?.approvedForUse === true,
+        sourceScriptTaskId:optionalInput(input?.sourceScriptTaskId),
         metrics:input?.metrics && typeof input.metrics === 'object' && !Array.isArray(input.metrics) ? input.metrics : undefined,
         context: input?.context || undefined
       },
@@ -103,7 +115,7 @@ export class TaskService {
       routing: { requestedAgentId, candidateAgentIds: candidates.map((item) => item.agentId), reason: agent?.status === 'active' ? '已路由到已启用的本地执行器。' : agent ? '岗位骨架已登记，等待启用真实执行器。' : candidates.length === 0 ? '没有岗位声明支持该任务类型。' : '多个岗位匹配，请明确选择承接岗位。' }
     });
     if (hasAffirmativeHighRiskIntent(`${title} ${description}`)
-      && !['army.intake', 'governance.approval-review', 'office.knowledge-summary', 'content.platform-draft'].includes(taskType)) {
+      && !['army.intake', 'governance.approval-review', 'office.knowledge-summary', 'content.platform-draft', 'content.video-script-package'].includes(taskType)) {
       await this.store.createApproval({ taskId: task.taskId, governanceMode: requiresOrganizationGovernance(title, description) ? 'paperclip' : 'local', decisionChannel: 'feishu_card', action: 'manual-risk-review', riskLevel: 'high', reason: '任务描述包含高风险动作，必须人工确认范围。', requestedBy: 'ajun', approverScope: 'A君', requestedScope: { taskType, title, assigneeAgentId: agent?.agentId || null }, validUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() });
       task = (await this.store.list()).find((item) => item.taskId === task.taskId);
     }
@@ -469,6 +481,7 @@ export class TaskService {
         }
       });
     }
+    const groundTruth = agent.agentId === 'architect' ? await this.architectureGroundTruth() : null;
     return {
       task,
       assignment:{
@@ -477,7 +490,8 @@ export class TaskService {
         title:identity.issue.title,
         description:identity.issue.description || '',
         agentId:agent.agentId,
-        runId:identity.run.id
+        runId:identity.run.id,
+        ...(groundTruth ? { groundTruth } : {})
       }
     };
   }
@@ -492,6 +506,36 @@ export class TaskService {
     const completedAt = new Date().toISOString();
     const summary = String(input.summary || '').replace(/\s+/g, ' ').trim().slice(0, 4000);
     if (!summary) throw new ValidationError('员工必须提供可核对的结果摘要。');
+    let architectureEvidence = null;
+    let architectureLayers = null;
+    if (assignment.agentId === 'architect') {
+      const groundTruth = await this.architectureGroundTruth();
+      architectureLayers = normalizeArchitectureLayers(input);
+      const factEvidence = validateArchitectureEvidenceRefs(
+        architectureLayers.factClaims.flatMap((item) => item.evidenceRefs.map((ref) => ({ ref, claim:item.claim }))),
+        groundTruth
+      );
+      const judgmentEvidence = validateArchitectureEvidenceRefs(
+        architectureLayers.architectureJudgments.flatMap((item) => item.basisRefs.map((ref) => ({ ref, claim:item.judgment }))),
+        groundTruth
+      );
+      const invalidRefs = [...new Set([...factEvidence.invalidRefs, ...judgmentEvidence.invalidRefs])];
+      architectureEvidence = {
+        valid:factEvidence.valid && invalidRefs.length === 0,
+        refs:[...factEvidence.refs, ...judgmentEvidence.refs],
+        invalidRefs,
+        snapshotId:groundTruth.snapshotId
+      };
+      if (invalidRefs.length) {
+        throw new ValidationError(`架构报告引用了快照中不存在的对象：${invalidRefs.join('、')}。当前事实和判断依据必须使用真实引用。`);
+      }
+      if (requestedStatus === 'succeeded' && !factEvidence.valid) {
+        const reason = factEvidence.invalidRefs.length
+          ? `当前事实引用了快照中不存在的对象：${factEvidence.invalidRefs.join('、')}`
+          : '架构报告至少需要一条带真实引用的当前事实；推理和候选方案不能替代现状基线。';
+        throw new ValidationError(`${reason} 未写入成功结论。`);
+      }
+    }
     const artifact = {
       taskId:task.taskId,
       type:'employee_role_report',
@@ -500,6 +544,20 @@ export class TaskService {
         summary,
         evidence:String(input.evidence || '').replace(/\s+/g, ' ').trim().slice(0, 4000),
         remainingRisks:String(input.remainingRisks || '').replace(/\s+/g, ' ').trim().slice(0, 2000),
+        ...(architectureEvidence ? {
+          evidenceRefs:architectureEvidence.refs,
+          evidenceValidation:{
+            valid:architectureEvidence.valid,
+            invalidRefs:architectureEvidence.invalidRefs,
+            snapshotId:architectureEvidence.snapshotId
+          },
+          factClaims:architectureLayers.factClaims,
+          architectureJudgments:architectureLayers.architectureJudgments,
+          candidateProposals:architectureLayers.candidateProposals,
+          currentStateUnknowns:architectureLayers.currentStateUnknowns,
+          // 兼容旧读取方；新写入统一使用 currentStateUnknowns。
+          unverifiedClaims:architectureLayers.currentStateUnknowns
+        } : {}),
         paperclipIssueId:assignment.issueId,
         paperclipRunId:assignment.runId
       },
@@ -591,13 +649,14 @@ export class TaskService {
     const { task, assignment } = await this.getPaperclipAssignment(input);
     const allowed = {
       'video-content-analyst':new Set(['content.video-benchmark-analysis', 'content.performance-review']),
-      'content-creator':new Set(['content.platform-draft'])
+      'content-creator':new Set(['content.platform-draft', 'content.video-script-package'])
     };
     if (!allowed[assignment.agentId]?.has(task.taskType)) throw new ValidationError('当前指派不是受控内容增长任务。');
     const artifactTypes = {
       'content.video-benchmark-analysis':'video_content_analysis_report',
       'content.performance-review':'content_performance_report',
-      'content.platform-draft':'platform_content_draft'
+      'content.platform-draft':'platform_content_draft',
+      'content.video-script-package':'video_script_package'
     };
     const expectedType = artifactTypes[task.taskType];
     const existing = (task.artifactRefs || []).find((item) => item.type === expectedType && item.validation?.exists === true && item.validation?.readable === true);
@@ -874,6 +933,11 @@ export class TaskService {
         if (draft?.drafts?.length) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatPlatformDraftDelivery(draft) };
         return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小创已经完成“${shortTaskTitle(root)}”，但草稿产物没有通过读取确认；系统不会把它当作完整交付。` };
       }
+      if (current.taskType === 'content.video-script-package') {
+        const script = current.artifactRefs?.find((item) => item.type === 'video_script_package')?.data;
+        if (script?.fullScript) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatVideoScriptDelivery(script) };
+        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小创已经完成“${shortTaskTitle(root)}”，但可拍脚本没有通过读取确认；系统不会把它当作完整交付。` };
+      }
       if (current.taskType === 'content.performance-review') {
         const report = current.artifactRefs?.find((item) => item.type === 'content_performance_report')?.data;
         if (report?.metrics) return { terminal:true, status:'succeeded', taskId:root.taskId, message:`【小拆内容表现复盘】\n${report.summary}\n${(report.observations || []).slice(0, 5).map((item) => `- ${item}`).join('\n')}` };
@@ -1043,6 +1107,26 @@ function formatPlatformDraftDelivery(report) {
   const drafts = report.drafts.slice(0, 3).map((item) => `- ${item.platform}：${item.titleCandidates?.[0] || '已生成草稿'}\n  开场：${item.opening || ''}`).join('\n');
   return `【小创平台草稿】\n仅生成草稿，未发布。\n${drafts}\n发布前仍需真人检查。`;
 }
+function formatVideoScriptDelivery(report) {
+  if (report.templateLifecycle?.approvedForUse === true) {
+    return '已采用这版。可拍脚本和制作包已经准备好；没有生成成片，也没有发布。';
+  }
+  const notes = Array.isArray(report.shootingNotes)
+    ? report.shootingNotes.slice(0, 3).map((item) => `- ${item}`).join('\n')
+    : '';
+  return [
+    '【可拍脚本】',
+    `标题：${report.headline}`,
+    `建议：${report.platform || 'douyin'}｜约 ${report.durationSeconds || 45} 秒`,
+    '',
+    `开场：${report.hook}`,
+    '',
+    report.fullScript,
+    ...(notes ? ['', '拍摄提示：', notes] : []),
+    '',
+    '下一步：满意就回复“用这版”；要改直接说一句，例如“更像我说话”或“节奏快一点”。'
+  ].join('\n');
+}
 
 async function missionNotification(task, { chain = [], approvals = [], xiaod = null } = {}) {
   const report = task.artifactRefs?.find((item) => item.type === 'cross_agent_mission_summary')?.data;
@@ -1148,6 +1232,50 @@ function shouldStartFailureRecovery(task) {
   return task?.status === 'failed'
     && !['operations.failure-recovery', 'operations.technical-repair'].includes(task.taskType);
 }
+function normalizeArchitectureLayers(input = {}) {
+  const explicitFacts = (Array.isArray(input.factClaims) ? input.factClaims : []).slice(0, 20).map((item) => ({
+    claim:architectureText(item?.claim, 1000),
+    evidenceRefs:architectureStrings(item?.evidenceRefs || item?.evidence_refs, 10, 500)
+  })).filter((item) => item.claim && item.evidenceRefs.length);
+  const legacyFacts = (Array.isArray(input.evidenceRefs) ? input.evidenceRefs : []).slice(0, 30).map((item) => ({
+    claim:architectureText(item?.claim, 1000),
+    evidenceRefs:architectureStrings([item?.ref], 1, 500)
+  })).filter((item) => item.claim && item.evidenceRefs.length);
+  const architectureJudgments = (Array.isArray(input.architectureJudgments) ? input.architectureJudgments : []).slice(0, 20).map((item) => ({
+    judgment:architectureText(item?.judgment, 1200),
+    basisRefs:architectureStrings(item?.basisRefs || item?.basis_refs, 10, 500),
+    assumptions:architectureStrings(item?.assumptions, 10, 600),
+    confidence:['low', 'medium', 'high'].includes(item?.confidence) ? item.confidence : 'low'
+  })).filter((item) => item.judgment && (item.basisRefs.length || item.assumptions.length));
+  const candidateProposals = (Array.isArray(input.candidateProposals) ? input.candidateProposals : []).slice(0, 10).map((item) => ({
+    proposal:architectureText(item?.proposal, 1200),
+    problem:architectureText(item?.problem, 1000),
+    validationPlan:architectureText(item?.validationPlan || item?.validation_plan, 1500),
+    risks:architectureStrings(item?.risks, 10, 600),
+    nonGoals:architectureStrings(item?.nonGoals || item?.non_goals, 10, 600)
+  })).filter((item) => item.proposal && item.problem && item.validationPlan);
+  return {
+    factClaims:explicitFacts.length ? explicitFacts : legacyFacts,
+    architectureJudgments,
+    candidateProposals,
+    currentStateUnknowns:architectureStrings([
+      ...(Array.isArray(input.currentStateUnknowns) ? input.currentStateUnknowns : []),
+      ...(Array.isArray(input.unverifiedClaims) ? input.unverifiedClaims : [])
+    ], 20, 1000)
+  };
+}
+
+function architectureText(value, limit) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit);
+}
+
+function architectureStrings(values, maxItems, maxLength) {
+  return [...new Set((Array.isArray(values) ? values : [])
+    .map((item) => architectureText(item, maxLength))
+    .filter(Boolean))]
+    .slice(0, maxItems);
+}
+
 function isTerminalTask(task) {
   return ['succeeded', 'failed', 'cancelled', 'waiting_test'].includes(task?.status);
 }

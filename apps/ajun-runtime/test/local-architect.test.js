@@ -29,6 +29,10 @@ test('架构师从真实重复工作中形成带证据的新岗位草案，但�
   assert.equal(report.roleOpportunities[0].kind, 'new_role_draft');
   assert.equal(report.roleOpportunities[0].evidenceCount, 3);
   assert.equal(report.roleOpportunities[0].status, 'draft_only');
+  assert.equal(report.factClaims.some((item) => item.evidenceRefs.includes('task:1')), true);
+  assert.equal(report.architectureJudgments[0].confidence, 'medium');
+  assert.equal(report.candidateProposals[0].validationPlan.length > 0, true);
+  assert.match(report.candidateProposals[0].nonGoals[0], /不在本次评估中创建岗位/);
   assert.equal(report.architectureChanged, false);
 });
 

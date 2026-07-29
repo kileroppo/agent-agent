@@ -494,6 +494,63 @@ test('小创要求确认稿和正式分析，且一次最多三个平台', async
   assert.equal(result.artifactRefs[0].validation.externalSideEffects, 0);
 });
 
+test('已采用脚本只有达到真实使用与账号基准门槛后才升级模板状态', async (t) => {
+  const root = await sandbox(t);
+  const script = {
+    artifactId:'video_script_package:approved-1',
+    taskId:'approved-1',
+    type:'video_script_package',
+    location:'runtime://approved-script',
+    validation:{ exists:true, readable:true, nonEmpty:true },
+    data:{ templateLifecycle:{ state:'trial', approvedForUse:true } }
+  };
+  const priorTasks = [];
+  const store = { async list() { return priorTasks; } };
+  const analyst = new LocalVideoContentAnalyst({ store, artifactsDir:path.join(root, 'out'), allowedArtifactRoots:[root] });
+  for (const [index, metBaseline] of [true, false, true].entries()) {
+    const result = await analyst.execute({
+      taskId:`performance-${index + 1}`,
+      taskType:'content.performance-review',
+      input:{ metrics:{ metBaseline, baselineSampleSize:10 } }
+    }, { sourceArtifacts:[script] });
+    const artifact = result.artifactRefs[0];
+    priorTasks.push({ taskId:`performance-${index + 1}`, artifactRefs:[artifact], status:'succeeded' });
+    assert.equal(artifact.data.templateLifecycle.state, index === 2 ? 'validated' : 'trial');
+  }
+  const final = priorTasks.at(-1).artifactRefs[0].data.templateLifecycle;
+  assert.equal(final.comparableUseCount, 3);
+  assert.equal(final.metBaselineCount, 2);
+  assert.equal(final.baselineSampleSize, 10);
+});
+
+test('已采用脚本连续三次低于账号基准后建议 retired', async (t) => {
+  const root = await sandbox(t);
+  const script = {
+    artifactId:'video_script_package:approved-low',
+    taskId:'approved-low',
+    type:'video_script_package',
+    location:'runtime://approved-low',
+    validation:{ exists:true, readable:true, nonEmpty:true },
+    data:{ templateLifecycle:{ state:'trial', approvedForUse:true } }
+  };
+  const priorTasks = [];
+  const store = { async list() { return priorTasks; } };
+  const analyst = new LocalVideoContentAnalyst({ store, artifactsDir:path.join(root, 'out'), allowedArtifactRoots:[root] });
+  let lifecycle;
+  for (let index = 0; index < 3; index += 1) {
+    const result = await analyst.execute({
+      taskId:`performance-low-${index + 1}`,
+      taskType:'content.performance-review',
+      input:{ metrics:{ metBaseline:false, baselineSampleSize:8 } }
+    }, { sourceArtifacts:[script] });
+    const artifact = result.artifactRefs[0];
+    priorTasks.push({ taskId:`performance-low-${index + 1}`, artifactRefs:[artifact], status:'succeeded' });
+    lifecycle = artifact.data.templateLifecycle;
+  }
+  assert.equal(lifecycle.state, 'retired');
+  assert.match(lifecycle.reason, /连续三次/);
+});
+
 function confirmedArtifact(filePath, confirmationMode = 'human') {
   return {
     artifactId:'confirmed-1', taskId:'source-task', type:'confirmed_transcript', location:`file://${filePath}`, checksum:'abc',
