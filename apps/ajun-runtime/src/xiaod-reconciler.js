@@ -3,11 +3,20 @@ const MAX_BACKOFF_MS = 30_000;
 const MAX_UNAVAILABLE_POLLS = 5;
 
 export class XiaodReconciler {
-  constructor({ store, xiaod, governance = null, onFailure = null, now = () => Date.now(), intervalMs = 3_000 } = {}) {
+  constructor({
+    store,
+    xiaod,
+    governance = null,
+    onFailure = null,
+    contentWorkspaceDir = null,
+    now = () => Date.now(),
+    intervalMs = 3_000,
+  } = {}) {
     this.store = store;
     this.xiaod = xiaod;
     this.governance = governance;
     this.onFailure = onFailure;
+    this.contentWorkspaceDir = contentWorkspaceDir ? path.resolve(contentWorkspaceDir) : null;
     this.now = now;
     this.intervalMs = intervalMs;
     this.timer = null;
@@ -60,6 +69,7 @@ export class XiaodReconciler {
         ...task.execution,
         xiaodStatus: job.status,
         xiaodProgress: job.progress,
+        connectionBinding:job.connectionBinding || task.execution?.connectionBinding || null,
         updatedAt: new Date(this.now()).toISOString(),
         polling: { state: ['running', 'pausing'].includes(status) ? 'watching' : 'settled', consecutiveFailures: 0, nextPollAt: ['running', 'pausing'].includes(status) ? new Date(this.now() + this.intervalMs).toISOString() : null }
       };
@@ -83,11 +93,39 @@ export class XiaodReconciler {
         });
         patch.approvalRefs = [...new Set([...(task.approvalRefs || []), approval.approvalId])];
       }
-      if (status === 'succeeded') patch.artifactRefs = artifactFor(task, job, this.xiaod.baseUrl);
+      if (status === 'succeeded') {
+        patch.artifactRefs = artifactFor(task, job, this.xiaod.baseUrl);
+        if (task.taskType === 'content.campaign-assets') {
+          patch.artifactRefs.push(await m5AssetPackageFor(task, job, {
+            contentWorkspaceDir:this.contentWorkspaceDir,
+          }));
+        }
+      }
       if (status === 'failed' || status === 'needs_input') patch.error = failureFor(job);
       const updated = await this.persist(task.taskId, patch);
       if (status === 'failed') await this.coordinateFailure(updated);
     } catch (error) {
+      if (String(error?.code || '').startsWith('m5_asset_')) {
+        await this.persist(task.taskId, {
+          status:'needs_input',
+          currentStage:String(error.code),
+          execution:{
+            ...task.execution,
+            updatedAt:new Date(this.now()).toISOString(),
+            polling:{ state:'settled', consecutiveFailures:0, nextPollAt:null },
+          },
+          error:{
+            code:String(error.code),
+            message:String(error.message || 'M5 素材包证据不足。'),
+            userMessage:String(error.message || 'M5 素材包证据不足。'),
+            category:'needs_input',
+            stage:'m5_asset_package',
+            retryable:false,
+            occurredAt:new Date(this.now()).toISOString(),
+          },
+        });
+        return;
+      }
       await this.deferUnavailableTask(task, error);
     }
   }
@@ -218,7 +256,186 @@ function artifactFor(task, job, baseUrl) {
   return artifacts;
 }
 
+async function m5AssetPackageFor(task, job, { contentWorkspaceDir } = {}) {
+  const candidates = [
+    ['source_evidence', job.output?.sourceEvidencePath],
+    ['visual_evidence', job.output?.visualEvidencePath],
+    ['confirmed_transcript', job.output?.confirmedTranscriptPath],
+  ].filter(([, filePath]) => Boolean(String(filePath || '').trim()));
+  if (candidates.length < 2) {
+    throw m5AssetError(
+      'm5_asset_evidence_incomplete',
+      'M5 素材阶段缺少至少两类真实本机证据文件，不能生成 AssetPackage。',
+    );
+  }
+  const files = [];
+  for (const [kind, filePath] of candidates) {
+    let bytes;
+    try {
+      bytes = await fs.readFile(filePath);
+    } catch {
+      throw m5AssetError(
+        'm5_asset_file_unreadable',
+        `M5 素材阶段的 ${kind} 文件无法回读，不能生成 AssetPackage。`,
+      );
+    }
+    if (!bytes.length) {
+      throw m5AssetError(
+        'm5_asset_file_empty',
+        `M5 素材阶段的 ${kind} 文件为空，不能生成 AssetPackage。`,
+      );
+    }
+    files.push({
+      kind,
+      checksum:`sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`,
+      bytes:bytes.length,
+    });
+  }
+  const rightsBasis = String(
+    task.input?.context?.assetRightsBasis
+    || task.input?.context?.pipelineCase?.fields?.assetRightsBasis
+    || task.input?.assetRightsBasis
+    || '',
+  ).trim();
+  if (!rightsBasis) {
+    throw m5AssetError(
+      'm5_asset_rights_basis_required',
+      'M5 素材阶段缺少明确版权依据，不能把来源画面带入成片。',
+    );
+  }
+  const assets = await stageM5VisualAssets({
+    task,
+    job,
+    contentWorkspaceDir,
+  });
+  const createdAt = new Date().toISOString();
+  return {
+    artifactId:`asset-package:${job.id}`,
+    taskId:task.taskId,
+    type:'asset_package',
+    title:`${job.title || 'M5 内容'}｜已核验素材包`,
+    mimeType:'application/json',
+    accessScope:'local-owner',
+    sourceRefs:files.map((item) => `${item.kind}:${item.checksum}`),
+    validation:{
+      exists:true,
+      readable:true,
+      nonEmpty:true,
+      sourceFilesReadBack:true,
+      checksumCount:files.length,
+      externalSideEffects:0,
+    },
+    createdAt,
+    data:{
+      xiaodJobId:String(job.id || '').trim(),
+      sourceUrl:String(task.execution?.sourceUrl || task.input?.sourceUrl || '').trim(),
+      files,
+      assets,
+      coverSourcePath:assets[0].relativePath,
+      rightsBasis:rightsBasis.slice(0, 200),
+      visualCoverage:job.output?.visualCoverage || null,
+      generatedAt:createdAt,
+    },
+  };
+}
+
+async function stageM5VisualAssets({ task, job, contentWorkspaceDir }) {
+  if (!contentWorkspaceDir) {
+    throw m5AssetError(
+      'm5_content_workspace_required',
+      'M5 内容工作区未绑定到 A君运行时，不能安全转存真实画面素材。',
+    );
+  }
+  const pipelineCaseId = String(task.input?.context?.pipelineCaseId || '').trim();
+  if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(pipelineCaseId)) {
+    throw m5AssetError('m5_asset_case_required', 'M5 素材阶段缺少可信 Pipeline Case。');
+  }
+  const manifestPath = path.resolve(String(job.output?.visualEvidencePath || ''));
+  let manifest;
+  try {
+    manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+  } catch {
+    throw m5AssetError('m5_visual_manifest_invalid', 'M5 视觉证据清单不可读或不是有效 JSON。');
+  }
+  const frames = Array.isArray(manifest?.frames) ? manifest.frames.slice(0, 12) : [];
+  if (manifest?.schemaVersion !== 'agent.army/visual-evidence/v1' || !frames.length) {
+    throw m5AssetError('m5_visual_frames_required', 'M5 视觉证据没有可用关键帧，不能冒充旁白混剪。');
+  }
+  await fs.mkdir(contentWorkspaceDir, { recursive:true, mode:0o700 });
+  const workspaceRoot = await fs.realpath(contentWorkspaceDir);
+  const sourceRoot = await fs.realpath(path.dirname(manifestPath));
+  const targetDirectory = path.resolve(workspaceRoot, 'campaigns', pipelineCaseId, 'assets');
+  await fs.mkdir(targetDirectory, { recursive:true, mode:0o700 });
+  const realTargetDirectory = await fs.realpath(targetDirectory);
+  if (!realTargetDirectory.startsWith(`${workspaceRoot}${path.sep}`)) {
+    throw m5AssetError('m5_asset_workspace_escape', 'M5 素材目标目录逃逸内容工作区。');
+  }
+  const assets = [];
+  for (const [index, frame] of frames.entries()) {
+    const localRef = String(frame?.localRef || '').trim().replaceAll('\\', '/');
+    if (
+      !localRef
+      || localRef.startsWith('/')
+      || localRef.split('/').some((part) => !part || part === '.' || part === '..')
+    ) {
+      throw m5AssetError('m5_asset_source_escape', 'M5 关键帧引用不是安全相对路径。');
+    }
+    const sourcePath = await fs.realpath(path.resolve(sourceRoot, localRef)).catch(() => null);
+    if (!sourcePath || !sourcePath.startsWith(`${sourceRoot}${path.sep}`)) {
+      throw m5AssetError('m5_asset_source_escape', 'M5 关键帧通过路径或符号链接逃逸来源目录。');
+    }
+    const extension = normalizedImageExtension(path.extname(sourcePath));
+    if (!extension) throw m5AssetError('m5_asset_image_type_invalid', 'M5 关键帧不是允许的 JPG、PNG 或 WebP。');
+    const bytes = await fs.readFile(sourcePath);
+    if (!bytes.length) throw m5AssetError('m5_asset_file_empty', 'M5 关键帧为空。');
+    const checksum = `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`;
+    if (
+      frame?.checksum
+      && String(frame.checksum).toLowerCase() !== checksum
+    ) {
+      throw m5AssetError('m5_asset_checksum_mismatch', 'M5 关键帧哈希与视觉证据清单不一致。');
+    }
+    const frameId = /^frame-\d{3}$/i.test(String(frame?.frameId || ''))
+      ? String(frame.frameId).toLowerCase()
+      : `frame-${String(index + 1).padStart(3, '0')}`;
+    const fileName = `${frameId}${extension}`;
+    const targetPath = path.join(realTargetDirectory, fileName);
+    await fs.writeFile(targetPath, bytes, { mode:0o600 });
+    const readBack = await fs.readFile(targetPath);
+    const stagedChecksum = `sha256:${crypto.createHash('sha256').update(readBack).digest('hex')}`;
+    if (stagedChecksum !== checksum) {
+      throw m5AssetError('m5_asset_stage_mismatch', 'M5 关键帧转存回读哈希不一致。');
+    }
+    assets.push({
+      frameId,
+      timestamp:String(frame?.timestamp || '').slice(0, 20) || null,
+      relativePath:path.posix.join('campaigns', pipelineCaseId, 'assets', fileName),
+      checksum,
+      bytes:readBack.length,
+      origin:'xiaod_verified_visual_evidence',
+    });
+  }
+  return assets;
+}
+
+function normalizedImageExtension(value) {
+  const extension = String(value || '').toLowerCase();
+  if (extension === '.jpeg') return '.jpg';
+  return ['.jpg', '.png', '.webp'].includes(extension) ? extension : null;
+}
+
+function m5AssetError(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  error.category = 'needs_input';
+  error.retryable = false;
+  return error;
+}
+
 function failureFor(job) {
   const failure = job.failure || {};
   return { code: 'xiaod_job_failed', message: typeof job.error === 'string' ? job.error : '小D任务失败。', userMessage: failure.recovery || '小D未能完成素材处理，请根据任务提示补充素材或稍后重试。', category: failure.category || 'manual', retryable: failure.retryable === true, stage: job.status, occurredAt: new Date().toISOString() };
 }
+import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';

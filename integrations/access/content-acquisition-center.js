@@ -37,9 +37,16 @@ export class ContentAcquisitionCenter {
         }
       }
       try {
-        const acquired = await adapter.acquire({ source, requestedCapabilities: requested, connectionUse, workspace, runtimeRequirement, onProgress });
+        const acquired = await adapter.acquire({ source, requestedCapabilities: requested, connectionUse, workspace, runtimeRequirement, onProgress, requestingAgentId, taskId, requestId });
         const providedCapabilities = normalizeCapabilities(acquired.providedCapabilities);
         if (providedCapabilities.length === 0) throw Object.assign(new Error('适配器没有返回可用内容。'), { code: 'adapter_empty_result' });
+        if (connectionUse) {
+          await this.connectionBroker.connectionStore.recordVerification(connectionUse.connectionId, {
+            status:'succeeded',
+            adapterId:adapter.id,
+            capabilities:providedCapabilities
+          });
+        }
         if (index > 0) await this.operations.record({ subjectType: 'adapter', subjectRef: adapter.id, eventType: 'fallback_used', severity: 'info', safeMessage: '已切换到允许的通用内容获取通道。', recommendedAction: 'none', taskRefs: taskId ? [taskId] : [] });
         return {
           ok: true,
@@ -47,12 +54,22 @@ export class ContentAcquisitionCenter {
             schemaVersion: '3.0', packageId: crypto.randomUUID(), requestId, taskId, provider: adapter.providerFor(source), sourceRef: safeSourceRef(source),
             acquisitionPath: adapter.priorityClass, providedCapabilities, capabilityNotes: acquired.capabilityNotes || null,
             contentItems: acquired.contentItems || {}, adapterRef: { adapterId: adapter.id, versionRef: adapter.versionRef },
-            validation: acquired.validation || { exists: true, readable: true, accessScope: connectionUse ? 'authorized_read' : 'public_read' }, createdAt: new Date().toISOString()
+            validation: acquired.validation || { exists: true, readable: true, accessScope: connectionUse ? 'authorized_read' : 'public_read' },
+            access: safeAccessEvidence(this.connectionBroker?.connectionStore, connectionUse),
+            createdAt: new Date().toISOString()
           },
           runtime: acquired.runtime || {}
         };
       } catch (error) {
         lastFailure = safeAdapterFailure(error);
+        if (connectionUse) {
+          await this.connectionBroker.connectionStore.recordVerification(connectionUse.connectionId, {
+            status:'failed',
+            adapterId:adapter.id,
+            capabilities:requested.filter((capability) => adapter.capabilities.includes(capability)),
+            failureCode:lastFailure.code
+          });
+        }
         await this.operations.record({ subjectType: 'adapter', subjectRef: adapter.id, eventType: lastFailure.code, severity: 'warning', safeMessage: lastFailure.safeMessage, recommendedAction: lastFailure.recommendedAction, taskRefs: taskId ? [taskId] : [] });
       }
     }
@@ -87,8 +104,17 @@ function operationsFor(capabilities) {
 
 function priority(priorityClass) { return priorityClass === 'specialized' ? 0 : 1; }
 function safeSourceRef(source) { const parsed = new URL(source); return `${parsed.protocol}//${parsed.host}${parsed.pathname}`; }
+function safeAccessEvidence(connectionStore, connectionUse) {
+  if (!connectionUse) return { mode:'public_read', connectionId:null, accountAlias:null };
+  const connection = connectionStore.getSafe(connectionUse.connectionId);
+  return {
+    mode:'authorized_read',
+    connectionId:connectionUse.connectionId,
+    accountAlias:connection?.accountAlias || null
+  };
+}
 function failure(code, safeMessage, recommendedAction) {
-  const category = code.includes('connection') || code.includes('granted') || code === 'agent_not_allowed' || code === 'browser_session_forbidden'
+  const category = code.includes('connection') || code.includes('approval') || code.includes('scope') || code.includes('granted') || code === 'agent_not_allowed' || code === 'browser_session_forbidden'
     ? 'needs_input'
     : recommendedAction === 'retry'
       ? 'retryable'
@@ -98,6 +124,13 @@ function failure(code, safeMessage, recommendedAction) {
 
 function safeAdapterFailure(error) {
   const raw = error instanceof Error ? error.message : String(error);
+  if (['approval_required', 'approval_expired', 'scope_not_granted', 'scope_violation'].includes(error?.code)) {
+    return {
+      code:error.code,
+      safeMessage:raw.slice(0, 300),
+      recommendedAction:error.code === 'approval_expired' ? 'reauthorize' : 'manual_review'
+    };
+  }
   if (error?.code === 'browser_session_forbidden') {
     return { code: error.code, safeMessage: '不能读取浏览器登录态。请改用公开视频读取、已批准的受控连接器或本地文件。', recommendedAction: 'reauthorize' };
   }

@@ -6,6 +6,7 @@ export class LocalAjunCoordinator {
   async execute(task) {
     const completedAt = this.now().toISOString();
     if (task.taskType === 'army.cross-agent-mission') return missionPlan(task, completedAt);
+    if (task.taskType === 'content.campaign-topic') return campaignTopicSelection(task, completedAt);
     const recommendation = await this.recommend(task.input);
     const record = {
       receivedAt: task.createdAt,
@@ -52,6 +53,77 @@ export class LocalAjunCoordinator {
   }
 }
 
+function campaignTopicSelection(task, completedAt) {
+  const fields = task.input?.context?.pipelineCase?.fields || {};
+  const theme = String(fields.theme || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+  const scheduledDate = String(fields.scheduledDate || '').trim();
+  if (!theme || !/^\d{4}-\d{2}-\d{2}$/.test(scheduledDate)) {
+    const error = new Error('选题 Routine 缺少 Paperclip 日期 Case 中的 theme 或 scheduledDate。');
+    error.code = 'm5_topic_case_context_missing';
+    error.category = 'configuration';
+    error.retryable = false;
+    throw error;
+  }
+  const selection = {
+    schemaVersion:'agent.army/topic-selection/v1',
+    theme,
+    scheduledDate,
+    targetAudience:'想把 AI Agent 从聊天演示推进到可验收工作流的实操者',
+    coreConclusion:`用一个可核验的真实步骤说明“${theme}”，不把配置或测试结果冒充实际业务完成。`,
+    requiredSources:{
+      minimum:2,
+      accepted:['项目真实产物或运行证据', '公开的一手官方资料'],
+      status:'pending_research',
+    },
+    prohibitedClaims:[
+      '无法回到来源的行业数字',
+      '把本机或测试页面结果说成真实平台发布',
+      '夸大收益、效果或权限范围',
+      '泄露本机路径、Token、Cookie、聊天原文或账号信息',
+    ],
+    platforms:['douyin', 'xiaohongshu'],
+    scoring:{
+      evidenceCompleteness:{ score:0, reason:'研究阶段尚未完成，不能预填证据分。' },
+      visualizationPotential:{ score:3, reason:'主题可用本机界面、录屏或示意图展示真实步骤。' },
+      audienceValue:{ score:3, reason:'围绕可执行结果和失败恢复，面向实操受众。' },
+      historicalDuplication:{ score:null, reason:'尚未取得可信历史内容指标，不猜测重复度。' },
+    },
+    selected:true,
+    selectionBasis:'活动草案已由负责人预先限定7天主题；A君只确认当日唯一日期 Case，不自行追逐热点。',
+    externalActionStarted:false,
+  };
+  return {
+    status:'succeeded',
+    currentStage:'campaign_topic_selected',
+    execution:{
+      executor:'ajun',
+      mode:'m5_topic_selection',
+      startedAt:task.execution?.startedAt || completedAt,
+      finishedAt:completedAt,
+      outcome:'selected',
+    },
+    artifactRefs:[{
+      artifactId:`topic-selection:${task.taskId}`,
+      taskId:task.taskId,
+      type:'topic_selection',
+      title:`M5 选题 / ${scheduledDate}`,
+      location:`runtime://${task.taskId}/topic-selection`,
+      mimeType:'application/json',
+      accessScope:'local-owner',
+      validation:{
+        exists:true,
+        readable:true,
+        nonEmpty:true,
+        structured:true,
+        sourceMinimumDeclared:true,
+        externalSideEffects:false,
+      },
+      createdAt:completedAt,
+      data:selection,
+    }],
+  };
+}
+
 function safeForCapabilityReview(input) {
   return !/外发|发布|删除|付款|付费|扩权|敏感|账号|登录|连接/.test(`${input?.title || ''} ${input?.description || ''}`);
 }
@@ -94,7 +166,7 @@ function missionPlanResult(task, plan, createdAt) {
 }
 
 function normalizeBusinessMissionItems(value) {
-  if (!Array.isArray(value) || value.length < 1 || value.length > 3) return [];
+  if (!Array.isArray(value) || value.length < 1 || value.length > 11) return [];
   return value.map((item, index) => canonicalizeBusinessAssignment({
     key:String(item?.key || `work-${index + 1}`).trim().slice(0, 80),
     agentId:String(item?.agentId || '').trim().slice(0, 80),
@@ -110,7 +182,10 @@ function normalizeBusinessMissionItems(value) {
     focus:String(item?.focus || '').trim().slice(0, 500),
     platforms:Array.isArray(item?.platforms) ? item.platforms.map((platform) => String(platform || '').trim()).filter(Boolean).slice(0, 3) : [],
     contentGoal:String(item?.contentGoal || '').trim().slice(0, 500),
-    dependsOnPrevious:item?.dependsOnPrevious === true || String(item?.agentId || '').trim() === 'office-assistant'
+    dependsOnPrevious:item?.dependsOnPrevious === true || String(item?.agentId || '').trim() === 'office-assistant',
+    dependsOn:Array.isArray(item?.dependsOn)
+      ? [...new Set(item.dependsOn.map((key) => String(key || '').trim()).filter(Boolean))].slice(0, 10)
+      : []
   }, { index })).filter((item) => item.agentId && item.taskType && item.title);
 }
 
@@ -118,6 +193,7 @@ function recommend(input) {
   const text = `${input.title || ''} ${input.description || ''}`.toLowerCase();
   const hasPublicLink = Boolean(input.sourceUrl);
   if (/创建.*agent|新建.*agent|创建.*智能体|新建.*智能体|创建.*岗位|招.*agent/.test(text)) return { taskType: 'governance.agent-proposal', agentId: 'creator', nextAction: '创建官只生成岗位草案并提交审核；不会直接创建生产 Agent、Skill 或外部连接。' };
+  if (/(?:获取|读取|查看|导出|整理|分析).{0,24}(?:微信).{0,12}(?:聊天|群聊)|(?:微信).{0,12}(?:聊天|群聊).{0,24}(?:获取|读取|查看|导出|整理|分析)/.test(text)) return { taskType:'wechat.chat.retrieval', agentId:'wechat-chat-retriever', nextAction:'创建“微信聊天只读取件”任务；默认今天至现在、最多 200 条，同名会话自动选最近活跃的一条，只需确认一次隐私范围。' };
   if (/审核|审查|发布|外发|删除|付款|付费|扩权|敏感|权限/.test(text)) return { taskType: 'governance.approval-review', agentId: 'reviewer', nextAction: '创建“范围与风险审查”任务；审核官只给出风险与补充信息结论，最终决定仍由 A君完成。' };
   if (/架构|能力|边界|规划|演进|岗位/.test(text)) return { taskType: 'governance.architecture-review', agentId: 'architect', nextAction: '创建“架构师能力评估”任务，盘点现有岗位、缺口与下一条可验证的推进建议。' };
   if (/视频|音频|youtube|bilibili|抖音|快手|转录|字幕|transcri/.test(text)) return { taskType: 'media.transcribe-and-refine', agentId: 'xiaod', nextAction: '创建“小D转录整理”任务，并附上公开素材链接。' };

@@ -252,6 +252,107 @@ export class PaperclipBridge {
     return this.request(`/api/issues/${encodeURIComponent(issueId)}/runs`);
   }
 
+  async getPaperclipIssueActiveRun(issueId) {
+    return this.request(`/api/issues/${encodeURIComponent(issueId)}/active-run`);
+  }
+
+  async getPaperclipHeartbeatRun(runId) {
+    return this.request(`/api/heartbeat-runs/${encodeURIComponent(runId)}`);
+  }
+
+  async getPipelineCaseOutputs(caseId) {
+    return this.request(`/api/cases/${encodeURIComponent(caseId)}/outputs`);
+  }
+
+  async getPipelineCase(caseId) {
+    return this.request(`/api/cases/${encodeURIComponent(caseId)}`);
+  }
+
+  async getPipelineCaseEvents(caseId) {
+    return this.request(`/api/cases/${encodeURIComponent(caseId)}/events?limit=100&order=desc`);
+  }
+
+  async patchPipelineCaseFields(caseId, {
+    expectedVersion,
+    fields,
+    runId,
+  } = {}) {
+    return this.request(`/api/cases/${encodeURIComponent(caseId)}`, {
+      method:'PATCH',
+      runId,
+      body:{
+        expectedVersion,
+        fields,
+      },
+    });
+  }
+
+  async reopenM5StageIssue(issueId, { runId, comment } = {}) {
+    return this.request(`/api/issues/${encodeURIComponent(issueId)}`, {
+      method:'PATCH',
+      runId,
+      body:{
+        status:'todo',
+        comment,
+      },
+    });
+  }
+
+  async blockM5StageIssue(issueId, { runId, comment } = {}) {
+    return this.request(`/api/issues/${encodeURIComponent(issueId)}`, {
+      method:'PATCH',
+      runId,
+      body:{
+        status:'blocked',
+        comment,
+      },
+    });
+  }
+
+  async completeM5RecoveredStageIssue(issueId, { runId, comment } = {}) {
+    return this.request(`/api/issues/${encodeURIComponent(issueId)}`, {
+      method:'PATCH',
+      runId,
+      body:{
+        status:'done',
+        comment,
+      },
+    });
+  }
+
+  async getRetrospectiveMetricOutputs(caseId) {
+    const detail = await this.getPipelineCase(caseId);
+    const item = detail?.case ?? detail;
+    const pipelineId = item?.pipelineId || detail?.pipeline?.id;
+    if (!pipelineId) throw new Error('M5 复盘 Case 缺少可信 Pipeline 绑定。');
+    const rows = await this.request(`/api/pipelines/${encodeURIComponent(pipelineId)}/cases`);
+    const cases = Array.isArray(rows) ? rows : Array.isArray(rows?.items) ? rows.items : [];
+    const outputs = await Promise.all(cases.map((entry) => {
+      const linkedCase = entry?.case ?? entry;
+      if (!linkedCase?.id) return [];
+      return this.getPipelineCaseOutputs(linkedCase.id)
+        .then((value) => Array.isArray(value) ? value : Array.isArray(value?.items) ? value.items : []);
+    }));
+    return { items:outputs.flat() };
+  }
+
+  async transitionPipelineCase(caseId, payload, { runId } = {}) {
+    return this.request(`/api/cases/${encodeURIComponent(caseId)}/transition`, {
+      method:'POST',
+      runId,
+      body:payload,
+    });
+  }
+
+  async assertCaseIssueLink(caseId, issueId) {
+    const rows = await this.request(`/api/cases/${encodeURIComponent(caseId)}/issue-links`);
+    const links = Array.isArray(rows) ? rows : Array.isArray(rows?.items) ? rows.items : [];
+    if (!links.some((item) => (item.issue?.id || item.issueId) === issueId)) {
+      throw new Error('M5 系统控制器任务与声明的 Pipeline Case 没有关联。');
+    }
+    return { caseId, issueId };
+  }
+
   async verifyHermesAssignment({ issueId, runId, paperclipAgentId, agentArmyId } = {}) {
     const safeIssueId = requiredIdentifier(issueId, 'Paperclip 任务标识缺失。');
     const safeRunId = requiredIdentifier(runId, 'Paperclip 运行标识缺失。');
@@ -274,6 +375,50 @@ export class PaperclipBridge {
     return { issue, run, paperclipAgent, agentArmyId:safeAgentArmyId };
   }
 
+  async verifySystemAssignment({
+    issueId,
+    runId,
+    paperclipAgentId,
+    systemRole,
+  } = {}) {
+    const safeIssueId = requiredIdentifier(issueId, 'Paperclip 任务标识缺失。');
+    const safeRunId = requiredIdentifier(runId, 'Paperclip 运行标识缺失。');
+    const safePaperclipAgentId = requiredIdentifier(paperclipAgentId, 'Paperclip 控制器标识缺失。');
+    const safeSystemRole = String(systemRole || '').trim();
+    if (!/^[a-z][a-z0-9-]{0,63}$/.test(safeSystemRole)) throw new Error('Paperclip 系统控制器角色无效。');
+    const [issue, paperclipAgent, activeRun, heartbeatRun] = await Promise.all([
+      this.getPaperclipIssue(safeIssueId),
+      this.getPaperclipAgent(safePaperclipAgentId),
+      this.getPaperclipIssueActiveRun(safeIssueId),
+      this.getPaperclipHeartbeatRun(safeRunId),
+    ]);
+    if (!paperclipAgent || paperclipAgent.metadata?.agentArmySystemRole !== safeSystemRole) {
+      throw new Error('Paperclip HTTP 系统控制器身份不一致。');
+    }
+    if (issue.assigneeAgentId !== paperclipAgent.id) {
+      throw new Error('该任务没有指派给当前 HTTP 系统控制器。');
+    }
+    if (
+      issue.status !== 'in_progress'
+      || activeRun?.id !== safeRunId
+      || activeRun?.status !== 'running'
+      || activeRun?.agentId !== paperclipAgent.id
+    ) {
+      throw new Error('Paperclip 当前活跃运行与 HTTP 系统控制器指派不一致。');
+    }
+    if (
+      heartbeatRun?.id !== safeRunId
+      || heartbeatRun?.status !== 'running'
+      || heartbeatRun?.agentId !== paperclipAgent.id
+      || !issue.companyId
+      || heartbeatRun.companyId !== issue.companyId
+      || paperclipAgent.companyId !== issue.companyId
+    ) {
+      throw new Error('Paperclip 当前活跃运行身份无效。');
+    }
+    return { issue, run:heartbeatRun, paperclipAgent, systemRole:safeSystemRole };
+  }
+
   async getExecutionWorkspace(workspaceId) {
     return this.request(`/api/execution-workspaces/${encodeURIComponent(workspaceId)}`);
   }
@@ -284,8 +429,83 @@ export class PaperclipBridge {
     return agents.find((agent) => agent.id === agentId) || null;
   }
 
-  async createIssueWorkProduct(issueId, product) {
-    return this.request(`/api/issues/${encodeURIComponent(issueId)}/work-products`, { method:'POST', body:product });
+  async updateIssueExecutionPolicy(issueId, { runId, executionPolicy } = {}) {
+    return this.request(`/api/issues/${encodeURIComponent(issueId)}`, {
+      method:'PATCH',
+      runId,
+      body:{ executionPolicy },
+    });
+  }
+
+  async createIssueWorkProduct(issueId, product, { runId, apiKey } = {}) {
+    return this.request(`/api/issues/${encodeURIComponent(issueId)}/work-products`, {
+      method:'POST',
+      runId,
+      apiKey,
+      body:product,
+    });
+  }
+
+  async getIssueWorkProducts(issueId, { runId } = {}) {
+    return this.request(`/api/issues/${encodeURIComponent(issueId)}/work-products`, {
+      runId,
+    });
+  }
+
+  async completeMetricMonitorIssue(issueId, {
+    runId,
+    executionPolicy,
+    comment,
+  } = {}) {
+    return this.request(`/api/issues/${encodeURIComponent(issueId)}`, {
+      method:'PATCH',
+      runId,
+      body:{
+        status:'done',
+        executionPolicy,
+        comment,
+      },
+    });
+  }
+
+  async completeRetrospectiveIssue(issueId, { runId, comment } = {}) {
+    return this.request(`/api/issues/${encodeURIComponent(issueId)}`, {
+      method:'PATCH',
+      runId,
+      body:{
+        status:'done',
+        comment,
+      },
+    });
+  }
+
+  async updateLearningIssue(issueId, {
+    runId,
+    status,
+    comment,
+  } = {}) {
+    if (!['in_progress', 'in_review', 'done'].includes(status)) {
+      throw new Error('M5 学习任务状态无效。');
+    }
+    return this.request(`/api/issues/${encodeURIComponent(issueId)}`, {
+      method:'PATCH',
+      runId,
+      body:{ status, comment },
+    });
+  }
+
+  async completePublisherIssue(issueId, {
+    runId,
+    comment,
+  } = {}) {
+    return this.request(`/api/issues/${encodeURIComponent(issueId)}`, {
+      method:'PATCH',
+      runId,
+      body:{
+        status:'done',
+        comment,
+      },
+    });
   }
 
   async completeTechnicalRepairIssue(issueId, title) {

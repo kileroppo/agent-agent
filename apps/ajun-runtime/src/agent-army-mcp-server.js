@@ -4,6 +4,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { AgentArmyClient, AgentArmyClientError } from './agent-army-client.js';
 import { canonicalizeBusinessAssignment } from './business-task-routing.js';
+import { formatTaskPresentation } from './task-presentation.js';
 
 export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope = scopeFromEnvironment() } = {}) {
   const server = new McpServer({
@@ -69,6 +70,7 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
       agent_id:z.string().max(80).optional().describe('仅在需要点名且 capabilities 已确认支持时提供'),
       description:z.string().max(2000).optional(),
       source_urls:z.array(z.string().url()).max(5).optional(),
+      connection_id:z.string().uuid().optional().describe('可选；仅在需要覆盖平台默认账号时传入 A君 返回的连接编号'),
       source_task_ids:z.array(z.string().min(8).max(100)).max(20).optional().describe('需要引用的既有任务编号；可拍脚本未提供时会自动匹配参考案例'),
       review_policy:z.enum(['optional', 'required']).optional().describe('默认 optional：质量合格时系统自动确认，异常时转人工；只有用户明确要求完整听审时使用 required'),
       evidence_mode:z.enum(['preliminary', 'formal']).optional(),
@@ -82,10 +84,26 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
       approved_for_use:z.boolean().optional().describe('仅当用户明确回复“用这版”时为 true'),
       source_script_task_id:z.string().min(8).max(100).optional(),
       metrics:z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
+      goal:z.string().min(1).max(1000).optional().describe('开放型或复杂任务的最终结果；提供后系统会建立可审计的自主工作计划'),
+      deliverables:z.array(z.string().min(1).max(500)).max(12).optional(),
+      constraints:z.array(z.string().min(1).max(500)).max(20).optional(),
+      acceptance_criteria:z.array(z.string().min(1).max(500)).max(20).optional(),
+      capability_requests:z.array(z.object({
+        capability_id:z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/).max(120),
+        purpose:z.string().min(1).max(500),
+        source:z.string().max(500).optional()
+      })).max(12).optional().describe('只申请完成目标必需的能力；凭据、外发、扩权和高成本能力仍会停在审批'),
+      autonomy_budget:z.object({
+        max_duration_minutes:z.number().int().min(1).max(60).optional(),
+        max_model_calls:z.number().int().min(1).max(20).optional(),
+        max_concurrent_subtasks:z.number().int().min(1).max(4).optional(),
+        max_dependency_depth:z.number().int().min(1).max(2).optional(),
+        max_cost_usd:z.number().min(0).max(5).optional()
+      }).optional(),
       chat_ref:z.string().max(240).optional().describe('当前 Hermes 会话上下文中可见的原飞书 chat id；用于任务归属和恢复'),
       request_ref:z.string().max(240).optional().describe('当前消息或稳定请求引用；有则用于严格幂等')
     })
-  }, ({ title, task_type, agent_id, description, source_urls, source_task_ids, review_policy, evidence_mode, depth, visual_mode, focus, platforms, content_goal, duration_seconds, research_mode, approved_for_use, source_script_task_id, metrics, chat_ref, request_ref }) => {
+  }, ({ title, task_type, agent_id, description, source_urls, connection_id, source_task_ids, review_policy, evidence_mode, depth, visual_mode, focus, platforms, content_goal, duration_seconds, research_mode, approved_for_use, source_script_task_id, metrics, goal, deliverables, constraints, acceptance_criteria, capability_requests, autonomy_budget, chat_ref, request_ref }) => {
     assertSingleTaskRequest({ title, description });
     const assignment = canonicalizeBusinessAssignment({
       title,
@@ -101,6 +119,7 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
       agentId:assignment.agentId || onlyValue(scope.agentIds),
       description:assignment.description,
       sourceUrls:source_urls,
+      connectionId:connection_id,
       sourceTaskIds:source_task_ids,
       reviewPolicy:review_policy,
       evidenceMode:evidence_mode,
@@ -114,6 +133,24 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
       approvedForUse:approved_for_use,
       sourceScriptTaskId:source_script_task_id,
       metrics,
+      goalSpec:goal ? {
+        outcome:goal,
+        deliverables,
+        constraints,
+        acceptanceCriteria:acceptance_criteria,
+        capabilityRequests:(capability_requests || []).map((request) => ({
+          capabilityId:request.capability_id,
+          purpose:request.purpose,
+          source:request.source
+        })),
+        budget:autonomy_budget ? {
+          maxDurationMinutes:autonomy_budget.max_duration_minutes,
+          maxModelCalls:autonomy_budget.max_model_calls,
+          maxConcurrentSubtasks:autonomy_budget.max_concurrent_subtasks,
+          maxDependencyDepth:autonomy_budget.max_dependency_depth,
+          maxCostUsd:autonomy_budget.max_cost_usd
+        } : undefined
+      } : undefined,
       chatRef:chat_ref,
       requestRef:request_ref
     });
@@ -121,7 +158,7 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
 
   action('mission_create', {
     title:'创建老板多人任务',
-    description:'当用户一次明确交办 2 到 3 项可以并行或前后衔接的工作时，建立一个总任务并分派给最多 3 名已上岗员工。单项工作仍用 task_create；闲聊、状态查询和仅讨论方案时禁止调用。办公执行助理会等前置分工结束或明确卡点后再汇总。',
+    description:'当用户一次明确交办多项可并行或存在依赖的工作时，建立一个总任务并分派给最多 11 名已上岗员工。系统按显式依赖图推进且同时运行不超过 4 项；单项工作仍用 task_create。',
     inputSchema:z.object({
       title:z.string().min(1).max(500).describe('整组工作的总目标'),
       items:z.array(z.object({
@@ -139,8 +176,9 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
         focus:z.string().max(500).optional(),
         platforms:z.array(z.string().min(1).max(40)).max(3).optional(),
         content_goal:z.string().max(500).optional(),
-        depends_on_previous:z.boolean().optional().describe('该项是否必须等待前面分工结束或明确卡点后再执行')
-      })).min(1).max(3),
+        depends_on_previous:z.boolean().optional().describe('兼容字段：等待列表中所有前置分工结束或明确卡点'),
+        depends_on:z.array(z.string().min(1).max(80)).max(10).optional().describe('当前分工依赖的 item key，可表达非线性的依赖关系')
+      })).min(1).max(11),
       chat_ref:z.string().max(240).optional(),
       request_ref:z.string().max(240).optional()
     })
@@ -161,7 +199,8 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
         focus:item.focus,
         platforms:item.platforms,
         contentGoal:item.content_goal,
-        dependsOnPrevious:item.depends_on_previous === true
+        dependsOnPrevious:item.depends_on_previous === true,
+        dependsOn:item.depends_on
     })).map((item, index) => canonicalizeBusinessAssignment(item, { index }));
     for (const item of assignments) assertTaskScope(item, scope);
     return client.createMission({
@@ -229,9 +268,49 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
     inputSchema:z.object({})
   }, () => client.getPaperclipAssignment(paperclipIdentityFromEnvironment()));
 
+  action('agent_proposal_create_execute', {
+    title:'创建并提交当前岗位草案',
+    description:'仅供创建官在 Paperclip heartbeat 中使用。把当前自然语言岗位需求写成结构化 AgentProposal 并提交审核；只允许已登记能力，敏感能力会停在待建设/待专项审批，不会自动安装、试用或激活。',
+    inputSchema:z.object({
+      requested_outcome:z.string().min(1).max(500),
+      candidate_name:z.string().min(1).max(120),
+      agent_id:z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(80),
+      department:z.string().min(1).max(120),
+      responsibilities:z.array(z.string().min(1).max(500)).min(1).max(8),
+      non_responsibilities:z.array(z.string().min(1).max(500)).min(1).max(10),
+      accepted_task_types:z.array(z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/).max(120)).min(1).max(8),
+      desired_skills:z.array(z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(120)).max(8).optional(),
+      requested_capabilities:z.array(z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/).max(120)).max(8).optional(),
+      acceptance_title:z.string().min(1).max(500)
+    })
+  }, ({
+    requested_outcome,
+    candidate_name,
+    agent_id,
+    department,
+    responsibilities,
+    non_responsibilities,
+    accepted_task_types,
+    desired_skills,
+    requested_capabilities,
+    acceptance_title
+  }) => client.executeAgentProposal({
+    ...paperclipIdentityFromEnvironment(),
+    requestedOutcome:requested_outcome,
+    candidateName:candidate_name,
+    agentId:agent_id,
+    department,
+    responsibilities,
+    nonResponsibilities:non_responsibilities,
+    acceptedTaskTypes:accepted_task_types,
+    desiredSkills:desired_skills,
+    requestedCapabilities:requested_capabilities,
+    acceptanceTitle:acceptance_title
+  }));
+
   action('paperclip_assignment_complete', {
     title:'回报当前 Paperclip 指派结果',
-    description:'仅在 Paperclip heartbeat 中把当前指派的真实结果回写到同一张 Paperclip 任务和 A君任务信封。不得用它关闭别人的任务；失败或待测试必须如实选择对应状态。架构师使用 fact_claims、architecture_judgments、candidate_proposals 分开回报事实、推理和未来方案；只有当前事实与判断所引用的 basis_refs 必须来自 groundTruth，候选方案可以提出当前不存在的能力，但必须附验证计划。',
+    description:'仅在 Paperclip heartbeat 中把当前指派的真实结果回写到同一张 Paperclip 任务和 A君任务信封。不得用它关闭别人的任务；失败或待测试必须如实选择对应状态。M5 恢复时只回显受控执行器实际消费的 consumed_revision_id，路线是否改变由执行器回执决定，不能由模型声明。架构师使用 fact_claims、architecture_judgments、candidate_proposals 分开回报事实、推理和未来方案；只有当前事实与判断所引用的 basis_refs 必须来自 groundTruth，候选方案可以提出当前不存在的能力，但必须附验证计划。',
     inputSchema:z.object({
       status:z.enum(['succeeded', 'failed', 'waiting_test']).default('succeeded'),
       summary:z.string().min(1).max(4000),
@@ -259,11 +338,13 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
         risks:z.array(z.string().min(1).max(600)).max(10).optional(),
         non_goals:z.array(z.string().min(1).max(600)).max(10).optional()
       })).max(10).optional(),
-      current_state_unknowns:z.array(z.string().min(1).max(1000)).max(20).optional()
+      current_state_unknowns:z.array(z.string().min(1).max(1000)).max(20).optional(),
+      consumed_revision_id:z.string().min(1).max(240).optional()
     })
   }, ({
     status, summary, evidence, remaining_risks, evidence_refs, unverified_claims,
-    fact_claims, architecture_judgments, candidate_proposals, current_state_unknowns
+    fact_claims, architecture_judgments, candidate_proposals, current_state_unknowns,
+    consumed_revision_id
   }) => client.completePaperclipAssignment({
     ...paperclipIdentityFromEnvironment(),
     status,
@@ -275,7 +356,8 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
     factClaims:fact_claims,
     architectureJudgments:architecture_judgments,
     candidateProposals:candidate_proposals,
-    currentStateUnknowns:current_state_unknowns
+    currentStateUnknowns:current_state_unknowns,
+    consumedRevisionId:consumed_revision_id
   }));
 
   action('technical_repair_execute', {
@@ -284,9 +366,21 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
     inputSchema:z.object({})
   }, () => client.executeTechnicalRepair(paperclipIdentityFromEnvironment()));
 
+  action('operations_health_execute', {
+    title:'执行当前确定性健康检查',
+    description:'仅供运维官在 Paperclip heartbeat 中使用。检查固定登记的本机进程、端口和健康接口并写回结构化报告；不接受 URL、命令、路径或任意终端输入，不执行重启和外部写入。',
+    inputSchema:z.object({})
+  }, () => client.executeOperationsHealth(paperclipIdentityFromEnvironment()));
+
+  action('employee_assignment_execute', {
+    title:'执行当前员工指派',
+    description:'仅供 A君、小R、小D和小办在 Paperclip heartbeat 中使用。按当前已核验岗位和任务类型调用各自既有受控执行器；不能指定其他任务、岗位、路径、命令或外部动作。返回 running 时再次调用本工具续查。',
+    inputSchema:z.object({})
+  }, () => client.executeEmployeeAssignment(paperclipIdentityFromEnvironment()));
+
   action('video_content_analyze_execute', {
     title:'执行当前受控视频拆解',
-    description:'仅供小拆在 Paperclip heartbeat 中使用。读取当前任务明确引用的转录产物，执行证据化拆解并写回报告；不抓取、不登录、不发布。长分析返回 running 时再次调用本工具继续等待，直到返回可回报的终态。',
+    description:'仅供小拆在 Paperclip heartbeat 中使用。普通拆解读取任务明确引用的转录产物；M5 画面分析只读取已核验 AssetPackage，并输出每条判断都带 frameRef、timestamp、evidenceKind 的 VisualAnalysisPackage。不抓取、不登录、不发布。',
     inputSchema:z.object({})
   }, () => client.executeContentGrowth(paperclipIdentityFromEnvironment()));
 
@@ -307,6 +401,12 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
     description:'仅供小创在 Paperclip heartbeat 中使用。自动匹配受控参考案例并生成一版可拍脚本和内部生产包；不会生成成片、发布或访问账号。',
     inputSchema:z.object({})
   }, () => client.executeContentGrowth(paperclipIdentityFromEnvironment()));
+
+  action('m5_stage_execute', {
+    title:'执行当前 M5 专用内容阶段',
+    description:'仅供 M5 配音、渲染、机器审核和发布审批 Routine。调用方不能提交 toolId、Case、路径、平台、账号或预算；执行器从当前 Paperclip Issue/Run/Case 和唯一阶段契约派生固定插件工具与参数。前置 Work Product 缺失时安全拒绝。',
+    inputSchema:z.object({}),
+  }, () => client.executeM5Stage(paperclipIdentityFromEnvironment()));
 
   return server;
 }
@@ -339,7 +439,7 @@ async function toolResult(operation) {
   try {
     const value = await operation();
     return {
-      content:[{ type:'text', text:JSON.stringify(value, null, 2) }],
+      content:[{ type:'text', text:humanReadableToolText(value) }],
       structuredContent:jsonObject(value)
     };
   } catch (error) {
@@ -348,6 +448,31 @@ async function toolResult(operation) {
       isError:true
     };
   }
+}
+
+function humanReadableToolText(value) {
+  const direct = formatTaskPresentation(value);
+  if (direct) return direct;
+  if (Array.isArray(value)) {
+    const tasks = value.map(formatTaskPresentation).filter(Boolean);
+    if (tasks.length === value.length && tasks.length) return tasks.join('\n\n');
+    if (!value.length) return '当前没有符合条件的任务。';
+  }
+  if (value?.mission) {
+    const mission = formatTaskPresentation(value.mission);
+    const children = (value.children || []).map(formatTaskPresentation).filter(Boolean);
+    if (mission || children.length) return [mission, ...children].filter(Boolean).join('\n\n');
+  }
+  if (value?.task) {
+    const task = formatTaskPresentation(value.task);
+    if (task) return task;
+  }
+  if (Array.isArray(value?.employees) && Array.isArray(value?.capabilities)) {
+    const employees = value.employees.map((item) => `${item.name || item.agentId}：${item.role || '已上岗'}`).join('\n');
+    const capabilities = value.capabilities.map((item) => `${item.name || item.id}：${item.detail || item.status || '可用'}`).join('\n');
+    return [`当前员工：\n${employees || '暂无已上岗员工。'}`, `可用能力：\n${capabilities || '暂无可用能力。'}`].join('\n\n');
+  }
+  return JSON.stringify(value, null, 2);
 }
 
 function jsonObject(value) {
@@ -365,24 +490,37 @@ export function scopeFromEnvironment() {
     process.env.PAPERCLIP_RUN_ID,
     process.env.PAPERCLIP_AGENT_ID
   ].every(isUuid);
+  const allowedTools = paperclipHeartbeat
+    ? configuredTools.filter((name) => [
+        'paperclip_assignment_get',
+        'agent_proposal_create_execute',
+        'technical_repair_execute',
+        'operations_health_execute',
+        'employee_assignment_execute',
+        'video_content_analyze_execute',
+        'content_performance_review_execute',
+        'platform_content_draft_execute',
+        'video_script_package_execute',
+        'm5_stage_execute',
+        'paperclip_assignment_complete'
+      ].includes(name))
+    : configuredTools;
+  if (paperclipHeartbeat && allowedTools.length === 0) {
+    throw new AgentArmyClientError('Paperclip heartbeat 没有有效工具白名单，拒绝启动 MCP 服务。');
+  }
   return {
     agentIds,
     taskTypes,
-    allowedTools:paperclipHeartbeat
-      ? configuredTools.filter((name) => [
-          'paperclip_assignment_get',
-          'technical_repair_execute',
-          'video_content_analyze_execute',
-          'content_performance_review_execute',
-          'platform_content_draft_execute',
-          'paperclip_assignment_complete'
-        ].includes(name))
-      : configuredTools,
+    enforceToolAllowlist:paperclipHeartbeat,
+    allowedTools,
     allowMissions:restricted ? process.env.AGENT_ARMY_ALLOW_MISSIONS === 'true' : true
   };
 }
 
 function toolAllowed(name, scope) {
+  if (scope.enforceToolAllowlist === true) {
+    return Array.isArray(scope.allowedTools) && scope.allowedTools.includes(name);
+  }
   return !scope.allowedTools?.length || scope.allowedTools.includes(name);
 }
 

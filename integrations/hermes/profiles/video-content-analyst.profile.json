@@ -9,6 +9,11 @@
     "modelSelectionConfigured": true,
     "modelConfigured": true,
     "credentialedTransportVerified": true,
+    "credentialedTransportVerification": {
+      "status": "verified-current-model-policy",
+      "primary": { "provider": "stepfun", "model": "step-3.5-flash-2603", "verified": true },
+      "fallback": { "provider": "deepseek", "model": "deepseek-v4-flash", "verified": false }
+    },
     "skillsSeeded": true,
     "restrictedTestingConfigured": true
   },
@@ -16,10 +21,18 @@
   "promptRef": "agents/video-content-analyst/prompts/system.md",
   "appRef": "apps/ajun-runtime",
   "modelSelection": {
-    "provider": "openai-codex",
-    "model": "gpt-5.6-terra",
+    "provider": "stepfun",
+    "model": "step-3.5-flash-2603",
     "secretStoredHere": false
   },
+  "fallbackModels": [
+    {
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "trigger": "transport_unavailable",
+      "secretStoredHere": false
+    }
+  ],
   "gateway": {
     "platform": "feishu",
     "enabled": false,
@@ -35,7 +48,7 @@
     ],
     "scope": {
       "agentIds": ["video-content-analyst"],
-      "taskTypes": ["content.video-benchmark-analysis", "content.performance-review"],
+      "taskTypes": ["content.video-benchmark-analysis", "content.performance-review", "content.analysis-program", "content.campaign-visual-analysis"],
       "allowMissions": false
     }
   },

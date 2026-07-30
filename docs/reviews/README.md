@@ -22,4 +22,5 @@ docs/reviews/
 - [Agent 军团收缩与废弃机器人清理验收](./agent-roster-consolidation/acceptance.md)：五常驻、四按需、历史保留和飞书停用已验证；空闲后 Gateway RSS 较迁移前下降约 33%。
 - [M2 第一批 Agent 创建与治理闭环验收](./m2-first-batch-agent-governance/acceptance.md)：飞书低风险命令已完成真实闭环；创建 Agent、审批卡与业务产物仍待逐项验收。配套的[军团总管避坑清单](./m2-first-batch-agent-governance/lessons-learned-2026-07-21.md)是新 Agent 接入的上线门禁。
 - [M3 内容增长与知识归档验收](./m3-content-growth/acceptance.md)：旧链路真实飞书/真人听审已通过；两个新增岗位已激活并完成 Paperclip/Hermes 运行。新版图文报告、真实草稿和 Obsidian 归档已在本机闭环，负责人内容质量判断仍待完成。
+- [M5 高权限内容自治验收](./m5-high-autonomy-content-operations/acceptance.md)：18 阶段/15 Routine/4 控制器已对账到 live，草案未批准且 Cron 关闭；付费多模态、真实 PublishReceipt、平台指标和双平台发布均未验收。
 - [Hermes Agent 与飞书 Bot 接线教程](../guides/创建Hermes-Agent与飞书Bot接线教程.md)：记录独立 Profile、模型、长连接及私聊/群聊真实验收的可复用流程。

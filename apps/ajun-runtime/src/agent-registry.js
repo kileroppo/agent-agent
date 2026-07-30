@@ -30,15 +30,21 @@ export class AgentRegistry {
       .filter((agent) => agent.acceptedTaskTypes.includes(taskType));
   }
 
+  async runtimeProfile(manifest) {
+    const profilePath = this.runtimeProfilePath(manifest);
+    if (!profilePath) return null;
+    try {
+      return JSON.parse(await fs.readFile(profilePath, 'utf8'));
+    } catch {
+      return null;
+    }
+  }
+
   async independentRuntime(manifest) {
     const ref = String(manifest?.runtimeProfileRef || '').trim();
     if (!ref) return { state: 'not_declared' };
-
-    const repositoryRoot = path.dirname(this.agentsDir);
-    const profilesRoot = path.resolve(repositoryRoot, 'integrations/hermes/profiles');
-    const profilePath = path.resolve(repositoryRoot, ref);
-    if (!profilePath.startsWith(`${profilesRoot}${path.sep}`)) return { state: 'invalid_reference' };
-
+    const profilePath = this.runtimeProfilePath(manifest);
+    if (!profilePath) return { state: 'invalid_reference' };
     try {
       const profile = JSON.parse(await fs.readFile(profilePath, 'utf8'));
       const local = profile.localProfile || {};
@@ -55,5 +61,14 @@ export class AgentRegistry {
     } catch {
       return { state: 'missing_profile' };
     }
+  }
+
+  runtimeProfilePath(manifest) {
+    const ref = String(manifest?.runtimeProfileRef || '').trim();
+    if (!ref) return null;
+    const repositoryRoot = path.dirname(this.agentsDir);
+    const profilesRoot = path.resolve(repositoryRoot, 'integrations/hermes/profiles');
+    const profilePath = path.resolve(repositoryRoot, ref);
+    return profilePath.startsWith(`${profilesRoot}${path.sep}`) ? profilePath : null;
   }
 }

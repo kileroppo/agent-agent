@@ -30,6 +30,18 @@
       "taskType": "content.video-benchmark-analysis",
       "input": { "evidenceMode": "formal", "depth": "full", "visualMode": "required" },
       "expected": { "status": "needs_input", "errorCode": "visual_evidence_required" }
+    },
+    {
+      "id": "metric-provenance-is-field-local",
+      "taskType": "content.performance-review",
+      "input": { "metricEvidenceKind": "acceptance_fixture", "hasPlatformBaseline": false },
+      "expected": { "validation": "everyMetricFieldCarriesEvidenceKind" }
+    },
+    {
+      "id": "missing-baseline-forbids-comparative-verdict",
+      "taskType": "content.performance-review",
+      "input": { "metricEvidenceKind": "platform_observed", "hasPlatformBaseline": false },
+      "expected": { "validation": "noUnsupportedMetricComparison" }
     }
   ]
 }

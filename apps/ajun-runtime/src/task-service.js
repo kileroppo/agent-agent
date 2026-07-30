@@ -1,12 +1,46 @@
+import crypto from 'node:crypto';
+import path from 'node:path';
 import { recordTaskUsage, summarizeTaskUsage } from './task-usage.js';
 import { formatPublicReportReply } from './public-report-presentation.js';
 import { formatOfficeBriefingReply } from './local-office-assistant.js';
 import { canonicalizeBusinessAssignment, githubRepositoryQuery } from './business-task-routing.js';
 import { usesPaperclipHermesExecution } from './governance-hermes-runtime.js';
 import { buildArchitectureGroundTruth, validateArchitectureEvidenceRefs } from './architecture-evidence.js';
+import { presentTask } from './task-presentation.js';
+import {
+  executeIntelResearchOpenTaskStep,
+  inspectOpenTaskManifestCapabilities,
+  routeOpenTaskForExecutor,
+  supportsOpenTask
+} from './open-task-routing.js';
+import { WECHAT_CHAT_TASK_TYPE, normalizeWechatChatRequest, wechatApprovalScope } from './wechat-chat-defaults.js';
+import {
+  assertPaperclipEmployeeExecutorAssignment,
+  resolvePaperclipAssignmentTaskType,
+} from './paperclip-employee-assignment.js';
+import { getM5RoutineExecutionContract } from './m5-routine-execution-contract.js';
+import {
+  getActiveM5PlanRevision,
+  healthyM5StageWorkProducts,
+  m5StageWorkProductCandidates,
+  M5StageRecoveryController,
+} from './m5-stage-recovery-controller.js';
+import {
+  assertChangedM5RecoveryRoute,
+  createM5RouteExecution,
+  validM5RouteExecution,
+} from './m5-route-execution.js';
+import { m5WorkProductArtifactHash } from './m5-work-product-integrity.js';
+import {
+  compileM5RoleToolGrant,
+  createM5RoleToolExecutionContext,
+  M5RoleToolGrantError,
+} from './m5-role-tool-grant.js';
 
 const highRiskActions = ['外发', '发布', '删除', '付款', '付费', '扩权', '敏感'];
 const organizationGovernanceWords = /创建.*(?:agent|智能体|岗位)|新建.*(?:agent|智能体|岗位)|扩权|账号|连接|公开发布|对外发布|付款|付费|预算|暂停|终止|跨\s*agent/i;
+const ROLE_TOOL_GRANT = Symbol('m5RoleToolGrant');
+const OPEN_RESEARCH_EXECUTION_POLICY = Symbol('openResearchExecutionPolicy');
 
 export class TaskService {
   constructor({
@@ -19,7 +53,11 @@ export class TaskService {
     feishuChannelStatus = null,
     agentChannelStates = null,
     workerStatus = null,
-    contentGrowthWaitMs = 240_000
+    contentGrowthWaitMs = 240_000,
+    taskDetailBaseUrl = '',
+    roleToolAdapters = {},
+    m5ProviderVision = null,
+    m5WorkProductValidator = null,
   }) {
     this.registry = registry;
     this.store = store;
@@ -30,13 +68,24 @@ export class TaskService {
     this.feishuChannelStatus = feishuChannelStatus;
     this.agentChannelStates = agentChannelStates;
     this.workerStatus = workerStatus;
+    this.taskDetailBaseUrl = taskDetailBaseUrl;
+    this.roleToolAdapters = roleToolAdapters;
+    this.m5ProviderVision = typeof m5ProviderVision === 'function'
+      ? m5ProviderVision
+      : null;
+    this.m5WorkProductValidator = typeof m5WorkProductValidator === 'function'
+      ? m5WorkProductValidator
+      : null;
     this.contentGrowthWaitMs = Math.max(1, Math.min(Number(contentGrowthWaitMs) || 240_000, 240_000));
     this.contentGrowthRuns = new Map();
+    this.employeeAssignmentRuns = new Map();
+    this.m5WorkProductObserver = null;
   }
 
   setFeishuChannelStatus(status) { this.feishuChannelStatus = status; }
   setAgentChannelStates(status) { this.agentChannelStates = status; }
   setWorkerStatus(status) { this.workerStatus = status; }
+  setM5WorkProductObserver(observer) { this.m5WorkProductObserver = observer; }
 
   async architectureGroundTruth() {
     return buildArchitectureGroundTruth({
@@ -78,6 +127,7 @@ export class TaskService {
     if (requestedAgentId) candidates = candidates.filter((agent) => agent.agentId === requestedAgentId);
     const agent = candidates.length === 1 ? candidates[0] : null;
     const description = requested.description;
+    const wechatChat = taskType === WECHAT_CHAT_TASK_TYPE ? normalizeWechatChatRequest({ ...input, title, description }) : null;
     const sourceUrls = uniquePublicUrls([String(input?.sourceUrl || '').trim(), ...(Array.isArray(input?.sourceUrls) ? input.sourceUrls : []), ...extractPublicUrls(`${title}\n${description}`)]);
     const sourceUrl = sourceUrls[0] || null;
     let task = await this.store.createTask({
@@ -87,6 +137,7 @@ export class TaskService {
         description,
         sourceUrl,
         sourceUrls,
+        connectionId:optionalConnectionId(input?.connectionId),
         query:githubQueryInput(taskType, input?.query, `${title}\n${description}`),
         repo:optionalInput(input?.repo),
         path:optionalInput(input?.path),
@@ -109,12 +160,79 @@ export class TaskService {
         approvedForUse:input?.approvedForUse === true,
         sourceScriptTaskId:optionalInput(input?.sourceScriptTaskId),
         metrics:input?.metrics && typeof input.metrics === 'object' && !Array.isArray(input.metrics) ? input.metrics : undefined,
+        ...(wechatChat ? { wechatChat } : {}),
+        goalSpec:input?.goalSpec && typeof input.goalSpec === 'object' && !Array.isArray(input.goalSpec)
+          ? input.goalSpec
+          : undefined,
         context: input?.context || undefined
       },
-      status: agent?.status === 'active' ? 'queued' : 'needs_input', currentStage: agent?.status === 'active' ? 'queued_for_execution' : agent ? 'waiting_for_agent_activation' : 'routing_needed',
-      routing: { requestedAgentId, candidateAgentIds: candidates.map((item) => item.agentId), reason: agent?.status === 'active' ? '已路由到已启用的本地执行器。' : agent ? '岗位骨架已登记，等待启用真实执行器。' : candidates.length === 0 ? '没有岗位声明支持该任务类型。' : '多个岗位匹配，请明确选择承接岗位。' }
+      status: wechatChat && !wechatChat.chatSelector ? 'needs_input' : agent?.status === 'active' ? 'queued' : 'needs_input',
+      currentStage: wechatChat && !wechatChat.chatSelector ? 'wechat_chat_required' : agent?.status === 'active' ? 'queued_for_execution' : agent ? 'waiting_for_agent_activation' : 'routing_needed',
+      routing: {
+        requestedAgentId,
+        candidateAgentIds: candidates.map((item) => item.agentId),
+        reason:wechatChat && !wechatChat.chatSelector
+          ? '只缺联系人或群名；其余范围使用安全默认值。'
+          : agent?.status === 'active' ? '已路由到已启用的本地执行器。' : agent ? '岗位骨架已登记，等待启用真实执行器。' : candidates.length === 0 ? '没有岗位声明支持该任务类型。' : '多个岗位匹配，请明确选择承接岗位。'
+      },
+      ...(wechatChat && !wechatChat.chatSelector ? {
+        error:{
+          code:'wechat_chat_required',
+          message:'微信聊天只读任务缺少联系人或群名。',
+          userMessage:'请只告诉我联系人或群名；时间默认今天至现在，最多 200 条，其余不用配置。',
+          category:'needs_input',
+          stage:'scope',
+          retryable:false,
+          occurredAt:new Date().toISOString()
+        }
+      } : {})
     });
-    if (hasAffirmativeHighRiskIntent(`${title} ${description}`)
+    if (supportsOpenTask(task, agent)) {
+      let capabilityInspection;
+      try {
+        capabilityInspection = inspectOpenTaskManifestCapabilities(task, agent);
+      } catch (error) {
+        throw new ValidationError(error?.message || '开放任务的目标输入无效。');
+      }
+      if (!capabilityInspection.allowed) {
+        return this.store.updateTask(task.taskId, {
+          status:'needs_input',
+          currentStage:'manifest_capability_required',
+          error:{
+            code:'manifest_capability_required',
+            message:`能力不在岗位 Manifest 白名单：${capabilityInspection.missing.join('、')}`,
+            userMessage:'任务请求了该岗位没有的能力；系统没有创建临时授权、安装未知工具或扩大权限。',
+            category:'needs_input',
+            stage:'manifest_capability_check',
+            retryable:false,
+            occurredAt:new Date().toISOString()
+          }
+        });
+      }
+      const routed = routeOpenTaskForExecutor(task, agent);
+      task = await this.store.updateTask(task.taskId, {
+        input:{
+          ...(task.input || {}),
+          context:routed.input.context
+        }
+      });
+    }
+    if (taskType === WECHAT_CHAT_TASK_TYPE && wechatChat?.chatSelector) {
+      await this.store.createApproval({
+        taskId:task.taskId,
+        governanceMode:'local',
+        decisionChannel:'feishu_card',
+        action:'wechat-private-chat-read',
+        riskLevel:'high',
+        reason:`只读“${wechatChat.chatSelector}”今天至当前的聊天，最多 ${wechatChat.maxMessages} 条；同名时自动选最近活跃会话。原文不落盘、不发给模型、不外发。`,
+        requestedBy:'ajun',
+        approverScope:'A君',
+        requestedScope:wechatApprovalScope(task),
+        validUntil:new Date(Date.now() + 30 * 60 * 1000).toISOString()
+      });
+      task = (await this.store.list()).find((item) => item.taskId === task.taskId);
+    }
+    if (taskType !== WECHAT_CHAT_TASK_TYPE && hasAffirmativeHighRiskIntent(`${title} ${description}`)
       && !['army.intake', 'governance.approval-review', 'office.knowledge-summary', 'content.platform-draft', 'content.video-script-package'].includes(taskType)) {
       await this.store.createApproval({ taskId: task.taskId, governanceMode: requiresOrganizationGovernance(title, description) ? 'paperclip' : 'local', decisionChannel: 'feishu_card', action: 'manual-risk-review', riskLevel: 'high', reason: '任务描述包含高风险动作，必须人工确认范围。', requestedBy: 'ajun', approverScope: 'A君', requestedScope: { taskType, title, assigneeAgentId: agent?.agentId || null }, validUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() });
       task = (await this.store.list()).find((item) => item.taskId === task.taskId);
@@ -400,7 +518,7 @@ export class TaskService {
     let updated = await this.store.updateTask(task.taskId, { status: 'running', currentStage: 'starting', execution: { executor: agent.agentId, startedAt: executionStartedAt.toISOString() } });
     if (this.governance && updated.governance?.paperclipIssueId) updated = await this.store.updateTask(updated.taskId, { governance: await this.governance.update(updated) });
     try {
-      const result = await executor.execute(updated);
+      const result = await executor.execute(routeOpenTaskForExecutor(updated, agent));
       updated = await this.store.updateTask(updated.taskId, { ...result, usage:recordTaskUsage({ task:updated, result, startedAt:executionStartedAt }) });
       if (updated.status === 'running' && typeof executor.observe === 'function') executor.observe(updated);
     } catch (error) {
@@ -431,9 +549,52 @@ export class TaskService {
     const identity = await this.governance.verifyHermesAssignment(input);
     const agent = await this.registry.get(identity.agentArmyId);
     if (!usesPaperclipHermesExecution(agent)) throw new ValidationError('当前岗位未启用 Paperclip Hermes 执行。');
-    let task = (await this.store.list()).find((item) => item.governance?.paperclipIssueId === identity.issue.id);
+    let assignmentTask;
+    try {
+      assignmentTask = resolvePaperclipAssignmentTaskType({ agent, issue:identity.issue });
+    } catch (error) {
+      throw new ValidationError(error?.message || '当前 Paperclip 指派任务类型无法安全映射。');
+    }
+    const storedTasks = await this.store.list();
+    let task = storedTasks.find((item) => item.governance?.paperclipIssueId === identity.issue.id);
+    if (task && assignmentTask.routineKey && task.taskType !== assignmentTask.taskType) {
+      throw new ValidationError(`当前任务信封类型与 M5 Routine ${assignmentTask.routineKey} 不一致。`);
+    }
+    const pipelineCase = assignmentTask.pipelineCaseId && typeof this.governance.getPipelineCase === 'function'
+      ? await this.governance.getPipelineCase(assignmentTask.pipelineCaseId)
+      : null;
+    const assignmentProjectId = String(
+      identity?.issue?.projectId
+      || pipelineCase?.case?.projectId
+      || pipelineCase?.projectId
+      || '',
+    ).trim() || null;
+    const m5Contract = getM5RoutineExecutionContract(assignmentTask.routineKey);
+    const activePlanRevision = m5Contract?.executionMode === 'hermes'
+      ? await getActiveM5PlanRevision({
+          governance:this.governance,
+          pipelineCaseId:assignmentTask.pipelineCaseId,
+          stageKey:m5Contract.stageKey,
+          pipelineCase,
+        })
+      : null;
+    const baseRoleToolGrant = await this.compilePaperclipRoleToolGrant({
+      agent,
+      identity,
+      pipelineCase,
+    });
+    const relatedCaseIds = await m5PipelineCaseChainIds({
+      governance:this.governance,
+      pipelineCaseId:assignmentTask.pipelineCaseId,
+      pipelineCase,
+    });
+    const related = m5RelatedTaskContext(storedTasks, relatedCaseIds, pipelineCase);
     if (!task) {
-      const acceptedTaskType = agent.acceptedTaskTypes[0];
+      const acceptedTaskType = assignmentTask.taskType;
+      if (!acceptedTaskType) throw new ValidationError('当前岗位没有可映射的任务类型。');
+      const caseFields = paperclipCaseContextFields(
+        pipelineCase?.case?.fields || pipelineCase?.fields || {},
+      );
       task = await this.store.createTask({
         taskType:acceptedTaskType,
         idempotencyKey:`paperclip:${identity.issue.id}`,
@@ -444,9 +605,30 @@ export class TaskService {
         input:{
           title:String(identity.issue.title || 'Paperclip 指派任务').slice(0, 500),
           description:String(identity.issue.description || '').slice(0, 4000),
-          sourceUrl:null,
-          sourceUrls:[],
-          context:{ paperclipIssueIdentifier:identity.issue.identifier || null }
+          topic:caseFields.theme || null,
+          contentGoal:caseFields.theme || null,
+          platforms:caseFields.platform ? [caseFields.platform] : [],
+          sourceUrl:related.sourceUrls[0] || null,
+          sourceUrls:related.sourceUrls,
+          context:{
+            paperclipIssueIdentifier:identity.issue.identifier || null,
+            ...(assignmentTask.routineKey ? { paperclipRoutineKey:assignmentTask.routineKey } : {}),
+            ...(assignmentTask.pipelineCaseId ? { pipelineCaseId:assignmentTask.pipelineCaseId } : {}),
+            ...(assignmentProjectId ? { paperclipProjectId:assignmentProjectId } : {}),
+            ...(activePlanRevision ? {
+              m5Recovery:m5PlanRevisionExecutionContext(activePlanRevision),
+            } : {}),
+            ...(related.sourceTaskIds.length ? { sourceTaskIds:related.sourceTaskIds } : {}),
+            ...(pipelineCase ? {
+              pipelineCase:{
+                id:pipelineCase.case?.id || pipelineCase.id || assignmentTask.pipelineCaseId,
+                caseKey:pipelineCase.case?.caseKey || pipelineCase.caseKey || null,
+                title:pipelineCase.case?.title || pipelineCase.title || null,
+                stageKey:pipelineCase.case?.stageKey || pipelineCase.stageKey || null,
+                fields:caseFields,
+              },
+            } : {}),
+          }
         },
         status:'running',
         currentStage:'paperclip_hermes_running',
@@ -470,7 +652,9 @@ export class TaskService {
     } else if (!isTerminalTask(task)) {
       task = await this.store.updateTask(task.taskId, {
         status:'running',
-        currentStage:'paperclip_hermes_running',
+        currentStage:task.execution?.paperclipEmployee
+          ? task.currentStage
+          : 'paperclip_hermes_running',
         execution:{
           ...(task.execution || {}),
           owner:'paperclip-hermes',
@@ -478,11 +662,46 @@ export class TaskService {
           paperclipRunId:identity.run.id,
           paperclipAgentId:identity.paperclipAgent.id,
           startedAt:task.execution?.startedAt || new Date().toISOString()
-        }
+        },
+        input:{
+          ...(task.input || {}),
+          context:{
+            ...(task.input?.context || {}),
+            m5Recovery:activePlanRevision
+              ? m5PlanRevisionExecutionContext(activePlanRevision)
+              : null,
+            ...(assignmentProjectId ? { paperclipProjectId:assignmentProjectId } : {}),
+            ...(related.sourceTaskIds.length ? { sourceTaskIds:related.sourceTaskIds } : {}),
+            ...(pipelineCase ? {
+              pipelineCase:{
+                id:pipelineCase.case?.id || pipelineCase.id || assignmentTask.pipelineCaseId,
+                caseKey:pipelineCase.case?.caseKey || pipelineCase.caseKey || null,
+                title:pipelineCase.case?.title || pipelineCase.title || null,
+                stageKey:pipelineCase.case?.stageKey || pipelineCase.stageKey || null,
+                fields:paperclipCaseContextFields(
+                  pipelineCase.case?.fields || pipelineCase.fields || {},
+                ),
+              },
+            } : {}),
+          },
+        },
       });
     }
     const groundTruth = agent.agentId === 'architect' ? await this.architectureGroundTruth() : null;
-    return {
+    const roleToolGrant = baseRoleToolGrant
+      ? Object.freeze({
+          ...baseRoleToolGrant,
+          trustedScope:trustedRoleToolScope({
+            tasks:storedTasks,
+            task,
+            relatedTaskIds:related.sourceTaskIds,
+            paperclipIssueId:identity.issue.id,
+            paperclipRunId:identity.run.id,
+            pipelineCaseId:assignmentTask.pipelineCaseId,
+          }),
+        })
+      : null;
+    const verified = {
       task,
       assignment:{
         issueId:identity.issue.id,
@@ -491,14 +710,209 @@ export class TaskService {
         description:identity.issue.description || '',
         agentId:agent.agentId,
         runId:identity.run.id,
+        routineKey:assignmentTask.routineKey || null,
+        pipelineCaseId:assignmentTask.pipelineCaseId || null,
+        projectId:assignmentProjectId,
+        ...(activePlanRevision ? {
+          m5Recovery:m5PlanRevisionExecutionContext(activePlanRevision),
+        } : {}),
         ...(groundTruth ? { groundTruth } : {})
       }
     };
+    Object.defineProperty(verified, ROLE_TOOL_GRANT, {
+      value:roleToolGrant,
+      enumerable:false,
+    });
+    Object.defineProperty(verified, OPEN_RESEARCH_EXECUTION_POLICY, {
+      value:canonicalOpenResearchExecutionPolicy(identity.issue),
+      enumerable:false,
+    });
+    return verified;
+  }
+
+  async compilePaperclipRoleToolGrant({ agent, identity, pipelineCase } = {}) {
+    if (!agent?.toolExecutionPolicy) return null;
+    const profile = typeof this.registry?.runtimeProfile === 'function'
+      ? await this.registry.runtimeProfile(agent)
+      : agent.runtimeProfile || null;
+    if (!profile) {
+      throw new ValidationError('当前岗位缺少可核验的 Hermes Profile，工具执行已拒绝。');
+    }
+    const projectId = String(
+      identity?.issue?.projectId
+      || pipelineCase?.case?.projectId
+      || pipelineCase?.projectId
+      || '',
+    ).trim();
+    const executionWorkspaceId = String(
+      identity?.run?.environmentLease?.executionWorkspaceId
+      || identity?.run?.executionWorkspaceId
+      || '',
+    ).trim();
+    try {
+      const grant = compileM5RoleToolGrant({
+        manifest:agent,
+        profile,
+        paperclipAgentId:identity?.paperclipAgent?.id,
+        projectId,
+        executionWorkspaceId,
+        availableAdapters:this.roleToolAdapters,
+      });
+      if (typeof this.governance?.getExecutionWorkspace !== 'function') {
+        throw new M5RoleToolGrantError(
+          'Paperclip execution workspace 读取适配器不可用。',
+          'workspace_adapter_unavailable',
+        );
+      }
+      const executionWorkspace = await this.governance.getExecutionWorkspace(executionWorkspaceId);
+      const workspaceRoot = String(executionWorkspace?.cwd || '').trim();
+      if (!path.isAbsolute(workspaceRoot)) {
+        throw new M5RoleToolGrantError(
+          'Paperclip execution workspace 缺少可信绝对路径。',
+          'workspace_scope_invalid',
+        );
+      }
+      return Object.freeze({ grant, workspaceRoot });
+    } catch (error) {
+      if (error instanceof M5RoleToolGrantError) {
+        throw new ValidationError(`岗位工具授权失败：${error.message}`);
+      }
+      throw error;
+    }
+  }
+
+  async recordM5StageExecution(taskId, result = {}) {
+    const task = (await this.store.list()).find((item) => item.taskId === taskId);
+    if (!task || isTerminalTask(task)) throw new ValidationError('M5 阶段任务不存在或已经结束。');
+    const routineKey = String(task.input?.context?.paperclipRoutineKey || '').trim();
+    const contract = getM5RoutineExecutionContract(routineKey);
+    if (
+      !contract
+      || contract.executionMode !== 'hermes'
+      || contract.executionTool?.id !== 'm5_stage_execute'
+      || (!contract.pluginEntryTool && !contract.deterministicEntry)
+    ) {
+      throw new ValidationError('当前任务不接受 M5 内容插件阶段结果。');
+    }
+    const expectedToolId = contract.deterministicEntry === 'publish_receipt_verify'
+      ? 'agent-army.m5:publish_receipt_verify'
+      : `agent-army.content-autonomy:${contract.pluginEntryTool}`;
+    const expectedProvider = contract.deterministicEntry === 'publish_receipt_verify'
+      ? 'agent-army.m5-deterministic'
+      : 'agent-army.content-autonomy';
+    if (
+      result?.toolId !== expectedToolId
+      || result?.pluginId !== expectedProvider
+    ) {
+      throw new ValidationError('M5 内容插件回执与当前阶段固定工具不一致。');
+    }
+    const artifactKind = contract.expectedWorkProduct.artifactKinds[0];
+    const data = validatedM5StagePluginData(
+      contract.stageKey,
+      contract.expectedWorkProduct.artifactKinds[0],
+      result,
+    );
+    const routeExecution = assertM5ExecutorRouteReceipt({
+      task,
+      contract,
+      result:result?.routeExecution,
+    });
+    const pipelineCaseId = String(task.input?.context?.pipelineCaseId || '').trim();
+    const artifactId = `m5-stage:${pipelineCaseId}:${artifactKind}`;
+    const existing = (task.artifactRefs || []).find((item) => item.artifactId === artifactId);
+    if (existing) {
+      const updated = await this.store.updateTask(task.taskId, {
+        ...(routeExecution ? {
+          execution:{
+            ...(task.execution || {}),
+            m5RouteExecution:routeExecution,
+          },
+        } : {}),
+      });
+      return { task:updated, artifact:existing, duplicate:true };
+    }
+    const createdAt = new Date().toISOString();
+    const artifact = {
+      artifactId,
+      taskId:task.taskId,
+      type:artifactKind,
+      title:`M5 ${contract.stageKey} 阶段插件产物`,
+      location:`runtime://${task.taskId}/${artifactKind}`,
+      mimeType:'application/json',
+      accessScope:'local-owner',
+      validation:{
+        exists:true,
+        readable:true,
+        nonEmpty:true,
+        pluginReceiptVerified:true,
+      },
+      createdAt,
+      data,
+    };
+    const updated = await this.store.updateTask(task.taskId, {
+      currentStage:`${contract.stageKey}_tool_completed`,
+      artifactRefs:[...(task.artifactRefs || []), artifact],
+      ...(routeExecution ? {
+        execution:{
+          ...(task.execution || {}),
+          m5RouteExecution:routeExecution,
+        },
+      } : {}),
+    });
+    return { task:updated, artifact, duplicate:false };
+  }
+
+  async recordM5StageExecutionFailure(taskId, routeExecution, error) {
+    const task = (await this.store.list()).find((item) => item.taskId === taskId);
+    if (!task || isTerminalTask(task)) return null;
+    const contract = getM5RoutineExecutionContract(
+      task.input?.context?.paperclipRoutineKey,
+    );
+    if (!contract || contract.executionTool?.id !== 'm5_stage_execute') return null;
+    const receipt = assertM5ExecutorRouteReceipt({
+      task,
+      contract,
+      result:routeExecution,
+      allowUnchanged:true,
+    });
+    return this.store.updateTask(task.taskId, {
+      currentStage:'m5_stage_executor_failed',
+      execution:{
+        ...(task.execution || {}),
+        m5RouteExecution:receipt,
+      },
+      error:{
+        code:String(error?.code || 'm5_stage_executor_failed').slice(0, 120),
+        message:String(error?.message || 'M5 阶段执行失败。').slice(0, 500),
+        userMessage:'M5 阶段执行失败，已保存真实路线回执供恢复控制器判断。',
+        category:'retryable',
+        stage:contract.stageKey,
+        retryable:true,
+        occurredAt:new Date().toISOString(),
+      },
+    });
   }
 
   async completePaperclipAssignment(input = {}) {
     const { task, assignment } = await this.getPaperclipAssignment(input);
-    if (isTerminalTask(task)) return { task, assignment, duplicate:true };
+    if (isTerminalTask(task)) {
+      if (task.status === 'succeeded') {
+        const sync = await this.syncM5StageWorkProducts({
+          task,
+          assignment,
+          apiKey:input.paperclipApiKey,
+        });
+        if (sync.synced) {
+          await this.governance.completePaperclipIssue(assignment.issueId, {
+            runId:assignment.runId,
+            agentId:input.paperclipAgentId,
+            apiKey:input.paperclipApiKey,
+            result:task,
+          });
+        }
+      }
+      return { task, assignment, duplicate:true };
+    }
     const requestedStatus = String(input.status || 'succeeded').trim();
     if (!['succeeded', 'failed', 'waiting_test'].includes(requestedStatus)) {
       throw new ValidationError('员工回报状态无效。');
@@ -506,6 +920,43 @@ export class TaskService {
     const completedAt = new Date().toISOString();
     const summary = String(input.summary || '').replace(/\s+/g, ' ').trim().slice(0, 4000);
     if (!summary) throw new ValidationError('员工必须提供可核对的结果摘要。');
+    const m5Contract = getM5RoutineExecutionContract(assignment.routineKey);
+    const m5PlanRevisionReceipt = m5Contract?.executionMode === 'hermes'
+      ? assertM5PlanRevisionConsumed({
+          expected:task.input?.context?.m5Recovery,
+          actual:task.execution?.m5RouteExecution,
+          runId:assignment.runId,
+          allowUnchangedFailure:requestedStatus === 'failed',
+          input,
+        })
+      : null;
+    if (
+      requestedStatus === 'succeeded'
+      && m5Contract?.stageKey === 'visual_analysis'
+    ) {
+      const projectId = paperclipUuid(assignment.projectId);
+      const verifiedVisual = projectId && (task.artifactRefs || []).some((artifact) =>
+        artifact?.type === 'visual_analysis_package'
+        && contentGrowthArtifactVerified(task, artifact, {
+          expectedProjectId:projectId,
+        })
+      );
+      if (!verifiedVisual) {
+        throw new ValidationError(
+          'M5 画面分析缺少与当前 Paperclip Project 一致的 confirmed 视觉回执，不能回报 succeeded。',
+        );
+      }
+    }
+    if (requestedStatus === 'failed' && m5Contract?.executionMode === 'hermes') {
+      return this.handleM5ReportedFailure({
+        task,
+        assignment,
+        contract:m5Contract,
+        summary,
+        completedAt,
+        m5PlanRevisionReceipt,
+      });
+    }
     let architectureEvidence = null;
     let architectureLayers = null;
     if (assignment.agentId === 'architect') {
@@ -559,19 +1010,28 @@ export class TaskService {
           unverifiedClaims:architectureLayers.currentStateUnknowns
         } : {}),
         paperclipIssueId:assignment.issueId,
-        paperclipRunId:assignment.runId
+        paperclipRunId:assignment.runId,
+        ...(m5PlanRevisionReceipt ? {
+          m5PlanRevisionReceipt,
+        } : {}),
       },
       validation:{ exists:true, readable:true, nonEmpty:true, checkedAt:completedAt }
     };
     let updated = await this.store.updateTask(task.taskId, {
       status:requestedStatus,
       currentStage:requestedStatus === 'succeeded' ? 'paperclip_hermes_completed' : requestedStatus === 'waiting_test' ? 'paperclip_hermes_waiting_test' : 'paperclip_hermes_failed',
-      artifactRefs:[...(task.artifactRefs || []), artifact],
+      artifactRefs:[
+        ...(task.artifactRefs || []),
+        artifact
+      ],
       execution:{
         ...(task.execution || {}),
         owner:'paperclip-hermes',
         finishedAt:completedAt,
-        outcome:requestedStatus
+        outcome:requestedStatus,
+        ...(m5PlanRevisionReceipt ? {
+          m5PlanRevisionReceipt,
+        } : {}),
       },
       ...(requestedStatus === 'failed' ? {
         error:{
@@ -585,6 +1045,13 @@ export class TaskService {
         }
       } : { error:undefined })
     });
+    if (requestedStatus === 'succeeded') {
+      await this.syncM5StageWorkProducts({
+        task:updated,
+        assignment,
+        apiKey:input.paperclipApiKey,
+      });
+    }
     await this.governance.completePaperclipIssue(assignment.issueId, {
       runId:assignment.runId,
       agentId:input.paperclipAgentId,
@@ -595,6 +1062,375 @@ export class TaskService {
       governance:{ ...(updated.governance || {}), status:'synced', syncedAt:new Date().toISOString() }
     });
     return { task:updated, assignment, duplicate:false };
+  }
+
+  async handleM5ReportedFailure({
+    task,
+    assignment,
+    contract,
+    summary,
+    completedAt,
+    m5PlanRevisionReceipt = null,
+  } = {}) {
+    const controller = new M5StageRecoveryController({
+      governance:this.governance,
+      workProductValidator:this.m5WorkProductValidator,
+    });
+    const recovery = await controller.handleFailure({
+      assignment,
+      contract,
+      task,
+      summary,
+      routeExecution:task.execution?.m5RouteExecution,
+    });
+    const failureArtifactId = `m5-stage-failure:${assignment.pipelineCaseId}:${assignment.runId}`;
+    const failureArtifact = {
+      artifactId:failureArtifactId,
+      taskId:task.taskId,
+      type:'employee_role_report',
+      data:{
+        agentId:assignment.agentId,
+        summary,
+        paperclipIssueId:assignment.issueId,
+        paperclipRunId:assignment.runId,
+        m5Recovery:{
+          action:recovery.action,
+          stageAttempt:recovery.stageAttempt,
+          replanCount:recovery.replanCount,
+          recoveryAction:recovery.recoveryAction || null,
+        },
+        ...(m5PlanRevisionReceipt ? {
+          m5PlanRevisionReceipt,
+        } : {}),
+      },
+      validation:{ exists:true, readable:true, nonEmpty:true, checkedAt:completedAt },
+    };
+    const retainedArtifacts = (task.artifactRefs || []).filter((artifact) =>
+      artifact.artifactId !== failureArtifactId
+      && !contract.expectedWorkProduct.artifactKinds.includes(artifact.type),
+    );
+    const verifiedReplay = recovery.action === 'verified_work_product';
+    const blocked = recovery.action === 'blocked';
+    const status = verifiedReplay ? 'succeeded' : blocked ? 'failed' : 'running';
+    const currentStage = verifiedReplay
+      ? 'm5_stage_work_product_replayed'
+      : blocked
+        ? 'm5_stage_recovery_blocked'
+        : recovery.action === 'replan'
+          ? 'm5_content_replan_scheduled'
+          : 'm5_stage_retry_scheduled';
+    const updated = await this.store.updateTask(task.taskId, {
+      status,
+      currentStage,
+      artifactRefs:[...retainedArtifacts, failureArtifact],
+      execution:{
+        ...(task.execution || {}),
+        owner:'paperclip-hermes',
+        finishedAt:verifiedReplay || blocked ? completedAt : null,
+        outcome:verifiedReplay
+          ? 'verified_work_product_replayed'
+          : blocked
+            ? 'm5_stage_recovery_blocked'
+            : recovery.action === 'replan'
+              ? 'm5_content_replan_scheduled'
+              : 'm5_stage_retry_scheduled',
+        paperclipEmployee:null,
+        m5Recovery:{
+          action:recovery.action,
+          stageAttempt:recovery.stageAttempt,
+          replanCount:recovery.replanCount,
+          runId:assignment.runId,
+          replayed:recovery.replayed === true,
+          recoveryAction:recovery.recoveryAction || null,
+        },
+        ...(m5PlanRevisionReceipt ? {
+          m5PlanRevisionReceipt,
+        } : {}),
+      },
+      governance:{
+        ...(task.governance || {}),
+        status:'synced',
+        syncedAt:completedAt,
+      },
+      error:verifiedReplay ? undefined : {
+        code:blocked ? 'm5_stage_recovery_limit_reached' : `m5_${recovery.action}_scheduled`,
+        message:summary,
+        userMessage:blocked
+          ? recovery.recoveryAction?.instruction || 'M5 阶段恢复上限已达到，等待负责人恢复当前 Case。'
+          : recovery.action === 'replan'
+            ? `M5 ${contract.stageKey} 阶段重试已用尽，已安排受控内容重规划。`
+            : `M5 ${contract.stageKey} 阶段已安排安全重试。`,
+        category:blocked ? 'manual' : 'retryable',
+        stage:contract.stageKey,
+        retryable:!blocked,
+        occurredAt:completedAt,
+      },
+    });
+    return {
+      task:updated,
+      assignment,
+      recovery,
+      duplicate:recovery.replayed === true,
+    };
+  }
+
+  async syncM5StageWorkProducts({ task, assignment, apiKey } = {}) {
+    const contract = getM5RoutineExecutionContract(assignment?.routineKey);
+    if (!contract || contract.executionMode !== 'hermes') return { synced:false, reason:'not_m5_hermes' };
+    if (
+      !assignment.pipelineCaseId
+      || typeof this.governance?.getPipelineCaseOutputs !== 'function'
+      || typeof this.governance?.createIssueWorkProduct !== 'function'
+    ) {
+      throw new ValidationError('M5 阶段缺少 Paperclip Case Work Product 写回能力。');
+    }
+    const expected = contract.expectedWorkProduct;
+    const expectedVisualProjectId = contract.stageKey === 'visual_analysis'
+      ? paperclipUuid(assignment.projectId)
+      : null;
+    if (contract.stageKey === 'visual_analysis' && !expectedVisualProjectId) {
+      throw new ValidationError('M5 画面分析缺少可信 Paperclip Project，不能写入 Work Product。');
+    }
+    const currentOutputs = outputItems(await this.governance.getPipelineCaseOutputs(
+      assignment.pipelineCaseId,
+    ));
+    let paperclipRunsPromise = null;
+    const validatePersistedProduct = async (product) => {
+      if (!this.m5WorkProductValidator) {
+        throw new ValidationError(
+          `M5 ${contract.stageKey} 已有 Work Product 但完整漂移校验器不可用，禁止重放或回读。`,
+        );
+      }
+      try {
+        if (!paperclipRunsPromise) {
+          paperclipRunsPromise = typeof this.governance?.getPaperclipIssueRuns === 'function'
+            ? this.governance.getPaperclipIssueRuns(assignment.issueId)
+            : Promise.resolve([]);
+        }
+        await this.m5WorkProductValidator({
+          contract,
+          product,
+          targetCaseId:assignment.pipelineCaseId,
+          projectId:assignment.projectId,
+          assignment,
+          task,
+          paperclipRuns:await paperclipRunsPromise,
+        });
+      } catch (error) {
+        throw new ValidationError(
+          `M5 ${contract.stageKey} Work Product 漂移：${error?.message || '完整校验失败'}。`,
+        );
+      }
+      if (healthyM5StageWorkProducts([product], contract).length !== 1) {
+        throw new ValidationError(
+          `M5 ${contract.stageKey} Work Product 漂移：结构、Provider 或状态不符合阶段契约。`,
+        );
+      }
+    };
+    const existingStageCandidates = m5StageWorkProductCandidates(currentOutputs, contract);
+    if (existingStageCandidates.length > 1) {
+      throw new ValidationError(`M5 ${contract.stageKey} 阶段存在重复 Work Product 或未解决漂移，必须先核对。`);
+    }
+    if (existingStageCandidates.length === 1) {
+      const existingStageProduct = existingStageCandidates[0];
+      if (
+        contract.stageKey === 'visual_analysis'
+        && !contentGrowthArtifactVerified(task, {
+          type:'visual_analysis_package',
+          validation:{ exists:true, readable:true, nonEmpty:true },
+          data:existingStageProduct?.metadata?.artifact,
+        }, {
+          expectedProjectId:expectedVisualProjectId,
+        })
+      ) {
+        throw new ValidationError(
+          'M5 画面分析已有 Work Product 的视觉回执、哈希或 Project 发生漂移，禁止重放或覆盖。',
+        );
+      }
+      await validatePersistedProduct(existingStageProduct);
+      return {
+        synced:true,
+        replayed:true,
+        count:1,
+        schemaVersion:expected.schemaVersion,
+      };
+    }
+    const artifacts = (task?.artifactRefs || []).filter((artifact) =>
+      expected.artifactKinds.includes(artifact?.type)
+      && verifiedAssignmentArtifact(artifact)
+      && (
+        artifact?.type !== 'visual_analysis_package'
+        || contentGrowthArtifactVerified(task, artifact, {
+          expectedProjectId:expectedVisualProjectId,
+        })
+      )
+    );
+    if (artifacts.length < expected.minCount) {
+      throw new ValidationError(
+        `M5 ${contract.stageKey} 阶段缺少 ${expected.artifactKinds.join('/')} 专用产物，不能只凭普通回报完成。`,
+      );
+    }
+
+    for (const artifact of artifacts.slice(0, expected.minCount)) {
+      const outputs = outputItems(await this.governance.getPipelineCaseOutputs(
+        assignment.pipelineCaseId,
+      ));
+      const stageCandidates = m5StageWorkProductCandidates(outputs, contract);
+      if (stageCandidates.length > 1) {
+        throw new ValidationError(`M5 ${contract.stageKey} 阶段存在重复 Work Product 或未解决漂移，必须先核对。`);
+      }
+      const existing = outputs.filter((item) =>
+        item.kind === 'work_product'
+        && item.type === 'artifact'
+        && item.metadata?.sourceTaskId === task.taskId
+        && item.metadata?.sourceArtifactId === artifact.artifactId,
+      );
+      if (
+        stageCandidates.length === 1
+        && (
+          existing.length !== 1
+          || stageCandidates[0] !== existing[0]
+        )
+      ) {
+        throw new ValidationError(`M5 ${contract.stageKey} 阶段存在来源不一致的 Work Product 候选，禁止覆盖。`);
+      }
+      if (existing.length > 1) {
+        throw new ValidationError(`M5 ${contract.stageKey} 阶段存在重复 Work Product，必须先核对漂移。`);
+      }
+      if (existing.length === 1) {
+        await validatePersistedProduct(existing[0]);
+        continue;
+      }
+
+      const metadata = m5WorkProductMetadata({ contract, task, artifact, assignment });
+      await this.governance.createIssueWorkProduct(assignment.issueId, {
+        type:'artifact',
+        provider:m5WorkProductProvider(expected.type),
+        externalId:metadata.artifactHash,
+        title:`M5 ${contract.stageKey} / ${artifact.title || expected.type}`,
+        status:'active',
+        reviewState:'none',
+        isPrimary:true,
+        healthStatus:'healthy',
+        summary:`${contract.stageKey} 阶段专用产物已由当前 Paperclip Run 写回。`,
+        metadata,
+        createdByRunId:assignment.runId,
+      }, {
+        runId:assignment.runId,
+        apiKey,
+      });
+    }
+
+    const finalOutputs = outputItems(await this.governance.getPipelineCaseOutputs(
+      assignment.pipelineCaseId,
+    ));
+    const finalStageCandidates = m5StageWorkProductCandidates(finalOutputs, contract);
+    if (finalStageCandidates.length > expected.minCount) {
+      throw new ValidationError(`M5 ${contract.stageKey} 阶段写回后存在重复 Work Product 或未解决漂移。`);
+    }
+    const persisted = [];
+    for (const artifact of artifacts.slice(0, expected.minCount)) {
+      const candidates = finalOutputs.filter((item) =>
+        item.kind === 'work_product'
+        && item.type === 'artifact'
+        && item.metadata?.sourceTaskId === task.taskId
+        && item.metadata?.sourceArtifactId === artifact.artifactId,
+      );
+      if (candidates.length > 1) {
+        throw new ValidationError(`M5 ${contract.stageKey} 阶段存在重复 Work Product，必须先核对漂移。`);
+      }
+      if (candidates.length === 1) {
+        await validatePersistedProduct(candidates[0]);
+        persisted.push(candidates[0]);
+      }
+    }
+    if (persisted.length < expected.minCount) {
+      throw new ValidationError(`M5 ${contract.stageKey} Work Product 写回后无法从同一 Case 回读。`);
+    }
+    if (typeof this.m5WorkProductObserver === 'function') {
+      await this.m5WorkProductObserver({
+        pipelineCaseId:assignment.pipelineCaseId,
+        stageKey:contract.stageKey,
+        routineKey:contract.routineKey,
+        workProductType:expected.type,
+      });
+    }
+    return { synced:true, count:persisted.length, schemaVersion:expected.schemaVersion };
+  }
+
+  async executeAgentProposalAssignment(input = {}) {
+    const { task, assignment } = await this.getPaperclipAssignment(input);
+    if (assignment.agentId !== 'creator' || task.taskType !== 'governance.agent-proposal') {
+      throw new ValidationError('当前指派不是创建官岗位草案任务。');
+    }
+    const existing = (task.artifactRefs || []).find((item) =>
+      item.type === 'agent_proposal'
+      && item.validation?.exists === true
+      && item.validation?.readable === true
+    );
+    if (existing) {
+      return {
+        assignment,
+        result:{
+          status:'succeeded',
+          verified:true,
+          recommendedCompletionStatus:'succeeded',
+          proposal:existing.data
+        },
+        task:{ taskId:task.taskId, status:task.status, currentStage:task.currentStage },
+        duplicate:true
+      };
+    }
+    const executor = this.executors.creator;
+    if (!executor?.execute) throw new ValidationError('创建官草案执行器不可用。');
+    const result = await executor.execute(task, {
+      proposalInput:{
+        requestedOutcome:String(input.requestedOutcome || assignment.title || '').trim(),
+        candidateName:String(input.candidateName || '').trim(),
+        agentId:String(input.agentId || '').trim(),
+        department:String(input.department || '').trim(),
+        responsibilities:input.responsibilities,
+        nonResponsibilities:input.nonResponsibilities,
+        acceptedTaskTypes:input.acceptedTaskTypes,
+        desiredSkills:input.desiredSkills,
+        requestedCapabilities:input.requestedCapabilities,
+        acceptanceTitle:String(input.acceptanceTitle || '').trim()
+      }
+    });
+    const artifact = (result.artifactRefs || []).find((item) =>
+      item.type === 'agent_proposal'
+      && item.validation?.exists === true
+      && item.validation?.readable === true
+    );
+    if (!artifact) throw new ValidationError('创建官没有生成可读取的岗位草案。');
+    const proposalStage = artifact.data?.reviewSubmission?.status === 'pending' || artifact.data?.status === 'draft'
+      ? 'agent_proposal_drafted'
+      : 'agent_proposal_submitted';
+    const updated = await this.store.updateTask(task.taskId, {
+      status:'running',
+      currentStage:proposalStage,
+      artifactRefs:[...(task.artifactRefs || []), artifact],
+      execution:{
+        ...(task.execution || {}),
+        agentProposal:{
+          executor:'creator',
+          proposalId:artifact.data?.proposalId || null,
+          status:artifact.data?.status || null,
+          recordedAt:new Date().toISOString()
+        }
+      }
+    });
+    return {
+      assignment,
+      result:{
+        status:'succeeded',
+        verified:true,
+        recommendedCompletionStatus:'succeeded',
+        proposal:artifact.data
+      },
+      task:{ taskId:updated.taskId, status:updated.status, currentStage:updated.currentStage },
+      duplicate:false
+    };
   }
 
   async executeTechnicalRepairAssignment(input = {}) {
@@ -645,21 +1481,302 @@ export class TaskService {
     };
   }
 
+  async executeOperationsHealthAssignment(input = {}) {
+    const { task, assignment } = await this.getPaperclipAssignment(input);
+    if (assignment.agentId !== 'operator' || task.taskType !== 'operations.health-review') {
+      throw new ValidationError('当前指派不是运维官确定性健康检查任务。');
+    }
+    const existing = (task.artifactRefs || []).find((item) =>
+      item.type === 'health_report'
+      && item.validation?.exists === true
+      && item.validation?.readable === true
+      && item.validation?.nonEmpty === true
+    );
+    if (existing) {
+      return {
+        assignment,
+        result:{
+          status:'succeeded',
+          currentStage:task.currentStage,
+          verified:true,
+          healthStatus:existing.data?.overall || 'unknown',
+          recommendedCompletionStatus:'succeeded',
+          artifacts:[artifactExecutionView(existing)]
+        },
+        task:{ taskId:task.taskId, status:task.status, currentStage:task.currentStage },
+        duplicate:true
+      };
+    }
+    const executor = this.executors.operator;
+    if (!executor?.execute) throw new ValidationError('运维官确定性健康检查执行器不可用。');
+    const result = await executor.execute(task);
+    const artifacts = (result.artifactRefs || []).filter((item) => item.type === 'health_report');
+    const verified = artifacts.some((item) =>
+      item.validation?.exists === true
+      && item.validation?.readable === true
+      && item.validation?.nonEmpty === true
+    );
+    if (!verified) throw new ValidationError('运维官没有生成可核验的健康报告。');
+    const updated = await this.store.updateTask(task.taskId, {
+      status:'running',
+      currentStage:result.currentStage || 'health_report_ready',
+      artifactRefs:[...(task.artifactRefs || []), ...artifacts],
+      execution:{
+        ...(task.execution || {}),
+        operationsHealth:result.execution || null
+      },
+      usage:result.usage || task.usage
+    });
+    return {
+      assignment,
+      result:{
+        status:result.status || 'succeeded',
+        currentStage:updated.currentStage,
+        verified:true,
+        healthStatus:artifacts[0]?.data?.overall || 'unknown',
+        recommendedCompletionStatus:'succeeded',
+        artifacts:artifacts.map(artifactExecutionView)
+      },
+      task:{ taskId:updated.taskId, status:updated.status, currentStage:updated.currentStage },
+      duplicate:false
+    };
+  }
+
+  async executeEmployeeAssignment(input = {}) {
+    const verified = await this.getPaperclipAssignment(input);
+    const { task, assignment } = verified;
+    const roleToolGrant = verified[ROLE_TOOL_GRANT] || null;
+    const openResearchExecutionPolicy = verified[OPEN_RESEARCH_EXECUTION_POLICY] || null;
+    const agent = await this.registry.get(assignment.agentId);
+    try {
+      assertPaperclipEmployeeExecutorAssignment({ agent, task });
+    } catch (error) {
+      throw new ValidationError(error?.message || '当前员工指派不允许执行。');
+    }
+    const hasM5Recovery = Boolean(task.input?.context?.m5Recovery);
+    const observationDrivenResearch = task.taskType === 'research.open-investigation';
+    const observationDrivenResearchActive = observationDrivenResearch
+      && task.execution?.paperclipEmployee?.state !== 'settled';
+    const stored = hasM5Recovery || observationDrivenResearchActive
+      ? null
+      : storedPaperclipEmployeeResult(task);
+    if (stored) return { assignment, result:stored, task:taskExecutionView(task), duplicate:true };
+
+    let run = this.employeeAssignmentRuns.get(task.taskId);
+    const joined = Boolean(run);
+    if (!run) {
+      const executor = this.executors[assignment.agentId];
+      if (!observationDrivenResearch && !executor?.execute) {
+        throw new ValidationError('当前岗位的受控本机执行器不可用。');
+      }
+      const promise = this.runEmployeeAssignment({
+        task,
+        assignment,
+        agent,
+        executor,
+        roleToolGrant,
+        openResearchExecutionPolicy,
+      });
+      run = { promise };
+      this.employeeAssignmentRuns.set(task.taskId, run);
+      void promise.finally(() => {
+        if (this.employeeAssignmentRuns.get(task.taskId) === run) this.employeeAssignmentRuns.delete(task.taskId);
+      }).catch(() => {});
+    }
+    const completed = await run.promise;
+    return joined ? { ...completed, duplicate:true } : completed;
+  }
+
+  async runEmployeeAssignment({
+    task,
+    assignment,
+    agent,
+    executor,
+    roleToolGrant = null,
+    openResearchExecutionPolicy = null,
+  }) {
+    const executionStartedAt = new Date();
+    const m5Contract = getM5RoutineExecutionContract(assignment?.routineKey);
+    let result;
+    let routeExecution = null;
+    try {
+      const roleToolContext = roleToolGrant
+        ? createM5RoleToolExecutionContext(roleToolGrant.grant, {
+            adapters:this.roleToolAdapters,
+            workspaceRoot:roleToolGrant.workspaceRoot,
+            trustedScope:roleToolGrant.trustedScope,
+          })
+        : null;
+      const prepared = prepareM5ExecutorTask({
+        task,
+        assignment,
+        contract:m5Contract,
+      });
+      routeExecution = prepared.routeExecution;
+      if (prepared.recovery) {
+        assertChangedM5RecoveryRoute(routeExecution, prepared.recovery);
+      }
+      const paperclipWorkProducts = task.taskType === 'research.open-investigation'
+        ? await this.readOpenResearchWorkProducts(assignment)
+        : null;
+      result = task.taskType === 'research.open-investigation'
+        ? await executeIntelResearchOpenTaskStep({
+            task:prepared.task,
+            agent,
+            assignment,
+            executionPolicy:openResearchExecutionPolicy,
+            paperclipWorkProducts,
+            roleToolContext,
+            reportExecutor:executor,
+            writeStepWorkProduct:async (product) => {
+              if (typeof this.governance?.createIssueWorkProduct !== 'function') {
+                throw new ValidationError(
+                  '小R开放研究缺少 Paperclip Work Product 写回能力。',
+                );
+              }
+              return this.governance.createIssueWorkProduct(
+                assignment.issueId,
+                product,
+                { runId:assignment.runId },
+              );
+            },
+            readWorkProducts:() => this.readOpenResearchWorkProducts(assignment),
+          })
+        : await executor.execute(
+            prepared.task,
+            roleToolContext
+              ? { roleToolContext, m5Recovery:prepared.recovery }
+              : prepared.recovery
+                ? { m5Recovery:prepared.recovery }
+                : undefined,
+          );
+      if (
+        roleToolContext
+        && roleToolContext.snapshot().length === 0
+        && result?.openResearch?.reusedReport !== true
+      ) {
+        throw new M5RoleToolGrantError(
+          '受控执行器没有经过岗位工具授权上下文。',
+          'role_tool_not_enforced',
+        );
+      }
+    } catch (error) {
+      const occurredAt = new Date().toISOString();
+      result = {
+        status:m5Contract?.executionMode === 'hermes' ? 'failed' : 'waiting_test',
+        currentStage:'paperclip_employee_execution_failed',
+        artifactRefs:[],
+        error:{
+          code:String(error?.code || 'paperclip_employee_executor_failed').slice(0, 120),
+          message:String(error?.message || '员工受控执行器失败。').slice(0, 500),
+          userMessage:m5Contract?.executionMode === 'hermes'
+            ? 'M5 阶段本次执行失败；请按 Paperclip 恢复策略回报 failed。'
+            : '员工未完成当前指派，已保留真实失败原因。',
+          category:m5Contract?.executionMode === 'hermes'
+            ? 'retryable'
+            : String(error?.category || 'manual').slice(0, 80),
+          stage:'paperclip_employee_execution',
+          retryable:m5Contract?.executionMode === 'hermes' || error?.retryable === true,
+          occurredAt,
+        },
+      };
+    }
+    const artifacts = Array.isArray(result?.artifactRefs) ? result.artifactRefs : [];
+    const verified = result?.status === 'succeeded' && artifacts.some(verifiedAssignmentArtifact);
+    const recommendedCompletionStatus = result?.status === 'running'
+      ? 'running'
+      : verified
+        ? 'succeeded'
+        : result?.status === 'failed'
+          ? 'failed'
+          : 'waiting_test';
+    const settled = recommendedCompletionStatus !== 'running';
+    const latest = (await this.store.list()).find((item) => item.taskId === task.taskId) || task;
+    const updated = await this.store.updateTask(task.taskId, {
+      status:'running',
+      currentStage:result?.currentStage || (settled ? 'paperclip_employee_executed' : 'paperclip_employee_running'),
+      artifactRefs:[...(latest.artifactRefs || []), ...artifacts],
+      execution:{
+        ...(latest.execution || {}),
+        ...(result?.execution || {}),
+        owner:'paperclip-hermes',
+        paperclipEmployee:{
+          state:settled ? 'settled' : 'running',
+          executor:assignment.agentId,
+          status:String(result?.status || recommendedCompletionStatus),
+          verified,
+          recommendedCompletionStatus,
+          startedAt:executionStartedAt.toISOString(),
+          updatedAt:new Date().toISOString(),
+        },
+        ...(routeExecution ? { m5RouteExecution:routeExecution } : {}),
+      },
+      usage:recordTaskUsage({ task, result, startedAt:executionStartedAt }),
+      ...(result?.error ? { error:result.error } : { error:undefined }),
+    });
+    if (!settled && typeof executor?.observe === 'function') executor.observe(updated);
+    return {
+      assignment,
+      result:{
+        status:String(result?.status || recommendedCompletionStatus),
+        currentStage:updated.currentStage,
+        verified,
+        recommendedCompletionStatus,
+        ...(recommendedCompletionStatus === 'running'
+          ? {
+              continuePolling:true,
+              pollAfterSeconds:3,
+              message:'当前岗位的本机工作仍在执行；请再次调用 employee_assignment_execute 获取真实状态。',
+            }
+          : {}),
+        error:result?.error || null,
+        artifacts:artifacts.map(artifactExecutionView),
+        ...(result?.openResearch ? { openResearch:result.openResearch } : {}),
+      },
+      task:taskExecutionView(updated),
+      duplicate:false,
+    };
+  }
+
+  async readOpenResearchWorkProducts(assignment) {
+    if (typeof this.governance?.getIssueWorkProducts !== 'function') {
+      throw new ValidationError(
+        '小R开放研究缺少 Paperclip Work Product 回读能力。',
+      );
+    }
+    return this.governance.getIssueWorkProducts(
+      assignment.issueId,
+      { runId:assignment.runId },
+    );
+  }
+
   async executeContentGrowthAssignment(input = {}) {
     const { task, assignment } = await this.getPaperclipAssignment(input);
     const allowed = {
-      'video-content-analyst':new Set(['content.video-benchmark-analysis', 'content.performance-review']),
+      'video-content-analyst':new Set([
+        'content.video-benchmark-analysis',
+        'content.performance-review',
+        'content.campaign-visual-analysis',
+      ]),
       'content-creator':new Set(['content.platform-draft', 'content.video-script-package'])
     };
     if (!allowed[assignment.agentId]?.has(task.taskType)) throw new ValidationError('当前指派不是受控内容增长任务。');
     const artifactTypes = {
       'content.video-benchmark-analysis':'video_content_analysis_report',
       'content.performance-review':'content_performance_report',
+      'content.campaign-visual-analysis':'visual_analysis_package',
       'content.platform-draft':'platform_content_draft',
       'content.video-script-package':'video_script_package'
     };
     const expectedType = artifactTypes[task.taskType];
-    const existing = (task.artifactRefs || []).find((item) => item.type === expectedType && item.validation?.exists === true && item.validation?.readable === true);
+    const hasM5Recovery = Boolean(task.input?.context?.m5Recovery);
+    const existing = hasM5Recovery
+      ? null
+      : (task.artifactRefs || []).find((item) =>
+          item.type === expectedType
+          && item.validation?.exists === true
+          && item.validation?.readable === true
+        );
     if (existing) {
       const verified = contentGrowthArtifactVerified(task, existing);
       return {
@@ -676,7 +1793,7 @@ export class TaskService {
         duplicate:true
       };
     }
-    const settled = storedContentGrowthResult(task, expectedType);
+    const settled = hasM5Recovery ? null : storedContentGrowthResult(task, expectedType);
     if (settled) {
       return {
         assignment,
@@ -690,7 +1807,19 @@ export class TaskService {
     let run = this.contentGrowthRuns.get(task.taskId);
     const joined = Boolean(run);
     if (!run) {
-      const promise = this.runContentGrowthAssignment({ task, assignment, expectedType, executor });
+      const providerVision = task.taskType === 'content.campaign-visual-analysis'
+        ? this.m5ProviderVisionCallback({
+            assignment,
+            paperclipApiKey:input.paperclipApiKey,
+          })
+        : null;
+      const promise = this.runContentGrowthAssignment({
+        task,
+        assignment,
+        expectedType,
+        executor,
+        providerVision,
+      });
       run = { promise };
       this.contentGrowthRuns.set(task.taskId, run);
       void promise.finally(() => {
@@ -716,8 +1845,15 @@ export class TaskService {
     };
   }
 
-  async runContentGrowthAssignment({ task, assignment, expectedType, executor }) {
+  async runContentGrowthAssignment({
+    task,
+    assignment,
+    expectedType,
+    executor,
+    providerVision = null,
+  }) {
     const executionStartedAt = new Date();
+    const m5Contract = getM5RoutineExecutionContract(assignment?.routineKey);
     const started = await this.store.updateTask(task.taskId, {
       status:'running',
       currentStage:'content_growth_background_running',
@@ -732,8 +1868,24 @@ export class TaskService {
       error:undefined
     });
     let result;
+    let routeExecution = null;
     try {
-      result = await executor.execute(started);
+      const prepared = prepareM5ExecutorTask({
+        task:started,
+        assignment,
+        contract:m5Contract,
+      });
+      routeExecution = prepared.routeExecution;
+      if (prepared.recovery) {
+        assertChangedM5RecoveryRoute(routeExecution, prepared.recovery);
+      }
+      result = await executor.execute(
+        prepared.task,
+        {
+          ...(prepared.recovery ? { m5Recovery:prepared.recovery } : {}),
+          ...(providerVision ? { providerVision } : {}),
+        },
+      );
     } catch (error) {
       const completedAt = new Date().toISOString();
       result = {
@@ -780,7 +1932,8 @@ export class TaskService {
           verified,
           recommendedCompletionStatus,
           settledAt:new Date().toISOString()
-        }
+        },
+        ...(routeExecution ? { m5RouteExecution:routeExecution } : {}),
       },
       usage:recordTaskUsage({ task, result, startedAt:executionStartedAt }),
       ...(result.error ? { error:result.error } : preserveTerminal ? { error:latest.error } : {})
@@ -797,6 +1950,51 @@ export class TaskService {
       },
       task:{ taskId:updated.taskId, status:updated.status, currentStage:updated.currentStage },
       duplicate:false
+    };
+  }
+
+  m5ProviderVisionCallback({ assignment, paperclipApiKey }) {
+    if (
+      typeof this.m5ProviderVision !== 'function'
+      || !assignment?.pipelineCaseId
+      || !String(paperclipApiKey || '').trim()
+    ) return null;
+    const caseId = String(assignment.pipelineCaseId);
+    const apiKey = String(paperclipApiKey);
+    let used = false;
+    return (parameters) => {
+      if (used) {
+        throw new ValidationError('当前 heartbeat 的 M5 视觉 Provider callback 已使用，禁止第二次付费调用。');
+      }
+      used = true;
+      const keys = parameters && typeof parameters === 'object' && !Array.isArray(parameters)
+        ? Object.keys(parameters).sort()
+        : [];
+      if (keys.join(',') !== 'actionId,prompt,relativePath') {
+        throw new ValidationError('M5 视觉 Provider callback 只接受 actionId、relativePath、prompt。');
+      }
+      const actionId = String(parameters.actionId || '');
+      const relativePath = String(parameters.relativePath || '').replaceAll('\\', '/');
+      const prompt = parameters.prompt;
+      const actionPrefix = `${caseId}:vision:`;
+      if (
+        !actionId.startsWith(actionPrefix)
+        || !/^[0-9a-f]{16}$/i.test(actionId.slice(actionPrefix.length))
+        || !safeM5VisionRelativePath(relativePath)
+        || typeof prompt !== 'string'
+        || !prompt.trim()
+        || prompt.length > 1_000
+      ) {
+        throw new ValidationError('M5 视觉 Provider callback 参数不在当前 Case 的受控范围内。');
+      }
+      return this.m5ProviderVision({
+        caseId,
+        parameters:{ actionId, relativePath, prompt },
+        authentication:{
+          requireRunAuthentication:true,
+          paperclipApiKey:apiKey,
+        },
+      });
     };
   }
 
@@ -833,15 +2031,20 @@ export class TaskService {
       ...(manager ? [manager] : []),
       ...visibleAgents.filter((agent) => agent.interaction?.directFeishu !== 'disabled')
     ];
-    return { agents:visibleAgents, alwaysOnAgents, onDemandAgents, tasks, approvals, taskFocus: buildTaskFocus(tasks, approvals), usage:summarizeTaskUsage(tasks, { since:startOfToday() }), capabilities: [
+    const presentedTasks = tasks.map((task) => ({
+      ...task,
+      presentation:presentTask(task, { approvals, detailBaseUrl:this.taskDetailBaseUrl })
+    }));
+    return { agents:visibleAgents, alwaysOnAgents, onDemandAgents, tasks:presentedTasks, approvals, taskFocus: buildTaskFocus(tasks, approvals), usage:summarizeTaskUsage(tasks, { since:startOfToday() }), capabilities: [
       { id: 'task-coordination', name: '统一任务协调', status: 'ready', detail: '创建、路由和状态真相已就绪。' },
       { id: 'agent-registry', name: '岗位注册表', status: 'ready', detail: '岗位职责、任务类型和权限边界从 Manifest 读取。' },
       { id: 'approval-gate', name: '审批闸门', status: 'ready', detail: '高风险描述先进入待审批，不自动执行。' },
-      { id: 'content-public-web-fetch', name: '公开网页内容获取', status: 'ready', detail: '仅读取公开 HTML/纯文本，拒绝内网、登录态和非网页内容。' },
+      { id: 'content-public-web-fetch', name: '公开资料读取', status: 'ready', detail: '可读取公开网页、动态页面和 PDF；拒绝内网、登录态与越权内容。' },
+      { id: 'authorized-content-read', name: '登录平台只读采集', status: 'partial', detail: '小D已接入受控账号和平台专用通道；当前是否可读以“连接”页和具体任务验证为准。' },
       { id: 'governance', name: 'Paperclip 治理投影', status: governance.status, detail: governance.status === 'ready' ? `本机 Paperclip 已连接（${governance.version || '未知版本'}）。` : 'Paperclip 未连接；任务仍可登记，后续可补同步。' },
       { id: 'feishu-channel', name: '飞书收发与员工入口', status:feishuChannel.status, detail:feishuChannel.detail },
       { id: 'mac-worker', name: 'Mac工作间安全接力', status:worker.status, detail:worker.detail },
-      { id: 'external-execution', name: '外部账号与写入动作', status: 'planned', detail: '登录型账号连接、外部发布和其他写入动作尚未接入；这类动作仍需要审批。' }
+      { id: 'external-execution', name: '外部发布与写入', status: 'planned', detail: '外部发布和其他写入动作尚未接入；登录型只读采集不等于已经开放写入。' }
     ] };
   }
 
@@ -1007,6 +2210,696 @@ function withFeishuTaskEvidence(channel, agentId, tasks) {
 }
 
 export class ValidationError extends Error {}
+
+function validatedM5StagePluginData(stageKey, expectedArtifactKind, result) {
+  const declared = declaredM5StageArtifact(result, expectedArtifactKind);
+  const data = structuredClone(declared?.data || result);
+  delete data.toolId;
+  delete data.pluginId;
+  delete data.artifact;
+  delete data.artifactRefs;
+  const unsafe = findUnsafeM5PluginValue(data);
+  if (unsafe) throw new ValidationError(`M5 内容插件回执包含不允许持久化的字段或路径：${unsafe}。`);
+  if (stageKey === 'parallel_image_generation') {
+    if (
+      !safeRelativeArtifactPath(data.relativePath, '.png')
+      || !sha256Value(data.checksum)
+      || !Number.isInteger(Number(data.bytes))
+      || Number(data.bytes) <= 0
+      || data.model !== 'step-image-edit-2'
+      || !Number.isInteger(Number(data.seed))
+      || !validConfirmedM5ProviderReceipt(data.providerReceipt, 'image_generate')
+    ) {
+      throw new ValidationError('M5 并行生图回执缺少真实 PNG、模型、种子或 confirmed Provider action/cost 血缘。');
+    }
+  } else if (stageKey === 'voice') {
+    if (
+      !safeRelativeArtifactPath(data.relativePath, '.mp3')
+      || !sha256Value(data.checksum)
+      || !Number.isInteger(Number(data.bytes))
+      || Number(data.bytes) <= 0
+      || data.model !== 'stepaudio-2.5-tts'
+      || !String(data.voice || '').trim()
+      || !validConfirmedM5ProviderReceipt(data.providerReceipt || data, 'tts')
+    ) {
+      throw new ValidationError('M5 配音回执缺少真实 MP3、模型、官方音色或 confirmed Provider action/cost 血缘。');
+    }
+  } else if (stageKey === 'render') {
+    if (declared && data.outputs) {
+      const expected = {
+        master:['M5Master', 'master.mp4'],
+        douyin:['M5Douyin', 'douyin.mp4'],
+        xiaohongshu:['M5Xiaohongshu', 'xiaohongshu.mp4'],
+      };
+      if (
+        typeof data.outputs !== 'object'
+        || Array.isArray(data.outputs)
+        || Object.keys(expected).some((platform) =>
+          !validM5RenderOutput(data.outputs[platform], ...expected[platform]),
+        )
+      ) {
+        throw new ValidationError('M5 RenderPackage 必须包含 master、douyin、xiaohongshu 三份固定成片及真实回执。');
+      }
+      const master = data.outputs.master;
+      Object.assign(data, {
+        composition:master.composition,
+        propsPath:master.propsPath,
+        outputPath:master.outputPath,
+        relativePath:master.outputPath,
+        checksum:master.checksum,
+        bytes:Number(master.bytes),
+      });
+    } else {
+      if (
+        !safeRelativeArtifactPath(data.outputPath, '.mp4')
+        || !sha256Value(data.checksum)
+        || !Number.isInteger(Number(data.bytes))
+        || Number(data.bytes) <= 0
+        || !['M5Master', 'M5Douyin', 'M5Xiaohongshu'].includes(data.composition)
+      ) {
+        throw new ValidationError('M5 渲染回执缺少真实 MP4 相对路径、文件哈希、字节数或固定 Composition。');
+      }
+      data.relativePath = data.outputPath;
+    }
+  } else if (stageKey === 'machine_review') {
+    if (!declared) {
+      throw new ValidationError('M5 机器审核必须返回显式专用 artifact，单一 media-validate 回执不能冒充完整审核。');
+    }
+    const review = data.reviewReport && typeof data.reviewReport === 'object'
+      ? data.reviewReport
+      : data;
+    const checks = review.checks;
+    const requiredChecks = ['facts', 'privacy', 'rights', 'media', 'claims', 'grantScope', 'duplicate'];
+    if (
+      !['passed', 'failed'].includes(review.status)
+      || !checks
+      || typeof checks !== 'object'
+      || requiredChecks.some((key) => typeof checks[key] !== 'boolean')
+    ) {
+      throw new ValidationError('M5 机器审核专用产物缺少七项门禁的确定性结论。');
+    }
+    if (review.status === 'passed' && !validM5ArtifactPackage(review.evidence?.artifactPackage)) {
+      throw new ValidationError('M5 机器审核通过回执缺少已校验的固定产物包、manifest 哈希或完整产物清单。');
+    }
+    return { reviewReport:structuredClone(review) };
+  } else if (stageKey === 'publish_approval') {
+    if (
+      typeof data.passed !== 'boolean'
+      || !Array.isArray(data.errors)
+      || !String(data.idempotencyKey || '').trim()
+    ) {
+      throw new ValidationError('M5 发布审批回执缺少确定性门禁结论或幂等键。');
+    }
+    data.status = data.passed ? 'passed' : 'failed';
+  } else if (stageKey === 'verify') {
+    if (
+      !declared
+      || data.status !== 'passed'
+      || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(String(data.receiptId || ''))
+      || !['douyin', 'xiaohongshu'].includes(data.platform)
+      || !String(data.externalContentId || '').trim()
+      || !String(data.evidence || '').trim()
+      || !sha256Value(data.contentChecksum)
+    ) {
+      throw new ValidationError('M5 发布核验专用产物缺少可信 PublishReceipt、平台内容ID、成功证据或内容哈希。');
+    }
+  } else {
+    throw new ValidationError(`M5 阶段 ${stageKey} 没有插件回执校验器。`);
+  }
+  return data;
+}
+
+function declaredM5StageArtifact(result, expectedArtifactKind) {
+  const candidates = [
+    result?.artifact,
+    ...(Array.isArray(result?.artifactRefs) ? result.artifactRefs : []),
+  ].filter(Boolean);
+  if (!candidates.length) return null;
+  const matches = candidates.filter((item) => item?.type === expectedArtifactKind);
+  if (matches.length !== 1) {
+    throw new ValidationError(`M5 阶段必须且只能返回一个 ${expectedArtifactKind} 专用产物。`);
+  }
+  const artifact = matches[0];
+  if (
+    !artifact.data
+    || typeof artifact.data !== 'object'
+    || Array.isArray(artifact.data)
+    || artifact.validation?.exists !== true
+    || artifact.validation?.readable !== true
+    || artifact.validation?.nonEmpty !== true
+  ) {
+    throw new ValidationError(`M5 ${expectedArtifactKind} 专用产物没有通过 exists/readable/nonEmpty 门禁。`);
+  }
+  return artifact;
+}
+
+function validM5RenderOutput(value, composition, fileName) {
+  return value
+    && value.composition === composition
+    && safeRelativeArtifactPath(value.propsPath, '.props.json')
+    && safeRelativeArtifactPath(value.outputPath, '.mp4')
+    && String(value.outputPath).replaceAll('\\', '/').endsWith(`/${fileName}`)
+    && sha256Value(value.checksum)
+    && Number.isInteger(Number(value.bytes))
+    && Number(value.bytes) > 0;
+}
+
+function findUnsafeM5PluginValue(value, path = 'result', seen = new Set()) {
+  if (value == null) return null;
+  if (typeof value === 'string') {
+    if (/^(?:file:\/\/|\/|~\/|[A-Za-z]:[\\/])/.test(value.trim())) return path;
+    return null;
+  }
+  if (typeof value !== 'object') return null;
+  if (seen.has(value)) return `${path}.__cycle__`;
+  seen.add(value);
+  for (const [key, nested] of Object.entries(value)) {
+    if (/(?:secret|token|cookie|authorization|credential|api[_-]?key)/i.test(key)) {
+      return `${path}.${key}`;
+    }
+    const unsafe = findUnsafeM5PluginValue(nested, `${path}.${key}`, seen);
+    if (unsafe) return unsafe;
+  }
+  return null;
+}
+
+function safeRelativeArtifactPath(value, extension) {
+  const relative = String(value || '').trim().replaceAll('\\', '/');
+  return Boolean(
+    relative
+    && relative.toLowerCase().endsWith(extension)
+    && !relative.startsWith('/')
+    && relative.split('/').every((segment) => segment && segment !== '.' && segment !== '..'),
+  );
+}
+
+function safeRelativeImageArtifactPath(value) {
+  const relative = String(value || '').trim().replaceAll('\\', '/');
+  return Boolean(
+    relative
+    && /\.(?:jpe?g|png|webp)$/i.test(relative)
+    && !relative.startsWith('/')
+    && relative.split('/').every((segment) => segment && segment !== '.' && segment !== '..')
+  );
+}
+
+function safeM5VisionRelativePath(value) {
+  const relative = String(value || '').trim().replaceAll('\\', '/');
+  return Boolean(
+    relative
+    && /\.png$/i.test(relative)
+    && !relative.startsWith('/')
+    && relative.split('/').every((segment) => segment && segment !== '.' && segment !== '..')
+  );
+}
+
+function sha256Value(value) {
+  return /^(?:sha256:)?[0-9a-f]{64}$/i.test(String(value || '').trim());
+}
+
+function paperclipUuid(value) {
+  const id = String(value || '').trim();
+  return /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)
+    ? id
+    : null;
+}
+
+function validConfirmedM5ProviderReceipt(value, operation) {
+  const actionId = String(value?.actionId || '').trim();
+  const record = value?.callRecord;
+  const commit = value?.costCommit;
+  return /^[A-Za-z0-9:_-]{8,160}$/.test(actionId)
+    && value?.operation === operation
+    && record?.actionId === actionId
+    && record?.operation === operation
+    && record?.model === value?.model
+    && sha256Value(record?.promptChecksum)
+    && commit?.status === 'confirmed'
+    && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(String(commit?.costEventId || ''))
+    && commit?.costEvent?.provider === 'stepfun'
+    && Number.isInteger(Number(commit?.costEvent?.costCents))
+    && Number(commit.costEvent.costCents) >= 0;
+}
+
+function taskExecutionView(task) {
+  return {
+    taskId:task.taskId,
+    taskType:task.taskType,
+    status:task.status,
+    currentStage:task.currentStage,
+  };
+}
+
+function paperclipCaseContextFields(fields) {
+  const source = fields && typeof fields === 'object' ? fields : {};
+  const allowed = [
+    'campaignId',
+    'scheduledDate',
+    'theme',
+    'platform',
+    'contentVersion',
+    'contentVersionId',
+    'assetRightsBasis',
+  ];
+  return Object.fromEntries(allowed.flatMap((key) => {
+    const value = source[key];
+    if (typeof value === 'string' && value.trim()) return [[key, value.trim().slice(0, 500)]];
+    if (Number.isInteger(value)) return [[key, value]];
+    return [];
+  }));
+}
+
+function m5PlanRevisionExecutionContext(revision) {
+  return {
+    schemaVersion:revision.schemaVersion,
+    revisionId:revision.revisionId,
+    revision:revision.revision,
+    failedCaseId:revision.failedCaseId,
+    failureObservation:{
+      issueId:revision.failureObservation?.issueId || null,
+      runId:revision.failureObservation?.runId || null,
+      stageKey:revision.failureObservation?.stageKey || null,
+      summary:revision.failureObservation?.summary || '',
+      summaryHash:revision.failureObservation?.summaryHash || null,
+    },
+    rejectedRoute:{
+      kind:revision.rejectedRoute?.kind || null,
+      reason:revision.rejectedRoute?.reason || '',
+      routeFingerprint:revision.rejectedRoute?.routeFingerprint || null,
+      execution:revision.rejectedRoute?.execution || null,
+    },
+    nextRoute:{
+      kind:revision.nextRoute?.kind,
+      stageKey:revision.nextRoute?.stageKey,
+      preserveVerifiedWorkProducts:revision.nextRoute?.preserveVerifiedWorkProducts === true,
+      instruction:revision.nextRoute?.instruction || '',
+    },
+  };
+}
+
+function assertM5PlanRevisionConsumed({
+  expected,
+  actual,
+  runId,
+  allowUnchangedFailure = false,
+  input,
+} = {}) {
+  if (!expected) return null;
+  const revisionId = String(expected.revisionId || '').trim();
+  const consumedRevisionId = String(input?.consumedRevisionId || '').trim();
+  if (!revisionId || consumedRevisionId !== revisionId) {
+    throw new ValidationError('当前 M5 Run 必须精确回报已消费的 PlanRevision ID。');
+  }
+  if (
+    !validM5RouteExecution(actual)
+    || actual.runId !== runId
+    || actual.consumedRevisionId !== revisionId
+    || actual.stageKey !== expected.nextRoute?.stageKey
+  ) {
+    throw new ValidationError('当前 M5 Run 没有执行器生成的 PlanRevision 消费回执。');
+  }
+  if (
+    !allowUnchangedFailure
+    && (actual.routeChanged !== true || actual.changedDimensions.length === 0)
+  ) {
+    throw new ValidationError(
+      '执行器确认本次输入、工具和策略均未变化；拒绝把同一路线写成已恢复。',
+    );
+  }
+  return {
+    schemaVersion:'agent.army/m5-plan-revision-receipt/v1',
+    consumedRevisionId,
+    routeChanged:actual.routeChanged === true,
+    changedDimensions:[...actual.changedDimensions],
+    routeFingerprint:actual.routeFingerprint,
+    routeSummary:actual.routeSummary,
+    stageKey:expected.nextRoute?.stageKey || null,
+    recordedAt:new Date().toISOString(),
+  };
+}
+
+function prepareM5ExecutorTask({ task, assignment, contract } = {}) {
+  if (!contract || contract.executionMode !== 'hermes') {
+    return { task, recovery:null, routeExecution:null };
+  }
+  const recovery = task?.input?.context?.m5Recovery || null;
+  const strategy = recovery?.nextRoute?.kind
+    || `default:${contract.executionTool?.id || 'hermes_executor'}`;
+  const previousExecution = validM5RouteExecution(task?.execution?.m5RouteExecution)
+    ? task.execution.m5RouteExecution
+    : null;
+  const routeExecution = createM5RouteExecution({
+    runId:assignment.runId,
+    stageKey:contract.stageKey,
+    recovery,
+    previousExecution,
+    strategy,
+    toolIds:[contract.executionTool?.id || 'hermes_executor'],
+    inputs:m5BusinessExecutionInput(task?.input),
+  });
+  if (!recovery) return { task, recovery:null, routeExecution };
+  return {
+    recovery,
+    routeExecution,
+    task:{
+      ...task,
+      input:{
+        ...(task.input || {}),
+        context:{
+          ...(task.input?.context || {}),
+          m5AlternativeRoute:{
+            revisionId:recovery.revisionId,
+            strategy,
+            instruction:recovery.nextRoute?.instruction || '',
+            preserveVerifiedWorkProducts:
+              recovery.nextRoute?.preserveVerifiedWorkProducts === true,
+          },
+        },
+      },
+    },
+  };
+}
+
+function assertM5ExecutorRouteReceipt({
+  task,
+  contract,
+  result,
+  allowUnchanged = false,
+} = {}) {
+  const recovery = task?.input?.context?.m5Recovery || null;
+  if (!recovery && !validM5RouteExecution(result)) return null;
+  if (
+    !validM5RouteExecution(result)
+    || result.runId !== task?.execution?.paperclipRunId
+    || result.stageKey !== contract?.stageKey
+  ) {
+    throw new ValidationError('M5 阶段执行器缺少与当前 Run、阶段一致的真实路线回执。');
+  }
+  if (recovery) {
+    if (result.consumedRevisionId !== recovery.revisionId) {
+      throw new ValidationError('M5 阶段执行器消费的 PlanRevision 与当前指派不一致。');
+    }
+    if (!allowUnchanged && (result.routeChanged !== true || result.changedDimensions.length === 0)) {
+      throw new ValidationError('M5 阶段执行器没有真实改变输入、工具或策略。');
+    }
+  }
+  return result;
+}
+
+function m5BusinessExecutionInput(input) {
+  if (!input || typeof input !== 'object') return {};
+  const context = input.context && typeof input.context === 'object'
+    ? Object.fromEntries(
+        Object.entries(input.context)
+          .filter(([key]) => !['m5Recovery', 'm5AlternativeRoute'].includes(key)),
+      )
+    : {};
+  return {
+    ...input,
+    context,
+  };
+}
+
+function trustedRoleToolScope({
+  tasks,
+  task,
+  relatedTaskIds,
+  paperclipIssueId = null,
+  paperclipRunId = null,
+  pipelineCaseId = null,
+} = {}) {
+  const relatedIds = new Set(
+    (Array.isArray(relatedTaskIds) ? relatedTaskIds : [])
+      .map((item) => String(item || '').trim())
+      .filter(Boolean),
+  );
+  const parentTaskId = String(task?.parentTaskId || '').trim();
+  const currentTaskId = String(task?.taskId || '').trim();
+  const allowedTaskIds = (Array.isArray(tasks) ? tasks : []).filter((candidate) =>
+    candidate?.taskId !== currentTaskId
+    && (
+      relatedIds.has(String(candidate?.taskId || ''))
+      || (parentTaskId && candidate?.parentTaskId === parentTaskId)
+    ),
+  ).map((candidate) => candidate.taskId);
+  return Object.freeze({
+    allowedTaskIds:Object.freeze(allowedTaskIds),
+    paperclipIssueId:String(paperclipIssueId || '').trim() || null,
+    paperclipRunId:String(paperclipRunId || '').trim() || null,
+    pipelineCaseId:String(pipelineCaseId || '').trim() || null,
+  });
+}
+
+async function m5PipelineCaseChainIds({ governance, pipelineCaseId, pipelineCase }) {
+  const firstId = String(pipelineCaseId || '').trim();
+  if (!firstId) return [];
+  const caseIds = [];
+  const visited = new Set();
+  let current = pipelineCase?.case || pipelineCase || { id:firstId };
+  for (let depth = 0; depth < 32; depth += 1) {
+    const currentId = String(current?.id || (depth === 0 ? firstId : '')).trim();
+    if (!currentId || visited.has(currentId)) {
+      throw new ValidationError('M5 Pipeline Case 父子链无效或存在循环。');
+    }
+    caseIds.push(currentId);
+    visited.add(currentId);
+    const parentCaseId = String(current?.parentCaseId || '').trim();
+    if (!parentCaseId) return caseIds;
+    if (typeof governance?.getPipelineCase !== 'function') {
+      throw new ValidationError('M5 Pipeline Case 缺少父级读取能力，无法绑定前置产物。');
+    }
+    const parent = await governance.getPipelineCase(parentCaseId);
+    current = parent?.case || parent;
+    if (!current) throw new ValidationError('M5 Pipeline Case 父级不存在，无法绑定前置产物。');
+  }
+  throw new ValidationError('M5 Pipeline Case 父子链超过安全深度。');
+}
+
+function m5RelatedTaskContext(tasks, pipelineCaseIds, pipelineCase = null) {
+  const allowedCaseIds = new Set(
+    (Array.isArray(pipelineCaseIds) ? pipelineCaseIds : [pipelineCaseIds])
+      .map((item) => String(item || '').trim())
+      .filter(Boolean),
+  );
+  if (!allowedCaseIds.size) return { sourceTaskIds:[], sourceUrls:[] };
+  const currentFields = paperclipCaseContextFields(
+    pipelineCase?.case?.fields || pipelineCase?.fields || {},
+  );
+  const sameContentDay = (candidate) => {
+    const fields = candidate?.input?.context?.pipelineCase?.fields || {};
+    return Boolean(
+      currentFields.campaignId
+      && currentFields.scheduledDate
+      && fields.campaignId === currentFields.campaignId
+      && fields.scheduledDate === currentFields.scheduledDate
+      && String(fields.contentVersion || 'v1') === String(currentFields.contentVersion || 'v1'),
+    );
+  };
+  const related = (Array.isArray(tasks) ? tasks : [])
+    .filter((item) =>
+      (
+        allowedCaseIds.has(String(item?.input?.context?.pipelineCaseId || '').trim())
+        || sameContentDay(item)
+      )
+      && item?.governance?.paperclipIssueId
+      && !['failed', 'cancelled'].includes(item.status),
+    )
+    .sort((left, right) =>
+      Date.parse(left.createdAt || left.updatedAt || 0) - Date.parse(right.createdAt || right.updatedAt || 0),
+    );
+  const sourceUrls = related.flatMap((item) => (item.artifactRefs || []).flatMap((artifact) => {
+    if (artifact?.validation?.publicReadOnly !== true) return [];
+    const sources = Array.isArray(artifact.data?.sources) ? artifact.data.sources : [];
+    return sources.map((source) => String(source.source || source.url || '').trim())
+      .filter((value) => /^https?:\/\//i.test(value));
+  }));
+  return {
+    sourceTaskIds:[...new Set(related.map((item) => item.taskId).filter(Boolean))].slice(-20),
+    sourceUrls:[...new Set(sourceUrls)].slice(0, 5),
+  };
+}
+
+function m5WorkProductMetadata({ contract, task, artifact, assignment }) {
+  const expected = contract.expectedWorkProduct;
+  const safeData = sanitizeM5ArtifactData(artifact.data);
+  const metadata = {
+    schemaVersion:expected.schemaVersion,
+    kind:expected.type,
+    stageKey:contract.stageKey,
+    routineKey:contract.routineKey,
+    sourceTaskId:task.taskId,
+    sourceArtifactId:String(artifact.artifactId || `${artifact.type}:${task.taskId}`).slice(0, 240),
+    sourceIssueId:String(assignment?.issueId || task.governance?.paperclipIssueId || '').trim(),
+    pipelineCaseId:String(assignment?.pipelineCaseId || task.input?.context?.pipelineCaseId || '').trim(),
+    projectId:String(assignment?.projectId || task.input?.context?.paperclipProjectId || '').trim(),
+    sourceRunId:String(assignment?.runId || task.execution?.paperclipRunId || '').trim(),
+    artifactKind:artifact.type,
+    artifact:safeData,
+  };
+  metadata.artifactHash = m5WorkProductArtifactHash(metadata);
+  if (expected.type === 'ContentVersion') {
+    const contentVersion = safeData?.contentVersion;
+    if (!validM5ContentVersion(contentVersion)) {
+      throw new ValidationError(
+        '平台适配产物缺少可发布 ContentVersion（平台、版本、sha256、相对媒体路径、标题、正文和标签）。',
+      );
+    }
+    metadata.contentVersion = contentVersion;
+  }
+  if (expected.type === 'MachineReview') {
+    const reviewReport = safeData?.reviewReport;
+    if (!validM5MachineReview(reviewReport)) {
+      throw new ValidationError('机器审核产物没有完整通过七项发布门禁，不能写成可信 MachineReview。');
+    }
+    metadata.reviewReport = reviewReport;
+  }
+  return metadata;
+}
+
+function m5WorkProductProvider(kind) {
+  return ['ContentVersion', 'MachineReview'].includes(kind)
+    ? 'agent-army.content-autonomy'
+    : 'agent-army.ajun-runtime';
+}
+
+function sanitizeM5ArtifactData(value, depth = 0) {
+  if (depth > 8) return '[truncated]';
+  if (value == null || typeof value === 'boolean' || typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const text = value.slice(0, 20_000);
+    if (/^file:\/\//i.test(text) || /^(?:\/|[A-Za-z]:[\\/])/.test(text)) {
+      return '[redacted-local-path]';
+    }
+    return text;
+  }
+  if (Array.isArray(value)) {
+    return value.slice(0, 200).map((item) => sanitizeM5ArtifactData(item, depth + 1));
+  }
+  if (typeof value !== 'object') return String(value).slice(0, 2_000);
+  const denied = /(?:^|_)(?:authorization|cookie|credentials?|password|secrets?|session|token|api[_-]?key|file[_-]?path|local[_-]?path)(?:$|_)/i;
+  return Object.fromEntries(Object.entries(value).slice(0, 300).flatMap(([key, child]) =>
+    denied.test(key) ? [] : [[key, sanitizeM5ArtifactData(child, depth + 1)]],
+  ));
+}
+
+function validM5ContentVersion(value) {
+  return value
+    && ['douyin', 'xiaohongshu'].includes(value.platform)
+    && /^[a-z0-9][a-z0-9_.:-]{2,127}$/i.test(String(value.contentVersionId || ''))
+    && /^sha256:[0-9a-f]{64}$/i.test(String(value.checksum || ''))
+    && validM5RelativePath(value.mediaPath)
+    && Boolean(String(value.title || '').trim())
+    && Boolean(String(value.body || '').trim())
+    && Array.isArray(value.tags);
+}
+
+function validM5MachineReview(value) {
+  const checks = [
+    'facts',
+    'privacy',
+    'rights',
+    'media',
+    'claims',
+    'grantScope',
+    'duplicate',
+  ];
+  return value?.status === 'passed'
+    && checks.every((key) => value?.checks?.[key] === true)
+    && validM5ArtifactPackage(value?.evidence?.artifactPackage);
+}
+
+const M5_REQUIRED_ARTIFACTS = Object.freeze([
+  'master.mp4',
+  'douyin.mp4',
+  'xiaohongshu.mp4',
+  'douyin.copy.json',
+  'xiaohongshu.copy.json',
+  'cover.png',
+  'sources.json',
+  'review.json',
+  'lineage.json',
+]);
+
+function validM5ArtifactPackage(value) {
+  const artifacts = Array.isArray(value?.requiredArtifacts)
+    ? value.requiredArtifacts.map((item) => String(item || '').trim())
+    : [];
+  return validM5RelativePath(value?.manifestPath)
+    && String(value.manifestPath).endsWith('/artifact-manifest.json')
+    && sha256Value(value?.manifestChecksum)
+    && artifacts.length === M5_REQUIRED_ARTIFACTS.length
+    && new Set(artifacts).size === M5_REQUIRED_ARTIFACTS.length
+    && M5_REQUIRED_ARTIFACTS.every((name) => artifacts.includes(name));
+}
+
+function validM5RelativePath(value) {
+  const text = String(value || '').trim().replaceAll('\\', '/');
+  return Boolean(text)
+    && !text.startsWith('/')
+    && text.split('/').every((part) => part && part !== '.' && part !== '..');
+}
+
+function outputItems(value) {
+  return Array.isArray(value) ? value : Array.isArray(value?.items) ? value.items : [];
+}
+
+function canonicalOpenResearchExecutionPolicy(issue) {
+  const value = issue?.executionPolicy?.openResearch;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return Object.freeze({
+    remainingUnits:value.remainingUnits,
+    estimatedNextStepUnits:value.estimatedNextStepUnits,
+  });
+}
+
+function verifiedAssignmentArtifact(item) {
+  return item?.validation?.exists === true
+    && item?.validation?.readable === true
+    && item?.validation?.nonEmpty === true;
+}
+function storedPaperclipEmployeeResult(task) {
+  const execution = task?.execution?.paperclipEmployee;
+  if (execution?.state === 'running' && task.status === 'running') {
+    return {
+      status:'running',
+      currentStage:task.currentStage,
+      verified:false,
+      recommendedCompletionStatus:'running',
+      continuePolling:true,
+      pollAfterSeconds:3,
+      message:'当前岗位的本机工作仍在执行；请再次调用 employee_assignment_execute 获取真实状态。',
+      artifacts:[],
+    };
+  }
+  if (execution?.state === 'settled') {
+    return {
+      status:String(execution.status || execution.recommendedCompletionStatus || 'waiting_test'),
+      currentStage:task.currentStage,
+      verified:execution.verified === true,
+      recommendedCompletionStatus:['succeeded', 'failed', 'waiting_test'].includes(execution.recommendedCompletionStatus)
+        ? execution.recommendedCompletionStatus
+        : 'waiting_test',
+      error:task.error || null,
+      artifacts:(task.artifactRefs || []).filter(verifiedAssignmentArtifact).map(artifactExecutionView),
+    };
+  }
+  if (isTerminalTask(task)) {
+    const verified = task.status === 'succeeded' && (task.artifactRefs || []).some(verifiedAssignmentArtifact);
+    return {
+      status:task.status,
+      currentStage:task.currentStage,
+      verified,
+      recommendedCompletionStatus:verified
+        ? 'succeeded'
+        : task.status === 'failed'
+          ? 'failed'
+          : 'waiting_test',
+      error:task.error || null,
+      artifacts:(task.artifactRefs || []).filter(verifiedAssignmentArtifact).map(artifactExecutionView),
+    };
+  }
+  return null;
+}
 function artifactExecutionView(item) {
   return {
     type:item.type,
@@ -1016,11 +2909,34 @@ function artifactExecutionView(item) {
     data:item.data
   };
 }
-function contentGrowthArtifactVerified(task, artifact) {
+function contentGrowthArtifactVerified(task, artifact, { expectedProjectId = null } = {}) {
   const readable = artifact?.validation?.exists === true
     && artifact?.validation?.readable === true
     && artifact?.validation?.nonEmpty === true;
   if (!readable) return false;
+  if (task?.taskType === 'content.campaign-visual-analysis') {
+    const insights = artifact?.data?.insights;
+    const receipt = artifact?.data?.providerReceipt;
+    return Array.isArray(insights)
+      && insights.length > 0
+      && insights.every((item) =>
+        String(item?.finding || '').trim()
+        && String(item?.frameRef || '').trim()
+        && String(item?.timestamp || '').trim()
+        && String(item?.evidenceKind || '').trim(),
+      )
+      && validConfirmedM5ProviderReceipt(receipt, 'vision')
+      && safeRelativeImageArtifactPath(receipt?.sourcePath)
+      && sha256Value(receipt?.sourceChecksum)
+      && sha256Value(receipt?.observationChecksum)
+      && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(String(
+        receipt?.costCommit?.costEvent?.projectId || '',
+      ))
+      && (
+        expectedProjectId == null
+        || receipt?.costCommit?.costEvent?.projectId === expectedProjectId
+      );
+  }
   const formalFullAnalysis = task?.taskType === 'content.video-benchmark-analysis'
     && task?.input?.evidenceMode === 'formal'
     && task?.input?.depth === 'full';
@@ -1056,6 +2972,14 @@ async function settleWithin(promise, timeoutMs) {
   }
 }
 function optionalInput(value) { const text = String(value || '').trim(); return text || undefined; }
+function optionalConnectionId(value) {
+  const id = optionalInput(value);
+  if (!id) return undefined;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+    throw new ValidationError('账号连接标识格式不正确。');
+  }
+  return id;
+}
 function githubQueryInput(taskType, suppliedQuery, requestText) {
   const explicit = optionalInput(suppliedQuery);
   if (explicit || taskType !== 'research.github-search') return explicit;
@@ -1230,7 +3154,7 @@ function shouldProjectToPaperclip(task, approval = null) {
 function requiresOrganizationGovernance(title, description) { return organizationGovernanceWords.test(`${title} ${description}`); }
 function shouldStartFailureRecovery(task) {
   return task?.status === 'failed'
-    && !['operations.failure-recovery', 'operations.technical-repair'].includes(task.taskType);
+    && !['operations.failure-recovery', 'operations.technical-repair', WECHAT_CHAT_TASK_TYPE].includes(task.taskType);
 }
 function normalizeArchitectureLayers(input = {}) {
   const explicitFacts = (Array.isArray(input.factClaims) ? input.factClaims : []).slice(0, 20).map((item) => ({
@@ -1296,14 +3220,25 @@ function isExpiredApproval(approval, now = Date.now()) {
 
 function buildTaskFocus(tasks, approvals) {
   const counts = Object.fromEntries(['queued', 'running', 'waiting_worker', 'pausing', 'paused', 'waiting_approval', 'waiting_test', 'needs_input', 'succeeded', 'failed'].map((status) => [status, tasks.filter((task) => task.status === status).length]));
-  const priority = ['waiting_approval', 'needs_input', 'pausing', 'running', 'waiting_worker', 'queued', 'paused', 'failed', 'waiting_test'];
+  const ownerPriority = ['waiting_approval', 'needs_input', 'paused', 'failed', 'waiting_test'];
+  const systemPriority = ['pausing', 'running', 'waiting_worker', 'queued'];
+  const ownerDecisionStatuses = new Set(['waiting_approval', 'needs_input', 'paused', 'failed', 'waiting_test']);
+  const ownerActionableTasks = tasks.filter((task) =>
+    ownerDecisionStatuses.has(task.status) && isOwnerActionable(task, tasks)
+  );
   const pendingContinuation = tasks.find((task) =>
     task.status === 'succeeded'
     && intakeRecommendation(task)
     && !tasks.some((child) => child.parentTaskId === task.taskId)
     && !hasLaterUserOutcome(task, tasks)
   );
-  const current = priority.flatMap((status) => tasks.filter((task) => task.status === status && isOwnerActionable(task, tasks)))[0] || pendingContinuation || null;
+  const ownerCurrent = ownerPriority.flatMap((status) =>
+    tasks.filter((task) => task.status === status && isOwnerActionable(task, tasks))
+  )[0];
+  const systemCurrent = systemPriority.flatMap((status) =>
+    tasks.filter((task) => task.status === status && isOwnerActionable(task, tasks))
+  )[0];
+  const current = ownerCurrent || pendingContinuation || systemCurrent || null;
   const approval = current ? approvals.find((item) => current.approvalRefs?.includes(item.approvalId) && item.status === 'pending') : null;
   return {
     total: tasks.length,
@@ -1314,6 +3249,8 @@ function buildTaskFocus(tasks, approvals) {
     waitingApproval: counts.waiting_approval,
     waitingTest: counts.waiting_test,
     failed: counts.failed,
+    ownerActionable: ownerActionableTasks.length + (pendingContinuation ? 1 : 0),
+    reviewBacklog: counts.failed + counts.waiting_test,
     next: current ? {
       taskId: current.taskId,
       title: current.input?.title || '未命名任务',

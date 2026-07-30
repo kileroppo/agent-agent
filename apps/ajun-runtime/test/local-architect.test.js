@@ -63,3 +63,39 @@ test('架构师接手陌生低风险工作时，会按已理解目标说明缺�
   assert.match(report.nextAction, /公开资料报告员/);
   assert.match(report.nextAction, /不新建员工/);
 });
+
+test('架构师聚合任务关系、失败、成本、产物验证和反馈，并只引用groundTruth合法证据', async () => {
+  const registry = { async list() { return [{ agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] }]; } };
+  const store = { async list() { return [
+    {
+      taskId:'root-1', taskType:'media.transcribe-and-refine', status:'failed', assigneeAgentId:'xiaod',
+      input:{ title:'整理公开视频', context:{ failure:{ code:'xiaod_job_failed', category:'transient_external_dependency' } } },
+      usage:{ model:{ apiCalls:2, cost:{ amount:0.2, currency:'USD' } }, tools:[{ calls:3 }] },
+      artifactRefs:[{ type:'draft', validation:{ exists:true, readable:false, nonEmpty:true } }],
+      feedback:{ sentiment:'needs_improvement' },
+      updatedAt:'2026-07-29T08:00:00.000Z'
+    },
+    {
+      taskId:'retry-1', parentTaskId:'root-1', taskType:'media.transcribe-and-refine', status:'succeeded', assigneeAgentId:'xiaod',
+      input:{ title:'整理公开视频' }, recovery:{ rootTaskId:'root-1', attempt:1 },
+      usage:{ model:{ apiCalls:1, cost:{ amount:0.1, currency:'USD' } }, tools:[{ calls:2 }] },
+      artifactRefs:[{ type:'confirmed_manuscript', validation:{ exists:true, readable:true, nonEmpty:true } }],
+      feedback:{ sentiment:'useful' },
+      updatedAt:'2026-07-29T08:10:00.000Z'
+    }
+  ]; } };
+  const report = (await new LocalArchitect({ registry, store, now:() => new Date('2026-07-29T09:00:00.000Z') })
+    .execute({ taskId:'architecture-evidence', input:{ title:'复盘任务系统', description:'只读评估' }, execution:{} })).artifactRefs[0].data;
+  assert.equal(report.systemEvidence.relations.childTasks, 1);
+  assert.equal(report.systemEvidence.relations.recoveryTasks, 1);
+  assert.equal(report.systemEvidence.failures.byCategory.transient_external_dependency, 1);
+  assert.equal(report.systemEvidence.usage.modelCalls, 3);
+  assert.equal(report.systemEvidence.usage.costByCurrency.USD, 0.3);
+  assert.equal(report.systemEvidence.artifacts.invalid, 1);
+  assert.equal(report.systemEvidence.artifacts.validated, 1);
+  assert.equal(report.systemEvidence.feedback.needsImprovement, 1);
+  assert.equal(report.evidenceValidation.valid, true);
+  assert.deepEqual(report.evidenceValidation.invalidRefs, []);
+  assert.equal(report.candidateProposals.some((item) => item.validationPlan && item.rollback && item.evidenceRefs?.length), true);
+  assert.equal(report.architectureChanged, false);
+});

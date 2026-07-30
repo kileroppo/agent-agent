@@ -1,17 +1,48 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { TaskService, ValidationError } from '../src/task-service.js';
+import {
+  createM5RouteExecution,
+  routeDescriptorFingerprint,
+} from '../src/m5-route-execution.js';
 
-function setup({ agents = [], governance = null, onTaskFailed = null, agentChannelStates = null, contentGrowthWaitMs = undefined } = {}) {
+function setup({
+  agents = [],
+  governance = null,
+  onTaskFailed = null,
+  agentChannelStates = null,
+  contentGrowthWaitMs = undefined,
+  m5ProviderVision = null,
+  m5WorkProductValidator = async () => true,
+} = {}) {
   const records = { tasks: [], approvals: [] };
   const store = { async createTask(task) { const record = { taskId: `task-${records.tasks.length + 1}`, approvalRefs: [], ...task }; records.tasks.push(record); return record; }, async createApproval(approval) { const record = { approvalId: `approval-${records.approvals.length + 1}`, status:'pending', ...approval }; records.approvals.push(record); const task = records.tasks.find((item) => item.taskId === approval.taskId); task.approvalRefs.push(record.approvalId); if (approval.holdTask !== false) { task.status='waiting_approval'; task.currentStage='approval_required'; } return record; }, async updateApproval(approvalId, patch) { const approval = records.approvals.find((item) => item.approvalId === approvalId); Object.assign(approval, patch); return approval; }, async updateTask(taskId, patch) { const task = records.tasks.find((item) => item.taskId === taskId); Object.assign(task, patch); return task; }, async list(){return records.tasks}, async listApprovals(){return records.approvals} };
-  return { records, service: new TaskService({ registry: { async list(){return agents}, async get(agentId){return agents.find((agent)=>agent.agentId === agentId) || null}, async candidates(type){return agents.filter((agent)=>agent.acceptedTaskTypes.includes(type))} }, store, governance, onTaskFailed, agentChannelStates, contentGrowthWaitMs }) };
+  return { records, service: new TaskService({ registry: { async list(){return agents}, async get(agentId){return agents.find((agent)=>agent.agentId === agentId) || null}, async candidates(type){return agents.filter((agent)=>agent.acceptedTaskTypes.includes(type))} }, store, governance, onTaskFailed, agentChannelStates, contentGrowthWaitMs, m5ProviderVision, m5WorkProductValidator }) };
 }
 const coordinator = { agentId:'ajun', name:'A君', status:'active', acceptedTaskTypes:['army.intake', 'army.route-task', 'army.cross-agent-mission'] };
 
 test('军团路由任务统一登记到 A君', async () => {
   const { service } = setup({ agents:[coordinator] }); const task = await service.create({ title:'安排一次任务', taskType:'army.route-task' });
   assert.equal(task.assigneeAgentId, 'ajun'); assert.equal(task.status, 'queued');
+});
+test('小D任务保存显式账号绑定并拒绝非法连接标识', async () => {
+  const mediaAgent = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const { service } = setup({ agents:[mediaAgent] });
+  const connectionId = '123e4567-e89b-42d3-a456-426614174000';
+  const task = await service.create({
+    title:'整理小红书素材',
+    taskType:'media.transcribe-and-refine',
+    agentId:'xiaod',
+    sourceUrl:'https://www.xiaohongshu.com/explore/example',
+    connectionId
+  });
+  assert.equal(task.input.connectionId, connectionId);
+  await assert.rejects(() => service.create({
+    title:'非法连接',
+    taskType:'media.transcribe-and-refine',
+    agentId:'xiaod',
+    connectionId:'../wrong'
+  }), ValidationError);
 });
 test('多人总任务标题包含老板汇报时仍保留军团父任务类型', async () => {
   const missionCoordinator = {
@@ -51,6 +82,126 @@ test('GitHub 和研究任务都由小R保留受限执行器需要的公开输入
   const intelTask = await service.create({ title:'研究主题', taskType:'research.intel-report', agentId:'intel-researcher', topic:'Agent 运行时', sourceUrls:['https://example.com/a'] });
   assert.equal(intelTask.input.topic, 'Agent 运行时');
   assert.deepEqual(intelTask.input.sourceUrls, ['https://example.com/a']);
+});
+test('开放复杂任务直接复用岗位专有执行器且不生成DAG或能力授权产物', async () => {
+  const intel = {
+    agentId:'intel-researcher',
+    name:'小R',
+    status:'active',
+    manifestVersion:'0.6.0',
+    acceptedTaskTypes:['research.intel-report', 'research.open-investigation'],
+    toolAllowlist:['content.public.fetch'],
+    runtimeCapabilities:{ mcpTools:[], skills:[] },
+    openTaskPolicy:{ domain:'research', qualityGateMode:'manifest-required' }
+  };
+  const { service } = setup({ agents:[intel] });
+  service.executors['intel-researcher'] = {
+    async execute(task) {
+      assert.equal(task.taskType, 'research.intel-report');
+      assert.equal(task.input.context.openTaskType, 'research.open-investigation');
+      assert.equal(task.input.context.controlPlane, 'paperclip');
+      assert.equal(task.input.context.autonomousWorkPlan, undefined);
+      return {
+        status:'succeeded',
+        currentStage:'intel_research_ready',
+        artifactRefs:[{
+          artifactId:'intel-open-report',
+          type:'intel_research_report',
+          validation:{ exists:true, readable:true, nonEmpty:true }
+        }]
+      };
+    }
+  };
+
+  const task = await service.create({
+    title:'比较三种智能体治理方式',
+    taskType:'research.open-investigation',
+    agentId:'intel-researcher',
+    goalSpec:{
+      outcome:'形成有证据的治理方式比较报告',
+      deliverables:['比较报告'],
+      acceptanceCriteria:['至少比较三种方式并区分事实和判断'],
+      capabilityRequests:[{
+        capabilityId:'content.public.fetch',
+        purpose:'读取公开资料'
+      }]
+    }
+  });
+
+  assert.equal(task.status, 'succeeded');
+  assert.deepEqual(task.artifactRefs.map((item) => item.type), ['intel_research_report']);
+  assert.equal(task.artifactRefs.some((item) => item.type === 'autonomous_work_plan'), false);
+  assert.equal(task.artifactRefs.some((item) => item.type === 'capability_discovery_report'), false);
+});
+test('开放任务请求Manifest外能力时直接闭锁且不产生临时授权产物', async () => {
+  const intel = {
+    agentId:'intel-researcher',
+    name:'小R',
+    status:'active',
+    acceptedTaskTypes:['research.intel-report', 'research.open-investigation'],
+    toolAllowlist:['content.public.fetch'],
+    runtimeCapabilities:{ mcpTools:[], skills:[] },
+    openTaskPolicy:{ domain:'research', qualityGateMode:'manifest-required' }
+  };
+  const { service } = setup({ agents:[intel] });
+
+  const task = await service.create({
+    title:'登录私有账号并研究',
+    taskType:'research.open-investigation',
+    agentId:'intel-researcher',
+    goalSpec:{
+      capabilityRequests:[{
+        capabilityId:'private.account.login',
+        purpose:'读取私有账号'
+      }]
+    }
+  });
+
+  assert.equal(task.status, 'needs_input');
+  assert.equal(task.currentStage, 'manifest_capability_required');
+  assert.equal(task.error.code, 'manifest_capability_required');
+  assert.deepEqual(task.artifactRefs || [], []);
+});
+test('Paperclip投影收到开放任务的无状态岗位委托而不是本地DAG', async () => {
+  const intel = {
+    agentId:'intel-researcher',
+    name:'小R',
+    status:'active',
+    acceptedTaskTypes:['research.intel-report', 'research.open-investigation'],
+    toolAllowlist:['content.public.fetch'],
+    runtimeCapabilities:{ mcpTools:[], skills:[] },
+    openTaskPolicy:{ domain:'research', qualityGateMode:'manifest-required' },
+    interaction:{ runtime:'hermes-profile' },
+    executionOwner:'paperclip-hermes'
+  };
+  let projectedTask = null;
+  const governance = {
+    async project(task) {
+      projectedTask = task;
+      return { status:'synced', paperclipIssueId:'issue-open-research' };
+    },
+    async update(task) { return task.governance; }
+  };
+  const { service } = setup({ agents:[intel], governance });
+
+  const task = await service.create({
+    title:'比较三种智能体治理方式',
+    taskType:'research.open-investigation',
+    agentId:'intel-researcher',
+    goalSpec:{
+      capabilityRequests:[{
+        capabilityId:'content.public.fetch',
+        purpose:'读取公开资料'
+      }]
+    }
+  });
+
+  assert.equal(projectedTask.taskType, 'research.open-investigation');
+  assert.equal(projectedTask.input.context.openTaskType, 'research.open-investigation');
+  assert.equal(projectedTask.input.context.delegatedTaskType, 'research.intel-report');
+  assert.equal(projectedTask.artifactRefs?.some((item) => item.type === 'autonomous_work_plan') || false, false);
+  assert.equal(task.execution.owner, 'paperclip-hermes');
+  assert.equal(task.currentStage, 'waiting_paperclip_heartbeat');
 });
 test('中文自然语言里的逗号不会被吞进公开链接', async () => {
   const intel = { agentId:'intel-researcher', name:'小R', status:'draft', acceptedTaskTypes:['research.intel-report'] };
@@ -129,6 +280,51 @@ test('一次性外发审批留在 A君，批准后只恢复原任务一次', asy
   assert.equal(resumed.status, 'succeeded'); assert.equal(records.approvals[0].status, 'approved'); assert.equal(executed, 1);
   await assert.rejects(() => service.approveApproval(records.approvals[0].approvalId), /已经处理/);
   assert.equal(executed, 1);
+});
+
+test('微信聊天任务自动采用默认范围并且只创建一次隐私确认', async () => {
+  const wechat = { agentId:'wechat-chat-retriever', name:'微信聊天取件员', status:'active', acceptedTaskTypes:['wechat.chat.retrieval'] };
+  const { service, records } = setup({ agents:[wechat] });
+  let executed = 0;
+  service.executors['wechat-chat-retriever'] = {
+    async execute(task) {
+      executed += 1;
+      assert.equal(task.input.wechatChat.chatSelector, 'yingz');
+      assert.equal(task.input.wechatChat.maxMessages, 200);
+      assert.equal(task.input.wechatChat.sameNameStrategy, 'latest-active-session');
+      assert.equal(task.input.wechatChat.privateContentModelAccess, 'disabled');
+      return { status:'succeeded', currentStage:'wechat_chat_slice_ready', artifactRefs:[] };
+    }
+  };
+
+  const task = await service.create({
+    title:'获取微信聊天',
+    description:'群名：yingz',
+    taskType:'wechat.chat.retrieval',
+    agentId:'reviewer'
+  });
+
+  assert.equal(task.assigneeAgentId, 'wechat-chat-retriever');
+  assert.equal(task.status, 'waiting_approval');
+  assert.equal(executed, 0);
+  assert.equal(records.approvals.length, 1);
+  assert.equal(records.approvals[0].action, 'wechat-private-chat-read');
+  assert.equal(records.approvals[0].governanceMode, 'local');
+  assert.equal(records.approvals[0].requestedScope.chatSelector, 'yingz');
+
+  const completed = await service.approveApproval(records.approvals[0].approvalId);
+  assert.equal(completed.status, 'succeeded');
+  assert.equal(executed, 1);
+});
+
+test('微信聊天任务缺群名时只要求补群名，不再询问其他配置', async () => {
+  const wechat = { agentId:'wechat-chat-retriever', name:'微信聊天取件员', status:'active', acceptedTaskTypes:['wechat.chat.retrieval'] };
+  const { service, records } = setup({ agents:[wechat] });
+  const task = await service.create({ title:'获取微信聊天', taskType:'wechat.chat.retrieval' });
+  assert.equal(task.status, 'needs_input');
+  assert.equal(task.error.code, 'wechat_chat_required');
+  assert.match(task.error.userMessage, /只告诉我联系人或群名/);
+  assert.equal(records.approvals.length, 0);
 });
 test('小D听审确认只生成确认稿并交回状态跟踪，不把审批点击冒充任务完成', async () => {
   const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
@@ -488,6 +684,80 @@ test('Paperclip Hermes heartbeat 会关联原 A君任务并幂等回写同一终
   assert.equal(duplicate.duplicate, true);
 });
 
+test('创建官 heartbeat 真实写入一次岗位草案并保持任务等待最终回报', async () => {
+  const creator = {
+    agentId:'creator',
+    name:'创建官',
+    status:'active',
+    acceptedTaskTypes:['governance.agent-proposal'],
+    interaction:{ runtime:'hermes-profile', directFeishu:'disabled' },
+    executionOwner:'paperclip-hermes'
+  };
+  const identity = {
+    issue:{ id:'paperclip-issue-creator', identifier:'AGE-CREATE', title:'创建微信聊天取件员', description:'复用本机 yichen skill。' },
+    run:{ id:'paperclip-run-creator' },
+    paperclipAgent:{ id:'paperclip-agent-creator', name:'创建官' },
+    agentArmyId:'creator'
+  };
+  const governance = {
+    async project() {
+      return { status:'synced', paperclipIssueId:identity.issue.id, paperclipAssigneeAgentId:identity.paperclipAgent.id };
+    },
+    async verifyHermesAssignment() { return identity; }
+  };
+  const { service } = setup({ agents:[creator], governance });
+  let executions = 0;
+  service.executors.creator = {
+    async execute(task, { proposalInput }) {
+      executions += 1;
+      assert.equal(proposalInput.agentId, 'wechat-chat-reader');
+      assert.deepEqual(proposalInput.requestedCapabilities, ['wechat.local-vault.chat.read']);
+      return {
+        status:'succeeded',
+        currentStage:'agent_proposal_submitted',
+        artifactRefs:[{
+          artifactId:'agent-proposal:proposal-wechat',
+          taskId:task.taskId,
+          type:'agent_proposal',
+          validation:{ exists:true, readable:true, nonEmpty:true },
+          data:{ proposalId:'proposal-wechat', status:'pending_approval', reviewSubmission:{ status:'submitted' }, nextAction:'needs_capability' }
+        }]
+      };
+    }
+  };
+  const original = await service.create({
+    title:'创建微信聊天取件员',
+    taskType:'governance.agent-proposal',
+    agentId:'creator'
+  });
+  const input = {
+    issueId:identity.issue.id,
+    runId:identity.run.id,
+    paperclipAgentId:identity.paperclipAgent.id,
+    agentArmyId:'creator',
+    requestedOutcome:'按批准范围获取本机微信聊天',
+    candidateName:'微信聊天取件员',
+    agentId:'wechat-chat-reader',
+    department:'信息服务部',
+    responsibilities:['按批准范围导出聊天'],
+    nonResponsibilities:['不读取密钥'],
+    acceptedTaskTypes:['wechat.chat.export'],
+    desiredSkills:['yichen-wechat-local-vault'],
+    requestedCapabilities:['wechat.local-vault.chat.read'],
+    acceptanceTitle:'使用脱敏夹具验证单会话导出'
+  };
+  const first = await service.executeAgentProposalAssignment(input);
+  const duplicate = await service.executeAgentProposalAssignment(input);
+
+  assert.equal(first.task.taskId, original.taskId);
+  assert.equal(first.task.status, 'running');
+  assert.equal(first.task.currentStage, 'agent_proposal_submitted');
+  assert.equal(first.result.proposal.proposalId, 'proposal-wechat');
+  assert.equal(first.result.recommendedCompletionStatus, 'succeeded');
+  assert.equal(duplicate.duplicate, true);
+  assert.equal(executions, 1);
+});
+
 test('技术专家 heartbeat 把 A君已验证并带回的修复明确建议为 succeeded', async () => {
   const technicalExpert = {
     agentId:'technical-expert',
@@ -552,6 +822,702 @@ test('技术专家 heartbeat 把 A君已验证并带回的修复明确建议为 
   assert.equal(first.result.recommendedCompletionStatus, 'succeeded');
   assert.equal(duplicate.duplicate, true);
   assert.equal(executions, 1);
+});
+
+test('技术专家 heartbeat 不把外置源码候选误报为当前 release 已修复', async () => {
+  const technicalExpert = {
+    agentId:'technical-expert',
+    name:'技术专家',
+    status:'active',
+    acceptedTaskTypes:['operations.technical-repair'],
+    interaction:{ runtime:'hermes-profile', directFeishu:'required' },
+    executionOwner:'paperclip-hermes',
+  };
+  const identity = {
+    issue:{ id:'paperclip-issue-candidate', identifier:'AGE-CANDIDATE', title:'修复候选源码', description:'只修改允许文件。' },
+    run:{ id:'paperclip-run-candidate' },
+    paperclipAgent:{ id:'paperclip-agent-tech', name:'技术专家' },
+    agentArmyId:'technical-expert',
+  };
+  const governance = {
+    async project() {
+      return {
+        status:'synced',
+        paperclipIssueId:identity.issue.id,
+        paperclipAssigneeAgentId:identity.paperclipAgent.id,
+      };
+    },
+    async verifyHermesAssignment() { return identity; },
+  };
+  const { service } = setup({ agents:[technicalExpert], governance });
+  service.executors['technical-expert'] = {
+    async execute() {
+      return {
+        status:'waiting_test',
+        currentStage:'repair_candidate_awaiting_release',
+        execution:{
+          executor:'technical-expert',
+          outcome:'candidate_promoted',
+          verification:{
+            testsPassed:true,
+            recoveryVerified:true,
+            candidateOnly:true,
+            runningReleaseUpdated:false,
+          },
+        },
+        artifactRefs:[{
+          type:'technical_repair_case',
+          validation:{ exists:true, readable:true, nonEmpty:true },
+          data:{ nextAction:'生成并验证新的不可变 release。' },
+        }],
+      };
+    },
+  };
+  await service.create({
+    title:'修复候选源码',
+    taskType:'operations.technical-repair',
+    agentId:'technical-expert',
+  });
+  const result = await service.executeTechnicalRepairAssignment({
+    issueId:identity.issue.id,
+    runId:identity.run.id,
+    paperclipAgentId:identity.paperclipAgent.id,
+    agentArmyId:'technical-expert',
+  });
+  assert.equal(result.result.status, 'waiting_test');
+  assert.equal(result.result.currentStage, 'repair_candidate_awaiting_release');
+  assert.equal(result.result.verified, false);
+  assert.equal(result.result.recommendedCompletionStatus, 'waiting_test');
+});
+
+test('运维官 heartbeat 只执行一次确定性健康检查并复用已验证报告', async () => {
+  const operator = {
+    agentId:'operator',
+    name:'运维官',
+    status:'active',
+    acceptedTaskTypes:['operations.health-review'],
+    interaction:{ runtime:'hermes-profile', directFeishu:'required' },
+    executionOwner:'paperclip-hermes'
+  };
+  const identity = {
+    issue:{ id:'paperclip-issue-health', identifier:'AGE-HEALTH', title:'A君定时本机巡检', description:'只检查登记服务。' },
+    run:{ id:'paperclip-run-health' },
+    paperclipAgent:{ id:'paperclip-agent-health', name:'运维官' },
+    agentArmyId:'operator'
+  };
+  const governance = {
+    async project() {
+      return { status:'synced', paperclipIssueId:identity.issue.id, paperclipAssigneeAgentId:identity.paperclipAgent.id };
+    },
+    async verifyHermesAssignment() { return identity; }
+  };
+  const { service } = setup({ agents:[operator], governance });
+  let executions = 0;
+  service.executors.operator = {
+    async execute(task) {
+      executions += 1;
+      return {
+        status:'succeeded',
+        currentStage:'health_report_ready',
+        execution:{ executor:'operator', mode:'local_health_review', outcome:'healthy' },
+        usage:{ tools:[{ id:'deterministic-local-health-probe', calls:2 }] },
+        artifactRefs:[{
+          artifactId:`health-report:${task.taskId}`,
+          taskId:task.taskId,
+          type:'health_report',
+          validation:{ exists:true, readable:true, nonEmpty:true },
+          data:{ overall:'healthy', components:[{ id:'ajun-runtime', status:'healthy' }] }
+        }]
+      };
+    }
+  };
+  const original = await service.create({
+    title:'A君定时本机巡检',
+    taskType:'operations.health-review',
+    agentId:'operator'
+  });
+  const input = {
+    issueId:identity.issue.id,
+    runId:identity.run.id,
+    paperclipAgentId:identity.paperclipAgent.id,
+    agentArmyId:'operator'
+  };
+  const first = await service.executeOperationsHealthAssignment(input);
+  const duplicate = await service.executeOperationsHealthAssignment(input);
+
+  assert.equal(first.task.taskId, original.taskId);
+  assert.equal(first.result.verified, true);
+  assert.equal(first.result.healthStatus, 'healthy');
+  assert.equal(first.result.recommendedCompletionStatus, 'succeeded');
+  assert.equal(duplicate.duplicate, true);
+  assert.equal(executions, 1);
+});
+
+test('Hermes 员工阶段按 M5 Routine 映射调用各自既有受控执行器', async () => {
+  const cases = [
+    { agentId:'ajun', routineKey:'m5-topic', taskType:'content.campaign-topic' },
+    { agentId:'intel-researcher', routineKey:'m5-research', taskType:'content.campaign-research' },
+    { agentId:'xiaod', routineKey:'m5-assets', taskType:'content.campaign-assets' }
+  ];
+  for (const [index, entry] of cases.entries()) {
+    const agent = {
+      agentId:entry.agentId,
+      name:entry.agentId,
+      status:'active',
+      acceptedTaskTypes:[entry.taskType],
+      interaction:{ runtime:'hermes-profile', directFeishu:'required' },
+      executionOwner:'paperclip-hermes'
+    };
+    const identity = {
+      issue:{
+        id:`paperclip-issue-employee-${index}`,
+        identifier:`AGE-EMPLOYEE-${index}`,
+        title:`执行 ${entry.routineKey}`,
+        description:`[agent-army:m5:routine:${entry.routineKey}] 处理当前阶段；当前 Case 为 12345678-abcd-4abc-8abc-1234567890ab。`
+      },
+      run:{ id:`paperclip-run-employee-${index}` },
+      paperclipAgent:{ id:`paperclip-agent-employee-${index}`, name:entry.agentId },
+      agentArmyId:entry.agentId
+    };
+    const governance = { async verifyHermesAssignment() { return identity; } };
+    const { service, records } = setup({ agents:[agent], governance });
+    let executions = 0;
+    service.executors[entry.agentId] = {
+      async execute(task) {
+        executions += 1;
+        assert.equal(task.taskType, entry.taskType);
+        assert.equal(task.assigneeAgentId, entry.agentId);
+        assert.equal(task.input.context.paperclipRoutineKey, entry.routineKey);
+        assert.equal(task.input.context.pipelineCaseId, '12345678-abcd-4abc-8abc-1234567890ab');
+        return {
+          status:'succeeded',
+          currentStage:`${entry.routineKey}_ready`,
+          artifactRefs:[{
+            artifactId:`artifact-${entry.agentId}`,
+            taskId:task.taskId,
+            type:'m5_stage_result',
+            validation:{ exists:true, readable:true, nonEmpty:true }
+          }]
+        };
+      }
+    };
+    const input = {
+      issueId:identity.issue.id,
+      runId:identity.run.id,
+      paperclipAgentId:identity.paperclipAgent.id,
+      agentArmyId:identity.agentArmyId
+    };
+    const first = await service.executeEmployeeAssignment(input);
+    const duplicate = await service.executeEmployeeAssignment(input);
+    assert.equal(first.result.verified, true);
+    assert.equal(first.result.recommendedCompletionStatus, 'succeeded');
+    assert.equal(duplicate.duplicate, true);
+    assert.equal(duplicate.result.currentStage, `${entry.routineKey}_ready`);
+    assert.equal(executions, 1);
+    assert.equal(records.tasks.length, 1);
+  }
+});
+
+test('M5 员工阶段执行异常明确回报 failed，交给有上限的 Paperclip 恢复循环', async () => {
+  const agent = {
+    agentId:'ajun',
+    name:'A君',
+    status:'active',
+    acceptedTaskTypes:['content.campaign-topic'],
+    interaction:{ runtime:'hermes-profile', directFeishu:'required' },
+    executionOwner:'paperclip-hermes',
+  };
+  const identity = {
+    issue:{
+      id:'paperclip-issue-m5-failed-topic',
+      identifier:'AGE-M5-FAILED-TOPIC',
+      title:'M5 / 选题',
+      description:'[agent-army:m5:routine:m5-topic] 处理当前阶段；当前 Case 为 12345678-abcd-4abc-8abc-1234567890ab。',
+    },
+    run:{ id:'paperclip-run-m5-failed-topic' },
+    paperclipAgent:{ id:'paperclip-agent-m5-failed-topic', name:'A君' },
+    agentArmyId:'ajun',
+  };
+  const governance = { async verifyHermesAssignment() { return identity; } };
+  const { service } = setup({ agents:[agent], governance });
+  service.executors.ajun = {
+    async execute() {
+      throw new Error('受控 fixture 执行失败');
+    },
+  };
+
+  const result = await service.executeEmployeeAssignment({
+    issueId:identity.issue.id,
+    runId:identity.run.id,
+    paperclipAgentId:identity.paperclipAgent.id,
+    agentArmyId:identity.agentArmyId,
+  });
+
+  assert.equal(result.result.status, 'failed');
+  assert.equal(result.result.recommendedCompletionStatus, 'failed');
+  assert.equal(result.result.error.retryable, true);
+  assert.match(result.result.error.userMessage, /Paperclip 恢复策略/);
+});
+
+test('M5 平台子 Case 能继承当天父 Case 的已验证本地任务产物引用', async () => {
+  const campaignCaseId = '11111111-1111-4111-8111-111111111111';
+  const dayCaseId = '22222222-2222-4222-8222-222222222222';
+  const platformCaseId = '33333333-3333-4333-8333-333333333333';
+  const agent = {
+    agentId:'content-creator',
+    name:'小创',
+    status:'active',
+    acceptedTaskTypes:['content.platform-draft'],
+    interaction:{ runtime:'hermes-profile', directFeishu:'required' },
+    executionOwner:'paperclip-hermes',
+  };
+  const identity = {
+    issue:{
+      id:'paperclip-issue-platform-adapt',
+      identifier:'AGE-M5-PLATFORM-ADAPT',
+      title:'M5 / 平台适配',
+      description:`[agent-army:m5:routine:m5-platform-adapt] 处理当前阶段；当前 Case 为 ${platformCaseId}。`,
+    },
+    run:{ id:'paperclip-run-platform-adapt' },
+    paperclipAgent:{ id:'paperclip-agent-content-creator', name:'小创' },
+    agentArmyId:'content-creator',
+  };
+  const cases = new Map([
+    [platformCaseId, {
+      id:platformCaseId,
+      parentCaseId:dayCaseId,
+      stageKey:'platform_adapt',
+      fields:{ platform:'douyin', scheduledDate:'2026-07-31' },
+    }],
+    [dayCaseId, {
+      id:dayCaseId,
+      parentCaseId:campaignCaseId,
+      stageKey:'render',
+      fields:{ theme:'AI Agent 实战' },
+    }],
+    [campaignCaseId, {
+      id:campaignCaseId,
+      parentCaseId:null,
+      stageKey:'campaign',
+      fields:{},
+    }],
+  ]);
+  const governance = {
+    async verifyHermesAssignment() { return identity; },
+    async getPipelineCase(caseId) { return cases.get(caseId) || null; },
+  };
+  const { service, records } = setup({ agents:[agent], governance });
+  records.tasks.push(
+    {
+      taskId:'task-parent-script',
+      taskType:'content.video-script-package',
+      status:'succeeded',
+      createdAt:'2026-07-30T01:00:00.000Z',
+      governance:{ paperclipIssueId:'issue-parent-script' },
+      input:{ context:{ pipelineCaseId:dayCaseId } },
+      artifactRefs:[{
+        type:'video_script_package',
+        validation:{ exists:true, readable:true, nonEmpty:true },
+      }],
+    },
+    {
+      taskId:'task-parent-render',
+      taskType:'content.campaign-render',
+      status:'succeeded',
+      createdAt:'2026-07-30T02:00:00.000Z',
+      governance:{ paperclipIssueId:'issue-parent-render' },
+      input:{ context:{ pipelineCaseId:dayCaseId } },
+      artifactRefs:[{
+        type:'render_package',
+        validation:{ exists:true, readable:true, nonEmpty:true },
+      }],
+    },
+    {
+      taskId:'task-sibling-day',
+      taskType:'content.campaign-render',
+      status:'succeeded',
+      createdAt:'2026-07-30T03:00:00.000Z',
+      governance:{ paperclipIssueId:'issue-sibling-day' },
+      input:{ context:{ pipelineCaseId:'44444444-4444-4444-8444-444444444444' } },
+      artifactRefs:[],
+    },
+  );
+
+  const result = await service.getPaperclipAssignment({
+    issueId:identity.issue.id,
+    runId:identity.run.id,
+    paperclipAgentId:identity.paperclipAgent.id,
+    agentArmyId:identity.agentArmyId,
+  });
+
+  assert.deepEqual(
+    result.task.input.context.sourceTaskIds,
+    ['task-parent-script', 'task-parent-render'],
+  );
+  assert.equal(result.task.input.context.pipelineCase.id, platformCaseId);
+});
+
+test('系统控制器 Routine 拒绝创建 Hermes 员工任务信封', async () => {
+  const agent = {
+    agentId:'office-assistant',
+    name:'小办',
+    status:'active',
+    acceptedTaskTypes:['content.campaign-metrics'],
+    interaction:{ runtime:'hermes-profile', directFeishu:'required' },
+    executionOwner:'paperclip-hermes'
+  };
+  const identity = {
+    issue:{
+      id:'paperclip-issue-system-controller',
+      title:'指标回流',
+      description:'[agent-army:m5:routine:m5-metrics] 应由确定性控制器执行。'
+    },
+    run:{ id:'paperclip-run-system-controller' },
+    paperclipAgent:{ id:'paperclip-agent-system-controller', name:'小办' },
+    agentArmyId:'office-assistant'
+  };
+  const governance = { async verifyHermesAssignment() { return identity; } };
+  const { service, records } = setup({ agents:[agent], governance });
+  await assert.rejects(
+    () => service.getPaperclipAssignment({
+      issueId:identity.issue.id,
+      runId:identity.run.id,
+      paperclipAgentId:identity.paperclipAgent.id,
+      agentArmyId:identity.agentArmyId
+    }),
+    /确定性控制器执行/,
+  );
+  assert.equal(records.tasks.length, 0);
+});
+
+test('M5 插件回执通过专用真实性门禁后才写入任务产物', async () => {
+  const { service, records } = setup();
+  records.tasks.push({
+    taskId:'task-m5-voice',
+    taskType:'content.campaign-voice',
+    status:'running',
+    currentStage:'paperclip_hermes_running',
+    artifactRefs:[],
+    input:{
+      context:{
+        paperclipRoutineKey:'m5-voice',
+        pipelineCaseId:'12345678-abcd-4abc-8abc-1234567890ab',
+      },
+    },
+  });
+  const result = {
+    toolId:'agent-army.content-autonomy:stepfun-tts',
+    pluginId:'agent-army.content-autonomy',
+    model:'stepaudio-2.5-tts',
+    voice:'official-voice',
+    speed:1,
+    relativePath:'campaigns/test/voice.mp3',
+    checksum:'a'.repeat(64),
+    bytes:4096,
+    actionId:'task-m5-voice:tts:v1',
+    operation:'tts',
+    callRecord:{
+      actionId:'task-m5-voice:tts:v1',
+      operation:'tts',
+      model:'stepaudio-2.5-tts',
+      promptChecksum:`sha256:${'b'.repeat(64)}`,
+    },
+    costCommit:{
+      status:'confirmed',
+      costEventId:'11111111-1111-4111-8111-111111111111',
+      costEvent:{ provider:'stepfun', costCents:1 },
+    },
+  };
+  const first = await service.recordM5StageExecution('task-m5-voice', result);
+  const duplicate = await service.recordM5StageExecution('task-m5-voice', result);
+  assert.equal(first.artifact.type, 'voice_package');
+  assert.equal(first.artifact.data.relativePath, 'campaigns/test/voice.mp3');
+  assert.equal(first.artifact.validation.pluginReceiptVerified, true);
+  assert.equal(duplicate.duplicate, true);
+  assert.equal(records.tasks[0].artifactRefs.length, 1);
+});
+
+test('M5 视觉桥只把当前Case参数和短期Run身份交给单用途Provider callback', async () => {
+  const calls = [];
+  const { service } = setup({
+    m5ProviderVision:async (input) => {
+      calls.push(input);
+      return { projectId:'22222222-2222-4222-8222-222222222222', receipt:{ status:'fixture' } };
+    },
+  });
+  const callback = service.m5ProviderVisionCallback({
+    assignment:{ pipelineCaseId:'11111111-1111-4111-8111-111111111111' },
+    paperclipApiKey:'short-lived-paperclip-run-jwt',
+  });
+  assert.equal(typeof callback, 'function');
+  const result = await callback({
+    actionId:'11111111-1111-4111-8111-111111111111:vision:aaaaaaaaaaaaaaaa',
+    relativePath:'campaigns/case/frame.png',
+    prompt:'只分析可见事实。',
+  });
+  assert.equal(result.receipt.status, 'fixture');
+  assert.deepEqual(calls, [{
+    caseId:'11111111-1111-4111-8111-111111111111',
+    parameters:{
+      actionId:'11111111-1111-4111-8111-111111111111:vision:aaaaaaaaaaaaaaaa',
+      relativePath:'campaigns/case/frame.png',
+      prompt:'只分析可见事实。',
+    },
+    authentication:{
+      requireRunAuthentication:true,
+      paperclipApiKey:'short-lived-paperclip-run-jwt',
+    },
+  }]);
+  assert.equal(Object.hasOwn(calls[0], 'toolId'), false);
+  assert.throws(
+    () => callback({
+      actionId:'11111111-1111-4111-8111-111111111111:vision:bbbbbbbbbbbbbbbb',
+      relativePath:'campaigns/case/frame.png',
+      prompt:'再次分析。',
+    }),
+    /已使用/,
+  );
+  assert.equal(calls.length, 1);
+  for (const parameters of [
+    {
+      actionId:'11111111-1111-4111-8111-111111111111:vision:cccccccccccccccc',
+      relativePath:'campaigns/case/frame.png',
+      prompt:'分析。',
+      toolId:'agent-army.content-autonomy:stepfun-vision',
+    },
+    {
+      actionId:'other-case:vision:cccccccccccccccc',
+      relativePath:'campaigns/case/frame.png',
+      prompt:'分析。',
+    },
+    {
+      actionId:'11111111-1111-4111-8111-111111111111:vision:cccccccccccccccc',
+      relativePath:'../frame.png',
+      prompt:'分析。',
+    },
+  ]) {
+    const rejected = service.m5ProviderVisionCallback({
+      assignment:{ pipelineCaseId:'11111111-1111-4111-8111-111111111111' },
+      paperclipApiKey:'short-lived-paperclip-run-jwt',
+    });
+    assert.throws(() => rejected(parameters), /只接受|受控范围/);
+  }
+  assert.equal(calls.length, 1);
+  assert.equal(service.m5ProviderVisionCallback({
+    assignment:{ pipelineCaseId:'11111111-1111-4111-8111-111111111111' },
+    paperclipApiKey:'',
+  }), null);
+});
+
+test('M5 画面分析旧包、伪回执、跨Project和坏哈希不能成功或写Work Product', async () => {
+  const projectId = '22222222-2222-4222-8222-222222222222';
+  const invalidArtifacts = [
+    {
+      ...m5VisualArtifactFixture(projectId),
+      data:{ schemaVersion:'agent.army/visual-analysis-package/v1', insights:[{
+        finding:'旧版包',
+        frameRef:'frame-001',
+        timestamp:'00:00:03',
+        evidenceKind:'stepfun_vision_frame',
+      }] },
+    },
+    m5VisualArtifactFixture(projectId, {
+      providerReceipt:{ callRecord:{ actionId:'forged-action' } },
+    }),
+    m5VisualArtifactFixture('44444444-4444-4444-8444-444444444444'),
+    m5VisualArtifactFixture(projectId, {
+      providerReceipt:{ sourceChecksum:'sha256:bad' },
+    }),
+  ];
+  for (const artifact of invalidArtifacts) {
+    const fixture = await m5VisualCompletionFixture({ projectId, artifact });
+    await assert.rejects(
+      () => fixture.service.completePaperclipAssignment({
+        ...fixture.input,
+        status:'succeeded',
+        summary:'尝试完成画面分析。',
+      }),
+      /不能回报 succeeded/,
+    );
+    assert.equal(fixture.records.tasks[0].status, 'running');
+    assert.equal(fixture.outputs.length, 0);
+    assert.equal(fixture.completions.length, 0);
+  }
+});
+
+test('M5 画面分析有效confirmed包按当前Project写入唯一Work Product', async () => {
+  const projectId = '22222222-2222-4222-8222-222222222222';
+  const fixture = await m5VisualCompletionFixture({
+    projectId,
+    artifact:m5VisualArtifactFixture(projectId),
+  });
+  const completed = await fixture.service.completePaperclipAssignment({
+    ...fixture.input,
+    status:'succeeded',
+    summary:'已完成受控画面分析。',
+  });
+  assert.equal(completed.task.status, 'succeeded');
+  assert.equal(fixture.outputs.length, 1);
+  assert.equal(fixture.outputs[0].metadata.kind, 'VisualAnalysisPackage');
+  assert.equal(fixture.completions.length, 1);
+});
+
+test('M5 画面分析已有坏Work Product不能直接replay或创建覆盖', async () => {
+  const projectId = '22222222-2222-4222-8222-222222222222';
+  const fixture = await m5VisualCompletionFixture({
+    projectId,
+    artifact:m5VisualArtifactFixture(projectId),
+  });
+  await fixture.service.completePaperclipAssignment({
+    ...fixture.input,
+    status:'succeeded',
+    summary:'首次写入有效画面分析。',
+  });
+  fixture.outputs[0].metadata.artifact.providerReceipt.sourceChecksum = 'sha256:bad';
+  await assert.rejects(
+    () => fixture.service.completePaperclipAssignment({
+      ...fixture.input,
+      status:'succeeded',
+      summary:'尝试重放已经漂移的 Work Product。',
+    }),
+    /Work Product.*漂移/,
+  );
+  assert.equal(fixture.outputs.length, 1);
+  assert.equal(fixture.completions.length, 1);
+});
+
+test('M5 插件回执拒绝伪造文件哈希，机器审核拒绝单一 media-validate 冒充七项审核', async () => {
+  const { service, records } = setup();
+  records.tasks.push({
+    taskId:'task-m5-render',
+    taskType:'content.campaign-render',
+    status:'running',
+    artifactRefs:[],
+    input:{ context:{ paperclipRoutineKey:'m5-render', pipelineCaseId:'case-render' } },
+  }, {
+    taskId:'task-m5-review',
+    taskType:'content.campaign-machine-review',
+    status:'running',
+    artifactRefs:[],
+    input:{ context:{ paperclipRoutineKey:'m5-machine-review', pipelineCaseId:'case-review' } },
+  });
+  await assert.rejects(
+    () => service.recordM5StageExecution('task-m5-render', {
+      toolId:'agent-army.content-autonomy:remotion-render',
+      pluginId:'agent-army.content-autonomy',
+      composition:'M5Master',
+      outputPath:'campaigns/test/master.mp4',
+      checksum:'not-a-hash',
+      bytes:1,
+    }),
+    /缺少真实 MP4/,
+  );
+  await assert.rejects(
+    () => service.recordM5StageExecution('task-m5-review', {
+      toolId:'agent-army.content-autonomy:media-validate',
+      pluginId:'agent-army.content-autonomy',
+      passed:true,
+      errors:[],
+      relativePath:'campaigns/test/master.mp4',
+      durationSeconds:45,
+    }),
+    /单一 media-validate 回执不能冒充完整审核/,
+  );
+  const passedReview = {
+    status:'passed',
+    checks:{
+      facts:true,
+      privacy:true,
+      rights:true,
+      media:true,
+      claims:true,
+      grantScope:true,
+      duplicate:true,
+    },
+  };
+  await assert.rejects(
+    () => service.recordM5StageExecution('task-m5-review', {
+      toolId:'agent-army.content-autonomy:media-validate',
+      pluginId:'agent-army.content-autonomy',
+      artifact:{
+        type:'machine_review_report',
+        data:{ reviewReport:passedReview },
+        validation:{ exists:true, readable:true, nonEmpty:true },
+      },
+    }),
+    /缺少已校验的固定产物包/,
+  );
+  const accepted = await service.recordM5StageExecution('task-m5-review', {
+    toolId:'agent-army.content-autonomy:media-validate',
+    pluginId:'agent-army.content-autonomy',
+      artifact:{
+        type:'machine_review_report',
+        validation:{ exists:true, readable:true, nonEmpty:true },
+        data:{
+        reviewReport:{
+          ...passedReview,
+          evidence:{
+            artifactPackage:{
+              manifestPath:'campaigns/test/package/artifact-manifest.json',
+              manifestChecksum:`sha256:${'e'.repeat(64)}`,
+              requiredArtifacts:[
+                'master.mp4',
+                'douyin.mp4',
+                'xiaohongshu.mp4',
+                'douyin.copy.json',
+                'xiaohongshu.copy.json',
+                'cover.png',
+                'sources.json',
+                'review.json',
+                'lineage.json',
+              ],
+            },
+          },
+        },
+      },
+    },
+  });
+  assert.equal(
+    accepted.artifact.data.reviewReport.evidence.artifactPackage.requiredArtifacts.length,
+    9,
+  );
+  assert.equal(records.tasks[0].artifactRefs.length, 0);
+  assert.equal(records.tasks[1].artifactRefs.length, 1);
+});
+
+test('四岗执行桥拒绝 Routine 岗位错配，且不会调用岗位执行器', async () => {
+  const agent = {
+    agentId:'office-assistant',
+    name:'小办',
+    status:'active',
+    acceptedTaskTypes:['content.campaign-metrics'],
+    interaction:{ runtime:'hermes-profile', directFeishu:'required' },
+    executionOwner:'paperclip-hermes'
+  };
+  const identity = {
+    issue:{
+      id:'paperclip-issue-wrong-role',
+      title:'错误指派',
+      description:'[agent-army:m5:routine:m5-research] 不应由小办执行。'
+    },
+    run:{ id:'paperclip-run-wrong-role' },
+    paperclipAgent:{ id:'paperclip-agent-wrong-role', name:'小办' },
+    agentArmyId:'office-assistant'
+  };
+  const governance = { async verifyHermesAssignment() { return identity; } };
+  const { service } = setup({ agents:[agent], governance });
+  let executions = 0;
+  service.executors['office-assistant'] = { async execute() { executions += 1; } };
+  await assert.rejects(
+    () => service.executeEmployeeAssignment({
+      issueId:identity.issue.id,
+      runId:identity.run.id,
+      paperclipAgentId:identity.paperclipAgent.id,
+      agentArmyId:identity.agentArmyId
+    }),
+    /不属于当前岗位/
+  );
+  assert.equal(executions, 0);
 });
 
 test('小拆 heartbeat 通过受控执行桥写回真实分析产物且重复调用幂等', async () => {
@@ -909,7 +1875,7 @@ test('概览优先呈现待审批任务，并给出不会自动继续的下一�
   );
   records.approvals.push({ approvalId:'approval-1', taskId:'task-waiting', status:'pending' });
   const overview = await service.overview();
-  assert.deepEqual(overview.taskFocus, { total:3, completed:1, inProgress:1, paused:0, needsInput:0, waitingApproval:1, waitingTest:0, failed:0, next:{ taskId:'task-waiting', title:'发布周报', status:'waiting_approval', action:'请确认任务范围；在你确认前，系统不会继续执行。' } });
+  assert.deepEqual(overview.taskFocus, { total:3, completed:1, inProgress:1, paused:0, needsInput:0, waitingApproval:1, waitingTest:0, failed:0, ownerActionable:1, reviewBacklog:0, next:{ taskId:'task-waiting', title:'发布周报', status:'waiting_approval', action:'请确认任务范围；在你确认前，系统不会继续执行。' } });
 });
 test('概览把等待 Mac工作间的任务列为进行中并说明自动领取', async () => {
   const { service, records } = setup();
@@ -1008,7 +1974,28 @@ test('概览把尚未继续的接收建议当作当前下一步，而不是误�
   const { service, records } = setup();
   records.tasks.push({ taskId:'task-intake', status:'succeeded', approvalRefs:[], input:{ title:'评估岗位能力', description:'', sourceUrl:null }, artifactRefs:[{ type:'task_intake_record', data:{ recommendedTaskType:'governance.architecture-review', recommendedAgentId:'architect' } }], updatedAt:'2026-07-20T10:00:00.000Z' });
   const overview = await service.overview();
+  assert.equal(overview.taskFocus.ownerActionable, 1);
   assert.deepEqual(overview.taskFocus.next, { taskId:'task-intake', title:'评估岗位能力', status:'succeeded', action:'A君已经给出下一步建议；确认后可按建议创建后续任务。' });
+});
+test('概览有系统后台任务运行时仍优先显示需要老板决定的接收建议', async () => {
+  const { service, records } = setup();
+  records.tasks.push(
+    {
+      taskId:'task-running', status:'running', approvalRefs:[],
+      input:{ title:'后台巡检', description:'', sourceUrl:null },
+      updatedAt:'2026-07-20T11:00:00.000Z'
+    },
+    {
+      taskId:'task-intake', status:'succeeded', approvalRefs:[],
+      input:{ title:'评估岗位能力', description:'', sourceUrl:null },
+      artifactRefs:[{ type:'task_intake_record', data:{ recommendedTaskType:'governance.architecture-review', recommendedAgentId:'architect' } }],
+      updatedAt:'2026-07-20T10:00:00.000Z'
+    }
+  );
+  const overview = await service.overview();
+  assert.equal(overview.taskFocus.inProgress, 1);
+  assert.equal(overview.taskFocus.ownerActionable, 1);
+  assert.equal(overview.taskFocus.next.taskId, 'task-intake');
 });
 test('概览不把早于后续用户结果的旧接收建议重新顶到当前下一步', async () => {
   const { service, records } = setup();
@@ -1041,6 +2028,9 @@ test('概览如实区分已能收发飞书与尚未接入的外部账号写入�
   assert.match(feishu.detail, /默认关闭/);
   assert.equal(external.status, 'planned');
   assert.match(external.detail, /尚未接入/);
+  const authorizedRead = overview.capabilities.find((item) => item.id === 'authorized-content-read');
+  assert.equal(authorizedRead.status, 'partial');
+  assert.match(authorizedRead.detail, /具体任务验证/);
 });
 
 test('概览会如实显示官方飞书入口已经连接，不把等待状态冒充成已连接', async () => {
@@ -1525,3 +2515,596 @@ test('任务执行会保存实际报告的使用记录，概览只汇总当天�
   assert.equal(usage.actualToolCalls, 1);
   assert.equal(usage.cost.reportedTaskCount, 0);
 });
+
+test('M5 Hermes 阶段必须把专用产物写回同一 Case 后才能完成 Issue', async () => {
+  const caseId = '12345678-abcd-4abc-8abc-1234567890ab';
+  const outputs = [];
+  const completions = [];
+  let workProductValidations = 0;
+  const identity = {
+    issue:{
+      id:'paperclip-issue-m5-topic',
+      identifier:'AGE-M5-TOPIC',
+      title:'M5 / 选题',
+      description:`[agent-army:m5:routine:m5-topic] 处理选题阶段；当前 Case 为 ${caseId}，版本为 1。`,
+    },
+    run:{ id:'paperclip-run-m5-topic' },
+    paperclipAgent:{ id:'paperclip-agent-m5-ajun', name:'A君' },
+    agentArmyId:'ajun',
+  };
+  const governance = {
+    async verifyHermesAssignment() { return identity; },
+    async getPipelineCase() {
+      return {
+        id:caseId,
+        stageKey:'topic',
+        fields:{ theme:'AI Agent 真实失败恢复', scheduledDate:'2026-07-31' },
+      };
+    },
+    async getPipelineCaseOutputs() { return outputs; },
+    async createIssueWorkProduct(issueId, product) {
+      assert.equal(issueId, identity.issue.id);
+      outputs.push({ kind:'work_product', ...product });
+      return product;
+    },
+    async completePaperclipIssue(issueId, input) {
+      completions.push({ issueId, input });
+    },
+  };
+  const agent = {
+    agentId:'ajun',
+    name:'A君',
+    status:'active',
+    acceptedTaskTypes:['content.campaign-topic'],
+    interaction:{ runtime:'hermes-profile', directFeishu:'required' },
+    executionOwner:'paperclip-hermes',
+  };
+  const { service } = setup({
+    agents:[agent],
+    governance,
+    m5WorkProductValidator:async ({ product, targetCaseId, task }) => {
+      workProductValidations += 1;
+      assert.equal(product, outputs[0]);
+      assert.equal(targetCaseId, caseId);
+      assert.equal(product.metadata.sourceTaskId, task.taskId);
+    },
+  });
+  service.executors.ajun = {
+    async execute(task) {
+      return {
+        status:'succeeded',
+        currentStage:'campaign_topic_selected',
+        artifactRefs:[{
+          artifactId:`topic-selection:${task.taskId}`,
+          taskId:task.taskId,
+          type:'topic_selection',
+          title:'M5 选题',
+          validation:{ exists:true, readable:true, nonEmpty:true },
+          data:{
+            schemaVersion:'agent.army/topic-selection/v1',
+            theme:task.input.topic,
+            requiredSources:{ minimum:2 },
+          },
+        }],
+      };
+    },
+  };
+  const input = {
+    issueId:identity.issue.id,
+    runId:identity.run.id,
+    paperclipAgentId:identity.paperclipAgent.id,
+    agentArmyId:'ajun',
+  };
+  await service.executeEmployeeAssignment(input);
+  const completed = await service.completePaperclipAssignment({
+    ...input,
+    status:'succeeded',
+    summary:'已选择当日主题并声明证据门禁。',
+  });
+
+  assert.equal(completed.task.status, 'succeeded');
+  assert.equal(outputs.length, 1);
+  assert.equal(outputs[0].provider, 'agent-army.ajun-runtime');
+  assert.equal(outputs[0].metadata.schemaVersion, 'agent.army/topic-selection/v1');
+  assert.equal(outputs[0].metadata.kind, 'TopicSelection');
+  assert.equal(outputs[0].metadata.artifact.theme, 'AI Agent 真实失败恢复');
+  assert.match(outputs[0].metadata.artifactHash, /^sha256:[0-9a-f]{64}$/);
+  assert.equal(completions.length, 1);
+
+  const duplicate = await service.completePaperclipAssignment({
+    ...input,
+    status:'succeeded',
+    summary:'重复回报。',
+  });
+  assert.equal(duplicate.duplicate, true);
+  assert.equal(outputs.length, 1);
+  assert.equal(completions.length, 2);
+  assert.equal(workProductValidations, 2);
+});
+
+test('M5 同key弱Work Product不能压住真实写入或冒充写后回读成功', async () => {
+  const caseId = '32345678-abcd-4abc-8abc-1234567890ab';
+  const taskId = 'task-m5-weak-duplicate';
+  const artifactId = `topic-selection:${taskId}`;
+  const outputs = [{
+    kind:'work_product',
+    type:'artifact',
+    provider:'forged.provider',
+    sourceTrust:null,
+    status:'active',
+    healthStatus:'healthy',
+    metadata:{
+      schemaVersion:'agent.army/topic-selection/v1',
+      kind:'TopicSelection',
+      stageKey:'topic',
+      sourceTaskId:taskId,
+      sourceArtifactId:artifactId,
+      artifactHash:`sha256:${'a'.repeat(64)}`,
+      artifact:{ theme:'伪造占位产物' },
+    },
+  }];
+  let creates = 0;
+  let validations = 0;
+  const governance = {
+    async getPipelineCaseOutputs() { return outputs; },
+    async getPaperclipIssueRuns() { return { runs:[] }; },
+    async createIssueWorkProduct() {
+      creates += 1;
+      throw new Error('弱候选存在时不应创建或覆盖');
+    },
+  };
+  const { service } = setup({
+    governance,
+    m5WorkProductValidator:async () => {
+      validations += 1;
+      return true;
+    },
+  });
+  const task = {
+    taskId,
+    taskType:'content.campaign-topic',
+    artifactRefs:[{
+      artifactId,
+      taskId,
+      type:'topic_selection',
+      validation:{ exists:true, readable:true, nonEmpty:true },
+      data:{ theme:'真实选题' },
+    }],
+  };
+  const assignment = {
+    routineKey:'m5-topic',
+    pipelineCaseId:caseId,
+    projectId:'22222222-2222-4222-8222-222222222222',
+    issueId:'paperclip-issue-m5-weak-duplicate',
+    runId:'paperclip-run-m5-weak-duplicate',
+  };
+
+  await assert.rejects(
+    () => service.syncM5StageWorkProducts({ task, assignment }),
+    /Work Product 漂移：结构、Provider 或状态不符合阶段契约/,
+  );
+  assert.equal(validations, 1);
+  assert.equal(creates, 0);
+  assert.equal(outputs.length, 1);
+});
+
+test('M5 写回入口同阶段合法加漂移、两个合法都硬停，无关阶段输出不影响幂等回读', async (t) => {
+  const caseId = '42345678-abcd-4abc-8abc-1234567890ab';
+  const taskId = 'task-m5-candidate-selection';
+  const artifactId = `topic-selection:${taskId}`;
+  const task = {
+    taskId,
+    taskType:'content.campaign-topic',
+    artifactRefs:[{
+      artifactId,
+      taskId,
+      type:'topic_selection',
+      validation:{ exists:true, readable:true, nonEmpty:true },
+      data:{ theme:'真实选题' },
+    }],
+  };
+  const assignment = {
+    routineKey:'m5-topic',
+    pipelineCaseId:caseId,
+    projectId:'22222222-2222-4222-8222-222222222222',
+    issueId:'paperclip-issue-m5-candidate-selection',
+    runId:'paperclip-run-m5-candidate-selection',
+  };
+  const validProduct = (id) => ({
+    id,
+    kind:'work_product',
+    type:'artifact',
+    provider:'agent-army.ajun-runtime',
+    sourceTrust:null,
+    status:'active',
+    healthStatus:'healthy',
+    metadata:{
+      schemaVersion:'agent.army/topic-selection/v1',
+      kind:'TopicSelection',
+      stageKey:'topic',
+      sourceTaskId:taskId,
+      sourceArtifactId:artifactId,
+      artifactHash:`sha256:${'b'.repeat(64)}`,
+      artifact:{ theme:'真实选题' },
+    },
+  });
+  for (const variant of ['valid-plus-drift', 'drift-plus-valid', 'two-valid', 'unrelated']) {
+    await t.test(variant, async () => {
+      const valid = validProduct('work-product-valid');
+      const extra = validProduct(`work-product-${variant}`);
+      if (variant.includes('drift')) {
+        extra.provider = 'forged.provider';
+      } else if (variant === 'unrelated') {
+        extra.metadata.stageKey = 'research';
+        extra.metadata.schemaVersion = 'agent.army/evidence-package/v1';
+        extra.metadata.kind = 'EvidencePackage';
+      }
+      const outputs = variant === 'drift-plus-valid' ? [extra, valid] : [valid, extra];
+      let creates = 0;
+      const governance = {
+        async getPipelineCaseOutputs() { return outputs; },
+        async getPaperclipIssueRuns() { return { runs:[] }; },
+        async createIssueWorkProduct() { creates += 1; },
+      };
+      const { service } = setup({
+        governance,
+        m5WorkProductValidator:async () => true,
+      });
+      if (variant === 'unrelated') {
+        const result = await service.syncM5StageWorkProducts({ task, assignment });
+        assert.equal(result.replayed, true);
+      } else {
+        await assert.rejects(
+          () => service.syncM5StageWorkProducts({ task, assignment }),
+          /重复 Work Product|未解决漂移/,
+        );
+      }
+      assert.equal(creates, 0);
+      assert.equal(outputs.length, 2);
+    });
+  }
+});
+
+test('M5 写后回读发现并发漂移候选时不把创建成功冒充为阶段完成', async () => {
+  const caseId = '52345678-abcd-4abc-8abc-1234567890ab';
+  const taskId = 'task-m5-post-write-drift';
+  const artifactId = `topic-selection:${taskId}`;
+  const outputs = [];
+  let creates = 0;
+  const governance = {
+    async getPipelineCaseOutputs() { return outputs; },
+    async getPaperclipIssueRuns() { return { runs:[] }; },
+    async createIssueWorkProduct(_issueId, product) {
+      creates += 1;
+      const persisted = { id:'work-product-created', kind:'work_product', ...product };
+      outputs.push(persisted, {
+        ...structuredClone(persisted),
+        id:'work-product-concurrent-drift',
+        provider:'forged.provider',
+      });
+    },
+  };
+  const { service } = setup({
+    governance,
+    m5WorkProductValidator:async () => true,
+  });
+  await assert.rejects(
+    () => service.syncM5StageWorkProducts({
+      task:{
+        taskId,
+        taskType:'content.campaign-topic',
+        artifactRefs:[{
+          artifactId,
+          taskId,
+          type:'topic_selection',
+          validation:{ exists:true, readable:true, nonEmpty:true },
+          data:{ theme:'真实选题' },
+        }],
+      },
+      assignment:{
+        routineKey:'m5-topic',
+        pipelineCaseId:caseId,
+        projectId:'22222222-2222-4222-8222-222222222222',
+        issueId:'paperclip-issue-m5-post-write-drift',
+        runId:'paperclip-run-m5-post-write-drift',
+      },
+    }),
+    /写回后存在重复 Work Product|未解决漂移/,
+  );
+  assert.equal(creates, 1);
+  assert.equal(outputs.length, 2);
+});
+
+test('M5 Hermes 阶段失败从 Paperclip Case 恢复状态安排重试且同 Run 重放幂等', async () => {
+  const caseId = '87654321-abcd-4abc-8abc-1234567890ab';
+  const identity = {
+    issue:{
+      id:'paperclip-issue-m5-voice',
+      identifier:'AGE-M5-VOICE',
+      title:'M5 / 配音',
+      description:`[agent-army:m5:routine:m5-voice] 处理配音阶段；当前 Case 为 ${caseId}，版本为 1。`,
+      status:'in_progress',
+    },
+    run:{ id:'paperclip-run-m5-voice-1' },
+    paperclipAgent:{ id:'paperclip-agent-m5-creator', name:'小创' },
+    agentArmyId:'content-creator',
+  };
+  let caseItem = {
+    id:caseId,
+    version:1,
+    parentCaseId:null,
+    caseKey:'m5-fixture:2026-07-30',
+    stageKey:'voice',
+    fields:{
+      campaignId:'m5-fixture',
+      scheduledDate:'2026-07-30',
+    },
+  };
+  const issueUpdates = [];
+  let casePatches = 0;
+  const governance = {
+    async verifyHermesAssignment() { return identity; },
+    async getPipelineCase() { return structuredClone(caseItem); },
+    async getPaperclipIssue() { return identity.issue; },
+    async getPaperclipIssueRuns() {
+      return [{ id:identity.run.id, status:'failed' }];
+    },
+    async getPipelineCaseEvents() { return []; },
+    async getPipelineCaseOutputs() { return []; },
+    async patchPipelineCaseFields(_caseId, { expectedVersion, fields }) {
+      assert.equal(expectedVersion, caseItem.version);
+      caseItem = { ...caseItem, version:caseItem.version + 1, fields:structuredClone(fields) };
+      casePatches += 1;
+    },
+    async reopenM5StageIssue(_issueId, { comment }) {
+      issueUpdates.push({ status:'todo', comment });
+    },
+    async blockM5StageIssue(_issueId, { comment }) {
+      issueUpdates.push({ status:'blocked', comment });
+    },
+    async completeM5RecoveredStageIssue(_issueId, { comment }) {
+      issueUpdates.push({ status:'done', comment });
+    },
+  };
+  const agent = {
+    agentId:'content-creator',
+    name:'小创',
+    status:'active',
+    acceptedTaskTypes:['content.campaign-voice'],
+    interaction:{ runtime:'hermes-profile', directFeishu:'background' },
+    executionOwner:'paperclip-hermes',
+  };
+  const { service } = setup({ agents:[agent], governance });
+  const input = {
+    issueId:identity.issue.id,
+    runId:identity.run.id,
+    paperclipAgentId:identity.paperclipAgent.id,
+    agentArmyId:identity.agentArmyId,
+    status:'failed',
+    summary:'受控配音阶段 fixture 失败。',
+  };
+
+  const first = await service.completePaperclipAssignment(input);
+  assert.equal(first.task.status, 'running');
+  assert.equal(first.task.currentStage, 'm5_stage_retry_scheduled');
+  assert.equal(first.recovery.action, 'retry');
+  const recoveryKey = `${caseId}:voice`;
+  assert.equal(caseItem.fields.m5ContentRecovery.stageRecoveries[recoveryKey].stageAttempt, 1);
+  assert.equal(issueUpdates.at(-1).status, 'todo');
+  assert.equal(casePatches, 1);
+
+  const replay = await service.completePaperclipAssignment(input);
+  assert.equal(replay.duplicate, true);
+  assert.equal(replay.recovery.replayed, true);
+  assert.equal(casePatches, 1);
+  assert.equal(caseItem.fields.m5ContentRecovery.stageRecoveries[recoveryKey].history.length, 1);
+
+  const revisionId = `m5-plan-revision:${caseId}:r1`;
+  const rejectedExecution = {
+    strategy:'default:m5_stage_execute',
+    toolIds:['m5_stage_execute'],
+    inputHash:`sha256:${'c'.repeat(64)}`,
+  };
+  caseItem.fields.m5ContentRecovery.activePlanRevision = {
+    schemaVersion:'agent.army/m5-plan-revision/v1',
+    revisionId,
+    contentCaseId:caseId,
+    revision:1,
+    failedCaseId:caseId,
+    failureObservation:{
+      issueId:identity.issue.id,
+      runId:identity.run.id,
+      stageKey:'voice',
+      summary:'前一路线的旁白输入无法通过验证。',
+      summaryHash:`sha256:${'a'.repeat(64)}`,
+    },
+    rejectedRoute:{
+      kind:'retry_same_inputs',
+      reason:'相同输入已失败。',
+      execution:rejectedExecution,
+      routeFingerprint:routeDescriptorFingerprint(rejectedExecution),
+    },
+    nextRoute:{
+      kind:'same_stage_rebuild_inputs',
+      stageKey:'voice',
+      preserveVerifiedWorkProducts:true,
+      instruction:'保留已验证产物，重建旁白输入。',
+    },
+    createdAt:'2026-07-30T12:00:00.000Z',
+  };
+  identity.run.id = 'paperclip-run-m5-voice-2';
+  const nextInput = { ...input, runId:identity.run.id };
+  const nextAssignment = await service.getPaperclipAssignment(nextInput);
+  assert.equal(nextAssignment.task.input.context.m5Recovery.revisionId, revisionId);
+  await assert.rejects(
+    service.completePaperclipAssignment({
+      ...nextInput,
+      status:'failed',
+      summary:'重规划后仍需继续恢复。',
+    }),
+    /精确回报已消费的 PlanRevision ID/,
+  );
+  await assert.rejects(
+    service.completePaperclipAssignment({
+      ...nextInput,
+      status:'failed',
+      summary:'模型自行宣称已经换路。',
+      consumedRevisionId:revisionId,
+      routeChanged:true,
+      routeSummary:'这段文字不是执行器回执。',
+    }),
+    /执行器生成的 PlanRevision 消费回执/,
+  );
+  const actualRoute = createM5RouteExecution({
+    runId:identity.run.id,
+    stageKey:'voice',
+    recovery:nextAssignment.task.input.context.m5Recovery,
+    strategy:'same_stage_rebuild_inputs',
+    toolIds:['m5_stage_execute'],
+    inputs:{ text:'重建后的旁白输入。' },
+  });
+  await service.store.updateTask(nextAssignment.task.taskId, {
+    execution:{
+      ...nextAssignment.task.execution,
+      m5RouteExecution:actualRoute,
+    },
+  });
+  const consumed = await service.completePaperclipAssignment({
+    ...nextInput,
+    status:'failed',
+    summary:'重规划后仍需继续恢复。',
+    consumedRevisionId:revisionId,
+    routeChanged:true,
+    routeSummary:'已读取失败 Observation，并改为重建旁白输入参数后再执行。',
+  });
+  assert.equal(consumed.task.execution.m5PlanRevisionReceipt.consumedRevisionId, revisionId);
+  assert.equal(consumed.task.execution.m5PlanRevisionReceipt.routeChanged, true);
+});
+
+function m5VisualArtifactFixture(projectId, overrides = {}) {
+  const actionId = '12345678-abcd-4abc-8abc-1234567890ab:vision:aaaaaaaaaaaaaaaa';
+  const receipt = {
+    actionId,
+    operation:'vision',
+    model:'step-1o-turbo-vision',
+    sourcePath:'campaigns/assets/frame-001.png',
+    sourceChecksum:`sha256:${'a'.repeat(64)}`,
+    observationChecksum:`sha256:${'b'.repeat(64)}`,
+    callRecord:{
+      actionId,
+      operation:'vision',
+      model:'step-1o-turbo-vision',
+      promptChecksum:`sha256:${'c'.repeat(64)}`,
+      costEvent:{ provider:'stepfun', projectId },
+    },
+    costCommit:{
+      status:'confirmed',
+      costEventId:'33333333-3333-4333-8333-333333333333',
+      costEvent:{ provider:'stepfun', projectId, costCents:1 },
+    },
+  };
+  const receiptOverride = overrides.providerReceipt || {};
+  const providerReceipt = {
+    ...receipt,
+    ...receiptOverride,
+    callRecord:{
+      ...receipt.callRecord,
+      ...(receiptOverride.callRecord || {}),
+    },
+    costCommit:{
+      ...receipt.costCommit,
+      ...(receiptOverride.costCommit || {}),
+      costEvent:{
+        ...receipt.costCommit.costEvent,
+        ...(receiptOverride.costCommit?.costEvent || {}),
+      },
+    },
+  };
+  return {
+    artifactId:'visual-analysis:test',
+    type:'visual_analysis_package',
+    title:'M5 画面分析包',
+    validation:{ exists:true, readable:true, nonEmpty:true },
+    data:{
+      schemaVersion:'agent.army/visual-analysis-package/v1',
+      providerReceipt,
+      insights:[{
+        finding:'状态卡位于画面中央。',
+        frameRef:'frame-001',
+        timestamp:'00:00:03',
+        evidenceKind:'stepfun_vision_frame',
+      }],
+    },
+    ...overrides,
+    data:overrides.data || {
+      schemaVersion:'agent.army/visual-analysis-package/v1',
+      providerReceipt,
+      insights:[{
+        finding:'状态卡位于画面中央。',
+        frameRef:'frame-001',
+        timestamp:'00:00:03',
+        evidenceKind:'stepfun_vision_frame',
+      }],
+    },
+  };
+}
+
+async function m5VisualCompletionFixture({ projectId, artifact }) {
+  const caseId = '12345678-abcd-4abc-8abc-1234567890ab';
+  const outputs = [];
+  const completions = [];
+  const identity = {
+    issue:{
+      id:'paperclip-issue-m5-visual',
+      identifier:'AGE-M5-VISUAL',
+      title:'M5 / 画面分析',
+      description:`[agent-army:m5:routine:m5-visual-analysis] 处理画面分析阶段；当前 Case 为 ${caseId}，版本为 1。`,
+      projectId,
+    },
+    run:{ id:'paperclip-run-m5-visual' },
+    paperclipAgent:{ id:'paperclip-agent-m5-visual', name:'小拆' },
+    agentArmyId:'video-content-analyst',
+  };
+  const governance = {
+    async verifyHermesAssignment() { return identity; },
+    async getPipelineCase() {
+      return {
+        id:caseId,
+        projectId,
+        stageKey:'visual_analysis',
+        fields:{ theme:'AI Agent 实战', scheduledDate:'2026-07-31' },
+      };
+    },
+    async getPipelineCaseOutputs() { return outputs; },
+    async createIssueWorkProduct(_issueId, product) {
+      outputs.push({ kind:'work_product', ...product });
+      return product;
+    },
+    async completePaperclipIssue(issueId, input) {
+      completions.push({ issueId, input });
+    },
+  };
+  const agent = {
+    agentId:'video-content-analyst',
+    name:'小拆',
+    status:'active',
+    acceptedTaskTypes:['content.campaign-visual-analysis'],
+    interaction:{ runtime:'hermes-profile', directFeishu:'background' },
+    executionOwner:'paperclip-hermes',
+  };
+  const fixture = setup({ agents:[agent], governance });
+  const input = {
+    issueId:identity.issue.id,
+    runId:identity.run.id,
+    paperclipAgentId:identity.paperclipAgent.id,
+    agentArmyId:identity.agentArmyId,
+  };
+  const assigned = await fixture.service.getPaperclipAssignment(input);
+  assigned.task.artifactRefs = [artifact];
+  return {
+    ...fixture,
+    input,
+    outputs,
+    completions,
+  };
+}

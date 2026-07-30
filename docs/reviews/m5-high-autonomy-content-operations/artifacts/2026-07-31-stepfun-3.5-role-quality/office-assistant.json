@@ -1,0 +1,204 @@
+{
+  "schemaVersion": "agent.army/m4-role-quality-result/v1",
+  "taskId": "m4-role-office-assistant-20260730",
+  "agentId": "office-assistant",
+  "agentName": "小办·办公执行助理",
+  "startedAt": "2026-07-30T17:34:06.190Z",
+  "finishedAt": "2026-07-30T17:34:21.768Z",
+  "model": {
+    "provider": "stepfun",
+    "name": "step-3.5-flash-2603",
+    "apiCalls": 1,
+    "estimatedCostUsd": 0,
+    "inputTokens": 488,
+    "outputTokens": 1612
+  },
+  "externalSideEffects": 0,
+  "toolPolicy": "clarify-only; prompt forbids tool use",
+  "parseError": null,
+  "processError": null,
+  "outputChecksum": "f85fc2010d7556c6096bc2a8c95299949e5685ad0276a3fe342060420f36804b",
+  "output": {
+    "taskId": "m4-role-office-assistant-20260730",
+    "agentId": "office-assistant",
+    "status": "completed",
+    "summary": "M4 岗位复杂任务一页汇报已完成，依据本轮提供事实独立整理，未添加外部材料或启动任何外发动作。",
+    "evidence": [
+      {
+        "fact": "11 个岗位保留不合并，开放任务按 Manifest 白名单路由，Paperclip/Hermes 承担计划、授权、预算和恢复",
+        "sourceRef": "M4 本轮输入事实-已实现段落",
+        "confidence": "verified"
+      },
+      {
+        "fact": "Manifest 13/13、A君运行时 541/541、Hermes 集成 8/8，自动化链路全量通过",
+        "sourceRef": "M4 本轮输入事实-自动化段落",
+        "confidence": "verified"
+      },
+      {
+        "fact": "外部模型：StepFun 主传输 11/11 通过；DeepSeek 受控回退 1/1 通过；其余 10 个回退 Profile 未逐个付费探测",
+        "sourceRef": "M4 本轮输入事实-外部模型段落",
+        "confidence": "verified"
+      },
+      {
+        "fact": "当前运行：4 个常驻岗位 ready，6 个岗位 on_demand，0 个模型待授权",
+        "sourceRef": "M4 本轮输入事实-当前运行段落",
+        "confidence": "verified"
+      }
+    ],
+    "risks": [
+      {
+        "risk": "飞书与 Paperclip 本轮未完成验收，跨岗位总验收仍在执行，尚未形成闭环确认",
+        "sourceRef": "M4 本轮输入事实-未完成段落",
+        "confidence": "verified"
+      },
+      {
+        "risk": "工作树未提交，存在代码/配置漂移风险",
+        "sourceRef": "M4 本轮输入事实-未完成段落",
+        "confidence": "verified"
+      },
+      {
+        "risk": "10 个外部模型回退 Profile 未逐个付费探测，覆盖范围尚不完整",
+        "sourceRef": "M4 本轮输入事实-外部模型段落",
+        "confidence": "verified"
+      }
+    ],
+    "nextAction": "等飞书/Paperclip 验收完成后，补录至汇报证据账本；待跨岗位总验收闭环后，执行工作树提交并更新 nextActions 验收状态",
+    "externalActionStarted": false,
+    "executiveBrief": {
+      "headline": "M4 岗位体系与自动化链路全量就绪，本轮对外验收与代码提交待闭合",
+      "completed": [
+        "11 个岗位保留不合并，开放任务按 Manifest 白名单路由",
+        "Paperclip/Hermes 承担计划、授权、预算与恢复职责",
+        "Manifest 自动化 13/13 通过",
+        "A君运行时自动化 541/541 通过",
+        "Hermes 集成自动化 8/8 通过",
+        "StepFun 主传输 11/11 通过",
+        "DeepSeek 受控回退 1/1 通过",
+        "4 个常驻岗位 ready，6 个岗位 on_demand",
+        "0 个模型待授权"
+      ],
+      "openRisks": [
+        "飞书/Paperclip 本轮未验收，跨岗位总验收执行中",
+        "工作树未提交",
+        "10 个外部模型回退 Profile 未逐个付费探测"
+      ],
+      "decisionsNeeded": [
+        "是否在下一轮将飞书/Paperclip 验收纳入正式验收节点",
+        "是否授权对 10 个外部模型回退 Profile 进行付费探测",
+        "工作树提交的时机与审批节点"
+      ],
+      "nextActions": [
+        {
+          "owner": "相关验收负责人",
+          "deadlineRule": "下一轮验收节点前",
+          "acceptance": "飞书/Paperclip 验收记录归档并更新汇报证据账本"
+        },
+        {
+          "owner": "相关验收负责人",
+          "deadlineRule": "跨岗位总验收闭环后",
+          "acceptance": "工作树提交并通过基础检查"
+        },
+        {
+          "owner": "模型运营负责人",
+          "deadlineRule": "视探测授权时间",
+          "acceptance": "10 个外部模型回退 Profile 逐个付费探测结果归档"
+        }
+      ],
+      "evidenceLedger": [
+        {
+          "item": "Manifest 13/13",
+          "ref": "M4 本轮输入事实-自动化段落",
+          "state": "verified"
+        },
+        {
+          "item": "A君运行时 541/541",
+          "ref": "M4 本轮输入事实-自动化段落",
+          "state": "verified"
+        },
+        {
+          "item": "Hermes 集成 8/8",
+          "ref": "M4 本轮输入事实-自动化段落",
+          "state": "verified"
+        },
+        {
+          "item": "StepFun 主传输 11/11",
+          "ref": "M4 本轮输入事实-外部模型段落",
+          "state": "verified"
+        },
+        {
+          "item": "DeepSeek 受控回退 1/1",
+          "ref": "M4 本轮输入事实-外部模型段落",
+          "state": "verified"
+        },
+        {
+          "item": "岗位运行：4 常驻 ready / 6 on_demand / 0 待授权",
+          "ref": "M4 本轮输入事实-当前运行段落",
+          "state": "verified"
+        }
+      ]
+    }
+  },
+  "status": "passed",
+  "checks": [
+    {
+      "label": "模型返回任务标签",
+      "passed": true
+    },
+    {
+      "label": "模型返回岗位标签",
+      "passed": true
+    },
+    {
+      "label": "岗位任务完成",
+      "passed": true
+    },
+    {
+      "label": "摘要达到中文业务结论最小长度",
+      "passed": true
+    },
+    {
+      "label": "证据至少 2 项",
+      "passed": true
+    },
+    {
+      "label": "证据含事实、来源和置信度",
+      "passed": true
+    },
+    {
+      "label": "风险至少 1 项",
+      "passed": true
+    },
+    {
+      "label": "存在明确下一步",
+      "passed": true
+    },
+    {
+      "label": "未开始外部动作",
+      "passed": true
+    },
+    {
+      "label": "存在汇报标题",
+      "passed": true
+    },
+    {
+      "label": "已完成至少 3 项",
+      "passed": true
+    },
+    {
+      "label": "风险至少 2 项",
+      "passed": true
+    },
+    {
+      "label": "下一步至少 2 项",
+      "passed": true
+    },
+    {
+      "label": "下一步具备负责人和验收",
+      "passed": true
+    }
+  ],
+  "identityDrift": {
+    "taskId": null,
+    "agentId": null
+  }
+}

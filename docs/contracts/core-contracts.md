@@ -2,10 +2,10 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | v3.7 实施中：架构师采用事实、判断、候选方案三层契约，技术专家保留故障分流门禁 |
+| 状态 | v5 实施中：M5 并行 v2 已 live apply，活动与真实发布仍关闭 |
 | 负责人 | 技术负责人 / Codex 工作台 |
-| 版本 | v3.7 |
-| 最后更新 | 2026-07-29 |
+| 版本 | v5.0 |
+| 最后更新 | 2026-07-30 |
 | 更新触发 | 字段、状态、兼容性、权限或完成定义变化 |
 
 ## 1. 契约原则
@@ -36,6 +36,11 @@
 | `approvalPolicies` | 是 | 哪些动作需要审批 |
 | `qualityGates` | 是 | 产物完成前的质量校验 |
 | `budgetPolicy` | 否 | 单任务或周期预算、超限处理 |
+| `openTaskPolicy` | 否 | 岗位开放任务域与质量门禁；存在时至少声明一个岗位专属开放任务类型 |
+| `dynamicCapabilityPolicy` | 否 | 能力发现提案来源、模型策略不可变约束及需审批的敏感类别；不能自行激活能力 |
+| `autonomyBudgetPolicy` | 否 | 投影给 Paperclip 的预算建议，不是 A君本地预算真相 |
+| `runtimeCapabilities.modelSelection` | 是 | 主推理模型；活动岗位当前固定为 `stepfun/step-3.5-flash-2603` |
+| `runtimeCapabilities.fallbackModels` | 否 | 有序回退；当前仅允许 `deepseek/deepseek-v4-flash` 在 `transport_unavailable` 时启用 |
 | `promptRef` | 是 | 仓库中版本化系统 Prompt 的引用 |
 | `runtimeProfileRef` | 是 | Hermes 或其他运行时配置引用 |
 | `appRef` | 是 | 业务执行器位置 |
@@ -132,6 +137,40 @@ Manifest 是活动岗位的唯一真相。运行时提案不能覆盖正式 Mani
 
 小拆 `fast` 最长 5 分钟、最多 2 次尝试；`full` 最长 12 分钟，最多一次安全重试。超限后停止扩大模型调用并交付已有可验证部分。小创一次最多生成三个平台版本。
 
+### 3.1.2 开放任务与无状态岗位委托
+
+11 个活动岗位各保留原专有任务，同时增加一个开放任务类型：
+
+| 岗位 | 开放任务类型 |
+| --- | --- |
+| A君 | `army.goal-program` |
+| 小D | `media.open-production` |
+| 小R | `research.open-investigation` |
+| 小办 | `office.deliverable-program` |
+| 运维官 | `operations.incident-response` |
+| 创建官 | `governance.capability-design` |
+| 审核官 | `governance.assurance-review` |
+| 架构师 | `governance.architecture-experiment` |
+| 技术专家 | `operations.engineering-resolution` |
+| 小拆 | `content.analysis-program` |
+| 小创 | `content.creation-program` |
+
+开放任务的 `input.goalSpec` 是执行目标输入，不是第二份任务控制面。A君通过固定、无状态映射把开放任务交给同岗位的专有执行器，并保留 `openTaskType` 供执行器理解原请求；不得生成 `autonomous_work_plan`、本地预算、checkpoint 或能力授权报告。
+
+能力请求只和岗位 Manifest 的 `toolAllowlist`、已登记 MCP 工具及技能白名单比较；缺失能力直接进入 `needs_input`，不能生成临时授权。任务计划、Issue、预算、审批、重试和恢复使用 Paperclip；Hermes 保存会话与运行检查点。任务中的能力请求不能修改主模型或回退模型。
+
+### 3.1.3 能力授权归属与历史兼容
+
+动态能力只能从 Manifest、仓库、已安装 Hermes、官方来源或已审核第三方目录发现。发现结果只能形成提案；生产激活必须进入 Paperclip/插件的正式审计与授权流程，并同时具备：
+
+- 明确 `capabilityId`、来源、版本和 SHA-256；
+- 权限不超过岗位 Manifest；
+- 低风险且不需要凭据、外部写入、付费动作或扩权；
+- 审计与沙箱证据均通过；
+- 有任务级有效期或明确回滚引用。
+
+任一条件不满足时状态只能是 `needs_capability`、`pending_validation` 或 `waiting_approval`。未知能力不得被静默下载、安装或加入工具白名单。旧 `CapabilityGrantContract`、自主计划和 checkpoint 模块仅用于读取或迁移历史记录；生产不得实例化本地 CapabilityGrant Store，也不得写 `capability-grants.json`。
+
 ### 3.2 标准状态
 
 ```text
@@ -221,6 +260,15 @@ Worker API 必须使用独立 Bearer Token；云端地址必须为 HTTPS（回�
 
 不得将原始聊天正文、媒体文件、字幕全文、Cookie、token、浏览器会话或业务 checkpoint 写入该投影。Paperclip 的终态不能覆盖业务存储中的产物验证结果。
 
+### 3.7 M5 Campaign 与并行工作投影
+
+- `CampaignGrant` 绑定平台、账号引用、主题、期限、每日/总次数、预算和允许/禁止动作；它是发布写入授权，不是第二套任务状态。
+- 每日主题使用直接日期 Case；研究、证据、画面分析、生图和配音使用子 Case。并行分支必须带稳定 `caseKey`、负责人、预期 Work Product 和 blocker。
+- `ParallelJoin` 只能由无模型控制器生成；研究、证据、`AssetPackage`、`GeneratedImagePackage` 与脚本后的 `VoicePackage` 未全部通过时不得解锁 `RenderPackage`。
+- 发布幂等键固定为 `campaignId + platform + contentVersion + scheduledDate`。首版只允许即时发布，`scheduledDate` 必须等于 `Asia/Shanghai` 当前执行日；历史或未来日期在读取产物、凭据和调用 connector 前拒绝。`PublishReceipt` 必须含平台内容引用和可核验成功证据；CUA 还必须绑定 accountRef 页面身份哈希、内容 ID、标题、真实结果页 URL、selector 版本与观察哈希，点击发布按钮或只有“发布成功”文案不算成功。
+- `PlanRevision` 必须保存上一条失败路线的执行指纹。`M5RouteExecution` 由执行器根据脱敏业务输入哈希、实际工具集合和执行策略生成；模型只能回显 revision ID，不能自行声明 `routeChanged=true`。同一 revision 再次得到相同路线指纹时必须在工具调用前失败关闭，并继续计入两次阶段重试、三次内容重规划上限，最终转 `blocked`。
+- 当前源码与 live 均为 15 阶段、17 Routine、5 控制器；活动草案仍未批准，Routine 定义存在但 schedule trigger 关闭且从未触发。历史迁移 dry-run 不能冒充这次已回读的 live apply。
+
 ## 4. ArtifactContract
 
 | 字段 | 必填 | 含义 |
@@ -259,6 +307,25 @@ Worker API 必须使用独立 Bearer Token；云端地址必须为 HTTPS（回�
 
 `confirmed_transcript` 是正式拆解和正式创作的证据门；默认由质量门禁自动生成，异常或用户明确要求时转人工听审。`raw_asr_transcript` 只能用于明确标记的初步分析。自动或人工确认都不能覆盖机器质量报告中的音频覆盖或尾部完整性硬失败。
 
+### 4.2 M5 内容与发布产物
+
+| `type` | 必要验证 |
+| --- | --- |
+| `campaign_research_report` | `agent.army/campaign-research/v2`；每条事实 claim 保存真正支持它的 `sourceIds` 与逐来源 `evidenceFragments`，不得把全部来源批量挂到每条结论 |
+| `evidence_package` | `agent.army/evidence-package/v2`；M5 每条来源都具有公开 URL、抓取时间、正文内容哈希和可引用片段；GitHub 搜索元数据只作发现线索，不能进入事实证据 |
+| `asset_package` | 真实关键帧回读、相对路径、版权依据、字节数和 SHA-256；拒绝绝对路径、穿越与符号链接逃逸 |
+| `render_package` | `master.mp4`、`douyin.mp4`、`xiaohongshu.mp4` 三份固定成片；props 的 `coverSrc`/逐场景 `imageSrc` 必须在 `assetLedger` 中且渲染前复核哈希 |
+| `machine_review_report` | 七项门禁完整；事实门禁逐项比对脚本 `factBindings` 与 EvidencePackage 的 claim、`sourceIds`、`evidenceFragments`，并拒绝缺 URL/时间/hash 或仅有 GitHub metadata 的来源；`passed` 时必须绑定已校验 `artifact-manifest.json` 和固定 9 项产物 |
+| `platform_content_draft` | 平台、内容版本、媒体哈希、标题、正文和标签完整；抖音与小红书不能复用同一文案冒充适配 |
+| `publish_receipt` | 幂等键、平台内容引用、发布时间、文件哈希和成功证据完整 |
+| `metric_snapshot` | 只从同 Case 可信发布凭证派生，采集点为 2h/24h/72h |
+| `learning_proposal` | 至少 5 条同类型真实 72h 指标；只允许 `proposed`，不能直接修改 Prompt、权限、频率或投流 |
+
+固定 9 项为三份 MP4、双平台文案、`cover.png`、`sources.json`、`review.json`、
+`lineage.json`。内容插件 live 已从不可变净包安装为 `0.4.7` 并处于 `ready`；
+插件 ready 只证明受控工具可用，不批准 Campaign、真实 Publisher、selector/Profile
+lease 或平台写权限。
+
 ## 5. ApprovalContract
 
 | 字段 | 必填 | 含义 |
@@ -296,11 +363,13 @@ Worker API 必须使用独立 Bearer Token；云端地址必须为 HTTPS（回�
 | `allowedAgentIds` | 是 | 允许使用连接的稳定 Agent ID 列表 |
 | `approvalPolicyRef` | 否 | 涉及高风险动作时的策略引用 |
 | `status` | 是 | `active`、`expiring`、`expired`、`revoked`、`disabled`、`error` |
+| `isDefault` | 否 | 同一平台内是否为任务默认账号；每个平台至多一个活动默认连接 |
 | `expiresAt` | 否 | 已知的授权过期时间 |
 | `lastHealthAt` | 否 | 最近一次脱敏健康检查时间 |
+| `lastVerification` | 否 | 最近一次真实读取的脱敏结果：状态、时间、适配器、实际能力和失败分类 |
 | `createdAt` / `updatedAt` | 是 | ISO 8601 时间 |
 
-调用必须使用 `connectionId + operation`，并验证 `provider`、`grantedOperations`、`dataScope`、`allowedAgentIds`、有效期与审批。登录输入可由受控浏览器、OAuth、CookieBridge 或其他本机导入适配器提供；所有执行器只得到受限连接使用权，而不是原始凭据。`browser_companion` 必须使用独立配置目录和仅回环控制通道；业务 Agent 只能请求已登记的只读动作，不能读取、导出或回显浏览器 Cookie。拒绝时返回标准错误分类；连接健康只能说明连接可用，不能证明具体业务素材可获取或任务已完成。
+调用必须使用 `connectionId + operation`，并验证 `provider`、`grantedOperations`、`dataScope`、`allowedAgentIds`、有效期与审批。任务显式指定账号时优先使用该连接；未指定时使用平台默认账号；同平台存在多个活动账号且没有默认账号时必须返回 `connection_selection_required`，不得猜测。登录输入可由受控浏览器、OAuth、CookieBridge 或其他本机导入适配器提供；所有执行器只得到受限连接使用权，而不是原始凭据。`browser_companion` 必须使用独立配置目录和仅回环控制通道；业务 Agent 只能请求已登记的只读动作，不能读取、导出或回显浏览器 Cookie。拒绝时返回标准错误分类；连接健康只能说明连接可用，不能证明具体业务素材可获取或任务已完成。`lastVerification` 只能由真实适配器调用更新；授权通道失败后的公开降级不能把该账号改记为成功。
 
 ## 7. ContentAcquisitionContract
 
@@ -332,6 +401,7 @@ Worker API 必须使用独立 Bearer Token；云端地址必须为 HTTPS（回�
 | `sourceRef` | 是 | 可追溯的安全来源引用 |
 | `acquisitionPath` | 是 | `specialized` 或 `general`，只说明本次通道 |
 | `providedCapabilities` | 是 | 本次实际提供的内容能力集合 |
+| `access` | 是 | 本次真实访问方式：`public_read` 或 `authorized_read`；授权读取同时保留命名连接和账号别名 |
 | `capabilityNotes` | 否 | 面向用户或 Agent 的安全能力说明，不把通用结果称作“内容不完整” |
 | `contentItems` | 是 | 标准化正文、图片、媒体、字幕、评论和基本信息引用 |
 | `adapterRef` | 是 | 脱敏适配器标识与版本 |
@@ -402,9 +472,11 @@ Worker API 必须使用独立 Bearer Token；云端地址必须为 HTTPS（回�
 | 任务动作 | `task_create`、`mission_create`、`task_control` | 必须使用已上岗任务类型和幂等引用；`mission_create` 限 1–3 项并形成一个总任务；高风险只进入既有审批 |
 | 审批 | `approval_list`、`approval_resolve` | 批准前必须经当前 Hermes 会话 elicitation；明确拒绝直接安全关闭，批准超时或会话离开时不执行 |
 | Paperclip heartbeat | `paperclip_assignment_get`、`paperclip_assignment_complete` | 只允许存在当前 issue/run/agent 环境身份时调用；每个 heartbeat 读取和完成各最多一次；回写必须携带当前 Paperclip API key 与 run 身份，不能关闭别人的任务或以用户身份回写 |
+| 四岗受控执行 | `employee_assignment_execute` | 仅 A君、小R、小D和小办的 Paperclip heartbeat 可调用；不接收岗位、任务、路径、命令或外部动作参数。服务端必须再次核验 Paperclip issue/run/agent、Routine 对应岗位、任务承接人和 Manifest 任务类型，随后分别复用 `LocalAjunCoordinator`、`LocalIntelResearcher`、`XiaodDelegate`、`LocalOfficeAssistant`；重复调用复用同一任务和已验证产物 |
+| 岗位草案 | `agent_proposal_create_execute` | 仅创建官、仅当前 `governance.agent-proposal` 指派；只能申请已审核或已登记且有明确风险边界的能力。没有受控适配器的高风险本机能力只生成 `needs_capability` 草案；微信 Vault 在草案测试阶段仍只开放不含真实聊天的合成技术验收，正式岗位必须另有活动 Manifest、本机执行器和负责人激活决定 |
 | 受控技术修复 | `technical_repair_execute` | 仅技术专家、仅当前 `operations.technical-repair` 指派；只暴露白名单文件、测试命令和恢复检查。只有 A君返回 `verified=true`、测试与恢复检查通过并安全带回后，员工才可回报 `succeeded` |
 
-Hermes Session 只保存对话和上下文；A君/业务 Agent 保存任务与 checkpoint；Paperclip 保存组织级真相。MCP Server 不保存 secret、聊天正文、会话数据库、任务副本或审批副本。新增工具必须复用现有服务契约、声明只读/副作用注解，并具有失败关闭和脱敏测试。
+Hermes Session 只保存对话和上下文；A君/业务 Agent 保存任务与 checkpoint；Paperclip 保存组织级真相。MCP Server 不保存 secret、聊天正文、会话数据库、任务副本或审批副本。微信聊天读取必须经 `ContentAcquisitionCenter` 和 `yichen-wechat-local-vault` 受控适配器，审批引用必须同时匹配当前 Agent、任务、单一会话、时间范围和最多 200 条，并且一次批准只能消费一次。A君默认使用本地当天零点至当前时间、增量刷新和同名会话最近活跃策略；除联系人/群名外不要求负责人配置技术选项。受控适配器只调用已解密 Vault 的只读查询入口；固定本机执行器可在读取前调用既有增量解密脚本，但不得抓取新密钥、操作微信 UI、持久化原文或把原文发送给模型与外部平台。新增工具必须复用现有服务契约、声明只读/副作用注解，并具有失败关闭和脱敏测试。
 
 ### 10.1 架构师三层输出
 

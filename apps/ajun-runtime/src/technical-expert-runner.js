@@ -1,12 +1,13 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 const execFile = promisify(execFileCallback);
 
 export class TechnicalExpertRunner {
-  constructor({ command = process.env.AJUN_CODEX_COMMAND || '/Users/pengaro/.local/bin/codex', execFileImpl = execFile, fsImpl = fs, maxRunMs = 150_000 } = {}) {
+  constructor({ command = process.env.AJUN_CODEX_COMMAND || path.join(os.homedir(), '.local', 'bin', 'codex'), execFileImpl = execFile, fsImpl = fs, maxRunMs = 150_000 } = {}) {
     this.command = command;
     this.execFile = execFileImpl;
     this.fs = fsImpl;

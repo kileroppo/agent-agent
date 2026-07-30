@@ -365,6 +365,7 @@ test('CookieBridge connection stores an internal account reference without retur
   assert.equal(connection.credentialKind, 'cookie_bridge');
   assert.equal(connection.clientId, undefined);
   assert.equal(connection.cookieBridgeClientId, undefined);
+  assert.equal(connection.isDefault, true);
   const saved = await fs.readFile(path.join(root, 'connections.json'), 'utf8');
   assert.doesNotMatch(saved, /secret_cookie_value/);
   const granted = await broker.authorize({
@@ -379,6 +380,91 @@ test('CookieBridge connection stores an internal account reference without retur
     }),
     /不得包含 Cookie/
   );
+});
+
+test('同一平台只保留一个默认账号，切换默认不会删除其他连接', async (t) => {
+  const { connectionStore } = await sandbox(t);
+  const first = await connectionStore.createCookieBridgeConnection({
+    provider:'xhs', accountAlias:'工作号', clientId:'local_xhs_work',
+    grantedOperations:['read_media_metadata'], dataScope:['content:read'], allowedAgentIds:['xiaod']
+  });
+  const second = await connectionStore.createCookieBridgeConnection({
+    provider:'xhs', accountAlias:'测试号', clientId:'local_xhs_test',
+    grantedOperations:['read_media_metadata'], dataScope:['content:read'], allowedAgentIds:['xiaod']
+  });
+  assert.equal(first.isDefault, true);
+  assert.equal(second.isDefault, false);
+  const selected = await connectionStore.setDefault(second.connectionId);
+  assert.equal(selected.isDefault, true);
+  const active = connectionStore.list().filter((item) => item.provider === 'xhs' && item.status === 'active');
+  assert.equal(active.length, 2);
+  assert.deepEqual(active.filter((item) => item.isDefault).map((item) => item.accountAlias), ['测试号']);
+  await connectionStore.disable(second.connectionId);
+  assert.equal(connectionStore.getSafe(second.connectionId).isDefault, false);
+});
+
+test('授权适配器真实读取后记录脱敏验证结果和实际账号', async (t) => {
+  const { connectionStore, broker, operations } = await sandbox(t);
+  const connection = await connectionStore.createCookieBridgeConnection({
+    provider:'dy', accountAlias:'抖音工作号', clientId:'local_dy_work',
+    grantedOperations:['read_media_metadata'], dataScope:['content:read'], allowedAgentIds:['xiaod']
+  });
+  const adapter = {
+    id:'authorized-proof', versionRef:'test', capabilities:['basic_content'], accessMode:'authorized', priorityClass:'specialized', healthStatus:'healthy',
+    matches:() => true, providerFor:() => 'dy',
+    acquire:async () => ({ providedCapabilities:['basic_content'], contentItems:{ basic_content:{ title:'真实内容' } } })
+  };
+  const center = new ContentAcquisitionCenter({ adapters:[adapter], connectionBroker:broker, operations });
+  const result = await center.fetch({
+    taskId:'task-proof',
+    source:'https://www.douyin.com/video/1',
+    requestedCapabilities:['basic_content'],
+    connectionId:connection.connectionId,
+    requestingAgentId:'xiaod'
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.contentPackage.access, {
+    mode:'authorized_read',
+    connectionId:connection.connectionId,
+    accountAlias:'抖音工作号'
+  });
+  assert.deepEqual(connectionStore.getSafe(connection.connectionId).lastVerification, {
+    status:'succeeded',
+    at:connectionStore.getSafe(connection.connectionId).lastVerification.at,
+    adapterId:'authorized-proof',
+    capabilities:['basic_content'],
+    failureCode:null
+  });
+});
+
+test('授权读取失败后即使公开通道兜底成功，也不把账号标成成功', async (t) => {
+  const { connectionStore, broker, operations } = await sandbox(t);
+  const connection = await connectionStore.createCookieBridgeConnection({
+    provider:'xhs', accountAlias:'小红书工作号', clientId:'local_xhs_work',
+    grantedOperations:['read_media_metadata'], dataScope:['content:read'], allowedAgentIds:['xiaod']
+  });
+  const authorized = {
+    id:'authorized-failure', versionRef:'test', capabilities:['basic_content'], accessMode:'authorized', priorityClass:'specialized', healthStatus:'healthy',
+    matches:() => true, providerFor:() => 'xhs',
+    acquire:async () => { throw new Error('temporary service issue'); }
+  };
+  const publicFallback = {
+    id:'public-fallback', versionRef:'test', capabilities:['basic_content'], accessMode:'public', priorityClass:'general', healthStatus:'healthy',
+    matches:() => true, providerFor:() => 'public_media',
+    acquire:async () => ({ providedCapabilities:['basic_content'], contentItems:{ basic_content:{ title:'公开结果' } } })
+  };
+  const center = new ContentAcquisitionCenter({ adapters:[authorized, publicFallback], connectionBroker:broker, operations });
+  const result = await center.fetch({
+    taskId:'task-fallback-proof',
+    source:'https://www.xiaohongshu.com/explore/example',
+    requestedCapabilities:['basic_content'],
+    connectionId:connection.connectionId,
+    requestingAgentId:'xiaod'
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.contentPackage.access.mode, 'public_read');
+  assert.equal(connectionStore.getSafe(connection.connectionId).lastVerification.status, 'failed');
+  assert.equal(connectionStore.getSafe(connection.connectionId).lastVerification.adapterId, 'authorized-failure');
 });
 
 test('CookieBridge connection can be disabled and reauthorized without changing its identity or permissions', async (t) => {
@@ -435,6 +521,15 @@ test('MediaCrawlerPro passes a CookieBridge value only between loopback services
   assert.equal(JSON.stringify(result).includes(secret), false);
   assert.deepEqual(result.providedCapabilities, ['basic_content', 'images', 'media']);
   assert.deepEqual(result.runtime, { kind: 'remote_media', url: 'https://media.example/video.mp4' });
+});
+
+test('MediaCrawlerPro 识别小红书当前分享口令短链域名', () => {
+  const adapter = new MediaCrawlerProAdapter({
+    cookieBridgeUrl: 'http://127.0.0.1:8274',
+    downloadServerUrl: 'http://127.0.0.1:8205'
+  });
+  assert.equal(adapter.matches('http://xhslink.cn/o/3HInBgvjTG'), true);
+  assert.equal(adapter.providerFor('http://xhslink.cn/o/3HInBgvjTG'), 'xhs');
 });
 
 test('MediaCrawlerPro 为 B站转录优先下载独立音轨而不是无声视频分片', async (t) => {

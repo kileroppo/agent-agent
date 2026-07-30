@@ -5,6 +5,8 @@ import { HermesPublicComparisonAdvisor } from '../src/hermes-public-comparison-a
 test('公开资料对比 AI 只能依据已读取摘要给出共同点、差别和建议', async () => {
   let prompt = '';
   const advisor = new HermesPublicComparisonAdvisor({ hermesHome:'/safe/profile', run:async (_command, args) => {
+    assert.deepEqual(args.slice(0, 2), ['--toolsets', 'clarify']);
+    assert.equal(args.includes('--ignore-rules'), false);
     prompt = args.at(-1);
     return '{"commonPoints":["两份资料都讨论公开网页摘要"],"differences":["资料1强调产品定位，资料2强调用户反馈"],"recommendation":"先确认要优先比较定位还是用户反馈"}';
   } });

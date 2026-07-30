@@ -13,14 +13,22 @@ export class LocalPublicReport {
 
   supports(agent) { return agent?.runtime?.kind === 'proposal-public-report'; }
 
-  async execute(task) {
+  async execute(task, { roleToolContext = null } = {}) {
     this.triggerControlledFailure(task);
     let sourceUrls = sourceList(task.input);
     let search = null;
     if (!sourceUrls.length) {
       if (!this.publicWebSearch?.search) return waitingForSources(this.now());
       try {
-        search = await this.publicWebSearch.search({ query:discoveryQuery(task.input?.query || task.input?.title), limit:3 });
+        const query = discoveryQuery(task.input?.query || task.input?.title);
+        search = roleToolContext
+          ? await roleToolContext.execute({
+              toolId:'content.public.search',
+              externalSideEffect:'network-read',
+              url:'https://html.duckduckgo.com/html/',
+              input:{ query, limit:3 },
+            })
+          : await this.publicWebSearch.search({ query, limit:3 });
         sourceUrls = search.results.map((item) => item.url);
       } catch (error) {
         return { status:'needs_input', currentStage:'public_search_unavailable', error:{ code:error?.code || 'public_search_unavailable', userMessage:`${error?.message || '公开搜索暂时不可用。'} 你也可以直接发一到五条公开网页链接；这个员工不会登录、不会读取私密内容。`, category:'needs_input', stage:'input', occurredAt:this.now().toISOString() } };
@@ -36,7 +44,14 @@ export class LocalPublicReport {
     const unavailableSources = [];
     for (const sourceUrl of sourceUrls) {
       try {
-        pages.push(await this.publicWebFetch.acquire({ sourceUrl }));
+        pages.push(roleToolContext
+          ? await roleToolContext.execute({
+              toolId:'content.public.fetch',
+              externalSideEffect:'network-read',
+              url:sourceUrl,
+              input:{ sourceUrl },
+            })
+          : await this.publicWebFetch.acquire({ sourceUrl }));
       } catch (error) {
         unavailableSources.push({
           source: publicSourceRef(sourceUrl),

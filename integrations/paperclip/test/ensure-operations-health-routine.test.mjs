@@ -9,7 +9,7 @@ test('为运维官建立可重复执行的本机巡检安排，不创建第二�
   const result = await ensureOperationsHealthRoutine({ fetchImpl: async (url, options = {}) => {
     const path = new URL(url).pathname; const body = options.body ? JSON.parse(options.body) : null; calls.push({ path, method:options.method || 'GET', body });
     if (path === '/api/companies') return response([{ id:'company-1', name:'Agent军团' }]);
-    if (path === '/api/companies/company-1/agents') return response([{ id:'agent-1', name:'A君本机健康官', adapterType:'http', status:'idle' }]);
+    if (path === '/api/companies/company-1/agents') return response([{ id:'agent-1', name:'运维官', adapterType:'hermes_local', status:'idle', metadata:{ agentArmyId:'operator' } }]);
     if (path === '/api/companies/company-1/routines') return options.method === 'POST' ? response({ id:'routine-1', title:body.title, status:'active' }) : response([]);
     if (path === '/api/routines/routine-1') return response({ id:'routine-1', title:'A君定时本机巡检', status:'active', triggers:[] });
     if (path === '/api/routines/routine-1/triggers') return response({ id:'trigger-1', kind:'schedule', cronExpression:body.cronExpression, timezone:body.timezone });
@@ -31,7 +31,7 @@ test('已有巡检安排时只校正时间和负责人，不重复创建', async
   const result = await ensureOperationsHealthRoutine({ fetchImpl: async (url, options = {}) => {
     const path = new URL(url).pathname; const body = options.body ? JSON.parse(options.body) : null; calls.push({ path, method:options.method || 'GET', body });
     if (path === '/api/companies') return response([{ id:'company-1', name:'Agent军团' }]);
-    if (path === '/api/companies/company-1/agents') return response([{ id:'agent-1', name:'A君本机健康官', adapterType:'http', status:'idle' }]);
+    if (path === '/api/companies/company-1/agents') return response([{ id:'agent-1', name:'运维官', adapterType:'hermes', status:'idle', metadata:{ agentArmyId:'operator' } }]);
     if (path === '/api/companies/company-1/routines') return response([{ id:'routine-1', title:'A君定时本机巡检', status:'paused', triggers:[{ id:'trigger-1', kind:'schedule', label:'每半小时巡检一次', cronExpression:'0 9 * * *' }] }]);
     if (path === '/api/routines/routine-1') return response({ id:'routine-1', title:'A君定时本机巡检', status:'active', triggers:[{ id:'trigger-1', kind:'schedule', label:'每半小时巡检一次', cronExpression:'0 9 * * *' }] });
     if (path === '/api/routine-triggers/trigger-1') return response({ id:'trigger-1', kind:'schedule', cronExpression:body.cronExpression, timezone:body.timezone });

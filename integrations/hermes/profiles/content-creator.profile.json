@@ -9,6 +9,11 @@
     "modelSelectionConfigured": true,
     "modelConfigured": true,
     "credentialedTransportVerified": true,
+    "credentialedTransportVerification": {
+      "status": "verified-current-model-policy",
+      "primary": { "provider": "stepfun", "model": "step-3.5-flash-2603", "verified": true },
+      "fallback": { "provider": "deepseek", "model": "deepseek-v4-flash", "verified": false }
+    },
     "skillsSeeded": true,
     "restrictedTestingConfigured": true
   },
@@ -16,10 +21,18 @@
   "promptRef": "agents/content-creator/prompts/system.md",
   "appRef": "apps/ajun-runtime",
   "modelSelection": {
-    "provider": "openai-codex",
-    "model": "gpt-5.6-terra",
+    "provider": "stepfun",
+    "model": "step-3.5-flash-2603",
     "secretStoredHere": false
   },
+  "fallbackModels": [
+    {
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "trigger": "transport_unavailable",
+      "secretStoredHere": false
+    }
+  ],
   "gateway": {
     "platform": "feishu",
     "enabled": false,
@@ -31,11 +44,19 @@
       "paperclip_assignment_get",
       "platform_content_draft_execute",
       "video_script_package_execute",
+      "m5_stage_execute",
       "paperclip_assignment_complete"
     ],
     "scope": {
       "agentIds": ["content-creator"],
-      "taskTypes": ["content.platform-draft", "content.video-script-package"],
+      "taskTypes": [
+        "content.platform-draft",
+        "content.video-script-package",
+        "content.creation-program",
+        "content.campaign-image-generation",
+        "content.campaign-voice",
+        "content.campaign-render"
+      ],
       "allowMissions": false
     }
   },

@@ -19,9 +19,29 @@ const fixture = `_XIAOD_HTTP_URL_RE = re.compile(r"https?://[^\\s<>\\u3002\\uff0
             return
         if event.message_type == MessageType.TEXT:
             pass
+    async def send_exec_approval(
+        self,
+    ) -> SendResult:
+        pass
     def _on_card_action_trigger(self, data: Any) -> Any:
         if hermes_action:
             return self._handle_approval_card_action(event=event, action_value=action_value, loop=loop)
+    async def _handle_card_action_event(self, data: Any) -> None:
+        event = getattr(data, "event", None)
+        token = str(getattr(event, "token", "") or "")
+        context = getattr(event, "context", None)
+        action_tag = "button"
+        action_value = {}
+        synthetic_text = f"/card {action_tag}"
+        if action_value:
+            try:
+                synthetic_text += f" {json.dumps(action_value, ensure_ascii=False)}"
+            except Exception:
+                pass
+        synthetic_event = MessageEvent(
+            text=synthetic_text,
+            message_id=token or str(uuid.uuid4()),
+        )
     def _handle_approval_card_action(self, *, event: Any, action_value: Dict[str, Any], loop: Any) -> Any:
         pass
     async def _resolve_approval(
@@ -53,6 +73,92 @@ test('Hermes 飞书补丁把单一军团总管文本路由到本机 A君入口�
   assert.match(patched, /ajun_completion_watches\.json/);
   assert.match(patched, /last_status/);
   assert.match(patched, /api\/feishu\/task-status/);
+  assert.match(patched, /AGENT_ARMY_FEISHU_SLASH_CONFIRM_V1/);
+  assert.match(patched, /async def send_slash_confirm/);
+  assert.match(patched, /开始新会话/);
+  assert.match(patched, /以后不再询问/);
+  assert.match(patched, /hermes_slash_confirm_action/);
+  assert.match(patched, /_resolve_slash_confirm_card/);
+  assert.match(patched, /AGENT_ARMY_FEISHU_BUSY_QUICK_ACTIONS_V2/);
+  assert.match(patched, /send_busy_quick_actions/);
+  assert.match(patched, /agent_army_busy_action/);
+  assert.match(patched, /_handle_agent_army_busy_card_action/);
+  assert.match(patched, /open_message_id/);
+  assert.match(patched, /if action_value and not busy_action/);
+  assert.match(patched, /已选择：/);
+  assert.ok(patched.includes('synthetic_text = "/stop"'));
+  assert.equal(applyPatch(patched), patched);
+});
+
+test('旧版运行中按钮补丁会升级，且命令参数不再被按钮 JSON 污染', () => {
+  const current = applyPatch(fixture);
+  const callbackStart = current.indexOf('    def _handle_agent_army_busy_card_action(');
+  const approvalStart = current.indexOf('    def _handle_approval_card_action', callbackStart);
+  const withoutCallback = `${current.slice(0, callbackStart)}${current.slice(approvalStart)}`;
+  const legacy = withoutCallback
+    .replaceAll('AGENT_ARMY_FEISHU_BUSY_QUICK_ACTIONS_V2', 'AGENT_ARMY_FEISHU_BUSY_QUICK_ACTIONS_V1')
+    .replace(/        busy_action = action_value\.get\("agent_army_busy_action"\)[\s\S]*?        ajun_approval_action =/, '        ajun_approval_action =')
+    .replace('        if action_value and not busy_action:\n', '        if action_value:\n')
+    .replace('            message_id=str(getattr(context, "open_message_id", "") or "") or None,\n', '            message_id=token or str(uuid.uuid4()),\n');
+  const upgraded = applyPatch(legacy);
+  assert.match(upgraded, /AGENT_ARMY_FEISHU_BUSY_QUICK_ACTIONS_V2/);
+  assert.match(upgraded, /_handle_agent_army_busy_card_action/);
+  assert.match(upgraded, /if action_value and not busy_action/);
+  assert.match(upgraded, /message_id=str\(getattr\(context, "open_message_id"/);
+  assert.equal(applyPatch(upgraded), upgraded);
+});
+
+test('飞书输出按移动端宽度调整长表格、正文密度并保持短表格', () => {
+  const adapterFixture = `${fixture}
+_MARKDOWN_HINT_RE = re.compile(
+    r"table"
+)
+    async def send(
+        self,
+    ) -> SendResult:
+        formatted = self.format_message(content)
+    async def edit_message(
+        self,
+    ) -> SendResult:
+        content = self.format_message(content)
+        try:
+            msg_type, payload = self._build_outbound_payload(content)
+`;
+  const patched = applyPatch(adapterFixture);
+  assert.match(patched, /AGENT_ARMY_FEISHU_MOBILE_FORMAT_V3/);
+  assert.match(patched, /def _agent_army_format_feishu_message/);
+  assert.match(patched, /_agent_army_should_stack_table/);
+  assert.match(patched, /_agent_army_breathe_long_lists/);
+  assert.match(patched, /_agent_army_breathe_sections/);
+  assert.match(patched, /len\(compact\) <= 220/);
+  assert.match(patched, /content = _agent_army_format_feishu_message\(content\)/);
+  assert.equal(applyPatch(patched), patched);
+});
+
+test('飞书收到消息后只显示一个即时处理状态，并在快速分流完成时清除', () => {
+  const adapterFixture = `${fixture}
+    async def on_processing_start(self, event: MessageEvent) -> None:
+        pass
+    async def _enqueue_text_event(self, event: MessageEvent) -> None:
+        key = self._text_batch_key(event)
+        chunk_len = len(event.text or "")
+        existing = self._pending_text_batches.get(key)
+        if existing is None:
+            return
+        existing_count = 1
+        next_count = existing_count + 1
+        next_text = event.text or ""
+        existing.text = next_text
+        existing._last_chunk_len = chunk_len  # type: ignore[attr-defined]
+        existing.timestamp = event.timestamp
+        if event.message_id:
+            existing.message_id = event.message_id
+`;
+  const patched = applyPatch(adapterFixture);
+  assert.match(patched, /AGENT_ARMY_FEISHU_IMMEDIATE_STATUS_V1/);
+  assert.match(patched, /await self\.on_processing_start\(event\)/);
+  assert.match(patched, /await self\.on_processing_complete\(event, ProcessingOutcome\.SUCCESS\)/);
+  assert.match(patched, /remove it from the earlier chunk and retain the already-created badge/);
   assert.equal(applyPatch(patched), patched);
 });
 
@@ -141,5 +247,48 @@ test('已安装 V4 补丁时，文本链接先进入 A君任务链，避免直�
   const upgraded = applyPatch(v4);
   assert.match(upgraded, /AJUN_COMMANDER_INGRESS_PRECEDENCE_V1/);
   assert.match(upgraded, /AJUN_COMMANDER_INGRESS_PRECEDENCE_V1:[\s\S]*?_route_ajun_commander_event[\s\S]*?_route_xiaod_url_event/);
+  assert.equal(applyPatch(upgraded), upgraded);
+});
+
+test('飞书原生操作授权卡使用中文业务文案且不显示操作者内部标识', () => {
+  const nativeApproval = `# AJUN_COMMANDER_INGRESS_PRECEDENCE_V1
+_APPROVAL_LABEL_MAP: Dict[str, str] = {
+    "once": "Approved once",
+    "session": "Approved for session",
+    "always": "Approved permanently",
+    "deny": "Denied",
+}
+            actions = [_btn("✅ Allow Once", "approve_once", "primary")]
+                actions.append(_btn("✅ Session", "approve_session"))
+                    actions.append(_btn("✅ Always", "approve_always"))
+            actions.append(_btn("❌ Deny", "deny", "danger"))
+            scope_note = "\\n\\n**Smart DENY:** owner override applies to this one operation only." if smart_denied else ""
+                    "title": {"content": "⚠️ Command Approval Required", "tag": "plain_text"},
+                        "content": f"\\\`\\\`\\\`\\n{cmd_preview}\\n\\\`\\\`\\\`\\n**Reason:** {description}{scope_note}",
+    @staticmethod
+    def _build_resolved_approval_card(*, choice: str, user_name: str) -> Dict[str, Any]:
+        """Build raw card JSON for a resolved approval action."""
+        icon = "❌" if choice == "deny" else "✅"
+        label = _APPROVAL_LABEL_MAP.get(choice, "Resolved")
+        return {
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "title": {"content": f"{icon} {label}", "tag": "plain_text"},
+                "template": "red" if choice == "deny" else "green",
+            },
+            "elements": [
+                {
+                    "tag": "markdown",
+                    "content": f"{icon} **{label}** by {user_name}",
+                },
+            ],
+        }
+`;
+  const upgraded = applyPatch(nativeApproval);
+  assert.match(upgraded, /AGENT_ARMY_FEISHU_BUSINESS_UI_V1/);
+  assert.match(upgraded, /已授权本次操作/);
+  assert.match(upgraded, /仅允许本次/);
+  assert.match(upgraded, /需要你确认一次操作/);
+  assert.doesNotMatch(upgraded, /Approved once|Allow Once|Command Approval Required|by \{user_name\}/);
   assert.equal(applyPatch(upgraded), upgraded);
 });

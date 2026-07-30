@@ -9,11 +9,29 @@
     "modelSelectionConfigured": true,
     "modelConfigured": true,
     "credentialedTransportVerified": true,
+    "credentialedTransportVerification": {
+      "status": "verified-current-model-policy",
+      "primary": { "provider": "stepfun", "model": "step-3.5-flash-2603", "verified": true },
+      "fallback": { "provider": "deepseek", "model": "deepseek-v4-flash", "verified": false }
+    },
     "skillsSeeded": true
   },
   "agentManifestRef": "agents/creator/manifest.json",
   "promptRef": "agents/creator/prompts/system.md",
   "appRef": "apps/ajun-runtime",
+  "modelSelection": {
+    "provider": "stepfun",
+    "model": "step-3.5-flash-2603",
+    "secretStoredHere": false
+  },
+  "fallbackModels": [
+    {
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "trigger": "transport_unavailable",
+      "secretStoredHere": false
+    }
+  ],
   "gateway": {
     "platform": "feishu",
     "enabled": false,
@@ -27,11 +45,12 @@
       "task_get",
       "task_create",
       "paperclip_assignment_get",
+      "agent_proposal_create_execute",
       "paperclip_assignment_complete"
     ],
     "scope": {
       "agentIds": ["creator"],
-      "taskTypes": ["governance.agent-proposal"],
+      "taskTypes": ["governance.agent-proposal", "governance.capability-design"],
       "allowMissions": false
     }
   },

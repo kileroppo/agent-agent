@@ -113,3 +113,44 @@ test('A君识别创建 Agent 请求但只建议创建草案', async () => {
   assert.equal(record.recommendedAgentId, 'creator');
   assert.match(record.nextAction, /不会直接创建生产 Agent/);
 });
+
+test('M5 选题生成专用结构化产物，不再用普通接单记录冒充', async () => {
+  const result = await new LocalAjunCoordinator({
+    now:() => new Date('2026-07-31T01:00:00.000Z'),
+  }).execute({
+    taskId:'m5-topic-1',
+    taskType:'content.campaign-topic',
+    input:{
+      title:'M5 / 选题',
+      context:{
+        pipelineCase:{
+          fields:{
+            theme:'AI Agent 如何做真实失败恢复',
+            scheduledDate:'2026-07-31',
+          },
+        },
+      },
+    },
+    execution:{},
+  });
+
+  assert.equal(result.status, 'succeeded');
+  assert.equal(result.currentStage, 'campaign_topic_selected');
+  assert.equal(result.artifactRefs[0].type, 'topic_selection');
+  assert.equal(result.artifactRefs[0].data.schemaVersion, 'agent.army/topic-selection/v1');
+  assert.equal(result.artifactRefs[0].data.requiredSources.minimum, 2);
+  assert.equal(result.artifactRefs[0].data.scoring.evidenceCompleteness.score, 0);
+  assert.equal(result.artifactRefs[0].data.externalActionStarted, false);
+});
+
+test('M5 选题缺少可信日期 Case 上下文时失败关闭', async () => {
+  await assert.rejects(
+    () => new LocalAjunCoordinator().execute({
+      taskId:'m5-topic-missing',
+      taskType:'content.campaign-topic',
+      input:{ title:'M5 / 选题', context:{} },
+      execution:{},
+    }),
+    /缺少 Paperclip 日期 Case/,
+  );
+});

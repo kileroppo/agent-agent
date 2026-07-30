@@ -1,6 +1,6 @@
 {
   "schemaVersion": "agent.army/v1",
-  "manifestVersion": "0.3.0",
+  "manifestVersion": "0.7.0",
   "agentId": "intel-researcher",
   "name": "小R",
   "department": "实战组",
@@ -19,18 +19,129 @@
   "acceptedTaskTypes": [
     "report.public-material",
     "research.github-search",
-    "research.intel-report"
+    "research.intel-report",
+    "research.open-investigation",
+    "content.campaign-research",
+    "content.campaign-evidence"
   ],
-  "toolAllowlist": ["content.public.fetch", "github.public.search", "github.public.read"],
-  "dataScopes": [{ "scope": "public-research-sources", "access": "read" }],
+  "toolAllowlist": [
+    "content.public.search",
+    "content.public.fetch",
+    "content.public.dynamic.read",
+    "content.public.pdf.read",
+    "github.public.search",
+    "github.public.read"
+  ],
+  "toolExecutionPolicy": {
+    "unknownToolDecision": "deny",
+    "workspace": {
+      "scope": "paperclip-execution-workspace",
+      "pathMode": "relative-only"
+    },
+    "grants": {
+      "content.public.search": {
+        "adapter": "ajun-public-search",
+        "access": "read",
+        "externalSideEffect": "network-read"
+      },
+      "content.public.fetch": {
+        "adapter": "ajun-public-fetch",
+        "access": "read",
+        "externalSideEffect": "network-read"
+      },
+      "content.public.dynamic.read": {
+        "adapter": "hermes-public-browser",
+        "access": "read",
+        "externalSideEffect": "network-read"
+      },
+      "content.public.pdf.read": {
+        "adapter": "hermes-pdf",
+        "access": "read",
+        "externalSideEffect": "network-read"
+      },
+      "github.public.search": {
+        "adapter": "github-public",
+        "access": "read",
+        "externalSideEffect": "network-read"
+      },
+      "github.public.read": {
+        "adapter": "github-public",
+        "access": "read",
+        "externalSideEffect": "network-read"
+      }
+    }
+  },
+  "dataScopes": [
+    {
+      "scope": "public-research-sources",
+      "access": "read",
+      "boundary": "只读无需登录的公开网页和公开 GitHub；动态网页经独立临时 Chrome Profile、同源 DNS 固定代理和 CDP GET/HEAD 门禁读取，PDF 经无跳转固定解析和 Poppler 提取；不得使用 Cookie、账号或绕过访问控制"
+    },
+    {
+      "scope": "paperclip-execution-workspace",
+      "access": "write",
+      "boundary": "岗位按 claim 返回真正支持它的 sourceIds 和逐来源 evidenceFragments；M5 来源强制包含公开 URL、抓取时间和正文内容哈希，GitHub 搜索元数据只能作为发现线索；由 A君/Paperclip 控制面把已验证结果登记为当前 Run 的 Work Product，Hermes 不直接获得写工具"
+    }
+  ],
   "approvalPolicies": [
     { "action": "authenticated-source-or-external-action", "riskLevel": "high", "decision": "require-approval" }
   ],
   "qualityGates": [
     { "gate": "sources-have-public-url-and-fetched-at", "required": true },
+    { "gate": "m5-sources-have-content-hash-and-are-not-github-metadata", "required": true },
+    { "gate": "claims-bind-source-ids-and-evidence-fragments", "required": true },
     { "gate": "research-report-has-required-structure", "required": true }
   ],
   "budgetPolicy": { "maxAttempts": 2, "maxRuntimeMinutes": 8, "onLimit": "stop-and-report" },
+  "runtimeCapabilities": {
+    "modelSelection": {
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603"
+    },
+    "fallbackModels": [
+      {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "trigger": "transport_unavailable"
+      }
+    ],
+    "skills": ["paperclip", "pdf"],
+    "mcpTools": [
+      "capabilities",
+      "task_list",
+      "task_get",
+      "task_create",
+      "paperclip_assignment_get",
+      "employee_assignment_execute",
+      "paperclip_assignment_complete"
+    ],
+    "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
+    "paperclipToolsets": ["agent-army", "clarify"]
+  },
+  "interaction": {
+    "runtime": "hermes-profile",
+    "directFeishu": "required",
+    "visibility": "always-on",
+    "groupPolicy": "mention-only"
+  },
+  "executionOwner": "paperclip-hermes",
+  "openTaskPolicy": {
+    "domain": "research",
+    "qualityGateMode": "manifest-required"
+  },
+  "dynamicCapabilityPolicy": {
+    "allowDiscovery": true,
+    "allowedSources": ["repository", "installed-hermes", "official-source", "reviewed-third-party"],
+    "modelPolicyMutable": false,
+    "approvalRequiredFor": ["credentials", "external-write", "paid-action", "permission-expansion"]
+  },
+  "autonomyBudgetPolicy": {
+    "maxRuntimeMinutes": 60,
+    "maxModelCalls": 20,
+    "maxConcurrentSubtasks": 4,
+    "maxDelegationDepth": 2,
+    "paidApprovalThresholdUsd": 5
+  },
   "promptRef": "agents/intel-researcher/prompts/system.md",
   "runtimeProfileRef": "integrations/hermes/profiles/intel-researcher.profile.json",
   "appRef": "apps/ajun-runtime",

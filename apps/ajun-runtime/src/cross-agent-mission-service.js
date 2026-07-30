@@ -11,7 +11,7 @@ export class CrossAgentMissionService {
     const normalized = normalizeBusinessItems(items);
     const missionTitle = clean(title, 500);
     if (!missionTitle) throw new Error('请说明这组工作的总目标。');
-    if (!normalized.length) throw new Error('请提供 1 到 3 项可执行的员工分工。');
+    if (!normalized.length) throw new Error('请提供 1 到 11 项可执行的员工分工；每个依赖必须引用同一总任务中的分工 key，且不能形成循环。');
     const description = normalized.map((item, index) => `${index + 1}. ${item.title}${item.description ? `：${item.description}` : ''}`).join('\n');
     return this.createMission({
       title:missionTitle,
@@ -59,7 +59,13 @@ export class CrossAgentMissionService {
     if (!plan) throw new Error('多人协作计划未生成，未创建分工。');
     const parentIssueId = mission.governance?.paperclipIssueId || null;
     const existingChildren = this.store?.list ? (await this.store.list()).filter((task) => task.parentTaskId === mission.taskId) : [];
-    const children = [];
+    const childByKey = new Map();
+    for (const subtask of plan.subtasks) {
+      const idempotencyKey = `${mission.idempotencyKey || `mission:${mission.taskId}`}:${subtask.key}`;
+      const child = existingChildren.find((item) => item.idempotencyKey === idempotencyKey);
+      if (child) childByKey.set(subtask.key, child);
+    }
+    const attemptedApprovalResume = new Set();
     const runSubtask = async (subtask) => {
       const idempotencyKey = `${mission.idempotencyKey || `mission:${mission.taskId}`}:${subtask.key}`;
       let child = existingChildren.find((task) => task.idempotencyKey === idempotencyKey) || null;
@@ -69,6 +75,7 @@ export class CrossAgentMissionService {
         taskType:subtask.taskType,
         agentId:subtask.agentId,
         sourceUrls:subtask.sourceUrls,
+        connectionId:subtask.connectionId,
         reviewPolicy:subtask.reviewPolicy,
         evidenceMode:subtask.evidenceMode,
         depth:subtask.depth,
@@ -85,7 +92,12 @@ export class CrossAgentMissionService {
         },
         parentTaskId:mission.taskId,
         idempotencyKey,
-        context:{ missionTaskId:mission.taskId, parentPaperclipIssueId:parentIssueId, missionSafeOnly:plan.safeOnly === true }
+        context:{
+          missionTaskId:mission.taskId,
+          parentPaperclipIssueId:parentIssueId,
+          missionSafeOnly:plan.safeOnly === true,
+          dependsOn:dependenciesFor(plan.subtasks, subtask)
+        }
       });
       if (child.status === 'waiting_approval'
         && (plan.kind !== 'business' || (plan.safeOnly === true && mission.approvalRefs?.length))
@@ -94,20 +106,27 @@ export class CrossAgentMissionService {
       }
       return child;
     };
-    let parallel = [];
-    for (const subtask of plan.subtasks) {
-      if (subtask.dependsOnPrevious === true) {
-        if (parallel.length) {
-          children.push(...await Promise.all(parallel));
-          parallel = [];
-        }
-        if (children.some((item) => !isTerminal(item.status))) break;
-        children.push(await runSubtask(subtask));
-      } else {
-        parallel.push(runSubtask(subtask));
-      }
+    while (true) {
+      const activeCount = [...childByKey.values()].filter((item) => isActivelyRunning(item.status)).length;
+      const availableSlots = Math.max(0, 4 - activeCount);
+      if (!availableSlots) break;
+      const ready = plan.subtasks.filter((subtask) => {
+        const child = childByKey.get(subtask.key);
+        if (child && (child.status !== 'waiting_approval' || attemptedApprovalResume.has(subtask.key))) return false;
+        return dependenciesFor(plan.subtasks, subtask).every((key) => {
+          const dependency = childByKey.get(key);
+          return dependency && isTerminal(dependency.status);
+        });
+      });
+      if (!ready.length) break;
+      const batch = ready.slice(0, availableSlots);
+      batch.forEach((subtask) => {
+        if (childByKey.get(subtask.key)?.status === 'waiting_approval') attemptedApprovalResume.add(subtask.key);
+      });
+      const created = await Promise.all(batch.map(runSubtask));
+      batch.forEach((subtask, index) => childByKey.set(subtask.key, created[index]));
     }
-    if (parallel.length) children.push(...await Promise.all(parallel));
+    const children = [...childByKey.values()];
     const state = missionState(children, plan.subtasks.length);
     const artifact = missionSummary(mission, plan, children, state);
     mission = await this.store.updateTask(mission.taskId, {
@@ -192,7 +211,7 @@ function decisionFor(children, allDone) {
 }
 
 function normalizeBusinessItems(items) {
-  if (!Array.isArray(items) || items.length < 1 || items.length > 3) return [];
+  if (!Array.isArray(items) || items.length < 1 || items.length > 11) return [];
   const seen = new Set();
   const normalized = items.map((item, index) => {
     const title = clean(item?.title, 500);
@@ -210,6 +229,7 @@ function normalizeBusinessItems(items) {
       description:clean(item?.description, 2000),
       acceptance:clean(item?.acceptance, 500) || '交付可验证结果；无法完成时明确说明卡点和下一步。',
       sourceUrls:Array.isArray(item?.sourceUrls) ? [...new Set(item.sourceUrls.map((url) => clean(url, 2000)).filter(Boolean))].slice(0, 5) : [],
+      connectionId:normalizeConnectionId(item?.connectionId),
       reviewPolicy:item?.reviewPolicy === 'required' ? 'required' : 'optional',
       evidenceMode:item?.evidenceMode === 'preliminary' ? 'preliminary' : 'formal',
       depth:item?.depth === 'full' ? 'full' : 'fast',
@@ -217,10 +237,16 @@ function normalizeBusinessItems(items) {
       focus:clean(item?.focus, 500),
       platforms:Array.isArray(item?.platforms) ? [...new Set(item.platforms.map((platform) => clean(platform, 40)).filter(Boolean))].slice(0, 3) : [],
       contentGoal:clean(item?.contentGoal, 500),
-      dependsOnPrevious:item?.dependsOnPrevious === true || agentId === 'office-assistant'
+      dependsOnPrevious:item?.dependsOnPrevious === true || agentId === 'office-assistant',
+      dependsOn:Array.isArray(item?.dependsOn)
+        ? [...new Set(item.dependsOn.map((value) => clean(value, 80)).filter(Boolean))].slice(0, 10)
+        : []
     }, { index });
   }).filter(Boolean);
-  return normalized.length === items.length ? normalized : [];
+  if (normalized.length !== items.length) return [];
+  const keys = new Set(normalized.map((item) => item.key));
+  if (normalized.some((item) => item.dependsOn.some((key) => !keys.has(key) || key === item.key))) return [];
+  return hasDependencyCycle(normalized) ? [] : normalized;
 }
 
 function missionState(children, plannedCount) {
@@ -262,6 +288,36 @@ function isTerminal(status) {
   return ['succeeded', 'failed', 'cancelled', 'needs_input', 'waiting_test', 'paused'].includes(status);
 }
 
+function isActivelyRunning(status) {
+  return ['queued', 'running', 'waiting_worker'].includes(status);
+}
+
+function dependenciesFor(subtasks, subtask) {
+  const explicit = Array.isArray(subtask.dependsOn) ? subtask.dependsOn : [];
+  if (explicit.length) return explicit;
+  if (subtask.dependsOnPrevious !== true) return [];
+  const index = subtasks.findIndex((item) => item.key === subtask.key);
+  return index > 0 ? subtasks.slice(0, index).map((item) => item.key) : [];
+}
+
+function hasDependencyCycle(subtasks) {
+  const visiting = new Set();
+  const visited = new Set();
+  const visit = (subtask) => {
+    if (visiting.has(subtask.key)) return true;
+    if (visited.has(subtask.key)) return false;
+    visiting.add(subtask.key);
+    for (const key of dependenciesFor(subtasks, subtask)) {
+      const dependency = subtasks.find((item) => item.key === key);
+      if (dependency && visit(dependency)) return true;
+    }
+    visiting.delete(subtask.key);
+    visited.add(subtask.key);
+    return false;
+  };
+  return subtasks.some(visit);
+}
+
 function isVerifiedArtifact(artifact) {
   return artifact?.validation?.exists === true && artifact?.validation?.nonEmpty === true;
 }
@@ -276,4 +332,13 @@ function statusLabel(status) {
 
 function clean(value, limit) {
   return String(value || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, limit);
+}
+
+function normalizeConnectionId(value) {
+  const id = clean(value, 100);
+  if (!id) return undefined;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+    throw new Error('账号连接标识格式不正确。');
+  }
+  return id;
 }

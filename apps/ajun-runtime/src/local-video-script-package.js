@@ -22,6 +22,8 @@ export class LocalVideoScriptPackage {
     if (!topic) return needsInput(this.now(), 'script_topic_required', '请用一句话说明这条视频要讲什么。');
     const platform = normalizePlatform(task.input?.platforms, `${topic}\n${task.input?.description || ''}`);
     const reference = selectReference({ task, tasks, topic, platform });
+    const m5Evidence = findM5EvidencePackage(task, tasks);
+    const m5VisualAnalysis = findM5VisualAnalysisPackage(task, tasks);
     const research = await this.research(topic, task);
     const fallback = fallbackScript({ topic, platform, reference, research });
     let script = fallback;
@@ -46,6 +48,18 @@ export class LocalVideoScriptPackage {
         // 保留无外部副作用、可拍摄的本机兜底稿。
       }
     }
+    if (task.input?.context?.paperclipRoutineKey === 'm5-script') {
+      if (!m5Evidence) {
+        return needsInput(this.now(), 'm5_evidence_package_required', 'M5 脚本阶段缺少同一 Case 的 EvidencePackage，不能生成无来源脚本。');
+      }
+      if (!m5VisualAnalysis) {
+        return needsInput(this.now(), 'm5_visual_analysis_package_required', 'M5 脚本阶段缺少同一 Case 的 VisualAnalysisPackage，不能跳过画面证据生成脚本。');
+      }
+      script = bindM5VisualAnalysis(
+        bindM5Evidence(script, m5Evidence.data),
+        m5VisualAnalysis.data,
+      );
+    }
 
     const completedAt = this.now().toISOString();
     const artifact = await writePackage({
@@ -61,8 +75,13 @@ export class LocalVideoScriptPackage {
         generationMode:advisorApplied ? 'hermes_advisor' : 'deterministic_fallback',
         generatedAt:completedAt
       },
-      sources:research?.sources || [],
-      sourceRefs:reference.sourceRefs,
+      sources:Array.isArray(m5Evidence?.data?.sources)
+        ? m5Evidence.data.sources
+        : research?.sources || [],
+      sourceRefs:[
+        ...reference.sourceRefs,
+        ...[m5Evidence?.artifactId, m5VisualAnalysis?.artifactId].filter(Boolean),
+      ],
       completedAt
     });
     return success(task, artifact, completedAt, modelUsage);
@@ -117,6 +136,162 @@ export class LocalVideoScriptPackage {
       return { status:'unavailable', report:null, sources:[] };
     }
   }
+}
+
+function findM5EvidencePackage(task, tasks) {
+  const sourceTaskIds = new Set(
+    Array.isArray(task.input?.context?.sourceTaskIds)
+      ? task.input.context.sourceTaskIds.map(String)
+      : [],
+  );
+  return tasks
+    .filter((item) => sourceTaskIds.has(String(item.taskId || '')))
+    .flatMap((item) => item.artifactRefs || [])
+    .find((artifact) =>
+      artifact?.type === 'evidence_package'
+      && artifact.validation?.exists === true
+      && artifact.validation?.readable === true
+      && artifact.validation?.nonEmpty === true
+      && validM5EvidencePackage(artifact.data),
+    ) || null;
+}
+
+function findM5VisualAnalysisPackage(task, tasks) {
+  const sourceTaskIds = new Set(
+    Array.isArray(task.input?.context?.sourceTaskIds)
+      ? task.input.context.sourceTaskIds.map(String)
+      : [],
+  );
+  return tasks
+    .filter((item) => sourceTaskIds.has(String(item.taskId || '')))
+    .flatMap((item) => item.artifactRefs || [])
+    .find((artifact) =>
+      artifact?.type === 'visual_analysis_package'
+      && artifact.validation?.exists === true
+      && artifact.validation?.readable === true
+      && artifact.validation?.nonEmpty === true
+      && Array.isArray(artifact.data?.insights)
+      && artifact.data.insights.length
+      && artifact.data.insights.every(validM5VisualInsight),
+    ) || null;
+}
+
+function bindM5Evidence(script, evidence) {
+  const sourceIds = new Set(evidence.sources.map((source) => String(source?.sourceId || '')).filter(Boolean));
+  const claim = evidence.claims.find((item) =>
+    text(item?.text, 1_000)
+    && Array.isArray(item?.sourceIds)
+    && item.sourceIds.length >= 2
+    && item.sourceIds.every((sourceId) => sourceIds.has(String(sourceId)))
+    && validEvidenceFragments(item)
+  );
+  if (!claim) {
+    const error = new Error('M5 EvidencePackage 没有可由至少两个来源共同支持的结论。');
+    error.code = 'm5_evidence_claim_binding_invalid';
+    error.category = 'quality';
+    error.retryable = true;
+    throw error;
+  }
+  const statement = text(claim.text, 500);
+  const fullScript = `${script.fullScript}\n\n可核验结论：${statement}`;
+  return {
+    ...script,
+    fullScript,
+    shots:buildShots(fullScript, script.durationSeconds || 45),
+    factBindings:[{
+      claimId:String(claim.claimId || '').trim(),
+      statement,
+      sourceIds:claim.sourceIds.map(String),
+      evidenceFragments:claim.evidenceFragments.map((fragment) => ({
+        sourceId:String(fragment.sourceId),
+        fragmentId:String(fragment.fragmentId),
+        text:text(fragment.text, 1_000),
+      })),
+    }],
+    prohibitedStatements:Array.isArray(evidence.prohibitedStatements)
+      ? evidence.prohibitedStatements.slice(0, 10)
+      : [],
+  };
+}
+
+function bindM5VisualAnalysis(script, visualAnalysis) {
+  const bindings = visualAnalysis.insights.map((item, index) => ({
+    insightId:String(item.insightId || `visual-${index + 1}`).slice(0, 120),
+    finding:text(item.finding, 500),
+    frameRef:text(item.frameRef, 120),
+    timestamp:text(item.timestamp, 40),
+    evidenceKind:text(item.evidenceKind, 80),
+  }));
+  const shots = script.shots.map((shot, index) => {
+    const binding = bindings[index % bindings.length];
+    return {
+      ...shot,
+      visual:binding.finding,
+      frameRef:binding.frameRef,
+      evidenceTimestamp:binding.timestamp,
+      evidenceKind:binding.evidenceKind,
+    };
+  });
+  return {
+    ...script,
+    shots,
+    visualAnalysisBindings:bindings,
+  };
+}
+
+function validM5VisualInsight(item) {
+  return Boolean(
+    text(item?.finding, 500)
+    && text(item?.frameRef, 120)
+    && text(item?.timestamp, 40)
+    && text(item?.evidenceKind, 80),
+  );
+}
+
+function validM5EvidencePackage(evidence) {
+  const sources = Array.isArray(evidence?.sources) ? evidence.sources : [];
+  if (
+    !/^agent\.army\/evidence-package\/v2$/.test(String(evidence?.schemaVersion || ''))
+    || sources.length < 2
+    || !sources.every(validM5Source)
+    || !Array.isArray(evidence?.claims)
+    || !evidence.claims.length
+  ) return false;
+  const sourceIds = new Set(sources.map((source) => String(source.sourceId)));
+  return evidence.claims.every((claim) =>
+    text(claim?.text, 1_000)
+    && Array.isArray(claim?.sourceIds)
+    && claim.sourceIds.length >= 2
+    && claim.sourceIds.every((sourceId) => sourceIds.has(String(sourceId)))
+    && validEvidenceFragments(claim)
+  );
+}
+
+function validM5Source(source) {
+  let parsed;
+  try { parsed = new URL(String(source?.url || '')); } catch { return false; }
+  return ['http:', 'https:'].includes(parsed.protocol)
+    && !parsed.username
+    && !parsed.password
+    && source?.kind !== 'github_metadata'
+    && Number.isFinite(Date.parse(String(source?.fetchedAt || '')))
+    && /^[0-9a-f]{64}$/i.test(String(source?.contentHash || '').replace(/^sha256:/i, ''))
+    && Array.isArray(source?.evidenceFragments)
+    && source.evidenceFragments.some((fragment) =>
+      String(fragment?.fragmentId || '').trim()
+      && text(fragment?.text, 1_000)
+    );
+}
+
+function validEvidenceFragments(claim) {
+  if (!Array.isArray(claim?.evidenceFragments)) return false;
+  const fragmentSources = new Set(claim.evidenceFragments
+    .filter((fragment) =>
+      String(fragment?.fragmentId || '').trim()
+      && text(fragment?.text, 1_000)
+    )
+    .map((fragment) => String(fragment.sourceId || '')));
+  return claim.sourceIds.every((sourceId) => fragmentSources.has(String(sourceId)));
 }
 
 function selectReference({ task, tasks, topic, platform }) {
@@ -310,7 +485,7 @@ async function writePackage({ artifactsDir, task, data, sources, sourceRefs, com
       fileCount:5,
       externalSideEffects:0,
       onePrimaryDraft:true,
-      factualSourcesBounded:sources.length <= 3,
+      factualSourcesBounded:sources.length <= 5,
       approvedForUse:data.templateLifecycle?.approvedForUse === true
     },
     createdAt:completedAt,
@@ -349,7 +524,12 @@ function renderSources(sources, sourceRefs) {
   const lines = ['# 来源', ''];
   if (sources.length) {
     sources.forEach((source, index) => {
-      lines.push(`${index + 1}. ${text(source.title, 300) || '公开来源'}`, `   ${text(source.source, 1_000)}`, `   读取时间：${text(source.fetchedAt, 120) || '未提供'}`);
+      lines.push(
+        `${index + 1}. ${text(source.title, 300) || '公开来源'}`,
+        `   ${text(source.url || source.source, 1_000)}`,
+        `   读取时间：${text(source.fetchedAt, 120) || '未提供'}`,
+        `   内容哈希：${text(source.contentHash, 80) || '未提供'}`,
+      );
     });
   } else {
     lines.push('本稿未使用可独立核验的外部事实；不得自行补写数字、身份或因果结论。');

@@ -1,0 +1,143 @@
+{
+  "schemaVersion": "agent.army/m4-role-quality-result/v1",
+  "taskId": "m4-role-technical-expert-20260730",
+  "agentId": "technical-expert",
+  "agentName": "技术专家",
+  "startedAt": "2026-07-30T17:32:02.357Z",
+  "finishedAt": "2026-07-30T17:32:21.544Z",
+  "model": {
+    "provider": "stepfun",
+    "name": "step-3.5-flash-2603",
+    "apiCalls": 1,
+    "estimatedCostUsd": 0,
+    "inputTokens": 3665,
+    "outputTokens": 1754
+  },
+  "externalSideEffects": 0,
+  "toolPolicy": "clarify-only; prompt forbids tool use",
+  "parseError": null,
+  "processError": null,
+  "outputChecksum": "065833574c892bd1b92acd1d2256f58d3d5c84cd8b3219160fa91a3d65798f3c",
+  "output": {
+    "taskId": "m4-role-technical-expert-20260730",
+    "agentId": "technical-expert",
+    "status": "completed",
+    "summary": "配置故障根因诊断：hermes config set 命令将 JSON 字符串作为原始字符串存储而非解析为列表，导致 fallback list 命令在读取时类型检查失败，表面检查 get 命令返回的 JSON 文本看似正确但实际为字符串类型。",
+    "evidence": [
+      {
+        "fact": "hermes config set 执行后 get 返回 JSON 文本看似正确，但 fallback list 显示 No fallback providers configured",
+        "sourceRef": "故障证据1-3",
+        "confidence": 0.95
+      },
+      {
+        "fact": "绕过 config set，直接使用 load_config/save_config 写入真实列表后，11/11 fallback list 测试全部通过，故障消失",
+        "sourceRef": "故障证据4-5",
+        "confidence": 0.98
+      },
+      {
+        "fact": "StepFun 连接故障后未触发回退，排除连接器本身问题",
+        "sourceRef": "故障证据4",
+        "confidence": 0.85
+      }
+    ],
+    "diagnosis": {
+      "classification": "配置解析与存储类型错误",
+      "rootCause": "hermes config set fallback_providers 命令接收 JSON 字符串参数后，未解析为 Python list 对象，而是将原始 JSON 字符串直接存储到配置后端。当 fallback list 命令通过 load_config 读取配置时，对 fallback_providers 进行 isinstance(value, list) 类型检查失败，被判定为未配置并返回空列表。hermes config get 命令仅原样返回存储的字符串，未进行类型转换，因此表面看似正确。",
+      "whyTheSurfaceCheckMisled": "hermes config get 返回的是配置后端的原始存储值——一个格式正确的 JSON 字符串。表面检查仅比对文本内容，未验证实际存储类型是否为 list，误将字符串字面量识别为有效配置，掩盖了类型不匹配的实质错误。",
+      "repairPlan": [
+        "修复 config set 命令：在写入配置前对 fallback_providers 值调用 json.loads() 解析 JSON 字符串为 Python list，若参数已是 list 则直接存储",
+        "修复 config get 命令：对 fallback_providers 类型为 list 的存储值，在返回前调用 json.dumps() 序列化为 JSON 字符串，保持接口语义一致",
+        "在 fallback list 命令中添加类型守卫：读取配置后增加 isinstance(providers, list) 检查，非列表类型记录 warning 并跳过，避免静默失败",
+        "增加 config set 后置验证：设置 fallback_providers 后立即读取一次并在类型不匹配时抛出可读错误，防止问题进入运行时才发现"
+      ],
+      "verification": [
+        "hermes config set fallback_providers '[{\"provider\":\"deepseek\",\"model\":\"deepseek-v4-flash\"}]' 执行后，hermes config get 返回类型为 str（预期应为 list 的序列化结果）",
+        "修复后 hermes fallback list 应显示 1 entry，provider=deepseek，model=deepseek-v4-flash",
+        "制造 StepFun 连接故障，触发回退，usage 记录 provider=deepseek、model=deepseek-v4-flash、error=null",
+        "边界测试：设置空列表 []、含多个 provider 的列表、格式错误的 JSON 字符串，分别验证错误提示和配置行为"
+      ],
+      "rollback": "若修复引入新问题，回滚方案为：1) 在 config set 中保留字符串存储的兼容路径，增加 --raw 参数供高级用户使用；2) 回退到通过 load_config/save_config 直接操作配置文件的方式，绕过 config set 命令。",
+      "regressionTest": "新增 fallback_providers 配置解析专项测试：覆盖 set/get/roundtrip 类型一致性、fallback list 正确识别配置、多 provider 配置回退顺序、无效 JSON 输入错误提示、空列表与 None 边界情况。",
+      "excludedCauses": [
+        "已排除 StepFun 连接器本身故障：绕过 config set 后回退正常工作，连接器逻辑正确",
+        "已排除配置文件写入权限问题：load_config/save_config 直接写入成功",
+        "已排除 fallback list 命令逻辑错误：直接写入列表后命令正确识别配置"
+      ]
+    },
+    "risks": [
+      {
+        "risk": "修复后若 config set 在解析 JSON 失败时未保留原始错误提示，可能导致用户难以定位输入格式问题",
+        "mitigation": "在 json.loads() 失败分支输出明确错误：'fallback_providers 必须是合法的 JSON 列表，例如 [{\"provider\":\"x\",\"model\":\"y\"}]'"
+      }
+    ],
+    "nextAction": "由 M4 技术负责人向 A君 发起修复委派：technical_repair_execute，指定隔离工程修复 scope 包括 hermes/config.py 中 config set/get 命令逻辑和 fallback list 的类型检查增强，完成后触发 fallback_providers 配置解析专项测试套件。",
+    "externalActionStarted": false
+  },
+  "status": "passed",
+  "checks": [
+    {
+      "label": "模型返回任务标签",
+      "passed": true
+    },
+    {
+      "label": "模型返回岗位标签",
+      "passed": true
+    },
+    {
+      "label": "岗位任务完成",
+      "passed": true
+    },
+    {
+      "label": "摘要达到中文业务结论最小长度",
+      "passed": true
+    },
+    {
+      "label": "证据至少 2 项",
+      "passed": true
+    },
+    {
+      "label": "证据含事实、来源和置信度",
+      "passed": true
+    },
+    {
+      "label": "风险至少 1 项",
+      "passed": true
+    },
+    {
+      "label": "存在明确下一步",
+      "passed": true
+    },
+    {
+      "label": "未开始外部动作",
+      "passed": true
+    },
+    {
+      "label": "给出故障分类",
+      "passed": true
+    },
+    {
+      "label": "根因指向配置类型",
+      "passed": true
+    },
+    {
+      "label": "修复计划至少 4 步",
+      "passed": true
+    },
+    {
+      "label": "验证至少 4 项",
+      "passed": true
+    },
+    {
+      "label": "提供回滚",
+      "passed": true
+    },
+    {
+      "label": "提供回归测试",
+      "passed": true
+    }
+  ],
+  "identityDrift": {
+    "taskId": null,
+    "agentId": null
+  }
+}

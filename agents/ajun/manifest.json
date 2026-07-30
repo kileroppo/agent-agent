@@ -1,22 +1,77 @@
 {
   "schemaVersion": "agent.army/v1",
-  "manifestVersion": "0.2.0",
+  "manifestVersion": "0.3.0",
   "agentId": "ajun",
   "name": "A君·军团总管",
   "kind": "manager",
   "department": "军团总控",
   "role": "理解负责人的自然表达，安排已上岗员工，持续跟进真实进度并回到原聊天交付结果",
   "responsibilities": ["把负责人说的事情整理成目标、交付物、限制和下一步", "只从已经上岗的员工中安排合适的人", "统一保存任务、审批、进度、待测试和最终结果", "员工卡住时先安排安全恢复，再交技术专家处理"],
-  "nonResponsibilities": ["代替专业员工虚构完成结果", "把草案员工说成已经上岗", "擅自登录、外发、付款、删改或扩大权限", "读取、复制或回显任何员工的密钥、账号或聊天内容"],
+  "nonResponsibilities": ["代替专业员工虚构完成结果", "把草案员工说成已经上岗", "擅自登录、外发、付款、删改或扩大权限", "读取、复制或回显任何员工的密钥、账号或聊天内容", "直接使用浏览器、任意终端或发布工具；需要执行时只能路由到具备受控专用能力的岗位或适配器"],
   "acceptedTaskTypes": [
     "army.intake",
     "army.route-task",
-    "army.cross-agent-mission"
+    "army.cross-agent-mission",
+    "army.goal-program",
+    "content.campaign-topic"
   ],
   "toolAllowlist": ["army.registry.read", "army.task.create", "army.task.route", "army.task.status.read", "army.approval.read", "army.mission.plan", "army.operations.diagnose"],
   "dataScopes": [{"scope":"army-task-and-roster-metadata","access":["read", "write"],"boundary":"只保存任务目标、状态、审批和脱敏结果；不保存密钥或原始私密聊天内容"}],
   "approvalPolicies": [{"action":"external-write-or-permission-expansion","riskLevel":"high","decision":"require-approval"}],
   "qualityGates": [{"gate":"only-real-active-worker-can-be-assigned","required":true}, {"gate":"result-or-open-risk-stated","required":true}],
+  "runtimeCapabilities": {
+    "modelSelection": {
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603"
+    },
+    "fallbackModels": [
+      {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "trigger": "transport_unavailable"
+      }
+    ],
+    "skills": ["paperclip"],
+    "mcpTools": [
+      "status",
+      "employee_status",
+      "task_list",
+      "task_get",
+      "task_create",
+      "mission_create",
+      "approval_list",
+      "approval_resolve",
+      "paperclip_assignment_get",
+      "employee_assignment_execute",
+      "paperclip_assignment_complete"
+    ],
+    "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
+    "paperclipToolsets": ["agent-army", "clarify"]
+  },
+  "interaction": {
+    "runtime": "hermes-profile",
+    "directFeishu": "required",
+    "visibility": "always-on",
+    "groupPolicy": "mention-only"
+  },
+  "executionOwner": "paperclip-hermes",
+  "openTaskPolicy": {
+    "domain": "army",
+    "qualityGateMode": "manifest-required"
+  },
+  "dynamicCapabilityPolicy": {
+    "allowDiscovery": true,
+    "allowedSources": ["repository", "installed-hermes", "official-source", "reviewed-third-party"],
+    "modelPolicyMutable": false,
+    "approvalRequiredFor": ["credentials", "external-write", "paid-action", "permission-expansion"]
+  },
+  "autonomyBudgetPolicy": {
+    "maxRuntimeMinutes": 60,
+    "maxModelCalls": 20,
+    "maxConcurrentSubtasks": 4,
+    "maxDelegationDepth": 2,
+    "paidApprovalThresholdUsd": 5
+  },
   "promptRef": "agents/ajun/prompts/system.md",
   "runtimeProfileRef": "integrations/hermes/profiles/ajun.profile.json",
   "appRef": "apps/ajun-runtime",

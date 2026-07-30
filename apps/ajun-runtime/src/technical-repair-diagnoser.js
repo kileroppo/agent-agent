@@ -1,6 +1,7 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 
 const execFile = promisify(execFileCallback);
@@ -8,7 +9,7 @@ const SAFE_TEST_COMMAND = /^(?:node --test [A-Za-z0-9_./ -]+|npm test --prefix a
 const SENSITIVE_PATH = /(?:^|\/)(?:\.env(?:\.|$)|credentials?|secrets?|tokens?|cookies?)(?:\/|$)/i;
 
 export class TechnicalRepairDiagnoser {
-  constructor({ command = process.env.AJUN_CODEX_COMMAND || '/Users/pengaro/.local/bin/codex', execFileImpl = execFile, fsImpl = fs, maxRunMs = 60_000 } = {}) {
+  constructor({ command = process.env.AJUN_CODEX_COMMAND || path.join(os.homedir(), '.local', 'bin', 'codex'), execFileImpl = execFile, fsImpl = fs, maxRunMs = 60_000 } = {}) {
     this.command = command;
     this.execFile = execFileImpl;
     this.fs = fsImpl;

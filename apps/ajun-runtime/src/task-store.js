@@ -185,6 +185,13 @@ export class TaskStore {
   async write(data) {
     await fs.mkdir(path.dirname(this.filePath), { recursive: true });
     const temporary = `${this.filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
-    await fs.writeFile(temporary, `${JSON.stringify(data, null, 2)}\n`); await fs.rename(temporary, this.filePath);
+    try {
+      await fs.writeFile(temporary, `${JSON.stringify(data, null, 2)}\n`, { flag:'wx', mode:0o600 });
+      await fs.rename(temporary, this.filePath);
+      await fs.chmod(this.filePath, 0o600);
+    } catch (error) {
+      await fs.rm(temporary, { force:true }).catch(() => {});
+      throw error;
+    }
   }
 }

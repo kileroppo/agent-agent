@@ -1,11 +1,12 @@
 import { execFile } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+import { NO_SIDE_EFFECT_HERMES_ARGS } from './hermes-oneshot-policy.js';
 
 const INTENTS = new Set(['identity', 'army_overview', 'army_report', 'usage_report', 'task_progress', 'agent_proposal', 'architecture_review', 'army_planning', 'cross_agent_mission', 'health_check', 'media_task', 'public_report', 'github_search', 'intel_research', 'office_briefing', 'employee_status', 'route_task', 'intake', 'clarify']);
 
 export class HermesIntentPlanner {
-  constructor({ command = process.env.AJUN_HERMES_COMMAND || '/Users/pengaro/.local/bin/hermes', hermesHome = process.env.AJUN_HERMES_HOME || '', profileRoot = process.env.AGENT_ARMY_HERMES_PROFILE_ROOT || path.join(os.homedir(), '.hermes/profiles'), timeoutMs = 18_000, run = runCommand } = {}) {
+  constructor({ command = process.env.AJUN_HERMES_COMMAND || path.join(os.homedir(), '.local', 'bin', 'hermes'), hermesHome = process.env.AJUN_HERMES_HOME || '', profileRoot = process.env.AGENT_ARMY_HERMES_PROFILE_ROOT || path.join(os.homedir(), '.hermes/profiles'), timeoutMs = 18_000, run = runCommand } = {}) {
     this.command = command; this.hermesHome = hermesHome; this.profileRoot = profileRoot; this.timeoutMs = timeoutMs; this.run = run;
   }
 
@@ -14,7 +15,7 @@ export class HermesIntentPlanner {
     if (!hermesHome) return null;
     const allowedRoutes = normalizeRoutes(routes);
     const allowedEmployees = normalizeEmployees(employees);
-    const output = await this.run(this.command, ['--ignore-rules', '--oneshot', promptFor(text, allowedRoutes, allowedEmployees, agentId)], { timeoutMs: this.timeoutMs, env: { ...process.env, HERMES_HOME: hermesHome } });
+    const output = await this.run(this.command, [...NO_SIDE_EFFECT_HERMES_ARGS, '--oneshot', promptFor(text, allowedRoutes, allowedEmployees, agentId)], { timeoutMs: this.timeoutMs, env: { ...process.env, HERMES_HOME: hermesHome } });
     return parseDecision(output, allowedRoutes, allowedEmployees);
   }
 }

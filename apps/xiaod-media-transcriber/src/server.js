@@ -10,7 +10,7 @@ import { IntakeError, createFeishuMediaJob } from './feishu-media-intake.js';
 import { MediaPipeline, deliverToLark } from './pipeline.js';
 import { JobPauseController, JobPauseError } from './job-pause-controller.js';
 import { JobStore } from './store.js';
-import { createContentRuntime } from './content-runtime.js';
+import { ConnectionSelectionError, createContentRuntime } from './content-runtime.js';
 import { ConnectionInputError } from '../../../integrations/access/connection-store.js';
 import { reviewTranscript, TranscriptReviewError } from './transcript-review.js';
 
@@ -89,12 +89,14 @@ app.post('/api/jobs', async (req, res, next) => {
     const idempotencyKey = normalizeIdempotencyKey(req.body?.idempotencyKey);
     if (req.body?.idempotencyKey !== undefined && !idempotencyKey) return res.status(422).json({ error:'幂等标识格式不正确。' });
     const requestedConnectionId = req.body?.connectionId || null;
-    const connectionId = requestedConnectionId || await contentRuntime.resolveConnectionForSource(valid.url);
     if (requestedConnectionId !== null && (typeof requestedConnectionId !== 'string' || !requestedConnectionId.trim())) return res.status(422).json({ error: '连接标识格式不正确。' });
+    const connectionBinding = await contentRuntime.resolveConnectionBindingForSource(valid.url, requestedConnectionId);
+    const connectionId = connectionBinding?.connectionId || null;
     const candidate = makeJob({
       sourceType:'url',
       sourceUrl:valid.url,
       connectionId,
+      connectionBinding,
       reviewPolicy:req.body?.reviewPolicy,
       visualMode:req.body?.visualMode,
       analysisDepth:req.body?.analysisDepth,
@@ -120,6 +122,22 @@ app.post('/api/connections/cookie-bridge', async (req, res, next) => {
   try {
     const connection = await contentRuntime.connectionStore.createCookieBridgeConnection(req.body || {});
     res.status(201).json({ connection });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/connections/:id/default', async (req, res, next) => {
+  try {
+    const connection = await contentRuntime.connectionStore.setDefault(req.params.id);
+    if (!connection) return res.status(404).json({ error: '账号连接不存在。' });
+    await contentRuntime.operations.record({
+      subjectType:'connection',
+      subjectRef:connection.connectionId,
+      eventType:'connection_default_selected',
+      severity:'info',
+      safeMessage:`已将“${connection.accountAlias}”设为该平台默认只读账号。`,
+      recommendedAction:'none'
+    });
+    res.json({ connection });
   } catch (error) { next(error); }
 });
 
@@ -240,6 +258,12 @@ app.use((error, _req, res, _next) => {
   if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: '文件超过 1GB 上传上限。' });
   if (error instanceof IntakeError) return res.status(error.status).json({ error: error.message });
   if (error instanceof ConnectionInputError) return res.status(422).json({ error: error.message });
+  if (error instanceof ConnectionSelectionError) return res.status(409).json({
+    error:error.message,
+    code:'connection_selection_required',
+    provider:error.provider,
+    candidates:error.candidates
+  });
   console.error(error instanceof Error ? error.message : 'unknown server error');
   res.status(500).json({ error: '服务发生异常，请查看终端日志。' });
 });

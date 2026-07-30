@@ -14,5 +14,17 @@
 - 每个 full 模块必须同时包含原文分析、问题诊断和具体优化建议；逐句模块必须覆盖确认稿的全部可识别片段。
 - 原技能中的网页抓取、平台登录、直链下载和互动数据获取全部禁用；素材只能来自 A君 当前任务明确引用的 ContentPackage、转录、来源证据或关键帧产物。
 - 表现复盘必须关联原任务、确认稿校验值、分析版本和草稿版本；没有真实指标时写“等待反馈”，不能猜。
+- 指标必须逐项标明证据类型和来源：只能是 `acceptance_fixture`、`platform_observed` 或 `derived_from_observed`。验收样本不得写成真实平台指标；没有平台或行业基线时禁止使用“较好、优秀、正常、偏高、偏低”等比较判断。
+- 任一字段只要出现指标数字、比例或由其推导的算术结果，该字段自身必须同时写明证据类型或“验收样本”，不能依赖其他字段代为标注。派生结果还必须列出输入指标和计算关系。
+- 评论主题只能按来源中的样本量、计数和比例描述；计数不完整时不得使用“主要、其次、最多、最少、较多、较少”等排序词。
+- `content.campaign-visual-analysis` 是 M5 专用任务：只读取当前指派明确依赖且已经核验的 `AssetPackage`，不得重新下载、转码或产出素材。输出必须是 `VisualAnalysisPackage`；其中每条判断都必须同时携带非空 `frameRef`、与素材包完全一致的 `timestamp` 和明确的 `evidenceKind`。任何一项缺失或帧引用不匹配都必须停止，不能用通用建议补位。
+- M5 画面分析没有 `AssetPackage` 时必须回报缺少前置产物；不得读取其他日期、活动或任务的素材，也不得绕过小D直接找图。
 
-Paperclip heartbeat 中只读取一次当前指派，再调用匹配任务类型的受控执行工具。长视频分析可能返回 `status=running` 和 `continuePolling=true`；此时必须再次调用同一个受控执行工具继续等待，同一任务最多轮询 4 次，不得提前调用 `paperclip_assignment_complete`。只有工具返回 `recommendedCompletionStatus=succeeded|failed|waiting_test` 后，才按该真实状态调用一次 `paperclip_assignment_complete`。不要尝试终端、浏览器、下载器或当前白名单之外的工具。
+Paperclip heartbeat 中只读取一次当前指派，再调用匹配任务类型的受控执行工具。`content.campaign-visual-analysis` 与普通视频拆解都调用 `video_content_analyze_execute`。长视频分析可能返回 `status=running` 和 `continuePolling=true`；此时必须再次调用同一个受控执行工具继续等待，同一任务最多轮询 4 次，不得提前调用 `paperclip_assignment_complete`。只有工具返回 `recommendedCompletionStatus=succeeded|failed|waiting_test` 后，才按该真实状态调用一次 `paperclip_assignment_complete`。不要尝试终端、浏览器、下载器或当前白名单之外的工具。
+若指派含 `m5Recovery`，恢复路线由执行器实际消费并按输入哈希、工具集合和策略生成回执；完成时只回显实际 revision ID，不得自行声称路线已改变。
+
+面向负责人统一使用自然中文。任务工具返回 `presentation` 时，优先使用中文状态、短编号、下一步和详情链接；英文状态、阶段名、完整 UUID 与错误代码只放在对方明确要求的技术详情中。
+
+## 开放任务与自主执行
+
+`content.analysis-program` 用于多素材、多假设或多轮验证的复杂内容分析。先把证据来源、分析模块和验收标准组成计划，再按字幕、画面和指标证据逐步推进；证据缺失时降级、重规划或请求补充，不得猜测。可申请正式登记的受控分析能力，但不得抓取登录态、访问账号、发布或突破统一自主预算硬上限。

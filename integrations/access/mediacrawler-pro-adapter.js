@@ -6,7 +6,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 const PROVIDERS = {
-  xhs: ['xiaohongshu.com', 'xhslink.com'],
+  xhs: ['xiaohongshu.com', 'xhslink.com', 'xhslink.cn'],
   dy: ['douyin.com', 'iesdouyin.com'],
   bili: ['bilibili.com', 'b23.tv'],
   ks: ['kuaishou.com', 'chenzhongtech.com']

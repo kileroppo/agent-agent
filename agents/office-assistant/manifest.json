@@ -1,6 +1,6 @@
 {
   "schemaVersion": "agent.army/v1",
-  "manifestVersion": "0.1.0",
+  "manifestVersion": "0.5.0",
   "agentId": "office-assistant",
   "name": "小办·办公执行助理",
   "department": "总经理办公室",
@@ -18,13 +18,70 @@
   ],
   "acceptedTaskTypes": [
     "office.briefing-package",
-    "office.knowledge-summary"
+    "office.knowledge-summary",
+    "office.deliverable-program",
+    "content.campaign-metrics"
   ],
   "toolAllowlist": [
     "army.task.read",
     "office.artifact.write",
+    "office.docx.write",
+    "office.xlsx.write",
+    "office.pdf.write",
+    "office.report.daily.write",
+    "office.report.weekly.write",
     "knowledge.archive.write"
   ],
+  "toolExecutionPolicy": {
+    "unknownToolDecision": "deny",
+    "workspace": {
+      "scope": "paperclip-execution-workspace",
+      "pathMode": "relative-only"
+    },
+    "grants": {
+      "army.task.read": {
+        "adapter": "ajun-task-store",
+        "access": "read",
+        "externalSideEffect": "none"
+      },
+      "office.artifact.write": {
+        "adapter": "ajun-office-markdown",
+        "access": "write",
+        "externalSideEffect": "none"
+      },
+      "office.docx.write": {
+        "adapter": "hermes-docx",
+        "access": "write",
+        "externalSideEffect": "none"
+      },
+      "office.xlsx.write": {
+        "adapter": "hermes-xlsx",
+        "access": "write",
+        "externalSideEffect": "none"
+      },
+      "office.pdf.write": {
+        "adapter": "hermes-office-pdf",
+        "access": "write",
+        "externalSideEffect": "none"
+      },
+      "office.report.daily.write": {
+        "adapter": "paperclip-work-product",
+        "access": "write",
+        "externalSideEffect": "none"
+      },
+      "office.report.weekly.write": {
+        "adapter": "paperclip-work-product",
+        "access": "write",
+        "externalSideEffect": "none"
+      },
+      "knowledge.archive.write": {
+        "adapter": "content-library",
+        "access": "write",
+        "externalSideEffect": "none",
+        "scope": "agent-army-knowledge-archive"
+      }
+    }
+  },
   "dataScopes": [
     {
       "scope": "assigned-task-and-referenced-artifacts",
@@ -38,7 +95,7 @@
       "access": [
         "write"
       ],
-      "boundary": "只写入当前任务的本机汇报包目录"
+      "boundary": "Markdown、DOCX、XLSX、PDF 只写当前 Paperclip Run 的 execution workspace；DOCX/PDF 回读正文，XLSX 重算并拒绝公式错误，日报/周报只以当前 Issue/Run 和受信来源任务写为幂等 Work Product"
     },
     {
       "scope": "agent-army-knowledge-archive",
@@ -82,6 +139,55 @@
     "maxAttempts": 2,
     "maxRuntimeMinutes": 3,
     "onLimit": "stop-and-report"
+  },
+  "runtimeCapabilities": {
+    "modelSelection": {
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603"
+    },
+    "fallbackModels": [
+      {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "trigger": "transport_unavailable"
+      }
+    ],
+    "skills": ["paperclip", "docx", "xlsx", "pdf"],
+    "mcpTools": [
+      "capabilities",
+      "task_list",
+      "task_get",
+      "task_create",
+      "paperclip_assignment_get",
+      "employee_assignment_execute",
+      "paperclip_assignment_complete"
+    ],
+    "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
+    "paperclipToolsets": ["agent-army", "clarify"]
+  },
+  "interaction": {
+    "runtime": "hermes-profile",
+    "directFeishu": "required",
+    "visibility": "always-on",
+    "groupPolicy": "mention-only"
+  },
+  "executionOwner": "paperclip-hermes",
+  "openTaskPolicy": {
+    "domain": "office",
+    "qualityGateMode": "manifest-required"
+  },
+  "dynamicCapabilityPolicy": {
+    "allowDiscovery": true,
+    "allowedSources": ["repository", "installed-hermes", "official-source", "reviewed-third-party"],
+    "modelPolicyMutable": false,
+    "approvalRequiredFor": ["credentials", "external-write", "paid-action", "permission-expansion"]
+  },
+  "autonomyBudgetPolicy": {
+    "maxRuntimeMinutes": 60,
+    "maxModelCalls": 20,
+    "maxConcurrentSubtasks": 4,
+    "maxDelegationDepth": 2,
+    "paidApprovalThresholdUsd": 5
   },
   "promptRef": "agents/office-assistant/prompts/system.md",
   "runtimeProfileRef": "integrations/hermes/profiles/office-assistant.profile.json",

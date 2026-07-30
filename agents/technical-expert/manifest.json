@@ -1,6 +1,6 @@
 {
   "schemaVersion": "agent.army/v1",
-  "manifestVersion": "0.5.0",
+  "manifestVersion": "0.6.0",
   "agentId": "technical-expert",
   "name": "技术专家",
   "department": "军团中枢",
@@ -16,7 +16,7 @@
     "未经批准扩权、外发或公开发布",
     "在没有验证证据时宣称故障已修复"
   ],
-  "acceptedTaskTypes": ["operations.technical-repair"],
+  "acceptedTaskTypes": ["operations.technical-repair", "operations.engineering-resolution"],
   "toolAllowlist": [
     "army.task.status.read",
     "army.operations.event.read",
@@ -52,6 +52,17 @@
   },
   "executionOwner": "paperclip-hermes",
   "runtimeCapabilities": {
+    "modelSelection": {
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603"
+    },
+    "fallbackModels": [
+      {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "trigger": "transport_unavailable"
+      }
+    ],
     "skills": ["paperclip"],
     "mcpTools": [
       "task_list",
@@ -63,6 +74,23 @@
     ],
     "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
     "paperclipToolsets": ["agent-army", "clarify"]
+  },
+  "openTaskPolicy": {
+    "domain": "operations",
+    "qualityGateMode": "manifest-required"
+  },
+  "dynamicCapabilityPolicy": {
+    "allowDiscovery": true,
+    "allowedSources": ["repository", "installed-hermes", "official-source", "reviewed-third-party"],
+    "modelPolicyMutable": false,
+    "approvalRequiredFor": ["credentials", "external-write", "paid-action", "permission-expansion"]
+  },
+  "autonomyBudgetPolicy": {
+    "maxRuntimeMinutes": 60,
+    "maxModelCalls": 20,
+    "maxConcurrentSubtasks": 4,
+    "maxDelegationDepth": 2,
+    "paidApprovalThresholdUsd": 5
   },
   "owner": "A 君",
   "status": "active"

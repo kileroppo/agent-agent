@@ -5,6 +5,8 @@ import { HermesPublicSummaryAdvisor } from '../src/hermes-public-summary-advisor
 test('单来源摘要顾问只能依据已读取内容给出中文重点', async () => {
   let prompt = '';
   const advisor = new HermesPublicSummaryAdvisor({ hermesHome:'/safe/profile', run:async (_command, args) => {
+    assert.deepEqual(args.slice(0, 2), ['--toolsets', 'clarify']);
+    assert.equal(args.includes('--ignore-rules'), false);
     prompt = args.at(-1);
     return '{"keyPoints":[{"text":"该页面只说明公开资料的使用范围","evidence":"This domain is for use in documentation examples."}],"recommendation":{"text":"按页面说明使用该资料","evidence":"documentation examples"}}';
   } });

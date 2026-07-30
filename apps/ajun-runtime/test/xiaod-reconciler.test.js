@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import { XiaodReconciler } from '../src/xiaod-reconciler.js';
 
-function setup({ taskPatch = {}, getJob, onFailure = null } = {}) {
+function setup({ taskPatch = {}, getJob, onFailure = null, contentWorkspaceDir = null } = {}) {
   const task = {
     taskId: 'task-1', status: 'running', currentStage: 'delegated_to_xiaod', artifactRefs: [],
     execution: { executor: 'xiaod', xiaodJobId: 'xiaod-1', polling: { state: 'pending', consecutiveFailures: 0, nextPollAt: null } },
@@ -13,7 +16,16 @@ function setup({ taskPatch = {}, getJob, onFailure = null } = {}) {
     async updateTask(taskId, patch) { assert.equal(taskId, 'task-1'); Object.assign(task, patch); return task; }
   };
   const now = () => Date.parse('2026-07-21T00:00:00.000Z');
-  return { task, reconciler: new XiaodReconciler({ store, xiaod: { baseUrl: 'http://127.0.0.1:4318', getJob }, onFailure, now }) };
+  return {
+    task,
+    reconciler:new XiaodReconciler({
+      store,
+      xiaod:{ baseUrl:'http://127.0.0.1:4318', getJob },
+      onFailure,
+      contentWorkspaceDir,
+      now,
+    }),
+  };
 }
 
 test('central reconciler settles a persisted running task after restart', async () => {
@@ -107,6 +119,92 @@ test('小D完成后把视觉证据包登记为受控产物', async () => {
   assert.equal(visual.location, 'file:///tmp/visual-evidence.json');
   assert.equal(visual.validation.sourceControlled, true);
   assert.equal(visual.validation.visualCoverage.selectedFrames, 12);
+});
+
+test('M5 素材阶段只在真实证据文件回读并哈希后生成 AssetPackage', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'm5-assets-'));
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const sourceEvidencePath = path.join(root, 'source.json');
+  const visualEvidencePath = path.join(root, 'visual.json');
+  const framesDir = path.join(root, 'frames');
+  const contentWorkspaceDir = path.join(root, 'content-workspace');
+  await fs.mkdir(framesDir);
+  await fs.writeFile(path.join(framesDir, 'frame-001.png'), Buffer.from('fixture-png'));
+  await fs.writeFile(sourceEvidencePath, JSON.stringify({ source:'https://example.com/video' }));
+  await fs.writeFile(visualEvidencePath, JSON.stringify({
+    schemaVersion:'agent.army/visual-evidence/v1',
+    frames:[{
+      frameId:'frame-001',
+      timestamp:'00:00',
+      localRef:'frames/frame-001.png',
+    }],
+  }));
+  const { task, reconciler } = setup({
+    taskPatch:{
+      taskType:'content.campaign-assets',
+      input:{
+        sourceUrl:'https://example.com/video',
+        context:{
+          pipelineCaseId:'11111111-1111-4111-8111-111111111111',
+          assetRightsBasis:'自产录屏，经活动授权用于内容生产。',
+        },
+      },
+    },
+    contentWorkspaceDir,
+    getJob:async () => ({
+      id:'xiaod-1',
+      status:'completed',
+      title:'M5 素材',
+      output:{
+        markdownPath:path.join(root, 'result.md'),
+        sourceEvidencePath,
+        visualEvidencePath,
+        visualCoverage:{ status:'available', selectedFrames:1 },
+      },
+      quality:{ passed:true },
+    }),
+  });
+  await reconciler.reconcile();
+  const assetPackage = task.artifactRefs.find((artifact) => artifact.type === 'asset_package');
+  assert.equal(task.status, 'succeeded');
+  assert.equal(assetPackage.validation.sourceFilesReadBack, true);
+  assert.equal(assetPackage.data.files.length, 2);
+  assert.ok(assetPackage.data.files.every((file) => /^sha256:[0-9a-f]{64}$/.test(file.checksum)));
+  assert.ok(assetPackage.data.files.every((file) => !('path' in file)));
+  assert.equal(assetPackage.data.assets.length, 1);
+  assert.equal(
+    assetPackage.data.assets[0].relativePath,
+    'campaigns/11111111-1111-4111-8111-111111111111/assets/frame-001.png',
+  );
+  assert.equal(assetPackage.data.coverSourcePath, assetPackage.data.assets[0].relativePath);
+  assert.equal(
+    await fs.readFile(path.join(contentWorkspaceDir, assetPackage.data.coverSourcePath), 'utf8'),
+    'fixture-png',
+  );
+});
+
+test('M5 素材阶段证据文件不可回读时失败闭锁', async () => {
+  const { task, reconciler } = setup({
+    taskPatch:{
+      taskType:'content.campaign-assets',
+      input:{ sourceUrl:'https://example.com/video' },
+    },
+    getJob:async () => ({
+      id:'xiaod-1',
+      status:'completed',
+      title:'M5 空心素材',
+      output:{
+        markdownPath:'/tmp/result.md',
+        sourceEvidencePath:'/not-found/source.json',
+        visualEvidencePath:'/not-found/visual.json',
+      },
+      quality:{ passed:true },
+    }),
+  });
+  await reconciler.reconcile();
+  assert.equal(task.status, 'needs_input');
+  assert.equal(task.error.code, 'm5_asset_file_unreadable');
+  assert.equal(task.artifactRefs.length, 0);
 });
 
 test('必须分析画面但没有视频时，A君把小D失败映射为 needs_input', async () => {

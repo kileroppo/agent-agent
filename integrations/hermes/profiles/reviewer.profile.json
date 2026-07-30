@@ -9,11 +9,29 @@
     "modelSelectionConfigured": true,
     "modelConfigured": true,
     "credentialedTransportVerified": true,
+    "credentialedTransportVerification": {
+      "status": "verified-current-model-policy",
+      "primary": { "provider": "stepfun", "model": "step-3.5-flash-2603", "verified": true },
+      "fallback": { "provider": "deepseek", "model": "deepseek-v4-flash", "verified": false }
+    },
     "skillsSeeded": true
   },
   "agentManifestRef": "agents/reviewer/manifest.json",
   "promptRef": "agents/reviewer/prompts/system.md",
   "appRef": "apps/ajun-runtime",
+  "modelSelection": {
+    "provider": "stepfun",
+    "model": "step-3.5-flash-2603",
+    "secretStoredHere": false
+  },
+  "fallbackModels": [
+    {
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "trigger": "transport_unavailable",
+      "secretStoredHere": false
+    }
+  ],
   "gateway": {
     "platform": "feishu",
     "enabled": false,
@@ -28,11 +46,18 @@
       "task_create",
       "approval_list",
       "paperclip_assignment_get",
+      "m5_stage_execute",
       "paperclip_assignment_complete"
     ],
     "scope": {
       "agentIds": ["reviewer"],
-      "taskTypes": ["governance.approval-review"],
+      "taskTypes": [
+        "governance.approval-review",
+        "governance.assurance-review",
+        "content.campaign-machine-review",
+        "content.campaign-publish-approval",
+        "content.campaign-verify"
+      ],
       "allowMissions": false
     }
   },

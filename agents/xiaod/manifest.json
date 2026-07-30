@@ -1,6 +1,6 @@
 {
   "schemaVersion": "agent.army/v1",
-  "manifestVersion": "0.1.0",
+  "manifestVersion": "0.2.0",
   "agentId": "xiaod",
   "name": "小D",
   "department": "内容组",
@@ -20,7 +20,9 @@
     "对素材中的事实真实性作最终背书"
   ],
   "acceptedTaskTypes": [
-    "media.transcribe-and-refine"
+    "media.transcribe-and-refine",
+    "media.open-production",
+    "content.campaign-assets"
   ],
   "toolAllowlist": [
     "xiaod.media.acquire",
@@ -101,6 +103,51 @@
     "maxAttempts": 3,
     "maxRuntimeMinutes": 180,
     "onLimit": "pause-and-report"
+  },
+  "runtimeCapabilities": {
+    "modelSelection": {
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603"
+    },
+    "fallbackModels": [
+      {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "trigger": "transport_unavailable"
+      }
+    ],
+    "skills": ["paperclip"],
+    "mcpTools": [
+      "paperclip_assignment_get",
+      "employee_assignment_execute",
+      "paperclip_assignment_complete"
+    ],
+    "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
+    "paperclipToolsets": ["agent-army", "clarify"]
+  },
+  "interaction": {
+    "runtime": "hermes-profile",
+    "directFeishu": "required",
+    "visibility": "always-on",
+    "groupPolicy": "mention-only"
+  },
+  "executionOwner": "paperclip-hermes",
+  "openTaskPolicy": {
+    "domain": "media",
+    "qualityGateMode": "manifest-required"
+  },
+  "dynamicCapabilityPolicy": {
+    "allowDiscovery": true,
+    "allowedSources": ["repository", "installed-hermes", "official-source", "reviewed-third-party"],
+    "modelPolicyMutable": false,
+    "approvalRequiredFor": ["credentials", "external-write", "paid-action", "permission-expansion"]
+  },
+  "autonomyBudgetPolicy": {
+    "maxRuntimeMinutes": 60,
+    "maxModelCalls": 20,
+    "maxConcurrentSubtasks": 4,
+    "maxDelegationDepth": 2,
+    "paidApprovalThresholdUsd": 5
   },
   "promptRef": "agents/xiaod/prompts/system.md",
   "runtimeProfileRef": "integrations/hermes/profiles/xiaod.profile.json",

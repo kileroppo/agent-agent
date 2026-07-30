@@ -72,3 +72,32 @@ test('技术专家留下完整结果且可安全带回时，A君 等待治理记
   assert.equal(result.artifactRefs[0].data.verification.verified, true);
   assert.match(result.artifactRefs[0].data.nextAction, /安全带回主工程/);
 });
+
+test('外置源码根修复只进入候选待发版，不冒充当前运行版本已修复', async () => {
+  const evidence = { metadata:{ agentArmyRepairEvidence:{ changedFiles:['apps/a.js'], testsPassed:true, recoveryVerified:true } } };
+  const expert = new LocalTechnicalExpert({
+    now:() => new Date('2026-07-21T10:00:00.000Z'),
+    workspace:{ async prepare() { return { workspace:'/safe/repair', reused:false }; } },
+    runner:{ async run() { return { status:'evidence_ready', evidence }; } },
+    promotion:{ async promote() {
+      return {
+        status:'candidate_promoted',
+        changedFiles:['apps/a.js'],
+        recommendedCompletionStatus:'waiting_test',
+        nextAction:'生成并验证新的不可变 release。',
+      };
+    } },
+  });
+  const result = await expert.execute({
+    taskId:'technical-task',
+    governance:{ paperclipAssigneeAgentId:'paperclip-tech-1' },
+    input:{ context:{ repairScope:{ files:['apps/a.js'], testCommand:'npm test', recoveryCheck:'检查恢复' } } },
+    execution:{},
+  });
+  assert.equal(result.status, 'waiting_test');
+  assert.equal(result.currentStage, 'repair_candidate_awaiting_release');
+  assert.equal(result.execution.outcome, 'candidate_promoted');
+  assert.equal(result.execution.verification.candidateOnly, true);
+  assert.equal(result.execution.verification.runningReleaseUpdated, false);
+  assert.match(result.artifactRefs[0].data.nextAction, /不可变 release/);
+});

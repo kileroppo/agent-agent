@@ -33,7 +33,9 @@ export class PaperclipRosterReconciler {
 
   async reconcileOnce() {
     try {
-      const manifests = await this.registry.list();
+      // A君不是普通员工，但仍需要一个受限的 Paperclip manager identity
+      // 承接 M5 选题/复盘 Routine；主界面继续由 AgentRegistry 默认过滤 manager。
+      const manifests = await this.registry.list({ includeManagers:true });
       return await this.governance.syncRoster(manifests);
     } catch {
       return { status:'sync_pending', reason:'岗位清单暂时无法补同步。' };

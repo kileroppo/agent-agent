@@ -5,7 +5,7 @@ import path from 'node:path';
 
 export class HermesModelSetupService {
   constructor({
-    command = process.env.AJUN_HERMES_COMMAND || '/Users/pengaro/.local/bin/hermes',
+    command = process.env.AJUN_HERMES_COMMAND || path.join(os.homedir(), '.local', 'bin', 'hermes'),
     profileRoot = process.env.AGENT_ARMY_HERMES_PROFILE_ROOT || path.join(os.homedir(), '.hermes/profiles'),
     dashboardOrigin = 'http://127.0.0.1:9119',
     fetchImpl = fetch,

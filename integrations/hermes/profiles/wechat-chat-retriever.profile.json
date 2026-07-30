@@ -1,0 +1,54 @@
+{
+  "schemaVersion": "agent.army/hermes-profile-map/v1",
+  "status": "pending-local-profile",
+  "profileId": "wechat-chat-retriever",
+  "role": "微信聊天取件员：按负责人逐次批准的范围只读本机微信 Vault。",
+  "localProfile": {
+    "created": false,
+    "gatewayStarted": false,
+    "modelSelectionConfigured": false,
+    "modelConfigured": false,
+    "credentialedTransportVerified": false,
+    "credentialedTransportVerification": {
+      "status": "pending-local-profile",
+      "primary": { "provider": "stepfun", "model": "step-3.5-flash-2603", "verified": false },
+      "fallback": { "provider": "deepseek", "model": "deepseek-v4-flash", "verified": false }
+    },
+    "skillsSeeded": false
+  },
+  "agentManifestRef": "agents/wechat-chat-retriever/manifest.json",
+  "promptRef": "agents/wechat-chat-retriever/prompts/system.md",
+  "appRef": "apps/ajun-runtime",
+  "modelSelection": {
+    "provider": "stepfun",
+    "model": "step-3.5-flash-2603",
+    "secretStoredHere": false
+  },
+  "fallbackModels": [
+    {
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "trigger": "transport_unavailable",
+      "secretStoredHere": false
+    }
+  ],
+  "gateway": {
+    "platform": "feishu",
+    "enabled": false,
+    "reason": "由 A君按需派活，不建立独立常驻入口；私密聊天原文不进入模型传输。"
+  },
+  "mcp": {
+    "server": "agent-army",
+    "tools": [],
+    "scope": {
+      "agentIds": ["wechat-chat-retriever"],
+      "taskTypes": ["wechat.chat.retrieval"],
+      "allowMissions": false
+    }
+  },
+  "toolAllowlist": ["wechat.local-vault.chat.read"],
+  "secrets": {
+    "source": "local-vault-config-only",
+    "valuesStoredHere": false
+  }
+}

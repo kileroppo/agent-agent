@@ -92,7 +92,13 @@ test("A君也有完整岗位卡和独立身份资料，但不会被当成普通�
   const manifest = await readJson(ajunManifestPath);
   assert.equal(manifest.agentId, "ajun");
   assert.equal(manifest.kind, "manager");
-  assert.deepEqual(manifest.acceptedTaskTypes, ["army.intake", "army.route-task", "army.cross-agent-mission"]);
+  assert.deepEqual(manifest.acceptedTaskTypes, [
+    "army.intake",
+    "army.route-task",
+    "army.cross-agent-mission",
+    "army.goal-program",
+    "content.campaign-topic"
+  ]);
   for (const field of requiredFields) assert.ok(Object.hasOwn(manifest, field), `missing required field: ${field}`);
   await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.promptRef)));
   await assert.doesNotReject(() => stat(path.join(repositoryRoot, manifest.runtimeProfileRef)));
@@ -102,6 +108,29 @@ test("A君也有完整岗位卡和独立身份资料，但不会被当成普通�
   assert.equal(profile.promptRef, manifest.promptRef);
   assert.deepEqual(profile.toolAllowlist, manifest.toolAllowlist);
   assert.equal(profile.secrets.valuesStoredHere, false);
+});
+
+test("A君收到明确成品请求时必须建立业务任务，不能只在聊天里直接生成", async () => {
+  const prompt = await readFile(path.join(repositoryRoot, "agents/ajun/prompts/system.md"), "utf8");
+  assert.match(prompt, /明确要求(?:生成|修改|保存).{0,40}成品/);
+  assert.match(prompt, /必须调用 `task_create`/);
+  assert.match(prompt, /不能只在聊天里直接写出/);
+});
+
+test("所有已上岗 Agent 统一使用中文任务摘要，内部状态只留在技术详情", async () => {
+  const entries = await readdir(path.join(repositoryRoot, "agents"), { withFileTypes:true });
+  for (const entry of entries.filter((item) => item.isDirectory())) {
+    const filePath = path.join(repositoryRoot, "agents", entry.name, "manifest.json");
+    try {
+      const manifest = await readJson(filePath);
+      if (manifest.status !== "active") continue;
+      const prompt = await readFile(path.join(repositoryRoot, manifest.promptRef), "utf8");
+      assert.match(prompt, /任务工具返回 `presentation`/u, `${manifest.agentId} 缺少统一任务表达约定`);
+      assert.match(prompt, /完整 UUID/u, `${manifest.agentId} 没有把完整编号收进技术详情`);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
 });
 
 test("治理岗位保留独立 Hermes 身份，只有运维官常驻飞书入口", async () => {
@@ -142,6 +171,12 @@ test("治理岗位保留独立 Hermes 身份，只有运维官常驻飞书入口
     assert.equal(profile.localProfile.modelSelectionConfigured, true);
     assert.equal(profile.localProfile.modelConfigured, true);
     assert.equal(profile.localProfile.credentialedTransportVerified, true);
+    assert.equal(profile.localProfile.credentialedTransportVerification.status, "verified-current-model-policy");
+    assert.equal(profile.localProfile.credentialedTransportVerification.primary.verified, true);
+    assert.equal(
+      profile.localProfile.credentialedTransportVerification.fallback.verified,
+      agentId === "technical-expert"
+    );
     assert.equal(profile.localProfile.skillsSeeded, true);
     assert.equal(profile.gateway.enabled, alwaysOnGovernanceAgentIds.includes(agentId));
     assert.equal(profile.mcp.server, "agent-army");
@@ -181,6 +216,9 @@ test("首批业务员工已由独立 Hermes Profile Gateway 承接飞书连续�
     assert.equal(profile.localProfile.modelSelectionConfigured, true);
     assert.equal(profile.localProfile.modelConfigured, true);
     assert.equal(profile.localProfile.credentialedTransportVerified, true);
+    assert.equal(profile.localProfile.credentialedTransportVerification.status, "verified-current-model-policy");
+    assert.equal(profile.localProfile.credentialedTransportVerification.primary.verified, true);
+    assert.equal(profile.localProfile.credentialedTransportVerification.fallback.verified, false);
     assert.equal(profile.localProfile.gatewayStarted, true);
     assert.equal(profile.gateway.enabled, true);
     assert.ok(manifest.toolAllowlist.every((tool) => profile.toolAllowlist.includes(tool)));
@@ -196,8 +234,8 @@ test("M3 内容增长岗位通过受限验收后以最小权限按需上岗，�
     assert.equal(manifest.status, "active");
     assert.equal(manifest.executionOwner, "paperclip-hermes");
     assert.deepEqual(manifest.runtimeCapabilities.modelSelection, {
-      provider:"openai-codex",
-      model:"gpt-5.6-terra"
+      provider:"stepfun",
+      model:"step-3.5-flash-2603"
     });
     assert.equal(manifest.interaction.directFeishu, "disabled");
     assert.ok(manifest.acceptedTaskTypes.length > 0);
@@ -215,13 +253,253 @@ test("M3 内容增长岗位通过受限验收后以最小权限按需上岗，�
     assert.equal(profile.localProfile.modelSelectionConfigured, true);
     assert.equal(profile.localProfile.modelConfigured, true);
     assert.equal(profile.localProfile.credentialedTransportVerified, true);
+    assert.equal(profile.localProfile.credentialedTransportVerification.status, "verified-current-model-policy");
+    assert.equal(profile.localProfile.credentialedTransportVerification.primary.verified, true);
+    assert.equal(profile.localProfile.credentialedTransportVerification.fallback.verified, false);
     assert.deepEqual(profile.modelSelection, {
-      provider:"openai-codex",
-      model:"gpt-5.6-terra",
+      provider:"stepfun",
+      model:"step-3.5-flash-2603",
       secretStoredHere:false
     });
     assert.deepEqual(profile.toolAllowlist, manifest.toolAllowlist);
     assert.equal(profile.secrets.valuesStoredHere, false);
+  }
+});
+
+test("小拆把指标来源约束下沉到 Prompt、Skill、Manifest 和 Eval", async () => {
+  const manifest = await readJson(
+    path.join(repositoryRoot, "agents/video-content-analyst/manifest.json")
+  );
+  const prompt = await readFile(
+    path.join(repositoryRoot, manifest.promptRef),
+    "utf8"
+  );
+  const skill = await readFile(
+    path.join(
+      repositoryRoot,
+      "agents/video-content-analyst/skills/agent-army-video-content/SKILL.md"
+    ),
+    "utf8"
+  );
+  const evals = await readJson(path.join(repositoryRoot, manifest.evalRefs[0]));
+
+  assert.equal(manifest.manifestVersion, "0.4.1");
+  assert.match(prompt, /任一字段只要出现指标数字、比例或由其推导的算术结果/u);
+  assert.match(prompt, /不能依赖其他字段代为标注/u);
+  assert.match(prompt, /没有平台或行业基线时禁止/u);
+  assert.match(skill, /evidenceKind=acceptance_fixture\|platform_observed\|derived_from_observed/u);
+  assert.match(skill, /禁止用相邻字段的标签覆盖当前字段/u);
+  assert.ok(manifest.qualityGates.some(
+    ({ gate }) => gate === "metric-fields-carry-local-evidence-kind-and-source"
+  ));
+  assert.ok(manifest.qualityGates.some(
+    ({ gate }) => gate === "metric-comparisons-require-explicit-baseline"
+  ));
+  assert.ok(evals.cases.some(({ id }) => id === "metric-provenance-is-field-local"));
+  assert.ok(evals.cases.some(
+    ({ id }) => id === "missing-baseline-forbids-comparative-verdict"
+  ));
+});
+
+test("创建官和审核官固定使用本机 StepFun 路由，Profile 不保存密钥", async () => {
+  for (const agentId of ["creator", "reviewer"]) {
+    const manifest = await readJson(path.join(repositoryRoot, "agents", agentId, "manifest.json"));
+    const profile = await readJson(path.join(repositoryRoot, manifest.runtimeProfileRef));
+    assert.deepEqual(manifest.runtimeCapabilities.modelSelection, {
+      provider:"stepfun",
+      model:"step-3.5-flash-2603"
+    });
+    assert.deepEqual(profile.modelSelection, {
+      provider:"stepfun",
+      model:"step-3.5-flash-2603",
+      secretStoredHere:false
+    });
+    assert.equal(profile.secrets.valuesStoredHere, false);
+  }
+});
+
+test("11 个自主岗位统一明确 StepFun 模型，私密只读岗位不开放模型处理与自主扩权", async () => {
+  const entries = await readdir(path.join(repositoryRoot, "agents"), { withFileTypes:true });
+  const formalAutonomousAgentIds = [
+    "ajun",
+    "xiaod",
+    "intel-researcher",
+    "office-assistant",
+    "operator",
+    "creator",
+    "reviewer",
+    "architect",
+    "technical-expert",
+    "video-content-analyst",
+    "content-creator"
+  ];
+  const formal = [];
+  let privateWechatSeen = false;
+  for (const entry of entries.filter((item) => item.isDirectory())) {
+    const filePath = path.join(repositoryRoot, "agents", entry.name, "manifest.json");
+    try {
+      const manifest = await readJson(filePath);
+      if (manifest.status !== "active") continue;
+      if (manifest.agentId === "wechat-chat-retriever") {
+        privateWechatSeen = true;
+        assert.equal(manifest.executionOwner, "ajun-local");
+        assert.equal(manifest.operationalPolicy.privateContentModelAccess, "disabled");
+        assert.equal(manifest.operationalPolicy.rawChatPersistence, "disabled");
+        assert.deepEqual(manifest.runtimeCapabilities.mcpTools, []);
+        assert.deepEqual(manifest.runtimeCapabilities.modelSelection, {
+          provider:"stepfun",
+          model:"step-3.5-flash-2603"
+        });
+        assert.deepEqual(manifest.runtimeCapabilities.fallbackModels, [{
+          provider:"deepseek",
+          model:"deepseek-v4-flash",
+          trigger:"transport_unavailable"
+        }]);
+        const profile = await readJson(path.join(repositoryRoot, manifest.runtimeProfileRef));
+        assert.equal(profile.status, "pending-local-profile");
+        assert.equal(profile.localProfile.created, false);
+        assert.equal(profile.localProfile.modelSelectionConfigured, false);
+        assert.equal(profile.localProfile.modelConfigured, false);
+        assert.equal(profile.localProfile.credentialedTransportVerified, false);
+        assert.equal(
+          profile.localProfile.credentialedTransportVerification.status,
+          "pending-local-profile"
+        );
+        assert.equal(profile.localProfile.skillsSeeded, false);
+        assert.deepEqual(profile.modelSelection, {
+          provider:"stepfun",
+          model:"step-3.5-flash-2603",
+          secretStoredHere:false
+        });
+        assert.deepEqual(profile.fallbackModels, [{
+          provider:"deepseek",
+          model:"deepseek-v4-flash",
+          trigger:"transport_unavailable",
+          secretStoredHere:false
+        }]);
+        assert.equal(profile.gateway.enabled, false);
+        assert.deepEqual(profile.mcp.tools, []);
+        continue;
+      }
+      formal.push(manifest);
+      assert.deepEqual(manifest.runtimeCapabilities.modelSelection, {
+        provider:"stepfun",
+        model:"step-3.5-flash-2603"
+      });
+      assert.deepEqual(manifest.runtimeCapabilities.fallbackModels, [{
+        provider:"deepseek",
+        model:"deepseek-v4-flash",
+        trigger:"transport_unavailable"
+      }]);
+      assert.equal(manifest.dynamicCapabilityPolicy.modelPolicyMutable, false);
+      assert.deepEqual(manifest.dynamicCapabilityPolicy.approvalRequiredFor, [
+        "credentials",
+        "external-write",
+        "paid-action",
+        "permission-expansion"
+      ]);
+      assert.deepEqual(manifest.autonomyBudgetPolicy, {
+        maxRuntimeMinutes:60,
+        maxModelCalls:20,
+        maxConcurrentSubtasks:4,
+        maxDelegationDepth:2,
+        paidApprovalThresholdUsd:5
+      });
+      assert.ok(
+        manifest.acceptedTaskTypes.some((taskType) => taskType.endsWith("-program")
+          || taskType.endsWith("-production")
+          || taskType.endsWith("-investigation")
+          || taskType.endsWith("-response")
+          || taskType.endsWith("-design")
+          || taskType.endsWith("-review")
+          || taskType.endsWith("-experiment")
+          || taskType.endsWith("-resolution")),
+        `${manifest.agentId} 缺少开放任务类型`
+      );
+      if (manifest.agentId === "ajun") {
+        assert.ok(!manifest.toolAllowlist.some((tool) => /browser|terminal|shell|exec|publish/.test(tool)));
+        assert.ok(manifest.runtimeCapabilities.mcpTools.includes("paperclip_assignment_get"));
+        assert.ok(manifest.runtimeCapabilities.mcpTools.includes("employee_assignment_execute"));
+        assert.ok(manifest.runtimeCapabilities.mcpTools.includes("paperclip_assignment_complete"));
+        assert.ok(!manifest.runtimeCapabilities.feishuToolsets.some((toolset) =>
+          ["terminal", "file", "browser", "computer_use", "code_execution"].includes(toolset)
+        ));
+      }
+      if (["creator", "architect"].includes(manifest.agentId)) {
+        assert.equal(manifest.dynamicCapabilityPolicy.capabilityLifecycleMode, "propose-only");
+        assert.ok(!manifest.toolAllowlist.some((tool) => /install|enable|grant|permission|expand/.test(tool)));
+      }
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
+  assert.deepEqual(formal.map((manifest) => manifest.agentId).sort(), formalAutonomousAgentIds.sort());
+  assert.equal(privateWechatSeen, true);
+});
+
+test("M5 岗位通过受限 Hermes heartbeat 执行 Paperclip 当前指派", async () => {
+  const expectedTaskTypes = {
+    ajun:{
+      executionTool:"employee_assignment_execute",
+      taskTypes:["content.campaign-topic"]
+    },
+    "intel-researcher":{
+      executionTool:"employee_assignment_execute",
+      taskTypes:["content.campaign-research", "content.campaign-evidence"]
+    },
+    xiaod:{
+      executionTool:"employee_assignment_execute",
+      taskTypes:["content.campaign-assets"]
+    },
+    "office-assistant":{
+      executionTool:"employee_assignment_execute",
+      taskTypes:["content.campaign-metrics"]
+    },
+    "video-content-analyst":{
+      executionTool:"video_content_analyze_execute",
+      taskTypes:["content.campaign-visual-analysis"]
+    },
+    "content-creator":{
+      executionTool:"m5_stage_execute",
+      taskTypes:[
+        "content.campaign-image-generation",
+        "content.campaign-voice",
+        "content.campaign-render"
+      ]
+    },
+    reviewer:{
+      executionTool:"m5_stage_execute",
+      taskTypes:[
+        "content.campaign-machine-review",
+        "content.campaign-publish-approval",
+        "content.campaign-verify"
+      ]
+    }
+  };
+  for (const [agentId, expected] of Object.entries(expectedTaskTypes)) {
+    const manifest = await readJson(path.join(repositoryRoot, "agents", agentId, "manifest.json"));
+    const profile = await readJson(path.join(repositoryRoot, manifest.runtimeProfileRef));
+    assert.equal(manifest.status, "active");
+    assert.equal(manifest.executionOwner, "paperclip-hermes");
+    assert.equal(manifest.interaction.runtime, "hermes-profile");
+    assert.ok(manifest.runtimeCapabilities.skills.includes("paperclip"));
+    for (const tool of [
+      "paperclip_assignment_get",
+      expected.executionTool,
+      "paperclip_assignment_complete"
+    ]) {
+      assert.ok(manifest.runtimeCapabilities.mcpTools.includes(tool), `${agentId} 缺少 ${tool}`);
+      assert.ok(profile.mcp.tools.includes(tool), `${agentId} Profile 缺少 ${tool}`);
+    }
+    for (const taskType of expected.taskTypes) {
+      assert.ok(manifest.acceptedTaskTypes.includes(taskType), `${agentId} 未声明 ${taskType}`);
+      assert.ok(profile.mcp.scope.taskTypes.includes(taskType), `${agentId} Profile 未限制到 ${taskType}`);
+    }
+    assert.deepEqual(profile.mcp.scope.agentIds, [agentId]);
+    assert.equal(profile.mcp.scope.allowMissions, agentId === "ajun");
+    assert.ok(!manifest.runtimeCapabilities.feishuToolsets.some((toolset) =>
+      ["terminal", "file", "browser", "computer_use", "code_execution"].includes(toolset)
+    ));
   }
 });
 

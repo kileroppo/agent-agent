@@ -6,17 +6,25 @@ export class LocalGithubResearch {
 
   supports(agent) { return agent?.agentId === 'intel-researcher'; }
 
-  async execute(task) {
+  async execute(task, { roleToolContext = null } = {}) {
     const input = task?.input || {};
-    if (String(input.repo || '').trim()) return this.read(task, input);
-    if (String(input.query || input.title || '').trim()) return this.search(task, input);
+    if (String(input.repo || '').trim()) return this.read(task, input, roleToolContext);
+    if (String(input.query || input.title || '').trim()) return this.search(task, input, roleToolContext);
     return needsInput(this.now(), 'github_query_required', '请说明要找什么 GitHub 项目，或给出公开 owner/repo 和可选文件路径。');
   }
 
-  async search(task, input) {
+  async search(task, input, roleToolContext = null) {
     try {
       const limit = requestedResultLimit(input);
-      const search = await this.githubSearch.search({ query:input.query || input.title, limit });
+      const query = input.query || input.title;
+      const search = roleToolContext
+        ? await roleToolContext.execute({
+            toolId:'github.public.search',
+            externalSideEffect:'network-read',
+            url:'https://api.github.com/search/repositories',
+            input:{ operation:'search', query, limit },
+          })
+        : await this.githubSearch.search({ query, limit });
       if (!search.results.length) return needsInput(this.now(), 'github_no_results', '没有找到匹配的公开 GitHub 项目。请换一组更具体的关键词后再试。');
       const completedAt = this.now().toISOString();
       const report = {
@@ -30,9 +38,16 @@ export class LocalGithubResearch {
     } catch (error) { return failure(this.now(), error); }
   }
 
-  async read(task, input) {
+  async read(task, input, roleToolContext = null) {
     try {
-      const file = await this.githubSearch.readRepo({ repo:input.repo, path:input.path || 'README' });
+      const file = roleToolContext
+        ? await roleToolContext.execute({
+            toolId:'github.public.read',
+            externalSideEffect:'network-read',
+            url:`https://api.github.com/repos/${String(input.repo || '').trim()}`,
+            input:{ operation:'read', repo:input.repo, path:input.path || 'README' },
+          })
+        : await this.githubSearch.readRepo({ repo:input.repo, path:input.path || 'README' });
       if (!file.text.trim()) return needsInput(this.now(), 'github_empty_file', '这个公开 GitHub 文件没有可用文本内容。请换一个 README 或公开文本文件。');
       const completedAt = this.now().toISOString();
       const report = {

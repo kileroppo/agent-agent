@@ -15,7 +15,7 @@ export const STAGES = [
 
 export const ACTIVE_STATUSES = new Set(STAGES.map(([status]) => status).filter((status) => !['awaiting_review', 'completed'].includes(status)).concat('pausing'));
 
-export function makeJob({ sourceType, sourceUrl = null, originalName = null, sourcePath = null, ingress = null, connectionId = null, reviewPolicy = 'optional', visualMode = 'off', analysisDepth = 'fast', deliveryMode = 'feishu' }) {
+export function makeJob({ sourceType, sourceUrl = null, originalName = null, sourcePath = null, ingress = null, connectionId = null, connectionBinding = null, reviewPolicy = 'optional', visualMode = 'off', analysisDepth = 'fast', deliveryMode = 'feishu' }) {
   const now = new Date().toISOString();
   return {
     id: crypto.randomUUID(),
@@ -25,6 +25,7 @@ export function makeJob({ sourceType, sourceUrl = null, originalName = null, sou
     sourcePath,
     ingress,
     connectionId,
+    connectionBinding,
     reviewPolicy: reviewPolicy === 'required' ? 'required' : 'optional',
     visualMode: visualMode === 'auto' || visualMode === 'required' ? visualMode : 'off',
     analysisDepth: analysisDepth === 'full' ? 'full' : 'fast',

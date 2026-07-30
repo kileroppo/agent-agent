@@ -3,7 +3,11 @@ import test from 'node:test';
 import { HermesIntentPlanner } from '../src/hermes-intent-planner.js';
 
 test('AI理解器只接受预先允许的任务类别', async () => {
-  const planner = new HermesIntentPlanner({ hermesHome: '/safe/profile', run: async () => '{"intent":"army_overview"}' });
+  const planner = new HermesIntentPlanner({ hermesHome: '/safe/profile', run: async (_command, args) => {
+    assert.deepEqual(args.slice(0, 2), ['--toolsets', 'clarify']);
+    assert.equal(args.includes('--ignore-rules'), false);
+    return '{"intent":"army_overview"}';
+  } });
   assert.deepEqual(await planner.decide('大家都在干嘛？'), { intent: 'army_overview' });
 });
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "agent.army/v1",
-  "manifestVersion": "0.6.0",
+  "manifestVersion": "0.7.0",
   "agentId": "architect",
   "name": "架构师",
   "department": "军团中枢",
@@ -16,9 +16,9 @@
   "nonResponsibilities": [
     "未经确认改变系统边界",
     "直接读取凭据或操作外部账号",
-    "绕过审核上线方案"
+    "安装或启用能力、扩大权限或绕过审核上线方案"
   ],
-  "acceptedTaskTypes": ["governance.architecture-review"],
+  "acceptedTaskTypes": ["governance.architecture-review", "governance.architecture-experiment"],
   "toolAllowlist": [
     "army.registry.read",
     "army.task.status.read",
@@ -56,6 +56,17 @@
   },
   "executionOwner": "paperclip-hermes",
   "runtimeCapabilities": {
+    "modelSelection": {
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603"
+    },
+    "fallbackModels": [
+      {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "trigger": "transport_unavailable"
+      }
+    ],
     "skills": ["paperclip", "paperclip-converting-plans-to-tasks"],
     "mcpTools": [
       "capabilities",
@@ -67,6 +78,24 @@
     ],
     "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
     "paperclipToolsets": ["agent-army", "clarify"]
+  },
+  "openTaskPolicy": {
+    "domain": "governance",
+    "qualityGateMode": "manifest-required"
+  },
+  "dynamicCapabilityPolicy": {
+    "allowDiscovery": true,
+    "allowedSources": ["repository", "installed-hermes", "official-source", "reviewed-third-party"],
+    "modelPolicyMutable": false,
+    "capabilityLifecycleMode": "propose-only",
+    "approvalRequiredFor": ["credentials", "external-write", "paid-action", "permission-expansion"]
+  },
+  "autonomyBudgetPolicy": {
+    "maxRuntimeMinutes": 60,
+    "maxModelCalls": 20,
+    "maxConcurrentSubtasks": 4,
+    "maxDelegationDepth": 2,
+    "paidApprovalThresholdUsd": 5
   },
   "owner": "A 君",
   "status": "active"

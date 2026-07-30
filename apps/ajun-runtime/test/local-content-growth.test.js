@@ -1,9 +1,371 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { LocalContentCreator, LocalVideoContentAnalyst } from '../src/local-content-growth.js';
+
+const M5_PIPELINE_CASE_ID = '11111111-1111-4111-8111-111111111111';
+const M5_PROJECT_ID = '22222222-2222-4222-8222-222222222222';
+
+test('M5 小拆只消费 AssetPackage，并产出逐条绑定帧、时间点和证据类型的 VisualAnalysisPackage', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'm5-visual-analysis-'));
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const relativePath = 'campaigns/case-1/assets/frame-001.png';
+  const framePath = path.join(root, relativePath);
+  const frameBytes = Buffer.from('controlled-frame');
+  await fs.mkdir(path.dirname(framePath), { recursive:true });
+  await fs.writeFile(framePath, frameBytes);
+  const assetPackage = {
+    artifactId:'asset-package:task-1',
+    type:'asset_package',
+    validation:{ exists:true, readable:true, nonEmpty:true },
+    data:{
+      assets:[{
+        frameId:'frame-001',
+        timestamp:'00:00:03',
+        relativePath,
+        checksum:`sha256:${crypto.createHash('sha256').update(frameBytes).digest('hex')}`,
+      }],
+    },
+  };
+  const advisor = {
+    async analyze(input) {
+      assert.equal(input.visualEvidence.frames[0].frameId, 'frame-001');
+      assert.equal(input.providerVisionObservation, '{"visible":"task status"}');
+      const data = {
+        visualFindings:[
+          {
+            category:'opening_visual_hook',
+            finding:'开场直接展示任务状态。',
+            evidence:{ frameRef:'frame-001', timestamp:'00:00:03' },
+            confidence:'high',
+          },
+          {
+            category:'shot_and_pacing',
+            finding:'该帧适合承接第一处流程转折。',
+            evidence:{ frameRef:'frame-001', timestamp:'00:00:03' },
+            confidence:'medium',
+          },
+          {
+            category:'reusable_visual_pattern',
+            finding:'可复用界面状态与旁白结论同步出现的方式。',
+            evidence:{ frameRef:'frame-001', timestamp:'00:00:03' },
+            confidence:'medium',
+          },
+        ],
+      };
+      assert.equal(input.validate(data), true);
+      return { data, usage:{ model:{ provider:'stepfun', model:'step-1o-turbo-vision' } } };
+    },
+  };
+  const analyst = new LocalVideoContentAnalyst({
+    store:{ list:async () => [] },
+    artifactsDir:path.join(root, 'out'),
+    allowedArtifactRoots:[root],
+    advisor,
+  });
+  const result = await analyst.execute({
+    taskId:'m5-visual-task',
+    taskType:'content.campaign-visual-analysis',
+    assigneeAgentId:'video-content-analyst',
+    input:{
+      title:'AI Agent 实战',
+      context:{ pipelineCaseId:M5_PIPELINE_CASE_ID },
+    },
+  }, {
+    sourceArtifacts:[assetPackage],
+    providerVision:providerVisionFixture({
+      relativePath,
+      checksum:assetPackage.data.assets[0].checksum,
+    }),
+  });
+  assert.equal(result.status, 'succeeded');
+  const artifact = result.artifactRefs[0];
+  assert.equal(artifact.type, 'visual_analysis_package');
+  assert.equal(artifact.data.sourceAssetPackageId, assetPackage.artifactId);
+  assert.equal(artifact.data.providerReceipt.operation, 'vision');
+  assert.equal(artifact.data.providerReceipt.costCommit.status, 'confirmed');
+  assert.equal(artifact.data.providerReceipt.costCommit.costEvent.projectId, M5_PROJECT_ID);
+  assert.equal(artifact.validation.providerVisionConfirmed, true);
+  assert.equal(artifact.validation.externalWrites, 0);
+  assert.equal(artifact.data.insights.length, 3);
+  assert.equal(artifact.data.insights.every((item) =>
+    item.frameRef === 'frame-001'
+    && item.timestamp === '00:00:03'
+    && item.evidenceKind === 'stepfun_vision_frame'), true);
+});
+
+test('M5 小拆拒绝正确帧ID但错误时间点，不能静默修正后放行', async (t) => {
+  const { analyst, assetPackage, providerVision } = await m5VisualFixture(t, {
+    advisor:{
+      async analyze() {
+        return {
+          data:{
+            visualFindings:[
+              {
+                category:'opening_visual_hook',
+                finding:'开场直接展示任务状态。',
+                evidence:{ frameRef:'frame-001', timestamp:'00:00:09' },
+                confidence:'high',
+              },
+              {
+                category:'shot_and_pacing',
+                finding:'该帧适合承接第一处流程转折。',
+                evidence:{ frameRef:'frame-001', timestamp:'00:00:09' },
+                confidence:'medium',
+              },
+              {
+                category:'reusable_visual_pattern',
+                finding:'界面状态与旁白结论同步。',
+                evidence:{ frameRef:'frame-001', timestamp:'00:00:09' },
+                confidence:'medium',
+              },
+            ],
+          },
+        };
+      },
+    },
+  });
+  await assert.rejects(
+    analyst.execute({
+      taskId:'m5-visual-wrong-timestamp',
+      taskType:'content.campaign-visual-analysis',
+      assigneeAgentId:'video-content-analyst',
+      input:{
+        title:'AI Agent 实战',
+        context:{ pipelineCaseId:M5_PIPELINE_CASE_ID },
+      },
+    }, { sourceArtifacts:[assetPackage], providerVision }),
+    { code:'m5_visual_analysis_evidence_invalid' },
+  );
+});
+
+test('M5 小拆在模型调用前拒绝被替换的AssetPackage关键帧', async (t) => {
+  let advisorCalls = 0;
+  const { analyst, assetPackage, framePath, providerVision } = await m5VisualFixture(t, {
+    advisor:{
+      async analyze() {
+        advisorCalls += 1;
+        throw new Error('不应调用模型');
+      },
+    },
+  });
+  await fs.writeFile(framePath, 'tampered-frame');
+  await assert.rejects(
+    analyst.execute({
+      taskId:'m5-visual-tampered-frame',
+      taskType:'content.campaign-visual-analysis',
+      assigneeAgentId:'video-content-analyst',
+      input:{
+        title:'AI Agent 实战',
+        context:{ pipelineCaseId:M5_PIPELINE_CASE_ID },
+      },
+    }, { sourceArtifacts:[assetPackage], providerVision }),
+    /关键帧文件与声明 sha256 不一致/,
+  );
+  assert.equal(advisorCalls, 0);
+});
+
+test('M5 小拆在视觉费用未确认、图片哈希错配或Project错配时不调用岗位模型且不产出包', async (t) => {
+  let advisorCalls = 0;
+  const { analyst, assetPackage } = await m5VisualFixture(t, {
+    advisor:{
+      async analyze() {
+        advisorCalls += 1;
+        throw new Error('Provider 视觉门禁失败后不应调用岗位模型');
+      },
+    },
+  });
+  const relativePath = assetPackage.data.assets[0].relativePath;
+  const checksum = assetPackage.data.assets[0].checksum;
+  for (const [label, providerVision] of [
+    ['pending', providerVisionFixture({ relativePath, checksum, state:'pending_core_cost_event' })],
+    ['checksum', providerVisionFixture({
+      relativePath,
+      checksum,
+      sourceChecksum:`sha256:${'f'.repeat(64)}`,
+    })],
+    ['project', async (parameters) => {
+      const result = await providerVisionFixture({ relativePath, checksum })(parameters);
+      result.projectId = '44444444-4444-4444-8444-444444444444';
+      return result;
+    }],
+  ]) {
+    await assert.rejects(
+      analyst.execute({
+        taskId:`m5-visual-provider-${label}`,
+        taskType:'content.campaign-visual-analysis',
+        assigneeAgentId:'video-content-analyst',
+        input:{
+          title:'AI Agent 实战',
+          context:{ pipelineCaseId:M5_PIPELINE_CASE_ID },
+        },
+      }, { sourceArtifacts:[assetPackage], providerVision }),
+      { code:'m5_provider_vision_receipt_invalid' },
+      label,
+    );
+  }
+  assert.equal(advisorCalls, 0);
+});
+
+test('M5 小拆没有受控视觉工具授权时明确等待输入，不以Hermes advisor冒充成功', async (t) => {
+  let advisorCalls = 0;
+  const { analyst, assetPackage } = await m5VisualFixture(t, {
+    advisor:{
+      async analyze() {
+        advisorCalls += 1;
+        throw new Error('不应调用岗位模型');
+      },
+    },
+  });
+  const result = await analyst.execute({
+    taskId:'m5-visual-no-provider-tool',
+    taskType:'content.campaign-visual-analysis',
+    assigneeAgentId:'video-content-analyst',
+    input:{
+      title:'AI Agent 实战',
+      context:{ pipelineCaseId:M5_PIPELINE_CASE_ID },
+    },
+  }, { sourceArtifacts:[assetPackage] });
+  assert.equal(result.status, 'needs_input');
+  assert.equal(result.error.code, 'm5_provider_vision_required');
+  assert.equal(Array.isArray(result.artifactRefs) ? result.artifactRefs.length : 0, 0);
+  assert.equal(advisorCalls, 0);
+});
+
+test('M5 平台适配只从同一 Case 的真实脚本和成片哈希生成 ContentVersion', async (t) => {
+  const root = await sandbox(t);
+  const scriptTask = taskWithArtifact('m5-script-task', {
+    artifactId:'video-script:m5',
+    type:'video_script_package',
+    validation:{ exists:true, readable:true, nonEmpty:true },
+    data:{
+      hook:'别再看 Agent 会不会说，先看它有没有交付。',
+      fullScript:'这是一段基于真实任务结果生成的平台母版脚本。',
+    },
+  });
+  const renderTask = taskWithArtifact('m5-render-task', {
+    artifactId:'render:m5',
+    type:'render_package',
+    validation:{ exists:true, readable:true, nonEmpty:true },
+    data:{
+      relativePath:'campaigns/campaign/day/douyin.mp4',
+      checksum:`sha256:${'a'.repeat(64)}`,
+    },
+  });
+  const creator = new LocalContentCreator({
+    store:{ list:async () => [scriptTask, renderTask] },
+    artifactsDir:path.join(root, 'out'),
+  });
+  const result = await creator.execute({
+    taskId:'m5-platform-task',
+    taskType:'content.platform-draft',
+    input:{
+      title:'AI Agent 实战',
+      context:{
+        paperclipRoutineKey:'m5-platform-adapt',
+        pipelineCaseId:'11111111-1111-4111-8111-111111111111',
+        sourceTaskIds:[scriptTask.taskId, renderTask.taskId],
+        pipelineCase:{ fields:{ platform:'douyin' } },
+      },
+    },
+  });
+  const artifact = result.artifactRefs[0];
+  assert.equal(result.status, 'succeeded');
+  assert.equal(artifact.type, 'platform_content_draft');
+  assert.equal(artifact.data.contentVersion.platform, 'douyin');
+  assert.equal(artifact.data.contentVersion.mediaPath, 'campaigns/campaign/day/douyin.mp4');
+  assert.equal(artifact.data.contentVersion.checksum, `sha256:${'a'.repeat(64)}`);
+  assert.match(artifact.data.contentVersion.contentVersionId, /^m5:douyin:[0-9a-f]{40}$/);
+  assert.equal(artifact.data.publishingStatus, 'draft_only');
+});
+
+test('M5 平台适配从三份 RenderPackage 中选择当前平台成片', async (t) => {
+  const root = await sandbox(t);
+  const scriptTask = taskWithArtifact('m5-script-three-output', {
+    artifactId:'video-script:m5-three-output',
+    type:'video_script_package',
+    validation:{ exists:true, readable:true, nonEmpty:true },
+    data:{
+      hook:'看真实产出',
+      fullScript:'真实工具结果必须进入下一步。',
+    },
+  });
+  const renderTask = taskWithArtifact('m5-render-three-output', {
+    artifactId:'render:m5-three-output',
+    type:'render_package',
+    validation:{ exists:true, readable:true, nonEmpty:true },
+    data:{
+      outputs:{
+        master:{
+          outputPath:'campaigns/day/master.mp4',
+          checksum:`sha256:${'a'.repeat(64)}`,
+        },
+        douyin:{
+          outputPath:'campaigns/day/douyin.mp4',
+          checksum:`sha256:${'b'.repeat(64)}`,
+        },
+        xiaohongshu:{
+          outputPath:'campaigns/day/xiaohongshu.mp4',
+          checksum:`sha256:${'c'.repeat(64)}`,
+        },
+      },
+    },
+  });
+  const creator = new LocalContentCreator({
+    store:{ list:async () => [scriptTask, renderTask] },
+    artifactsDir:path.join(root, 'out'),
+  });
+
+  const result = await creator.execute({
+    taskId:'m5-platform-three-output',
+    taskType:'content.platform-draft',
+    input:{
+      context:{
+        paperclipRoutineKey:'m5-platform-adapt',
+        pipelineCaseId:'11111111-1111-4111-8111-111111111111',
+        sourceTaskIds:[scriptTask.taskId, renderTask.taskId],
+        pipelineCase:{ fields:{ platform:'xiaohongshu' } },
+      },
+    },
+  });
+
+  assert.equal(result.status, 'succeeded');
+  const contentVersion = result.artifactRefs[0].data.contentVersion;
+  assert.equal(contentVersion.mediaPath, 'campaigns/day/xiaohongshu.mp4');
+  assert.equal(contentVersion.checksum, `sha256:${'c'.repeat(64)}`);
+});
+
+test('M5 平台适配缺少真实 RenderPackage 时失败闭锁', async (t) => {
+  const root = await sandbox(t);
+  const scriptTask = taskWithArtifact('m5-script-only', {
+    artifactId:'video-script:m5-only',
+    type:'video_script_package',
+    validation:{ exists:true, readable:true, nonEmpty:true },
+    data:{ fullScript:'只有脚本，没有真实成片。' },
+  });
+  const creator = new LocalContentCreator({
+    store:{ list:async () => [scriptTask] },
+    artifactsDir:path.join(root, 'out'),
+  });
+  const result = await creator.execute({
+    taskId:'m5-platform-no-render',
+    taskType:'content.platform-draft',
+    input:{
+      context:{
+        paperclipRoutineKey:'m5-platform-adapt',
+        pipelineCaseId:'11111111-1111-4111-8111-111111111111',
+        sourceTaskIds:[scriptTask.taskId],
+        pipelineCase:{ fields:{ platform:'xiaohongshu' } },
+      },
+    },
+  });
+  assert.equal(result.status, 'needs_input');
+  assert.equal(result.error.code, 'm5_render_package_required');
+  assert.equal(result.artifactRefs, undefined);
+});
 
 test('正式 full 拆解只复用确认稿并生成 13 个带证据模块', async (t) => {
   const root = await sandbox(t);
@@ -315,7 +677,7 @@ test('Hermes 预算失败时仍交付本机证据化兜底并保留已消耗用�
   assert.equal(result.usage.model.apiCalls, 2);
 });
 
-test('小拆优先使用真实来源标题，并只接受带关键帧引用的视觉结论', async (t) => {
+test('普通故事板没有受控 Provider 时明确 needs_input，不启动岗位主模型', async (t) => {
   const root = await sandbox(t);
   const transcriptPath = path.join(root, 'confirmed-visual.md');
   const sourceEvidencePath = path.join(root, 'source-evidence.json');
@@ -360,28 +722,14 @@ test('小拆优先使用真实来源标题，并只接受带关键帧引用的�
     }
   ];
   const sourceTask = { taskId:'source-task-visual', status:'succeeded', artifactRefs:artifacts };
-  const evidence = { timestamp:'00:00', fragment:'开场直接给出结果。' };
-  const moduleNames = ['定位与受众', '开场钩子', '内容结构', '核心价值点', '可执行优化建议'];
-  let advisorInput;
+  let advisorCalls = 0;
   const analyst = new LocalVideoContentAnalyst({
     store:{ list:async () => [sourceTask] },
     artifactsDir:path.join(root, 'out'),
     allowedArtifactRoots:[root],
-    advisor:{ async analyze(input) {
-      advisorInput = input;
-      return {
-        data:{
-          summary:'图文联合分析',
-          modules:moduleNames.map((name) => ({ name, finding:`${name}判断`, evidence, confidence:'high' })),
-          visualFindings:[
-            { category:'opening_visual_hook', finding:'开头使用人物近景。', evidence:{ timestamp:'00:00', frameRef:'frame-001' }, confidence:'high' },
-            { category:'captions_and_graphics', finding:'画面存在醒目字幕。', evidence:{ timestamp:'00:05', frameRef:'frame-002' }, confidence:'medium' },
-            { category:'captions_and_graphics', finding:'中段画面继续使用字幕。', evidence:{ timestamp:'00:11', frameRef:'frame-003' }, confidence:'medium' }
-          ],
-          reusablePatterns:[],
-          actionItems:[]
-        }
-      };
+    advisor:{ async analyze() {
+      advisorCalls += 1;
+      throw new Error('普通故事板没有 Provider 回执时不得启动 Hermes');
     } }
   });
   const result = await analyst.execute({
@@ -395,20 +743,14 @@ test('小拆优先使用真实来源标题，并只接受带关键帧引用的�
       context:{ sourceTaskIds:[sourceTask.taskId] }
     }
   });
-  const artifact = result.artifactRefs[0];
-  assert.equal(advisorInput.title, '平台真实原标题');
-  assert.equal(advisorInput.visualEvidence.storyboards[0].filePath, path.join(storyboardDir, 'storyboard-01.jpg'));
-  assert.equal(artifact.data.title, '平台真实原标题');
-  assert.equal(artifact.data.sourceMetadata.author, '平台作者');
-  assert.equal(artifact.data.visualFindings.length, 3);
-  assert.equal(artifact.data.visualFindings[2].evidence.timestamp, '00:12');
-  assert.equal(artifact.data.completeness, 'complete');
-  assert.equal(artifact.validation.visualClaimsEvidenceLinked, true);
-  assert.equal(artifact.validation.visualAnalysisApplied, true);
-  assert.deepEqual(artifact.sourceRefs, ['confirmed-1', 'source-evidence-visual', 'visual-evidence-visual']);
+  assert.equal(result.status, 'needs_input');
+  assert.equal(result.error.code, 'controlled_provider_vision_required');
+  assert.match(result.error.userMessage, /不会直接读取本机图片/);
+  assert.equal(advisorCalls, 0);
+  assert.equal(result.artifactRefs, undefined);
 });
 
-test('视觉结论引用不存在的关键帧时降级为部分完成，不冒充图文分析成功', async (t) => {
+test('visualMode off 明确忽略故事板，只执行无视觉工具的文本拆解', async (t) => {
   const root = await sandbox(t);
   const transcriptPath = path.join(root, 'confirmed-invalid-visual.md');
   const visualDir = path.join(root, 'visual-invalid');
@@ -434,18 +776,18 @@ test('视觉结论引用不存在的关键帧时降级为部分完成，不冒�
     ]
   };
   const evidence = { timestamp:'00:00', fragment:'这是用于验证视觉证据门禁的确认稿正文。' };
+  let advisorInput;
   const analyst = new LocalVideoContentAnalyst({
     store:{ list:async () => [sourceTask] },
     artifactsDir:path.join(root, 'out'),
     allowedArtifactRoots:[root],
-    advisor:{ async analyze() {
+    advisor:{ async analyze(input) {
+      advisorInput = input;
       return {
         data:{
-          summary:'错误视觉引用',
+          summary:'纯文本拆解',
           modules:['定位与受众', '开场钩子', '内容结构', '核心价值点', '可执行优化建议'].map((name) => ({ name, finding:name, evidence, confidence:'high' })),
-          visualFindings:[
-            { category:'opening_visual_hook', finding:'无法核验的画面结论', evidence:{ timestamp:'00:09', frameRef:'frame-999' }, confidence:'high' }
-          ]
+          visualFindings:[]
         }
       };
     } }
@@ -453,13 +795,15 @@ test('视觉结论引用不存在的关键帧时降级为部分完成，不冒�
   const result = await analyst.execute({
     taskId:'analysis-task-invalid-visual',
     taskType:'content.video-benchmark-analysis',
-    input:{ title:'错误视觉引用', evidenceMode:'formal', depth:'fast', visualMode:'auto', context:{ sourceTaskIds:[sourceTask.taskId] } }
+    input:{ title:'关闭视觉', evidenceMode:'formal', depth:'fast', visualMode:'off', context:{ sourceTaskIds:[sourceTask.taskId] } }
   });
   const artifact = result.artifactRefs[0];
-  assert.equal(artifact.validation.advisorApplied, false);
+  assert.equal(result.status, 'succeeded');
+  assert.equal(advisorInput.visualEvidence, null);
+  assert.equal(artifact.validation.advisorApplied, true);
   assert.equal(artifact.data.visualFindings.length, 0);
-  assert.equal(artifact.data.completeness, 'partial');
-  assert.equal(artifact.validation.visualAnalysisApplied, false);
+  assert.equal(artifact.data.completeness, 'complete');
+  assert.equal(artifact.validation.visualAnalysisApplied, true);
 });
 
 test('小创要求确认稿和正式分析，且一次最多三个平台', async (t) => {
@@ -550,6 +894,87 @@ test('已采用脚本连续三次低于账号基准后建议 retired', async (t)
   assert.equal(lifecycle.state, 'retired');
   assert.match(lifecycle.reason, /连续三次/);
 });
+
+async function m5VisualFixture(t, { advisor }) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'm5-visual-contract-'));
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const relativePath = 'campaigns/case-1/assets/frame-001.png';
+  const framePath = path.join(root, relativePath);
+  const frameBytes = Buffer.from('controlled-frame');
+  await fs.mkdir(path.dirname(framePath), { recursive:true });
+  await fs.writeFile(framePath, frameBytes);
+  const assetPackage = {
+    artifactId:'asset-package:contract-test',
+    type:'asset_package',
+    validation:{ exists:true, readable:true, nonEmpty:true },
+    data:{
+      assets:[{
+        frameId:'frame-001',
+        timestamp:'00:00:03',
+        relativePath,
+        checksum:`sha256:${crypto.createHash('sha256').update(frameBytes).digest('hex')}`,
+      }],
+    },
+  };
+  return {
+    framePath,
+    assetPackage,
+    providerVision:providerVisionFixture({
+      relativePath,
+      checksum:assetPackage.data.assets[0].checksum,
+    }),
+    analyst:new LocalVideoContentAnalyst({
+      store:{ list:async () => [] },
+      artifactsDir:path.join(root, 'out'),
+      allowedArtifactRoots:[root],
+      advisor,
+    }),
+  };
+}
+
+function providerVisionFixture({
+  relativePath,
+  checksum,
+  projectId = M5_PROJECT_ID,
+  heartbeatRunId = 'run-m5-vision-source',
+  sourceChecksum = checksum,
+  state = 'confirmed',
+  onExecute = () => {},
+}) {
+  return async (parameters) => {
+    onExecute(parameters);
+    const costEventId = '33333333-3333-4333-8333-333333333333';
+    const costEvent = {
+      provider:'stepfun',
+      projectId,
+      heartbeatRunId,
+      costCents:1,
+    };
+    return {
+      projectId,
+      receipt:{
+        actionId:parameters.actionId,
+        operation:'vision',
+        model:'step-1o-turbo-vision',
+        sourcePath:relativePath,
+        sourceChecksum,
+        observation:'{"visible":"task status"}',
+        callRecord:{
+          actionId:parameters.actionId,
+          operation:'vision',
+          model:'step-1o-turbo-vision',
+          promptChecksum:`sha256:${'a'.repeat(64)}`,
+          costEvent,
+        },
+        costCommit:{
+          status:state,
+          costEventId,
+          costEvent,
+        },
+      },
+    };
+  };
+}
 
 function confirmedArtifact(filePath, confirmationMode = 'human') {
   return {

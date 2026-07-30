@@ -1,6 +1,6 @@
 {
   "schemaVersion": "agent.army/v1",
-  "manifestVersion": "0.1.0",
+  "manifestVersion": "0.3.0",
   "agentId": "content-creator",
   "name": "小创·内容创作师",
   "department": "内容增长部",
@@ -20,7 +20,11 @@
   ],
   "acceptedTaskTypes": [
     "content.platform-draft",
-    "content.video-script-package"
+    "content.video-script-package",
+    "content.creation-program",
+    "content.campaign-image-generation",
+    "content.campaign-voice",
+    "content.campaign-render"
   ],
   "toolAllowlist": [
     "army.task.status.read",
@@ -88,18 +92,43 @@
   "executionOwner": "paperclip-hermes",
   "runtimeCapabilities": {
     "modelSelection": {
-      "provider": "openai-codex",
-      "model": "gpt-5.6-terra"
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603"
     },
+    "fallbackModels": [
+      {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "trigger": "transport_unavailable"
+      }
+    ],
     "skills": ["paperclip"],
     "mcpTools": [
       "paperclip_assignment_get",
       "platform_content_draft_execute",
       "video_script_package_execute",
+      "m5_stage_execute",
       "paperclip_assignment_complete"
     ],
     "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
     "paperclipToolsets": ["agent-army", "clarify"]
+  },
+  "openTaskPolicy": {
+    "domain": "content.creation",
+    "qualityGateMode": "manifest-required"
+  },
+  "dynamicCapabilityPolicy": {
+    "allowDiscovery": true,
+    "allowedSources": ["repository", "installed-hermes", "official-source", "reviewed-third-party"],
+    "modelPolicyMutable": false,
+    "approvalRequiredFor": ["credentials", "external-write", "paid-action", "permission-expansion"]
+  },
+  "autonomyBudgetPolicy": {
+    "maxRuntimeMinutes": 60,
+    "maxModelCalls": 20,
+    "maxConcurrentSubtasks": 4,
+    "maxDelegationDepth": 2,
+    "paidApprovalThresholdUsd": 5
   },
   "operationalPolicy": {
     "heartbeatSeconds": 0,

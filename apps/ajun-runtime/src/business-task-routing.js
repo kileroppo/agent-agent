@@ -4,6 +4,7 @@ const GITHUB_AGENT_ID = 'intel-researcher';
 const GITHUB_TASK_TYPE = 'research.github-search';
 const RESEARCH_TASK_TYPES = new Set(['army.intake', 'report.public-material', 'research.github-search', 'research.intel-report']);
 const FIXED_CONTENT_ASSIGNMENTS = new Map([
+  ['wechat.chat.retrieval', 'wechat-chat-retriever'],
   ['content.video-benchmark-analysis', 'video-content-analyst'],
   ['content.performance-review', 'video-content-analyst'],
   ['content.platform-draft', 'content-creator'],
@@ -22,11 +23,16 @@ export function canonicalizeBusinessAssignment(input = {}, { index = 0 } = {}) {
   const explicitOffice = requestedTaskType === OFFICE_TASK_TYPE || requestedAgentId === OFFICE_AGENT_ID;
   const officeDeliverable = /(?:老板|统一|最终|办公).{0,12}(?:汇报|汇总)|(?:汇报|汇总).{0,12}(?:老板|统一|最终)|汇报包/i.test(combined);
   const referencesPriorWork = /(?:基于|根据|等待|等).{0,40}(?:任务|工作|结果|产物)|前\s*[两二三23]\s*项|完成情况.{0,40}未决事项|主要结论.{0,40}下一步/i.test(combined);
+  const explicitVideoScript = /(?:可拍|短剧|视频脚本|分镜|镜头脚本|一人分饰)/i.test(combined)
+    && /(?:脚本|口播|分镜)/i.test(combined);
+  const normalizedTaskType = ['content.platform-draft', OFFICE_TASK_TYPE].includes(requestedTaskType) && explicitVideoScript
+    ? 'content.video-script-package'
+    : requestedTaskType;
   const isDependentOfficeBriefing = explicitOffice
     || (officeDeliverable && (dependsOnPrevious || index > 0 || referencesPriorWork));
   const explicitGithubResearch = RESEARCH_TASK_TYPES.has(requestedTaskType)
     && /(?:github|git\s*hub|开源项目|开源仓库)/i.test(combined);
-  const fixedAgentId = FIXED_CONTENT_ASSIGNMENTS.get(requestedTaskType);
+  const fixedAgentId = FIXED_CONTENT_ASSIGNMENTS.get(normalizedTaskType);
 
   if (fixedAgentId) {
     return {
@@ -34,7 +40,7 @@ export function canonicalizeBusinessAssignment(input = {}, { index = 0 } = {}) {
       title,
       description,
       acceptance,
-      taskType:requestedTaskType,
+      taskType:normalizedTaskType,
       agentId:fixedAgentId,
       dependsOnPrevious
     };

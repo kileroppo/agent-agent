@@ -5,15 +5,17 @@ import { PaperclipRosterReconciler } from '../src/paperclip-roster-reconciler.js
 test('岗位登记暂时失败后会在下一轮重新读取全员清单', async () => {
   let reads = 0;
   let attempts = 0;
+  const options = [];
   const results = [];
   const reconciler = new PaperclipRosterReconciler({
-    registry:{ async list() { reads += 1; return [{ agentId:'公开资料报告员', status:'active' }]; } },
+    registry:{ async list(value) { reads += 1; options.push(value); return [{ agentId:'公开资料报告员', status:'active' }]; } },
     governance:{ async syncRoster() { attempts += 1; return attempts === 1 ? { status:'sync_pending' } : { status:'synced' }; } },
     onResult:(result) => results.push(result.status)
   });
   assert.equal((await reconciler.reconcile()).status, 'sync_pending');
   assert.equal((await reconciler.reconcile()).status, 'synced');
   assert.equal(reads, 2);
+  assert.deepEqual(options, [{ includeManagers:true }, { includeManagers:true }]);
   assert.deepEqual(results, ['sync_pending', 'synced']);
 });
 

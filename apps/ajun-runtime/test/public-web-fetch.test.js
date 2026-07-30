@@ -9,9 +9,15 @@ test('HTML extraction preserves readable block boundaries instead of flattening 
 });
 
 test('公开网页能力只返回脱敏公开正文，不返回查询参数', async () => {
-  const fetcher = new PublicWebFetch({ fetchImpl: async () => response('<html><title>示例</title><body><script>secret()</script><h1>公开正文</h1></body></html>'), lookupImpl: async () => [{ address:'93.184.216.34' }] });
+  let requestOptions;
+  const fetcher = new PublicWebFetch({ fetchImpl: async (_url, options) => {
+    requestOptions = options;
+    return response('<html><title>示例</title><body><script>secret()</script><h1>公开正文</h1></body></html>');
+  }, lookupImpl: async () => [{ address:'93.184.216.34' }] });
   const result = await fetcher.acquire({ sourceUrl: 'https://example.com/article?private=ignored' });
   assert.equal(result.title, '示例'); assert.match(result.text, /公开正文/); assert.doesNotMatch(result.text, /secret/); assert.equal(result.sourceRef, 'https://example.com/article');
+  assert.match(result.contentHash, /^[0-9a-f]{64}$/);
+  assert.equal(requestOptions.resolvedAddress, '93.184.216.34');
 });
 
 test('公开网页能力拒绝内网、本机和非网页内容', async () => {
@@ -24,4 +30,5 @@ test('公开网页能力拒绝域名解析到内网和 IPv6 回环', async () =>
   const fetcher = new PublicWebFetch({ fetchImpl: async () => response('unused'), lookupImpl: async () => [{ address:'10.0.0.8' }] });
   await assert.rejects(() => fetcher.acquire({ sourceUrl: 'https://internal.example/path' }), /内网/);
   await assert.rejects(() => fetcher.acquire({ sourceUrl: 'http://[::1]/private' }), /内网/);
+  await assert.rejects(() => fetcher.acquire({ sourceUrl: 'http://[::ffff:a00:1]/private' }), /内网/);
 });

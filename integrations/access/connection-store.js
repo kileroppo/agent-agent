@@ -18,7 +18,34 @@ export class ConnectionStore {
     await fs.mkdir(path.dirname(this.file), { recursive: true });
     try {
       const records = JSON.parse(await fs.readFile(this.file, 'utf8'));
-      for (const record of records) this.connections.set(record.connectionId, record);
+      const defaultProviders = new Set();
+      let changed = false;
+      for (const record of records) {
+        const normalizedDefault = record.isDefault === true
+          && !defaultProviders.has(record.provider)
+          && record.status === 'active';
+        if (record.isDefault !== normalizedDefault) changed = true;
+        record.isDefault = normalizedDefault;
+        if (record.isDefault) defaultProviders.add(record.provider);
+        const normalizedVerification = normalizeStoredVerification(record.lastVerification);
+        if (JSON.stringify(record.lastVerification || null) !== JSON.stringify(normalizedVerification)) changed = true;
+        record.lastVerification = normalizedVerification;
+        this.connections.set(record.connectionId, record);
+      }
+      const activeByProvider = new Map();
+      for (const connection of this.connections.values()) {
+        if (connection.status !== 'active') continue;
+        const group = activeByProvider.get(connection.provider) || [];
+        group.push(connection);
+        activeByProvider.set(connection.provider, group);
+      }
+      for (const [provider, active] of activeByProvider) {
+        if (active.length !== 1 || defaultProviders.has(provider)) continue;
+        active[0].isDefault = true;
+        defaultProviders.add(provider);
+        changed = true;
+      }
+      if (changed) await this.persist();
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
     }
@@ -37,6 +64,8 @@ export class ConnectionStore {
     const definition = validateCookieBridgeConnection(input);
     const now = new Date().toISOString();
     const connectionId = crypto.randomUUID();
+    const hasActiveProviderConnection = [...this.connections.values()]
+      .some((connection) => connection.provider === definition.provider && connection.status === 'active');
     const connection = {
       schemaVersion: '3.0',
       connectionId,
@@ -50,8 +79,10 @@ export class ConnectionStore {
       allowedAgentIds: definition.allowedAgentIds,
       approvalPolicyRef: null,
       status: 'active',
+      isDefault: !hasActiveProviderConnection,
       expiresAt: null,
       lastHealthAt: null,
+      lastVerification: null,
       createdAt: now,
       updatedAt: now
     };
@@ -65,6 +96,7 @@ export class ConnectionStore {
     const connection = this.get(connectionId);
     if (!connection) return null;
     connection.status = status;
+    if (status !== 'active') connection.isDefault = false;
     connection.updatedAt = new Date().toISOString();
     await this.persist();
     return toSafeConnection(connection);
@@ -93,6 +125,12 @@ export class ConnectionStore {
     connection.credentialRef = `cookiebridge:${connection.provider}:${definition.clientId}:${connection.connectionId}`;
     connection.cookieBridgeClientId = definition.clientId;
     connection.status = 'active';
+    if (![...this.connections.values()].some((candidate) => (
+      candidate.connectionId !== connection.connectionId
+      && candidate.provider === connection.provider
+      && candidate.status === 'active'
+      && candidate.isDefault === true
+    ))) connection.isDefault = true;
     connection.expiresAt = null;
     connection.updatedAt = now;
     await this.persist();
@@ -105,6 +143,29 @@ export class ConnectionStore {
     const now = new Date().toISOString();
     connection.lastHealthAt = now;
     connection.updatedAt = now;
+    await this.persist();
+    return toSafeConnection(connection);
+  }
+
+  async setDefault(connectionId) {
+    const connection = this.get(connectionId);
+    if (!connection) return null;
+    if (connection.status !== 'active') throw new ConnectionInputError('只有当前可用的账号连接才能设为默认。');
+    const now = new Date().toISOString();
+    for (const candidate of this.connections.values()) {
+      if (candidate.provider !== connection.provider) continue;
+      candidate.isDefault = candidate.connectionId === connection.connectionId;
+      candidate.updatedAt = now;
+    }
+    await this.persist();
+    return toSafeConnection(connection);
+  }
+
+  async recordVerification(connectionId, input = {}) {
+    const connection = this.get(connectionId);
+    if (!connection) return null;
+    connection.lastVerification = normalizeVerification(input);
+    connection.updatedAt = connection.lastVerification.at;
     await this.persist();
     return toSafeConnection(connection);
   }
@@ -166,4 +227,40 @@ function toSafeConnection(connection) {
   if (!connection) return null;
   const { credentialRef, cookieBridgeClientId, ...safe } = connection;
   return { ...safe, hasCredentialReference: Boolean(credentialRef) };
+}
+
+function normalizeVerification(input = {}) {
+  const status = input.status === 'succeeded' ? 'succeeded' : 'failed';
+  return {
+    status,
+    at: new Date().toISOString(),
+    adapterId: String(input.adapterId || '').trim().slice(0, 100) || null,
+    capabilities: normalizeSafeList(input.capabilities, 80),
+    failureCode: status === 'failed'
+      ? String(input.failureCode || 'adapter_unavailable').trim().slice(0, 100)
+      : null
+  };
+}
+
+function normalizeStoredVerification(input) {
+  if (!input || typeof input !== 'object') return null;
+  const timestamp = Date.parse(String(input.at || ''));
+  if (!Number.isFinite(timestamp)) return null;
+  return {
+    status: input.status === 'succeeded' ? 'succeeded' : 'failed',
+    at: new Date(timestamp).toISOString(),
+    adapterId: String(input.adapterId || '').trim().slice(0, 100) || null,
+    capabilities: normalizeSafeList(input.capabilities, 80),
+    failureCode: input.status === 'succeeded'
+      ? null
+      : String(input.failureCode || 'adapter_unavailable').trim().slice(0, 100)
+  };
+}
+
+function normalizeSafeList(value, maxLength) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value
+    .filter((item) => typeof item === 'string')
+    .map((item) => item.trim().slice(0, maxLength))
+    .filter(Boolean))].slice(0, 24);
 }

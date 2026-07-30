@@ -5,6 +5,8 @@ import { HermesTaskAdvisor } from '../src/hermes-task-advisor.js';
 test('任务理解 AI 只输出目标、交付物、缺少信息和安全下一步', async () => {
   let prompt = '';
   const advisor = new HermesTaskAdvisor({ hermesHome:'/safe/profile', run:async (_command, args) => {
+    assert.deepEqual(args.slice(0, 2), ['--toolsets', 'clarify']);
+    assert.equal(args.includes('--ignore-rules'), false);
     prompt = args.at(-1);
     return '{"understanding":"把竞品信息整理成可执行清单","deliverable":"一份中文对比清单","missing":["竞品范围"],"safeNextStep":"先盘点当前可用员工与公开资料范围"}';
   } });

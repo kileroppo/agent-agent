@@ -16,6 +16,7 @@ export class XiaodDelegate {
     const response = await this.fetch(`${this.baseUrl}/api/jobs`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
         url:sourceUrl,
+        ...(task.input?.connectionId ? { connectionId:task.input.connectionId } : {}),
         reviewPolicy:task.input?.reviewPolicy === 'required' ? 'required' : 'optional',
         visualMode:task.input?.visualMode === 'auto' || task.input?.visualMode === 'required' ? task.input.visualMode : 'off',
         analysisDepth:task.input?.depth === 'full' ? 'full' : 'fast',
@@ -30,6 +31,7 @@ export class XiaodDelegate {
       status: 'running', currentStage: 'delegated_to_xiaod',
       execution: {
         executor: 'xiaod', mode: 'local_media_delegate', startedAt: new Date().toISOString(), xiaodJobId: job.id, sourceUrl,
+        connectionBinding:job.connectionBinding || null,
         polling: { state: 'pending', consecutiveFailures: 0, nextPollAt: new Date().toISOString() }
       },
       usage: { tools:[{ id:'xiaod-local-api', name:'小D本机处理', calls:1 }] },

@@ -11,6 +11,8 @@
     "acceptance:m3-content-growth": "node scripts/verify-m3-content-growth.mjs",
     "acceptance:m3-hermes-content-growth": "node scripts/verify-m3-content-growth.mjs --with-hermes",
     "acceptance:m3-paperclip-heartbeat": "node scripts/verify-m3-paperclip-heartbeat.mjs",
+    "acceptance:m4-role-quality": "node scripts/verify-m4-role-quality.mjs",
+    "release:immutable": "node scripts/manage-immutable-runtime-release.mjs",
     "test": "node --test"
   },
   "dependencies": {

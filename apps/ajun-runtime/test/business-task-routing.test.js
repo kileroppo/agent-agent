@@ -50,3 +50,38 @@ test('内容增长任务只能路由给小拆、小创和小办的对应能力',
   assert.equal(canonicalizeBusinessAssignment({ title:'按参考结构写可拍脚本', taskType:'content.video-script-package', agentId:'xiaod' }).agentId, 'content-creator');
   assert.equal(canonicalizeBusinessAssignment({ title:'归档本次工作', taskType:'office.knowledge-summary', agentId:'content-creator' }).agentId, 'office-assistant');
 });
+
+test('微信聊天只读任务固定交给微信聊天取件员', () => {
+  const assignment = canonicalizeBusinessAssignment({
+    title:'获取 yינגz 群的微信聊天',
+    taskType:'wechat.chat.retrieval',
+    agentId:'reviewer'
+  });
+  assert.equal(assignment.taskType, 'wechat.chat.retrieval');
+  assert.equal(assignment.agentId, 'wechat-chat-retriever');
+});
+
+test('模型把明确的可拍短剧脚本误选为平台草稿时修正为脚本生产包', () => {
+  const assignment = canonicalizeBusinessAssignment({
+    title:'生成 45 秒一人分饰两角冲突短剧脚本',
+    description:'前 3 秒直接出现试探台词，中段误会升级，最后反转收束。',
+    taskType:'content.platform-draft',
+    agentId:'content-creator'
+  });
+
+  assert.equal(assignment.taskType, 'content.video-script-package');
+  assert.equal(assignment.agentId, 'content-creator');
+});
+
+test('保存抖音短剧脚本为生产包时不能误派给办公执行助理', () => {
+  const assignment = canonicalizeBusinessAssignment({
+    title:'保存45秒抖音短剧脚本为生产包',
+    description:'把当前会话确认的短剧脚本保存为后续可继续使用的制作包；不要发布。',
+    taskType:'office.briefing-package',
+    agentId:'office-assistant'
+  });
+
+  assert.equal(assignment.taskType, 'content.video-script-package');
+  assert.equal(assignment.agentId, 'content-creator');
+  assert.equal(assignment.dependsOnPrevious, false);
+});

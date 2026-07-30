@@ -2,18 +2,36 @@
   "schemaVersion": "agent.army/hermes-profile-map/v1",
   "status": "verified-local",
   "profileId": "intel-researcher",
-  "role": "小R：只综合已经读取的公开来源，输出有来源的结构化中文研究报告。",
+  "role": "小R：只综合已经读取的公开正文，逐 claim 输出 sourceIds 与 evidenceFragments；GitHub 搜索元数据只作线索。",
   "localProfile": {
     "created": true,
     "gatewayStarted": true,
     "modelSelectionConfigured": true,
     "modelConfigured": true,
     "credentialedTransportVerified": true,
+    "credentialedTransportVerification": {
+      "status": "verified-current-model-policy",
+      "primary": { "provider": "stepfun", "model": "step-3.5-flash-2603", "verified": true },
+      "fallback": { "provider": "deepseek", "model": "deepseek-v4-flash", "verified": false }
+    },
     "skillsSeeded": false
   },
   "agentManifestRef": "agents/intel-researcher/manifest.json",
   "promptRef": "agents/intel-researcher/prompts/system.md",
   "appRef": "apps/ajun-runtime",
+  "modelSelection": {
+    "provider": "stepfun",
+    "model": "step-3.5-flash-2603",
+    "secretStoredHere": false
+  },
+  "fallbackModels": [
+    {
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "trigger": "transport_unavailable",
+      "secretStoredHere": false
+    }
+  ],
   "gateway": {
     "platform": "feishu",
     "enabled": true,
@@ -21,13 +39,35 @@
   },
   "mcp": {
     "server": "agent-army",
-    "tools": ["capabilities", "task_list", "task_get", "task_create"],
+    "tools": [
+      "capabilities",
+      "task_list",
+      "task_get",
+      "task_create",
+      "paperclip_assignment_get",
+      "employee_assignment_execute",
+      "paperclip_assignment_complete"
+    ],
     "scope": {
       "agentIds": ["intel-researcher"],
-      "taskTypes": ["report.public-material", "research.github-search", "research.intel-report"],
+      "taskTypes": [
+        "report.public-material",
+        "research.github-search",
+        "research.intel-report",
+        "research.open-investigation",
+        "content.campaign-research",
+        "content.campaign-evidence"
+      ],
       "allowMissions": false
     }
   },
-  "toolAllowlist": ["content.public.fetch", "github.public.search", "github.public.read", "army.task.read", "army.task.create"],
+  "toolAllowlist": [
+    "content.public.search",
+    "content.public.fetch",
+    "content.public.dynamic.read",
+    "content.public.pdf.read",
+    "github.public.search",
+    "github.public.read"
+  ],
   "secrets": { "source": "profile-environment-only", "valuesStoredHere": false }
 }

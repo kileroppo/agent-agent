@@ -263,3 +263,98 @@ test('办公助理会等待仍在运行的前置员工，不提前生成汇报',
   assert.equal(result.mission.status, 'running');
   assert.equal(result.mission.artifactRefs.at(-1).data.statuses[1].status, 'planned');
 });
+
+test('多人任务按显式依赖图推进且同时创建不超过四项', async () => {
+  let active = 0;
+  let maxActive = 0;
+  let mission;
+  const allTasks = [];
+  const service = new CrossAgentMissionService({
+    tasks:{
+      async create(input) {
+        if (input.taskType === 'army.cross-agent-mission') {
+          mission = {
+            taskId:'mission-dag-1',
+            idempotencyKey:input.idempotencyKey,
+            requester:input.requester,
+            source:input.source,
+            status:'running',
+            artifactRefs:[{
+              type:'cross_agent_mission_plan',
+              data:{ kind:'business', safeOnly:true, summary:input.title, subtasks:input.context.businessMissionItems }
+            }]
+          };
+          allTasks.push(mission);
+          return mission;
+        }
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await Promise.resolve();
+        active -= 1;
+        const child = {
+          taskId:`dag-child-${allTasks.length}`,
+          idempotencyKey:input.idempotencyKey,
+          parentTaskId:input.parentTaskId,
+          assigneeAgentId:input.agentId,
+          taskType:input.taskType,
+          status:'succeeded',
+          artifactRefs:[{ type:'verified_result', validation:{ exists:true, readable:true, nonEmpty:true } }]
+        };
+        allTasks.push(child);
+        return child;
+      }
+    },
+    store:{
+      async list(){ return allTasks; },
+      async updateTask(_id, patch){ mission = { ...mission, ...patch }; allTasks[0] = mission; return mission; }
+    },
+    governance:{}
+  });
+
+  const result = await service.createBusinessMission({
+    title:'完成六项并行研究后统一交付',
+    idempotencyKey:'mission:dag',
+    items:[
+      ...Array.from({ length:6 }, (_, index) => ({
+        key:`research-${index + 1}`,
+        title:`研究 ${index + 1}`,
+        taskType:'research.intel-report',
+        agentId:'intel-researcher'
+      })),
+      {
+        key:'brief',
+        title:'统一交付',
+        taskType:'office.briefing-package',
+        agentId:'office-assistant',
+        dependsOn:['research-2', 'research-5']
+      }
+    ]
+  });
+
+  assert.equal(maxActive, 4);
+  assert.equal(result.children.length, 7);
+  assert.equal(result.mission.status, 'succeeded');
+});
+
+test('多人任务拒绝循环或不存在的依赖', async () => {
+  const service = new CrossAgentMissionService({ tasks:{}, store:{}, governance:{} });
+  await assert.rejects(
+    service.createBusinessMission({
+      title:'循环任务',
+      items:[
+        { key:'a', title:'A', taskType:'research.intel-report', agentId:'intel-researcher', dependsOn:['b'] },
+        { key:'b', title:'B', taskType:'research.intel-report', agentId:'intel-researcher', dependsOn:['a'] }
+      ]
+    }),
+    /不能形成循环/
+  );
+  await assert.rejects(
+    service.createBusinessMission({
+      title:'缺失依赖',
+      items:[
+        { key:'a', title:'A', taskType:'research.intel-report', agentId:'intel-researcher', dependsOn:['missing'] }
+      ]
+    }),
+    /依赖必须引用/
+  );
+});

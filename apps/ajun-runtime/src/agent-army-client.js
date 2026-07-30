@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { presentTask, taskDetailBaseUrl } from './task-presentation.js';
 
 const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'waiting_test', 'needs_input', 'paused']);
 
@@ -10,9 +11,11 @@ export class AgentArmyClient {
     now = () => Date.now(),
     sleepImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     missionWaitMs = Number(process.env.AGENT_ARMY_MISSION_WAIT_MS || 45_000),
-    missionPollMs = Number(process.env.AGENT_ARMY_MISSION_POLL_MS || 1_000)
+    missionPollMs = Number(process.env.AGENT_ARMY_MISSION_POLL_MS || 1_000),
+    detailBaseUrl = process.env.AJUN_TASK_DETAIL_BASE_URL || ''
   } = {}) {
     this.baseUrl = loopbackBaseUrl(baseUrl);
+    this.detailBaseUrl = taskDetailBaseUrl(detailBaseUrl, this.baseUrl);
     if (typeof fetchImpl !== 'function') throw new AgentArmyClientError('Agent Army MCP 缺少 HTTP 客户端。');
     this.fetchImpl = fetchImpl;
     this.timeoutSignal = timeoutSignalImpl;
@@ -53,7 +56,7 @@ export class AgentArmyClient {
       .filter((task) => task.assigneeAgentId === agent.agentId || task.routing?.requestedAgentId === agent.agentId)
       .sort(newestFirst)
       .slice(0, 5)
-      .map((task) => taskView(task, overview.approvals || []));
+      .map((task) => taskView(task, overview.approvals || [], this.detailBaseUrl));
     return {
       agentId: agent.agentId,
       name: agent.name || agent.agentId,
@@ -75,7 +78,7 @@ export class AgentArmyClient {
       .filter((task) => !agent || task.assigneeAgentId === agent.agentId || task.routing?.requestedAgentId === agent.agentId)
       .sort(newestFirst)
       .slice(0, boundedLimit(limit))
-      .map((task) => taskView(task, overview.approvals || []));
+      .map((task) => taskView(task, overview.approvals || [], this.detailBaseUrl));
   }
 
   async getTask(taskId, { chatRef = '' } = {}) {
@@ -93,7 +96,7 @@ export class AgentArmyClient {
       if (chatRef || !String(error?.message || '').includes('当前会话不能读取')) throw error;
     }
     return {
-      ...taskView(task, overview.approvals || []),
+      ...taskView(task, overview.approvals || [], this.detailBaseUrl),
       terminal: notification?.terminal ?? TERMINAL_STATUSES.has(task.status),
       userMessage: safeText(notification?.message || task.error?.userMessage || '', 2000)
     };
@@ -109,6 +112,8 @@ export class AgentArmyClient {
     const requestRef = safeText(input.requestRef, 240);
     const sourceUrls = safeStringList(input.sourceUrls, 5, 2000);
     const sourceTaskIds = safeStringList(input.sourceTaskIds, 20, 100);
+    const connectionId = optionalConnectionId(input.connectionId);
+    const goalSpec = normalizeGoalSpecInput(input.goalSpec);
     const evidenceMode = input.evidenceMode === 'preliminary' ? 'preliminary' : 'formal';
     const depth = requestedAnalysisDepth({ title, description, depth:input.depth });
     const visualMode = input.visualMode === undefined
@@ -133,6 +138,7 @@ export class AgentArmyClient {
                 : '生成来源证据和质量报告；质量门禁通过时自动生成系统确认稿，异常时才等待人工听审。'
               : '生成来源证据、质量报告和可供初步分析使用的机器稿。',
             sourceUrls,
+            connectionId,
             reviewPolicy:input.reviewPolicy === 'required' ? 'required' : 'optional',
             visualMode,
             depth
@@ -169,6 +175,7 @@ export class AgentArmyClient {
         taskType,
         agentId:safeText(input.agentId, 80) || undefined,
         sourceUrls,
+        connectionId,
         reviewPolicy:input.reviewPolicy === 'required' ? 'required' : 'optional',
         evidenceMode,
         depth,
@@ -184,9 +191,11 @@ export class AgentArmyClient {
         requester:{ kind:'local-owner', ref:'A君' },
         requesterName:'A君',
         source,
-        context:sourceTaskIds.length
-          ? { sourceTaskIds, dependsOnPrevious:true }
-          : undefined,
+        goalSpec:goalSpec || undefined,
+        context:{
+          ...(sourceTaskIds.length ? { sourceTaskIds, dependsOnPrevious:true } : {}),
+          ...(goalSpec ? { autonomousOpenTask:true } : {})
+        },
         idempotencyKey
       }
     });
@@ -198,7 +207,7 @@ export class AgentArmyClient {
     const title = safeText(input.title, 500);
     const items = normalizeMissionItems(input.items);
     if (!title) throw new AgentArmyClientError('请说明这组工作的总目标。');
-    if (!items.length) throw new AgentArmyClientError('多人任务必须包含 1 到 3 项有效员工分工。');
+    if (!items.length) throw new AgentArmyClientError('多人任务必须包含 1 到 11 项有效员工分工，并且依赖项必须引用同一任务中的 key。');
     const chatRef = safeText(input.chatRef, 240);
     const requestRef = safeText(input.requestRef, 240);
     const idempotencyKey = requestRef
@@ -233,10 +242,10 @@ export class AgentArmyClient {
     const children = (overview.tasks || []).filter((task) => (
       task.parentTaskId === missionId || childIds.has(task.taskId)
     ));
-    const missionView = taskView(missionTask, overview.approvals || []);
+    const missionView = taskView(missionTask, overview.approvals || [], this.detailBaseUrl);
     return {
       mission:missionView,
-      children:children.map((task) => taskView(task, overview.approvals || [])),
+      children:children.map((task) => taskView(task, overview.approvals || [], this.detailBaseUrl)),
       userMessage:missionResultMessage(missionView, response.reply)
     };
   }
@@ -264,7 +273,7 @@ export class AgentArmyClient {
     const response = await this.request(`/api/mcp/tasks/${encodeURIComponent(id)}/${normalized}`, { method:'POST', body:{} });
     const overview = await this.overview();
     return {
-      task:taskView(response.task, overview.approvals || []),
+      task:taskView(response.task, overview.approvals || [], this.detailBaseUrl),
       approval:response.approval ? approvalView(response.approval) : null,
       duplicate:response.duplicate === true
     };
@@ -287,7 +296,7 @@ export class AgentArmyClient {
     const response = await this.request(`/api/mcp/approvals/${encodeURIComponent(id)}/${normalized}`, { method:'POST', body:{} });
     const overview = await this.overview();
     return {
-      task:taskView(response.task, overview.approvals || []),
+      task:taskView(response.task, overview.approvals || [], this.detailBaseUrl),
       approval:approvalView((overview.approvals || []).find((approval) => approval.approvalId === id) || { approvalId:id, status:normalized === 'approve' ? 'approved' : 'rejected' })
     };
   }
@@ -315,6 +324,9 @@ export class AgentArmyClient {
         taskType:safeText(response.task?.taskType, 120),
         status:safeText(response.task?.status, 60),
         currentStage:safeText(response.task?.currentStage, 120),
+        ...(response.task?.input?.context?.m5Recovery
+          ? { m5Recovery:m5RecoveryView(response.task.input.context.m5Recovery) }
+          : {}),
         ...(response.assignment?.agentId === 'technical-expert'
           ? {
               repairScope:technicalRepairScopeView(response.task?.input?.context?.repairScope),
@@ -339,7 +351,28 @@ export class AgentArmyClient {
         factClaims:architectureFactClaimsView(input.factClaims),
         architectureJudgments:architectureJudgmentsView(input.architectureJudgments),
         candidateProposals:architectureCandidateProposalsView(input.candidateProposals),
-        currentStateUnknowns:safeStringList(input.currentStateUnknowns, 20, 1000)
+        currentStateUnknowns:safeStringList(input.currentStateUnknowns, 20, 1000),
+        consumedRevisionId:safeText(input.consumedRevisionId, 240)
+      },
+      paperclipApiKey:process.env.PAPERCLIP_API_KEY
+    });
+  }
+
+  async executeAgentProposal(input = {}) {
+    return this.request('/api/mcp/agent-proposal-execute', {
+      method:'POST',
+      body:{
+        ...paperclipAssignmentIdentity(input),
+        requestedOutcome:safeText(input.requestedOutcome, 500),
+        candidateName:safeText(input.candidateName, 120),
+        agentId:safeText(input.agentId, 80),
+        department:safeText(input.department, 120),
+        responsibilities:safeStringList(input.responsibilities, 8, 500),
+        nonResponsibilities:safeStringList(input.nonResponsibilities, 10, 500),
+        acceptedTaskTypes:safeStringList(input.acceptedTaskTypes, 8, 120),
+        desiredSkills:safeStringList(input.desiredSkills, 8, 120),
+        requestedCapabilities:safeStringList(input.requestedCapabilities, 8, 120),
+        acceptanceTitle:safeText(input.acceptanceTitle, 500)
       },
       paperclipApiKey:process.env.PAPERCLIP_API_KEY
     });
@@ -354,6 +387,23 @@ export class AgentArmyClient {
     });
   }
 
+  async executeOperationsHealth(input = {}) {
+    return this.request('/api/mcp/operations-health-execute', {
+      method:'POST',
+      body:paperclipAssignmentIdentity(input),
+      paperclipApiKey:process.env.PAPERCLIP_API_KEY
+    });
+  }
+
+  async executeEmployeeAssignment(input = {}) {
+    return this.request('/api/mcp/employee-assignment-execute', {
+      method:'POST',
+      body:paperclipAssignmentIdentity(input),
+      paperclipApiKey:process.env.PAPERCLIP_API_KEY,
+      timeoutMs:270_000
+    });
+  }
+
   async executeContentGrowth(input = {}) {
     return this.request('/api/mcp/content-growth-execute', {
       method:'POST',
@@ -362,6 +412,15 @@ export class AgentArmyClient {
       // 12 分钟业务预算由 A君后台运行持有；单次 Hermes MCP 等待必须
       // 小于其 300 秒同步桥上限，超时前返回 running 并由同一工具续等。
       timeoutMs:270_000
+    });
+  }
+
+  async executeM5Stage(input = {}) {
+    return this.request('/api/mcp/m5-stage-execute', {
+      method:'POST',
+      body:paperclipAssignmentIdentity(input),
+      paperclipApiKey:process.env.PAPERCLIP_API_KEY,
+      timeoutMs:270_000,
     });
   }
 
@@ -454,6 +513,40 @@ function technicalDiagnosisView(context = {}) {
       stage:safeText(context?.failure?.stage, 120),
       message:safeText(context?.failure?.message, 800)
     }
+  };
+}
+
+function m5RecoveryView(value = {}) {
+  return {
+    schemaVersion:safeText(value.schemaVersion, 120),
+    revisionId:safeText(value.revisionId, 240),
+    revision:Number.isInteger(Number(value.revision)) ? Number(value.revision) : null,
+    failedCaseId:safeText(value.failedCaseId, 128),
+    failureObservation:{
+      issueId:safeText(value.failureObservation?.issueId, 128),
+      runId:safeText(value.failureObservation?.runId, 128),
+      stageKey:safeText(value.failureObservation?.stageKey, 80),
+      summary:safeText(value.failureObservation?.summary, 500),
+      summaryHash:safeText(value.failureObservation?.summaryHash, 80),
+    },
+    rejectedRoute:{
+      kind:safeText(value.rejectedRoute?.kind, 120),
+      reason:safeText(value.rejectedRoute?.reason, 500),
+      ...(value.rejectedRoute?.routeFingerprint ? {
+        routeFingerprint:safeText(value.rejectedRoute.routeFingerprint, 80),
+        execution:{
+          strategy:safeText(value.rejectedRoute?.execution?.strategy, 160),
+          toolIds:safeStringList(value.rejectedRoute?.execution?.toolIds, 20, 240),
+          inputHash:safeText(value.rejectedRoute?.execution?.inputHash, 80),
+        },
+      } : {}),
+    },
+    nextRoute:{
+      kind:safeText(value.nextRoute?.kind, 120),
+      stageKey:safeText(value.nextRoute?.stageKey, 80),
+      preserveVerifiedWorkProducts:value.nextRoute?.preserveVerifiedWorkProducts === true,
+      instruction:safeText(value.nextRoute?.instruction, 1000),
+    },
   };
 }
 
@@ -554,7 +647,7 @@ function capabilityView(capability) {
   };
 }
 
-function taskView(task = {}, approvals = []) {
+function taskView(task = {}, approvals = [], detailBaseUrl = '') {
   const taskApprovals = (approvals || []).filter((approval) => (task.approvalRefs || []).includes(approval.approvalId));
   return {
     taskId:task.taskId,
@@ -573,7 +666,8 @@ function taskView(task = {}, approvals = []) {
       retryable:task.error.retryable === true,
       userMessage:safeText(task.error.userMessage, 1000)
     } : null,
-    artifacts:(task.artifactRefs || []).map(artifactView)
+    artifacts:(task.artifactRefs || []).map(artifactView),
+    presentation:presentTask(task, { approvals:taskApprovals, detailBaseUrl })
   };
 }
 
@@ -640,13 +734,44 @@ function artifactView(artifact = {}) {
       nextAction:safeText(artifact.data.nextAction, 800)
     };
   }
+  if (artifact.type === 'autonomous_work_plan' && artifact.data?.plan) {
+    const plan = artifact.data.plan;
+    view.report = {
+      status:safeText(plan.status, 60),
+      version:Number.isSafeInteger(plan.version) ? plan.version : null,
+      steps:(Array.isArray(plan.steps) ? plan.steps : []).slice(0, 20).map((step) => ({
+        stepId:safeText(step?.stepId, 128),
+        objective:safeText(step?.objective, 500),
+        status:safeText(step?.status, 60),
+        dependsOn:safeStringList(step?.dependsOn, 20, 128)
+      })),
+      budget:{
+        maxDurationMs:Number(plan.budget?.hardLimits?.maxDurationMs) || null,
+        maxModelCalls:Number(plan.budget?.hardLimits?.maxModelCalls) || null,
+        maxConcurrency:Number(plan.budget?.hardLimits?.maxConcurrency) || null,
+        maxDelegationDepth:Number(plan.budget?.hardLimits?.maxDelegationDepth) || null,
+        approvalThresholdUsd:Number(plan.budget?.approvalThresholdUsd) || 0
+      }
+    };
+  }
+  if (artifact.type === 'capability_discovery_report' && artifact.data) {
+    view.report = {
+      requestedCount:Number(artifact.data.requestedCount) || 0,
+      activeCount:Number(artifact.data.activeCount) || 0,
+      results:(Array.isArray(artifact.data.results) ? artifact.data.results : []).slice(0, 20).map((item) => ({
+        capabilityId:safeText(item?.capabilityId, 120),
+        status:safeText(item?.status, 60),
+        reason:safeText(item?.reason, 500)
+      }))
+    };
+  }
   if (artifact.type === 'cross_agent_mission_summary' && artifact.data) {
     view.report = {
       kind:safeText(artifact.data.kind, 60),
       summary:safeText(artifact.data.summary, 1000),
       completed:artifact.data.completed === true,
       terminal:artifact.data.terminal === true,
-      statuses:(Array.isArray(artifact.data.statuses) ? artifact.data.statuses : []).slice(0, 3).map((item) => ({
+      statuses:(Array.isArray(artifact.data.statuses) ? artifact.data.statuses : []).slice(0, 11).map((item) => ({
         title:safeText(item?.title, 500),
         employeeId:safeText(item?.employeeId, 80) || null,
         taskId:safeText(item?.taskId, 100) || null,
@@ -708,13 +833,22 @@ function requiredId(value, message) {
   return id;
 }
 
+function optionalConnectionId(value) {
+  const id = safeText(value, 100);
+  if (!id) return undefined;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+    throw new AgentArmyClientError('账号连接标识格式不正确。');
+  }
+  return id;
+}
+
 function shortHash(value) { return crypto.createHash('sha256').update(value).digest('hex').slice(0, 24); }
 function boundedLimit(value) { const parsed = Number(value); return Number.isFinite(parsed) ? Math.max(1, Math.min(50, Math.floor(parsed))) : 10; }
 function boundedDuration(value, min, max, fallback) { const parsed = Number(value); return Number.isFinite(parsed) ? Math.max(min, Math.min(max, Math.floor(parsed))) : fallback; }
 function newestFirst(left, right) { return String(right.updatedAt || right.createdAt || '').localeCompare(String(left.updatedAt || left.createdAt || '')); }
 
 function normalizeMissionItems(value) {
-  if (!Array.isArray(value) || value.length < 1 || value.length > 3) return [];
+  if (!Array.isArray(value) || value.length < 1 || value.length > 11) return [];
   const items = value.map((item, index) => ({
     key:safeText(item?.key, 80) || `work-${index + 1}`,
     title:safeText(item?.title, 500),
@@ -723,6 +857,7 @@ function normalizeMissionItems(value) {
     description:safeText(item?.description, 2000),
     acceptance:safeText(item?.acceptance, 500),
     sourceUrls:safeStringList(item?.sourceUrls, 5, 2000),
+    connectionId:optionalConnectionId(item?.connectionId),
     reviewPolicy:item?.reviewPolicy === 'required' ? 'required' : 'optional',
     evidenceMode:item?.evidenceMode === 'preliminary' ? 'preliminary' : 'formal',
     depth:item?.depth === 'full' ? 'full' : 'fast',
@@ -730,7 +865,44 @@ function normalizeMissionItems(value) {
     focus:safeText(item?.focus, 500),
     platforms:safeStringList(item?.platforms, 3, 40),
     contentGoal:safeText(item?.contentGoal, 500),
-    dependsOnPrevious:item?.dependsOnPrevious === true
+    dependsOnPrevious:item?.dependsOnPrevious === true,
+    dependsOn:safeStringList(item?.dependsOn, 10, 80)
   }));
-  return items.every((item) => item.title && item.taskType && item.agentId) ? items : [];
+  const keys = new Set(items.map((item) => item.key));
+  const valid = items.every((item, index) => (
+    item.title
+    && item.taskType
+    && item.agentId
+    && item.dependsOn.every((key) => keys.has(key) && key !== item.key)
+  ));
+  return valid ? items : [];
+}
+
+function normalizeGoalSpecInput(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const outcome = safeText(value.outcome || value.goal, 1000);
+  if (!outcome) return null;
+  const budget = value.budget && typeof value.budget === 'object' && !Array.isArray(value.budget)
+    ? {
+        maxDurationMinutes:boundedDuration(value.budget.maxDurationMinutes, 1, 60, 60),
+        maxModelCalls:boundedDuration(value.budget.maxModelCalls, 1, 20, 20),
+        maxConcurrentSubtasks:boundedDuration(value.budget.maxConcurrentSubtasks, 1, 4, 4),
+        maxDependencyDepth:boundedDuration(value.budget.maxDependencyDepth, 1, 2, 2),
+        maxCostUsd:Number.isFinite(Number(value.budget.maxCostUsd))
+          ? Math.max(0, Math.min(5, Number(value.budget.maxCostUsd)))
+          : 5
+      }
+    : undefined;
+  return {
+    outcome,
+    deliverables:safeStringList(value.deliverables, 12, 500),
+    constraints:safeStringList(value.constraints, 20, 500),
+    acceptanceCriteria:safeStringList(value.acceptanceCriteria, 20, 500),
+    capabilityRequests:(Array.isArray(value.capabilityRequests) ? value.capabilityRequests : []).slice(0, 12).map((request) => ({
+      capabilityId:safeText(request?.capabilityId, 120),
+      purpose:safeText(request?.purpose, 500),
+      source:safeText(request?.source, 500) || 'registered-catalog'
+    })).filter((request) => request.capabilityId && request.purpose),
+    ...(budget ? { budget } : {})
+  };
 }

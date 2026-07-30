@@ -2,10 +2,10 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 生效；M1/M2 已验收，M3 内容增长首批切片实施中 |
+| 状态 | 生效；M5 并行 v2 已 live apply，发布活动仍关闭 |
 | 负责人 | 技术负责人 / Codex 工作台 |
-| 版本 | v1.8 |
-| 最后更新 | 2026-07-28 |
+| 版本 | v1.11 |
+| 最后更新 | 2026-07-31 |
 | 更新触发 | 核心组件、数据真相、部署边界或平台选型变化 |
 
 ## 1. 架构目标
@@ -50,7 +50,7 @@ flowchart LR
 
 ### 3.1 飞书交互适配层
 
-飞书中的“ A君·军团总管”是主要日常总管入口。A君、小D、小R、小办和运维官保持独立 Hermes Gateway 常驻；创建官、审核官、架构师和技术专家保留独立 Profile、岗位边界和 Paperclip `hermes_local` 按需执行能力，但不再拥有常驻 Gateway 或独立飞书入口。任务接收、路由和多人总任务由 A君承担；GitHub 公开研究由小R承担。飞书适配层不保存业务执行 checkpoint，也不自行判断任务完整成功。
+飞书中的“ A君·军团总管”是主要日常总管入口。A君、小D、小R、小办和运维官保持独立 Hermes Gateway 常驻；创建官、审核官、架构师和技术专家保留独立 Profile、岗位边界和 Paperclip `hermes_local` 按需执行能力，但不再拥有常驻 Gateway 或独立飞书入口。任务接收、路由和多人总任务由 A君承担；GitHub 公开研究由小R承担。飞书适配层不保存业务执行 checkpoint，也不自行判断任务完整成功。仓库 Profile/配置器与实际 `~/.hermes` 配置必须分别对账；当前 11 个正式 Profile 已实际同步到 `stepfun/step-3.5-flash-2603`、岗位 MCP 与精确 Feishu toolset，post dry-run `0 drift`，技能白名单 `11/11 clean`。同步保留了 11 份权限为 `0700` 的逐 Profile 备份且 `gatewayActions=0`；它没有重启当前 A君 `4321`，不能用 Profile 配置层通过替代 fresh runtime 证据。
 
 ### 3.2 Paperclip 军团总控
 
@@ -58,7 +58,7 @@ Paperclip 是军团唯一的组织级控制面和任务总控：维护公司目�
 
 ### 3.3 A君本机能力网关与执行适配层
 
-负责托管本机组件、连接授权、内容获取、执行适配、业务产物诊断和恢复。它通过稳定契约把 ASR、下载器、浏览器伴侣与平台适配器隔离在业务 Agent 之外；接收 Paperclip heartbeat 时向受控本机执行器传递最小任务上下文，并将阶段、成本、产物引用与失败分类回报 Paperclip。飞书是日常派活与交付入口；A君界面只提供授权、组件健康、恢复和脱敏诊断，不维护第二套组织、排程、预算、审批或审计真相。
+负责托管本机组件、连接授权、内容获取、执行适配、业务产物诊断和恢复。它通过稳定契约把 ASR、下载器、浏览器伴侣与平台适配器隔离在业务 Agent 之外；接收 Paperclip heartbeat 时向受控本机执行器传递最小任务上下文，并将阶段、成本、产物引用与失败分类回报 Paperclip。HTTP 岗位若需要调用受保护的工具入口，身份必须来自当前 Paperclip Run：版本锁定的 `forwardRunJwt` 兼容层只允许向 loopback 转发短期 Run JWT，禁止配置 header 覆盖和重定向；原始 live adapter 未启用该能力时必须失败关闭，不能降级为长期 API Key。飞书是日常派活与交付入口；A君界面只提供授权、组件健康、恢复和脱敏诊断，不维护第二套组织、排程、预算、审批或审计真相。
 
 ### 3.4 Paperclip 任务路由边界
 
@@ -70,7 +70,107 @@ Paperclip 不可访问时，前两类日常请求不被额外阻塞；组织级�
 
 Hermes 或其他执行运行时负责其 Agent Profile、模型、短期会话、压缩摘要、长期用户偏好、工具选择、单次运行、取消、恢复和运行历史。Hermes 通过 loopback `stdio` Agent Army MCP 读取 A君能力与任务真相；MCP 不保存凭据、会话或第二套队列。Paperclip 发起或管理 heartbeat；运行时不得自行形成脱离 Paperclip 的长期军团任务队列。业务 checkpoint 和产物仍属于业务 Agent/A君的持久化边界。
 
-老板一次提出二至三项清晰交付物时，A君可通过 `mission_create` 创建一个父任务和最多三个受限子任务。没有依赖的员工同时开始；汇总类员工必须等来源任务进入终态后再工作；父任务只按实际子任务状态和已验证产物形成统一汇报。每名员工使用独立 Hermes Profile，并由 Manifest 驱动岗位 Prompt、Skill、飞书与 Paperclip Toolset；MCP 环境作用域限制可见员工、可创建任务类型和是否允许再次组建任务，不能只靠 Prompt 约束。Paperclip 通过官方 `hermes_local` Adapter 唤醒同一员工 Profile，Profile 只读取一次当前指派并把结果回写同一 run。任务、审批与产物真相仍在 A君/Paperclip 和业务存储，Profile 只保存各自会话、记忆与运行配置。
+老板一次提出多项清晰交付物时，A君可通过 `mission_create` 创建一个父任务和最多十一个受限子任务。每项以唯一 `key` 标识并可通过 `depends_on` 构成无环依赖图；没有依赖且仍有执行槽位的员工同时开始，活动并发不超过四项。汇总类员工必须等所依赖的来源任务进入终态后再工作；父任务只按实际子任务状态和已验证产物形成统一汇报。每名员工使用独立 Hermes Profile，并由 Manifest 驱动岗位 Prompt、Skill、飞书与 Paperclip Toolset；MCP 环境作用域限制可见员工、可创建任务类型和是否允许再次组建任务，不能只靠 Prompt 约束。Paperclip 通过官方 `hermes_local` Adapter 唤醒同一员工 Profile，Profile 只读取一次当前指派并把结果回写同一 run。任务、审批与产物真相仍在 A君/Paperclip 和业务存储，Profile 只保存各自会话、记忆与运行配置。
+
+M4 的 11 个开放任务入口继续保留，但 A君只做无状态的岗位委托映射：开放任务直接复用岗位已有专有执行器，能力请求只和岗位 Manifest 白名单比对，未登记能力保持闭锁。小R开放研究根据真实 Observation 在公开网页、动态网页、PDF 与 GitHub 只读适配器间换路；安全重试最多 2 次，耗尽后请求 Paperclip 重规划，预算不足或三次重规划耗尽时失败关闭，只有当前 Run 的健康产物才能写为 Work Product。恢复 Work Product 时同时校验外层和内嵌 Observation 的 Issue/Run 与当前 assignment 一致，拒绝任务自报及跨 Issue/Run 注入。A君不生成 `autonomous_work_plan`、任务级 CapabilityGrant、预算或 checkpoint，也不写 `capability-grants.json`；组织计划、Issue、预算、审批和恢复属于 Paperclip，Hermes 保存执行会话与运行检查点。历史自主计划模块仅供迁移测试，不得被生产 `server.js` 或 `TaskService` 引用。11 个正式岗位主推理模型统一为 `stepfun/step-3.5-flash-2603`；`step-router-v1` 不作为 StepFun-only 主模型。DeepSeek 仅在 `transport_unavailable` 时以 `deepseek/deepseek-v4-flash` 回退，质量或工具失败不得触发。当前无副作用文本实调用已为 `11/11`，DeepSeek 0 次，证据在 `docs/reviews/m5-high-autonomy-content-operations/artifacts/2026-07-31-stepfun-text-probes.json`；这是当前文本传输 Provider PASS。最新 `video-content-analyst` 真实调用使用 `step-3.5-flash-2603` 并通过 `18/18` 门禁，11 个岗位语义结果全部通过；新的跨岗位总验收首次因未转义 JSON 失败关闭，缩短固定输出契约后安全重试为 `19/19`，最终 `summary.status=passed`、`rolePassedCount=11`、`crossRoleStatus=passed`，离线重验也通过。此次新增 1 次 video 和 2 次 Cross StepFun 调用，工具调用 0、外部副作用 0；语义门禁与提示契约自测为 `72/72`。usage 为 `cost_status=unknown`，估算字段为 0 不代表已知零费用。该证据证明当前本地题面下的岗位语义和跨岗位整合，不证明 Hermes/Paperclip live、平台发布或真实业务外部闭环。证据目录为 `docs/reviews/m5-high-autonomy-content-operations/artifacts/2026-07-31-stepfun-3.5-role-quality/`。微信私密只读检索岗位属于 A君本地适配能力，不计入这 11 个岗位；Profile 元数据不保存 Key。
+
+#### M5 内容自治与并行 v2 边界
+
+M5 不新增第二套活动状态库。Paperclip Project、父/子 Case、Routine、blocker、Issue、
+Work Product、预算和审批是活动执行真相；Hermes Profile 执行岗位任务；内容插件只提供
+StepFun、媒体、Remotion、固定产物与发布前门禁；无模型 Publisher Gateway 独占真实发布。
+
+当前 live 并行 v2 的结构为 15 阶段、17 个有效 Routine 和 5 个确定性控制器。研究、证据、
+画面分析和生图各自落到 Paperclip 子 Case，配音等待可信脚本，`parallel` 控制器只在
+四项 Work Product 全部存在、可读、非空且 blocker 清零后推进渲染。最大并发仍为 4；
+调用模型的岗位不能自行修改 Case 依赖、预算、审批或汇聚结论。没有分支引用且从未触发的
+旧 `m5-research` Routine 已归档并保留记录；归档后的只读 reconcile/dry-run 为有效 Routine
+`17/17`、转换 `16/16`、blocker 0，草案仍为 `0/14`、Cron off。
+
+源码能力与 live 启用状态必须分开报告：并行 v2 的 15/17/5 结构已 live apply，live
+内容插件仍为 `0.4.7`；候选源码插件已是 `0.4.9` 并通过 `97/97` 与 `check`，`0.4.8` 仅为历史候选，
+且 `0.4.9` 尚未安装到 live；A君候选源码全量为
+`1004/1004`，岗位 Manifest 为 `15/15`，但当前 `4321` 仍是旧进程。本轮开放研究及其路由/Routine 契约本地定向测试
+`29/29`、Pipeline `67/67`、Fake E2E `5/5`、Paperclip 集成 `48/48`、Publisher Gateway `203/203`。
+Paperclip Run-JWT 与一次性恢复 Approval 版本锁定兼容补丁合并 `15/15`。controller
+cutover 工具 `15/15`，其快照读写 TOCTOU 已使用同 fd、`O_NOFOLLOW`、dev/ino 复验、
+原子 no-replace 发布和固定原目录身份的清理器修复；post-link 父目录替换后两侧目录零残留、
+0 Paperclip PATCH，清理不完整时标记 `recoveryRequired`。A君 current-run 恢复 access 已实际 wire 进 server composition
+和 metrics 请求级 Run 凭据作用域，provider composition `43/43`、相关 server/controller
+`84/84`。原始 live Paperclip adapter 仍未 apply 兼容补丁，当前 `4321` 进程也早于本轮
+源码并未加载该 binding；因此 live HTTP 控制器还不能凭上述本地证据宣称执行闭环。一次性恢复必须绑定
+company/agent/run/issue/link 和 canonical scope，过期、撤销与 consume 原子互斥，同一
+run/agent/scope 只允许 exact replay。Publisher Gateway 作为独立服务监听 `4390`，默认
+`disabled`；production 代码已完成接线，但 live 尚未注入 production 依赖，也不存在真实
+selector bundle、命名 Profile lease 或平台写授权，因此当前不具备真实外写条件。未批准
+活动、缺少 Secret/岗位绑定、验证码、风控、未知页面、预算超限或重复内容仍在任何真实
+外写前失败关闭。
+
+本地 Fake E2E 以真实无模型协调器覆盖 15 阶段、五分支 `[4,1]` 并发波次、前置依赖、
+一次退回、一次安全重试、检查点恢复、预算硬停、幂等发布、2h/24h/72h 模拟指标和复盘；
+结果为 `5/5`、`externalEffects=false`、`paidCalls=0`。7 天 Publisher 验收使用 14 支
+真实本地 MP4 生成 14 个 fake PublishReceipt 和 42 个模拟 MetricSnapshot，并在 44 次
+Runtime 重建后重放同一 72h 快照；`realPlatformTouched=false`、`externalPublished=false`、
+`realPlatformCalls=0`、`totalCostUsd=0`。这只证明本地 Fake 契约与恢复，不是平台发布或
+真实 72 小时指标。
+
+候选源码中的通用 Hermes one-shot 已移除 `--ignore-rules`，普通调用固定为 `clarify`，
+只有无 Provider 的受控故事板分支允许 `vision`。正式画面分析只能由当前 Paperclip Run
+的单用途回调触发，绑定固定 action、相对 PNG、帧哈希、时间点、confirmed receipt 和同一
+Project；新产物和已有视觉 Work Product 重放都必须通过同一校验，漂移时阻塞且不覆盖。
+内容插件固定视觉模型 `step-1o-turbo-vision`、生图/改图模型 `step-image-edit-2` 与 TTS
+模型 `stepaudio-2.5-tts`，Provider action、费用事件和产物血缘必须记录并反查同一模型身份。
+渲染必须实际消费可信 `GeneratedImagePackage`，机器审核必须从同 Project 插件状态反查
+图片、视觉、TTS 三条 confirmed action/cost。上述安全边界只在候选源码和本地 Fake 测试
+通过，live 插件 `0.4.7` 和当前 A君旧进程均未加载，也没有真实 M5 Campaign StepFun 视觉调用。
+`0.4.9` 已冻结为候选包
+`work/m5-content-autonomy/plugin-packages/content-autonomy-bundle-0.4.9-b64760f6c00e2031d5a5ae51fac4a76e26183698e1bb9bf536e407fd27592c0d/`：
+`payloadHash=b64760f6c00e2031d5a5ae51fac4a76e26183698e1bb9bf536e407fd27592c0d`、
+`entryCount=19986`、`manifestSha256=dabf16ac255eec3348e5800239f907793db1c1e507d1aa2820cd57fb71ec8dd7`，
+独立全目录哈希为 `82f75845b927c8fa817e45e8e4d588338c7131677f2681c7297dba987db0c8bd`。
+为搬移候选包，仅 bundle 根目录曾由 `0555` 短暂调整为 `0755`，内部条目未改；完成后根目录
+恢复 `0555`、manifest 保持 `0444`，独立逐项复算与安全审计放行。该包仍未安装到 live。
+
+内容插件上游原生 lineage 的历史本地产物仍保留：`native-artifact-smoke` 以 Provider 0
+完成 1/1 份 lineage 和 3/3 支平台媒体，均为 1080×1920、45 秒、H.264/AAC、黑帧 0、
+-15.1 LUFS。旧 StepFun Provider 账本保留 35 个 action-linked 费用记录、合计 42 美分和
+`lifetimeProviderCalls=43`；本轮没有新的 Provider 请求、调用或费用。历史
+`m5v2-lineage-v2` 仍以 0 Provider 调用保留 7/7 份 lineage 和 21/21 支媒体复核，响度
+-15.2 至 -14.9 LUFS。另有 3 主题、9 视频本地 dry-run `12/12`。这些血缘与媒体账本均为
+`externalPublished=false`。
+
+CuaDriver runner 现在保留真实 `browser_consent_required`，不再误报为
+`prepared_browser_pid_missing`。完整本地假页 Computer Use 验收仍需要当次生成、五分钟
+有效、单次使用的 browser approval token；Token 不得打印、落盘或复用。真实 selector、
+Profile lease、账号登录与平台写入仍未验收。
+
+A君的运行包和技术修复源码现在是两种不同身份：不可变 release 只读运行；技术修复只接受
+显式外置、clean、可写且 Git 身份可验证的源码根。修理副本绑定 task、Git common-dir、HEAD
+和精确文件范围；越界路径、错误 Worktree、源码漂移以及部分 promotion 失败必须拒绝或回滚。
+即使外置源码修复成功，也只得到 `candidate_promoted` 并进入
+`repair_candidate_awaiting_release`，必须再冻结并验证新 release，不能把候选源码当作
+当前运行版本。源码根/修理副本/候选发版聚焦回归为 `139/139`。
+
+本机持久任务状态与飞书 completion watcher 采用唯一临时文件、`wx`/0600、原子 rename 和
+rename 后 chmod；既有 0644 状态会收敛到 0600，失败不能破坏旧文件或无关临时文件。对应
+`task-store` 与 `official-feishu-completion-watcher` 回归为 `15/15`；本轮没有直接修改
+真实数据文件权限。
+
+不可变 release 专项为 `11/11`，与 runtime-source-root 联合回归为 `18/18`。冻结器会从
+Git 状态中排除本次受管输出目录，并在冻结前后比对 HEAD 和状态指纹；因此输出目录不会
+自污染 provenance，其他未提交改动或验证期间源码漂移仍会失败关闭。本轮 clean source
+commit `33aa25bd7ff7431d64467fca87866d299caa9857` 已冻结为
+`work/m5-runtime-releases/m5-8point-20260731-r2/ajun-runtime-release-v1-1c7f244ddaae055f336340ac0de566569012af3d39a6e66e8df528fda46ce0ef/`：
+`releaseHash=1c7f244ddaae055f336340ac0de566569012af3d39a6e66e8df528fda46ce0ef`、
+`payloadHash=7bd23d48db1f66583d854a28d420498e60e884e261a10171c4767e818156c910`、
+`entryCount=7571`、`manifestSha256=102daa78172a8857e7151d1a619d6868fb30f97cad1b48e8751ca93b5feb128c`，
+独立全目录哈希为 `efc8967c6662b645f3018c0b6386231006f21b45f561a932e88df03799eb4b88`。
+冻结包隔离启动后 `/api/overview` 返回 200，SIGTERM 后确认退出；遗留 staging 与 final
+均先通过 official validate，随后仅将自产 staging 移至
+`~/.Trash/agent-army-staging-1c7f244ddaae055f-20260731`，可恢复且未永久删除，final 再次
+validate 通过。`5c4b463…` / `025d4816…` 保留为历史失效候选，`0767604f…` dirty
+候选继续隔离。新包未修改 live/plist、未触发重启、发布或外发；旧运行版仍缺精确匹配的
+独立 rollback release/源码根，所以 cutover/rollback 继续 blocked。
 
 ### 3.5 业务 Agent
 
@@ -108,6 +208,8 @@ M3 内容增长链路在业务产物层新增两个后台按需岗位，不新�
 
 飞书中的“创建官”接收自然语言岗位需求，生成 `AgentProposalContract` 草案；架构师检查复用与边界，审核官检查权限、预算和外部动作。Paperclip 保存招聘审核和 Agent 身份；批准后 A君 准备本机受限能力，Hermes 建立隔离测试 Profile，并以一条白名单验收任务验证真实产物。仅验收通过的草案才能标为 `active` 并被飞书路由。创建官、架构师、审核官、运维官和协调官都属于受限治理角色：它们默认不读取凭据、不自动扩权、不直接发布或外发；运维官只可调用 A君登记的低风险恢复能力。
 
+创建官可以把“已登记但高风险”的本机能力写入草案，用于提前评审复用方向、最小数据范围和审批条件；尚无受控适配器时必须标为 `needs_capability`，不得直接创建测试实例。微信本机 Vault 已增加只读受控适配器后，只允许先用合成聊天验证逐次审批、单会话、时间范围和原文不落盘，因此可标为 `ready` 进入一次技术验收；这个状态不授权任何真实聊天读取。真实请求仍必须由负责人逐次指定单一会话和时间范围，且禁止把密钥、完整数据库或聊天原文写入 Paperclip、任务描述、日志和项目工作区。Skill 存在、适配器可用、合成技术验收通过、真实私密数据验收和正式上岗是不同状态，不得互相替代。
+
 ## 4. 数据真相归属
 
 | 数据 | 真相来源 | 说明 |
@@ -124,6 +226,9 @@ M3 内容增长链路在业务产物层新增两个后台按需岗位，不新�
 | 内容请求、统一内容包和能力说明 | M2 内容获取中心与业务 checkpoint | 记录来源与实际能力，不保存原始凭据或会话 |
 | 机器转录、质量报告、自动/人工确认声明和确认稿 | 小D业务存储 | 版本、确认方式和校验值不可静默覆盖；正式下游只认确认稿 |
 | 拆解、平台草稿和表现复盘 | A君业务产物存储 | 以来源产物引用连接版本；草稿不代表已发布 |
+| M5 活动阶段、并行分支、阻塞、预算、审批与恢复 | Paperclip Project / Case / Routine / Issue / Work Product | A君只聚合显示，不保存第二份活动状态；v2 已 live apply 为 15 阶段、17 Routine、5 控制器的结构。Run-JWT 与一次性恢复 Approval 兼容补丁未 apply；A君恢复 provider 已在源码 composition 接线但 live 未加载，结构对账不等于执行闭环 |
+| M5 内容工具、素材/成片哈希、固定产物清单与插件费用事件 | Paperclip 内容插件与受控内容工作区 | live 插件为 `0.4.7`；Secret 值不进入产物或日志 |
+| M5 发布凭证与指标快照 | Publisher Gateway 插件状态及 Paperclip Work Product | 独立 `4390` 服务默认 `disabled`；production 代码已接线但 live 未注入，且无真实 selector、Profile lease 或写授权 |
 | Agent军团知识总结笔记 | Auto-work 统一内容库 `Agent军团/` | 小办只有受限写入，不拥有 Vault 全盘读取 |
 | 运维健康事件和安全恢复记录 | M2 Agent 运维官 / 治理控制面 | 只记录脱敏事件、动作和结果 |
 | 聊天展示状态 | 飞书 | 是投影视图，不是任务真相 |

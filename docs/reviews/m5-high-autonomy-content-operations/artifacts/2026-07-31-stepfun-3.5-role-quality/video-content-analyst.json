@@ -1,0 +1,195 @@
+{
+  "schemaVersion": "agent.army/m4-role-quality-result/v1",
+  "taskId": "m4-role-video-content-analyst-20260730",
+  "agentId": "video-content-analyst",
+  "agentName": "小拆·视频内容拆解师",
+  "startedAt": "2026-07-30T20:34:31.840Z",
+  "finishedAt": "2026-07-30T20:34:42.102Z",
+  "model": {
+    "provider": "stepfun",
+    "name": "step-3.5-flash-2603",
+    "apiCalls": 1,
+    "estimatedCostUsd": 0,
+    "inputTokens": 5067,
+    "outputTokens": 1018
+  },
+  "externalSideEffects": 0,
+  "toolPolicy": "clarify-only; prompt forbids tool use",
+  "parseError": null,
+  "parseNormalizations": [],
+  "processError": null,
+  "outputChecksum": "ecbbbe7d7e4209a0f44c70010d3ef544e785c5d1904d6b487f46e0198e2741e5",
+  "output": {
+    "taskId": "m4-role-video-content-analyst-20260730",
+    "agentId": "video-content-analyst",
+    "status": "completed",
+    "summary": "基于确认稿完成可信内容生产60秒短视频验收样本的本地内容拆解，画面指标未核验。",
+    "evidence": [
+      {
+        "fact": "确认稿区分原始素材、机器转录与人工确认稿三套来源",
+        "sourceRef": "确认稿[00:00]",
+        "confidence": "high"
+      },
+      {
+        "fact": "拆解要求引用时间点而非印象判断",
+        "sourceRef": "确认稿[00:08]",
+        "confidence": "high"
+      },
+      {
+        "fact": "发布环节由真人决定，真实指标待后续复盘",
+        "sourceRef": "确认稿[00:27][00:39]",
+        "confidence": "high"
+      },
+      {
+        "fact": "验收样本3秒留存74%、15秒留存51%、完播32%",
+        "sourceRef": "验收样本指标",
+        "confidence": "high"
+      },
+      {
+        "fact": "评论20条：怎么落地8条（40%）、流程太重5条（25%）、泛反馈7条（35%）",
+        "sourceRef": "验收样本指标",
+        "confidence": "high"
+      },
+      {
+        "fact": "仅知有标题卡和流程箭头，无实际帧可核验",
+        "sourceRef": "验收样本画面说明",
+        "confidence": "high"
+      }
+    ],
+    "risks": [
+      {
+        "fact": "无实际帧，无法核验标题卡与流程箭头呈现效果",
+        "severity": "medium",
+        "mitigation": "标注为未知，等待补充关键帧素材后复验"
+      }
+    ],
+    "nextAction": "补充关键帧后重新核验视觉表现并更新拆解报告。",
+    "externalActionStarted": false,
+    "analysis": {
+      "hookAssessment": "确认稿未提供具体开场钩子内容，无法评估。",
+      "evidenceMoments": [
+        {
+          "timestamp": "[00:00]",
+          "claim": "来源分层声明（原始素材/机器转录/人工确认稿分开）",
+          "source": "确认稿[00:00]"
+        },
+        {
+          "timestamp": "[00:08]",
+          "claim": "不分层原则声明，后续结论可能缺乏证据支撑",
+          "source": "确认稿[00:08]"
+        },
+        {
+          "timestamp": "[00:17]",
+          "claim": "引用时间点要求（拆解必须引用时间点，不能凭印象）",
+          "source": "确认稿[00:17]"
+        },
+        {
+          "timestamp": "[00:27]",
+          "claim": "创作边界：只读取确认稿和正式拆解，生成待审草稿",
+          "source": "确认稿[00:27]"
+        },
+        {
+          "timestamp": "[00:39]",
+          "claim": "发布由真人决定，真实指标回来后再复盘",
+          "source": "确认稿[00:39]"
+        },
+        {
+          "timestamp": "[00:50]",
+          "claim": "办公助理归档结论、决定、待办和来源",
+          "source": "确认稿[00:50]"
+        }
+      ],
+      "retentionDiagnosis": "验收样本3秒留存74%（3→15秒流失23pp，15→完播再流失19pp），前段到中段掉速较快，未与平台基线比较。",
+      "commentThemes": "怎么落地8/20（40%）、流程太重5/20（25%）、泛反馈7/20（35%），均为验收样本精确计数。",
+      "platformPatterns": "无平台或行业基线数据，无法识别外部模式。",
+      "qualityRisks": "确认稿要求不分层且引用时间点，当前无实际帧核验，标题卡与流程箭头质量无法核验（验收样本画面信息仅告知存在标题卡和流程箭头）。",
+      "experiment": {
+        "hypothesis": "改进流程可视化呈现以降低流程太重感知并提升完播",
+        "variantA": "流程箭头增加交互引导提示",
+        "variantB": "流程步骤精简并分屏展示",
+        "metric": "验收样本3秒留存、15秒留存、完播及评论标签分布",
+        "stopRule": "单指标波动超过15pp或流程太重评论占比降至10%以下时暂停实验并复盘"
+      },
+      "visualUnknowns": "标题卡呈现形式未知，流程箭头样式与布局未知，剪辑节奏未知，整体风格未知（验收样本无实际帧可核验）。"
+    }
+  },
+  "status": "passed",
+  "checks": [
+    {
+      "label": "模型返回任务标签",
+      "passed": true
+    },
+    {
+      "label": "模型返回岗位标签",
+      "passed": true
+    },
+    {
+      "label": "岗位任务完成",
+      "passed": true
+    },
+    {
+      "label": "摘要达到中文业务结论最小长度",
+      "passed": true
+    },
+    {
+      "label": "证据至少 2 项",
+      "passed": true
+    },
+    {
+      "label": "证据含事实、来源和置信度",
+      "passed": true
+    },
+    {
+      "label": "风险至少 1 项",
+      "passed": true
+    },
+    {
+      "label": "存在明确下一步",
+      "passed": true
+    },
+    {
+      "label": "未开始外部动作",
+      "passed": true
+    },
+    {
+      "label": "证据时刻至少 5 项",
+      "passed": true
+    },
+    {
+      "label": "证据时刻可追溯",
+      "passed": true
+    },
+    {
+      "label": "给出留存诊断",
+      "passed": true
+    },
+    {
+      "label": "实验可执行",
+      "passed": true
+    },
+    {
+      "label": "保留画面未知项",
+      "passed": true
+    },
+    {
+      "label": "语义门禁：无题面基线不得评价平台均值或正常范围",
+      "passed": true
+    },
+    {
+      "label": "语义门禁：无实际帧不得评价画面设计、节奏或风格",
+      "passed": true
+    },
+    {
+      "label": "语义门禁：20 条评论必须精确计数或谨慎描述",
+      "passed": true
+    },
+    {
+      "label": "语义门禁：输入指标必须在同字段或证据对象标明验收样本",
+      "passed": true
+    }
+  ],
+  "identityDrift": {
+    "taskId": null,
+    "agentId": null
+  }
+}

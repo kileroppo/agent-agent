@@ -55,7 +55,11 @@
 
 ## 当前交接
 
-- [M3 内容增长与知识归档交接](./current/m3-content-growth-handoff.md)：旧链路真实飞书/听审、新版图文报告、真实草稿和 Obsidian 归档均已有证据；唯一下一步是负责人阅读新版报告与草稿并判断内容质量。
+- [M2 多账号与三平台只读增量验收交接](./current/m2-multi-account-crawl-acceptance-handoff.md)：已关闭；多账号、运行台及小红书/抖音/B站真实只读均已通过，小红书成功样本使用发现页自然生成的完整链接。
+- [M5 高权限内容自治交接](./current/m5-high-autonomy-content-operations-handoff.md)：v2 15 阶段/17 Routine/5 个无模型控制器及内容插件 `0.4.7` 已对账到 live，`0.4.6` 回滚链、Paperclip Secret 引用和 8 岗插件绑定已完成；活动仍未批准。唯一下一步是保持活动、Cron 和真实 Publisher 关闭，冻结真实 selector、签发绑定 accountRef 的命名 Profile lease，并在取得平台写权限后单独批准首发。
+- [M4 岗位自主执行与模型切换交接](./current/m4-autonomous-agent-capabilities-handoff.md)：代码、契约与模型元数据实施中；唯一下一步是负责人通过 Hermes 官方入口补齐各 Profile 的 StepFun/DeepSeek 授权，再做一次性重启和真实验收。
+- [M2 Agent 人性化体验验收交接](./current/m2-agent-experience-polish-handoff.md)：本机实现、自动检查与真实浏览器检查已通过；唯一下一步是在 A君真实飞书原会话验证中文 `/new` 按钮和可点击任务号。
+- [M3 内容增长与知识归档交接](../archive/handoffs/m3-content-growth-handoff.md)：已关闭并归档；负责人确认已于 2026-07-29 完成新版内容质量和最终飞书脚本闭环验收，后续进入 M4。
 - [M2 数字员工公司体验实施交接](./current/m2-digital-employee-company-handoff.md)：目标设计已确认并进入实施；唯一下一步是完成办公执行助理纵向切片。
 - [M1 小D媒体强制路由与验收交接](./current/m1-xiaod-media-routing-acceptance-handoff.md)：首条真实媒体任务已完成系统交付，等待人工读取确认与其余M1场景验收。
 - [M1 小D飞书运行环境交接](./current/m1-xiaod-feishu-runtime-setup.md)：待所有者完成隔离 Profile 的本地配置后，执行首条受控飞书消息验证。

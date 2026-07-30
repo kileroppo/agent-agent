@@ -1,9 +1,12 @@
 import { execFile } from 'node:child_process';
+import os from 'node:os';
+import path from 'node:path';
+import { NO_SIDE_EFFECT_HERMES_ARGS } from './hermes-oneshot-policy.js';
 
 const MAX_ITEMS = 4;
 
 export class HermesTaskAdvisor {
-  constructor({ command = process.env.AJUN_HERMES_COMMAND || '/Users/pengaro/.local/bin/hermes', hermesHome = process.env.AJUN_HERMES_HOME || '', timeoutMs = 18_000, run = runCommand } = {}) {
+  constructor({ command = process.env.AJUN_HERMES_COMMAND || path.join(os.homedir(), '.local', 'bin', 'hermes'), hermesHome = process.env.AJUN_HERMES_HOME || '', timeoutMs = 18_000, run = runCommand } = {}) {
     this.command = command;
     this.hermesHome = hermesHome;
     this.timeoutMs = timeoutMs;
@@ -12,7 +15,7 @@ export class HermesTaskAdvisor {
 
   async advise({ request, employees = [] } = {}) {
     if (!this.hermesHome) return null;
-    const output = await this.run(this.command, ['--ignore-rules', '--oneshot', promptFor(request, employees)], { timeoutMs:this.timeoutMs, env:{ ...process.env, HERMES_HOME:this.hermesHome } });
+    const output = await this.run(this.command, [...NO_SIDE_EFFECT_HERMES_ARGS, '--oneshot', promptFor(request, employees)], { timeoutMs:this.timeoutMs, env:{ ...process.env, HERMES_HOME:this.hermesHome } });
     return parseAdvice(output);
   }
 }

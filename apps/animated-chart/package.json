@@ -1,0 +1,37 @@
+{
+  "name": "animated-chart",
+  "version": "1.0.0",
+  "description": "My Remotion video",
+  "repository": {},
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@remotion/cli": "4.0.500",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.500",
+    "@remotion/tailwind-v4": "4.0.500",
+    "tailwindcss": "4.0.0"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "4.0.500",
+    "@types/react": "19.2.7",
+    "@types/web": "0.0.166",
+    "eslint": "9.19.0",
+    "prettier": "3.8.1",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "dev": "remotion studio",
+    "build": "remotion bundle",
+    "render:m5-local": "node scripts/render-m5-local-dryrun.mjs",
+    "render:m5-stepfun": "node scripts/render-m5-local-dryrun.mjs --stepfun-ledger",
+    "preflight:m5-stepfun": "node scripts/render-m5-local-dryrun.mjs --preflight-only --stepfun-ledger",
+    "test:m5-preflight": "node --test scripts/render-m5-local-dryrun.test.mjs",
+    "upgrade": "remotion upgrade",
+    "lint": "eslint src scripts/render-m5-local-dryrun.mjs scripts/render-m5-local-dryrun.test.mjs && tsc"
+  },
+  "sideEffects": [
+    "*.css"
+  ]
+}

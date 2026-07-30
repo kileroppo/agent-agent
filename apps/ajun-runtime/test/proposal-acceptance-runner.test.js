@@ -68,6 +68,36 @@ test('小创受限测试必须引用上游任务并明确平台', async () => {
   assert.equal(result.artifactRefs[0].title, '1 个平台草稿');
 });
 
+test('微信聊天取件员受限测试只调用合成 Vault 验收器', async () => {
+  let received = null;
+  const runner = new ProposalAcceptanceRunner({
+    wechatLocalVault:{
+      async run(input) {
+        received = input;
+        return {
+          status:'succeeded',
+          artifactRefs:[{
+            title:'微信聊天受控读取合成验收报告',
+            location:'file:///tmp/wechat-acceptance.json',
+            validation:{ exists:true, readable:true, nonEmpty:true, syntheticOnly:true, realChatRead:false }
+          }]
+        };
+      }
+    }
+  });
+  const proposal = {
+    proposalId:'proposal-wechat',
+    requestedCapabilities:['wechat.local-vault.chat.read'],
+    candidateManifest:{ agentId:'wechat-chat-retriever', acceptedTaskTypes:['wechat.chat.retrieval.request'] }
+  };
+
+  const result = await runner.run({ proposal, testInstance:instance });
+
+  assert.equal(result.status, 'succeeded');
+  assert.equal(received.proposal.proposalId, 'proposal-wechat');
+  assert.equal(result.artifactRefs[0].validation.realChatRead, false);
+});
+
 test('内联受限验收稿只落受控目录，并明确不代表真实视频听审', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'proposal-content-acceptance-'));
   t.after(() => fs.rm(root, { recursive:true, force:true }));

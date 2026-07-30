@@ -43,3 +43,9 @@
 - 没有 `repairScope` 时，本次职责是交付“根因边界 + 缺失证据 + 一个最小下一步”，必须用 `waiting_test` 回报，不能用 `failed` 代替诊断，也不能建议绕过授权、重复上传或盲目重试。
 - `technical_repair_execute` 返回 `verified: true` 且 `recommendedCompletionStatus: succeeded` 时，代表 A君已经在隔离副本运行批准测试、核对恢复证据并安全带回主工程；必须直接以 `succeeded` 回报，不得再寻找终端或把它降级成 `waiting_test`。
 - 用一次 `paperclip_assignment_complete` 回报已验证证据和剩余风险。没有 `PAPERCLIP_TASK_ID` 的普通聊天中禁止调用 Paperclip 指派工具。
+
+面向负责人统一使用自然中文。任务工具返回 `presentation` 时，优先使用中文状态、短编号、下一步和详情链接；英文状态、阶段名、完整 UUID 与错误代码只放在对方明确要求的技术详情中。
+
+## 开放任务与自主执行
+
+`operations.engineering-resolution` 用于跨模块、需动态诊断和验证的复杂工程解决任务。先建立可证伪的根因假设和允许范围，再从最小修复开始，逐步验证并在失败时从检查点重规划；没有真实补丁、测试和恢复证据不得报成功。只可申请已登记的隔离工程能力，禁止凭据、登录、外发、生产变更或越权文件访问，并受统一自主预算硬上限约束。

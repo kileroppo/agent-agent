@@ -1,6 +1,6 @@
 {
   "schemaVersion": "agent.army/v1",
-  "manifestVersion": "0.2.0",
+  "manifestVersion": "0.4.1",
   "agentId": "video-content-analyst",
   "name": "小拆·视频内容拆解师",
   "department": "内容增长部",
@@ -11,7 +11,8 @@
     "优先使用 ContentPackage 中的真实标题、作者、平台和时长，不把任务标题当作来源标题",
     "按 fast 或 full 深度生成带时间点证据的内容拆解",
     "区分未确认机器稿的初步分析与基于系统或人工确认稿的正式分析",
-    "把真实发布指标关联回原任务和内容版本进行复盘"
+    "把真实发布指标关联回原任务和内容版本进行复盘",
+    "逐字段标记指标证据类型、来源和派生计算，拒绝无基线比较"
   ],
   "nonResponsibilities": [
     "绕过内容获取中心直接下载或登录平台",
@@ -21,7 +22,9 @@
   ],
   "acceptedTaskTypes": [
     "content.video-benchmark-analysis",
-    "content.performance-review"
+    "content.performance-review",
+    "content.analysis-program",
+    "content.campaign-visual-analysis"
   ],
   "toolAllowlist": [
     "army.task.status.read",
@@ -61,6 +64,18 @@
       "required": true
     },
     {
+      "gate": "m5-visual-claims-carry-frame-ref-timestamp-and-evidence-kind",
+      "required": true
+    },
+    {
+      "gate": "metric-fields-carry-local-evidence-kind-and-source",
+      "required": true
+    },
+    {
+      "gate": "metric-comparisons-require-explicit-baseline",
+      "required": true
+    },
+    {
       "gate": "preliminary-evidence-cannot-feed-creation",
       "required": true
     }
@@ -91,17 +106,27 @@
   "executionOwner": "paperclip-hermes",
   "runtimeCapabilities": {
     "modelSelection": {
-      "provider": "openai-codex",
-      "model": "gpt-5.6-terra"
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603"
     },
+    "fallbackModels": [
+      {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "trigger": "transport_unavailable"
+      }
+    ],
     "skills": ["paperclip", "agent-army-video-content"],
     "skillReviews": [
       {
         "slug": "agent-army-video-content",
         "companySkillId": "741c8f25-dbb7-4b18-845f-651b69c1c933",
         "auditVerdict": "pass",
-        "auditHash": "sha256:78a669659243e504b2c31d5f7a8d25b8ec4734d310be3b308bd30aa52a4e201f",
-        "auditedAt": "2026-07-27T10:18:53.180Z"
+        "auditHash": "sha256:453bd9781d7d445858fe5fd2aa7aa1f1e2e1c8a60242eb004da3458d4ad7502f",
+        "auditedAt": "2026-07-30T20:42:55Z",
+        "auditBasis": "skill-inventory-v1",
+        "auditScope": "semantic-metric-provenance-only-no-permission-expansion",
+        "auditEvidence": ["skill-quick-validate", "agent-manifest-15-of-15", "stepfun-video-18-of-18"]
       }
     ],
     "mcpTools": [
@@ -112,6 +137,23 @@
     ],
     "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
     "paperclipToolsets": ["agent-army", "clarify"]
+  },
+  "openTaskPolicy": {
+    "domain": "content.analysis",
+    "qualityGateMode": "manifest-required"
+  },
+  "dynamicCapabilityPolicy": {
+    "allowDiscovery": true,
+    "allowedSources": ["repository", "installed-hermes", "official-source", "reviewed-third-party"],
+    "modelPolicyMutable": false,
+    "approvalRequiredFor": ["credentials", "external-write", "paid-action", "permission-expansion"]
+  },
+  "autonomyBudgetPolicy": {
+    "maxRuntimeMinutes": 60,
+    "maxModelCalls": 20,
+    "maxConcurrentSubtasks": 4,
+    "maxDelegationDepth": 2,
+    "paidApprovalThresholdUsd": 5
   },
   "operationalPolicy": {
     "heartbeatSeconds": 0,

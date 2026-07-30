@@ -13,11 +13,22 @@ export class LocalOfficeAssistant {
 
   supports(agent) { return agent?.agentId === 'office-assistant'; }
 
-  async execute(task) {
-    if (task.taskType === 'office.knowledge-summary') return this.executeKnowledgeSummary(task);
+  async execute(task, { roleToolContext = null } = {}) {
+    if (task.taskType === 'office.knowledge-summary') {
+      return this.executeKnowledgeSummary(task, roleToolContext);
+    }
     const title = clean(task?.input?.title);
     const description = clean(task?.input?.description);
-    const allTasks = typeof this.store?.list === 'function' ? await this.store.list() : [];
+    const allTasks = roleToolContext
+      ? await roleToolContext.execute({
+          toolId:'army.task.read',
+          input:{
+            sourceTaskIds:list(task?.input?.context?.sourceTaskIds),
+            parentTaskId:task?.parentTaskId || null,
+            currentTaskId:task?.taskId,
+          },
+        })
+      : typeof this.store?.list === 'function' ? await this.store.list() : [];
     const sources = referencedTasks(task, allTasks);
     if (!hasUsefulInput(title, description, sources)) {
       return needsInput(this.now(), 'office_material_required', '请提供需要整理的材料，或指定已经完成的任务；办公执行助理不会用空内容生成假汇报。');
@@ -25,13 +36,37 @@ export class LocalOfficeAssistant {
 
     const completedAt = this.now().toISOString();
     const report = buildReport({ title, description, sources, completedAt });
-    const directory = path.join(this.artifactsDir, safeSegment(task.taskId));
-    const filePath = path.join(directory, '办公汇报包.md');
-    await fs.mkdir(directory, { recursive:true });
-    await fs.writeFile(filePath, report.markdown, 'utf8');
-    const stat = await fs.stat(filePath);
-    if (!stat.isFile() || stat.size < 1) throw new Error('办公汇报包写入后为空。');
+    const taskSegment = safeSegment(task.taskId);
+    let filePath;
+    let bytes;
+    if (roleToolContext) {
+      const written = await roleToolContext.execute({
+        toolId:'office.artifact.write',
+        relativePath:`work-products/${taskSegment}/office-briefing.md`,
+        input:{ contents:report.markdown },
+      });
+      filePath = written.filePath;
+      bytes = written.bytes;
+    } else {
+      const directory = path.join(this.artifactsDir, safeSegment(task.taskId));
+      filePath = path.join(directory, '办公汇报包.md');
+      await fs.mkdir(directory, { recursive:true });
+      await fs.writeFile(filePath, report.markdown, 'utf8');
+      const stat = await fs.stat(filePath);
+      if (!stat.isFile() || stat.size < 1) throw new Error('办公汇报包写入后为空。');
+      bytes = stat.size;
+    }
 
+    const additionalArtifacts = roleToolContext
+      ? await writeRequestedOfficeArtifacts({
+          task,
+          report,
+          sources,
+          completedAt,
+          taskSegment,
+          roleToolContext,
+        })
+      : [];
     return {
       status:'succeeded',
       currentStage:'office_briefing_ready',
@@ -42,7 +77,16 @@ export class LocalOfficeAssistant {
         finishedAt:completedAt,
         outcome:'briefing_ready'
       },
-      usage:{ tools:[{ id:'office-artifact-write', name:'办公汇报包写入', calls:1 }] },
+      usage:{
+        tools:[
+          { id:'office-artifact-write', name:'办公汇报包写入', calls:1 },
+          ...additionalArtifacts.map((artifact) => ({
+            id:artifact.data?.toolId || artifact.type,
+            name:artifact.title,
+            calls:artifact.data?.duplicate ? 0 : 1,
+          })),
+        ],
+      },
       artifactRefs:[{
         artifactId:`office-briefing:${task.taskId}`,
         taskId:task.taskId,
@@ -56,7 +100,7 @@ export class LocalOfficeAssistant {
           exists:true,
           readable:true,
           nonEmpty:true,
-          bytes:stat.size,
+          bytes,
           sourceTaskCount:sources.length,
           sourceStatusesTruthful:true,
           includesOpenItems:true,
@@ -70,15 +114,24 @@ export class LocalOfficeAssistant {
           nextAction:report.nextAction,
           markdown:report.markdown
         }
-      }]
+      }, ...additionalArtifacts]
     };
   }
 
-  async executeKnowledgeSummary(task) {
+  async executeKnowledgeSummary(task, roleToolContext = null) {
     if (!this.knowledgeArchive) return needsInput(this.now(), 'knowledge_archive_unavailable', '统一知识库写入能力尚未配置。');
     const title = clean(task?.input?.title);
     const description = clean(task?.input?.description);
-    const allTasks = typeof this.store?.list === 'function' ? await this.store.list() : [];
+    const allTasks = roleToolContext
+      ? await roleToolContext.execute({
+          toolId:'army.task.read',
+          input:{
+            sourceTaskIds:list(task?.input?.context?.sourceTaskIds),
+            parentTaskId:task?.parentTaskId || null,
+            currentTaskId:task?.taskId,
+          },
+        })
+      : typeof this.store?.list === 'function' ? await this.store.list() : [];
     const sources = referencedTasks(task, allTasks);
     if (!hasUsefulInput(title, description, sources)) {
       return needsInput(this.now(), 'knowledge_material_required', '请提供当前任务材料，或明确引用需要归档的任务。');
@@ -117,12 +170,19 @@ export class LocalOfficeAssistant {
       `任务 ID：${task.taskId}`,
       ''
     ].join('\n');
-    const written = await this.knowledgeArchive.write({
+    const writeInput = {
       taskId:task.taskId,
       idempotencyKey:task.idempotencyKey,
       title:title || 'Agent军团任务总结',
-      markdown
-    });
+      markdown,
+    };
+    const written = roleToolContext
+      ? await roleToolContext.execute({
+          toolId:'knowledge.archive.write',
+          relativePath:'Agent军团',
+          input:writeInput,
+        })
+      : await this.knowledgeArchive.write(writeInput);
     return {
       status:'succeeded',
       currentStage:'knowledge_summary_archived',
@@ -144,6 +204,115 @@ export class LocalOfficeAssistant {
       }]
     };
   }
+}
+
+async function writeRequestedOfficeArtifacts({
+  task,
+  report,
+  sources,
+  completedAt,
+  taskSegment,
+  roleToolContext,
+}) {
+  const artifacts = [];
+  for (const format of officeOutputFormats(task)) {
+    const toolId = `office.${format}.write`;
+    const relativePath = `work-products/${taskSegment}/office-briefing.${format}`;
+    const input = format === 'xlsx'
+      ? { title:report.title, rows:officeSpreadsheetRows(sources, report) }
+      : { title:report.title, markdown:report.markdown };
+    const written = await roleToolContext.execute({ toolId, relativePath, input });
+    artifacts.push({
+      artifactId:`office-${format}:${task.taskId}`,
+      taskId:task.taskId,
+      type:`office_${format}_document`,
+      title:`${report.title}（${format.toUpperCase()}）`,
+      location:`workspace://${relativePath}`,
+      mimeType:written.mimeType,
+      checksum:written.checksum,
+      accessScope:'local-owner',
+      createdAt:completedAt,
+      validation:written.validation,
+      data:{
+        toolId,
+        relativePath,
+        bytes:written.bytes,
+      },
+    });
+  }
+  const cadence = reportCadence(task);
+  if (cadence) {
+    const toolId = `office.report.${cadence}.write`;
+    const relativePath = `work-products/${taskSegment}/${cadence}-report.md`;
+    const written = await roleToolContext.execute({
+      toolId,
+      relativePath,
+      input:{
+        idempotencyKey:String(task.idempotencyKey || `task-${task.taskId}`).slice(0, 200),
+        title:report.title,
+        summary:report.summary,
+        markdown:report.markdown,
+        sourceTaskIds:sources.map((source) => source.taskId),
+      },
+    });
+    artifacts.push({
+      artifactId:`office-${cadence}-report:${task.taskId}`,
+      taskId:task.taskId,
+      type:`office_${cadence}_report_work_product`,
+      title:`${report.title}（${cadence === 'daily' ? '日报' : '周报'} Work Product）`,
+      location:`paperclip-work-product://${written.workProductId}`,
+      checksum:written.contentHash,
+      accessScope:'local-owner',
+      createdAt:completedAt,
+      validation:{
+        exists:true,
+        readable:true,
+        nonEmpty:true,
+        paperclipWorkProduct:true,
+        workspaceRestricted:true,
+      },
+      data:{
+        toolId,
+        workProductId:written.workProductId,
+        relativePath:written.relativePath,
+        duplicate:written.duplicate,
+      },
+    });
+  }
+  return artifacts;
+}
+
+function officeOutputFormats(task) {
+  const requested = Array.isArray(task?.input?.outputFormats)
+    ? task.input.outputFormats
+    : [];
+  const normalized = [...new Set(requested.map((item) => String(item || '').toLowerCase().trim()))]
+    .filter((item) => ['docx', 'xlsx', 'pdf'].includes(item));
+  return normalized.length
+    ? normalized
+    : task?.taskType === 'office.deliverable-program' ? ['docx', 'xlsx', 'pdf'] : [];
+}
+
+function reportCadence(task) {
+  const requested = String(task?.input?.reportCadence || '').toLowerCase().trim();
+  if (['daily', 'weekly'].includes(requested)) return requested;
+  return task?.taskType === 'content.campaign-metrics' ? 'daily' : null;
+}
+
+function officeSpreadsheetRows(sources, report) {
+  const rows = [['任务 ID', '标题', '负责人', '状态', '阶段', '已验证产物数']];
+  for (const source of sources) {
+    rows.push([
+      source.taskId,
+      source.title,
+      source.employeeId || '待确定',
+      statusLabel(source.status),
+      source.stage || '',
+      String(source.artifacts.length),
+    ]);
+  }
+  if (!sources.length) rows.push(['当前任务', report.title, 'office-assistant', '已整理', '', '1']);
+  return rows;
 }
 
 export function formatOfficeBriefingReply(report) {

@@ -59,3 +59,62 @@ test('会话上下文只保存结构化事实，可在重启后继续接住追�
     });
   } finally { await fs.rm(directory, { recursive: true, force: true }); }
 });
+
+test('新建任务状态文件使用 0600，既有 0644 文件在一次写入后收敛', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-task-store-'));
+  const filePath = path.join(directory, 'runtime.json');
+  try {
+    const store = new TaskStore(filePath);
+    await store.createTask({ taskType:'army.intake', input:{ title:'新文件' }, status:'queued' });
+    assert.equal((await fs.stat(filePath)).mode & 0o777, 0o600);
+
+    await fs.writeFile(filePath, JSON.stringify({
+      tasks:[],
+      approvals:[],
+      proposals:[],
+      testInstances:[],
+      conversationContexts:{}
+    }), { mode:0o644 });
+    await fs.chmod(filePath, 0o644);
+    await store.createTask({ taskType:'army.intake', input:{ title:'旧文件收敛' }, status:'queued' });
+    assert.equal((await fs.stat(filePath)).mode & 0o777, 0o600);
+    assert.equal((await store.list()).length, 1);
+  } finally { await fs.rm(directory, { recursive: true, force: true }); }
+});
+
+test('原子替换失败只清理本次临时文件，旧状态和无关临时文件保持不变', async (context) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-task-store-'));
+  const filePath = path.join(directory, 'runtime.json');
+  const unrelatedTemporary = `${filePath}.unrelated.tmp`;
+  const original = `${JSON.stringify({
+    tasks:[],
+    approvals:[],
+    proposals:[],
+    testInstances:[],
+    conversationContexts:{ preserved:{ value:true } }
+  }, null, 2)}\n`;
+  try {
+    await fs.writeFile(filePath, original, { mode:0o600 });
+    await fs.writeFile(unrelatedTemporary, 'leave-me', { mode:0o600 });
+    const rename = fs.rename.bind(fs);
+    context.mock.method(fs, 'rename', async (source, destination) => {
+      if (destination === filePath) {
+        assert.equal((await fs.stat(source)).mode & 0o777, 0o600);
+        const error = new Error('simulated rename failure');
+        error.code = 'EIO';
+        throw error;
+      }
+      return rename(source, destination);
+    });
+
+    const store = new TaskStore(filePath);
+    await assert.rejects(
+      store.createTask({ taskType:'army.intake', input:{ title:'不会覆盖旧文件' }, status:'queued' }),
+      /simulated rename failure/
+    );
+    assert.equal(await fs.readFile(filePath, 'utf8'), original);
+    assert.equal(await fs.readFile(unrelatedTemporary, 'utf8'), 'leave-me');
+    const entries = await fs.readdir(directory);
+    assert.deepEqual(entries.sort(), ['runtime.json', 'runtime.json.unrelated.tmp']);
+  } finally { await fs.rm(directory, { recursive: true, force: true }); }
+});

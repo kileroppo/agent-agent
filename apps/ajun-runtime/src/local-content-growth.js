@@ -2,6 +2,11 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  buildM5PlatformCopy,
+  deriveM5ContentVersionId,
+  validM5MediaChecksum,
+} from './m5-content-version.js';
 
 const FULL_ANALYSIS_MODULES = [
   '基本信息',
@@ -19,6 +24,10 @@ const FULL_ANALYSIS_MODULES = [
   '爆款结构模板'
 ];
 const FAST_ANALYSIS_MODULES = ['定位与受众', '开场钩子', '内容结构', '核心价值点', '可执行优化建议'];
+export const CONTENT_PERFORMANCE_NEXT_ACTIONS = Object.freeze([
+  '保留表现较好的开场和结构变量。',
+  '下一版只调整一个主要变量，并继续关联原任务与版本。',
+]);
 
 export class LocalVideoContentAnalyst {
   constructor({ store, artifactsDir, allowedArtifactRoots = [], advisor = null, now = () => new Date() } = {}) {
@@ -31,8 +40,19 @@ export class LocalVideoContentAnalyst {
 
   supports(agent) { return agent?.agentId === 'video-content-analyst'; }
 
-  async execute(task, { sourceArtifacts = null, allowAdvisor = true } = {}) {
+  async execute(task, {
+    sourceArtifacts = null,
+    allowAdvisor = true,
+    providerVision = null,
+  } = {}) {
     if (task.taskType === 'content.performance-review') return this.performanceReview(task, { sourceArtifacts });
+    if (task.taskType === 'content.campaign-visual-analysis') {
+      return this.m5VisualAnalysis(task, {
+        sourceArtifacts,
+        allowAdvisor,
+        providerVision,
+      });
+    }
     const evidenceMode = task.input?.evidenceMode === 'preliminary' ? 'preliminary' : 'formal';
     const depth = task.input?.depth === 'full' ? 'full' : 'fast';
     const sources = Array.isArray(sourceArtifacts) ? sourceArtifacts : await referencedArtifacts(task, this.store);
@@ -57,7 +77,16 @@ export class LocalVideoContentAnalyst {
     }
     const sourceEvidence = sourceEvidenceArtifact ? await readArtifactJson(sourceEvidenceArtifact, this.allowedArtifactRoots) : null;
     const sourceMetadata = normalizeSourceMetadata(sourceEvidence?.sourceMetadata);
-    const visualEvidence = visualArtifact ? await readVisualEvidence(visualArtifact, this.allowedArtifactRoots) : null;
+    const visualEvidence = visualArtifact && visualMode !== 'off'
+      ? await readVisualEvidence(visualArtifact, this.allowedArtifactRoots)
+      : null;
+    if (visualEvidence) {
+      return needsInput(
+        this.now(),
+        'controlled_provider_vision_required',
+        '已有故事板，但普通拆解尚未接入可核验的受控 Provider 视觉观察。Hermes 不会直接读取本机图片；请接入受控视觉回执或将 visualMode 设为 off 后仅做文本拆解。',
+      );
+    }
     const effectiveTitle = sourceMetadata.title || clean(task.input?.title, 300) || transcriptArtifact.title || '视频内容';
     const segments = evidenceSegments(transcript);
     const advisorTranscript = segments.map((segment) => (
@@ -175,6 +204,154 @@ export class LocalVideoContentAnalyst {
     return successResult(task, artifact, completedAt, depth === 'full' ? 'full_analysis' : 'fast_analysis', modelUsage);
   }
 
+  async m5VisualAnalysis(task, {
+    sourceArtifacts = null,
+    allowAdvisor = true,
+    providerVision = null,
+  } = {}) {
+    const sources = Array.isArray(sourceArtifacts) ? sourceArtifacts : await referencedArtifacts(task, this.store);
+    const assetPackage = findArtifact(sources, 'asset_package');
+    if (!assetPackage) {
+      return needsInput(this.now(), 'm5_asset_package_required', 'M5 画面分析必须引用同一活动、同一日期已核验的 AssetPackage。');
+    }
+    const visualEvidence = await visualEvidenceFromM5AssetPackage(
+      assetPackage,
+      this.allowedArtifactRoots,
+    );
+    if (typeof providerVision !== 'function') {
+      return needsInput(
+        this.now(),
+        'm5_provider_vision_required',
+        'M5 正式画面分析缺少受控 StepFun 视觉工具回调，不能只用岗位主模型冒充视觉调用。',
+      );
+    }
+    const selectedFrame = visualEvidence.frames[0];
+    const selectedStoryboard = visualEvidence.storyboards.find((item) =>
+      item.frameId === selectedFrame.frameId
+    );
+    if (!selectedStoryboard) {
+      throw m5VisualError(
+        'm5_provider_vision_frame_missing',
+        'M5 视觉工具没有找到与关键帧一致的受控图片。',
+      );
+    }
+    const actionId = m5VisionActionId(task, selectedFrame);
+    let providerVisionResult;
+    try {
+      providerVisionResult = await providerVision({
+        actionId,
+        relativePath:selectedFrame.relativePath,
+        prompt:[
+          '只分析这张已核验关键帧的可见事实。',
+          `帧ID：${selectedFrame.frameId}；时间点：${selectedFrame.timestamp}。`,
+          '请描述开场作用、信息层级、镜头节奏线索和可执行剪辑建议；不要推断画面外事实。',
+        ].join(''),
+      });
+    } catch (error) {
+      error.code = clean(error?.code, 120) || 'm5_provider_vision_failed';
+      error.retryable = error?.retryable !== false;
+      throw error;
+    }
+    const providerReceipt = confirmedM5VisionReceipt({
+      value:providerVisionResult?.receipt || providerVisionResult,
+      expectedProjectId:providerVisionResult?.projectId,
+      expectedActionId:actionId,
+      selectedFrame,
+    });
+    const analysisVisualEvidence = {
+      ...visualEvidence,
+      frames:[selectedFrame],
+      storyboards:[selectedStoryboard],
+      coverage:{
+        firstFrameAt:selectedFrame.timestamp,
+        lastFrameAt:selectedFrame.timestamp,
+      },
+    };
+    if (!allowAdvisor || !this.advisor?.analyze) {
+      return needsInput(this.now(), 'm5_visual_analysis_executor_required', 'M5 画面分析执行器不可用，不能用通用建议冒充视觉判断。');
+    }
+    const transcript = analysisVisualEvidence.frames
+      .map((frame) => `[${frame.timestamp}] ${frame.frameId} 是当前可读取的关键帧证据。`)
+      .join('\n');
+    let advised;
+    try {
+      advised = await this.advisor.analyze({
+        title:clean(task.input?.title, 300) || 'M5 画面分析',
+        transcript,
+        depth:'fast',
+        evidenceMode:'formal',
+        focus:'只描述可见事实、画面作用、镜头节奏和可执行剪辑建议。',
+        sourceMetadata:null,
+        visualEvidence:analysisVisualEvidence,
+        providerVisionObservation:providerReceipt.observation,
+        validate:(value) => validVisualFindings(
+          value?.visualFindings,
+          analysisVisualEvidence,
+          { minFindings:3, minCategories:2 },
+        ),
+      });
+    } catch (error) {
+      error.code = clean(error?.code, 120) || 'm5_visual_analysis_failed';
+      error.retryable = true;
+      throw error;
+    }
+    const rawAdvised = advised?.data || advised;
+    if (!validVisualFindings(
+      rawAdvised?.visualFindings,
+      analysisVisualEvidence,
+      { minFindings:3, minCategories:2 },
+    )) {
+      const error = new Error('M5 画面分析结果没有通过原始帧引用和时间点门禁。');
+      error.code = 'm5_visual_analysis_evidence_invalid';
+      error.retryable = true;
+      throw error;
+    }
+    const normalized = normalizeAdvisedAnalysis(rawAdvised, transcript, analysisVisualEvidence);
+    const findings = Array.isArray(normalized?.visualFindings) ? normalized.visualFindings : [];
+    if (!validVisualFindings(findings, analysisVisualEvidence, { minFindings:3, minCategories:2 })) {
+      const error = new Error('M5 画面分析结果没有通过帧引用和时间点门禁。');
+      error.code = 'm5_visual_analysis_evidence_invalid';
+      error.retryable = true;
+      throw error;
+    }
+    const completedAt = this.now().toISOString();
+    const insights = findings.slice(0, 12).map((item, index) => ({
+      insightId:`visual-${String(index + 1).padStart(3, '0')}`,
+      category:item.category,
+      finding:clean(item.finding, 1_000),
+      frameRef:clean(item.evidence?.frameRef, 120),
+      timestamp:clean(item.evidence?.timestamp, 40),
+      evidenceKind:'stepfun_vision_frame',
+      confidence:item.confidence,
+    }));
+    const artifact = await writeArtifact({
+      artifactsDir:this.artifactsDir,
+      task,
+      type:'visual_analysis_package',
+      title:`${clean(task.input?.title, 300) || 'M5 内容'}｜画面分析包`,
+      data:{
+        schemaVersion:'agent.army/visual-analysis-package/v1',
+        sourceAssetPackageId:assetPackage.artifactId,
+        providerReceipt:providerReceipt.lineage,
+        insights,
+        generatedAt:completedAt,
+      },
+      sourceRefs:[assetPackage.artifactId],
+      validation:{
+        exists:true,
+        readable:true,
+        nonEmpty:true,
+        sourceAssetPackageBound:true,
+        insightCount:insights.length,
+        everyInsightEvidenceBound:true,
+        providerVisionConfirmed:true,
+        externalWrites:0,
+      },
+      completedAt,
+    });
+    return successResult(task, artifact, completedAt, 'm5_visual_analysis', advised?.usage || null);
+  }
+
   async performanceReview(task, { sourceArtifacts = null } = {}) {
     const sources = Array.isArray(sourceArtifacts) ? sourceArtifacts : await referencedArtifacts(task, this.store);
     const analysis = findArtifact(sources, 'video_content_analysis_report');
@@ -189,7 +366,7 @@ export class LocalVideoContentAnalyst {
       summary:`已记录 ${Object.keys(metrics).length} 项真实表现指标；本报告只做版本关联和观察，不把单次结果解释为确定因果。`,
       metrics,
       observations:metricObservations(metrics),
-      nextActions:['保留表现较好的开场和结构变量。', '下一次只调整一个主要变量，并继续关联原任务与版本。'],
+      nextActions:[...CONTENT_PERFORMANCE_NEXT_ACTIONS],
       lineage:{
         analysisArtifactId:analysis?.artifactId || null,
         draftArtifactId:draft?.artifactId || null,
@@ -230,6 +407,9 @@ export class LocalContentCreator {
       return this.scriptPackage.execute(task, { allowAdvisor });
     }
     const sources = Array.isArray(sourceArtifacts) ? sourceArtifacts : await referencedArtifacts(task, this.store);
+    if (task.input?.context?.paperclipRoutineKey === 'm5-platform-adapt') {
+      return this.m5PlatformAdapt(task, sources);
+    }
     const transcriptArtifact = findArtifact(sources, 'confirmed_transcript');
     const analysisArtifact = findArtifact(sources, 'video_content_analysis_report');
     if (!transcriptArtifact) return needsInput(this.now(), 'confirmed_transcript_required', '小创必须引用系统质量确认稿或人工确认稿。');
@@ -286,6 +466,70 @@ export class LocalContentCreator {
     });
     return successResult(task, artifact, completedAt, 'platform_draft', modelUsage);
   }
+
+  async m5PlatformAdapt(task, sources) {
+    const script = findArtifact(sources, 'video_script_package');
+    const render = findArtifact(sources, 'render_package');
+    const context = task.input?.context || {};
+    const platform = String(context.pipelineCase?.fields?.platform || '').trim();
+    const renderOutput = render?.data?.outputs?.[platform] || render?.data;
+    const mediaPath = safeM5RelativePath(renderOutput?.relativePath || renderOutput?.outputPath);
+    const checksum = String(renderOutput?.checksum || '').trim().toLowerCase();
+    const pipelineCaseId = String(context.pipelineCaseId || '').trim();
+    if (!script?.data?.fullScript) {
+      return needsInput(this.now(), 'm5_script_package_required', 'M5 平台适配缺少同一 Case 的可核验 ScriptPackage。');
+    }
+    if (!['douyin', 'xiaohongshu'].includes(platform)) {
+      return needsInput(this.now(), 'm5_platform_required', 'M5 平台适配缺少同一 Case 的可信平台字段。');
+    }
+    if (!mediaPath || !validM5MediaChecksum(checksum)) {
+      return needsInput(this.now(), 'm5_render_package_required', 'M5 平台适配缺少带真实相对路径和 sha256 的 RenderPackage。');
+    }
+    const contentVersionId = deriveM5ContentVersionId({
+      pipelineCaseId,
+      platform,
+      mediaChecksum:checksum,
+    });
+    if (!contentVersionId) {
+      return needsInput(this.now(), 'm5_content_version_identity_invalid', 'M5 平台版本身份无法从当前 Case、平台和成片哈希派生。');
+    }
+    const completedAt = this.now().toISOString();
+    const copy = buildM5PlatformCopy(script.data, platform);
+    const contentVersion = {
+      contentVersionId,
+      platform,
+      checksum,
+      mediaPath,
+      ...copy,
+      sourceScriptArtifactId:script.artifactId,
+      sourceRenderArtifactId:render.artifactId,
+      publishingStatus:'draft_only',
+      generatedAt:completedAt,
+    };
+    const artifact = await writeArtifact({
+      artifactsDir:this.artifactsDir,
+      task,
+      type:'platform_content_draft',
+      title:`${task.input?.title || 'M5 内容'}｜${platform === 'douyin' ? '抖音' : '小红书'}版本`,
+      data:{
+        contentVersion,
+        publishingStatus:'draft_only',
+        adaptationMode:'m5_deterministic_from_verified_script_and_render',
+      },
+      sourceRefs:[script.artifactId, render.artifactId],
+      validation:{
+        exists:true,
+        readable:true,
+        nonEmpty:true,
+        sourceScriptVerified:true,
+        sourceRenderVerified:true,
+        mediaChecksumBound:true,
+        externalSideEffects:0,
+      },
+      completedAt,
+    });
+    return successResult(task, artifact, completedAt, 'm5_platform_adapt');
+  }
 }
 
 async function referencedArtifacts(task, store) {
@@ -330,6 +574,166 @@ async function readVisualEvidence(artifact, allowedRoots) {
     return { ...storyboard, filePath };
   });
   return { ...payload, frames, storyboards:controlledStoryboards };
+}
+
+async function visualEvidenceFromM5AssetPackage(artifact, allowedRoots) {
+  const assets = Array.isArray(artifact?.data?.assets)
+    ? artifact.data.assets.slice(0, 4)
+    : [];
+  if (!assets.length) throw new Error('AssetPackage 没有可读取的关键帧。');
+  const controlled = [];
+  for (const asset of assets) {
+    const frameId = clean(asset?.frameId, 120);
+    const timestamp = clean(asset?.timestamp, 40);
+    const relativePath = String(asset?.relativePath || '').trim().replaceAll('\\', '/');
+    if (
+      !frameId
+      || !timestamp
+      || !relativePath
+      || relativePath.startsWith('/')
+      || relativePath.split('/').some((part) => !part || part === '.' || part === '..')
+    ) {
+      throw new Error('AssetPackage 的关键帧引用、时间点或路径无效。');
+    }
+    let filePath = null;
+    for (const root of allowedRoots) {
+      const realRoot = await fs.realpath(root).catch(() => path.resolve(root));
+      const candidate = path.resolve(realRoot, relativePath);
+      if (candidate !== realRoot && !candidate.startsWith(`${realRoot}${path.sep}`)) continue;
+      const realPath = await fs.realpath(candidate).catch(() => null);
+      if (realPath && (realPath === realRoot || realPath.startsWith(`${realRoot}${path.sep}`))) {
+        filePath = realPath;
+        break;
+      }
+    }
+    if (!filePath) throw new Error('AssetPackage 的关键帧不在小拆允许读取的工作区。');
+    const checksum = String(asset?.checksum || '').trim().toLowerCase();
+    if (!validM5MediaChecksum(checksum)) {
+      throw new Error('AssetPackage 的关键帧缺少有效 sha256。');
+    }
+    const bytes = await fs.readFile(filePath);
+    const actualChecksum = `sha256:${crypto.createHash('sha256').update(bytes).digest('hex')}`;
+    if (actualChecksum !== checksum) {
+      throw new Error('AssetPackage 的关键帧文件与声明 sha256 不一致。');
+    }
+    controlled.push({
+      frameId,
+      timestamp,
+      reason:'M5 AssetPackage 已核验关键帧',
+      relativePath,
+      checksum,
+      filePath,
+    });
+  }
+  return {
+    schemaVersion:'agent.army/visual-evidence/v1',
+    frames:controlled.map(({ filePath:_filePath, ...frame }) => frame),
+    storyboards:controlled.map((item) => ({
+      frameId:item.frameId,
+      localRef:path.basename(item.filePath),
+      filePath:item.filePath,
+    })),
+    coverage:{
+      firstFrameAt:controlled[0].timestamp,
+      lastFrameAt:controlled.at(-1).timestamp,
+    },
+  };
+}
+
+function m5VisionActionId(task, frame) {
+  const caseId = String(task?.input?.context?.pipelineCaseId || '').trim();
+  const checksum = String(frame?.checksum || '').replace(/^sha256:/i, '');
+  if (
+    !/^[0-9a-f-]{8,80}$/i.test(caseId)
+    || !/^[0-9a-f]{64}$/i.test(checksum)
+  ) {
+    throw m5VisualError(
+      'm5_provider_vision_identity_invalid',
+      'M5 视觉 action 缺少可信 Case 或关键帧哈希。',
+    );
+  }
+  return `${caseId}:vision:${checksum.slice(0, 16)}`;
+}
+
+function confirmedM5VisionReceipt({
+  value,
+  expectedProjectId,
+  expectedActionId,
+  selectedFrame,
+}) {
+  const record = value?.callRecord;
+  const commit = value?.costCommit;
+  const projectId = String(expectedProjectId || '').trim();
+  const heartbeatRunId = String(record?.costEvent?.heartbeatRunId || '').trim();
+  if (
+    value?.actionId !== expectedActionId
+    || value?.operation !== 'vision'
+    || value?.model !== 'step-1o-turbo-vision'
+    || value?.sourcePath !== selectedFrame.relativePath
+    || String(value?.sourceChecksum || '').toLowerCase() !== selectedFrame.checksum
+    || !String(value?.observation || '').trim()
+    || record?.actionId !== expectedActionId
+    || record?.operation !== 'vision'
+    || record?.model !== 'step-1o-turbo-vision'
+    || !validM5MediaChecksum(String(record?.promptChecksum || ''))
+    || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(projectId)
+    || record?.costEvent?.projectId !== projectId
+    || record?.costEvent?.provider !== 'stepfun'
+    || !/^[A-Za-z0-9:_-]{1,240}$/.test(heartbeatRunId)
+    || commit?.status !== 'confirmed'
+    || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(String(commit?.costEventId || ''))
+    || commit?.costEvent?.provider !== 'stepfun'
+    || commit?.costEvent?.projectId !== projectId
+    || commit?.costEvent?.heartbeatRunId !== heartbeatRunId
+    || !Number.isInteger(Number(commit?.costEvent?.costCents))
+    || Number(commit.costEvent.costCents) < 0
+  ) {
+    throw m5VisualError(
+      'm5_provider_vision_receipt_invalid',
+      'M5 StepFun 视觉回执未确认费用、Project 归属错误或关键帧哈希不匹配。',
+    );
+  }
+  return {
+    observation:String(value.observation).slice(0, 20_000),
+    lineage:{
+      actionId:expectedActionId,
+      operation:'vision',
+      model:'step-1o-turbo-vision',
+      sourcePath:selectedFrame.relativePath,
+      sourceChecksum:selectedFrame.checksum,
+      callRecord:{
+        actionId:expectedActionId,
+        operation:'vision',
+        model:'step-1o-turbo-vision',
+        promptChecksum:String(record.promptChecksum).toLowerCase(),
+        costEvent:{
+          provider:'stepfun',
+          projectId,
+          heartbeatRunId,
+        },
+      },
+      costCommit:{
+        status:'confirmed',
+        costEventId:String(commit.costEventId),
+        costEvent:{
+          provider:'stepfun',
+          projectId,
+          heartbeatRunId,
+          costCents:Number(commit.costEvent.costCents),
+        },
+      },
+      observationChecksum:`sha256:${crypto.createHash('sha256')
+        .update(String(value.observation))
+        .digest('hex')}`,
+    },
+  };
+}
+
+function m5VisualError(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  error.retryable = true;
+  return error;
 }
 
 function controlledArtifactPath(artifact, allowedRoots) {
@@ -544,6 +948,17 @@ function buildDrafts({ title, contentGoal, platforms, analysis, evidence }) {
     humanChecklist:['事实、数字和身份均能回到确认稿。', '没有复制他人的独特表达。', '标题承诺与正文一致。', '发布前由真人检查平台规范和最终措辞。'],
     analysisSummary:clean(analysis?.summary, 500)
   }));
+}
+
+function safeM5RelativePath(value) {
+  const relative = String(value || '').trim().replaceAll('\\', '/');
+  if (
+    !relative
+    || relative.startsWith('/')
+    || relative.split('/').some((part) => !part || part === '.' || part === '..')
+    || !/\.mp4$/i.test(relative)
+  ) return null;
+  return relative;
 }
 
 async function writeArtifact({ artifactsDir, task, type, title, data, sourceRefs, validation, completedAt }) {
@@ -814,7 +1229,7 @@ function metricValue(value) {
   return clean(value, 120);
 }
 
-function metricObservations(metrics) {
+export function metricObservations(metrics) {
   return Object.entries(metrics).slice(0, 6).map(([key, value]) => `${key} 为 ${value}；仅记录观察，尚不能据此确认单一内容变量的因果影响。`);
 }
 

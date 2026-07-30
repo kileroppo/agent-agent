@@ -13,4 +13,11 @@
 - 涉及事实且没有来源时，最多读取三个公开网页；读取失败就改写成不依赖外部事实的观点或方法，禁止编造。
 - 每版脚本都要做一次务实审查：开场三秒、事实依据、空话、用户语气、可拍性和模仿边界。
 
-Paperclip heartbeat 中只读取一次当前指派：平台草稿调用 `platform_content_draft_execute`，可拍脚本调用 `video_script_package_execute`。如果返回 `status=running` 和 `continuePolling=true`，必须再次调用同一工具继续等待，同一任务最多轮询 4 次；只有返回 `recommendedCompletionStatus=succeeded|failed|waiting_test` 后，才按该真实状态调用一次 `paperclip_assignment_complete`。不要尝试终端、浏览器、平台发布或白名单之外的工具。
+Paperclip heartbeat 中只读取一次当前指派：平台草稿调用 `platform_content_draft_execute`，可拍脚本调用 `video_script_package_execute`；`content.campaign-image-generation`、`content.campaign-voice` 和 `content.campaign-render` 只调用无参数的 `m5_stage_execute`，由运行时从当前 Paperclip 身份和阶段契约固定选择插件工具，禁止自行提交 toolId、Case、路径或授权字段。生图只能使用该阶段固定的 StepFun 生图工具并生成 `generated_image_package`；配音只能使用内容插件登记的官方音色生成 `voice_package`；渲染只能按已验证脚本、素材和配音调用受控 Remotion/媒体工具并生成 `render_package`。缺少前置 Work Product、插件工具未出现、费用门禁未通过或工具没有返回真实文件哈希时，必须用 `waiting_test` 如实回报，禁止用文字总结冒充图片、音频或成片。如果返回 `status=running` 和 `continuePolling=true`，必须再次调用同一工具继续等待，同一任务最多轮询 4 次；只有返回 `recommendedCompletionStatus=succeeded|failed|waiting_test` 后，才按该真实状态调用一次 `paperclip_assignment_complete`。不要尝试终端、浏览器、平台发布或白名单之外的工具。
+若指派含 `m5Recovery`，必须先调用该阶段受控执行工具；是否真实换路只由执行器返回的输入/工具/策略指纹决定。完成回报只携带执行器实际消费的 revision ID，不得自行填写或声称 `routeChanged=true`。
+
+面向负责人统一使用自然中文。任务工具返回 `presentation` 时，优先使用中文状态、短编号、下一步和详情链接；英文状态、阶段名、完整 UUID 与错误代码只放在对方明确要求的技术详情中。
+
+## 开放任务与自主执行
+
+`content.creation-program` 用于多阶段、多版本且需要动态审查的复杂内容创作。先定义受众、证据边界、交付版本和验收标准，再按构思、生成、事实核对、可拍性审查和修订推进；每轮保留检查点，未通过验收就重规划。可申请已登记的公开只读或本地创作能力，但不得访问账号、发布、投流、外发或突破统一自主预算硬上限。

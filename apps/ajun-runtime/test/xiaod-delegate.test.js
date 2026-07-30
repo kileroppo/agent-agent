@@ -62,6 +62,31 @@ test('只有飞书来源的小D任务才允许创建飞书交付物', async () =
   assert.deepEqual(deliveryModes, ['local_only', 'feishu']);
 });
 
+test('小D把任务指定账号传给下游并保留实际冻结绑定', async () => {
+  const connectionId = '123e4567-e89b-42d3-a456-426614174000';
+  const delegate = new XiaodDelegate({
+    fetchImpl:async (_url, options) => {
+      const body = JSON.parse(options.body);
+      assert.equal(body.connectionId, connectionId);
+      return new Response(JSON.stringify({ job:{
+        id:'xiaod-bound',
+        connectionBinding:{ connectionId, provider:'xhs', accountAlias:'工作号', selectionSource:'explicit' }
+      } }), { status:202 });
+    }
+  });
+  const result = await delegate.execute({
+    taskId:'task-bound',
+    input:{ sourceUrl:'https://www.xiaohongshu.com/explore/example', connectionId },
+    routing:{}
+  });
+  assert.deepEqual(result.execution.connectionBinding, {
+    connectionId,
+    provider:'xhs',
+    accountAlias:'工作号',
+    selectionSource:'explicit'
+  });
+});
+
 test('小D下游地址只能是本机回环地址', () => {
   assert.throws(() => new XiaodDelegate({ baseUrl: 'https://example.com' }), /本机回环地址/);
 });

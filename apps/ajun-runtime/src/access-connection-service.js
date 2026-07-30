@@ -41,6 +41,36 @@ export class AccessConnectionService {
     }
   }
 
+  async overview() {
+    const [connections, acquisition] = await Promise.all([
+      this.list(),
+      this.acquisitionStatus()
+    ]);
+    return { ...connections, acquisition };
+  }
+
+  async acquisitionStatus() {
+    try {
+      const payload = await this.request('/api/health');
+      const adapters = Array.isArray(payload?.commonAccess?.adapters)
+        ? payload.commonAccess.adapters.map(sanitizeAdapter).filter(Boolean)
+        : [];
+      return {
+        status:payload?.ok === true && payload?.commonAccess?.contentAcquisitionCenter === true
+          ? 'ready'
+          : 'unavailable',
+        mediaCrawlerDeep:payload?.capabilities?.mediaCrawlerDeep === true,
+        adapters
+      };
+    } catch {
+      return {
+        status:'unavailable',
+        mediaCrawlerDeep:false,
+        adapters:[]
+      };
+    }
+  }
+
   async revoke(connectionId) {
     const id = normalizeConnectionId(connectionId);
     const payload = await this.request(`/api/connections/${encodeURIComponent(id)}/revoke`, { method:'POST' });
@@ -52,6 +82,14 @@ export class AccessConnectionService {
   async disable(connectionId) {
     const id = normalizeConnectionId(connectionId);
     const payload = await this.request(`/api/connections/${encodeURIComponent(id)}/disable`, { method:'POST' });
+    const connection = sanitizeConnection(payload.connection);
+    if (!connection) throw new AccessConnectionError('账号连接服务返回了无效状态。');
+    return connection;
+  }
+
+  async setDefault(connectionId) {
+    const id = normalizeConnectionId(connectionId);
+    const payload = await this.request(`/api/connections/${encodeURIComponent(id)}/default`, { method:'POST' });
     const connection = sanitizeConnection(payload.connection);
     if (!connection) throw new AccessConnectionError('账号连接服务返回了无效状态。');
     return connection;
@@ -130,8 +168,35 @@ function sanitizeConnection(connection) {
     dataScope:safeList(connection.dataScope, 80),
     expiresAt:safeDate(connection.expiresAt),
     lastHealthAt:safeDate(connection.lastHealthAt),
+    isDefault:connection.isDefault === true,
+    lastVerification:sanitizeVerification(connection.lastVerification),
     hasCredentialReference:connection.hasCredentialReference === true
   };
+}
+
+function sanitizeVerification(value) {
+  if (!value || typeof value !== 'object') return null;
+  const at = safeDate(value.at);
+  if (!at) return null;
+  return {
+    status:value.status === 'succeeded' ? 'succeeded' : 'failed',
+    at,
+    adapterId:safeText(value.adapterId, 100) || null,
+    capabilities:safeList(value.capabilities, 80),
+    failureCode:value.status === 'succeeded' ? null : safeText(value.failureCode, 100) || 'adapter_unavailable'
+  };
+}
+
+function sanitizeAdapter(adapter) {
+  if (!adapter || typeof adapter !== 'object') return null;
+  const id = safeText(adapter.id, 100);
+  const priorityClass = ['specialized', 'general'].includes(adapter.priorityClass)
+    ? adapter.priorityClass
+    : 'general';
+  const healthStatus = ['healthy', 'unavailable', 'degraded'].includes(adapter.healthStatus)
+    ? adapter.healthStatus
+    : 'unavailable';
+  return id ? { id, priorityClass, healthStatus } : null;
 }
 
 function connectionInput(input = {}) {

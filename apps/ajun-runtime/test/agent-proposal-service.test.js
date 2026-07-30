@@ -94,6 +94,73 @@ test('第一批拒绝未审核的能力，阻止自动扩权', async (t) => {
   await assert.rejects(() => service.create({ requestedOutcome: '自动发布内容', requestedCapabilities: ['content.private.publish'] }), /只能请求已审核/);
 });
 
+test('创建官可登记微信本机 Vault 复用草案，并只开放合成数据受限测试', async (t) => {
+  const service = await setup(t);
+  const proposal = await service.create({
+    requestedOutcome:'按负责人指定的联系人和时间范围获取本机微信聊天',
+    candidateName:'微信聊天取件员',
+    agentId:'wechat-chat-reader',
+    acceptedTaskTypes:['wechat.chat.export'],
+    desiredSkills:['yichen-wechat-local-vault'],
+    requestedCapabilities:['wechat.local-vault.chat.read']
+  });
+
+  assert.equal(proposal.candidateManifest.agentId, 'wechat-chat-reader');
+  assert.deepEqual(proposal.desiredSkills, ['yichen-wechat-local-vault']);
+  assert.deepEqual(proposal.candidateManifest.toolAllowlist, ['wechat.local-vault.chat.read']);
+  assert.equal(proposal.trialReadiness.status, 'ready');
+  assert.match(proposal.trialReadiness.message, /仅使用合成聊天/);
+  assert.equal(proposal.runtimePlan.profileMode, 'isolated-test-only');
+  assert.ok(proposal.acceptanceTask.constraints.some((item) => /不持久化聊天原文/.test(item)));
+  assert.equal(proposal.candidateManifest.dataRetentionPolicy.rawChat.retentionSeconds, 0);
+  assert.equal(proposal.candidateManifest.evidencePolicy.syntheticAcceptanceRequired, true);
+  assert.equal(proposal.candidateManifest.activationPolicy.syntheticAcceptanceDoesNotAuthorizeProduction, true);
+  assert.equal(proposal.candidateManifest.runtimeCapabilities.skillReviews[0].status, 'controlled-adapter-only');
+  assert.equal(proposal.candidateManifest.budgetPolicy.maxRuns, 1);
+  assert.equal(proposal.candidateManifest.budgetPolicy.maxTokens, 6000);
+  assert.ok(proposal.candidateManifest.dataScopes.some((scope) => scope.scope === 'explicitly-approved-wechat-chat-slice'));
+  assert.ok(proposal.candidateManifest.approvalPolicies.some((policy) => policy.action === 'wechat-private-chat-read'));
+  assert.ok(proposal.candidateManifest.nonResponsibilities.some((item) => /不得抓取或回显微信数据库密钥/.test(item)));
+  assert.match(proposal.promptDraft, /逐次明确指定单一会话和时间范围/);
+});
+
+test('旧微信草案重新提交时刷新为合成数据验收契约', async (t) => {
+  const service = await setup(t);
+  const proposal = await service.create({
+    requestedOutcome:'按批准范围获取本机微信聊天',
+    candidateName:'微信聊天取件员',
+    acceptedTaskTypes:['wechat.chat.retrieval.request'],
+    desiredSkills:['yichen-wechat-local-vault'],
+    requestedCapabilities:['wechat.local-vault.chat.read']
+  });
+  await service.store.updateProposal(proposal.proposalId, {
+    candidateManifest:{
+      ...proposal.candidateManifest,
+      budgetPolicy:{ maxRuns:1, externalSpendAllowed:false },
+      runtimeCapabilities:undefined,
+      dataRetentionPolicy:undefined,
+      evidencePolicy:undefined,
+      activationPolicy:undefined
+    },
+    trialReadiness:{ status:'needs_capability', message:'旧状态' },
+    runtimePlan:{ ...proposal.runtimePlan, profileMode:'needs-capability-build' },
+    acceptanceTask:{ ...proposal.acceptanceTask, constraints:['仅公开素材'] }
+  });
+
+  const submitted = await service.submit(proposal.proposalId);
+
+  assert.equal(submitted.status, 'pending_approval');
+  assert.equal(submitted.trialReadiness.status, 'ready');
+  assert.equal(submitted.runtimePlan.profileMode, 'isolated-test-only');
+  assert.ok(submitted.acceptanceTask.constraints.some((item) => /仅使用合成聊天数据/.test(item)));
+  assert.equal(submitted.acceptanceTask.constraints.includes('仅公开素材'), false);
+  assert.equal(submitted.candidateManifest.budgetPolicy.maxTokens, 6000);
+  assert.equal(submitted.candidateManifest.runtimeCapabilities.skillReviews[0].status, 'controlled-adapter-only');
+  assert.equal(submitted.candidateManifest.dataRetentionPolicy.rawChat.retentionSeconds, 0);
+  assert.equal(submitted.candidateManifest.evidencePolicy.syntheticAcceptanceRequired, true);
+  assert.equal(submitted.candidateManifest.activationPolicy.syntheticAcceptanceDoesNotAuthorizeProduction, true);
+});
+
 test('没有真实工作能力的岗位同意后转为待补能力，不能被标成已上岗', async (t) => {
   const service = await setup(t);
   const proposal = await service.create({
@@ -179,7 +246,36 @@ test('提交新岗位前由审核官创建独立任务并把产物关联回草�
     calls.push(input);
     return { taskId:'review-task-1', status:'succeeded', artifactRefs:[{ type:'review_report', location:'runtime://review-task-1/review-report', createdAt:'2026-07-21T12:00:00.000Z', validation:{ exists:true, nonEmpty:true }, data:{ recommendation:'human_owner_decision_required', nextAction:'风险范围已写清，交给负责人决定。' } }] };
   } };
-  const service = new AgentProposalService({ store:new TaskStore(path.join(root, 'runtime.json')), registry:{ async list(){ return []; } }, taskService });
+  const service = new AgentProposalService({
+    store:new TaskStore(path.join(root, 'runtime.json')),
+    registry:{
+      async list(){ return []; },
+      async get(agentId) {
+        return agentId === 'reviewer'
+          ? {
+              agentId:'reviewer',
+              status:'active',
+              promptRef:'agents/reviewer/prompts/system.md',
+              acceptedTaskTypes:[
+                'governance.approval-review',
+                'content.campaign-machine-review',
+                'content.campaign-publish-approval',
+                'content.campaign-verify'
+              ],
+              interaction:{ runtime:'hermes-profile' },
+              executionOwner:'paperclip-hermes',
+              runtimeCapabilities:{
+                modelSelection:{ provider:'stepfun', model:'step-3.5-flash-2603' },
+                fallbackModels:[{ provider:'deepseek', model:'deepseek-v4-flash', trigger:'transport_unavailable' }],
+                paperclipToolsets:['agent-army'],
+                mcpTools:['m5_stage_execute']
+              }
+            }
+          : null;
+      }
+    },
+    taskService
+  });
   const draft = await service.create({ requestedOutcome:'整理公开网页标题', candidateName:'网页标题整理员' });
   assert.equal(draft.reviewRefs.some((item) => item.role === 'reviewer'), false);
   const submitted = await service.submit(draft.proposalId);
@@ -187,6 +283,9 @@ test('提交新岗位前由审核官创建独立任务并把产物关联回草�
   assert.equal(calls[0].taskType, 'governance.approval-review');
   assert.equal(calls[0].agentId, 'reviewer');
   assert.equal(calls[0].context.proposalId, draft.proposalId);
+  assert.match(calls[0].description, /stepfun \/ step-3\.5-flash-2603/);
+  assert.doesNotMatch(calls[0].description, /当前阶段：只判断草案能否进入负责人/);
+  assert.match(calls[0].idempotencyKey, /^agent-proposal-review:[0-9a-f-]+:[0-9a-f]{16}$/);
   assert.equal(submitted.reviewRefs.find((item) => item.role === 'reviewer').taskId, 'review-task-1');
   assert.equal(submitted.status, 'pending_approval');
 });

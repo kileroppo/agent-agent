@@ -30,6 +30,10 @@ AJUN_FEISHU_ENTRY_AGENT_ID=xiaod
 
 当 A君 返回 `local` 一次性审批时，适配器会在同一会话发送“批准本次范围 / 拒绝并关闭”交互卡。按钮回调只调用本机 A君审批接口，带飞书会话与决定人引用；A君会二次校验审批状态、有效期、范围和原会话后才恢复任务。`paperclip` 审批不会被这张 local 卡放行，仍由 Paperclip 决定。
 
+Hermes `/new` 会在原会话显示“开始新会话 / 以后不再询问 / 保留当前会话”三个中文按钮。按钮回调只对原聊天和授权发送者生效；卡片发送失败时降级为中文文本指令，不要求用户理解英文内部命令。任务回复中的短任务号链接默认指向同一台 Mac 的 A君控制台；如需从手机访问，必须显式设置不含凭据且安全可达的 `AJUN_TASK_DETAIL_BASE_URL`，并重新验证网络暴露边界。
+
+普通消息到达时，所有 Agent 只在用户原消息上显示一个处理图标；最终回复或快速分流完成后移除，不额外发送确认气泡。运行中再次发消息时仍返回中文控制卡，并提供“下一步单独处理 / 查看当前设置 / 停止当前任务”一键操作。普通回复会按内容密度适配飞书手机端：多个分区和长条目增加留白，短回答与短列表保持紧凑，过长正文按句群分段；长单元格或宽表自动改成纵向分组，短表仍按表格显示。
+
 未配置军团总管入口时，可保留旧的“只拦截创建 Agent”兼容入口：
 
 ```sh
@@ -43,6 +47,11 @@ AJUN_AGENT_PROPOSAL_INGRESS_URL=http://127.0.0.1:4321/api/feishu/agent-proposals
 ```sh
 node integrations/hermes/scripts/patch-feishu-agent-proposal-router.mjs \
   /Users/pengaro/.hermes/hermes-agent/plugins/platforms/feishu/adapter.py
+
+node integrations/hermes/scripts/patch-hermes-chinese-slash-confirm.mjs \
+  /Users/pengaro/.hermes/hermes-agent/gateway/run.py
+
+node integrations/hermes/scripts/patch-hermes-chinese-busy-notice.mjs
 ```
 
 升级 Hermes 后必须重新执行补丁脚本和其测试。未设置任一入口环境变量时，Hermes 保持原有文本处理，不会截获普通消息；不要把环境变量值、飞书用户标识或会话内容写进仓库。

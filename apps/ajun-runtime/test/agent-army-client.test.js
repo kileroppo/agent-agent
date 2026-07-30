@@ -57,6 +57,7 @@ test('AgentArmyClient creates an idempotent Hermes task and returns its read mod
     taskType:'media.transcribe-and-refine',
     agentId:'xiaod',
     chatRef:'oc_test',
+    connectionId:'123e4567-e89b-42d3-a456-426614174000',
     sourceTaskIds:['source-task-1234']
   });
 
@@ -65,10 +66,20 @@ test('AgentArmyClient creates an idempotent Hermes task and returns its read mod
   assert.equal(create.body.source.channel, 'feishu');
   assert.equal(create.body.source.chatRef, 'oc_test');
   assert.deepEqual(create.body.context.sourceTaskIds, ['source-task-1234']);
+  assert.equal(create.body.connectionId, '123e4567-e89b-42d3-a456-426614174000');
   assert.equal(create.body.context.dependsOnPrevious, true);
   assert.match(create.body.idempotencyKey, /^hermes:oc_test:/);
   const watch = requests.find((item) => item.key === 'POST /api/mcp/completion-watches');
   assert.deepEqual(watch.body, { taskId:'22222222-2222-2222-2222-222222222222', chatRef:'oc_test' });
+});
+
+test('AgentArmyClient 拒绝非法账号连接标识', async () => {
+  const client = new AgentArmyClient({ fetchImpl:async () => { throw new Error('不应请求'); } });
+  await assert.rejects(() => client.createTask({
+    title:'整理素材',
+    taskType:'media.transcribe-and-refine',
+    connectionId:'not-a-uuid'
+  }), AgentArmyClientError);
 });
 
 test('只有视频 URL 的正式拆解默认自动质量确认并继续小拆分析', async () => {
@@ -236,6 +247,110 @@ test('内容增长单次等待早于 Hermes 300 秒桥返回，12 分钟预算�
   assert.equal(capturedTimeoutMs, 270_000);
 });
 
+test('运维官健康执行只转发当前 Paperclip 身份到固定本机路由', async () => {
+  const requests = [];
+  const client = new AgentArmyClient({
+    fetchImpl:async (url, options = {}) => {
+      requests.push({
+        path:new URL(url).pathname,
+        method:options.method,
+        body:JSON.parse(options.body)
+      });
+      return response(200, { result:{ verified:true, healthStatus:'healthy' } });
+    }
+  });
+
+  const result = await client.executeOperationsHealth({
+    issueId:'issue-health',
+    runId:'run-health',
+    paperclipAgentId:'agent-health',
+    agentArmyId:'operator'
+  });
+
+  assert.equal(result.result.healthStatus, 'healthy');
+  assert.deepEqual(requests, [{
+    path:'/api/mcp/operations-health-execute',
+    method:'POST',
+    body:{
+      issueId:'issue-health',
+      runId:'run-health',
+      paperclipAgentId:'agent-health',
+      agentArmyId:'operator'
+    }
+  }]);
+});
+
+test('员工指派执行只转发当前 Paperclip 身份，不能注入岗位、路径或命令', async () => {
+  const requests = [];
+  const client = new AgentArmyClient({
+    fetchImpl:async (url, options = {}) => {
+      requests.push({
+        path:new URL(url).pathname,
+        method:options.method,
+        body:JSON.parse(options.body)
+      });
+      return response(200, { result:{ verified:true, recommendedCompletionStatus:'succeeded' } });
+    }
+  });
+
+  const result = await client.executeEmployeeAssignment({
+    issueId:'issue-research',
+    runId:'run-research',
+    paperclipAgentId:'agent-research',
+    agentArmyId:'intel-researcher',
+    path:'/tmp/not-allowed',
+    command:'whoami',
+    agentId:'ajun'
+  });
+
+  assert.equal(result.result.verified, true);
+  assert.deepEqual(requests, [{
+    path:'/api/mcp/employee-assignment-execute',
+    method:'POST',
+    body:{
+      issueId:'issue-research',
+      runId:'run-research',
+      paperclipAgentId:'agent-research',
+      agentArmyId:'intel-researcher'
+    }
+  }]);
+});
+
+test('M5 专用阶段执行只转发当前 Paperclip 身份，不接受 toolId、Case 或业务参数', async () => {
+  const requests = [];
+  const client = new AgentArmyClient({
+    fetchImpl:async (url, options = {}) => {
+      requests.push({
+        path:new URL(url).pathname,
+        method:options.method,
+        body:JSON.parse(options.body),
+      });
+      return response(200, { result:{ status:'succeeded' } });
+    },
+  });
+
+  await client.executeM5Stage({
+    issueId:'issue-voice',
+    runId:'run-voice',
+    paperclipAgentId:'agent-voice',
+    agentArmyId:'content-creator',
+    toolId:'publisher.fake_publish',
+    caseId:'caller-case',
+    parameters:{ token:'not-forwarded' },
+  });
+
+  assert.deepEqual(requests, [{
+    path:'/api/mcp/m5-stage-execute',
+    method:'POST',
+    body:{
+      issueId:'issue-voice',
+      runId:'run-voice',
+      paperclipAgentId:'agent-voice',
+      agentArmyId:'content-creator',
+    },
+  }]);
+});
+
 test('AgentArmyClient rejects non-loopback base URLs', () => {
   assert.throws(
     () => new AgentArmyClient({ baseUrl:'https://example.com' }),
@@ -243,7 +358,7 @@ test('AgentArmyClient rejects non-loopback base URLs', () => {
   );
 });
 
-test('AgentArmyClient creates one idempotent mission for up to three employee assignments', async () => {
+test('AgentArmyClient creates one idempotent mission with explicit employee dependencies', async () => {
   const requests = [];
   const missionId = '33333333-3333-3333-3333-333333333333';
   const childId = '44444444-4444-4444-4444-444444444444';
@@ -424,7 +539,31 @@ test('AgentArmyClient returns a compact Paperclip assignment without the full ta
         taskType:'governance.agent-proposal',
         status:'running',
         currentStage:'paperclip_hermes_running',
-        input:{ description:'large internal task envelope' },
+        input:{
+          description:'large internal task envelope',
+          context:{
+            m5Recovery:{
+              schemaVersion:'agent.army/m5-plan-revision/v1',
+              revisionId:'m5-plan-revision:11111111-1111-4111-8111-111111111111:r1',
+              revision:1,
+              failedCaseId:'22222222-2222-4222-8222-222222222222',
+              failureObservation:{
+                issueId:'issue-old',
+                runId:'run-old',
+                stageKey:'voice',
+                summary:'旁白输入失败。',
+                summaryHash:`sha256:${'a'.repeat(64)}`,
+              },
+              rejectedRoute:{ kind:'retry_same_inputs', reason:'相同输入已失败。' },
+              nextRoute:{
+                kind:'same_stage_rebuild_inputs',
+                stageKey:'voice',
+                preserveVerifiedWorkProducts:true,
+                instruction:'重建输入。',
+              },
+            },
+          },
+        },
         governance:{ paperclipApiKey:'must-not-leak' }
       }
     }
@@ -444,11 +583,68 @@ test('AgentArmyClient returns a compact Paperclip assignment without the full ta
       taskId:'task-1234',
       taskType:'governance.agent-proposal',
       status:'running',
-      currentStage:'paperclip_hermes_running'
+      currentStage:'paperclip_hermes_running',
+      m5Recovery:{
+        schemaVersion:'agent.army/m5-plan-revision/v1',
+        revisionId:'m5-plan-revision:11111111-1111-4111-8111-111111111111:r1',
+        revision:1,
+        failedCaseId:'22222222-2222-4222-8222-222222222222',
+        failureObservation:{
+          issueId:'issue-old',
+          runId:'run-old',
+          stageKey:'voice',
+          summary:'旁白输入失败。',
+          summaryHash:`sha256:${'a'.repeat(64)}`,
+        },
+        rejectedRoute:{ kind:'retry_same_inputs', reason:'相同输入已失败。' },
+        nextRoute:{
+          kind:'same_stage_rebuild_inputs',
+          stageKey:'voice',
+          preserveVerifiedWorkProducts:true,
+          instruction:'重建输入。',
+        },
+      },
     }
   });
   assert.equal(JSON.stringify(assignment).includes('must-not-leak'), false);
   assert.equal(JSON.stringify(assignment).includes('large internal task envelope'), false);
+});
+
+test('AgentArmyClient 只把结构化岗位草案和 Paperclip 身份交给创建官执行端点', async () => {
+  const requests = [];
+  const client = new AgentArmyClient({ fetchImpl:fakeFetch({
+    'POST /api/mcp/agent-proposal-execute':({ body }) => {
+      requests.push(body);
+      return {
+        result:{
+          status:'succeeded',
+          proposal:{ proposalId:'proposal-wechat', status:'pending_approval' }
+        }
+      };
+    }
+  }) });
+
+  const result = await client.executeAgentProposal({
+    issueId:'11111111-1111-4111-8111-111111111111',
+    runId:'22222222-2222-4222-8222-222222222222',
+    paperclipAgentId:'33333333-3333-4333-8333-333333333333',
+    agentArmyId:'creator',
+    requestedOutcome:'按指定会话和时间范围获取微信聊天',
+    candidateName:'微信聊天取件员',
+    agentId:'wechat-chat-reader',
+    department:'信息服务部',
+    responsibilities:['按批准范围导出聊天'],
+    nonResponsibilities:['不读取密钥'],
+    acceptedTaskTypes:['wechat.chat.export'],
+    desiredSkills:['yichen-wechat-local-vault'],
+    requestedCapabilities:['wechat.local-vault.chat.read'],
+    acceptanceTitle:'使用脱敏夹具验证单会话导出'
+  });
+
+  assert.equal(result.result.proposal.proposalId, 'proposal-wechat');
+  assert.deepEqual(requests[0].requestedCapabilities, ['wechat.local-vault.chat.read']);
+  assert.equal(requests[0].agentArmyId, 'creator');
+  assert.equal(JSON.stringify(requests[0]).includes('apiKey'), false);
 });
 
 test('AgentArmyClient 给架构师返回受控事实快照，不暴露任务正文或虚构路径', async () => {
@@ -657,7 +853,10 @@ test('AgentArmyClient exposes a verified sanitized health report', async () => {
 function fakeFetch(routes) {
   return async (url, options = {}) => {
     const key = `${options.method || 'GET'} ${new URL(url).pathname}`;
-    return key in routes ? response(200, routes[key]) : response(404, { error:`missing ${key}` });
+    if (!(key in routes)) return response(404, { error:`missing ${key}` });
+    const route = routes[key];
+    const body = options.body ? JSON.parse(options.body) : null;
+    return response(200, typeof route === 'function' ? await route({ url, options, body }) : route);
   };
 }
 

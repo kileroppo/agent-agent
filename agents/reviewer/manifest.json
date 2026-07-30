@@ -1,6 +1,6 @@
 {
   "schemaVersion": "agent.army/v1",
-  "manifestVersion": "0.4.0",
+  "manifestVersion": "0.6.0",
   "agentId": "reviewer",
   "name": "审核官",
   "department": "军团中枢",
@@ -15,7 +15,13 @@
     "读取凭据、私密内容或浏览器会话",
     "绕过审批执行目标动作"
   ],
-  "acceptedTaskTypes": ["governance.approval-review"],
+  "acceptedTaskTypes": [
+    "governance.approval-review",
+    "governance.assurance-review",
+    "content.campaign-machine-review",
+    "content.campaign-publish-approval",
+    "content.campaign-verify"
+  ],
   "toolAllowlist": [
     "army.approval.read",
     "army.approval.decide",
@@ -48,6 +54,17 @@
   "executionOwner": "paperclip-hermes",
   "runtimeCapabilities": {
     "skills": ["paperclip", "paperclip-board"],
+    "modelSelection": {
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603"
+    },
+    "fallbackModels": [
+      {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "trigger": "transport_unavailable"
+      }
+    ],
     "mcpTools": [
       "capabilities",
       "task_list",
@@ -55,10 +72,28 @@
       "task_create",
       "approval_list",
       "paperclip_assignment_get",
+      "m5_stage_execute",
       "paperclip_assignment_complete"
     ],
     "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
     "paperclipToolsets": ["agent-army", "clarify"]
+  },
+  "openTaskPolicy": {
+    "domain": "governance",
+    "qualityGateMode": "manifest-required"
+  },
+  "dynamicCapabilityPolicy": {
+    "allowDiscovery": true,
+    "allowedSources": ["repository", "installed-hermes", "official-source", "reviewed-third-party"],
+    "modelPolicyMutable": false,
+    "approvalRequiredFor": ["credentials", "external-write", "paid-action", "permission-expansion"]
+  },
+  "autonomyBudgetPolicy": {
+    "maxRuntimeMinutes": 60,
+    "maxModelCalls": 20,
+    "maxConcurrentSubtasks": 4,
+    "maxDelegationDepth": 2,
+    "paidApprovalThresholdUsd": 5
   },
   "owner": "A 君",
   "status": "active"

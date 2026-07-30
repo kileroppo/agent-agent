@@ -92,7 +92,7 @@ export class LocalTechnicalExpert {
 }
 
 function verifiedRepairEvidence(task, run, promotion) {
-  if (promotion?.status !== 'promoted') return null;
+  if (!['promoted', 'candidate_promoted'].includes(promotion?.status)) return null;
   const proof = run?.evidence?.metadata?.agentArmyRepairEvidence || {};
   if (proof.testsPassed !== true || proof.recoveryVerified !== true) return null;
   return {
@@ -104,17 +104,22 @@ function verifiedRepairEvidence(task, run, promotion) {
     recoveryVerified:true,
     recoveryCheck:String(task.input?.context?.repairScope?.recoveryCheck || '').slice(0, 1000),
     recoverySummary:String(proof.recoverySummary || '').slice(0, 2000),
-    remainingTests:Array.isArray(proof.remainingTests) ? proof.remainingTests.slice(0, 20).map((item) => String(item || '').slice(0, 500)) : []
+    remainingTests:Array.isArray(proof.remainingTests) ? proof.remainingTests.slice(0, 20).map((item) => String(item || '').slice(0, 500)) : [],
+    ...(promotion.status === 'candidate_promoted'
+      ? { candidateOnly:true, runningReleaseUpdated:false }
+      : {})
   };
 }
 
 function requiresFollowUpTest(run, promotion) {
   return ['waiting_for_test', 'waiting_for_scope', 'evidence_missing', 'failed'].includes(run?.status)
-    || ['rejected', 'conflict'].includes(promotion?.status);
+    || ['rejected', 'conflict', 'recovery_required', 'candidate_promoted'].includes(promotion?.status);
 }
 
 function stageFor(workspace, run, promotion, engineeringAssigned) {
   if (promotion?.status === 'promoted') return 'repair_promoted_awaiting_record';
+  if (promotion?.status === 'candidate_promoted') return 'repair_candidate_awaiting_release';
+  if (promotion?.status === 'recovery_required') return 'repair_promotion_recovery_required';
   if (promotion?.status === 'conflict') return 'repair_promotion_conflict';
   if (promotion?.status === 'rejected') return 'repair_promotion_rejected';
   if (run?.status === 'evidence_ready') return 'repair_evidence_ready';
@@ -128,6 +133,8 @@ function stageFor(workspace, run, promotion, engineeringAssigned) {
 
 function nextActionFor(workspace, run, promotion, engineeringAssigned) {
   if (promotion?.status === 'promoted') return 'A君 已核对范围、自动检查和恢复检查，并安全带回主工程；等待治理记录完成。';
+  if (promotion?.status === 'candidate_promoted') return promotion.nextAction || '候选源码已更新；必须生成并验证新的不可变 release 后才能切换运行版本。';
+  if (promotion?.status === 'recovery_required') return `晋升未能完整回滚，需要人工恢复：${promotion.reason}`;
   if (promotion?.status === 'conflict') return `主工程出现同时改动，A君 未覆盖：${promotion.reason}`;
   if (promotion?.status === 'rejected') return `A君 未带回本轮改动：${promotion.reason}`;
   if (run?.status === 'evidence_ready') return '技术专家已在独立副本留下修复结果；A君 将核对修改、测试和恢复检查后再决定是否带回主工程。';

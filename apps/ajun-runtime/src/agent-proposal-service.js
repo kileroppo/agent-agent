@@ -1,6 +1,13 @@
 import crypto from 'node:crypto';
+import { paperclipHermesAdapterConfig } from './governance-hermes-runtime.js';
 
-const SAFE_CAPABILITIES = new Set(['content.public.fetch', 'content.public.media', 'content.public.subtitles']);
+const PROPOSABLE_CAPABILITIES = new Set([
+  'content.public.fetch',
+  'content.public.media',
+  'content.public.subtitles',
+  'wechat.local-vault.chat.read'
+]);
+const WECHAT_LOCAL_VAULT_CAPABILITY = 'wechat.local-vault.chat.read';
 const TRANSITIONS = {
   draft: new Set(['pending_approval', 'needs_revision', 'rejected', 'archived']),
   pending_approval: new Set(['testing', 'needs_revision', 'rejected', 'archived']),
@@ -23,8 +30,8 @@ export class AgentProposalService {
       const existing = (await this.store.listProposals()).find((item) => item.sourceEventRef === sourceEventRef);
       if (existing) return existing;
     }
-    const candidateManifest = candidate(input, requestedOutcome);
     const requestedCapabilities = capabilities(input?.requestedCapabilities, requestedOutcome);
+    const candidateManifest = candidate(input, requestedOutcome, requestedCapabilities);
     const trialReadiness = currentTrialReadiness(candidateManifest, requestedCapabilities);
     const now = this.now().toISOString();
     let proposal = await this.store.createProposal({
@@ -92,8 +99,32 @@ export class AgentProposalService {
   }
 
   async submit(proposalId) {
-    const draft = await this.get(proposalId);
+    let draft = await this.get(proposalId);
     if (draft.status !== 'draft') throw new ProposalValidationError(`草案状态“${draft.status}”不能提交审核。`);
+    const refreshedCandidateManifest = draft.requestedCapabilities?.includes(WECHAT_LOCAL_VAULT_CAPABILITY)
+      ? applyWechatCandidateContract(draft.candidateManifest)
+      : draft.candidateManifest;
+    const refreshedReadiness = currentTrialReadiness(refreshedCandidateManifest, draft.requestedCapabilities);
+    const refreshedAcceptanceTask = draft.requestedCapabilities?.includes(WECHAT_LOCAL_VAULT_CAPABILITY)
+      ? acceptanceTask(
+          {},
+          refreshedCandidateManifest
+        )
+      : draft.acceptanceTask;
+    if (JSON.stringify(draft.candidateManifest) !== JSON.stringify(refreshedCandidateManifest)
+      || draft.trialReadiness?.status !== refreshedReadiness.status
+      || draft.trialReadiness?.message !== refreshedReadiness.message
+      || JSON.stringify(draft.acceptanceTask) !== JSON.stringify(refreshedAcceptanceTask)) {
+      draft = await this.store.updateProposal(proposalId, {
+        candidateManifest:refreshedCandidateManifest,
+        trialReadiness:refreshedReadiness,
+        runtimePlan:{
+          ...(draft.runtimePlan || {}),
+          profileMode:refreshedReadiness.status === 'ready' ? 'isolated-test-only' : 'needs-capability-build'
+        },
+        acceptanceTask:refreshedAcceptanceTask
+      });
+    }
     const reviewer = await this.runReviewerTask(draft);
     await this.store.updateProposal(proposalId, { reviewRefs: [...(draft.reviewRefs || []).filter((item) => item.role !== 'reviewer'), reviewer] });
     let proposal = await this.transition(proposalId, 'pending_approval', 'creator', '已提交组织级审核；未启动测试实例。');
@@ -104,6 +135,31 @@ export class AgentProposalService {
   async runReviewerTask(proposal) {
     const at = this.now().toISOString();
     if (!this.taskService) return reviewerReview(proposal.candidateManifest, proposal.requestedCapabilities, at);
+    const reviewerManifest = await this.registry?.get?.('reviewer');
+    const reviewerAdapterConfig = reviewerManifest ? paperclipHermesAdapterConfig(reviewerManifest) : null;
+    const reviewerModelSelection = reviewerAdapterConfig
+      ? {
+          provider:reviewerAdapterConfig.provider,
+          model:reviewerAdapterConfig.model,
+          extraArgs:reviewerAdapterConfig.extraArgs || [],
+          fallbackModels:reviewerAdapterConfig.fallbackModels || []
+        }
+      : null;
+    const wechatPrivateReview = proposal.requestedCapabilities.includes(WECHAT_LOCAL_VAULT_CAPABILITY);
+    const domainReviewLines = wechatPrivateReview
+      ? [
+          '当前阶段：只判断草案能否进入负责人“批准一次受限合成测试”的决定，不是正式激活审核。',
+          '阶段顺序：合成验收产物会在负责人批准受限测试并创建隔离测试实例后生成；审核前尚无该产物是预期状态，不得据此阻塞进入负责人决定。',
+          '实现证据：受控适配器、越权拒绝测试和合成验收测试已分别登记在 Skill审核 evidenceRefs；审核官没有终端权限是隔离设计，只核对引用、范围和测试契约，不要求 sourceTaskIds 或内容 ArtifactContract。',
+          '正式边界：合成验收通过仍不等于上岗或真实聊天授权；真实聊天读取继续要求负责人逐次指定单一会话和时间范围。'
+        ]
+      : [
+          '产物定位：只通过当前任务明确列出的 sourceTaskIds 查找已验证 ArtifactContract；只读取允许根目录内的 file:// 文件，不接受任务正文中的任意路径。',
+          '引用定义：sourceTaskIds 是 A君本机任务存储中的稳定任务 ID；执行器只从这些任务的 artifactRefs 选择 type/validation 合格的产物，路径必须位于 A君 dataDir 或小D artifact root，Paperclip 不接收本机绝对路径。',
+          '确认稿触发：小D先生成机器稿和质量报告；默认在质量门禁通过后自动生成带 confirmationMode=automatic、completeListen=false、版本和 SHA-256 的 confirmed_transcript。转录异常或用户明确要求时才进入 confirm-transcript-after-complete-listen 审批，并生成 confirmationMode=human 的确认稿。正式分析只认 confirmed_transcript；否则只能初步分析。',
+          '来源脱敏：ArtifactContract 和 ContentPackage 不包含 Cookie、token、登录态或浏览器会话；发现此类字段必须拒绝，不传给候选岗位。',
+          '复盘写回：只新建当前复盘任务的 content_performance_report，并用 sourceRefs 关联原拆解和草稿；不修改原任务、原产物或平台数据。'
+        ];
     const reviewTask = await this.taskService.create({
       title: `审查新岗位草案：${proposal.candidateManifest.name}`,
       description: [
@@ -118,22 +174,21 @@ export class AgentProposalService {
         `Skill审核：${JSON.stringify(proposal.candidateManifest.runtimeCapabilities?.skillReviews || [])}`,
         `预算：${JSON.stringify(proposal.candidateManifest.budgetPolicy || proposal.budgetPolicy)}`,
         `试用预算：${JSON.stringify(proposal.budgetPolicy)}；与岗位单任务预算分开，只允许一次验收运行。`,
+        `数据保留：${JSON.stringify(proposal.candidateManifest.dataRetentionPolicy || {})}`,
         `质量门禁：${JSON.stringify(proposal.candidateManifest.qualityGates || [])}`,
         `正式证据审批：${JSON.stringify(proposal.candidateManifest.evidencePolicy || {})}`,
+        `激活边界：${JSON.stringify(proposal.candidateManifest.activationPolicy || {})}`,
+        `审核执行模型：${reviewerModelSelection ? `${reviewerModelSelection.provider} / ${reviewerModelSelection.model}` : '由受控运行时决定'}。`,
         `失败去向：${proposal.candidateManifest.budgetPolicy?.onLimit || '停止并如实报告，不扩大权限或外部动作'}`,
-        '产物定位：只通过当前任务明确列出的 sourceTaskIds 查找已验证 ArtifactContract；只读取允许根目录内的 file:// 文件，不接受任务正文中的任意路径。',
-        '引用定义：sourceTaskIds 是 A君本机任务存储中的稳定任务 ID；执行器只从这些任务的 artifactRefs 选择 type/validation 合格的产物，路径必须位于 A君 dataDir 或小D artifact root，Paperclip 不接收本机绝对路径。',
-        '确认稿触发：小D先生成机器稿和质量报告；默认在质量门禁通过后自动生成带 confirmationMode=automatic、completeListen=false、版本和 SHA-256 的 confirmed_transcript。转录异常或用户明确要求时才进入 confirm-transcript-after-complete-listen 审批，并生成 confirmationMode=human 的确认稿。正式分析只认 confirmed_transcript；否则只能初步分析。',
-        '来源脱敏：ArtifactContract 和 ContentPackage 不包含 Cookie、token、登录态或浏览器会话；发现此类字段必须拒绝，不传给候选岗位。',
-        '复盘写回：只新建当前复盘任务的 content_performance_report，并用 sourceRefs 关联原拆解和草稿；不修改原任务、原产物或平台数据。',
+        ...domainReviewLines,
         `预算优先级：试用最多 ${proposal.budgetPolicy?.maxTokens || 12000} tokens、一次运行；生产任务同时受 Manifest 的时间/尝试上限约束，任一先到即停止。若提供方不返回可靠 token 用量，不虚构数字，只按时间和尝试上限停止。`,
         '有效期：负责人决定后 7 天内仅运行一次受限试用；逾期重新审核。岗位正式激活后持续到 Manifest 被 paused 或 retired。',
-        `测试范围：仅公开素材、一次受限测试、不登录、不外发、不付费、不扩权。`,
+        `测试范围：${strings(proposal.acceptanceTask?.constraints, ['一次受限测试', '不外发、不付费、不扩权']).join('；')}。`,
         `验收任务：${JSON.stringify(proposal.acceptanceTask)}`,
         `有效期：本次岗位草案。交付条件：逐项核对后给出风险、缺失信息和是否可进入负责人决定；信息足够时用 succeeded 回报，信息不足时用 waiting_test。`
       ].join('\n'),
       taskType: 'governance.approval-review', agentId: 'reviewer',
-      idempotencyKey: `agent-proposal-review:${proposal.proposalId}:${reviewContractKey(proposal)}`,
+      idempotencyKey: `agent-proposal-review:${proposal.proposalId}:${reviewContractKey(proposal, reviewerModelSelection)}`,
       requester: { kind:'local-system', ref:'creator' },
       source: { channel:'agent-proposal', eventRef:`agent-proposal:${proposal.proposalId}` },
       context: { proposalId:proposal.proposalId, candidateAgentId:proposal.candidateManifest.agentId }
@@ -307,28 +362,140 @@ export class AgentProposalService {
 
 export class ProposalValidationError extends Error {}
 
-function candidate(input, outcome) {
+function candidate(input, outcome, requestedCapabilities = []) {
   const agentId = slug(input?.agentId || input?.candidateName || outcome);
+  const wechatPrivateRead = requestedCapabilities.includes(WECHAT_LOCAL_VAULT_CAPABILITY);
+  const nonResponsibilities = strings(input?.nonResponsibilities, wechatPrivateRead
+    ? [
+        '不得读取当前任务逐次批准范围之外的私密内容。',
+        '不得执行外发、发布、付费、扩权或其他外部副作用。'
+      ]
+    : [
+        '不得读取凭据、Cookie、浏览器会话或私密内容。',
+        '不得执行外发、发布、付费、扩权或其他外部副作用。'
+      ]);
+  const dataScopes = Array.isArray(input?.dataScopes) && input.dataScopes.length
+    ? input.dataScopes
+    : [{ scope: 'public-material-only', access: ['read'], boundary: '仅公开素材；无账号、无私密数据、无写入。' }];
+  const approvalPolicies = Array.isArray(input?.approvalPolicies) && input.approvalPolicies.length
+    ? input.approvalPolicies
+    : [{ action: 'external-or-sensitive-action', riskLevel: 'high', decision: 'require-approval' }];
+  const qualityGates = Array.isArray(input?.qualityGates) && input.qualityGates.length
+    ? input.qualityGates
+    : [{ gate: 'acceptance-artifact-verified', required: true }];
+  if (wechatPrivateRead) {
+    nonResponsibilities.push(
+      '不得执行外发、发布、付费、扩权、发送微信消息或其他外部副作用。',
+      '不得抓取或回显微信数据库密钥、salt、wxid、Cookie、签名或完整明文数据库。',
+      '不得全量扫描、后台持续采集、读取未被负责人逐次指定的联系人、群聊或时间范围。',
+      '不得把私密聊天原文写入 Paperclip、任务描述、日志、测试夹具或项目工作区。'
+    );
+    dataScopes.splice(0, dataScopes.length, {
+      scope: 'explicitly-approved-wechat-chat-slice',
+      access: ['read'],
+      boundary: '每次只读取负责人明确指定的单一联系人或群聊及时间范围；明文库留在本机私有 vault。'
+    });
+    approvalPolicies.push({
+      action: 'wechat-private-chat-read',
+      riskLevel: 'high',
+      decision: 'human-owner-required-per-request'
+    });
+    qualityGates.push(
+      { gate: 'single-chat-and-time-range-explicitly-approved', required: true },
+      { gate: 'no-key-database-or-unscoped-chat-in-artifact', required: true }
+    );
+  }
   return {
     schemaVersion: 'agent.army/v1', manifestVersion: '0.1.0', agentId,
     name: text(input?.candidateName || `${outcome.slice(0, 18)}专员`, '请提供岗位名称。'), department: optional(input?.department) || '待审核岗位',
     role: outcome, responsibilities: strings(input?.responsibilities, [outcome]),
-    nonResponsibilities: strings(input?.nonResponsibilities, ['不得读取凭据、Cookie、浏览器会话或私密内容。', '不得执行外发、发布、付费、扩权或其他外部副作用。']),
-    acceptedTaskTypes: strings(input?.acceptedTaskTypes, ['report.public-material']), toolAllowlist: ['ajun.capability.request'],
-    dataScopes: [{ scope: 'public-material-only', access: ['read'], boundary: '仅公开素材；无账号、无私密数据、无写入。' }],
-    approvalPolicies: [{ action: 'external-or-sensitive-action', riskLevel: 'high', decision: 'require-approval' }],
-    qualityGates: [{ gate: 'acceptance-artifact-verified', required: true }],
-    budgetPolicy: { maxRuns: 1, externalSpendAllowed: false }, promptRef: `runtime://agent-proposals/${agentId}/system-prompt`, runtimeProfileRef: `runtime://agent-proposals/${agentId}/hermes-test-profile`, appRef: 'apps/ajun-runtime', owner: 'A君', status: 'draft'
+    nonResponsibilities:[...new Set(nonResponsibilities)],
+    acceptedTaskTypes: strings(input?.acceptedTaskTypes, ['report.public-material']),
+    toolAllowlist: requestedCapabilities.length ? requestedCapabilities : ['ajun.capability.request'],
+    dataScopes,
+    approvalPolicies,
+    qualityGates,
+    ...(wechatPrivateRead ? wechatCandidateContract() : { budgetPolicy:{ maxRuns:1, externalSpendAllowed:false } }),
+    promptRef: `runtime://agent-proposals/${agentId}/system-prompt`, runtimeProfileRef: `runtime://agent-proposals/${agentId}/hermes-test-profile`, appRef: 'apps/ajun-runtime', owner: 'A君', status: 'draft'
   };
 }
-function acceptanceTask(input, manifest) { return { taskType: manifest.acceptedTaskTypes[0], title: optional(input?.acceptanceTitle) || `验证 ${manifest.name} 的公开资料报告`, constraints: ['仅公开素材', '不登录账号', '不外发或发布', '必须返回可验证产物引用'] }; }
+function wechatCandidateContract() {
+  return {
+    budgetPolicy:{ maxRuns:1, maxTokens:6000, maxWallClockSeconds:120, externalSpendAllowed:false, onLimit:'停止并如实报告，不扩大范围或读取下一条会话' },
+    runtimeCapabilities:{
+      skills:['yichen-wechat-local-vault'],
+      skillReviews:[{
+        skill:'yichen-wechat-local-vault',
+        status:'controlled-adapter-only',
+        boundary:'只复用 vault_cli.py 的已解密 Vault 只读 history 查询；Agent 不获得密钥提取、数据库解密、终端或微信 UI 权限。',
+        evidenceRefs:[
+          'integrations/access/wechat-local-vault-adapter.js',
+          'integrations/access/test/wechat-local-vault-adapter.test.js'
+        ]
+      }]
+    },
+    dataRetentionPolicy:{
+      rawChat:{ storage:'ephemeral-memory-only', retentionSeconds:0, owner:'A君受控适配器', deleteWhen:'当前请求结束立即释放，不写文件' },
+      acceptanceReport:{ storage:'local-owner-only', retentionDays:30, containsRawChat:false, owner:'A君' }
+    },
+    evidencePolicy:{
+      syntheticAcceptanceRequired:true,
+      realChatAcceptanceRequiresOwnerApprovalPerRequest:true,
+      realChatEvidenceMayContainRawText:false,
+      acceptedEvidence:[
+        '逐次审批与当前 Agent/任务绑定',
+        '单一会话和时间范围门禁',
+        '越权请求拒绝',
+        '不含原文、密钥和数据库内容的验收报告'
+      ]
+    },
+    activationPolicy:{
+      syntheticAcceptanceDoesNotAuthorizeProduction:true,
+      formalManifestRequired:true,
+      separateOwnerDecisionRequired:true,
+      realChatReadRemainsPerRequestApproved:true
+    }
+  };
+}
+function applyWechatCandidateContract(manifest) {
+  const contract = wechatCandidateContract();
+  return {
+    ...manifest,
+    ...contract,
+    runtimeCapabilities:{
+      ...(manifest?.runtimeCapabilities || {}),
+      ...contract.runtimeCapabilities
+    }
+  };
+}
+function acceptanceTask(input, manifest) {
+  const wechatPrivateRead = manifest.toolAllowlist?.includes(WECHAT_LOCAL_VAULT_CAPABILITY);
+  return {
+    taskType:manifest.acceptedTaskTypes[0],
+    title:optional(input?.acceptanceTitle) || (wechatPrivateRead ? `验证 ${manifest.name} 的受控聊天切片` : `验证 ${manifest.name} 的公开资料报告`),
+    constraints:wechatPrivateRead
+      ? ['仅使用合成聊天数据', '逐次审批引用必须匹配当前 Agent 与任务', '仅单一会话和明确时间范围', '不抓取密钥、不读取整库、不持久化聊天原文', '不外发或发布', '必须返回不含原文的可验证产物引用']
+      : ['仅公开素材', '不登录账号', '不外发或发布', '必须返回可验证产物引用']
+  };
+}
 function architectReview(manifest, capabilities, at) { return { reviewId: `architect:${at}`, role: 'architect', result: 'recommend_pending_approval', summary: `复用 A君能力边界；候选岗位仅请求：${capabilities.join('、') || '无外部能力'}。`, at }; }
 function reviewerReview(manifest, capabilities, at) { return { reviewId: `reviewer:${at}`, role: 'reviewer', result: 'human_owner_required', summary: `默认拒绝账号、发布、付费与扩权；测试预算仅一次。`, at }; }
-function promptFor(manifest, outcome) { return `你是${manifest.name}。目标：${outcome}\n只处理公开素材并输出可验证报告；不得读取凭据、登录账号、外发、发布、付费或扩权。缺少必要材料时停止并说明。`; }
+function promptFor(manifest, outcome) {
+  const wechatPrivateRead = manifest.toolAllowlist?.includes(WECHAT_LOCAL_VAULT_CAPABILITY);
+  return [
+    `你是${manifest.name}。目标：${outcome}`,
+    wechatPrivateRead
+      ? '只在负责人逐次明确指定单一会话和时间范围并完成专项审批后，调用受控适配器读取本机已解密 vault；不得接触密钥、完整数据库或未授权会话。'
+      : '只处理 Manifest 数据范围内的素材并输出可验证报告。',
+    '不得读取凭据、登录账号、外发、发布、付费或扩权。缺少必要材料或审批时停止并说明。'
+  ].join('\n');
+}
 function capabilities(value, outcome = '') {
   const inferred = /公开.*(?:网页|页面|文章|资料|素材)|(?:网页|页面|文章|资料|素材).*?(?:摘要|报告|整理)|公开.*(?:摘要|报告|整理)/.test(String(outcome)) ? ['content.public.fetch'] : [];
   const selected = strings(value, inferred);
-  if (selected.some((item) => !SAFE_CAPABILITIES.has(item))) throw new ProposalValidationError('第一批测试实例只能请求已审核的公开内容获取能力。');
+  if (selected.some((item) => !PROPOSABLE_CAPABILITIES.has(item))) {
+    throw new ProposalValidationError('草案只能请求已审核或已登记且有明确风险边界的能力；未知能力不能借创建岗位自动扩权。');
+  }
   return selected;
 }
 function assertRunnableCandidate(proposal) {
@@ -338,6 +505,12 @@ function assertRunnableCandidate(proposal) {
 }
 function currentTrialReadiness(manifest, requestedCapabilities) {
   const taskTypes = manifest?.acceptedTaskTypes || [];
+  if (requestedCapabilities?.includes(WECHAT_LOCAL_VAULT_CAPABILITY)) {
+    return {
+      status:'ready',
+      message:'已具备受控适配器，可进入一次仅使用合成聊天的技术验收；通过后仍不自动读取真实聊天，真实读取必须由负责人逐次指定单一会话和时间范围。'
+    };
+  }
   const supportsPublicReport = taskTypes.length === 1
     && taskTypes[0] === 'report.public-material'
     && requestedCapabilities?.includes('content.public.fetch');
@@ -412,16 +585,19 @@ function capabilityBoundary(value) {
     'content.artifact.read':'只读当前任务明确引用、已验证且位于受控目录的产物',
     'content.analysis.write':'只在当前任务本机产物目录写拆解/复盘文件，不外发',
     'content.draft.write':'只在当前任务本机产物目录写待审草稿，外部副作用固定为 0',
-    'knowledge.archive.write':'只通过统一内容库边界写 Agent军团 目录，不接受任意路径且不读取私人笔记'
+    'knowledge.archive.write':'只通过统一内容库边界写 Agent军团 目录，不接受任意路径且不读取私人笔记',
+    'wechat.local-vault.chat.read':'只通过受控适配器读取负责人逐次批准的单一会话和时间范围；禁止密钥提取、整库暴露、后台持续采集和原文进入 Paperclip'
   })[value] || `${value}：仅按 Manifest 数据范围使用，未知副作用默认拒绝`;
 }
-function reviewContractKey(proposal) {
+function reviewContractKey(proposal, reviewerModelSelection = null) {
   const value = JSON.stringify({
     candidateManifest:proposal?.candidateManifest,
     requestedCapabilities:proposal?.requestedCapabilities,
     desiredSkills:proposal?.desiredSkills,
     budgetPolicy:proposal?.budgetPolicy,
-    acceptanceTask:proposal?.acceptanceTask
+    acceptanceTask:proposal?.acceptanceTask,
+    reviewerModelSelection,
+    reviewStageContract:'owner-restricted-test-decision/v1'
   });
   return crypto.createHash('sha256').update(value).digest('hex').slice(0, 16);
 }

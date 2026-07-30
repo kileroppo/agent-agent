@@ -23,8 +23,12 @@ export async function ensureOperationsHealthRoutine({ fetchImpl = fetch } = {}) 
   const company = asList(companies).find((item) => item.name === COMPANY_NAME);
   if (!company) throw new Error('Paperclip 中未找到 Agent军团。');
   const agents = await request(`/api/companies/${company.id}/agents`);
-  const operator = asList(agents).find((agent) => agent.name === 'A君本机健康官' && agent.adapterType === 'http' && agent.status !== 'terminated');
-  if (!operator) throw new Error('Paperclip 中未找到可用的 A君本机健康官。');
+  const operator = asList(agents).find((agent) =>
+    agent.status !== 'terminated'
+    && (agent.metadata?.agentArmyId === 'operator' || agent.name === '运维官')
+    && ['hermes', 'hermes_local'].includes(agent.adapterType)
+  );
+  if (!operator) throw new Error('Paperclip 中未找到已接入 Hermes 的运维官。');
 
   const routines = await request(`/api/companies/${company.id}/routines`);
   let routine = asList(routines).find((item) => item.title === ROUTINE_TITLE || String(item.description || '').includes(ROUTINE_MARKER));

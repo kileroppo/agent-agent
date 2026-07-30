@@ -179,7 +179,8 @@ export class MediaPipeline {
             provider: acquired.contentPackage.provider,
             acquisitionPath: acquired.contentPackage.acquisitionPath,
             providedCapabilities: acquired.contentPackage.providedCapabilities,
-            adapterRef: acquired.contentPackage.adapterRef
+            adapterRef: acquired.contentPackage.adapterRef,
+            access:acquired.contentPackage.access || null
           } : null
         }
       }, {

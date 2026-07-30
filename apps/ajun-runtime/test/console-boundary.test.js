@@ -9,7 +9,7 @@ test('A君控制台不提供日常派活或审批按钮', async () => {
     readFile(new URL('index.html', root), 'utf8'),
     readFile(new URL('app.js', root), 'utf8')
   ]);
-  assert.match(html, /请在飞书交办与审批/);
+  assert.match(html, /派活和审批去飞书/);
   assert.doesNotMatch(html, /id="task-form"/);
   assert.doesNotMatch(html, /交给 A君处理/);
   assert.doesNotMatch(script, /api\('\/api\/tasks'/);
@@ -26,9 +26,9 @@ test('A君控制台只在本机提供员工接线，不把应用凭据写进页�
   assert.match(script, /name="appSecret" type="password"/);
   assert.match(script, /<strong>模型：<\/strong>/);
   assert.match(script, /独立身份已建立，模型授权和真实调用待完成/);
-  assert.match(html, /A君 Hermes 模型管理/);
+  assert.match(html, /A君模型与 API/);
   assert.match(html, /data-model-setup-agent-id="ajun"/);
-  assert.match(html, /管理 API 与 Key/);
+  assert.match(html, /设置 API 与 Key/);
   assert.match(script, /管理模型/);
   assert.match(script, /data-model-setup-target="models"/);
   assert.match(script, /data-model-setup-target="keys"/);
@@ -48,7 +48,7 @@ test('A君控制台提供受控登录、续期、禁用和撤销，但不接收�
     readFile(new URL('index.html', root), 'utf8'),
     readFile(new URL('app.js', root), 'utf8')
   ]);
-  assert.match(html, /连接网站账号/);
+  assert.match(html, /网站账号与采集/);
   assert.match(html, /打开 Chrome 登录页/);
   assert.match(html, /不填写、显示或复制 Cookie、Token 和密码/);
   assert.match(script, /\/api\/access-connections/);
@@ -59,4 +59,36 @@ test('A君控制台提供受控登录、续期、禁用和撤销，但不接收�
   assert.match(script, /受控凭据引用已登记/);
   assert.doesNotMatch(html, /name="(?:cookie|token|password|credential)"/i);
   assert.doesNotMatch(script, /connection\.(?:credentialRef|cookieBridgeClientId|cookie|token)/);
+});
+
+test('A君控制台先说明当前状态和唯一下一步，并把历史噪音与能力详情降级展示', async () => {
+  const [html, script] = await Promise.all([
+    readFile(new URL('index.html', root), 'utf8'),
+    readFile(new URL('app.js', root), 'utf8')
+  ]);
+  assert.match(html, /军团状态/);
+  assert.match(html, /下一步/);
+  assert.match(html, /待复盘/);
+  assert.match(html, /capabilities-disclosure/);
+  assert.match(script, /需要你/);
+  assert.match(script, /无需处理/);
+  assert.match(script, /对外发布关闭/);
+  assert.match(script, /默认账号已明确/);
+  assert.match(script, /真实读取成功/);
+  assert.match(script, /设为.*默认账号/);
+  assert.match(script, /深度采集/);
+  assert.match(script, /历史连接/);
+});
+
+test('任务记录默认只呈现需要复盘的前 24 条，并支持搜索和继续加载', async () => {
+  const [html, script] = await Promise.all([
+    readFile(new URL('index.html', root), 'utf8'),
+    readFile(new URL('app.js', root), 'utf8')
+  ]);
+  assert.match(html, /id="task-search"/);
+  assert.match(html, /id="task-load-more"/);
+  assert.match(script, /currentTaskFilter = selectedTaskId \? 'all' : 'attention'/);
+  assert.match(script, /visibleTaskCount = 24/);
+  assert.match(script, /\.slice\(0, visibleTaskCount\)/);
+  assert.match(script, /visibleTaskCount \+= 24/);
 });

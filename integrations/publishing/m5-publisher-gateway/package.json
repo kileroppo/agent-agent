@@ -1,0 +1,19 @@
+{
+  "name": "@agent-army/m5-publisher-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M5 无模型确定性发布边界；Runtime 默认仅允许 fake，真实连接器源码保持关闭。",
+  "scripts": {
+    "test": "node --test",
+    "check": "for file in src/*.js scripts/*.mjs; do node --check \"$file\"; done",
+    "serve": "node scripts/run-service.mjs",
+    "acceptance:fake:seven-day": "node scripts/run-fake-mp4-acceptance.mjs --source-set seven-day",
+    "acceptance:cua:local": "node scripts/run-local-cua-acceptance.mjs",
+    "production:readiness": "node scripts/check-production-readiness.mjs",
+    "launch-agent:dry-run": "node scripts/manage-disabled-launch-agent.mjs --mode dry-run",
+    "launch-agent:status": "node scripts/manage-disabled-launch-agent.mjs --mode status",
+    "selector-bundle:inspect": "node scripts/manage-cua-selector-bundle.mjs --mode inspect",
+    "selector-bundle:freeze": "node scripts/manage-cua-selector-bundle.mjs --mode freeze"
+  }
+}

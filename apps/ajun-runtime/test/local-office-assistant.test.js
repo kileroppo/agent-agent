@@ -105,3 +105,90 @@ test('知识归档会写入草稿核心结论和人工发布待办，不只罗�
   assert.match(captured.markdown, /人工审阅平台草稿/);
   assert.match(captured.markdown, /再单独决定是否发布/);
 });
+
+test('小办交付计划通过岗位上下文生成 DOCX/XLSX/PDF，不旁路本机目录', async () => {
+  const calls = [];
+  const roleToolContext = {
+    async execute(input) {
+      calls.push(input);
+      if (input.toolId === 'army.task.read') return [];
+      if (input.toolId === 'office.artifact.write') {
+        return { filePath:'/trusted/workspace/work-products/briefing.md', bytes:120 };
+      }
+      return {
+        relativePath:input.relativePath,
+        mimeType:{
+          'office.docx.write':'application/docx',
+          'office.xlsx.write':'application/xlsx',
+          'office.pdf.write':'application/pdf',
+        }[input.toolId],
+        bytes:240,
+        checksum:'b'.repeat(64),
+        validation:{ exists:true, readable:true, nonEmpty:true, workspaceRestricted:true },
+      };
+    },
+  };
+  const worker = new LocalOfficeAssistant({ now, store:{ async list() { return []; } } });
+  const result = await worker.execute({
+    taskId:'office-program-1',
+    taskType:'office.deliverable-program',
+    input:{
+      title:'生成完整办公交付计划',
+      description:'根据当前材料生成可审阅的三种办公格式。',
+    },
+  }, { roleToolContext });
+  assert.equal(result.status, 'succeeded');
+  assert.deepEqual(calls.map((call) => call.toolId), [
+    'army.task.read',
+    'office.artifact.write',
+    'office.docx.write',
+    'office.xlsx.write',
+    'office.pdf.write',
+  ]);
+  assert.deepEqual(result.artifactRefs.slice(1).map((artifact) => artifact.type), [
+    'office_docx_document',
+    'office_xlsx_document',
+    'office_pdf_document',
+  ]);
+});
+
+test('小办日报只把受控写回返回的 Paperclip Work Product 登记为成功产物', async () => {
+  const calls = [];
+  const roleToolContext = {
+    async execute(input) {
+      calls.push(input);
+      if (input.toolId === 'army.task.read') return [];
+      if (input.toolId === 'office.artifact.write') {
+        return { filePath:'/trusted/workspace/daily.md', bytes:120 };
+      }
+      if (input.toolId === 'office.report.daily.write') {
+        return {
+          workProductId:'wp-daily-1',
+          contentHash:'c'.repeat(64),
+          relativePath:input.relativePath,
+          duplicate:false,
+        };
+      }
+      throw new Error(`unexpected ${input.toolId}`);
+    },
+  };
+  const worker = new LocalOfficeAssistant({ now, store:{ async list() { return []; } } });
+  const result = await worker.execute({
+    taskId:'office-daily-1',
+    idempotencyKey:'paperclip:office-daily-1',
+    taskType:'content.campaign-metrics',
+    input:{
+      title:'整理今日活动指标',
+      description:'整理当前活动今天已经验证的指标和待办。',
+    },
+  }, { roleToolContext });
+  assert.equal(result.status, 'succeeded');
+  assert.deepEqual(calls.map((call) => call.toolId), [
+    'army.task.read',
+    'office.artifact.write',
+    'office.report.daily.write',
+  ]);
+  const product = result.artifactRefs.find((artifact) => artifact.type === 'office_daily_report_work_product');
+  assert.equal(product.data.workProductId, 'wp-daily-1');
+  assert.equal(product.validation.paperclipWorkProduct, true);
+});

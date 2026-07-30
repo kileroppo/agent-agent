@@ -2,6 +2,253 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PaperclipBridge } from '../src/paperclip-bridge.js';
 
+test('PaperclipBridge 对 M5 HTTP 控制器核验当前运行中的 active run、agent、issue 和 company 四方绑定', async () => {
+  const issueId = '11111111-1111-4111-8111-111111111111';
+  const runId = '22222222-2222-4222-8222-222222222222';
+  const agentId = '33333333-3333-4333-8333-333333333333';
+  const companyId = '44444444-4444-4444-8444-444444444444';
+  const bridge = new PaperclipBridge();
+  bridge.getPaperclipIssue = async () => ({
+    id:issueId,
+    companyId,
+    assigneeAgentId:agentId,
+    status:'in_progress',
+  });
+  bridge.getPaperclipAgent = async () => ({
+    id:agentId,
+    companyId,
+    metadata:{ agentArmySystemRole:'m5-daily-controller' },
+  });
+  bridge.getPaperclipIssueActiveRun = async () => ({
+    id:runId,
+    companyId,
+    agentId,
+    status:'running',
+  });
+  bridge.getPaperclipHeartbeatRun = async () => ({
+    id:runId,
+    companyId,
+    agentId,
+    status:'running',
+  });
+
+  const verified = await bridge.verifySystemAssignment({
+    issueId,
+    runId,
+    paperclipAgentId:agentId,
+    systemRole:'m5-daily-controller',
+  });
+  assert.equal(verified.issue.id, issueId);
+  assert.equal(verified.run.id, runId);
+  assert.equal(verified.paperclipAgent.id, agentId);
+
+  bridge.getPaperclipIssueActiveRun = async () => null;
+  await assert.rejects(() => bridge.verifySystemAssignment({
+    issueId,
+    runId,
+    paperclipAgentId:agentId,
+    systemRole:'m5-daily-controller',
+  }), /当前活跃运行与 HTTP 系统控制器指派不一致/);
+});
+
+test('PaperclipBridge 拒绝历史、排队、终态或身份漂移的 M5 系统控制器 Run', async (t) => {
+  const issueId = '11111111-1111-4111-8111-111111111111';
+  const runId = '22222222-2222-4222-8222-222222222222';
+  const agentId = '33333333-3333-4333-8333-333333333333';
+  const companyId = '44444444-4444-4444-8444-444444444444';
+  const otherAgentId = '55555555-5555-4555-8555-555555555555';
+  const otherCompanyId = '66666666-6666-4666-8666-666666666666';
+
+  const setup = ({
+    issueStatus = 'in_progress',
+    activeRun = { id:runId, status:'running', agentId, companyId },
+    heartbeatRun = { id:runId, status:'running', agentId, companyId },
+  } = {}) => {
+    const bridge = new PaperclipBridge();
+    bridge.getPaperclipIssue = async () => ({
+      id:issueId,
+      companyId,
+      assigneeAgentId:agentId,
+      status:issueStatus,
+    });
+    bridge.getPaperclipAgent = async () => ({
+      id:agentId,
+      companyId,
+      metadata:{ agentArmySystemRole:'m5-daily-controller' },
+    });
+    bridge.getPaperclipIssueActiveRun = async () => activeRun;
+    bridge.getPaperclipHeartbeatRun = async () => heartbeatRun;
+    return bridge;
+  };
+  const verify = (bridge) => bridge.verifySystemAssignment({
+    issueId,
+    runId,
+    paperclipAgentId:agentId,
+    systemRole:'m5-daily-controller',
+  });
+
+  await t.test('历史 Run 即使曾属于该 Issue 也不能执行', async () => {
+    const bridge = setup({ activeRun:null });
+    bridge.getPaperclipIssueRuns = async () => ({
+      runs:[{ id:runId, status:'succeeded', agentId, companyId }],
+    });
+    await assert.rejects(verify(bridge), /当前活跃运行与 HTTP 系统控制器指派不一致/);
+  });
+
+  await t.test('queued Run 不能冒充正在执行的 controller', async () => {
+    await assert.rejects(
+      verify(setup({
+        activeRun:{ id:runId, status:'queued', agentId, companyId },
+        heartbeatRun:{ id:runId, status:'queued', agentId, companyId },
+      })),
+      /当前活跃运行与 HTTP 系统控制器指派不一致/,
+    );
+  });
+
+  await t.test('Issue 已结束时拒绝仍显示 running 的旧 Run', async () => {
+    await assert.rejects(
+      verify(setup({ issueStatus:'done' })),
+      /当前活跃运行与 HTTP 系统控制器指派不一致/,
+    );
+  });
+
+  await t.test('active-run 与权威 heartbeat 状态不一致时拒绝', async () => {
+    await assert.rejects(
+      verify(setup({
+        heartbeatRun:{ id:runId, status:'succeeded', agentId, companyId },
+      })),
+      /当前活跃运行身份无效/,
+    );
+  });
+
+  await t.test('Run 岗位或公司身份漂移时拒绝', async () => {
+    await assert.rejects(
+      verify(setup({
+        heartbeatRun:{ id:runId, status:'running', agentId:otherAgentId, companyId },
+      })),
+      /当前活跃运行身份无效/,
+    );
+    await assert.rejects(
+      verify(setup({
+        heartbeatRun:{ id:runId, status:'running', agentId, companyId:otherCompanyId },
+      })),
+      /当前活跃运行身份无效/,
+    );
+  });
+});
+
+test('M5 阶段恢复只用 Case 字段和同一 Run 重开或阻塞原 Issue', async () => {
+  const requests = [];
+  const bridge = new PaperclipBridge({ fetchImpl:async (url, options = {}) => {
+    requests.push({ url, options });
+    return { ok:true, status:200, async json(){ return { ok:true }; } };
+  } });
+
+  await bridge.getPipelineCaseEvents('case-recovery-1');
+  await bridge.patchPipelineCaseFields('case-recovery-1', {
+    expectedVersion:7,
+    fields:{ m5StageRecovery:{ status:'scheduled' } },
+    runId:'run-recovery-1',
+  });
+  await bridge.reopenM5StageIssue('issue-recovery-1', {
+    runId:'run-recovery-1',
+    comment:'安排安全重试。',
+  });
+  await bridge.blockM5StageIssue('issue-recovery-1', {
+    runId:'run-recovery-1',
+    comment:'恢复上限已达到。',
+  });
+
+  assert.equal(
+    new URL(requests[0].url).pathname + new URL(requests[0].url).search,
+    '/api/cases/case-recovery-1/events?limit=100&order=desc',
+  );
+  assert.deepEqual(JSON.parse(requests[1].options.body), {
+    expectedVersion:7,
+    fields:{ m5StageRecovery:{ status:'scheduled' } },
+  });
+  assert.equal(requests[1].options.headers['x-paperclip-run-id'], 'run-recovery-1');
+  assert.deepEqual(JSON.parse(requests[2].options.body), {
+    status:'todo',
+    comment:'安排安全重试。',
+  });
+  assert.deepEqual(JSON.parse(requests[3].options.body), {
+    status:'blocked',
+    comment:'恢复上限已达到。',
+  });
+});
+
+test('复盘桥接只从当前 Case 的 Pipeline 聚合 Work Product，并沿用原 Run 写回', async () => {
+  const requests = [];
+  const bridge = new PaperclipBridge({ fetchImpl:async (url, options = {}) => {
+    requests.push({ url, options });
+    const pathname = new URL(url).pathname;
+    let payload = {};
+    if (pathname === '/api/cases/case-1') payload = { id:'case-1', pipelineId:'pipeline-1' };
+    else if (pathname === '/api/pipelines/pipeline-1/cases') {
+      payload = { items:[{ id:'case-1' }, { id:'case-2' }] };
+    } else if (pathname === '/api/cases/case-1/outputs') {
+      payload = { items:[{ id:'metric-1' }] };
+    } else if (pathname === '/api/cases/case-2/outputs') {
+      payload = [{ id:'metric-2' }];
+    }
+    return { ok:true, status:200, async json(){ return payload; } };
+  } });
+
+  assert.deepEqual(await bridge.getRetrospectiveMetricOutputs('case-1'), {
+    items:[{ id:'metric-1' }, { id:'metric-2' }],
+  });
+  await bridge.transitionPipelineCase('case-1', {
+    expectedVersion:7,
+    toStageKey:'done',
+  }, { runId:'run-1' });
+  await bridge.completeRetrospectiveIssue('issue-1', {
+    runId:'run-1',
+    comment:'复盘完成。',
+  });
+
+  const transition = requests.find((item) =>
+    new URL(item.url).pathname === '/api/cases/case-1/transition');
+  assert.equal(transition.options.headers['x-paperclip-run-id'], 'run-1');
+  assert.deepEqual(JSON.parse(transition.options.body), {
+    expectedVersion:7,
+    toStageKey:'done',
+  });
+  const completion = requests.find((item) =>
+    new URL(item.url).pathname === '/api/issues/issue-1');
+  assert.equal(completion.options.headers['x-paperclip-run-id'], 'run-1');
+  assert.deepEqual(JSON.parse(completion.options.body), {
+    status:'done',
+    comment:'复盘完成。',
+  });
+});
+
+test('学习控制器只能把 Issue 更新为运行、审核或完成状态', async () => {
+  const requests = [];
+  const bridge = new PaperclipBridge({ fetchImpl:async (url, options = {}) => {
+    requests.push({ url, options });
+    return { ok:true, status:200, async json(){ return { ok:true }; } };
+  } });
+  await bridge.updateLearningIssue('issue-learning-1', {
+    runId:'run-learning-1',
+    status:'in_review',
+    comment:'等待审核官。',
+  });
+  const request = requests[0];
+  assert.equal(request.options.headers['x-paperclip-run-id'], 'run-learning-1');
+  assert.deepEqual(JSON.parse(request.options.body), {
+    status:'in_review',
+    comment:'等待审核官。',
+  });
+  await assert.rejects(
+    bridge.updateLearningIssue('issue-learning-1', {
+      status:'blocked',
+      comment:'伪造状态',
+    }),
+    /学习任务状态无效/,
+  );
+});
+
 test('技术修复任务会分配给 Paperclip 中受控 Codex 技术专家', async () => {
   const requests = [];
   const fetchImpl = async (url, options = {}) => {
@@ -196,7 +443,10 @@ test('受管 Hermes 岗位修正模型配置后会从 error 恢复为 idle', asy
     promptRef:'agents/video-content-analyst/prompts/system.md',
     executionOwner:'paperclip-hermes',
     interaction:{ runtime:'hermes-profile', directFeishu:'disabled' },
-    acceptedTaskTypes:['content.video-benchmark-analysis'],
+    acceptedTaskTypes:[
+      'content.video-benchmark-analysis',
+      'content.campaign-visual-analysis'
+    ],
     responsibilities:['拆解视频'],
     runtimeCapabilities:{
       modelSelection:{ provider:'openai-codex', model:'gpt-5.6-terra' },

@@ -4,6 +4,8 @@ import { HermesConversationAdvisor } from '../src/hermes-conversation-advisor.js
 
 test('AI 能把自然追问识别为上一轮使用记录的明细请求', async () => {
   const advisor = new HermesConversationAdvisor({ hermesHome:'/safe/profile', run:async (_command, args) => {
+    assert.deepEqual(args.slice(0, 2), ['--toolsets', 'clarify']);
+    assert.equal(args.includes('--ignore-rules'), false);
     assert.match(args.at(-1), /usage_report/);
     assert.match(args.at(-1), /哪18项/);
     return '{"action":"show_last_usage_items"}';

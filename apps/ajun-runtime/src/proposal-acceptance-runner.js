@@ -4,11 +4,12 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export class ProposalAcceptanceRunner {
-  constructor({ publicReport, intelResearcher = null, videoContentAnalyst = null, contentCreator = null, artifactsDir = null, now = () => new Date() } = {}) {
+  constructor({ publicReport, intelResearcher = null, videoContentAnalyst = null, contentCreator = null, wechatLocalVault = null, artifactsDir = null, now = () => new Date() } = {}) {
     this.publicReport = publicReport;
     this.intelResearcher = intelResearcher;
     this.videoContentAnalyst = videoContentAnalyst;
     this.contentCreator = contentCreator;
+    this.wechatLocalVault = wechatLocalVault;
     this.artifactsDir = artifactsDir ? path.resolve(artifactsDir) : null;
     this.now = now;
   }
@@ -88,6 +89,10 @@ export class ProposalAcceptanceRunner {
       }
       if (!sourceTaskIds.length) throw new Error('小创受限测试必须引用确认稿和正式拆解。');
       return this.contentCreator.execute(task);
+    }
+    if (exactCapabilities(proposal, ['wechat.local-vault.chat.read'])) {
+      if (!this.wechatLocalVault) throw new Error('微信 Vault 受限测试执行器不可用。');
+      return this.wechatLocalVault.run({ proposal, testInstance });
     }
     throw new Error('当前草案没有可自动验证的受限试用范围。');
   }

@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 
@@ -8,7 +9,12 @@ export class PublicWebFetch {
 
   async acquire({ sourceUrl }) {
     const source = await publicUrl(sourceUrl, this.lookup);
-    const response = await this.fetch(source, { redirect: 'error', headers: { accept: 'text/html, text/plain;q=0.9' }, signal: AbortSignal.timeout(8000) });
+    const response = await this.fetch(source.url, {
+      redirect:'error',
+      headers:{ accept:'text/html, text/plain;q=0.9' },
+      signal:AbortSignal.timeout(8000),
+      resolvedAddress:source.resolvedAddress,
+    });
     if (!response.ok) throw new PublicWebFetchError('source_unavailable', `公开页面返回 ${response.status}。`);
     const contentType = String(response.headers.get('content-type') || '').toLowerCase();
     if (!contentType.includes('text/html') && !contentType.startsWith('text/plain')) throw new PublicWebFetchError('unsupported_content_type', '当前公开网页能力只读取 HTML 或纯文本。');
@@ -17,8 +23,9 @@ export class PublicWebFetch {
     const text = contentType.includes('html') ? htmlToText(raw) : raw.trim();
     if (!text) throw new PublicWebFetchError('empty_content', '公开页面没有可用正文。');
     return {
-      schemaVersion: 'agent.army/public-web-content/v1', sourceRef: safeSourceRef(source),
+      schemaVersion: 'agent.army/public-web-content/v1', sourceRef: safeSourceRef(source.url),
       title: title?.slice(0, 500) || null, text: text.slice(0, 30000), truncated: raw.length >= MAX_BYTES,
+      contentHash: crypto.createHash('sha256').update(raw).digest('hex'),
       fetchedAt: new Date().toISOString(), validation: { exists: true, readable: true, accessScope: 'public_read' }
     };
   }
@@ -31,20 +38,48 @@ async function publicUrl(value, lookup) {
   try { parsed = new URL(String(value)); } catch { throw new PublicWebFetchError('invalid_source_url', '需要一个公开 HTTP(S) 链接。'); }
   if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname || privateHost(parsed.hostname)) throw new PublicWebFetchError('source_not_public', '只能读取公开 HTTP(S) 页面，不能访问本机、内网或私有地址。');
   if (parsed.username || parsed.password) throw new PublicWebFetchError('source_not_public', '公开链接不能包含账号信息。');
+  let resolvedAddress = parsed.hostname;
   if (!net.isIP(parsed.hostname)) {
     let addresses;
     try { addresses = await lookup(parsed.hostname, { all: true, verbatim: true }); }
     catch { throw new PublicWebFetchError('source_unavailable', '公开页面域名无法解析。'); }
     if (!addresses.length || addresses.some(({ address }) => privateHost(address))) throw new PublicWebFetchError('source_not_public', '只能读取公开 HTTP(S) 页面，不能访问本机、内网或私有地址。');
+    resolvedAddress = addresses[0].address;
   }
-  return parsed.toString();
+  return { url:parsed.toString(), resolvedAddress };
 }
 function privateHost(host) {
   const value = host.toLowerCase().replace(/^\[|\]$/g, '');
   if (value === 'localhost' || value.endsWith('.localhost')) return true;
   if (net.isIP(value) === 4) return value.startsWith('127.') || value.startsWith('10.') || value.startsWith('192.168.') || /^172\.(1[6-9]|2\d|3[0-1])\./.test(value) || value.startsWith('169.254.') || value.startsWith('0.') || /^100\.(6[4-9]|[789]\d|1[01]\d|12[0-7])\./.test(value) || value === '255.255.255.255';
-  if (net.isIP(value) === 6) return value === '::' || value === '::1' || value.startsWith('fc') || value.startsWith('fd') || value.startsWith('fe8') || value.startsWith('fe9') || value.startsWith('fea') || value.startsWith('feb') || value.startsWith('::ffff:127.') || value.startsWith('::ffff:10.') || value.startsWith('::ffff:192.168.') || /^::ffff:172\.(1[6-9]|2\d|3[0-1])\./.test(value);
+  if (net.isIP(value) === 6) {
+    const mapped = mappedIpv4(value);
+    return Boolean(mapped && privateHost(mapped))
+      || value === '::'
+      || value === '::1'
+      || value.startsWith('fc')
+      || value.startsWith('fd')
+      || value.startsWith('fe8')
+      || value.startsWith('fe9')
+      || value.startsWith('fea')
+      || value.startsWith('feb');
+  }
   return false;
+}
+function mappedIpv4(value) {
+  if (!value.startsWith('::ffff:')) return null;
+  const suffix = value.slice('::ffff:'.length);
+  if (net.isIP(suffix) === 4) return suffix;
+  const parts = suffix.split(':');
+  if (parts.length !== 2 || parts.some((part) => !/^[0-9a-f]{1,4}$/i.test(part))) return null;
+  const high = Number.parseInt(parts[0], 16);
+  const low = Number.parseInt(parts[1], 16);
+  return [
+    (high >>> 8) & 255,
+    high & 255,
+    (low >>> 8) & 255,
+    low & 255,
+  ].join('.');
 }
 async function limitedText(response) {
   const reader = response.body?.getReader(); if (!reader) return '';

@@ -1,0 +1,193 @@
+{
+  "schemaVersion": "agent.army/m4-role-quality-result/v1",
+  "taskId": "m4-role-creator-20260730",
+  "agentId": "creator",
+  "agentName": "创建官",
+  "startedAt": "2026-07-30T17:31:43.906Z",
+  "finishedAt": "2026-07-30T17:32:03.818Z",
+  "model": {
+    "provider": "stepfun",
+    "name": "step-3.5-flash-2603",
+    "apiCalls": 1,
+    "estimatedCostUsd": 0,
+    "inputTokens": 3573,
+    "outputTokens": 1826
+  },
+  "externalSideEffects": 0,
+  "toolPolicy": "clarify-only; prompt forbids tool use",
+  "parseError": null,
+  "processError": null,
+  "outputChecksum": "2e93d2e55fbd146d0a2c959744326413c3a7a0facfcd41221e68f9a8bf96e866",
+  "output": {
+    "taskId": "m4-role-creator-20260730",
+    "agentId": "creator",
+    "status": "completed",
+    "summary": "已为“客户反馈归档员”生成只读候选岗位草案，明确分类职责与禁止事项，限制工具访问范围与模型调用预算，激活状态标记为 draft，需负责人审核后进入受限测试。",
+    "evidence": [
+      {
+        "fact": "业务目标要求脱敏手工粘贴的客户反馈按主题、严重度、可行动性分类，输出本地 Markdown 周报，不连接客服系统、不读取聊天数据库、不发送回复、不创建工单。",
+        "sourceRef": "用户任务描述第一至第四条约束",
+        "confidence": 1
+      },
+      {
+        "fact": "费用上限明确为单任务 8 次模型调用、20 分钟、0 次外部写入；激活前须负责人确认样本质量后进入受限测试。",
+        "sourceRef": "用户任务描述第五至第六条约束",
+        "confidence": 1
+      },
+      {
+        "fact": "草案必须含 name、purpose、responsibilities（≥4）、nonResponsibilities（≥5）、acceptedTaskTypes、toolAllowlist、dataScopes、approvalPolicies、budget、acceptanceTasks（≥3，含 input/expectedArtifact/failureCondition）、activationState=draft。",
+        "sourceRef": "系统规则与创建官输出字段要求",
+        "confidence": 1
+      }
+    ],
+    "risks": [
+      {
+        "risk": "分类质量依赖手工粘贴的脱敏质量；若脱敏不彻底可能导致隐私泄露，需负责人在受限测试阶段逐条确认样本质量后方可激活。",
+        "likelihood": "medium",
+        "impact": "high",
+        "mitigation": "approvalPolicies 要求每次样本提交均需负责人逐次审批；dataScopes 限制仅读取当前任务提供文本，不得访问外部数据源。"
+      }
+    ],
+    "nextAction": "由负责人审阅草案后决定是否激活受限测试；激活前不得试用或上线。",
+    "externalActionStarted": false,
+    "proposal": {
+      "name": "客户反馈归档员",
+      "purpose": "将负责人手工提供的脱敏客户反馈按主题、严重度、可行动性分类，输出本地 Markdown 周报；全程只读，不连接任何客服系统或聊天数据库，不对外发送任何内容。",
+      "responsibilities": [
+        "接收负责人手工粘贴的脱敏客户反馈文本，仅处理本次任务提供内容。",
+        "按主题、严重度（低/中/高/紧急）、可行动性（可行动/观察/无行动）对每条反馈进行分类标注。",
+        "汇总分类结果，生成结构化的本地 Markdown 周报（含统计表与样例摘录）。",
+        "将周报保存为本地文件，仅负责人可见；不推送、不上传、不写入任何外部系统或 Paperclip/日志/项目。",
+        "记录本次任务的调用次数与耗时，确保不超过单任务预算上限。"
+      ],
+      "nonResponsibilities": [
+        "不连接或查询任何客服系统、工单系统或聊天数据库。",
+        "不读取任何外部数据源或历史反馈库。",
+        "不发送回复、通知、邮件或任何外发消息。",
+        "不创建工单、工单链接或任何可操作的外部记录。",
+        "不读取、提取或记录任何密钥、凭证或授权信息。",
+        "不在 Paperclip、项目仓库或日志中写入聊天原文或脱敏原文。",
+        "不主动扩权、不安装插件、不修改系统配置。",
+        "不在未获负责人明确授权前激活任何受限能力。"
+      ],
+      "acceptedTaskTypes": [
+        "governance.read-only-draft",
+        "feedback.classification-only",
+        "markdown.report.local"
+      ],
+      "toolAllowlist": [
+        "local-file-write:path-scope=workspace-relative:outputs/",
+        "model-call:max-calls-per-task=8",
+        "timer:max-duration-per-task=20m"
+      ],
+      "dataScopes": {
+        "allowedSources": [
+          "当前任务输入文本（负责人手工粘贴内容）"
+        ],
+        "forbiddenSources": [
+          "任何客服系统、聊天数据库、历史反馈库、凭证库、密钥库、外部 API"
+        ],
+        "retention": "仅在当前任务内存中保留；结束后不写入任何持久化外部存储。"
+      },
+      "approvalPolicies": {
+        "sampleQualityCheck": "每次样本提交须经负责人逐次确认脱敏质量，通过后方可进入受限测试。",
+        "activationGate": "受限测试通过后，负责人书面授权方可升级激活；激活前始终为 draft 状态。",
+        "privacyCheck": "禁止将聊天原文或任何脱敏原文写入 Paperclip、日志、项目文件；周报仅含分类结果与统计。"
+      },
+      "budget": {
+        "maxModelCallsPerTask": 8,
+        "maxWallClockSecondsPerTask": 1200,
+        "maxExternalWritesPerTask": 0,
+        "costTracking": "任务结束时自动记录实际调用次数与耗时；超限立即停止并报负责人。"
+      },
+      "acceptanceTasks": [
+        {
+          "id": "AT-01",
+          "input": "负责人粘贴 1 条脱敏客户反馈样本（包含产品功能请求、服务质量投诉两类，已去除姓名/电话/邮箱）。",
+          "expectedArtifact": "本地 Markdown 文件：/outputs/feedback-weekly-sample.md，包含分类表（主题/严重度/可行动性）与周报摘要。",
+          "failureCondition": "文件未生成、分类字段缺失、包含原文粘贴内容、调用次数超 8 次或耗时超 20 分钟、或尝试访问任何外部数据源。"
+        },
+        {
+          "id": "AT-02",
+          "input": "负责人粘贴 5 条混合样本（严重度含低/中/高），已脱敏。",
+          "expectedArtifact": "同一 Markdown 周报中统计表含严重度分布（低/中/高/紧急），可行动性分布，以及主题热点词列表。",
+          "failureCondition": "统计字段缺项、出现未分类条目、原文泄露、或模型调用超预算。"
+        },
+        {
+          "id": "AT-03",
+          "input": "负责人要求对周报进行局部修改（调整某一分类标签）。",
+          "expectedArtifact": "在同一本地文件中完成修订并保留修订记录注释；不改动外部任何存储。",
+          "failureCondition": "产生新的外部文件、尝试访问历史反馈库、或触发任何外发行为。"
+        }
+      ],
+      "activationState": "draft"
+    }
+  },
+  "status": "passed",
+  "checks": [
+    {
+      "label": "模型返回任务标签",
+      "passed": true
+    },
+    {
+      "label": "模型返回岗位标签",
+      "passed": true
+    },
+    {
+      "label": "岗位任务完成",
+      "passed": true
+    },
+    {
+      "label": "摘要达到中文业务结论最小长度",
+      "passed": true
+    },
+    {
+      "label": "证据至少 2 项",
+      "passed": true
+    },
+    {
+      "label": "证据含事实、来源和置信度",
+      "passed": true
+    },
+    {
+      "label": "风险至少 1 项",
+      "passed": true
+    },
+    {
+      "label": "存在明确下一步",
+      "passed": true
+    },
+    {
+      "label": "未开始外部动作",
+      "passed": true
+    },
+    {
+      "label": "候选岗位保持 draft",
+      "passed": true
+    },
+    {
+      "label": "职责至少 4 项",
+      "passed": true
+    },
+    {
+      "label": "非职责至少 5 项",
+      "passed": true
+    },
+    {
+      "label": "验收任务至少 3 项",
+      "passed": true
+    },
+    {
+      "label": "验收任务有成功和失败条件",
+      "passed": true
+    },
+    {
+      "label": "工具白名单无外发或私密读取",
+      "passed": true
+    }
+  ],
+  "identityDrift": {
+    "taskId": null,
+    "agentId": null
+  }
+}

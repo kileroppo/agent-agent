@@ -1,0 +1,141 @@
+{
+  "schemaVersion": "agent.army/m4-role-quality-acceptance/v1",
+  "status": "incomplete",
+  "generatedAt": "2026-07-30T00:01:03.454Z",
+  "authorizedScope": {
+    "roleTasks": 11,
+    "crossRoleTasks": 1,
+    "externalDelivery": false
+  },
+  "roleTaskCount": 11,
+  "rolePassedCount": 11,
+  "crossRoleStatus": "failed",
+  "providerCounts": {
+    "stepfun/step-router-v1": 12
+  },
+  "totalApiCalls": 12,
+  "estimatedCostUsd": 0,
+  "externalSideEffects": 0,
+  "roleResults": [
+    {
+      "taskId": "m4-role-ajun-20260730",
+      "agentId": "ajun",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-router-v1",
+      "apiCalls": 1,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "b4813a393cb3b074fd0a869c23f28ca9a2ddc36c072cd169247f31bec82e7d1e"
+    },
+    {
+      "taskId": "m4-role-xiaod-20260730",
+      "agentId": "xiaod",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-router-v1",
+      "apiCalls": 1,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "718c0f79a4cd8b9a21e875a1a93a4f0641930a19438b38bf9435c0beb479a982"
+    },
+    {
+      "taskId": "m4-role-intel-researcher-20260730",
+      "agentId": "intel-researcher",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-router-v1",
+      "apiCalls": 1,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "1e19a5ddafd9610fa679699e79a72f4c5cdc9c9545acd005c42a0534845fda24"
+    },
+    {
+      "taskId": "m4-role-office-assistant-20260730",
+      "agentId": "office-assistant",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-router-v1",
+      "apiCalls": 1,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "8f0c3a4adab23bd59346532a21fea76655b8563a275f09b6b93b7acf6898a95d"
+    },
+    {
+      "taskId": "m4-role-operator-20260730",
+      "agentId": "operator",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-router-v1",
+      "apiCalls": 1,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "873c98f4da20d456c233ccc96c4656ef8e500b59b40216c6917189e9c68fda43"
+    },
+    {
+      "taskId": "m4-role-creator-20260730",
+      "agentId": "creator",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-router-v1",
+      "apiCalls": 1,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "bc6fc9f7356c3ee17c58317a1151d7cdcae9a7361a44f973158e6302e3c03250"
+    },
+    {
+      "taskId": "m4-role-reviewer-20260730",
+      "agentId": "reviewer",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-router-v1",
+      "apiCalls": 1,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "3586cc5738a4a9456de7d8574714fe8450ad4f4a46e2f3f97f8f17f40991ea2a"
+    },
+    {
+      "taskId": "m4-role-architect-20260730",
+      "agentId": "architect",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-router-v1",
+      "apiCalls": 1,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "38b3fce946b24bf2b147af902a7832f200b99ad68621940ac2e33fed89e7575d"
+    },
+    {
+      "taskId": "m4-role-technical-expert-20260730",
+      "agentId": "technical-expert",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-router-v1",
+      "apiCalls": 1,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "41547487c706fedc71df66b20b8167ba66f969c3ba9f88fe3f018858a096d60f"
+    },
+    {
+      "taskId": "m4-role-video-content-analyst-20260730",
+      "agentId": "video-content-analyst",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-router-v1",
+      "apiCalls": 1,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "c95153163ccaf2a8739b2f0fd726b073146ab4eaaa541244e8abdbd8d64d192d"
+    },
+    {
+      "taskId": "m4-role-content-creator-20260730",
+      "agentId": "content-creator",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-router-v1",
+      "apiCalls": 1,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "a7af1d6ad9a3fe75c69ae5116d28f938bcdb950b78945059e6b393920293f8f8"
+    }
+  ],
+  "crossRole": {
+    "taskId": "m4-cross-role-acceptance-20260730",
+    "status": "failed",
+    "provider": "stepfun",
+    "model": "step-router-v1",
+    "apiCalls": 1,
+    "estimatedCostUsd": 0,
+    "outputChecksum": "cca77dad782b29c8d1b215366f1f86b544359ea7775a1ed6aacef39ab0db88c0"
+  },
+  "evidenceDirectory": "docs/reviews/m4-autonomous-agent-capabilities/artifacts/2026-07-30-role-quality"
+}

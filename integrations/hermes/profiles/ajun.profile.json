@@ -9,16 +9,61 @@
     "modelSelectionConfigured": true,
     "modelConfigured": true,
     "credentialedTransportVerified": true,
+    "credentialedTransportVerification": {
+      "status": "verified-current-model-policy",
+      "primary": { "provider": "stepfun", "model": "step-3.5-flash-2603", "verified": true },
+      "fallback": { "provider": "deepseek", "model": "deepseek-v4-flash", "verified": false }
+    },
     "skillsSeeded": false
   },
   "agentManifestRef": "agents/ajun/manifest.json",
   "promptRef": "agents/ajun/prompts/system.md",
   "appRef": "apps/ajun-runtime",
+  "modelSelection": {
+    "provider": "stepfun",
+    "model": "step-3.5-flash-2603",
+    "secretStoredHere": false
+  },
+  "fallbackModels": [
+    {
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "trigger": "transport_unavailable",
+      "secretStoredHere": false
+    }
+  ],
   "gateway": {
     "platform": "feishu",
     "enabled": true,
     "runtimeProfile": "default",
     "reason": "当前 A君飞书应用由 Hermes default Profile 常驻 Gateway 承载；独立 ajun Profile 保留为隔离与回退身份。"
+  },
+  "mcp": {
+    "server": "agent-army",
+    "tools": [
+      "status",
+      "employee_status",
+      "task_list",
+      "task_get",
+      "task_create",
+      "mission_create",
+      "approval_list",
+      "approval_resolve",
+      "paperclip_assignment_get",
+      "employee_assignment_execute",
+      "paperclip_assignment_complete"
+    ],
+    "scope": {
+      "agentIds": ["ajun"],
+      "taskTypes": [
+        "army.intake",
+        "army.route-task",
+        "army.cross-agent-mission",
+        "army.goal-program",
+        "content.campaign-topic"
+      ],
+      "allowMissions": true
+    }
   },
   "toolAllowlist": ["army.registry.read", "army.task.create", "army.task.route", "army.task.status.read", "army.approval.read", "army.mission.plan", "army.operations.diagnose"],
   "secrets": { "source": "profile-environment-only", "valuesStoredHere": false }

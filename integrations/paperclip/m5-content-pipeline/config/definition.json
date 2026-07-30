@@ -1,0 +1,154 @@
+{
+  "schemaVersion": 1,
+  "paperclipVersion": "2026.722.0",
+  "key": "m5-ai-agent-content",
+  "name": "M5 AI Agent 实战内容流水线",
+  "description": "Paperclip 是唯一流程真相；Hermes 岗位和受控插件只执行阶段任务。",
+  "goal": {
+    "key": "m5-content-autonomy",
+    "title": "M5 高权限内容自治升级",
+    "description": "连续7天完成AI Agent实战主题的抖音和小红书双平台内容闭环。",
+    "level": "company",
+    "status": "active"
+  },
+  "project": {
+    "key": "m5-ai-agent-content-campaign",
+    "name": "M5 AI Agent 内容活动",
+    "description": "7天、每天1个主题、双平台适配，最多14次发布。",
+    "status": "in_progress",
+    "targetDays": 7
+  },
+  "budget": {
+    "scope": "project",
+    "metric": "billed_cents",
+    "windowKind": "lifetime",
+    "warnPercent": 80,
+    "hardStopEnabled": true,
+    "requireExplicitAmountAtApply": true
+  },
+  "executionPolicy": {
+    "maxConcurrency": 4,
+    "maxStageRetries": 2,
+    "maxReplansPerContent": 3,
+    "schedule": {
+      "cronExpression": "0 9 * * *",
+      "timezone": "Asia/Shanghai",
+      "concurrencyPolicy": "skip_if_active",
+      "catchUpPolicy": "skip_missed",
+      "durationDays": 7
+    }
+  },
+  "stages": [
+    {
+      "key": "draft",
+      "name": "活动草案",
+      "kind": "working",
+      "owner": "ajun"
+    },
+    {
+      "key": "campaign_active",
+      "name": "活动已授权",
+      "kind": "working",
+      "owner": "ajun"
+    },
+    {
+      "key": "topic",
+      "name": "选题",
+      "kind": "working",
+      "owner": "ajun",
+      "routineKey": "m5-topic"
+    },
+    {
+      "key": "parallel_join_gate",
+      "name": "并行工作汇聚门禁",
+      "kind": "working",
+      "owner": "operator",
+      "routineKey": "m5-parallel-join"
+    },
+    {
+      "key": "script",
+      "name": "脚本",
+      "kind": "working",
+      "owner": "content-creator",
+      "routineKey": "m5-script"
+    },
+    {
+      "key": "render",
+      "name": "渲染",
+      "kind": "working",
+      "owner": "content-creator",
+      "routineKey": "m5-render"
+    },
+    {
+      "key": "machine_review",
+      "name": "机器审核",
+      "kind": "review",
+      "owner": "reviewer",
+      "routineKey": "m5-machine-review",
+      "review": {
+        "approveTo": "platform_adapt",
+        "requestChangesTo": "script",
+        "rejectTo": "script"
+      }
+    },
+    {
+      "key": "platform_adapt",
+      "name": "平台适配",
+      "kind": "working",
+      "owner": "content-creator",
+      "routineKey": "m5-platform-adapt"
+    },
+    {
+      "key": "publish_approval",
+      "name": "发布审批",
+      "kind": "review",
+      "owner": "reviewer",
+      "routineKey": "m5-publish-approval",
+      "review": {
+        "approveTo": "publish",
+        "requestChangesTo": "platform_adapt",
+        "rejectTo": "platform_adapt"
+      }
+    },
+    {
+      "key": "publish",
+      "name": "发布",
+      "kind": "working",
+      "owner": "operator",
+      "routineKey": "m5-publish"
+    },
+    {
+      "key": "verify",
+      "name": "核验",
+      "kind": "working",
+      "owner": "reviewer",
+      "routineKey": "m5-verify"
+    },
+    {
+      "key": "metrics",
+      "name": "指标回流",
+      "kind": "working",
+      "owner": "office-assistant",
+      "routineKey": "m5-metrics"
+    },
+    {
+      "key": "retrospective",
+      "name": "复盘",
+      "kind": "working",
+      "owner": "ajun",
+      "routineKey": "m5-retrospective"
+    },
+    {
+      "key": "done",
+      "name": "活动完成",
+      "kind": "done",
+      "owner": "ajun"
+    },
+    {
+      "key": "cancelled",
+      "name": "活动取消",
+      "kind": "cancelled",
+      "owner": "operator"
+    }
+  ]
+}

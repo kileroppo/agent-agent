@@ -1,6 +1,110 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PaperclipHeartbeatError, PaperclipHeartbeatHandler } from '../src/paperclip-heartbeat.js';
+import {
+  PaperclipCampaignDailyHandler,
+  PaperclipHeartbeatError,
+  PaperclipHeartbeatHandler,
+} from '../src/paperclip-heartbeat.js';
+
+test('M5 每日 HTTP heartbeat 无模型、无自由参数地执行唯一确定性激活', async () => {
+  const calls = [];
+  const activation = {
+    campaignCaseId:'campaign-1',
+    dayCaseId:'day-1',
+    scheduledDate:'2026-08-03',
+    activated:true,
+    replayed:false,
+    stageKey:'topic',
+  };
+  const handler = new PaperclipCampaignDailyHandler({
+    now:() => new Date('2026-08-03T01:00:00.000Z'),
+    campaignActivator:async (...args) => {
+      calls.push({ kind:'activate', args });
+      return activation;
+    },
+    governance:{
+      async verifySystemAssignment(input) {
+        calls.push({ kind:'verify', input });
+        return { issue:{
+          status:'in_progress',
+          assigneeAgentId:'controller-1',
+          description:'[agent-army:m5:routine:m5-daily-campaign] 固定日程入口',
+        } };
+      },
+      async completePaperclipIssue(issueId, payload) {
+        calls.push({ kind:'complete', issueId, payload });
+      },
+    },
+  });
+
+  const result = await handler.handle({
+    runId:'run-1',
+    agentId:'controller-1',
+    context:{ taskId:'issue-1' },
+  });
+
+  assert.deepEqual(calls[0], {
+    kind:'verify',
+    input:{
+      issueId:'issue-1',
+      runId:'run-1',
+      paperclipAgentId:'controller-1',
+      systemRole:'m5-daily-controller',
+    },
+  });
+  assert.deepEqual(calls[1], { kind:'activate', args:[] });
+  assert.equal(calls[2].issueId, 'issue-1');
+  assert.equal(calls[2].payload.result.execution.executor, 'm5-daily-http-controller');
+  assert.equal(calls[2].payload.result.artifactRefs[0].validation.deterministic, true);
+  assert.deepEqual(calls[2].payload.result.artifactRefs[0].data, activation);
+  assert.equal(result.activation.scheduledDate, '2026-08-03');
+});
+
+test('M5 每日 HTTP heartbeat 拒绝非固定 Routine 或控制器身份漂移', async (t) => {
+  for (const [label, issue, message] of [
+    ['身份漂移', {
+      status:'in_progress',
+      assigneeAgentId:'controller-other',
+      description:'[agent-army:m5:routine:m5-daily-campaign]',
+    }, /身份不一致/],
+    ['非每日 Routine', {
+      status:'in_progress',
+      assigneeAgentId:'controller-1',
+      description:'[agent-army:m5:routine:m5-topic]',
+    }, /只接受 M5 每日 Routine/],
+  ]) {
+    await t.test(label, async () => {
+      const handler = new PaperclipCampaignDailyHandler({
+        campaignActivator:async () => { throw new Error('不应执行'); },
+        governance:{ async verifySystemAssignment() {
+          if (label === '身份漂移') throw new Error('Paperclip HTTP 系统控制器身份不一致。');
+          return { issue };
+        } },
+      });
+      await assert.rejects(() => handler.handle({
+        runId:'run-1',
+        agentId:'controller-1',
+        context:{ taskId:'issue-1' },
+      }), label === '身份漂移' ? /系统控制器身份不一致/ : message);
+    });
+  }
+
+  await t.test('调用方试图指定活动或日期', async () => {
+    const handler = new PaperclipCampaignDailyHandler({
+      campaignActivator:async () => { throw new Error('不应执行'); },
+      governance:{ async verifySystemAssignment() { throw new Error('不应核验'); } },
+    });
+    await assert.rejects(() => handler.handle({
+      runId:'run-1',
+      agentId:'controller-1',
+      context:{
+        taskId:'issue-1',
+        campaignId:'caller-selected',
+        scheduledDate:'2099-01-01',
+      },
+    }), /不接受调用方指定/);
+  });
+});
 
 test('Paperclip heartbeat 只执行被指派的本机任务并回报同一张任务单', async () => {
   const calls = [];

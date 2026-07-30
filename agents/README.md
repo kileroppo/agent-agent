@@ -30,3 +30,7 @@
 | 技术专家 (`technical-expert`) | 故障分流、只读诊断与受控代码修复 | `active`，Paperclip/Hermes 按需运行，无独立飞书 Gateway | [岗位说明](./technical-expert/README.md) |
 
 任务协调官已并入 A君并退役；小G的 GitHub 检索已并入小R。音视频转录接线样板和公开资料报告员候选岗位已归档，不进入活动名单。历史任务、审批、草案和验收产物仍保留。
+
+## M4 开放任务
+
+11 个正式岗位均保留原专有任务，并增加一个岗位域内开放任务。开放任务必须生成 GoalSpec、DAG 工作计划、checkpoint 和能力审计产物；未知或敏感能力不得自动加入白名单。统一自主硬上限为 60 分钟、20 次模型调用、4 个并发子任务、2 层委派和 5 美元付费审批线。主模型元数据统一为 `stepfun/step-3.5-flash-2603`，仅在 `transport_unavailable` 时回退 `deepseek/deepseek-v4-flash`；质量失败、格式错误或工具错误不得触发回退。微信私密只读检索岗位是 A君本地适配能力，不计入这 11 个正式岗位。新主模型真实调用验证前 Profile 仍显示传输待验证。

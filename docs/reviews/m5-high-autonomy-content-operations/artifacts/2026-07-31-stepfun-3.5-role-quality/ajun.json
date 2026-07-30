@@ -1,0 +1,182 @@
+{
+  "schemaVersion": "agent.army/m4-role-quality-result/v1",
+  "taskId": "m4-role-ajun-20260730",
+  "agentId": "ajun",
+  "agentName": "A君·军团总管",
+  "startedAt": "2026-07-30T17:31:25.743Z",
+  "finishedAt": "2026-07-30T17:31:41.617Z",
+  "model": {
+    "provider": "stepfun",
+    "name": "step-3.5-flash-2603",
+    "apiCalls": 1,
+    "estimatedCostUsd": 0,
+    "inputTokens": 3616,
+    "outputTokens": 1412
+  },
+  "externalSideEffects": 0,
+  "toolPolicy": "clarify-only; prompt forbids tool use",
+  "parseError": null,
+  "processError": null,
+  "outputChecksum": "65d5345a3239b2196122fdc9d9e9e2eb74b73b04812059589478b7e911211e07",
+  "output": {
+    "taskId": "m4-role-ajun-20260730",
+    "agentId": "ajun",
+    "status": "completed",
+    "summary": "将 health、research、architecture、review、briefing 五项工作编排为单轮 3 并发执行计划，所有依赖链清晰，全程禁止外发与外部写入，在 4 并发/20 次调用/60 分钟/5 美元硬边界内完成。",
+    "evidence": [
+      {
+        "fact": "health 和 research 无相互依赖，可在第 1 批并发，各自消耗 1 并发槽，共 2 槽，满足 4 并发上限。",
+        "sourceRef": "本地事实包-health、本地事实包-research",
+        "confidence": "high"
+      },
+      {
+        "fact": "architecture 明确注明必须等待 health 与 research 完成，不能并发启动，构成关键串联节点。",
+        "sourceRef": "本地事实包-architecture",
+        "confidence": "high"
+      },
+      {
+        "fact": "review 依赖 architecture，briefing 依赖前四项，形成 5 节点线性依赖链：health→architecture→review→briefing，research 与 health 并行。",
+        "sourceRef": "本地事实包-review、本地事实包-briefing",
+        "confidence": "high"
+      },
+      {
+        "fact": "全程禁止外发和外部写入，在硬边界范围内（4 并发/20 次调用/60 分钟/5 美元阈值需审批），无需额外外发动作。",
+        "sourceRef": "本地事实包-硬边界",
+        "confidence": "high"
+      }
+    ],
+    "risks": [
+      {
+        "risk": "architecture 或 review 阶段若触发重复调用，在 4 并发/20 次调用硬上限下可能提前耗光预算，需要 stopConditions 在接近阈值时暂停并上报。",
+        "severity": "medium"
+      }
+    ],
+    "nextAction": "本轮计划已编排完成，等待负责人确认后按批次依次推进：先并发启动 health 与 research，完成后串行启动 architecture，再并行 review 与 briefing，全程不触发外发。",
+    "externalActionStarted": false,
+    "plan": [
+      {
+        "key": "P1",
+        "owner": "运维官",
+        "dependsOn": [],
+        "acceptance": "输出 A君、4 个 Gateway、Paperclip 进程、模型待授权数的状态简报，含事实数据。",
+        "priority": "high"
+      },
+      {
+        "key": "P2",
+        "owner": "小R",
+        "dependsOn": [],
+        "acceptance": "盘点本地仓库 M4 契约文件清单，引用本地文档，不访问网络。",
+        "priority": "high"
+      },
+      {
+        "key": "P3",
+        "owner": "架构师",
+        "dependsOn": [
+          "P1",
+          "P2"
+        ],
+        "acceptance": "判断是否存在重复控制面，输出结论引用 P1 与 P2 的事实，不得新增外部能力。",
+        "priority": "medium"
+      },
+      {
+        "key": "P4",
+        "owner": "审核官",
+        "dependsOn": [
+          "P3"
+        ],
+        "acceptance": "审查 P3 建议是否越权或把配置冒充真实运行，给出合规结论。",
+        "priority": "medium"
+      },
+      {
+        "key": "P5",
+        "owner": "小办",
+        "dependsOn": [
+          "P1",
+          "P2",
+          "P3",
+          "P4"
+        ],
+        "acceptance": "汇总前四项结果，输出老板汇报包，确认无外发。",
+        "priority": "low"
+      }
+    ],
+    "decision": {
+      "criticalPath": "health(P1) → architecture(P3) → review(P4) → briefing(P5)",
+      "parallelism": "research(P2) 与 health(P1) 并行；其余阶段在依赖完成后依次推进，最大并发不超过 4",
+      "stopConditions": [
+        "模型调用累计达 18 次时暂停并上报负责人确认",
+        "费用预估超过 5 美元时立即停止，等待审批",
+        "任何步骤涉及外发或外部写入时立即中止"
+      ]
+    },
+    "prohibitedActions": [
+      "禁止向外部发送任何消息或数据",
+      "禁止写入外部文件系统、数据库或外部平台",
+      "禁止触发邮件、飞书、Webhook、API 调用等任何外发行为",
+      "禁止访问网络或读取未包含在本地事实包的材料"
+    ]
+  },
+  "status": "passed",
+  "checks": [
+    {
+      "label": "模型返回任务标签",
+      "passed": true
+    },
+    {
+      "label": "模型返回岗位标签",
+      "passed": true
+    },
+    {
+      "label": "岗位任务完成",
+      "passed": true
+    },
+    {
+      "label": "摘要达到中文业务结论最小长度",
+      "passed": true
+    },
+    {
+      "label": "证据至少 2 项",
+      "passed": true
+    },
+    {
+      "label": "证据含事实、来源和置信度",
+      "passed": true
+    },
+    {
+      "label": "风险至少 1 项",
+      "passed": true
+    },
+    {
+      "label": "存在明确下一步",
+      "passed": true
+    },
+    {
+      "label": "未开始外部动作",
+      "passed": true
+    },
+    {
+      "label": "plan 至少 5 项",
+      "passed": true
+    },
+    {
+      "label": "plan 具备依赖和验收",
+      "passed": true
+    },
+    {
+      "label": "给出关键路径",
+      "passed": true
+    },
+    {
+      "label": "给出停止条件",
+      "passed": true
+    },
+    {
+      "label": "给出禁止动作",
+      "passed": true
+    }
+  ],
+  "identityDrift": {
+    "taskId": null,
+    "agentId": null
+  }
+}

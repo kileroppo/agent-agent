@@ -13,6 +13,10 @@
   <string>/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/apps/ajun-runtime</string>
   <key>EnvironmentVariables</key>
   <dict>
+    <key>M5_ACTIVE_PIPELINE_ID</key>
+    <string>6dfd94da-75b1-4b8e-b8d0-f29233d19b92</string>
+    <key>M5_ACTIVE_PIPELINE_KEY</key>
+    <string>m5-ai-agent-content-v2</string>
     <key>AJUN_HERMES_HOME</key>
     <string>/Users/pengaro/.hermes/profiles/ajun</string>
     <key>PORT</key>
@@ -21,6 +25,8 @@
     <string>127.0.0.1</string>
     <key>AGENT_ARMY_EMPLOYEE_FEISHU_OWNER</key>
     <string>local</string>
+    <key>AGENT_ARMY_CONTENT_WORKSPACE_DIR</key>
+    <string>/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/work/m5-content-autonomy</string>
     <key>AJUN_HERMES_NATIVE_EMPLOYEE_IDS</key>
     <string>intel-researcher,office-assistant,creator,task-coordinator,reviewer,architect,operator,technical-expert</string>
     <key>AJUN_HERMES_NATIVE_FEISHU</key>
