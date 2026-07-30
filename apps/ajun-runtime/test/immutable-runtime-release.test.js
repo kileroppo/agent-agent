@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { execFile as execFileCallback } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -634,6 +635,77 @@ test('launchd计划强绑clean源码来源，cutover启用技术修复而rollbac
   );
 });
 
+test('validator兼容不含日志的历史v1排除契约，但拒绝任意漂移', async (context) => {
+  const legacyRepo = await createFixture(context, 'legacy-v1-exclusions');
+  const currentRelease = await verifiedFixtureRelease(legacyRepo);
+  const legacyRelease = await rewriteManifestContract(currentRelease.releaseRoot, (manifest) => {
+    manifest.sourceExclusions = [
+      'apps/ajun-runtime/data/**',
+      'apps/ajun-runtime/test/**',
+      'apps/ajun-runtime/scripts/**',
+      '**/.env',
+      '**/.env.*',
+      '**/*credential*.json',
+      '**/*secrets*.json',
+      '**/*.pem',
+      '**/*.key',
+      '**/node_modules/**/.cache/**',
+      '**/node_modules/**/*.log',
+    ];
+    manifest.verification.commands = [
+      {
+        cwd:'apps/ajun-runtime',
+        command:'node',
+        args:[
+          '--test',
+          'test/production-control-plane-boundary.test.js',
+          'test/m5-server-publisher-composition.test.js',
+        ],
+        evidenceLayer:'source_test',
+      },
+      {
+        cwd:'integrations/paperclip/m5-content-pipeline',
+        command:'npm',
+        args:['test'],
+        evidenceLayer:'source_test',
+      },
+      {
+        cwd:'integrations/paperclip/plugins/content-autonomy',
+        command:'npm',
+        args:['run', 'check'],
+        evidenceLayer:'source_test',
+      },
+      {
+        cwd:'integrations/publishing/m5-publisher-gateway',
+        command:'npm',
+        args:['run', 'check'],
+        evidenceLayer:'source_test',
+      },
+    ];
+  });
+  const validated = await validateAjunRuntimeRelease(
+    legacyRelease.releaseRoot,
+    legacyRelease.releaseHash,
+  );
+  assert.equal(validated.releaseHash, legacyRelease.releaseHash);
+  assert.equal(validated.manifest.schemaVersion, 1);
+  assert.equal(
+    validated.manifest.entries.some(({ path:entryPath }) =>
+      entryPath.toLowerCase().endsWith('.log')),
+    false,
+  );
+
+  const driftRepo = await createFixture(context, 'drifted-v1-exclusions');
+  const driftRelease = await verifiedFixtureRelease(driftRepo);
+  const rewrittenDrift = await rewriteManifestContract(driftRelease.releaseRoot, (manifest) => {
+    manifest.sourceExclusions = ['**/made-up-exclusion/**'];
+  });
+  await assert.rejects(
+    validateAjunRuntimeRelease(rewrittenDrift.releaseRoot, rewrittenDrift.releaseHash),
+    /sourceExclusions发生漂移/,
+  );
+});
+
 test('plan拒绝dirty来源release和未做真实启动验收的release', async (context) => {
   const oldRepo = await createFixture(context, 'provenance-old');
   const oldRelease = await verifiedFixtureRelease(oldRepo);
@@ -833,6 +905,60 @@ function startupEvidence(gitHead) {
       exitConfirmed:true,
     },
   };
+}
+
+async function rewriteManifestContract(releaseRoot, mutate) {
+  await makeWritable(releaseRoot);
+  const manifestPath = path.join(releaseRoot, 'release-manifest.json');
+  const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+  mutate(manifest);
+  delete manifest.releaseHash;
+  const releaseHash = crypto.createHash('sha256')
+    .update(stableCanonicalForTest(manifest))
+    .digest('hex');
+  manifest.releaseHash = releaseHash;
+  await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, {
+    mode:0o444,
+  });
+  await makeReadonly(releaseRoot);
+  const renamedRoot = path.join(
+    path.dirname(releaseRoot),
+    `${AJUN_RELEASE_PREFIX}${releaseHash}`,
+  );
+  await fs.rename(releaseRoot, renamedRoot);
+  return { releaseRoot:renamedRoot, releaseHash };
+}
+
+function stableCanonicalForTest(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableCanonicalForTest).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort((left, right) =>
+      Buffer.from(left).compare(Buffer.from(right))).map((key) =>
+      `${JSON.stringify(key)}:${stableCanonicalForTest(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+async function makeReadonly(root) {
+  const directories = [root];
+  const pending = [root];
+  while (pending.length) {
+    const directory = pending.pop();
+    for (const name of await fs.readdir(directory)) {
+      const absolute = path.join(directory, name);
+      const stat = await fs.lstat(absolute);
+      if (stat.isDirectory() && !stat.isSymbolicLink()) {
+        directories.push(absolute);
+        pending.push(absolute);
+      } else if (stat.isFile()) {
+        await fs.chmod(absolute, stat.mode & 0o111 ? 0o555 : 0o444);
+      }
+    }
+  }
+  directories.sort((left, right) => right.length - left.length);
+  for (const directory of directories) await fs.chmod(directory, 0o555);
 }
 
 async function makeWritable(root) {

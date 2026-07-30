@@ -132,6 +132,32 @@ const VERIFY_COMMANDS = [
     args:['run', 'check'],
   },
 ];
+const LEGACY_V1_VERIFY_COMMANDS = [
+  {
+    cwd:'apps/ajun-runtime',
+    command:'node',
+    args:[
+      '--test',
+      'test/production-control-plane-boundary.test.js',
+      'test/m5-server-publisher-composition.test.js',
+    ],
+  },
+  {
+    cwd:'integrations/paperclip/m5-content-pipeline',
+    command:'npm',
+    args:['test'],
+  },
+  {
+    cwd:'integrations/paperclip/plugins/content-autonomy',
+    command:'npm',
+    args:['run', 'check'],
+  },
+  {
+    cwd:'integrations/publishing/m5-publisher-gateway',
+    command:'npm',
+    args:['run', 'check'],
+  },
+];
 
 export async function freezeAjunRuntimeRelease({
   repoRoot,
@@ -1273,10 +1299,18 @@ function assertExactManifest(manifest) {
     throw new Error('release Node ABI与当前运行时不匹配');
   }
   if (!Array.isArray(manifest.entries)) throw new Error('release entries不合法');
-  assertVerificationContract(manifest.verification, manifest.git?.gitHead);
+  assertVerificationContract(manifest.verification, manifest.git?.gitHead, {
+    verificationCommands:sourceExclusions === legacySourceExclusions
+      ? LEGACY_V1_VERIFY_COMMANDS
+      : VERIFY_COMMANDS,
+  });
 }
 
-function assertVerificationContract(verification, expectedGitHead) {
+function assertVerificationContract(
+  verification,
+  expectedGitHead,
+  { verificationCommands = VERIFY_COMMANDS } = {},
+) {
   if (!verification || typeof verification !== 'object') {
     throw new Error('release verification不合法');
   }
@@ -1308,7 +1342,7 @@ function assertVerificationContract(verification, expectedGitHead) {
     throw new Error('release验证状态不符合精确契约');
   }
   assertStartupSmokeEvidence(verification.startupSmoke, expectedGitHead);
-  const expectedCommands = VERIFY_COMMANDS.map((item) => ({
+  const expectedCommands = verificationCommands.map((item) => ({
     ...item,
     evidenceLayer:'source_test',
   }));
