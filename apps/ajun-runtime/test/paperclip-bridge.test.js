@@ -840,6 +840,46 @@ test('Hermes heartbeat 回写沿用 Paperclip run 身份，不触发重复唤醒
   assert.equal(JSON.parse(requests[0].options.body).status, 'done');
 });
 
+test('成功的系统巡检可在保留任务记录的同时退出 Paperclip 大盘', async () => {
+  const requests = [];
+  const bridge = new PaperclipBridge({ fetchImpl:async (url, options = {}) => {
+    requests.push({ url, options });
+    return { ok:true, status:200, async json(){ return {}; } };
+  } });
+  await bridge.completePaperclipIssue('issue-health-1', {
+    runId:'run-health-1',
+    agentId:'operator',
+    hideFromDashboard:true,
+    result:{
+      status:'succeeded',
+      currentStage:'health_report_ready',
+      execution:{ owner:'paperclip-http-adapter' },
+      artifactRefs:[{ type:'health_report', data:{ overall:'healthy' } }],
+    },
+  });
+  const body = JSON.parse(requests[0].options.body);
+  assert.equal(body.status, 'done');
+  assert.match(body.hiddenAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.match(body.comment, /系统巡检已归档/);
+});
+
+test('失败的系统巡检即使请求降噪也必须继续留在 Paperclip 大盘', async () => {
+  const requests = [];
+  const bridge = new PaperclipBridge({ fetchImpl:async (url, options = {}) => {
+    requests.push({ url, options });
+    return { ok:true, status:200, async json(){ return {}; } };
+  } });
+  await bridge.completePaperclipIssue('issue-health-2', {
+    runId:'run-health-2',
+    agentId:'operator',
+    hideFromDashboard:true,
+    result:{ status:'failed', currentStage:'health_failed', execution:{ outcome:'unhealthy' } },
+  });
+  const body = JSON.parse(requests[0].options.body);
+  assert.equal(body.status, 'blocked');
+  assert.equal('hiddenAt' in body, false);
+});
+
 test('多人协作的子工作会挂在同一张 Paperclip 总任务下', async () => {
   const requests = [];
   const bridge = new PaperclipBridge({ fetchImpl:async (url, options = {}) => {

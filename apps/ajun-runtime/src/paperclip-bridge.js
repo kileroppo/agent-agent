@@ -266,13 +266,21 @@ export class PaperclipBridge {
     }
   }
 
-  async completePaperclipIssue(issueId, { runId, agentId, apiKey, result }) {
+  async completePaperclipIssue(issueId, {
+    runId,
+    agentId,
+    apiKey,
+    result,
+    hideFromDashboard = false,
+  }) {
     const report = result.artifactRefs?.find((item) => item.type === 'health_report')?.data;
     const employeeReport = result.artifactRefs?.find((item) => item.type === 'employee_role_report')?.data;
     const outcome = report?.overall || employeeReport?.summary || result.execution?.outcome || 'unknown';
+    const succeeded = result.status === 'succeeded';
     await this.request(`/api/issues/${encodeURIComponent(issueId)}`, {
       method: 'PATCH', runId, apiKey, body: {
-        status: result.status === 'succeeded' ? 'done' : 'blocked',
+        status: succeeded ? 'done' : 'blocked',
+        ...(hideFromDashboard && succeeded ? { hiddenAt:new Date().toISOString() } : {}),
         comment: [
           result.execution?.owner === 'paperclip-hermes'
             ? '员工 Hermes Profile 执行回报。'
@@ -280,7 +288,10 @@ export class PaperclipBridge {
           `运行：${runId}`,
           `岗位：${agentId}`,
           `阶段：${result.currentStage || 'unknown'}`,
-          `结果：${outcome}`
+          `结果：${outcome}`,
+          ...(hideFromDashboard && succeeded
+            ? ['系统巡检已归档：保留运行与任务证据，不进入老板大盘。']
+            : []),
         ].join('\n')
       }
     });

@@ -118,6 +118,7 @@ test('Paperclip heartbeat 只执行被指派的本机任务并回报同一张任
   assert.equal(calls[0].taskId, 'issue-1');
   assert.equal(calls[1].issueId, 'issue-1');
   assert.equal(calls[1].payload.runId, 'run-1');
+  assert.equal(calls[1].payload.hideFromDashboard, true);
 });
 
 test('Paperclip heartbeat 没有任务时不生成本地队列', async () => {

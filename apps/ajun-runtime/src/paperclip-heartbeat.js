@@ -39,7 +39,12 @@ export class PaperclipHeartbeatHandler {
 
     try {
       const result = await this.operator.execute(task);
-      await this.governance.completePaperclipIssue(issueId, { runId, agentId, result });
+      await this.governance.completePaperclipIssue(issueId, {
+        runId,
+        agentId,
+        result,
+        hideFromDashboard:true,
+      });
       return { accepted: true, issueId, stage: result.currentStage, status: result.status };
     } catch (error) {
       await this.governance.failPaperclipIssue(issueId, { runId, agentId, error }).catch(() => undefined);
