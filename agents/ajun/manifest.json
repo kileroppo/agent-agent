@@ -41,6 +41,7 @@
       "mission_create",
       "approval_list",
       "approval_resolve",
+      "private_read_grant_revoke",
       "paperclip_assignment_get",
       "employee_assignment_execute",
       "paperclip_assignment_complete"

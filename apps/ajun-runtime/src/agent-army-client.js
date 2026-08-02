@@ -301,6 +301,17 @@ export class AgentArmyClient {
     };
   }
 
+  async revokePrivateReadGrant(approvalId, { chatRef } = {}) {
+    const id = requiredId(approvalId, '审批编号无效。');
+    const boundChatRef = safeText(chatRef, 240);
+    if (!boundChatRef) throw new AgentArmyClientError('从飞书撤销微信临时授权时必须带原会话标识。');
+    const response = await this.request(`/api/feishu/approvals/${encodeURIComponent(id)}/revoke-private-read-grant`, {
+      method:'POST',
+      body:{ chatRef:boundChatRef, requesterRef:'A君当前飞书会话' },
+    });
+    return { approval:approvalView(response.approval || { approvalId:id }) };
+  }
+
   async getPaperclipAssignment(input = {}) {
     const response = await this.request('/api/mcp/paperclip-assignment', {
       method:'POST',

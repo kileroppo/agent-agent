@@ -78,6 +78,21 @@ test('微信 Vault 健康检查缺消息库时显示受限且不泄露本机路�
   assert.equal(JSON.stringify(health).includes('/Users/private'), false);
 });
 
+test('默认本机摘要模型未安装时概览降级，但 Vault 健康事实仍保留', async () => {
+  const { store } = fixture();
+  const executor = new LocalWeChatChatRetriever({
+    store,
+    analyzer:{ async health() { return { status:'unavailable', model:'qwen3:14b', safeMessage:'本机尚未安装 qwen3:14b 模型。' }; } },
+    checkHealth:async () => healthyVaultStatus(),
+    now:() => new Date('2026-07-30T06:30:00.000Z')
+  });
+  const health = await executor.health({ force:true });
+  assert.equal(health.status, 'degraded');
+  assert.equal(health.requiredDatabases.message, true);
+  assert.equal(health.analysisModel.status, 'unavailable');
+  assert.match(health.safeMessage, /qwen3:14b/);
+});
+
 test('微信 Vault 未就绪时不消耗一次性审批也不读取聊天', async () => {
   const { task, approvals, store } = fixture();
   let refreshed = 0;

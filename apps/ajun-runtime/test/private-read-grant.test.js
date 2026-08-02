@@ -29,3 +29,19 @@ test('改变会话范围、过期或撤销后不能复用授权', () => {
   assert.equal(privateReadGrantStatus(revoked, { now }).status, 'revoked');
   assert.throws(() => consumePrivateReadGrant(revoked, { taskId:'task-2', now }), (error) => error.code === 'private_read_grant_unavailable');
 });
+
+test('同飞书会话、同读取范围的新任务可复用授权，任务标题不参与范围绑定', () => {
+  const firstScope = { ...scope, title:'第一次整理' };
+  const sourceApproval = { ...approval(), requestedScope:firstScope };
+  const created = resolvePrivateReadGrant({ approvals:[sourceApproval], task, expectedScope:firstScope, now }).grant;
+  const stored = { ...sourceApproval, privateReadGrant:created };
+  const nextTask = { ...task, taskId:'task-2', input:{ title:'换个标题', context:{} }, source:{ chatRef:'oc_owner' } };
+  const reused = resolvePrivateReadGrant({
+    approvals:[stored],
+    task:nextTask,
+    expectedScope:{ ...scope, title:'换个标题' },
+    now:new Date(now.getTime() + 60_000),
+  });
+  assert.equal(reused?.created, false);
+  assert.equal(reused?.grant.grantId, created.grantId);
+});

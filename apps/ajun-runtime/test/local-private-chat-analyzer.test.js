@@ -13,14 +13,15 @@ test('分析器只给模型匿名发言者并清除模型复述的原句', async
     fetchImpl:async (url, options = {}) => {
       if (url.endsWith('/api/tags')) return { ok:true, async json() { return { models:[{ name:'qwen3:14b' }] }; } };
       bodies.push(JSON.parse(options.body));
-      return { ok:true, async json() { return { response:JSON.stringify({ summary:'这是绝不能原样保存的敏感聊天原句', topics:['排期'], decisions:[], todos:['跟进'], risks:[], replySuggestions:[] }) }; } };
+      return { ok:true, async json() { return { response:JSON.stringify({ summary:'模型摘录：不能原样保存的敏感聊天', topics:['排期'], decisions:[], todos:['跟进'], risks:[], replySuggestions:[] }) }; } };
     },
     now:() => new Date('2026-08-02T02:00:00.000Z')
   });
   assert.equal((await analyzer.health()).status, 'ready');
   const result = await analyzer.analyze([{ time:'10:00', sender:'真实姓名', content:'这是绝不能原样保存的敏感聊天原句' }]);
   assert.equal(bodies[0].prompt.includes('真实姓名'), false);
-  assert.equal(result.summary, '[已省略原句]');
+  assert.equal(bodies[0].options.num_ctx, 32_768);
+  assert.equal(result.summary, '模型摘录：[已省略原句]');
   assert.equal(result.containsRawChat, false);
 });
 

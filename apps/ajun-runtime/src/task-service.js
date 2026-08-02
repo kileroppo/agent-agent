@@ -233,7 +233,7 @@ export class TaskService {
         decisionChannel:'feishu_card',
         action:'wechat-private-chat-read',
         riskLevel:'high',
-        reason:`只读“${wechatChat.chatSelector}”今天至当前的聊天，最多 ${wechatChat.maxMessages} 条；同名时自动选最近活跃会话。原文不落盘、不发给模型、不外发。`,
+        reason:`只读“${wechatChat.chatSelector}”今天至当前的聊天，最多 ${wechatChat.maxMessages} 条；同名时自动选最近活跃会话。原文不落盘，仅交给本机回环地址上的 qwen3:14b 分析，不进入云模型或外部平台。批准后同一飞书会话、岗位和读取范围可在 30 分钟内复用，最多 10 个任务，可随时撤销。`,
         requestedBy:'ajun',
         approverScope:'A君',
         requestedScope:wechatApprovalScope(task),
@@ -352,17 +352,27 @@ export class TaskService {
     return this.executeTask(queued, agent);
   }
 
-  async revokePrivateReadGrant(approvalId, { revokedBy = 'A君' } = {}) {
+  async revokePrivateReadGrant(approvalId, { revokedBy = 'A君', chatRef = '' } = {}) {
     const approval = (await this.store.listApprovals()).find((item) => item.approvalId === approvalId);
     if (!approval || approval.action !== 'wechat-private-chat-read') throw new ValidationError('找不到这条微信临时授权。');
     if (!approval.privateReadGrant) throw new ValidationError('这条审批尚未生成可撤销的微信临时授权。');
-    if (approval.privateReadGrant.revokedAt) return approval;
-    return this.store.updateApproval(approvalId, {
+    const task = (await this.store.list()).find((item) => item.taskId === approval.taskId);
+    if (!task) throw new ValidationError('找不到关联任务。');
+    validateApprovalChat(task, chatRef);
+    if (approval.privateReadGrant.revokedAt) return {
+      ...approval,
+      privateReadGrantStatus:privateReadGrantStatus(approval.privateReadGrant),
+    };
+    const updated = await this.store.updateApproval(approvalId, {
       privateReadGrant:{
         ...revokePrivateReadGrant(approval.privateReadGrant),
         revokedBy:String(revokedBy || 'A君').slice(0, 120),
       },
     });
+    return {
+      ...updated,
+      privateReadGrantStatus:privateReadGrantStatus(updated.privateReadGrant),
+    };
   }
 
   async requestPause(taskId) { return this.requestTaskControl(taskId, 'pause-task'); }

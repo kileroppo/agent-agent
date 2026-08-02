@@ -15,10 +15,12 @@ const DEFINITIONS = Object.freeze({
 export class SkillExecutionRegistry {
   constructor({
     sharedRoot = process.env.AGENT_ARMY_SHARED_SKILLS_ROOT || path.join(os.homedir(), 'Documents/work/AIcode/skills-lib'),
+    grokAuthPath = path.join(os.homedir(), '.grok/auth.json'),
     adapters = {},
     readinessOverrides = {},
   } = {}) {
     this.sharedRoot = path.resolve(sharedRoot);
+    this.grokAuthPath = path.resolve(grokAuthPath);
     this.adapters = { ...adapters };
     this.readinessOverrides = { ...readinessOverrides };
   }
@@ -26,7 +28,9 @@ export class SkillExecutionRegistry {
   async overview() {
     return Promise.all(Object.entries(DEFINITIONS).map(async ([slug, definition]) => {
       const installed = await fs.access(path.join(this.sharedRoot, slug, 'SKILL.md')).then(() => true).catch(() => false);
-      const configured = this.readinessOverrides[slug] || environmentReadiness(slug) || definition.readiness;
+      const configured = this.readinessOverrides[slug]
+        || await environmentReadiness(slug, { grokAuthPath:this.grokAuthPath })
+        || definition.readiness;
       return {
         slug,
         owners:definition.owners || [definition.owner],
@@ -55,11 +59,13 @@ export class SkillExecutionRegistry {
   }
 }
 
-function environmentReadiness(slug) {
+async function environmentReadiness(slug, { grokAuthPath }) {
   if (slug === 'yichen-asr') {
     return process.env.STEPFUN_API_KEY || process.env.ARK_API_KEY ? 'ready' : 'needs_setup';
   }
-  if (slug === 'yichen-grok-consult') return 'needs_login';
+  if (slug === 'yichen-grok-consult') {
+    return fs.stat(grokAuthPath).then((stat) => stat.isFile() ? 'ready' : 'needs_login').catch(() => 'needs_login');
+  }
   return null;
 }
 

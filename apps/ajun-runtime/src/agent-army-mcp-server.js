@@ -262,6 +262,15 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
     return client.resolveApproval(approval_id, decision);
   }));
 
+  action('private_read_grant_revoke', {
+    title:'撤销微信临时读取授权',
+    description:'立即撤销一条仍有效的微信临时读取授权。只能从创建该任务的原飞书会话调用；这是收紧权限，不会读取微信或创建新授权。',
+    inputSchema:z.object({
+      approval_id:z.string().min(8).max(100),
+      chat_ref:z.string().min(1).max(240).describe('当前 Hermes 会话可见的原飞书 chat id，必须与任务来源一致')
+    })
+  }, ({ approval_id, chat_ref }) => client.revokePrivateReadGrant(approval_id, { chatRef:chat_ref }));
+
   read('paperclip_assignment_get', {
     title:'读取当前 Paperclip 指派',
     description:'每次 Paperclip heartbeat 只调用一次。读取当前运行的真实指派，并在 A君任务账本建立或关联同一任务信封；返回内容已经足够完成任务，不要重复读取。普通飞书会话没有运行身份时禁止调用。',

@@ -316,6 +316,8 @@ test('微信聊天任务自动采用默认范围并且只创建一次隐私确�
   assert.equal(records.approvals[0].action, 'wechat-private-chat-read');
   assert.equal(records.approvals[0].governanceMode, 'local');
   assert.equal(records.approvals[0].requestedScope.chatSelector, 'yingz');
+  assert.match(records.approvals[0].reason, /本机回环地址上的 qwen3:14b/);
+  assert.match(records.approvals[0].reason, /30 分钟内复用，最多 10 个任务，可随时撤销/);
 
   const completed = await service.approveApproval(records.approvals[0].approvalId);
   assert.equal(completed.status, 'succeeded');
@@ -343,7 +345,20 @@ test('本机主人可以撤销微信临时授权，概览显示剩余次数', as
   assert.equal(before.approvals[0].privateReadGrantStatus.remainingUses, 9);
   const revoked = await service.revokePrivateReadGrant(approval.approvalId);
   assert.ok(revoked.privateReadGrant.revokedAt);
+  assert.equal(revoked.privateReadGrantStatus.status, 'revoked');
   assert.equal((await service.overview()).approvals[0].privateReadGrantStatus.status, 'revoked');
+});
+test('飞书只能从发起任务的原会话撤销微信临时授权', async () => {
+  const wechat = { agentId:'wechat-chat-retriever', name:'微信聊天取件员', status:'active', acceptedTaskTypes:['wechat.chat.retrieval'], interaction:{ directFeishu:'disabled' } };
+  const { service, records } = setup({ agents:[wechat] });
+  service.executors['wechat-chat-retriever'] = { async execute() { return { status:'succeeded', artifactRefs:[] }; } };
+  await service.create({ title:'获取微信聊天', description:'群名：yingz', taskType:'wechat.chat.retrieval', source:{ channel:'feishu', chatRef:'chat-a' } });
+  const approval = records.approvals[0];
+  approval.status = 'approved';
+  approval.privateReadGrant = { grantId:'grant-1', maxUses:10, uses:[], expiresAt:'2099-01-01T00:00:00.000Z', revokedAt:null };
+  await assert.rejects(() => service.revokePrivateReadGrant(approval.approvalId, { chatRef:'chat-b' }), /会话与原任务不一致/);
+  const revoked = await service.revokePrivateReadGrant(approval.approvalId, { chatRef:'chat-a', revokedBy:'feishu-owner' });
+  assert.equal(revoked.privateReadGrant.revokedBy, 'feishu-owner');
 });
 test('运行总览展示微信 Vault 真实健康状态而不是只看岗位 active', async () => {
   const wechat = { agentId:'wechat-chat-retriever', name:'微信聊天取件员', status:'active', acceptedTaskTypes:['wechat.chat.retrieval'], interaction:{ directFeishu:'disabled' } };

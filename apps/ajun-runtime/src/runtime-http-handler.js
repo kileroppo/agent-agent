@@ -346,6 +346,15 @@ export function createAjunHttpHandler({
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'只有本机主人可以撤销微信临时授权。' });
         return sendJson(response, 200, { approval:await tasks.revokePrivateReadGrant(privateGrantRevokeMatch[1], await readJsonBody(request)) });
       }
+      const feishuPrivateGrantRevokeMatch = request.url?.match(/^\/api\/feishu\/approvals\/([0-9a-f-]+)\/revoke-private-read-grant$/i);
+      if (request.method === 'POST' && feishuPrivateGrantRevokeMatch) {
+        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'飞书微信授权回调只能由本机 Hermes 适配器调用。' });
+        const input = await readJsonBody(request);
+        return sendJson(response, 200, { approval:await tasks.revokePrivateReadGrant(feishuPrivateGrantRevokeMatch[1], {
+          revokedBy:input.requesterRef || 'A君',
+          chatRef:input.chatRef,
+        }) });
+      }
       const feishuApprovalMatch = request.url?.match(/^\/api\/feishu\/approvals\/([0-9a-f-]+)\/(approve|reject)$/i);
       if (request.method === 'POST' && feishuApprovalMatch) {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'飞书审批回调只能由本机 Hermes 适配器调用。' });

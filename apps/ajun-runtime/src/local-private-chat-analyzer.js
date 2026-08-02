@@ -14,15 +14,15 @@ export class LocalPrivateChatAnalyzer {
   async health() {
     try {
       const response = await this.fetchImpl(`${this.baseUrl}/api/tags`, { signal:AbortSignal.timeout(3_000) });
-      if (!response.ok) return unavailable('本机分析模型服务未就绪。');
+      if (!response.ok) return unavailable('本机分析模型服务未就绪。', this.model);
       const payload = await response.json();
       const models = Array.isArray(payload?.models) ? payload.models : [];
       const ready = models.some((item) => [item?.name, item?.model].includes(this.model));
       return ready
         ? { status:'ready', model:this.model, safeMessage:'本机微信分析模型已就绪。' }
-        : unavailable(`本机尚未安装 ${this.model} 模型。`);
+        : unavailable(`本机尚未安装 ${this.model} 模型。`, this.model);
     } catch {
-      return unavailable('本机分析模型服务未启动。');
+      return unavailable('本机分析模型服务未启动。', this.model);
     }
   }
 
@@ -42,7 +42,7 @@ export class LocalPrivateChatAnalyzer {
     const response = await this.fetchImpl(`${this.baseUrl}/api/generate`, {
       method:'POST',
       headers:{ 'content-type':'application/json' },
-      body:JSON.stringify({ model:this.model, prompt, stream:false, format:'json', think:false }),
+      body:JSON.stringify({ model:this.model, prompt, stream:false, format:'json', think:false, options:{ num_ctx:32_768 } }),
       signal:AbortSignal.timeout(120_000),
     });
     if (!response.ok) throw analyzerError('local_model_failed', '本机模型分析失败，未把聊天内容发往云端。');
@@ -97,10 +97,9 @@ function buildReducePrompt(partials) {
 }
 
 function sanitizeAnalysis(value, messages, model, now) {
-  const forbidden = messages.flatMap((item) => [item.content, item.speaker]).filter((item) => item.length >= 8);
   const clean = (input) => {
     let text = String(input || '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, 2_000);
-    for (const raw of forbidden) if (text.includes(raw)) text = text.replaceAll(raw, '[已省略原句]');
+    text = redactRawOverlaps(text, messages);
     return text;
   };
   const list = (input) => (Array.isArray(input) ? input : []).slice(0, 20).map(clean).filter(Boolean);
@@ -119,12 +118,36 @@ function sanitizeAnalysis(value, messages, model, now) {
   };
 }
 
+function redactRawOverlaps(value, messages) {
+  const marker = '[已省略原句]';
+  let text = value;
+  for (const message of messages) {
+    const raw = String(message?.content || '');
+    if (raw.length < 8) continue;
+    let offset = 0;
+    while (offset <= text.length - 8) {
+      const rawOffset = raw.indexOf(text.slice(offset, offset + 8));
+      if (rawOffset < 0) {
+        offset += 1;
+        continue;
+      }
+      let overlap = 8;
+      while (offset + overlap < text.length
+        && rawOffset + overlap < raw.length
+        && text[offset + overlap] === raw[rawOffset + overlap]) overlap += 1;
+      text = `${text.slice(0, offset)}${marker}${text.slice(offset + overlap)}`;
+      offset += marker.length;
+    }
+  }
+  return text;
+}
+
 function emptyAnalysis(model, now) {
   return sanitizeAnalysis({ summary:'范围内没有可分析的消息。' }, [], model, now);
 }
 
-function unavailable(safeMessage) {
-  return { status:'unavailable', model:DEFAULT_MODEL, safeMessage };
+function unavailable(safeMessage, model = DEFAULT_MODEL) {
+  return { status:'unavailable', model, safeMessage };
 }
 
 function normalizeLoopbackUrl(value) {

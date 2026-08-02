@@ -29,7 +29,8 @@ test('Agent Army MCP exposes factual read and controlled action tools', async (t
     createMission:async (input) => { calls.push(['mission', input]); return { mission:{ taskId:'mission-created' }, children:[] }; },
     controlTask:async (taskId, action) => ({ task:{ taskId }, action }),
     listApprovals:async () => [],
-    resolveApproval:async () => { throw new Error('not expected'); }
+    resolveApproval:async () => { throw new Error('not expected'); },
+    revokePrivateReadGrant:async (approvalId, input) => { calls.push(['revoke-private-read', { approvalId, ...input }]); return { approval:{ approvalId, status:'approved', privateReadGrantStatus:{ status:'revoked' } } }; }
   };
   const { client, server } = await connect(clientApi);
   t.after(async () => { await client.close(); await server.close(); });
@@ -37,7 +38,7 @@ test('Agent Army MCP exposes factual read and controlled action tools', async (t
   const tools = await client.listTools();
   assert.deepEqual(
     tools.tools.map((tool) => tool.name).sort(),
-    ['agent_proposal_create_execute', 'approval_list', 'approval_resolve', 'capabilities', 'content_performance_review_execute', 'employee_assignment_execute', 'employee_status', 'm5_stage_execute', 'mission_create', 'operations_health_execute', 'paperclip_assignment_complete', 'paperclip_assignment_get', 'platform_content_draft_execute', 'status', 'task_control', 'task_create', 'task_get', 'task_list', 'technical_repair_execute', 'video_content_analyze_execute', 'video_script_package_execute']
+    ['agent_proposal_create_execute', 'approval_list', 'approval_resolve', 'capabilities', 'content_performance_review_execute', 'employee_assignment_execute', 'employee_status', 'm5_stage_execute', 'mission_create', 'operations_health_execute', 'paperclip_assignment_complete', 'paperclip_assignment_get', 'platform_content_draft_execute', 'private_read_grant_revoke', 'status', 'task_control', 'task_create', 'task_get', 'task_list', 'technical_repair_execute', 'video_content_analyze_execute', 'video_script_package_execute']
   );
 
   const capabilities = await client.callTool({ name:'capabilities', arguments:{} });
@@ -52,6 +53,13 @@ test('Agent Army MCP exposes factual read and controlled action tools', async (t
   assert.match(created.content[0].text, /查看任务：http:\/\/127\.0\.0\.1:4321\/tasks\/task-created/);
   assert.doesNotMatch(created.content[0].text, /"status"/);
   assert.equal(calls[0][1].taskType, 'media.transcribe-and-refine');
+
+  const revoked = await client.callTool({
+    name:'private_read_grant_revoke',
+    arguments:{ approval_id:'approval-1234', chat_ref:'chat-a' }
+  });
+  assert.equal(revoked.structuredContent.approval.privateReadGrantStatus.status, 'revoked');
+  assert.deepEqual(calls.find((item) => item[0] === 'revoke-private-read')[1], { approvalId:'approval-1234', chatRef:'chat-a' });
 
   await client.callTool({
     name:'task_create',
@@ -76,7 +84,8 @@ test('Agent Army MCP exposes factual read and controlled action tools', async (t
       }
     }
   });
-  assert.deepEqual(calls[1][1].goalSpec, {
+  const researchCreate = calls.find((item) => item[0] === 'create' && item[1].title === '开放研究');
+  assert.deepEqual(researchCreate[1].goalSpec, {
     outcome:'形成有来源的比较报告',
     deliverables:['比较报告'],
     constraints:['只读公开来源'],
@@ -117,15 +126,16 @@ test('Agent Army MCP exposes factual read and controlled action tools', async (t
     }
   });
   assert.equal(mission.structuredContent.mission.taskId, 'mission-created');
-  assert.equal(calls[2][1].items[2].agentId, 'office-assistant');
-  assert.equal(calls[2][1].items[2].dependsOnPrevious, true);
-  assert.equal(calls[2][1].items[0].reviewPolicy, 'required');
-  assert.equal(calls[2][1].items[2].evidenceMode, 'formal');
-  assert.equal(calls[2][1].items[2].depth, 'full');
-  assert.equal(calls[2][1].items[2].focus, '结论');
-  assert.deepEqual(calls[2][1].items[2].platforms, ['douyin']);
-  assert.equal(calls[2][1].items[2].contentGoal, '形成老板汇报');
-  assert.equal(calls[2][1].waitForTerminal, true);
+  const missionCall = calls.find((item) => item[0] === 'mission');
+  assert.equal(missionCall[1].items[2].agentId, 'office-assistant');
+  assert.equal(missionCall[1].items[2].dependsOnPrevious, true);
+  assert.equal(missionCall[1].items[0].reviewPolicy, 'required');
+  assert.equal(missionCall[1].items[2].evidenceMode, 'formal');
+  assert.equal(missionCall[1].items[2].depth, 'full');
+  assert.equal(missionCall[1].items[2].focus, '结论');
+  assert.deepEqual(missionCall[1].items[2].platforms, ['douyin']);
+  assert.equal(missionCall[1].items[2].contentGoal, '形成老板汇报');
+  assert.equal(missionCall[1].waitForTerminal, true);
 });
 
 test('MCP 会修正模型误选的小R老板汇报并保留来源任务', async (t) => {

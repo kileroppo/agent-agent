@@ -43,10 +43,10 @@ export class LocalWeChatChatRetriever {
     this.now = now;
   }
 
-  async health({ force = false } = {}) {
+  async health({ force = false, includeAnalysis = true } = {}) {
     const checkedAt = this.now();
     if (!force && this.healthCache && checkedAt.getTime() - this.healthCache.checkedAtMs < this.healthTtlMs) {
-      return this.healthCache.result;
+      return includeAnalysis ? this.withAnalysisHealth(this.healthCache.result) : this.healthCache.result;
     }
     let result;
     try {
@@ -60,13 +60,25 @@ export class LocalWeChatChatRetriever {
       };
     }
     this.healthCache = { checkedAtMs:checkedAt.getTime(), result };
-    return result;
+    return includeAnalysis ? this.withAnalysisHealth(result) : result;
+  }
+
+  async withAnalysisHealth(vaultHealth) {
+    if (vaultHealth.status !== 'healthy') return vaultHealth;
+    const analysisModel = await this.analyzer.health();
+    if (analysisModel.status === 'ready') return { ...vaultHealth, analysisModel };
+    return {
+      ...vaultHealth,
+      status:'degraded',
+      analysisModel,
+      safeMessage:`微信只读库已就绪；${analysisModel.safeMessage}`,
+    };
   }
 
   async execute(task) {
     const request = task?.input?.wechatChat || {};
     if (!request.chatSelector) throw safeError('wechat_chat_required', '请告诉我联系人或群名；其余范围使用默认值。');
-    const health = await this.health();
+    const health = await this.health({ includeAnalysis:false });
     if (health.status !== 'healthy') {
       throw safeError('wechat_vault_unavailable', health.safeMessage);
     }

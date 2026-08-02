@@ -80,7 +80,7 @@ export function privateReadGrantStatus(grant, { now = new Date() } = {}) {
 function grantMatches(grant, task, scope) {
   return grant?.requestingAgentId === task?.assigneeAgentId
     && grant?.feishuChatRef === feishuChatRef(task)
-    && scopesEqual(grant?.scope, scope);
+    && scopesEqual(reusableScope(grant?.scope), reusableScope(scope));
 }
 
 function grantUsable(grant, now) {
@@ -92,7 +92,23 @@ function grantUsable(grant, now) {
 }
 
 function feishuChatRef(task) {
-  return String(task?.input?.context?.feishuChatRef || task?.input?.context?.chatRef || 'local-console').trim();
+  return String(
+    task?.input?.context?.feishuChatRef
+    || task?.input?.context?.chatRef
+    || task?.source?.chatRef
+    || 'local-console'
+  ).trim();
+}
+
+function reusableScope(scope) {
+  return {
+    chatSelector:scope?.chatSelector,
+    startTime:scope?.startTime,
+    endTime:scope?.endTime,
+    maxMessages:scope?.maxMessages,
+    outputMode:scope?.outputMode,
+    sameNameStrategy:scope?.sameNameStrategy,
+  };
 }
 
 function scopesEqual(left, right) {
