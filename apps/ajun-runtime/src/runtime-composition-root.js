@@ -6,6 +6,7 @@ import { AgentRegistry } from './agent-registry.js';
 import { ProposalAgentRegistry } from './proposal-agent-registry.js';
 import { createTaskStore } from './create-task-store.js';
 import { TaskService } from './task-service.js';
+import { SkillExecutionRegistry } from './skill-execution-registry.js';
 import { PaperclipBridge } from './paperclip-bridge.js';
 import { PaperclipRosterReconciler } from './paperclip-roster-reconciler.js';
 import { ApprovalExpiryReconciler } from './approval-expiry-reconciler.js';
@@ -221,7 +222,7 @@ const publicPdfReader = new PublicPdfReader({ transport:publicWebTransport });
 const githubSearch = new GithubSearch({ fetchImpl: (...args) => publicWebTransport.fetch(...args) });
 const publicReport = new LocalPublicReport({ publicWebFetch, publicWebSearch, comparisonAdvisor:publicComparisonAdvisor, refineAdvisor:publicSummaryAdvisor });
 const githubResearch = new LocalGithubResearch({ githubSearch });
-const intelResearcher = new LocalIntelResearcher({ publicWebFetch, publicWebSearch, githubSearch, publicReport, githubResearch, researchAdvisor:intelResearchAdvisor, grokConsult:new GrokConsultMcpAdapter() });
+const intelResearcher = new LocalIntelResearcher({ publicWebFetch, publicWebSearch, githubSearch, publicReport, githubResearch, researchAdvisor:intelResearchAdvisor, grokConsult:new GrokConsultMcpAdapter({ accessMode:environment.AGENT_ARMY_GROK_ACCESS }) });
 const knowledgeArchive = new KnowledgeArchiveWriter({
   autoWorkRoot
 });
@@ -284,7 +285,7 @@ const port = Number(environment.PORT || 4321);
 const host = environment.AJUN_HOST || '0.0.0.0';
 const detailBaseUrl = taskDetailBaseUrl(environment.AJUN_TASK_DETAIL_BASE_URL, `http://127.0.0.1:${port}`);
 let failureRecovery;
-const tasks = new TaskService({ registry, store, governance, roleToolAdapters:m5RoleToolAdapters, m5ProviderVision:executeM5ProviderVision, m5WorkProductValidator:async (input) => (await campaigns()).assertReplayableM5WorkProduct(input), executors: { operator, xiaod, ajun: new LocalAjunCoordinator({ advisor:taskAdvisor, registry }), creator: new LocalCreator({ proposals }), reviewer: new LocalReviewer(), architect: new LocalArchitect({ registry, store }), 'technical-expert':new LocalTechnicalExpert({ workspace:repairWorkspace, runner:technicalExpertRunner, promotion:technicalRepairPromotion }), 'intel-researcher':intelResearcher, 'office-assistant':officeAssistant, 'video-content-analyst':videoContentAnalyst, 'content-creator':contentCreator, 'wechat-chat-retriever':new LocalWeChatChatRetriever({ store }) }, fallbackExecutor:publicReport, onTaskFailed:(task) => failureRecovery?.handle(task), taskDetailBaseUrl:detailBaseUrl });
+const tasks = new TaskService({ registry, store, governance, roleToolAdapters:m5RoleToolAdapters, m5ProviderVision:executeM5ProviderVision, m5WorkProductValidator:async (input) => (await campaigns()).assertReplayableM5WorkProduct(input), executors: { operator, xiaod, ajun: new LocalAjunCoordinator({ advisor:taskAdvisor, registry }), creator: new LocalCreator({ proposals }), reviewer: new LocalReviewer(), architect: new LocalArchitect({ registry, store }), 'technical-expert':new LocalTechnicalExpert({ workspace:repairWorkspace, runner:technicalExpertRunner, promotion:technicalRepairPromotion }), 'intel-researcher':intelResearcher, 'office-assistant':officeAssistant, 'video-content-analyst':videoContentAnalyst, 'content-creator':contentCreator, 'wechat-chat-retriever':new LocalWeChatChatRetriever({ store }) }, fallbackExecutor:publicReport, onTaskFailed:(task) => failureRecovery?.handle(task), taskDetailBaseUrl:detailBaseUrl, skillExecutionRegistry:new SkillExecutionRegistry({ grokAccessMode:environment.AGENT_ARMY_GROK_ACCESS }) });
 const resolveFeishuApproval = createFeishuApprovalResolver({ proposals, tasks });
 const macWorker = new MacWorkerTaskBridge({ store, governance, onFailure:(task) => failureRecovery?.handle(task) });
 const approvalExpiryReconciler = new ApprovalExpiryReconciler({ tasks, onResult:(result) => { if (result.status !== 'synced') logger.warn('过期确认暂时无法自动整理，将自动重试。'); } });

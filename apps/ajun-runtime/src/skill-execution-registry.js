@@ -6,7 +6,7 @@ const DEFINITIONS = Object.freeze({
   'yichen-web-research':{ owner:'intel-researcher', readiness:'ready' },
   'yichen-unified-search':{ owner:'intel-researcher', readiness:'ready' },
   'yichen-content-archive':{ owners:['intel-researcher', 'xiaod'], readiness:'ready' },
-  'yichen-grok-consult':{ owner:'intel-researcher', readiness:'needs_login', recovery:'请在本机终端运行 grok login；Agent 不会代填账号。' },
+  'yichen-grok-consult':{ owner:'intel-researcher', readiness:'needs_login' },
   'yichen-asr':{ owner:'xiaod', readiness:'needs_setup', recovery:'请配置 StepFun 或火山 ASR 凭据后再用；不会自动跨供应商重试。' },
   'yichen-summary':{ owner:'office-assistant', readiness:'ready', executionBoundary:'knowledge.archive.write' },
   'yichen-wechat-local-vault':{ owner:'wechat-chat-retriever', readiness:'ready', executionBoundary:'wechat.local-vault.chat.read' },
@@ -16,11 +16,13 @@ export class SkillExecutionRegistry {
   constructor({
     sharedRoot = process.env.AGENT_ARMY_SHARED_SKILLS_ROOT || path.join(os.homedir(), 'Documents/work/AIcode/skills-lib'),
     grokAuthPath = path.join(os.homedir(), '.grok/auth.json'),
+    grokAccessMode = process.env.AGENT_ARMY_GROK_ACCESS || 'auto',
     adapters = {},
     readinessOverrides = {},
   } = {}) {
     this.sharedRoot = path.resolve(sharedRoot);
     this.grokAuthPath = path.resolve(grokAuthPath);
+    this.grokAccessMode = normalizeGrokAccessMode(grokAccessMode);
     this.adapters = { ...adapters };
     this.readinessOverrides = { ...readinessOverrides };
   }
@@ -29,14 +31,18 @@ export class SkillExecutionRegistry {
     return Promise.all(Object.entries(DEFINITIONS).map(async ([slug, definition]) => {
       const installed = await fs.access(path.join(this.sharedRoot, slug, 'SKILL.md')).then(() => true).catch(() => false);
       const configured = this.readinessOverrides[slug]
-        || await environmentReadiness(slug, { grokAuthPath:this.grokAuthPath })
+        || await environmentReadiness(slug, {
+          grokAuthPath:this.grokAuthPath,
+          grokAccessMode:this.grokAccessMode,
+        })
         || definition.readiness;
+      const status = installed ? configured : 'unavailable';
       return {
         slug,
         owners:definition.owners || [definition.owner],
-        status:installed ? configured : 'unavailable',
+        status,
         executionBoundary:definition.executionBoundary || 'bounded-adapter-only',
-        recovery:installed ? definition.recovery || null : '技能目录未安装或不完整。',
+        recovery:installed ? recoveryFor(slug, status, definition) : '技能目录未安装或不完整。',
         genericTerminalAccess:false,
         genericBrowserAccess:false,
       };
@@ -59,14 +65,34 @@ export class SkillExecutionRegistry {
   }
 }
 
-async function environmentReadiness(slug, { grokAuthPath }) {
+async function environmentReadiness(slug, { grokAuthPath, grokAccessMode }) {
   if (slug === 'yichen-asr') {
     return process.env.STEPFUN_API_KEY || process.env.ARK_API_KEY ? 'ready' : 'needs_setup';
   }
   if (slug === 'yichen-grok-consult') {
-    return fs.stat(grokAuthPath).then((stat) => stat.isFile() ? 'ready' : 'needs_login').catch(() => 'needs_login');
+    if (grokAccessMode === 'disabled') return 'not_enabled';
+    const authenticated = await fs.stat(grokAuthPath)
+      .then((stat) => stat.isFile())
+      .catch(() => false);
+    if (!authenticated) return 'needs_login';
+    return grokAccessMode === 'subscribed' ? 'ready' : 'needs_subscription';
   }
   return null;
+}
+
+function recoveryFor(slug, status, definition) {
+  if (status === 'ready') return null;
+  if (slug === 'yichen-grok-consult') {
+    if (status === 'not_enabled') return '当前未订阅 Grok，已停用；小R继续使用网页研究和统一搜索。';
+    if (status === 'needs_subscription') return '已登录，但未确认订阅额度可用；未订阅时可保持停用。';
+    if (status === 'needs_login') return '请在本机终端运行 grok login；Agent 不会代填账号。';
+  }
+  return definition.recovery || null;
+}
+
+function normalizeGrokAccessMode(value) {
+  const normalized = String(value || 'auto').trim().toLowerCase();
+  return ['auto', 'subscribed', 'disabled'].includes(normalized) ? normalized : 'auto';
 }
 
 function skillError(code, message) {

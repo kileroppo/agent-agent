@@ -39,11 +39,25 @@ test('只有声明岗位能通过受控适配器执行，不存在适配器时�
   await assert.rejects(() => registry.execute('yichen-summary', {}, { agentId:'office-assistant' }), (error) => error.code === 'skill_adapter_missing');
 });
 
-test('Grok 登录文件存在后就绪状态自动恢复，但不读取文件内容', async () => {
+test('Grok 登录文件存在不等于订阅可用，必须显式声明订阅后才就绪', async () => {
   const sharedRoot = await rootWith('yichen-grok-consult');
   const authRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'grok-auth-'));
   const grokAuthPath = path.join(authRoot, 'auth.json');
   await fs.writeFile(grokAuthPath, '测试只允许检查文件存在，不能解析此内容');
   const registry = new SkillExecutionRegistry({ sharedRoot, grokAuthPath });
-  assert.equal((await registry.overview()).find((item) => item.slug === 'yichen-grok-consult').status, 'ready');
+  const pending = (await registry.overview()).find((item) => item.slug === 'yichen-grok-consult');
+  assert.equal(pending.status, 'needs_subscription');
+  assert.match(pending.recovery, /未确认订阅额度/);
+  const subscribed = new SkillExecutionRegistry({ sharedRoot, grokAuthPath, grokAccessMode:'subscribed' });
+  const ready = (await subscribed.overview()).find((item) => item.slug === 'yichen-grok-consult');
+  assert.equal(ready.status, 'ready');
+  assert.equal(ready.recovery, null);
+});
+
+test('未订阅 Grok 时明确停用且保留小R其他研究能力', async () => {
+  const sharedRoot = await rootWith('yichen-grok-consult');
+  const registry = new SkillExecutionRegistry({ sharedRoot, grokAccessMode:'disabled' });
+  const grok = (await registry.overview()).find((item) => item.slug === 'yichen-grok-consult');
+  assert.equal(grok.status, 'not_enabled');
+  assert.match(grok.recovery, /网页研究和统一搜索/);
 });

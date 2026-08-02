@@ -10,23 +10,34 @@ export class GrokConsultMcpAdapter {
   constructor({
     serverPath = process.env.YICHEN_GROK_MCP_SERVER || DEFAULT_SERVER,
     authPath = path.join(os.homedir(), '.grok/auth.json'),
+    accessMode = process.env.AGENT_ARMY_GROK_ACCESS || 'auto',
     invokeMcp = invokeStdioMcp,
   } = {}) {
     this.serverPath = path.resolve(serverPath);
     this.authPath = path.resolve(authPath);
+    this.accessMode = normalizeGrokAccessMode(accessMode);
     this.invokeMcp = invokeMcp;
   }
 
   async health() {
+    if (this.accessMode === 'disabled') {
+      return { status:'not_enabled', safeMessage:'当前未订阅 Grok，已停用；小R继续使用网页研究和统一搜索。' };
+    }
     const [server, auth] = await Promise.all([exists(this.serverPath), exists(this.authPath)]);
     if (!server) return { status:'unavailable', safeMessage:'Grok 受控插件服务未安装。' };
     if (!auth) return { status:'needs_login', safeMessage:'请在本机终端运行 grok login；Agent 不会代填账号。' };
+    if (this.accessMode !== 'subscribed') {
+      return { status:'needs_subscription', safeMessage:'已登录，但未确认 Grok 订阅额度可用。' };
+    }
     return { status:'ready', safeMessage:'Grok 受控只读插件已就绪。' };
   }
 
   async searchX({ query, hours = 24, maxResults = 10 } = {}) {
     const health = await this.health();
-    if (health.status !== 'ready') throw grokError('grok_login_required', health.safeMessage);
+    if (health.status !== 'ready') {
+      const code = health.status === 'needs_login' ? 'grok_login_required' : 'grok_account_unavailable';
+      throw grokError(code, health.safeMessage);
+    }
     const result = await this.invokeMcp({
       serverPath:this.serverPath,
       tool:'search_x_with_grok',
@@ -86,6 +97,11 @@ async function exists(filePath) {
 function safePluginMessage(result) {
   const text = String(result?.content?.find((item) => item.type === 'text')?.text || 'Grok 查询失败。');
   return /quota|余额|额度/i.test(text) ? 'Grok 账号额度已耗尽。' : 'Grok 查询失败；未切换到未批准的替代路线。';
+}
+
+function normalizeGrokAccessMode(value) {
+  const normalized = String(value || 'auto').trim().toLowerCase();
+  return ['auto', 'subscribed', 'disabled'].includes(normalized) ? normalized : 'auto';
 }
 
 function grokError(code, message) {
