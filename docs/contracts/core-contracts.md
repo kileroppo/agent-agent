@@ -39,8 +39,8 @@
 | `openTaskPolicy` | 否 | 岗位开放任务域与质量门禁；存在时至少声明一个岗位专属开放任务类型 |
 | `dynamicCapabilityPolicy` | 否 | 能力发现提案来源、模型策略不可变约束及需审批的敏感类别；不能自行激活能力 |
 | `autonomyBudgetPolicy` | 否 | 投影给 Paperclip 的预算建议，不是 A君本地预算真相 |
-| `runtimeCapabilities.modelSelection` | 是 | 主推理模型；活动岗位当前固定为 `stepfun/step-3.5-flash-2603` |
-| `runtimeCapabilities.fallbackModels` | 否 | 有序回退；当前仅允许 `deepseek/deepseek-v4-flash` 在主模型额度/余额耗尽（429/402）、连接失败或 5xx 时启用；质量、工具和格式失败不回退 |
+| `runtimeCapabilities.modelSelection` | 是 | 主推理模型；11 个正式岗位当前固定为 `deepseek/deepseek-v4-flash` |
+| `runtimeCapabilities.fallbackModels` | 否 | 有序回退；11 个正式岗位当前为空，不回退到 StepFun 文本模型 |
 | `promptRef` | 是 | 仓库中版本化系统 Prompt 的引用 |
 | `runtimeProfileRef` | 是 | Hermes 或其他运行时配置引用 |
 | `appRef` | 是 | 业务执行器位置 |

@@ -1,6 +1,16 @@
 # M5 高权限内容自治验收
 
-> 当前总判定：**PARTIAL / M5 NOT COMPLETE**。A君 R4 已以不可变 release 切入 live，PID `58141`、`/api/overview` 200；Paperclip 资源仍为 15 阶段 / 17 有效 Routine / 5 控制器，活动草案仍未批准且为 `0/14`，Publisher 仍 disabled。本轮没有真实 Provider 调用、外部发布或 7 天闭环。
+> 当前总判定：**PARTIAL / M5 NOT COMPLETE**。2026-08-02 A君已切到 DeepSeek 策略不可变 release `80bd473f…`，PID `73653`、`/api/overview` 200；11 个正式岗位的 Hermes Profile 与 Paperclip Adapter 均为 `deepseek/deepseek-v4-flash` 且回退链为空。活动草案、Cron 与 Publisher 继续关闭；本轮没有真实 Provider 调用、外部发布或 7 天闭环。
+
+## 2026-08-02 DeepSeek 文本主模型切换追加证据
+
+| 项目 | 事实 | 边界 |
+| --- | --- | --- |
+| 仓库契约 | 11 个 AgentManifest、Hermes 映射、schema 与 Paperclip Adapter 均固定为 `deepseek/deepseek-v4-flash`，显式清空 fallback/extraArgs | 微信取件员继续本机 Ollama；M5 StepFun 多模态不属于文本模型切换 |
+| 本机 Profile | 11/11 `~/.hermes/profiles/*` 解析为 DeepSeek，fallback 0；5 个常驻 Gateway 已以新 PID 重启 | 未读取或回显 `.env`/密钥，未执行模型请求 |
+| 不可变来源 | clean source commit `53eb2fcab8d883eaa4eb50ca7e1a806fd748e233`；release `80bd473f34472308a99987a8f6b12110d07f6e24bc969b377776d1ea6c1f31b6`；payload `009da83e212b361e42b87706bdb54d1d66a37beb07fed91fd28653360df9fc72` | main/recovery smoke 与冻结门禁通过；旧 release 仅作历史参考，降级只读恢复 ready |
+| live 切换 | A君 PID `3694 → 73653`，4321 listener、entrypoint、cwd 与 overview 通过；启动后 Paperclip 11/11 自动对账为 DeepSeek，跨 60 秒复核未回退 | 只证明配置和本机运行路径，不证明 DeepSeek 真实传输或岗位质量 |
+| 外部证据 | 本轮 Provider 请求 0、飞书消息 0、Paperclip 业务任务 0、发布 0 | 新模型 Profile 保持 `model-transport-pending`，需另行授权付费探针或由真实业务调用形成证据 |
 
 ## 2026-08-01 R4 live 切换追加证据
 
@@ -27,7 +37,7 @@
 | Paperclip 待办清理 | PARTIAL | 已将 153 条带确定 Routine 标记的历史巡检失败和 9 条历史验收记录归档为 `cancelled`/hidden，保留评论与证据且未删除；当前分页读取为 83 条，其中 active_incident 16、unresolved 67 | 16 条真实故障与 67 条未决任务仍保留负责人和恢复动作，不能宣称清空 |
 | Paperclip live apply | PASS / CAMPAIGN OFF | live v2 为 Goal `0363da03…`、Project `86ad0a0a…`、17 个有效 Routine、15 阶段 Pipeline `6dfd94da…` 及 5 个 HTTP 系统控制器；旧 `m5-research` 已作为从未触发的归档记录保留，不计有效 Routine。13 条 M5 Budget 策略覆盖公司、Project 和 11 岗，每条均为 625 分的同一分层硬上限；公司与 M5 v2 Project 累计均为 392 分，剩余 233 分 | 分层上限不能相加；保守 `cost-events` 不等于 StepFun 官方最终账单；新草案未批准，`approvedAt=null`、`0/14`、Cron 关闭 |
 | 插件安装 | LIVE 0.4.7 READY / FROZEN 0.4.9 CANDIDATE | `/api/plugins` 显示 `agent-army.content-autonomy` live `0.4.7`、`ready`，packagePath 指向 `content-autonomy-bundle-0.4.7-cac8390a…4723c13`。`0.4.9` 已冻结到 `work/m5-content-autonomy/plugin-packages/content-autonomy-bundle-0.4.9-b64760f6c00e2031d5a5ae51fac4a76e26183698e1bb9bf536e407fd27592c0d/`：`payloadHash=b64760f6c00e2031d5a5ae51fac4a76e26183698e1bb9bf536e407fd27592c0d`、`entryCount=19986`、`manifestSha256=dabf16ac255eec3348e5800239f907793db1c1e507d1aa2820cd57fb71ec8dd7`、独立全目录哈希 `82f75845b927c8fa817e45e8e4d588338c7131677f2681c7297dba987db0c8bd`。为搬移候选包，仅 bundle 根由 `0555` 短暂调整为 `0755`，内部未改；完成后根恢复 `0555`、manifest 保持 `0444`，独立复算与安全审计放行。源码测试 `97/97` 且 `check` 通过。`0.4.8` 仅为历史候选，`0.4.6` 回滚兼容链保留 | `0.4.9` 尚未安装到 live；新增视觉与 Provider 血缘硬化不能算运行态能力，插件 ready 也不等于活动批准或发布授权 |
-| Hermes Profile 精确同步 | LIVE CONFIG PASS / GATEWAYS UNTOUCHED | 11 个正式 Profile 已实际同步到 `stepfun/step-3.5-flash-2603`、岗位 MCP 作用域和精确 Feishu toolset；同步后全军只读 dry-run 为 `0 drift`，同步未启停 Gateway | A君 R4 已加载；Paperclip 兼容补丁和插件升级仍是独立门禁 |
+| Hermes Profile 历史精确同步 | HISTORICAL STEP FUN BASELINE | 2026-07-31 曾将 11 个正式 Profile 同步到 StepFun、岗位 MCP 作用域和精确 Feishu toolset | 当前模型状态由上方 2026-08-02 DeepSeek 追加证据取代；历史同步不再代表 live 主模型 |
 | Hermes 技能白名单 | LIVE PASS / 11 CLEAN | 11 个正式 Profile 指定只读检查均为 clean，无额外 enabled skill、无声明技能缺失或被禁用；`xiaod` 原有 78 个额外技能保持 disabled，办公助理遗留 `feishu-doc` 已显式收敛并复验 clean | 微信取件员不属于 11 个正式内容岗位；技能包仍可保留在目录或备份中，但未授权技能默认不可用 |
 | 岗位执行适配器 | LOCAL REAL-ADAPTER PASS / PROFILE CONFIG SYNCED | 小R动态网页用临时 Chrome、同源只读请求和 DNS 固定；公开 PDF 以固定 IP 流式读取，真实 2,215,244 bytes PDF 通过，超过 8MB 中止。开放研究及其路由/Routine 契约针对网页/PDF/GitHub、Observation 换路、预算/重试/重规划及 Work Product 回写的定向测试为 `29/29`；恢复来源必须匹配当前 assignment 的 Issue/Run，任务自报与跨 Issue/Run 内嵌 Observation 注入均失败关闭。小办 DOCX/XLSX/PDF 已真实生成回读；Markdown 外部资源、本机偷读和符号链接越界写入均拒绝。11 个实际 Hermes Profile 已完成精确同步并 post dry-run `0 drift` | 受控本地/公开读取、文档生成和 Profile 配置均有证据，但当前 A君 `4321` 尚未重启加载本轮源码；登录型网页、外部发送和业务闭环仍未证明 |
 | One-shot 与正式视觉边界 | LOCAL SECURITY PASS / LIVE NOT LOADED | 内容插件固定视觉模型 `step-1o-turbo-vision`、生图/改图模型 `step-image-edit-2`、TTS 模型 `stepaudio-2.5-tts`。通用 Hermes one-shot 已移除 `--ignore-rules`，普通调用固定为 `clarify`，只有无 Provider 的受控故事板分支允许 `vision`。正式视觉仅由当前 Paperclip Run 的单用途回调触发，绑定固定 action、相对 PNG、帧哈希、时间点、confirmed receipt 和同一 Project；新产物与已有视觉 Work Product 重放都使用同一校验，漂移时阻塞且不覆盖。渲染强制消费可信 `GeneratedImagePackage`，机器审核反查同 Project 的图片、视觉、TTS 三条 confirmed action/cost | 只由候选源码和本地 Fake 测试证明；live 插件仍为 `0.4.7` 且未安装 `0.4.9`，当前 A君仍是旧进程，尚无真实 M5 Campaign StepFun 视觉调用 |

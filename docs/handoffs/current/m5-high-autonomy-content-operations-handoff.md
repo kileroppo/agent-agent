@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | A君 R4 已切到不可变 release，live PID `58141`；Paperclip 仍为15阶段/17有效Routine/5控制器，草案0/14、Cron与Publisher关闭；本轮无真实Provider调用、无发布，M5未完成 |
+| 状态 | A君已切到 DeepSeek 策略不可变 release `80bd473f…`，live PID `73653`；Paperclip 岗位 11/11 为 DeepSeek，草案、Cron 与 Publisher 继续关闭；本轮无真实 Provider 调用、无发布，M5 未完成 |
 | 创建时间 | 2026-07-30 Asia/Shanghai |
 | 交出者 | Codex |
 | 接手者 | Codex / A君 |
@@ -45,7 +45,7 @@
 | Paperclip 待办清理 | 153 条历史巡检失败和 9 条历史验收已归档为取消/隐藏且未删除；当前 83 条：active_incident 16、unresolved 67 | `integrations/paperclip/scripts/classify-blocked-pending-issues.mjs`、M5 验收 | 真实故障与未决任务仍保留负责人和恢复动作 |
 | Paperclip / 插件 | live v2 为 17 Routine、15 阶段、5 个无模型 HTTP 控制器；插件 `agent-army.content-autonomy` live `0.4.7` 已从不可变净包安装并 `ready`。`0.4.9` 候选包 `payloadHash=b64760f6c00e2031d5a5ae51fac4a76e26183698e1bb9bf536e407fd27592c0d`、`entryCount=19986`、`manifestSha256=dabf16ac255eec3348e5800239f907793db1c1e507d1aa2820cd57fb71ec8dd7`、独立全目录哈希 `82f75845b927c8fa817e45e8e4d588338c7131677f2681c7297dba987db0c8bd`；搬移时仅 bundle 根由 `0555` 短暂调为 `0755`，内部未改，完成后根恢复 `0555`、manifest 保持 `0444`，独立复算与安全审计放行。源码 `97/97`、`check` 和 Paperclip 集成 `48/48` 通过；`0.4.8` 仅为历史候选，`0.4.6` 回滚兼容链保留 | live 资源核验、候选源码测试、不可变包、生成方与独立安全账本 | `0.4.9` 尚未安装到 live；配置校验和、对象形 Secret 引用和 8 岗绑定有效；新草案仍未批准，`approvedAt=null`、`0/14`、Cron 关闭 |
 | 预算 | 13 条 M5 Budget 策略分别覆盖公司、Project 和 11 个正式岗位；每条均为 625 分的同一分层硬上限；公司与 M5 v2 Project 累计均为 392 分，剩余 233 分；小创累计 62 分、小拆累计 30 分 | Paperclip live Budget 与 m5v2 费用事件 | 分层上限不能相加；保守 `cost-events` 不等于 StepFun 官方最终账单 |
-| Hermes Profile 与技能白名单 | 11 个正式 Profile 已同步到 `stepfun/step-3.5-flash-2603`，post dry-run `0 drift`、技能白名单 `11/11 clean`、`gatewayActions=0` | Profile sync 与技能白名单 dry-run | A君 R4 已 fresh；微信取件员不属于 11 岗 |
+| Hermes Profile 与技能白名单 | 11 个正式 Profile、Paperclip Adapter 与 fresh A君 release 已切到 `deepseek/deepseek-v4-flash`，回退链为空；5 个常驻 Gateway 已重启 | Profile 配置、launchd PID/cwd、Paperclip 11/11 对账 | 未执行付费 DeepSeek 探针；微信取件员不属于 11 岗 |
 | 本地运行时 | Paperclip `3100/api/health` 200；A君 PID `58141` 的 `4321/api/overview` 200，cwd/entrypoint 指向 R4；Publisher `4390` disabled | listener/cwd、plist 与只读 HTTP | 活动未批准；没有触发 publisher/retrospective heartbeat |
 | 运维巡检 | 修复后连续 3 次受控手动 Routine Run 与至少 1 次自然定时 Run 为 `completed` | Paperclip Routine Run 只读记录 | 更早失败仍作为历史保留 |
 | 指标回流 | current-run scope 与 `PaperclipBridge` 六项核心 access 已由 R4 加载；2h/24h/72h 与独立指标 approval 代码存在 | R4 live、代码与本地测试 | Paperclip 兼容补丁未 apply，connector dependencies 为空并失败关闭；无真实 PublishReceipt 或指标 |
@@ -61,7 +61,7 @@
 
 | 服务 | 地址 | 监听/进程 | cwd | 配置来源 |
 | --- | --- | --- | --- | --- |
-| A君运行台 | `http://127.0.0.1:4321` | PID `58141`；`/api/overview` 200 | `work/m5-runtime-releases/m5-8point-20260801-r4/…/apps/ajun-runtime` | `~/Library/LaunchAgents/ai.agent-army.ajun-runtime.plist` |
+| A君运行台 | `http://127.0.0.1:4321` | PID `73653`；`/api/overview` 200 | `work/runtime-sources/deepseek-cutover-20260802-release-r1/…/apps/ajun-runtime` | `~/Library/LaunchAgents/ai.agent-army.ajun-runtime.plist` |
 | Paperclip | `http://127.0.0.1:3100` | 0.4.7 live 重载后 PID `51714` | 本仓库 | Paperclip `2026.722.0` 本机私有部署 |
 | Publisher Gateway | `http://127.0.0.1:4390` | listener PID `82321`；health=`disabled` | `integrations/publishing/m5-publisher-gateway` | `~/Library/LaunchAgents/ai.agent-army.m5-publisher-gateway.plist` |
 
@@ -79,7 +79,7 @@
 - 已完成候选源码安全收口：固定视觉模型 `step-1o-turbo-vision`、生图/改图模型 `step-image-edit-2`、TTS 模型 `stepaudio-2.5-tts`。通用 Hermes one-shot 移除 `--ignore-rules`，普通调用固定 `clarify`，只有无 Provider 的受控故事板分支允许 `vision`；正式视觉绑定当前 Paperclip Run、固定 action、相对 PNG、帧哈希、时间点、confirmed receipt 和同一 Project。已有视觉 Work Product 重放同样校验，漂移时阻塞且不覆盖；渲染强制消费可信 `GeneratedImagePackage`，机器审核反查同 Project 三条 confirmed action/cost。候选源码为 `0.4.9`，`0.4.8` 仅为历史候选；该结果尚未进入 live `0.4.7` 或旧 A君进程，也没有真实 Campaign StepFun 视觉调用。
 - 已完成：Paperclip blocked/pending 只读分类 dry-run；只取 companies、agents、issues，输出 historical_acceptance / active_incident / decision_required / unresolved、负责人和唯一恢复动作建议。
 - 已确定：Paperclip Pipeline/Routine/Plugin 与 Hermes Profile 是执行底座；发布由插件外的无模型 Publisher Gateway 执行。
-- 已确定：11 个正式岗位主模型固定为 `stepfun/step-3.5-flash-2603`，DeepSeek 只在 `transport_unavailable` 时回退；微信私密只读检索岗位不计入 11 岗。
+- 已确定：11 个正式岗位主模型固定为 `deepseek/deepseek-v4-flash`，不回退 StepFun 文本模型；M5 StepFun 多模态仍是独立媒体能力。微信私密只读检索岗位不计入 11 岗。
 - 关键文件：M5 PRD、ADR、复用调研、`integrations/paperclip/plugins/content-autonomy/`。
 - 兼容边界：M1–M4 任务和现有只读连接继续工作。
 - 不要重复创建：组织任务队列、通用技能商店、第二套审批系统。

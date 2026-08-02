@@ -73,7 +73,9 @@ export function paperclipHermesAdapterConfig(manifest) {
     instructionsFilePath:promptPath,
     hermesCommand:path.resolve(String(process.env.HOME || ''), '.local/bin/hermes'),
     ...modelSelection,
-    ...(fallbackModels.length ? { fallbackModels } : {}),
+    // Paperclip 会合并 adapterConfig；空数组必须显式下发，才能清掉旧策略。
+    fallbackModels,
+    extraArgs:[],
     env:{
       HERMES_HOME:hermesProfileHome(manifest.agentId),
       AGENT_ARMY_AGENT_ID:manifest.agentId,
@@ -150,12 +152,16 @@ function safeModelSelection(value) {
     'kimi-coding',
     'minimax',
     'minimax-cn',
-    'stepfun'
+    'stepfun',
+    'deepseek'
   ]);
   if (!allowedProviders.has(provider)) throw new Error('Hermes Provider 不在受控白名单中。');
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._/-]{1,127}$/.test(model)) throw new Error('Hermes 模型标识不合法。');
   if (provider === 'stepfun' && model !== 'step-3.5-flash-2603') {
     throw new Error('StepFun 主模型必须使用受控固定版本。');
+  }
+  if (provider === 'deepseek' && model !== 'deepseek-v4-flash') {
+    throw new Error('DeepSeek 主模型必须使用受控固定版本。');
   }
   // Paperclip 的 Hermes adapter 尚未把 StepFun 列入 Provider 常量表；
   // 它会把该值安全降为 auto，让 Hermes 在目标 HERMES_HOME Profile
@@ -163,9 +169,7 @@ function safeModelSelection(value) {
   // 已将 StepFun 作为原生 Provider，旧别名会在任何网络请求前被拒绝。
   // 显式空数组也用于覆盖 Paperclip 里已经保存的旧 extraArgs；
   // 该接口会合并 adapterConfig，省略字段无法清掉历史错误参数。
-  return provider === 'stepfun'
-    ? { provider, model, extraArgs:[] }
-    : { provider, model };
+  return { provider, model };
 }
 
 function safeFallbackModels(value) {

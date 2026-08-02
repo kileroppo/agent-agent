@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 部分废止：模型与开放任务类型保留，本地自主控制面由 M5 纠偏 |
+| 状态 | 部分废止：模型策略由 ADR-0011 取代；开放任务类型保留，本地自主控制面由 M5 纠偏 |
 | 日期 | 2026-07-29 |
 | 决策者 | A君 |
 
@@ -12,7 +12,7 @@
 
 M5 纠偏后，A君生产运行时只做无状态的“开放任务类型 → 岗位专有任务类型”映射，并按岗位 Manifest 白名单拒绝未登记能力。原 ADR 中由 A君生成 GoalSpec 派生 DAG、checkpoint、预算和任务级 CapabilityGrant 的部分只保留为历史迁移代码，不再接入生产。组织任务、Issue、预算、审批、恢复和技能激活真相统一由 Paperclip 保存；Hermes 保存执行会话和运行检查点。
 
-11 个正式岗位的主推理模型统一为 `stepfun/step-3.5-flash-2603`。`step-router-v1` 会路由其他厂商模型，不能作为 StepFun-only 主模型。仅在运行时判断主模型 `transport_unavailable` 时，回退一次到 `deepseek/deepseek-v4-flash`；质量不佳、工具调用错误、格式错误或普通任务失败不得触发换模型。任务级能力授权不能修改此策略。微信私密只读检索岗位属于 A君本地适配能力，不计入 11 个正式自主岗位。
+历史决策曾将 11 个正式岗位的主推理模型统一为 `stepfun/step-3.5-flash-2603`，并仅在 `transport_unavailable` 时回退到 DeepSeek。自 2026-08-02 起，这一模型部分由 [ADR-0011](./0011-deepseek-primary-reasoning-model.md) 取代；开放任务与治理边界继续有效。
 
 ## 原因
 

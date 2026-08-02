@@ -170,13 +170,10 @@ test("治理岗位保留独立 Hermes 身份，只有运维官常驻飞书入口
     assert.equal(profile.localProfile.created, true);
     assert.equal(profile.localProfile.modelSelectionConfigured, true);
     assert.equal(profile.localProfile.modelConfigured, true);
-    assert.equal(profile.localProfile.credentialedTransportVerified, true);
-    assert.equal(profile.localProfile.credentialedTransportVerification.status, "verified-current-model-policy");
-    assert.equal(profile.localProfile.credentialedTransportVerification.primary.verified, true);
-    assert.equal(
-      profile.localProfile.credentialedTransportVerification.fallback.verified,
-      agentId === "technical-expert"
-    );
+    assert.equal(profile.localProfile.credentialedTransportVerified, false);
+    assert.equal(profile.localProfile.credentialedTransportVerification.status, "model-transport-pending");
+    assert.equal(profile.localProfile.credentialedTransportVerification.primary.verified, false);
+    assert.equal(profile.localProfile.credentialedTransportVerification.fallback, null);
     assert.equal(profile.localProfile.skillsSeeded, true);
     assert.equal(profile.gateway.enabled, alwaysOnGovernanceAgentIds.includes(agentId));
     assert.equal(profile.mcp.server, "agent-army");
@@ -215,10 +212,10 @@ test("首批业务员工已由独立 Hermes Profile Gateway 承接飞书连续�
     assert.equal(profile.localProfile.created, true);
     assert.equal(profile.localProfile.modelSelectionConfigured, true);
     assert.equal(profile.localProfile.modelConfigured, true);
-    assert.equal(profile.localProfile.credentialedTransportVerified, true);
-    assert.equal(profile.localProfile.credentialedTransportVerification.status, "verified-current-model-policy");
-    assert.equal(profile.localProfile.credentialedTransportVerification.primary.verified, true);
-    assert.equal(profile.localProfile.credentialedTransportVerification.fallback.verified, false);
+    assert.equal(profile.localProfile.credentialedTransportVerified, false);
+    assert.equal(profile.localProfile.credentialedTransportVerification.status, "model-transport-pending");
+    assert.equal(profile.localProfile.credentialedTransportVerification.primary.verified, false);
+    assert.equal(profile.localProfile.credentialedTransportVerification.fallback, null);
     assert.equal(profile.localProfile.gatewayStarted, true);
     assert.equal(profile.gateway.enabled, true);
     assert.ok(manifest.toolAllowlist.every((tool) => profile.toolAllowlist.includes(tool)));
@@ -234,8 +231,8 @@ test("M3 内容增长岗位通过受限验收后以最小权限按需上岗，�
     assert.equal(manifest.status, "active");
     assert.equal(manifest.executionOwner, "paperclip-hermes");
     assert.deepEqual(manifest.runtimeCapabilities.modelSelection, {
-      provider:"stepfun",
-      model:"step-3.5-flash-2603"
+      provider:"deepseek",
+      model:"deepseek-v4-flash"
     });
     assert.equal(manifest.interaction.directFeishu, "disabled");
     assert.ok(manifest.acceptedTaskTypes.length > 0);
@@ -252,13 +249,13 @@ test("M3 内容增长岗位通过受限验收后以最小权限按需上岗，�
     assert.equal(profile.localProfile.restrictedTestingConfigured, true);
     assert.equal(profile.localProfile.modelSelectionConfigured, true);
     assert.equal(profile.localProfile.modelConfigured, true);
-    assert.equal(profile.localProfile.credentialedTransportVerified, true);
-    assert.equal(profile.localProfile.credentialedTransportVerification.status, "verified-current-model-policy");
-    assert.equal(profile.localProfile.credentialedTransportVerification.primary.verified, true);
-    assert.equal(profile.localProfile.credentialedTransportVerification.fallback.verified, false);
+    assert.equal(profile.localProfile.credentialedTransportVerified, false);
+    assert.equal(profile.localProfile.credentialedTransportVerification.status, "model-transport-pending");
+    assert.equal(profile.localProfile.credentialedTransportVerification.primary.verified, false);
+    assert.equal(profile.localProfile.credentialedTransportVerification.fallback, null);
     assert.deepEqual(profile.modelSelection, {
-      provider:"stepfun",
-      model:"step-3.5-flash-2603",
+      provider:"deepseek",
+      model:"deepseek-v4-flash",
       secretStoredHere:false
     });
     assert.deepEqual(profile.toolAllowlist, manifest.toolAllowlist);
@@ -301,24 +298,24 @@ test("小拆把指标来源约束下沉到 Prompt、Skill、Manifest 和 Eval", 
   ));
 });
 
-test("创建官和审核官固定使用本机 StepFun 路由，Profile 不保存密钥", async () => {
+test("创建官和审核官固定使用本机 DeepSeek，Profile 不保存密钥", async () => {
   for (const agentId of ["creator", "reviewer"]) {
     const manifest = await readJson(path.join(repositoryRoot, "agents", agentId, "manifest.json"));
     const profile = await readJson(path.join(repositoryRoot, manifest.runtimeProfileRef));
     assert.deepEqual(manifest.runtimeCapabilities.modelSelection, {
-      provider:"stepfun",
-      model:"step-3.5-flash-2603"
+      provider:"deepseek",
+      model:"deepseek-v4-flash"
     });
     assert.deepEqual(profile.modelSelection, {
-      provider:"stepfun",
-      model:"step-3.5-flash-2603",
+      provider:"deepseek",
+      model:"deepseek-v4-flash",
       secretStoredHere:false
     });
     assert.equal(profile.secrets.valuesStoredHere, false);
   }
 });
 
-test("11 个自主岗位统一明确 StepFun 模型，私密只读岗位仅开放本机模型且不自主扩权", async () => {
+test("11 个自主岗位统一明确 DeepSeek 模型，私密只读岗位仅开放本机模型且不自主扩权", async () => {
   const entries = await readdir(path.join(repositoryRoot, "agents"), { withFileTypes:true });
   const formalAutonomousAgentIds = [
     "ajun",
@@ -374,14 +371,10 @@ test("11 个自主岗位统一明确 StepFun 模型，私密只读岗位仅开�
       }
       formal.push(manifest);
       assert.deepEqual(manifest.runtimeCapabilities.modelSelection, {
-        provider:"stepfun",
-        model:"step-3.5-flash-2603"
-      });
-      assert.deepEqual(manifest.runtimeCapabilities.fallbackModels, [{
         provider:"deepseek",
-        model:"deepseek-v4-flash",
-        trigger:"transport_unavailable"
-      }]);
+        model:"deepseek-v4-flash"
+      });
+      assert.deepEqual(manifest.runtimeCapabilities.fallbackModels, []);
       assert.equal(manifest.dynamicCapabilityPolicy.modelPolicyMutable, false);
       assert.deepEqual(manifest.dynamicCapabilityPolicy.approvalRequiredFor, [
         "credentials",

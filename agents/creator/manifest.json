@@ -55,16 +55,10 @@
   "runtimeCapabilities": {
     "skills": ["paperclip", "paperclip-create-agent"],
     "modelSelection": {
-      "provider": "stepfun",
-      "model": "step-3.5-flash-2603"
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash"
     },
-    "fallbackModels": [
-      {
-        "provider": "deepseek",
-        "model": "deepseek-v4-flash",
-        "trigger": "transport_unavailable"
-      }
-    ],
+    "fallbackModels": [],
     "mcpTools": [
       "capabilities",
       "task_list",

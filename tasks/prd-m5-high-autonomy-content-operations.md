@@ -37,7 +37,7 @@
 - 确定性 Publisher Gateway、模拟连接器与真实连接器插槽；
 - 内容血缘、审核、发布凭证、指标和学习提案契约；
 - 本机控制台的活动状态、唯一下一步和停止入口；
-- 11 个正式自主 Profile 改用 `stepfun/step-3.5-flash-2603`；DeepSeek 仅在 `transport_unavailable` 时回退。微信私密只读检索岗位属于 A君本地适配能力，不纳入这 11 岗。
+- 11 个正式自主 Profile 按 ADR-0011 改用 `deepseek/deepseek-v4-flash` 且不配置 StepFun 文本回退。微信私密只读检索岗位属于 A君本地适配能力，不纳入这 11 岗；M5 StepFun 多模态工具仍按独立媒体门禁处理。
 - 内容插件固定视觉模型 `step-1o-turbo-vision`、生图/改图模型 `step-image-edit-2` 和 TTS 模型 `stepaudio-2.5-tts`；模型身份必须进入 Provider action、费用事件和产物血缘。
 
 ### 独立授权后实施或验收
@@ -101,7 +101,7 @@
   - live 指标控制器只从同 Case 的可信 PublishReceipt 派生 2h/24h/72h 检查点，并把 MetricSnapshot 写为 Work Product。Publisher 不保存指标计划，也不创建 Cron；
   - A君、小R、小D和小办均已成为可调用的 Paperclip `hermes_local` 岗位；每个岗位只获得自身身份和声明的 M5 任务工具；高风险内容阶段使用无参数 `m5_stage_execute`，调用方不能选择工具、Case、路径或发布参数；
   - 11 个正式 Hermes Profile 的岗位技能白名单已在 live 对账为无额外、无缺失；`xiaod` 原有 78 个额外技能已禁用并保留可恢复路径；
-  - 11 个正式 Hermes Profile 已实际同步到 `stepfun/step-3.5-flash-2603`、岗位 MCP 与精确 Feishu toolset；同步后全军只读 dry-run 为 `0 drift`，11 份逐 Profile 备份目录权限为 `0700`，`gatewayActions=0`。随后 11 岗技能白名单指定复验均为 clean；这些只证明 Profile 配置层，没有重启当前 A君 4321；
+  - 11 个正式 Hermes Profile、本机 Gateway 与 Paperclip Adapter 已切到 `deepseek/deepseek-v4-flash`，回退链为空；A君已切到包含同一策略的 fresh 不可变 release。未执行付费模型探针，因此只证明配置与 live 对账，不证明 DeepSeek 真实调用；
   - v2 已创建 1 个正式但未批准的活动草案 `8dd29a3b…`，`approvedAt=null`、进度 `0/14`；旧 v1 草案已 superseded/cancelled；没有启动活动或执行阶段；
   - “A君定时本机巡检”修复后连续 3 次受控手动 Routine Run 为 `completed`，随后至少 1 次自然定时运行也为 `completed`；更早失败仍保留为历史；
   - 已将 153 条带确定标记的历史巡检失败和 9 条历史验收记录归档为取消/隐藏；不删除记录。当前 blocked/pending 快照为 83 条（16 条 `active_incident`、67 条 `unresolved`），真实故障与未决任务仍保留负责人和恢复动作；

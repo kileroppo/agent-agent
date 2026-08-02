@@ -60,7 +60,7 @@ test('Paperclip Hermes 适配器显式携带受控模型，避免 ChatGPT 授权
   assert.equal(config.model, 'gpt-5.6-terra');
 });
 
-test('Paperclip Hermes 员工统一选择 StepFun，并只在连接不可用时回退 DeepSeek', () => {
+test('Paperclip Hermes 员工统一选择 DeepSeek 固定模型且不配置 StepFun 回退', () => {
   const config = paperclipHermesAdapterConfig({
     agentId:'architect',
     status:'active',
@@ -69,18 +69,16 @@ test('Paperclip Hermes 员工统一选择 StepFun，并只在连接不可用时�
     interaction:{ runtime:'hermes-profile' },
     executionOwner:'paperclip-hermes',
     runtimeCapabilities:{
-      modelSelection:{ provider:'stepfun', model:'step-3.5-flash-2603' },
-      fallbackModels:[{ provider:'deepseek', model:'deepseek-v4-flash', trigger:'transport_unavailable' }],
+      modelSelection:{ provider:'deepseek', model:'deepseek-v4-flash' },
+      fallbackModels:[],
       paperclipToolsets:['agent-army'],
       mcpTools:['approval_list']
     }
   });
-  assert.equal(config.provider, 'stepfun');
-  assert.equal(config.model, 'step-3.5-flash-2603');
+  assert.equal(config.provider, 'deepseek');
+  assert.equal(config.model, 'deepseek-v4-flash');
   assert.deepEqual(config.extraArgs, []);
-  assert.deepEqual(config.fallbackModels, [
-    { provider:'deepseek', model:'deepseek-v4-flash', trigger:'transport_unavailable' }
-  ]);
+  assert.deepEqual(config.fallbackModels, []);
 });
 
 test('Paperclip Hermes 适配器拒绝 Manifest 中未授权的 Provider', () => {
@@ -94,7 +92,7 @@ test('Paperclip Hermes 适配器拒绝 Manifest 中未授权的 Provider', () =>
   }), /Provider 不在受控白名单/);
 });
 
-test('Paperclip Hermes 适配器拒绝 StepFun router 与 DeepSeek 主模型', () => {
+test('Paperclip Hermes 适配器拒绝 StepFun router 与非固定 DeepSeek 主模型', () => {
   const manifest = {
     agentId:'architect',
     status:'active',
@@ -114,9 +112,9 @@ test('Paperclip Hermes 适配器拒绝 StepFun router 与 DeepSeek 主模型', (
     ...manifest,
     runtimeCapabilities:{
       ...runtimeCapabilities,
-      modelSelection:{ provider:'deepseek', model:'deepseek-v4-flash' }
+      modelSelection:{ provider:'deepseek', model:'deepseek-chat' }
     }
-  }), /Provider 不在受控白名单/);
+  }), /DeepSeek 主模型必须使用受控固定版本/);
 });
 
 test('Paperclip Hermes 适配器拒绝非 DeepSeek 或非连接故障触发的 fallback', () => {

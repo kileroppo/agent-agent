@@ -8,11 +8,11 @@
     "gatewayStarted": true,
     "modelSelectionConfigured": true,
     "modelConfigured": true,
-    "credentialedTransportVerified": true,
+    "credentialedTransportVerified": false,
     "credentialedTransportVerification": {
-      "status": "verified-current-model-policy",
-      "primary": { "provider": "stepfun", "model": "step-3.5-flash-2603", "verified": true },
-      "fallback": { "provider": "deepseek", "model": "deepseek-v4-flash", "verified": false }
+      "status": "model-transport-pending",
+      "primary": { "provider": "deepseek", "model": "deepseek-v4-flash", "verified": false },
+      "fallback": null
     },
     "skillsSeeded": true
   },
@@ -20,18 +20,11 @@
   "promptRef": "agents/architect/prompts/system.md",
   "appRef": "apps/ajun-runtime",
   "modelSelection": {
-    "provider": "stepfun",
-    "model": "step-3.5-flash-2603",
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
     "secretStoredHere": false
   },
-  "fallbackModels": [
-    {
-      "provider": "deepseek",
-      "model": "deepseek-v4-flash",
-      "trigger": "transport_unavailable",
-      "secretStoredHere": false
-    }
-  ],
+  "fallbackModels": [],
   "gateway": {
     "platform": "feishu",
     "enabled": false,
