@@ -11,7 +11,7 @@ import { MediaPipeline, deliverToLark } from './pipeline.js';
 import { JobPauseController, JobPauseError } from './job-pause-controller.js';
 import { JobStore } from './store.js';
 import { ConnectionSelectionError, createContentRuntime } from './content-runtime.js';
-import { ConnectionInputError } from '../../../integrations/access/connection-store.js';
+import { ConnectionInputError } from 'ajun-common-access/connection-store';
 import { reviewTranscript, TranscriptReviewError } from './transcript-review.js';
 
 await fs.mkdir(config.workDir, { recursive: true });

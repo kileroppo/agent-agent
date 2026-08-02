@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { M5_PLATFORM_IDS } from '@agent-army/m5-contracts';
 import { coded } from './policy.js';
 import { parseOfficialTransportCost } from './cost-reporting.js';
 import {
@@ -153,7 +154,11 @@ export class DouyinOfficialApiConnector {
 
   async readOwnMetrics(receipt = {}) {
     this.assertEnabled();
-    if (receipt.platform !== 'douyin' || !receipt.accountRef || !receipt.externalContentId) {
+    if (
+      receipt.platform !== M5_PLATFORM_IDS.DOUYIN
+      || !receipt.accountRef
+      || !receipt.externalContentId
+    ) {
       throw coded('invalid_douyin_metric_receipt', '抖音指标查询必须使用本人内容的完整发布回执。');
     }
     const credentials = await this.resolveCredentials(receipt.accountRef, 'read_own_metrics');
@@ -228,7 +233,7 @@ export class DouyinOfficialApiConnector {
     try {
       resolved = await this.credentialResolver({
         accountRef,
-        platform:'douyin',
+        platform:M5_PLATFORM_IDS.DOUYIN,
         purpose,
       });
     } catch {
@@ -302,7 +307,7 @@ export class DouyinOfficialApiConnector {
 }
 
 function validatePublishInput(request, maxUploadBytes) {
-  if (request.platform !== 'douyin') {
+  if (request.platform !== M5_PLATFORM_IDS.DOUYIN) {
     throw coded('douyin_platform_mismatch', '抖音官方连接器只接受 douyin 平台请求。');
   }
   if (!request.campaignId || !request.accountRef || !request.idempotencyKey) {

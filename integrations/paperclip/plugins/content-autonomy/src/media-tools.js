@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { M5_STEPFUN_MODELS } from '@agent-army/m5-contracts';
 import { coded, safeRelativePath, sha256 } from './policy.js';
 import { paidActionStateKey } from './stepfun-tools.js';
 
@@ -18,12 +19,7 @@ const REQUIRED_ARTIFACTS = Object.freeze([
   'review.json',
   'lineage.json'
 ]);
-const PROVIDER_MODELS = Object.freeze({
-  vision:'step-1o-turbo-vision',
-  image_generate:'step-image-edit-2',
-  image_edit:'step-image-edit-2',
-  tts:'stepaudio-2.5-tts',
-});
+const PROVIDER_MODELS = M5_STEPFUN_MODELS;
 
 export async function verifyProviderAction(ctx, params, run) {
   const keys = Object.keys(params || {}).sort();

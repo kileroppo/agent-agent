@@ -44,7 +44,7 @@ test('legacy full-config 导出入口失败关闭并引导使用 Profile sync', 
   assert.deepEqual(toolsetWrites, []);
 });
 
-test('skills-only 只安装已接入岗位门禁的 Paperclip 与办公文档技能且不修改 Gateway', async () => {
+test('skills-only 安装岗位声明的审计技能且不修改 Gateway', async () => {
   const commands = [];
   const copies = [];
   const installs = [];
@@ -72,10 +72,11 @@ test('skills-only 只安装已接入岗位门禁的 Paperclip 与办公文档技
   });
 
   assert.equal(result[0].executionMode, 'skills-only');
-  assert.deepEqual(result[0].skills, ['paperclip', 'docx', 'xlsx', 'pdf']);
+  assert.deepEqual(result[0].skills, ['paperclip', 'docx', 'xlsx', 'pdf', 'yichen-summary']);
   assert.equal(commands.length, 0);
   assert.equal(copies.filter((item) => item.kind === 'file').length, 0);
-  assert.equal(installs.length, 4);
+  assert.equal(installs.length, 5);
+  assert.equal(installs.some((item) => item.sourceLocator.endsWith('/skills-lib/yichen-summary')), true);
   assert.equal(installs.some((item) => item.sourceLocator.endsWith('/skills/productivity/docx')), true);
   assert.equal(installs.some((item) => item.sourceLocator.endsWith('/skills/productivity/xlsx')), true);
   assert.equal(installs.some((item) => item.sourceLocator.endsWith('/skills/productivity/pdf')), true);

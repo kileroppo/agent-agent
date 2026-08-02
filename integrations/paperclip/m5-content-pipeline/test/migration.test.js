@@ -105,9 +105,9 @@ test('v2迁移dry-run只在旧18阶段无活动Case、草案0/14、Cron off和�
     backup:{ healthy:true, reference:'paperclip-backup.sql.gz', verifiedAt:'2026-07-30T07:00:00Z' },
   });
   assert.equal(audit.preconditionsPassed, true);
-  assert.equal(audit.target.stageCount, 15);
-  assert.equal(audit.target.routineCount, 17);
-  assert.equal(audit.target.controllerCount, 5);
+  assert.equal(audit.target.stageCount, 16);
+  assert.equal(audit.target.routineCount, 18);
+  assert.equal(audit.target.controllerCount, 6);
   assert.equal(audit.writesToLivePaperclip, false);
   assert.equal(audit.applySupported, false);
   assert.throws(
@@ -154,7 +154,7 @@ test('clone cutover 审计确认独立v2身份、版本化Routine、显式运行
   const target = buildM5V2CloneDefinition(defaultDefinition);
   assert.equal(target.key, `${defaultDefinition.key}-v2`);
   assert.equal(target.project.key, `${defaultDefinition.project.key}-v2`);
-  assert.equal(target.stages.length, 15);
+  assert.equal(target.stages.length, 16);
 
   const audit = await inspectM5V2CloneCutover({
     adapter,
@@ -166,9 +166,9 @@ test('clone cutover 审计确认独立v2身份、版本化Routine、显式运行
   assert.deepEqual(audit.target, {
     pipelineKey:`${defaultDefinition.key}-v2`,
     projectKey:`${defaultDefinition.project.key}-v2`,
-    stageCount:15,
-    routineCount:17,
-    controllerCount:5,
+    stageCount:16,
+    routineCount:18,
+    controllerCount:6,
     campaignDraftProgress:'0/14',
     cronEnabled:false,
   });
@@ -258,7 +258,7 @@ test('Fake clone cutover 幂等保留v1/22 Cases并创建v2未批准0/14草案�
 
   assert.equal(adapter.state.pipelines.length, 2);
   assert.equal(adapter.state.pipelines.find((item) => item.id === legacyPipelineId).stages.length, 18);
-  assert.equal(adapter.state.pipelines.find((item) => item.key.endsWith('-v2')).stages.length, 15);
+  assert.equal(adapter.state.pipelines.find((item) => item.key.endsWith('-v2')).stages.length, 16);
   assert.equal(adapter.state.cases.filter((item) => item.pipelineId === legacyPipelineId).length, 22);
   assert.equal(adapter.state.cases.filter((item) => item.pipelineId === first.target.pipelineId).length, 1);
   assert.equal(first.target.campaignCaseId, second.target.campaignCaseId);

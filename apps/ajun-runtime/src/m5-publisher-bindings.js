@@ -1,12 +1,13 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
+import { M5_PLATFORMS } from '@agent-army/m5-contracts';
 import {
   PUBLISHER_ACCOUNT_IDENTITY_VERIFIER_SCHEMA,
   PUBLISHER_APPROVAL_SNAPSHOT_SCHEMA,
   PUBLISHER_COST_REPORTER_SCHEMA,
   createProductionPublisherComposition,
   createPublisherRuntime,
-} from '../../../integrations/publishing/m5-publisher-gateway/src/index.js';
+} from '@agent-army/m5-publisher-gateway';
 
 const FAKE_PUBLISH_TOOL = 'publisher.fake_publish';
 
@@ -408,7 +409,7 @@ export class PaperclipPublisherControl {
       service.getRawCase(campaignId),
       service.getDailyRoutineTrigger(),
     ]);
-    const canonicalGrant = campaignCase?.fields?.campaignGrant;
+    const canonicalGrant = campaignCase?.campaignGrant || campaignCase?.fields?.campaignGrant;
     const currentStage = campaignCase?.stageKey || campaignCase?.stage?.key || null;
     const now = validTimestamp(checkedAt) || this.clock();
     const startsAt = Date.parse(canonicalGrant?.startsAt);
@@ -450,7 +451,7 @@ export class PaperclipPublisherControl {
     ]);
     if (
       campaignCase?.id !== campaignId
-      || campaignCase?.fields?.campaignGrant?.status !== 'paused'
+      || (campaignCase?.campaignGrant || campaignCase?.fields?.campaignGrant)?.status !== 'paused'
       || trigger?.enabled !== false
     ) {
       throw new M5PublisherBindingError('Paperclip 没有同时确认 CampaignGrant 已暂停且活动 Cron 已关闭。');
@@ -603,7 +604,7 @@ function normalizePublisherApprovalSnapshot(snapshot, nowValue) {
     const expiresAt = Date.parse(raw?.expiresAt);
     const identity = `${String(raw?.platform || '')}:${String(capability || '')}`;
     if (
-      !['douyin', 'xiaohongshu'].includes(raw?.platform)
+      !M5_PLATFORMS.includes(raw?.platform)
       || !['publish', 'read_own_metrics'].includes(capability)
       || !['douyin_official_api', 'cua', 'xhs_own_metrics_cua']
         .includes(raw?.connectorKind)

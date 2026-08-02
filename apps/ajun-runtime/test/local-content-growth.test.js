@@ -5,6 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { LocalContentCreator, LocalVideoContentAnalyst } from '../src/local-content-growth.js';
+import {
+  defaultM5ProductionTemplateBinding,
+  m5ProductionTemplateBindingHash,
+} from '../src/m5-production-template-resolver.js';
 
 const M5_PIPELINE_CASE_ID = '11111111-1111-4111-8111-111111111111';
 const M5_PROJECT_ID = '22222222-2222-4222-8222-222222222222';
@@ -237,6 +241,29 @@ test('M5 小拆没有受控视觉工具授权时明确等待输入，不以Herme
 
 test('M5 平台适配只从同一 Case 的真实脚本和成片哈希生成 ContentVersion', async (t) => {
   const root = await sandbox(t);
+  const scriptBinding = defaultM5ProductionTemplateBinding();
+  const grayBinding = binding({
+    schemaVersion:'agent.army/production-template-binding/v1',
+    templateVersionId:'template-v2',
+    source:'approved_single_gray',
+    decisionStatus:'gray_ready',
+    decisionWorkProductId:null,
+    templateWorkProductId:'template-product-v2',
+    productionDefault:false,
+    grayRelease:true,
+    grayTargetCaseId:'22222222-2222-4222-8222-222222222222',
+    grayTargetDayCaseId:'11111111-1111-4111-8111-111111111111',
+    grayTargetScheduledDate:'2026-08-09',
+    grayTargetPlatform:'douyin',
+    applicationScope:'full_content_variant',
+    contentGuidance:['只调整抖音平台标题和正文。'],
+    controls:{
+      promptMutation:false,
+      permissionExpansion:false,
+      frequencyIncrease:false,
+      paidPromotion:false,
+    },
+  });
   const scriptTask = taskWithArtifact('m5-script-task', {
     artifactId:'video-script:m5',
     type:'video_script_package',
@@ -244,6 +271,26 @@ test('M5 平台适配只从同一 Case 的真实脚本和成片哈希生成 Cont
     data:{
       hook:'别再看 Agent 会不会说，先看它有没有交付。',
       fullScript:'这是一段基于真实任务结果生成的平台母版脚本。',
+      templateLifecycle:{
+        templateBinding:scriptBinding,
+      },
+      variants:{
+        baseline:{
+          variantKey:'baseline',
+          hook:'别再看 Agent 会不会说，先看它有没有交付。',
+          fullScript:'这是一段基于真实任务结果生成的平台母版脚本。',
+          templateBinding:scriptBinding,
+          scriptHash:scriptHash('这是一段基于真实任务结果生成的平台母版脚本。'),
+        },
+        gray_douyin:{
+          variantKey:'gray_douyin',
+          hook:'先看这次失败后有没有恢复。',
+          fullScript:'这是一段只供抖音灰度的独立脚本，不会进入小红书。',
+          templateBinding:grayBinding,
+          templateGuidanceHash:grayBinding.bindingHash,
+          scriptHash:scriptHash('这是一段只供抖音灰度的独立脚本，不会进入小红书。'),
+        },
+      },
     },
   });
   const renderTask = taskWithArtifact('m5-render-task', {
@@ -253,6 +300,11 @@ test('M5 平台适配只从同一 Case 的真实脚本和成片哈希生成 Cont
     data:{
       relativePath:'campaigns/campaign/day/douyin.mp4',
       checksum:`sha256:${'a'.repeat(64)}`,
+      audioHash:`sha256:${'b'.repeat(64)}`,
+      voiceProviderActionId:'voice-task-01',
+      variantKey:'gray_douyin',
+      templateBindingHash:grayBinding.bindingHash,
+      scriptHash:scriptHash('这是一段只供抖音灰度的独立脚本，不会进入小红书。'),
     },
   });
   const creator = new LocalContentCreator({
@@ -266,9 +318,12 @@ test('M5 平台适配只从同一 Case 的真实脚本和成片哈希生成 Cont
       title:'AI Agent 实战',
       context:{
         paperclipRoutineKey:'m5-platform-adapt',
-        pipelineCaseId:'11111111-1111-4111-8111-111111111111',
+        pipelineCaseId:'22222222-2222-4222-8222-222222222222',
         sourceTaskIds:[scriptTask.taskId, renderTask.taskId],
-        pipelineCase:{ fields:{ platform:'douyin' } },
+        pipelineCase:{
+          parentCaseId:'11111111-1111-4111-8111-111111111111',
+          fields:{ platform:'douyin', scheduledDate:'2026-08-09' },
+        },
       },
     },
   });
@@ -279,18 +334,56 @@ test('M5 平台适配只从同一 Case 的真实脚本和成片哈希生成 Cont
   assert.equal(artifact.data.contentVersion.mediaPath, 'campaigns/campaign/day/douyin.mp4');
   assert.equal(artifact.data.contentVersion.checksum, `sha256:${'a'.repeat(64)}`);
   assert.match(artifact.data.contentVersion.contentVersionId, /^m5:douyin:[0-9a-f]{40}$/);
+  assert.equal(artifact.data.contentVersion.templateVersionId, 'template-v2');
+  assert.equal(artifact.data.contentVersion.dayCaseId, '11111111-1111-4111-8111-111111111111');
+  assert.equal(artifact.data.contentVersion.platformCaseId, '22222222-2222-4222-8222-222222222222');
+  assert.equal(artifact.data.contentVersion.templateWorkProductId, 'template-product-v2');
+  assert.equal(artifact.data.contentVersion.grayRelease, true);
+  assert.equal(artifact.data.contentVersion.title, '先看这次失败后有没有恢复。');
+  assert.equal(artifact.data.contentVersion.templateApplication.mode, 'verified_full_content_variant');
   assert.equal(artifact.data.publishingStatus, 'draft_only');
+
+  const wrongTarget = await creator.execute({
+    taskId:'m5-platform-task-wrong-target',
+    taskType:'content.platform-draft',
+    input:{
+      title:'AI Agent 实战',
+      context:{
+        paperclipRoutineKey:'m5-platform-adapt',
+        pipelineCaseId:'33333333-3333-4333-8333-333333333333',
+        sourceTaskIds:[scriptTask.taskId, renderTask.taskId],
+        pipelineCase:{
+          parentCaseId:'11111111-1111-4111-8111-111111111111',
+          fields:{ platform:'douyin', scheduledDate:'2026-08-09' },
+        },
+      },
+    },
+  });
+  assert.equal(wrongTarget.status, 'needs_input');
+  assert.equal(wrongTarget.error.code, 'm5_gray_target_mismatch');
 });
 
 test('M5 平台适配从三份 RenderPackage 中选择当前平台成片', async (t) => {
   const root = await sandbox(t);
+  const baselineBinding = defaultM5ProductionTemplateBinding();
+  const baselineText = '真实工具结果必须进入下一步。';
   const scriptTask = taskWithArtifact('m5-script-three-output', {
     artifactId:'video-script:m5-three-output',
     type:'video_script_package',
     validation:{ exists:true, readable:true, nonEmpty:true },
     data:{
       hook:'看真实产出',
-      fullScript:'真实工具结果必须进入下一步。',
+      fullScript:baselineText,
+      templateLifecycle:{ templateBinding:baselineBinding },
+      variants:{
+        baseline:{
+          variantKey:'baseline',
+          hook:'看真实产出',
+          fullScript:baselineText,
+          templateBinding:baselineBinding,
+          scriptHash:scriptHash(baselineText),
+        },
+      },
     },
   });
   const renderTask = taskWithArtifact('m5-render-three-output', {
@@ -302,14 +395,25 @@ test('M5 平台适配从三份 RenderPackage 中选择当前平台成片', async
         master:{
           outputPath:'campaigns/day/master.mp4',
           checksum:`sha256:${'a'.repeat(64)}`,
+          audioHash:`sha256:${'b'.repeat(64)}`,
+          voiceProviderActionId:'voice-task-01',
         },
         douyin:{
           outputPath:'campaigns/day/douyin.mp4',
           checksum:`sha256:${'b'.repeat(64)}`,
+          audioHash:`sha256:${'c'.repeat(64)}`,
+          voiceProviderActionId:'voice-task-02',
+          templateBindingHash:baselineBinding.bindingHash,
+          scriptHash:scriptHash(baselineText),
         },
         xiaohongshu:{
           outputPath:'campaigns/day/xiaohongshu.mp4',
           checksum:`sha256:${'c'.repeat(64)}`,
+          audioHash:`sha256:${'d'.repeat(64)}`,
+          voiceProviderActionId:'voice-task-03',
+          variantKey:'baseline',
+          templateBindingHash:baselineBinding.bindingHash,
+          scriptHash:scriptHash(baselineText),
         },
       },
     },
@@ -327,7 +431,10 @@ test('M5 平台适配从三份 RenderPackage 中选择当前平台成片', async
         paperclipRoutineKey:'m5-platform-adapt',
         pipelineCaseId:'11111111-1111-4111-8111-111111111111',
         sourceTaskIds:[scriptTask.taskId, renderTask.taskId],
-        pipelineCase:{ fields:{ platform:'xiaohongshu' } },
+        pipelineCase:{
+          parentCaseId:'33333333-3333-4333-8333-333333333333',
+          fields:{ platform:'xiaohongshu', scheduledDate:'2026-08-09' },
+        },
       },
     },
   });
@@ -336,6 +443,9 @@ test('M5 平台适配从三份 RenderPackage 中选择当前平台成片', async
   const contentVersion = result.artifactRefs[0].data.contentVersion;
   assert.equal(contentVersion.mediaPath, 'campaigns/day/xiaohongshu.mp4');
   assert.equal(contentVersion.checksum, `sha256:${'c'.repeat(64)}`);
+  assert.equal(contentVersion.templateVersionId, 'm5-template-default-v1');
+  assert.equal(contentVersion.templateApplication.variantKey, 'baseline');
+  assert.equal(contentVersion.grayRelease, false);
 });
 
 test('M5 平台适配缺少真实 RenderPackage 时失败闭锁', async (t) => {
@@ -1000,6 +1110,17 @@ function analysisArtifact(evidenceMode) {
 
 function taskWithArtifact(taskId, artifact) {
   return { taskId, artifactRefs:[artifact], status:'succeeded' };
+}
+
+function binding(value) {
+  return {
+    ...value,
+    bindingHash:m5ProductionTemplateBindingHash(value),
+  };
+}
+
+function scriptHash(value) {
+  return `sha256:${crypto.createHash('sha256').update(String(value)).digest('hex')}`;
 }
 
 async function sandbox(t) {

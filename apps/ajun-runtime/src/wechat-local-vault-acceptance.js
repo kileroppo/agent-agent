@@ -2,8 +2,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ContentAcquisitionCenter } from '../../../integrations/access/content-acquisition-center.js';
-import { WeChatLocalVaultAdapter } from '../../../integrations/access/wechat-local-vault-adapter.js';
+import { ContentAcquisitionCenter } from 'ajun-common-access/content-acquisition-center';
+import { WeChatLocalVaultAdapter } from 'ajun-common-access/wechat-local-vault-adapter';
 
 const CAPABILITY = 'wechat.local-vault.chat.read';
 
@@ -38,6 +38,7 @@ export class WeChatLocalVaultAcceptance {
     const adapter = new WeChatLocalVaultAdapter({
       scopeResolver:async (value) => value === approvalRef ? scope : null,
       runVaultQuery:async () => ({ messages:syntheticMessages }),
+      healthStatus:'healthy',
       now:this.now
     });
     const center = new ContentAcquisitionCenter({

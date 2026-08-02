@@ -1,3 +1,4 @@
+import { M5_PLATFORM_IDS } from '@agent-army/m5-contracts';
 import { coded } from './policy.js';
 
 export const XHS_OWN_METRIC_CONTEXT_SCHEMA =
@@ -94,7 +95,7 @@ export function normalizeXhsOwnMetricObservation({
     collectionKey:expectedCollectionKey,
     checkpoint,
     receiptId:receipt.receiptId,
-    platform:'xiaohongshu',
+    platform:M5_PLATFORM_IDS.XIAOHONGSHU,
     accountRef:receipt.accountRef,
     externalContentId:receipt.externalContentId,
     contentVersionId:receipt.contentVersionId,
@@ -120,7 +121,7 @@ export function normalizeXhsOwnMetricObservation({
 function validateReceipt(value) {
   if (
     !value
-    || value.platform !== 'xiaohongshu'
+    || value.platform !== M5_PLATFORM_IDS.XIAOHONGSHU
     || !RECEIPT_ID.test(String(value.receiptId || ''))
     || !REFERENCE.test(String(value.accountRef || ''))
     || !EXTERNAL_CONTENT_ID.test(String(value.externalContentId || ''))

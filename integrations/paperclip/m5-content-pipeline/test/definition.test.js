@@ -16,16 +16,16 @@ import {
 
 const uuid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
-test('复盘是可执行工作阶段，完成后才进入独立done终态', () => {
+test('复盘和学习灰度是可执行工作阶段，完成后才进入独立done终态', () => {
   const valid = validateDefinition(defaultDefinition);
-  assert.equal(valid.stages.length, 15);
+  assert.equal(valid.stages.length, 16);
   assert.equal(valid.stages[0].key, 'draft');
   assert.equal(valid.stages[0].routineKey, undefined);
   assert.equal(valid.stages[1].key, 'campaign_active');
   assert.equal(valid.stages[1].routineKey, undefined);
-  assert.deepEqual(valid.stages.slice(2, 13).map((stage) => stage.name), [
+  assert.deepEqual(valid.stages.slice(2, 14).map((stage) => stage.name), [
     '选题', '并行工作汇聚门禁', '脚本', '渲染',
-    '机器审核', '平台适配', '发布审批', '发布', '核验', '指标回流', '复盘',
+    '机器审核', '平台适配', '发布审批', '发布', '核验', '指标回流', '复盘', '学习灰度',
   ]);
   assert.deepEqual(
     valid.stages.find((stage) => stage.key === 'retrospective'),
@@ -39,7 +39,7 @@ test('复盘是可执行工作阶段，完成后才进入独立done终态', () =
   );
   assert.equal(valid.stages.find((stage) => stage.key === 'done').kind, 'done');
   assert.equal(valid.stages.find((stage) => stage.key === 'parallel_join_gate').owner, 'operator');
-  assert.equal(valid.stages[14].kind, 'cancelled');
+  assert.equal(valid.stages[15].kind, 'cancelled');
   const routineIds = Object.fromEntries(
     valid.stages.filter((stage) => stage.routineKey).map((stage, index) => [stage.routineKey, uuid(index + 30)]),
   );
@@ -69,8 +69,9 @@ test('复盘是可执行工作阶段，完成后才进入独立done终态', () =
     publisherControllerAgentId:uuid(94),
     retrospectiveControllerAgentId:uuid(95),
     parallelControllerAgentId:uuid(96),
+    learningControllerAgentId:uuid(97),
   });
-  assert.equal(plan.resources.pipeline.payload.stages.length, 15);
+  assert.equal(plan.resources.pipeline.payload.stages.length, 16);
   assert.deepEqual(plan.resources.pipeline.payload.stages[0].config.onEnter, undefined);
   assert.equal(plan.resources.pipeline.payload.stages[0].config.autoAdvanceOnChildrenTerminal, null);
   assert.deepEqual(plan.resources.pipeline.payload.stages[1].config.onEnter, undefined);
@@ -80,6 +81,9 @@ test('复盘是可执行工作阶段，完成后才进入独立done终态', () =
   ));
   assert.ok(plan.resources.pipeline.transitions.some((edge) =>
     edge.fromStageKey === 'retrospective' && edge.toStageKey === 'done',
+  ));
+  assert.ok(plan.resources.pipeline.transitions.some((edge) =>
+    edge.fromStageKey === 'retrospective' && edge.toStageKey === 'learning',
   ));
   assert.ok(plan.resources.pipeline.transitions.some((edge) =>
     edge.fromStageKey === 'script' && edge.toStageKey === 'parallel_join_gate',
@@ -147,6 +151,7 @@ test('复盘是可执行工作阶段，完成后才进入独立done终态', () =
     plan.resources.metricsController,
     plan.resources.publisherController,
     plan.resources.retrospectiveController,
+    plan.resources.learningController,
     plan.resources.parallelController,
   ].map(({ payload }) => payload.name
     .trim()
@@ -158,6 +163,7 @@ test('复盘是可执行工作阶段，完成后才进入独立done终态', () =
     'm5-metrics',
     'm5-publisher',
     'm5-retrospective',
+    'm5-learning',
     'm5-parallel',
   ]);
   assert.equal(new Set(controllerShortnames).size, controllerShortnames.length);
@@ -167,9 +173,10 @@ test('复盘是可执行工作阶段，完成后才进入独立done终态', () =
       plan.resources.metricsController,
       plan.resources.publisherController,
       plan.resources.retrospectiveController,
+      plan.resources.learningController,
       plan.resources.parallelController,
     ].map(({ payload }) => payload.icon),
-    ['cog', 'radar', 'rocket', 'brain', 'git-branch'],
+    ['cog', 'radar', 'rocket', 'brain', 'flask-conical', 'git-branch'],
   );
   assert.match(
     plan.resources.routines.find((item) => item.key === 'm5-render').payload.description,

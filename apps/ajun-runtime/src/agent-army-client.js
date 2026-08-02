@@ -804,7 +804,12 @@ function approvalView(approval = {}) {
       taskType:safeText(approval.requestedScope.taskType, 120),
       assigneeAgentId:safeText(approval.requestedScope.assigneeAgentId, 80) || null
     } : null,
-    validUntil:approval.validUntil || null
+    validUntil:approval.validUntil || null,
+    privateReadGrantStatus:approval.privateReadGrantStatus ? {
+      status:safeText(approval.privateReadGrantStatus.status, 40),
+      remainingUses:Number(approval.privateReadGrantStatus.remainingUses) || 0,
+      expiresAt:approval.privateReadGrantStatus.expiresAt || null
+    } : null
   };
 }
 

@@ -1,0 +1,30 @@
+{
+  "name": "@agent-army/m5-kernel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M5 Campaign/Case 领域编排内核与受控 Paperclip 适配层。",
+  "exports": {
+    ".": "./src/index.js",
+    "./campaign-domain": "./src/campaign-domain.js",
+    "./content-version": "./src/content-version.js",
+    "./parallel-work-coordinator": "./src/parallel-work-coordinator.js",
+    "./paperclip-content-autonomy-preflight": "./src/paperclip-content-autonomy-preflight.js",
+    "./paperclip-content-autonomy-snapshot": "./src/paperclip-content-autonomy-snapshot.js",
+    "./production-template-binding": "./src/production-template-binding.js",
+    "./route-execution": "./src/route-execution.js",
+    "./routine-execution-contract": "./src/routine-execution-contract.js",
+    "./stage-recovery-controller": "./src/stage-recovery-controller.js",
+    "./work-product-integrity": "./src/work-product-integrity.js"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "for file in src/*.js; do node --check \"$file\"; done"
+  },
+  "dependencies": {
+    "@agent-army/m5-contracts": "0.1.0",
+    "@agent-army/m5-content-pipeline": "0.1.0",
+    "@agent-army/paperclip-client": "0.1.0",
+    "@agent-army/paperclip-content-autonomy": "0.4.9"
+  }
+}

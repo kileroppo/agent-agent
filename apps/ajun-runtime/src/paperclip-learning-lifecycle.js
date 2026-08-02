@@ -3,9 +3,15 @@ import {
   M5LearningLifecycleError,
 } from './m5-learning-lifecycle.js';
 
-const SYSTEM_ROLE = 'm5-retrospective-controller';
+const SYSTEM_ROLE = 'm5-learning-controller';
 const ROUTINE_MARKER = '[agent-army:m5:routine:m5-learning]';
 const TERMINAL_STATES = new Set(['validated', 'rolled_back', 'rejected']);
+const AUTO_ADVANCE_CREATED_KINDS = new Set([
+  'OfflineReplay',
+  'TemplateVersion',
+  'TemplateGrayRelease',
+]);
+const MAX_ADVANCES_PER_HEARTBEAT = 8;
 const UUID = '[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}';
 
 export class PaperclipLearningLifecycleHandler {
@@ -57,10 +63,23 @@ export class PaperclipLearningLifecycleHandler {
         'HTTP 控制器只接受 M5 学习 Routine 的固定任务。',
       );
     }
-    const caseId = learningCaseBinding(issue.description);
+    const { caseId, caseVersion } = learningCaseBinding(issue.description);
     await this.governance.assertCaseIssueLink(caseId, issueId);
-    const result = await this.lifecycle.advance({ caseId, issueId, runId });
+    const result = await this.advanceToBoundary({ caseId, issueId, runId });
     const terminal = TERMINAL_STATES.has(result.state);
+    if (terminal) {
+      const currentCase = normalizeCase(await this.governance.getPipelineCase(caseId));
+      if (currentCase.stageKey === 'learning' && currentCase.version === caseVersion) {
+        await this.governance.transitionPipelineCase(caseId, {
+          expectedVersion:caseVersion,
+          toStageKey:'done',
+        }, { runId });
+      } else if (currentCase.stageKey !== 'done' || currentCase.version !== caseVersion + 1) {
+        throw new PaperclipLearningLifecycleError(
+          '模板决定与当前 Paperclip Case 学习阶段或版本不一致。',
+        );
+      }
+    }
     await this.governance.updateLearningIssue(issueId, {
       runId,
       status:terminal
@@ -73,14 +92,30 @@ export class PaperclipLearningLifecycleHandler {
       terminal,
       issueId,
       caseId,
+      caseVersion,
       ...result,
     };
+  }
+
+  async advanceToBoundary(context) {
+    for (let attempt = 1; attempt <= MAX_ADVANCES_PER_HEARTBEAT; attempt += 1) {
+      const result = await this.lifecycle.advance(context);
+      if (
+        result?.replayed !== false
+        || !AUTO_ADVANCE_CREATED_KINDS.has(result?.createdKind)
+      ) return result;
+    }
+    throw new PaperclipLearningLifecycleError(
+      'M5 学习生命周期单次 heartbeat 超过安全推进上限。',
+    );
   }
 
   assertDependencies() {
     const required = [
       'verifySystemAssignment',
       'assertCaseIssueLink',
+      'getPipelineCase',
+      'transitionPipelineCase',
       'updateLearningIssue',
     ];
     if (
@@ -97,15 +132,25 @@ export class PaperclipLearningLifecycleHandler {
 export class PaperclipLearningLifecycleError extends Error {}
 
 function learningCaseBinding(description) {
-  const match = String(description || '').match(
+  const text = String(description || '');
+  const caseId = text.match(
     new RegExp(`(?:Case|case)(?:\\s*ID)?\\s*(?:为|:|=)\\s*(${UUID})`, 'i'),
-  );
-  if (!match) {
+  )?.[1];
+  const caseVersion = Number(text.match(/版本为\s*(\d+)/)?.[1]);
+  if (!caseId || !Number.isInteger(caseVersion) || caseVersion <= 0) {
     throw new PaperclipLearningLifecycleError(
-      'M5 学习任务缺少固定 Case 绑定。',
+      'M5 学习任务缺少固定 Case 与版本绑定。',
     );
   }
-  return match[1];
+  return { caseId, caseVersion };
+}
+
+function normalizeCase(value) {
+  const item = value?.case ?? value;
+  return {
+    ...item,
+    stageKey:item?.stageKey ?? value?.stage?.key ?? item?.stage?.key ?? null,
+  };
 }
 
 function learningComment(result) {
@@ -115,6 +160,9 @@ function learningComment(result) {
   }
   if (result.state === 'waiting_single_gray_content') {
     return `模板版本已批准，只等待一条绑定该版本的灰度内容${product}。`;
+  }
+  if (result.state === 'waiting_gray_target_case') {
+    return `模板提案已批准，但当前活动没有尚未执行的日期 Case；等待下一条可预约灰度内容${product}。`;
   }
   if (result.state === 'waiting_gray_quality_and_72h_metric') {
     return `单条灰度已登记，等待机器审核与72小时本人内容指标${product}。`;

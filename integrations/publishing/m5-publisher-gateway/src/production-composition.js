@@ -1,3 +1,7 @@
+import {
+  M5_PLATFORM_IDS,
+  M5_PLATFORMS,
+} from '@agent-army/m5-contracts';
 import { coded } from './policy.js';
 import {
   assertPublisherCapabilityIsolation,
@@ -86,7 +90,7 @@ function validateApprovalSnapshot(value, now) {
   );
   if (
     value.approvals.some(
-      (item) => !['douyin', 'xiaohongshu'].includes(item?.platform),
+      (item) => !M5_PLATFORMS.includes(item?.platform),
     )
     || new Set(approvalIdentities).size !== approvalIdentities.length
   ) {
@@ -139,7 +143,10 @@ function buildApprovedConnectorMap(approvals, dependencies = {}) {
   for (const approval of approvals.filter(
     (item) => (item.capability || 'publish') === 'publish',
   )) {
-    if (approval.connectorKind === 'douyin_official_api' && approval.platform === 'douyin') {
+    if (
+      approval.connectorKind === 'douyin_official_api'
+      && approval.platform === M5_PLATFORM_IDS.DOUYIN
+    ) {
       const dependency = dependencies.douyinOfficialApi;
       if (
         typeof dependency?.httpRequest !== 'function'
@@ -192,7 +199,7 @@ function buildApprovedMetricConnectorMap(approvals, dependencies = {}) {
     (item) => item.capability === 'read_own_metrics',
   )) {
     if (
-      approval.platform === 'xiaohongshu'
+      approval.platform === M5_PLATFORM_IDS.XIAOHONGSHU
       && approval.connectorKind === 'xhs_own_metrics_cua'
     ) {
       const dependency = dependencies.xhsOwnMetricsCua;
@@ -218,7 +225,7 @@ function buildApprovedMetricConnectorMap(approvals, dependencies = {}) {
       continue;
     }
     if (
-      approval.platform === 'douyin'
+      approval.platform === M5_PLATFORM_IDS.DOUYIN
       && approval.connectorKind === 'douyin_official_api'
     ) {
       const dependency = dependencies.douyinOfficialApi;

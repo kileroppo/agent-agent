@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "description": "M5 内容自治的 Paperclip 业务插件，只补 StepFun、多媒体和发布策略缺口。",
+  "exports": {
+    "./role-tool-bundles": "./src/role-tool-bundles.js",
+    "./signed-budget-ticket": "./src/signed-budget-ticket.js",
+    "./seven-theme-batch": "./scripts/run-seven-theme-stepfun-batch.mjs"
+  },
   "scripts": {
     "test": "node --test",
     "check": "for file in src/*.js scripts/*.mjs; do node --check \"$file\"; done",
@@ -20,6 +25,7 @@
     "worker": "./src/worker.js"
   },
   "dependencies": {
+    "@agent-army/m5-contracts": "0.1.0",
     "@paperclipai/plugin-sdk": "2026.722.0",
     "@paperclipai/shared": "2026.722.0"
   }

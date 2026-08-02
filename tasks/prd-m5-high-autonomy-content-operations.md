@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 并行 v2 的 15/17/5 结构已安全克隆到 live；11 个正式 Hermes Profile 已实际同步并 post dry-run `0 drift`，技能白名单 `11/11 clean`；内容插件候选源码 `0.4.9` 已通过本地测试 `97/97` 和 `check`，`0.4.8` 仅为历史候选，但 Paperclip live 仍为 `0.4.7 ready` 且未安装 `0.4.9`。当前 A君 `4321` 仍未重启，Publisher 关闭，真实 M5 Campaign 的 StepFun 视觉调用、Run-JWT/恢复兼容补丁加载、活动和外部发布均未完成，因此 M5 未完成 |
+| 状态 | 当前源码候选为 16 阶段 / 18 Routine（17 阶段/分支 + 1 daily）/ 6 无模型控制器；r3 已冻结、main/recovery smoke 通过但未激活。live 仍为 15/17/5，活动 `0/14`、Cron 与 Publisher 关闭；本轮没有真实 Provider 调用或平台发布，因此 M5 未完成 |
 | 负责人 | A君 |
 | 创建时间 | 2026-07-30 |
 | 上游 | [Agent军团总 PRD](./prd-agent-army-master.md) |
@@ -19,7 +19,7 @@
 
 - A君能创建、批准、暂停、恢复和停止一条内容活动；
 - 每个执行步骤由 Paperclip Issue/Case/Run 保存负责人、能力、预算、输入产物、Observation、重试和恢复信息；
-- 恢复必须由执行器真实消费 `m5Recovery`：只有业务输入哈希、实际工具集合或执行策略发生变化时才允许记录 `routeChanged=true`；岗位文字声明不能替代执行回执，同一路线重复失败按既有重试/重规划上限推进至 `blocked`；
+- 恢复必须由执行器真实消费 `m5Recovery`：只有业务输入哈希、实际工具集合或执行策略发生变化时才允许记录 `routeChanged=true`；岗位文字声明不能替代执行回执，同一路线重复失败按既有重试/重规划上限推进至 `blocked`。运行时切换恢复区分 `exact_previous` 与 `verified_degraded_fallback`；没有内置可信状态采集器和状态快照证明时，两者都失败关闭；
 - 小R、小D、小拆、小创、审核官、运维官和小办使用 Paperclip agent tool grants 与隔离 Hermes Profile，不另建 SkillBundle 注册表；
 - 小R 的研究与证据产物采用逐 claim 证据绑定：每条事实 claim 必须保存真正支持它的 `sourceIds` 和逐来源 `evidenceFragments`；M5 来源必须具备公开 URL、抓取时间和正文内容哈希，GitHub 搜索元数据只能用于发现线索，不能直接算事实证据；
 - Publisher Gateway 只执行通过活动授权和机器审核的确定性动作；
@@ -83,24 +83,15 @@
 ## 7. 当前实施结论（2026-07-31）
 
 - 本地已实现：
-  - 并行 v2 目标源码声明 15 阶段 Pipeline：2 个无唤醒活动控制阶段、11 个业务阶段、独立 `done` 与 `cancelled` 终态；对应 17 个 Routine 和 5 个无模型 HTTP 控制器（daily、parallel、publisher、metrics、retrospective）。研究、证据、画面分析和生图通过 Paperclip 子 Case/blocker 并行，配音等待脚本，四项可信 Work Product 由无模型汇聚控制器核验后才解锁渲染；
+  - 当前源码候选声明 16 阶段 Pipeline、18 个 Routine（17 个阶段/分支 Routine + 1 个 daily Routine）和 6 个无模型 HTTP 控制器（daily、parallel、publisher、metrics、retrospective、learning）。研究、证据、画面分析和生图通过 Paperclip 子 Case/blocker 并行，配音等待脚本，四项可信 Work Product 由无模型汇聚控制器核验后才解锁渲染；这只是源码候选，live 仍为 15/17/5；
+  - 灰度日不是“同一文案换标题”：`baseline` 独立驱动 `master.mp4` 与小红书版，`gray_douyin` 独立驱动抖音版。两条变体必须分别绑定脚本、TTS、渲染、机器审核、模板版本、目标日期 Case、平台 Case 与内容血缘；缺少任一完整变体、跨平台串线或哈希重复都失败关闭；
   - 内容自治插件 live `0.4.7` 的 14 个工具，包括 StepFun 多模态、FFmpeg/FFprobe、受控 Remotion、固定 9 项产物包、产物血缘和发布前门禁；live 已从 `content-autonomy-bundle-0.4.7-cac8390a…4723c13` 不可变净包安装并处于 `ready`。净包清单含 20,012 项，精确排除 `apps/animated-chart/out/**`、`public/m5-*/**` 与 Remotion 根缓存 `node_modules/.cache/**`，同时保留完整运行依赖；`0.4.6` 不可变包和 Paperclip `2026.722.0` 二进制兼容回滚链保留；
   - 无模型 Publisher Gateway 已覆盖双平台幂等、失败暂停、发布凭证和显式指标采集；抖音官方 API connector 已完成上传/创建/查询/本人指标的依赖注入源码契约，production composition 与 A君延迟授权代码也已接线，但 live 未注入 production access 或真实 connector dependencies，真实 Runtime 仍未启用；2h/24h/72h 调度由 Paperclip 原生 Issue Monitor 承担；
   - 发布控制器从可信 Case、CampaignGrant 和已审核 ContentVersion 派生唯一动作，将 `PublishReceipt` 作为专用 Work Product 写回；指标控制器将 `MetricSnapshot` 写回；复盘控制器写入版本化 Retrospective Work Product；
   - 复盘少于 5 条同类型真实 72h `MetricSnapshot` 时只记录 `insufficient_sample`，达到 5 条才生成状态为 `proposed` 的 `LearningProposal`；提案必须离线回放、审核和单条灰度，不能直接修改生产 Prompt、权限、频率或投流；
   - A君内容活动 API、控制台、CampaignGrant、暂停/恢复/停止与“插件或公司级配置不完整即关闭”的失败关闭边界；
   - Paperclip `2026.722.0` 对象形 `secret_ref` 契约；旧字符串引用、缺失 Secret 元数据/绑定、未配置 Provider、岗位 grant、费率、官方音色或工作区会在活动批准/恢复前被只读门禁拒绝，门禁不解析 Secret 值。
-- 自动化证据：目标 Pipeline `67/67`、Fake E2E `5/5`、内容自治插件候选源码
-  `0.4.9` 为 `97/97` 且 `check` 通过（`0.4.8` 仅为历史候选）、Paperclip 集成 `48/48`、Publisher Gateway `203/203`、A君全量 `1004/1004`、岗位 Manifest
-  `15/15` 已通过；内容插件 live 仍为 `0.4.7` 且未安装 `0.4.9`，新增视觉与原生血缘硬化当前只有源码/本地证据。本轮
-  源码根/隔离修理副本/候选发版聚焦回归 `139/139`，`task-store` 与飞书 completion
-  watcher 本机持久状态权限回归 `15/15`，不可变 release 专项 `11/11`、与
-  runtime-source-root 联合回归 `18/18`。controller
-  cutover `15/15`、恢复 provider composition `43/43`、相关 server/controller `84/84`
-  和语义门禁自测 `72/72` 也已通过，以
-  最新验收账本为准。当前
-  `npm run validate` 返回 v2 源码目标 15 阶段。它们只证明本地代码、Fake 平台、
-  默认关闭的 CuaDriver runner、注入式抖音官方 API 契约与门禁，不替代真实平台验收。
+- 当前自动化证据：A君 `1051/1051`、Pipeline `67/67`、内容插件 `97/97`、Publisher `203/203`。结果覆盖当前 16/18/6 契约、真实双变体、模板绑定、Publisher 六项 Paperclip 核心 access 和恢复失败关闭；只证明本地源码与测试 fixture，不替代 live、StepFun Provider、Computer Use 或真实平台验收。
 - 当前控制面与运行事实：
   - live v2 为 M5 Goal、Project `86ad0a0a…`、17 个有效 Routine、15 阶段 Pipeline `6dfd94da…`，以及 daily、parallel、publisher、metrics、retrospective 5 个无模型 HTTP 控制器；没有分支引用且从未触发的旧 `m5-research` Routine 已归档并保留记录。归档后的只读 reconcile/dry-run 为有效 Routine `17/17`、转换 `16/16`、blocker 0，草案仍为 `0/14`、Cron off；旧 v1 Pipeline 和 22 个 Case 原样保留；
   - 13 条 M5 Budget 策略分别覆盖公司、Project 和 11 个正式岗位，每条均是 625 美分的同一分层硬上限，不能相加为总预算；公司与 M5 v2 Project 当前累计均为 392 分，剩余 233 分。Paperclip `cost-events` 是按配置记录的保守项目成本，不等于 StepFun 官方最终账单；
@@ -119,8 +110,8 @@
   - 通用 Hermes one-shot 已移除 `--ignore-rules`，普通调用固定为 `clarify`，只有无 Provider 的受控故事板分支允许 `vision`；正式画面分析只能由当前 Paperclip Run 的单用途回调调用，绑定固定 action、相对 PNG、帧哈希、时间点、confirmed receipt 和同一 Project。新产物与已有视觉 Work Product 重放使用同一校验，漂移时阻塞且不覆盖；渲染必须实际消费可信 `GeneratedImagePackage`，机器审核必须反查同 Project 的图片、视觉、TTS 三条 confirmed action/cost。`0.4.9` 已冻结为候选包：`payloadHash=b64760f6c00e2031d5a5ae51fac4a76e26183698e1bb9bf536e407fd27592c0d`、`entryCount=19986`、`manifestSha256=dabf16ac255eec3348e5800239f907793db1c1e507d1aa2820cd57fb71ec8dd7`、独立全目录哈希 `82f75845b927c8fa817e45e8e4d588338c7131677f2681c7297dba987db0c8bd`，路径为 `work/m5-content-autonomy/plugin-packages/content-autonomy-bundle-0.4.9-b64760f6c00e2031d5a5ae51fac4a76e26183698e1bb9bf536e407fd27592c0d/`。为搬移候选包，仅 bundle 根目录由 `0555` 短暂调整为 `0755`，内部未改；完成后根恢复 `0555`、manifest 保持 `0444`，独立复算与安全审计放行。但 live `0.4.7` 和旧 A君进程均未加载，也没有真实 M5 Campaign StepFun 视觉调用；
   - A君的技术修复链已把运行 release 与可写源码根分离：源码根必须是显式指定、clean、可验证身份的外置 Git 根，隔离 Worktree 绑定 task、Git common-dir、HEAD 和精确修复范围；越界路径、错误归属、源码漂移及部分 promotion 失败均失败关闭或回滚。外置源码修复成功也只返回 `candidate_promoted`、进入 `repair_candidate_awaiting_release`，必须再生成并验证新的不可变 release，不能把候选源码误报成当前运行版本已修复。聚焦回归为 `139/139`；
   - `task-store` 与飞书 completion watcher 的本机持久状态权限回归为 `15/15`：每次写入使用唯一临时文件、`wx`/0600、原子 rename 和 rename 后 chmod，既有 0644 文件收敛到 0600；失败时保留旧文件且不误删无关临时文件。本轮只在临时 fixture 验证，没有直接 chmod 真实数据；
-  - 不可变 A君 runtime release 专项为 `11/11`，与 runtime-source-root 联合回归为 `18/18`。本轮 clean source commit `33aa25bd7ff7431d64467fca87866d299caa9857` 已冻结为 `work/m5-runtime-releases/m5-8point-20260731-r2/ajun-runtime-release-v1-1c7f244ddaae055f336340ac0de566569012af3d39a6e66e8df528fda46ce0ef/`：`releaseHash=1c7f244ddaae055f336340ac0de566569012af3d39a6e66e8df528fda46ce0ef`、`payloadHash=7bd23d48db1f66583d854a28d420498e60e884e261a10171c4767e818156c910`、`entryCount=7571`、`manifestSha256=102daa78172a8857e7151d1a619d6868fb30f97cad1b48e8751ca93b5feb128c`、独立全目录哈希 `efc8967c6662b645f3018c0b6386231006f21b45f561a932e88df03799eb4b88`。冻结包隔离启动后 `/api/overview` 为 200，SIGTERM 正常退出；staging 与 final 先分别 official validate，随后仅将自产 staging 移至 `~/.Trash/agent-army-staging-1c7f244ddaae055f-20260731`，final 再次 validate 通过。未修改 live、plist，未重启现有 A君，未外发；
-  - `5c4b463…` / `025d4816…` 旧 clean 包保留为历史失效候选，`0767604f…` dirty 候选继续隔离。新侧已具备 clean provenance 和 startup 证据，但旧运行版仍无法从现状精确重建为独立 rollback release/源码根；因此 cutover/rollback 继续 blocked，不能把历史 `025d4816…`、仓库 HEAD 或 dirty 候选冒充旧版精确回滚包；
+  - r3 已从 source commit `ae1e857dbeba0c12febd5575e10ccd0990d20bd0` 冻结为未激活候选，本轮候选范围 41 个文件；`releaseHash=fed585fae5bd564fa42ceae086fa299d04aa922229a959046806770f346d4517`、`payloadHash=18728449689cd7d6d272d077cb9ec3ad64e52b4762fa59580c0934a89448d6a9`、`manifestSha256=c95dc4d421e6adee28d0f4011c27adc4645a973485295bc573fa0f60428046ae`，main/recovery smoke 均通过。r2 仅为历史候选；
+  - runtime 切换恢复明确分为两条路线：`exact_previous` 必须取得内置可信的 OS/launchd/不可变 release 联合证明和兼容共享状态快照；`verified_degraded_fallback` 只能以 `local_recovery_only`、`no_external_state_access` 运行，并仍需可信共享状态静默快照和恢复演练。当前两种 plan 均为 `blocked`，`args`、`cwd`、`env` 全为 `null`；不得从 smoke 通过推断可切换；
   - M5 本地 Fake E2E 为 `5/5`：完整纵切覆盖活动草案、选题、五分支并行、脚本、渲染、一次 `request_changes`、审核、Fake 发布、2h/24h/72h 模拟指标、复盘与 done；另 4 条直接验证真实无模型并行协调器的 `[4,1]` 波次、前置依赖、全局并发上限 4 和健康 Work Product 汇聚门禁。账本明确 `externalEffects=false`、`paidCalls=0`，不等于 live 或平台验收；
   - 3 个主题已使用 4 张仓库自有设计截图生成母版、抖音版和小红书版共 9 支本地视觉 fixture 成片，dry-run 验收为 `12/12`；截图通过 `coverSrc`、逐场景 `imageSrc` 和 `assetLedger + sha256` 进入时间线。视频均为 45 秒、1080×1920、H.264/AAC，无检测到的黑帧，综合响度 -14.9 至 -15.1 LUFS；每主题固定 9 项产物和 manifest 回读通过。该证据不等于生产选题素材；旁白使用 macOS 系统音色，`productionTtsVerified=false`，不作为 StepFun TTS；
   - A君控制台已在桌面、中间宽度和 390px 真实浏览器中验证，活动草案、下一步、恢复位置和授权按钮完整可见，无相关控制台错误；

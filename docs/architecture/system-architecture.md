@@ -4,8 +4,8 @@
 | --- | --- |
 | 状态 | 生效；M5 并行 v2 已 live apply，发布活动仍关闭 |
 | 负责人 | 技术负责人 / Codex 工作台 |
-| 版本 | v1.11 |
-| 最后更新 | 2026-07-31 |
+| 版本 | v1.12 |
+| 最后更新 | 2026-08-02 |
 | 更新触发 | 核心组件、数据真相、部署边界或平台选型变化 |
 
 ## 1. 架构目标
@@ -48,6 +48,20 @@ flowchart LR
 
 ## 3. 组件职责
 
+### 3.0 模块化单体与共享内核
+
+A君继续采用 Node.js ESM 模块化单体，不因代码规模直接拆成微服务。进程内以任务生命周期、
+M5 Campaign 领域、HTTP 路由、Paperclip Client 和持久化接口形成可替换边界；小D、Publisher、
+Paperclip 与 Hermes 继续保持既有独立部署边界。`packages/m5-contracts` 保存跨 A君、Pipeline、
+内容插件和 Publisher 的稳定 M5 不变量，`packages/paperclip-client` 保存唯一底层 HTTP transport、
+Run 身份头、错误规范化和 M5 语义端点。A君 `server.js` 只启动 `startRuntime()`；构造、监听与
+后台服务生命周期可以分别测试。共享包不得反向依赖 `apps/` 或 `integrations/`。
+
+任务状态由 `task-lifecycle` 统一验证，JSON 与 SQLite Store 使用同一迁移规则。SQLite 使用 Node
+内置 `node:sqlite`、WAL 和版本化 schema；当前默认仍为 JSON，只有显式设置
+`AGENT_ARMY_TASK_STORE=sqlite` 并完成影子导入、数量/关键 ID 校验、备份与回滚门禁后才切换。
+根 npm Workspace 和 `test:affected` 根据包与共享契约依赖选择回归范围，全量测试仍保留为发布门禁。
+
 ### 3.1 飞书交互适配层
 
 飞书中的“ A君·军团总管”是主要日常总管入口。A君、小D、小R、小办和运维官保持独立 Hermes Gateway 常驻；创建官、审核官、架构师和技术专家保留独立 Profile、岗位边界和 Paperclip `hermes_local` 按需执行能力，但不再拥有常驻 Gateway 或独立飞书入口。任务接收、路由和多人总任务由 A君承担；GitHub 公开研究由小R承担。飞书适配层不保存业务执行 checkpoint，也不自行判断任务完整成功。仓库 Profile/配置器与实际 `~/.hermes` 配置必须分别对账；当前 11 个正式 Profile 已实际同步到 `stepfun/step-3.5-flash-2603`、岗位 MCP 与精确 Feishu toolset，post dry-run `0 drift`，技能白名单 `11/11 clean`。同步保留了 11 份权限为 `0700` 的逐 Profile 备份且 `gatewayActions=0`；它没有重启当前 A君 `4321`，不能用 Profile 配置层通过替代 fresh runtime 证据。
@@ -80,18 +94,22 @@ M5 不新增第二套活动状态库。Paperclip Project、父/子 Case、Routin
 Work Product、预算和审批是活动执行真相；Hermes Profile 执行岗位任务；内容插件只提供
 StepFun、媒体、Remotion、固定产物与发布前门禁；无模型 Publisher Gateway 独占真实发布。
 
-当前 live 并行 v2 的结构为 15 阶段、17 个有效 Routine 和 5 个确定性控制器。研究、证据、
-画面分析和生图各自落到 Paperclip 子 Case，配音等待可信脚本，`parallel` 控制器只在
-四项 Work Product 全部存在、可读、非空且 blocker 清零后推进渲染。最大并发仍为 4；
-调用模型的岗位不能自行修改 Case 依赖、预算、审批或汇聚结论。没有分支引用且从未触发的
-旧 `m5-research` Routine 已归档并保留记录；归档后的只读 reconcile/dry-run 为有效 Routine
-`17/17`、转换 `16/16`、blocker 0，草案仍为 `0/14`、Cron off。
+源码候选与 live 必须分开报告。当前源码候选是 16 阶段、18 个 Routine（17 个阶段/分支
+Routine + 1 个 daily Routine）和 6 个确定性控制器：`daily`、`parallel`、`publisher`、
+`metrics`、`retrospective`、`learning`；live 仍为 15 阶段、17 个有效 Routine 和 5 个控制器。
+研究、证据、画面分析和生图各自落到 Paperclip 子 Case，配音等待可信脚本，`parallel`
+控制器只在四项 Work Product 全部存在、可读、非空且 blocker 清零后推进渲染。最大并发
+仍为 4；调用模型的岗位不能自行修改 Case 依赖、预算、审批或汇聚结论。live 草案仍为
+`0/14`、Cron off，源码新增结构尚未 apply。
 
-源码能力与 live 启用状态必须分开报告：并行 v2 的 15/17/5 结构已 live apply，live
-内容插件仍为 `0.4.7`；候选源码插件已是 `0.4.9` 并通过 `97/97` 与 `check`，`0.4.8` 仅为历史候选，
-且 `0.4.9` 尚未安装到 live；A君候选源码全量为
-`1004/1004`，岗位 Manifest 为 `15/15`，但当前 `4321` 仍是旧进程。本轮开放研究及其路由/Routine 契约本地定向测试
-`29/29`、Pipeline `67/67`、Fake E2E `5/5`、Paperclip 集成 `48/48`、Publisher Gateway `203/203`。
+灰度日采用完整双变体契约：`baseline` 独立驱动 master 与小红书版本，`gray_douyin`
+独立驱动目标抖音版本。两个变体分别绑定脚本、TTS、模板版本、渲染和机器审核血缘；
+`gray_douyin` 还必须精确绑定日期父 Case、预约日期和抖音平台 Case。缺少完整双变体、
+脚本或音频哈希重复、跨平台串线及绑定漂移均失败关闭。
+
+当前自动化为 A君 `1044/1044`、Pipeline `67/67`、内容插件 `97/97`、Publisher
+`203/203`。这只证明源码候选和测试 fixture；当前 `4321` 仍是旧进程，live 内容插件仍为
+`0.4.7`。本轮没有真实 Provider 调用或平台发布。
 Paperclip Run-JWT 与一次性恢复 Approval 版本锁定兼容补丁合并 `15/15`。controller
 cutover 工具 `15/15`，其快照读写 TOCTOU 已使用同 fd、`O_NOFOLLOW`、dev/ino 复验、
 原子 no-replace 发布和固定原目录身份的清理器修复；post-link 父目录替换后两侧目录零残留、
@@ -100,7 +118,11 @@ cutover 工具 `15/15`，其快照读写 TOCTOU 已使用同 fd、`O_NOFOLLOW`�
 `84/84`。原始 live Paperclip adapter 仍未 apply 兼容补丁，当前 `4321` 进程也早于本轮
 源码并未加载该 binding；因此 live HTTP 控制器还不能凭上述本地证据宣称执行闭环。一次性恢复必须绑定
 company/agent/run/issue/link 和 canonical scope，过期、撤销与 consume 原子互斥，同一
-run/agent/scope 只允许 exact replay。Publisher Gateway 作为独立服务监听 `4390`，默认
+run/agent/scope 只允许 exact replay。运行时切换恢复另分为 `exact_previous` 与
+`verified_degraded_fallback`：前者要求内置可信 OS/launchd/不可变 release 联合证明和兼容
+状态快照；后者只能本地恢复、隔离外部状态，并仍要求共享状态静默快照与恢复演练。当前没有
+可信的内置状态采集器，调用方注入证明不被接受，所以两条路线均不签发启动配置，也不能由
+部分外部状态推断“可安全恢复”。Publisher Gateway 作为独立服务监听 `4390`，默认
 `disabled`；production 代码已完成接线，但 live 尚未注入 production 依赖，也不存在真实
 selector bundle、命名 Profile lease 或平台写授权，因此当前不具备真实外写条件。未批准
 活动、缺少 Secret/岗位绑定、验证码、风控、未知页面、预算超限或重复内容仍在任何真实
@@ -156,21 +178,12 @@ rename 后 chmod；既有 0644 状态会收敛到 0600，失败不能破坏旧�
 `task-store` 与 `official-feishu-completion-watcher` 回归为 `15/15`；本轮没有直接修改
 真实数据文件权限。
 
-不可变 release 专项为 `11/11`，与 runtime-source-root 联合回归为 `18/18`。冻结器会从
-Git 状态中排除本次受管输出目录，并在冻结前后比对 HEAD 和状态指纹；因此输出目录不会
-自污染 provenance，其他未提交改动或验证期间源码漂移仍会失败关闭。本轮 clean source
-commit `33aa25bd7ff7431d64467fca87866d299caa9857` 已冻结为
-`work/m5-runtime-releases/m5-8point-20260731-r2/ajun-runtime-release-v1-1c7f244ddaae055f336340ac0de566569012af3d39a6e66e8df528fda46ce0ef/`：
-`releaseHash=1c7f244ddaae055f336340ac0de566569012af3d39a6e66e8df528fda46ce0ef`、
-`payloadHash=7bd23d48db1f66583d854a28d420498e60e884e261a10171c4767e818156c910`、
-`entryCount=7571`、`manifestSha256=102daa78172a8857e7151d1a619d6868fb30f97cad1b48e8751ca93b5feb128c`，
-独立全目录哈希为 `efc8967c6662b645f3018c0b6386231006f21b45f561a932e88df03799eb4b88`。
-冻结包隔离启动后 `/api/overview` 返回 200，SIGTERM 后确认退出；遗留 staging 与 final
-均先通过 official validate，随后仅将自产 staging 移至
-`~/.Trash/agent-army-staging-1c7f244ddaae055f-20260731`，可恢复且未永久删除，final 再次
-validate 通过。`5c4b463…` / `025d4816…` 保留为历史失效候选，`0767604f…` dirty
-候选继续隔离。新包未修改 live/plist、未触发重启、发布或外发；旧运行版仍缺精确匹配的
-独立 rollback release/源码根，所以 cutover/rollback 继续 blocked。
+r3 已从 source commit `ae1e857dbeba0c12febd5575e10ccd0990d20bd0` 冻结为未激活候选，
+本轮候选范围 41 个文件；`releaseHash=fed585fae5bd564fa42ceae086fa299d04aa922229a959046806770f346d4517`、
+`payloadHash=18728449689cd7d6d272d077cb9ec3ad64e52b4762fa59580c0934a89448d6a9`、
+`manifestSha256=c95dc4d421e6adee28d0f4011c27adc4645a973485295bc573fa0f60428046ae`，
+main/recovery smoke 均通过。r2 只保留为历史候选。当前没有修改 live/plist、没有重启、
+发布或外发；exact/degraded plan 均为 `blocked`，`args`、`cwd`、`env` 为 `null`。
 
 ### 3.5 业务 Agent
 
@@ -208,7 +221,7 @@ M3 内容增长链路在业务产物层新增两个后台按需岗位，不新�
 
 飞书中的“创建官”接收自然语言岗位需求，生成 `AgentProposalContract` 草案；架构师检查复用与边界，审核官检查权限、预算和外部动作。Paperclip 保存招聘审核和 Agent 身份；批准后 A君 准备本机受限能力，Hermes 建立隔离测试 Profile，并以一条白名单验收任务验证真实产物。仅验收通过的草案才能标为 `active` 并被飞书路由。创建官、架构师、审核官、运维官和协调官都属于受限治理角色：它们默认不读取凭据、不自动扩权、不直接发布或外发；运维官只可调用 A君登记的低风险恢复能力。
 
-创建官可以把“已登记但高风险”的本机能力写入草案，用于提前评审复用方向、最小数据范围和审批条件；尚无受控适配器时必须标为 `needs_capability`，不得直接创建测试实例。微信本机 Vault 已增加只读受控适配器后，只允许先用合成聊天验证逐次审批、单会话、时间范围和原文不落盘，因此可标为 `ready` 进入一次技术验收；这个状态不授权任何真实聊天读取。真实请求仍必须由负责人逐次指定单一会话和时间范围，且禁止把密钥、完整数据库或聊天原文写入 Paperclip、任务描述、日志和项目工作区。Skill 存在、适配器可用、合成技术验收通过、真实私密数据验收和正式上岗是不同状态，不得互相替代。
+创建官可以把“已登记但高风险”的本机能力写入草案，用于提前评审复用方向、最小数据范围和审批条件；尚无受控适配器时必须标为 `needs_capability`，不得直接创建测试实例。微信本机 Vault 已增加只读受控适配器后，只允许先用合成聊天验证临时授权、单会话、固定时间范围和原文不落盘，因此可标为 `ready` 进入一次技术验收；这个状态不授权任何真实聊天读取。真实请求首次仍必须由负责人指定单一会话和固定时间范围；批准后只在同一飞书会话、岗位和范围内签发 30 分钟、最多 10 次且可撤销的临时授权。改变范围、过期或用尽必须重新确认；私密内容只允许进入回环 Ollama `qwen3:14b`，没有云端 fallback，且禁止把密钥、完整数据库、聊天原文、发送者或微信内部 ID 写入 Paperclip、任务描述、日志和项目工作区。Skill 存在、适配器可用、合成技术验收通过、真实私密数据验收和正式上岗是不同状态，不得互相替代。
 
 ## 4. 数据真相归属
 

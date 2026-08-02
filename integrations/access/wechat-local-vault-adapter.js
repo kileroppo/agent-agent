@@ -4,14 +4,16 @@ import path from 'node:path';
 const CAPABILITY = 'wechat.local-vault.chat.read';
 
 export class WeChatLocalVaultAdapter {
-  constructor({ scopeResolver, runVaultQuery = null, vaultCliPath = null, now = () => new Date() } = {}) {
+  constructor({ scopeResolver, runVaultQuery = null, vaultCliPath = null, healthStatus = 'unavailable', now = () => new Date() } = {}) {
     if (typeof scopeResolver !== 'function') throw new Error('微信 Vault 适配器必须配置逐次审批范围解析器。');
     this.id = 'yichen-wechat-local-vault';
     this.versionRef = 'controlled-v1';
     this.capabilities = [CAPABILITY];
     this.accessMode = 'private_scoped';
     this.priorityClass = 'specialized';
-    this.healthStatus = 'healthy';
+    this.healthStatus = ['healthy', 'degraded', 'unavailable'].includes(healthStatus)
+      ? healthStatus
+      : 'unavailable';
     this.runtimeRequirements = ['wechat_chat_read'];
     this.scopeResolver = scopeResolver;
     this.runVaultQuery = runVaultQuery || ((input) => defaultRunVaultQuery({ ...input, vaultCliPath }));

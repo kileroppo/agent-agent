@@ -5,7 +5,15 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { ContentCampaignService } from '../src/content-campaign-service.js';
+import { LocalContentCreator } from '../src/local-content-growth.js';
+import { LocalVideoScriptPackage } from '../src/local-video-script-package.js';
+import { M5LearningLifecycle } from '../src/m5-learning-lifecycle.js';
 import { m5WorkProductArtifactHash } from '../src/m5-work-product-integrity.js';
+import {
+  defaultM5ProductionTemplateBinding,
+  m5GrayProductionTemplateBinding,
+  m5ProductionTemplateBindingHash,
+} from '../src/m5-production-template-resolver.js';
 import { getM5RoutineExecutionContract } from '../src/m5-routine-execution-contract.js';
 import { defaultDefinition } from '../../../integrations/paperclip/m5-content-pipeline/src/index.js';
 
@@ -101,6 +109,50 @@ function trustedOutput(artifactKind, artifact, provider = 'agent-army.ajun-runti
       sourceArtifactId:`source-artifact-${artifactKind}`,
       artifactHash,
     },
+  };
+}
+
+function testTemplateBinding(overrides = {}) {
+  const value = {
+    schemaVersion:'agent.army/production-template-binding/v1',
+    templateVersionId:'template-test-v1',
+    source:'built_in_default',
+    decisionStatus:'default',
+    decisionWorkProductId:null,
+    productionDefault:true,
+    contentGuidance:[],
+    controls:{
+      promptMutation:false,
+      permissionExpansion:false,
+      frequencyIncrease:false,
+      paidPromotion:false,
+    },
+    ...overrides,
+    contentGuidance:overrides.contentGuidance
+      ?? (overrides.source === 'approved_single_gray'
+        || (
+          overrides.source === 'approved_learning_decision'
+          && overrides.decisionStatus === 'validated'
+        )
+        ? ['只调整目标平台前三秒开场。']
+        : []),
+  };
+  return {
+    ...value,
+    bindingHash:m5ProductionTemplateBindingHash(value),
+  };
+}
+
+function testScriptVariant(variantKey, fullScript, templateBinding) {
+  return {
+    variantKey,
+    headline:`${variantKey} 标题`,
+    hook:`${variantKey} 开场`,
+    fullScript,
+    shots:[{ startSeconds:0, endSeconds:45, narration:fullScript }],
+    templateBinding,
+    templateGuidanceHash:templateBinding.bindingHash,
+    scriptHash:`sha256:${crypto.createHash('sha256').update(fullScript).digest('hex')}`,
   };
 }
 
@@ -441,6 +493,133 @@ test('m5_stage_execute 从当前 voice Case 和 Work Product 派生固定 TTS �
   });
 });
 
+test('m5_stage_execute 灰度日用两条独立幂等动作生成并封装双 Voice 变体', async () => {
+  const calls = [];
+  const scheduledDate = '2026-07-30';
+  const douyinCaseId = '33333333-3333-4333-8333-333333333333';
+  const baselineBinding = testTemplateBinding({
+    templateVersionId:'baseline-template-v1',
+    source:'built_in_default',
+    decisionStatus:'default',
+    productionDefault:true,
+  });
+  const grayBinding = testTemplateBinding({
+    templateVersionId:'gray-template-v2',
+    source:'approved_single_gray',
+    decisionStatus:'gray_ready',
+    productionDefault:false,
+    grayRelease:true,
+    grayTargetCaseId:douyinCaseId,
+    grayTargetDayCaseId:caseId,
+    grayTargetScheduledDate:scheduledDate,
+    grayTargetPlatform:'douyin',
+    applicationScope:'full_content_variant',
+  });
+  const baseline = testScriptVariant(
+    'baseline',
+    'baseline 真实脚本用于稳定内容生产。',
+    baselineBinding,
+  );
+  const gray = testScriptVariant(
+    'gray_douyin',
+    'gray_douyin 真实脚本只用于目标抖音成片。',
+    grayBinding,
+  );
+  const scriptPackage = {
+    ...baseline,
+    templateLifecycle:{ templateBinding:baselineBinding },
+    variants:{ baseline, gray_douyin:gray },
+  };
+  const root = {
+    id:campaignId,
+    parentCaseId:null,
+    version:3,
+    fields:{ campaignGrant:{
+      schemaVersion:'agent.army/campaign-grant/v1',
+      status:'active',
+      startsAt:'2026-07-29T00:00:00.000Z',
+      expiresAt:'2026-08-10T00:00:00.000Z',
+    } },
+  };
+  const child = {
+    id:caseId,
+    parentCaseId:campaignId,
+    version:4,
+    stageKey:'voice',
+    fields:{ scheduledDate },
+  };
+  const adapter = {
+    companyId:'company-test',
+    async request(method, requestPath) {
+      if (method === 'GET' && requestPath === `/api/cases/${caseId}`) return child;
+      if (method === 'GET' && requestPath === `/api/cases/${campaignId}`) return root;
+      if (method === 'GET' && requestPath === `/api/cases/${caseId}/outputs`) {
+        return [trustedOutput('video_script_package', { data:scriptPackage })];
+      }
+      if (method === 'GET' && requestPath === `/api/cases/${campaignId}/outputs`) return [];
+      if (method === 'GET' && requestPath === '/api/plugins') {
+        return [{ id:'plugin-content-autonomy', pluginKey:'agent-army.content-autonomy' }];
+      }
+      if (method === 'GET' && requestPath.startsWith('/api/plugins/plugin-content-autonomy/config?')) {
+        return { configJson:{ officialTtsVoices:['official-voice-1'] } };
+      }
+      throw new Error(`unexpected ${method} ${requestPath}`);
+    },
+  };
+  const service = new ContentCampaignService({
+    adapter:withActivePipeline(adapter),
+    activePipelineId:PIPELINE.id,
+    definition:defaultDefinition,
+    now:() => new Date('2026-07-30T00:00:00.000Z'),
+    toolExecutor:{
+      async execute(input) {
+        calls.push(input);
+        const variantKey = input.parameters.variantKey;
+        const checksum = `sha256:${variantKey === 'baseline' ? 'a'.repeat(64) : 'b'.repeat(64)}`;
+        return {
+          model:'stepaudio-2.5-tts',
+          voice:'official-voice-1',
+          relativePath:input.parameters.outputPath,
+          checksum,
+          bytes:1024,
+          ...confirmedProviderReceipt(
+            input.parameters.actionId,
+            'tts',
+            'stepaudio-2.5-tts',
+            variantKey === 'baseline'
+              ? 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+              : 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          ),
+        };
+      },
+    },
+  });
+
+  const result = await service.executeHermesStage({
+    assignment:{ agentId:'content-creator', runId:'run-m5-gray-voice' },
+    task:{
+      taskType:'content.campaign-voice',
+      input:{ context:{ paperclipRoutineKey:'m5-voice', pipelineCaseId:caseId } },
+    },
+  });
+
+  assert.deepEqual(
+    calls.map((call) => call.parameters.actionId),
+    [
+      `${caseId}:voice:baseline:v4`,
+      `${caseId}:voice:gray_douyin:v4`,
+    ],
+  );
+  assert.equal(result.artifact.data.variantKey, 'baseline');
+  assert.equal(result.artifact.data.variants.baseline.scriptHash, baseline.scriptHash);
+  assert.equal(result.artifact.data.variants.gray_douyin.scriptHash, gray.scriptHash);
+  assert.notEqual(
+    result.artifact.data.variants.baseline.audioHash,
+    result.artifact.data.variants.gray_douyin.audioHash,
+  );
+  assert.equal(result.artifact.validation.variantLineageVerified, true);
+});
+
 test('m5_stage_execute 缺少可信前置 Work Product 时不调用插件', async () => {
   let executions = 0;
   const adapter = {
@@ -493,6 +672,68 @@ test('m5_stage_execute 跨当前 Run 仍复用同 Issue/Case/Project 和 source 
   assert.equal(result.replayed, true);
   assert.equal(result.artifact.type, 'voice_package');
   assert.deepEqual(result.artifact.data, fixture.artifact);
+  assert.equal(fixture.executions(), 0);
+});
+
+test('m5_stage_execute 灰度 VoicePackage 回放时拒绝被换接的 scriptHash', async (t) => {
+  const fixture = await voiceReplayFixture(t);
+  const baselineBinding = testTemplateBinding({
+    templateVersionId:'baseline-replay-v1',
+    source:'built_in_default',
+    decisionStatus:'default',
+    productionDefault:true,
+  });
+  const grayBinding = testTemplateBinding({
+    templateVersionId:'gray-replay-v2',
+    source:'approved_single_gray',
+    decisionStatus:'gray_ready',
+    productionDefault:false,
+    grayRelease:true,
+    grayTargetCaseId:'33333333-3333-4333-8333-333333333333',
+    grayTargetDayCaseId:caseId,
+    grayTargetScheduledDate:'2026-07-30',
+    grayTargetPlatform:'douyin',
+    applicationScope:'full_content_variant',
+  });
+  const baseline = testScriptVariant(
+    'baseline',
+    '用于回放的 baseline 脚本。',
+    baselineBinding,
+  );
+  const gray = testScriptVariant(
+    'gray_douyin',
+    '用于回放的 gray_douyin 脚本。',
+    grayBinding,
+  );
+  const baselineVoice = {
+    ...fixture.artifact,
+    variantKey:'baseline',
+    scriptHash:baseline.scriptHash,
+    templateBinding:baselineBinding,
+    audioHash:fixture.artifact.checksum,
+  };
+  fixture.metadata.artifact = {
+    ...baselineVoice,
+    variantMode:'douyin_single_gray_v1',
+    variants:{
+      baseline:baselineVoice,
+      gray_douyin:{
+        ...baselineVoice,
+        variantKey:'gray_douyin',
+        // 模拟持久化后被换接到 baseline 脚本。
+        scriptHash:baseline.scriptHash,
+        templateBinding:grayBinding,
+      },
+    },
+  };
+  fixture.products.push(trustedOutput('video_script_package', {
+    ...baseline,
+    templateLifecycle:{ templateBinding:baselineBinding },
+    variants:{ baseline, gray_douyin:gray },
+  }));
+  fixture.seal();
+
+  await assert.rejects(fixture.execute, /无法回到同一脚本|Work Product 漂移/);
   assert.equal(fixture.executions(), 0);
 });
 
@@ -887,7 +1128,18 @@ test('m5_stage_execute 渲染前先确定性写入并回读 props 哈希', async
     },
   );
   assert.equal(result.artifact.validation.fixedOutputsVerified, true);
+  for (const output of Object.values(result.artifact.data.outputs)) {
+    assert.equal(output.variantKey, 'baseline');
+    assert.match(output.scriptHash, /^sha256:[0-9a-f]{64}$/);
+    assert.equal(output.audioHash, `sha256:${'a'.repeat(64)}`);
+    assert.match(output.templateBindingHash, /^sha256:[0-9a-f]{64}$/);
+  }
   for (const call of calls.filter((item) => item.toolId.endsWith(':remotion-props-write'))) {
+    assert.equal(call.parameters.props.variantLineage.variantKey, 'baseline');
+    assert.match(
+      call.parameters.props.variantLineage.templateBindingHash,
+      /^sha256:[0-9a-f]{64}$/,
+    );
     assert.equal(call.parameters.props.coverSrc, `campaigns/${caseId}/generated-visual.png`);
     assert.ok(call.parameters.props.scenes.every((scene) =>
       scene.imageSrc === `campaigns/${caseId}/generated-visual.png`,
@@ -1181,6 +1433,12 @@ test('m5_stage_execute 机器审核组合真实媒体与字幕结果后才生成
   assert.equal(result.artifact.data.reviewReport.status, 'passed');
   assert.ok(Object.values(result.artifact.data.reviewReport.checks).every(Boolean));
   assert.match(result.artifact.data.reviewReport.contentVersionId, /^m5:douyin:/);
+  assert.deepEqual(result.artifact.data.reviewReport.variantLineage, {
+    variantKey:'baseline',
+    scriptHash:`sha256:${crypto.createHash('sha256').update(script.fullScript).digest('hex')}`,
+    templateBindingHash:null,
+    renderChecksum:`sha256:${'2'.repeat(64)}`,
+  });
   assert.match(
     result.artifact.data.reviewReport.evidence.artifactPackage.manifestPath,
     /artifact-manifest\.json$/,
@@ -1344,6 +1602,1009 @@ test('m5_stage_execute 机器审核组合真实媒体与字幕结果后才生成
   assert.equal(rejected.artifact.data.reviewReport.status, 'failed');
   assert.equal(rejected.artifact.data.reviewReport.checks.facts, false);
   assert.deepEqual(rejectedCalls.map((call) => call.toolId.endsWith(':artifact-package-write')), [false, false]);
+});
+
+test('机器审核按平台锁定脚本声音和单平台copy，灰度抖音与baseline小红书互不派生文案', async () => {
+  const scheduledDate = '2026-07-30';
+  const statement = 'Paperclip 管流程，Hermes 执行岗位任务。';
+  const baselineBinding = testTemplateBinding({
+    templateVersionId:'baseline-review-v1',
+    source:'built_in_default',
+    decisionStatus:'default',
+    productionDefault:true,
+  });
+  const grayBinding = testTemplateBinding({
+    templateVersionId:'gray-review-v2',
+    source:'approved_single_gray',
+    decisionStatus:'gray_ready',
+    productionDefault:false,
+    grayRelease:true,
+    grayTargetCaseId:caseId,
+    grayTargetDayCaseId:campaignId,
+    grayTargetScheduledDate:scheduledDate,
+    grayTargetPlatform:'douyin',
+    applicationScope:'full_content_variant',
+  });
+  const factBindings = [{
+    claimId:'claim-1',
+    statement,
+    sourceIds:['source-1', 'source-2'],
+    evidenceFragments:[
+      { sourceId:'source-1', fragmentId:'source-1-fragment-1', text:'来源 A 原文。' },
+      { sourceId:'source-2', fragmentId:'source-2-fragment-1', text:'来源 B 原文。' },
+    ],
+  }];
+  const baseline = {
+    ...testScriptVariant('baseline', `稳定脚本。\n${statement}`, baselineBinding),
+    factBindings,
+    qualityReview:{ unresolved:[] },
+  };
+  const gray = {
+    ...testScriptVariant(
+      'gray_douyin',
+      `token=abcdefghi\n灰度脚本。\n${statement}`,
+      grayBinding,
+    ),
+    factBindings,
+    qualityReview:{ unresolved:[] },
+  };
+  const voiceVariant = (variant, checksumChar, actionId, costEventId) => ({
+    variantKey:variant.variantKey,
+    scriptHash:variant.scriptHash,
+    templateBinding:variant.templateBinding,
+    model:'stepaudio-2.5-tts',
+    voice:'official-voice-1',
+    relativePath:`campaigns/voice-${variant.variantKey}.mp3`,
+    checksum:`sha256:${checksumChar.repeat(64)}`,
+    audioHash:`sha256:${checksumChar.repeat(64)}`,
+    bytes:1024,
+    providerReceipt:confirmedProviderReceipt(
+      actionId,
+      'tts',
+      'stepaudio-2.5-tts',
+      costEventId,
+    ),
+  });
+  const baselineVoice = voiceVariant(
+    baseline,
+    'a',
+    'm5:tts:baseline:review',
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  );
+  const grayVoice = voiceVariant(
+    gray,
+    'b',
+    'm5:tts:gray:review',
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  );
+  const lineage = (variant, voice) => ({
+    variantKey:variant.variantKey,
+    scriptHash:variant.scriptHash,
+    audioHash:voice.audioHash,
+    templateBindingHash:variant.templateBinding.bindingHash,
+    voiceProviderActionId:voice.providerReceipt.actionId,
+  });
+  const outputs = [
+    trustedOutput('video_script_package', {
+      ...baseline,
+      templateLifecycle:{ templateBinding:baselineBinding },
+      variants:{ baseline, gray_douyin:gray },
+    }),
+    trustedOutput('voice_package', {
+      ...baselineVoice,
+      variantMode:'douyin_single_gray_v1',
+      variants:{ baseline:baselineVoice, gray_douyin:grayVoice },
+    }),
+    trustedOutput('evidence_package', {
+      schemaVersion:'agent.army/evidence-package/v2',
+      sources:[
+        {
+          sourceId:'source-1',
+          url:'https://example.com/a',
+          fetchedAt:'2026-07-30T00:00:00.000Z',
+          contentHash:'a'.repeat(64),
+          kind:'public_web',
+          evidenceFragments:[{ fragmentId:'source-1-fragment-1', text:'来源 A 原文。' }],
+        },
+        {
+          sourceId:'source-2',
+          url:'https://example.com/b',
+          fetchedAt:'2026-07-30T00:00:00.000Z',
+          contentHash:'b'.repeat(64),
+          kind:'public_pdf',
+          evidenceFragments:[{ fragmentId:'source-2-fragment-1', text:'来源 B 原文。' }],
+        },
+      ],
+      claims:[{
+        claimId:'claim-1',
+        text:statement,
+        sourceIds:['source-1', 'source-2'],
+        evidenceFragments:factBindings[0].evidenceFragments,
+      }],
+    }),
+    trustedOutput('generated_image_package', {
+      model:'step-image-edit-2',
+      relativePath:'campaigns/generated-visual.png',
+      checksum:`sha256:${'e'.repeat(64)}`,
+      bytes:2048,
+      providerReceipt:confirmedProviderReceipt(
+        'm5:image:gray-review',
+        'image_generate',
+        'step-image-edit-2',
+        'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      ),
+    }),
+    trustedOutput('visual_analysis_package', {
+      insights:[{ evidenceKind:'stepfun_vision_frame' }],
+      providerReceipt:confirmedProviderReceipt(
+        'm5:vision:gray-review',
+        'vision',
+        'step-1o-turbo-vision',
+        'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      ),
+    }),
+    trustedOutput('asset_package', {
+      rightsBasis:'本机自产素材',
+      assets:[{
+        frameId:'frame-1',
+        relativePath:'campaigns/frame.png',
+        checksum:`sha256:${'d'.repeat(64)}`,
+        bytes:1024,
+      }],
+    }),
+    trustedOutput('render_package', {
+      outputs:{
+        master:{
+          composition:'M5Master',
+          propsPath:'campaigns/master.props.json',
+          relativePath:'campaigns/master.mp4',
+          checksum:`sha256:${'1'.repeat(64)}`,
+          durationSeconds:45,
+          ...lineage(baseline, baselineVoice),
+        },
+        douyin:{
+          composition:'M5Douyin',
+          propsPath:'campaigns/douyin.props.json',
+          relativePath:'campaigns/douyin.mp4',
+          checksum:`sha256:${'2'.repeat(64)}`,
+          durationSeconds:45,
+          ...lineage(gray, grayVoice),
+        },
+        xiaohongshu:{
+          composition:'M5Xiaohongshu',
+          propsPath:'campaigns/xhs.props.json',
+          relativePath:'campaigns/xhs.mp4',
+          checksum:`sha256:${'3'.repeat(64)}`,
+          durationSeconds:45,
+          ...lineage(baseline, baselineVoice),
+        },
+      },
+    }),
+  ];
+  const campaignCase = {
+    id:campaignId,
+    fields:{ campaignGrant:{
+      schemaVersion:'agent.army/campaign-grant/v1',
+      grantId:'grant-gray-review',
+      status:'active',
+      platforms:['douyin', 'xiaohongshu'],
+      receipts:[],
+      startsAt:'2026-07-29T00:00:00.000Z',
+      expiresAt:'2026-08-10T00:00:00.000Z',
+    } },
+  };
+  const calls = [];
+  const service = new ContentCampaignService({
+    adapter:{},
+    definition:defaultDefinition,
+    now:() => new Date('2026-07-30T00:00:00.000Z'),
+    toolExecutor:{
+      async execute(input) {
+        calls.push(input);
+        if (input.toolId.endsWith(':media-validate')) {
+          return { passed:true, relativePath:input.parameters.relativePath, errors:[] };
+        }
+        if (input.toolId.endsWith(':artifact-package-write')) {
+          return {
+            manifestPath:'campaigns/package/artifact-manifest.json',
+            manifestChecksum:`sha256:${'e'.repeat(64)}`,
+          };
+        }
+        if (input.toolId.endsWith(':artifact-lineage-validate')) {
+          return { passed:true, errors:[], requiredArtifacts:[] };
+        }
+        return { passed:true, propsPath:input.parameters.propsPath, errors:[] };
+      },
+    },
+  });
+  service.getRawCase = async () => campaignCase;
+
+  const douyin = await service.executeM5MachineReview({
+    campaignCase,
+    targetCase:{
+      id:caseId,
+      parentCaseId:campaignId,
+      fields:{ platform:'douyin', scheduledDate },
+    },
+    targetCaseId:caseId,
+    outputs,
+    parameters:{ relativePath:'campaigns/douyin.mp4', expectedDurationSeconds:45 },
+    sourceTaskId:'task-review-gray',
+  });
+  assert.equal(douyin.artifact.data.reviewReport.status, 'failed');
+  assert.equal(douyin.artifact.data.reviewReport.checks.privacy, false);
+  assert.deepEqual(douyin.artifact.data.reviewReport.variantLineage, {
+    variantKey:'gray_douyin',
+    scriptHash:gray.scriptHash,
+    templateBindingHash:grayBinding.bindingHash,
+    renderChecksum:`sha256:${'2'.repeat(64)}`,
+  });
+  assert.equal(calls.some((call) => call.toolId.endsWith(':artifact-package-write')), false);
+
+  calls.length = 0;
+  const xhs = await service.executeM5MachineReview({
+    campaignCase,
+    targetCase:{
+      id:caseId,
+      parentCaseId:campaignId,
+      fields:{ platform:'xiaohongshu', scheduledDate },
+    },
+    targetCaseId:caseId,
+    outputs,
+    parameters:{ relativePath:'campaigns/xhs.mp4', expectedDurationSeconds:45 },
+    sourceTaskId:'task-review-baseline',
+  });
+  assert.equal(xhs.artifact.data.reviewReport.status, 'passed');
+  assert.deepEqual(xhs.artifact.data.reviewReport.variantLineage, {
+    variantKey:'baseline',
+    scriptHash:baseline.scriptHash,
+    templateBindingHash:baselineBinding.bindingHash,
+    renderChecksum:`sha256:${'3'.repeat(64)}`,
+  });
+  const packageCall = calls.find((call) => call.toolId.endsWith(':artifact-package-write'));
+  assert.ok(packageCall);
+  assert.equal(packageCall.parameters.copies.douyin, null);
+  assert.equal(packageCall.parameters.copies.xiaohongshu.title, baseline.hook);
+  assert.doesNotMatch(JSON.stringify(packageCall.parameters.copies), /token=abcdefghi/);
+  assert.equal(packageCall.parameters.sources.narration.ref, baselineVoice.relativePath);
+
+  const cleanGray = {
+    ...testScriptVariant(
+      'gray_douyin',
+      `灰度脚本。\n${statement}`,
+      grayBinding,
+    ),
+    factBindings,
+    qualityReview:{ unresolved:[] },
+  };
+  const cleanGrayVoice = {
+    ...grayVoice,
+    scriptHash:cleanGray.scriptHash,
+  };
+  const scriptArtifact = outputs.find((output) =>
+    output.metadata.artifactKind === 'video_script_package');
+  const voiceArtifact = outputs.find((output) =>
+    output.metadata.artifactKind === 'voice_package');
+  const renderArtifact = outputs.find((output) =>
+    output.metadata.artifactKind === 'render_package');
+  scriptArtifact.metadata.artifact.variants.gray_douyin = cleanGray;
+  voiceArtifact.metadata.artifact.variants.gray_douyin = cleanGrayVoice;
+  renderArtifact.metadata.artifact.outputs.douyin.scriptHash = cleanGray.scriptHash;
+
+  calls.length = 0;
+  const cleanDouyin = await service.executeM5MachineReview({
+    campaignCase,
+    targetCase:{
+      id:caseId,
+      parentCaseId:campaignId,
+      fields:{ platform:'douyin', scheduledDate },
+    },
+    targetCaseId:caseId,
+    outputs,
+    parameters:{ relativePath:'campaigns/douyin.mp4', expectedDurationSeconds:45 },
+    sourceTaskId:'task-review-clean-gray',
+  });
+  assert.equal(cleanDouyin.artifact.data.reviewReport.status, 'passed');
+  const douyinPackageCall = calls.find((call) =>
+    call.toolId.endsWith(':artifact-package-write'));
+  assert.ok(douyinPackageCall);
+  assert.equal(douyinPackageCall.parameters.copies.douyin.title, cleanGray.hook);
+  assert.equal(douyinPackageCall.parameters.copies.xiaohongshu, null);
+  assert.equal(
+    douyinPackageCall.parameters.sources.narration.ref,
+    cleanGrayVoice.relativePath,
+  );
+});
+
+test('灰度抖音真实阶段产物贯穿 Script→Voice→Render→MachineReview→ContentVersion→Learning', async (t) => {
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'm5-gray-full-chain-'));
+  t.after(() => fs.rm(workspace, { recursive:true, force:true }));
+  const dayCaseId = caseId;
+  const douyinCaseId = '33333333-3333-4333-8333-333333333333';
+  const learningCaseId = '44444444-4444-4444-8444-444444444444';
+  const learningIssueId = '55555555-5555-4555-8555-555555555555';
+  const learningRunId = '66666666-6666-4666-8666-666666666666';
+  const scheduledDate = '2026-08-09';
+  const statement = 'Paperclip 管流程，Hermes 执行岗位任务。';
+  const templateWorkProductId = 'template-work-product-full-chain';
+  const templateVersion = {
+    templateVersionId:'template_full_chain_v2',
+    version:2,
+    previousTemplateVersionId:'m5-template-default-v1',
+    sourceProposalId:'proposal-full-chain',
+    sourceOfflineReplayId:'replay-full-chain',
+    state:'gray_ready',
+    grayReleaseLimit:1,
+    productionDefault:false,
+    grayTargetCaseId:douyinCaseId,
+    grayTargetDayCaseId:dayCaseId,
+    grayTargetScheduledDate:scheduledDate,
+    grayTargetPlatform:'douyin',
+    applicationScope:'full_content_variant',
+    suggestedChanges:['前三秒直接展示失败恢复和最终交付。'],
+    approvedAt:'2026-08-08T00:00:00.000Z',
+    controls:{
+      promptMutation:false,
+      permissionExpansion:false,
+      frequencyIncrease:false,
+      paidPromotion:false,
+    },
+  };
+  const baselineBinding = defaultM5ProductionTemplateBinding('full_chain_baseline');
+  const grayBinding = m5GrayProductionTemplateBinding({
+    templateVersion,
+    templateWorkProductId,
+  });
+  const evidenceTask = {
+    taskId:'full-chain-evidence',
+    status:'succeeded',
+    artifactRefs:[{
+      artifactId:'evidence:full-chain',
+      type:'evidence_package',
+      validation:{ exists:true, readable:true, nonEmpty:true },
+      data:{
+        schemaVersion:'agent.army/evidence-package/v2',
+        sources:[
+          {
+            sourceId:'source-1',
+            url:'https://example.com/a',
+            fetchedAt:'2026-08-08T00:00:00.000Z',
+            contentHash:'a'.repeat(64),
+            kind:'public_web',
+            evidenceFragments:[{ fragmentId:'source-1-fragment-1', text:'来源 A 原文。' }],
+          },
+          {
+            sourceId:'source-2',
+            url:'https://example.com/b',
+            fetchedAt:'2026-08-08T00:00:00.000Z',
+            contentHash:'b'.repeat(64),
+            kind:'public_pdf',
+            evidenceFragments:[{ fragmentId:'source-2-fragment-1', text:'来源 B 原文。' }],
+          },
+        ],
+        claims:[{
+          claimId:'claim-1',
+          text:statement,
+          sourceIds:['source-1', 'source-2'],
+          evidenceFragments:[
+            { sourceId:'source-1', fragmentId:'source-1-fragment-1', text:'来源 A 原文。' },
+            { sourceId:'source-2', fragmentId:'source-2-fragment-1', text:'来源 B 原文。' },
+          ],
+        }],
+        prohibitedStatements:['无来源效果承诺'],
+      },
+    }],
+  };
+  const visualTask = {
+    taskId:'full-chain-visual',
+    status:'succeeded',
+    artifactRefs:[{
+      artifactId:'visual:full-chain',
+      type:'visual_analysis_package',
+      validation:{ exists:true, readable:true, nonEmpty:true },
+      data:{
+        insights:[{
+          insightId:'visual-1',
+          finding:'用真实失败恢复画面承接结论。',
+          frameRef:'frame-1',
+          timestamp:'00:03',
+          evidenceKind:'keyframe',
+        }],
+      },
+    }],
+  };
+  const scriptExecutor = new LocalVideoScriptPackage({
+    store:{ list:async () => [evidenceTask, visualTask] },
+    artifactsDir:path.join(workspace, 'script'),
+    advisor:{
+      async scriptPackage({ templateBinding }) {
+        const gray = templateBinding.source === 'approved_single_gray';
+        const guidance = templateBinding.contentGuidance[0];
+        const guidanceFragment = '前三秒直接展示失败恢复和最终交付';
+        return {
+          data:{
+            headline:gray ? '灰度标题' : '稳定标题',
+            platform:'douyin',
+            durationSeconds:45,
+            aspectRatio:'9:16',
+            audience:'希望验证 Agent 真实能力的人',
+            hook:gray ? guidanceFragment : '先看真实执行结果。',
+            fullScript:gray
+              ? `${guidanceFragment}。${statement} 这条独立脚本只用于目标抖音 Case，并保留来源、纠错、审核结果和可恢复状态。`
+              : `先看真实执行结果。${statement} 这条稳定脚本用于 master 和小红书，并保留来源、纠错和审核结果。`,
+            shootingNotes:['展示真实产物和恢复证据。'],
+            shots:[{
+              startSeconds:0,
+              endSeconds:45,
+              narration:gray ? guidanceFragment : '展示真实执行结果。',
+              visual:'产品流程画面',
+            }],
+            qualityReview:{
+              factuality:'绑定来源',
+              imitation:'不复制',
+              shootability:'可执行',
+              unresolved:[],
+            },
+            structure:['开场', '证据', '结论'],
+            templateBindingHash:templateBinding.bindingHash,
+            templateApplicationEvidence:guidance
+              ? [{ guidance, scriptFragment:guidanceFragment }]
+              : [],
+          },
+        };
+      },
+    },
+    templateResolver:{
+      async resolve(requestedCaseId) {
+        assert.equal(requestedCaseId, dayCaseId);
+        return baselineBinding;
+      },
+      async resolveGrayForDay(requestedCaseId) {
+        assert.equal(requestedCaseId, dayCaseId);
+        return grayBinding;
+      },
+    },
+  });
+  const scriptResult = await scriptExecutor.execute({
+    taskId:'full-chain-script',
+    taskType:'content.video-script-package',
+    input:{
+      title:'AI Agent 实战',
+      context:{
+        paperclipRoutineKey:'m5-script',
+        pipelineCaseId:dayCaseId,
+        sourceTaskIds:[evidenceTask.taskId, visualTask.taskId],
+      },
+    },
+  });
+  assert.equal(scriptResult.status, 'succeeded', JSON.stringify(scriptResult));
+  const scriptArtifact = scriptResult.artifactRefs[0];
+  const scriptPackage = scriptArtifact.data;
+  const baselineScript = scriptPackage.variants.baseline;
+  const grayScript = scriptPackage.variants.gray_douyin;
+  assert.equal(grayScript.templateBinding.bindingHash, grayBinding.bindingHash);
+  assert.notEqual(grayScript.scriptHash, baselineScript.scriptHash);
+
+  const campaignCase = {
+    id:campaignId,
+    parentCaseId:null,
+    version:1,
+    fields:{
+      campaignGrant:{
+        schemaVersion:'agent.army/campaign-grant/v1',
+        grantId:'grant-full-chain',
+        status:'active',
+        platforms:['douyin', 'xiaohongshu'],
+        receipts:[],
+        startsAt:'2026-08-01T00:00:00.000Z',
+        expiresAt:'2026-08-20T00:00:00.000Z',
+      },
+    },
+  };
+  const dayCase = {
+    id:dayCaseId,
+    parentCaseId:campaignId,
+    version:4,
+    stageKey:'voice',
+    fields:{ campaignId:'campaign-full-chain', scheduledDate },
+  };
+  const douyinCase = {
+    id:douyinCaseId,
+    parentCaseId:dayCaseId,
+    version:2,
+    stageKey:'machine_review',
+    fields:{
+      campaignId:'campaign-full-chain',
+      scheduledDate,
+      platform:'douyin',
+    },
+  };
+  const evidenceOutput = trustedOutput(
+    'evidence_package',
+    evidenceTask.artifactRefs[0].data,
+  );
+  const visualOutput = trustedOutput(
+    'visual_analysis_package',
+    {
+      ...visualTask.artifactRefs[0].data,
+      providerReceipt:confirmedProviderReceipt(
+        'm5:vision:full-chain',
+        'vision',
+        'step-1o-turbo-vision',
+        'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      ),
+    },
+  );
+  const generatedOutput = trustedOutput('generated_image_package', {
+    model:'step-image-edit-2',
+    relativePath:'campaigns/full-chain/generated.png',
+    checksum:`sha256:${'e'.repeat(64)}`,
+    bytes:2048,
+    providerReceipt:confirmedProviderReceipt(
+      'm5:image:full-chain',
+      'image_generate',
+      'step-image-edit-2',
+      'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    ),
+  });
+  const assetOutput = trustedOutput('asset_package', {
+    rightsBasis:'本机自产素材，经活动授权用于内容生产。',
+    assets:[{
+      frameId:'frame-1',
+      relativePath:'campaigns/full-chain/frame-1.png',
+      checksum:`sha256:${'d'.repeat(64)}`,
+      bytes:1024,
+    }],
+  });
+  const outputsByCase = new Map([
+    [campaignId, []],
+    [dayCaseId, [
+      trustedOutput('video_script_package', scriptPackage),
+      evidenceOutput,
+      visualOutput,
+      generatedOutput,
+      assetOutput,
+    ]],
+    [douyinCaseId, []],
+  ]);
+  const adapter = {
+    companyId:'company-test',
+    async request(method, requestPath) {
+      if (method === 'GET' && requestPath === `/api/cases/${campaignId}`) {
+        return campaignCase;
+      }
+      if (method === 'GET' && requestPath === `/api/cases/${dayCaseId}`) {
+        return dayCase;
+      }
+      if (method === 'GET' && requestPath === `/api/cases/${douyinCaseId}`) {
+        return douyinCase;
+      }
+      const outputMatch = requestPath.match(/^\/api\/cases\/([^/]+)\/outputs$/);
+      if (method === 'GET' && outputMatch) {
+        return outputsByCase.get(outputMatch[1]) || [];
+      }
+      if (method === 'GET' && requestPath === '/api/plugins') {
+        return [{ id:'plugin-content-autonomy', pluginKey:'agent-army.content-autonomy' }];
+      }
+      if (
+        method === 'GET'
+        && requestPath.startsWith('/api/plugins/plugin-content-autonomy/config?')
+      ) {
+        return { configJson:{ officialTtsVoices:['official-voice-1'] } };
+      }
+      throw new Error(`unexpected ${method} ${requestPath}`);
+    },
+  };
+  const toolCalls = [];
+  const service = new ContentCampaignService({
+    adapter:withActivePipeline(adapter),
+    activePipelineId:PIPELINE.id,
+    definition:defaultDefinition,
+    allowLocalFixtureProvenance:true,
+    now:() => new Date('2026-08-09T00:00:00.000Z'),
+    templateResolver:{ async resolve() { return baselineBinding; } },
+    toolExecutor:{
+      async execute(input) {
+        toolCalls.push(input);
+        if (input.toolId.endsWith(':stepfun-tts')) {
+          const gray = input.parameters.variantKey === 'gray_douyin';
+          return {
+            model:'stepaudio-2.5-tts',
+            voice:'official-voice-1',
+            relativePath:input.parameters.outputPath,
+            checksum:`sha256:${gray ? 'b'.repeat(64) : 'a'.repeat(64)}`,
+            bytes:1024,
+            ...confirmedProviderReceipt(
+              input.parameters.actionId,
+              'tts',
+              'stepaudio-2.5-tts',
+              gray
+                ? 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+                : 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            ),
+          };
+        }
+        if (input.toolId.endsWith(':remotion-props-write')) {
+          return {
+            propsPath:input.parameters.outputPath,
+            checksum:`sha256:${'c'.repeat(64)}`,
+          };
+        }
+        if (input.toolId.endsWith(':remotion-render')) {
+          const checksumChar = {
+            M5Master:'1',
+            M5Douyin:'2',
+            M5Xiaohongshu:'3',
+          }[input.parameters.composition];
+          return {
+            composition:input.parameters.composition,
+            propsPath:input.parameters.propsPath,
+            outputPath:input.parameters.outputPath,
+            checksum:`sha256:${checksumChar.repeat(64)}`,
+            bytes:4096,
+            durationSeconds:45,
+          };
+        }
+        if (input.toolId.endsWith(':media-validate')) {
+          return {
+            passed:true,
+            relativePath:input.parameters.relativePath,
+            errors:[],
+          };
+        }
+        if (input.toolId.endsWith(':subtitle-layout-validate')) {
+          return { passed:true, propsPath:input.parameters.propsPath, errors:[] };
+        }
+        if (input.toolId.endsWith(':artifact-package-write')) {
+          return {
+            manifestPath:'campaigns/full-chain/package/artifact-manifest.json',
+            manifestChecksum:`sha256:${'f'.repeat(64)}`,
+          };
+        }
+        if (input.toolId.endsWith(':artifact-lineage-validate')) {
+          return { passed:true, errors:[], requiredArtifacts:[] };
+        }
+        throw new Error(`unexpected tool ${input.toolId}`);
+      },
+    },
+  });
+
+  const voiceResult = await service.executeHermesStage({
+    assignment:{ agentId:'content-creator', runId:'run-full-chain-voice' },
+    task:{
+      taskId:'full-chain-voice',
+      taskType:'content.campaign-voice',
+      input:{
+        context:{
+          paperclipRoutineKey:'m5-voice',
+          pipelineCaseId:dayCaseId,
+        },
+      },
+    },
+  });
+  const voiceArtifact = voiceResult.artifact;
+  const voicePackage = voiceArtifact.data;
+  assert.equal(
+    voicePackage.variants.gray_douyin.scriptHash,
+    grayScript.scriptHash,
+  );
+  assert.notEqual(
+    voicePackage.variants.gray_douyin.audioHash,
+    voicePackage.variants.baseline.audioHash,
+  );
+  outputsByCase.get(dayCaseId).push(
+    trustedOutput('voice_package', voicePackage),
+  );
+
+  dayCase.stageKey = 'render';
+  const renderResult = await service.executeHermesStage({
+    assignment:{ agentId:'content-creator', runId:'run-full-chain-render' },
+    task:{
+      taskId:'full-chain-render',
+      taskType:'content.campaign-render',
+      input:{
+        context:{
+          paperclipRoutineKey:'m5-render',
+          pipelineCaseId:dayCaseId,
+        },
+      },
+    },
+  });
+  const renderArtifact = renderResult.artifact;
+  const renderPackage = renderArtifact.data;
+  const douyinRender = renderPackage.outputs.douyin;
+  assert.equal(douyinRender.variantKey, 'gray_douyin');
+  assert.equal(douyinRender.scriptHash, grayScript.scriptHash);
+  assert.equal(
+    douyinRender.audioHash,
+    voicePackage.variants.gray_douyin.audioHash,
+  );
+  assert.equal(douyinRender.templateBindingHash, grayBinding.bindingHash);
+  outputsByCase.get(dayCaseId).push(
+    trustedOutput('render_package', renderPackage),
+  );
+
+  const reviewResult = await service.executeHermesStage({
+    assignment:{ agentId:'reviewer', runId:'run-full-chain-review' },
+    task:{
+      taskId:'full-chain-review',
+      taskType:'content.campaign-machine-review',
+      input:{
+        context:{
+          paperclipRoutineKey:'m5-machine-review',
+          pipelineCaseId:douyinCaseId,
+        },
+      },
+    },
+  });
+  const reviewArtifact = reviewResult.artifact;
+  const reviewReport = reviewArtifact.data.reviewReport;
+  assert.equal(reviewReport.status, 'passed', JSON.stringify(reviewReport.failures));
+  assert.deepEqual(reviewReport.variantLineage, {
+    variantKey:'gray_douyin',
+    scriptHash:grayScript.scriptHash,
+    templateBindingHash:grayBinding.bindingHash,
+    renderChecksum:douyinRender.checksum,
+  });
+
+  const contentCreator = new LocalContentCreator({
+    store:{
+      list:async () => [{
+        taskId:'full-chain-script',
+        status:'succeeded',
+        artifactRefs:[scriptArtifact],
+      }, {
+        taskId:'full-chain-render',
+        status:'succeeded',
+        artifactRefs:[renderArtifact],
+      }],
+    },
+    artifactsDir:path.join(workspace, 'content-version'),
+  });
+  const contentResult = await contentCreator.execute({
+    taskId:'full-chain-content-version',
+    taskType:'content.platform-draft',
+    input:{
+      title:'AI Agent 实战',
+      context:{
+        paperclipRoutineKey:'m5-platform-adapt',
+        pipelineCaseId:douyinCaseId,
+        sourceTaskIds:['full-chain-script', 'full-chain-render'],
+        pipelineCase:{
+          parentCaseId:dayCaseId,
+          fields:{ platform:'douyin', scheduledDate },
+        },
+      },
+    },
+  });
+  assert.equal(contentResult.status, 'succeeded', JSON.stringify(contentResult));
+  const contentArtifact = contentResult.artifactRefs[0];
+  const contentVersion = contentArtifact.data.contentVersion;
+  assert.equal(contentVersion.platformCaseId, douyinCaseId);
+  assert.equal(contentVersion.dayCaseId, dayCaseId);
+  assert.equal(contentVersion.scheduledDate, scheduledDate);
+  assert.equal(contentVersion.checksum, douyinRender.checksum);
+  assert.equal(contentVersion.templateBindingHash, grayBinding.bindingHash);
+  assert.equal(
+    contentVersion.templateApplication.scriptHash,
+    grayScript.scriptHash,
+  );
+  assert.equal(
+    contentVersion.templateApplication.renderChecksum,
+    douyinRender.checksum,
+  );
+  assert.equal(reviewReport.contentVersionId, contentVersion.contentVersionId);
+
+  const safeControls = {
+    promptMutation:false,
+    permissionExpansion:false,
+    frequencyIncrease:false,
+    paidPromotion:false,
+  };
+  const learningProduct = ({
+    id,
+    provider,
+    schemaVersion,
+    kind,
+    metadata,
+    type = 'document',
+    status = 'active',
+    reviewState = 'none',
+  }) => ({
+    id,
+    kind:'work_product',
+    type,
+    provider,
+    sourceTrust:null,
+    status,
+    reviewState,
+    healthStatus:'healthy',
+    metadata:{ schemaVersion, kind, ...metadata },
+  });
+  const retrospective = learningProduct({
+    id:'retrospective-full-chain',
+    provider:'agent-army.m5-retrospective',
+    schemaVersion:'agent.army/m5-retrospective/v1',
+    kind:'Retrospective',
+    metadata:{ report:{ status:'proposal_ready' } },
+  });
+  const offlineReplay = learningProduct({
+    id:'offline-full-chain',
+    provider:'agent-army.m5-learning',
+    schemaVersion:'agent.army/m5-offline-replay/v1',
+    kind:'OfflineReplay',
+    metadata:{
+      replay:{
+        replayId:'replay-full-chain',
+        proposalId:'proposal-full-chain',
+        status:'passed_for_review',
+        primaryMetric:'views',
+        baselineMetrics:{ views:100 },
+      },
+    },
+  });
+  const proposal = learningProduct({
+    id:'proposal-product-full-chain',
+    provider:'agent-army.m5-learning',
+    schemaVersion:'agent.army/learning-proposal/v1',
+    kind:'LearningProposal',
+    status:'approved',
+    reviewState:'approved',
+    metadata:{
+      proposal:{
+        proposalId:'proposal-full-chain',
+        offlineReplayId:'replay-full-chain',
+        requestedChangeCount:1,
+        suggestedChanges:[...templateVersion.suggestedChanges],
+        baseTemplateVersionId:'m5-template-default-v1',
+        controls:safeControls,
+      },
+    },
+  });
+  const templateProduct = learningProduct({
+    id:templateWorkProductId,
+    provider:'agent-army.m5-learning',
+    schemaVersion:'agent.army/template-version/v1',
+    kind:'TemplateVersion',
+    metadata:{ templateVersion },
+  });
+  const contentProduct = learningProduct({
+    id:'content-version-full-chain',
+    provider:'agent-army.content-autonomy',
+    schemaVersion:'agent.army/content-version/v1',
+    kind:'ContentVersion',
+    type:'artifact',
+    metadata:{ contentVersion },
+  });
+  const reviewProduct = learningProduct({
+    id:'machine-review-full-chain',
+    provider:'agent-army.content-autonomy',
+    schemaVersion:'agent.army/machine-review/v1',
+    kind:'MachineReview',
+    type:'artifact',
+    metadata:{ reviewReport },
+  });
+  const publishedAt = '2026-08-10T00:00:00.000Z';
+  const dueAt = '2026-08-13T00:00:00.000Z';
+  const receiptId = '77777777-7777-4777-8777-777777777777';
+  const receiptProduct = learningProduct({
+    id:'publish-receipt-full-chain',
+    provider:'agent-army.publisher-gateway',
+    schemaVersion:'agent.army/publish-receipt/v1',
+    kind:'PublishReceipt',
+    type:'artifact',
+    metadata:{
+      receipt:{
+        receiptId,
+        contentVersionId:contentVersion.contentVersionId,
+        platform:'douyin',
+        publishedAt,
+        contentChecksum:contentVersion.checksum,
+        scheduledDate,
+      },
+    },
+  });
+  const metricProduct = learningProduct({
+    id:'metric-full-chain',
+    provider:'agent-army.publisher-gateway',
+    schemaVersion:'agent.army/metric-snapshot/v1',
+    kind:'MetricSnapshot',
+    type:'artifact',
+    metadata:{
+      checkpoint:'72h',
+      receiptId,
+      collectionKey:`${receiptId}:72h`,
+      dueAt,
+      snapshot:{
+        snapshotId:'snapshot-full-chain',
+        contentVersionId:contentVersion.contentVersionId,
+        platform:'douyin',
+        collectedAt:dueAt,
+        receiptId,
+        collectionKey:`${receiptId}:72h`,
+        metrics:{ views:1000 },
+      },
+    },
+  });
+  const caseOutputs = [
+    retrospective,
+    offlineReplay,
+    proposal,
+    templateProduct,
+  ];
+  const pipelineOutputs = [
+    ...caseOutputs,
+    contentProduct,
+    reviewProduct,
+    receiptProduct,
+    metricProduct,
+  ];
+  const governance = {
+    async getPipelineCaseOutputs(requestedCaseId) {
+      assert.equal(requestedCaseId, learningCaseId);
+      return { items:structuredClone(caseOutputs) };
+    },
+    async getRetrospectiveMetricOutputs(requestedCaseId) {
+      assert.equal(requestedCaseId, learningCaseId);
+      return { items:structuredClone(pipelineOutputs) };
+    },
+    async getNextM5GrayTargetCase() {
+      throw new Error('模板版本已存在，不应重新选择灰度目标。');
+    },
+    async createIssueWorkProduct(requestedIssueId, value, options) {
+      assert.equal(requestedIssueId, learningIssueId);
+      assert.equal(options.runId, learningRunId);
+      const product = {
+        id:`learning-created-${caseOutputs.length + 1}`,
+        kind:'work_product',
+        sourceTrust:null,
+        ...structuredClone(value),
+      };
+      caseOutputs.push(product);
+      pipelineOutputs.push(structuredClone(product));
+      return structuredClone(product);
+    },
+  };
+  const learning = new M5LearningLifecycle({
+    governance,
+    now:() => new Date('2026-08-13T00:00:00.000Z'),
+  });
+  const grayRelease = await learning.advance({
+    caseId:learningCaseId,
+    issueId:learningIssueId,
+    runId:learningRunId,
+  });
+  assert.equal(grayRelease.createdKind, 'TemplateGrayRelease');
+  const grayReleaseProduct = caseOutputs.find((item) =>
+    item.metadata?.kind === 'TemplateGrayRelease');
+  assert.equal(
+    grayReleaseProduct.metadata.grayRelease.contentVersionId,
+    contentVersion.contentVersionId,
+  );
+  const decision = await learning.advance({
+    caseId:learningCaseId,
+    issueId:learningIssueId,
+    runId:learningRunId,
+  });
+  assert.equal(decision.createdKind, 'TemplateDecision');
+  const decisionProduct = caseOutputs.find((item) =>
+    item.metadata?.kind === 'TemplateDecision');
+  assert.equal(decisionProduct.metadata.decision.status, 'validated');
+  assert.deepEqual(decisionProduct.metadata.decision.grayLineage, {
+    dayCaseId,
+    platformCaseId:douyinCaseId,
+    platform:'douyin',
+    scheduledDate,
+    checksum:contentVersion.checksum,
+    templateWorkProductId,
+    templateBindingHash:grayBinding.bindingHash,
+    variantKey:'gray_douyin',
+    scriptHash:grayScript.scriptHash,
+    renderChecksum:douyinRender.checksum,
+  });
+  assert.ok(toolCalls.some((call) => call.toolId.endsWith(':stepfun-tts')));
+  assert.ok(toolCalls.some((call) => call.toolId.endsWith(':remotion-render')));
+  assert.ok(toolCalls.some((call) => call.toolId.endsWith(':media-validate')));
 });
 
 test('发布审批会解包 ContentVersion 和 MachineReview 后再交固定 preflight', async () => {

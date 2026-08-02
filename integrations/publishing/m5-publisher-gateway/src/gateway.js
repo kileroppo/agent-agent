@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { M5_PLATFORM_IDS } from '@agent-army/m5-contracts';
 import {
   coded,
   publishIdempotencyKey,
@@ -1458,9 +1459,9 @@ function validateMetricConnectorResult(value, receipt, context) {
     }
   }
   const metrics = isEvidenceBound ? value.metrics : value;
-  const expectedKeys = receipt.platform === 'xiaohongshu'
+  const expectedKeys = receipt.platform === M5_PLATFORM_IDS.XIAOHONGSHU
     ? ['comments', 'likes', 'saves', 'views']
-    : receipt.platform === 'douyin'
+    : receipt.platform === M5_PLATFORM_IDS.DOUYIN
       ? ['comments', 'downloads', 'forwards', 'likes', 'shares', 'views']
       : null;
   const actualKeys = metrics && typeof metrics === 'object' && !Array.isArray(metrics)

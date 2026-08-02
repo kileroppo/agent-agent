@@ -10,6 +10,7 @@
     "test": "node --test"
   },
   "dependencies": {
+    "ajun-common-access": "0.1.0",
     "express": "^5.1.0",
     "multer": "^2.0.2"
   }

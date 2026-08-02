@@ -69,7 +69,7 @@ test('按运行时白名单冻结内容寻址只读包，并排除data、测试�
   await assert.rejects(
     fs.stat(path.join(
       result.releaseRoot,
-      'apps/ajun-runtime/node_modules/.cache/generated.log',
+      'node_modules/.cache/generated.log',
     )),
     { code:'ENOENT' },
   );
@@ -91,6 +91,7 @@ test('按运行时白名单冻结内容寻址只读包，并排除data、测试�
   assert.equal(manifest.entrypoint, 'apps/ajun-runtime/src/server.js');
   assert.deepEqual(manifest.externalState, [
     'AGENT_ARMY_DATA_DIR',
+    'AGENT_ARMY_TASK_STORE',
     'AGENT_ARMY_CONTENT_WORKSPACE_DIR',
     'AGENT_ARMY_HERMES_PROFILE_ROOT',
     'AGENT_ARMY_PRIVATE_DIR',
@@ -124,6 +125,10 @@ test('按运行时白名单冻结内容寻址只读包，并排除data、测试�
     entryPath === 'integrations/publishing/m5-publisher-gateway/src/index.js'));
   assert.ok(manifest.entries.some(({ path: entryPath }) =>
     entryPath === 'integrations/access/content-acquisition-center.js'));
+  assert.ok(manifest.entries.some(({ type, path: entryPath }) =>
+    type === 'symlink' && entryPath === 'node_modules/@agent-army/m5-kernel'));
+  assert.ok(manifest.entries.some(({ type, path: entryPath }) =>
+    type === 'symlink' && entryPath === 'node_modules/ajun-common-access'));
   assert.equal(
     manifest.entries.some(({ path: entryPath }) => entryPath.includes('/data/')),
     false,
@@ -341,6 +346,11 @@ test('verify要求真实启动级证据并执行必要源码测试，且清单�
     {
       command:'npm',
       args:['test'],
+      cwd:'integrations/m5-kernel',
+    },
+    {
+      command:'npm',
+      args:['test'],
       cwd: 'apps/ajun-runtime',
     },
     {
@@ -363,13 +373,31 @@ test('verify要求真实启动级证据并执行必要源码测试，且清单�
       args: ['run', 'check'],
       cwd: 'integrations/publishing/m5-publisher-gateway',
     },
+    {
+      command:'npm',
+      args:['run', 'check'],
+      cwd:'packages/m5-contracts',
+    },
+    {
+      command:'npm',
+      args:['test'],
+      cwd:'packages/paperclip-client',
+    },
   ]);
   assert.equal(result.verification.requested, true);
-  assert.equal(result.verification.commands.length, 5);
+  assert.equal(result.verification.commands.length, 8);
   assert.equal(result.verification.commands[0].evidenceLayer, 'source_test');
   assert.equal(result.verification.startupSmoke.status, 'passed');
   assert.equal(result.verification.startupSmoke.httpStatus, 200);
   assert.equal(result.verification.startupSmoke.termination.exitConfirmed, true);
+  assert.equal(result.verification.recoveryStartupSmoke.status, 'passed');
+  assert.equal(result.verification.recoveryStartupSmoke.healthHttpStatus, 200);
+  assert.equal(result.verification.recoveryStartupSmoke.unknownGetHttpStatus, 404);
+  assert.equal(result.verification.recoveryStartupSmoke.writeHttpStatus, 503);
+  assert.equal(result.verification.recoveryStartupSmoke.writeError, 'recovery_mode_read_only');
+  assert.deepEqual(result.verification.recoveryStartupSmoke.formalStateEnvironmentKeys, []);
+  assert.equal(result.verification.recoveryStartupSmoke.termination.forced, false);
+  assert.equal(result.verification.recoveryStartupSmoke.termination.exitConfirmed, true);
   assert.equal(result.verification.payloadUnchanged, true);
   assert.equal(result.verification.sourceSnapshotBound, true);
 
@@ -417,6 +445,37 @@ test('verify要求真实启动级证据并执行必要源码测试，且清单�
     }),
     /startup smoke证据/,
   );
+
+  const invalidRecoverySmokeRepo = await createFixture(context, 'invalid-recovery-smoke');
+  await assert.rejects(
+    freezeAjunRuntimeRelease({
+      repoRoot:invalidRecoverySmokeRepo,
+      verify:true,
+      smokeRunner:async ({ gitHead }) => startupEvidence(gitHead),
+      recoverySmokeRunner:async ({ gitHead, payloadHash }) => ({
+        ...recoveryStartupEvidence(gitHead, payloadHash),
+        writeHttpStatus:200,
+      }),
+      runCommand:async () => {},
+    }),
+    /recovery startup smoke证据/,
+  );
+
+  const tamperedRecoveryRepo = await createFixture(context, 'tampered-recovery-evidence');
+  const tamperedRecoveryRelease = await verifiedFixtureRelease(tamperedRecoveryRepo);
+  const rewrittenRecoveryRelease = await rewriteManifestContract(
+    tamperedRecoveryRelease.releaseRoot,
+    (manifest) => {
+      manifest.verification.recoveryStartupSmoke.writeError = 'write_allowed';
+    },
+  );
+  await assert.rejects(
+    validateAjunRuntimeRelease(
+      rewrittenRecoveryRelease.releaseRoot,
+      rewrittenRecoveryRelease.releaseHash,
+    ),
+    /recovery startup smoke证据/,
+  );
 });
 
 test('launchd计划强绑clean源码来源，cutover启用技术修复而rollback默认失败关闭', async (context) => {
@@ -456,6 +515,7 @@ test('launchd计划强绑clean源码来源，cutover启用技术修复而rollbac
     newReleaseRoot:newRelease.releaseRoot,
     sourceProjectRoot,
     dataDir,
+    taskStoreMode:'sqlite',
     contentWorkspaceDir,
     hermesProfileRoot,
     privateDir,
@@ -473,15 +533,19 @@ test('launchd计划强绑clean源码来源，cutover启用技术修复而rollbac
   assert.equal(plan.rollback.targetRelease.releaseHash, oldRelease.releaseHash);
   assert.match(plan.cutover.requiredConfirmation, /^I_ACCEPT_AJUN_RUNTIME_CUTOVER_/);
   assert.match(plan.rollback.requiredConfirmation, /^I_ACCEPT_AJUN_RUNTIME_ROLLBACK_/);
-  const canonicalExternalRoot = await fs.realpath(externalRoot);
   assert.equal(plan.cutover.status, 'blocked');
   assert.equal(plan.cutover.launchable, false);
   assert.equal(plan.cutover.programArguments, null);
   assert.equal(plan.cutover.environment, null);
   assert.match(plan.cutover.blockedReason, /rollback源码根/);
-  assert.equal(plan.cutover.technicalRepair.status, 'enabled');
+  assert.equal(plan.cutover.technicalRepair.status, 'candidate_only');
+  assert.equal(plan.cutover.technicalRepair.readiness, 'blocked');
   assert.equal(plan.cutover.technicalRepair.provenanceMatched, true);
-  assert.equal(plan.cutover.knownCapabilityRestrictions.length, 0);
+  assert.match(plan.cutover.knownCapabilityRestrictions.join('\n'), /候选绑定/);
+  assert.deepEqual(plan.cutover.requiredPassthroughEnvironment, []);
+  assert.deepEqual(plan.cutover.requiredLoopbackEnvironment, []);
+  assert.equal(plan.cutover.standardOutPath, null);
+  assert.equal(plan.cutover.standardErrorPath, null);
   assert.equal(plan.rollback.status, 'blocked');
   assert.equal(plan.rollback.launchable, false);
   assert.equal(plan.rollback.programArguments, null);
@@ -489,40 +553,140 @@ test('launchd计划强绑clean源码来源，cutover启用技术修复而rollbac
   assert.equal(plan.rollback.technicalRepair.status, 'disabled');
   assert.match(plan.rollback.technicalRepair.reason, /禁止复用新版本源码根/);
 
-  const rollbackReady = await buildLaunchdCutoverPlan({
+  const exactWithoutAttestation = await buildLaunchdCutoverPlan({
     ...baseInput,
     rollbackSourceProjectRoot,
   });
-  assert.equal(rollbackReady.cutover.status, 'ready');
-  assert.equal(rollbackReady.cutover.launchable, true);
-  assert.equal(rollbackReady.cutover.blockedReason, null);
-  assert.deepEqual(rollbackReady.cutover.environment, {
-    AGENT_ARMY_DATA_DIR:path.join(canonicalExternalRoot, 'data'),
-    AGENT_ARMY_CONTENT_WORKSPACE_DIR:path.join(canonicalExternalRoot, 'content'),
-    AGENT_ARMY_HERMES_PROFILE_ROOT:path.join(canonicalExternalRoot, 'hermes'),
-    AGENT_ARMY_PRIVATE_DIR:path.join(canonicalExternalRoot, 'private'),
-    AJUN_HERMES_HOME:path.join(canonicalExternalRoot, 'hermes/ajun'),
-    AUTO_WORK_ROOT:path.join(canonicalExternalRoot, 'auto-work'),
-    XIAOD_ARTIFACT_ROOT:path.join(canonicalExternalRoot, 'xiaod-artifacts'),
-    PAPERCLIP_REPAIR_WORKTREE_PARENT:path.join(canonicalExternalRoot, 'repair-worktrees'),
-    AGENT_ARMY_SOURCE_PROJECT_ROOT:path.join(canonicalExternalRoot, 'new-source'),
-    PORT:'4321',
-    AJUN_HOST:'127.0.0.1',
+  assert.equal(exactWithoutAttestation.cutover.status, 'blocked');
+  assert.equal(exactWithoutAttestation.rollback.status, 'blocked');
+  assert.match(exactWithoutAttestation.cutover.blockedReason, /内置可信OS|拒绝调用方/);
+  assert.equal(exactWithoutAttestation.rollback.exactPreviousLive, false);
+
+  let injectedCollectorCalled = false;
+  const injectedAttestations = await buildLaunchdCutoverPlan({
+    ...baseInput,
+    rollbackSourceProjectRoot,
+    liveAttestationCollector:async () => {
+      injectedCollectorCalled = true;
+      return { forged:true };
+    },
+    stateRollbackAttestationCollector:async () => {
+      injectedCollectorCalled = true;
+      return { forged:true };
+    },
   });
-  assert.equal(
-    rollbackReady.cutover.programArguments[1],
-    path.join(newRelease.releaseRoot, 'apps/ajun-runtime/src/server.js'),
+  assert.equal(injectedCollectorCalled, false);
+  assert.equal(injectedAttestations.cutover.status, 'blocked');
+  assert.equal(injectedAttestations.cutover.launchable, false);
+  assert.equal(injectedAttestations.cutover.programArguments, null);
+  assert.equal(injectedAttestations.cutover.workingDirectory, null);
+  assert.equal(injectedAttestations.cutover.environment, null);
+  assert.match(injectedAttestations.cutover.blockedReason, /内置可信OS|拒绝调用方/);
+  assert.equal(injectedAttestations.rollback.status, 'blocked');
+  assert.equal(injectedAttestations.rollback.launchable, false);
+  assert.equal(injectedAttestations.rollback.programArguments, null);
+  assert.equal(injectedAttestations.rollback.workingDirectory, null);
+  assert.equal(injectedAttestations.rollback.environment, null);
+  assert.equal(injectedAttestations.rollback.exactPreviousLive, false);
+  assert.equal(injectedAttestations.rollback.stateRollbackReady, false);
+  assert.equal(injectedAttestations.rollback.currentLiveAttestation, null);
+  assert.equal(injectedAttestations.rollback.stateRollbackAttestation, null);
+  assert.equal(injectedAttestations.rollback.technicalRepair.status, 'disabled');
+
+  let degradedCollectorCalled = false;
+  const degradedFallback = await buildLaunchdCutoverPlan({
+    ...baseInput,
+    rollbackMode:'verified_degraded_fallback',
+    liveAttestationCollector:async () => {
+      degradedCollectorCalled = true;
+      return { forged:true };
+    },
+    stateRollbackAttestationCollector:async () => {
+      degradedCollectorCalled = true;
+      return { forged:true };
+    },
+  });
+  assert.equal(degradedCollectorCalled, false);
+  assert.equal(degradedFallback.cutover.status, 'ready');
+  assert.equal(degradedFallback.cutover.launchable, true);
+  assert.deepEqual(
+    degradedFallback.cutover.programArguments,
+    [process.execPath, path.join(newRelease.releaseRoot, 'apps/ajun-runtime/src/server.js')],
   );
-  assert.equal(rollbackReady.rollback.status, 'ready');
-  assert.equal(rollbackReady.rollback.launchable, true);
-  assert.equal(rollbackReady.rollback.technicalRepair.status, 'enabled');
   assert.equal(
-    rollbackReady.rollback.programArguments[1],
-    path.join(oldRelease.releaseRoot, 'apps/ajun-runtime/src/server.js'),
+    degradedFallback.cutover.workingDirectory,
+    path.join(newRelease.releaseRoot, 'apps/ajun-runtime'),
   );
   assert.equal(
-    rollbackReady.rollback.environment.AGENT_ARMY_SOURCE_PROJECT_ROOT,
-    await fs.realpath(rollbackSourceProjectRoot),
+    degradedFallback.cutover.environment?.AGENT_ARMY_SOURCE_PROJECT_ROOT,
+    sourceProjectRoot,
+  );
+  assert.equal(degradedFallback.cutover.environment?.AGENT_ARMY_TASK_STORE, 'sqlite');
+  assert.equal(degradedFallback.cutover.blockedReason, null);
+  assert.equal(degradedFallback.rollback.status, 'ready');
+  assert.equal(degradedFallback.rollback.launchable, true);
+  assert.deepEqual(
+    degradedFallback.rollback.programArguments,
+    [process.execPath, path.join(newRelease.releaseRoot, 'apps/ajun-runtime/src/recovery-server.js')],
+  );
+  assert.equal(
+    degradedFallback.rollback.workingDirectory,
+    path.join(newRelease.releaseRoot, 'apps/ajun-runtime'),
+  );
+  assert.equal(degradedFallback.rollback.environment?.PORT, '4321');
+  assert.match(
+    degradedFallback.rollback.requiredConfirmation,
+    /^I_ACCEPT_AJUN_RUNTIME_RECOVERY_/,
+  );
+  assert.equal(degradedFallback.rollback.basis, 'verified_degraded_fallback');
+  assert.equal(degradedFallback.rollback.exactPreviousLive, false);
+  assert.equal(degradedFallback.rollback.operatingMode, 'local_recovery_only');
+  assert.equal(degradedFallback.rollback.stateIsolation, 'no_external_state_access');
+  assert.equal(degradedFallback.rollback.stateRollbackReady, true);
+  assert.equal(degradedFallback.rollback.stateRollbackAttestation?.status, 'passed');
+  assert.equal(degradedFallback.rollback.recoveryEntrypointCandidatePresent, true);
+  assert.equal(degradedFallback.rollback.recoveryLaunchBlockedReason, null);
+  assert.equal(degradedFallback.rollback.technicalRepair.status, 'disabled');
+  assert.equal(
+    degradedFallback.rollback.targetRelease.releaseHash,
+    newRelease.releaseHash,
+  );
+  assert.equal(
+    degradedFallback.rollback.historicalReferenceRelease.releaseHash,
+    oldRelease.releaseHash,
+  );
+  assert.equal(
+    degradedFallback.rollback.recoveryEntrypoint.path,
+    path.join(newRelease.releaseRoot, 'apps/ajun-runtime/src/recovery-server.js'),
+  );
+  assert.deepEqual(degradedFallback.rollback.requiredPassthroughEnvironment, []);
+  assert.deepEqual(degradedFallback.rollback.requiredLoopbackEnvironment, []);
+  assert.match(
+    degradedFallback.rollback.knownCapabilityRestrictions.join('\n'),
+    /不声称恢复当前live内存中的精确旧代码/,
+  );
+  assert.doesNotMatch(
+    degradedFallback.rollback.knownCapabilityRestrictions.join('\n'),
+    /旧release.*worktree|旧release.*源码根/,
+  );
+  assert.match(degradedFallback.rollback.instruction, /降级回滚启动新release内的独立只读recovery entrypoint/);
+  assert.doesNotMatch(degradedFallback.rollback.instruction, /旧release|worktree/);
+
+  await assert.rejects(
+    buildLaunchdCutoverPlan({
+      ...baseInput,
+      rollbackSourceProjectRoot,
+      rollbackMode:'unsafe_guess',
+    }),
+    /rollbackMode只允许/,
+  );
+
+  await assert.rejects(
+    buildLaunchdCutoverPlan({
+      ...baseInput,
+      taskStoreMode:'memory',
+    }),
+    /taskStoreMode只允许/,
   );
 
   await assert.rejects(
@@ -695,6 +859,37 @@ test('validator兼容不含日志的历史v1排除契约，但拒绝任意漂移
     false,
   );
 
+  const historicalRepo = await createFixture(context, 'historical-v1-no-recovery-smoke');
+  const currentHistoricalRelease = await verifiedFixtureRelease(historicalRepo);
+  const historicalRelease = await rewriteManifestContract(
+    currentHistoricalRelease.releaseRoot,
+    async (manifest) => {
+      await fs.rm(path.join(
+        currentHistoricalRelease.releaseRoot,
+        'apps/ajun-runtime/src/recovery-server.js',
+      ));
+      manifest.entries = manifest.entries.filter(
+        ({ path:entryPath }) => entryPath !== 'apps/ajun-runtime/src/recovery-server.js',
+      );
+      const payloadHasher = crypto.createHash('sha256');
+      for (const entry of manifest.entries) {
+        payloadHasher.update(`${JSON.stringify(entry)}\n`);
+      }
+      manifest.payloadHash = payloadHasher.digest('hex');
+      manifest.workingTreeSnapshot = manifest.payloadHash;
+      delete manifest.verification.recoveryStartupSmoke;
+    },
+  );
+  const historicalValidated = await validateAjunRuntimeRelease(
+    historicalRelease.releaseRoot,
+    historicalRelease.releaseHash,
+  );
+  assert.equal(historicalValidated.manifest.schemaVersion, 1);
+  assert.equal(
+    Object.hasOwn(historicalValidated.manifest.verification, 'recoveryStartupSmoke'),
+    false,
+  );
+
   const driftRepo = await createFixture(context, 'drifted-v1-exclusions');
   const driftRelease = await verifiedFixtureRelease(driftRepo);
   const rewrittenDrift = await rewriteManifestContract(driftRelease.releaseRoot, (manifest) => {
@@ -758,6 +953,10 @@ test('plan拒绝dirty来源release和未做真实启动验收的release', async 
 
 async function createFixture(context, suffix) {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), `ajun-release-${suffix}-`));
+  const recoveryServerSource = await fs.readFile(
+    new URL('../src/recovery-server.js', import.meta.url),
+    'utf8',
+  );
   context.after(async () => {
     await makeWritable(repoRoot);
     await fs.rm(repoRoot, { recursive:true, force:true });
@@ -765,8 +964,8 @@ async function createFixture(context, suffix) {
   const requiredDirectories = [
     'apps/ajun-runtime/src',
     'apps/ajun-runtime/public',
-    'apps/ajun-runtime/node_modules/pkg',
-    'apps/ajun-runtime/node_modules/.cache',
+    'node_modules/pkg',
+    'node_modules/.cache',
     'apps/ajun-runtime/data',
     'apps/ajun-runtime/test',
     'apps/ajun-runtime/scripts',
@@ -779,24 +978,29 @@ async function createFixture(context, suffix) {
     'integrations/paperclip/plugins/content-autonomy/node_modules/plugin-sdk',
     'integrations/publishing/m5-publisher-gateway/src',
     'integrations/access',
+    'integrations/boom-monitor',
+    'integrations/m5-kernel/src',
+    'packages/m5-contracts/src',
+    'packages/paperclip-client/src',
   ];
   await Promise.all(requiredDirectories.map((relative) =>
     fs.mkdir(path.join(repoRoot, relative), { recursive:true })));
 
   const files = new Map([
     ['.gitignore', '/apps/ajun-runtime/data/releases/\n'],
-    ['apps/ajun-runtime/package.json', '{"name":"ajun-runtime","type":"module"}\n'],
+    ['apps/ajun-runtime/package.json', '{"name":"ajun-runtime","type":"module","dependencies":{"pkg":"1.0.0"}}\n'],
     ['apps/ajun-runtime/package-lock.json', '{"lockfileVersion":3}\n'],
     ['apps/ajun-runtime/src/server.js', "import './local.js';\n"],
-    ['apps/ajun-runtime/src/local.js', "import '../../../integrations/paperclip/m5-content-pipeline/src/index.js';\nimport '../../../integrations/paperclip/plugins/content-autonomy/src/signed-budget-ticket.js';\nimport '../../../integrations/publishing/m5-publisher-gateway/src/index.js';\nimport '../../../integrations/access/content-acquisition-center.js';\nimport 'pkg';\n"],
+    ['apps/ajun-runtime/src/recovery-server.js', recoveryServerSource],
+    ['apps/ajun-runtime/src/local.js', "import '@agent-army/m5-content-pipeline';\nimport '@agent-army/m5-kernel';\nimport '@agent-army/paperclip-content-autonomy/signed-budget-ticket';\nimport '@agent-army/m5-publisher-gateway';\nimport 'ajun-common-access/content-acquisition-center';\nimport '@agent-army/boom-monitor';\nimport '@agent-army/m5-contracts';\nimport '@agent-army/paperclip-client';\nimport 'pkg';\n"],
     ['apps/ajun-runtime/src/hermes-oneshot-policy.js', 'export const policy = true;\n'],
     ['apps/ajun-runtime/src/m5-work-product-integrity.js', 'export const integrity = true;\n'],
     ['apps/ajun-runtime/src/task-service.js', 'export const tasks = true;\n'],
     ['apps/ajun-runtime/src/runtime.log', 'runtime log must not ship\n'],
     ['apps/ajun-runtime/public/index.html', '<!doctype html>\n'],
-    ['apps/ajun-runtime/node_modules/pkg/package.json', '{"name":"pkg","type":"module","exports":{"import":"./index.js"}}\n'],
-    ['apps/ajun-runtime/node_modules/pkg/index.js', 'export default true;\n'],
-    ['apps/ajun-runtime/node_modules/.cache/generated.log', 'generated\n'],
+    ['node_modules/pkg/package.json', '{"name":"pkg","type":"module","exports":{"import":"./index.js"}}\n'],
+    ['node_modules/pkg/index.js', 'export default true;\n'],
+    ['node_modules/.cache/generated.log', 'generated\n'],
     ['apps/ajun-runtime/data/runtime.json', '{}\n'],
     ['apps/ajun-runtime/test/server.test.js', 'throw new Error("not runtime");\n'],
     ['apps/ajun-runtime/test/task-service.test.js', '// source-only verification\n'],
@@ -807,22 +1011,30 @@ async function createFixture(context, suffix) {
     ['agents/ajun/prompts/system.md', '# A君\n'],
     ['agents/ajun/prompts/task-guides/check.md', '# 检查\n'],
     ['integrations/hermes/profiles/ajun.profile.json', '{"profileId":"ajun"}\n'],
-    ['integrations/paperclip/m5-content-pipeline/package.json', '{"name":"pipeline","type":"module"}\n'],
+    ['integrations/paperclip/m5-content-pipeline/package.json', '{"name":"@agent-army/m5-content-pipeline","type":"module","exports":"./src/index.js"}\n'],
     ['integrations/paperclip/m5-content-pipeline/package-lock.json', '{"lockfileVersion":3}\n'],
     ['integrations/paperclip/m5-content-pipeline/config/definition.json', '{"key":"fixture"}\n'],
     ['integrations/paperclip/m5-content-pipeline/src/index.js', 'export const pipeline = true;\n'],
     ['integrations/paperclip/m5-content-pipeline/node_modules/zod/package.json', '{"name":"zod"}\n'],
     ['integrations/paperclip/m5-content-pipeline/test/pipeline.test.js', '// fixture\n'],
     ['integrations/paperclip/m5-content-pipeline/test/controller-run-jwt-cutover.test.js', '// fixture\n'],
-    ['integrations/paperclip/plugins/content-autonomy/package.json', '{"name":"plugin","type":"module","scripts":{"check":"true"}}\n'],
+    ['integrations/paperclip/plugins/content-autonomy/package.json', '{"name":"@agent-army/paperclip-content-autonomy","type":"module","exports":{"./signed-budget-ticket":"./src/signed-budget-ticket.js"},"scripts":{"check":"true"}}\n'],
     ['integrations/paperclip/plugins/content-autonomy/package-lock.json', '{"lockfileVersion":3}\n'],
     ['integrations/paperclip/plugins/content-autonomy/src/signed-budget-ticket.js', 'export const ticket = true;\n'],
     ['integrations/paperclip/plugins/content-autonomy/node_modules/plugin-sdk/package.json', '{"name":"plugin-sdk"}\n'],
-    ['integrations/publishing/m5-publisher-gateway/package.json', '{"name":"publisher","type":"module","scripts":{"check":"true"}}\n'],
+    ['integrations/publishing/m5-publisher-gateway/package.json', '{"name":"@agent-army/m5-publisher-gateway","type":"module","exports":"./src/index.js","scripts":{"check":"true"}}\n'],
     ['integrations/publishing/m5-publisher-gateway/src/index.js', 'export const publisher = true;\n'],
-    ['integrations/access/package.json', '{"name":"access","type":"module"}\n'],
+    ['integrations/access/package.json', '{"name":"ajun-common-access","type":"module","exports":{"./content-acquisition-center":"./content-acquisition-center.js"}}\n'],
     ['integrations/access/content-acquisition-center.js', 'export const access = true;\n'],
     ['integrations/access/connection-broker.js', 'export const broker = true;\n'],
+    ['integrations/boom-monitor/ajun-intake.js', 'export const boom = true;\n'],
+    ['integrations/boom-monitor/package.json', '{"name":"@agent-army/boom-monitor","type":"module","exports":"./ajun-intake.js"}\n'],
+    ['integrations/m5-kernel/package.json', '{"name":"@agent-army/m5-kernel","type":"module","exports":"./src/index.js","scripts":{"test":"true"}}\n'],
+    ['integrations/m5-kernel/src/index.js', 'export const kernel = true;\n'],
+    ['packages/m5-contracts/package.json', '{"name":"@agent-army/m5-contracts","type":"module","exports":"./src/index.js","scripts":{"check":"true"}}\n'],
+    ['packages/m5-contracts/src/index.js', 'export const contracts = true;\n'],
+    ['packages/paperclip-client/package.json', '{"name":"@agent-army/paperclip-client","type":"module","exports":"./src/index.js","scripts":{"test":"true"}}\n'],
+    ['packages/paperclip-client/src/index.js', 'export const client = true;\n'],
   ]);
   for (const [relative, content] of files) {
     const absolute = path.join(repoRoot, relative);
@@ -907,11 +1119,70 @@ function startupEvidence(gitHead) {
   };
 }
 
+function recoveryStartupEvidence(gitHead, payloadHash) {
+  const smokeIdentityHash = crypto.createHash('sha256')
+    .update(stableCanonicalForTest({
+      kind:'agent-army/frozen-recovery-smoke-identity',
+      gitHead,
+      payloadHash,
+    }))
+    .digest('hex');
+  return {
+    status:'passed',
+    evidenceLayer:'frozen_recovery_startup',
+    entrypoint:'apps/ajun-runtime/src/recovery-server.js',
+    host:'127.0.0.1',
+    portMode:'ephemeral_loopback',
+    healthEndpoint:'/api/health',
+    healthHttpStatus:200,
+    statusEndpoint:'/api/recovery/status',
+    statusHttpStatus:200,
+    pageEndpoint:'/',
+    pageHttpStatus:200,
+    unknownGetEndpoint:'/api/overview',
+    unknownGetHttpStatus:404,
+    writeMethod:'POST',
+    writeEndpoint:'/api/overview',
+    writeHttpStatus:503,
+    writeError:'recovery_mode_read_only',
+    healthContract:'local-recovery-only-v1',
+    identityMode:'payload-and-git-bound-smoke',
+    smokeIdentityHash,
+    payloadHash,
+    mode:'local_recovery_only',
+    pidMatched:true,
+    bootIdPresent:true,
+    startedAtValid:true,
+    externalEffects:false,
+    writableRoutes:false,
+    environmentMode:'clean_allowlist',
+    environmentKeys:[
+      'AJUN_HOST',
+      'AJUN_RECOVERY_PAYLOAD_HASH',
+      'AJUN_RECOVERY_REASON',
+      'AJUN_RECOVERY_RELEASE_HASH',
+      'CI',
+      'HOME',
+      'LANG',
+      'LC_ALL',
+      'PORT',
+      'TMPDIR',
+    ],
+    formalStateEnvironmentKeys:[],
+    externalStateAccess:'none',
+    termination:{
+      requestedSignal:'SIGTERM',
+      forced:false,
+      exitConfirmed:true,
+    },
+  };
+}
+
 async function rewriteManifestContract(releaseRoot, mutate) {
   await makeWritable(releaseRoot);
   const manifestPath = path.join(releaseRoot, 'release-manifest.json');
   const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
-  mutate(manifest);
+  await mutate(manifest);
   delete manifest.releaseHash;
   const releaseHash = crypto.createHash('sha256')
     .update(stableCanonicalForTest(manifest))

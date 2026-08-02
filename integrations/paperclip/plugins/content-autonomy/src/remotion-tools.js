@@ -4,14 +4,15 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { M5_PLATFORM_IDS } from '@agent-army/m5-contracts';
 import { coded, safeRelativePath, sha256 } from './policy.js';
 
 const defaultExecuteFile = promisify(execFile);
 const M5_DURATION_FRAMES = 45 * 30;
 const COMPOSITIONS = Object.freeze({
   M5Master:{ platform:'master', fileName:'master.mp4' },
-  M5Douyin:{ platform:'douyin', fileName:'douyin.mp4' },
-  M5Xiaohongshu:{ platform:'xiaohongshu', fileName:'xiaohongshu.mp4' }
+  M5Douyin:{ platform:M5_PLATFORM_IDS.DOUYIN, fileName:'douyin.mp4' },
+  M5Xiaohongshu:{ platform:M5_PLATFORM_IDS.XIAOHONGSHU, fileName:'xiaohongshu.mp4' }
 });
 const DEFAULT_RENDERER_SCRIPT = fileURLToPath(new URL(
   '../../../../../apps/animated-chart/scripts/render-m5-controlled.mjs',

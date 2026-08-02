@@ -11,14 +11,14 @@ const CORE_PAPERCLIP_ACCESS_METHODS = Object.freeze([
   'recordPublisherConnectorAttempt',
 ]);
 
-export class PaperclipMetricRecoveryRunScope {
+export class PaperclipCurrentRunScope {
   constructor() {
     this.storage = new AsyncLocalStorage();
   }
 
   run(credential, operation) {
     if (typeof operation !== 'function') {
-      throw new TypeError('current Run recovery operation 必须是函数。');
+      throw new TypeError('current Run operation 必须是函数。');
     }
     return this.storage.run(
       Object.freeze(structuredClone(credential)),
@@ -29,11 +29,14 @@ export class PaperclipMetricRecoveryRunScope {
   async currentCredential() {
     const credential = this.storage.getStore();
     if (!credential) {
-      throw new Error('当前请求不属于 Paperclip recovery Run。');
+      throw new Error('当前请求不属于已认证的 Paperclip Run。');
     }
     return structuredClone(credential);
   }
 }
+
+// 保留旧导出，避免指标恢复调用方一次性迁移；实现已统一为通用 current Run scope。
+export class PaperclipMetricRecoveryRunScope extends PaperclipCurrentRunScope {}
 
 export function createM5ServerPublisherComposition({
   env = process.env,

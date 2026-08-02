@@ -6,7 +6,7 @@ import { cleanTranscript, composeDelivery, qualityCheck } from './domain.js';
 import { classifyFailure } from './recovery.js';
 import { createOneShotFailpoint } from './test-failpoint.js';
 import { JobPausedError } from './job-pause-controller.js';
-import { ContentAcquisitionError } from '../../../integrations/access/content-acquisition-center.js';
+import { ContentAcquisitionError } from 'ajun-common-access/content-acquisition-center';
 import { automaticConfirmationDecision, buildEvidenceRecords, parseTimedTranscript, sha256, timedTranscriptMarkdown } from './transcript-evidence.js';
 import { createTranscriptConfirmationFiles } from './transcript-review.js';
 import { createVisualEvidencePackage, VisualEvidenceError } from './visual-evidence.js';

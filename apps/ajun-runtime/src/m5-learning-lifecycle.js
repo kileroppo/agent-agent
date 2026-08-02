@@ -1,4 +1,13 @@
 import crypto from 'node:crypto';
+import {
+  M5_PLATFORM_IDS,
+  M5_PLATFORMS,
+  M5_SCHEMA_IDS,
+} from '@agent-army/m5-contracts';
+import {
+  m5GrayProductionTemplateBinding,
+  validM5TemplateGuidance,
+} from './m5-production-template-resolver.js';
 
 const PROVIDER = 'agent-army.m5-learning';
 const RETROSPECTIVE_PROVIDER = 'agent-army.m5-retrospective';
@@ -6,15 +15,16 @@ const CONTENT_PROVIDER = 'agent-army.content-autonomy';
 const METRIC_PROVIDER = 'agent-army.publisher-gateway';
 
 const SCHEMAS = Object.freeze({
-  retrospective:'agent.army/m5-retrospective/v1',
-  offlineReplay:'agent.army/m5-offline-replay/v1',
-  proposal:'agent.army/learning-proposal/v1',
-  template:'agent.army/template-version/v1',
-  grayRelease:'agent.army/template-gray-release/v1',
-  decision:'agent.army/template-decision/v1',
-  contentVersion:'agent.army/content-version/v1',
-  machineReview:'agent.army/machine-review/v1',
-  metric:'agent.army/metric-snapshot/v1',
+  retrospective:M5_SCHEMA_IDS.RETROSPECTIVE,
+  offlineReplay:M5_SCHEMA_IDS.OFFLINE_REPLAY,
+  proposal:M5_SCHEMA_IDS.LEARNING_PROPOSAL,
+  template:M5_SCHEMA_IDS.TEMPLATE_VERSION,
+  grayRelease:M5_SCHEMA_IDS.TEMPLATE_GRAY_RELEASE,
+  decision:M5_SCHEMA_IDS.TEMPLATE_DECISION,
+  contentVersion:M5_SCHEMA_IDS.CONTENT_VERSION,
+  machineReview:M5_SCHEMA_IDS.MACHINE_REVIEW,
+  metric:M5_SCHEMA_IDS.METRIC_SNAPSHOT,
+  publishReceipt:M5_SCHEMA_IDS.PUBLISH_RECEIPT,
 });
 
 const REQUIRED_REVIEW_CHECKS = Object.freeze([
@@ -131,7 +141,20 @@ export class M5LearningLifecycle {
 
     const templateProduct = lifecycleProduct(caseOutputs, SCHEMAS.template, 'TemplateVersion');
     if (!templateProduct) {
-      const templateVersion = approvedTemplateVersion(proposalProduct, offlineReplay, this.now());
+      const grayTarget = await this.governance.getNextM5GrayTargetCase(context.caseId);
+      if (!grayTarget?.caseId) {
+        return {
+          state:'waiting_gray_target_case',
+          replayed:true,
+          workProductId:proposalProduct.id,
+        };
+      }
+      const templateVersion = approvedTemplateVersion(
+        proposalProduct,
+        offlineReplay,
+        this.now(),
+        grayTarget,
+      );
       return this.write(context, {
         kind:'TemplateVersion',
         schemaVersion:SCHEMAS.template,
@@ -143,7 +166,14 @@ export class M5LearningLifecycle {
     }
 
     const templateVersion = templateProduct.metadata.templateVersion;
-    const grayCandidates = trustedGrayContentVersions(pipelineOutputs, templateVersion.templateVersionId);
+    if (!validLearningSuggestedChanges(templateVersion?.suggestedChanges)) {
+      throw new M5LearningLifecycleError('TemplateVersion 包含空、重复或占位的模板改进建议。');
+    }
+    const grayCandidates = trustedGrayContentVersions(
+      pipelineOutputs,
+      templateVersion,
+      templateProduct.id,
+    );
     if (grayCandidates.length > 1) {
       throw new M5LearningLifecycleError(
         `模板版本 ${templateVersion.templateVersionId} 只能灰度一条内容，当前发现 ${grayCandidates.length} 条。`,
@@ -188,7 +218,7 @@ export class M5LearningLifecycle {
       throw new M5LearningLifecycleError('单条灰度 Work Product 与审核后的模板版本不一致。');
     }
 
-    const review = uniqueMachineReview(pipelineOutputs, grayContentVersion.contentVersionId);
+    const review = uniqueMachineReview(pipelineOutputs, grayContentVersion);
     const snapshot = uniqueGrayMetric(pipelineOutputs, grayContentVersion);
     if (!review || !snapshot) {
       return {
@@ -268,6 +298,7 @@ export class M5LearningLifecycle {
     const required = [
       'getPipelineCaseOutputs',
       'getRetrospectiveMetricOutputs',
+      'getNextM5GrayTargetCase',
       'createIssueWorkProduct',
     ];
     if (required.some((method) => typeof this.governance?.[method] !== 'function')) {
@@ -287,9 +318,10 @@ export function buildOfflineReplay(retrospectiveProduct, pipelineOutputs, now = 
     || proposal.reviewerApprovalRequired !== true
     || proposal.grayReleaseLimit !== 1
     || proposal.automaticProductionMutation !== false
+    || !validLearningSuggestedChanges(proposal.suggestedChanges)
     || !safeProductionControls(report?.controls)
   ) {
-    throw new M5LearningLifecycleError('LearningProposal 未保持离线回放、人工审核和单条灰度安全边界。');
+    throw new M5LearningLifecycleError('LearningProposal 未保持有效模板改进建议、离线回放、人工审核和单条灰度安全边界。');
   }
   const refs = new Set(Array.isArray(report.metricSnapshotRefs) ? report.metricSnapshotRefs : []);
   if (refs.size < 5 || Number(report.sampleCount) < 5) {
@@ -345,8 +377,9 @@ function materializeProposal(retrospectiveProduct, offlineReplayProduct) {
     replay.status !== 'passed_for_review'
     || replay.proposalId !== source.proposalId
     || replay.performanceClaimed !== false
+    || !validLearningSuggestedChanges(source.suggestedChanges)
   ) {
-    throw new M5LearningLifecycleError('离线回放与 LearningProposal 不一致。');
+    throw new M5LearningLifecycleError('离线回放与 LearningProposal 或模板改进建议不一致。');
   }
   return {
     ...structuredClone(source),
@@ -358,12 +391,13 @@ function materializeProposal(retrospectiveProduct, offlineReplayProduct) {
   };
 }
 
-function approvedTemplateVersion(proposalProduct, offlineReplayProduct, now) {
+function approvedTemplateVersion(proposalProduct, offlineReplayProduct, now, grayTarget) {
   const proposal = proposalProduct.metadata.proposal;
   const replay = offlineReplayProduct.metadata.replay;
   if (
     proposal?.offlineReplayId !== replay?.replayId
     || proposal?.requestedChangeCount !== 1
+    || !validLearningSuggestedChanges(proposal?.suggestedChanges)
     || !safeProductionControls(proposal?.controls)
   ) {
     throw new M5LearningLifecycleError('审核后的提案与离线回放或单变量约束不一致。');
@@ -380,10 +414,21 @@ function approvedTemplateVersion(proposalProduct, offlineReplayProduct, now) {
     state:'gray_ready',
     grayReleaseLimit:1,
     productionDefault:false,
+    grayTargetCaseId:uuid(grayTarget?.caseId, '单条灰度目标 Case 标识无效。'),
+    grayTargetDayCaseId:uuid(grayTarget?.dayCaseId, '单条灰度目标日期 Case 标识无效。'),
+    grayTargetScheduledDate:String(grayTarget?.scheduledDate || ''),
+    grayTargetPlatform:M5_PLATFORM_IDS.DOUYIN,
+    applicationScope:'full_content_variant',
     suggestedChanges:structuredClone(proposal.suggestedChanges || []).slice(0, 1),
     approvedAt:validDate(now).toISOString(),
     controls:productionControls(),
   };
+}
+
+function validLearningSuggestedChanges(value) {
+  return Array.isArray(value)
+    && value.length === 1
+    && validM5TemplateGuidance(value);
 }
 
 function evaluateGrayOutcome({
@@ -413,7 +458,21 @@ function evaluateGrayOutcome({
       : templateVersion.templateVersionId,
     grayContentVersionId:grayContentVersion.contentVersionId,
     grayMetricSnapshotId:snapshot.snapshotId,
+    grayPublishReceiptId:snapshot.receiptId,
+    grayMetricCollectionKey:snapshot.collectionKey,
     grayMachineReviewId:review.id,
+    grayLineage:{
+      dayCaseId:grayContentVersion.dayCaseId,
+      platformCaseId:grayContentVersion.platformCaseId,
+      platform:grayContentVersion.platform,
+      scheduledDate:grayContentVersion.scheduledDate,
+      checksum:grayContentVersion.checksum || null,
+      templateWorkProductId:grayContentVersion.templateWorkProductId,
+      templateBindingHash:grayContentVersion.templateBindingHash,
+      variantKey:grayContentVersion.templateApplication.variantKey,
+      scriptHash:grayContentVersion.templateApplication.scriptHash,
+      renderChecksum:grayContentVersion.templateApplication.renderChecksum,
+    },
     qualityPassed,
     performance:{
       primaryMetric,
@@ -428,7 +487,11 @@ function evaluateGrayOutcome({
   };
 }
 
-function trustedGrayContentVersions(outputs, templateVersionId) {
+function trustedGrayContentVersions(outputs, templateVersion, templateWorkProductId) {
+  const expectedBinding = m5GrayProductionTemplateBinding({
+    templateVersion,
+    templateWorkProductId,
+  });
   const byContentVersion = new Map();
   for (const item of outputItems(outputs)) {
     if (!trustedProduct(item, {
@@ -437,25 +500,47 @@ function trustedGrayContentVersions(outputs, templateVersionId) {
       kind:'ContentVersion',
     })) continue;
     const version = item.metadata?.contentVersion;
+    const application = version?.templateApplication;
     if (
-      version?.templateVersionId !== templateVersionId
+      version?.templateVersionId !== templateVersion.templateVersionId
+      || version?.templateWorkProductId !== templateWorkProductId
       || version?.grayRelease !== true
       || !String(version.contentVersionId || '').trim()
-      || !['douyin', 'xiaohongshu'].includes(version.platform)
+      || version.platform !== templateVersion.grayTargetPlatform
+      || version.platform !== M5_PLATFORM_IDS.DOUYIN
+      || version.dayCaseId !== templateVersion.grayTargetDayCaseId
+      || version.platformCaseId !== templateVersion.grayTargetCaseId
+      || version.scheduledDate !== templateVersion.grayTargetScheduledDate
+      || !sha256(version.checksum)
+      || !sha256(version.templateBindingHash)
+      || version.templateBindingHash !== expectedBinding.bindingHash
+      || application?.mode !== 'verified_full_content_variant'
+      || application?.variantKey !== 'gray_douyin'
+      || application?.bindingHash !== version.templateBindingHash
+      || !sha256(application?.scriptHash)
+      || application?.renderChecksum !== version.checksum
     ) continue;
     byContentVersion.set(version.contentVersionId, structuredClone(version));
   }
   return [...byContentVersion.values()];
 }
 
-function uniqueMachineReview(outputs, contentVersionId) {
+function uniqueMachineReview(outputs, contentVersionOrId) {
+  const contentVersion = typeof contentVersionOrId === 'object'
+    ? contentVersionOrId
+    : null;
+  const contentVersionId = contentVersion?.contentVersionId || contentVersionOrId;
   const matches = outputItems(outputs).filter((item) =>
     trustedProduct(item, {
       provider:CONTENT_PROVIDER,
       schemaVersion:SCHEMAS.machineReview,
       kind:'MachineReview',
     })
-    && item.metadata?.reviewReport?.contentVersionId === contentVersionId);
+    && item.metadata?.reviewReport?.contentVersionId === contentVersionId
+    && (!contentVersion || machineReviewMatchesContentVersion(
+      item.metadata.reviewReport,
+      contentVersion,
+    )));
   if (matches.length > 1) {
     throw new M5LearningLifecycleError(`内容 ${contentVersionId} 存在多个可信 MachineReview。`);
   }
@@ -465,7 +550,9 @@ function uniqueMachineReview(outputs, contentVersionId) {
 function uniqueGrayMetric(outputs, contentVersion) {
   const matches = trusted72hSnapshots(outputs).filter((item) =>
     item.snapshot.contentVersionId === contentVersion.contentVersionId
-    && item.snapshot.platform === contentVersion.platform);
+    && item.snapshot.platform === contentVersion.platform
+    && item.receipt.contentChecksum === contentVersion.checksum
+    && item.receipt.scheduledDate === contentVersion.scheduledDate);
   if (matches.length > 1) {
     throw new M5LearningLifecycleError(`灰度内容 ${contentVersion.contentVersionId} 存在多个可信 72h 指标。`);
   }
@@ -473,6 +560,7 @@ function uniqueGrayMetric(outputs, contentVersion) {
 }
 
 function trusted72hSnapshots(outputs) {
+  const receipts = trustedPublishReceipts(outputs);
   const byContentVersion = new Map();
   for (const item of outputItems(outputs)) {
     if (!trustedProduct(item, {
@@ -481,28 +569,81 @@ function trusted72hSnapshots(outputs) {
       kind:'MetricSnapshot',
     }) || item.metadata?.checkpoint !== '72h') continue;
     const snapshot = item.metadata?.snapshot;
+    const receipt = receipts.get(String(item.metadata?.receiptId || ''));
+    const expectedCollectionKey = receipt ? `${receipt.receiptId}:72h` : null;
+    const expectedDueAt = receipt
+      ? new Date(Date.parse(receipt.publishedAt) + 72 * 60 * 60 * 1_000).toISOString()
+      : null;
     if (
       !snapshot
+      || !receipt
       || !String(snapshot.snapshotId || '').trim()
       || !String(snapshot.contentVersionId || '').trim()
-      || !['douyin', 'xiaohongshu'].includes(snapshot.platform)
+      || snapshot.contentVersionId !== receipt.contentVersionId
+      || snapshot.platform !== receipt.platform
+      || snapshot.receiptId !== receipt.receiptId
+      || snapshot.collectionKey !== expectedCollectionKey
+      || item.metadata?.collectionKey !== expectedCollectionKey
+      || item.metadata?.dueAt !== expectedDueAt
       || !Number.isFinite(Date.parse(snapshot.collectedAt))
+      || Date.parse(snapshot.collectedAt) < Date.parse(expectedDueAt)
       || !snapshot.metrics
       || typeof snapshot.metrics !== 'object'
       || Array.isArray(snapshot.metrics)
     ) continue;
     const current = byContentVersion.get(snapshot.contentVersionId);
     if (!current || Date.parse(snapshot.collectedAt) > Date.parse(current.snapshot.collectedAt)) {
-      byContentVersion.set(snapshot.contentVersionId, { id:item.id, snapshot:structuredClone(snapshot) });
+      byContentVersion.set(snapshot.contentVersionId, {
+        id:item.id,
+        snapshot:structuredClone(snapshot),
+        receipt:structuredClone(receipt),
+      });
     }
   }
   return [...byContentVersion.values()];
+}
+
+function trustedPublishReceipts(outputs) {
+  const byReceiptId = new Map();
+  for (const item of outputItems(outputs)) {
+    if (!trustedProduct(item, {
+      provider:METRIC_PROVIDER,
+      schemaVersion:SCHEMAS.publishReceipt,
+      kind:'PublishReceipt',
+    })) continue;
+    const receipt = item.metadata?.receipt;
+    if (
+      !receipt
+      || !String(receipt.receiptId || '').trim()
+      || !String(receipt.contentVersionId || '').trim()
+      || !M5_PLATFORMS.includes(receipt.platform)
+      || !Number.isFinite(Date.parse(receipt.publishedAt))
+      || !sha256(receipt.contentChecksum)
+      || !/^\d{4}-\d{2}-\d{2}$/.test(String(receipt.scheduledDate || ''))
+    ) continue;
+    if (byReceiptId.has(receipt.receiptId)) {
+      throw new M5LearningLifecycleError(`发布回执 ${receipt.receiptId} 不唯一。`);
+    }
+    byReceiptId.set(receipt.receiptId, structuredClone(receipt));
+  }
+  return byReceiptId;
 }
 
 function machineReviewPassed(item) {
   const report = item?.metadata?.reviewReport;
   return report?.status === 'passed'
     && REQUIRED_REVIEW_CHECKS.every((key) => report?.checks?.[key] === true);
+}
+
+function machineReviewMatchesContentVersion(report, contentVersion) {
+  const lineage = report?.variantLineage;
+  const application = contentVersion?.templateApplication;
+  return lineage?.variantKey === application?.variantKey
+    && lineage?.scriptHash === application?.scriptHash
+    && lineage?.templateBindingHash === contentVersion?.templateBindingHash
+    && lineage?.templateBindingHash === application?.bindingHash
+    && lineage?.renderChecksum === contentVersion?.checksum
+    && lineage?.renderChecksum === application?.renderChecksum;
 }
 
 function aggregateNumericMetrics(metricsList) {
@@ -596,6 +737,10 @@ function externalId(caseId, kind) {
 
 function digest(value) {
   return crypto.createHash('sha256').update(String(value)).digest('hex');
+}
+
+function sha256(value) {
+  return /^sha256:[0-9a-f]{64}$/i.test(String(value || ''));
 }
 
 function uuid(value, message) {

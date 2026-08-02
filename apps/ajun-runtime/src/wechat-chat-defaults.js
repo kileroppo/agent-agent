@@ -23,10 +23,10 @@ export function normalizeWechatChatRequest(input = {}, { now = new Date() } = {}
     startTime:boundedStart.toISOString(),
     endTime:endTime.toISOString(),
     maxMessages:Math.min(Math.max(Number(nested.maxMessages || input?.maxMessages) || WECHAT_CHAT_MAX_MESSAGES, 1), WECHAT_CHAT_MAX_MESSAGES),
-    outputMode:'metadata-summary',
+    outputMode:nested.outputMode === 'metadata-summary' ? 'metadata-summary' : 'local-summary',
     refreshMode:'incremental',
     sameNameStrategy:'latest-active-session',
-    privateContentModelAccess:'disabled',
+    privateContentModelAccess:'local-only',
     requestedFutureEndClampedToNow:Boolean(requestedEnd && requestedEnd.getTime() > current.getTime())
   };
 }

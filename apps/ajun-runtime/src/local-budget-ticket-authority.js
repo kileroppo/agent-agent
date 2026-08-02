@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createSignedBudgetTicket } from '../../../integrations/paperclip/plugins/content-autonomy/src/signed-budget-ticket.js';
+import { createSignedBudgetTicket } from '@agent-army/paperclip-content-autonomy/signed-budget-ticket';
 
 export class LocalBudgetTicketAuthority {
   constructor({ privateKey, publicKey, publicKeyPath }) {

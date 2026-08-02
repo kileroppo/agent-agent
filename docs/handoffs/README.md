@@ -55,6 +55,7 @@
 
 ## 当前交接
 
+- [系统重构与技术负债偿还交接](./current/system-architecture-debt-repayment-handoff.md)：候选 1–7 的代码与候选验证已完成；唯一下一步是在混杂工作树形成可追溯 source revision 后重新冻结正式 release，再按既有门禁切换 R4。
 - [M2 多账号与三平台只读增量验收交接](./current/m2-multi-account-crawl-acceptance-handoff.md)：已关闭；多账号、运行台及小红书/抖音/B站真实只读均已通过，小红书成功样本使用发现页自然生成的完整链接。
 - [M5 高权限内容自治交接](./current/m5-high-autonomy-content-operations-handoff.md)：v2 15 阶段/17 Routine/5 个无模型控制器及内容插件 `0.4.7` 已对账到 live，`0.4.6` 回滚链、Paperclip Secret 引用和 8 岗插件绑定已完成；活动仍未批准。唯一下一步是保持活动、Cron 和真实 Publisher 关闭，冻结真实 selector、签发绑定 accountRef 的命名 Profile lease，并在取得平台写权限后单独批准首发。
 - [M4 岗位自主执行与模型切换交接](./current/m4-autonomous-agent-capabilities-handoff.md)：代码、契约与模型元数据实施中；唯一下一步是负责人通过 Hermes 官方入口补齐各 Profile 的 StepFun/DeepSeek 授权，再做一次性重启和真实验收。

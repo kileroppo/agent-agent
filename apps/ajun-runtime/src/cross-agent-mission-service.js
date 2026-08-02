@@ -93,6 +93,7 @@ export class CrossAgentMissionService {
         parentTaskId:mission.taskId,
         idempotencyKey,
         context:{
+          ...(subtask.context || {}),
           missionTaskId:mission.taskId,
           parentPaperclipIssueId:parentIssueId,
           missionSafeOnly:plan.safeOnly === true,
@@ -237,6 +238,7 @@ function normalizeBusinessItems(items) {
       focus:clean(item?.focus, 500),
       platforms:Array.isArray(item?.platforms) ? [...new Set(item.platforms.map((platform) => clean(platform, 40)).filter(Boolean))].slice(0, 3) : [],
       contentGoal:clean(item?.contentGoal, 500),
+      context:normalizeBusinessContext(item?.context),
       dependsOnPrevious:item?.dependsOnPrevious === true || agentId === 'office-assistant',
       dependsOn:Array.isArray(item?.dependsOn)
         ? [...new Set(item.dependsOn.map((value) => clean(value, 80)).filter(Boolean))].slice(0, 10)
@@ -247,6 +249,14 @@ function normalizeBusinessItems(items) {
   const keys = new Set(normalized.map((item) => item.key));
   if (normalized.some((item) => item.dependsOn.some((key) => !keys.has(key) || key === item.key))) return [];
   return hasDependencyCycle(normalized) ? [] : normalized;
+}
+
+function normalizeBusinessContext(value) {
+  const signal = value?.boomSignal;
+  if (!signal || typeof signal !== 'object' || Array.isArray(signal)) return undefined;
+  const serialized = JSON.stringify(signal);
+  if (serialized.length > 12_000) return undefined;
+  return { boomSignal:JSON.parse(serialized) };
 }
 
 function missionState(children, plannedCount) {

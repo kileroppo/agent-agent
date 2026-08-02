@@ -28,6 +28,9 @@ const HERMES_BUILTIN_SKILL_SOURCES = Object.freeze({
   xlsx:path.join(os.homedir(), '.hermes/hermes-agent/skills/productivity/xlsx'),
   pdf:path.join(os.homedir(), '.hermes/hermes-agent/skills/productivity/pdf'),
 });
+const SHARED_SKILL_LIBRARY_ROOT = path.resolve(
+  process.env.AGENT_ARMY_SHARED_SKILLS_ROOT || path.join(os.homedir(), 'Documents/work/AIcode/skills-lib'),
+);
 const AUDITED_SKILL_INVENTORIES = Object.freeze({
   paperclip:{
     trustLevel:'scripts_executables',
@@ -53,6 +56,34 @@ const AUDITED_SKILL_INVENTORIES = Object.freeze({
     trustLevel:'markdown_only',
     sourceKind:'repository',
     sha256:'453bd9781d7d445858fe5fd2aa7aa1f1e2e1c8a60242eb004da3458d4ad7502f',
+  },
+  'yichen-web-research':{
+    trustLevel:'scripts_executables', sourceKind:'shared-library',
+    sha256:'b9ec7142721ae72807eabfce1736956f7d967a249c0e09428e8ef829b3b0e978',
+  },
+  'yichen-unified-search':{
+    trustLevel:'scripts_executables', sourceKind:'shared-library',
+    sha256:'55be2f196ecb44739f08a72c2a2ee348ba2b9af371e91fba800d3de9c3682169',
+  },
+  'yichen-content-archive':{
+    trustLevel:'scripts_executables', sourceKind:'shared-library',
+    sha256:'08018c26c6156938e98d22359a1cf36be359270a4e2c83fd9316508fb812e814',
+  },
+  'yichen-grok-consult':{
+    trustLevel:'assets', sourceKind:'shared-library',
+    sha256:'0f3d51284c928440b8c9adb7424c4ce65842af84f4afc31f7199f05ccc04abcc',
+  },
+  'yichen-asr':{
+    trustLevel:'scripts_executables', sourceKind:'shared-library',
+    sha256:'c9f240b7ad1981b7d2ee8f8467c1711a0857de1a4323ba467be747a13e71761b',
+  },
+  'yichen-summary':{
+    trustLevel:'markdown_only', sourceKind:'shared-library',
+    sha256:'9ba335d807899397117695a3b9d0ed6d7cae1acf3e4c3f1dfa5fb0a7f0c6c83e',
+  },
+  'yichen-wechat-local-vault':{
+    trustLevel:'scripts_executables', sourceKind:'shared-library',
+    sha256:'fa164a7ca795f99dbc818c53e0ef621627cf04d86956f5ef59139d51a593c5ff',
   },
   docx:{
     sourceKind:'hermes-builtin',
@@ -118,7 +149,9 @@ export async function configureGovernanceHermesRuntime({
         throw new GovernanceHermesConfigurationError(`${agentId} 的技能 slug 不合法。`);
       }
       const skill = companySkills.find((item) => item.slug === slug);
-      const sourceLocator = skill?.sourceLocator || HERMES_BUILTIN_SKILL_SOURCES[slug];
+      const sourceLocator = AUDITED_SKILL_INVENTORIES[slug]?.sourceKind === 'shared-library'
+        ? path.join(SHARED_SKILL_LIBRARY_ROOT, slug)
+        : skill?.sourceLocator || HERMES_BUILTIN_SKILL_SOURCES[slug];
       const sourceStat = sourceLocator ? await stat(sourceLocator).catch(() => null) : null;
       if (!sourceStat?.isDirectory()) {
         throw new GovernanceHermesConfigurationError(
@@ -1055,6 +1088,11 @@ export async function auditApprovedSkillSource({
     const expected = await fs.realpath(HERMES_BUILTIN_SKILL_SOURCES[slug]).catch(() => null);
     if (!expected || realPath !== expected || companySkill) {
       throw new GovernanceHermesConfigurationError(`技能 ${slug} 不是批准的 Hermes 内置来源。`);
+    }
+  } else if (policy.sourceKind === 'shared-library') {
+    const expected = await fs.realpath(path.join(SHARED_SKILL_LIBRARY_ROOT, slug)).catch(() => null);
+    if (!expected || realPath !== expected || companySkill?.trustLevel !== policy.trustLevel) {
+      throw new GovernanceHermesConfigurationError(`技能 ${slug} 的共享技能库来源或信任级别未获批准。`);
     }
   }
   const sha256 = await skillInventoryDigest(realPath);

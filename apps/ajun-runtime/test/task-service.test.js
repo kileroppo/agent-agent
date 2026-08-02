@@ -17,7 +17,11 @@ function setup({
 } = {}) {
   const records = { tasks: [], approvals: [] };
   const store = { async createTask(task) { const record = { taskId: `task-${records.tasks.length + 1}`, approvalRefs: [], ...task }; records.tasks.push(record); return record; }, async createApproval(approval) { const record = { approvalId: `approval-${records.approvals.length + 1}`, status:'pending', ...approval }; records.approvals.push(record); const task = records.tasks.find((item) => item.taskId === approval.taskId); task.approvalRefs.push(record.approvalId); if (approval.holdTask !== false) { task.status='waiting_approval'; task.currentStage='approval_required'; } return record; }, async updateApproval(approvalId, patch) { const approval = records.approvals.find((item) => item.approvalId === approvalId); Object.assign(approval, patch); return approval; }, async updateTask(taskId, patch) { const task = records.tasks.find((item) => item.taskId === taskId); Object.assign(task, patch); return task; }, async list(){return records.tasks}, async listApprovals(){return records.approvals} };
-  return { records, service: new TaskService({ registry: { async list(){return agents}, async get(agentId){return agents.find((agent)=>agent.agentId === agentId) || null}, async candidates(type){return agents.filter((agent)=>agent.acceptedTaskTypes.includes(type))} }, store, governance, onTaskFailed, agentChannelStates, contentGrowthWaitMs, m5ProviderVision, m5WorkProductValidator }) };
+  const testGovernance = governance ? {
+    async assertCaseIssueLink() {},
+    ...governance,
+  } : governance;
+  return { records, service: new TaskService({ registry: { async list(){return agents}, async get(agentId){return agents.find((agent)=>agent.agentId === agentId) || null}, async candidates(type){return agents.filter((agent)=>agent.acceptedTaskTypes.includes(type))} }, store, governance:testGovernance, onTaskFailed, agentChannelStates, contentGrowthWaitMs, m5ProviderVision, m5WorkProductValidator }) };
 }
 const coordinator = { agentId:'ajun', name:'A君', status:'active', acceptedTaskTypes:['army.intake', 'army.route-task', 'army.cross-agent-mission'] };
 
@@ -292,7 +296,8 @@ test('微信聊天任务自动采用默认范围并且只创建一次隐私确�
       assert.equal(task.input.wechatChat.chatSelector, 'yingz');
       assert.equal(task.input.wechatChat.maxMessages, 200);
       assert.equal(task.input.wechatChat.sameNameStrategy, 'latest-active-session');
-      assert.equal(task.input.wechatChat.privateContentModelAccess, 'disabled');
+      assert.equal(task.input.wechatChat.privateContentModelAccess, 'local-only');
+      assert.equal(task.input.wechatChat.outputMode, 'local-summary');
       return { status:'succeeded', currentStage:'wechat_chat_slice_ready', artifactRefs:[] };
     }
   };
@@ -325,6 +330,42 @@ test('微信聊天任务缺群名时只要求补群名，不再询问其他配�
   assert.equal(task.error.code, 'wechat_chat_required');
   assert.match(task.error.userMessage, /只告诉我联系人或群名/);
   assert.equal(records.approvals.length, 0);
+});
+test('本机主人可以撤销微信临时授权，概览显示剩余次数', async () => {
+  const wechat = { agentId:'wechat-chat-retriever', name:'微信聊天取件员', status:'active', acceptedTaskTypes:['wechat.chat.retrieval'], interaction:{ directFeishu:'disabled' } };
+  const { service, records } = setup({ agents:[wechat] });
+  service.executors['wechat-chat-retriever'] = { async execute() { return { status:'succeeded', artifactRefs:[] }; } };
+  await service.create({ title:'获取微信聊天', description:'群名：yingz', taskType:'wechat.chat.retrieval' });
+  const approval = records.approvals[0];
+  approval.status = 'approved';
+  approval.privateReadGrant = { grantId:'grant-1', maxUses:10, uses:[{ taskId:'task-1' }], expiresAt:'2099-01-01T00:00:00.000Z', revokedAt:null };
+  const before = await service.overview();
+  assert.equal(before.approvals[0].privateReadGrantStatus.remainingUses, 9);
+  const revoked = await service.revokePrivateReadGrant(approval.approvalId);
+  assert.ok(revoked.privateReadGrant.revokedAt);
+  assert.equal((await service.overview()).approvals[0].privateReadGrantStatus.status, 'revoked');
+});
+test('运行总览展示微信 Vault 真实健康状态而不是只看岗位 active', async () => {
+  const wechat = { agentId:'wechat-chat-retriever', name:'微信聊天取件员', status:'active', acceptedTaskTypes:['wechat.chat.retrieval'], interaction:{ directFeishu:'disabled' } };
+  const { service } = setup({ agents:[wechat] });
+  service.executors['wechat-chat-retriever'] = {
+    async health() {
+      return {
+        status:'degraded',
+        checkedAt:'2026-07-30T06:30:00.000Z',
+        requiredDatabases:{ contact:true, session:true, message:false },
+        safeMessage:'本机微信只读库缺少消息库，请先安全刷新。'
+      };
+    }
+  };
+
+  const overview = await service.overview();
+  const employee = overview.agents.find((item) => item.agentId === 'wechat-chat-retriever');
+  const capability = overview.capabilities.find((item) => item.id === 'wechat-private-read');
+
+  assert.equal(employee.runtimeHealth.status, 'degraded');
+  assert.equal(capability.status, 'partial');
+  assert.match(capability.detail, /缺少消息库/);
 });
 test('小D听审确认只生成确认稿并交回状态跟踪，不把审批点击冒充任务完成', async () => {
   const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
@@ -1077,6 +1118,7 @@ test('M5 平台子 Case 能继承当天父 Case 的已验证本地任务产物�
       identifier:'AGE-M5-PLATFORM-ADAPT',
       title:'M5 / 平台适配',
       description:`[agent-army:m5:routine:m5-platform-adapt] 处理当前阶段；当前 Case 为 ${platformCaseId}。`,
+      parentCaseId:'forged-parent-case',
     },
     run:{ id:'paperclip-run-platform-adapt' },
     paperclipAgent:{ id:'paperclip-agent-content-creator', name:'小创' },
@@ -1105,6 +1147,10 @@ test('M5 平台子 Case 能继承当天父 Case 的已验证本地任务产物�
   const governance = {
     async verifyHermesAssignment() { return identity; },
     async getPipelineCase(caseId) { return cases.get(caseId) || null; },
+    async assertCaseIssueLink(caseId, issueId) {
+      assert.equal(caseId, platformCaseId);
+      assert.equal(issueId, identity.issue.id);
+    },
   };
   const { service, records } = setup({ agents:[agent], governance });
   records.tasks.push(
@@ -1155,6 +1201,59 @@ test('M5 平台子 Case 能继承当天父 Case 的已验证本地任务产物�
     ['task-parent-script', 'task-parent-render'],
   );
   assert.equal(result.task.input.context.pipelineCase.id, platformCaseId);
+  assert.equal(result.task.input.context.pipelineCase.parentCaseId, dayCaseId);
+});
+
+test('M5 Issue 与描述中的 Case 没有真实链接时，创建和更新任务分支都失败关闭', async () => {
+  const caseId = '33333333-3333-4333-8333-333333333333';
+  const issueId = 'paperclip-issue-link-mismatch';
+  const agent = {
+    agentId:'content-creator',
+    name:'小创',
+    status:'active',
+    acceptedTaskTypes:['content.platform-draft'],
+    interaction:{ runtime:'hermes-profile', directFeishu:'required' },
+    executionOwner:'paperclip-hermes',
+  };
+  const identity = {
+    issue:{
+      id:issueId,
+      identifier:'AGE-M5-LINK-MISMATCH',
+      title:'M5 / 平台适配',
+      description:`[agent-army:m5:routine:m5-platform-adapt] 当前 Case 为 ${caseId}。`,
+    },
+    run:{ id:'paperclip-run-link-mismatch' },
+    paperclipAgent:{ id:'paperclip-agent-content-creator', name:'小创' },
+    agentArmyId:'content-creator',
+  };
+  let checks = 0;
+  const governance = {
+    async verifyHermesAssignment() { return identity; },
+    async getPipelineCase() {
+      return { id:caseId, parentCaseId:'real-day-case', fields:{ platform:'douyin' } };
+    },
+    async assertCaseIssueLink() {
+      checks += 1;
+      throw new Error('Case 与 Issue 没有链接。');
+    },
+  };
+  const { service, records } = setup({ agents:[agent], governance });
+  const input = {
+    issueId,
+    runId:identity.run.id,
+    paperclipAgentId:identity.paperclipAgent.id,
+    agentArmyId:identity.agentArmyId,
+  };
+  await assert.rejects(() => service.getPaperclipAssignment(input), /没有链接/);
+  records.tasks.push({
+    taskId:'existing-link-mismatch',
+    taskType:'content.platform-draft',
+    status:'running',
+    governance:{ paperclipIssueId:issueId },
+    input:{ context:{} },
+  });
+  await assert.rejects(() => service.getPaperclipAssignment(input), /没有链接/);
+  assert.equal(checks, 2);
 });
 
 test('系统控制器 Routine 拒绝创建 Hermes 员工任务信封', async () => {

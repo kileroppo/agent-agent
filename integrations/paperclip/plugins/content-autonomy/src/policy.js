@@ -1,17 +1,19 @@
 import crypto from 'node:crypto';
+import {
+  M5_ALLOWED_PUBLISH_ACTIONS,
+  M5_PLATFORMS,
+  M5_PROHIBITED_PUBLISH_ACTIONS,
+  M5_SCHEMA_IDS,
+} from '@agent-army/m5-contracts';
 import { validateExactAgentToolPolicy } from './role-tool-bundles.js';
 
-export const PLATFORMS = Object.freeze(['douyin', 'xiaohongshu']);
-export const FORBIDDEN_ACTIONS = Object.freeze([
-  'direct_message', 'comment', 'follow', 'paid_promotion', 'payment', 'account_settings', 'delete_history'
-]);
-export const REQUIRED_ACTIONS = Object.freeze([
-  'upload', 'fill_metadata', 'schedule_or_publish', 'read_own_metrics'
-]);
+export const PLATFORMS = M5_PLATFORMS;
+export const FORBIDDEN_ACTIONS = M5_PROHIBITED_PUBLISH_ACTIONS;
+export const REQUIRED_ACTIONS = M5_ALLOWED_PUBLISH_ACTIONS;
 
 export function campaignPreflight(campaign, now = new Date()) {
   const errors = [];
-  if (campaign?.schemaVersion !== 'agent.army/campaign-grant/v1') errors.push('CampaignGrant 版本无效。');
+  if (campaign?.schemaVersion !== M5_SCHEMA_IDS.CAMPAIGN_GRANT) errors.push('CampaignGrant 版本无效。');
   if (campaign?.themeScope !== 'AI Agent 实战') errors.push('主题不在首版活动范围内。');
   if (!Array.isArray(campaign?.platforms) || campaign.platforms.some((item) => !PLATFORMS.includes(item))) {
     errors.push('平台范围无效。');

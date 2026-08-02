@@ -1,4 +1,9 @@
-const PLATFORMS = ['douyin', 'xiaohongshu'];
+import {
+  M5_PLATFORMS,
+  M5_SCHEMA_IDS,
+} from '@agent-army/m5-contracts';
+
+const PLATFORMS = M5_PLATFORMS;
 const PARALLEL_WORK_BRANCHES = Object.freeze([
   Object.freeze({
     kind:'research',
@@ -88,7 +93,7 @@ export function buildParallelWorkCaseBatch({
       scheduledDate,
       contentVersion,
       parallelJoin:{
-        schemaVersion:'agent.army/parallel-work-join/v1',
+        schemaVersion:M5_SCHEMA_IDS.PARALLEL_JOIN,
         groupKey,
         maxConcurrency:4,
         completionRule:'all_branches_terminal_and_outputs_verified',
@@ -110,7 +115,7 @@ export function buildParallelWorkCaseBatch({
         scheduledDate,
         contentVersion,
         workBranch:{
-          schemaVersion:'agent.army/parallel-work-branch/v1',
+          schemaVersion:M5_SCHEMA_IDS.PARALLEL_WORK_BRANCH,
           groupKey,
           kind:branch.kind,
           owner:branch.owner,
@@ -129,7 +134,7 @@ export function buildParallelWorkCaseBatch({
     (item) => item.fields.workBranch.requiredWorkProduct,
   );
   return {
-    schemaVersion:'agent.army/parallel-work-batch/v1',
+    schemaVersion:M5_SCHEMA_IDS.PARALLEL_WORK_BATCH,
     maxConcurrency:4,
     dayLogicalId,
     join,
@@ -160,7 +165,7 @@ export function buildCampaignCaseBatch({
       publishLimit: 14,
       maxConcurrency: 4,
       campaignPlan: {
-        schemaVersion: 'agent.army/campaign-plan/v1',
+        schemaVersion:M5_SCHEMA_IDS.CAMPAIGN_PLAN,
         startDate,
         themes: themes.map((theme) => String(theme).trim()),
         assetRightsBasis:String(assetRightsBasis).trim(),
@@ -318,7 +323,7 @@ export async function ingestCampaignExecutionCases(adapter, pipelineId, batch, p
 
 function assertParallelWorkBatch(batch) {
   if (
-    batch?.schemaVersion !== 'agent.army/parallel-work-batch/v1'
+    batch?.schemaVersion !== M5_SCHEMA_IDS.PARALLEL_WORK_BATCH
     || batch.maxConcurrency !== 4
     || !Array.isArray(batch.branches)
     || batch.branches.length !== 5

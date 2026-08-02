@@ -10,13 +10,13 @@ import { defaultDefinition } from '../../../integrations/paperclip/m5-content-pi
 
 test('全部 M5 业务 Routine 都有唯一 Hermes 或 system controller 执行契约', () => {
   const contracts = assertM5RoutineExecutionContracts(defaultDefinition);
-  assert.equal(contracts.length, 17);
+  assert.equal(contracts.length, 18);
   assert.equal(new Set(contracts.map((item) => item.routineKey)).size, contracts.length);
   assert.equal(new Set(contracts.map((item) => item.stageKey)).size, contracts.length);
   assert.deepEqual(
     contracts.filter((item) => item.executionMode === 'system_controller')
       .map((item) => item.routineKey),
-    ['m5-parallel-join', 'm5-publish', 'm5-metrics', 'm5-retrospective'],
+    ['m5-parallel-join', 'm5-publish', 'm5-metrics', 'm5-retrospective', 'm5-learning'],
   );
   for (const contract of contracts) {
     assert.ok(contract.expectedWorkProduct.type);

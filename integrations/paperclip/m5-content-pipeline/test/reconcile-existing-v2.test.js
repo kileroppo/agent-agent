@@ -42,9 +42,9 @@ test('existing v2 dry-run 精确报告三处 diff，且全程只有 GET', async 
   ]);
   assert.deepEqual(audit.diff.updateRoutine.map((item) => item.key), ['m5-assets']);
   assert.equal(audit.diff.updateTransitions, true);
-  assert.equal(audit.diff.transitionCount, 16);
-  assert.equal(audit.diff.unchangedRoutines, 15);
-  assert.equal(audit.diff.unchangedStages, 15);
+  assert.equal(audit.diff.transitionCount, 18);
+  assert.equal(audit.diff.unchangedRoutines, 16);
+  assert.equal(audit.diff.unchangedStages, 16);
   assert.equal(audit.rollbackSnapshot.assetsRoutine.priorRevisionId, 'revision-assets-old');
   assert.equal(
     audit.rollbackSnapshot.pipelineTransitions.oldTransitions.find((item) =>
@@ -84,7 +84,7 @@ test('existing v2 dry-run 忽略已归档的历史 Routine，但不删除其记�
     audit.blockers.some((item) => item.code === 'unexpected_v2_routine'),
     false,
   );
-  assert.equal(audit.checks.routineCount, 16);
+  assert.equal(audit.checks.routineCount, 17);
   assert.equal(
     fixture.routines.find((item) => item.id === uuid(999)).status,
     'archived',
@@ -92,7 +92,7 @@ test('existing v2 dry-run 忽略已归档的历史 Routine，但不删除其记�
   assert.ok(harness.calls.every((call) => call.method === 'GET'));
 });
 
-test('existing v2 apply 先落回滚快照且只执行 assets PATCH、visual POST、16 transitions PUT', async () => {
+test('existing v2 apply 先落回滚快照且只执行 assets PATCH、visual POST、18 transitions PUT', async () => {
   const fixture = buildFixture();
   const harness = createHttpHarness(fixture);
   const snapshots = [];
@@ -144,13 +144,13 @@ test('existing v2 apply 先落回滚快照且只执行 assets PATCH、visual POS
   assert.equal(writes[0].body.baseRevisionId, 'revision-assets-old');
   assert.equal(writes[1].body.title, 'M5 / 并行画面分析');
   assert.equal(writes[1].body.assigneeAgentId, fixture.visualAgentId);
-  assert.equal(writes[2].body.transitions.length, 16);
+  assert.equal(writes[2].body.transitions.length, 18);
   assert.equal(writes[2].body.enforceTransitions, true);
   assert.deepEqual(result.verification, {
     preconditionsPassed:true,
-    routineCount:17,
-    stageCount:15,
-    transitionCount:16,
+    routineCount:18,
+    stageCount:16,
+    transitionCount:18,
     cronEnabled:false,
     campaignGrantStatus:'draft',
   });
@@ -480,6 +480,7 @@ function buildFixture() {
     publisherControllerAgentId:uuid(32),
     retrospectiveControllerAgentId:uuid(33),
     parallelControllerAgentId:uuid(34),
+    learningControllerAgentId:uuid(35),
   };
   const baseBindings = {
     agentIds,
@@ -558,6 +559,7 @@ function buildFixture() {
       'm5-publisher-controller':controllerBindings.publisherControllerAgentId,
       'm5-retrospective-controller':controllerBindings.retrospectiveControllerAgentId,
       'm5-parallel-controller':controllerBindings.parallelControllerAgentId,
+      'm5-learning-controller':controllerBindings.learningControllerAgentId,
     }).map(([role, id]) => ({
       id,
       status:'idle',

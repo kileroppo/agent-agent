@@ -18,7 +18,7 @@ const scope = {
   expiresAt:'2026-07-02T00:00:00.000Z'
 };
 
-function centerFor({ resolvedScope = scope, messages = null } = {}) {
+function centerFor({ resolvedScope = scope, messages = null, healthStatus = 'healthy' } = {}) {
   const events = [];
   const adapter = new WeChatLocalVaultAdapter({
     scopeResolver:async () => resolvedScope,
@@ -28,6 +28,7 @@ function centerFor({ resolvedScope = scope, messages = null } = {}) {
         { timestamp:Date.parse('2026-07-01T00:02:00.000Z') / 1000, sender:'乙', type:'文本', content:'合成消息二' }
       ]
     }),
+    healthStatus,
     now:() => new Date('2026-07-01T12:00:00.000Z')
   });
   return {
@@ -39,6 +40,20 @@ function centerFor({ resolvedScope = scope, messages = null } = {}) {
     })
   };
 }
+
+test('微信 Vault 健康检查未通过时不会进入私密读取适配器', async () => {
+  const { center } = centerFor({ healthStatus:'degraded' });
+  const result = await center.fetch({
+    taskId,
+    source:`wechat-vault://local/chat?approval=${approvalRef}`,
+    requestedCapabilities:['wechat.local-vault.chat.read'],
+    requestingAgentId:agentId,
+    runtimeRequirement:'wechat_chat_read'
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'capability_not_available');
+});
 
 test('微信 Vault 适配器只读取当前 Agent 和任务获批的单会话时间片', async () => {
   const { center } = centerFor();

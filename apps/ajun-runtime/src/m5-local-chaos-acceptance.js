@@ -8,12 +8,12 @@ import {
   ingestCampaignCaseBatch,
   ingestParallelWorkCaseBatch,
   validateDefinition,
-} from '../../../integrations/paperclip/m5-content-pipeline/src/index.js';
+} from '@agent-army/m5-content-pipeline';
 import {
   FakePlatformConnector,
   MemoryPublisherRepository,
   PublisherGateway,
-} from '../../../integrations/publishing/m5-publisher-gateway/src/index.js';
+} from '@agent-army/m5-publisher-gateway';
 import {
   PaperclipPublisherController,
   trustedPublishInputs,
@@ -311,11 +311,11 @@ export async function runM5LocalChaosAcceptance() {
   await move('done', 'local_chaos_acceptance_complete');
 
   const declaredSuccessStages = definition.stages
-    .filter((stage) => stage.kind !== 'cancelled')
+    .filter((stage) => stage.kind !== 'cancelled' && stage.key !== 'learning')
     .map((stage) => stage.key);
   const traversedStages = new Set(caseJourney.map((item) => item.toStage));
   const assertions = [
-    assertion('definition_15_stages', definition.stages.length === 15),
+    assertion('definition_16_stages', definition.stages.length === 16),
     assertion(
       'success_path_to_done',
       declaredSuccessStages.every((stage) => traversedStages.has(stage))

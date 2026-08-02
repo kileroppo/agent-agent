@@ -14,13 +14,17 @@ test('dry-run只写Fake adapter并生成Goal、Project、Routine、Pipeline和�
   assert.equal(result.mode, 'dry-run');
   assert.equal(adapter.state.goals.length, 1);
   assert.equal(adapter.state.projects.length, 1);
-  assert.equal(adapter.state.routines.length, 17);
+  assert.equal(adapter.state.routines.length, 18);
   assert.equal(
     adapter.state.agents.filter((item) => item.metadata?.agentArmySystemRole === 'm5-parallel-controller').length,
     1,
   );
   assert.equal(
     adapter.state.agents.filter((item) => item.metadata?.agentArmySystemRole === 'm5-retrospective-controller').length,
+    1,
+  );
+  assert.equal(
+    adapter.state.agents.filter((item) => item.metadata?.agentArmySystemRole === 'm5-learning-controller').length,
     1,
   );
   assert.equal(
@@ -45,6 +49,13 @@ test('dry-run只写Fake adapter并生成Goal、Project、Routine、Pipeline和�
     (item) => item.description?.includes('[agent-army:m5:routine:m5-retrospective]'),
   );
   assert.equal(retrospectiveRoutine.assigneeAgentId, retrospectiveController.id);
+  const learningController = adapter.state.agents.find(
+    (item) => item.metadata?.agentArmySystemRole === 'm5-learning-controller',
+  );
+  const learningRoutine = adapter.state.routines.find(
+    (item) => item.description?.includes('[agent-army:m5:routine:m5-learning]'),
+  );
+  assert.equal(learningRoutine.assigneeAgentId, learningController.id);
   assert.equal(adapter.state.triggers.length, 1);
   assert.equal(adapter.state.triggers[0].enabled, false);
   assert.equal(adapter.state.pipelines.length, 1);
@@ -61,7 +72,7 @@ test('重复dry-run复用marker资源，不重复Goal/Project/Routine/Pipeline',
   await dryRunBootstrap({ definition: defaultDefinition, adapter });
   assert.equal(adapter.state.goals.length, 1);
   assert.equal(adapter.state.projects.length, 1);
-  assert.equal(adapter.state.routines.length, 17);
+  assert.equal(adapter.state.routines.length, 18);
   assert.equal(adapter.state.pipelines.length, 1);
   assert.equal(adapter.state.budgets.length, 1);
 });
@@ -83,7 +94,7 @@ test('重复apply语义会修复已有Routine变量与Pipeline声明漂移，不
   const repairedRoutine = adapter.state.routines.find((item) => item.id === routineId);
   const repairedPipeline = adapter.state.pipelines.find((item) => item.id === pipelineId);
 
-  assert.equal(adapter.state.routines.length, 17);
+  assert.equal(adapter.state.routines.length, 18);
   assert.equal(adapter.state.pipelines.length, 1);
   assert.match(repairedRoutine.description, /\{\{case_id\}\}/);
   assert.deepEqual(repairedRoutine.variables.map((item) => item.name), ['case_id', 'case_version']);

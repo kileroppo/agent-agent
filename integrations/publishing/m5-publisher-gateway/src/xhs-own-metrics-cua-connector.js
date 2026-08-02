@@ -1,3 +1,4 @@
+import { M5_PLATFORM_IDS } from '@agent-army/m5-contracts';
 import {
   CUA_SELECTOR_BUNDLE_SCHEMA,
   selectorBundleChecksum,
@@ -22,7 +23,7 @@ export const XHS_OWN_METRICS_CUA_ACTIONS = Object.freeze([
   'read_metrics',
 ]);
 
-const PLATFORM = 'xiaohongshu';
+const PLATFORM = M5_PLATFORM_IDS.XIAOHONGSHU;
 const ALLOWED_ORIGINS = new Set([
   'https://creator.xiaohongshu.com',
   'https://pro.xiaohongshu.com',

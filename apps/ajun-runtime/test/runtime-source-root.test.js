@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { createRuntime } from '../src/runtime-composition-root.js';
 import {
   resolveRuntimeSourceRoot,
   RuntimeSourceRootError,
@@ -184,16 +185,29 @@ test('linked worktree 的 .git 文件可用，但 HEAD 或源码根身份变化�
   await assert.rejects(result.verify(), /身份、HEAD 或工作树状态已变化/);
 });
 
-test('server 在任何数据写入前解析源码根，且只把源码根交给技术修复链', async () => {
-  const serverPath = new URL('../src/server.js', import.meta.url);
-  const source = await fs.readFile(serverPath, 'utf8');
-  assert.ok(
-    source.indexOf('await resolveRuntimeSourceRoot(')
-      < source.indexOf('await LocalBudgetTicketAuthority.open('),
+test('真实 Composition Root 在源码 Interface 失败时不会写入运行状态', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-source-order-'));
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const dataDir = path.join(root, 'data');
+
+  await assert.rejects(
+    createRuntime({
+      environment:{
+        ...process.env,
+        AGENT_ARMY_SOURCE_PROJECT_ROOT:'relative/source',
+        AGENT_ARMY_DATA_DIR:dataDir,
+        AGENT_ARMY_PRIVATE_DIR:path.join(root, 'private'),
+        PAPERCLIP_REPAIR_WORKTREE_PARENT:path.join(root, 'worktrees'),
+        AGENT_ARMY_CONTENT_WORKSPACE_DIR:path.join(root, 'content'),
+        AGENT_ARMY_HERMES_PROFILE_ROOT:path.join(root, 'hermes'),
+        AUTO_WORK_ROOT:path.join(root, 'auto-work'),
+        XIAOD_ARTIFACT_ROOT:path.join(root, 'xiaod'),
+      },
+      logger:{ log:() => undefined, warn:() => undefined },
+    }),
+    /必须是绝对路径/,
   );
-  assert.match(source, /new IsolatedRepairWorkspace\(\{\s*projectRoot:sourceProjectRoot,/);
-  assert.match(source, /new TechnicalRepairPromotion\(\{\s*projectRoot:sourceProjectRoot,/);
-  assert.match(source, /new FailureRecoveryCoordinator\(\{[^}]*projectRoot:sourceProjectRoot/);
-  assert.match(source, /new AgentRegistry\(\{ agentsDir: path\.join\(root, 'agents'\) \}/);
-  assert.match(source, /createHermesModelProfileResolver\(\{ registry, proposalStore:store, root \}\)/);
+  await assert.rejects(fs.access(path.join(dataDir, 'm5-budget-ticket-ed25519.pem')), {
+    code:'ENOENT',
+  });
 });

@@ -5,6 +5,21 @@ import path from 'node:path';
 import test from 'node:test';
 import { TaskStore } from '../src/task-store.js';
 
+test('持久化层拒绝绕过生命周期状态机的非法跳转', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-task-store-'));
+  try {
+    const store = new TaskStore(path.join(directory, 'runtime.json'));
+    const task = await store.createTask({ taskType:'army.intake', input:{ title:'生命周期门禁' }, status:'queued' });
+    await assert.rejects(
+      store.updateTask(task.taskId, { status:'succeeded' }),
+      (error) => error.code === 'task_status_transition_invalid',
+    );
+    assert.equal((await store.list())[0].status, 'queued');
+  } finally {
+    await fs.rm(directory, { recursive:true, force:true });
+  }
+});
+
 test('并发登记任务不会丢失记录', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-task-store-'));
   try {

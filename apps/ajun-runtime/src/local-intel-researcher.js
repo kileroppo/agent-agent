@@ -6,19 +6,21 @@ const CONTROLLED_SOURCE_MATERIAL = Symbol.for(
 );
 
 export class LocalIntelResearcher {
-  constructor({ publicWebFetch, publicWebSearch = null, githubSearch = null, publicReport = null, githubResearch = null, researchAdvisor = null, now = () => new Date() } = {}) {
+  constructor({ publicWebFetch, publicWebSearch = null, githubSearch = null, publicReport = null, githubResearch = null, researchAdvisor = null, grokConsult = null, now = () => new Date() } = {}) {
     this.publicWebFetch = publicWebFetch;
     this.publicWebSearch = publicWebSearch;
     this.githubSearch = githubSearch;
     this.publicReport = publicReport;
     this.githubResearch = githubResearch;
     this.researchAdvisor = researchAdvisor;
+    this.grokConsult = grokConsult;
     this.now = now;
   }
 
   supports(agent) { return agent?.agentId === 'intel-researcher'; }
 
   async execute(task, { roleToolContext = null } = {}) {
+    if (shouldUseGrok(task)) return this.executeGrokSearch(task);
     if (task?.taskType === 'report.public-material') {
       if (!this.publicReport?.execute) return needsInput(this.now(), 'public_report_unavailable', '小R的公开网页整理能力暂时不可用。');
       return this.publicReport.execute(task, { roleToolContext });
@@ -104,6 +106,21 @@ export class LocalIntelResearcher {
         },
         data:report
       }]
+    };
+  }
+
+  async executeGrokSearch(task) {
+    if (!this.grokConsult) return needsInput(this.now(), 'grok_consult_unavailable', '小R的 Grok 受控插件尚未接入。');
+    const health = await this.grokConsult.health();
+    if (health.status !== 'ready') return needsInput(this.now(), 'grok_login_required', health.safeMessage);
+    const query = String(task?.input?.topic || task?.input?.title || '').trim();
+    const result = await this.grokConsult.searchX({ query, hours:24, maxResults:10 });
+    const completedAt = this.now().toISOString();
+    return {
+      status:'succeeded', currentStage:'grok_public_x_research_ready',
+      execution:{ executor:'intel-researcher', mode:'yichen-grok-consult-mcp', finishedAt:completedAt, outcome:'research_ready' },
+      usage:{ tools:[{ id:'yichen-grok-consult', name:'Grok 公开 X 检索', calls:1 }] },
+      artifactRefs:[{ artifactId:`grok-consult:${task.taskId}`, taskId:task.taskId, type:'intel_research_report', title:`${query} Grok 公开检索`, location:`runtime://${task.taskId}/grok-consult`, mimeType:'text/plain', accessScope:'local-owner', createdAt:completedAt, validation:{ exists:true, readable:true, nonEmpty:Boolean(result.text), publicReadOnly:true, route:result.route }, data:{ query, result:result.text, route:result.route } }],
     };
   }
 
@@ -257,6 +274,11 @@ export class LocalIntelResearcher {
     try { return await this.researchAdvisor.analyze({ topic, sources }) || fallbackResearch({ topic, sources }); }
     catch { return fallbackResearch({ topic, sources }); }
   }
+}
+
+function shouldUseGrok(task) {
+  const text = `${task?.input?.title || ''}\n${task?.input?.description || ''}\n${task?.input?.topic || ''}`;
+  return /\bGrok\b|(?:搜索|查|研究).{0,8}(?:X\/Twitter|Twitter|推特)|(?:X\/Twitter|Twitter|推特).{0,8}(?:搜索|查|研究)/i.test(text);
 }
 
 function campaignEvidencePackage({ task, topic, sources, analysis, completedAt }) {

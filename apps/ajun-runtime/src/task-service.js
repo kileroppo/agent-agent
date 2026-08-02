@@ -14,6 +14,8 @@ import {
   supportsOpenTask
 } from './open-task-routing.js';
 import { WECHAT_CHAT_TASK_TYPE, normalizeWechatChatRequest, wechatApprovalScope } from './wechat-chat-defaults.js';
+import { SkillExecutionRegistry } from './skill-execution-registry.js';
+import { privateReadGrantStatus, revokePrivateReadGrant } from './private-read-grant.js';
 import {
   assertPaperclipEmployeeExecutorAssignment,
   resolvePaperclipAssignmentTaskType,
@@ -31,6 +33,11 @@ import {
   validM5RouteExecution,
 } from './m5-route-execution.js';
 import { m5WorkProductArtifactHash } from './m5-work-product-integrity.js';
+import {
+  M5_PLATFORMS,
+  M5_STEPFUN_MODELS,
+  normalizeM5Sha256,
+} from '@agent-army/m5-contracts';
 import {
   compileM5RoleToolGrant,
   createM5RoleToolExecutionContext,
@@ -58,6 +65,7 @@ export class TaskService {
     roleToolAdapters = {},
     m5ProviderVision = null,
     m5WorkProductValidator = null,
+    skillExecutionRegistry = new SkillExecutionRegistry(),
   }) {
     this.registry = registry;
     this.store = store;
@@ -76,6 +84,7 @@ export class TaskService {
     this.m5WorkProductValidator = typeof m5WorkProductValidator === 'function'
       ? m5WorkProductValidator
       : null;
+    this.skillExecutionRegistry = skillExecutionRegistry;
     this.contentGrowthWaitMs = Math.max(1, Math.min(Number(contentGrowthWaitMs) || 240_000, 240_000));
     this.contentGrowthRuns = new Map();
     this.employeeAssignmentRuns = new Map();
@@ -343,6 +352,19 @@ export class TaskService {
     return this.executeTask(queued, agent);
   }
 
+  async revokePrivateReadGrant(approvalId, { revokedBy = 'A君' } = {}) {
+    const approval = (await this.store.listApprovals()).find((item) => item.approvalId === approvalId);
+    if (!approval || approval.action !== 'wechat-private-chat-read') throw new ValidationError('找不到这条微信临时授权。');
+    if (!approval.privateReadGrant) throw new ValidationError('这条审批尚未生成可撤销的微信临时授权。');
+    if (approval.privateReadGrant.revokedAt) return approval;
+    return this.store.updateApproval(approvalId, {
+      privateReadGrant:{
+        ...revokePrivateReadGrant(approval.privateReadGrant),
+        revokedBy:String(revokedBy || 'A君').slice(0, 120),
+      },
+    });
+  }
+
   async requestPause(taskId) { return this.requestTaskControl(taskId, 'pause-task'); }
   async requestResume(taskId) { return this.requestTaskControl(taskId, 'resume-task'); }
 
@@ -563,6 +585,15 @@ export class TaskService {
     const pipelineCase = assignmentTask.pipelineCaseId && typeof this.governance.getPipelineCase === 'function'
       ? await this.governance.getPipelineCase(assignmentTask.pipelineCaseId)
       : null;
+    if (assignmentTask.pipelineCaseId) {
+      if (typeof this.governance?.assertCaseIssueLink !== 'function') {
+        throw new ValidationError('M5 Pipeline Case 缺少 Issue 绑定核验能力。');
+      }
+      await this.governance.assertCaseIssueLink(
+        assignmentTask.pipelineCaseId,
+        identity.issue.id,
+      );
+    }
     const assignmentProjectId = String(
       identity?.issue?.projectId
       || pipelineCase?.case?.projectId
@@ -622,6 +653,7 @@ export class TaskService {
             ...(pipelineCase ? {
               pipelineCase:{
                 id:pipelineCase.case?.id || pipelineCase.id || assignmentTask.pipelineCaseId,
+                parentCaseId:pipelineCase.case?.parentCaseId || pipelineCase.parentCaseId || null,
                 caseKey:pipelineCase.case?.caseKey || pipelineCase.caseKey || null,
                 title:pipelineCase.case?.title || pipelineCase.title || null,
                 stageKey:pipelineCase.case?.stageKey || pipelineCase.stageKey || null,
@@ -675,6 +707,7 @@ export class TaskService {
             ...(pipelineCase ? {
               pipelineCase:{
                 id:pipelineCase.case?.id || pipelineCase.id || assignmentTask.pipelineCaseId,
+                parentCaseId:pipelineCase.case?.parentCaseId || pipelineCase.parentCaseId || null,
                 caseKey:pipelineCase.case?.caseKey || pipelineCase.caseKey || null,
                 title:pipelineCase.case?.title || pipelineCase.title || null,
                 stageKey:pipelineCase.case?.stageKey || pipelineCase.stageKey || null,
@@ -2016,12 +2049,14 @@ export class TaskService {
   }
 
   async overview() {
-    const [agents, manager, tasks, approvals, governance] = await Promise.all([this.registry.list(), this.registry.get('ajun'), this.store.list(), this.store.listApprovals(), this.governance?.health() || { status: 'planned', version: null }]);
+    const [agents, manager, tasks, approvals, governance, skillReadiness] = await Promise.all([this.registry.list(), this.registry.get('ajun'), this.store.list(), this.store.listApprovals(), this.governance?.health() || { status: 'planned', version: null }, this.skillExecutionRegistry.overview()]);
+    const runtimeHealth = await executorRuntimeHealth(this.executors);
     const feishuChannel = channelCapability(this.feishuChannelStatus);
     const agentChannels = safeAgentChannelStates(this.agentChannelStates);
     const worker = safeWorkerStatus(this.workerStatus, tasks);
     const visibleAgents = agents.map((agent) => ({
       ...agent,
+      ...(runtimeHealth[agent.agentId] ? { runtimeHealth:runtimeHealth[agent.agentId] } : {}),
       ...(agent.interaction?.directFeishu !== 'disabled' && agentChannels[agent.agentId]
         ? { feishuChannel:withFeishuTaskEvidence(agentChannels[agent.agentId], agent.agentId, tasks) }
         : {})
@@ -2035,7 +2070,11 @@ export class TaskService {
       ...task,
       presentation:presentTask(task, { approvals, detailBaseUrl:this.taskDetailBaseUrl })
     }));
-    return { agents:visibleAgents, alwaysOnAgents, onDemandAgents, tasks:presentedTasks, approvals, taskFocus: buildTaskFocus(tasks, approvals), usage:summarizeTaskUsage(tasks, { since:startOfToday() }), capabilities: [
+    const presentedApprovals = approvals.map((approval) => ({
+      ...approval,
+      ...(approval.privateReadGrant ? { privateReadGrantStatus:privateReadGrantStatus(approval.privateReadGrant) } : {}),
+    }));
+    const capabilities = [
       { id: 'task-coordination', name: '统一任务协调', status: 'ready', detail: '创建、路由和状态真相已就绪。' },
       { id: 'agent-registry', name: '岗位注册表', status: 'ready', detail: '岗位职责、任务类型和权限边界从 Manifest 读取。' },
       { id: 'approval-gate', name: '审批闸门', status: 'ready', detail: '高风险描述先进入待审批，不自动执行。' },
@@ -2045,7 +2084,15 @@ export class TaskService {
       { id: 'feishu-channel', name: '飞书收发与员工入口', status:feishuChannel.status, detail:feishuChannel.detail },
       { id: 'mac-worker', name: 'Mac工作间安全接力', status:worker.status, detail:worker.detail },
       { id: 'external-execution', name: '外部发布与写入', status: 'planned', detail: '外部发布和其他写入动作尚未接入；登录型只读采集不等于已经开放写入。' }
-    ] };
+    ];
+    const wechatHealth = runtimeHealth['wechat-chat-retriever'];
+    if (wechatHealth) capabilities.push({
+      id:'wechat-private-read',
+      name:'微信本机只读',
+      status:wechatHealth.status === 'healthy' ? 'ready' : wechatHealth.status === 'degraded' ? 'partial' : 'unavailable',
+      detail:wechatHealth.safeMessage
+    });
+    return { agents:visibleAgents, alwaysOnAgents, onDemandAgents, tasks:presentedTasks, approvals:presentedApprovals, skillReadiness, taskFocus: buildTaskFocus(tasks, approvals), usage:summarizeTaskUsage(tasks, { since:startOfToday() }), capabilities };
   }
 
   async usageOverview() { return summarizeTaskUsage(await this.store.list(), { since:startOfToday() }); }
@@ -2226,7 +2273,7 @@ function validatedM5StagePluginData(stageKey, expectedArtifactKind, result) {
       || !sha256Value(data.checksum)
       || !Number.isInteger(Number(data.bytes))
       || Number(data.bytes) <= 0
-      || data.model !== 'step-image-edit-2'
+      || data.model !== M5_STEPFUN_MODELS.image_generate
       || !Number.isInteger(Number(data.seed))
       || !validConfirmedM5ProviderReceipt(data.providerReceipt, 'image_generate')
     ) {
@@ -2238,7 +2285,7 @@ function validatedM5StagePluginData(stageKey, expectedArtifactKind, result) {
       || !sha256Value(data.checksum)
       || !Number.isInteger(Number(data.bytes))
       || Number(data.bytes) <= 0
-      || data.model !== 'stepaudio-2.5-tts'
+      || data.model !== M5_STEPFUN_MODELS.tts
       || !String(data.voice || '').trim()
       || !validConfirmedM5ProviderReceipt(data.providerReceipt || data, 'tts')
     ) {
@@ -2316,7 +2363,7 @@ function validatedM5StagePluginData(stageKey, expectedArtifactKind, result) {
       !declared
       || data.status !== 'passed'
       || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(String(data.receiptId || ''))
-      || !['douyin', 'xiaohongshu'].includes(data.platform)
+      || !M5_PLATFORMS.includes(data.platform)
       || !String(data.externalContentId || '').trim()
       || !String(data.evidence || '').trim()
       || !sha256Value(data.contentChecksum)
@@ -2414,7 +2461,7 @@ function safeM5VisionRelativePath(value) {
 }
 
 function sha256Value(value) {
-  return /^(?:sha256:)?[0-9a-f]{64}$/i.test(String(value || '').trim());
+  return Boolean(normalizeM5Sha256(value));
 }
 
 function paperclipUuid(value) {
@@ -2784,9 +2831,11 @@ function sanitizeM5ArtifactData(value, depth = 0) {
 
 function validM5ContentVersion(value) {
   return value
-    && ['douyin', 'xiaohongshu'].includes(value.platform)
+    && M5_PLATFORMS.includes(value.platform)
     && /^[a-z0-9][a-z0-9_.:-]{2,127}$/i.test(String(value.contentVersionId || ''))
     && /^sha256:[0-9a-f]{64}$/i.test(String(value.checksum || ''))
+    && /^sha256:[0-9a-f]{64}$/i.test(String(value.audioHash || ''))
+    && /^[-_a-z0-9:.]{8,}$/i.test(String(value.voiceProviderActionId || ''))
     && validM5RelativePath(value.mediaPath)
     && Boolean(String(value.title || '').trim())
     && Boolean(String(value.body || '').trim())
@@ -3216,6 +3265,36 @@ function validateApprovalChat(task, chatRef) {
 function isExpiredApproval(approval, now = Date.now()) {
   const validUntil = Date.parse(approval?.validUntil || '');
   return approval?.status === 'pending' && Number.isFinite(validUntil) && validUntil <= now;
+}
+
+async function executorRuntimeHealth(executors) {
+  const entries = await Promise.all(Object.entries(executors || {}).map(async ([agentId, executor]) => {
+    if (typeof executor?.health !== 'function') return null;
+    try {
+      const value = await executor.health();
+      const status = ['healthy', 'degraded', 'unavailable'].includes(value?.status)
+        ? value.status
+        : 'unavailable';
+      return [agentId, {
+        status,
+        checkedAt:String(value?.checkedAt || ''),
+        requiredDatabases:{
+          contact:value?.requiredDatabases?.contact === true,
+          session:value?.requiredDatabases?.session === true,
+          message:value?.requiredDatabases?.message === true
+        },
+        safeMessage:String(value?.safeMessage || '本机执行器健康状态未知。').replace(/\s+/g, ' ').trim().slice(0, 300)
+      }];
+    } catch {
+      return [agentId, {
+        status:'unavailable',
+        checkedAt:'',
+        requiredDatabases:{ contact:false, session:false, message:false },
+        safeMessage:'本机执行器健康检查失败，请由运维官检查。'
+      }];
+    }
+  }));
+  return Object.fromEntries(entries.filter(Boolean));
 }
 
 function buildTaskFocus(tasks, approvals) {

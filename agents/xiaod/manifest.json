@@ -116,7 +116,7 @@
         "trigger": "transport_unavailable"
       }
     ],
-    "skills": ["paperclip"],
+    "skills": ["paperclip", "yichen-asr", "yichen-content-archive"],
     "mcpTools": [
       "paperclip_assignment_get",
       "employee_assignment_execute",

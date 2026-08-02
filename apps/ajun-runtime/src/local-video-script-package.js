@@ -1,16 +1,30 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {
+  M5ProductionTemplateResolutionError,
+  defaultM5ProductionTemplateBinding,
+  validM5ProductionTemplateBinding,
+  validM5TemplateGuidance,
+} from './m5-production-template-resolver.js';
 
 const FACTUAL_TOPIC_RE = /(?:数据|最新|政策|法律|医学|健康|金融|历史|科学|研究|报告|调查|事实|为什么|是否|会不会|影响|趋势)/i;
 const DEFAULT_PLATFORM = 'douyin';
 
 export class LocalVideoScriptPackage {
-  constructor({ store, artifactsDir, advisor = null, researcher = null, now = () => new Date() } = {}) {
+  constructor({
+    store,
+    artifactsDir,
+    advisor = null,
+    researcher = null,
+    templateResolver = null,
+    now = () => new Date(),
+  } = {}) {
     this.store = store;
     this.artifactsDir = artifactsDir;
     this.advisor = advisor;
     this.researcher = researcher;
+    this.templateResolver = templateResolver;
     this.now = now;
   }
 
@@ -24,6 +38,36 @@ export class LocalVideoScriptPackage {
     const reference = selectReference({ task, tasks, topic, platform });
     const m5Evidence = findM5EvidencePackage(task, tasks);
     const m5VisualAnalysis = findM5VisualAnalysisPackage(task, tasks);
+    const isM5Script = task.input?.context?.paperclipRoutineKey === 'm5-script';
+    const templateBinding = isM5Script
+      ? await resolveTemplateBinding(this.templateResolver, task.input?.context?.pipelineCaseId)
+      : null;
+    if (isM5Script && !validM5ProductionTemplateBinding(templateBinding)) {
+      return needsInput(
+        this.now(),
+        'm5_template_binding_invalid',
+        'M5 生产模板绑定缺少完整 canonical hash 或安全控制，已停止脚本生成。',
+      );
+    }
+    const guidanceProofRequired = isM5Script
+      && templateBinding.source !== 'built_in_default'
+      && templateBinding.contentGuidance.length > 0;
+    const grayTemplateBinding = isM5Script
+      ? await resolveGrayTemplateBinding(this.templateResolver, task.input?.context?.pipelineCaseId)
+      : null;
+    if (grayTemplateBinding && (
+      !validM5ProductionTemplateBinding(grayTemplateBinding)
+      || grayTemplateBinding.source !== 'approved_single_gray'
+      || grayTemplateBinding.applicationScope !== 'full_content_variant'
+      || grayTemplateBinding.grayTargetDayCaseId !== task.input?.context?.pipelineCaseId
+      || grayTemplateBinding.grayTargetPlatform !== 'douyin'
+    )) {
+      return needsInput(
+        this.now(),
+        'm5_gray_template_binding_invalid',
+        'M5 灰度模板没有完整绑定到当前日期 Case 的抖音独立内容变体。',
+      );
+    }
     const research = await this.research(topic, task);
     const fallback = fallbackScript({ topic, platform, reference, research });
     let script = fallback;
@@ -37,18 +81,79 @@ export class LocalVideoScriptPackage {
           durationSeconds:durationSeconds(task.input?.durationSeconds),
           reference:reference.promptData,
           research:research?.report || null,
-          validate:validScript
+          templateBinding,
+          validate:(value) => validScript(value)
+            && (!guidanceProofRequired
+              || (
+                value?.templateBindingHash === templateBinding.bindingHash
+                && validTemplateApplicationEvidence(value, templateBinding)
+              )),
         });
         modelUsage = advised?.usage || null;
-        if (validScript(advised?.data || advised)) {
-          script = normalizeScript(advised?.data || advised, fallback);
+        const candidate = advised?.data || advised;
+        if (
+          validScript(candidate)
+          && (!guidanceProofRequired
+            || (
+              candidate?.templateBindingHash === templateBinding.bindingHash
+              && validTemplateApplicationEvidence(candidate, templateBinding)
+            ))
+        ) {
+          script = normalizeScript(candidate, fallback);
           advisorApplied = true;
         }
       } catch {
         // 保留无外部副作用、可拍摄的本机兜底稿。
       }
     }
-    if (task.input?.context?.paperclipRoutineKey === 'm5-script') {
+    if (guidanceProofRequired && !advisorApplied) {
+      return needsInput(
+        this.now(),
+        'm5_template_guidance_not_applied',
+        '已批准模板必须逐条回显 guidance 对应的脚本原文片段和 canonical binding hash；当前未得到可信执行结果。',
+      );
+    }
+    let grayScript = null;
+    if (grayTemplateBinding) {
+      if (!allowAdvisor || !this.advisor?.scriptPackage) {
+        return needsInput(
+          this.now(),
+          'm5_gray_variant_guidance_not_applied',
+          '抖音灰度日必须生成独立 gray_douyin 脚本，不能复用 baseline 母版。',
+        );
+      }
+      try {
+        const advised = await this.advisor.scriptPackage({
+          topic,
+          platform:'douyin',
+          durationSeconds:durationSeconds(task.input?.durationSeconds),
+          reference:reference.promptData,
+          research:research?.report || null,
+          templateBinding:grayTemplateBinding,
+          validate:(value) => validScript(value)
+            && value?.templateBindingHash === grayTemplateBinding.bindingHash
+            && validTemplateApplicationEvidence(value, grayTemplateBinding),
+        });
+        const candidate = advised?.data || advised;
+        if (
+          validScript(candidate)
+          && candidate?.templateBindingHash === grayTemplateBinding.bindingHash
+          && validTemplateApplicationEvidence(candidate, grayTemplateBinding)
+        ) {
+          grayScript = normalizeScript(candidate, fallback);
+        }
+      } catch {
+        grayScript = null;
+      }
+      if (!grayScript) {
+        return needsInput(
+          this.now(),
+        'm5_gray_variant_guidance_not_applied',
+          '抖音灰度脚本未逐条提供 guidance 对应的可定位原文片段，或未回显 canonical binding hash。',
+        );
+      }
+    }
+    if (isM5Script) {
       if (!m5Evidence) {
         return needsInput(this.now(), 'm5_evidence_package_required', 'M5 脚本阶段缺少同一 Case 的 EvidencePackage，不能生成无来源脚本。');
       }
@@ -59,6 +164,20 @@ export class LocalVideoScriptPackage {
         bindM5Evidence(script, m5Evidence.data),
         m5VisualAnalysis.data,
       );
+      if (grayScript) {
+        grayScript = bindM5VisualAnalysis(
+          bindM5Evidence(grayScript, m5Evidence.data),
+          m5VisualAnalysis.data,
+        );
+        if (normalizeForVariantComparison(grayScript.fullScript)
+          === normalizeForVariantComparison(script.fullScript)) {
+          return needsInput(
+            this.now(),
+            'm5_gray_variant_unchanged',
+            'gray_douyin 脚本与 baseline 完全相同，不能冒充单变量灰度。',
+          );
+        }
+      }
     }
 
     const completedAt = this.now().toISOString();
@@ -70,9 +189,29 @@ export class LocalVideoScriptPackage {
         topic,
         referenceMatch:reference.publicMatch,
         researchStatus:research?.status || 'not_required',
-        templateLifecycle:{ caseOnly:true, state:null, approvedForUse:false },
+        templateLifecycle:isM5Script ? {
+          caseOnly:true,
+          state:templateBinding.decisionStatus,
+          approvedForUse:false,
+          templateBinding,
+        } : { caseOnly:true, state:null, approvedForUse:false },
         publishingStatus:'draft_only',
         generationMode:advisorApplied ? 'hermes_advisor' : 'deterministic_fallback',
+        templateGuidanceHash:advisorApplied
+          ? String(script.templateBindingHash || '')
+          : null,
+        ...(isM5Script ? {
+          variants:{
+            baseline:m5ScriptVariant('baseline', script, templateBinding),
+            ...(grayScript ? {
+              gray_douyin:m5ScriptVariant(
+                'gray_douyin',
+                grayScript,
+                grayTemplateBinding,
+              ),
+            } : {}),
+          },
+        } : {}),
         generatedAt:completedAt
       },
       sources:Array.isArray(m5Evidence?.data?.sources)
@@ -136,6 +275,46 @@ export class LocalVideoScriptPackage {
       return { status:'unavailable', report:null, sources:[] };
     }
   }
+}
+
+async function resolveTemplateBinding(resolver, pipelineCaseId) {
+  if (typeof resolver?.resolve !== 'function') {
+    return defaultM5ProductionTemplateBinding('resolver_unavailable');
+  }
+  try {
+    return await resolver.resolve(pipelineCaseId);
+  } catch (error) {
+    if (error instanceof M5ProductionTemplateResolutionError
+      || error?.code === 'm5_production_template_blocked') throw error;
+    return defaultM5ProductionTemplateBinding('resolver_read_failed');
+  }
+}
+
+async function resolveGrayTemplateBinding(resolver, pipelineCaseId) {
+  if (typeof resolver?.resolveGrayForDay !== 'function') return null;
+  try {
+    return await resolver.resolveGrayForDay(pipelineCaseId);
+  } catch (error) {
+    if (error instanceof M5ProductionTemplateResolutionError
+      || error?.code === 'm5_production_template_blocked') throw error;
+    return null;
+  }
+}
+
+function m5ScriptVariant(variantKey, script, templateBinding) {
+  return {
+    ...structuredClone(script),
+    variantKey,
+    templateBinding,
+    templateGuidanceHash:script.templateBindingHash || null,
+    scriptHash:`sha256:${crypto.createHash('sha256')
+      .update(String(script.fullScript || ''))
+      .digest('hex')}`,
+  };
+}
+
+function normalizeForVariantComparison(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
 function findM5EvidencePackage(task, tasks) {
@@ -414,7 +593,11 @@ function normalizeScript(value, fallback) {
       shootability:text(value.qualityReview?.shootability, 500) || fallback.qualityReview.shootability,
       unresolved:stringList(value.qualityReview?.unresolved, 5, 300)
     },
-    structure:Array.isArray(value.structure) || typeof value.structure === 'object' ? value.structure : fallback.structure
+    structure:Array.isArray(value.structure) || typeof value.structure === 'object' ? value.structure : fallback.structure,
+    templateBindingHash:text(value.templateBindingHash, 80) || null,
+    templateApplicationEvidence:normalizeTemplateApplicationEvidence(
+      value.templateApplicationEvidence,
+    ),
   };
 }
 
@@ -427,6 +610,40 @@ function validScript(value) {
     && value.shootingNotes.length
     && value?.qualityReview
   );
+}
+
+function validTemplateApplicationEvidence(value, templateBinding) {
+  const guidance = Array.isArray(templateBinding?.contentGuidance)
+    ? templateBinding.contentGuidance.map((item) => text(item, 240)).filter(Boolean)
+    : [];
+  if (!guidance.length) return true;
+  if (!validM5TemplateGuidance(guidance)) return false;
+  const evidence = normalizeTemplateApplicationEvidence(
+    value?.templateApplicationEvidence,
+  );
+  if (evidence.length !== guidance.length) return false;
+  const fullScript = normalizeForVariantComparison(value?.fullScript);
+  const fragments = new Set();
+  for (let index = 0; index < guidance.length; index += 1) {
+    const item = evidence[index];
+    const fragment = normalizeForVariantComparison(item?.scriptFragment);
+    if (
+      item?.guidance !== guidance[index]
+      || fragment.length < 8
+      || !/[\p{L}\p{N}]/u.test(fragment)
+      || !fullScript.includes(fragment)
+    ) return false;
+    fragments.add(fragment);
+  }
+  return evidence.length < 2 || fragments.size === evidence.length;
+}
+
+function normalizeTemplateApplicationEvidence(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 8).map((item) => ({
+    guidance:text(item?.guidance, 240),
+    scriptFragment:text(item?.scriptFragment, 500),
+  }));
 }
 
 async function writePackage({ artifactsDir, task, data, sources, sourceRefs, completedAt }) {

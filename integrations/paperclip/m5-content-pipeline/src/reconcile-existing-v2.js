@@ -30,6 +30,7 @@ const SYSTEM_CONTROLLER_BINDINGS = {
   'm5-metrics-controller':'metricsControllerAgentId',
   'm5-publisher-controller':'publisherControllerAgentId',
   'm5-retrospective-controller':'retrospectiveControllerAgentId',
+  'm5-learning-controller':'learningControllerAgentId',
   'm5-parallel-controller':'parallelControllerAgentId',
 };
 

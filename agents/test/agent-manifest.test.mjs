@@ -318,7 +318,7 @@ test("创建官和审核官固定使用本机 StepFun 路由，Profile 不保存
   }
 });
 
-test("11 个自主岗位统一明确 StepFun 模型，私密只读岗位不开放模型处理与自主扩权", async () => {
+test("11 个自主岗位统一明确 StepFun 模型，私密只读岗位仅开放本机模型且不自主扩权", async () => {
   const entries = await readdir(path.join(repositoryRoot, "agents"), { withFileTypes:true });
   const formalAutonomousAgentIds = [
     "ajun",
@@ -343,18 +343,14 @@ test("11 个自主岗位统一明确 StepFun 模型，私密只读岗位不开�
       if (manifest.agentId === "wechat-chat-retriever") {
         privateWechatSeen = true;
         assert.equal(manifest.executionOwner, "ajun-local");
-        assert.equal(manifest.operationalPolicy.privateContentModelAccess, "disabled");
+        assert.equal(manifest.operationalPolicy.privateContentModelAccess, "local-only");
         assert.equal(manifest.operationalPolicy.rawChatPersistence, "disabled");
         assert.deepEqual(manifest.runtimeCapabilities.mcpTools, []);
         assert.deepEqual(manifest.runtimeCapabilities.modelSelection, {
-          provider:"stepfun",
-          model:"step-3.5-flash-2603"
+          provider:"ollama-local",
+          model:"qwen3:14b"
         });
-        assert.deepEqual(manifest.runtimeCapabilities.fallbackModels, [{
-          provider:"deepseek",
-          model:"deepseek-v4-flash",
-          trigger:"transport_unavailable"
-        }]);
+        assert.deepEqual(manifest.runtimeCapabilities.fallbackModels, []);
         const profile = await readJson(path.join(repositoryRoot, manifest.runtimeProfileRef));
         assert.equal(profile.status, "pending-local-profile");
         assert.equal(profile.localProfile.created, false);
@@ -367,16 +363,11 @@ test("11 个自主岗位统一明确 StepFun 模型，私密只读岗位不开�
         );
         assert.equal(profile.localProfile.skillsSeeded, false);
         assert.deepEqual(profile.modelSelection, {
-          provider:"stepfun",
-          model:"step-3.5-flash-2603",
+          provider:"ollama-local",
+          model:"qwen3:14b",
           secretStoredHere:false
         });
-        assert.deepEqual(profile.fallbackModels, [{
-          provider:"deepseek",
-          model:"deepseek-v4-flash",
-          trigger:"transport_unavailable",
-          secretStoredHere:false
-        }]);
+        assert.deepEqual(profile.fallbackModels, []);
         assert.equal(profile.gateway.enabled, false);
         assert.deepEqual(profile.mcp.tools, []);
         continue;

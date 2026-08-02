@@ -46,10 +46,10 @@ test('M5 本地全链 chaos 纵切输出统一 JSON ledger，覆盖恢复、硬�
   assert.equal(ledger.paidCalls, 0);
   assert.equal(ledger.passed, true);
 
-  assert.equal(ledger.definition.declaredStageCount, 15);
+  assert.equal(ledger.definition.declaredStageCount, 16);
   assert.equal(ledger.definition.successTerminal, 'done');
   assert.equal(ledger.definition.alternativeTerminal, 'cancelled');
-  assert.equal(ledger.definition.declaredTransitionCount, 16);
+  assert.equal(ledger.definition.declaredTransitionCount, 18);
   assert.equal(ledger.definition.allJourneyEdgesDeclared, true);
   assert.equal(ledger.caseJourney[0].toStage, 'draft');
   assert.equal(ledger.caseJourney.at(-1).toStage, 'done');

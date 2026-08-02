@@ -17,8 +17,10 @@ export const AJUN_RELEASE_MANIFEST = 'release-manifest.json';
 export const DEFAULT_RELEASE_PARENT = 'apps/ajun-runtime/data/releases';
 
 const ENTRYPOINT = 'apps/ajun-runtime/src/server.js';
+const RECOVERY_ENTRYPOINT = 'apps/ajun-runtime/src/recovery-server.js';
 const EXTERNAL_STATE = [
   'AGENT_ARMY_DATA_DIR',
+  'AGENT_ARMY_TASK_STORE',
   'AGENT_ARMY_CONTENT_WORKSPACE_DIR',
   'AGENT_ARMY_HERMES_PROFILE_ROOT',
   'AGENT_ARMY_PRIVATE_DIR',
@@ -45,6 +47,22 @@ const REQUIRED_PASSTHROUGH_ENVIRONMENT = [
   'WECHAT_VAULT_PYTHON',
   'WECHAT_VAULT_REPORTS_DIR',
 ];
+const RECOVERY_SMOKE_ENVIRONMENT_KEYS = [
+  'AJUN_HOST',
+  'AJUN_RECOVERY_PAYLOAD_HASH',
+  'AJUN_RECOVERY_REASON',
+  'AJUN_RECOVERY_RELEASE_HASH',
+  'CI',
+  'HOME',
+  'LANG',
+  'LC_ALL',
+  'PORT',
+  'TMPDIR',
+].sort(bytewiseSort);
+const ROLLBACK_MODES = new Set([
+  'exact_previous',
+  'verified_degraded_fallback',
+]);
 const SOURCE_EXCLUSIONS = [
   'apps/ajun-runtime/data/**',
   'apps/ajun-runtime/test/**',
@@ -75,7 +93,7 @@ const COMPONENT_RULES = [
   {
     root:'apps/ajun-runtime',
     files:['package.json', 'package-lock.json'],
-    directories:['src', 'public', 'node_modules'],
+    directories:['src', 'public'],
   },
   {
     root:'agents',
@@ -87,12 +105,12 @@ const COMPONENT_RULES = [
   {
     root:'integrations/paperclip/m5-content-pipeline',
     files:['package.json', 'package-lock.json'],
-    directories:['src', 'config', 'node_modules'],
+    directories:['src', 'config'],
   },
   {
     root:'integrations/paperclip/plugins/content-autonomy',
     files:['package.json', 'package-lock.json'],
-    directories:['src', 'node_modules'],
+    directories:['src'],
   },
   {
     root:'integrations/publishing/m5-publisher-gateway',
@@ -104,8 +122,46 @@ const COMPONENT_RULES = [
     files:['package.json'],
     topLevelFilePattern:/^[a-z0-9-]+\.js$/,
   },
+  {
+    root:'integrations/boom-monitor',
+    files:['package.json'],
+    topLevelFilePattern:/^[a-z0-9-]+\.js$/,
+  },
+  {
+    root:'integrations/m5-kernel',
+    files:['package.json'],
+    directories:['src'],
+  },
+  {
+    root:'packages/m5-contracts',
+    files:['package.json'],
+    directories:['src'],
+  },
+  {
+    root:'packages/paperclip-client',
+    files:['package.json'],
+    directories:['src'],
+  },
 ];
+const INTERNAL_WORKSPACE_PACKAGES = Object.freeze([
+  ['@agent-army/boom-monitor', 'integrations/boom-monitor'],
+  ['@agent-army/m5-contracts', 'packages/m5-contracts'],
+  ['@agent-army/m5-content-pipeline', 'integrations/paperclip/m5-content-pipeline'],
+  ['@agent-army/m5-kernel', 'integrations/m5-kernel'],
+  ['@agent-army/m5-publisher-gateway', 'integrations/publishing/m5-publisher-gateway'],
+  ['@agent-army/paperclip-client', 'packages/paperclip-client'],
+  ['@agent-army/paperclip-content-autonomy', 'integrations/paperclip/plugins/content-autonomy'],
+  ['ajun-common-access', 'integrations/access'],
+]);
+const RUNTIME_WORKSPACE_ROOTS = Object.freeze(
+  ['apps/ajun-runtime', ...INTERNAL_WORKSPACE_PACKAGES.map(([, relative]) => relative)],
+);
 const VERIFY_COMMANDS = [
+  {
+    cwd:'integrations/m5-kernel',
+    command:'npm',
+    args:['test'],
+  },
   {
     cwd:'apps/ajun-runtime',
     command:'npm',
@@ -130,6 +186,16 @@ const VERIFY_COMMANDS = [
     cwd:'integrations/publishing/m5-publisher-gateway',
     command:'npm',
     args:['run', 'check'],
+  },
+  {
+    cwd:'packages/m5-contracts',
+    command:'npm',
+    args:['run', 'check'],
+  },
+  {
+    cwd:'packages/paperclip-client',
+    command:'npm',
+    args:['test'],
   },
 ];
 const LEGACY_V1_VERIFY_COMMANDS = [
@@ -165,6 +231,7 @@ export async function freezeAjunRuntimeRelease({
   verify = false,
   runCommand = defaultRunCommand,
   smokeRunner = defaultFrozenStartupSmoke,
+  recoverySmokeRunner = defaultFrozenRecoveryStartupSmoke,
 } = {}) {
   if (!repoRoot) throw new Error('必须提供 repoRoot');
   const inputRepoRoot = path.resolve(repoRoot);
@@ -199,6 +266,8 @@ export async function freezeAjunRuntimeRelease({
     for (const relative of includedPaths) {
       await copyAllowlistedEntry(canonicalRepoRoot, stagingRoot, relative);
     }
+    await copyRuntimeDependencyClosure(canonicalRepoRoot, stagingRoot);
+    await materializeInternalWorkspaceLinks(stagingRoot);
     await assertRuntimeStaticClosure(stagingRoot);
     await assertGovernanceRosterSmoke(stagingRoot);
 
@@ -220,6 +289,17 @@ export async function freezeAjunRuntimeRelease({
         nodePath:process.execPath,
       });
       assertStartupSmokeEvidence(startupSmoke, git.gitHead);
+      const recoveryStartupSmoke = await recoverySmokeRunner({
+        releaseRoot:stagingRoot,
+        gitHead:git.gitHead,
+        payloadHash:beforeVerification.payloadHash,
+        nodePath:process.execPath,
+      });
+      assertRecoveryStartupSmokeEvidence(
+        recoveryStartupSmoke,
+        git.gitHead,
+        beforeVerification.payloadHash,
+      );
       for (const item of VERIFY_COMMANDS) {
         await runCommand(item.command, item.args, {
           cwd:path.join(canonicalRepoRoot, item.cwd),
@@ -238,6 +318,8 @@ export async function freezeAjunRuntimeRelease({
         for (const relative of includedPaths) {
           await copyAllowlistedEntry(canonicalRepoRoot, sourceRecheckRoot, relative);
         }
+        await copyRuntimeDependencyClosure(canonicalRepoRoot, sourceRecheckRoot);
+        await materializeInternalWorkspaceLinks(sourceRecheckRoot);
         const sourceRecheck = await snapshotPayload(sourceRecheckRoot, {
           requireReadonly:false,
         });
@@ -271,6 +353,7 @@ export async function freezeAjunRuntimeRelease({
           evidenceLayer:'source_test',
         })),
         startupSmoke,
+        recoveryStartupSmoke,
         frozenStaticClosure:true,
         payloadUnchanged:true,
         sourceSnapshotBound:true,
@@ -408,6 +491,7 @@ export async function buildLaunchdCutoverPlan({
   sourceProjectRoot,
   rollbackSourceProjectRoot,
   dataDir,
+  taskStoreMode = 'json',
   contentWorkspaceDir,
   hermesProfileRoot,
   privateDir,
@@ -416,7 +500,15 @@ export async function buildLaunchdCutoverPlan({
   paperclipRepairWorktreeParent,
   nodePath,
   label = 'ai.agent-army.ajun-runtime',
+  rollbackMode = 'exact_previous',
 } = {}) {
+  if (!ROLLBACK_MODES.has(rollbackMode)) {
+    throw new Error('rollbackMode只允许exact_previous或verified_degraded_fallback');
+  }
+  const normalizedTaskStoreMode = String(taskStoreMode || '').trim().toLowerCase();
+  if (!['json', 'sqlite'].includes(normalizedTaskStoreMode)) {
+    throw new Error('taskStoreMode只允许json或sqlite');
+  }
   const oldRelease = await validateReleaseFromOwnManifest(oldReleaseRoot);
   const newRelease = await validateReleaseFromOwnManifest(newReleaseRoot);
   if (oldRelease.releaseHash === newRelease.releaseHash) {
@@ -461,7 +553,7 @@ export async function buildLaunchdCutoverPlan({
     sourceProjectRoot:sourceBinding.sourceProjectRoot,
   });
   let rollbackSourceBinding = null;
-  if (rollbackSourceProjectRoot) {
+  if (rollbackSourceProjectRoot && rollbackMode === 'exact_previous') {
     rollbackSourceBinding = await validateRepairSourceBinding({
       release:oldRelease,
       sourceProjectRoot:rollbackSourceProjectRoot,
@@ -484,6 +576,15 @@ export async function buildLaunchdCutoverPlan({
       rollbackSourceProjectRoot:rollbackSourceBinding.sourceProjectRoot,
     });
   }
+  const recoveryEntrypoint = newRelease.manifest.entries.find(
+    (entry) => entry.type === 'file' && entry.path === RECOVERY_ENTRYPOINT,
+  );
+  if (
+    rollbackMode === 'verified_degraded_fallback'
+    && (!recoveryEntrypoint?.sha256 || recoveryEntrypoint.mode !== '0444')
+  ) {
+    throw new Error('verified_degraded_fallback需要新release内置只读recovery entrypoint');
+  }
   const canonicalNode = path.resolve(String(nodePath || ''));
   if (!path.isAbsolute(String(nodePath || '')) || canonicalNode === path.parse(canonicalNode).root) {
     throw new Error('nodePath必须是明确的绝对文件路径');
@@ -503,12 +604,33 @@ export async function buildLaunchdCutoverPlan({
       throw new Error(`nodePath ABI与release不兼容: ${release.releaseHash}`);
     }
   }
+  const exactLiveAttestation = rollbackMode === 'exact_previous'
+    ? {
+        valid:false,
+        reason:'exact_previous尚未实现内置可信OS、launchd与不可变release联合采集器；拒绝调用方注入证明。',
+      }
+    : null;
+  const exactStateAttestation = rollbackMode === 'exact_previous'
+    ? {
+        valid:false,
+        reason:'exact_previous尚未实现内置可信静默快照与向后兼容采集器；当前不可启动。',
+      }
+    : null;
+  const degradedStateAttestation = rollbackMode === 'verified_degraded_fallback'
+    ? assertVerifiedDegradedRecoveryAttestation(newRelease)
+    : null;
+  const rollbackLaunchable = rollbackMode === 'verified_degraded_fallback'
+    ? Boolean(degradedStateAttestation?.valid)
+    : false;
   const cutoverConfirmation = `I_ACCEPT_AJUN_RUNTIME_CUTOVER_${newRelease.releaseHash.slice(0, 12).toUpperCase()}`;
-  const rollbackConfirmation = `I_ACCEPT_AJUN_RUNTIME_ROLLBACK_${oldRelease.releaseHash.slice(0, 12).toUpperCase()}`;
+  const rollbackConfirmation = rollbackMode === 'verified_degraded_fallback'
+    ? `I_ACCEPT_AJUN_RUNTIME_RECOVERY_${newRelease.releaseHash.slice(0, 12).toUpperCase()}`
+    : `I_ACCEPT_AJUN_RUNTIME_ROLLBACK_${oldRelease.releaseHash.slice(0, 12).toUpperCase()}`;
   const sharedEnvironment = {
     PORT:'4321',
     AJUN_HOST:'127.0.0.1',
     AGENT_ARMY_DATA_DIR:external.dataDir,
+    AGENT_ARMY_TASK_STORE:normalizedTaskStoreMode,
     AGENT_ARMY_CONTENT_WORKSPACE_DIR:external.contentWorkspaceDir,
     AGENT_ARMY_HERMES_PROFILE_ROOT:external.hermesProfileRoot,
     AGENT_ARMY_PRIVATE_DIR:external.privateDir,
@@ -521,12 +643,20 @@ export async function buildLaunchdCutoverPlan({
     ...sharedEnvironment,
     AGENT_ARMY_SOURCE_PROJECT_ROOT:sourceBinding.sourceProjectRoot,
   };
-  const rollbackEnvironment = rollbackSourceBinding
+  const rollbackEnvironment = rollbackMode === 'verified_degraded_fallback'
     ? {
+        PORT:'4321',
+        AJUN_HOST:'127.0.0.1',
+        AJUN_RECOVERY_RELEASE_HASH:newRelease.releaseHash,
+        AJUN_RECOVERY_PAYLOAD_HASH:newRelease.payloadHash,
+        AJUN_RECOVERY_REASON:'cutover_failed',
+      }
+    : rollbackSourceBinding
+      ? {
         ...sharedEnvironment,
         AGENT_ARMY_SOURCE_PROJECT_ROOT:rollbackSourceBinding.sourceProjectRoot,
       }
-    : null;
+      : null;
   return {
     schemaVersion:1,
     kind:'agent-army/ajun-launchd-cutover-plan',
@@ -539,65 +669,144 @@ export async function buildLaunchdCutoverPlan({
       instruction:'此对象只描述人工审核后的切换；本工具没有修改或加载plist的能力。',
     },
     cutover:{
-      status:rollbackSourceBinding ? 'ready' : 'blocked',
-      launchable:Boolean(rollbackSourceBinding),
-      blockedReason:rollbackSourceBinding
+      status:rollbackLaunchable ? 'ready' : 'blocked',
+      launchable:rollbackLaunchable,
+      blockedReason:rollbackLaunchable
         ? null
-        : '未绑定独立匹配的rollback源码根，无法保证失败后的安全恢复。',
+        : degradedStateAttestation?.reason
+          || (
+            !rollbackSourceBinding
+              ? '未绑定独立匹配的rollback源码根，无法保证失败后的安全恢复。'
+              : exactLiveAttestation?.reason
+                || exactStateAttestation?.reason
+                || '未提供当前live不可变运行身份，不能把任意旧包冒充精确回滚基线。'
+          ),
       requiredConfirmation:cutoverConfirmation,
       oldRelease:releaseReference(oldRelease),
+      oldReleaseRole:rollbackMode === 'verified_degraded_fallback'
+        ? 'historical_reference_only'
+        : 'exact_previous_live',
       newRelease:releaseReference(newRelease),
-      programArguments:rollbackSourceBinding
+      programArguments:rollbackLaunchable
         ? [
             canonicalNode,
             path.join(newRelease.releaseRoot, ENTRYPOINT),
           ]
         : null,
-      workingDirectory:rollbackSourceBinding
+      workingDirectory:rollbackLaunchable
         ? path.join(newRelease.releaseRoot, 'apps/ajun-runtime')
         : null,
-      environment:rollbackSourceBinding ? cutoverEnvironment : null,
+      environment:rollbackLaunchable ? cutoverEnvironment : null,
       nodeAbi,
-      requiredPassthroughEnvironment:REQUIRED_PASSTHROUGH_ENVIRONMENT,
-      requiredLoopbackEnvironment:['PAPERCLIP_URL', 'XIAOD_RUNTIME_URL'],
-      standardOutPath:path.join(external.dataDir, 'ajun-runtime.launchd.log'),
-      standardErrorPath:path.join(external.dataDir, 'ajun-runtime.launchd.error.log'),
+      requiredPassthroughEnvironment:rollbackLaunchable
+        ? REQUIRED_PASSTHROUGH_ENVIRONMENT
+        : [],
+      requiredLoopbackEnvironment:rollbackLaunchable
+        ? ['PAPERCLIP_URL', 'XIAOD_RUNTIME_URL']
+        : [],
+      standardOutPath:rollbackLaunchable
+        ? path.join(external.dataDir, 'ajun-runtime.launchd.log')
+        : null,
+      standardErrorPath:rollbackLaunchable
+        ? path.join(external.dataDir, 'ajun-runtime.launchd.error.log')
+        : null,
       checks:[
         '停止前核对当前PID、端口4321、cwd和health',
+        '切换前暂停所有入口、Cron与reconciler写入，且不并行挂载同一正式状态目录',
         '确认cutover与rollback均为ready且launchable',
+        rollbackMode === 'verified_degraded_fallback'
+          ? '确认回滚目标是关闭外部入口的已验证降级恢复包，不冒充当前live精确副本'
+          : '确认回滚目标与当前live精确版本身份一致',
         '仅在确认词匹配后人工修改受控launchd副本',
         '启动后核对新PID、entrypoint、health和Paperclip心跳',
         '任一检查失败立即按rollback目标恢复',
       ],
       technicalRepair:{
-        status:'enabled',
+        status:rollbackLaunchable ? 'enabled' : 'candidate_only',
+        readiness:rollbackLaunchable ? 'ready' : 'blocked',
         sourceProjectRoot:sourceBinding.sourceProjectRoot,
         sourceGitHead:sourceBinding.sourceIdentity.head,
         releaseGitHead:newRelease.manifest.git.gitHead,
         provenanceMatched:true,
         sourceWorktreeState:'clean',
       },
-      knownCapabilityRestrictions:[],
+      knownCapabilityRestrictions:rollbackLaunchable
+        ? []
+        : [
+            '技术修复来源仅完成候选绑定；切换与恢复门禁未闭合前不签发启动能力',
+          ],
     },
     rollback:{
-      status:rollbackSourceBinding ? 'ready' : 'blocked',
-      launchable:Boolean(rollbackSourceBinding),
+      status:rollbackLaunchable ? 'ready' : 'blocked',
+      launchable:rollbackLaunchable,
       requiredConfirmation:rollbackConfirmation,
-      targetRelease:releaseReference(oldRelease),
-      programArguments:rollbackSourceBinding
+      targetRelease:releaseReference(
+        rollbackMode === 'verified_degraded_fallback' ? newRelease : oldRelease,
+      ),
+      historicalReferenceRelease:rollbackMode === 'verified_degraded_fallback'
+        ? releaseReference(oldRelease)
+        : null,
+      recoveryEntrypoint:rollbackMode === 'verified_degraded_fallback'
+        ? {
+            path:path.join(newRelease.releaseRoot, RECOVERY_ENTRYPOINT),
+            sha256:recoveryEntrypoint.sha256,
+          }
+        : null,
+      programArguments:rollbackLaunchable
         ? [
             canonicalNode,
-            path.join(oldRelease.releaseRoot, ENTRYPOINT),
+            rollbackMode === 'verified_degraded_fallback'
+              ? path.join(newRelease.releaseRoot, RECOVERY_ENTRYPOINT)
+              : path.join(oldRelease.releaseRoot, ENTRYPOINT),
           ]
         : null,
-      workingDirectory:rollbackSourceBinding
-        ? path.join(oldRelease.releaseRoot, 'apps/ajun-runtime')
+      workingDirectory:rollbackLaunchable
+        ? path.join(
+            rollbackMode === 'verified_degraded_fallback'
+              ? newRelease.releaseRoot
+              : oldRelease.releaseRoot,
+            'apps/ajun-runtime',
+          )
         : null,
-      environment:rollbackEnvironment,
-      requiredPassthroughEnvironment:REQUIRED_PASSTHROUGH_ENVIRONMENT,
-      requiredLoopbackEnvironment:['PAPERCLIP_URL', 'XIAOD_RUNTIME_URL'],
+      environment:rollbackLaunchable ? rollbackEnvironment : null,
+      requiredPassthroughEnvironment:rollbackLaunchable
+        && rollbackMode !== 'verified_degraded_fallback'
+        ? REQUIRED_PASSTHROUGH_ENVIRONMENT
+        : [],
+      requiredLoopbackEnvironment:rollbackLaunchable
+        && rollbackMode !== 'verified_degraded_fallback'
+        ? ['PAPERCLIP_URL', 'XIAOD_RUNTIME_URL']
+        : [],
       preservesExternalState:true,
-      technicalRepair:rollbackSourceBinding
+      basis:rollbackMode,
+      exactPreviousLive:Boolean(
+        rollbackMode === 'exact_previous' && exactLiveAttestation?.valid
+      ),
+      currentLiveAttestation:exactLiveAttestation?.valid
+        ? exactLiveAttestation.summary
+        : null,
+      operatingMode:rollbackMode === 'verified_degraded_fallback'
+        ? 'local_recovery_only'
+        : 'normal',
+      stateIsolation:rollbackMode === 'verified_degraded_fallback'
+        ? 'no_external_state_access'
+        : 'shared_external_state_requires_snapshot_attestation',
+      stateRollbackReady:Boolean(
+        rollbackMode === 'verified_degraded_fallback'
+          ? degradedStateAttestation?.valid
+          : exactStateAttestation?.valid,
+      ),
+      stateRollbackAttestation:rollbackMode === 'verified_degraded_fallback'
+        ? degradedStateAttestation?.summary
+        : exactStateAttestation?.valid
+          ? exactStateAttestation.summary
+        : null,
+      recoveryEntrypointCandidatePresent:Boolean(
+        rollbackMode === 'verified_degraded_fallback' && recoveryEntrypoint,
+      ),
+      recoveryLaunchBlockedReason:degradedStateAttestation?.reason || null,
+      technicalRepair:rollbackLaunchable
+        && rollbackMode === 'exact_previous'
         ? {
             status:'enabled',
             sourceProjectRoot:rollbackSourceBinding.sourceProjectRoot,
@@ -608,17 +817,39 @@ export async function buildLaunchdCutoverPlan({
           }
         : {
             status:'disabled',
-            enforcement:'rollback启动计划不签发programArguments或environment',
-            reason:'未提供与旧release来源精确匹配的独立干净Git worktree；禁止复用新版本源码根冒充回滚源码。',
+            enforcement:rollbackMode === 'verified_degraded_fallback'
+              ? 'recovery entrypoint不加载技术修复模块'
+              : 'rollback启动计划不签发programArguments或environment',
+            reason:rollbackMode === 'verified_degraded_fallback'
+              ? '降级恢复只提供本机只读诊断，不执行技术修复。'
+              : '未提供与旧release来源精确匹配的独立干净Git worktree；禁止复用新版本源码根冒充回滚源码。',
           },
       knownCapabilityRestrictions:[
-        ...(rollbackSourceBinding
+        ...(rollbackLaunchable
           ? []
-          : ['rollback在绑定独立匹配源码根前不可启动，technical-repair保持disabled']),
+          : rollbackMode === 'verified_degraded_fallback'
+            ? [
+                '降级恢复候选仍被共享状态静默快照与恢复演练门禁阻止，不签发启动能力',
+              ]
+            : [
+              'rollback在源码根和当前live身份同时闭合前不可启动，technical-repair保持disabled',
+              ]),
+        ...(rollbackMode === 'verified_degraded_fallback'
+          ? [
+              '不声称恢复当前live内存中的精确旧代码',
+              '独立recovery entrypoint不导入飞书、Paperclip、媒体、任务、修复或发布模块',
+              '仅保留本机回环GET恢复界面；全部写请求返回503',
+              '不读取或写入正式data、内容工作区、Hermes Profile及其他外置状态',
+            ]
+          : []),
       ],
-      instruction:rollbackSourceBinding
-        ? '回滚只恢复代码release；data、内容工作区、Hermes Profile和日志保持外置且不删除。'
-        : '先准备与旧release gitHead匹配的独立干净Git worktree，再重新生成回滚计划；当前对象不能启动旧release。',
+      instruction:rollbackLaunchable
+        ? rollbackMode === 'verified_degraded_fallback'
+          ? '降级回滚启动新release内的独立只读recovery entrypoint；不挂载任何正式外置状态，不执行外部业务任务。'
+          : '回滚只恢复代码release；data、内容工作区、Hermes Profile和日志保持外置且不删除。'
+        : rollbackMode === 'verified_degraded_fallback'
+          ? 'frozen recovery smoke已通过，但共享状态静默快照与恢复演练门禁仍未闭合；当前对象不能启动降级恢复。'
+          : '先准备与旧release gitHead匹配的独立干净Git worktree，再重新生成回滚计划；当前对象不能启动旧release。',
     },
   };
 }
@@ -643,6 +874,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
       'source-project-root',
       'rollback-source-project-root',
       'data-dir',
+      'task-store',
       'content-workspace-dir',
       'hermes-profile-root',
       'private-dir',
@@ -650,6 +882,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
       'xiaod-artifact-root',
       'paperclip-repair-worktree-parent',
       'node-path',
+      'rollback-mode',
     ]);
     const plan = await buildLaunchdCutoverPlan({
       oldReleaseRoot:options['old-release'],
@@ -657,6 +890,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
       sourceProjectRoot:options['source-project-root'],
       rollbackSourceProjectRoot:options['rollback-source-project-root'],
       dataDir:options['data-dir'],
+      taskStoreMode:options['task-store'] || 'json',
       contentWorkspaceDir:options['content-workspace-dir'],
       hermesProfileRoot:options['hermes-profile-root'],
       privateDir:options['private-dir'],
@@ -664,6 +898,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
       xiaodArtifactRoot:options['xiaod-artifact-root'],
       paperclipRepairWorktreeParent:options['paperclip-repair-worktree-parent'],
       nodePath:options['node-path'],
+      rollbackMode:options['rollback-mode'] || 'exact_previous',
     });
     process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`);
     return plan;
@@ -673,10 +908,12 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
     'freeze --repo-root <path> [--output-parent <path>] [--verify]',
     'plan --old-release <path> --new-release <path> --source-project-root <path>',
     '  [--rollback-source-project-root <path>] --data-dir <path>',
+    '  [--task-store json|sqlite]',
     '  --content-workspace-dir <path> --hermes-profile-root <path> --node-path <path>',
     '  --private-dir <path>',
     '  --auto-work-root <path> --xiaod-artifact-root <path>',
     '  --paperclip-repair-worktree-parent <path>',
+    '  [--rollback-mode exact_previous|verified_degraded_fallback]',
   ].join('\n') + '\n');
   return { mode:'help' };
 }
@@ -793,6 +1030,85 @@ async function copyAllowlistedEntry(repoRoot, stagingRoot, allowlisted) {
   await copyOrdinaryFile(repoRoot, path.join(repoRoot, allowlisted), stagingRoot, allowlisted);
 }
 
+async function materializeInternalWorkspaceLinks(stagingRoot) {
+  for (const [packageName, targetRelative] of INTERNAL_WORKSPACE_PACKAGES) {
+    const target = path.join(stagingRoot, targetRelative);
+    const packageJson = path.join(target, 'package.json');
+    const packageStat = await lstatOrNull(packageJson);
+    if (!packageStat?.isFile() || packageStat.isSymbolicLink()) {
+      throw new Error(`内部 workspace 包缺少普通 package.json: ${packageName}`);
+    }
+    const link = path.join(stagingRoot, 'node_modules', ...packageName.split('/'));
+    await fs.mkdir(path.dirname(link), { recursive:true, mode:0o755 });
+    const relativeTarget = path.relative(path.dirname(link), target);
+    await fs.symlink(relativeTarget, link);
+  }
+}
+
+async function copyRuntimeDependencyClosure(repoRoot, stagingRoot) {
+  const internalNames = new Set(INTERNAL_WORKSPACE_PACKAGES.map(([name]) => name));
+  const pending = RUNTIME_WORKSPACE_ROOTS.map((relative) => path.join(repoRoot, relative));
+  const visitedManifests = new Set();
+  const copiedPackageRoots = new Set();
+
+  while (pending.length) {
+    const importerRoot = pending.pop();
+    const manifestPath = path.join(importerRoot, 'package.json');
+    const canonicalManifest = await fs.realpath(manifestPath);
+    if (visitedManifests.has(canonicalManifest)) continue;
+    visitedManifests.add(canonicalManifest);
+    const manifest = JSON.parse(
+      (await readOrdinaryFile(manifestPath, repoRoot, `依赖清单 ${manifestPath}`)).toString('utf8'),
+    );
+    const optionalNames = new Set(Object.keys(manifest.optionalDependencies || {}));
+    const dependencyNames = [...new Set([
+      ...Object.keys(manifest.dependencies || {}),
+      ...Object.keys(manifest.optionalDependencies || {}),
+    ])].sort(bytewiseSort);
+
+    for (const dependencyName of dependencyNames) {
+      if (internalNames.has(dependencyName)) continue;
+      let packageRoot;
+      try {
+        packageRoot = await resolveInstalledPackageRoot(repoRoot, importerRoot, dependencyName);
+      } catch (error) {
+        if (optionalNames.has(dependencyName)) continue;
+        throw error;
+      }
+      const relative = path.relative(repoRoot, packageRoot).split(path.sep).join('/');
+      if (!copiedPackageRoots.has(packageRoot)) {
+        copiedPackageRoots.add(packageRoot);
+        const destination = path.join(stagingRoot, relative);
+        await fs.mkdir(destination, { recursive:true, mode:0o755 });
+        await copyDirectory(repoRoot, packageRoot, stagingRoot, destination, {
+          allowNodeModuleSymlinks:false,
+          skipNestedNodeModules:true,
+        });
+      }
+      pending.push(packageRoot);
+    }
+  }
+}
+
+async function resolveInstalledPackageRoot(repoRoot, importerRoot, packageName) {
+  const packageParts = packageName.split('/');
+  let directory = importerRoot;
+  while (pathsOverlap(repoRoot, directory)) {
+    const candidate = path.join(directory, 'node_modules', ...packageParts);
+    const manifest = await lstatOrNull(path.join(candidate, 'package.json'));
+    if (manifest?.isFile() && !manifest.isSymbolicLink()) {
+      const canonical = await fs.realpath(candidate);
+      assertInside(repoRoot, canonical, `依赖包 ${packageName}`);
+      return canonical;
+    }
+    if (directory === repoRoot) break;
+    const parent = path.dirname(directory);
+    if (parent === directory) break;
+    directory = parent;
+  }
+  throw new Error(`运行时依赖未安装: ${packageName} from ${path.relative(repoRoot, importerRoot)}`);
+}
+
 async function copyDirectory(repoRoot, sourceDirectory, stagingRoot, destinationDirectory, options) {
   await assertPlainDirectoryPath(repoRoot, sourceDirectory, 'allowlist源码目录');
   for (const name of (await fs.readdir(sourceDirectory)).sort(bytewiseSort)) {
@@ -805,6 +1121,7 @@ async function copyDirectory(repoRoot, sourceDirectory, stagingRoot, destination
     const destination = path.join(destinationDirectory, name);
     const stat = await fs.lstat(source);
     if (stat.isDirectory() && !stat.isSymbolicLink()) {
+      if (options.skipNestedNodeModules && name === 'node_modules') continue;
       await fs.mkdir(destination, { mode:0o755 });
       await copyDirectory(repoRoot, source, stagingRoot, destination, options);
       continue;
@@ -814,6 +1131,9 @@ async function copyDirectory(repoRoot, sourceDirectory, stagingRoot, destination
       continue;
     }
     if (stat.isSymbolicLink() && options.allowNodeModuleSymlinks) {
+      if (await isWorkspaceSourceSymlink(repoRoot, sourceDirectoryForNodeModules(sourceDirectory), source)) {
+        continue;
+      }
       const target = await fs.readlink(source);
       await validateContainedSymlink(sourceDirectoryForNodeModules(sourceDirectory), source, target);
       await fs.symlink(target, destination);
@@ -821,6 +1141,15 @@ async function copyDirectory(repoRoot, sourceDirectory, stagingRoot, destination
     }
     throw new Error(`allowlist源码含软链或不支持条目: ${relative}`);
   }
+}
+
+async function isWorkspaceSourceSymlink(repoRoot, nodeModulesRoot, linkPath) {
+  const target = await fs.realpath(linkPath).catch(() => null);
+  if (!target || !pathsOverlap(repoRoot, target) || pathsOverlap(nodeModulesRoot, target)) {
+    return false;
+  }
+  const packageJson = await lstatOrNull(path.join(target, 'package.json'));
+  return Boolean(packageJson?.isFile() && !packageJson.isSymbolicLink());
 }
 
 function sourceDirectoryForNodeModules(sourceDirectory) {
@@ -1086,12 +1415,23 @@ async function collectEntries(root, current, entries, requireReadonly) {
       const target = await fs.readlink(absolute);
       const nodeModulesRoot = nodeModulesRootForReleasePath(root, absolute);
       if (!nodeModulesRoot) throw new Error(`release含非node_modules软链: ${relative}`);
-      await validateContainedSymlink(nodeModulesRoot, absolute, target);
+      await validateReleaseContainedSymlink(root, absolute, target);
       entries.push({ type:'symlink', path:relative, target });
       continue;
     }
     throw new Error(`release含不支持条目: ${relative}`);
   }
+}
+
+async function validateReleaseContainedSymlink(releaseRoot, linkPath, target) {
+  if (path.isAbsolute(target)) throw new Error(`拒绝绝对软链: ${linkPath}`);
+  const lexicalTarget = path.resolve(path.dirname(linkPath), target);
+  assertInside(releaseRoot, lexicalTarget, 'release node_modules软链目标');
+  const canonicalTarget = await fs.realpath(linkPath).catch((error) => {
+    if (error?.code === 'ENOENT') throw new Error(`拒绝悬空软链: ${linkPath}`);
+    throw error;
+  });
+  assertInside(releaseRoot, canonicalTarget, 'release node_modules软链真实目标');
 }
 
 function nodeModulesRootForReleasePath(root, absolute) {
@@ -1299,17 +1639,26 @@ function assertExactManifest(manifest) {
     throw new Error('release Node ABI与当前运行时不匹配');
   }
   if (!Array.isArray(manifest.entries)) throw new Error('release entries不合法');
+  const hasRecoveryEntrypoint = manifest.entries.some(
+    (entry) => entry.type === 'file' && entry.path === RECOVERY_ENTRYPOINT,
+  );
   assertVerificationContract(manifest.verification, manifest.git?.gitHead, {
     verificationCommands:sourceExclusions === legacySourceExclusions
       ? LEGACY_V1_VERIFY_COMMANDS
       : VERIFY_COMMANDS,
+    expectedPayloadHash:manifest.payloadHash,
+    requireRecoveryStartupSmoke:hasRecoveryEntrypoint,
   });
 }
 
 function assertVerificationContract(
   verification,
   expectedGitHead,
-  { verificationCommands = VERIFY_COMMANDS } = {},
+  {
+    verificationCommands = VERIFY_COMMANDS,
+    expectedPayloadHash,
+    requireRecoveryStartupSmoke = false,
+  } = {},
 ) {
   if (!verification || typeof verification !== 'object') {
     throw new Error('release verification不合法');
@@ -1329,9 +1678,10 @@ function assertVerificationContract(
     'frozenStaticClosure',
     'payloadUnchanged',
     'requested',
+    ...(requireRecoveryStartupSmoke ? ['recoveryStartupSmoke'] : []),
     'sourceSnapshotBound',
     'startupSmoke',
-  ];
+  ].sort();
   if (
     verification.requested !== true
     || verification.frozenStaticClosure !== true
@@ -1342,12 +1692,135 @@ function assertVerificationContract(
     throw new Error('release验证状态不符合精确契约');
   }
   assertStartupSmokeEvidence(verification.startupSmoke, expectedGitHead);
+  if (requireRecoveryStartupSmoke) {
+    assertRecoveryStartupSmokeEvidence(
+      verification.recoveryStartupSmoke,
+      expectedGitHead,
+      expectedPayloadHash,
+    );
+  }
   const expectedCommands = verificationCommands.map((item) => ({
     ...item,
     evidenceLayer:'source_test',
   }));
   if (stableCanonical(verification.commands) !== stableCanonical(expectedCommands)) {
     throw new Error('release验证命令发生漂移');
+  }
+}
+
+function assertRecoveryStartupSmokeEvidence(evidence, expectedGitHead, expectedPayloadHash) {
+  const expectedKeys = [
+    'bootIdPresent',
+    'entrypoint',
+    'environmentKeys',
+    'environmentMode',
+    'evidenceLayer',
+    'externalEffects',
+    'externalStateAccess',
+    'formalStateEnvironmentKeys',
+    'healthContract',
+    'healthEndpoint',
+    'healthHttpStatus',
+    'host',
+    'identityMode',
+    'mode',
+    'pageEndpoint',
+    'pageHttpStatus',
+    'payloadHash',
+    'pidMatched',
+    'portMode',
+    'smokeIdentityHash',
+    'startedAtValid',
+    'status',
+    'statusEndpoint',
+    'statusHttpStatus',
+    'termination',
+    'unknownGetEndpoint',
+    'unknownGetHttpStatus',
+    'writableRoutes',
+    'writeEndpoint',
+    'writeError',
+    'writeHttpStatus',
+    'writeMethod',
+  ].sort();
+  const expectedIdentityHash = recoverySmokeIdentityHash({
+    gitHead:expectedGitHead,
+    payloadHash:expectedPayloadHash,
+  });
+  if (
+    !evidence
+    || evidence.status !== 'passed'
+    || evidence.evidenceLayer !== 'frozen_recovery_startup'
+    || evidence.entrypoint !== RECOVERY_ENTRYPOINT
+    || evidence.host !== '127.0.0.1'
+    || evidence.portMode !== 'ephemeral_loopback'
+    || evidence.healthEndpoint !== '/api/health'
+    || evidence.healthHttpStatus !== 200
+    || evidence.statusEndpoint !== '/api/recovery/status'
+    || evidence.statusHttpStatus !== 200
+    || evidence.pageEndpoint !== '/'
+    || evidence.pageHttpStatus !== 200
+    || evidence.unknownGetEndpoint !== '/api/overview'
+    || evidence.unknownGetHttpStatus !== 404
+    || evidence.writeMethod !== 'POST'
+    || evidence.writeEndpoint !== '/api/overview'
+    || evidence.writeHttpStatus !== 503
+    || evidence.writeError !== 'recovery_mode_read_only'
+    || evidence.healthContract !== 'local-recovery-only-v1'
+    || evidence.identityMode !== 'payload-and-git-bound-smoke'
+    || evidence.smokeIdentityHash !== expectedIdentityHash
+    || evidence.payloadHash !== expectedPayloadHash
+    || evidence.mode !== 'local_recovery_only'
+    || evidence.pidMatched !== true
+    || evidence.bootIdPresent !== true
+    || evidence.startedAtValid !== true
+    || evidence.externalEffects !== false
+    || evidence.writableRoutes !== false
+    || evidence.environmentMode !== 'clean_allowlist'
+    || stableCanonical(evidence.environmentKeys)
+      !== stableCanonical(RECOVERY_SMOKE_ENVIRONMENT_KEYS)
+    || stableCanonical(evidence.formalStateEnvironmentKeys) !== '[]'
+    || evidence.externalStateAccess !== 'none'
+    || JSON.stringify(Object.keys(evidence).sort()) !== JSON.stringify(expectedKeys)
+  ) {
+    throw new Error('frozen recovery startup smoke证据不符合精确契约');
+  }
+  const terminationKeys = ['exitConfirmed', 'forced', 'requestedSignal'];
+  if (
+    evidence.termination?.requestedSignal !== 'SIGTERM'
+    || evidence.termination?.forced !== false
+    || evidence.termination?.exitConfirmed !== true
+    || JSON.stringify(Object.keys(evidence.termination || {}).sort())
+      !== JSON.stringify(terminationKeys)
+  ) {
+    throw new Error('frozen recovery startup smoke退出证据不符合精确契约');
+  }
+}
+
+function assertVerifiedDegradedRecoveryAttestation(newRelease) {
+  try {
+    const manifest = newRelease?.manifest || {};
+    const verification = manifest.verification || {};
+    if (verification.requested !== true) {
+      throw new Error('recovery fallback需要verification.requested为true');
+    }
+    assertRecoveryStartupSmokeEvidence(verification.recoveryStartupSmoke, manifest?.git?.gitHead, manifest?.payloadHash);
+    const smoke = verification.recoveryStartupSmoke;
+    return {
+      valid:true,
+      summary:{
+        releaseHash:newRelease.releaseHash,
+        payloadHash:manifest.payloadHash,
+        smokeIdentityHash:smoke.smokeIdentityHash,
+        status:smoke.status,
+        mode:smoke.mode,
+      },
+    };
+  } catch (error) {
+    return {
+      valid:false,
+      reason:error?.message || 'verified_degraded_fallback降级恢复证据校验失败',
+    };
   }
 }
 
@@ -1704,7 +2177,11 @@ function parseNamedArgs(argv, valueNames, flagNames = []) {
     index += 1;
   }
   for (const name of valueNames) {
-    if (['output-parent', 'rollback-source-project-root'].includes(name)) continue;
+    if ([
+      'output-parent',
+      'rollback-source-project-root',
+      'rollback-mode',
+    ].includes(name)) continue;
     if (!options[name]) throw new Error(`必须提供 --${name}`);
   }
   return options;
@@ -1721,6 +2198,140 @@ async function lstatOrNull(file) {
 
 function bytewiseSort(left, right) {
   return Buffer.from(left).compare(Buffer.from(right));
+}
+
+function recoverySmokeIdentityHash({ gitHead, payloadHash }) {
+  return hashCanonical({
+    kind:'agent-army/frozen-recovery-smoke-identity',
+    gitHead,
+    payloadHash,
+  });
+}
+
+async function defaultFrozenRecoveryStartupSmoke({
+  releaseRoot,
+  gitHead,
+  payloadHash,
+  nodePath,
+}) {
+  const smokeRoot = await fs.realpath(
+    await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-frozen-recovery-')),
+  );
+  const homeRoot = path.join(smokeRoot, 'home');
+  const tmpRoot = path.join(smokeRoot, 'tmp');
+  let child = null;
+  let childExit = null;
+  let smokeError = null;
+  let termination = {
+    requestedSignal:'SIGTERM',
+    forced:false,
+    exitConfirmed:false,
+  };
+  try {
+    await Promise.all([
+      fs.mkdir(homeRoot, { mode:0o700 }),
+      fs.mkdir(tmpRoot, { mode:0o700 }),
+    ]);
+    const port = await reserveLoopbackPort();
+    const smokeIdentityHash = recoverySmokeIdentityHash({ gitHead, payloadHash });
+    const environment = {
+      HOME:homeRoot,
+      TMPDIR:tmpRoot,
+      LANG:'C',
+      LC_ALL:'C',
+      CI:'1',
+      PORT:String(port),
+      AJUN_HOST:'127.0.0.1',
+      AJUN_RECOVERY_RELEASE_HASH:smokeIdentityHash,
+      AJUN_RECOVERY_PAYLOAD_HASH:payloadHash,
+      AJUN_RECOVERY_REASON:'freeze_verify',
+    };
+    const environmentKeys = Object.keys(environment).sort(bytewiseSort);
+    const formalStateEnvironmentKeys = environmentKeys.filter((name) =>
+      EXTERNAL_STATE.includes(name) || REQUIRED_PASSTHROUGH_ENVIRONMENT.includes(name));
+    if (
+      stableCanonical(environmentKeys) !== stableCanonical(RECOVERY_SMOKE_ENVIRONMENT_KEYS)
+      || formalStateEnvironmentKeys.length
+    ) {
+      throw new Error('recovery smoke环境未保持clean allowlist');
+    }
+    child = spawn(nodePath, [path.join(releaseRoot, RECOVERY_ENTRYPOINT)], {
+      cwd:path.join(releaseRoot, 'apps/ajun-runtime'),
+      env:environment,
+      stdio:['ignore', 'pipe', 'pipe'],
+      shell:false,
+    });
+    const output = captureBoundedChildOutput(child, 32_768);
+    childExit = childExitPromise(child);
+    await verifyRecoveryServer({
+      baseUrl:`http://127.0.0.1:${port}`,
+      child,
+      childExit,
+      output,
+      expectedReleaseHash:smokeIdentityHash,
+      expectedPayloadHash:payloadHash,
+      timeoutMs:10_000,
+    });
+  } catch (error) {
+    smokeError = error;
+  } finally {
+    if (child) {
+      try {
+        termination = await terminateChild(child, childExit, 3_000);
+      } catch (error) {
+        smokeError ||= error;
+      }
+    }
+    try {
+      await fs.rm(smokeRoot, { recursive:true, force:true });
+    } catch (error) {
+      smokeError ||= new Error(`recovery smoke临时目录清理失败: ${error.message}`, {
+        cause:error,
+      });
+    }
+  }
+  if (smokeError) throw smokeError;
+  if (
+    termination.requestedSignal !== 'SIGTERM'
+    || termination.forced
+    || !termination.exitConfirmed
+  ) {
+    throw new Error('frozen recovery server未通过SIGTERM正常退出，拒绝签发验证');
+  }
+  return {
+    status:'passed',
+    evidenceLayer:'frozen_recovery_startup',
+    entrypoint:RECOVERY_ENTRYPOINT,
+    host:'127.0.0.1',
+    portMode:'ephemeral_loopback',
+    healthEndpoint:'/api/health',
+    healthHttpStatus:200,
+    statusEndpoint:'/api/recovery/status',
+    statusHttpStatus:200,
+    pageEndpoint:'/',
+    pageHttpStatus:200,
+    unknownGetEndpoint:'/api/overview',
+    unknownGetHttpStatus:404,
+    writeMethod:'POST',
+    writeEndpoint:'/api/overview',
+    writeHttpStatus:503,
+    writeError:'recovery_mode_read_only',
+    healthContract:'local-recovery-only-v1',
+    identityMode:'payload-and-git-bound-smoke',
+    smokeIdentityHash:recoverySmokeIdentityHash({ gitHead, payloadHash }),
+    payloadHash,
+    mode:'local_recovery_only',
+    pidMatched:true,
+    bootIdPresent:true,
+    startedAtValid:true,
+    externalEffects:false,
+    writableRoutes:false,
+    environmentMode:'clean_allowlist',
+    environmentKeys:RECOVERY_SMOKE_ENVIRONMENT_KEYS,
+    formalStateEnvironmentKeys:[],
+    externalStateAccess:'none',
+    termination,
+  };
 }
 
 async function defaultFrozenStartupSmoke({
@@ -1961,6 +2572,99 @@ async function waitForOverview({ url, childExit, output, timeoutMs }) {
     `frozen server未在${timeoutMs}ms内通过GET /api/overview: `
     + `${output.stderr || output.stdout}`.slice(-2_000),
   );
+}
+
+async function verifyRecoveryServer({
+  baseUrl,
+  child,
+  childExit,
+  output,
+  expectedReleaseHash,
+  expectedPayloadHash,
+  timeoutMs,
+}) {
+  const deadline = Date.now() + timeoutMs;
+  let health = null;
+  while (Date.now() < deadline) {
+    const result = await Promise.race([
+      childExit.then((exit) => ({ type:'exit', exit })),
+      requestRecoveryProbe(`${baseUrl}/api/health`)
+        .then((probe) => ({ type:'response', probe }))
+        .catch(() => ({ type:'retry' })),
+    ]);
+    if (result.type === 'exit') {
+      throw new Error(
+        `frozen recovery server在health验收前退出: `
+        + `${result.exit.signal || `exit ${result.exit.code}`}; `
+        + `${output.stderr || output.stdout}`.slice(-2_000),
+      );
+    }
+    if (result.type === 'response' && result.probe.status === 200) {
+      health = result.probe.body;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  if (!health) {
+    throw new Error(
+      `frozen recovery server未在${timeoutMs}ms内通过GET /api/health: `
+      + `${output.stderr || output.stdout}`.slice(-2_000),
+    );
+  }
+  if (
+    health.schemaVersion !== 1
+    || health.mode !== 'local_recovery_only'
+    || health.ready !== true
+    || health.externalEffects !== false
+    || health.writableRoutes !== false
+    || health.releaseHash !== expectedReleaseHash
+    || health.payloadHash !== expectedPayloadHash
+    || health.reason !== 'freeze_verify'
+    || health.pid !== child.pid
+    || typeof health.bootId !== 'string'
+    || !health.bootId
+    || !Number.isFinite(Date.parse(health.startedAt))
+  ) {
+    throw new Error('frozen recovery server health身份或只读契约不匹配');
+  }
+
+  const [statusProbe, pageProbe, unknownGetProbe, writeProbe] = await Promise.all([
+    requestRecoveryProbe(`${baseUrl}/api/recovery/status`),
+    requestRecoveryProbe(`${baseUrl}/`),
+    requestRecoveryProbe(`${baseUrl}/api/overview`),
+    requestRecoveryProbe(`${baseUrl}/api/overview`, {
+      method:'POST',
+      headers:{ 'content-type':'application/json' },
+      body:'{}',
+    }),
+  ]);
+  if (
+    statusProbe.status !== 200
+    || stableCanonical(statusProbe.body) !== stableCanonical(health)
+    || pageProbe.status !== 200
+    || !pageProbe.text.includes('只读恢复模式')
+    || unknownGetProbe.status !== 404
+    || unknownGetProbe.body?.error !== 'not_found'
+    || writeProbe.status !== 503
+    || writeProbe.body?.error !== 'recovery_mode_read_only'
+  ) {
+    throw new Error('frozen recovery server GET白名单或写请求拒绝契约不匹配');
+  }
+}
+
+async function requestRecoveryProbe(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    signal:AbortSignal.timeout(1_500),
+  });
+  const text = await response.text();
+  let body = null;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    // HTML恢复页保留原文；JSON端点由调用方核验body。
+  }
+  return { status:response.status, body, text };
 }
 
 async function terminateChild(child, exitPromise, timeoutMs) {

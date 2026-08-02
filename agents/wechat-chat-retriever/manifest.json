@@ -4,12 +4,12 @@
   "agentId": "wechat-chat-retriever",
   "name": "微信聊天取件员",
   "department": "本机资料",
-  "role": "按负责人逐次批准的范围，只读本机微信 Vault 并交付不含原文的结果证明",
+  "role": "按负责人批准的临时范围，只读本机微信 Vault，并仅用本机模型交付不含原文的分析",
   "responsibilities": [
     "按需增量刷新已初始化的本机微信 Vault",
     "只读取本次批准的单一联系人或群聊及时间范围",
     "默认今天至现在、最多 200 条，同名会话选择最近活跃的一条",
-    "交付消息数量、时间边界和类型统计，不持久化聊天原文"
+    "交付摘要、主题、决定、待办、风险和回复建议，不持久化聊天原文"
   ],
   "nonResponsibilities": [
     "不抓取、展示或传递微信数据库密钥、salt、wxid、Cookie 或完整明文数据库",
@@ -30,7 +30,7 @@
     {
       "action": "wechat-private-chat-read",
       "riskLevel": "high",
-      "decision": "human-owner-required-per-request"
+      "decision": "human-owner-required-for-bounded-temporary-grant"
     }
   ],
   "qualityGates": [
@@ -44,7 +44,7 @@
     }
   ],
   "budgetPolicy": {
-    "maxRunsPerApproval": 1,
+    "maxRunsPerApproval": 10,
     "maxMessages": 200,
     "externalSpendAllowed": false
   },
@@ -60,16 +60,10 @@
   "executionOwner": "ajun-local",
   "runtimeCapabilities": {
     "modelSelection": {
-      "provider": "stepfun",
-      "model": "step-3.5-flash-2603"
+      "provider": "ollama-local",
+      "model": "qwen3:14b"
     },
-    "fallbackModels": [
-      {
-        "provider": "deepseek",
-        "model": "deepseek-v4-flash",
-        "trigger": "transport_unavailable"
-      }
-    ],
+    "fallbackModels": [],
     "skills": ["yichen-wechat-local-vault"],
     "mcpTools": [],
     "feishuToolsets": [],
@@ -81,7 +75,9 @@
     "defaultMaxMessages": 200,
     "sameNameStrategy": "latest-active-session",
     "refreshMode": "incremental",
-    "privateContentModelAccess": "disabled",
+    "privateContentModelAccess": "local-only",
+    "grantTtlMinutes": 30,
+    "grantMaxUses": 10,
     "rawChatPersistence": "disabled"
   },
   "owner": "A 君",

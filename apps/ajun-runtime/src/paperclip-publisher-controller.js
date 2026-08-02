@@ -1,4 +1,8 @@
 import {
+  M5_PLATFORMS,
+  M5_SCHEMA_IDS,
+} from '@agent-army/m5-contracts';
+import {
   consumeM5SystemControllerPlanRevision,
   isRecoverableM5SystemControllerFailure,
   markM5SystemControllerFailure,
@@ -7,16 +11,16 @@ import {
 import {
   IMMEDIATE_PUBLISH_RECOVERY_ACTION,
   calendarDateInShanghai,
-} from '../../../integrations/publishing/m5-publisher-gateway/src/policy.js';
+} from '@agent-army/m5-publisher-gateway/policy';
 
 const SYSTEM_ROLE = 'm5-publisher-controller';
 const ROUTINE_MARKER = '[agent-army:m5:routine:m5-publish]';
 const CONTENT_PROVIDER = 'agent-army.content-autonomy';
 const PUBLISHER_PROVIDER = 'agent-army.publisher-gateway';
-const CONTENT_VERSION_SCHEMA = 'agent.army/content-version/v1';
-const MACHINE_REVIEW_SCHEMA = 'agent.army/machine-review/v1';
-const PUBLISH_RECEIPT_SCHEMA = 'agent.army/publish-receipt/v1';
-const PLATFORMS = new Set(['douyin', 'xiaohongshu']);
+const CONTENT_VERSION_SCHEMA = M5_SCHEMA_IDS.CONTENT_VERSION;
+const MACHINE_REVIEW_SCHEMA = M5_SCHEMA_IDS.MACHINE_REVIEW;
+const PUBLISH_RECEIPT_SCHEMA = M5_SCHEMA_IDS.PUBLISH_RECEIPT;
+const PLATFORMS = new Set(M5_PLATFORMS);
 const REQUIRED_REVIEW_CHECKS = Object.freeze([
   'facts',
   'privacy',

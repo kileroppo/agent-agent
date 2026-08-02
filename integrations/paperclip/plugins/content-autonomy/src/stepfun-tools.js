@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { M5_STEPFUN_MODELS } from '@agent-army/m5-contracts';
 import { coded, safeRelativePath, sha256 } from './policy.js';
 import {
   callRecord,
@@ -13,9 +14,9 @@ import { requirePaperclipSecretRef } from './secret-ref.js';
 import { reservePaidToolBudget } from './paid-budget-guard.js';
 
 const MODELS = Object.freeze({
-  vision:'step-1o-turbo-vision',
-  image:'step-image-edit-2',
-  tts:'stepaudio-2.5-tts'
+  vision:M5_STEPFUN_MODELS.vision,
+  image:M5_STEPFUN_MODELS.image_generate,
+  tts:M5_STEPFUN_MODELS.tts,
 });
 const VISION_MAX_INPUT_TOKENS = 128_000;
 const VISION_MAX_OUTPUT_TOKENS = 4_096;

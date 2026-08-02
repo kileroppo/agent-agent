@@ -3,40 +3,21 @@ import {
   routineMatchesDeclaration,
   stageMatchesDeclaration,
 } from '../reconcile.js';
-
-function assertLoopbackApiBase(apiBase, allowRemote) {
-  const url = new URL(apiBase);
-  const loopback = ['127.0.0.1', 'localhost', '::1'].includes(url.hostname);
-  if (!loopback && !allowRemote) throw new Error('默认只允许连接 loopback Paperclip；远程实例需显式 allowRemote');
-  return url.origin;
-}
+import { M5_SCHEMA_IDS } from '@agent-army/m5-contracts';
+import { PaperclipHttpTransport } from '@agent-army/paperclip-client';
 
 export class HttpPaperclipAdapter {
   constructor({ apiBase, companyId, apiKey, allowRemote = false, fetchImpl = fetch }) {
     if (!companyId) throw new Error('companyId 必填');
-    this.apiBase = assertLoopbackApiBase(apiBase, allowRemote);
+    this.transport = new PaperclipHttpTransport({ baseUrl:apiBase, apiKey, allowRemote, fetchImpl, timeoutMs:0 });
+    this.apiBase = this.transport.baseUrl;
     this.companyId = companyId;
     this.apiKey = apiKey;
     this.fetchImpl = fetchImpl;
   }
 
   async request(method, path, body) {
-    const response = await this.fetchImpl(`${this.apiBase}${path}`, {
-      method,
-      headers: {
-        accept: 'application/json',
-        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
-        ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}),
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
-    const text = await response.text();
-    const parsed = text ? JSON.parse(text) : null;
-    if (!response.ok) {
-      const detail = String(parsed?.error || parsed?.message || '').replace(/\s+/g, ' ').trim().slice(0, 300);
-      throw new Error(`Paperclip ${method} ${path} 失败: HTTP ${response.status}${detail ? `（${detail}）` : ''}`);
-    }
-    return parsed;
+    return this.transport.request(method, path, { body });
   }
 
   async authenticateRun({ apiKey, runId } = {}) {
@@ -299,7 +280,9 @@ export class HttpPaperclipAdapter {
 
   async countActiveParallelIssues(pipelineId) {
     const cases = (await this.listPipelineCases(pipelineId))
-      .filter((item) => item?.fields?.workBranch?.schemaVersion === 'agent.army/parallel-work-branch/v1');
+      .filter((item) => (
+        item?.fields?.workBranch?.schemaVersion === M5_SCHEMA_IDS.PARALLEL_WORK_BRANCH
+      ));
     const links = await Promise.all(cases.map((item) => this.listCaseIssueLinks(item.id)));
     const active = new Set();
     for (const rows of links) {

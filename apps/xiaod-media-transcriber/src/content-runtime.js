@@ -1,10 +1,10 @@
-import { ConnectionStore } from '../../../integrations/access/connection-store.js';
-import { ConnectionBroker } from '../../../integrations/access/connection-broker.js';
-import { ContentAcquisitionCenter } from '../../../integrations/access/content-acquisition-center.js';
-import { OperationsEventStore } from '../../../integrations/access/operations-event-store.js';
-import { YtDlpGeneralMediaAdapter } from '../../../integrations/access/yt-dlp-general-media-adapter.js';
-import { MediaCrawlerProAdapter } from '../../../integrations/access/mediacrawler-pro-adapter.js';
-import { BilibiliNativeSubtitleAdapter } from '../../../integrations/access/bilibili-native-subtitle-adapter.js';
+import { ConnectionStore } from 'ajun-common-access/connection-store';
+import { ConnectionBroker } from 'ajun-common-access/connection-broker';
+import { ContentAcquisitionCenter } from 'ajun-common-access/content-acquisition-center';
+import { OperationsEventStore } from 'ajun-common-access/operations-event-store';
+import { YtDlpGeneralMediaAdapter } from 'ajun-common-access/yt-dlp-general-media-adapter';
+import { MediaCrawlerProAdapter } from 'ajun-common-access/mediacrawler-pro-adapter';
+import { BilibiliNativeSubtitleAdapter } from 'ajun-common-access/bilibili-native-subtitle-adapter';
 import { config } from './config.js';
 
 export class ConnectionSelectionError extends Error {

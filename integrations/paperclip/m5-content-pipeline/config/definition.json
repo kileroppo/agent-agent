@@ -139,6 +139,13 @@
       "routineKey": "m5-retrospective"
     },
     {
+      "key": "learning",
+      "name": "学习灰度",
+      "kind": "working",
+      "owner": "reviewer",
+      "routineKey": "m5-learning"
+    },
+    {
       "key": "done",
       "name": "活动完成",
       "kind": "done",

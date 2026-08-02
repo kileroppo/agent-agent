@@ -99,6 +99,17 @@ async function executeBootstrap({ definition, bindings, adapter, budgetCents, mo
     id:retrospectiveController.resource.id,
   });
   controllerBindings.retrospectiveControllerAgentId = retrospectiveController.resource.id;
+  const learningController = await adapter.ensureSystemAgent(
+    plan.resources.learningController.payload,
+  );
+  operations.push({
+    type:'agent',
+    key:plan.resources.learningController.key,
+    created:learningController.created,
+    updated:learningController.updated,
+    id:learningController.resource.id,
+  });
+  controllerBindings.learningControllerAgentId = learningController.resource.id;
   const parallelController = await adapter.ensureSystemAgent(
     plan.resources.parallelController.payload,
   );

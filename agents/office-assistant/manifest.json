@@ -152,7 +152,7 @@
         "trigger": "transport_unavailable"
       }
     ],
-    "skills": ["paperclip", "docx", "xlsx", "pdf"],
+    "skills": ["paperclip", "docx", "xlsx", "pdf", "yichen-summary"],
     "mcpTools": [
       "capabilities",
       "task_list",

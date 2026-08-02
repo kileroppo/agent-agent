@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { M5_PLATFORM_IDS } from '@agent-army/m5-contracts';
 import { coded } from './policy.js';
 
 export const PUBLISHER_ACCOUNT_IDENTITY_VERIFIER_SCHEMA =
@@ -38,7 +39,7 @@ export async function verifyDouyinAccountIdentity({
     value:`sha256:${crypto.createHash('sha256').update(normalizedOpenId).digest('hex')}`,
   });
   const request = Object.freeze({
-    platform:'douyin',
+    platform:M5_PLATFORM_IDS.DOUYIN,
     accountRef:normalizedAccountRef,
     providerIdentity,
   });
@@ -52,7 +53,7 @@ export async function verifyDouyinAccountIdentity({
     throw accountMismatch();
   }
   return Object.freeze({
-    platform:'douyin',
+    platform:M5_PLATFORM_IDS.DOUYIN,
     accountRef:normalizedAccountRef,
     providerIdentity,
     verificationRef:String(result.verificationRef),

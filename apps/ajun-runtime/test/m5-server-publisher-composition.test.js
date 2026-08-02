@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   createM5ServerPublisherComposition,
+  PaperclipCurrentRunScope,
   PaperclipMetricRecoveryRunScope,
 } from '../src/m5-server-publisher-composition.js';
+import { PaperclipBridge } from '../src/paperclip-bridge.js';
 import {
   canonicalMetricRecoveryAuthorizationId,
   hashMetricRecoveryScope,
@@ -134,6 +136,51 @@ test('server composition拒绝非loopback recovery origin和调用方凭据注�
     }),
     /current-run provider/,
   ));
+});
+
+test('server composition可直接使用真实PaperclipBridge六项核心access并保持惰性失败关闭', async () => {
+  const runScope = new PaperclipCurrentRunScope();
+  const bridge = new PaperclipBridge({
+    publisherRunCredentialProvider:() => runScope.currentCredential(),
+  });
+  const bindings = createM5ServerPublisherComposition({
+    env:{},
+    dataDir:'/tmp/agent-army-m5-server-real-bridge-composition',
+    getCampaignService:async () => ({}),
+    currentRunCredentialProvider:() => runScope.currentCredential(),
+    production:{
+      enabled:true,
+      paperclipAccess:bridge,
+      connectorDependencies:{},
+    },
+  });
+
+  assert.equal(bindings.publisher.mode, 'real');
+  assert.equal(bindings.runtime, null);
+  for (const method of [
+    'authorizePublisherRequest',
+    'getPublisherConnectorApprovalSnapshot',
+    'resolvePublisherCredentialReference',
+    'verifyPublisherAccountIdentity',
+    'assertPublisherCampaignBudget',
+    'recordPublisherConnectorAttempt',
+    'assertPublisherMetricRecoveryAllowed',
+  ]) {
+    assert.equal(typeof bindings.publisher.paperclipAccess[method], 'function');
+  }
+  await assert.rejects(
+    bridge.currentPublisherRunCredential(),
+    /当前 Paperclip Run 凭据不可用/,
+  );
+  const current = await runScope.run({
+    apiKey:RUN_JWT,
+    runId:IDS.run,
+    issueId:IDS.issue,
+    agentId:IDS.agent,
+    companyId:IDS.company,
+  }, () => bridge.currentPublisherRunCredential());
+  assert.equal(current.runId, IDS.run);
+  assert.equal(current.apiKey, RUN_JWT);
 });
 
 function recoveryInput() {

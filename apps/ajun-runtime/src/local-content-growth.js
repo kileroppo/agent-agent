@@ -7,6 +7,7 @@ import {
   deriveM5ContentVersionId,
   validM5MediaChecksum,
 } from './m5-content-version.js';
+import { validM5ProductionTemplateBinding } from './m5-production-template-resolver.js';
 
 const FULL_ANALYSIS_MODULES = [
   '基本信息',
@@ -77,6 +78,7 @@ export class LocalVideoContentAnalyst {
     }
     const sourceEvidence = sourceEvidenceArtifact ? await readArtifactJson(sourceEvidenceArtifact, this.allowedArtifactRoots) : null;
     const sourceMetadata = normalizeSourceMetadata(sourceEvidence?.sourceMetadata);
+    const boomSignal = normalizeBoomSignalContext(task.input?.context?.boomSignal);
     const visualEvidence = visualArtifact && visualMode !== 'off'
       ? await readVisualEvidence(visualArtifact, this.allowedArtifactRoots)
       : null;
@@ -107,6 +109,7 @@ export class LocalVideoContentAnalyst {
           evidenceMode,
           focus:task.input?.focus,
           sourceMetadata,
+          boomSignal,
           visualEvidence,
           priorRuntimeMs:Number(visualEvidence?.selection?.processingDurationMs) || 0,
           validate:(value) => validAdvisedAnalysis(
@@ -165,9 +168,11 @@ export class LocalVideoContentAnalyst {
       ...report,
       title:effectiveTitle,
       sourceMetadata,
+      boomSignal,
       visualCoverage,
       visualFindings:Array.isArray(report.visualFindings) ? report.visualFindings : [],
-      completeness
+      completeness,
+      boomSignal
     };
     const sourceRefs = [
       transcriptArtifact.artifactId,
@@ -192,6 +197,7 @@ export class LocalVideoContentAnalyst {
         moduleCount:report.modules.length,
         advisorApplied,
         semanticValidationPassed:advisorApplied,
+        boomSignalAttached:Boolean(boomSignal),
         semanticRepairApplied,
         visualMode,
         visualCoverage:visualCoverage.status,
@@ -390,7 +396,14 @@ export class LocalVideoContentAnalyst {
 }
 
 export class LocalContentCreator {
-  constructor({ store, artifactsDir, allowedArtifactRoots = [], advisor = null, scriptPackage = null, now = () => new Date() } = {}) {
+  constructor({
+    store,
+    artifactsDir,
+    allowedArtifactRoots = [],
+    advisor = null,
+    scriptPackage = null,
+    now = () => new Date(),
+  } = {}) {
     this.store = store;
     this.artifactsDir = artifactsDir;
     this.allowedArtifactRoots = allowedArtifactRoots.map((item) => path.resolve(item));
@@ -475,14 +488,23 @@ export class LocalContentCreator {
     const renderOutput = render?.data?.outputs?.[platform] || render?.data;
     const mediaPath = safeM5RelativePath(renderOutput?.relativePath || renderOutput?.outputPath);
     const checksum = String(renderOutput?.checksum || '').trim().toLowerCase();
+    const audioHash = String(renderOutput?.audioHash || '').trim().toLowerCase();
+    const voiceProviderActionId = String(renderOutput?.voiceProviderActionId || '').trim();
     const pipelineCaseId = String(context.pipelineCaseId || '').trim();
+    const dayCaseId = String(context.pipelineCase?.parentCaseId || '').trim();
+    const scheduledDate = String(context.pipelineCase?.fields?.scheduledDate || '').trim();
     if (!script?.data?.fullScript) {
       return needsInput(this.now(), 'm5_script_package_required', 'M5 平台适配缺少同一 Case 的可核验 ScriptPackage。');
     }
     if (!['douyin', 'xiaohongshu'].includes(platform)) {
       return needsInput(this.now(), 'm5_platform_required', 'M5 平台适配缺少同一 Case 的可信平台字段。');
     }
-    if (!mediaPath || !validM5MediaChecksum(checksum)) {
+    if (
+      !mediaPath
+      || !validM5MediaChecksum(checksum)
+      || !/^sha256:[0-9a-f]{64}$/i.test(audioHash)
+      || !voiceProviderActionId
+    ) {
       return needsInput(this.now(), 'm5_render_package_required', 'M5 平台适配缺少带真实相对路径和 sha256 的 RenderPackage。');
     }
     const contentVersionId = deriveM5ContentVersionId({
@@ -494,10 +516,68 @@ export class LocalContentCreator {
       return needsInput(this.now(), 'm5_content_version_identity_invalid', 'M5 平台版本身份无法从当前 Case、平台和成片哈希派生。');
     }
     const completedAt = this.now().toISOString();
-    const copy = buildM5PlatformCopy(script.data, platform);
+    if (!dayCaseId || !scheduledDate) {
+      return needsInput(this.now(), 'm5_day_case_lineage_required', 'M5 平台适配缺少日期父 Case 或预约日期血缘。');
+    }
+    const renderVariantKey = String(renderOutput?.variantKey || 'baseline');
+    const grayScriptVariant = script.data?.variants?.gray_douyin || null;
+    if (!['baseline', 'gray_douyin'].includes(renderVariantKey)) {
+      return needsInput(this.now(), 'm5_variant_lineage_mismatch', '平台成片声明了未知脚本变体，已停止适配。');
+    }
+    if (platform === 'xiaohongshu' && renderVariantKey !== 'baseline') {
+      return needsInput(this.now(), 'm5_cross_platform_gray_rejected', '小红书禁止消费 gray_douyin 脚本、配音或成片。');
+    }
+    if (platform === 'douyin' && grayScriptVariant && renderVariantKey !== 'gray_douyin') {
+      return needsInput(this.now(), 'm5_gray_variant_render_required', '当前抖音 Case 已绑定灰度脚本，但成片不是 gray_douyin，禁止降级为 baseline 继续发布。');
+    }
+    const expectedVariantKey = renderVariantKey;
+    const scriptVariant = script.data?.variants?.[expectedVariantKey]
+      || (expectedVariantKey === 'baseline' ? {
+        ...script.data,
+        variantKey:'baseline',
+        templateBinding:script.data?.templateLifecycle?.templateBinding,
+      } : null);
+    const templateBinding = scriptVariant?.templateBinding;
+    const exactGrayTarget = templateBinding?.source === 'approved_single_gray'
+      && templateBinding?.grayRelease === true
+      && templateBinding?.applicationScope === 'full_content_variant'
+      && templateBinding?.grayTargetCaseId === pipelineCaseId
+      && templateBinding?.grayTargetDayCaseId === dayCaseId
+      && templateBinding?.grayTargetScheduledDate === scheduledDate
+      && templateBinding?.grayTargetPlatform === platform
+      && platform === 'douyin';
+    if (expectedVariantKey === 'gray_douyin' && !exactGrayTarget) {
+      return needsInput(this.now(), 'm5_gray_target_mismatch', 'gray_douyin 没有精确绑定当前抖音平台 Case、日期父 Case和预约日期，已停止适配。');
+    }
+    if (
+      expectedVariantKey === 'baseline'
+      && (templateBinding?.source === 'approved_single_gray' || templateBinding?.grayRelease === true)
+    ) {
+      return needsInput(this.now(), 'm5_gray_variant_lineage_mismatch', 'baseline 成片不得携带灰度模板绑定，已停止适配。');
+    }
+    if (
+      !scriptVariant?.fullScript
+      || !validM5ProductionTemplateBinding(templateBinding)
+      || renderVariantKey !== expectedVariantKey
+      || renderOutput?.templateBindingHash !== templateBinding.bindingHash
+      || (renderOutput?.scriptHash || null) !== (scriptVariant.scriptHash || null)
+    ) {
+      return needsInput(this.now(), 'm5_variant_lineage_mismatch', '平台脚本、配音或成片的 variant/binding/scriptHash 血缘不一致。');
+    }
+    const copy = buildM5PlatformCopy(scriptVariant, platform);
+    const templateApplication = {
+      mode:'verified_full_content_variant',
+      variantKey:expectedVariantKey,
+      bindingHash:templateBinding.bindingHash,
+      scriptHash:scriptVariant.scriptHash,
+      renderChecksum:checksum,
+    };
     const contentVersion = {
       contentVersionId,
       platform,
+      dayCaseId,
+      platformCaseId:pipelineCaseId,
+      scheduledDate,
       checksum,
       mediaPath,
       ...copy,
@@ -505,6 +585,15 @@ export class LocalContentCreator {
       sourceRenderArtifactId:render.artifactId,
       publishingStatus:'draft_only',
       generatedAt:completedAt,
+      templateVersionId:String(
+        templateBinding?.templateVersionId || 'm5-template-default-v1',
+      ),
+      templateWorkProductId:templateBinding?.templateWorkProductId || null,
+      templateBindingHash:templateBinding.bindingHash,
+      templateApplication,
+      audioHash,
+      voiceProviderActionId,
+      grayRelease:expectedVariantKey === 'gray_douyin' && exactGrayTarget,
     };
     const artifact = await writeArtifact({
       artifactsDir:this.artifactsDir,
@@ -1231,6 +1320,17 @@ function metricValue(value) {
 
 export function metricObservations(metrics) {
   return Object.entries(metrics).slice(0, 6).map(([key, value]) => `${key} 为 ${value}；仅记录观察，尚不能据此确认单一内容变量的因果影响。`);
+}
+
+function normalizeBoomSignalContext(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const grade = ['T1', 'T2', 'T3'].includes(String(value.grade || '').toUpperCase())
+    ? String(value.grade).toUpperCase()
+    : null;
+  const sourceRef = clean(value.sourceRef, 2000);
+  if (!grade || !sourceRef) return null;
+  const snapshot = JSON.parse(JSON.stringify(value));
+  return JSON.stringify(snapshot).length <= 12_000 ? snapshot : null;
 }
 
 async function templateLifecycleForReview({ store, script, metrics }) {

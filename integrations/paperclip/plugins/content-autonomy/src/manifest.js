@@ -1,3 +1,8 @@
+import {
+  M5_PLATFORMS,
+  M5_STEPFUN_MODELS,
+} from '@agent-army/m5-contracts';
+
 const objectSchema = {
   type:'object',
   additionalProperties:false
@@ -135,19 +140,19 @@ const manifest = {
     tool('campaign-preflight', '活动授权预检', '校验活动范围、预算、账号引用、上限和禁止动作。', {
       campaign:{ type:'object' }
     }, ['campaign']),
-    tool('stepfun-vision', 'StepFun 视觉证据', '读取受控工作区图片并调用 step-1o-turbo-vision；Base64 只在内存中存在。', {
+    tool('stepfun-vision', 'StepFun 视觉证据', `读取受控工作区图片并调用 ${M5_STEPFUN_MODELS.vision}；Base64 只在内存中存在。`, {
       actionId:{ type:'string', minLength:8, maxLength:160, pattern:'^[A-Za-z0-9:_-]+$' },
       relativePath:{ type:'string' },
       prompt:{ type:'string', maxLength:2000 }
     }, ['actionId', 'relativePath', 'prompt']),
-    tool('stepfun-image-generate', 'StepFun 生图', '调用 step-image-edit-2 生成竖屏补充画面并写入受控工作区。', {
+    tool('stepfun-image-generate', 'StepFun 生图', `调用 ${M5_STEPFUN_MODELS.image_generate} 生成竖屏补充画面并写入受控工作区。`, {
       actionId:{ type:'string', minLength:8, maxLength:160, pattern:'^[A-Za-z0-9:_-]+$' },
       prompt:{ type:'string', maxLength:512 },
       outputPath:{ type:'string' },
       seed:{ type:'integer', minimum:0 },
       textMode:{ type:'boolean' }
     }, ['actionId', 'prompt', 'outputPath']),
-    tool('stepfun-image-edit', 'StepFun 图片编辑', '使用工作区内单张图片调用 step-image-edit-2 官方编辑接口，并将结果写回受控工作区。', {
+    tool('stepfun-image-edit', 'StepFun 图片编辑', `使用工作区内单张图片调用 ${M5_STEPFUN_MODELS.image_edit} 官方编辑接口，并将结果写回受控工作区。`, {
       actionId:{ type:'string', minLength:8, maxLength:160, pattern:'^[A-Za-z0-9:_-]+$' },
       inputPath:{ type:'string' },
       prompt:{ type:'string', maxLength:512 },
@@ -155,7 +160,7 @@ const manifest = {
       seed:{ type:'integer', minimum:0 },
       textMode:{ type:'boolean' }
     }, ['actionId', 'inputPath', 'prompt', 'outputPath']),
-    tool('stepfun-tts', 'StepFun 官方音色配音', '调用 stepaudio-2.5-tts；禁止克隆音色，写入受控工作区。', {
+    tool('stepfun-tts', 'StepFun 官方音色配音', `调用 ${M5_STEPFUN_MODELS.tts}；禁止克隆音色，写入受控工作区。`, {
       actionId:{ type:'string', minLength:8, maxLength:160, pattern:'^[A-Za-z0-9:_-]+$' },
       text:{ type:'string', maxLength:1000 },
       voice:{ type:'string' },
@@ -223,7 +228,7 @@ const manifest = {
       campaign:{ type:'object' },
       contentVersion:{ type:'object' },
       reviewReport:{ type:'object' },
-      platform:{ type:'string', enum:['douyin', 'xiaohongshu'] },
+      platform:{ type:'string', enum:[...M5_PLATFORMS] },
       scheduledDate:{ type:'string' }
     }, ['campaignId', 'campaign', 'contentVersion', 'reviewReport', 'platform', 'scheduledDate'])
   ]

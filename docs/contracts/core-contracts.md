@@ -40,7 +40,7 @@
 | `dynamicCapabilityPolicy` | 否 | 能力发现提案来源、模型策略不可变约束及需审批的敏感类别；不能自行激活能力 |
 | `autonomyBudgetPolicy` | 否 | 投影给 Paperclip 的预算建议，不是 A君本地预算真相 |
 | `runtimeCapabilities.modelSelection` | 是 | 主推理模型；活动岗位当前固定为 `stepfun/step-3.5-flash-2603` |
-| `runtimeCapabilities.fallbackModels` | 否 | 有序回退；当前仅允许 `deepseek/deepseek-v4-flash` 在 `transport_unavailable` 时启用 |
+| `runtimeCapabilities.fallbackModels` | 否 | 有序回退；当前仅允许 `deepseek/deepseek-v4-flash` 在主模型额度/余额耗尽（429/402）、连接失败或 5xx 时启用；质量、工具和格式失败不回退 |
 | `promptRef` | 是 | 仓库中版本化系统 Prompt 的引用 |
 | `runtimeProfileRef` | 是 | Hermes 或其他运行时配置引用 |
 | `appRef` | 是 | 业务执行器位置 |
@@ -129,7 +129,7 @@ Manifest 是活动岗位的唯一真相。运行时提案不能覆盖正式 Mani
 
 | `taskType` | 承接岗位 | 必要输入 | 关键门禁 |
 | --- | --- | --- | --- |
-| `content.video-benchmark-analysis` | `video-content-analyst` | `source` 或明确的转录产物引用；`depth: fast\|full`；可选 `focus`、`visualMode: auto\|off\|required`（默认 `auto`） | 只有 URL 且未给转录任务时，A君自动展开为“小D经内容获取中心获取/转录确认/视觉取证 → 小拆”的同一总任务；正式模式等待系统或人工 `confirmed_transcript`；`required` 缺少视觉证据时进入 `needs_input` |
+| `content.video-benchmark-analysis` | `video-content-analyst` | `source` 或明确的转录产物引用；`depth: fast\|full`；可选 `focus`、`visualMode: auto\|off\|required`（默认 `auto`）、受控 `context.boomSignal` | 只有 URL 且未给转录任务时，A君自动展开为“小D经内容获取中心获取/转录确认/视觉取证 → 小拆”的同一总任务；正式模式等待系统或人工 `confirmed_transcript`；爆款信号必须保留观察来源、冻结基线和公式，且只作筛选依据；`required` 缺少视觉证据时进入 `needs_input` |
 | `content.platform-draft` | `content-creator` | `confirmed_transcript`、正式 `video_content_analysis_report`、1–3 个目标平台 | 只生成草稿；禁止外发和自动发布 |
 | `content.video-script-package` | `content-creator` | 一句话主题；可选明确引用的正式拆解、平台、时长和公开来源 | 自动匹配参考案例，只返回一版主脚本；内部生产包固定五个文件，禁止生成成片和发布 |
 | `content.performance-review` | `video-content-analyst` | 原拆解、原草稿、真实结构化指标 | 不把相关性写成确定因果 |
@@ -182,6 +182,7 @@ waiting_worker
 pausing
 paused
 waiting_approval
+waiting_test
 succeeded
 failed
 cancelled
@@ -210,8 +211,12 @@ delivering
 - `running` 收到暂停确认后先进入 `pausing`；只有运行时到达安全位置后才能进入 `paused`，不得提前显示为已暂停；
 - `paused` 的继续操作必须重新走组织级确认，批准后回到 `queued` 或 `running`；
 - `waiting_approval` 批准后回到 `running`，拒绝后进入 `cancelled` 或受控失败；
-- `succeeded`、`failed`、`cancelled`、`expired` 为终态；
+- 本轮自动验证未能闭合、但已保留可继续验证的产物时进入 `waiting_test`；它是本 attempt 的终态，不能冒充成功；
+- `waiting_test`、`succeeded`、`failed`、`cancelled`、`expired` 为终态；
 - 从终态重试时创建新的 attempt 记录，不擦除原历史。
+
+状态 mutation 必须通过任务生命周期 Module。JSON 与 SQLite TaskStore 都只负责原子持久化，
+不得绕过迁移矩阵直接覆盖 `status`；终态重试必须显式把 `attempt` 恰好增加 1。
 
 ### 3.4 MacWorkerLeaseContract
 
@@ -299,11 +304,12 @@ Worker API 必须使用独立 Bearer Token；云端地址必须为 HTTPS（回�
 | `human_review_attestation` | 小D听审确认入口 | 记录完整听审声明、版本、确认时间和校验值 |
 | `confirmed_transcript` | 小D质量门禁或听审确认入口 | 引用机器稿与对应确认记录；明确 `confirmationMode=automatic\|human`，不得把自动确认写成人工听审 |
 | `visual_evidence_package` | 小D | 视频校验值、精确时长、关键帧时间/原因/图片引用/校验值和故事板可读取；`fast≤12`、`full≤48`、每张故事板≤12 |
-| `video_content_analysis_report` | 小拆 | 正式/初步模式、模块数、来源产物、`sourceMetadata`、`visualCoverage`、`visualFindings`、`completeness` 和逐项证据关联明确；画面判断必须引用合法关键帧与时间点 |
+| `video_content_analysis_report` | 小拆 | 正式/初步模式、模块数、来源产物、`sourceMetadata`、可选 `boomSignal`、`visualCoverage`、`visualFindings`、`completeness` 和逐项证据关联明确；存在爆款信号时必须原样保留且不得解释为确定因果；画面判断必须引用合法关键帧与时间点 |
 | `platform_content_draft` | 小创 | 使用确认稿和正式拆解；平台数不超过三；`externalSideEffects=0` |
 | `video_script_package` | 小创 | 包含可读脚本、镜头、SRT、来源和 manifest；记录参考匹配、模板生命周期、校验值与 `externalSideEffects=0` |
 | `content_performance_report` | 小拆 | 引用原拆解和草稿，包含真实指标并避免因果过度推断 |
 | `knowledge_summary_note` | 小办 | 路径受限、回读成功、幂等、校验值和来源任务明确 |
+| `wechat_chat_analysis_report` | 微信聊天取件员 | 仅含摘要、主题、决定、待办、风险和回复建议；`containsRawChat=false`、`containsSenderIdentifiers=false`、`modelBoundary=loopback-only`，不得保存原文或微信内部 ID |
 
 `confirmed_transcript` 是正式拆解和正式创作的证据门；默认由质量门禁自动生成，异常或用户明确要求时转人工听审。`raw_asr_transcript` 只能用于明确标记的初步分析。自动或人工确认都不能覆盖机器质量报告中的音频覆盖或尾部完整性硬失败。
 
@@ -345,8 +351,9 @@ lease 或平台写权限。
 | `decisionReason` | 否 | 决定理由 |
 | `validUntil` | 是 | 批准或申请有效期 |
 | `createdAt` / `decidedAt` | 是/否 | 时间记录 |
+| `privateReadGrant` | 否 | 微信私密读取批准后生成的临时授权；绑定负责人、飞书会话、岗位、单一微信会话、固定起止时间和最多 200 条，30 分钟内最多 10 次，可撤销并记录幂等使用 |
 
-`local` 只适用于一次性、范围明确、不会改变长期组织能力的任务；批准仅对 `requestedScope` 和有效期内的动作生效，不能作为永久扩权。`paperclip` 适用于新 Agent、扩权/账号连接、公开发布、付费/预算、跨 Agent 长任务、暂停/终止或组织级审计。审批过期、撤销、重复卡片回调或范围不匹配时默认拒绝；任何路径都必须由 A君在继续执行前二次校验状态、范围与有效期。
+`local` 只适用于一次性或短时、范围明确、不会改变长期组织能力的任务；批准仅对 `requestedScope` 和有效期内的动作生效，不能作为永久扩权。微信私密读取是唯一允许从一次批准派生短时 `PrivateReadGrant` 的场景：首次卡片确认后，同一范围可在 30 分钟内最多读取 10 次；同一任务重试按 taskId 幂等，不重复计次。改变会话、扩大时间、新消息超出固定结束时间、超过 200 条、过期、撤销或用尽都必须重新批准。Vault 与本机模型健康检查必须在创建或扣减授权前通过，使用次数只在实际聊天读取即将开始时记录。`paperclip` 适用于新 Agent、扩权/账号连接、公开发布、付费/预算、跨 Agent 长任务、暂停/终止或组织级审计。审批过期、撤销、重复卡片回调或范围不匹配时默认拒绝；任何路径都必须由 A君在继续执行前二次校验状态、范围与有效期。
 
 ## 6. ConnectionAuthorizationContract
 
@@ -476,7 +483,7 @@ lease 或平台写权限。
 | 岗位草案 | `agent_proposal_create_execute` | 仅创建官、仅当前 `governance.agent-proposal` 指派；只能申请已审核或已登记且有明确风险边界的能力。没有受控适配器的高风险本机能力只生成 `needs_capability` 草案；微信 Vault 在草案测试阶段仍只开放不含真实聊天的合成技术验收，正式岗位必须另有活动 Manifest、本机执行器和负责人激活决定 |
 | 受控技术修复 | `technical_repair_execute` | 仅技术专家、仅当前 `operations.technical-repair` 指派；只暴露白名单文件、测试命令和恢复检查。只有 A君返回 `verified=true`、测试与恢复检查通过并安全带回后，员工才可回报 `succeeded` |
 
-Hermes Session 只保存对话和上下文；A君/业务 Agent 保存任务与 checkpoint；Paperclip 保存组织级真相。MCP Server 不保存 secret、聊天正文、会话数据库、任务副本或审批副本。微信聊天读取必须经 `ContentAcquisitionCenter` 和 `yichen-wechat-local-vault` 受控适配器，审批引用必须同时匹配当前 Agent、任务、单一会话、时间范围和最多 200 条，并且一次批准只能消费一次。A君默认使用本地当天零点至当前时间、增量刷新和同名会话最近活跃策略；除联系人/群名外不要求负责人配置技术选项。受控适配器只调用已解密 Vault 的只读查询入口；固定本机执行器可在读取前调用既有增量解密脚本，但不得抓取新密钥、操作微信 UI、持久化原文或把原文发送给模型与外部平台。新增工具必须复用现有服务契约、声明只读/副作用注解，并具有失败关闭和脱敏测试。
+Hermes Session 只保存对话和上下文；A君/业务 Agent 保存任务与 checkpoint；Paperclip 保存组织级真相。MCP Server 不保存 secret、聊天正文、会话数据库、任务副本或审批副本。微信聊天读取必须经 `ContentAcquisitionCenter` 和 `yichen-wechat-local-vault` 受控适配器，临时授权同时匹配负责人、飞书会话、当前 Agent、单一会话、固定时间范围和最多 200 条。A君默认使用本地当天零点至当前时间、增量刷新和同名会话最近活跃策略；除联系人/群名外不要求负责人配置技术选项。受控适配器只调用已解密 Vault 的只读查询入口；固定本机执行器可在读取前调用既有增量解密脚本。私密分析仅允许回环地址上的 `qwen3:14b`，最多 120000 字符、单块不超过 20000 字符，按最新消息优先截断；不得抓取新密钥、操作微信 UI、持久化原文、发送者或把原文发送给云模型与外部平台。新增工具必须复用现有服务契约、声明只读/副作用注解，并具有失败关闭和脱敏测试。
 
 ### 10.1 架构师三层输出
 

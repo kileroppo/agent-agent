@@ -3,8 +3,10 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { ContentAcquisitionCenter } from '../../../integrations/access/content-acquisition-center.js';
-import { WeChatLocalVaultAdapter } from '../../../integrations/access/wechat-local-vault-adapter.js';
+import { ContentAcquisitionCenter } from 'ajun-common-access/content-acquisition-center';
+import { WeChatLocalVaultAdapter } from 'ajun-common-access/wechat-local-vault-adapter';
+import { LocalPrivateChatAnalyzer } from './local-private-chat-analyzer.js';
+import { consumePrivateReadGrant, privateReadGrantStatus, resolvePrivateReadGrant } from './private-read-grant.js';
 import { WECHAT_CHAT_AGENT_ID, WECHAT_CHAT_CAPABILITY, wechatApprovalScope } from './wechat-chat-defaults.js';
 
 export class LocalWeChatChatRetriever {
@@ -15,6 +17,9 @@ export class LocalWeChatChatRetriever {
     reportsDir = process.env.WECHAT_VAULT_REPORTS_DIR || path.join(os.homedir(), 'Library/Application Support/wechat-local-vault/reports'),
     runCli = null,
     refreshVault = null,
+    checkHealth = null,
+    analyzer = new LocalPrivateChatAnalyzer(),
+    healthTtlMs = 30_000,
     now = () => new Date()
   } = {}) {
     if (!store) throw new Error('微信聊天取件员必须连接 A君任务存储。');
@@ -26,20 +31,58 @@ export class LocalWeChatChatRetriever {
     this.decryptScriptPath = path.join(this.skillDir, 'scripts/decrypt_all_dbs.py');
     this.runCli = runCli || ((args) => runJsonCommand(this.pythonPath, this.vaultCliPath, args));
     this.refreshVault = refreshVault || (() => runQuietCommand(this.pythonPath, this.decryptScriptPath, ['--mode', 'incremental']));
+    this.checkHealth = checkHealth || (() => runJsonCommand(
+      this.pythonPath,
+      this.vaultCliPath,
+      ['status', '--format', 'json'],
+      { timeoutMs:10_000 }
+    ));
+    this.healthTtlMs = Math.max(1_000, Math.min(Number(healthTtlMs) || 30_000, 300_000));
+    this.analyzer = analyzer;
+    this.healthCache = null;
     this.now = now;
+  }
+
+  async health({ force = false } = {}) {
+    const checkedAt = this.now();
+    if (!force && this.healthCache && checkedAt.getTime() - this.healthCache.checkedAtMs < this.healthTtlMs) {
+      return this.healthCache.result;
+    }
+    let result;
+    try {
+      result = normalizeVaultHealth(await this.checkHealth(), checkedAt);
+    } catch {
+      result = {
+        status:'unavailable',
+        checkedAt:checkedAt.toISOString(),
+        requiredDatabases:{ contact:false, session:false, message:false },
+        safeMessage:'本机微信只读库健康检查失败，请由运维官检查本机运行环境。'
+      };
+    }
+    this.healthCache = { checkedAtMs:checkedAt.getTime(), result };
+    return result;
   }
 
   async execute(task) {
     const request = task?.input?.wechatChat || {};
     if (!request.chatSelector) throw safeError('wechat_chat_required', '请告诉我联系人或群名；其余范围使用默认值。');
-    const approval = await this.approvedScope(task);
-    const consumedAt = this.now().toISOString();
-    await this.store.updateApproval(approval.approvalId, { consumedAt });
-    const consumedApproval = { ...approval, consumedAt };
+    const health = await this.health();
+    if (health.status !== 'healthy') {
+      throw safeError('wechat_vault_unavailable', health.safeMessage);
+    }
+    const needsLocalAnalysis = request.outputMode !== 'metadata-summary';
+    if (needsLocalAnalysis) {
+      const modelHealth = await this.analyzer.health();
+      if (modelHealth.status !== 'ready') throw safeError('wechat_local_model_unavailable', modelHealth.safeMessage);
+    }
+    const granted = await this.approvedScope(task);
     await this.refreshVault();
     const selectedChat = await this.resolveSingleChat(request.chatSelector);
+    const consumedGrant = consumePrivateReadGrant(granted.grant, { taskId:task.taskId, now:this.now() });
+    await this.store.updateApproval(granted.approval.approvalId, { privateReadGrant:consumedGrant });
+    const grantState = privateReadGrantStatus(consumedGrant, { now:this.now() });
     const adapter = new WeChatLocalVaultAdapter({
-      scopeResolver:async (approvalRef) => this.resolveAdapterScope(task, consumedApproval, approvalRef, selectedChat.username),
+      scopeResolver:async (approvalRef) => this.resolveAdapterScope(task, granted.approval, consumedGrant, approvalRef, selectedChat.username),
       runVaultQuery:({ chat, startTime, endTime, limit }) => this.runCli([
         'history', chat,
         '--start-time', cliLocalTime(startTime),
@@ -47,6 +90,7 @@ export class LocalWeChatChatRetriever {
         '--limit', String(limit),
         '--format', 'json'
       ]),
+      healthStatus:health.status,
       now:this.now
     });
     const center = new ContentAcquisitionCenter({
@@ -56,14 +100,15 @@ export class LocalWeChatChatRetriever {
     });
     const acquired = await center.fetch({
       taskId:task.taskId,
-      source:`wechat-vault://local/chat?approval=${encodeURIComponent(consumedApproval.approvalId)}`,
+      source:`wechat-vault://local/chat?approval=${encodeURIComponent(granted.approval.approvalId)}`,
       requestedCapabilities:[WECHAT_CHAT_CAPABILITY],
       requestingAgentId:WECHAT_CHAT_AGENT_ID,
       runtimeRequirement:'wechat_chat_read'
     });
     if (!acquired.ok) throw safeError(acquired.code, acquired.safeMessage);
     const slice = acquired.contentPackage.contentItems.chat_slice;
-    const report = buildPrivateReport({ task, request, slice, selectedChat, now:this.now() });
+    const analysis = needsLocalAnalysis ? await this.analyzer.analyze(slice?.messages) : null;
+    const report = buildPrivateReport({ task, request, slice, selectedChat, analysis, grantState, now:this.now() });
     const reportPath = await this.writeReport(task.taskId, report);
     return {
       status:'succeeded',
@@ -72,14 +117,15 @@ export class LocalWeChatChatRetriever {
         ...(task.execution || {}),
         owner:'ajun-local',
         mode:'on-demand',
-        modelUsed:false,
+        modelUsed:needsLocalAnalysis,
+        modelBoundary:needsLocalAnalysis ? 'loopback-only' : 'none',
         finishedAt:this.now().toISOString(),
         outcome:'succeeded'
       },
       artifactRefs:[{
         artifactId:`wechat-chat-report:${task.taskId}`,
-        type:'wechat_chat_retrieval_report',
-        title:'微信聊天只读结果证明',
+        type:needsLocalAnalysis ? 'wechat_chat_analysis_report' : 'wechat_chat_retrieval_report',
+        title:needsLocalAnalysis ? '微信聊天本机分析报告' : '微信聊天只读结果证明',
         uri:`file://${reportPath}`,
         data:{
           containsRawChat:false,
@@ -89,7 +135,17 @@ export class LocalWeChatChatRetriever {
           lastMessageAt:report.lastMessageAt,
           typeCounts:report.typeCounts,
           scope:report.scope,
-          modelUsed:false,
+          modelUsed:needsLocalAnalysis,
+          modelBoundary:needsLocalAnalysis ? 'loopback-only' : 'none',
+          analysis:analysis ? {
+            summary:analysis.summary,
+            topics:analysis.topics,
+            decisions:analysis.decisions,
+            todos:analysis.todos,
+            risks:analysis.risks,
+            replySuggestions:analysis.replySuggestions,
+          } : null,
+          grant:grantState,
           externalSideEffects:0
         },
         validation:{ exists:true, readable:true, nonEmpty:true, containsRawChat:false, checkedAt:this.now().toISOString() }
@@ -100,21 +156,16 @@ export class LocalWeChatChatRetriever {
   async approvedScope(task) {
     const approvals = await this.store.listApprovals();
     const expected = wechatApprovalScope(task);
-    const approval = approvals.find((item) =>
-      item.taskId === task.taskId
-      && item.action === 'wechat-private-chat-read'
-      && item.status === 'approved'
-    );
-    if (!approval) throw safeError('approval_required', '本次微信聊天读取尚未获得负责人确认。');
-    if (approval.consumedAt) throw safeError('approval_consumed', '本次微信聊天读取确认已经使用过，请重新发起任务。');
-    if (JSON.stringify(approval.requestedScope || {}) !== JSON.stringify(expected)) {
-      throw safeError('scope_not_granted', '审批范围与当前微信聊天任务不一致，未读取。');
+    const resolved = resolvePrivateReadGrant({ approvals, task, expectedScope:expected, now:this.now() });
+    if (!resolved) throw safeError('approval_required', '本次微信聊天范围尚未获得负责人确认，或临时授权已失效。');
+    if (resolved.created) {
+      await this.store.updateApproval(resolved.approval.approvalId, { privateReadGrant:resolved.grant });
     }
-    return approval;
+    return resolved;
   }
 
-  async resolveAdapterScope(task, approval, approvalRef, resolvedChatId) {
-    const scope = approval.requestedScope;
+  async resolveAdapterScope(task, approval, grant, approvalRef, resolvedChatId) {
+    const scope = grant.scope;
     return {
       status:approval.status,
       approvalRef,
@@ -124,7 +175,7 @@ export class LocalWeChatChatRetriever {
       startTime:scope.startTime,
       endTime:scope.endTime,
       maxMessages:scope.maxMessages,
-      expiresAt:approval.validUntil
+      expiresAt:grant.expiresAt
     };
   }
 
@@ -165,7 +216,7 @@ export class LocalWeChatChatRetriever {
   }
 }
 
-function buildPrivateReport({ task, request, slice, selectedChat, now }) {
+function buildPrivateReport({ task, request, slice, selectedChat, analysis, grantState, now }) {
   const messages = Array.isArray(slice?.messages) ? slice.messages : [];
   const typeCounts = {};
   for (const message of messages) {
@@ -184,19 +235,22 @@ function buildPrivateReport({ task, request, slice, selectedChat, now }) {
     selectionStrategy:selectedChat.strategy
   };
   return {
-    schemaVersion:'agent.army/wechat-chat-retrieval-report/v1',
+    schemaVersion:analysis ? 'agent.army/wechat-chat-analysis-report/v1' : 'agent.army/wechat-chat-retrieval-report/v1',
     createdAt:now.toISOString(),
     containsRawChat:false,
     containsSenderIdentifiers:false,
-    modelUsed:false,
+    modelUsed:Boolean(analysis),
+    modelBoundary:analysis ? 'loopback-only' : 'none',
     externalSideEffects:0,
+    analysis:analysis || null,
+    grant:grantState,
     ...safeCore,
     evidenceChecksum:crypto.createHash('sha256').update(JSON.stringify(safeCore)).digest('hex')
   };
 }
 
-function runJsonCommand(command, script, args) {
-  return runCommand(command, [script, ...args], { capture:true }).then((output) => {
+function runJsonCommand(command, script, args, { timeoutMs = 120_000 } = {}) {
+  return runCommand(command, [script, ...args], { capture:true, timeoutMs }).then((output) => {
     try {
       return JSON.parse(output);
     } catch {
@@ -206,17 +260,17 @@ function runJsonCommand(command, script, args) {
 }
 
 function runQuietCommand(command, script, args) {
-  return runCommand(command, [script, ...args], { capture:false }).then(() => undefined);
+  return runCommand(command, [script, ...args], { capture:false, timeoutMs:120_000 }).then(() => undefined);
 }
 
-function runCommand(command, args, { capture }) {
+function runCommand(command, args, { capture, timeoutMs }) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio:['ignore', capture ? 'pipe' : 'ignore', 'ignore'] });
     let output = '';
     const timer = setTimeout(() => {
       child.kill('SIGTERM');
       reject(safeError('wechat_vault_timeout', '微信 Vault 本次读取超时。'));
-    }, 120_000);
+    }, timeoutMs);
     if (capture) child.stdout.on('data', (chunk) => {
       output += chunk;
       if (output.length > 5_000_000) child.kill('SIGTERM');
@@ -234,6 +288,27 @@ function runCommand(command, args, { capture }) {
       }
     });
   });
+}
+
+function normalizeVaultHealth(payload, checkedAt) {
+  const databases = Array.isArray(payload?.databases) ? payload.databases : [];
+  const available = (matcher) => databases.some((item) => item?.available === true && matcher(String(item.path || '')));
+  const requiredDatabases = {
+    contact:available((value) => value === 'contact/contact.db'),
+    session:available((value) => value === 'session/session.db'),
+    message:available((value) => value.startsWith('message/') && value.endsWith('.db'))
+  };
+  const ready = payload?.exists === true && Object.values(requiredDatabases).every(Boolean);
+  return {
+    status:ready ? 'healthy' : payload?.exists === true ? 'degraded' : 'unavailable',
+    checkedAt:checkedAt.toISOString(),
+    requiredDatabases,
+    safeMessage:ready
+      ? '本机微信只读库已就绪。'
+      : payload?.exists === true
+        ? '本机微信只读库缺少联系人、会话或消息库，请先安全刷新。'
+        : '本机微信只读库尚未初始化。'
+  };
 }
 
 function safeError(code, message) {

@@ -61,6 +61,7 @@ function readyM5Agents() {
     ['m5-publisher-controller', '/api/paperclip/m5-publisher-heartbeat'],
     ['m5-metrics-controller', '/api/paperclip/m5-metrics-heartbeat'],
     ['m5-retrospective-controller', '/api/paperclip/m5-retrospective-heartbeat'],
+    ['m5-learning-controller', '/api/paperclip/m5-learning-heartbeat'],
   ].map(([role, url]) => ({
     id:`agent-${role}`,
     name:role,

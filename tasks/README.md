@@ -12,7 +12,7 @@
 | [M2 第一批 Agent 创建与治理闭环 PRD](./prd-m2-first-batch-agent-governance.md) | 飞书创建请求、治理 Agent、Paperclip 审核、受限测试实例与上线门禁 | 本机闭环完成：草案、审核、受限测试、真实飞书上线、复杂协作及六名治理员工独立化均已验证 |
 | [M3 内容分析与知识归档](./prd-m3-content-analysis-and-knowledge-archive.md) | 小D证据链、小拆正式拆解、小创平台草稿和小办统一知识归档 | 已验收：两个新增岗位、真实内容链路、知识归档和负责人内容质量确认均已完成 |
 | [M4 岗位自主执行与能力深化](./prd-m4-autonomous-agent-capabilities.md) | 11 个活动岗位的开放任务、岗位能力和统一模型回退 | 已完成并由 M5 纠偏：开放任务保留，无状态复用岗位执行器；本地 DAG、预算和 CapabilityGrant Store 已退出生产 |
-| [M5 高权限内容自治](./prd-m5-high-autonomy-content-operations.md) | Paperclip 内容流水线、StepFun/媒体工具、确定性发布、指标与受控学习闭环 | live 已对账为 18 阶段、15 Routine、4 个无模型控制器；活动仍是未批准草案，付费多模态和真实发布未验收 |
+| [M5 高权限内容自治](./prd-m5-high-autonomy-content-operations.md) | Paperclip 内容流水线、StepFun/媒体工具、确定性发布、指标与受控学习闭环 | 源码16/18/6，r3已冻结且双smoke通过但未激活；live仍15/17/5。本轮无真实Provider调用或发布 |
 
 M2 已用小红书完成“从零登录 → 命名连接 → 真实读取 → 飞书交付 → 撤销 → 获取前拒绝 → 重新授权 → 再次交付”的登录型平台闭环。A君现已提供白名单平台登录、刷新账号、续期、暂时禁用和撤销入口，真实连接完成禁用与同 ID 续期恢复。当前单用户、本机回环阶段由负责人接受来源链接敏感参数的已知风险，该项不阻塞 M2；CookieBridge 仍只是 A君内部连接器，不是万能登录器。
 

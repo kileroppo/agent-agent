@@ -90,7 +90,7 @@ export async function inspectM5V2Migration({
     backupHealthy:backup?.healthy === true
       && Boolean(String(backup?.reference || '').trim())
       && Boolean(String(backup?.verifiedAt || '').trim()),
-    targetIs15Stages:definition.stages?.length === 15,
+    targetIs16Stages:definition.stages?.length === 16,
   };
   const preconditionsPassed = Object.values(checks).every(Boolean);
   const plan = buildBootstrapPlan(definition);
@@ -108,7 +108,7 @@ export async function inspectM5V2Migration({
       pipelineKey:`${definition.key}-v2`,
       stageCount:definition.stages.length,
       routineCount:plan.resources.routines.length + 1,
-      controllerCount:5,
+      controllerCount:6,
     },
     checks,
     preconditionsPassed,
@@ -201,7 +201,7 @@ export async function inspectM5V2CloneCutover({
       projectKey:targetDefinition.project.key,
       stageCount:targetDefinition.stages.length,
       routineCount:targetRoutines.length,
-      controllerCount:5,
+      controllerCount:6,
       campaignDraftProgress:'0/14',
       cronEnabled:false,
     },

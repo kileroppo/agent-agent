@@ -47,6 +47,7 @@ export function buildBootstrapPlan(definition, bindings = {}) {
   const metricsControllerAgentId = bindings.metricsControllerAgentId;
   const publisherControllerAgentId = bindings.publisherControllerAgentId;
   const retrospectiveControllerAgentId = bindings.retrospectiveControllerAgentId;
+  const learningControllerAgentId = bindings.learningControllerAgentId;
   const parallelControllerAgentId = bindings.parallelControllerAgentId;
   const dailyControllerUrl = String(
     bindings.dailyControllerUrl || 'http://127.0.0.1:4321/api/paperclip/m5-daily-heartbeat',
@@ -59,6 +60,9 @@ export function buildBootstrapPlan(definition, bindings = {}) {
   ).trim();
   const retrospectiveControllerUrl = String(
     bindings.retrospectiveControllerUrl || 'http://127.0.0.1:4321/api/paperclip/m5-retrospective-heartbeat',
+  ).trim();
+  const learningControllerUrl = String(
+    bindings.learningControllerUrl || 'http://127.0.0.1:4321/api/paperclip/m5-learning-heartbeat',
   ).trim();
   const parallelControllerUrl = String(
     bindings.parallelControllerUrl || 'http://127.0.0.1:4321/api/paperclip/m5-parallel-heartbeat',
@@ -79,6 +83,10 @@ export function buildBootstrapPlan(definition, bindings = {}) {
         'm5-retrospective':{
           role:'m5-retrospective-controller',
           agentId:retrospectiveControllerAgentId,
+        },
+        'm5-learning':{
+          role:'m5-learning-controller',
+          agentId:learningControllerAgentId,
         },
         'm5-parallel-join':{
           role:'m5-parallel-controller',
@@ -184,6 +192,7 @@ export function buildBootstrapPlan(definition, bindings = {}) {
   transitions.push(
     { fromStageKey:'script', toStageKey:'parallel_join_gate', label:'脚本完成，等待配音和其余并行产物' },
     { fromStageKey:'parallel_join_gate', toStageKey:'render', label:'五分支汇聚完成' },
+    { fromStageKey:'retrospective', toStageKey:'done', label:'样本不足，结束本次复盘' },
   );
   for (const stage of valid.stages.filter((item) => item.review)) {
     for (const [decision, toStageKey] of Object.entries({
@@ -321,6 +330,25 @@ export function buildBootstrapPlan(definition, bindings = {}) {
           permissions:{ canCreateAgents:false, canCreateSkills:false, canAssignTasks:false },
           metadata:{
             agentArmySystemRole:'m5-retrospective-controller',
+            agentArmyManagedOnly:false,
+            executionOwner:'ajun-runtime-deterministic',
+          },
+        },
+      },
+      learningController: {
+        key:'m5-learning-controller',
+        payload:{
+          name:'学习灰度确定性控制器 M5 Learning',
+          role:'reviewer',
+          title:'只推进离线回放、审核、单条灰度和回退状态',
+          icon:'flask-conical',
+          capabilities:'无模型、无自由参数；只读取可信 Work Product，绝不自动改 Prompt、扩权、加频或投流。',
+          adapterType:'http',
+          adapterConfig:{ url:learningControllerUrl },
+          budgetMonthlyCents:0,
+          permissions:{ canCreateAgents:false, canCreateSkills:false, canAssignTasks:false },
+          metadata:{
+            agentArmySystemRole:'m5-learning-controller',
             agentArmyManagedOnly:false,
             executionOwner:'ajun-runtime-deterministic',
           },

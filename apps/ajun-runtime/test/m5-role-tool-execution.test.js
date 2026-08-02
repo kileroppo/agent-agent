@@ -153,6 +153,10 @@ function setup({
   };
   const governance = {
     async verifyHermesAssignment() { return identity; },
+    async assertCaseIssueLink(caseId, issueId) {
+      assert.equal(caseId, IDS.case);
+      assert.equal(issueId, IDS.issue);
+    },
     async getPipelineCase() {
       return { id:IDS.case, projectId:IDS.project, fields:{ theme:'公开 Agent 治理' } };
     },

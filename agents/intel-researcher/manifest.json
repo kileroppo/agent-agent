@@ -105,7 +105,7 @@
         "trigger": "transport_unavailable"
       }
     ],
-    "skills": ["paperclip", "pdf"],
+    "skills": ["paperclip", "pdf", "yichen-web-research", "yichen-unified-search", "yichen-content-archive", "yichen-grok-consult"],
     "mcpTools": [
       "capabilities",
       "task_list",

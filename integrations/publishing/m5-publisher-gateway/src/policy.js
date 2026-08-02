@@ -1,6 +1,12 @@
 import crypto from 'node:crypto';
+import {
+  M5_ALLOWED_PUBLISH_ACTIONS,
+  M5_PLATFORMS,
+  M5_PROHIBITED_PUBLISH_ACTIONS,
+  M5_SCHEMA_IDS,
+} from '@agent-army/m5-contracts';
 
-export const PLATFORMS = Object.freeze(['douyin', 'xiaohongshu']);
+export const PLATFORMS = M5_PLATFORMS;
 export const STOP_REASONS = Object.freeze([
   'captcha',
   'identity_verification',
@@ -9,18 +15,8 @@ export const STOP_REASONS = Object.freeze([
   'platform_violation',
   'unknown_page'
 ]);
-export const FORBIDDEN_ACTIONS = Object.freeze([
-  'direct_message',
-  'comment',
-  'follow',
-  'paid_promotion',
-  'payment',
-  'account_settings',
-  'delete_history'
-]);
-export const REQUIRED_ACTIONS = Object.freeze([
-  'upload', 'fill_metadata', 'schedule_or_publish', 'read_own_metrics'
-]);
+export const FORBIDDEN_ACTIONS = M5_PROHIBITED_PUBLISH_ACTIONS;
+export const REQUIRED_ACTIONS = M5_ALLOWED_PUBLISH_ACTIONS;
 export const REQUIRED_REVIEW_CHECKS = Object.freeze([
   'facts', 'privacy', 'rights', 'media', 'claims', 'grantScope', 'duplicate'
 ]);
@@ -50,7 +46,7 @@ export function validatePublishRequest(request, now = new Date()) {
   const executionDate = calendarDateInShanghai(now);
   const grant = request?.grant;
   if (!request?.campaignId) errors.push('缺少 campaignId。');
-  if (grant?.schemaVersion !== 'agent.army/campaign-grant/v1') errors.push('CampaignGrant 版本无效。');
+  if (grant?.schemaVersion !== M5_SCHEMA_IDS.CAMPAIGN_GRANT) errors.push('CampaignGrant 版本无效。');
   if (grant?.status !== 'active') errors.push('活动授权未激活。');
   if (grant?.themeScope !== 'AI Agent 实战') errors.push('活动主题范围无效。');
   if (!PLATFORMS.includes(request?.platform) || !grant?.platforms?.includes(request?.platform)) {

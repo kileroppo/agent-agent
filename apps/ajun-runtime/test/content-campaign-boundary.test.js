@@ -7,6 +7,8 @@ test('ContentCampaignService 不引入本地状态库，活动视图始终读取
   const source = await fs.readFile(new URL('../src/content-campaign-service.js', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /from ['"]node:(?:fs|sqlite|level)/);
   assert.doesNotMatch(source, /\b(?:TaskStore|localStorage|sessionStorage|writeFile|appendFile)\b/);
+  assert.doesNotMatch(source, /this\.adapter\.request/);
+  assert.doesNotMatch(source, /['"`]\/api\//);
 
   const parentCase = {
     id:'12345678-1234-1234-1234-123456789012',

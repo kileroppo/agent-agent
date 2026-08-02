@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { M5_PLATFORM_IDS } from '@agent-army/m5-contracts';
 import { coded, STOP_REASONS } from './policy.js';
 
 export class FakePlatformConnector {
@@ -32,7 +33,7 @@ export class FakePlatformConnector {
   async readOwnMetrics(receipt, collectedAt) {
     this.metricCalls.push({ receiptId:receipt.receiptId, collectedAt });
     const hours = Math.max(0, Math.round((Date.parse(collectedAt) - Date.parse(receipt.publishedAt)) / 3_600_000));
-    if (this.platform === 'xiaohongshu') {
+    if (this.platform === M5_PLATFORM_IDS.XIAOHONGSHU) {
       return {
         views:100 + hours,
         likes:10 + Math.floor(hours / 2),

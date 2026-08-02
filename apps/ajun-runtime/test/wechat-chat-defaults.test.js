@@ -13,10 +13,10 @@ test('微信聊天请求只要求群名，其余采用有主见的安全默认�
   assert.equal(request.startTime, '2026-07-29T16:00:00.000Z');
   assert.equal(request.endTime, now.toISOString());
   assert.equal(request.maxMessages, 200);
-  assert.equal(request.outputMode, 'metadata-summary');
+  assert.equal(request.outputMode, 'local-summary');
   assert.equal(request.refreshMode, 'incremental');
   assert.equal(request.sameNameStrategy, 'latest-active-session');
-  assert.equal(request.privateContentModelAccess, 'disabled');
+  assert.equal(request.privateContentModelAccess, 'local-only');
 });
 
 test('未来结束时间不会把一次性读取伪装成持续监控', () => {

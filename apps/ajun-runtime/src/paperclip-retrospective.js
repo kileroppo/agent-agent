@@ -1,5 +1,9 @@
 import crypto from 'node:crypto';
 import {
+  M5_PLATFORMS,
+  M5_SCHEMA_IDS,
+} from '@agent-army/m5-contracts';
+import {
   consumeM5SystemControllerPlanRevision,
   isRecoverableM5SystemControllerFailure,
   markM5SystemControllerFailure,
@@ -12,8 +16,8 @@ import {
 
 const SYSTEM_ROLE = 'm5-retrospective-controller';
 const ROUTINE_MARKER = '[agent-army:m5:routine:m5-retrospective]';
-const METRIC_SCHEMA = 'agent.army/metric-snapshot/v1';
-const RETROSPECTIVE_SCHEMA = 'agent.army/m5-retrospective/v1';
+const METRIC_SCHEMA = M5_SCHEMA_IDS.METRIC_SNAPSHOT;
+const RETROSPECTIVE_SCHEMA = M5_SCHEMA_IDS.RETROSPECTIVE;
 const PUBLISHER_PROVIDER = 'agent-army.publisher-gateway';
 const RETROSPECTIVE_PROVIDER = 'agent-army.m5-retrospective';
 const MINIMUM_SAMPLE_COUNT = 5;
@@ -98,12 +102,13 @@ export class PaperclipRetrospectiveHandler {
     const currentOutputs = await this.governance.getPipelineCaseOutputs(caseId);
     const existing = trustedRetrospectiveProduct(currentOutputs, caseId, caseVersion);
     if (existing) {
+      const destination = retrospectiveDestination(existing.metadata.report.status);
       if (currentCase.stageKey === 'retrospective' && currentCase.version === caseVersion) {
         await this.governance.transitionPipelineCase(caseId, {
           expectedVersion:caseVersion,
-          toStageKey:'done',
+          toStageKey:destination,
         }, { runId });
-      } else if (currentCase.stageKey !== 'done' || currentCase.version !== caseVersion + 1) {
+      } else if (currentCase.stageKey !== destination || currentCase.version !== caseVersion + 1) {
         throw new PaperclipRetrospectiveError('已有复盘版本与当前 Paperclip Case 状态不一致。');
       }
       await this.governance.completeRetrospectiveIssue(issueId, {
@@ -128,7 +133,7 @@ export class PaperclipRetrospectiveHandler {
       throw new PaperclipRetrospectiveError('复盘任务与当前 Paperclip Case 阶段或版本不一致。');
     }
     const platform = String(currentCase.fields?.platform || '').trim();
-    if (!['douyin', 'xiaohongshu'].includes(platform)) {
+    if (!M5_PLATFORMS.includes(platform)) {
       throw new PaperclipRetrospectiveError('复盘 Case 缺少可信的平台类型。');
     }
     try {
@@ -162,7 +167,7 @@ export class PaperclipRetrospectiveHandler {
       }, { runId });
       await this.governance.transitionPipelineCase(caseId, {
         expectedVersion:caseVersion,
-        toStageKey:'done',
+        toStageKey:retrospectiveDestination(report.status),
       }, { runId });
       await this.governance.completeRetrospectiveIssue(issueId, {
         runId,
@@ -247,7 +252,7 @@ function buildRetrospectiveReport({ platform, samples }) {
     metricSnapshotRefs,
     observations,
     learningProposal:enoughSamples ? {
-      schemaVersion:'agent.army/learning-proposal/v1',
+      schemaVersion:M5_SCHEMA_IDS.LEARNING_PROPOSAL,
       proposalId:`learning_${crypto.createHash('sha256').update(
         `${sampleType}:${metricSnapshotRefs.join(':')}`,
       ).digest('hex').slice(0, 24)}`,
@@ -338,6 +343,10 @@ function trustedRetrospectiveProduct(outputs, caseId, caseVersion) {
 
 function retrospectiveExternalId(caseId, version) {
   return `retrospective_${crypto.createHash('sha256').update(`${caseId}:v${version}`).digest('hex').slice(0, 32)}`;
+}
+
+function retrospectiveDestination(status) {
+  return status === 'proposal_ready' ? 'learning' : 'done';
 }
 
 function validDate(value) {

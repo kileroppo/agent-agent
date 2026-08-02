@@ -72,13 +72,19 @@ test('达到5条同类型真实内容后只生成待审核LearningProposal，不
     '保留表现较好的开场和结构变量。',
     '下一版只调整一个主要变量，并继续关联原任务与版本。',
   ]);
+  assert.deepEqual(governance.transitions, [{
+    caseId:IDS.case,
+    expectedVersion:7,
+    toStageKey:'learning',
+    runId:IDS.run,
+  }]);
 });
 
-test('Work Product已写入且Case已到done时只完成Issue，不重复生成复盘版本', async () => {
+test('提案Work Product已写入且Case已到learning时只完成Issue，不重复生成复盘版本', async () => {
   const governance = new FakeRetrospectiveGovernance(
     Array.from({ length:5 }, (_, index) => metricSnapshot(index + 1)),
   );
-  governance.case.stageKey = 'done';
+  governance.case.stageKey = 'learning';
   governance.case.version = 8;
   governance.caseOutputs = [{
     id:'retrospective-work-product',

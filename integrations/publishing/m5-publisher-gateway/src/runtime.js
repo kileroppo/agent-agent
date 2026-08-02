@@ -1,4 +1,8 @@
 import path from 'node:path';
+import {
+  M5_PLATFORM_IDS,
+  M5_PLATFORMS,
+} from '@agent-army/m5-contracts';
 import { WorkspaceArtifactVerifier } from './artifact-verifier.js';
 import { FakePlatformConnector } from './connectors.js';
 import { CuaPlatformConnector } from './cua-connector.js';
@@ -101,8 +105,8 @@ export function createPublisherRuntime({
     );
   }
   const connectors = {
-    douyin:new FakePlatformConnector('douyin'),
-    xiaohongshu:new FakePlatformConnector('xiaohongshu'),
+    [M5_PLATFORM_IDS.DOUYIN]:new FakePlatformConnector(M5_PLATFORM_IDS.DOUYIN),
+    [M5_PLATFORM_IDS.XIAOHONGSHU]:new FakePlatformConnector(M5_PLATFORM_IDS.XIAOHONGSHU),
   };
   const gateway = new PublisherGateway({
     repository,
@@ -164,11 +168,11 @@ function buildApprovedConnectors(
   }
   const connectors = {};
   for (const [platform, descriptor] of Object.entries(approvedConnectorMap)) {
-    if (!['douyin', 'xiaohongshu'].includes(platform)) {
+    if (!M5_PLATFORMS.includes(platform)) {
       throw coded('unsupported_real_connector', `不支持真实发布平台 ${platform}。`);
     }
     validateConnectorApproval(platform, descriptor, now);
-    if (descriptor.kind === 'douyin_official_api' && platform === 'douyin') {
+    if (descriptor.kind === 'douyin_official_api' && platform === M5_PLATFORM_IDS.DOUYIN) {
       const { httpRequest, credentialResolver, maxUploadBytes } = descriptor.options || {};
       if (typeof httpRequest !== 'function' || typeof credentialResolver !== 'function') {
         throw coded(
@@ -224,7 +228,7 @@ function buildApprovedMetricConnectors(
   const connectors = {};
   for (const [platform, descriptor] of Object.entries(approvedMetricConnectorMap)) {
     validateMetricConnectorApproval(platform, descriptor, clock());
-    if (platform === 'xiaohongshu' && descriptor.kind === 'xhs_own_metrics_cua') {
+    if (platform === M5_PLATFORM_IDS.XIAOHONGSHU && descriptor.kind === 'xhs_own_metrics_cua') {
       connectors[platform] = new XhsOwnMetricsCuaConnector({
         enabled:true,
         runner:descriptor.options?.runner,
@@ -239,7 +243,7 @@ function buildApprovedMetricConnectors(
       );
       continue;
     }
-    if (platform === 'douyin' && descriptor.kind === 'douyin_official_api') {
+    if (platform === M5_PLATFORM_IDS.DOUYIN && descriptor.kind === 'douyin_official_api') {
       const { httpRequest, credentialResolver } = descriptor.options || {};
       if (typeof httpRequest !== 'function' || typeof credentialResolver !== 'function') {
         throw coded(
@@ -293,7 +297,7 @@ function validateMetricConnectorApproval(platform, descriptor, now) {
   const approval = descriptor?.approval;
   const expiresAt = Date.parse(approval?.expiresAt);
   if (
-    !['douyin', 'xiaohongshu'].includes(platform)
+    !M5_PLATFORMS.includes(platform)
     || approval?.status !== 'approved'
     || typeof approval?.approvalRef !== 'string'
     || !approval.approvalRef.startsWith('paperclip:')

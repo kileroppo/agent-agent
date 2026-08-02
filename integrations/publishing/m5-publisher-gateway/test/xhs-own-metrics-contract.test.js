@@ -168,7 +168,11 @@ test('契约模块不导入浏览器、网络、进程或文件执行能力', as
     source,
     /node:(?:child_process|fs|http|https|net)|fetch\s*\(|cua-driver|browser_/,
   );
-  assert.match(source, /^import \{ coded \} from '\.\/policy\.js';/);
+  assert.match(
+    source,
+    /^import \{ M5_PLATFORM_IDS \} from '@agent-army\/m5-contracts';/,
+  );
+  assert.match(source, /import \{ coded \} from '\.\/policy\.js';/);
 });
 
 function fixture() {

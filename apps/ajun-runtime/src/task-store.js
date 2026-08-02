@@ -1,6 +1,16 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {
+  applyApprovalPatch,
+  applyTaskStatusPatch,
+  applyWorkerTaskPatch,
+  claimTaskForWorker,
+  holdTaskForApproval,
+  initializeApprovalRecord,
+  initializeTaskRecord,
+  isWorkerTaskClaimable,
+} from './task-lifecycle.js';
 
 export class TaskStore {
   constructor(filePath) { this.filePath = filePath; this.pendingMutation = Promise.resolve(); }
@@ -28,7 +38,7 @@ export class TaskStore {
         const existing = data.tasks.find((item) => item.idempotencyKey === task.idempotencyKey);
         if (existing) return existing;
       }
-      const record = { schemaVersion: 'agent.army/task/v1', taskId: crypto.randomUUID(), attempt: 1, priority: 'normal', artifactRefs: [], approvalRefs: [], createdAt: now, updatedAt: now, ...task };
+      const record = initializeTaskRecord(task, { taskId:crypto.randomUUID(), now });
       data.tasks.push(record); await this.write(data); return record;
     });
   }
@@ -36,11 +46,10 @@ export class TaskStore {
   async createApproval(approval) {
     return this.mutate(async () => {
       const data = await this.read(); const now = new Date().toISOString();
-      const record = { schemaVersion: 'agent.army/approval/v1', approvalId: crypto.randomUUID(), status: 'pending', createdAt: now, ...approval };
+      const record = initializeApprovalRecord(approval, { approvalId:crypto.randomUUID(), now });
       data.approvals.push(record); const task = data.tasks.find((item) => item.taskId === approval.taskId);
       if (task) {
-        task.approvalRefs.push(record.approvalId);
-        if (approval.holdTask !== false) { task.status = 'waiting_approval'; task.currentStage = 'approval_required'; }
+        Object.assign(task, holdTaskForApproval(task, record));
         task.updatedAt = now;
       }
       await this.write(data); return record;
@@ -51,7 +60,7 @@ export class TaskStore {
     return this.mutate(async () => {
       const data = await this.read(); const task = data.tasks.find((item) => item.taskId === taskId);
       if (!task) throw new Error('找不到要更新的任务。');
-      Object.assign(task, patch, { updatedAt: new Date().toISOString() });
+      Object.assign(task, applyTaskStatusPatch(task, patch, { approvals:data.approvals }), { updatedAt: new Date().toISOString() });
       await this.write(data); return task;
     });
   }
@@ -59,35 +68,17 @@ export class TaskStore {
   async claimWorkerTask({ workerId, taskTypes, leaseMs = 120_000, now = Date.now() }) {
     return this.mutate(async () => {
       const data = await this.read();
-      const allowedTypes = new Set(Array.isArray(taskTypes) ? taskTypes.map((item) => String(item || '').trim()).filter(Boolean) : []);
       const candidates = data.tasks
-        .filter((task) => allowedTypes.has(task.taskType) && (
-          task.status === 'waiting_worker'
-          || (task.status === 'running'
-            && task.execution?.mode === 'mac_worker'
-            && Date.parse(task.execution?.worker?.leaseExpiresAt || '') <= now)
-        ))
+        .filter((task) => isWorkerTaskClaimable(task, { taskTypes, now }))
         .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
       const task = candidates[0];
       if (!task) return null;
-      const leasedAt = new Date(now).toISOString();
-      const leaseId = crypto.randomUUID();
-      task.status = 'running';
-      task.currentStage = 'mac_worker_claimed';
-      task.execution = {
-        ...(task.execution || {}),
-        executor:'xiaod',
-        mode:'mac_worker',
-        worker:{
-          state:'leased',
-          workerId:String(workerId),
-          leaseId,
-          leasedAt,
-          lastHeartbeatAt:leasedAt,
-          leaseExpiresAt:new Date(now + leaseMs).toISOString()
-        }
-      };
-      task.updatedAt = leasedAt;
+      Object.assign(task, claimTaskForWorker(task, {
+        workerId,
+        leaseId:crypto.randomUUID(),
+        leaseMs,
+        now,
+      }));
       await this.write(data);
       return task;
     });
@@ -98,22 +89,14 @@ export class TaskStore {
       const data = await this.read();
       const task = data.tasks.find((item) => item.taskId === taskId);
       if (!task) throw new Error('找不到这条 Mac 工作间任务。');
-      const lease = task.execution?.worker;
-      if (task.execution?.mode !== 'mac_worker' || lease?.workerId !== workerId || lease?.leaseId !== leaseId) {
-        const error = new Error('Mac 工作间租约不匹配，未更新任务。');
-        error.code = 'worker_lease_mismatch';
-        throw error;
-      }
-      const at = new Date(now).toISOString();
-      const worker = {
-        ...lease,
-        ...(extendLease ? { state:'working', lastHeartbeatAt:at, leaseExpiresAt:new Date(now + leaseMs).toISOString() } : {}),
-        ...(patch?.execution?.worker || {})
-      };
-      Object.assign(task, patch, {
-        execution:{ ...(task.execution || {}), ...(patch?.execution || {}), mode:'mac_worker', worker },
-        updatedAt:at
-      });
+      Object.assign(task, applyWorkerTaskPatch(task, {
+        workerId,
+        leaseId,
+        patch,
+        leaseMs,
+        now,
+        extendLease,
+      }));
       await this.write(data);
       return task;
     });
@@ -123,7 +106,7 @@ export class TaskStore {
     return this.mutate(async () => {
       const data = await this.read(); const approval = data.approvals.find((item) => item.approvalId === approvalId);
       if (!approval) throw new Error('找不到要更新的审批。');
-      Object.assign(approval, patch); await this.write(data); return approval;
+      Object.assign(approval, applyApprovalPatch(approval, patch)); await this.write(data); return approval;
     });
   }
 

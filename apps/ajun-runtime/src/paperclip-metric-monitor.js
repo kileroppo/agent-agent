@@ -1,4 +1,9 @@
 import {
+  M5_PLATFORM_IDS,
+  M5_PLATFORMS,
+  M5_SCHEMA_IDS,
+} from '@agent-army/m5-contracts';
+import {
   consumeM5SystemControllerPlanRevision,
   isRecoverableM5SystemControllerFailure,
   markM5SystemControllerFailure,
@@ -7,8 +12,8 @@ import {
 
 const METRIC_SYSTEM_ROLE = 'm5-metrics-controller';
 const METRIC_ROUTINE_MARKER = '[agent-army:m5:routine:m5-metrics]';
-const PUBLISH_RECEIPT_SCHEMA = 'agent.army/publish-receipt/v1';
-const METRIC_SNAPSHOT_SCHEMA = 'agent.army/metric-snapshot/v1';
+const PUBLISH_RECEIPT_SCHEMA = M5_SCHEMA_IDS.PUBLISH_RECEIPT;
+const METRIC_SNAPSHOT_SCHEMA = M5_SCHEMA_IDS.METRIC_SNAPSHOT;
 const PUBLISHER_PROVIDER = 'agent-army.publisher-gateway';
 const HOUR_MS = 3_600_000;
 const RECOVERY_DELAY_MS = 15 * 60_000;
@@ -453,7 +458,7 @@ export function trustedPublishReceipt(outputs) {
     !receipt
     || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(String(receipt.receiptId || ''))
     || !TRUSTED_REFERENCE.test(String(receipt.campaignId || ''))
-    || !['douyin', 'xiaohongshu'].includes(receipt.platform)
+    || !M5_PLATFORMS.includes(receipt.platform)
     || !TRUSTED_REFERENCE.test(String(receipt.accountRef || ''))
     || !CONNECTOR_MODE.test(String(receipt.connectorMode || ''))
     || !String(receipt.contentVersionId || '').trim()
@@ -564,7 +569,10 @@ function assertMetricSnapshotMatches({
     || !Number.isFinite(Date.parse(snapshot.collectedAt))
     || Date.parse(snapshot.collectedAt) < dueAt.getTime()
     || !validMetricValues(snapshot.metrics)
-    || (receipt.platform === 'xiaohongshu' && !validXhsMetricEvidence(snapshot, receipt))
+    || (
+      receipt.platform === M5_PLATFORM_IDS.XIAOHONGSHU
+      && !validXhsMetricEvidence(snapshot, receipt)
+    )
   ) {
     throw new PaperclipMetricMonitorError(
       'Publisher 返回的 MetricSnapshot 与当前回执、检查点或采集时间不一致。',

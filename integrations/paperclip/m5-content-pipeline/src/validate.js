@@ -66,7 +66,7 @@ const definitionSchema = z.object({
       durationDays: z.literal(7),
     }).strict(),
   }).strict(),
-  stages: z.array(stageSchema).length(15),
+  stages: z.array(stageSchema).length(16),
 }).strict();
 
 export function validateDefinition(definition) {
@@ -123,14 +123,17 @@ export function validateDefinition(definition) {
     throw new Error('M5 主线必须是 topic → parallel_join_gate → script → render，研究、素材和配音只走子 Case。');
   }
   if (
-    parsed.stages.at(-3)?.key !== 'retrospective'
+    parsed.stages.at(-4)?.key !== 'retrospective'
+    || parsed.stages.at(-4)?.kind !== 'working'
+    || parsed.stages.at(-4)?.routineKey !== 'm5-retrospective'
+    || parsed.stages.at(-3)?.key !== 'learning'
     || parsed.stages.at(-3)?.kind !== 'working'
-    || parsed.stages.at(-3)?.routineKey !== 'm5-retrospective'
+    || parsed.stages.at(-3)?.routineKey !== 'm5-learning'
     || parsed.stages.at(-2)?.key !== 'done'
     || parsed.stages.at(-2)?.kind !== 'done'
     || parsed.stages.at(-1)?.kind !== 'cancelled'
   ) {
-    throw new Error('两个活动控制阶段和13个前置业务阶段之后必须依次声明可执行复盘、done和cancelled终态');
+    throw new Error('前置业务阶段之后必须依次声明可执行复盘、学习灰度、done和cancelled终态');
   }
   for (const stage of parsed.stages.filter((item) => item.review)) {
     for (const destination of Object.values(stage.review)) {
