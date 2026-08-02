@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 候选 1–7 代码与候选验证完成，待可追溯 release 切换 |
+| 状态 | 已完成：候选 1–7、可追溯 release、SQLite 迁移与本机 live 切换均闭合 |
 | 创建时间 | 2026-08-02（Asia/Shanghai） |
 | 用户结果 | 完成候选 1–7，降低维护成本、变更影响面和回归范围，并保留现有真实能力 |
 | 架构决策 | [ADR-0010](../adr/0010-modular-monolith-contract-kernel-and-workspaces.md) |
@@ -12,8 +12,9 @@
 - 仓库：`agent-agent`；分支 `experiment/governance-hermes-full-migration`；起始 HEAD
   `400cc08ee88cb44b765f21001e2e447b6740497f`。
 - 起始工作树已有 52 个已跟踪文件差异和多个未跟踪文件/模块，均视为用户现有工作并保留。
-- A君 live PID `58141` 从 R4 不可变 release 运行，cwd 不指向可写源码；Publisher PID
-  `82321` 从当前 Publisher 目录运行。
+- A君已由 launchd 切换到新不可变 release，当前验收 PID `52870`；独立干净源码 worktree 与
+  release 均绑定提交 `26a4a4619a56b85a1d1b568dd5fcd7ece2880399`。Publisher PID
+  `82321` 保持原服务不变。
 - 起始自动化：A君 `1057/1057`、Pipeline `67/67`、内容插件 `97/97`、Publisher `203/203` 通过。
 - 当前 live、源码候选和外部平台是不同证据层；本计划不授权付费调用或真实平台发布。
 
@@ -59,7 +60,8 @@
 ### 发布验证门禁
 
 - 复用既有不可变 release 的冻结、验证、恢复证明和进程探针。
-- 保持现有命令、manifest、R4 读取与回滚兼容；来源为 dirty 时只做临时候选验证，不激活。
+- 保持现有命令、manifest、R4 读取与回滚兼容；正式发布只允许绑定独立干净 worktree，不能
+  直接从主脏工作树激活。
 
 ## 3. 非目标
 
@@ -94,9 +96,9 @@
 | --- | --- | --- |
 | 静态契约 | PASS | 根 Workspace、架构边界检查、共享包语法检查通过 |
 | 聚焦测试 | PASS | 生命周期、双 Store、M5 领域/路由、Paperclip transport 与 affected test 通过 |
-| 全量自动化 | PASS | A君 1078、Pipeline 67、插件 97、Publisher 203、共享包 12 项全绿 |
-| 数据迁移 | SHADOW PASS | 真实 JSON 只读影子导入 585/25/16/6/5，数量和关键 ID 摘要一致；未切 live |
-| 不可变 release | CANDIDATE PASS | 临时候选 `b95f3001…` 共 7592 项，主启动/只读恢复/静态闭包/快照绑定通过并已删除；来源标记 dirty，未激活 |
-| 本地 live | 仍为 R4 | PID 58141 的 cwd/entrypoint 已核对，`/api/overview` 200；Publisher `/health` 200 |
+| 全量自动化 | PASS | Node 22 根回归 `1557/1557`；Node 24.18.1 根 `test` 与 `check` 均为 exit 0；A君 `1092/1092` |
+| 数据迁移 | LIVE PASS | 最终 JSON 快照 `587/25/16/6/5` 事务导入 SQLite，关键 ID 全部通过；JSON 与 `0600` 备份保留 |
+| 不可变 release | PASS | `releaseHash=389141e4…`、`payloadHash=948cbbce…`、7092 项；主启动、只读恢复、静态闭包与快照绑定通过 |
+| 本地 live | PASS | PID `52608 → 52870` 二次启动后 cwd/entrypoint、SQLite 句柄及五类数量一致；Publisher `/health` 200 |
 | 外部平台 | 不在本计划授权内 | 明确保持未验证、未发布、无付费调用 |
-| 人工验收 | 待负责人 | 关键操作与恢复说明可理解、可执行 |
+| 人工验收 | 不替代外部验收 | 本轮是内部架构与本机运行时变更；真实平台动作仍按独立里程碑验收 |

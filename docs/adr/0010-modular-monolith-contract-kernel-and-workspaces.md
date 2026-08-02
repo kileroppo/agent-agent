@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 已确认，候选 1–7 已实施；待正式 release 切换 |
+| 状态 | 已生效；候选 1–7、SQLite 与正式本机 release 已切换 |
 | 日期 | 2026-08-02 |
 | 决策人 | A君 |
 | 关联 | `docs/plans/architecture-debt-repayment-execution.md` |
@@ -30,8 +30,8 @@ A君、Pipeline、内容插件与 Publisher 重复；启动文件同时承担装
    查询投影与本机执行适配，不保存第二份 M5 活动状态。
 5. Paperclip 只有一套底层 HTTP transport、认证和错误规范化；领域 Module 不直接依赖
    Paperclip 原始响应结构。
-6. `server.js` 收敛为 Composition Root 和进程启动入口；领域 HTTP 路由拆到可注入、可测试
-   的路由 Module。
+6. `server.js` 收敛为 3 行进程入口；Composition Root、领域 HTTP 路由、监听和后台生命周期
+   拆到可注入、可测试的 Module。
 7. A君本地状态从整文件 JSON 迁移到 SQLite，保留只读备份、可重复导入、迁移校验和回滚
    路径；Paperclip 的组织级真相归属不变。
 8. 仓库建立根 npm Workspace、显式包依赖和统一验证入口。继续使用 `node:test`；先对现有
@@ -54,14 +54,17 @@ A君、Pipeline、内容插件与 Publisher 重复；启动文件同时承担装
 - 现有大 Module 会通过兼容门面渐进收敛，避免一次性改写全部调用方。
 - 每个阶段先跑聚焦测试，再跑 A君、Pipeline、插件、Publisher 的全量自动化；最终才切换
   本机 live release。
-- Node 主版本升级不与首轮结构迁移捆绑；先验证 Node 24 兼容，再通过独立 release 切换。
+- Node 24 兼容已通过完整 `test`/`check`；正式 live 仍使用 Node 22.23.1，主版本切换继续作为
+  独立发布动作。
 
 ## 候选 1–7 实施结果
 
 - `task-lifecycle` 已接入 JSON/SQLite Store 的创建、审批、worker 租约与普通更新路径。
 - `m5-contracts` 已被 A君、Pipeline、内容插件和 Publisher 消费；CampaignGrant 规则进入独立领域 Module。
-- A君 Bridge 与 Pipeline Adapter 共用 `paperclip-client` transport；M5 语义 Client 集中端点，业务服务不再拼接 Paperclip URL。
+- A君 Bridge 与 Pipeline Adapter 共用 `paperclip-client` transport；M5 语义 Client 集中端点，主业务路径不再拼接 Paperclip URL 或读取原始响应结构。旧 stage recovery 的结构兼容仍留在内核适配层。
 - `server.js` 只保留 3 行启动入口；Composition Root、监听/后台启动和 M5 Campaign 路由均可独立注入测试。
-- SQLite 兼容 Store、迁移 CLI、显式开关、根 Workspace、架构检查和 affected tests 已落地。
-- 最终临时不可变候选已通过主启动和只读恢复启动 smoke；因当前来源工作树仍为 dirty，未切换 R4 live，
-  正式 release 必须在形成可追溯 source revision 后重新冻结。
+- SQLite Store、迁移 CLI、显式开关、根 Workspace、架构检查和动态 affected tests 已落地。
+- 最终 JSON 快照 `587/25/16/6/5` 已导入 SQLite，关键 ID 校验通过；JSON、校验备份和 plist
+  回滚备份均保留。
+- 不可变 release `389141e4…` 已绑定独立干净源码提交 `26a4a461…`，主启动、只读恢复、静态
+  闭包与快照绑定通过；launchd 二次启动后 PID、cwd、SQLite 句柄和数量一致。

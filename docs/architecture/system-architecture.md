@@ -58,9 +58,11 @@ Run 身份头、错误规范化和 M5 语义端点。A君 `server.js` 只启动 
 后台服务生命周期可以分别测试。共享包不得反向依赖 `apps/` 或 `integrations/`。
 
 任务状态由 `task-lifecycle` 统一验证，JSON 与 SQLite Store 使用同一迁移规则。SQLite 使用 Node
-内置 `node:sqlite`、WAL 和版本化 schema；当前默认仍为 JSON，只有显式设置
-`AGENT_ARMY_TASK_STORE=sqlite` 并完成影子导入、数量/关键 ID 校验、备份与回滚门禁后才切换。
-根 npm Workspace 和 `test:affected` 根据包与共享契约依赖选择回归范围，全量测试仍保留为发布门禁。
+内置 `node:sqlite`、WAL 和版本化 schema；A君 live 已显式设置
+`AGENT_ARMY_TASK_STORE=sqlite`，最终 JSON 快照 `587/25/16/6/5` 的数量与关键 ID 校验通过，原
+JSON、校验备份和 plist 回滚备份保留。运行包与技术修复源码互不包含：当前不可变 release
+`389141e4…` 与独立干净源码 worktree 均绑定提交 `26a4a461…`。根 npm Workspace 和
+`test:affected` 根据包与共享契约依赖选择回归范围，全量测试仍保留为发布门禁。
 
 ### 3.1 飞书交互适配层
 
@@ -107,16 +109,16 @@ Routine + 1 个 daily Routine）和 6 个确定性控制器：`daily`、`paralle
 `gray_douyin` 还必须精确绑定日期父 Case、预约日期和抖音平台 Case。缺少完整双变体、
 脚本或音频哈希重复、跨平台串线及绑定漂移均失败关闭。
 
-当前自动化为 A君 `1044/1044`、Pipeline `67/67`、内容插件 `97/97`、Publisher
-`203/203`。这只证明源码候选和测试 fixture；当前 `4321` 仍是旧进程，live 内容插件仍为
-`0.4.7`。本轮没有真实 Provider 调用或平台发布。
+当前根自动化为 `1557/1557`，其中 A君 `1092/1092`、Pipeline `67/67`、内容插件
+`97/97`、Publisher `203/203`；Node 24.18.1 的完整 `test`/`check` 也通过。A君 `4321` 已加载
+本轮不可变 release，但 live 内容插件仍为 `0.4.7`。本轮没有真实 Provider 调用或平台发布。
 Paperclip Run-JWT 与一次性恢复 Approval 版本锁定兼容补丁合并 `15/15`。controller
 cutover 工具 `15/15`，其快照读写 TOCTOU 已使用同 fd、`O_NOFOLLOW`、dev/ino 复验、
 原子 no-replace 发布和固定原目录身份的清理器修复；post-link 父目录替换后两侧目录零残留、
 0 Paperclip PATCH，清理不完整时标记 `recoveryRequired`。A君 current-run 恢复 access 已实际 wire 进 server composition
 和 metrics 请求级 Run 凭据作用域，provider composition `43/43`、相关 server/controller
-`84/84`。原始 live Paperclip adapter 仍未 apply 兼容补丁，当前 `4321` 进程也早于本轮
-源码并未加载该 binding；因此 live HTTP 控制器还不能凭上述本地证据宣称执行闭环。一次性恢复必须绑定
+`84/84`。当前 `4321` 已加载该 binding，但原始 live Paperclip adapter 仍未 apply 兼容补丁；
+因此 live HTTP 控制器仍不能凭上述本地证据宣称执行闭环。一次性恢复必须绑定
 company/agent/run/issue/link 和 canonical scope，过期、撤销与 consume 原子互斥，同一
 run/agent/scope 只允许 exact replay。运行时切换恢复另分为 `exact_previous` 与
 `verified_degraded_fallback`：前者要求内置可信 OS/launchd/不可变 release 联合证明和兼容
@@ -239,7 +241,7 @@ M3 内容增长链路在业务产物层新增两个后台按需岗位，不新�
 | 内容请求、统一内容包和能力说明 | M2 内容获取中心与业务 checkpoint | 记录来源与实际能力，不保存原始凭据或会话 |
 | 机器转录、质量报告、自动/人工确认声明和确认稿 | 小D业务存储 | 版本、确认方式和校验值不可静默覆盖；正式下游只认确认稿 |
 | 拆解、平台草稿和表现复盘 | A君业务产物存储 | 以来源产物引用连接版本；草稿不代表已发布 |
-| M5 活动阶段、并行分支、阻塞、预算、审批与恢复 | Paperclip Project / Case / Routine / Issue / Work Product | A君只聚合显示，不保存第二份活动状态；v2 已 live apply 为 15 阶段、17 Routine、5 控制器的结构。Run-JWT 与一次性恢复 Approval 兼容补丁未 apply；A君恢复 provider 已在源码 composition 接线但 live 未加载，结构对账不等于执行闭环 |
+| M5 活动阶段、并行分支、阻塞、预算、审批与恢复 | Paperclip Project / Case / Routine / Issue / Work Product | A君只聚合显示，不保存第二份活动状态；v2 已 live apply 为 15 阶段、17 Routine、5 控制器的结构。A君 live 已加载恢复 provider，但 Paperclip 侧 Run-JWT 与一次性恢复 Approval 兼容补丁未 apply，结构对账不等于执行闭环 |
 | M5 内容工具、素材/成片哈希、固定产物清单与插件费用事件 | Paperclip 内容插件与受控内容工作区 | live 插件为 `0.4.7`；Secret 值不进入产物或日志 |
 | M5 发布凭证与指标快照 | Publisher Gateway 插件状态及 Paperclip Work Product | 独立 `4390` 服务默认 `disabled`；production 代码已接线但 live 未注入，且无真实 selector、Profile lease 或写授权 |
 | Agent军团知识总结笔记 | Auto-work 统一内容库 `Agent军团/` | 小办只有受限写入，不拥有 Vault 全盘读取 |

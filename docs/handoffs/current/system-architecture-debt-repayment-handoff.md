@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 候选 1–7 完成，待可追溯 release 切换 |
+| 状态 | 已关闭（2026-08-02） |
 | 创建时间 | 2026-08-02（Asia/Shanghai） |
 | 交出者 | Codex |
 | 接手者 | Codex / 后续验收者 |
@@ -15,22 +15,22 @@
   Workspace/测试架构，并从可追溯源码生成正式不可变发布。
 - 用户约束与不可做事项：保留现有脏工作；不付费、不发布、不扩权、不读取或记录凭据。
 - 做完的定义：执行计划每项完成要求都有当前代码、自动化、迁移、release 和 live 证据。
-- 唯一下一步：在当前候选改动形成可追溯 source revision 后，生成新的不可变 release 并执行双 smoke；通过前不得替换 R4。
-- 允许继续的前提：当前用户改动保持可追踪；live R4 和 Publisher 不被未验证源码覆盖。
+- 唯一下一步：无；如需 Node 24 live、真实 Provider 或平台发布，另建独立授权任务。
+- 允许继续的前提：如重新打开本项，必须重新核对 live PID/cwd、SQLite 备份与源码 worktree 身份。
 
 ## 2. 当前事实
 
 | 类别 | 事实 | 证据位置 | 状态 |
 | --- | --- | --- | --- |
 | 代码与文档 | 分支 `experiment/governance-hermes-full-migration`，起始 HEAD `400cc08e…`，工作树原有大量未提交改动 | `git status --short`、执行计划 | 已验证 |
-| 自动化 | A君 1078、Pipeline 67、内容插件 97、Publisher 203、共享包 12 项通过 | 本轮回归命令 | 已验证 |
-| 本地运行时 | A君 PID 58141 从 R4 不可变 release 运行；Publisher PID 82321 从当前 Publisher 目录运行 | `ps`、`lsof -d cwd` | 已验证 |
+| 自动化 | Node 22 根回归 1557；Node 24.18.1 根 `test`/`check` 通过；A君 1092 | 本轮回归命令 | 已验证 |
+| 本地运行时 | A君验收 PID 52870 从 `389141e4…` 不可变 release 运行并持有 SQLite；Publisher PID 82321 保持原服务 | launchd、`lsof`、HTTP 探针 | 已验证 |
 | 外部平台 | 本轮未调用 Provider、未发布、未扩权 | 本交接单 | 未验证且保持关闭 |
 | 人工确认 | 用户明确要求候选 1–7 全部实施 | 当前任务 | 已确认 |
 
 ## 3. 变更与决策
 
-- 已完成：候选 1–7 的代码边界、架构审计、ADR-0010、全量回归、SQLite 影子迁移和最终临时候选 release 双 smoke。
+- 已完成：候选 1–7、架构审计、ADR-0010、双 Node 回归、SQLite 正式迁移、可追溯不可变 release 与二次启动恢复。
 - 关键文件：[ADR-0010](../../adr/0010-modular-monolith-contract-kernel-and-workspaces.md)、
   [执行计划](../../plans/architecture-debt-repayment-execution.md)。
 - 已确定的边界与兼容性约束：Paperclip 组织真相、Hermes 会话、飞书展示、M5 活动状态和
@@ -41,17 +41,17 @@
 
 | 层级 | 结论 | 命令或证据 | 未证明部分 |
 | --- | --- | --- | --- |
-| 自动化 | PASS | A君 1078/1078；Pipeline 67/67；插件 97/97；Publisher 203/203；共享包 12/12 | 不替代 live/external 验收 |
-| 数据迁移 | SHADOW PASS | 真实 JSON 临时导入 SQLite：585/25/16/6/5，关键 ID 摘要一致 | 未修改源 JSON，未切换 Store |
-| 候选发布 | PASS | `b95f3001…`，7592 项；主启动与只读恢复启动通过；临时目录已删除 | 来源为 dirty，不可作为正式切换凭据 |
-| 运行时 | OLD LIVE PASS | PID/cwd/entrypoint 已核对；A君 overview 与 Publisher health 均为 200；仍为 R4 | 正式新 release 未切换 |
+| 自动化 | PASS | Node 22 `1557/1557`；Node 24.18.1 根 `test`/`check` exit 0；架构检查通过 | 不替代 live/external 验收 |
+| 数据迁移 | LIVE PASS | `587/25/16/6/5` 事务导入 SQLite，关键 ID 全通过；JSON 与 `0600` 校验备份保留 | 不证明外部平台状态 |
+| 正式发布 | PASS | `releaseHash=389141e4…`、`payloadHash=948cbbce…`、7092 项；绑定提交 `26a4a461…` | 未推送本地来源提交 |
+| 运行时 | PASS | PID `52608 → 52870`；cwd、SQLite 文件句柄、二次启动数量及 A君/Publisher HTTP 均通过 | 不替代真实 Provider/发布验收 |
 | 外部平台 | NOT CHECKED | 未执行外部动作 | Provider、飞书、双平台发布 |
-| 人工验收 | PARTIAL | 用户已批准实施全部候选 | 最终操作与恢复体验待验收 |
+| 人工验收 | PASS FOR SCOPE | 用户已批准实施全部候选；本机运行路径已执行 | 外部平台另行授权 |
 
 ## 5. 风险、权限与关闭
 
-- 当前阻塞或风险：原工作树存在大批用户改动；没有可追溯 source revision 前生成或切换不可变 release 会破坏来源证明。
+- 当前阻塞或风险：原工作树仍有大量用户改动，但未被整理或提交；正式运行绑定独立干净 worktree，不依赖主工作树。
 - 不得复制或展示的信息：`.env`、Key、Cookie、token、授权链接、私人任务正文。
 - 需要谁确认：真实付费调用、平台写权限、真实发布和外部消息仍需负责人独立确认。
-- 关闭条件：执行计划全部门禁通过，文档同步，交接状态改为已关闭。
-- 关闭证据链接：后续写入对应验收记录。
+- 关闭条件：已满足；执行计划、自动化、迁移、release、live 与文档门禁均通过。
+- 关闭证据链接：[执行计划](../../plans/architecture-debt-repayment-execution.md)、[ADR-0010](../../adr/0010-modular-monolith-contract-kernel-and-workspaces.md)。
