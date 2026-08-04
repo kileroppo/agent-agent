@@ -28,7 +28,7 @@ test('按运行时白名单冻结内容寻址只读包，并排除data、测试�
   );
   for (const sourceFile of [
     'hermes-oneshot-policy.js',
-    'm5-work-product-integrity.js',
+    'task-execution-coordinator.js',
     'task-service.js',
   ]) {
     assert.equal(
@@ -994,7 +994,7 @@ async function createFixture(context, suffix) {
     ['apps/ajun-runtime/src/recovery-server.js', recoveryServerSource],
     ['apps/ajun-runtime/src/local.js', "import '@agent-army/m5-content-pipeline';\nimport '@agent-army/m5-kernel';\nimport '@agent-army/paperclip-content-autonomy/signed-budget-ticket';\nimport '@agent-army/m5-publisher-gateway';\nimport 'ajun-common-access/content-acquisition-center';\nimport '@agent-army/boom-monitor';\nimport '@agent-army/m5-contracts';\nimport '@agent-army/paperclip-client';\nimport 'pkg';\n"],
     ['apps/ajun-runtime/src/hermes-oneshot-policy.js', 'export const policy = true;\n'],
-    ['apps/ajun-runtime/src/m5-work-product-integrity.js', 'export const integrity = true;\n'],
+    ['apps/ajun-runtime/src/task-execution-coordinator.js', 'export const execute = true;\n'],
     ['apps/ajun-runtime/src/task-service.js', 'export const tasks = true;\n'],
     ['apps/ajun-runtime/src/runtime.log', 'runtime log must not ship\n'],
     ['apps/ajun-runtime/public/index.html', '<!doctype html>\n'],

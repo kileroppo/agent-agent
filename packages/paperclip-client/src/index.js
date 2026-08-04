@@ -160,6 +160,34 @@ export class PaperclipM5Client {
   }
 }
 
+export class PaperclipOrganizationClient {
+  constructor({ endpoint } = {}) {
+    this.endpoint = endpoint;
+  }
+
+  health() { return this.request('GET', '/api/health'); }
+  listCompanies() { return this.request('GET', '/api/companies'); }
+  listAgents(companyId) {
+    return this.request('GET', `/api/companies/${pathId(companyId)}/agents`);
+  }
+  createIssue(companyId, body) {
+    return this.request('POST', `/api/companies/${pathId(companyId)}/issues`, body);
+  }
+  createChildIssue(parentIssueId, body) {
+    return this.request('POST', `/api/issues/${pathId(parentIssueId)}/children`, body);
+  }
+  createApproval(companyId, body) {
+    return this.request('POST', `/api/companies/${pathId(companyId)}/approvals`, body);
+  }
+
+  request(method, path, body) {
+    if (!this.endpoint || typeof this.endpoint.request !== 'function') {
+      throw new TypeError('PaperclipOrganizationClient 需要可调用 request 的 endpoint');
+    }
+    return this.endpoint.request(method, path, { body });
+  }
+}
+
 function pathId(value) {
   return encodeURIComponent(String(value));
 }

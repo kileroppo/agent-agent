@@ -73,6 +73,12 @@ test('A君控制台先说明当前状态和唯一下一步，并把历史噪音�
   assert.match(script, /需要你/);
   assert.match(script, /无需处理/);
   assert.match(script, /对外发布关闭/);
+  assert.match(script, /今日费用未上报/);
+  assert.match(script, /正式岗位，不含系统控制器/);
+  assert.match(script, /isRoutineNoise/);
+  assert.match(script, /isRecentOwnerTask/);
+  assert.match(script, /'feishu', 'local-ui', 'hermes-native'/);
+  assert.match(script, /focus\.inProgress/);
   assert.match(script, /默认账号已明确/);
   assert.match(script, /真实读取成功/);
   assert.match(script, /设为.*默认账号/);

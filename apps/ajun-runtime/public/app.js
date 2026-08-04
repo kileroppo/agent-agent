@@ -547,9 +547,8 @@ function render() {
 }
 
 function renderOverviewStats() {
-  const tasks = overview.tasks || [];
-  const active = tasks.filter((task) => taskStatusGroup(task.status) === 'active').length;
   const focus = overview.taskFocus || {};
+  const active = Number.isFinite(focus.inProgress) ? focus.inProgress : 0;
   const ownerActionable = Number.isFinite(focus.ownerActionable) ? focus.ownerActionable : (focus.next ? 1 : 0);
   const readyAgents = overview.agents.filter((agent) => ['active', 'ready', 'external', 'connected', 'verified'].includes(agent.status)).length;
   overviewSummary.textContent = ownerActionable
@@ -560,7 +559,7 @@ function renderOverviewStats() {
   const cards = [
     statCard('需要你', ownerActionable, ownerActionable ? '打开上方下一步处理' : '目前无需决定', 'target', ownerActionable > 0),
     statCard('正在处理', active, active ? '系统会继续推进' : '没有执行中的工作', 'clock'),
-    statCard('可用员工', `${readyAgents}/${overview.agents.length}`, '按任务自动安排', 'employees')
+    statCard('可用员工', `${readyAgents}/${overview.agents.length}`, '正式岗位，不含系统控制器', 'employees')
   ];
   overviewStats.replaceChildren(...cards);
 }
@@ -601,7 +600,7 @@ function renderTaskLists() {
   taskLoadMore.hidden = Boolean(selectedTaskId) || shown.length >= filtered.length;
   if (!taskLoadMore.hidden) taskLoadMore.textContent = `再显示 ${Math.min(24, filtered.length - shown.length)} 条`;
   updateTaskFilterCounts(tasks);
-  renderRecentTasks(tasks.slice(0, 3));
+  renderRecentTasks(tasks.filter(isRecentOwnerTask).slice(0, 3));
 }
 
 function updateTaskFilterCounts(tasks) {
@@ -632,6 +631,19 @@ function renderRecentTasks(tasks) {
     item.innerHTML = `<span class="recent-task-dot${attention ? ' attention' : ''}"></span><span class="recent-task-title">${escapeHtml(task.input.title)}</span><span class="recent-task-status">${escapeHtml(statusLabel(task.status))}</span>`;
     return item;
   }));
+}
+
+function isRoutineNoise(task) {
+  if (task?.taskType !== 'operations.health-review' || task?.source?.channel !== 'paperclip') return false;
+  const title = String(task.input?.title || '').trim();
+  const description = String(task.input?.description || '').trim();
+  return title === 'A君定时本机巡检' || description.startsWith('agent-army:operations-health-v1');
+}
+
+function isRecentOwnerTask(task) {
+  if (isRoutineNoise(task)) return false;
+  const channels = [task?.source?.channel, task?.source?.originChannel].map((value) => String(value || '').trim());
+  return channels.some((channel) => ['feishu', 'local-ui', 'hermes-native'].includes(channel));
 }
 
 function taskCard(task) {
@@ -764,6 +776,7 @@ function renderFocus(focus) {
     : '<a class="focus-primary-action secondary" href="#records">打开任务记录</a>';
   const governanceReady = overview.capabilities.some((item) => item.id === 'governance' && item.status === 'ready');
   const externalWriteReady = overview.capabilities.some((item) => item.id === 'external-execution' && item.status === 'ready');
+  const costText = usageCostText(overview.usage);
   focusPanel.innerHTML = `
     <div class="focus-copy">
       <p class="focus-state ${needsOwner ? 'needs-owner' : current ? 'is-running' : 'is-clear'}">${needsOwner ? '需要你决定' : current ? '系统正在处理' : '无需处理'}</p>
@@ -776,7 +789,14 @@ function renderFocus(focus) {
       <span>${governanceReady ? 'Paperclip 已连接' : '治理连接待恢复'}</span>
       <span>${externalWriteReady ? '对外写入按审批开放' : '对外发布关闭'}</span>
       <span>${focus.inProgress ? `${focus.inProgress} 项正在推进` : '没有执行中任务'}</span>
+      <span>${escapeHtml(costText)}</span>
     </div>`;
+}
+
+function usageCostText(usage) {
+  const totals = usage?.cost?.totals || [];
+  if (!usage?.cost?.reportedTaskCount || !totals.length) return '今日费用未上报';
+  return `今日已上报费用 ${totals.map((item) => `${item.amount} ${item.currency}`).join(' · ')}`;
 }
 
 function isDirectEmployee(agent) {

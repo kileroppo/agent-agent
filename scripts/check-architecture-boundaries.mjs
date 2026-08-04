@@ -9,6 +9,13 @@ const root = path.resolve(
 const sourceRoots = ['apps', 'integrations', 'packages'];
 const ignoredSegments = new Set(['node_modules', 'data', 'dist', 'build', 'work', 'test', 'tests']);
 const sourceExtensions = new Set(['.js', '.mjs']);
+const retiredAjunM5Facades = new Set([
+  'm5-campaign-domain.js',
+  'm5-content-version.js',
+  'm5-route-execution.js',
+  'm5-routine-execution-contract.js',
+  'm5-work-product-integrity.js',
+]);
 const violations = [];
 const manifestCache = new Map();
 const workspaceManifests = await discoverWorkspaceManifests();
@@ -43,6 +50,10 @@ for (const sourceRoot of sourceRoots) {
     }
     if (/\/data\/runtime\.json(?:["']|$)/.test(source)) {
       violations.push(`${relative}: 生产源码不得静态导入 runtime.json`);
+    }
+    if (relative.startsWith(`apps${path.sep}ajun-runtime${path.sep}src${path.sep}`)
+      && retiredAjunM5Facades.has(path.basename(relative))) {
+      violations.push(`${relative}: 已退役的 M5 转发门面不得回流，请直接使用 m5-kernel 包 exports`);
     }
     for (const match of source.matchAll(/(?:from\s+|import\s*\(\s*|import\s+)["']([^"']+)["']/g)) {
       if (!match[1].startsWith('.')) {

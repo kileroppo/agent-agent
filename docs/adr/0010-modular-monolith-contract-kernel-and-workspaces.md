@@ -68,3 +68,17 @@ A君、Pipeline、内容插件与 Publisher 重复；启动文件同时承担装
   回滚备份均保留。
 - 不可变 release `389141e4…` 已绑定独立干净源码提交 `26a4a461…`，主启动、只读恢复、静态
   闭包与快照绑定通过；launchd 二次启动后 PID、cwd、SQLite 句柄和数量一致。
+
+## 2026-08-03 抽象边界深化
+
+- TaskService 的任务类型知识集中到 `TaskCapabilityCatalog`；执行编排和概览关注点分别进入
+  `TaskExecutionCoordinator` 与 `task-overview-focus`，外层服务保留兼容 API 与装配职责。
+- `M5ControlPlane` 从宽泛代理收敛为内核真实调用面；Fake 与 Paperclip Adapter 通过同一接口
+  测试，路由和 Routine 契约测试归属迁回 M5 内核。
+- `paperclip-client` 新增组织级语义客户端，A君的任务/子任务投影、公司和员工解析进入独立
+  `PaperclipTaskProjector`；Bridge 不再自行拼装这组端点与投影正文。
+- 删除 A君对 M5 内核的一行转发门面，生产调用直接使用包 exports；架构检查阻止门面回流。
+- affected tests 能按上述深层 Module 选择接缝测试，未知文件或跨模块变更仍退回 Workspace
+  全量验证，避免用局部通过冒充整体通过。
+- 本节记录候选源码与自动化测试边界，不代表新的不可变 release、运行进程、Paperclip 资源
+  或外部 Provider 已切换；这些仍需独立发布与 live 验收。

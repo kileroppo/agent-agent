@@ -5,6 +5,7 @@ export {
 export {
   assertM5ControlPlane,
   createFakeM5ControlPlane,
+  M5_CONTROL_PLANE_METHODS,
   M5ControlPlane,
 } from './control-plane.js';
 export {

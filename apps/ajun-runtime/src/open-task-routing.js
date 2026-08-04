@@ -1,21 +1,10 @@
 import { createHash } from 'node:crypto';
 import { assertNoSensitiveData } from './goal-spec.js';
-import { INTEL_RESEARCH_OPEN_TASK_EXECUTION_CONTRACT } from './m5-routine-execution-contract.js';
-import { createM5ObservationDecision } from './m5-route-execution.js';
+import { INTEL_RESEARCH_OPEN_TASK_EXECUTION_CONTRACT } from '@agent-army/m5-kernel/routine-execution-contract';
+import { createM5ObservationDecision } from '@agent-army/m5-kernel/route-execution';
+import { DEFAULT_TASK_CAPABILITY_CATALOG } from './task-capability-catalog.js';
 
-export const OPEN_TASK_DELEGATES = Object.freeze({
-  'army.goal-program':'army.route-task',
-  'media.open-production':'media.transcribe-and-refine',
-  'research.open-investigation':'research.intel-report',
-  'office.deliverable-program':'office.briefing-package',
-  'operations.incident-response':'operations.health-review',
-  'governance.capability-design':'governance.agent-proposal',
-  'governance.assurance-review':'governance.approval-review',
-  'governance.architecture-experiment':'governance.architecture-review',
-  'operations.engineering-resolution':'operations.technical-repair',
-  'content.analysis-program':'content.video-benchmark-analysis',
-  'content.creation-program':'content.video-script-package'
-});
+export const OPEN_TASK_DELEGATES = DEFAULT_TASK_CAPABILITY_CATALOG.openTaskDelegates();
 const CONTROLLED_SOURCE_MATERIAL = Symbol.for(
   'agent.army.openResearch.controlledSourceMaterial',
 );

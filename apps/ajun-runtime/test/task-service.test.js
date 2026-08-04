@@ -4,7 +4,7 @@ import { TaskService, ValidationError } from '../src/task-service.js';
 import {
   createM5RouteExecution,
   routeDescriptorFingerprint,
-} from '../src/m5-route-execution.js';
+} from '@agent-army/m5-kernel/route-execution';
 
 function setup({
   agents = [],
@@ -316,7 +316,7 @@ test('微信聊天任务自动采用默认范围并且只创建一次隐私确�
   assert.equal(records.approvals[0].action, 'wechat-private-chat-read');
   assert.equal(records.approvals[0].governanceMode, 'local');
   assert.equal(records.approvals[0].requestedScope.chatSelector, 'yingz');
-  assert.match(records.approvals[0].reason, /本机回环地址上的 qwen3:14b/);
+  assert.match(records.approvals[0].reason, /本机回环地址上的 Qwen3.5-9B/);
   assert.match(records.approvals[0].reason, /30 分钟内复用，最多 10 个任务，可随时撤销/);
 
   const completed = await service.approveApproval(records.approvals[0].approvalId);
@@ -1989,7 +1989,8 @@ test('概览优先呈现待审批任务，并给出不会自动继续的下一�
   );
   records.approvals.push({ approvalId:'approval-1', taskId:'task-waiting', status:'pending' });
   const overview = await service.overview();
-  assert.deepEqual(overview.taskFocus, { total:3, completed:1, inProgress:1, paused:0, needsInput:0, waitingApproval:1, waitingTest:0, failed:0, ownerActionable:1, reviewBacklog:0, next:{ taskId:'task-waiting', title:'发布周报', status:'waiting_approval', action:'请确认任务范围；在你确认前，系统不会继续执行。' } });
+  const waitingAction = { taskId:'task-waiting', title:'发布周报', status:'waiting_approval', action:'请确认任务范围；在你确认前，系统不会继续执行。' };
+  assert.deepEqual(overview.taskFocus, { total:3, completed:1, inProgress:1, backgroundInProgress:0, paused:0, needsInput:0, waitingApproval:1, waitingTest:0, failed:0, ownerActionable:1, reviewBacklog:0, actions:[waitingAction], next:waitingAction });
 });
 test('概览把等待 Mac工作间的任务列为进行中并说明自动领取', async () => {
   const { service, records } = setup();
@@ -2084,14 +2085,15 @@ test('概览保留历史未完成计数，但不把早于后续用户结果的�
   assert.equal(overview.taskFocus.needsInput, 1);
   assert.equal(overview.taskFocus.next, null);
 });
-test('概览把尚未继续的接收建议当作当前下一步，而不是误报全部完成', async () => {
+test('概览不把已经完成的接收建议冒充老板待办', async () => {
   const { service, records } = setup();
   records.tasks.push({ taskId:'task-intake', status:'succeeded', approvalRefs:[], input:{ title:'评估岗位能力', description:'', sourceUrl:null }, artifactRefs:[{ type:'task_intake_record', data:{ recommendedTaskType:'governance.architecture-review', recommendedAgentId:'architect' } }], updatedAt:'2026-07-20T10:00:00.000Z' });
   const overview = await service.overview();
-  assert.equal(overview.taskFocus.ownerActionable, 1);
-  assert.deepEqual(overview.taskFocus.next, { taskId:'task-intake', title:'评估岗位能力', status:'succeeded', action:'A君已经给出下一步建议；确认后可按建议创建后续任务。' });
+  assert.equal(overview.taskFocus.ownerActionable, 0);
+  assert.deepEqual(overview.taskFocus.actions, []);
+  assert.equal(overview.taskFocus.next, null);
 });
-test('概览有系统后台任务运行时仍优先显示需要老板决定的接收建议', async () => {
+test('概览有业务任务运行时不让已完成的接收建议抢占下一步', async () => {
   const { service, records } = setup();
   records.tasks.push(
     {
@@ -2108,8 +2110,8 @@ test('概览有系统后台任务运行时仍优先显示需要老板决定的�
   );
   const overview = await service.overview();
   assert.equal(overview.taskFocus.inProgress, 1);
-  assert.equal(overview.taskFocus.ownerActionable, 1);
-  assert.equal(overview.taskFocus.next.taskId, 'task-intake');
+  assert.equal(overview.taskFocus.ownerActionable, 0);
+  assert.equal(overview.taskFocus.next.taskId, 'task-running');
 });
 test('概览不把早于后续用户结果的旧接收建议重新顶到当前下一步', async () => {
   const { service, records } = setup();
@@ -2130,6 +2132,36 @@ test('概览不把早于后续用户结果的旧接收建议重新顶到当前�
   );
   const overview = await service.overview();
   assert.equal(overview.taskFocus.next, null);
+});
+
+test('概览把 Paperclip 定时巡检留在记录里但不算业务进行中', async () => {
+  const { service, records } = setup();
+  records.tasks.push({
+    taskId:'scheduled-health', taskType:'operations.health-review', status:'running', approvalRefs:[],
+    source:{ channel:'paperclip' },
+    input:{ title:'A君定时本机巡检', description:'agent-army:operations-health-v1\n只读检查。' },
+    updatedAt:'2026-08-02T07:00:00.000Z'
+  });
+  const overview = await service.overview();
+  assert.equal(overview.tasks.length, 1);
+  assert.equal(overview.taskFocus.inProgress, 0);
+  assert.equal(overview.taskFocus.backgroundInProgress, 1);
+  assert.equal(overview.taskFocus.next, null);
+});
+
+test('概览最多返回五条真正需要老板处理的待办', async () => {
+  const { service, records } = setup();
+  for (let index = 0; index < 7; index += 1) {
+    records.tasks.push({
+      taskId:`task-approval-${index}`, status:'waiting_approval', approvalRefs:[],
+      source:{ channel:'feishu' }, input:{ title:`待确认 ${index}` },
+      updatedAt:`2026-08-02T07:0${index}:00.000Z`
+    });
+  }
+  const overview = await service.overview();
+  assert.equal(overview.taskFocus.ownerActionable, 7);
+  assert.equal(overview.taskFocus.actions.length, 5);
+  assert.equal(overview.taskFocus.next.taskId, overview.taskFocus.actions[0].taskId);
 });
 
 test('概览如实区分已能收发飞书与尚未接入的外部账号写入动作', async () => {

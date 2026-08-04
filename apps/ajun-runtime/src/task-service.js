@@ -15,12 +15,15 @@ import {
 } from './open-task-routing.js';
 import { WECHAT_CHAT_TASK_TYPE, normalizeWechatChatRequest, wechatApprovalScope } from './wechat-chat-defaults.js';
 import { SkillExecutionRegistry } from './skill-execution-registry.js';
+import { TaskCapabilityCatalog } from './task-capability-catalog.js';
+import { TaskExecutionCoordinator } from './task-execution-coordinator.js';
+import { buildTaskFocus } from './task-overview-focus.js';
 import { privateReadGrantStatus, revokePrivateReadGrant } from './private-read-grant.js';
 import {
   assertPaperclipEmployeeExecutorAssignment,
   resolvePaperclipAssignmentTaskType,
 } from './paperclip-employee-assignment.js';
-import { getM5RoutineExecutionContract } from './m5-routine-execution-contract.js';
+import { getM5RoutineExecutionContract } from '@agent-army/m5-kernel/routine-execution-contract';
 import {
   getActiveM5PlanRevision,
   healthyM5StageWorkProducts,
@@ -31,8 +34,8 @@ import {
   assertChangedM5RecoveryRoute,
   createM5RouteExecution,
   validM5RouteExecution,
-} from './m5-route-execution.js';
-import { m5WorkProductArtifactHash } from './m5-work-product-integrity.js';
+} from '@agent-army/m5-kernel/route-execution';
+import { m5WorkProductArtifactHash } from '@agent-army/m5-kernel/work-product-integrity';
 import {
   M5_PLATFORMS,
   M5_STEPFUN_MODELS,
@@ -66,11 +69,14 @@ export class TaskService {
     m5ProviderVision = null,
     m5WorkProductValidator = null,
     skillExecutionRegistry = new SkillExecutionRegistry(),
+    capabilityCatalog = new TaskCapabilityCatalog({ executors }),
+    localAiCapabilityStatus = null,
   }) {
     this.registry = registry;
     this.store = store;
     this.governance = governance;
     this.executors = executors;
+    this.capabilityCatalog = capabilityCatalog;
     this.fallbackExecutor = fallbackExecutor;
     this.onTaskFailed = onTaskFailed;
     this.feishuChannelStatus = feishuChannelStatus;
@@ -85,10 +91,21 @@ export class TaskService {
       ? m5WorkProductValidator
       : null;
     this.skillExecutionRegistry = skillExecutionRegistry;
+    this.localAiCapabilityStatus = typeof localAiCapabilityStatus === 'function' ? localAiCapabilityStatus : null;
     this.contentGrowthWaitMs = Math.max(1, Math.min(Number(contentGrowthWaitMs) || 240_000, 240_000));
     this.contentGrowthRuns = new Map();
     this.employeeAssignmentRuns = new Map();
     this.m5WorkProductObserver = null;
+    this.executionCoordinator = new TaskExecutionCoordinator({
+      store,
+      governance,
+      capabilityCatalog,
+      executorResolver:(agentId) => capabilityCatalog.executor(agentId, this.executors),
+      fallbackExecutor,
+      fallbackExecutorResolver:() => this.fallbackExecutor,
+      markFailureRecoveryPending:(task) => this.markFailureRecoveryPending(task),
+      startFailureRecovery:(task) => this.startFailureRecovery(task),
+    });
   }
 
   setFeishuChannelStatus(status) { this.feishuChannelStatus = status; }
@@ -233,7 +250,7 @@ export class TaskService {
         decisionChannel:'feishu_card',
         action:'wechat-private-chat-read',
         riskLevel:'high',
-        reason:`只读“${wechatChat.chatSelector}”今天至当前的聊天，最多 ${wechatChat.maxMessages} 条；同名时自动选最近活跃会话。原文不落盘，仅交给本机回环地址上的 qwen3:14b 分析，不进入云模型或外部平台。批准后同一飞书会话、岗位和读取范围可在 30 分钟内复用，最多 10 个任务，可随时撤销。`,
+        reason:`只读“${wechatChat.chatSelector}”今天至当前的聊天，最多 ${wechatChat.maxMessages} 条；同名时自动选最近活跃会话。原文不落盘，仅交给本机回环地址上的 Qwen3.5-9B 分析，不进入云模型或外部平台。批准后同一飞书会话、岗位和读取范围可在 30 分钟内复用，最多 10 个任务，可随时撤销。`,
         requestedBy:'ajun',
         approverScope:'A君',
         requestedScope:wechatApprovalScope(task),
@@ -519,61 +536,7 @@ export class TaskService {
   }
 
   async executeTask(task, agent) {
-    if (usesPaperclipHermesExecution(agent) && task.status !== 'waiting_approval') {
-      const projected = Boolean(task.governance?.paperclipIssueId);
-      return this.store.updateTask(task.taskId, {
-        status:projected ? 'running' : 'needs_input',
-        currentStage:projected ? 'waiting_paperclip_heartbeat' : 'waiting_governance',
-        execution:{
-          ...(task.execution || {}),
-          owner:'paperclip-hermes',
-          hermesProfileId:agent.agentId,
-          paperclipIssueId:task.governance?.paperclipIssueId || null,
-          delegatedAt:new Date().toISOString()
-        },
-        ...(!projected ? {
-          error:{
-            code:'paperclip_projection_required',
-            message:task.governance?.reason || 'Paperclip 任务投影尚未建立。',
-            userMessage:'这名员工由 Paperclip 唤醒；治理总控恢复前不会改走本地重复执行器。',
-            category:'governance',
-            stage:'paperclip_projection',
-            retryable:true,
-            occurredAt:new Date().toISOString()
-          }
-        } : { error:undefined })
-      });
-    }
-    const executor = agent?.status === 'active' ? this.executors[agent.agentId] || (this.fallbackExecutor?.supports(agent) ? this.fallbackExecutor : null) : null;
-    if (!executor || task.status === 'waiting_approval') return task;
-    const executionStartedAt = new Date();
-    let updated = await this.store.updateTask(task.taskId, { status: 'running', currentStage: 'starting', execution: { executor: agent.agentId, startedAt: executionStartedAt.toISOString() } });
-    if (this.governance && updated.governance?.paperclipIssueId) updated = await this.store.updateTask(updated.taskId, { governance: await this.governance.update(updated) });
-    try {
-      const result = await executor.execute(routeOpenTaskForExecutor(updated, agent));
-      updated = await this.store.updateTask(updated.taskId, { ...result, usage:recordTaskUsage({ task:updated, result, startedAt:executionStartedAt }) });
-      if (updated.status === 'running' && typeof executor.observe === 'function') executor.observe(updated);
-    } catch (error) {
-      const result = {
-        status: 'failed',
-        currentStage: 'execution_failed',
-        execution:{ ...(updated.execution || {}), finishedAt:new Date().toISOString(), outcome:'failed' },
-        error: {
-          code:String(error?.code || 'executor_failed').slice(0, 120),
-          message:String(error?.message || '执行器失败。').slice(0, 500),
-          userMessage:'本地任务未能完成，请查看安全诊断。',
-          category:String(error?.category || 'manual').slice(0, 80),
-          stage:'execution',
-          retryable:error?.retryable === true,
-          occurredAt:new Date().toISOString()
-        }
-      };
-      updated = await this.store.updateTask(updated.taskId, { ...result, usage:recordTaskUsage({ task:updated, result, startedAt:executionStartedAt }) });
-    }
-    if (this.governance && updated.governance?.paperclipIssueId) updated = await this.store.updateTask(updated.taskId, { governance: await this.governance.update(updated) });
-    updated = await this.markFailureRecoveryPending(updated);
-    this.startFailureRecovery(updated);
-    return updated;
+    return this.executionCoordinator.execute(task, agent);
   }
 
   async getPaperclipAssignment(input = {}) {
@@ -1608,7 +1571,7 @@ export class TaskService {
     let run = this.employeeAssignmentRuns.get(task.taskId);
     const joined = Boolean(run);
     if (!run) {
-      const executor = this.executors[assignment.agentId];
+      const executor = this.capabilityCatalog.executor(assignment.agentId, this.executors);
       if (!observationDrivenResearch && !executor?.execute) {
         throw new ValidationError('当前岗位的受控本机执行器不可用。');
       }
@@ -1795,23 +1758,9 @@ export class TaskService {
 
   async executeContentGrowthAssignment(input = {}) {
     const { task, assignment } = await this.getPaperclipAssignment(input);
-    const allowed = {
-      'video-content-analyst':new Set([
-        'content.video-benchmark-analysis',
-        'content.performance-review',
-        'content.campaign-visual-analysis',
-      ]),
-      'content-creator':new Set(['content.platform-draft', 'content.video-script-package'])
-    };
-    if (!allowed[assignment.agentId]?.has(task.taskType)) throw new ValidationError('当前指派不是受控内容增长任务。');
-    const artifactTypes = {
-      'content.video-benchmark-analysis':'video_content_analysis_report',
-      'content.performance-review':'content_performance_report',
-      'content.campaign-visual-analysis':'visual_analysis_package',
-      'content.platform-draft':'platform_content_draft',
-      'content.video-script-package':'video_script_package'
-    };
-    const expectedType = artifactTypes[task.taskType];
+    const capability = this.capabilityCatalog.contentGrowthContract(task.taskType, assignment.agentId);
+    if (!capability) throw new ValidationError('当前指派不是受控内容增长任务。');
+    const expectedType = capability.artifactType;
     const hasM5Recovery = Boolean(task.input?.context?.m5Recovery);
     const existing = hasM5Recovery
       ? null
@@ -1845,7 +1794,7 @@ export class TaskService {
         duplicate:true
       };
     }
-    const executor = this.executors[assignment.agentId];
+    const executor = this.capabilityCatalog.executor(assignment.agentId, this.executors);
     if (!executor?.execute) throw new ValidationError('内容增长受控执行器不可用。');
     let run = this.contentGrowthRuns.get(task.taskId);
     const joined = Boolean(run);
@@ -2059,7 +2008,7 @@ export class TaskService {
   }
 
   async overview() {
-    const [agents, manager, tasks, approvals, governance, skillReadiness] = await Promise.all([this.registry.list(), this.registry.get('ajun'), this.store.list(), this.store.listApprovals(), this.governance?.health() || { status: 'planned', version: null }, this.skillExecutionRegistry.overview()]);
+    const [agents, manager, tasks, approvals, governance, skillReadiness, localAi] = await Promise.all([this.registry.list(), this.registry.get('ajun'), this.store.list(), this.store.listApprovals(), this.governance?.health() || { status: 'planned', version: null }, this.skillExecutionRegistry.overview(), this.localAiCapabilityStatus?.() || null]);
     const runtimeHealth = await executorRuntimeHealth(this.executors);
     const feishuChannel = channelCapability(this.feishuChannelStatus);
     const agentChannels = safeAgentChannelStates(this.agentChannelStates);
@@ -2093,6 +2042,12 @@ export class TaskService {
       { id: 'governance', name: 'Paperclip 治理投影', status: governance.status, detail: governance.status === 'ready' ? `本机 Paperclip 已连接（${governance.version || '未知版本'}）。` : 'Paperclip 未连接；任务仍可登记，后续可补同步。' },
       { id: 'feishu-channel', name: '飞书收发与员工入口', status:feishuChannel.status, detail:feishuChannel.detail },
       { id: 'mac-worker', name: 'Mac工作间安全接力', status:worker.status, detail:worker.detail },
+      ...(localAi ? [{
+        id:'local-ai',
+        name:'本机 AI 全能力网关',
+        status:localAi.status === 'healthy' ? 'ready' : localAi.status === 'degraded' ? 'partial' : 'unavailable',
+        detail:String(localAi.safeMessage || '本机 AI 网关状态未知。').slice(0, 300),
+      }] : []),
       { id: 'external-execution', name: '外部发布与写入', status: 'planned', detail: '外部发布和其他写入动作尚未接入；登录型只读采集不等于已经开放写入。' }
     ];
     const wechatHealth = runtimeHealth['wechat-chat-retriever'];
@@ -3305,103 +3260,6 @@ async function executorRuntimeHealth(executors) {
     }
   }));
   return Object.fromEntries(entries.filter(Boolean));
-}
-
-function buildTaskFocus(tasks, approvals) {
-  const counts = Object.fromEntries(['queued', 'running', 'waiting_worker', 'pausing', 'paused', 'waiting_approval', 'waiting_test', 'needs_input', 'succeeded', 'failed'].map((status) => [status, tasks.filter((task) => task.status === status).length]));
-  const ownerPriority = ['waiting_approval', 'needs_input', 'paused', 'failed', 'waiting_test'];
-  const systemPriority = ['pausing', 'running', 'waiting_worker', 'queued'];
-  const ownerDecisionStatuses = new Set(['waiting_approval', 'needs_input', 'paused', 'failed', 'waiting_test']);
-  const ownerActionableTasks = tasks.filter((task) =>
-    ownerDecisionStatuses.has(task.status) && isOwnerActionable(task, tasks)
-  );
-  const pendingContinuation = tasks.find((task) =>
-    task.status === 'succeeded'
-    && intakeRecommendation(task)
-    && !tasks.some((child) => child.parentTaskId === task.taskId)
-    && !hasLaterUserOutcome(task, tasks)
-  );
-  const ownerCurrent = ownerPriority.flatMap((status) =>
-    tasks.filter((task) => task.status === status && isOwnerActionable(task, tasks))
-  )[0];
-  const systemCurrent = systemPriority.flatMap((status) =>
-    tasks.filter((task) => task.status === status && isOwnerActionable(task, tasks))
-  )[0];
-  const current = ownerCurrent || pendingContinuation || systemCurrent || null;
-  const approval = current ? approvals.find((item) => current.approvalRefs?.includes(item.approvalId) && item.status === 'pending') : null;
-  return {
-    total: tasks.length,
-    completed: counts.succeeded,
-    inProgress: counts.queued + counts.running + counts.waiting_worker + counts.pausing,
-    paused: counts.paused,
-    needsInput: counts.needs_input,
-    waitingApproval: counts.waiting_approval,
-    waitingTest: counts.waiting_test,
-    failed: counts.failed,
-    ownerActionable: ownerActionableTasks.length + (pendingContinuation ? 1 : 0),
-    reviewBacklog: counts.failed + counts.waiting_test,
-    next: current ? {
-      taskId: current.taskId,
-      title: current.input?.title || '未命名任务',
-      status: current.status,
-      action: nextActionFor(current, approval)
-    } : null
-  };
-}
-
-function isOwnerActionable(task, tasks) {
-  if (!['needs_input', 'failed', 'waiting_test'].includes(task.status)) return true;
-  if (isSupersededBySuccess(task, tasks)) return false;
-  const channel = String(task.source?.channel || '').trim();
-  const originChannel = String(task.source?.originChannel || '').trim();
-  if (!channel && !originChannel) return true;
-  if (hasLaterUserOutcome(task, tasks)) return false;
-  return channel === 'feishu' || originChannel === 'feishu' || channel === 'local-ui' || channel === 'hermes-native';
-}
-
-function isSupersededBySuccess(task, tasks) {
-  const sourceUrl = String(task.input?.sourceUrl || '').trim();
-  if (!sourceUrl) return false;
-  const taskTime = Date.parse(task.updatedAt || task.createdAt || '') || 0;
-  return tasks.some((candidate) =>
-    candidate.taskId !== task.taskId
-    && candidate.status === 'succeeded'
-    && candidate.taskType === task.taskType
-    && String(candidate.input?.sourceUrl || '').trim() === sourceUrl
-    && (Date.parse(candidate.updatedAt || candidate.createdAt || '') || 0) > taskTime
-  );
-}
-
-function hasLaterUserOutcome(task, tasks) {
-  const taskTime = Date.parse(task.updatedAt || task.createdAt || '') || 0;
-  return tasks.some((candidate) => {
-    if (!['succeeded', 'cancelled'].includes(candidate.status)) return false;
-    const candidateChannel = String(candidate.source?.channel || '').trim();
-    const candidateOrigin = String(candidate.source?.originChannel || '').trim();
-    const userFacing = candidateChannel === 'feishu'
-      || candidateOrigin === 'feishu'
-      || candidateChannel === 'local-ui'
-      || candidateChannel === 'hermes-native';
-    return userFacing && (Date.parse(candidate.updatedAt || candidate.createdAt || '') || 0) > taskTime;
-  });
-}
-
-function nextActionFor(task, approval) {
-  if (approval) return '请确认任务范围；在你确认前，系统不会继续执行。';
-  if (intakeRecommendation(task)) return 'A君已经给出下一步建议；确认后可按建议创建后续任务。';
-  if (task.status === 'needs_input') return task.error?.userMessage || '请补充目标、范围或必要素材后再继续。';
-  if (task.status === 'waiting_test') return task.error?.userMessage || '自动检查没有在本轮完成；已保留为待测试，不影响其他任务继续。';
-  if (task.status === 'pausing') return '正在暂停，会在当前步骤完成后的安全位置停下。';
-  if (task.status === 'paused') return '这项任务已暂停，确认继续前不会开始新的处理步骤。';
-  if (task.status === 'waiting_worker') return '这项工作需要老板的 Mac；已安全排队，Mac 上线后会自动领取。';
-  if (task.status === 'failed') return task.error?.userMessage || '这项任务未完成，请根据错误信息决定是否重试或补充信息。';
-  if (task.status === 'running') return '任务正在处理，等待新的进度或结果。';
-  return '任务已排队，等待本地执行器开始处理。';
-}
-
-function intakeRecommendation(task) {
-  const intake = task.artifactRefs?.find((item) => item.type === 'task_intake_record')?.data;
-  return intake?.recommendedTaskType && intake?.recommendedAgentId ? intake : null;
 }
 
 function taskChain(tasks, rootTaskId) {

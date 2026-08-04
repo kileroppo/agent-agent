@@ -6,7 +6,7 @@ import {
   buildM5PlatformCopy,
   deriveM5ContentVersionId,
   validM5MediaChecksum,
-} from './m5-content-version.js';
+} from '@agent-army/m5-kernel/content-version';
 import { validM5ProductionTemplateBinding } from './m5-production-template-resolver.js';
 
 const FULL_ANALYSIS_MODULES = [

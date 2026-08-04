@@ -4,7 +4,7 @@ import {
   consumeM5SystemControllerPlanRevision,
   recoverM5SystemControllerFailure,
 } from '../src/m5-system-controller-recovery.js';
-import { getM5RoutineExecutionContract } from '../src/m5-routine-execution-contract.js';
+import { getM5RoutineExecutionContract } from '@agent-army/m5-kernel/routine-execution-contract';
 
 const CASE_ID = '77777777-7777-4777-8777-777777777777';
 const ISSUE_ID = '88888888-8888-4888-8888-888888888888';

@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { selectAffectedWorkspaces } from './run-affected-tests.mjs';
+import {
+  selectAffectedTestFiles,
+  selectAffectedWorkspaces,
+} from './run-affected-tests.mjs';
 
 function workspace(name, directory, dependencies = []) {
   return [name, {
@@ -40,5 +43,31 @@ test('根脚本变更选择全部 workspace，docs/contracts 只触发 A君', ()
   assert.deepEqual(
     selectAffectedWorkspaces(['scripts/check.mjs'], graph),
     ['@agent-army/client', '@agent-army/contracts', '@agent-army/pipeline', 'ajun-runtime'],
+  );
+});
+
+test('A君深层模块变更只选择该模块及 TaskService 接缝测试', () => {
+  const ajun = graph.get('ajun-runtime');
+  assert.deepEqual(
+    selectAffectedTestFiles([
+      'apps/ajun-runtime/src/task-execution-coordinator.js',
+      'apps/ajun-runtime/test/task-execution-coordinator.test.js',
+    ], ajun),
+    [
+      'test/task-execution-coordinator.test.js',
+      'test/task-service.test.js',
+    ],
+  );
+});
+
+test('A君未知或跨模块文件变更退回 workspace 全量测试', () => {
+  const ajun = graph.get('ajun-runtime');
+  assert.equal(
+    selectAffectedTestFiles(['apps/ajun-runtime/src/task-service.js'], ajun),
+    null,
+  );
+  assert.equal(
+    selectAffectedTestFiles(['integrations/pipeline/src/index.js'], ajun),
+    null,
   );
 });

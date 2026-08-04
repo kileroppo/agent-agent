@@ -1,4 +1,4 @@
-import { getM5RoutineExecutionContract } from './m5-routine-execution-contract.js';
+import { getM5RoutineExecutionContract } from '@agent-army/m5-kernel/routine-execution-contract';
 import {
   consumeM5SystemPlanRevision,
   M5StageRecoveryController,

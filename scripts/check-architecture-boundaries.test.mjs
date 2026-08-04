@@ -44,6 +44,18 @@ test('架构检查拒绝重复 class 方法', async (context) => {
   assert.match(result.stderr, /重复声明方法 run/);
 });
 
+test('架构检查拒绝应用层重新引入 m5-kernel 一行转发门面', async (context) => {
+  const root = await fixture(context);
+  await write(
+    root,
+    'apps/ajun-runtime/src/m5-route-execution.js',
+    "export * from '@agent-army/m5-kernel/route-execution';\n",
+  );
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /已退役的 M5 转发门面不得回流/);
+});
+
 async function fixture(context, { appDependencies = {} } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-army-architecture-check-'));
   context.after(() => fs.rm(root, { recursive:true, force:true }));

@@ -7,6 +7,26 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const DEFAULT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ROOT_WIDE_PREFIXES = Object.freeze(['scripts/']);
 const AJUN_SHARED_PREFIXES = Object.freeze(['agents/', 'docs/contracts/']);
+const AJUN_MODULE_TESTS = Object.freeze({
+  'src/paperclip-task-projector.js': Object.freeze([
+    'test/paperclip-task-projector.test.js',
+    'test/paperclip-bridge.test.js',
+  ]),
+  'src/task-capability-catalog.js': Object.freeze([
+    'test/task-capability-catalog.test.js',
+    'test/business-task-routing.test.js',
+    'test/open-task-routing.test.js',
+    'test/task-service.test.js',
+  ]),
+  'src/task-execution-coordinator.js': Object.freeze([
+    'test/task-execution-coordinator.test.js',
+    'test/task-service.test.js',
+  ]),
+  'src/task-overview-focus.js': Object.freeze([
+    'test/task-overview-focus.test.js',
+    'test/task-service.test.js',
+  ]),
+});
 
 export function discoverWorkspaces(root = DEFAULT_ROOT) {
   const rootManifest = readJson(path.join(root, 'package.json'));
@@ -75,6 +95,31 @@ export function changedFilesFromGit(root = DEFAULT_ROOT) {
     capture('git', ['diff', '--name-only', '--diff-filter=ACMRTUXB', 'HEAD'], root),
     capture('git', ['ls-files', '--others', '--exclude-standard'], root),
   ].join('\n').split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+}
+
+export function selectAffectedTestFiles(changedFiles, workspace) {
+  if (workspace?.name !== 'ajun-runtime') return null;
+  const workspacePrefix = `${workspace.directory}/`;
+  const owned = [...new Set(changedFiles.map(toPosix))]
+    .filter((file) => file.startsWith(workspacePrefix))
+    .map((file) => file.slice(workspacePrefix.length));
+  if (!owned.length) return null;
+
+  const mappedTests = new Set(Object.values(AJUN_MODULE_TESTS).flat());
+  const selected = new Set();
+  for (const file of owned) {
+    const tests = AJUN_MODULE_TESTS[file];
+    if (tests) {
+      for (const testFile of tests) selected.add(testFile);
+      continue;
+    }
+    if (mappedTests.has(file)) {
+      selected.add(file);
+      continue;
+    }
+    return null;
+  }
+  return [...selected].sort();
 }
 
 function expandWorkspacePatterns(root, patterns) {
@@ -164,6 +209,12 @@ async function main() {
   if (listOnly) return;
   for (const name of selected) {
     const workspace = workspaces.get(name);
+    const affectedTests = selectAffectedTestFiles(changed, workspace);
+    if (affectedTests?.length) {
+      console.log(`\n[${name}] node --test ${affectedTests.join(' ')}`);
+      run('node', ['--test', ...affectedTests], path.join(DEFAULT_ROOT, workspace.directory));
+      continue;
+    }
     const script = verificationScript(workspace.manifest);
     if (!script) {
       console.log(`\n[${name}] no test/check/lint script; skipped`);

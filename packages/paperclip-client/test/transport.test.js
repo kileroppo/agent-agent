@@ -4,12 +4,37 @@ import {
   PaperclipHttpError,
   PaperclipHttpTransport,
   PaperclipM5Client,
+  PaperclipOrganizationClient,
   normalizePaperclipBaseUrl,
 } from '../src/index.js';
 
 test('默认拒绝远程 Paperclip，显式授权后只保留 origin', () => {
   assert.throws(() => normalizePaperclipBaseUrl('https://paperclip.example/api'), /loopback/);
   assert.equal(normalizePaperclipBaseUrl('https://paperclip.example/api', { allowRemote:true }), 'https://paperclip.example');
+});
+
+test('组织级客户端集中构造公司、员工、任务和审批端点', async () => {
+  const calls = [];
+  const client = new PaperclipOrganizationClient({
+    endpoint:{
+      async request(method, path, options) {
+        calls.push({ method, path, options });
+        return null;
+      },
+    },
+  });
+  await client.listCompanies();
+  await client.listAgents('company/1');
+  await client.createIssue('company/1', { title:'issue' });
+  await client.createChildIssue('issue/1', { title:'child' });
+  await client.createApproval('company/1', { type:'approval' });
+  assert.deepEqual(calls, [
+    { method:'GET', path:'/api/companies', options:{ body:undefined } },
+    { method:'GET', path:'/api/companies/company%2F1/agents', options:{ body:undefined } },
+    { method:'POST', path:'/api/companies/company%2F1/issues', options:{ body:{ title:'issue' } } },
+    { method:'POST', path:'/api/issues/issue%2F1/children', options:{ body:{ title:'child' } } },
+    { method:'POST', path:'/api/companies/company%2F1/approvals', options:{ body:{ type:'approval' } } },
+  ]);
 });
 
 test('统一传输注入 run 身份并规范化 JSON 响应', async () => {

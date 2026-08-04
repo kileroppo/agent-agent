@@ -9,7 +9,7 @@ import {
 } from '../src/m5-local-chaos-acceptance.js';
 import {
   getM5RoutineExecutionContract,
-} from '../src/m5-routine-execution-contract.js';
+} from '@agent-army/m5-kernel/routine-execution-contract';
 import {
   buildBootstrapPlan,
   defaultDefinition,

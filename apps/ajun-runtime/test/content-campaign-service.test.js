@@ -11,7 +11,7 @@ import { M5ToolExecutorRouter } from '../src/paperclip-content-tool-executor.js'
 import {
   M5_ROUTINE_EXECUTION_CONTRACTS,
   getM5RoutineExecutionContract,
-} from '../src/m5-routine-execution-contract.js';
+} from '@agent-army/m5-kernel/routine-execution-contract';
 import { defaultDefinition, FakePaperclipAdapter } from '../../../integrations/paperclip/m5-content-pipeline/src/index.js';
 import {
   M5_CONTENT_ROLES,

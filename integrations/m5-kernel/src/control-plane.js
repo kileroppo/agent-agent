@@ -12,27 +12,37 @@ export class M5ControlPlane {
   }
 }
 
+export const M5_CONTROL_PLANE_METHODS = Object.freeze([
+  'findPipelineByKey',
+  'getPipeline',
+  'listPipelineCases',
+  'getCase',
+  'getCaseChildren',
+  'getCaseOutputs',
+  'listCaseEvents',
+  'listIssueRuns',
+  'transitionCase',
+  'updateCampaignGrant',
+  'ingestCampaignDraft',
+  'ingestCampaignExecution',
+  'ensureParallelWorkCases',
+  'verifyProviderAction',
+  'findCostActivity',
+  'getBudgetOverview',
+  'inspectExecutionReadiness',
+  'inspectContentAutonomyReadiness',
+  'readContentAutonomyApprovalSnapshot',
+  'getOfficialTtsVoice',
+  'getDailySchedule',
+  'setDailyScheduleEnabled',
+  'listCaseIssueLinks',
+  'countActiveParallelIssues',
+  'runParallelRoutine',
+  'linkCaseIssue',
+]);
+
 export function assertM5ControlPlane(value) {
-  const required = [
-    'findPipelineByKey',
-    'getPipeline',
-    'listPipelineCases',
-    'getCase',
-    'getCaseOutputs',
-    'transitionCase',
-    'updateCampaignGrant',
-    'ingestCampaignDraft',
-    'ingestCampaignExecution',
-    'ensureParallelWorkCases',
-    'listIssueRuns',
-    'verifyProviderAction',
-    'findCostActivity',
-    'getBudgetOverview',
-    'inspectExecutionReadiness',
-    'getDailySchedule',
-    'setDailyScheduleEnabled',
-  ];
-  const missing = required.filter((name) => typeof value?.[name] !== 'function');
+  const missing = M5_CONTROL_PLANE_METHODS.filter((name) => typeof value?.[name] !== 'function');
   if (missing.length) {
     throw new TypeError(`M5ControlPlane 缺少 Interface：${missing.join('、')}。`);
   }
@@ -43,15 +53,7 @@ export function createFakeM5ControlPlane(overrides = {}) {
   const unsupported = (name) => async () => {
     throw new Error(`Fake M5ControlPlane 未实现 ${name}`);
   };
-  const methods = [
-    'findPipelineByKey', 'getPipeline', 'listPipelineCases', 'getCase',
-    'getCaseOutputs', 'transitionCase', 'updateCampaignGrant',
-    'ingestCampaignDraft', 'ingestCampaignExecution', 'ensureParallelWorkCases',
-    'listIssueRuns', 'verifyProviderAction', 'findCostActivity',
-    'getBudgetOverview', 'inspectExecutionReadiness', 'getDailySchedule',
-    'setDailyScheduleEnabled', 'getCaseChildren', 'listCaseEvents',
-    'getOfficialTtsVoice', 'getPublishReceipt',
-  ];
+  const methods = [...M5_CONTROL_PLANE_METHODS, 'getPublishReceipt'];
   return Object.assign(
     Object.fromEntries(methods.map((name) => [name, unsupported(name)])),
     { companyId:'fake-company', ...overrides },

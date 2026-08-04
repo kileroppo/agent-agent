@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { M5_ROUTINE_EXECUTION_CONTRACTS } from './m5-routine-execution-contract.js';
+import { M5_ROUTINE_EXECUTION_CONTRACTS } from '@agent-army/m5-kernel/routine-execution-contract';
 
 const sourceDirectory = path.dirname(fileURLToPath(import.meta.url));
 export const AGENT_ARMY_REPOSITORY_ROOT = path.resolve(sourceDirectory, '../../..');

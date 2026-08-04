@@ -55,7 +55,8 @@
 
 ## 当前交接
 
-- [Agent 技能接线与微信本机分析交接](./current/agent-skill-and-private-wechat-capability-handoff.md)：代码、岗位技能同步、Paperclip 公司技能和本机模型已完成；当前 4321 仅含早期纵切，唯一下一步是先形成可追溯 source revision，再把最终加固与 A君 Profile 撤销工具作为同一不可变 release 切换。
+- [本地 AI 能力系统交接](./current/local-ai-capability-system-handoff.md)：九项 Mac 本地能力和统一网关已完成真实样本验收；唯一下一步是等待 18081 当前请求自然结束后切换 launchd，并完成重启恢复与 A君运行证据。
+- [Agent 技能接线与微信本机分析交接](./current/agent-skill-and-private-wechat-capability-handoff.md)：代码、岗位技能同步、Paperclip 公司技能、本机模型和 4321 不可变 release 已完成；唯一下一步是由主人指定一次微信会话与范围，验收临时授权、撤销和本机脱敏摘要。
 - [系统重构与技术负债偿还交接](./current/system-architecture-debt-repayment-handoff.md)：已关闭；候选 1–7、可追溯不可变 release、SQLite 迁移及二次启动恢复均通过，外部平台仍按原独立授权边界保持关闭。
 - [M2 多账号与三平台只读增量验收交接](./current/m2-multi-account-crawl-acceptance-handoff.md)：已关闭；多账号、运行台及小红书/抖音/B站真实只读均已通过，小红书成功样本使用发现页自然生成的完整链接。
 - [M5 高权限内容自治交接](./current/m5-high-autonomy-content-operations-handoff.md)：v2 15 阶段/17 Routine/5 个无模型控制器及内容插件 `0.4.7` 已对账到 live，`0.4.6` 回滚链、Paperclip Secret 引用和 8 岗插件绑定已完成；活动仍未批准。唯一下一步是保持活动、Cron 和真实 Publisher 关闭，冻结真实 selector、签发绑定 accountRef 的命名 Profile lease，并在取得平台写权限后单独批准首发。

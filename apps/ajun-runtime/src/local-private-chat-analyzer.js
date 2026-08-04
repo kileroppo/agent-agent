@@ -1,23 +1,30 @@
-const DEFAULT_MODEL = process.env.WECHAT_LOCAL_MODEL || 'qwen3:14b';
-const DEFAULT_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://127.0.0.1:11434';
+const DEFAULT_MODEL = process.env.WECHAT_LOCAL_MODEL
+  || '/Users/pengaro/.cache/huggingface/hub/models--mlx-community--Qwen3.5-9B-MLX-4bit/snapshots/938d8919941c6e7efd3c7150eff7fe9d12afa631';
+const DEFAULT_BASE_URL = process.env.WECHAT_LOCAL_MODEL_BASE_URL
+  || process.env.OLLAMA_BASE_URL
+  || 'http://127.0.0.1:18081';
 const MAX_TOTAL_CHARS = 120_000;
 const MAX_CHUNK_CHARS = 20_000;
 
 export class LocalPrivateChatAnalyzer {
-  constructor({ model = DEFAULT_MODEL, baseUrl = DEFAULT_BASE_URL, fetchImpl = fetch, now = () => new Date() } = {}) {
+  constructor({ model = DEFAULT_MODEL, baseUrl = DEFAULT_BASE_URL, apiStyle, fetchImpl = fetch, now = () => new Date() } = {}) {
     this.model = model;
     this.baseUrl = normalizeLoopbackUrl(baseUrl);
+    this.apiStyle = apiStyle || (new URL(this.baseUrl).port === '11434' ? 'ollama' : 'openai');
     this.fetchImpl = fetchImpl;
     this.now = now;
   }
 
   async health() {
     try {
-      const response = await this.fetchImpl(`${this.baseUrl}/api/tags`, { signal:AbortSignal.timeout(3_000) });
+      const endpoint = this.apiStyle === 'ollama' ? '/api/tags' : '/health';
+      const response = await this.fetchImpl(`${this.baseUrl}${endpoint}`, { signal:AbortSignal.timeout(3_000) });
       if (!response.ok) return unavailable('本机分析模型服务未就绪。', this.model);
       const payload = await response.json();
       const models = Array.isArray(payload?.models) ? payload.models : [];
-      const ready = models.some((item) => [item?.name, item?.model].includes(this.model));
+      const ready = this.apiStyle === 'ollama'
+        ? models.some((item) => [item?.name, item?.model].includes(this.model))
+        : ['healthy', 'ok'].includes(payload?.status) && [payload?.loaded_model, payload?.loaded_models?.text_generation?.model].includes(this.model);
       return ready
         ? { status:'ready', model:this.model, safeMessage:'本机微信分析模型已就绪。' }
         : unavailable(`本机尚未安装 ${this.model} 模型。`, this.model);
@@ -39,15 +46,26 @@ export class LocalPrivateChatAnalyzer {
   }
 
   async generate(prompt) {
-    const response = await this.fetchImpl(`${this.baseUrl}/api/generate`, {
+    const ollama = this.apiStyle === 'ollama';
+    const response = await this.fetchImpl(`${this.baseUrl}${ollama ? '/api/generate' : '/v1/chat/completions'}`, {
       method:'POST',
       headers:{ 'content-type':'application/json' },
-      body:JSON.stringify({ model:this.model, prompt, stream:false, format:'json', think:false, options:{ num_ctx:32_768 } }),
+      body:JSON.stringify(ollama
+        ? { model:this.model, prompt, stream:false, format:'json', think:false, options:{ num_ctx:32_768 } }
+        : {
+            model:this.model,
+            messages:[{ role:'user', content:prompt }],
+            stream:false,
+            temperature:0,
+            max_tokens:512,
+            enable_thinking:false
+          }),
       signal:AbortSignal.timeout(120_000),
     });
     if (!response.ok) throw analyzerError('local_model_failed', '本机模型分析失败，未把聊天内容发往云端。');
     const payload = await response.json();
-    try { return JSON.parse(String(payload?.response || '{}')); }
+    const result = ollama ? payload?.response : payload?.choices?.[0]?.message?.content;
+    try { return JSON.parse(String(result || '{}')); }
     catch { throw analyzerError('local_model_invalid_result', '本机模型返回格式无效，未保存结果。'); }
   }
 }

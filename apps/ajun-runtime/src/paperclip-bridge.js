@@ -1,9 +1,9 @@
 import crypto from 'node:crypto';
 import { paperclipHermesAdapterConfig, usesPaperclipHermesExecution } from './governance-hermes-runtime.js';
 import { PaperclipHttpTransport } from '@agent-army/paperclip-client';
+import { PaperclipTaskProjector } from './paperclip-task-projector.js';
 
 const DEFAULT_URL = 'http://127.0.0.1:3100';
-const COMPANY_NAME = 'Agent军团';
 const M5_GRAY_DAY_ALLOWED_STAGES = new Set([
   'topic',
   'parallel_join_gate',
@@ -49,72 +49,19 @@ export class PaperclipBridge {
     clock = () => new Date(),
   } = {}) {
     this.transport = new PaperclipHttpTransport({ baseUrl, allowRemote:false, fetchImpl, timeoutMs:2500 });
+    this.taskProjector = new PaperclipTaskProjector({ endpoint:this.transport, clock });
     this.baseUrl = this.transport.baseUrl;
     this.fetch = fetchImpl;
     this.publisherRunCredentialProvider = publisherRunCredentialProvider;
     this.clock = clock;
-    this.company = null;
   }
 
   async project(task, approval) {
-    try {
-      const company = await this.companyForRuntime();
-      const managedAgent = task.assigneeAgentId ? await this.managedAgent(task.assigneeAgentId, company.id) : null;
-      const issue = await this.request(`/api/companies/${company.id}/issues`, {
-        method: 'POST', body: {
-          title: task.input.title,
-          description: describe(task),
-          status: approval ? 'blocked' : managedAgent ? 'todo' : 'backlog',
-          priority: priorityFor(task.priority),
-          ...(task.taskType === 'operations.technical-repair' && managedAgent?.metadata?.paperclipProjectId ? { projectId:managedAgent.metadata.paperclipProjectId } : {}),
-          ...(managedAgent ? { assigneeAgentId:managedAgent.id } : {})
-        }
-      });
-      const result = { status: 'synced', paperclipIssueId: issue.id, paperclipIssueIdentifier: issue.identifier, ...(managedAgent ? { paperclipAssigneeAgentId:managedAgent.id, paperclipAssigneeName:managedAgent.name } : {}), syncedAt: new Date().toISOString() };
-      if (approval) {
-        const governanceApproval = await this.request(`/api/companies/${company.id}/approvals`, {
-          method: 'POST', body: {
-            type: 'request_board_approval', issueIds: [issue.id],
-            payload: { source: 'ajun-runtime', taskId: task.taskId, action: approval.action, riskLevel: approval.riskLevel, reason: approval.reason, requestedScope: approval.requestedScope }
-          }
-        });
-        result.paperclipApprovalId = governanceApproval.id;
-      }
-      return result;
-    } catch (error) {
-      return { status: 'sync_pending', reason: safeError(error), syncedAt: new Date().toISOString() };
-    }
+    return this.taskProjector.project(task, approval);
   }
 
   async projectChild(task, parentIssueId) {
-    try {
-      const company = await this.companyForRuntime();
-      const managedAgent = task.assigneeAgentId ? await this.managedAgent(task.assigneeAgentId, company.id) : null;
-      const issue = await this.request(`/api/issues/${encodeURIComponent(parentIssueId)}/children`, {
-        method:'POST',
-        body:{
-          title:task.input.title,
-          description:describe(task),
-          status:'todo',
-          priority:priorityFor(task.priority),
-          blockParentUntilDone:true,
-          ...(managedAgent ? { assigneeAgentId:managedAgent.id } : {})
-        }
-      });
-      return {
-        status:'synced',
-        paperclipIssueId:issue.id,
-        paperclipIssueIdentifier:issue.identifier,
-        paperclipParentIssueId:parentIssueId,
-        ...(managedAgent ? {
-          paperclipAssigneeAgentId:managedAgent.id,
-          paperclipAssigneeName:managedAgent.name
-        } : {}),
-        syncedAt:new Date().toISOString()
-      };
-    } catch (error) {
-      return { status:'sync_pending', paperclipParentIssueId:parentIssueId, reason:safeError(error), syncedAt:new Date().toISOString() };
-    }
+    return this.taskProjector.projectChild(task, parentIssueId);
   }
 
   async health() {
@@ -1174,18 +1121,11 @@ export class PaperclipBridge {
   }
 
   async companyForRuntime() {
-    if (this.company) return this.company;
-    const companies = await this.request('/api/companies');
-    const company = companies.find((item) => item.name === COMPANY_NAME);
-    if (!company) throw new Error(`Paperclip 中未找到“${COMPANY_NAME}”组织。`);
-    this.company = company;
-    return company;
+    return this.taskProjector.companyForRuntime();
   }
 
   async managedAgent(agentArmyId, companyId = null) {
-    const company = companyId ? { id:companyId } : await this.companyForRuntime();
-    const agents = await this.request(`/api/companies/${company.id}/agents`);
-    return agents.find((agent) => agent.metadata?.agentArmyId === agentArmyId && agent.status !== 'terminated') || null;
+    return this.taskProjector.managedAgent(agentArmyId, companyId);
   }
 
   async request(path, options = {}) {
@@ -1455,29 +1395,6 @@ function assertExactKeys(value, allowedKeys, label) {
   if (extra) throw new Error(`${label}包含未授权字段 ${extra}。`);
 }
 
-function describe(task) {
-  const parts = [
-    '由 A君运行台创建的过渡任务投影。正式军团任务由 Paperclip 统一调度；A君只执行本机业务适配。',
-    `A君任务 ID：${task.taskId}`,
-    `任务类型：${task.taskType}`,
-    `运行时状态：${task.status}`,
-    `承接岗位：${task.assigneeAgentId || '待路由'}`
-  ];
-  if (task.input.description) parts.push(`说明：${task.input.description}`);
-  const context = task.input?.context;
-  if (context?.failure) {
-    parts.push([
-      '脱敏故障信息：',
-      `代码：${String(context.failure.code || 'unknown')}`,
-      `阶段：${String(context.failure.stage || 'unknown')}`,
-      `类别：${String(context.failure.category || 'manual')}`,
-      `是否允许安全重试：${context.failure.retryable === true ? '是' : '否'}`
-    ].join('\n'));
-  }
-  if (task.taskType === 'operations.technical-repair') parts.push('工程要求：先复现和定位；只能修改当前项目；必须运行相关测试；没有证据不得宣称修好；禁止读取凭据、登录、外发、付费、扩权或发布。');
-  return parts.join('\n\n');
-}
-
 function describeProposal(proposal) {
   return [
     '由飞书/A君创建入口生成的 Agent 草案。此条仅用于组织级审核；不包含原始聊天、凭据、Cookie 或业务素材。',
@@ -1490,7 +1407,6 @@ function describeProposal(proposal) {
   ].join('\n\n');
 }
 
-function priorityFor(priority) { return ({ low: 'low', high: 'high', urgent: 'urgent' })[priority] || 'medium'; }
 function issueStatusFor(status) { return ({ running: 'backlog', pausing:'backlog', paused:'blocked', succeeded: 'done', failed: 'blocked', cancelled:'blocked', waiting_approval: 'blocked', waiting_test:'blocked' })[status] || 'backlog'; }
 function safeError(error) { return String(error?.message || 'Paperclip 暂不可用。').slice(0, 240); }
 

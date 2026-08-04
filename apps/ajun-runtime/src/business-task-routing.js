@@ -1,16 +1,10 @@
+import { DEFAULT_TASK_CAPABILITY_CATALOG } from './task-capability-catalog.js';
+
 const OFFICE_AGENT_ID = 'office-assistant';
 const OFFICE_TASK_TYPE = 'office.briefing-package';
 const GITHUB_AGENT_ID = 'intel-researcher';
 const GITHUB_TASK_TYPE = 'research.github-search';
 const RESEARCH_TASK_TYPES = new Set(['army.intake', 'report.public-material', 'research.github-search', 'research.intel-report']);
-const FIXED_CONTENT_ASSIGNMENTS = new Map([
-  ['wechat.chat.retrieval', 'wechat-chat-retriever'],
-  ['content.video-benchmark-analysis', 'video-content-analyst'],
-  ['content.performance-review', 'video-content-analyst'],
-  ['content.platform-draft', 'content-creator'],
-  ['content.video-script-package', 'content-creator'],
-  ['office.knowledge-summary', 'office-assistant']
-]);
 
 export function canonicalizeBusinessAssignment(input = {}, { index = 0 } = {}) {
   const title = text(input.title);
@@ -32,7 +26,7 @@ export function canonicalizeBusinessAssignment(input = {}, { index = 0 } = {}) {
     || (officeDeliverable && (dependsOnPrevious || index > 0 || referencesPriorWork));
   const explicitGithubResearch = RESEARCH_TASK_TYPES.has(requestedTaskType)
     && /(?:github|git\s*hub|开源项目|开源仓库)/i.test(combined);
-  const fixedAgentId = FIXED_CONTENT_ASSIGNMENTS.get(normalizedTaskType);
+  const fixedAgentId = DEFAULT_TASK_CAPABILITY_CATALOG.fixedAgentId(normalizedTaskType);
 
   if (fixedAgentId) {
     return {

@@ -8,7 +8,7 @@
 
 ## 决策
 
-11 个正式 Hermes 岗位的主推理模型统一改为 `deepseek/deepseek-v4-flash`，回退链清空，不再尝试 StepFun 文本模型。微信私密只读检索岗位继续使用本机 `ollama-local/qwen3:14b`，不纳入这 11 岗。
+11 个正式 Hermes 岗位的主推理模型统一改为 `deepseek/deepseek-v4-flash`，回退链清空，不再尝试 StepFun 文本模型。微信私密只读检索岗位不纳入这 11 岗；其原始决定使用本机 `ollama-local/qwen3:14b`，已于 2026-08-04 因模型删除而由本地 AI 能力系统迁移为回环 Qwen3.5-9B OpenAI-compatible 服务，仍禁止云端回退。
 
 M5 的 StepFun 视觉、生图、图片编辑和 TTS 是独立媒体 Provider 能力，不属于岗位文本推理模型。本次不以 DeepSeek 文本模型冒充替代；StepFun 无额度时这些阶段保持失败关闭并等待后续媒体 Provider 决策。
 

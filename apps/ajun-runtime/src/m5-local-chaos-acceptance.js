@@ -26,7 +26,7 @@ import {
 } from './m5-stage-recovery-controller.js';
 import {
   getM5RoutineExecutionContract,
-} from './m5-routine-execution-contract.js';
+} from '@agent-army/m5-kernel/routine-execution-contract';
 
 const PIPELINE_ID = '11111111-1111-4111-8111-111111111111';
 const PROJECT_ID = '12121212-1212-4121-8121-121212121212';

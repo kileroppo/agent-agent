@@ -450,6 +450,23 @@ lease 或平台写权限。
 
 新能力先以 `draft` Provider 注册并通过契约测试和健康检查，再由策略启用。替换 Provider 不得改变上层 Agent 的任务语义；需要新增权限、外部副作用或高成本动作时，仍须经过 ConnectionAuthorizationContract 和 ApprovalContract。
 
+### 8.1 LocalAiCapabilityInvocation
+
+本机模型适配器以稳定能力名接收调用，不让业务 Agent 选择权重文件或底层命令。当前标准能力名为 `text.generate`、`vision.analyze`、`video.analyze`、`audio.transcribe`、`audio.synthesize`、`audio.clone_authorized`、`image.generate`、`image.edit`、`embedding.create`、`rerank.score` 和 `video.generate`。
+
+| 字段 | 必填 | 含义 |
+| --- | --- | --- |
+| `requestId` | 是 | 调用方提供或网关生成的稳定 ID，用于底层取消与诊断；不是 Paperclip 业务任务 ID |
+| `capability` | 是 | 标准能力名 |
+| `input` | 是 | 版本化能力输入；本地媒体只能使用已存在的绝对路径或受控上传引用 |
+| `options` | 否 | 温度、输出长度、抽帧数、图片尺寸等有界执行选项 |
+| `approved` | 否 | 仅表示调用已携带上层授权证明；网关不得据此自行扩大权限或绕过 Paperclip/A君校验 |
+| `provider` | 响应 | 实际执行的本机或台式机适配器 |
+| `elapsedSeconds` | 响应 | 本次实际耗时 |
+| `result` | 响应 | 标准结果或已验证本机产物引用 |
+
+能力状态必须分别报告 `declared`、`configured`、`healthy` 和 `e2eVerified`。下载权重只满足 `configured` 的一部分；端口监听只满足健康探针的一部分；只有固定样本实际输入输出通过才可记录 `e2eVerified`。底层 `speech`、`heavy`、`retrieval` 锁只是统一内存与进程保护，不得保存业务状态、复制 Paperclip 队列或把排队视作任务执行成功。
+
 ## 9. OperationsHealthEventContract
 
 定义 Agent 运维官消费的脱敏健康事件。它用于诊断和恢复，不携带原始凭据、完整浏览器会话或受限内容。
@@ -483,7 +500,7 @@ lease 或平台写权限。
 | 岗位草案 | `agent_proposal_create_execute` | 仅创建官、仅当前 `governance.agent-proposal` 指派；只能申请已审核或已登记且有明确风险边界的能力。没有受控适配器的高风险本机能力只生成 `needs_capability` 草案；微信 Vault 在草案测试阶段仍只开放不含真实聊天的合成技术验收，正式岗位必须另有活动 Manifest、本机执行器和负责人激活决定 |
 | 受控技术修复 | `technical_repair_execute` | 仅技术专家、仅当前 `operations.technical-repair` 指派；只暴露白名单文件、测试命令和恢复检查。只有 A君返回 `verified=true`、测试与恢复检查通过并安全带回后，员工才可回报 `succeeded` |
 
-Hermes Session 只保存对话和上下文；A君/业务 Agent 保存任务与 checkpoint；Paperclip 保存组织级真相。MCP Server 不保存 secret、聊天正文、会话数据库、任务副本或审批副本。微信聊天读取必须经 `ContentAcquisitionCenter` 和 `yichen-wechat-local-vault` 受控适配器，临时授权同时匹配负责人、飞书会话、当前 Agent、单一会话、固定时间范围和最多 200 条。A君默认使用本地当天零点至当前时间、增量刷新和同名会话最近活跃策略；除联系人/群名外不要求负责人配置技术选项。受控适配器只调用已解密 Vault 的只读查询入口；固定本机执行器可在读取前调用既有增量解密脚本。私密分析仅允许回环地址上的 `qwen3:14b`，最多 120000 字符、单块不超过 20000 字符，按最新消息优先截断；不得抓取新密钥、操作微信 UI、持久化原文、发送者或把原文发送给云模型与外部平台。新增工具必须复用现有服务契约、声明只读/副作用注解，并具有失败关闭和脱敏测试。
+Hermes Session 只保存对话和上下文；A君/业务 Agent 保存任务与 checkpoint；Paperclip 保存组织级真相。MCP Server 不保存 secret、聊天正文、会话数据库、任务副本或审批副本。微信聊天读取必须经 `ContentAcquisitionCenter` 和 `yichen-wechat-local-vault` 受控适配器，临时授权同时匹配负责人、飞书会话、当前 Agent、单一会话、固定时间范围和最多 200 条。A君默认使用本地当天零点至当前时间、增量刷新和同名会话最近活跃策略；除联系人/群名外不要求负责人配置技术选项。受控适配器只调用已解密 Vault 的只读查询入口；固定本机执行器可在读取前调用既有增量解密脚本。私密分析仅允许回环地址上的已验收 Qwen3.5-9B，最多 120000 字符、单块不超过 20000 字符，按最新消息优先截断；不得抓取新密钥、操作微信 UI、持久化原文、发送者或把原文发送给云模型与外部平台。新增工具必须复用现有服务契约、声明只读/副作用注解，并具有失败关闭和脱敏测试。
 
 ### 10.1 架构师三层输出
 

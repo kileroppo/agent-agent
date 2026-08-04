@@ -5,7 +5,7 @@ import {
   m5StageWorkProductCandidates,
   M5StageRecoveryController,
 } from '../src/m5-stage-recovery-controller.js';
-import { getM5RoutineExecutionContract } from '../src/m5-routine-execution-contract.js';
+import { getM5RoutineExecutionContract } from '@agent-army/m5-kernel/routine-execution-contract';
 
 const CASE_ID = '11111111-1111-4111-8111-111111111111';
 const ISSUE_ID = '22222222-2222-4222-8222-222222222222';

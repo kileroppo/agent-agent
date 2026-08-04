@@ -4,8 +4,13 @@ import test from 'node:test';
 import { ContentCampaignKernel } from '../src/content-campaign-kernel.js';
 import { createFakeM5ControlPlane } from '../src/control-plane.js';
 import {
+  assertM5ControlPlane,
+  M5_CONTROL_PLANE_METHODS,
+} from '../src/control-plane.js';
+import {
   normalizePaperclipCase,
   normalizePaperclipWorkProduct,
+  PaperclipM5ControlPlane,
 } from '../src/paperclip-control-plane.js';
 
 const PIPELINE = {
@@ -47,6 +52,34 @@ test('Fake M5ControlPlane可在无Paperclip环境驱动业务内核', async () =
     ['findPipelineByKey', PIPELINE.key],
     ['listPipelineCases', PIPELINE.id],
   ]);
+});
+
+test('Fake 与 Paperclip Adapter 满足同一份真实 M5ControlPlane Interface', () => {
+  const fake = createFakeM5ControlPlane();
+  const paperclip = new PaperclipM5ControlPlane({
+    endpoint:{
+      request:async () => null,
+      findByMarker:async () => null,
+      listCaseIssueLinks:async () => [],
+      countActiveParallelIssues:async () => 0,
+      runParallelRoutine:async () => ({}),
+      linkCaseIssue:async () => ({}),
+    },
+    definition:{ key:PIPELINE.key, stages:[] },
+    companyId:'company-1',
+  });
+  assert.equal(assertM5ControlPlane(fake), fake);
+  assert.equal(assertM5ControlPlane(paperclip), paperclip);
+  for (const method of M5_CONTROL_PLANE_METHODS) {
+    assert.equal(typeof fake[method], 'function', `Fake 缺少 ${method}`);
+    assert.equal(typeof paperclip[method], 'function', `Paperclip 缺少 ${method}`);
+  }
+});
+
+test('M5ControlPlane 在构造期拒绝真实调用面缺口', () => {
+  const incomplete = createFakeM5ControlPlane();
+  delete incomplete.getOfficialTtsVoice;
+  assert.throws(() => assertM5ControlPlane(incomplete), /getOfficialTtsVoice/);
 });
 
 test('Paperclip Adapter在边界归一化Case与Work Product', () => {
