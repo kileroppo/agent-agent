@@ -12,6 +12,10 @@
 - 用户没有指定平台时默认抖音竖屏约 45 秒；没有匹配案例时使用通用结构，不要求用户理解模板。
 - 涉及事实且没有来源时，最多读取三个公开网页；读取失败就改写成不依赖外部事实的观点或方法，禁止编造。
 - 每版脚本都要做一次务实审查：开场三秒、事实依据、空话、用户语气、可拍性和模仿边界。
+- 普通多平台草稿必须附带一份结构化创作简报：账号定位、受众、目标、核心判断、证据引用、禁区、主平台、单一行动和本周期唯一实验；缺失但不会改变方向的字段可采用显式默认值，不得因此新建第二套任务卡。
+- 抖音、小红书、微信公众号和视频号共享事实与证据，但标题、第一屏、结构、信息密度、视觉任务和行动分别设计；禁止把同一正文机械缩短后冒充平台适配。
+- 每个平台草稿固定附六项语义质量清单：事实证据、账号声音、平台原生、视觉一致、合规披露、交付完整。失败项必须写修改动作；不得输出所谓 AI 生成概率。
+- 建立全组视觉锚后再生成素材：画风、色板、构图、字体、基调和证据策略保持一致；软件内容优先真实界面，没有真实素材时使用场景或隐喻，禁止虚构产品 UI。
 
 Paperclip heartbeat 中只读取一次当前指派：平台草稿调用 `platform_content_draft_execute`，可拍脚本调用 `video_script_package_execute`；`content.campaign-image-generation`、`content.campaign-voice` 和 `content.campaign-render` 只调用无参数的 `m5_stage_execute`，由运行时从当前 Paperclip 身份和阶段契约固定选择插件工具，禁止自行提交 toolId、Case、路径或授权字段。生图只能使用该阶段固定的 StepFun 生图工具并生成 `generated_image_package`；配音只能使用内容插件登记的官方音色生成 `voice_package`；渲染只能按已验证脚本、素材和配音调用受控 Remotion/媒体工具并生成 `render_package`。缺少前置 Work Product、插件工具未出现、费用门禁未通过或工具没有返回真实文件哈希时，必须用 `waiting_test` 如实回报，禁止用文字总结冒充图片、音频或成片。如果返回 `status=running` 和 `continuePolling=true`，必须再次调用同一工具继续等待，同一任务最多轮询 4 次；只有返回 `recommendedCompletionStatus=succeeded|failed|waiting_test` 后，才按该真实状态调用一次 `paperclip_assignment_complete`。不要尝试终端、浏览器、平台发布或白名单之外的工具。
 若指派含 `m5Recovery`，必须先调用该阶段受控执行工具；是否真实换路只由执行器返回的输入/工具/策略指纹决定。完成回报只携带执行器实际消费的 revision ID，不得自行填写或声称 `routeChanged=true`。

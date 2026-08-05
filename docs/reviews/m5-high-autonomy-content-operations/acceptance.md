@@ -1,6 +1,6 @@
 # M5 高权限内容自治验收
 
-> 当前总判定：**PARTIAL / M5 NOT COMPLETE**。2026-08-02 A君已切到 DeepSeek 策略不可变 release `80bd473f…`，PID `73653`、`/api/overview` 200；11 个正式岗位的 Hermes Profile 与 Paperclip Adapter 均为 `deepseek/deepseek-v4-flash` 且回退链为空。活动草案、Cron 与 Publisher 继续关闭；本轮没有真实 Provider 调用、外部发布或 7 天闭环。
+> 当前总判定：**PARTIAL / M5 NOT COMPLETE**。2026-08-05 已完成一次负责人单独授权的小红书真实发布冒烟，平台分配内容 ID 且笔记当前“审核中”；该动作使用隔离 CuaDriver 人工验收链，不是 A君 production Runtime、Paperclip selector/Profile lease 或真实 PublishReceipt。Cron 与 Publisher 继续关闭；抖音发布、双平台回读、指标和 7 天闭环仍未完成。
 
 ## 2026-08-02 DeepSeek 文本主模型切换追加证据
 
@@ -56,7 +56,7 @@
 | 复盘学习 | LIVE CONTROLLER / NO REAL SAMPLE | retrospective 控制器与 Routine 已接入 live；只接受标准信任的同平台 72h `MetricSnapshot`，少于 5 条写 `insufficient_sample`，达到 5 条才附带 `proposed` LearningProposal | 无真实样本；不会自动修改 Prompt、权限、频率或投流，离线回放、审核和灰度均未执行 |
 | 本地成片与原生血缘 | LOCAL PRODUCTION RENDER + LINEAGE PASS / NO PUBLISH | 上游已直接生成 lineage；`native-artifact-smoke` 以 Provider 0 完成 1/1 份原生 lineage 和 3/3 支平台媒体，均为 45 秒、1080×1920、H.264/AAC、黑帧 0、-15.1 LUFS。历史 `m5v2-lineage-v2` 仍以 Provider 0 保留 7/7 份 lineage 和 21/21 支媒体复核，响度 -15.2 至 -14.9 LUFS；原 `m5v2` 保留 7/7 review、63/63 固定产物 hash/bytes 与 t04 八点人工抽帧证据；另有 3 主题、9 视频 dry-run `12/12` | 全部 `externalPublished=false`；证明本地成片与血缘，不证明真实平台发布、PublishReceipt 或指标回流 |
 | 控制台 | BROWSER PASS | 桌面、中间宽度和 390px 真实浏览器中均能看到 1 个草案、`0/14`、费用、下一步、恢复位置和唯一授权按钮；390px 无横向溢出，浏览器无相关 error/warn | 未点击授权按钮，未启动活动 |
-| Computer Use | DIAGNOSTIC FIX PASS / FULL FAKE PAGE WAITING UNLOCK + TOKEN | CuaDriver `0.14.1`；Accessibility 与 Screen Recording 均为 `true`，`doctor` 正常。runner 会保留真实 `browser_consent_required`，不再误报为 `prepared_browser_pid_missing`；受控 runner 仍要求 selector、Profile lease、页面身份和强回执。最新只读 app-state 检查明确返回 Mac locked，没有继续执行页面动作 | 先人工解锁 Mac，再在同次五分钟窗口内生成并单次使用 browser approval token；Token 不得打印、落盘或复用。真实 selector、Profile lease、登录和写授权均未验收 |
+| Computer Use | DIAGNOSTIC FIX PASS / PRODUCTION APPROVAL PENDING | CuaDriver `0.17.0`；Accessibility 与 Screen Recording 均为 `true`，`doctor` 正常。runner 会保留真实 `browser_consent_required`，并使用只读语义查询与唯一标题/详情 URL 强回执门禁 | 当前网址的 Computer Use 操作受限；真实 selector、Profile lease 与 production Runtime 回执仍未验收 |
 | 抖音/小红书 | NOT AUTHORIZED | 现有连接仅为读取权限 | 发布账号、时间窗和写授权 |
 | 7 天活动 | NOT STARTED | 需先完成上述门禁 | 14 次发布与指标回流 |
 
@@ -191,6 +191,19 @@ npm run acceptance:fake:seven-day -- \
 # 当前证据：14 个 fake receipt、42 个模拟快照、44 次 Runtime 构造重放；
 # realPlatformCalls=0、totalCostUsd=0
 
+## 2026-08-05 自媒体内容方法与公众号草稿候选
+
+| 层级 | 结论 | 证据 | 未证明部分 |
+| --- | --- | --- | --- |
+| 内容契约 | PASS / LIVE LOADED | `@agent-army/m5-contracts` 13/13；四渠道、简报、六项质量门、标准指标、公众号草稿 schema；已进入 commit `44515e0…` 对应不可变 release | 不证明真实岗位模型输出的人工作品质量 |
+| 岗位执行 | PASS | A君内容增长 22/22、小R 8/8、复盘 5/5、Manifest 16/16 | 不证明真实模型输出的人工作品质量 |
+| Publisher | PASS / EXTERNAL OFF | `@agent-army/m5-publisher-gateway` 214/214；其中公众号草稿 11 条覆盖默认关闭、惰性构造、双授权、批准账号绑定、预算硬停、文件租约、幂等、脱敏、外部成功但回执落账失败的暂停，以及禁止重试 | 依赖注入假 CLI；无真实 Wenyan、公众号或 Media ID |
+| 运行时 | LIVE PASS | 干净源码 commit `44515e0619ac3ba6ca853923c473b1c2fa9b930c`；A君全量 `1108/1108`。冻结 release `e3b7ae7b…`、payload `fbbc1495…` 的主入口与只读恢复 smoke 通过；切换后受控重启 PID `14873 → 15283`，cwd/entrypoint 指向新 release，`/api/overview=200`，任务/审批 `744/25`；Paperclip 正常，Publisher 仍 `disabled` | 不代表 Hermes Profile 提示词已外部同步，也不证明真实公众号写入 |
+| 外部平台 | NOT AUTHORIZED / NOT CHECKED | 未读取 Secret，未调用公众号，未创建草稿或群发 | 需测试账号、Paperclip 批准、IP 白名单和一次明确草稿写入授权 |
+| 人工验收 | WAITING | 代码行为已固定为 `externalPublished=false`、`groupSent=false` | 仍需公众号后台预览正文、图片、主题和链接 |
+
+唯一下一步：保持现有 Campaign、Cron、Publisher 和公众号连接器关闭。只有负责人另行批准测试账号的一次“创建草稿”后，才配置 Wenyan、Paperclip accountRef/Secret Reference 和 IP 白名单，并在公众号后台人工预览，禁止群发。
+
 cd apps/ajun-runtime
 node --test test/paperclip-bridge.test.js test/paperclip-retrospective.test.js \
   test/production-control-plane-boundary.test.js test/local-content-growth.test.js
@@ -269,3 +282,17 @@ cua-driver permissions status --json
 cua-driver doctor
 # binary_version=0.14.1；accessibility=true；screen_recording=true；doctor 正常
 ```
+
+## 2026-08-05 小红书受控真实发布冒烟
+
+| 项目 | 事实 | 边界 |
+| --- | --- | --- |
+| 授权 | 负责人先批准上传测试视频且不发布；完成表单核验后，再单独明确批准发布当前测试内容 | 只覆盖这一次小红书测试发布，不批准 Campaign、Cron、后续内容或抖音 |
+| 输入 | 隔离命名 Profile 已登录；上传 1 秒、640×360、H.264 的合成黑色视频；标题为 `M5受控发布测试-请勿发布`，正文为测试说明并带 `#M5测试` | 不含生产素材、Secret、Cookie 或位置数据；小红书位置权限选择“一律不允许” |
+| 提交 | CuaDriver exact 绑定下唯一“发布” ref 只点击一次，返回 `status=ok`；随后只读轮询，不重复提交 | 不是 Publisher Gateway production Runtime，也没有生成仓库 `PublishReceipt` |
+| 平台回执 | 创作页跳转到 `/publish/publish?source=&published=true`；笔记管理精确命中同标题，内容 ID `6a72ddf8000000002201484e`，时间 `2026-08-05 14:53 Asia/Shanghai`，状态“审核中” | 证明平台已接受写入并分配内容 ID；尚不证明公开审核通过或指标可读 |
+| 本地兼容 | 真实页暴露文件 input 无可访问名称、正文为唯一 `div role=textbox`；runner 已补唯一 ref 失败关闭与标签追加 | 已由前次真实页面验证，未重复发布 |
+| 结果回读候选 | `read_result` 可只读跳转笔记管理，仅点击标题完全一致且唯一的详情入口，并组合列表中的平台状态与详情 URL 中的内容 ID；跨域、重复标题、缺状态或缺 ID 均硬停，发布按钮仍只允许一次。Publisher 全量 `221/221`、`npm run check`、`git diff --check` 通过 | 只证明候选源码和 fixture；受限网址无法再次通过 Computer Use 验证，且没有获批 selector/Profile lease 或 production Runtime `PublishReceipt` |
+| CuaDriver | 官方发布脚本 SHA-256 与 v0.17.0 release 一致后，由 `0.14.1` 更新到 `0.17.0`；守护进程已恢复，Accessibility 与 Screen Recording 均为 `true`，语义快照/点击/导航工具仍存在 | 官方 0.16/0.17 主要增强语义路由和原生桌面安全，不新增 DOM 任意属性读取；未借升级绕过平台或网址限制 |
+
+唯一下一步：保持 Campaign、Cron 和 Publisher 关闭；为结果回读候选取得 selector/Profile lease 的 Paperclip 独立批准，再做 production Runtime 单条验收。不得把本次人工冒烟或本地 fixture 写成 M5 完成。

@@ -106,7 +106,7 @@
           "type": "object",
           "required": ["provider", "model"],
           "properties": {
-            "provider": { "enum": ["openai-codex", "openrouter", "nous", "zai", "kimi-coding", "minimax", "minimax-cn", "stepfun", "deepseek"] },
+            "provider": { "enum": ["openai-codex", "openrouter", "nous", "zai", "kimi-coding", "minimax", "minimax-cn", "stepfun", "deepseek", "local-openai"] },
             "model": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._/-]{1,127}$" }
           },
           "allOf": [
@@ -153,6 +153,25 @@
         "mcpTools": {
           "type": "array",
           "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "uniqueItems": true
+        },
+        "localAiCapabilities": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "text.generate",
+              "vision.analyze",
+              "video.analyze",
+              "audio.transcribe",
+              "audio.synthesize",
+              "image.generate",
+              "image.edit",
+              "embedding.create",
+              "rerank.score",
+              "knowledge.index",
+              "knowledge.search"
+            ]
+          },
           "uniqueItems": true
         },
         "feishuToolsets": {

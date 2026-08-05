@@ -13,14 +13,31 @@
 ## 安装顺序
 
 1. 在台式机安装 NVIDIA 驱动、CUDA 可用的最新版 ComfyUI，并确认 `http://127.0.0.1:8188/system_stats` 能看到 NVIDIA/CUDA。
-2. 运行 `python download-desktop-models.py --comfy-root <ComfyUI目录>`。脚本只下载固定 revision 的官方 4B FP8 diffusion、Qwen 4B text encoder 和 FLUX.2 VAE，并逐文件校验固定大小与 SHA-256；不会下载 Base、9B、Z-Image 或视频模型。
+2. 运行 `python download-desktop-models.py --comfy-root <ComfyUI目录>`。脚本只下载固定 revision 的官方 4B FP8 diffusion、Qwen 4B text encoder 和 FLUX.2 VAE，并逐文件校验固定大小与 SHA-256；不会下载 Base、9B、Z-Image 或视频模型。当前网络下 Xet 分块曾反复出现 TLS 断流，因此脚本默认使用可续传的普通 HTTP；目标网络确认支持 Xet 时可显式设置 `HF_HUB_DISABLE_XET=0`。
 3. 从 ComfyUI 官方模板加载 `Flux.2 Klein 4B Text-to-Image` 和 `4B Image Edit Distilled`，各自真实运行一次；官方源地址记录在 `workflows/README.md`。然后分别导出为 **API format**：
    - `workflows/flux2-klein-generate-api.json`
    - `workflows/flux2-klein-edit-api.json`
 4. 把工作流里的输入值替换为占位符：`{{PROMPT}}`、`{{NEGATIVE_PROMPT}}`、`{{WIDTH}}`、`{{HEIGHT}}`、`{{STEPS}}`、`{{SEED}}`；编辑工作流的图片加载节点使用 `{{INPUT_IMAGE_0}}`，多参考图依次使用到 `{{INPUT_IMAGE_3}}`。
-5. Windows PowerShell 执行 `./install-windows.ps1 -MacPrivateIp <Mac内网IP>`；Linux 执行 `./install-linux.sh <Mac内网IP>`。
+5. Windows PowerShell 执行 `./install-windows.ps1 -MacPrivateIp <Mac内网IP> -ComfyUiWorkingDirectory <ComfyUI目录> -ComfyUiStartCommandJson '<启动命令JSON数组>'`；Linux 执行 `./install-linux.sh <Mac内网IP>`。启动命令是参数数组，例如 `['python.exe','main.py','--listen','127.0.0.1','--port','8188']` 对应的合法 JSON；不要传一整段 shell 字符串。
 6. 安装脚本会生成权限受限的 `desktop-node.env` 和 `mac-pairing.json`。不要把 token 粘贴到聊天、日志或仓库。
-7. 先执行安装脚本最后给出的 `--check` 命令。只有两项 ComfyUI 能力均为 healthy，才启动常驻服务和配置 Mac。
+7. 先执行安装脚本最后给出的 `--check` 命令。只有两项 ComfyUI 能力均为 healthy，才配置 Mac。
+
+## 启动与管理
+
+- Windows 登录时只启动轻量节点 `18083`，任务计划程序中的明确名称是 `\AgentArmy\RTX4070EnhancementNode`。它负责鉴权、健康检测和接收 A君控制，不加载模型。
+- ComfyUI **没有**登录启动任务。A君收到真实 4070 图片任务，或用户在“AI 能力中心”点启动时才拉起；默认空闲 15 分钟后释放。
+- A君能检测 4070 断线并重连；节点离线期间自动图片路由回 Mac。节点自己被停止后，A君无法隔空启动一台已经没有控制进程的电脑，这是唯一的控制面边界。
+- 本机可用下列命令查看和管理唯一计划任务；因此它不是不可见的“幽灵服务”：
+
+```powershell
+Get-ScheduledTask -TaskPath "\AgentArmy\" -TaskName "RTX4070EnhancementNode"
+Start-ScheduledTask -TaskPath "\AgentArmy\" -TaskName "RTX4070EnhancementNode"
+Stop-ScheduledTask -TaskPath "\AgentArmy\" -TaskName "RTX4070EnhancementNode"
+Disable-ScheduledTask -TaskPath "\AgentArmy\" -TaskName "RTX4070EnhancementNode"
+Enable-ScheduledTask -TaskPath "\AgentArmy\" -TaskName "RTX4070EnhancementNode"
+```
+
+新版节点只会停止自己启动的 ComfyUI 子进程；若检测到用户手动启动的外部 ComfyUI，只显示状态，不会强杀。
 
 安装脚本不会自动下载候选模型、打开公网端口、修改路由器、安装远程控制软件或调用付费服务。
 

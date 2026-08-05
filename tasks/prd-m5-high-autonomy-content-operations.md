@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 当前源码候选为 16 阶段 / 18 Routine（17 阶段/分支 + 1 daily）/ 6 无模型控制器；r3 已冻结、main/recovery smoke 通过但未激活。live 仍为 15/17/5，活动 `0/14`、Cron 与 Publisher 关闭；本轮没有真实 Provider 调用或平台发布，因此 M5 未完成 |
+| 状态 | 当前源码候选为 16 阶段 / 18 Routine（17 阶段/分支 + 1 daily）/ 6 无模型控制器；r3 已冻结、main/recovery smoke 通过但未激活。live 仍为 15/17/5，Cron 与 Publisher 关闭。2026-08-05 已完成一次负责人单独授权的小红书真实发布冒烟，平台分配内容 ID 且当前“审核中”；Publisher 候选已补笔记管理的精确标题/状态/详情 URL 强回读并本地测试通过，但尚无获批 selector/Profile lease 或 production Runtime 真实验收，不能替代真实 PublishReceipt、抖音发布、指标或 7 天闭环，因此 M5 未完成 |
 | 负责人 | A君 |
 | 创建时间 | 2026-07-30 |
 | 上游 | [Agent军团总 PRD](./prd-agent-army-master.md) |
@@ -36,6 +36,8 @@
 - Paperclip 内容自治插件只增加领域类型、StepFun/媒体工具和发布连接器；
 - 确定性 Publisher Gateway、模拟连接器与真实连接器插槽；
 - 内容血缘、审核、发布凭证、指标和学习提案契约；
+- 通用内容方法覆盖结构化简报、公开机会研究、四渠道原生写法、视觉锚点、六项语义质量门和同类样本复盘；该方法不扩张当前 M5 七天活动的抖音/小红书双平台发布范围；
+- 公众号仅提供独立批准的“创建草稿”插槽，回执明确未发布、未群发；预览和群发不属于自动化范围；
 - 本机控制台的活动状态、唯一下一步和停止入口；
 - 11 个正式自主 Profile 按 ADR-0011 改用 `deepseek/deepseek-v4-flash` 且不配置 StepFun 文本回退。微信私密只读检索岗位属于 A君本地适配能力，不纳入这 11 岗；M5 StepFun 多模态工具仍按独立媒体门禁处理。
 - 内容插件固定视觉模型 `step-1o-turbo-vision`、生图/改图模型 `step-image-edit-2` 和 TTS 模型 `stepaudio-2.5-tts`；模型身份必须进入 Provider action、费用事件和产物血缘。
@@ -87,6 +89,8 @@
   - 灰度日不是“同一文案换标题”：`baseline` 独立驱动 `master.mp4` 与小红书版，`gray_douyin` 独立驱动抖音版。两条变体必须分别绑定脚本、TTS、渲染、机器审核、模板版本、目标日期 Case、平台 Case 与内容血缘；缺少任一完整变体、跨平台串线或哈希重复都失败关闭；
   - 内容自治插件 live `0.4.7` 的 14 个工具，包括 StepFun 多模态、FFmpeg/FFprobe、受控 Remotion、固定 9 项产物包、产物血缘和发布前门禁；live 已从 `content-autonomy-bundle-0.4.7-cac8390a…4723c13` 不可变净包安装并处于 `ready`。净包清单含 20,012 项，精确排除 `apps/animated-chart/out/**`、`public/m5-*/**` 与 Remotion 根缓存 `node_modules/.cache/**`，同时保留完整运行依赖；`0.4.6` 不可变包和 Paperclip `2026.722.0` 二进制兼容回滚链保留；
   - 无模型 Publisher Gateway 已覆盖双平台幂等、失败暂停、发布凭证和显式指标采集；抖音官方 API connector 已完成上传/创建/查询/本人指标的依赖注入源码契约，production composition 与 A君延迟授权代码也已接线，但 live 未注入 production access 或真实 connector dependencies，真实 Runtime 仍未启用；2h/24h/72h 调度由 Paperclip 原生 Issue Monitor 承担；
+  - 自媒体内容方法 1–6 已复用现有 A君、小R、小创、审核官和小办岗位，新增 `ContentBrief`、`ContentOpportunity`、四平台 playbook、视觉锚点、六项语义质量门、标准化指标及同类样本中位数/P75；没有新增任务状态机，Paperclip 仍是唯一任务真相；
+  - 第 7 项公众号能力以独立 `WechatDraftGateway` 接入：Paperclip 授权在文件获取前和 CLI 调用前各核验一次，文件使用 SHA-256 不可变租约，Secret 仅由 resolver 临时解析，Wenyan runner 只允许版本检查和创建草稿。结果固定为未发布、未群发；真实 Wenyan、公众号账号、IP 白名单和草稿写入尚未验收；
   - 发布控制器从可信 Case、CampaignGrant 和已审核 ContentVersion 派生唯一动作，将 `PublishReceipt` 作为专用 Work Product 写回；指标控制器将 `MetricSnapshot` 写回；复盘控制器写入版本化 Retrospective Work Product；
   - 复盘少于 5 条同类型真实 72h `MetricSnapshot` 时只记录 `insufficient_sample`，达到 5 条才生成状态为 `proposed` 的 `LearningProposal`；提案必须离线回放、审核和单条灰度，不能直接修改生产 Prompt、权限、频率或投流；
   - A君内容活动 API、控制台、CampaignGrant、暂停/恢复/停止与“插件或公司级配置不完整即关闭”的失败关闭边界；
@@ -118,7 +122,7 @@
   - 旧 StepFun `m5v2` Provider 账本 `work/m5-content-autonomy/provider/7-theme/m5v2/ledger.json` 为 `succeeded`：35 个 action-linked 费用记录合计 42 美分，`confirmedReplay=35`、`lifetimeProviderCalls=43`；本轮 Provider 请求/调用均为 0，没有新增付费或 `cost-event`。费用记录是本项目保守账本，不等于 StepFun 官方最终账单；
   - 内容插件上游现已原生生成 lineage，新内容不再依赖事后迁移；`native-artifact-smoke` 以 Provider 0 完成 1/1 份 lineage 和 3/3 支平台媒体复核，均为 45 秒、1080×1920、H.264/AAC、黑帧 0、-15.1 LUFS。历史旧 Provider 成片迁移仍保留在 `work/m5-content-autonomy/stepfun-seven-theme-render/m5v2-lineage-v2/`：0 Provider 调用完成 7/7 份 lineage 和 21/21 支媒体复核，响度 -15.2 至 -14.9 LUFS；原 `m5v2` 账本仍保留 7/7 机器审核和 63/63 固定产物 hash/bytes 证据。所有账本记录 `externalPublished=false`，没有外发或新增 Provider 调用；
   - 抖音官方 API connector、production composition 与 A君延迟授权源码已接入生产构造链，但 live 未注入 production access 或真实 connector dependencies，未启用任何真实 Publisher Connector，也未操作抖音或小红书发布页面；
-  - CuaDriver 已升级到 `0.14.1`，辅助功能和屏幕录制均为 `true`，`doctor` 正常。runner 已修复将真实 `browser_consent_required` 误报成 `prepared_browser_pid_missing` 的诊断错误；现在保留 CuaDriver 的结构化授权失败。完整本地假页 Computer Use 验收仍缺当次生成、五分钟有效、单次使用的 browser approval token；Token 不得打印、落盘或复用。真实 selector、账号登录和平台验收仍未完成；
+  - CuaDriver 已使用官方校验发布脚本升级到 `0.17.0`，辅助功能和屏幕录制均为 `true`，`doctor` 正常。runner 会保留真实 `browser_consent_required`，并使用只读语义查询定位唯一标题；完整 production 验收仍缺当次生成、五分钟有效、单次使用的 browser approval token、获批 selector/Profile lease 与真实 Runtime 回执。Token 不得打印、落盘或复用；
   - 真实 CUA 只有同时满足以下门禁才允许构造：selector bundle 经 Paperclip 批准后冻结且版本、规范哈希、文件哈希和有效期全部匹配；未过期的 `isolated_named` Profile lease 精确绑定平台、CampaignGrant `accountRef`、Profile 名和页面身份哈希；账号具备本次活动写授权；发布结果返回真实内容页、平台内容 ID、selector 版本/哈希和账号核验证据。任一缺失、错配、验证码、身份验证、账号切换、风控、违规或未知页面都在生成可信 PublishReceipt 前停止；
   - 7 天真实本地 MP4→Fake 证据位于 `work/m5-publisher-gateway/acceptance/fake-seven-day-2026-07-31-v1/`：7 个上海日历日、每天双平台，共 14 个 fake PublishReceipt 和 42 个 2h/24h/72h 模拟 MetricSnapshot；44 次 Runtime 重建后仍幂等重放同一 72h 快照。证据明确 `realPlatformTouched=false`、`externalPublished=false`、`realPlatformCalls=0`、`totalCostUsd=0`、`actualPlatformElapsedTime=false`，只证明本地发布账本、恢复和模拟指标回流，不是平台外发或真实 72h 等待；
   - 小红书本人指标已接入 Gateway production composition/Runtime/MetricSnapshot 链：发布与指标使用独立 Paperclip approval、runner 和命名 Profile，指标 runner 固定五步只读，并绑定可信 PublishReceipt、`accountRef`、内容 ID、selector 版本/哈希和页面身份；硬停会暂停 Campaign/Cron，批准到期与预算不足会在 connector 前拒绝。跨进程指标调用进入 `invoking` 后不可按租约换主；超过 10 分钟只会转为 `human_review`，禁止自动重试。Gateway 恢复要求有效持久 claimToken、全账本唯一 authorizationId，并在任何暂停或账本 mutation 前重新核验授权；确认存在外部效果时先暂停 Campaign/Cron，确认无外部效果时也不会自动再次调用。A君对完全一致的授权重放只读返回旧结果，绝不再次进入可写恢复。Paperclip `2026.722.0` 原始安装仍没有原生过期、撤销和原子 consume 的一次性恢复 Approval 契约；仓库现已提供版本锁定的 Run-JWT 转发与恢复 Approval 兼容补丁（合并定向测试 `15/15`），controller cutover 工具 `15/15`。快照读写 TOCTOU 已修复，包含 post-link 父目录替换后原目录/替代目录零残留、0 Paperclip PATCH，以及清理不完整时 `recoveryRequired`；清理器 ready/cleanup/close 均有硬超时，卡死时按 TERM、KILL、确认退出收口。只从 current-run provider 取身份和凭据的 A君恢复 access 已实际 wire 进 server composition/metrics 请求级作用域，provider composition `43/43`、相关 server/controller `84/84`。两份兼容补丁仍未 apply，live 控制器 adapterConfig 未启用 `forwardRunJwt`，当前 4321 也未加载新 binding，所以 live 恢复仍不可调用。抖音风控与费用上报双故障同样不会覆盖 hard-stop。当前没有真实浏览器、真实账号或平台指标，不能宣称真实回读；

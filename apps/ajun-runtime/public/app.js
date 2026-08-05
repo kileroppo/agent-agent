@@ -1,3 +1,9 @@
+import {
+  markSyncStarted,
+  replaceChildrenPreservingDisclosureState,
+  setTextIfChanged,
+} from './disclosure-state.js';
+
 const capabilityList = document.querySelector('#capability-list');
 const agentList = document.querySelector('#agent-list');
 const taskList = document.querySelector('#task-list');
@@ -22,6 +28,11 @@ const syncIndicator = document.querySelector('#sync-indicator');
 const employeeConnections = document.querySelector('#employee-connections');
 const employeeConnectionList = document.querySelector('#employee-connection-list');
 const accessConnections = document.querySelector('#access-connections');
+const aiControl = document.querySelector('#ai-control');
+const aiServiceList = document.querySelector('#ai-service-list');
+const aiControlMessage = document.querySelector('#ai-control-message');
+const aiRoutingList = document.querySelector('#ai-routing-list');
+const refreshAiControl = document.querySelector('#refresh-ai-control');
 const accessConnectionList = document.querySelector('#access-connection-list');
 const accessConnectionMessage = document.querySelector('#access-connection-message');
 const contentAccessSummary = document.querySelector('#content-access-summary');
@@ -154,10 +165,10 @@ function setSyncStatus(message, state) {
   syncIndicator.className = `sync-indicator ${state}`;
 }
 
-async function load() {
+async function load({ background = false } = {}) {
   if (loading) return;
   loading = true;
-  syncIndicator.className = 'sync-indicator syncing';
+  markSyncStarted(syncIndicator, { background });
   try {
     overview = await api('/api/overview');
     accessGate.hidden = true;
@@ -189,6 +200,7 @@ async function renderLocalShare() {
     shareInfo.hidden = true;
     employeeConnections.hidden = true;
     accessConnections.hidden = true;
+    aiControl.hidden = true;
     return;
   }
   try {
@@ -203,6 +215,7 @@ async function renderLocalShare() {
       renderEmployeeConnections(),
       renderAccessConnections(),
       renderAccessLoginOptions(),
+      renderAiControl(),
       renderContentCampaigns()
     ]);
   } catch {
@@ -210,7 +223,53 @@ async function renderLocalShare() {
     shareInfo.hidden = true;
     employeeConnections.hidden = true;
     accessConnections.hidden = true;
+    aiControl.hidden = true;
   }
+}
+
+async function renderAiControl() {
+  if (!localOwner) return;
+  aiControl.hidden = false;
+  try {
+    const payload = await api('/api/local-ai/control');
+    replaceChildrenPreservingDisclosureState(aiServiceList, payload.services.map(aiServiceCard));
+    aiRoutingList.replaceChildren(...payload.routing.map((route) => {
+      const row = document.createElement('p');
+      row.innerHTML = `<strong>${escapeHtml(route.capability)}</strong><span>${escapeHtml(route.providers.join(' → '))}</span>`;
+      return row;
+    }));
+    const running = payload.services.filter((service) => service.state === 'running').length;
+    const stopped = payload.services.filter((service) => service.state === 'stopped').length;
+    aiControlMessage.textContent = `${running} 个运行中 · ${stopped} 个已停止/等待任务 · 所有项目服务都在此登记`;
+  } catch (error) {
+    aiControlMessage.textContent = error.message;
+    aiServiceList.replaceChildren();
+  }
+}
+
+function aiServiceCard(service) {
+  const node = document.createElement('article');
+  node.className = `ai-service-card ${escapeHtml(service.state)}`;
+  const modes = service.mode === 'per_request'
+    ? '<span class="ai-mode-static">每次任务启动</span>'
+    : `<label>启动方式<select data-ai-policy="${escapeHtml(service.id)}"${['gateway', 'desktop-node'].includes(service.id) ? ' disabled' : ''}>
+        ${[['on_demand', '按需启动'], ['always_on', '保持运行'], ['disabled', '禁用']].map(([value, label]) => `<option value="${value}"${service.mode === value ? ' selected' : ''}>${label}</option>`).join('')}
+      </select></label>`;
+  const actions = service.actions.map((action) => `<button type="button" class="${action === 'stop' ? 'secondary-action danger-action' : 'secondary-action'}" data-ai-service="${escapeHtml(service.id)}" data-ai-action="${escapeHtml(action)}">${escapeHtml(aiActionLabel(action))}</button>`).join('');
+  node.innerHTML = `
+    <div class="ai-service-head"><div><strong>${escapeHtml(service.name)}</strong><small>${escapeHtml(service.node === 'windows' ? 'Windows 4070' : 'Mac')} · ${escapeHtml(service.endpoint)}</small></div><span class="status ${escapeHtml(service.state)}">${escapeHtml(aiStateLabel(service.state))}</span></div>
+    <p>${escapeHtml(service.detail)}</p>
+    ${service.managed === false && service.state === 'running' ? '<p class="ai-ownership-note">这是外部启动的进程，A君不会停止它。</p>' : ''}
+    <div class="ai-service-controls">${modes}<div class="connection-actions">${actions || '<span class="connection-final-state">无需常驻控制</span>'}</div></div>`;
+  return node;
+}
+
+function aiActionLabel(action) {
+  return ({ start:'启动', stop:'停止', restart:'重启', reconnect:'重新检测' })[action] || action;
+}
+
+function aiStateLabel(state) {
+  return ({ running:'运行中', stopped:'已停止', ready:'按任务运行', offline:'失联', unknown:'待检测' })[state] || '待确认';
 }
 
 function isLoopbackLocation() {
@@ -311,7 +370,7 @@ async function renderEmployeeConnections() {
   if (!localOwner) return;
   const payload = await api('/api/employee-feishu-connections');
   employeeConnections.hidden = false;
-  employeeConnectionList.replaceChildren(...payload.employees.map((employee) => {
+  replaceChildrenPreservingDisclosureState(employeeConnectionList, payload.employees.map((employee) => {
     const node = document.createElement('article');
     node.className = 'connection-card';
     const status = employee.channel?.status || (employee.configured ? 'connecting' : 'not_configured');
@@ -323,9 +382,9 @@ async function renderEmployeeConnections() {
       </div>`;
     const connectionControls = status === 'external'
       ? '<div class="connection-managed"><strong>独立员工入口已启用</strong><p>由员工自己的 Hermes 档案和飞书入口承接。</p></div>'
-      : `<details class="connection-form-disclosure"><summary>${employee.configured ? '更新接线配置' : '配置飞书入口'}</summary><form data-agent-id="${escapeHtml(employee.agentId)}"><label>飞书 App ID<input name="appId" autocomplete="off" placeholder="cli_..." required></label><label>App Secret<input name="appSecret" type="password" autocomplete="new-password" required></label><label>允许老板的 open_id<input name="allowedUserId" autocomplete="off" placeholder="ou_..." required></label><button>${employee.configured ? '更新并重新连接' : '保存并连接'}</button><p class="connection-message" role="status">${escapeHtml(employee.channel?.message || '尚未接线。')}</p></form></details>`;
+      : `<details class="connection-form-disclosure" data-disclosure-key="employee-form:${escapeHtml(employee.agentId)}"><summary>${employee.configured ? '更新接线配置' : '配置飞书入口'}</summary><form data-agent-id="${escapeHtml(employee.agentId)}"><label>飞书 App ID<input name="appId" autocomplete="off" placeholder="cli_..." required></label><label>App Secret<input name="appSecret" type="password" autocomplete="new-password" required></label><label>允许老板的 open_id<input name="allowedUserId" autocomplete="off" placeholder="ou_..." required></label><button>${employee.configured ? '更新并重新连接' : '保存并连接'}</button><p class="connection-message" role="status">${escapeHtml(employee.channel?.message || '尚未接线。')}</p></form></details>`;
     node.innerHTML = `
-      <details class="connection-disclosure">
+      <details class="connection-disclosure" data-disclosure-key="employee:${escapeHtml(employee.agentId)}">
         <summary>
           <span class="summary-icon"><svg aria-hidden="true"><use href="#icon-employees"></use></svg></span>
           <span class="connection-summary-copy">
@@ -360,15 +419,16 @@ async function renderAccessConnections() {
   const archivedConnections = payload.connections.filter((connection) => ['revoked', 'disabled', 'expired'].includes(connection.status));
   const ambiguousPlatforms = Object.entries(groupConnectionsByProvider(activeConnections))
     .filter(([, connections]) => connections.length > 1 && !connections.some((connection) => connection.isDefault));
-  accessConnectionMessage.textContent = payload.status === 'unavailable'
+  const connectionMessage = payload.status === 'unavailable'
     ? (payload.message || '账号连接状态暂时不可用。')
     : ambiguousPlatforms.length
       ? `${ambiguousPlatforms.map(([provider]) => providerLabel(provider)).join('、')}有多个账号，请先设一个默认账号。`
       : `${activeConnections.length} 个当前连接 · 默认账号已明确`;
-  accessConnectionList.replaceChildren(
+  setTextIfChanged(accessConnectionMessage, connectionMessage);
+  replaceChildrenPreservingDisclosureState(accessConnectionList, [
     ...activeConnections.map(accountConnectionCard),
     ...(archivedConnections.length ? [archivedConnectionGroup(archivedConnections)] : [])
-  );
+  ]);
 }
 
 function renderContentAccessSummary(payload) {
@@ -387,11 +447,11 @@ function renderContentAccessSummary(payload) {
   const adapters = payload.acquisition?.adapters || [];
   const healthyAdapters = adapters.filter((adapter) => adapter.healthStatus === 'healthy').length;
   const crawlerReady = payload.acquisition?.status === 'ready' && payload.acquisition?.mediaCrawlerDeep === true;
-  contentAccessSummary.replaceChildren(
+  replaceChildrenPreservingDisclosureState(contentAccessSummary, [
     accessSummaryCard('平台可用', defaults.length, defaults.join('；') || '尚未连接账号', defaults.some((item) => item.endsWith('待选择')) ? 'warning' : 'ready'),
     accessSummaryCard('真实读取成功', `${verified}/${active.length}`, `${failed ? `${failed} 个账号最近失败` : ''}${failed && unverified ? ' · ' : ''}${unverified ? `${unverified} 个尚未实测` : failed ? '' : '当前账号均有成功证据'}`, failed || unverified ? 'warning' : 'ready'),
     accessSummaryCard('采集服务', crawlerReady ? '可用' : '需检查', `${healthyAdapters}/${adapters.length || 0} 个通道正常`, crawlerReady ? 'ready' : 'warning')
-  );
+  ]);
 }
 
 function accessSummaryCard(label, value, detail, tone) {
@@ -433,7 +493,7 @@ function accountConnectionCard(connection) {
       : `<button type="button" data-connection-action="default" data-connection-id="${escapeHtml(connection.connectionId)}">设为${escapeHtml(providerLabel(connection.provider))}默认账号</button>`
     : '';
   node.innerHTML = `
-    <details class="connection-disclosure">
+    <details class="connection-disclosure" data-disclosure-key="account:${escapeHtml(connection.connectionId)}">
       <summary>
         <span class="summary-icon"><svg aria-hidden="true"><use href="#icon-shield"></use></svg></span>
         <span class="connection-summary-copy">
@@ -452,7 +512,7 @@ function accountConnectionCard(connection) {
           <small>${escapeHtml(verification)}<br>${escapeHtml(timing)}<br>${escapeHtml(health)}<br>${connection.hasCredentialReference ? '受控凭据引用已登记' : '未登记受控凭据引用'}</small>
         </div>
         ${primaryAction}
-        ${managementActions ? `<details class="action-menu"><summary><svg aria-hidden="true"><use href="#icon-more"></use></svg>管理连接</summary><div class="connection-actions">${managementActions}</div></details>` : '<span class="connection-final-state">无需操作</span>'}
+        ${managementActions ? `<details class="action-menu" data-disclosure-key="account-actions:${escapeHtml(connection.connectionId)}"><summary><svg aria-hidden="true"><use href="#icon-more"></use></svg>管理连接</summary><div class="connection-actions">${managementActions}</div></details>` : '<span class="connection-final-state">无需操作</span>'}
       </div>
     </details>`;
   return node;
@@ -461,6 +521,7 @@ function accountConnectionCard(connection) {
 function archivedConnectionGroup(connections) {
   const node = document.createElement('details');
   node.className = 'connection-history';
+  node.dataset.disclosureKey = 'account-history';
   node.innerHTML = `<summary><span>历史连接</span><small>${connections.length} 条已撤销、停用或过期记录</small><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><div class="connection-grid"></div>`;
   node.querySelector('.connection-grid').replaceChildren(...connections.map(accountConnectionCard));
   return node;
@@ -494,7 +555,10 @@ async function renderAccessLoginOptions() {
   if (!localOwner) return;
   accessLoginOptions = await api('/api/access-login/options');
   const selectedProvider = accessLoginProvider.value;
-  accessLoginProvider.replaceChildren(...accessLoginOptions.providers.map((provider) => new Option(provider.label, provider.id)));
+  replaceChildrenPreservingDisclosureState(
+    accessLoginProvider,
+    accessLoginOptions.providers.map((provider) => new Option(provider.label, provider.id)),
+  );
   if (accessLoginOptions.providers.some((provider) => provider.id === selectedProvider)) accessLoginProvider.value = selectedProvider;
   renderAccessLoginAccounts();
 }
@@ -503,11 +567,12 @@ function renderAccessLoginAccounts() {
   const provider = accessLoginProvider.value;
   const current = accessLoginAccount.value;
   const accounts = accessLoginOptions.accounts.filter((account) => account.connected && account.platforms.includes(provider));
-  accessLoginAccount.replaceChildren(new Option(accounts.length ? '请选择已登录账号' : '还没有检测到已登录账号', ''));
+  const accountOptions = [new Option(accounts.length ? '请选择已登录账号' : '还没有检测到已登录账号', '')];
   for (const account of accounts) {
     const label = account.nicknames?.[provider] || 'Chrome 已登录账号';
-    accessLoginAccount.append(new Option(label, account.clientId));
+    accountOptions.push(new Option(label, account.clientId));
   }
+  replaceChildrenPreservingDisclosureState(accessLoginAccount, accountOptions);
   if (accounts.some((account) => account.clientId === current)) accessLoginAccount.value = current;
 }
 
@@ -956,6 +1021,54 @@ rotateShareKey.addEventListener('click', async () => {
   }
 });
 
+refreshAiControl.addEventListener('click', async () => {
+  refreshAiControl.disabled = true;
+  aiControlMessage.textContent = '正在重新检测 Mac 与 4070 节点…';
+  try {
+    await api('/api/local-ai/services/desktop-node/reconnect', { method:'POST' });
+    await renderAiControl();
+  } catch (error) {
+    aiControlMessage.textContent = error.message;
+  } finally {
+    refreshAiControl.disabled = false;
+  }
+});
+
+aiServiceList.addEventListener('click', async (event) => {
+  const button = event.target.closest('button[data-ai-service]');
+  if (!button) return;
+  const { aiService:serviceId, aiAction:action } = button.dataset;
+  if (action === 'stop' && !window.confirm('停止后不会自动保持后台运行；下次任务可按策略重新唤醒。确定停止吗？')) return;
+  button.disabled = true;
+  aiControlMessage.textContent = `正在${aiActionLabel(action)} ${serviceId}…`;
+  try {
+    await api(`/api/local-ai/services/${encodeURIComponent(serviceId)}/${encodeURIComponent(action)}`, { method:'POST' });
+    await renderAiControl();
+  } catch (error) {
+    aiControlMessage.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
+aiServiceList.addEventListener('change', async (event) => {
+  const select = event.target.closest('select[data-ai-policy]');
+  if (!select) return;
+  select.disabled = true;
+  aiControlMessage.textContent = '正在保存启动策略…';
+  try {
+    await api(`/api/local-ai/services/${encodeURIComponent(select.dataset.aiPolicy)}/policy`, {
+      method:'PUT',
+      headers:{ 'content-type':'application/json' },
+      body:JSON.stringify({ mode:select.value, idleSeconds:900 }),
+    });
+    await renderAiControl();
+  } catch (error) {
+    aiControlMessage.textContent = error.message;
+    await renderAiControl();
+  }
+});
+
 employeeConnectionList.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = event.target.closest('form[data-agent-id]');
@@ -1213,11 +1326,11 @@ function canAutoSync() {
 }
 
 setInterval(() => {
-  if (canAutoSync()) load().catch(() => {});
+  if (canAutoSync()) load({ background:true }).catch(() => {});
 }, 5000);
 
 document.addEventListener('visibilitychange', () => {
-  if (canAutoSync()) load().catch(() => {});
+  if (canAutoSync()) load({ background:true }).catch(() => {});
 });
 
 setAccessStep(1);

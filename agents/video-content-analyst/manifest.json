@@ -127,7 +127,13 @@
       "paperclip_assignment_get",
       "video_content_analyze_execute",
       "content_performance_review_execute",
+      "local_ai_invoke",
       "paperclip_assignment_complete"
+    ],
+    "localAiCapabilities": [
+      "vision.analyze",
+      "video.analyze",
+      "audio.transcribe"
     ],
     "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
     "paperclipToolsets": ["agent-army", "clarify"]

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "agent.army/v1",
-  "manifestVersion": "0.6.0",
+  "manifestVersion": "0.7.0",
   "agentId": "reviewer",
   "name": "审核官",
   "department": "军团中枢",
@@ -8,7 +8,8 @@
   "responsibilities": [
     "核对审批请求的范围与风险",
     "拒绝缺少范围或越权的请求",
-    "记录批准、拒绝或补充信息意见"
+    "记录批准、拒绝或补充信息意见",
+    "对内容产物执行事实、声音、平台、视觉、合规和交付完整性六项语义质量审核"
   ],
   "nonResponsibilities": [
     "代替负责人做最终敏感授权",
@@ -41,7 +42,12 @@
       "decision": "human-owner-required"
     }
   ],
-  "qualityGates": [{ "gate": "scope-risk-and-expiry-stated", "required": true }],
+  "qualityGates": [
+    { "gate": "scope-risk-and-expiry-stated", "required": true },
+    { "gate": "content-semantic-review-has-six-gates", "required": true },
+    { "gate": "failed-content-gates-have-fix-and-recheck", "required": true },
+    { "gate": "content-review-does-not-claim-ai-probability", "required": true }
+  ],
   "promptRef": "agents/reviewer/prompts/system.md",
   "runtimeProfileRef": "integrations/hermes/profiles/reviewer.profile.json",
   "appRef": "apps/ajun-runtime",
@@ -67,7 +73,11 @@
       "approval_list",
       "paperclip_assignment_get",
       "m5_stage_execute",
+      "local_ai_invoke",
       "paperclip_assignment_complete"
+    ],
+    "localAiCapabilities": [
+      "vision.analyze"
     ],
     "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
     "paperclipToolsets": ["agent-army", "clarify"]

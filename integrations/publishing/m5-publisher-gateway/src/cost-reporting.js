@@ -6,7 +6,7 @@ export const PUBLISHER_COST_REPORTER_SCHEMA =
 
 const OFFICIAL_CONNECTOR_MODE = 'real:douyin_official_api';
 const LOCAL_ZERO_MODE =
-  /^(?:fake|real:(?:douyin|xiaohongshu|xiaohongshu_own_metrics)_cua)$/;
+  /^(?:fake|real:(?:(?:douyin|xiaohongshu|xiaohongshu_own_metrics)_cua|wechat_wenyan_cli))$/;
 const REFERENCE = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,255}$/;
 const OPERATION = /^[a-z][a-z0-9_]{1,63}$/;
 
@@ -74,7 +74,7 @@ export class PublisherCostRecorder {
     if (!LOCAL_ZERO_MODE.test(connectorMode)) {
       throw coded(
         'publisher_cost_source_invalid',
-        '只有 Fake 或本机 CUA connector 可以固定记录零费用。',
+        '只有 Fake、本机 CUA 或本机 Wenyan connector 可以固定记录零费用。',
       );
     }
     return this.record({

@@ -19,6 +19,7 @@ export class LocalWeChatChatRetriever {
     refreshVault = null,
     checkHealth = null,
     analyzer = new LocalPrivateChatAnalyzer(),
+    ensureAnalysisReady = null,
     healthTtlMs = 30_000,
     now = () => new Date()
   } = {}) {
@@ -39,6 +40,7 @@ export class LocalWeChatChatRetriever {
     ));
     this.healthTtlMs = Math.max(1_000, Math.min(Number(healthTtlMs) || 30_000, 300_000));
     this.analyzer = analyzer;
+    this.ensureAnalysisReady = typeof ensureAnalysisReady === 'function' ? ensureAnalysisReady : null;
     this.healthCache = null;
     this.now = now;
   }
@@ -84,6 +86,7 @@ export class LocalWeChatChatRetriever {
     }
     const needsLocalAnalysis = request.outputMode !== 'metadata-summary';
     if (needsLocalAnalysis) {
+      await this.ensureAnalysisReady?.();
       const modelHealth = await this.analyzer.health();
       if (modelHealth.status !== 'ready') throw safeError('wechat_local_model_unavailable', modelHealth.safeMessage);
     }

@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -47,6 +48,10 @@ class DesktopSettings:
     adapter_config: Path
     work_root: Path
     max_transfer_bytes: int = DEFAULT_MAX_TRANSFER_BYTES
+    comfyui_base_url: str = "http://127.0.0.1:8188"
+    comfyui_start_command: tuple[str, ...] = ()
+    comfyui_working_directory: Path | None = None
+    comfyui_idle_seconds: int = 900
 
     @classmethod
     def from_env(cls) -> "DesktopSettings":
@@ -55,6 +60,8 @@ class DesktopSettings:
             for value in os.environ.get("LOCAL_AI_DESKTOP_ALLOWED_CIDRS", "").split(",")
             if value.strip()
         )
+        start_command = parse_optional_command(os.environ.get("COMFYUI_START_COMMAND_JSON", ""))
+        working_directory = os.environ.get("COMFYUI_WORKING_DIRECTORY", "").strip()
         return cls(
             host=os.environ.get("LOCAL_AI_DESKTOP_HOST", "127.0.0.1"),
             port=int(os.environ.get("LOCAL_AI_DESKTOP_PORT", "18083")),
@@ -63,6 +70,10 @@ class DesktopSettings:
             adapter_config=Path(os.environ.get("LOCAL_AI_DESKTOP_ADAPTER_CONFIG", "desktop-adapters.json")).expanduser().resolve(),
             work_root=Path(os.environ.get("LOCAL_AI_DESKTOP_WORK_ROOT", "work/local-ai-desktop")).expanduser().resolve(),
             max_transfer_bytes=int(os.environ.get("LOCAL_AI_DESKTOP_MAX_TRANSFER_BYTES", str(DEFAULT_MAX_TRANSFER_BYTES))),
+            comfyui_base_url=os.environ.get("COMFYUI_BASE_URL", "http://127.0.0.1:8188").rstrip("/"),
+            comfyui_start_command=start_command,
+            comfyui_working_directory=Path(working_directory).expanduser().resolve() if working_directory else None,
+            comfyui_idle_seconds=max(60, min(int(os.environ.get("COMFYUI_IDLE_SECONDS", "900")), 86400)),
         )
 
 
@@ -183,6 +194,8 @@ class DesktopEnhancementRuntime:
         self.adapters: dict[str, AdapterSpec] = {}
         self.gates: dict[str, ResourceGate] = {}
         self.runner = AdapterProcessRunner()
+        self.comfyui = ManagedComfyUi(settings)
+        self.idle_release_task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
         validate_desktop_settings(self.settings)
@@ -191,6 +204,20 @@ class DesktopEnhancementRuntime:
         self.node_name = config["node"]
         self.adapters = config["adapters"]
         self.gates = {spec.resource: ResourceGate(spec.resource) for spec in self.adapters.values()}
+        if self.comfyui.configured:
+            self.idle_release_task = asyncio.create_task(self._idle_release_loop())
+
+    async def stop(self) -> None:
+        if self.idle_release_task:
+            self.idle_release_task.cancel()
+            await asyncio.gather(self.idle_release_task, return_exceptions=True)
+        await self.comfyui.stop()
+
+    async def _idle_release_loop(self) -> None:
+        while True:
+            await asyncio.sleep(30)
+            if self.comfyui.idle_expired():
+                await self.comfyui.stop()
 
     async def health(self) -> dict[str, Any]:
         rows = []
@@ -223,6 +250,7 @@ class DesktopEnhancementRuntime:
             "node": self.node_name,
             "queues": {name: gate.status() for name, gate in self.gates.items()},
             "capabilities": rows,
+            "services": [await self.comfyui.status()],
         }
 
     async def invoke(self, request: DesktopInvokeRequest) -> dict[str, Any]:
@@ -232,6 +260,9 @@ class DesktopEnhancementRuntime:
         spec = self.adapters.get(request.capability)
         if spec is None:
             raise HTTPException(404, detail={"code": "desktop_capability_not_configured", "message": request.capability})
+        if request.capability in {"image.generate", "image.edit"} and self.comfyui.configured:
+            await self.comfyui.ensure_running()
+            self.comfyui.touch()
         request_root = self.settings.work_root / "requests" / request_id
         input_root = request_root / "input"
         output_root = request_root / "output"
@@ -273,6 +304,17 @@ class DesktopEnhancementRuntime:
         packed = pack_result_artifact(result.get("result", result), output_root, self.settings.max_transfer_bytes)
         return {"requestId": request_id, "capability": request.capability, "provider": provider, "result": packed}
 
+    async def control_service(self, service_id: str, action: str) -> dict[str, Any]:
+        if service_id != "comfyui" or action not in {"start", "stop", "restart", "reconnect"}:
+            raise HTTPException(400, detail={"code": "service_action_not_allowed", "message": f"{service_id}:{action}"})
+        if action == "start":
+            await self.comfyui.start()
+        elif action == "stop":
+            await self.comfyui.stop()
+        elif action == "restart":
+            await self.comfyui.restart()
+        return {"service": await self.comfyui.status()}
+
     def authorize(self, request: Request) -> None:
         client_host = request.client.host if request.client else ""
         if not client_allowed(client_host, self.settings.allowed_cidrs):
@@ -304,6 +346,113 @@ class AdapterCancelledError(RuntimeError):
     pass
 
 
+class ManagedComfyUi:
+    """Controls only the ComfyUI child process started by this node."""
+
+    def __init__(self, settings: DesktopSettings):
+        self.settings = settings
+        self.process: subprocess.Popen[Any] | None = None
+        self.last_used = 0.0
+        self._lock = asyncio.Lock()
+        self._log_handle: Any = None
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.settings.comfyui_start_command)
+
+    async def probe(self) -> bool:
+        try:
+            async with httpx.AsyncClient(timeout=3) as client:
+                response = await client.get(f"{self.settings.comfyui_base_url}/system_stats")
+                return response.is_success
+        except Exception:
+            return False
+
+    async def status(self) -> dict[str, Any]:
+        running = await self.probe()
+        managed = bool(self.process and self.process.poll() is None)
+        return {
+            "id": "comfyui",
+            "state": "running" if running else "stopped",
+            "managed": managed,
+            "ownership": "node-child" if managed else ("external" if running else "none"),
+            "configured": self.configured,
+            "idleSeconds": self.settings.comfyui_idle_seconds,
+        }
+
+    def touch(self) -> None:
+        self.last_used = asyncio.get_running_loop().time()
+
+    def idle_expired(self) -> bool:
+        return bool(
+            self.process
+            and self.process.poll() is None
+            and self.last_used
+            and asyncio.get_running_loop().time() - self.last_used >= self.settings.comfyui_idle_seconds
+        )
+
+    async def ensure_running(self) -> None:
+        if await self.probe():
+            return
+        await self.start()
+
+    async def start(self) -> None:
+        async with self._lock:
+            if await self.probe():
+                self.touch()
+                return
+            if not self.configured:
+                raise HTTPException(409, detail={"code": "comfyui_start_not_configured", "message": "ComfyUI 启动命令尚未登记，A君只能检测，不能启动。"})
+            log_path = self.settings.work_root / "logs" / "comfyui-managed.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            self._log_handle = log_path.open("ab")
+            flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+            self.process = subprocess.Popen(
+                self.settings.comfyui_start_command,
+                cwd=str(self.settings.comfyui_working_directory) if self.settings.comfyui_working_directory else None,
+                stdin=subprocess.DEVNULL,
+                stdout=self._log_handle,
+                stderr=subprocess.STDOUT,
+                creationflags=flags,
+                close_fds=True,
+            )
+            self.touch()
+        deadline = asyncio.get_running_loop().time() + 120
+        while asyncio.get_running_loop().time() < deadline:
+            if await self.probe():
+                return
+            if self.process and self.process.poll() is not None:
+                raise HTTPException(503, detail={"code": "comfyui_start_failed", "message": f"ComfyUI 已退出：{self.process.returncode}"})
+            await asyncio.sleep(2)
+        await self.stop()
+        raise HTTPException(503, detail={"code": "comfyui_start_timeout", "message": "ComfyUI 启动超时。"})
+
+    async def stop(self) -> None:
+        async with self._lock:
+            process = self.process
+            if process is None or process.poll() is not None:
+                self.process = None
+                return
+            process.terminate()
+            try:
+                await asyncio.wait_for(asyncio.to_thread(process.wait), timeout=15)
+            except asyncio.TimeoutError:
+                process.kill()
+                await asyncio.to_thread(process.wait)
+            finally:
+                self.process = None
+                if self._log_handle:
+                    self._log_handle.close()
+                    self._log_handle = None
+
+    async def restart(self) -> None:
+        state = await self.status()
+        if state["ownership"] == "external":
+            raise HTTPException(409, detail={"code": "comfyui_external_process", "message": "8188 由外部 ComfyUI 占用，A君不会停止你手工启动的进程。"})
+        await self.stop()
+        await self.start()
+
+
 def validate_desktop_settings(settings: DesktopSettings) -> None:
     host = settings.host.strip().lower()
     loopback = host in {"127.0.0.1", "localhost", "::1"}
@@ -313,6 +462,18 @@ def validate_desktop_settings(settings: DesktopSettings) -> None:
         raise RuntimeError("LAN desktop node requires LOCAL_AI_DESKTOP_ALLOWED_CIDRS")
     if settings.max_transfer_bytes < 1:
         raise RuntimeError("LOCAL_AI_DESKTOP_MAX_TRANSFER_BYTES must be positive")
+
+
+def parse_optional_command(value: str) -> tuple[str, ...]:
+    if not value.strip():
+        return ()
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("COMFYUI_START_COMMAND_JSON must be a JSON string array") from error
+    if not isinstance(parsed, list) or not parsed or not all(isinstance(item, str) and item for item in parsed):
+        raise RuntimeError("COMFYUI_START_COMMAND_JSON must be a non-empty JSON string array")
+    return tuple(parsed)
 
 
 def load_adapter_config(path: Path) -> dict[str, Any]:
@@ -437,7 +598,10 @@ def create_app(settings: DesktopSettings) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         await runtime.start()
-        yield
+        try:
+            yield
+        finally:
+            await runtime.stop()
 
     app = FastAPI(title="Agent Army 4070 Enhancement Node", version="0.1.0", lifespan=lifespan)
 
@@ -461,6 +625,11 @@ def create_app(settings: DesktopSettings) -> FastAPI:
         runtime.authorize(request)
         normalized = normalize_request_id(request_id)
         return {"requestId": normalized, "cancelled": runtime.runner.cancel(normalized)}
+
+    @app.post("/v1/control/services/{service_id}/{action}")
+    async def control_service(request: Request, service_id: str, action: str) -> dict[str, Any]:
+        runtime.authorize(request)
+        return await runtime.control_service(service_id, action)
 
     app.state.desktop_runtime = runtime
     return app

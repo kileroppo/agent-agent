@@ -4,6 +4,16 @@ import { fallbackResearch } from './hermes-intel-research-advisor.js';
 const CONTROLLED_SOURCE_MATERIAL = Symbol.for(
   'agent.army.openResearch.controlledSourceMaterial',
 );
+const MAX_RESEARCH_SOURCES = 5;
+const DISCOVERY_RESULTS_PER_LANE = 2;
+const DISCOVERY_LANE_SELECTION_PRIORITY = Object.freeze([
+  'primary',
+  'practice',
+  'investigative',
+  'counterevidence',
+  'baseline',
+  'expert',
+]);
 
 export class LocalIntelResearcher {
   constructor({ publicWebFetch, publicWebSearch = null, githubSearch = null, publicReport = null, githubResearch = null, researchAdvisor = null, grokConsult = null, now = () => new Date() } = {}) {
@@ -40,7 +50,7 @@ export class LocalIntelResearcher {
     if (!topic) return needsInput(this.now(), 'research_topic_required', '请说明要研究的主题。小R只会读取公开来源，不会猜测研究目标。');
     let sourceUrls = sourceList(task?.input);
     let discovery = null;
-    if (sourceUrls.length > 5) return needsInput(this.now(), 'research_source_limit_exceeded', '一次最多研究五条公开网页来源；请分批发送，避免遗漏资料。');
+    if (sourceUrls.length > MAX_RESEARCH_SOURCES) return needsInput(this.now(), 'research_source_limit_exceeded', '一次最多研究五条公开网页来源；请分批发送，避免遗漏资料。');
     if (!sourceUrls.length) {
       discovery = await this.discover(topic, roleToolContext);
       sourceUrls = discovery.urls;
@@ -49,6 +59,7 @@ export class LocalIntelResearcher {
       sourceUrls,
       roleToolContext,
       sourceReadModes(task?.input),
+      discovery?.candidatesByUrl,
     );
     if (!sources.length && discovery?.githubSources?.length) sources.push(...discovery.githubSources);
     if (!sources.length) return needsInput(this.now(), 'research_sources_unavailable', `${failures[0] || discovery?.failures?.[0] || '没有得到可读取的公开来源。'} 请补充公开来源链接或换一个更具体的主题。`);
@@ -63,16 +74,31 @@ export class LocalIntelResearcher {
     }
     const analysis = await this.analyze(topic, evidenceSources);
     const completedAt = this.now().toISOString();
+    const researchMethod = buildResearchMethod({
+      discovery,
+      sources:preparedSources,
+      claims:analysis.claims,
+    });
     const report = isCampaignEvidence
-      ? campaignEvidencePackage({ task, topic, sources:evidenceSources, analysis, completedAt })
+      ? campaignEvidencePackage({ task, topic, sources:evidenceSources, analysis, completedAt, researchMethod })
       : {
           ...(isCampaignResearch ? { schemaVersion:'agent.army/campaign-research/v2' } : {}),
           topic,
           sources:preparedSources,
           ...analysis,
+          researchMethod,
+          ...(isCampaignResearch ? {
+            contentOpportunity:buildContentOpportunity({
+              task,
+              topic,
+              sources:evidenceSources,
+              analysis,
+              researchMethod,
+            }),
+          } : {}),
         };
     const tools = [];
-    if (discovery?.searched) tools.push({ id:'public-web-search', name:'公开网页搜索', calls:1 });
+    if (discovery?.searched) tools.push({ id:'public-web-search', name:'公开网页搜索', calls:discovery.searchCalls || 1 });
     if (discovery?.githubSearched) tools.push({ id:'github-public-search', name:'公开 GitHub 项目检索', calls:1 });
     if (sourceUrls.length) tools.push({ id:'public-web-fetch', name:'公开网页读取', calls:sources.filter((source) => source.kind === 'public_web').length });
     return {
@@ -102,6 +128,11 @@ export class LocalIntelResearcher {
           evidenceSourceCount:evidenceSources.length,
           minimumSourcesMet:!isCampaignResearch && !isCampaignEvidence ? undefined : evidenceSources.length >= 2,
           claimEvidenceBound:report.claims?.every(validClaimEvidenceBinding) === true,
+          searchDiversityMet:discovery ? researchMethod.coverage.searchDiversityMet : undefined,
+          counterEvidenceSearched:discovery ? researchMethod.coverage.counterEvidenceSearched : undefined,
+          contentOpportunityPresent:isCampaignResearch
+            ? report.contentOpportunity?.schemaVersion === 'agent.army/content-opportunity/v1'
+            : undefined,
           structured:true,
         },
         data:report
@@ -156,6 +187,7 @@ export class LocalIntelResearcher {
       runId:safeRunId,
       sources,
       ...analysis,
+      researchMethod:buildResearchMethod({ sources, claims:analysis.claims }),
       sourceObservationIds:sources.map((source) => source.observationId),
       generatedAt:completedAt,
       limitation:'报告只陈述当前受控适配器已核验的公开来源证据，不使用任务正文自报结果。',
@@ -188,24 +220,70 @@ export class LocalIntelResearcher {
   }
 
   async discover(topic, roleToolContext = null) {
-    const query = discoveryQuery(topic);
+    const queryPlan = researchQueryPlan(topic);
+    const baseQuery = queryPlan[0].query;
     const failures = [];
+    let searchCalls = 0;
+    const candidates = new Map();
+    const completedLaneIds = [];
+    const resultLaneIds = [];
     if (this.publicWebSearch?.search) {
-      try {
-        const search = roleToolContext
-          ? await roleToolContext.execute({
-              toolId:'content.public.search',
-              externalSideEffect:'network-read',
-              url:'https://html.duckduckgo.com/html/',
-              input:{ query, limit:3 },
-            })
-          : await this.publicWebSearch.search({ query, limit:3 });
-        const urls = search.results.map((item) => item.url).filter(Boolean);
-        if (urls.length) return { urls, searched:true, githubSearched:false, failures };
-      } catch (error) {
-        failures.push(error?.message || '公开搜索暂时无法读取。');
-        // GitHub is a bounded fallback discovery source, not an assertion that
-        // every research topic is an open-source topic.
+      const attempts = await Promise.all(queryPlan.map(async (lane) => {
+        searchCalls += 1;
+        try {
+          const search = roleToolContext
+            ? await roleToolContext.execute({
+                toolId:'content.public.search',
+                externalSideEffect:'network-read',
+                url:'https://html.duckduckgo.com/html/',
+                input:{ query:lane.query, limit:DISCOVERY_RESULTS_PER_LANE },
+              })
+            : await this.publicWebSearch.search({ query:lane.query, limit:DISCOVERY_RESULTS_PER_LANE });
+          return { lane, search };
+        } catch (error) {
+          return { lane, error };
+        }
+      }));
+      for (const attempt of attempts) {
+        if (attempt.error) {
+          failures.push(`${attempt.lane.label}：${attempt.error?.message || '公开搜索暂时无法读取。'}`);
+          continue;
+        }
+        completedLaneIds.push(attempt.lane.id);
+        const results = Array.isArray(attempt.search?.results) ? attempt.search.results : [];
+        if (results.some((item) => publicSourceUrl(item?.url))) resultLaneIds.push(attempt.lane.id);
+        for (const [rank, result] of results.entries()) {
+          const url = publicSourceUrl(result?.url);
+          if (!url) continue;
+          const current = candidates.get(url) || {
+            url,
+            title:String(result?.title || '').trim().slice(0, 300) || null,
+            laneIds:new Set(),
+            queries:new Set(),
+            ranks:[],
+          };
+          current.laneIds.add(attempt.lane.id);
+          current.queries.add(attempt.lane.query);
+          current.ranks.push(rank + 1);
+          candidates.set(url, current);
+        }
+      }
+      if (candidates.size) {
+        const selected = selectDiverseCandidates(candidates);
+        const candidatesByUrl = new Map(selected.map((candidate) => [candidate.url, candidate]));
+        return {
+          urls:selected.map((candidate) => candidate.url),
+          searched:true,
+          searchCalls,
+          githubSearched:false,
+          failures,
+          queryPlan,
+          completedLaneIds,
+          resultLaneIds,
+          candidateCount:candidates.size,
+          selectedLaneIds:distinct(selected.flatMap((candidate) => candidate.selectionLaneIds)),
+          candidatesByUrl,
+        };
       }
     }
     if (this.githubSearch?.search) {
@@ -215,11 +293,13 @@ export class LocalIntelResearcher {
               toolId:'github.public.search',
               externalSideEffect:'network-read',
               url:'https://api.github.com/search/repositories',
-              input:{ operation:'search', query, limit:3 },
+              input:{ operation:'search', query:baseQuery, limit:3 },
             })
-          : await this.githubSearch.search({ query, limit:3 });
+          : await this.githubSearch.search({ query:baseQuery, limit:3 });
         return {
-          urls:[], searched:Boolean(this.publicWebSearch), githubSearched:true, failures,
+          urls:[], searched:Boolean(this.publicWebSearch), searchCalls, githubSearched:true, failures,
+          queryPlan, completedLaneIds, resultLaneIds, candidateCount:candidates.size,
+          selectedLaneIds:[], candidatesByUrl:new Map(),
           githubSources:search.results.map((item) => ({
             kind:'github_metadata',
             title:item.fullName,
@@ -233,10 +313,15 @@ export class LocalIntelResearcher {
         };
       } catch (error) { failures.push(error?.message || '公开 GitHub 来源暂时无法读取。'); }
     }
-    return { urls:[], searched:Boolean(this.publicWebSearch), githubSearched:Boolean(this.githubSearch), githubSources:[], failures };
+    return {
+      urls:[], searched:Boolean(this.publicWebSearch), searchCalls,
+      githubSearched:Boolean(this.githubSearch), githubSources:[], failures,
+      queryPlan, completedLaneIds, resultLaneIds, candidateCount:candidates.size,
+      selectedLaneIds:[], candidatesByUrl:new Map(),
+    };
   }
 
-  async readSources(urls, roleToolContext = null, readModes = new Map()) {
+  async readSources(urls, roleToolContext = null, readModes = new Map(), candidatesByUrl = new Map()) {
     const sources = []; const failures = [];
     for (const sourceUrl of urls) {
       try {
@@ -263,6 +348,7 @@ export class LocalIntelResearcher {
           contentHash:page.contentHash || null,
           fetchedAt:page.fetchedAt,
           truncated:Boolean(page.truncated),
+          discovery:sourceDiscoveryMetadata(candidatesByUrl?.get?.(sourceUrl)),
         });
       } catch (error) { failures.push(error?.message || '公开来源暂时无法读取。'); }
     }
@@ -281,7 +367,7 @@ function shouldUseGrok(task) {
   return /\bGrok\b|(?:搜索|查|研究).{0,8}(?:X\/Twitter|Twitter|推特)|(?:X\/Twitter|Twitter|推特).{0,8}(?:搜索|查|研究)/i.test(text);
 }
 
-function campaignEvidencePackage({ task, topic, sources, analysis, completedAt }) {
+function campaignEvidencePackage({ task, topic, sources, analysis, completedAt, researchMethod }) {
   const sourceRefs = sources.map((source, index) => ({
     sourceId:String(source.sourceId || `source-${index + 1}`),
     title:String(source.title || `来源 ${index + 1}`).slice(0, 300),
@@ -322,6 +408,7 @@ function campaignEvidencePackage({ task, topic, sources, analysis, completedAt }
       '敏感数据、账号信息、Token、Cookie 或本机路径',
     ],
     sourceMinimum:2,
+    researchMethod,
     generatedAt:completedAt,
   };
 }
@@ -502,6 +589,197 @@ function sourceReadModes(input) {
   }
   return modes;
 }
+
+function buildContentOpportunity({ task, topic, sources, analysis, researchMethod }) {
+  const claims = Array.isArray(analysis?.claims) ? analysis.claims : [];
+  const platform = String(task?.input?.platform || '').trim() || null;
+  const timeWindow = String(task?.input?.timeWindow || '').trim() || null;
+  const opportunitySignals = claims.slice(0, 5).map((claim) => ({
+    claimId:String(claim?.claimId || ''),
+    signal:String(claim?.text || claim?.claim || claim?.statement || claim?.finding || '').replace(/\s+/g, ' ').trim().slice(0, 600),
+    sourceIds:[...new Set((claim?.sourceIds || []).map(String).filter(Boolean))],
+    evidenceStrength:(claim?.sourceIds || []).length >= 2
+      ? 'multiple_source_fragments'
+      : 'single_source_fragment',
+    proofBoundary:'公开互动、搜索结果和单个高表现样本只能作为需求发现信号，不证明销量、转化或可复制因果。',
+  })).filter((item) => item.signal && item.sourceIds.length);
+  return {
+    schemaVersion:'agent.army/content-opportunity/v1',
+    researchQuestion:topic,
+    platform,
+    timeWindow,
+    sampleLimit:MAX_RESEARCH_SOURCES,
+    sourceCount:sources.length,
+    opportunitySignals,
+    originalAngles:opportunitySignals.slice(0, 3).map((item, index) => ({
+      angleId:`angle-${index + 1}`,
+      premise:item.signal,
+      treatment:'只复用需求和结构启发；标题、开场、论证、案例与措辞必须重新创作。',
+      evidenceRefs:item.sourceIds,
+    })),
+    researchSafety:{
+      publicReadOnly:true,
+      mainAccountAutomation:false,
+      interactions:false,
+      publishing:false,
+      counterEvidenceSearched:researchMethod?.coverage?.counterEvidenceSearched === true,
+    },
+    unproven:[
+      '公开互动不等于销量、收入或转化。',
+      '一次高表现不等于稳定规律。',
+      '没有对照实验时不得把结构相关性写成因果。',
+    ],
+  };
+}
+
+function researchQueryPlan(topic) {
+  const baseQuery = discoveryQuery(topic).replace(/\s+/g, ' ').trim().slice(0, 300);
+  const chinese = /[\u3400-\u9fff]/.test(baseQuery);
+  const lanes = chinese
+    ? [
+        ['baseline', '中性基线', '建立定义、范围和基本事实，不预设结论', ''],
+        ['primary', '一手证据', '优先发现原始数据、法规、论文和正式报告', '原始数据 法规 论文 官方报告'],
+        ['expert', '人物谱系', '发现先驱、代表人物、批评者及其原始作品', '创始人 先驱 专家 批评者 访谈 代表作'],
+        ['practice', '实践现场', '发现实施成本、失败复盘和普通从业者经验', '实操 案例 复盘 失败 成本 从业者'],
+        ['investigative', '利益审查', '发现处罚、诉讼、利益冲突与可信调查线索', '调查 处罚 诉讼 利益冲突 争议'],
+        ['counterevidence', '反向验证', '主动搜索质疑、局限、反例、撤稿与辟谣', '反对 质疑 局限 失败 反例 撤稿 辟谣'],
+      ]
+    : [
+        ['baseline', 'neutral baseline', 'Establish definitions, scope, and baseline facts without assuming a conclusion', ''],
+        ['primary', 'primary evidence', 'Find original data, regulation, research, and official reports', 'official data report regulation research'],
+        ['expert', 'expert lineage', 'Find pioneers, representative experts, critics, interviews, and original works', 'pioneer leading expert critic interview original work'],
+        ['practice', 'practice evidence', 'Find implementation cases, costs, failures, and practitioner lessons', 'case study implementation failure cost practitioner lessons learned'],
+        ['investigative', 'interest review', 'Find investigations, enforcement, litigation, conflicts of interest, and controversy', 'investigation enforcement litigation conflict of interest controversy'],
+        ['counterevidence', 'counter evidence', 'Actively search for criticism, limitations, failures, counterexamples, and debunking', 'criticism limitations failed counterexample retraction debunked'],
+      ];
+  return lanes.map(([id, label, purpose, suffix]) => ({
+    id,
+    label,
+    purpose,
+    query:suffix ? `${baseQuery} ${suffix}` : baseQuery,
+    credibilityPolicy:id === 'investigative'
+      ? 'discovery_lead_requires_primary_or_independent_corroboration'
+      : 'search_rank_and_wording_are_not_credibility_signals',
+  }));
+}
+
+function selectDiverseCandidates(candidates) {
+  const pool = [...candidates.values()];
+  const selected = [];
+  const selectedUrls = new Set();
+  for (const laneId of DISCOVERY_LANE_SELECTION_PRIORITY) {
+    const candidate = pool.find((item) => item.laneIds.has(laneId) && !selectedUrls.has(item.url));
+    if (!candidate) continue;
+    selected.push(materializeCandidate(candidate, laneId));
+    selectedUrls.add(candidate.url);
+    if (selected.length >= MAX_RESEARCH_SOURCES) return selected;
+  }
+  for (const candidate of pool) {
+    if (selectedUrls.has(candidate.url)) continue;
+    selected.push(materializeCandidate(candidate, [...candidate.laneIds][0] || 'baseline'));
+    selectedUrls.add(candidate.url);
+    if (selected.length >= MAX_RESEARCH_SOURCES) break;
+  }
+  return selected;
+}
+
+function materializeCandidate(candidate, selectedForLane) {
+  return {
+    url:candidate.url,
+    title:candidate.title,
+    laneIds:[...candidate.laneIds],
+    queries:[...candidate.queries],
+    ranks:[...candidate.ranks],
+    selectedForLane,
+    selectionLaneIds:[selectedForLane],
+  };
+}
+
+function sourceDiscoveryMetadata(candidate) {
+  if (!candidate) return null;
+  return {
+    laneIds:[...candidate.laneIds],
+    queries:[...candidate.queries],
+    ranks:[...candidate.ranks],
+    selectedForLane:candidate.selectedForLane,
+    candidateTitle:candidate.title,
+  };
+}
+
+function buildResearchMethod({ discovery = null, sources = [], claims = [] } = {}) {
+  const queryPlan = Array.isArray(discovery?.queryPlan)
+    ? discovery.queryPlan.map((lane) => ({ ...lane }))
+    : [];
+  const selectedLaneIds = distinct(discovery?.selectedLaneIds || []);
+  const resultLaneIds = distinct(discovery?.resultLaneIds || []);
+  const requiredDiversity = ['primary', 'practice', 'investigative', 'counterevidence'];
+  const sourceById = new Map(sources.map((source) => [String(source?.sourceId || ''), source]));
+  const sourceAssessments = sources.map((source) => ({
+    sourceId:String(source?.sourceId || ''),
+    discoveryLaneIds:distinct(source?.discovery?.laneIds || []),
+    evidenceEligible:source?.evidenceEligible === true,
+    authority:'not_inferred_from_search_rank_or_title',
+    interestConflict:'not_established',
+    independence:'not_established',
+  }));
+  const claimLedger = (Array.isArray(claims) ? claims : []).map((claim) => {
+    const sourceIds = distinct(claim?.sourceIds || []);
+    const domains = distinct(sourceIds.flatMap((sourceId) => {
+      const source = sourceById.get(String(sourceId));
+      try { return [new URL(source?.url || source?.source).hostname.toLowerCase()]; }
+      catch { return []; }
+    }));
+    return {
+      claimId:String(claim?.claimId || ''),
+      sourceIds,
+      claimNature:'source_supported_statement',
+      evidenceLevel:sourceIds.length >= 2 ? 'multiple_source_fragments' : 'single_source_fragment',
+      independence:sourceIds.length < 2
+        ? 'not_established'
+        : domains.length >= 2
+          ? 'multiple_domains_not_proven_independent'
+          : 'multiple_sources_same_domain',
+      counterEvidenceStatus:'not_identified_at_claim_level',
+    };
+  });
+  return {
+    schemaVersion:'agent.army/research-method/v1',
+    strategy:queryPlan.length ? 'multi_lane_discovery' : 'provided_sources_review',
+    queryPlan,
+    coverage:{
+      queryCount:Number(discovery?.searchCalls || 0),
+      completedLaneIds:distinct(discovery?.completedLaneIds || []),
+      resultLaneIds,
+      selectedLaneIds,
+      candidateCount:Number(discovery?.candidateCount || 0),
+      selectedSourceCount:sources.length,
+      omittedLaneIds:queryPlan.map((lane) => lane.id).filter((laneId) => !selectedLaneIds.includes(laneId)),
+      searchDiversityMet:requiredDiversity.every((laneId) => resultLaneIds.includes(laneId))
+        && selectedLaneIds.length >= MAX_RESEARCH_SOURCES,
+      counterEvidenceSearched:Number(discovery?.searchCalls || 0) > 0
+        && queryPlan.some((lane) => lane.id === 'counterevidence'),
+    },
+    epistemicPolicy:{
+      searchRankIsTruthSignal:false,
+      authorityLabelIsTruthSignal:false,
+      clickbaitTerms:'discovery_only',
+      primaryOrIndependentCorroborationRequiredForStrongClaim:true,
+      searchSnippetIsEvidence:false,
+    },
+    sourceAssessments,
+    claimLedger,
+    limitations:[
+      '不同域名不等于真正独立来源，转载链和共同上游仍需人工或后续研究核对。',
+      '利益冲突只有在原文明确披露或出现可核验证据时才能确认；当前默认不推断。',
+      '反向搜索已执行不等于已经找到反证；每条主张仍须按证据片段判断。',
+    ],
+  };
+}
+
+function distinct(values) {
+  return [...new Set((Array.isArray(values) ? values : []).map(String).filter(Boolean))];
+}
+
 function discoveryQuery(topic) {
   const value = String(topic || '');
   if (/(?:agent|智能体).{0,12}(?:治理|管控|权限)|(?:治理|管控|权限).{0,12}(?:agent|智能体)/i.test(value)) return 'agent governance';

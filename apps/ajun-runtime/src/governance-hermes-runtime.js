@@ -82,6 +82,7 @@ export function paperclipHermesAdapterConfig(manifest) {
       AGENT_ARMY_ALLOWED_AGENT_IDS:manifest.agentId,
       AGENT_ARMY_ALLOWED_TASK_TYPES:safeStringList(manifest.acceptedTaskTypes).join(','),
       AGENT_ARMY_ALLOWED_MCP_TOOLS:safeStringList(manifest.runtimeCapabilities?.mcpTools).join(','),
+      AGENT_ARMY_ALLOWED_LOCAL_AI_CAPABILITIES:safeStringList(manifest.runtimeCapabilities?.localAiCapabilities).join(','),
       AGENT_ARMY_ALLOW_MISSIONS:manifest.runtimeCapabilities?.mcpTools?.includes('mission_create') ? 'true' : 'false'
     },
     toolsets:paperclipToolsets.join(','),

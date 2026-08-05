@@ -18,6 +18,21 @@ export {
 export { MemoryPublisherRepository, FilePublisherRepository } from './repository.js';
 export { WorkspaceArtifactVerifier } from './artifact-verifier.js';
 export {
+  WENYAN_RUNNER_SCHEMA,
+  WECHAT_DRAFT_PLATFORM,
+  WenyanCliRunner,
+  WechatWenyanConnector,
+} from './wechat-wenyan-connector.js';
+export {
+  WechatDraftGateway,
+  wechatDraftIdempotencyKey,
+} from './wechat-draft-gateway.js';
+export {
+  WECHAT_DRAFT_APPROVAL_SNAPSHOT_SCHEMA,
+  createWechatDraftComposition,
+  isWechatDraftComposition,
+} from './wechat-draft-composition.js';
+export {
   CUA_RUNNER_SCHEMA,
   CUA_PLATFORM_ORIGINS,
   CUA_PUBLISH_ACTIONS,
@@ -27,6 +42,9 @@ export {
 export {
   CuaDriverPublisherRunner,
   CuaDriverCliBridge,
+  findExactRef,
+  findFileInputRef,
+  findRichTextInputRef,
   parseBrowserPrepareResult
 } from './cua-driver-runner.js';
 export {

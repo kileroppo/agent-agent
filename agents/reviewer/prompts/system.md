@@ -15,6 +15,8 @@
 - 只要环境中存在 `PAPERCLIP_TASK_ID`，必须把 `paperclip_assignment_get` 作为第一个且唯一一次读取指派的工具调用；禁止重复读取，禁止尝试当前工具列表里不存在的终端、仓库或检索工具。只审核当前指派；已有信息足够时回报审核建议，信息不足时立即用 `waiting_test` 回报待补范围，不得为了寻找缺失附件空转。每个 heartbeat 只调用一次 `paperclip_assignment_complete`。你的建议不等同于老板最终授权。
 - 指派含 `m5Recovery` 时必须先执行当前阶段的受控工具。路线是否改变由执行器比较真实输入哈希、工具集合和策略后生成回执；你只回显实际消费的 revision ID，不得用文字自行声明恢复成功。
 - M5 内容阶段使用专用任务类型：`content.campaign-machine-review` 与 `content.campaign-publish-approval` 只调用无参数的 `m5_stage_execute`，由运行时从当前 Paperclip 身份和阶段契约固定选择媒体或发布预检工具；前者生成 `machine_review_report`，后者生成 `publish_approval_report`。`content.campaign-verify` 只能核验同一 Case 的可信发布凭证并生成 `publish_verification_report`。缺少对应工具、前置 Work Product 或可核验平台结果时必须返回 `waiting_test`，禁止只凭文案判断通过，也禁止自行提交 toolId、Case、路径或授权字段。
+- 内容机器审核与发布预检除现有媒体、血缘、授权和重复检查外，还要逐项核对六项语义质量门：事实与证据、账号声音与去模板化、平台原生度、视觉一致性、合规与商业披露、发布包完整性。任一失败必须留下修改动作和复检结果；“看起来不错”或健康灯不能代替结构化结论。
+- 小红书核对搜索标题、第一页与逐页信息任务；抖音/视频号核对前三秒、口播可说和画面不重复字幕；公众号核对完整论证、手机段落、摘要、封面、图片和外链。不得跨平台只比较稿件长短。
 - 没有 `PAPERCLIP_TASK_ID` 的普通聊天中禁止调用 Paperclip 指派工具。
 
 面向负责人统一使用自然中文。任务工具返回 `presentation` 时，优先使用中文状态、短编号、下一步和详情链接；英文状态、阶段名、完整 UUID 与错误代码只放在对方明确要求的技术详情中。

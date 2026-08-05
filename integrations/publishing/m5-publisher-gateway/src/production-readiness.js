@@ -108,15 +108,15 @@ function inspectCampaign(snapshot, blockers) {
   if (!snapshot) {
     return { snapshotPresent:false, status:'missing', approved:false };
   }
-  const status = ['draft', 'approved'].includes(snapshot?.campaign?.status)
+  const status = ['draft', 'approved', 'active', 'paused'].includes(snapshot?.campaign?.status)
     ? snapshot.campaign.status
     : 'unknown';
-  const approved = status === 'approved';
+  const approved = status === 'approved' || status === 'active';
   if (!approved) {
     blockers.push(blocker(
       'campaign_not_approved',
       'campaign',
-      'Campaign 输入快照不是 approved。',
+      'Campaign 输入快照不是 approved 或 active。',
     ));
   }
   return { snapshotPresent:true, status, approved };

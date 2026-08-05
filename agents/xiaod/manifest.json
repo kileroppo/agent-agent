@@ -114,7 +114,12 @@
     "mcpTools": [
       "paperclip_assignment_get",
       "employee_assignment_execute",
+      "local_ai_invoke",
       "paperclip_assignment_complete"
+    ],
+    "localAiCapabilities": [
+      "audio.transcribe",
+      "video.analyze"
     ],
     "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
     "paperclipToolsets": ["agent-army", "clarify"]

@@ -112,6 +112,34 @@ test('全部只读前置条件满足时仍只建议申请受控真实发布审�
   });
 });
 
+test('已启动的 active Campaign 仍是有效生产授权状态', async (context) => {
+  const root = await fs.realpath(
+    await fs.mkdtemp(path.join(os.tmpdir(), 'm5-production-readiness-active-')),
+  );
+  context.after(() => fs.rm(root, { recursive:true, force:true }));
+  const candidate = path.join(root, 'candidate.json');
+  const frozen = path.join(root, 'frozen.json');
+  await fs.writeFile(candidate, '{}', { mode:0o600 });
+  await fs.writeFile(frozen, '{}', { mode:0o444 });
+
+  const report = await createProductionReadinessReport({
+    healthSnapshot:PRODUCTION_HEALTH,
+    inputSnapshot:{
+      campaign:{ status:'active' },
+      selectors:{ candidate, frozen },
+      profileLeaseRef:'paperclip:cua-profile-lease:xiaohongshu-primary',
+      productionProviderInjected:true,
+    },
+  });
+
+  assert.equal(report.status, 'ready');
+  assert.deepEqual(report.checks.campaign, {
+    snapshotPresent:true,
+    status:'active',
+    approved:true,
+  });
+});
+
 test('selector 候选符号链接或 frozen 宽写权限都形成阻断', async (context) => {
   const root = await fs.realpath(
     await fs.mkdtemp(path.join(os.tmpdir(), 'm5-production-readiness-unsafe-')),

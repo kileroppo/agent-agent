@@ -20,6 +20,18 @@
       "expected": { "artifactType": "platform_content_draft", "externalSideEffects": 0 }
     },
     {
+      "id": "requires-brief-and-six-quality-gates",
+      "taskType": "content.platform-draft",
+      "input": { "platforms": ["xiaohongshu", "wechat_official_account"] },
+      "expected": { "contentBrief": true, "qualityGateCount": 6, "visualAnchorRequired": true }
+    },
+    {
+      "id": "wechat-output-remains-draft-only",
+      "taskType": "content.platform-draft",
+      "input": { "platforms": ["wechat_official_account"] },
+      "expected": { "publishingStatus": "draft_only", "groupSend": false, "externalSideEffects": 0 }
+    },
+    {
       "id": "topic-only-produces-one-package",
       "taskType": "content.video-script-package",
       "input": { "contentGoal": "一个明确的视频主题" },

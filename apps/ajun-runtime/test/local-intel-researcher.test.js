@@ -23,20 +23,81 @@ test('小R 没有来源且读取失败时明确 needs_input，不编造报告', 
   assert.match(result.error.userMessage, /公开来源/);
 });
 
-test('小R 会将中文 Agent 权限治理主题转为公开可检索词，并在网页搜索无结果时回退 GitHub 元数据', async () => {
-  let publicQuery = null;
+test('小R 会将主题扩展为六路查询，并在网页搜索无结果时用中性词回退 GitHub 元数据', async () => {
+  const publicQueries = [];
   let githubQuery = null;
   const worker = new LocalIntelResearcher({
     now,
     publicWebFetch:{ async acquire() { throw new Error('不应读取空搜索结果'); } },
-    publicWebSearch:{ async search({ query }) { publicQuery = query; return { results:[] }; } },
+    publicWebSearch:{ async search({ query }) { publicQueries.push(query); return { results:[] }; } },
     githubSearch:{ async search({ query }) { githubQuery = query; return { searchedAt:now().toISOString(), results:[{ fullName:'example/agent-governance', description:'Public agent governance controls.', url:'https://github.com/example/agent-governance' }] }; } }
   });
   const result = await worker.execute({ taskId:'intel-governance', assigneeAgentId:'intel-researcher', input:{ topic:'帮我研究 Agent 军团的权限治理，给结论和建议。' } });
-  assert.equal(publicQuery, 'agent governance');
+  assert.equal(publicQueries.length, 6);
+  assert.equal(publicQueries[0], 'agent governance');
+  assert.match(publicQueries.join('\n'), /official data report regulation research/);
+  assert.match(publicQueries.join('\n'), /criticism limitations.*debunked/);
   assert.equal(githubQuery, 'agent governance');
   assert.equal(result.status, 'succeeded');
   assert.equal(result.artifactRefs[0].data.sources[0].kind, 'github_metadata');
+  assert.equal(result.artifactRefs[0].data.researchMethod.queryPlan.length, 6);
+  assert.equal(result.artifactRefs[0].data.researchMethod.coverage.queryCount, 6);
+  assert.equal(result.artifactRefs[0].data.researchMethod.epistemicPolicy.clickbaitTerms, 'discovery_only');
+});
+
+test('小R 六路发现后按证据价值选择五条来源并保留可审计方法账本', async () => {
+  const searched = [];
+  const worker = new LocalIntelResearcher({
+    now,
+    publicWebSearch:{
+      async search({ query }) {
+        const index = searched.push(query);
+        return {
+          results:[{
+            url:`https://source-${index}.example.com/report`,
+            title:`第 ${index} 路候选`,
+          }],
+        };
+      },
+    },
+    publicWebFetch:{
+      async acquire({ sourceUrl }) {
+        const index = Number(sourceUrl.match(/source-(\d+)/)?.[1] || 1);
+        return {
+          sourceRef:sourceUrl,
+          title:`已读取来源 ${index}`,
+          text:`来源 ${index} 只证明它明确写出的事实。`,
+          contentHash:index.toString(16).repeat(64),
+          fetchedAt:now().toISOString(),
+          truncated:false,
+        };
+      },
+    },
+  });
+
+  const result = await worker.execute({
+    taskId:'intel-diverse-search',
+    assigneeAgentId:'intel-researcher',
+    input:{ topic:'人工智能行业发展' },
+  });
+
+  assert.equal(result.status, 'succeeded');
+  assert.equal(searched.length, 6);
+  const report = result.artifactRefs[0].data;
+  assert.equal(report.sources.length, 5);
+  assert.deepEqual(report.researchMethod.coverage.selectedLaneIds, [
+    'primary',
+    'practice',
+    'investigative',
+    'counterevidence',
+    'baseline',
+  ]);
+  assert.equal(report.sources.every((source) => source.discovery?.laneIds?.length === 1), true);
+  assert.equal(report.researchMethod.sourceAssessments.every((item) => item.interestConflict === 'not_established'), true);
+  assert.equal(report.researchMethod.claimLedger.every((item) => item.evidenceLevel === 'single_source_fragment'), true);
+  assert.equal(report.researchMethod.claimLedger.every((item) => item.independence === 'not_established'), true);
+  assert.equal(result.artifactRefs[0].validation.searchDiversityMet, true);
+  assert.deepEqual(result.usage.tools[0], { id:'public-web-search', name:'公开网页搜索', calls:6 });
 });
 
 test('M5 研究和证据阶段生成不同的专用产物且至少绑定两个来源', async () => {
@@ -101,6 +162,18 @@ test('M5 研究和证据阶段生成不同的专用产物且至少绑定两个�
   assert.equal(research.artifactRefs[0].data.schemaVersion, 'agent.army/campaign-research/v2');
   assert.deepEqual(research.artifactRefs[0].data.claims[0].sourceIds, ['source-1', 'source-2']);
   assert.equal(research.artifactRefs[0].data.claims[0].evidenceFragments.length, 2);
+  assert.equal(
+    research.artifactRefs[0].data.contentOpportunity.schemaVersion,
+    'agent.army/content-opportunity/v1',
+  );
+  assert.equal(research.artifactRefs[0].data.contentOpportunity.opportunitySignals.length, 1);
+  assert.equal(
+    research.artifactRefs[0].data.contentOpportunity.originalAngles[0].treatment.includes('重新创作'),
+    true,
+  );
+  assert.equal(research.artifactRefs[0].data.contentOpportunity.researchSafety.interactions, false);
+  assert.match(research.artifactRefs[0].data.contentOpportunity.unproven.join('\n'), /公开互动不等于销量/);
+  assert.equal(research.artifactRefs[0].validation.contentOpportunityPresent, true);
   assert.equal(evidence.artifactRefs[0].type, 'evidence_package');
   assert.equal(evidence.artifactRefs[0].data.schemaVersion, 'agent.army/evidence-package/v2');
   assert.equal(evidence.artifactRefs[0].data.sources.length, 2);

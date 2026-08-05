@@ -7,6 +7,14 @@ import {
   deriveM5ContentVersionId,
   validM5MediaChecksum,
 } from '@agent-army/m5-kernel/content-version';
+import {
+  CONTENT_PLATFORM_PLAYBOOKS,
+  contentQualityChecklist,
+  deriveContentMetrics,
+  normalizeContentBrief,
+  normalizeContentChannel,
+  summarizeComparableContentMetrics,
+} from '@agent-army/m5-contracts';
 import { validM5ProductionTemplateBinding } from './m5-production-template-resolver.js';
 
 const FULL_ANALYSIS_MODULES = [
@@ -368,11 +376,24 @@ export class LocalVideoContentAnalyst {
     if (!Object.keys(metrics).length) return needsInput(this.now(), 'performance_metrics_required', '请提供真实发布指标或指标截图形成的结构化数据。');
     const lifecycle = script ? await templateLifecycleForReview({ store:this.store, script, metrics }) : null;
     const completedAt = this.now().toISOString();
+    const normalizedContentMetrics = deriveContentMetrics(metrics);
     const data = {
       summary:`已记录 ${Object.keys(metrics).length} 项真实表现指标；本报告只做版本关联和观察，不把单次结果解释为确定因果。`,
       metrics,
+      derivedMetrics:normalizedContentMetrics,
+      comparableBaseline:summarizeComparableContentMetrics([metrics]),
+      comparisonScope:{
+        platform:normalizeContentChannel(task.input?.platform),
+        contentType:clean(task.input?.contentType, 80) || null,
+        observationWindow:clean(task.input?.observationWindow, 120) || null,
+        comparableSampleCount:Math.max(0, Number(task.input?.comparableSampleCount) || 0),
+      },
       observations:metricObservations(metrics),
       nextActions:[...CONTENT_PERFORMANCE_NEXT_ACTIONS],
+      decision:clean(task.input?.decision, 80) || 'collect_more_samples',
+      experiment:task.input?.experiment && !Array.isArray(task.input.experiment)
+        ? structuredClone(task.input.experiment)
+        : null,
       lineage:{
         analysisArtifactId:analysis?.artifactId || null,
         draftArtifactId:draft?.artifactId || null,
@@ -388,7 +409,16 @@ export class LocalVideoContentAnalyst {
       title:`${task.input?.title || '内容'}｜表现复盘`,
       data,
       sourceRefs:[analysis?.artifactId, draft?.artifactId, script?.artifactId].filter(Boolean),
-      validation:{ exists:true, readable:true, nonEmpty:true, metricsProvided:true, causalClaimAvoided:true, ...(lifecycle ? { templateState:lifecycle.state } : {}) },
+      validation:{
+        exists:true,
+        readable:true,
+        nonEmpty:true,
+        metricsProvided:true,
+        causalClaimAvoided:true,
+        comparableScopeExplicit:true,
+        singleExperimentEnforced:!Array.isArray(task.input?.experiment),
+        ...(lifecycle ? { templateState:lifecycle.state } : {}),
+      },
       completedAt
     });
     return successResult(task, artifact, completedAt, 'performance_review');
@@ -448,7 +478,7 @@ export class LocalContentCreator {
         const advised = advisedResult?.data || advisedResult;
         modelUsage = advisedResult?.usage || null;
         if (validAdvisedDrafts(advised, platforms)) {
-          drafts = advised;
+          drafts = enrichDrafts(advised);
           advisorApplied = true;
         }
       } catch (error) {
@@ -457,9 +487,32 @@ export class LocalContentCreator {
       }
     }
     const completedAt = this.now().toISOString();
+    const contentBrief = normalizeContentBrief({
+      accountPositioning:task.input?.accountPositioning || analysisArtifact.data?.positioning,
+      audience:task.input?.audience || analysisArtifact.data?.audience || '当前主题的明确目标读者，发布前需由负责人核对。',
+      goal:task.input?.contentGoal || task.input?.description || '基于确认稿生成可审核的平台原生内容。',
+      coreJudgment:analysisArtifact.data?.summary || evidence[0]?.text || '只表达确认稿和正式分析可以支持的判断。',
+      evidenceRefs:[transcriptArtifact.artifactId, analysisArtifact.artifactId],
+      constraints:[
+        '不新增确认稿和正式分析之外的事实、数字、身份、经历或因果结论。',
+        '草稿不等于发布授权，任何外部写入继续走 Paperclip 审批。',
+      ],
+      channels:platforms,
+      primaryAction:task.input?.primaryAction || '让读者完成一个可以立即验证的小动作。',
+      experiment:task.input?.experiment,
+      assumptions:task.input?.audience ? [] : ['目标受众使用当前正式分析的默认定位，发布前需核对。'],
+      confirmationStatus:task.input?.briefConfirmed === true ? 'confirmed' : 'assumed_defaults',
+    });
     const data = {
       contentGoal:clean(task.input?.contentGoal || task.input?.description, 500) || '基于已确认内容生成可审核草稿',
       platforms,
+      contentBrief,
+      contentStrategy:{
+        primaryPlatform:platforms[0],
+        extensionPlatforms:platforms.slice(1),
+        singleExperiment:contentBrief?.experiment || null,
+        strategyStatus:contentBrief?.confirmationStatus || 'needs_confirmation',
+      },
       drafts,
       sourceTranscriptChecksum:transcriptArtifact.checksum || null,
       analysisArtifactId:analysisArtifact.artifactId,
@@ -474,7 +527,20 @@ export class LocalContentCreator {
       title:`${task.input?.title || '内容'}｜平台草稿`,
       data,
       sourceRefs:[transcriptArtifact.artifactId, analysisArtifact.artifactId],
-      validation:{ exists:true, readable:true, nonEmpty:true, confirmedTranscriptUsed:true, formalAnalysisUsed:true, platformCount:platforms.length, externalSideEffects:0, humanChecklistPresent:true, advisorApplied },
+      validation:{
+        exists:true,
+        readable:true,
+        nonEmpty:true,
+        confirmedTranscriptUsed:true,
+        formalAnalysisUsed:true,
+        platformCount:platforms.length,
+        externalSideEffects:0,
+        humanChecklistPresent:true,
+        contentBriefPresent:Boolean(contentBrief),
+        semanticQualityGateCount:drafts.every((draft) => draft.qualityChecklist?.length === 6) ? 6 : 0,
+        visualAnchorPresent:drafts.every((draft) => Boolean(draft.visualAnchor)),
+        advisorApplied,
+      },
       completedAt
     });
     return successResult(task, artifact, completedAt, 'platform_draft', modelUsage);
@@ -1018,7 +1084,7 @@ function titleFormulaFor(title) {
 function buildDrafts({ title, contentGoal, platforms, analysis, evidence }) {
   const proof = evidence[0] || { timestamp:null, text:'确认稿缺少可展示片段' };
   const second = evidence[1] || proof;
-  return platforms.map((platform) => ({
+  return enrichDrafts(platforms.map((platform) => ({
     platform,
     titleCandidates:[
       `${clean(title, 80) || '这条内容'}：先看最关键的一步`,
@@ -1036,7 +1102,32 @@ function buildDrafts({ title, contentGoal, platforms, analysis, evidence }) {
     evidence:[proof, second],
     humanChecklist:['事实、数字和身份均能回到确认稿。', '没有复制他人的独特表达。', '标题承诺与正文一致。', '发布前由真人检查平台规范和最终措辞。'],
     analysisSummary:clean(analysis?.summary, 500)
-  }));
+  })));
+}
+
+function enrichDrafts(drafts) {
+  return drafts.map((draft) => {
+    const platform = normalizeContentChannel(draft?.platform) || String(draft?.platform || '');
+    const playbook = CONTENT_PLATFORM_PLAYBOOKS[platform] || null;
+    const qualityChecklist = playbook ? contentQualityChecklist(platform) : [];
+    return {
+      ...draft,
+      platform,
+      platformPlaybook:playbook,
+      visualAnchor:draft?.visualAnchor || (playbook ? {
+        style:'统一、克制、证据优先',
+        palette:'沿用账号已确认色板；无档案时使用单一强调色',
+        composition:playbook.visual,
+        typography:'手机优先，封面标题与正文标题一致',
+        evidencePolicy:'真实界面优先；没有真实素材时使用场景或隐喻，不虚构产品 UI',
+      } : null),
+      qualityChecklist,
+      humanChecklist:[
+        ...(Array.isArray(draft?.humanChecklist) ? draft.humanChecklist : []),
+        ...qualityChecklist.map((item) => item.instruction),
+      ],
+    };
+  });
 }
 
 function safeM5RelativePath(value) {
@@ -1298,10 +1389,13 @@ function normalizePlatforms(value, text) {
   const inferred = [
     [/抖音|douyin/i, 'douyin'],
     [/小红书|xiaohongshu|xhs/i, 'xiaohongshu'],
-    [/视频号|shipinhao/i, 'shipinhao'],
+    [/微信公众号|公众号|wechat[_ -]?mp/i, 'wechat_official_account'],
+    [/视频号|shipinhao|wechat[_ -]?channels/i, 'wechat_channels'],
     [/b站|哔哩哔哩|bilibili/i, 'bilibili']
   ].filter(([pattern]) => pattern.test(text)).map(([, platform]) => platform);
-  return [...new Set([...explicit, ...inferred].map((item) => clean(item, 40).toLowerCase()).filter(Boolean))];
+  return [...new Set([...explicit, ...inferred].map((item) => (
+    normalizeContentChannel(item) || clean(item, 40).toLowerCase()
+  )).filter(Boolean))];
 }
 
 function normalizeMetrics(value, description) {
@@ -1374,7 +1468,8 @@ function platformAdaptation(platform) {
   return ({
     douyin:'短句、强开场、单一行动指令；成片仍需真人核对画面和音乐版权。',
     xiaohongshu:'标题体现具体收益与适用人群，正文保留可收藏的步骤。',
-    shipinhao:'表达更完整，强化可信依据和关系传播语境。',
+    wechat_official_account:'结构完整、段落适合手机阅读，标题、摘要、封面和外链在草稿预览中逐项核对。',
+    wechat_channels:'表达更完整，强化可信依据和关系传播语境。',
     bilibili:'允许更长铺垫，但章节承诺与证据仍需清楚。'
   })[platform] || '按目标平台长度和展示形式调整，但不改变已确认事实。';
 }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import gc
 from threading import Lock
 from typing import Any
 
@@ -12,7 +13,7 @@ class RetrievalPaths:
 
 
 class RetrievalEngine:
-    """Keeps the small embedding model warm and loads reranker only when used."""
+    """Loads retrieval models on demand and can release them while idle."""
 
     def __init__(self, paths: RetrievalPaths):
         self.paths = paths
@@ -38,6 +39,15 @@ class RetrievalEngine:
         with self._lock:
             if not self.embedding_loaded:
                 self._embedding_model, self._embedding_tokenizer = load(self.paths.embedding)
+
+    def unload_embedding(self) -> bool:
+        with self._lock:
+            was_loaded = self.embedding_loaded
+            self._embedding_model = None
+            self._embedding_tokenizer = None
+        if was_loaded:
+            release_mlx_memory()
+        return was_loaded
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         if not texts or len(texts) > 128:
@@ -66,6 +76,15 @@ class RetrievalEngine:
         with self._lock:
             if not self.reranker_loaded:
                 self._reranker_model, self._reranker_tokenizer = load(self.paths.reranker)
+
+    def unload_reranker(self) -> bool:
+        with self._lock:
+            was_loaded = self.reranker_loaded
+            self._reranker_model = None
+            self._reranker_tokenizer = None
+        if was_loaded:
+            release_mlx_memory()
+        return was_loaded
 
     def rerank(self, query: str, documents: list[str], instruct: str | None = None) -> list[dict[str, Any]]:
         if not query.strip():
@@ -97,3 +116,15 @@ class RetrievalEngine:
                 score = float(mx.exp((pair - mx.logsumexp(pair))[1]))
                 scored.append({"index": index, "document": document, "score": score})
         return sorted(scored, key=lambda row: row["score"], reverse=True)
+
+
+def release_mlx_memory() -> None:
+    gc.collect()
+    try:
+        import mlx.core as mx
+
+        clear_cache = getattr(mx, "clear_cache", None)
+        if callable(clear_cache):
+            clear_cache()
+    except ImportError:
+        pass

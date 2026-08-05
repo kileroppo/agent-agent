@@ -110,6 +110,60 @@ class DesktopRoutingTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["result"]["text"], "MAC_OK")
         self.assertEqual(len(calls), 1)
 
+    async def test_approved_image_auto_route_falls_back_to_mac(self):
+        runtime = LocalAiRuntime(Settings(
+            desktop_url="http://127.0.0.1:9",
+            desktop_token="offline-test-token",
+        ))
+
+        async def local_image(request_id, payload, options):
+            return {"provider": "local-mflux", "artifactPath": "/tmp/fallback.png"}
+
+        runtime.image_generate = local_image
+        result = await runtime.invoke(InvokeRequest(
+            capability="image.generate",
+            request_id="desktop-image-fallback",
+            approved=True,
+            input={"prompt": "test"},
+            options={"preferredNode": "auto"},
+        ))
+        self.assertEqual(result["provider"], "local-mflux")
+        self.assertEqual(result["fallbackFrom"]["node"], "rtx-4070ti-super")
+
+
+class ControlPolicyTest(unittest.IsolatedAsyncioTestCase):
+    async def test_stopped_comfyui_does_not_mark_lightweight_node_offline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = LocalAiRuntime(Settings(
+                control_policy_file=Path(directory) / "policy.json",
+                desktop_url="http://192.168.10.110:18083",
+            ))
+            runtime.desktop_health_snapshot = {
+                "configured": True,
+                "reachable": True,
+                "healthy": False,
+                "services": [{"id": "comfyui", "state": "stopped", "managed": False}],
+            }
+
+            async def stopped_model():
+                return {"status": "stopped"}
+
+            runtime.qwen_health = stopped_model
+            runtime.qwen36_health = stopped_model
+            snapshot = await runtime.control_snapshot()
+
+        services = {row["id"]: row for row in snapshot["services"]}
+        self.assertEqual(services["desktop-node"]["state"], "running")
+        self.assertEqual(services["comfyui"]["state"], "stopped")
+
+    async def test_disabled_qwen36_candidate_cannot_be_started(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = LocalAiRuntime(Settings(control_policy_file=Path(directory) / "policy.json"))
+            with self.assertRaises(HTTPException) as raised:
+                await runtime.control_service("qwen36-candidate", "start")
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(raised.exception.detail["code"], "service_disabled")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,8 +5,9 @@ import { z } from 'zod';
 import { AgentArmyClient, AgentArmyClientError } from './agent-army-client.js';
 import { canonicalizeBusinessAssignment } from './business-task-routing.js';
 import { formatTaskPresentation } from './task-presentation.js';
+import { LocalAiCapabilityClient } from './local-ai-capability-client.js';
 
-export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope = scopeFromEnvironment() } = {}) {
+export function createAgentArmyMcpServer({ client = new AgentArmyClient(), localAi = new LocalAiCapabilityClient(), scope = scopeFromEnvironment() } = {}) {
   const server = new McpServer({
     name:'agent-army',
     version:'0.1.0'
@@ -220,6 +221,30 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), scope
       action:z.enum(['pause', 'resume'])
     })
   }, ({ task_id, action }) => client.controlTask(task_id, action));
+
+  if (scope.allowedTools?.includes('local_ai_invoke') && scope.localAiCapabilities?.length) action('local_ai_invoke', {
+    title:'调用岗位获准的本机 AI 能力',
+    description:'按能力名调用 A君统一管理的本机模型。服务未运行时由控制网关按需唤醒；只能使用当前岗位 Manifest 已授权的能力。不得猜测文件路径，不得自行跨设备或绕过审批。',
+    inputSchema:z.object({
+      capability:z.string().min(1).max(80).describe('必须是当前岗位获准的本机能力名'),
+      input:z.record(z.unknown()).describe('能力输入；文件路径必须来自当前真实指派或已验证产物'),
+      options:z.record(z.unknown()).optional().default({}),
+      request_id:z.string().regex(/^[A-Za-z0-9._-]{1,80}$/).optional(),
+    }),
+  }, ({ capability, input, options, request_id }) => {
+    if (!scope.localAiCapabilities.includes(capability)) {
+      throw new AgentArmyClientError(`当前岗位没有本机 AI 能力 ${capability}。`);
+    }
+    const safeOptions = { ...options, preferredNode:'mac' };
+    delete safeOptions.allowDesktopFallback;
+    return localAi.invoke({
+      capability,
+      input,
+      options:safeOptions,
+      requestId:request_id,
+      approved:false,
+    });
+  });
 
   read('approval_list', {
     title:'审批列表',
@@ -494,6 +519,7 @@ export function scopeFromEnvironment() {
   const taskTypes = environmentList('AGENT_ARMY_ALLOWED_TASK_TYPES');
   const restricted = agentIds.length > 0 || taskTypes.length > 0;
   const configuredTools = environmentList('AGENT_ARMY_ALLOWED_MCP_TOOLS');
+  const localAiCapabilities = environmentList('AGENT_ARMY_ALLOWED_LOCAL_AI_CAPABILITIES');
   const paperclipHeartbeat = [
     process.env.PAPERCLIP_TASK_ID,
     process.env.PAPERCLIP_RUN_ID,
@@ -511,6 +537,7 @@ export function scopeFromEnvironment() {
         'platform_content_draft_execute',
         'video_script_package_execute',
         'm5_stage_execute',
+        'local_ai_invoke',
         'paperclip_assignment_complete'
       ].includes(name))
     : configuredTools;
@@ -522,6 +549,7 @@ export function scopeFromEnvironment() {
     taskTypes,
     enforceToolAllowlist:paperclipHeartbeat,
     allowedTools,
+    localAiCapabilities,
     allowMissions:restricted ? process.env.AGENT_ARMY_ALLOW_MISSIONS === 'true' : true
   };
 }

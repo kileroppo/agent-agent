@@ -941,11 +941,78 @@ test('小创要求确认稿和正式分析，且一次最多三个平台', async
   assert.equal(tooMany.error.code, 'platform_limit_exceeded');
   const result = await creator.execute({
     taskId:'draft-task-0003', taskType:'content.platform-draft',
-    input:{ title:'草稿', platforms:['douyin', 'xiaohongshu'], contentGoal:'解释一个方法', context:{ sourceTaskIds:['source-task-0003', 'analysis-task-0005'] } }
+    input:{
+      title:'草稿',
+      platforms:['douyin', 'xiaohongshu', 'wechat_mp'],
+      audience:'正在搭建内容流程的经营者',
+      contentGoal:'解释一个方法',
+      experiment:{
+        variable:'开场结构',
+        hypothesis:'先给证据更容易产生深度互动',
+        successCriterion:'深度互动率高于同类中位数',
+        observationWindow:'发布后72小时',
+      },
+      context:{ sourceTaskIds:['source-task-0003', 'analysis-task-0005'] }
+    }
   });
   assert.equal(result.status, 'succeeded');
-  assert.equal(result.artifactRefs[0].data.drafts.length, 2);
-  assert.equal(result.artifactRefs[0].validation.externalSideEffects, 0);
+  const artifact = result.artifactRefs[0];
+  assert.equal(artifact.data.drafts.length, 3);
+  assert.deepEqual(artifact.data.platforms, ['douyin', 'xiaohongshu', 'wechat_official_account']);
+  assert.equal(artifact.data.contentBrief.audience, '正在搭建内容流程的经营者');
+  assert.equal(artifact.data.contentStrategy.singleExperiment.variable, '开场结构');
+  assert.equal(artifact.data.drafts.every((draft) => draft.qualityChecklist.length === 6), true);
+  assert.equal(artifact.data.drafts.every((draft) => Boolean(draft.visualAnchor)), true);
+  assert.match(artifact.data.drafts[1].platformPlaybook.structure, /每页只承担一个信息任务/);
+  assert.equal(artifact.validation.semanticQualityGateCount, 6);
+  assert.equal(artifact.validation.externalSideEffects, 0);
+});
+
+test('表现复盘派生标准化指标并明确同类范围、决策和唯一实验', async (t) => {
+  const root = await sandbox(t);
+  const analyst = new LocalVideoContentAnalyst({
+    store:{ list:async () => [] },
+    artifactsDir:path.join(root, 'out'),
+    allowedArtifactRoots:[root],
+  });
+  const result = await analyst.execute({
+    taskId:'performance-standardized',
+    taskType:'content.performance-review',
+    input:{
+      platform:'xiaohongshu',
+      contentType:'教程图文',
+      observationWindow:'72h',
+      comparableSampleCount:5,
+      metrics:{
+        impressions:200,
+        views:100,
+        comments:2,
+        saves:3,
+        shares:5,
+        newFollowers:4,
+      },
+      experiment:{ variable:'封面标题', successCriterion:'点击率高于同类中位数' },
+    },
+  }, { sourceArtifacts:[{
+    artifactId:'video_script_package:standardized',
+    type:'video_script_package',
+    validation:{ exists:true, readable:true, nonEmpty:true },
+    data:{ templateLifecycle:{ state:'trial', approvedForUse:true } },
+  }] });
+
+  assert.equal(result.status, 'succeeded');
+  const artifact = result.artifactRefs[0];
+  assert.equal(artifact.data.derivedMetrics.followersPerThousandViews, 40);
+  assert.equal(artifact.data.derivedMetrics.deepEngagementRate, 0.1);
+  assert.equal(artifact.data.comparableBaseline.views.median, 100);
+  assert.deepEqual(artifact.data.comparisonScope, {
+    platform:'xiaohongshu',
+    contentType:'教程图文',
+    observationWindow:'72h',
+    comparableSampleCount:5,
+  });
+  assert.equal(artifact.data.decision, 'collect_more_samples');
+  assert.equal(artifact.validation.singleExperimentEnforced, true);
 });
 
 test('已采用脚本只有达到真实使用与账号基准门槛后才升级模板状态', async (t) => {

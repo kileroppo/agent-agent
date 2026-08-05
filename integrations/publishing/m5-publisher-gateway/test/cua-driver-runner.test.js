@@ -12,6 +12,9 @@ import {
   CUA_SELECTOR_BUNDLE_SCHEMA,
   CuaDriverPublisherRunner,
   CuaPlatformConnector,
+  findExactRef,
+  findFileInputRef,
+  findRichTextInputRef,
   parseBrowserPrepareResult,
   selectorBundleChecksum,
 } from '../src/index.js';
@@ -49,6 +52,66 @@ test('CuaDriver 0.14.1 browser_prepare 先保留结构化 refusal，再解析 pr
   assert.throws(
     () => parseBrowserPrepareResult({ status:'ok' }),
     { code:'prepared_browser_pid_missing' },
+  );
+});
+
+test('文件 input 无可访问名称时使用唯一 dom ref，多个候选时拒绝猜测', () => {
+  assert.equal(findFileInputRef({
+    refs:[
+      { ref:'p8:28', node:'div', label:null },
+      { ref:'p8:29', node:'input', label:'type=file accept=.mp4,.mov' },
+      { ref:'p8:30', node:'button', label:'type=button' },
+    ],
+  }), 'p8:29');
+  assert.throws(
+    () => findFileInputRef({
+      refs:[
+        { ref:'p8:29', node:'input', label:'type=file' },
+        { ref:'p8:31', node:'input', label:'type="file"' },
+      ],
+    }),
+    { code:'browser_ref_ambiguous' },
+  );
+  assert.throws(
+    () => findFileInputRef({ refs:[{ ref:'p8:30', node:'button', label:'type=button' }] }),
+    { code:'browser_ref_missing' },
+  );
+});
+
+test('小红书正文只接受唯一 role=textbox 的富文本 div', () => {
+  assert.equal(findRichTextInputRef({
+    refs:[
+      { ref:'p11:27', node:'input', label:'placeholder=填写标题会有更多赞哦 type=text' },
+      { ref:'p11:28', node:'div', label:'role=textbox' },
+      { ref:'p11:29', node:'button', label:'id=topicBtn' },
+    ],
+  }), 'p11:28');
+  assert.throws(
+    () => findRichTextInputRef({
+      refs:[
+        { ref:'p11:28', node:'div', label:'role=textbox' },
+        { ref:'p11:34', node:'div', label:'role=textbox' },
+      ],
+    }),
+    { code:'browser_ref_ambiguous' },
+  );
+});
+
+test('发布结果只点击标题完全一致且唯一的详情入口', () => {
+  assert.equal(findExactRef({
+    refs:[
+      { ref:'p12:1', name:'M5 测试', actions:['click'] },
+      { ref:'p12:2', name:'M5 测试补充', actions:['click'] },
+    ],
+  }, 'M5 测试', 'click'), 'p12:1');
+  assert.throws(
+    () => findExactRef({
+      refs:[
+        { ref:'p12:1', name:'M5 测试', actions:['click'] },
+        { ref:'p12:3', text:'M5 测试', actions:['click'] },
+      ],
+    }, 'M5 测试', 'click'),
+    { code:'browser_ref_ambiguous' },
   );
 });
 
@@ -133,6 +196,34 @@ class DelayedResultBridge extends FakeBridge {
   }
 }
 
+class ManagementResultBridge extends FakeBridge {
+  constructor({ includeContentId = true } = {}) {
+    super({ initialText:'创作中心 账号: xiaohongshu-test-user' });
+    this.url = `${CUA_PLATFORM_ORIGINS.xiaohongshu}/publish/publish`;
+    this.includeContentId = includeContentId;
+  }
+
+  async click(session) {
+    this.calls.push({ action:'submit_publish' });
+    this.text = `发布成功 ${this.title}`;
+    this.url = `${session.origin}/publish/publish?published=true`;
+    return this.snapshot(session);
+  }
+
+  async readManagementResult({ bridgeSession, expectedTitle }) {
+    this.calls.push({ action:'read_management_result' });
+    const managementEvidence = { text:`笔记管理 审核中 ${expectedTitle}` };
+    this.text = expectedTitle;
+    this.url = this.includeContentId
+      ? `${bridgeSession.origin}/new/note-manager?noteId=6a72ddf8000000002201484e`
+      : `${bridgeSession.origin}/new/note-manager`;
+    return {
+      managementEvidence,
+      detailEvidence:await this.snapshot(bridgeSession),
+    };
+  }
+}
+
 function selectorMap(platform = 'douyin') {
   const origin = CUA_PLATFORM_ORIGINS[platform];
   return {
@@ -179,6 +270,44 @@ function selectorBundle(platform = 'douyin') {
       approvalRef:`paperclip:cua-selector:${platform}-v1`,
       platform,
       bundleVersion:'1.0.0',
+      selectorChecksum:selectorBundleChecksum(document),
+      expiresAt:'2026-08-06T00:00:00.000Z',
+    },
+  };
+}
+
+function managementSelectorBundle() {
+  const selector = selectorMap('xiaohongshu');
+  selector.path = '/publish/publish';
+  selector.result = {
+    mode:'management_detail',
+    successText:'发布成功',
+    contentIdPattern:'[a-f0-9]{24}',
+    evidencePathPrefix:'/new/note-manager',
+    managementPath:'/new/note-manager',
+    managementReadyText:'笔记管理',
+    publishedStatusTexts:['审核中', '已发布'],
+  };
+  const document = {
+    schemaVersion:CUA_SELECTOR_BUNDLE_SCHEMA,
+    bundleVersion:'1.1.0',
+    platform:'xiaohongshu',
+    origin:selector.origin,
+    selectorMap:{
+      path:selector.path,
+      identity:selector.identity,
+      actions:selector.actions,
+      result:selector.result,
+    },
+  };
+  return {
+    ...document,
+    approval:{
+      source:'paperclip',
+      status:'approved',
+      approvalRef:'paperclip:cua-selector:xiaohongshu-v1',
+      platform:'xiaohongshu',
+      bundleVersion:'1.1.0',
       selectorChecksum:selectorBundleChecksum(document),
       expiresAt:'2026-08-06T00:00:00.000Z',
     },
@@ -433,6 +562,71 @@ test('提交后只读有界轮询等待平台回执，不会二次点击发布',
   assert.ok(bridge.pollsAfterSubmit >= 4);
   assert.ok(sleeps.length <= 4);
   assert.ok(sleeps.every((value) => value === 10));
+});
+
+test('小红书可从笔记管理唯一标题详情页生成强回执', async () => {
+  const bridge = new ManagementResultBridge();
+  const runner = new CuaDriverPublisherRunner({
+    enabled:true,
+    selectorBundles:{ xiaohongshu:managementSelectorBundle() },
+    profileLease:profileLease('xiaohongshu'),
+    bridge,
+    clock:() => new Date(PUBLISHED_AT),
+  });
+  const connector = new CuaPlatformConnector({
+    platform:'xiaohongshu',
+    runner,
+    enabled:true,
+  });
+
+  const result = await connector.publish(publishRequest({
+    accountRef:'account:xiaohongshu:test',
+    title:'M5 受控发布测试',
+  }));
+
+  assert.equal(result.state, 'published');
+  assert.equal(result.externalContentId, '6a72ddf8000000002201484e');
+  assert.equal(
+    result.evidence,
+    'https://creator.xiaohongshu.com/new/note-manager?noteId=6a72ddf8000000002201484e',
+  );
+  assert.equal(result.selectorBundleVersion, '1.1.0');
+  assert.equal(
+    bridge.calls.filter((call) => call.action === 'submit_publish').length,
+    1,
+  );
+  assert.equal(
+    bridge.calls.filter((call) => call.action === 'read_management_result').length,
+    1,
+  );
+});
+
+test('笔记管理页没有真实内容 ID 时硬停且不伪造回执', async () => {
+  const bridge = new ManagementResultBridge({ includeContentId:false });
+  const runner = new CuaDriverPublisherRunner({
+    enabled:true,
+    selectorBundles:{ xiaohongshu:managementSelectorBundle() },
+    profileLease:profileLease('xiaohongshu'),
+    bridge,
+    clock:() => new Date(PUBLISHED_AT),
+  });
+  const connector = new CuaPlatformConnector({
+    platform:'xiaohongshu',
+    runner,
+    enabled:true,
+  });
+
+  const result = await connector.publish(publishRequest({
+    accountRef:'account:xiaohongshu:test',
+    title:'M5 受控发布测试',
+  }));
+
+  assert.equal(result.state, 'stopped');
+  assert.equal(result.stopReason, 'unknown_page');
+  assert.equal(
+    bridge.calls.filter((call) => call.action === 'submit_publish').length,
+    1,
+  );
 });
 
 test('回执在有界轮询内未出现时按 unknown_page 停止且不重发', async () => {

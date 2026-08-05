@@ -342,6 +342,46 @@ test('治理员工 MCP 只注册 Manifest 明确允许的工具', async (t) => {
   assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), ['capabilities', 'paperclip_assignment_get']);
 });
 
+test('岗位只能调用 Manifest 分配的本机 AI 能力且不能自行跨机批准', async (t) => {
+  const calls = [];
+  const { client, server } = await connect({}, {
+    scope:{
+      agentIds:['xiaod'],
+      taskTypes:['media.transcribe-and-refine'],
+      allowedTools:['local_ai_invoke'],
+      localAiCapabilities:['audio.transcribe'],
+      allowMissions:false,
+    },
+    localAi:{
+      async invoke(input) {
+        calls.push(input);
+        return { requestId:'local-one', provider:'local-whisper', result:{ text:'ok' } };
+      },
+    },
+  });
+  t.after(async () => { await client.close(); await server.close(); });
+
+  const allowed = await client.callTool({
+    name:'local_ai_invoke',
+    arguments:{
+      capability:'audio.transcribe',
+      input:{ audioPath:'/tmp/current-assignment.wav' },
+      options:{ preferredNode:'desktop', allowDesktopFallback:true },
+    },
+  });
+  assert.equal(allowed.structuredContent.provider, 'local-whisper');
+  assert.equal(calls[0].approved, false);
+  assert.equal(calls[0].options.preferredNode, 'mac');
+  assert.equal('allowDesktopFallback' in calls[0].options, false);
+
+  const denied = await client.callTool({
+    name:'local_ai_invoke',
+    arguments:{ capability:'image.generate', input:{ prompt:'not allowed' } },
+  });
+  assert.equal(denied.isError, true);
+  assert.match(denied.content[0].text, /没有本机 AI 能力/);
+});
+
 test('Paperclip heartbeat 只暴露当前岗位的受控执行与指派工具', { concurrency:false }, async () => {
   const keys = [
     'AGENT_ARMY_ALLOWED_MCP_TOOLS',
@@ -499,8 +539,8 @@ test('创建官通过受控 MCP 写入结构化岗位草案，不获得终端或
   }
 });
 
-async function connect(clientApi, { elicitationHandler = async () => ({ action:'decline' }), scope } = {}) {
-  const server = createAgentArmyMcpServer({ client:clientApi, ...(scope ? { scope } : {}) });
+async function connect(clientApi, { elicitationHandler = async () => ({ action:'decline' }), scope, localAi } = {}) {
+  const server = createAgentArmyMcpServer({ client:clientApi, ...(scope ? { scope } : {}), ...(localAi ? { localAi } : {}) });
   const client = new Client(
     { name:'agent-army-test', version:'1.0.0' },
     { capabilities:{ elicitation:{ form:{} } } }

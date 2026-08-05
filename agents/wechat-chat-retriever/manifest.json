@@ -60,8 +60,8 @@
   "executionOwner": "ajun-local",
   "runtimeCapabilities": {
     "modelSelection": {
-      "provider": "ollama-local",
-      "model": "qwen3:14b"
+      "provider": "local-openai",
+      "model": "mlx-community/Qwen3.5-9B-MLX-4bit"
     },
     "fallbackModels": [],
     "skills": ["yichen-wechat-local-vault"],

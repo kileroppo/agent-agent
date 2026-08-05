@@ -59,11 +59,11 @@ const AUDITED_SKILL_INVENTORIES = Object.freeze({
   },
   'yichen-web-research':{
     trustLevel:'scripts_executables', sourceKind:'shared-library',
-    sha256:'b9ec7142721ae72807eabfce1736956f7d967a249c0e09428e8ef829b3b0e978',
+    sha256:'8fb3e2e364afda7374dce5e17bf8b7760dfb506d46bf8b97caf50e476a623e18',
   },
   'yichen-unified-search':{
     trustLevel:'scripts_executables', sourceKind:'shared-library',
-    sha256:'55be2f196ecb44739f08a72c2a2ee348ba2b9af371e91fba800d3de9c3682169',
+    sha256:'b66056febf314d48355389c7e1c9d1c47c120bda4a78274a495941b96a7b7db3',
   },
   'yichen-content-archive':{
     trustLevel:'scripts_executables', sourceKind:'shared-library',
@@ -402,11 +402,15 @@ function mcpEnvironmentEntries(manifest) {
   const mcpTools = Array.isArray(manifest.runtimeCapabilities?.mcpTools)
     ? manifest.runtimeCapabilities.mcpTools
     : [];
+  const localAiCapabilities = Array.isArray(manifest.runtimeCapabilities?.localAiCapabilities)
+    ? manifest.runtimeCapabilities.localAiCapabilities
+    : [];
   return [
     `AGENT_ARMY_AGENT_ID=${agentId}`,
     `AGENT_ARMY_ALLOWED_AGENT_IDS=${agentId}`,
     `AGENT_ARMY_ALLOWED_TASK_TYPES=${manifest.acceptedTaskTypes.join(',')}`,
     `AGENT_ARMY_ALLOWED_MCP_TOOLS=${mcpTools.join(',')}`,
+    `AGENT_ARMY_ALLOWED_LOCAL_AI_CAPABILITIES=${localAiCapabilities.join(',')}`,
     `AGENT_ARMY_ALLOW_MISSIONS=${mcpTools.includes('mission_create') ? 'true' : 'false'}`,
     'PAPERCLIP_TASK_ID=${PAPERCLIP_TASK_ID}',
     'PAPERCLIP_RUN_ID=${PAPERCLIP_RUN_ID}',
@@ -650,6 +654,7 @@ function normalizeMcpState(value) {
       allowedAgentIds:splitCsv(env.AGENT_ARMY_ALLOWED_AGENT_IDS),
       taskTypes:splitCsv(env.AGENT_ARMY_ALLOWED_TASK_TYPES),
       mcpTools:splitCsv(env.AGENT_ARMY_ALLOWED_MCP_TOOLS),
+      localAiCapabilities:splitCsv(env.AGENT_ARMY_ALLOWED_LOCAL_AI_CAPABILITIES),
       allowMissions:String(env.AGENT_ARMY_ALLOW_MISSIONS || 'false') === 'true',
     },
     paperclipContextPlaceholdersPresent:[
@@ -667,6 +672,7 @@ function mcpStateDiff(current, target) {
     allowedAgentIds:listDiff(current.scope.allowedAgentIds, target.scope.allowedAgentIds),
     taskTypes:listDiff(current.scope.taskTypes, target.scope.taskTypes),
     mcpTools:listDiff(current.scope.mcpTools, target.scope.mcpTools),
+    localAiCapabilities:listDiff(current.scope.localAiCapabilities, target.scope.localAiCapabilities),
     allowMissions:{
       current:current.scope.allowMissions,
       target:target.scope.allowMissions,
@@ -680,6 +686,7 @@ function mcpStateDiff(current, target) {
     || scope.allowedAgentIds.changed
     || scope.taskTypes.changed
     || scope.mcpTools.changed
+    || scope.localAiCapabilities.changed
     || current.scope.allowMissions !== target.scope.allowMissions
     || !current.paperclipContextPlaceholdersPresent;
   return {

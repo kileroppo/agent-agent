@@ -379,8 +379,12 @@ Profile lease 文件或目录。准确结论是“尚无真实 selector 或 Prof
 runner 只接受上述六种动作；bridge 校验 CuaDriver 版本、应用身份、权限和精确
 browser identity，每次会话必须由调用方注入当次交互批准 token，token 不落盘。
 媒体先复制到权限为 `0400` 的私有临时租约并复核哈希与字节数，会话结束即清理。
+小红书结果支持候选的 `management_detail` 模式：提交后只读跳转笔记管理，仅点击
+标题完全一致且唯一的详情入口，并将管理页状态与详情 URL 中的真实内容 ID 组合为
+强证据；缺少状态、内容 ID、唯一标题或同源详情 URL 时硬停，不重复点击发布。
 仍未提供经 Paperclip 批准并冻结的真实 selector bundle、绑定授权 `accountRef` 且
-未过期的 `isolated_named` Profile lease、页面身份哈希、强成功证据或平台写授权。
+未过期的 `isolated_named` Profile lease、页面身份哈希或平台写授权；该模式仅通过
+本地 fixture，不能算真实 `PublishReceipt`。
 `enabled` 默认是 `false`；上述门禁、受控 runner 或活动授权任一缺失时 Runtime
 都会硬拒绝，不能把这组源码能力算作真实发布验收。
 

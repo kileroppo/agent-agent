@@ -74,6 +74,11 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
   const payload = await overview.json();
   assert.ok(Array.isArray(payload.tasks));
 
+  const disclosureState = await fetch(`${baseUrl}/disclosure-state.js`);
+  assert.equal(disclosureState.status, 200);
+  assert.match(disclosureState.headers.get('content-type'), /^text\/javascript/);
+  assert.match(await disclosureState.text(), /replaceChildrenPreservingDisclosureState/);
+
   const missing = await fetch(`${baseUrl}/api/not-found`);
   assert.equal(missing.status, 404);
   assert.deepEqual(await missing.json(), { error:'未找到该入口。' });

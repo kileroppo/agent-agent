@@ -77,6 +77,12 @@ class Settings:
     desktop_max_transfer_bytes: int = int(os.environ.get("LOCAL_AI_DESKTOP_MAX_TRANSFER_BYTES", str(256 * 1024 * 1024)))
     evidence_file: Path = Path(os.environ.get("LOCAL_AI_E2E_EVIDENCE", WORK_ROOT / "e2e-evidence.json"))
     knowledge_root: Path = Path(os.environ.get("LOCAL_AI_KNOWLEDGE_ROOT", WORK_ROOT / "indexes"))
+    control_policy_file: Path = Path(os.environ.get("LOCAL_AI_CONTROL_POLICY_FILE", WORK_ROOT / "control-policy.json"))
+    qwen_launch_label: str = os.environ.get("LOCAL_AI_QWEN_LAUNCH_LABEL", "com.agent-army.local-ai.qwen35")
+    qwen_start_timeout_seconds: int = int(os.environ.get("LOCAL_AI_QWEN_START_TIMEOUT_SECONDS", "120"))
+    qwen36_url: str = os.environ.get("LOCAL_AI_QWEN36_URL", "http://127.0.0.1:18080")
+    qwen36_launch_label: str = os.environ.get("LOCAL_AI_QWEN36_LAUNCH_LABEL", "com.agent-army.local-ai.qwen36-candidate")
+    qwen36_start_timeout_seconds: int = int(os.environ.get("LOCAL_AI_QWEN36_START_TIMEOUT_SECONDS", "300"))
 
 
 class InvokeRequest(BaseModel):
@@ -96,6 +102,11 @@ class RerankRequest(BaseModel):
     query: str
     documents: list[str]
     instruct: str | None = None
+
+
+class ServicePolicyRequest(BaseModel):
+    mode: str
+    idle_seconds: int = 900
 
 
 class ResourceGate:
@@ -187,10 +198,34 @@ class LocalAiRuntime:
         }
         self.last_failures: dict[str, dict[str, Any]] = {}
         self.active_desktop_requests: set[str] = set()
+        self.desktop_health_snapshot: dict[str, Any] = {
+            "configured": bool(settings.desktop_url),
+            "reachable": False,
+            "healthy": False,
+        }
+        self.desktop_health_refresh_task: asyncio.Task[None] | None = None
+        self.idle_release_task: asyncio.Task[None] | None = None
+        self.qwen_active_requests = 0
+        self.qwen_last_used = time.monotonic()
+        self.qwen36_last_used = time.monotonic()
+        self.retrieval_last_used = time.monotonic()
+        self.control_policy = self._load_control_policy()
 
     async def start(self) -> None:
         ARTIFACT_ROOT.mkdir(parents=True, exist_ok=True)
-        await asyncio.to_thread(self.retrieval.load_embedding)
+        if self.settings.desktop_url:
+            await self._refresh_desktop_health()
+            self.desktop_health_refresh_task = asyncio.create_task(self._desktop_health_loop())
+        self.idle_release_task = asyncio.create_task(self._idle_release_loop())
+
+    async def stop(self) -> None:
+        for task in (self.desktop_health_refresh_task, self.idle_release_task):
+            if task:
+                task.cancel()
+        await asyncio.gather(
+            *(task for task in (self.desktop_health_refresh_task, self.idle_release_task) if task),
+            return_exceptions=True,
+        )
 
     async def qwen_health(self) -> dict[str, Any]:
         try:
@@ -201,20 +236,45 @@ class LocalAiRuntime:
         except Exception as error:
             return {"status": "unavailable", "error": str(error)}
 
+    async def qwen36_health(self) -> dict[str, Any]:
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                response = await client.get(f"{self.settings.qwen36_url}/health")
+                response.raise_for_status()
+                return response.json()
+        except Exception as error:
+            return {"status": "unavailable", "error": str(error)}
+
     async def desktop_health(self) -> dict[str, Any]:
         if not self.settings.desktop_url:
             return {"configured": False, "healthy": False}
+        return dict(self.desktop_health_snapshot)
+
+    async def _desktop_health_loop(self) -> None:
+        while True:
+            await asyncio.sleep(30)
+            await self._refresh_desktop_health()
+
+    async def _refresh_desktop_health(self) -> None:
         validate_private_base_url(self.settings.desktop_url)
         try:
-            async with httpx.AsyncClient(timeout=3.0) as client:
+            # The Windows node probes two ComfyUI adapters in fresh Python
+            # processes. CUDA is healthy, but cold health checks can exceed the
+            # 3-second Mac-local budget and produce a false unavailable state.
+            async with httpx.AsyncClient(timeout=15.0) as client:
                 response = await client.get(
                     f"{self.settings.desktop_url.rstrip('/')}/health",
                     headers=self._desktop_headers(),
                 )
                 response.raise_for_status()
                 body = response.json()
-                return {
+                self.desktop_health_snapshot = {
                     "configured": True,
+                    # A successful authenticated /health response proves that
+                    # the lightweight 18083 control node is reachable.  The
+                    # aggregate capability status may still be degraded while
+                    # an on-demand ComfyUI process is intentionally stopped.
+                    "reachable": True,
                     "healthy": body.get("status") == "healthy",
                     "node": body.get("node"),
                     "capabilities": [
@@ -222,9 +282,261 @@ class LocalAiRuntime:
                         for row in body.get("capabilities", [])
                         if row.get("healthy")
                     ],
+                    "services": body.get("services", []),
                 }
         except Exception as error:
-            return {"configured": True, "healthy": False, "error": str(error)[-500:]}
+            self.desktop_health_snapshot = {
+                "configured": True,
+                "reachable": False,
+                "healthy": False,
+                "error": (str(error) or type(error).__name__)[-500:],
+            }
+
+    def _load_control_policy(self) -> dict[str, dict[str, Any]]:
+        defaults = {
+            "qwen35": {"mode": "on_demand", "idleSeconds": 900},
+            "qwen36-candidate": {"mode": "disabled", "idleSeconds": 900},
+            "embedding": {"mode": "on_demand", "idleSeconds": 900},
+            "reranker": {"mode": "on_demand", "idleSeconds": 900},
+            "comfyui": {"mode": "on_demand", "idleSeconds": 900},
+        }
+        try:
+            raw = json.loads(self.settings.control_policy_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return defaults
+        for service_id, default in defaults.items():
+            candidate = raw.get(service_id, {}) if isinstance(raw, dict) else {}
+            mode = candidate.get("mode") if candidate.get("mode") in {"on_demand", "always_on", "disabled"} else default["mode"]
+            idle_seconds = max(60, min(int(candidate.get("idleSeconds", default["idleSeconds"])), 86400))
+            defaults[service_id] = {"mode": mode, "idleSeconds": idle_seconds}
+        return defaults
+
+    def _save_control_policy(self) -> None:
+        self.settings.control_policy_file.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.settings.control_policy_file.with_suffix(".tmp")
+        temporary.write_text(json.dumps(self.control_policy, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        os.chmod(temporary, 0o600)
+        temporary.replace(self.settings.control_policy_file)
+
+    async def _idle_release_loop(self) -> None:
+        while True:
+            await asyncio.sleep(30)
+            now = time.monotonic()
+            qwen_policy = self.control_policy["qwen35"]
+            if (
+                qwen_policy["mode"] == "on_demand"
+                and self.qwen_active_requests == 0
+                and now - self.qwen_last_used >= qwen_policy["idleSeconds"]
+                and (await self.qwen_health()).get("status") in {"healthy", "ok"}
+            ):
+                await self._launchctl_qwen("stop")
+            qwen36_policy = self.control_policy["qwen36-candidate"]
+            if (
+                qwen36_policy["mode"] == "on_demand"
+                and now - self.qwen36_last_used >= qwen36_policy["idleSeconds"]
+                and (await self.qwen36_health()).get("status") in {"healthy", "ok"}
+            ):
+                await self._launchctl_qwen36("stop")
+            if now - self.retrieval_last_used >= self.control_policy["embedding"]["idleSeconds"]:
+                if self.control_policy["embedding"]["mode"] == "on_demand":
+                    await asyncio.to_thread(self.retrieval.unload_embedding)
+                if self.control_policy["reranker"]["mode"] == "on_demand":
+                    await asyncio.to_thread(self.retrieval.unload_reranker)
+
+    async def _launchctl_qwen(self, action: str) -> None:
+        target = f"gui/{os.getuid()}/{self.settings.qwen_launch_label}"
+        arguments = {
+            "start": ("kickstart", target),
+            "restart": ("kickstart", "-k", target),
+            "stop": ("kill", "SIGTERM", target),
+        }.get(action)
+        if not arguments:
+            raise HTTPException(400, detail={"code": "invalid_service_action", "message": action})
+        process = await asyncio.create_subprocess_exec(
+            "/bin/launchctl",
+            *arguments,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await process.communicate()
+        if process.returncode != 0 and not (action == "stop" and b"No such process" in stderr):
+            raise HTTPException(503, detail={"code": "service_control_failed", "message": stderr.decode("utf-8", errors="replace")[-500:]})
+        if action == "stop":
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
+                if (await self.qwen_health()).get("status") not in {"healthy", "ok"}:
+                    break
+                await asyncio.sleep(0.5)
+
+    async def _ensure_qwen_ready(self) -> None:
+        policy = self.control_policy["qwen35"]
+        if policy["mode"] == "disabled":
+            raise HTTPException(409, detail={"code": "service_disabled", "message": "Qwen3.5 已在 A君中禁用。"})
+        if (await self.qwen_health()).get("status") in {"healthy", "ok"}:
+            return
+        await self._launchctl_qwen("start")
+        deadline = time.monotonic() + self.settings.qwen_start_timeout_seconds
+        while time.monotonic() < deadline:
+            if (await self.qwen_health()).get("status") in {"healthy", "ok"}:
+                return
+            await asyncio.sleep(2)
+        raise HTTPException(503, detail={"code": "service_start_timeout", "message": "Qwen3.5 启动超时。"})
+
+    async def _launchctl_qwen36(self, action: str) -> None:
+        target = f"gui/{os.getuid()}/{self.settings.qwen36_launch_label}"
+        arguments = {
+            "start": ("kickstart", target),
+            "restart": ("kickstart", "-k", target),
+            "stop": ("kill", "SIGTERM", target),
+        }.get(action)
+        if not arguments:
+            raise HTTPException(400, detail={"code": "invalid_service_action", "message": action})
+        process = await asyncio.create_subprocess_exec(
+            "/bin/launchctl",
+            *arguments,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await process.communicate()
+        if process.returncode != 0 and not (action == "stop" and b"No such process" in stderr):
+            raise HTTPException(503, detail={"code": "service_control_failed", "message": stderr.decode("utf-8", errors="replace")[-500:]})
+        if action == "stop":
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
+                if (await self.qwen36_health()).get("status") not in {"healthy", "ok"}:
+                    break
+                await asyncio.sleep(0.5)
+
+    async def _ensure_qwen36_ready(self, action: str = "start") -> None:
+        policy = self.control_policy["qwen36-candidate"]
+        if policy["mode"] == "disabled":
+            raise HTTPException(409, detail={"code": "service_disabled", "message": "Qwen3.6 35B 候选已在 A君中禁用。"})
+        if action == "start" and (await self.qwen36_health()).get("status") in {"healthy", "ok"}:
+            return
+        await self._launchctl_qwen36(action)
+        self.qwen36_last_used = time.monotonic()
+        deadline = time.monotonic() + self.settings.qwen36_start_timeout_seconds
+        while time.monotonic() < deadline:
+            if (await self.qwen36_health()).get("status") in {"healthy", "ok"}:
+                return
+            await asyncio.sleep(2)
+        raise HTTPException(503, detail={"code": "service_start_timeout", "message": "Qwen3.6 35B 候选启动超时。"})
+
+    async def control_snapshot(self) -> dict[str, Any]:
+        qwen = await self.qwen_health()
+        qwen36 = await self.qwen36_health()
+        desktop = await self.desktop_health()
+        qwen_running = qwen.get("status") in {"healthy", "ok"}
+        qwen36_running = qwen36.get("status") in {"healthy", "ok"}
+        remote_services = {
+            str(row.get("id")): row
+            for row in desktop.get("services", [])
+            if isinstance(row, dict) and row.get("id")
+        }
+        comfy = remote_services.get("comfyui", {})
+        return {
+            "status": "ready",
+            "services": [
+                service_row("gateway", "Mac AI 控制网关", "mac", "127.0.0.1:18082", "always_on", "running", [], "A君的轻量路由与控制入口"),
+                service_row("qwen35", "Qwen3.5 9B", "mac", "127.0.0.1:18081", self.control_policy["qwen35"]["mode"], "running" if qwen_running else "stopped", ["start", "stop", "restart"], "文本、视觉与视频理解", self.control_policy["qwen35"]["idleSeconds"]),
+                service_row("qwen36-candidate", "Qwen3.6 35B 候选", "mac", "127.0.0.1:18080", self.control_policy["qwen36-candidate"]["mode"], "running" if qwen36_running else "stopped", ["start", "stop", "restart"], "旧文本候选；不在任何 Agent 默认路由中", self.control_policy["qwen36-candidate"]["idleSeconds"]),
+                service_row("embedding", "Qwen3 Embedding 0.6B", "mac", "进程内", self.control_policy["embedding"]["mode"], "running" if self.retrieval.embedding_loaded else "stopped", ["stop"], "知识索引与检索", self.control_policy["embedding"]["idleSeconds"]),
+                service_row("reranker", "Qwen3 Reranker 0.6B", "mac", "进程内", self.control_policy["reranker"]["mode"], "running" if self.retrieval.reranker_loaded else "stopped", ["stop"], "检索结果重排", self.control_policy["reranker"]["idleSeconds"]),
+                service_row("speech-tools", "Whisper / Qwen3-TTS", "mac", "每次任务", "per_request", "ready", [], "ASR 与语音合成，用完即退出"),
+                service_row("mflux", "MFLUX 图片能力", "mac", "每次任务", "per_request", "ready", [], "4070 不可用时的图片替代", None),
+                service_row("desktop-node", "4070 增强节点", "windows", "192.168.10.110:18083", "always_on", "running" if desktop.get("reachable") else "offline", ["reconnect"], "轻量检测节点；计划任务 \\AgentArmy\\RTX4070EnhancementNode"),
+                service_row(
+                    "comfyui",
+                    "ComfyUI",
+                    "windows",
+                    "127.0.0.1:8188",
+                    self.control_policy["comfyui"]["mode"],
+                    str(comfy.get("state") or ("running" if desktop.get("reachable") else "unknown")),
+                    ["start", "stop", "restart", "reconnect"] if comfy else [],
+                    "4070 图片生成与编辑；只停止节点自己启动的进程" if comfy else "当前可检测图片能力；Windows 节点升级后开放按需启停",
+                    self.control_policy["comfyui"]["idleSeconds"],
+                    managed=comfy.get("managed"),
+                ),
+            ],
+            "routing": [
+                {"capability": "image.generate", "providers": ["4070 ComfyUI（需批准）", "Mac MFLUX"]},
+                {"capability": "image.edit", "providers": ["4070 ComfyUI（需批准）", "Mac MFLUX"]},
+                {"capability": "text / vision / video", "providers": ["Mac Qwen3.5", "受控重启一次"]},
+                {"capability": "audio.transcribe", "providers": ["Mac Whisper", "Qwen3-ASR 待接入"]},
+                {"capability": "audio.synthesize", "providers": ["Mac Qwen3-TTS"]},
+            ],
+        }
+
+    async def control_service(self, service_id: str, action: str) -> dict[str, Any]:
+        if service_id == "qwen35":
+            if action in {"start", "restart"} and self.control_policy["qwen35"]["mode"] == "disabled":
+                raise HTTPException(409, detail={"code": "service_disabled", "message": "Qwen3.5 已在 A君中禁用。"})
+            await self._launchctl_qwen(action)
+            if action in {"start", "restart"}:
+                await self._ensure_qwen_ready()
+            return await self.control_snapshot()
+        if service_id == "qwen36-candidate":
+            if action == "stop":
+                await self._launchctl_qwen36("stop")
+            elif action in {"start", "restart"}:
+                await self._ensure_qwen36_ready(action)
+            else:
+                raise HTTPException(400, detail={"code": "service_action_not_allowed", "message": f"{service_id}:{action}"})
+            return await self.control_snapshot()
+        if service_id == "embedding" and action == "stop":
+            await asyncio.to_thread(self.retrieval.unload_embedding)
+            return await self.control_snapshot()
+        if service_id == "reranker" and action == "stop":
+            await asyncio.to_thread(self.retrieval.unload_reranker)
+            return await self.control_snapshot()
+        if service_id == "desktop-node" and action == "reconnect":
+            await self._refresh_desktop_health()
+            return await self.control_snapshot()
+        if service_id == "comfyui" and action in {"start", "stop", "restart", "reconnect"}:
+            if action == "reconnect":
+                await self._refresh_desktop_health()
+                return await self.control_snapshot()
+            await self._desktop_control(service_id, action)
+            await self._refresh_desktop_health()
+            return await self.control_snapshot()
+        raise HTTPException(400, detail={"code": "service_action_not_allowed", "message": f"{service_id}:{action}"})
+
+    async def update_service_policy(self, service_id: str, request: ServicePolicyRequest) -> dict[str, Any]:
+        if service_id not in self.control_policy or request.mode not in {"on_demand", "always_on", "disabled"}:
+            raise HTTPException(400, detail={"code": "invalid_service_policy", "message": service_id})
+        self.control_policy[service_id] = {"mode": request.mode, "idleSeconds": max(60, min(request.idle_seconds, 86400))}
+        self._save_control_policy()
+        if request.mode == "disabled":
+            if service_id == "qwen35":
+                await self._launchctl_qwen("stop")
+            elif service_id == "qwen36-candidate":
+                await self._launchctl_qwen36("stop")
+            elif service_id == "embedding":
+                await asyncio.to_thread(self.retrieval.unload_embedding)
+            elif service_id == "reranker":
+                await asyncio.to_thread(self.retrieval.unload_reranker)
+            elif service_id == "comfyui" and self.settings.desktop_url:
+                await self._desktop_control("comfyui", "stop")
+        elif request.mode == "always_on":
+            if service_id == "qwen35":
+                await self._ensure_qwen_ready()
+            elif service_id == "qwen36-candidate":
+                await self._ensure_qwen36_ready()
+        return await self.control_snapshot()
+
+    async def _desktop_control(self, service_id: str, action: str) -> None:
+        if not self.settings.desktop_url:
+            raise HTTPException(409, detail={"code": "desktop_node_not_configured", "message": "4070 节点未配置。"})
+        validate_private_base_url(self.settings.desktop_url)
+        try:
+            async with httpx.AsyncClient(timeout=150 if action in {"start", "restart"} else 20) as client:
+                response = await client.post(
+                    f"{self.settings.desktop_url.rstrip('/')}/v1/control/services/{service_id}/{action}",
+                    headers=self._desktop_headers(),
+                )
+                response.raise_for_status()
+        except Exception as error:
+            raise HTTPException(502, detail={"code": "desktop_control_failed", "message": str(error)[-500:]}) from error
 
     def evidence(self) -> dict[str, Any]:
         try:
@@ -246,10 +558,10 @@ class LocalAiRuntime:
             "audio.clone_authorized": (False, False, "not-installed"),
             "image.generate": (Path(self.settings.mflux_generate).exists() and Path(self.settings.flux_model).exists(), True, "local-mflux"),
             "image.edit": (Path(self.settings.mflux_edit).exists() and Path(self.settings.flux_model).exists(), True, "local-mflux"),
-            "embedding.create": (Path(self.settings.embedding_model).exists(), self.retrieval.embedding_loaded, "local-qwen3-embedding"),
+            "embedding.create": (Path(self.settings.embedding_model).exists(), True, "local-qwen3-embedding"),
             "rerank.score": (Path(self.settings.reranker_model).exists(), True, "local-qwen3-reranker"),
-            "knowledge.index": (Path(self.settings.embedding_model).exists(), self.retrieval.embedding_loaded, "local-versioned-index"),
-            "knowledge.search": (Path(self.settings.embedding_model).exists() and Path(self.settings.reranker_model).exists(), self.retrieval.embedding_loaded, "local-vector-rerank"),
+            "knowledge.index": (Path(self.settings.embedding_model).exists(), True, "local-versioned-index"),
+            "knowledge.search": (Path(self.settings.embedding_model).exists() and Path(self.settings.reranker_model).exists(), True, "local-vector-rerank"),
             "video.generate": (False, False, "network-approval-gated"),
         }
         rows = []
@@ -301,16 +613,30 @@ class LocalAiRuntime:
         handler = handlers.get(request.capability)
         if handler is None:
             raise HTTPException(404, detail={"code": "unknown_capability", "message": request.capability})
+        desktop_failure: str | None = None
+        if (
+            preferred_node == "auto"
+            and request.approved
+            and request.capability in {"image.generate", "image.edit"}
+            and self.settings.desktop_url
+        ):
+            try:
+                return await self._desktop_invoke(request, request_id, started)
+            except HTTPException as error:
+                desktop_failure = str(error.detail)[-500:]
         try:
             result = await handler(request_id, request.input, request.options)
             self.last_failures.pop(request.capability, None)
-            return {
+            response = {
                 "requestId": request_id,
                 "capability": request.capability,
                 "provider": result.pop("provider", "local"),
                 "elapsedSeconds": round(time.monotonic() - started, 3),
                 "result": result,
             }
+            if desktop_failure:
+                response["fallbackFrom"] = {"node": "rtx-4070ti-super", "error": desktop_failure}
+            return response
         except HTTPException:
             raise
         except ProcessCancelledError as error:
@@ -403,6 +729,9 @@ class LocalAiRuntime:
         return {"provider": "local-qwen3-tts", "artifactPath": str(files[0]), "durationSeconds": duration, "voice": payload.get("voice") or "Vivian"}
 
     async def embedding_create(self, request_id: str, payload: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
+        if self.control_policy["embedding"]["mode"] == "disabled":
+            raise HTTPException(409, detail={"code": "service_disabled", "message": "Embedding 已在 A君中禁用。"})
+        self.retrieval_last_used = time.monotonic()
         texts = payload.get("texts") or ([payload["text"]] if payload.get("text") else [])
         texts = [str(value)[:100_000] for value in texts]
         async with self.gates["retrieval"].acquire(request_id):
@@ -410,6 +739,9 @@ class LocalAiRuntime:
         return {"provider": "local-qwen3-embedding", "model": self.settings.embedding_model, "dimensions": len(embeddings[0]), "embeddings": embeddings}
 
     async def rerank_score(self, request_id: str, payload: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
+        if self.control_policy["reranker"]["mode"] == "disabled":
+            raise HTTPException(409, detail={"code": "service_disabled", "message": "Reranker 已在 A君中禁用。"})
+        self.retrieval_last_used = time.monotonic()
         query = required_text(payload, "query", 20_000)
         documents = [str(value)[:100_000] for value in payload.get("documents", [])]
         async with self.gates["retrieval"].acquire(request_id):
@@ -496,6 +828,9 @@ class LocalAiRuntime:
         return {"provider": "local-mflux", "artifactPath": str(output), "inputCount": len(images), "width": width, "height": height, "steps": steps, "runtimeLog": (stdout + stderr)[-1000:]}
 
     async def _qwen_chat(self, messages: list[dict[str, Any]], options: dict[str, Any]) -> dict[str, Any]:
+        await self._ensure_qwen_ready()
+        self.qwen_active_requests += 1
+        self.qwen_last_used = time.monotonic()
         body = {
             "model": self.settings.qwen_model,
             "messages": messages,
@@ -503,10 +838,14 @@ class LocalAiRuntime:
             "max_tokens": max(1, min(int(options.get("maxTokens", 2048)), 4096)),
             "stream": False,
         }
-        async with httpx.AsyncClient(timeout=float(options.get("timeoutSeconds", 300))) as client:
-            response = await client.post(f"{self.settings.qwen_url}/v1/chat/completions", json=body)
-            response.raise_for_status()
-            return response.json()
+        try:
+            async with httpx.AsyncClient(timeout=float(options.get("timeoutSeconds", 300))) as client:
+                response = await client.post(f"{self.settings.qwen_url}/v1/chat/completions", json=body)
+                response.raise_for_status()
+                return response.json()
+        finally:
+            self.qwen_active_requests -= 1
+            self.qwen_last_used = time.monotonic()
 
     async def _desktop_invoke(
         self,
@@ -750,6 +1089,32 @@ def unpack_desktop_artifact(
     return unpacked
 
 
+def service_row(
+    service_id: str,
+    name: str,
+    node: str,
+    endpoint: str,
+    mode: str,
+    state: str,
+    actions: list[str],
+    detail: str,
+    idle_seconds: int | None = None,
+    managed: bool | None = None,
+) -> dict[str, Any]:
+    return {
+        "id": service_id,
+        "name": name,
+        "node": node,
+        "endpoint": endpoint,
+        "mode": mode,
+        "state": state,
+        "actions": actions,
+        "detail": detail,
+        "idleSeconds": idle_seconds,
+        "managed": managed,
+    }
+
+
 settings = Settings()
 runtime = LocalAiRuntime(settings)
 
@@ -759,7 +1124,10 @@ async def lifespan(_: FastAPI):
     if settings.host not in {"127.0.0.1", "localhost", "::1"}:
         raise RuntimeError("Local AI gateway must bind to a loopback address")
     await runtime.start()
-    yield
+    try:
+        yield
+    finally:
+        await runtime.stop()
 
 
 app = FastAPI(title="Agent Army Local AI", version="0.1.0", lifespan=lifespan)
@@ -773,6 +1141,21 @@ async def health() -> dict[str, Any]:
 @app.get("/v1/capabilities")
 async def capabilities() -> dict[str, Any]:
     return await runtime.capabilities()
+
+
+@app.get("/v1/control")
+async def control() -> dict[str, Any]:
+    return await runtime.control_snapshot()
+
+
+@app.post("/v1/control/services/{service_id}/{action}")
+async def control_service(service_id: str, action: str) -> dict[str, Any]:
+    return await runtime.control_service(service_id, action)
+
+
+@app.put("/v1/control/services/{service_id}/policy")
+async def update_service_policy(service_id: str, request: ServicePolicyRequest) -> dict[str, Any]:
+    return await runtime.update_service_policy(service_id, request)
 
 
 @app.post("/v1/invoke")

@@ -55,6 +55,18 @@ test('达到5条同类型真实内容后只生成待审核LearningProposal，不
   assert.equal(report.status, 'proposal_ready');
   assert.equal(report.metricSnapshotRefs.length, 5);
   assert.match(report.observations.join('\n'), /views 为 300/);
+  assert.deepEqual(report.comparisonScope, {
+    platform:'douyin',
+    contentType:'ai-agent-practice',
+    checkpoint:'72h',
+    comparableSampleCount:5,
+    statistics:['median', 'p75'],
+    crossPlatformRawRanking:false,
+  });
+  assert.equal(report.comparableMetrics.views.median, 300);
+  assert.equal(report.comparableMetrics.views.p75, 400);
+  assert.equal(report.decision, 'repackage');
+  assert.equal(report.singleExperiment.variable, '开场或第一屏结构');
   assert.deepEqual(report.controls, {
     promptMutation:false,
     permissionExpansion:false,
@@ -68,6 +80,7 @@ test('达到5条同类型真实内容后只生成待审核LearningProposal，不
   assert.equal(report.learningProposal.reviewerApprovalRequired, true);
   assert.equal(report.learningProposal.grayReleaseLimit, 1);
   assert.equal(report.learningProposal.automaticProductionMutation, false);
+  assert.equal(report.learningProposal.singleExperimentRequired, true);
   assert.deepEqual(report.learningProposal.suggestedChanges, [
     '保留表现较好的开场和结构变量。',
     '下一版只调整一个主要变量，并继续关联原任务与版本。',

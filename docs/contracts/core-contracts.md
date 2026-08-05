@@ -309,6 +309,7 @@ Worker API 必须使用独立 Bearer Token；云端地址必须为 HTTPS（回�
 | `video_script_package` | 小创 | 包含可读脚本、镜头、SRT、来源和 manifest；记录参考匹配、模板生命周期、校验值与 `externalSideEffects=0` |
 | `content_performance_report` | 小拆 | 引用原拆解和草稿，包含真实指标并避免因果过度推断 |
 | `knowledge_summary_note` | 小办 | 路径受限、回读成功、幂等、校验值和来源任务明确 |
+| `intel_research_report` | 小R | 搜索型任务携带 `agent.army/research-method/v1`：六路可审计查询计划、路线覆盖、来源评估和主张级证据账本；搜索排名、头衔和“内幕/真相”措辞都不是可信度信号；不同域名不得冒充独立来源，未找到利益冲突或反证只能记录 `not_established` / `not_identified_at_claim_level` |
 | `wechat_chat_analysis_report` | 微信聊天取件员 | 仅含摘要、主题、决定、待办、风险和回复建议；`containsRawChat=false`、`containsSenderIdentifiers=false`、`modelBoundary=loopback-only`，不得保存原文或微信内部 ID |
 
 `confirmed_transcript` 是正式拆解和正式创作的证据门；默认由质量门禁自动生成，异常或用户明确要求时转人工听审。`raw_asr_transcript` 只能用于明确标记的初步分析。自动或人工确认都不能覆盖机器质量报告中的音频覆盖或尾部完整性硬失败。
@@ -317,8 +318,8 @@ Worker API 必须使用独立 Bearer Token；云端地址必须为 HTTPS（回�
 
 | `type` | 必要验证 |
 | --- | --- |
-| `campaign_research_report` | `agent.army/campaign-research/v2`；每条事实 claim 保存真正支持它的 `sourceIds` 与逐来源 `evidenceFragments`，不得把全部来源批量挂到每条结论 |
-| `evidence_package` | `agent.army/evidence-package/v2`；M5 每条来源都具有公开 URL、抓取时间、正文内容哈希和可引用片段；GitHub 搜索元数据只作发现线索，不能进入事实证据 |
+| `campaign_research_report` | `agent.army/campaign-research/v2`；每条事实 claim 保存真正支持它的 `sourceIds` 与逐来源 `evidenceFragments`，不得把全部来源批量挂到每条结论；自动发现时同时携带 `agent.army/research-method/v1` |
+| `evidence_package` | `agent.army/evidence-package/v2`；M5 每条来源都具有公开 URL、抓取时间、正文内容哈希和可引用片段；GitHub 搜索元数据只作发现线索，不能进入事实证据；搜索路线覆盖只描述发现过程，不替代 claim 证据 |
 | `asset_package` | 真实关键帧回读、相对路径、版权依据、字节数和 SHA-256；拒绝绝对路径、穿越与符号链接逃逸 |
 | `render_package` | `master.mp4`、`douyin.mp4`、`xiaohongshu.mp4` 三份固定成片；props 的 `coverSrc`/逐场景 `imageSrc` 必须在 `assetLedger` 中且渲染前复核哈希 |
 | `machine_review_report` | 七项门禁完整；事实门禁逐项比对脚本 `factBindings` 与 EvidencePackage 的 claim、`sourceIds`、`evidenceFragments`，并拒绝缺 URL/时间/hash 或仅有 GitHub metadata 的来源；`passed` 时必须绑定已校验 `artifact-manifest.json` 和固定 9 项产物 |

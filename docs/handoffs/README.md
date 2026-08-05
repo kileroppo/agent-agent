@@ -55,6 +55,7 @@
 
 ## 当前交接
 
+- [小R多路线搜索与证据方法交接](./current/intel-research-search-method-handoff.md)：Yichen 技能已同步到小R Profile，六路规划器已在 Profile 实跑；A君执行器源码和全量回归已通过。唯一下一步是从独立干净 worktree 冻结并切换不可变 release，再用一条真实公开研究任务验收结果质量。
 - [本地 AI 能力系统交接](./current/local-ai-capability-system-handoff.md)：九项 Mac 本地能力和统一网关已完成真实样本验收；唯一下一步是等待 18081 当前请求自然结束后切换 launchd，并完成重启恢复与 A君运行证据。
 - [Agent 技能接线与微信本机分析交接](./current/agent-skill-and-private-wechat-capability-handoff.md)：代码、岗位技能同步、Paperclip 公司技能、本机模型和 4321 不可变 release 已完成；唯一下一步是由主人指定一次微信会话与范围，验收临时授权、撤销和本机脱敏摘要。
 - [系统重构与技术负债偿还交接](./current/system-architecture-debt-repayment-handoff.md)：已关闭；候选 1–7、可追溯不可变 release、SQLite 迁移及二次启动恢复均通过，外部平台仍按原独立授权边界保持关闭。

@@ -263,6 +263,28 @@ test("M3 内容增长岗位通过受限验收后以最小权限按需上岗，�
   }
 });
 
+test("内容方法升级由现有岗位承接，不新增任务真相或平台发布权限", async () => {
+  const prompts = {
+    ajun:await readFile(path.join(repositoryRoot, "agents/ajun/prompts/system.md"), "utf8"),
+    researcher:await readFile(path.join(repositoryRoot, "agents/intel-researcher/prompts/system.md"), "utf8"),
+    creator:await readFile(path.join(repositoryRoot, "agents/content-creator/prompts/system.md"), "utf8"),
+    reviewer:await readFile(path.join(repositoryRoot, "agents/reviewer/prompts/system.md"), "utf8"),
+    office:await readFile(path.join(repositoryRoot, "agents/office-assistant/prompts/system.md"), "utf8"),
+  };
+  assert.match(prompts.ajun, /Paperclip.*唯一真相/u);
+  assert.match(prompts.researcher, /需求发现信号.*不得写成销量/u);
+  assert.match(prompts.creator, /六项语义质量清单/u);
+  assert.match(prompts.creator, /公众号/u);
+  assert.match(prompts.reviewer, /证据.*账号声音.*平台原生.*视觉一致.*合规.*发布包完整/u);
+  assert.match(prompts.office, /中位数.*P75/u);
+  assert.match(prompts.office, /五条真实 72 小时/u);
+
+  for (const agentId of ["content-creator", "intel-researcher", "reviewer", "office-assistant"]) {
+    const manifest = await readJson(path.join(repositoryRoot, "agents", agentId, "manifest.json"));
+    assert.ok(!manifest.toolAllowlist.some((tool) => /publish|group.?send/i.test(tool)));
+  }
+});
+
 test("小拆把指标来源约束下沉到 Prompt、Skill、Manifest 和 Eval", async () => {
   const manifest = await readJson(
     path.join(repositoryRoot, "agents/video-content-analyst/manifest.json")
@@ -344,8 +366,8 @@ test("11 个自主岗位统一明确 DeepSeek 模型，私密只读岗位仅开�
         assert.equal(manifest.operationalPolicy.rawChatPersistence, "disabled");
         assert.deepEqual(manifest.runtimeCapabilities.mcpTools, []);
         assert.deepEqual(manifest.runtimeCapabilities.modelSelection, {
-          provider:"ollama-local",
-          model:"qwen3:14b"
+          provider:"local-openai",
+          model:"mlx-community/Qwen3.5-9B-MLX-4bit"
         });
         assert.deepEqual(manifest.runtimeCapabilities.fallbackModels, []);
         const profile = await readJson(path.join(repositoryRoot, manifest.runtimeProfileRef));
@@ -360,10 +382,20 @@ test("11 个自主岗位统一明确 DeepSeek 模型，私密只读岗位仅开�
         );
         assert.equal(profile.localProfile.skillsSeeded, false);
         assert.deepEqual(profile.modelSelection, {
-          provider:"ollama-local",
-          model:"qwen3:14b",
+          provider:"local-openai",
+          model:"mlx-community/Qwen3.5-9B-MLX-4bit",
           secretStoredHere:false
         });
+        assert.deepEqual(profile.localProfile.credentialedTransportVerification.primary, {
+          provider:"local-openai",
+          model:"mlx-community/Qwen3.5-9B-MLX-4bit",
+          baseUrl:"http://127.0.0.1:18081",
+          verified:false
+        });
+        const prompt = await readFile(path.join(repositoryRoot, manifest.promptRef), "utf8");
+        assert.match(prompt, /127\.0\.0\.1:18081/);
+        assert.match(prompt, /Qwen3\.5-9B/);
+        assert.doesNotMatch(prompt, /qwen3:14b/i);
         assert.deepEqual(profile.fallbackModels, []);
         assert.equal(profile.gateway.enabled, false);
         assert.deepEqual(profile.mcp.tools, []);

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "agent.army/v1",
-  "manifestVersion": "0.5.0",
+  "manifestVersion": "0.6.0",
   "agentId": "office-assistant",
   "name": "小办·办公执行助理",
   "department": "总经理办公室",
@@ -9,6 +9,7 @@
     "整理任务材料、员工结果、待办事项和未决问题",
     "生成结构清晰、非空、可读取的 Markdown 汇报包",
     "把当前任务的脱敏结论、决定、待办和来源写入统一知识库",
+    "按同平台、同内容类型和同观察窗口汇总可信内容指标，并形成待审核的单变量实验",
     "如实区分已完成、未完成、异常和下一步"
   ],
   "nonResponsibilities": [
@@ -133,6 +134,18 @@
     {
       "gate": "knowledge-note-path-idempotency-and-readability-verified",
       "required": true
+    },
+    {
+      "gate": "content-metrics-use-comparable-scope-median-and-p75",
+      "required": true
+    },
+    {
+      "gate": "content-retrospective-keeps-missing-values-null-and-avoids-causal-overclaim",
+      "required": true
+    },
+    {
+      "gate": "content-learning-proposes-only-one-reviewed-experiment",
+      "required": true
     }
   ],
   "budgetPolicy": {
@@ -154,7 +167,12 @@
       "task_create",
       "paperclip_assignment_get",
       "employee_assignment_execute",
+      "local_ai_invoke",
       "paperclip_assignment_complete"
+    ],
+    "localAiCapabilities": [
+      "knowledge.index",
+      "knowledge.search"
     ],
     "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
     "paperclipToolsets": ["agent-army", "clarify"]

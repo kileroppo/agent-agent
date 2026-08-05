@@ -2,6 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  CONTENT_CHANNEL_IDS,
+  CONTENT_CHANNELS,
+  CONTENT_METRIC_KEYS,
+  CONTENT_PLATFORM_PLAYBOOKS,
+  CONTENT_QUALITY_GATE_IDS,
+  CONTENT_REVIEW_DECISIONS,
   M5_ALLOWED_PUBLISH_ACTIONS,
   M5_CONTRACT_ERROR_CODES,
   M5_PLATFORM_IDS,
@@ -13,6 +19,8 @@ import {
   M5_WORK_PRODUCT_KINDS,
   M5_WORK_PRODUCT_SCHEMAS,
   assertM5Platform,
+  contentQualityChecklist,
+  deriveContentMetrics,
   assertM5ProviderOperation,
   assertM5PublishAction,
   assertM5SchemaId,
@@ -25,6 +33,8 @@ import {
   deriveM5WorkProductArtifactHash,
   m5Sha256,
   normalizeM5Platform,
+  normalizeContentBrief,
+  normalizeContentChannel,
   normalizeM5ProviderOperation,
   normalizeM5PublishAction,
   normalizeM5SchemaId,
@@ -32,6 +42,7 @@ import {
   normalizeM5WorkProductContract,
   normalizeM5WorkProductKind,
   validM5WorkProductArtifactHash,
+  summarizeComparableContentMetrics,
 } from '../src/index.js';
 
 test('平台契约规范化大小写和首尾空白，并拒绝未知平台', () => {
@@ -46,6 +57,91 @@ test('平台契约规范化大小写和首尾空白，并拒绝未知平台', ()
     () => assertM5Platform('bilibili'),
     (error) => error?.code === 'm5_platform_unsupported',
   );
+});
+
+test('内容运营契约覆盖抖音、小红书、公众号和视频号且不扩大 M5 双平台 Campaign', () => {
+  assert.deepEqual(CONTENT_CHANNEL_IDS, {
+    DOUYIN:'douyin',
+    XIAOHONGSHU:'xiaohongshu',
+    WECHAT_OFFICIAL_ACCOUNT:'wechat_official_account',
+    WECHAT_CHANNELS:'wechat_channels',
+  });
+  assert.deepEqual(CONTENT_CHANNELS, [
+    'douyin',
+    'xiaohongshu',
+    'wechat_official_account',
+    'wechat_channels',
+  ]);
+  assert.equal(normalizeContentChannel('xhs'), 'xiaohongshu');
+  assert.equal(normalizeContentChannel('wechat_mp'), 'wechat_official_account');
+  assert.equal(normalizeContentChannel('shipinhao'), 'wechat_channels');
+  assert.equal(normalizeContentChannel('unknown'), null);
+  assert.deepEqual(M5_PLATFORMS, ['douyin', 'xiaohongshu']);
+  assert.equal(Object.isFrozen(CONTENT_PLATFORM_PLAYBOOKS.xiaohongshu), true);
+});
+
+test('创作简报只接受最多三个受支持渠道并保留证据、假设与唯一实验', () => {
+  const brief = normalizeContentBrief({
+    accountPositioning:'真实 AI Agent 实战',
+    audience:'正在搭建 Agent 工作流的经营者',
+    goal:'解释一次可核验的完整交付',
+    coreJudgment:'运行证据必须和代码完成分开。',
+    evidenceRefs:['artifact:one', 'artifact:one', 'artifact:two'],
+    constraints:['不编造外部结果'],
+    channels:['douyin', 'xhs', 'wechat_mp', 'shipinhao'],
+    primaryAction:'让读者检查自己的验收链',
+    experiment:{
+      variable:'开场结构',
+      hypothesis:'先给证据会提高深度互动',
+      successCriterion:'深度互动率高于同类中位数',
+      observationWindow:'发布后72小时',
+    },
+    confirmationStatus:'assumed_defaults',
+  });
+  assert.deepEqual(brief.channels, ['douyin', 'xiaohongshu', 'wechat_official_account']);
+  assert.deepEqual(brief.evidenceRefs, ['artifact:one', 'artifact:two']);
+  assert.equal(brief.experiment.variable, '开场结构');
+  assert.equal(normalizeContentBrief({ channels:['douyin'], goal:'x', coreJudgment:'y' }), null);
+});
+
+test('六项语义质量门覆盖证据、声音、平台、视觉、合规与交付完整性', () => {
+  const checklist = contentQualityChecklist('xiaohongshu');
+  assert.deepEqual(checklist.map((item) => item.gate), CONTENT_QUALITY_GATE_IDS);
+  assert.equal(checklist.every((item) => item.required && item.instruction.length > 20), true);
+  assert.match(checklist.find((item) => item.gate === 'platform_native').instruction, /每页只承担一个信息任务/);
+});
+
+test('内容指标派生在缺失或零分母时留空，并按中位数与P75总结同类样本', () => {
+  const metrics = deriveContentMetrics({
+    impressions:200,
+    views:100,
+    comments:2,
+    saves:3,
+    shares:5,
+    newFollowers:4,
+    conversions:2,
+    productionMinutes:60,
+    successfulOutputs:1,
+  });
+  assert.equal(metrics.followersPerThousandViews, 40);
+  assert.equal(metrics.deepEngagementRate, 0.1);
+  assert.equal(metrics.clickThroughRate, 0.5);
+  assert.equal(metrics.conversionRate, 0.02);
+  assert.equal(metrics.minutesPerSuccessfulOutput, 60);
+  assert.equal(deriveContentMetrics({ views:0, newFollowers:2 }).followersPerThousandViews, null);
+  const summary = summarizeComparableContentMetrics([
+    { views:100, comments:1, saves:2, shares:2 },
+    { views:200, comments:2, saves:4, shares:4 },
+    { views:300, comments:3, saves:6, shares:6 },
+    { views:400, comments:4, saves:8, shares:8 },
+  ]);
+  assert.equal(summary.views.median, 250);
+  assert.equal(summary.views.p75, 325);
+  assert.equal(summary.deepEngagementRate.median, 0.05);
+  assert.equal(CONTENT_METRIC_KEYS.includes('attributedRevenue'), true);
+  assert.deepEqual(CONTENT_REVIEW_DECISIONS, [
+    'scale', 'repackage', 'adapt_platform', 'stop', 'collect_more_samples',
+  ]);
 });
 
 test('Work Product kind 与 schema 必须成对匹配', () => {
@@ -77,6 +173,7 @@ test('Work Product kind 与 schema 必须成对匹配', () => {
 
 test('Work Product kind 与主要 schema 使用单一规范映射', () => {
   assert.ok(M5_WORK_PRODUCT_KINDS.includes('PublishReceipt'));
+  assert.ok(M5_WORK_PRODUCT_KINDS.includes('WechatDraftReceipt'));
   assert.ok(M5_WORK_PRODUCT_KINDS.includes('MetricSnapshot'));
   assert.ok(M5_WORK_PRODUCT_KINDS.includes('LearningProposal'));
   assert.equal(normalizeM5WorkProductKind(' publish receipt '), 'PublishReceipt');
@@ -88,6 +185,10 @@ test('Work Product kind 与主要 schema 使用单一规范映射', () => {
   assert.equal(
     M5_WORK_PRODUCT_SCHEMAS.PublishReceipt,
     M5_SCHEMA_IDS.PUBLISH_RECEIPT,
+  );
+  assert.equal(
+    M5_WORK_PRODUCT_SCHEMAS.WechatDraftReceipt,
+    M5_SCHEMA_IDS.WECHAT_DRAFT_RECEIPT,
   );
   assert.equal(
     normalizeM5SchemaId(' AGENT.ARMY/PUBLISH-RECEIPT/V1 '),

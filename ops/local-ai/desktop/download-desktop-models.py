@@ -6,8 +6,6 @@ import json
 import os
 from pathlib import Path
 
-from huggingface_hub import hf_hub_download
-
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
@@ -22,6 +20,12 @@ def main() -> None:
     parser.add_argument("--comfy-root", required=True, help="Path to the target ComfyUI directory")
     parser.add_argument("--manifest", default=str(Path(__file__).with_name("model-manifest.json")))
     args = parser.parse_args()
+
+    # This network showed repeated TLS close errors through Xet while normal
+    # Hugging Face HTTP range downloads were stable and resumable. Callers can
+    # explicitly set HF_HUB_DISABLE_XET=0 when the target network supports Xet.
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+    from huggingface_hub import hf_hub_download
 
     comfy_root = Path(args.comfy_root).expanduser().resolve()
     if not comfy_root.is_dir():

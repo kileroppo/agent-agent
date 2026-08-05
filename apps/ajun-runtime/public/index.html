@@ -152,6 +152,22 @@
           </div>
         </div>
 
+        <section id="ai-control" class="surface-section ai-control" hidden>
+          <div class="section-head">
+            <div>
+              <h2>AI 能力中心</h2>
+              <p class="section-intro">模型默认按需启动；状态检查不会偷偷拉起重服务。</p>
+            </div>
+            <button id="refresh-ai-control" type="button" class="secondary-action">重新检测</button>
+          </div>
+          <p id="ai-control-message" class="connection-message" role="status"></p>
+          <div id="ai-service-list" class="ai-service-grid"></div>
+          <details class="ai-routing-disclosure">
+            <summary>查看能力替代路线</summary>
+            <div id="ai-routing-list" class="ai-routing-list"></div>
+          </details>
+        </section>
+
         <section id="access-connections" class="surface-section access-connections" hidden>
           <div class="section-head">
             <div>

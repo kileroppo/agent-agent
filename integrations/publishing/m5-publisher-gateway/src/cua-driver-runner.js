@@ -222,7 +222,7 @@ export class CuaDriverPublisherRunner {
       result = await this.bridge.type(
         session.bridgeSession,
         session.selectors.actions.set_tags,
-        tags.join(' '),
+        tags.length > 0 ? ` ${tags.join(' ')}` : '',
       );
     } else if (action === 'submit_publish') {
       result = await this.bridge.click(
@@ -230,7 +230,7 @@ export class CuaDriverPublisherRunner {
         session.selectors.actions.submit_publish,
       );
     } else {
-      result = await pollPublishedResult({
+      const pollInput = {
         bridge:this.bridge,
         bridgeSession:session.bridgeSession,
         origin:session.origin,
@@ -238,7 +238,14 @@ export class CuaDriverPublisherRunner {
         attempts:this.resultPollAttempts,
         intervalMs:this.resultPollIntervalMs,
         sleep:this.sleep,
-      });
+      };
+      result = session.selectors.result.mode === 'management_detail'
+        && typeof this.bridge.readManagementResult === 'function'
+        ? await this.bridge.readManagementResult({
+          ...pollInput,
+          expectedTitle:input.input?.expectedTitle,
+        })
+        : await pollPublishedResult(pollInput);
     }
 
     const after = normalizeSnapshot(result, session.origin, session.selectors);
@@ -433,31 +440,56 @@ export class CuaDriverCliBridge {
     }
   }
 
-  async snapshot(session) {
+  async snapshot(session, snapshotFormat = 'semantic_v2', { query } = {}) {
     return cuaCall(session.command, session.socketPath, 'get_browser_state', {
       ...session.common,
-      snapshot_format:'semantic_v2',
+      snapshot_format:snapshotFormat,
       include_screenshot:false,
+      ...(typeof query === 'string' && query.trim() ? { query:query.trim() } : {}),
     });
   }
 
   async upload(session, selector, file) {
-    const snapshot = await this.snapshot(session);
+    const semanticSnapshot = await this.snapshot(session);
+    let ref;
+    try {
+      ref = findRef(semanticSnapshot, selector.label, 'upload');
+    } catch (error) {
+      if (error?.code !== 'browser_ref_missing') throw error;
+      findRef(semanticSnapshot, selector.label, 'click');
+      const domSnapshot = await this.snapshot(session, 'dom_refs_v1');
+      ref = findFileInputRef(domSnapshot);
+    }
     await cuaCall(session.command, session.socketPath, 'browser_set_input_files', {
       ...session.common,
-      ref:findRef(snapshot, selector.label, 'upload'),
+      ref,
       files:[file],
     });
     return this.snapshot(session);
   }
 
   async type(session, selector, text) {
-    const snapshot = await this.snapshot(session);
+    const semanticSnapshot = await this.snapshot(session);
+    let ref;
+    try {
+      ref = findRef(semanticSnapshot, selector.label, 'type');
+    } catch (error) {
+      if (error?.code !== 'browser_ref_missing') throw error;
+      if (selector.action === 'set_tags') {
+        findRef(semanticSnapshot, selector.label, 'click');
+      } else if (!flattenText(semanticSnapshot).toLowerCase().includes(
+        String(selector.label).toLowerCase(),
+      )) {
+        throw error;
+      }
+      const domSnapshot = await this.snapshot(session, 'dom_refs_v1');
+      ref = findRichTextInputRef(domSnapshot);
+    }
     await cuaCall(session.command, session.socketPath, 'browser_type', {
       ...session.common,
-      ref:findRef(snapshot, selector.label, 'type'),
+      ref,
       text,
-      replace:true,
+      replace:selector.action !== 'set_tags',
     });
     return this.snapshot(session);
   }
@@ -470,6 +502,66 @@ export class CuaDriverCliBridge {
       input_route:'dom_event',
     });
     return this.snapshot(session);
+  }
+
+  async readManagementResult({
+    bridgeSession:session,
+    origin,
+    selectors,
+    expectedTitle,
+    attempts,
+    intervalMs,
+    sleep,
+  }) {
+    const destination = new URL(selectors.result.managementPath, origin);
+    if (destination.origin !== origin) {
+      throw coded('cua_selector_map_invalid', 'CUA 结果管理页逃逸了官方 origin。');
+    }
+    await cuaCall(session.command, session.socketPath, 'browser_navigate', {
+      ...session.common,
+      url:destination.href,
+    });
+
+    let last = null;
+    let managementSnapshot = null;
+    let usedAttempts = 0;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      usedAttempts += 1;
+      last = await this.snapshot(session);
+      const normalized = normalizeSnapshot(last, origin, selectors);
+      if (detectStopReason(normalized.raw, selectors.stopPatterns)) return last;
+      if (isManagementEntryReady(normalized.raw, selectors.result, expectedTitle)) {
+        const titleSnapshot = await this.snapshot(session, 'semantic_v2', {
+          query:expectedTitle,
+        });
+        const ref = findExactRef(titleSnapshot, expectedTitle, 'click');
+        managementSnapshot = last;
+        await cuaCall(session.command, session.socketPath, 'browser_click', {
+          ...session.common,
+          ref,
+          input_route:'dom_event',
+        });
+        break;
+      }
+      if (attempt + 1 < attempts && intervalMs > 0) await sleep(intervalMs);
+    }
+    if (!managementSnapshot) return last;
+
+    let detailSnapshot = await this.snapshot(session);
+    while (true) {
+      const combined = combineManagementEvidence(managementSnapshot, detailSnapshot);
+      const normalized = normalizeSnapshot(combined, origin, selectors);
+      if (
+        detectStopReason(normalized.raw, selectors.stopPatterns)
+        || hasManagementEvidence(normalized.raw, selectors.result)
+        || usedAttempts >= attempts
+      ) {
+        return combined;
+      }
+      usedAttempts += 1;
+      if (intervalMs > 0) await sleep(intervalMs);
+      detailSnapshot = await this.snapshot(session);
+    }
   }
 
   async close(session) {
@@ -558,6 +650,21 @@ function validatePerformInput(input, session) {
 }
 
 function validateSelectorMap(selectors, platform, origin) {
+  const resultMode = selectors?.result?.mode || 'direct';
+  const managementResultValid = resultMode !== 'management_detail' || (
+    typeof selectors?.result?.managementPath === 'string'
+    && selectors.result.managementPath.startsWith('/')
+    && !selectors.result.managementPath.startsWith('//')
+    && !selectors.result.managementPath.includes('\\')
+    && typeof selectors?.result?.managementReadyText === 'string'
+    && selectors.result.managementReadyText.trim()
+    && Array.isArray(selectors?.result?.publishedStatusTexts)
+    && selectors.result.publishedStatusTexts.length > 0
+    && selectors.result.publishedStatusTexts.length <= 5
+    && selectors.result.publishedStatusTexts.every((item) => (
+      typeof item === 'string' && item.trim() && item.length <= 40
+    ))
+  );
   if (
     !selectors
     || selectors.platform !== platform
@@ -573,6 +680,8 @@ function validateSelectorMap(selectors, platform, origin) {
     || !selectors.result?.successText
     || !selectors.result?.contentIdPattern
     || !selectors.result?.evidencePathPrefix
+    || !['direct', 'management_detail'].includes(resultMode)
+    || !managementResultValid
   ) {
     throw coded(
       'cua_selector_map_missing',
@@ -603,7 +712,7 @@ function validateSelectorMap(selectors, platform, origin) {
     ...selectors,
     identity:{ ...selectors.identity, accountTextRegex:identityPattern },
     stopPatterns:normalizeStopPatterns(selectors.stopPatterns),
-    result:{ ...selectors.result, contentIdRegex:pattern },
+    result:{ ...selectors.result, mode:resultMode, contentIdRegex:pattern },
   };
 }
 
@@ -640,17 +749,28 @@ function normalizeStopPatterns(configured = {}) {
 
 function parsePublishedResult(raw, selectors, clock, expectedTitle) {
   const text = flattenText(raw);
-  if (!text.includes(selectors.result.successText)) return null;
+  const isManagementResult = selectors.result.mode === 'management_detail';
+  if (isManagementResult) {
+    if (!isManagementEntryReady(raw, selectors.result, expectedTitle)) return null;
+  } else if (!text.includes(selectors.result.successText)) return null;
   if (typeof expectedTitle !== 'string' || !expectedTitle.trim() || !text.includes(expectedTitle.trim())) {
     return null;
   }
-  const contentId = text.match(selectors.result.contentIdRegex)?.[0];
-  if (!contentId) return null;
   const pageUrl = findPageUrl(raw);
   if (!pageUrl) return null;
   const evidence = new URL(pageUrl);
-  const expectedPath = `${selectors.result.evidencePathPrefix}${encodeURIComponent(contentId)}`;
-  if (evidence.origin !== selectors.origin || !evidence.pathname.startsWith(expectedPath)) return null;
+  const contentId = `${text} ${evidence.href}`.match(selectors.result.contentIdRegex)?.[0];
+  if (!contentId) return null;
+  if (evidence.origin !== selectors.origin) return null;
+  if (isManagementResult) {
+    if (
+      !evidence.pathname.startsWith(selectors.result.evidencePathPrefix)
+      || !evidence.href.includes(contentId)
+    ) return null;
+  } else {
+    const expectedPath = `${selectors.result.evidencePathPrefix}${encodeURIComponent(contentId)}`;
+    if (!evidence.pathname.startsWith(expectedPath)) return null;
+  }
   const observedAt = clock().toISOString();
   return {
     externalContentId:contentId,
@@ -662,6 +782,43 @@ function parsePublishedResult(raw, selectors, clock, expectedTitle) {
     observedAt,
     publishedAt:observedAt,
   };
+}
+
+function isManagementEntryReady(raw, result, expectedTitle) {
+  if (typeof expectedTitle !== 'string' || !expectedTitle.trim()) return false;
+  const text = flattenText(raw);
+  return text.includes(result.managementReadyText)
+    && text.includes(expectedTitle.trim())
+    && result.publishedStatusTexts.some((status) => text.includes(status));
+}
+
+function hasManagementEvidence(raw, result) {
+  const pageUrl = findPageUrl(raw);
+  if (!pageUrl) return false;
+  const evidence = new URL(pageUrl);
+  const contentId = `${flattenText(raw)} ${evidence.href}`.match(result.contentIdRegex)?.[0];
+  return Boolean(
+    contentId
+    && evidence.pathname.startsWith(result.evidencePathPrefix)
+    && evidence.href.includes(contentId)
+  );
+}
+
+function combineManagementEvidence(managementSnapshot, detailSnapshot) {
+  return {
+    managementEvidence:withoutPageUrls(unwrapCuaPayload(managementSnapshot)),
+    detailEvidence:unwrapCuaPayload(detailSnapshot),
+  };
+}
+
+function withoutPageUrls(value) {
+  if (Array.isArray(value)) return value.map(withoutPageUrls);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !['url', 'page_url', 'pageUrl'].includes(key))
+      .map(([key, item]) => [key, withoutPageUrls(item)]),
+  );
 }
 
 function verifyPageAccountIdentity(raw, identity, claim) {
@@ -951,6 +1108,75 @@ function findRef(value, expectedName, action) {
   }
   if (uniqueRefs.length !== 1) {
     throw coded('browser_ref_ambiguous', `页面中“${expectedName}”的 ${action} ref 不唯一，拒绝猜测。`);
+  }
+  return uniqueRefs[0];
+}
+
+export function findExactRef(value, expectedName, action) {
+  const target = String(expectedName || '').trim().toLowerCase();
+  const matches = [];
+  walkAll(value, (item) => {
+    if (!item || typeof item !== 'object' || typeof item.ref !== 'string') return;
+    const names = [
+      item.name,
+      item.accessible_name,
+      item.label,
+      item.text,
+      item.description,
+    ].filter((name) => typeof name === 'string')
+      .map((name) => name.trim().toLowerCase());
+    const actions = Array.isArray(item.actions) ? item.actions : [];
+    if (target && names.includes(target) && actions.includes(action)) matches.push(item.ref);
+  });
+  const uniqueRefs = [...new Set(matches)];
+  if (uniqueRefs.length === 0) {
+    throw coded('browser_ref_missing', `页面快照中未找到标题精确为“${expectedName}”的 ${action} ref。`);
+  }
+  if (uniqueRefs.length !== 1) {
+    throw coded('browser_ref_ambiguous', `页面中标题精确为“${expectedName}”的 ${action} ref 不唯一，拒绝猜测。`);
+  }
+  return uniqueRefs[0];
+}
+
+export function findFileInputRef(value) {
+  const matches = [];
+  walkAll(value, (item) => {
+    if (!item || typeof item !== 'object' || typeof item.ref !== 'string') return;
+    const node = String(item.node || '').toLowerCase();
+    const label = String(item.label || '');
+    if (
+      node === 'input'
+      && /(?:^|\s)type\s*=\s*(?:file|"file"|'file')(?:\s|$)/i.test(label)
+    ) {
+      matches.push(item.ref);
+    }
+  });
+  const uniqueRefs = [...new Set(matches)];
+  if (uniqueRefs.length === 0) {
+    throw coded('browser_ref_missing', '页面快照中未找到唯一的文件上传 input ref。');
+  }
+  if (uniqueRefs.length !== 1) {
+    throw coded('browser_ref_ambiguous', '页面中存在多个文件上传 input ref，拒绝猜测。');
+  }
+  return uniqueRefs[0];
+}
+
+export function findRichTextInputRef(value) {
+  const matches = [];
+  walkAll(value, (item) => {
+    if (!item || typeof item !== 'object' || typeof item.ref !== 'string') return;
+    const node = String(item.node || '').toLowerCase();
+    const label = String(item.label || '');
+    if (node === 'div' && /(?:^|\s)role\s*=\s*textbox(?:\s|$)/i.test(label)) {
+      matches.push(item.ref);
+    }
+  });
+  const uniqueRefs = [...new Set(matches)];
+  if (uniqueRefs.length === 0) {
+    throw coded('browser_ref_missing', '页面快照中未找到唯一的富文本正文 ref。');
+  }
+  if (uniqueRefs.length !== 1) {
+    throw coded('browser_ref_ambiguous', '页面中存在多个富文本正文 ref，拒绝猜测。');
   }
   return uniqueRefs[0];
 }

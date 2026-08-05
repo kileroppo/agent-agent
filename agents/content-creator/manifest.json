@@ -1,6 +1,6 @@
 {
   "schemaVersion": "agent.army/v1",
-  "manifestVersion": "0.3.0",
+  "manifestVersion": "0.4.0",
   "agentId": "content-creator",
   "name": "小创·内容创作师",
   "department": "内容增长部",
@@ -9,7 +9,8 @@
     "读取当前任务明确引用的确认稿和正式拆解报告",
     "按目标平台生成标题、开场、正文或脚本及节奏提示",
     "保留事实和表达建议对应的来源证据",
-    "生成发布前人工检查清单"
+    "生成发布前人工检查清单",
+    "生成结构化创作简报、平台原生版本、全组视觉锚和六项语义质量清单"
     ,"按主题自动匹配参考案例并生成脚本、镜头、字幕、来源和清单生产包"
   ],
   "nonResponsibilities": [
@@ -71,6 +72,22 @@
       "required": true
     },
     {
+      "gate": "content-brief-and-single-experiment-present",
+      "required": true
+    },
+    {
+      "gate": "platform-native-copy-is-not-mechanical-resizing",
+      "required": true
+    },
+    {
+      "gate": "semantic-quality-six-gates-present",
+      "required": true
+    },
+    {
+      "gate": "visual-anchor-and-no-fabricated-product-ui",
+      "required": true
+    },
+    {
       "gate": "video-script-package-has-five-controlled-files",
       "required": true
     }
@@ -102,7 +119,13 @@
       "platform_content_draft_execute",
       "video_script_package_execute",
       "m5_stage_execute",
+      "local_ai_invoke",
       "paperclip_assignment_complete"
+    ],
+    "localAiCapabilities": [
+      "image.generate",
+      "image.edit",
+      "audio.synthesize"
     ],
     "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
     "paperclipToolsets": ["agent-army", "clarify"]

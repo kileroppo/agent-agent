@@ -798,6 +798,90 @@ h3 {
   -webkit-line-clamp: 1;
 }
 
+.ai-service-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.ai-service-card {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.ai-service-card.offline,
+.ai-service-card.unknown {
+  border-color: var(--amber-line);
+}
+
+.ai-service-head,
+.ai-service-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-service-head > div,
+.ai-service-head strong,
+.ai-service-head small {
+  display: block;
+  min-width: 0;
+}
+
+.ai-service-head small,
+.ai-service-card > p,
+.ai-mode-static,
+.ai-service-controls label,
+.ai-ownership-note {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.ai-service-card > p {
+  margin: 10px 0;
+}
+
+.ai-service-controls {
+  align-items: flex-end;
+}
+
+.ai-service-controls label select {
+  display: block;
+  min-width: 116px;
+  margin-top: 4px;
+}
+
+.ai-service-controls .connection-actions {
+  justify-content: flex-end;
+  margin: 0;
+}
+
+.ai-service-controls .connection-actions button {
+  min-width: 66px;
+  flex: 0 1 auto;
+}
+
+.ai-routing-disclosure {
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ai-routing-list p {
+  display: grid;
+  grid-template-columns: minmax(130px, .35fr) minmax(0, 1fr);
+  gap: 12px;
+  margin: 8px 0;
+}
+
+.ai-routing-list span {
+  overflow-wrap: anywhere;
+}
+
 .overview-bottom {
   display: grid;
   grid-template-columns: minmax(260px, .9fr) minmax(0, 1.1fr);

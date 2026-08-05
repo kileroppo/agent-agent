@@ -196,6 +196,21 @@ function validVersion(value) {
 }
 
 function validSelectorMapShape(value) {
+  const resultMode = value?.result?.mode || 'direct';
+  const managementResultValid = resultMode !== 'management_detail' || (
+    typeof value?.result?.managementPath === 'string'
+    && value.result.managementPath.startsWith('/')
+    && !value.result.managementPath.startsWith('//')
+    && !value.result.managementPath.includes('\\')
+    && typeof value?.result?.managementReadyText === 'string'
+    && value.result.managementReadyText.trim()
+    && Array.isArray(value?.result?.publishedStatusTexts)
+    && value.result.publishedStatusTexts.length > 0
+    && value.result.publishedStatusTexts.length <= 5
+    && value.result.publishedStatusTexts.every((item) => (
+      typeof item === 'string' && item.trim() && item.length <= 40
+    ))
+  );
   if (
     !value
     || typeof value.path !== 'string'
@@ -209,6 +224,8 @@ function validSelectorMapShape(value) {
     || !value.result?.successText
     || !value.result?.contentIdPattern
     || !value.result?.evidencePathPrefix
+    || !['direct', 'management_detail'].includes(resultMode)
+    || !managementResultValid
   ) {
     return false;
   }

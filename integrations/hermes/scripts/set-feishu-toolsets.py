@@ -292,6 +292,7 @@ def _safe_mcp_state(config: dict) -> dict | None:
         "AGENT_ARMY_ALLOWED_AGENT_IDS",
         "AGENT_ARMY_ALLOWED_TASK_TYPES",
         "AGENT_ARMY_ALLOWED_MCP_TOOLS",
+        "AGENT_ARMY_ALLOWED_LOCAL_AI_CAPABILITIES",
         "AGENT_ARMY_ALLOW_MISSIONS",
     }
     context_keys = {

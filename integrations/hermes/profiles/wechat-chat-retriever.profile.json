@@ -11,7 +11,12 @@
     "credentialedTransportVerified": false,
     "credentialedTransportVerification": {
       "status": "pending-local-profile",
-      "primary": { "provider": "ollama-local", "model": "qwen3:14b", "verified": false },
+      "primary": {
+        "provider": "local-openai",
+        "model": "mlx-community/Qwen3.5-9B-MLX-4bit",
+        "baseUrl": "http://127.0.0.1:18081",
+        "verified": false
+      },
       "fallback": null
     },
     "skillsSeeded": false
@@ -20,8 +25,8 @@
   "promptRef": "agents/wechat-chat-retriever/prompts/system.md",
   "appRef": "apps/ajun-runtime",
   "modelSelection": {
-    "provider": "ollama-local",
-    "model": "qwen3:14b",
+    "provider": "local-openai",
+    "model": "mlx-community/Qwen3.5-9B-MLX-4bit",
     "secretStoredHere": false
   },
   "fallbackModels": [],

@@ -46,3 +46,75 @@ test('调用只允许登记能力并保留跨设备显式批准字段', async ()
   assert.equal(bodies[0].approved, true);
   assert.equal(bodies[0].request_id, 'one');
 });
+
+test('控制面只返回登记服务并拒绝任意服务动作', async () => {
+  const requests = [];
+  const client = new LocalAiCapabilityClient({
+    fetchImpl:async (url, options = {}) => {
+      requests.push([url, options.method || 'GET']);
+      return {
+        ok:true,
+        async json() {
+          return {
+            status:'ready',
+            services:[
+              { id:'qwen35', name:'Qwen', node:'mac', endpoint:'127.0.0.1:18081', mode:'on_demand', state:'stopped', actions:['start', 'shell'] },
+              { id:'qwen36-candidate', name:'Qwen candidate', node:'mac', endpoint:'127.0.0.1:18080', mode:'disabled', state:'stopped', actions:['start', 'stop'] },
+              { id:'unknown-daemon', name:'hidden', state:'running', actions:['stop'] },
+            ],
+            routing:[],
+          };
+        },
+      };
+    },
+  });
+  const overview = await client.controlOverview();
+  assert.equal(overview.services.length, 2);
+  assert.deepEqual(overview.services[0].actions, ['start']);
+  assert.deepEqual(overview.services[1].actions, ['start', 'stop']);
+  await assert.rejects(() => client.controlService('unknown-daemon', 'stop'), (error) => error.code === 'local_ai_service_action_not_allowed');
+  await client.controlService('qwen35', 'start');
+  assert.equal(requests.some(([url, method]) => url.endsWith('/v1/control/services/qwen35/start') && method === 'POST'), true);
+});
+
+test('A君可独立管理控制网关且网关离线时仍保留重新启动入口', async () => {
+  const actions = [];
+  let running = false;
+  const client = new LocalAiCapabilityClient({
+    fetchImpl:async () => {
+      if (!running) throw new Error('offline');
+      return {
+        ok:true,
+        async json() {
+          return { status:'ready', services:[{ id:'gateway', name:'gateway', node:'mac', mode:'always_on', state:'running', actions:[] }], routing:[] };
+        },
+      };
+    },
+    gatewayControl:async (action) => {
+      actions.push(action);
+      running = action !== 'stop';
+    },
+  });
+  const offline = await client.controlOverview();
+  assert.equal(offline.services[0].id, 'gateway');
+  assert.equal(offline.services[0].state, 'stopped');
+  assert.deepEqual(offline.services[0].actions, ['start', 'restart']);
+  await client.controlService('gateway', 'start');
+  assert.deepEqual(actions, ['start']);
+});
+
+test('服务策略拒绝会保留网关的 409 而不是伪装成服务崩溃', async () => {
+  const client = new LocalAiCapabilityClient({
+    fetchImpl:async () => ({
+      ok:false,
+      status:409,
+      async json() {
+        return { detail:{ code:'service_disabled', message:'候选已禁用。' } };
+      },
+    }),
+  });
+  await assert.rejects(
+    () => client.controlService('qwen36-candidate', 'start'),
+    (error) => error.code === 'service_disabled' && error.httpStatus === 409,
+  );
+});

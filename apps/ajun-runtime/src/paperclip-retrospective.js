@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import {
   M5_PLATFORMS,
   M5_SCHEMA_IDS,
+  summarizeComparableContentMetrics,
 } from '@agent-army/m5-contracts';
 import {
   consumeM5SystemControllerPlanRevision,
@@ -243,6 +244,9 @@ function buildRetrospectiveReport({ platform, samples }) {
   const sampleType = `ai-agent-practice:${platform}`;
   const enoughSamples = samples.length >= MINIMUM_SAMPLE_COUNT;
   const observations = metricObservations(aggregateMetrics(samples));
+  const comparableMetrics = summarizeComparableContentMetrics(
+    samples.map((sample) => sample.metrics),
+  );
   const metricSnapshotRefs = samples.map((item) => item.snapshotId);
   return {
     status:enoughSamples ? 'proposal_ready' : 'insufficient_sample',
@@ -251,6 +255,22 @@ function buildRetrospectiveReport({ platform, samples }) {
     minimumSampleCount:MINIMUM_SAMPLE_COUNT,
     metricSnapshotRefs,
     observations,
+    comparisonScope:{
+      platform,
+      contentType:'ai-agent-practice',
+      checkpoint:'72h',
+      comparableSampleCount:samples.length,
+      statistics:['median', 'p75'],
+      crossPlatformRawRanking:false,
+    },
+    comparableMetrics,
+    decision:enoughSamples ? 'repackage' : 'collect_more_samples',
+    singleExperiment:enoughSamples ? {
+      variable:'开场或第一屏结构',
+      hypothesis:'保持主题和发布窗口不变，只调整开场证据顺序后，深度互动率可能高于同类中位数。',
+      successCriterion:'同平台、同内容类型、同为72小时窗口的深度互动率高于本批样本中位数。',
+      observationWindow:'发布后72小时',
+    } : null,
     learningProposal:enoughSamples ? {
       schemaVersion:M5_SCHEMA_IDS.LEARNING_PROPOSAL,
       proposalId:`learning_${crypto.createHash('sha256').update(
@@ -261,6 +281,7 @@ function buildRetrospectiveReport({ platform, samples }) {
       sourceSampleType:sampleType,
       sourceSampleCount:samples.length,
       suggestedChanges:[...CONTENT_PERFORMANCE_NEXT_ACTIONS],
+      singleExperimentRequired:true,
       templateLifecycle:{
         state:'trial',
         reason:'达到五条同类型真实内容门槛；仍须离线回放、审核和单条灰度。',

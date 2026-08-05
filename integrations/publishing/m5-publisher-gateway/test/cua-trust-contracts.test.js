@@ -78,6 +78,43 @@ test('selector bundle 缺少账号核验、固定五步动作或强回执定位�
   }
 });
 
+test('笔记管理回读模式必须绑定管理页、就绪文本和平台状态', () => {
+  const bundle = approvedBundle('xiaohongshu');
+  bundle.selectorMap.result = {
+    ...bundle.selectorMap.result,
+    mode:'management_detail',
+    managementPath:'/new/note-manager',
+    managementReadyText:'笔记管理',
+    publishedStatusTexts:['审核中', '已发布'],
+  };
+  bundle.approval.platform = 'xiaohongshu';
+  bundle.approval.selectorChecksum = selectorBundleChecksum(bundle);
+
+  const validated = validateApprovedSelectorBundle(bundle, {
+    platform:'xiaohongshu',
+    clock:() => new Date(NOW),
+  });
+  assert.equal(validated.selectorMap.result.mode, 'management_detail');
+
+  for (const mutate of [
+    (value) => { delete value.selectorMap.result.managementPath; },
+    (value) => { value.selectorMap.result.managementPath = '//example.com/escape'; },
+    (value) => { delete value.selectorMap.result.managementReadyText; },
+    (value) => { value.selectorMap.result.publishedStatusTexts = []; },
+  ]) {
+    const invalid = structuredClone(bundle);
+    mutate(invalid);
+    invalid.approval.selectorChecksum = selectorBundleChecksum(invalid);
+    assert.throws(
+      () => validateApprovedSelectorBundle(invalid, {
+        platform:'xiaohongshu',
+        clock:() => new Date(NOW),
+      }),
+      { code:'cua_selector_bundle_invalid' },
+    );
+  }
+});
+
 test('selector bundle 文件拒绝越界、符号链接、宽写权限和批准后漂移', async (context) => {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'm5-selector-bundle-')));
   context.after(() => fs.rm(root, { recursive:true, force:true }));

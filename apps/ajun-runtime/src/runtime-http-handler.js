@@ -41,6 +41,7 @@ export function createAjunHttpHandler({
   paperclip,
   work,
   connections,
+  localAi,
   feishu,
   m5,
 }) {
@@ -160,6 +161,23 @@ export function createAjunHttpHandler({
       }
       if (request.url?.startsWith('/api/') && !canAccessApi(request, lanAccess)) return sendJson(response, 401, { error:'请输入局域网共享口令。' });
       if (request.method === 'GET' && request.url === '/api/overview') return sendJson(response, 200, await tasks.overview());
+      if (request.method === 'GET' && request.url === '/api/local-ai/control') {
+        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'AI 能力控制只能由老板在本机查看。' });
+        if (!localAi) return sendJson(response, 503, { error:'本机 AI 控制入口尚未接入。' });
+        return sendJson(response, 200, await localAi.controlOverview());
+      }
+      const localAiActionMatch = request.url?.match(/^\/api\/local-ai\/services\/([a-z0-9-]+)\/(start|stop|restart|reconnect)$/);
+      if (request.method === 'POST' && localAiActionMatch) {
+        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'AI 服务只能由老板在本机控制。' });
+        if (!localAi) return sendJson(response, 503, { error:'本机 AI 控制入口尚未接入。' });
+        return sendJson(response, 200, await localAi.controlService(localAiActionMatch[1], localAiActionMatch[2]));
+      }
+      const localAiPolicyMatch = request.url?.match(/^\/api\/local-ai\/services\/([a-z0-9-]+)\/policy$/);
+      if (request.method === 'PUT' && localAiPolicyMatch) {
+        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'AI 服务策略只能由老板在本机修改。' });
+        if (!localAi) return sendJson(response, 503, { error:'本机 AI 控制入口尚未接入。' });
+        return sendJson(response, 200, await localAi.updateServicePolicy(localAiPolicyMatch[1], await readJsonBody(request)));
+      }
       const taskDetailMatch = request.url?.match(/^\/api\/tasks\/([0-9a-f-]{36})$/i);
       if (request.method === 'GET' && taskDetailMatch) {
         const task = (await tasks.overview()).tasks.find((item) => item.taskId === taskDetailMatch[1]);
@@ -390,6 +408,7 @@ export function createAjunHttpHandler({
 
       if (request.method === 'GET' && (request.url === '/' || request.url === '/index.html' || /^\/tasks\/[0-9a-f-]{36}$/i.test(request.url || ''))) return sendFile(response, publicDir, 'index.html', 'text/html; charset=utf-8');
       if (request.method === 'GET' && request.url === '/app.js') return sendFile(response, publicDir, 'app.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && request.url === '/disclosure-state.js') return sendFile(response, publicDir, 'disclosure-state.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && request.url === '/styles.css') return sendFile(response, publicDir, 'styles.css', 'text/css; charset=utf-8');
       return sendJson(response, 404, { error:'未找到该入口。' });
     } catch (error) {
@@ -420,6 +439,7 @@ function bearerToken(value) {
 }
 
 function errorStatus(error) {
+  if (Number.isInteger(error?.httpStatus) && error.httpStatus >= 400 && error.httpStatus <= 599) return error.httpStatus;
   return error instanceof ValidationError
     || error instanceof ProposalValidationError
     || error instanceof PublicWebFetchError

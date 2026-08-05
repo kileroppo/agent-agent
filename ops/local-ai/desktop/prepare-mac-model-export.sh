@@ -11,7 +11,9 @@ link_verified_model() {
   local expected_size="$3"
   local expected_sha="$4"
   test -f "$source_path"
-  test "$(stat -f '%z' "$source_path")" = "$expected_size"
+  # Hugging Face snapshot entries are symlinks into blobs; verify the target
+  # bytes instead of the symlink pathname length.
+  test "$(stat -Lf '%z' "$source_path")" = "$expected_size"
   test "$(shasum -a 256 "$source_path" | awk '{print $1}')" = "$expected_sha"
   mkdir -p "$(dirname "$destination_path")"
   if [ -L "$destination_path" ]; then
