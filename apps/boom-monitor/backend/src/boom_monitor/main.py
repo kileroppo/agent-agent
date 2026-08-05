@@ -318,7 +318,7 @@ def ingest_metrics_bundle(bundle: Dict[str, Any]) -> Dict[str, Any]:
     if bundle.get('status') == 'metrics_unavailable':
         return {
             'status': 'metrics_unavailable',
-            'message': '视频可继续做普通内容拆解，但当前没有可靠爆款分级依据。',
+            'message': '内容可继续做普通拆解，但当前没有可靠爆款分级依据。',
             'metrics': bundle,
             'score': None,
         }

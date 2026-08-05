@@ -187,7 +187,12 @@ export class MediaCrawlerProAdapter {
           'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/131 Safari/537.36'
         }
       });
-      const resolved = new URL(response.url);
+      let resolved = new URL(response.url);
+      if (resolved.pathname === '/login') {
+        const redirectPath = resolved.searchParams.get('redirectPath');
+        if (!redirectPath) throw new Error('missing xhs login redirect path');
+        resolved = new URL(redirectPath);
+      }
       if (!response.ok || !isXhsContentHost(resolved.hostname)) throw new Error('unexpected redirect target');
       const discoveryMatch = resolved.pathname.match(/^\/discovery\/item\/([^/]+)\/?$/);
       if (discoveryMatch) resolved.pathname = `/explore/${discoveryMatch[1]}`;

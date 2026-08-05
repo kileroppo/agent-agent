@@ -744,6 +744,26 @@ test('MediaCrawlerPro 在适配层解析小红书短链并转换为官方服务�
   assert.equal(result.currentWork.sourceUrl, 'https://www.xiaohongshu.com/explore/note-1');
 });
 
+test('MediaCrawlerPro 从小红书登录页 redirectPath 恢复短链的真实笔记地址', async () => {
+  const adapter = new MediaCrawlerProAdapter({
+    cookieBridgeUrl:'http://127.0.0.1:8274',
+    downloadServerUrl:'http://127.0.0.1:8205',
+    fetchImpl:async (url) => {
+      if (String(url) !== 'http://xhslink.cn/o/login-redirect') throw new Error(`unexpected ${url}`);
+      const target = 'https://www.xiaohongshu.com/discovery/item/note-2?xsec_token=token-2&xsec_source=app_share';
+      return {
+        ok:true,
+        url:`https://www.xiaohongshu.com/login?redirectPath=${encodeURIComponent(target)}`,
+        body:null
+      };
+    }
+  });
+
+  const resolved = await adapter.resolveSource('http://xhslink.cn/o/login-redirect', 'xhs');
+
+  assert.equal(resolved, 'https://www.xiaohongshu.com/explore/note-2?xsec_token=token-2&xsec_source=app_share');
+});
+
 test('MediaCrawlerPro 为 B站转录优先下载独立音轨而不是无声视频分片', async (t) => {
   const { root } = await sandbox(t);
   const secret = 'secret_cookie_value';
