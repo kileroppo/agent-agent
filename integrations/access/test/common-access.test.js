@@ -523,6 +523,141 @@ test('MediaCrawlerPro passes a CookieBridge value only between loopback services
   assert.deepEqual(result.runtime, { kind: 'remote_media', url: 'https://media.example/video.mp4' });
 });
 
+test('MediaCrawlerPro combines current work, creator followers, and ordered history into a metrics bundle', async () => {
+  const secret = 'secret_cookie_value';
+  const calls = [];
+  const adapter = new MediaCrawlerProAdapter({
+    cookieBridgeUrl:'http://127.0.0.1:8274',
+    downloadServerUrl:'http://127.0.0.1:8205',
+    fetchImpl:async (url, options = {}) => {
+      const pathname = new URL(url).pathname;
+      calls.push({ pathname, body:options.body ? JSON.parse(options.body) : null });
+      if (pathname === '/api/cookies/xhs') return jsonResponse({ isok:true, data:{ cookies:secret } });
+      assert.equal(JSON.parse(options.body).cookies, secret);
+      if (pathname === '/api/v1/content_detail') return jsonResponse({
+        isok:true,
+        data:{ content:{
+          id:'target-note', title:'当前笔记', url:'https://www.xiaohongshu.com/explore/target-note',
+          author:{ user_id:'creator-1', nickname:'作者', profile_url:'https://www.xiaohongshu.com/user/profile/creator-1' },
+          interaction:{ liked_count:'8,600', collected_count:'1200', comment_count:'90', share_count:'30', play_count:'' }
+        } }
+      });
+      if (pathname === '/api/v1/creator_query') return jsonResponse({
+        isok:true,
+        data:{ user_id:'creator-1', nickname:'作者', follower_count:'120000', content_count:'21' }
+      });
+      if (pathname === '/api/v1/creator_contents') return jsonResponse({
+        isok:true,
+        data:{
+          contents:[
+            { id:'target-note', title:'当前笔记', url:'https://www.xiaohongshu.com/explore/target-note', interaction:{ liked_count:'8600', collected_count:'1200' } },
+            ...Array.from({ length:6 }, (_, index) => ({
+              id:`history-${index + 1}`,
+              title:`历史 ${index + 1}`,
+              url:`https://www.xiaohongshu.com/explore/history-${index + 1}`,
+              interaction:{ liked_count:String(100 + index), collected_count:String(20 + index) }
+            }))
+          ],
+          has_more:false,
+          next_cursor:''
+        }
+      });
+      throw new Error(`unexpected ${pathname}`);
+    }
+  });
+
+  const result = await adapter.collectMetrics({
+    source:'https://www.xiaohongshu.com/explore/target-note',
+    connectionUse:{ credentialKind:'cookie_bridge', cookieBridgeClientId:'local_xhs_account_1' },
+    historyLimit:20
+  });
+
+  assert.equal(result.schemaVersion, 'agent.army/boom-metrics-bundle/v1');
+  assert.equal(result.status, 'collected');
+  assert.equal(result.platform, 'xiaohongshu');
+  assert.deepEqual(result.creator, {
+    id:'creator-1', name:'作者', followerCount:120000,
+    profileUrl:'https://www.xiaohongshu.com/user/profile/creator-1'
+  });
+  assert.deepEqual(result.currentWork, {
+    id:'target-note', title:'当前笔记', sourceUrl:'https://www.xiaohongshu.com/explore/target-note',
+    likes:8600, favorites:1200, plays:null, comments:90, shares:30
+  });
+  assert.equal(result.historyWorks.length, 6);
+  assert.equal(result.historyWorks.some((work) => work.id === 'target-note'), false);
+  assert.equal(result.historyOrder, 'creator_feed_desc');
+  assert.equal(result.sampleCount, 6);
+  assert.equal(result.acquisition.adapterId, 'mediacrawlerpro-specialized-content');
+  assert.equal(JSON.stringify(result).includes(secret), false);
+  assert.deepEqual(calls.map((call) => call.pathname), [
+    '/api/cookies/xhs',
+    '/api/v1/content_detail',
+    '/api/v1/creator_query',
+    '/api/v1/creator_contents'
+  ]);
+});
+
+test('MediaCrawlerPro reports insufficient history without inventing missing metrics', async () => {
+  const adapter = new MediaCrawlerProAdapter({
+    cookieBridgeUrl:'http://127.0.0.1:8274',
+    downloadServerUrl:'http://127.0.0.1:8205',
+    fetchImpl:async (url, options = {}) => {
+      const pathname = new URL(url).pathname;
+      if (pathname === '/api/cookies/dy') return jsonResponse({ isok:true, data:{ cookies:'test-cookie' } });
+      if (pathname === '/api/v1/content_detail') return jsonResponse({ isok:true, data:{ content:{
+        id:'target-video', title:'当前视频', url:'https://www.douyin.com/video/target-video',
+        author:{ sec_uid:'sec-creator', nickname:'作者', profile_url:'https://www.douyin.com/user/sec-creator' },
+        interaction:{ liked_count:'500', collected_count:'', play_count:'' }
+      } } });
+      if (pathname === '/api/v1/creator_query') return jsonResponse({ isok:true, data:{ user_id:'sec-creator', nickname:'作者', follower_count:'1000' } });
+      if (pathname === '/api/v1/creator_contents') return jsonResponse({ isok:true, data:{
+        contents:[
+          { id:'old-1', title:'旧作 1', url:'https://www.douyin.com/video/old-1', interaction:{ liked_count:'100' } },
+          { id:'old-2', title:'旧作 2', url:'https://www.douyin.com/video/old-2', interaction:{ liked_count:'1.2万' } }
+        ], has_more:false, next_cursor:''
+      } });
+      throw new Error(`unexpected ${pathname}: ${options.body}`);
+    }
+  });
+
+  const result = await adapter.collectMetrics({
+    source:'https://www.douyin.com/video/target-video',
+    connectionUse:{ credentialKind:'cookie_bridge', cookieBridgeClientId:'local_dy_account_1' }
+  });
+
+  assert.equal(result.status, 'insufficient_history');
+  assert.equal(result.sampleCount, 1);
+  assert.equal(result.currentWork.plays, null);
+  assert.equal(result.historyWorks[1].likes, null);
+});
+
+test('content center authorizes a metrics read and returns only the sanitized bundle', async (t) => {
+  const { connectionStore, broker, operations } = await sandbox(t);
+  const connection = await connectionStore.createCookieBridgeConnection({
+    provider:'xhs', accountAlias:'工作号', clientId:'xhs_work',
+    grantedOperations:['read_media_metadata'], dataScope:['content:read'], allowedAgentIds:['xiaod']
+  });
+  const expected = { schemaVersion:'agent.army/boom-metrics-bundle/v1', status:'collected' };
+  const adapter = {
+    id:'metrics-adapter', healthStatus:'healthy', accessMode:'authorized',
+    matches:() => true, providerFor:() => 'xhs',
+    collectMetrics:async ({ connectionUse }) => {
+      assert.equal(connectionUse.cookieBridgeClientId, 'xhs_work');
+      return expected;
+    }
+  };
+  const center = new ContentAcquisitionCenter({ adapters:[adapter], connectionBroker:broker, operations });
+
+  const result = await center.collectMetrics({
+    source:'https://www.xiaohongshu.com/explore/target',
+    connectionId:connection.connectionId,
+    requestingAgentId:'xiaod'
+  });
+
+  assert.deepEqual(result, { ok:true, metricsBundle:expected });
+  assert.equal(JSON.stringify(result).includes('xhs_work'), false);
+});
+
 test('MediaCrawlerPro 识别小红书当前分享口令短链域名', () => {
   const adapter = new MediaCrawlerProAdapter({
     cookieBridgeUrl: 'http://127.0.0.1:8274',

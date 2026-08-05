@@ -91,6 +91,25 @@ test('小D下游地址只能是本机回环地址', () => {
   assert.throws(() => new XiaodDelegate({ baseUrl: 'https://example.com' }), /本机回环地址/);
 });
 
+test('A君通过本机小D读取作品指标且不接触平台凭据', async () => {
+  const expected = { schemaVersion:'agent.army/boom-metrics-bundle/v1', status:'collected' };
+  const delegate = new XiaodDelegate({
+    fetchImpl:async (url, options) => {
+      assert.equal(url, 'http://127.0.0.1:4318/api/metrics/collect');
+      assert.deepEqual(JSON.parse(options.body), {
+        url:'https://www.douyin.com/video/target',
+        historyLimit:20
+      });
+      return new Response(JSON.stringify({ metrics:expected }), { status:200 });
+    }
+  });
+
+  assert.deepEqual(await delegate.collectMetrics({
+    url:'https://www.douyin.com/video/target',
+    historyLimit:20
+  }), expected);
+});
+
 test('小D暂停和继续只调用本机工作接口', async () => {
   const calls = [];
   const delegate = new XiaodDelegate({ fetchImpl: async (url, options) => {

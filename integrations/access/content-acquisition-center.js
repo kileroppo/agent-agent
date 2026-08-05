@@ -76,6 +76,53 @@ export class ContentAcquisitionCenter {
     return failure(lastFailure?.code || 'adapter_unavailable', lastFailure?.safeMessage || '内容获取通道当前不可用。', lastFailure?.recommendedAction || 'retry');
   }
 
+  async collectMetrics({ taskId = null, source, connectionId = null, requestingAgentId, historyLimit = 20 }) {
+    const adapter = this.adapters.find((candidate) => (
+      candidate.healthStatus === 'healthy'
+      && typeof candidate.collectMetrics === 'function'
+      && candidate.matches(source)
+    ));
+    if (!adapter) return failure('capability_not_available', '当前没有可用的作品指标采集通道。', 'manual_review');
+    const access = await this.connectionBroker.authorize({
+      connectionId,
+      provider:adapter.providerFor(source),
+      operations:['read_media_metadata'],
+      requestingAgentId
+    });
+    if (!access.ok) return failure(access.code, access.safeMessage, access.recommendedAction);
+    try {
+      const metricsBundle = await adapter.collectMetrics({
+        source,
+        connectionUse:access.connectionUse,
+        historyLimit
+      });
+      await this.connectionBroker.connectionStore.recordVerification(access.connectionUse.connectionId, {
+        status:'succeeded',
+        adapterId:adapter.id,
+        capabilities:['creator_metrics']
+      });
+      return { ok:true, metricsBundle };
+    } catch (error) {
+      const safe = safeAdapterFailure(error);
+      await this.connectionBroker.connectionStore.recordVerification(access.connectionUse.connectionId, {
+        status:'failed',
+        adapterId:adapter.id,
+        capabilities:['creator_metrics'],
+        failureCode:safe.code
+      });
+      await this.operations.record({
+        subjectType:'adapter',
+        subjectRef:adapter.id,
+        eventType:safe.code,
+        severity:'warning',
+        safeMessage:safe.safeMessage,
+        recommendedAction:safe.recommendedAction,
+        taskRefs:taskId ? [taskId] : []
+      });
+      return failure(safe.code, safe.safeMessage, safe.recommendedAction);
+    }
+  }
+
   findCandidates(source, requestedCapabilities, runtimeRequirement = null) {
     return this.adapters
       .filter((adapter) => adapter.matches(source) && adapter.healthStatus === 'healthy')

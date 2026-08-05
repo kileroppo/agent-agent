@@ -51,6 +51,28 @@ export class XiaodDelegate {
     return payload.job;
   }
 
+  async collectMetrics({ url, connectionId = null, historyLimit = 20 }) {
+    const response = await this.fetch(`${this.baseUrl}/api/metrics/collect`, {
+      method:'POST',
+      headers:{ 'content-type':'application/json' },
+      body:JSON.stringify({
+        url,
+        ...(connectionId ? { connectionId } : {}),
+        historyLimit:Math.max(5, Math.min(Number(historyLimit) || 20, 20))
+      }),
+      signal:AbortSignal.timeout(60_000)
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.metrics?.schemaVersion) {
+      const error = new Error(payload.error || `小D指标读取失败 ${response.status}`);
+      error.code = payload.code || 'metrics_unavailable';
+      error.status = response.status;
+      error.recommendedAction = payload.recommendedAction || 'retry';
+      throw error;
+    }
+    return payload.metrics;
+  }
+
   async pause(task) { return this.control(task, 'pause'); }
   async resume(task) { return this.control(task, 'resume'); }
 

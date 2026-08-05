@@ -13,6 +13,7 @@ import { JobStore } from './store.js';
 import { ConnectionSelectionError, createContentRuntime } from './content-runtime.js';
 import { ConnectionInputError } from 'ajun-common-access/connection-store';
 import { reviewTranscript, TranscriptReviewError } from './transcript-review.js';
+import { collectMetricsRequest, MetricsRequestError } from './metrics-api.js';
 
 await fs.mkdir(config.workDir, { recursive: true });
 const uploadsDir = path.join(config.workDir, 'uploads');
@@ -108,6 +109,13 @@ app.post('/api/jobs', async (req, res, next) => {
       : { job:await store.create(candidate), created:true };
     if (result.created) void pipeline.run(result.job.id);
     res.status(result.created ? 202 : 200).json({ job:result.job, duplicate:!result.created });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/metrics/collect', async (req, res, next) => {
+  try {
+    const metrics = await collectMetricsRequest({ contentRuntime, input:req.body || {} });
+    res.json({ metrics });
   } catch (error) { next(error); }
 });
 
@@ -258,6 +266,11 @@ app.use((error, _req, res, _next) => {
   if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: '文件超过 1GB 上传上限。' });
   if (error instanceof IntakeError) return res.status(error.status).json({ error: error.message });
   if (error instanceof ConnectionInputError) return res.status(422).json({ error: error.message });
+  if (error instanceof MetricsRequestError) return res.status(error.status).json({
+    error:error.message,
+    code:error.code,
+    recommendedAction:error.recommendedAction
+  });
   if (error instanceof ConnectionSelectionError) return res.status(409).json({
     error:error.message,
     code:'connection_selection_required',

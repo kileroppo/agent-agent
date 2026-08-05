@@ -19,6 +19,7 @@ import threading
 
 from . import db as db_module
 from .army_adapter import ArmyAdapter, ArmyDispatchError
+from .collected_metrics import build_collected_score, bundle_to_record
 from .scorer import (
     platform_core_metric,
     evaluate_grade,
@@ -103,6 +104,12 @@ class ImportPayload(BaseModel):
 class SettingsPayload(BaseModel):
     analysis_auto_enabled: Optional[bool] = None
     analysis_auto_grades: Optional[str] = None
+
+
+class UrlCollectPayload(BaseModel):
+    url: str
+    connection_id: Optional[str] = None
+    history_limit: int = 20
 
 
 def now_local_iso() -> str:
@@ -307,6 +314,42 @@ def _score_and_queue_one(work_db_id: int) -> Dict[str, Any]:
     }
 
 
+def ingest_metrics_bundle(bundle: Dict[str, Any]) -> Dict[str, Any]:
+    if bundle.get('status') == 'metrics_unavailable':
+        return {
+            'status': 'metrics_unavailable',
+            'message': '视频可继续做普通内容拆解，但当前没有可靠爆款分级依据。',
+            'metrics': bundle,
+            'score': None,
+        }
+    record = bundle_to_record(bundle)
+    creator_db_id = store.upsert_creator(
+        record['platform'],
+        record['creator_id'],
+        record['creator_name'],
+        record['follower_count'],
+    )
+    work_db_id, _ = store.upsert_work(creator_db_id, record['platform'], record)
+    frozen_score = store.get_score(work_db_id)
+    score = build_collected_score(bundle, frozen_score=frozen_score)
+    store.upsert_score(work_db_id, score)
+    work = store.get_work(work_db_id)
+    if should_auto_enqueue_grade(str(score['grade'])):
+        store.upsert_analysis_queue(
+            work_db_id,
+            str(score['grade']),
+            _boom_signal(work, score),
+            'full' if score['grade'] == 'T3' else 'fast',
+        )
+    return {
+        'status': bundle.get('status') or 'collected',
+        'work_id': work_db_id,
+        'score': score,
+        'metrics': bundle,
+        'message': '历史样本不足，保持 N0，不自动拆解。' if score['grade'] == 'N0' and score.get('baseline_metric') is None else '指标已读取并完成评分。',
+    }
+
+
 def _boom_signal(work: dict, score: dict) -> dict:
     source_url = str(work.get('source_url') or '').strip()
     return {
@@ -328,7 +371,7 @@ def _boom_signal(work: dict, score: dict) -> dict:
         'observedMetrics': {
             'likes': int(work.get('likes') or 0),
             'favorites': int(work.get('favorites') or 0),
-            'plays': int(work.get('plays') or 0),
+            'plays': None if work.get('plays') is None else int(work.get('plays') or 0),
             'followers': int(score.get('follower_snapshot') or work.get('follower_count') or 0),
         },
         'baseline': {
@@ -518,6 +561,21 @@ def import_records(payload: ImportPayload):
 
     job_id = store.queue_scan_job('manual', None, {'mode': 'manual', 'items': normalized})
     return {'job_id': job_id, 'count': len(normalized)}
+
+
+@app.post('/api/collect/url')
+def collect_url_metrics(payload: UrlCollectPayload):
+    try:
+        bundle = army_adapter.collect_metrics(
+            payload.url,
+            connection_id=payload.connection_id,
+            history_limit=payload.history_limit,
+        )
+        return ingest_metrics_bundle(bundle)
+    except ArmyDispatchError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post('/api/analysis/run')

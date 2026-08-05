@@ -69,6 +69,7 @@ export function createAjunHttpHandler({
     proposals,
     missions,
     macWorker,
+    xiaod,
   } = work;
   const {
     employeeFeishuConnections,
@@ -344,6 +345,21 @@ export function createAjunHttpHandler({
         const providedToken = bearerToken(request.headers.authorization);
         if (!local && (!expectedToken || providedToken !== expectedToken)) return sendJson(response, 403, { error:'爆款雷达派发需要本机访问或有效 Bearer Token。' });
         return sendJson(response, 201, await dispatchBoomSignal(await readJsonBody(request), { missions }));
+      }
+      if (request.method === 'POST' && request.url === '/api/integrations/boom-monitor/metrics') {
+        const local = isLocalAddress(request.socket.remoteAddress);
+        const expectedToken = String(environment.BOOM_MONITOR_BEARER_TOKEN || '').trim();
+        const providedToken = bearerToken(request.headers.authorization);
+        if (!local && (!expectedToken || providedToken !== expectedToken)) return sendJson(response, 403, { error:'爆款雷达指标读取需要本机访问或有效 Bearer Token。' });
+        try {
+          return sendJson(response, 200, { metrics:await xiaod.collectMetrics(await readJsonBody(request)) });
+        } catch (error) {
+          return sendJson(response, Number(error?.status) || 502, {
+            error:String(error?.message || '小D指标读取失败。').slice(0, 300),
+            code:error?.code || 'metrics_unavailable',
+            recommendedAction:error?.recommendedAction || 'retry'
+          });
+        }
       }
       if (request.method === 'POST' && request.url === '/api/mcp/missions') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'Hermes MCP 多人任务只能由本机调用。' });

@@ -212,7 +212,7 @@ class DB:
         payload = {
             'likes': int(work.get('likes') or 0),
             'favorites': int(work.get('favorites') or 0),
-            'plays': int(work.get('plays') or 0),
+            'plays': None if 'plays' in work and work.get('plays') is None else int(work.get('plays') or 0),
             'title': str(work.get('title') or '').strip(),
             'publish_at': str(work.get('publish_at') or '').strip(),
             'cover_url': str(work.get('cover_url') or '').strip(),
