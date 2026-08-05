@@ -31,3 +31,5 @@ Mac Apple Silicon 推荐把 `ASR_MODEL` 改为本机可访问的 `mlx-community`
 npm test
 curl http://127.0.0.1:4318/api/health
 ```
+
+本机 A君还可通过 `POST /api/metrics/collect` 请求小红书/抖音只读指标包。该接口只负责调用 Agent军团适配器并返回脱敏结果，不保存或返回 Cookie；正常业务从 A君的受保护入口调用，不应把小D端口暴露到局域网或公网。

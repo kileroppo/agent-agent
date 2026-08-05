@@ -88,7 +88,28 @@ test('M5 复盘入口只返回确定性处理器产生的待审核建议', async
   });
 });
 
-async function startHandler(context, paperclipOverrides = {}) {
+test('爆款雷达指标入口只代理本机小D的脱敏指标包', async (context) => {
+  const expected = { schemaVersion:'agent.army/boom-metrics-bundle/v1', status:'collected' };
+  const fixture = await startHandler(context, {}, {
+    xiaod:{
+      async collectMetrics(input) {
+        assert.deepEqual(input, { url:'https://www.douyin.com/video/target', historyLimit:20 });
+        return expected;
+      },
+    },
+  });
+
+  const response = await fetch(`${fixture.baseUrl}/api/integrations/boom-monitor/metrics`, {
+    method:'POST',
+    headers:{ 'content-type':'application/json' },
+    body:JSON.stringify({ url:'https://www.douyin.com/video/target', historyLimit:20 }),
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { metrics:expected });
+});
+
+async function startHandler(context, paperclipOverrides = {}, workOverrides = {}) {
   const handler = createAjunHttpHandler({
     environment:{},
     publicDir:new URL('../public', import.meta.url).pathname,
@@ -115,6 +136,8 @@ async function startHandler(context, paperclipOverrides = {}) {
       proposals:unreachable(),
       missions:unreachable(),
       macWorker:unreachable(),
+      xiaod:unreachable(),
+      ...workOverrides,
     },
     connections:{
       employeeFeishuConnections:unreachable(),

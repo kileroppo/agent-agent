@@ -48,6 +48,15 @@ class DBTests(unittest.TestCase):
         reopened = DB(str(Path(self.temp.name) / 'boom.sqlite'))
         self.assertEqual(reopened.get_setting('analysis_auto'), {'enabled': True, 'grades': ['T2']})
 
+    def test_explicitly_unknown_play_count_stays_unknown(self):
+        work_id = self.db.upsert_work(self.creator, 'douyin', {
+            'work_id': 'unknown-plays',
+            'publish_at': '',
+            'likes': 10,
+            'plays': None,
+        })[0]
+        self.assertIsNone(self.db.get_work(work_id)['plays'])
+
 
 if __name__ == '__main__':
     unittest.main()

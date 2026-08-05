@@ -20,6 +20,9 @@ createApp({
       },
       importPayload: ref(''),
       importResult: ref(''),
+      sourceUrl: ref(''),
+      collectResult: ref(null),
+      collectLoading: ref(false),
     }
 
     const gradeClass = (grade = 'N0') => ({
@@ -151,6 +154,24 @@ createApp({
       await loadDashboard()
     }
 
+    const collectUrl = async () => {
+      const url = String(state.sourceUrl.value || '').trim()
+      if (!url) return
+      state.collectLoading.value = true
+      state.collectResult.value = null
+      try {
+        state.collectResult.value = await api('/api/collect/url', {
+          method:'POST',
+          body:JSON.stringify({ url, history_limit:20 }),
+        })
+        await Promise.all([loadWorks(), loadDashboard()])
+      } catch (error) {
+        state.collectResult.value = { status:'failed', message:error.message }
+      } finally {
+        state.collectLoading.value = false
+      }
+    }
+
     const start = async () => {
       await Promise.all([loadDashboard(), loadWorks(), loadSettings()])
     }
@@ -173,6 +194,7 @@ createApp({
       saveSettings,
       enqueuePlatform,
       submitImport,
+      collectUrl,
       start,
       booms,
     }
@@ -198,7 +220,24 @@ createApp({
       </section>
 
       <section v-if="state.view==='dashboard'" class="bg-white rounded-xl p-4 space-y-3">
-        <h2 class="font-semibold text-lg">健康状态</h2>
+        <h2 class="font-semibold text-lg">粘贴链接判断值不值得拆</h2>
+        <p class="text-sm text-slate-500">支持小红书、抖音。系统会读取当前指标、作者粉丝和最多 20 条历史作品，再用现有 R/M 算法评级。</p>
+        <div class="flex gap-2">
+          <input v-model="state.sourceUrl.value" class="flex-1 border rounded px-3 py-2" placeholder="粘贴小红书或抖音作品链接" />
+          <button class="px-4 py-2 rounded bg-slate-900 text-white disabled:opacity-50" @click="collectUrl" :disabled="state.collectLoading.value">
+            {{ state.collectLoading.value ? '正在读取…' : '判断并评分' }}
+          </button>
+        </div>
+        <div v-if="state.collectResult.value" class="rounded-lg bg-slate-50 p-3 text-sm">
+          <div>{{ state.collectResult.value.message }}</div>
+          <div v-if="state.collectResult.value.score" class="mt-1">
+            等级 <span class="badge" :class="gradeClass(state.collectResult.value.score.grade)">{{ state.collectResult.value.score.grade }}</span>
+            · R {{ Number(state.collectResult.value.score.r_value || 0).toFixed(2) }}
+            · M {{ Number(state.collectResult.value.score.m_value || 0).toFixed(4) }}
+            · 历史样本 {{ state.collectResult.value.score.sample_count }} 条
+          </div>
+        </div>
+        <h2 class="font-semibold text-lg pt-2">健康状态</h2>
         <div>待处理扫描任务: {{ state.dashboard?.scan_jobs || 0 }}</div>
         <div class="space-x-2 mt-2">
           <button class="px-3 py-1.5 rounded bg-emerald-100" @click="runScan">手动入队扫描</button>

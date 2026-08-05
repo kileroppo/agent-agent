@@ -71,6 +71,122 @@ export class MediaCrawlerProAdapter {
     }
   }
 
+  async collectMetrics({ source, connectionUse, historyLimit = 20 }) {
+    const provider = this.providerFor(source);
+    if (!['xhs', 'dy'].includes(provider)) {
+      const error = new Error('当前只支持读取小红书和抖音作品指标。');
+      error.code = 'capability_not_available';
+      throw error;
+    }
+    assertCookieBridgeConnection(connectionUse);
+    const limit = Math.max(5, Math.min(Number(historyLimit) || 20, 20));
+    let cookies = '';
+    try {
+      cookies = await this.readCookies(provider, connectionUse.cookieBridgeClientId);
+      const detailPayload = await this.postDownloadServer('/api/v1/content_detail', {
+        platform:provider,
+        content_url:source,
+        cookies
+      });
+      const detail = detailPayload?.data?.content || {};
+      const currentWork = normalizeMetricWork(detail, source);
+      const detailAuthor = normalizeMetricAuthor(detail.author, provider);
+      const base = {
+        schemaVersion:'agent.army/boom-metrics-bundle/v1',
+        platform:publicPlatform(provider),
+        sourceUrl:source,
+        observedAt:new Date().toISOString(),
+        currentWork,
+        historyWorks:[],
+        historyOrder:'creator_feed_desc',
+        sampleCount:0,
+        acquisition:{
+          adapterId:this.id,
+          versionRef:this.versionRef,
+          source:'mediacrawlerpro'
+        }
+      };
+      if (!detailAuthor.id || !detailAuthor.profileUrl) {
+        return {
+          ...base,
+          status:'metrics_unavailable',
+          unavailableReasons:['creator_identity_unavailable'],
+          creator:{ ...detailAuthor, followerCount:null }
+        };
+      }
+
+      const creatorPayload = await this.postDownloadServer('/api/v1/creator_query', {
+        platform:provider,
+        creator_url:detailAuthor.profileUrl,
+        cookies
+      });
+      const creatorInfo = creatorPayload?.data || {};
+      const creator = {
+        id:String(creatorInfo.user_id || detailAuthor.id).trim(),
+        name:String(creatorInfo.nickname || detailAuthor.name || '').trim() || null,
+        followerCount:normalizeExactCount(creatorInfo.follower_count),
+        profileUrl:detailAuthor.profileUrl
+      };
+
+      const historyWorks = [];
+      const seenIds = new Set();
+      const targetId = String(currentWork.id || '').trim();
+      let cursor = '';
+      let hasMore = true;
+      let pageCount = 0;
+      while (hasMore && historyWorks.length < limit && pageCount < 5) {
+        const listPayload = await this.postDownloadServer('/api/v1/creator_contents', {
+          platform:provider,
+          creator_id:creator.id,
+          cursor,
+          cookies
+        });
+        const page = listPayload?.data || {};
+        const contents = Array.isArray(page.contents) ? page.contents : [];
+        for (const content of contents) {
+          const work = normalizeMetricWork(content);
+          if (!work.id || work.id === targetId || seenIds.has(work.id)) continue;
+          seenIds.add(work.id);
+          historyWorks.push(work);
+          if (historyWorks.length >= limit) break;
+        }
+        pageCount += 1;
+        hasMore = page.has_more === true && Boolean(String(page.next_cursor || '').trim());
+        cursor = hasMore ? String(page.next_cursor) : '';
+      }
+
+      const sampleCount = historyWorks.filter((work) => hasCoreMetric(provider, work)).length;
+      const unavailableReasons = [];
+      if (!creator.followerCount || creator.followerCount <= 0) unavailableReasons.push('follower_count_unavailable');
+      if (!hasCoreMetric(provider, currentWork)) unavailableReasons.push('current_work_metric_unavailable');
+      return {
+        ...base,
+        status:unavailableReasons.length ? 'metrics_unavailable' : sampleCount < 5 ? 'insufficient_history' : 'collected',
+        ...(unavailableReasons.length ? { unavailableReasons } : {}),
+        creator,
+        historyWorks,
+        sampleCount
+      };
+    } finally {
+      cookies = '';
+    }
+  }
+
+  async postDownloadServer(pathname, body) {
+    const response = await this.fetchImpl(`${this.downloadServerUrl}${pathname}`, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body:JSON.stringify(body)
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.isok === false || payload.biz_code) {
+      const error = new Error('MediaCrawlerPro 指标读取未成功。');
+      error.code = 'adapter_unavailable';
+      throw error;
+    }
+    return payload;
+  }
+
   async readCookies(provider, clientId) {
     const target = new URL(`/api/cookies/${provider}`, this.cookieBridgeUrl);
     target.searchParams.set('client_id', clientId);
@@ -104,6 +220,62 @@ export class MediaCrawlerProAdapter {
     await pipeline(Readable.fromWeb(response.body), createWriteStream(outputPath, { flags: 'w' }));
     return { kind, path: outputPath };
   }
+}
+
+function assertCookieBridgeConnection(connectionUse) {
+  if (connectionUse?.credentialKind === 'cookie_bridge' && connectionUse.cookieBridgeClientId) return;
+  const error = new Error('该平台需要通过 CookieBridge 建立受控连接。');
+  error.code = 'connection_required';
+  throw error;
+}
+
+function publicPlatform(provider) {
+  return provider === 'xhs' ? 'xiaohongshu' : 'douyin';
+}
+
+function normalizeMetricAuthor(value, provider) {
+  const author = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const id = String(provider === 'dy' ? author.sec_uid || author.user_id || '' : author.user_id || '').trim();
+  const profileUrl = isPublicHttpUrl(author.profile_url)
+    ? author.profile_url
+    : id
+      ? provider === 'dy'
+        ? `https://www.douyin.com/user/${encodeURIComponent(id)}`
+        : `https://www.xiaohongshu.com/user/profile/${encodeURIComponent(id)}`
+      : null;
+  return {
+    id:id || null,
+    name:String(author.nickname || author.name || '').trim() || null,
+    profileUrl
+  };
+}
+
+function normalizeMetricWork(content = {}, sourceFallback = null) {
+  const interaction = content.interaction && typeof content.interaction === 'object' ? content.interaction : {};
+  return {
+    id:String(content.id || '').trim() || null,
+    title:String(content.title || '').trim().slice(0, 500),
+    sourceUrl:isPublicHttpUrl(content.url) ? content.url : sourceFallback,
+    likes:normalizeExactCount(interaction.liked_count),
+    favorites:normalizeExactCount(interaction.collected_count),
+    plays:normalizeExactCount(interaction.play_count),
+    comments:normalizeExactCount(interaction.comment_count),
+    shares:normalizeExactCount(interaction.share_count)
+  };
+}
+
+function normalizeExactCount(value) {
+  if (typeof value === 'number') return Number.isSafeInteger(value) && value >= 0 ? value : null;
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().replaceAll(',', '');
+  if (!/^\d+$/.test(normalized)) return null;
+  const count = Number(normalized);
+  return Number.isSafeInteger(count) ? count : null;
+}
+
+function hasCoreMetric(provider, work) {
+  if (!Number.isInteger(work?.likes)) return false;
+  return provider !== 'xhs' || Number.isInteger(work?.favorites);
 }
 
 function normalizeLocalUrl(value) {

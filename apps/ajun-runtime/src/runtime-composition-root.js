@@ -410,7 +410,7 @@ const handler = createAjunHttpHandler({
     paperclipLearningLifecycle,
     canonicalPaperclipHeartbeat,
   },
-  work:{ tasks, store, proposals, missions, macWorker },
+  work:{ tasks, store, proposals, missions, macWorker, xiaod },
   connections:{
     employeeFeishuConnections,
     employeeModelSetup,
