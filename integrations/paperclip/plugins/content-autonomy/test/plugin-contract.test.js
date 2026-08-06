@@ -51,6 +51,7 @@ const exactGrants = {
     'media-finalize',
     'remotion-props-write',
     'remotion-render',
+    'social-card-render',
     'subtitle-layout-validate',
     'artifact-lineage-validate',
   ],
@@ -183,6 +184,7 @@ test('插件 manifest 通过当前 Paperclip 官方 schema', () => {
   );
   assert.ok(manifest.tools.some((item) => item.name === 'stepfun-image-edit'));
   assert.ok(manifest.tools.some((item) => item.name === 'remotion-render'));
+  assert.ok(manifest.tools.some((item) => item.name === 'social-card-render'));
   assert.ok(manifest.tools.some((item) => item.name === 'subtitle-layout-validate'));
   assert.ok(manifest.tools.some((item) => item.name === 'artifact-package-write'));
   for (const boardOnlyAction of [
@@ -294,6 +296,10 @@ test('图片编辑、Remotion和字幕门禁已注册且仍默认拒绝', async 
       composition:'M5Master',
       propsPath:'master.props.json',
       outputPath:'master.mp4'
+    }],
+    ['social-card-render', {
+      outputDir:'cards',
+      props:{}
     }],
     ['remotion-props-write', {
       composition:'M5Master',

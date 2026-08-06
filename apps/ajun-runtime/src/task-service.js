@@ -38,6 +38,7 @@ import {
 import { m5WorkProductArtifactHash } from '@agent-army/m5-kernel/work-product-integrity';
 import {
   M5_PLATFORMS,
+  M5_SCHEMA_IDS,
   M5_STEPFUN_MODELS,
   normalizeM5Sha256,
 } from '@agent-army/m5-contracts';
@@ -2308,6 +2309,9 @@ function validatedM5StagePluginData(stageKey, expectedArtifactKind, result) {
       ) {
         throw new ValidationError('M5 RenderPackage 必须包含 master、douyin、xiaohongshu 三份固定成片及真实回执。');
       }
+      if (data.socialCardPackage != null && !validM5SocialCardPackage(data.socialCardPackage)) {
+        throw new ValidationError('M5 RenderPackage 的静态卡包缺少可信 PNG、固定尺寸、哈希、模板或版权血缘。');
+      }
       const master = data.outputs.master;
       Object.assign(data, {
         composition:master.composition,
@@ -2410,6 +2414,54 @@ function validM5RenderOutput(value, composition, fileName) {
     && sha256Value(value.checksum)
     && Number.isInteger(Number(value.bytes))
     && Number(value.bytes) > 0;
+}
+
+function validM5SocialCardPackage(value) {
+  const outputDir = safeRelativeDirectory(value?.outputDir);
+  const cards = Array.isArray(value?.cards) ? value.cards : [];
+  const checks = value?.checks;
+  return value?.schemaVersion === M5_SCHEMA_IDS.SOCIAL_CARD_PACKAGE
+    && value?.platform === 'xiaohongshu'
+    && outputDir
+    && safeRelativeArtifactPath(value?.propsPath, '.json')
+    && String(value.propsPath).replaceAll('\\', '/').endsWith('/social-card.props.json')
+    && sha256Value(value?.propsChecksum)
+    && safeRelativeArtifactPath(value?.manifestPath, '.json')
+    && String(value.manifestPath).replaceAll('\\', '/').endsWith('/social-card-render-manifest.json')
+    && sha256Value(value?.manifestChecksum)
+    && sha256Value(value?.templateBindingHash)
+    && String(value?.rightsBasis || '').trim().length > 0
+    && value?.rightsBasisHash === sha256Text(value.rightsBasis)
+    && cards.length >= 3
+    && cards.length <= 9
+    && cards.every((card) =>
+      /^[a-z0-9][a-z0-9-]{1,48}$/i.test(String(card?.id || ''))
+      && safeRelativeArtifactPath(card?.relativePath, '.png')
+      && String(card.relativePath).replaceAll('\\', '/').startsWith(`${outputDir}/`)
+      && Number(card?.width) === 1080
+      && Number(card?.height) === 1440
+      && Number.isInteger(Number(card?.bytes))
+      && Number(card.bytes) > 0
+      && sha256Value(card?.checksum)
+    )
+    && checks?.dimensions === true
+    && checks?.fileHashes === true
+    && checks?.assetLineage === true
+    && checks?.rightsBasis === true
+    && checks?.externalNetworkUsed === false;
+}
+
+function safeRelativeDirectory(value) {
+  const relative = String(value || '').trim().replaceAll('\\', '/').replace(/\/+$/, '');
+  return relative
+    && !relative.startsWith('/')
+    && relative.split('/').every((segment) => segment && segment !== '.' && segment !== '..')
+    ? relative
+    : null;
+}
+
+function sha256Text(value) {
+  return `sha256:${crypto.createHash('sha256').update(String(value || ''), 'utf8').digest('hex')}`;
 }
 
 function findUnsafeM5PluginValue(value, path = 'result', seen = new Set()) {

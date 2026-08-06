@@ -34,6 +34,7 @@ const grants = {
     'media-finalize',
     'remotion-props-write',
     'remotion-render',
+    'social-card-render',
     'subtitle-layout-validate',
     'artifact-lineage-validate',
   ],

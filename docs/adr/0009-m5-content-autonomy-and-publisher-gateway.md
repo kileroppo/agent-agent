@@ -23,6 +23,10 @@
 9. retrospective 少于 5 条同类型真实 72h 指标时只写 `insufficient_sample`；
    达到 5 条才允许附带状态为 `proposed` 的 `LearningProposal`。提案必须经过
    离线回放、审核与单条灰度，不能直接修改生产 Prompt、权限、发布频率或投流。
+10. 小红书静态卡不新增 Pipeline 阶段或第二套内容控制面。它由现有 `render` 阶段从
+    baseline 脚本、可信图片账本、版权依据和已批准生产模板绑定派生，固定渲染
+    1080×1440 PNG，并以 `SocialCardPackage` 嵌入 `RenderPackage`。该工具不联网、
+    不调用付费 Provider、不持有发布能力；审批、启用和发布仍由既有独立门禁控制。
 
 ## 原因
 

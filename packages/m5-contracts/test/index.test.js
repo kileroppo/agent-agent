@@ -173,6 +173,7 @@ test('Work Product kind 与 schema 必须成对匹配', () => {
 
 test('Work Product kind 与主要 schema 使用单一规范映射', () => {
   assert.ok(M5_WORK_PRODUCT_KINDS.includes('PublishReceipt'));
+  assert.ok(M5_WORK_PRODUCT_KINDS.includes('SocialCardPackage'));
   assert.ok(M5_WORK_PRODUCT_KINDS.includes('WechatDraftReceipt'));
   assert.ok(M5_WORK_PRODUCT_KINDS.includes('MetricSnapshot'));
   assert.ok(M5_WORK_PRODUCT_KINDS.includes('LearningProposal'));
@@ -189,6 +190,10 @@ test('Work Product kind 与主要 schema 使用单一规范映射', () => {
   assert.equal(
     M5_WORK_PRODUCT_SCHEMAS.WechatDraftReceipt,
     M5_SCHEMA_IDS.WECHAT_DRAFT_RECEIPT,
+  );
+  assert.equal(
+    M5_WORK_PRODUCT_SCHEMAS.SocialCardPackage,
+    M5_SCHEMA_IDS.SOCIAL_CARD_PACKAGE,
   );
   assert.equal(
     normalizeM5SchemaId(' AGENT.ARMY/PUBLISH-RECEIPT/V1 '),
@@ -209,6 +214,7 @@ test('Campaign 与并行生产协议的非 Work Product schema 也由共享注�
   assert.equal(M5_SCHEMA_IDS.CAMPAIGN_PLAN, 'agent.army/campaign-plan/v1');
   assert.equal(M5_SCHEMA_IDS.PARALLEL_WORK_BRANCH, 'agent.army/parallel-work-branch/v1');
   assert.equal(M5_SCHEMA_IDS.PARALLEL_WORK_BATCH, 'agent.army/parallel-work-batch/v1');
+  assert.equal(M5_SCHEMA_IDS.SOCIAL_CARD_PACKAGE, 'agent.army/social-card-package/v1');
   assert.equal(
     M5_SCHEMA_IDS.PRODUCTION_TEMPLATE_BINDING,
     'agent.army/production-template-binding/v1',

@@ -1,6 +1,6 @@
 {
   "name": "@agent-army/paperclip-content-autonomy",
-  "version": "0.4.9",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "description": "M5 内容自治的 Paperclip 业务插件，只补 StepFun、多媒体和发布策略缺口。",
@@ -12,6 +12,7 @@
   "scripts": {
     "test": "node --test",
     "check": "for file in src/*.js scripts/*.mjs; do node --check \"$file\"; done",
+    "verify:social-card": "node scripts/verify-social-card-render.mjs",
     "config:draft": "node scripts/generate-safe-config.mjs",
     "secret:import-stepfun": "node scripts/import-stepfun-secret.mjs",
     "batch:stepfun-seven-theme": "node scripts/run-seven-theme-stepfun-batch.mjs",
