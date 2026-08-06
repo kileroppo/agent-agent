@@ -18,12 +18,12 @@ import {
 
 const execFileAsync = promisify(execFile);
 const PLUGIN_KEY = 'agent-army.content-autonomy';
-const OLD_PLUGIN_VERSION = '0.4.7';
+const OLD_PLUGIN_VERSION = '0.4.6';
 const NEW_PLUGIN_VERSION = '0.4.9';
 const OLD_PLUGIN_STEPFUN_SHA256 = 'd0c3ba28e2a175e16beacf3f2ee2761caa77aec5a6b62cf710869210be11ecf7';
 const LAUNCHD_LABEL = 'ai.agent-army.paperclip';
 const APPLY_CONFIRMATION = 'I_ACCEPT_CONTENT_AUTONOMY_0_4_9_LIVE_MAINTENANCE';
-const ROLLBACK_CONFIRMATION = 'I_ACCEPT_CONTENT_AUTONOMY_0_4_7_ROLLBACK';
+const ROLLBACK_CONFIRMATION = 'I_ACCEPT_CONTENT_AUTONOMY_0_4_6_ROLLBACK';
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 export async function runLiveMaintenance({
@@ -42,17 +42,25 @@ export async function runLiveMaintenance({
   let mutated = false;
   const recoveryAction = rollbackAction(input);
   try {
-    const expectedVersion = normalizedMode === 'rollback' ? null : OLD_PLUGIN_VERSION;
+    const expectedVersion = normalizedMode === 'execute' ? OLD_PLUGIN_VERSION : null;
+    const allowedCampaignStatuses = normalizedMode === 'execute'
+      ? ['draft']
+      : ['draft', 'paused'];
     const before = await verifySnapshot({
       api,
       input,
       expectedVersion,
       requireReady:normalizedMode !== 'rollback',
+      allowedCampaignStatuses,
     });
     const [newBundle, oldBundle] = await Promise.all([
       inspectBundle(input.newPluginPath, NEW_PLUGIN_VERSION),
       inspectBundle(input.oldPluginPath, OLD_PLUGIN_VERSION),
     ]);
+    if (
+      normalizedMode !== 'execute'
+      && ![OLD_PLUGIN_VERSION, NEW_PLUGIN_VERSION].includes(before.summary.pluginVersion)
+    ) throw new Error('当前内容插件版本不在维护或回滚白名单。');
     const pidBefore = await processControl.pid();
     const plan = [
       'soft-uninstall-without-purge',
@@ -62,13 +70,14 @@ export async function runLiveMaintenance({
       'postflight-verify',
     ];
     if (normalizedMode === 'dry-run') {
+      const alreadyCurrent = before.summary.pluginVersion === NEW_PLUGIN_VERSION;
       return {
-        status:'dry_run_ready',
+        status:alreadyCurrent ? 'already_current' : 'dry_run_ready',
         mode:normalizedMode,
         preflight:before.summary,
         bundles:{ new:newBundle.summary, old:oldBundle.summary },
         pidBefore,
-        plan,
+        plan:alreadyCurrent ? [] : plan,
       };
     }
 
@@ -105,7 +114,7 @@ export async function runLiveMaintenance({
       ) {
         stage = 'soft_uninstall_new_plugin';
         await api.delete(`/api/plugins/${encodeURIComponent(input.pluginId)}`);
-        stage = 'install_0_4_7';
+        stage = 'install_0_4_6';
         const installed = await api.post('/api/plugins/install', {
           packageName:oldBundle.root,
           isLocalPath:true,
@@ -129,6 +138,7 @@ export async function runLiveMaintenance({
       expectedVersion:finalVersion,
       requireReady:true,
       expectedConfigHash:before.configHash,
+      allowedCampaignStatuses,
     });
     const pluginHealth = await api.get(`/api/plugins/${encodeURIComponent(input.pluginId)}/health`);
     const pluginHealthy = pluginHealth?.status === 'ok'
@@ -141,7 +151,9 @@ export async function runLiveMaintenance({
       pluginVersion:finalVersion,
       configPreserved:true,
       stateScopePreserved:true,
-      campaignDraft:true,
+      campaignSafe:finalSnapshot.summary.campaignSafe,
+      campaignStatus:finalSnapshot.summary.campaignStatus,
+      campaignDraft:finalSnapshot.summary.campaignDraft,
       cronOff:true,
       backupHealthy:true,
       paperclipVersion:health.version,
@@ -170,6 +182,7 @@ async function verifySnapshot({
   expectedVersion,
   requireReady,
   expectedConfigHash = null,
+  allowedCampaignStatuses = ['draft'],
 }) {
   const [health, plugin, config, campaignPayload, routine] = await Promise.all([
     api.get('/api/health'),
@@ -193,11 +206,12 @@ async function verifySnapshot({
     throw new Error('内容插件配置在维护前后发生漂移。');
   }
   const campaign = campaignPayload?.case ?? campaignPayload;
+  const campaignStatus = campaign?.fields?.campaignGrant?.status;
   if (
     campaign?.id !== input.campaignId
     || campaign?.companyId !== input.companyId
-    || campaign?.fields?.campaignGrant?.status !== 'draft'
-  ) throw new Error('Campaign必须保持draft。');
+    || !allowedCampaignStatuses.includes(campaignStatus)
+  ) throw new Error(`Campaign必须保持安全状态：${allowedCampaignStatuses.join('或')}。`);
   const schedules = Array.isArray(routine?.triggers)
     ? routine.triggers.filter((item) => item?.kind === 'schedule')
     : [];
@@ -217,7 +231,9 @@ async function verifySnapshot({
       pluginReady:plugin.status === 'ready',
       secretRefValid:true,
       configChecksum:configHash,
-      campaignDraft:true,
+      campaignSafe:true,
+      campaignStatus,
+      campaignDraft:campaignStatus === 'draft',
       cronOff:true,
       scheduleTriggerCount:schedules.length,
     },
@@ -505,7 +521,7 @@ async function main() {
 const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : '';
 if (import.meta.url === invokedPath) {
   try {
-    process.stdout.write(`${JSON.stringify(await main())}\\n`);
+    process.stdout.write(`${JSON.stringify(await main())}\n`);
   } catch (error) {
     const payload = error instanceof LiveMaintenanceError
       ? {
@@ -515,7 +531,7 @@ if (import.meta.url === invokedPath) {
         recoveryAction:error.recoveryAction,
       }
       : { status:'failed', stage:'arguments', message:safeMessage(error) };
-    process.stderr.write(`${JSON.stringify(payload)}\\n`);
+    process.stderr.write(`${JSON.stringify(payload)}\n`);
     process.exitCode = 1;
   }
 }

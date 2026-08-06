@@ -14,6 +14,7 @@ function setup({
   contentGrowthWaitMs = undefined,
   m5ProviderVision = null,
   m5WorkProductValidator = async () => true,
+  skillExecutionRegistry = undefined,
 } = {}) {
   const records = { tasks: [], approvals: [] };
   const store = { async createTask(task) { const record = { taskId: `task-${records.tasks.length + 1}`, approvalRefs: [], ...task }; records.tasks.push(record); return record; }, async createApproval(approval) { const record = { approvalId: `approval-${records.approvals.length + 1}`, status:'pending', ...approval }; records.approvals.push(record); const task = records.tasks.find((item) => item.taskId === approval.taskId); task.approvalRefs.push(record.approvalId); if (approval.holdTask !== false) { task.status='waiting_approval'; task.currentStage='approval_required'; } return record; }, async updateApproval(approvalId, patch) { const approval = records.approvals.find((item) => item.approvalId === approvalId); Object.assign(approval, patch); return approval; }, async updateTask(taskId, patch) { const task = records.tasks.find((item) => item.taskId === taskId); Object.assign(task, patch); return task; }, async list(){return records.tasks}, async listApprovals(){return records.approvals} };
@@ -21,7 +22,7 @@ function setup({
     async assertCaseIssueLink() {},
     ...governance,
   } : governance;
-  return { records, service: new TaskService({ registry: { async list(){return agents}, async get(agentId){return agents.find((agent)=>agent.agentId === agentId) || null}, async candidates(type){return agents.filter((agent)=>agent.acceptedTaskTypes.includes(type))} }, store, governance:testGovernance, onTaskFailed, agentChannelStates, contentGrowthWaitMs, m5ProviderVision, m5WorkProductValidator }) };
+  return { records, service: new TaskService({ registry: { async list(){return agents}, async get(agentId){return agents.find((agent)=>agent.agentId === agentId) || null}, async candidates(type){return agents.filter((agent)=>agent.acceptedTaskTypes.includes(type))} }, store, governance:testGovernance, onTaskFailed, agentChannelStates, contentGrowthWaitMs, m5ProviderVision, m5WorkProductValidator, ...(skillExecutionRegistry ? { skillExecutionRegistry } : {}) }) };
 }
 const coordinator = { agentId:'ajun', name:'A君', status:'active', acceptedTaskTypes:['army.intake', 'army.route-task', 'army.cross-agent-mission'] };
 
@@ -2177,6 +2178,30 @@ test('概览如实区分已能收发飞书与尚未接入的外部账号写入�
   const authorizedRead = overview.capabilities.find((item) => item.id === 'authorized-content-read');
   assert.equal(authorizedRead.status, 'partial');
   assert.match(authorizedRead.detail, /具体任务验证/);
+});
+
+test('概览如实显示小办 PPTD 可用且 PPTX 仍受兼容依赖门禁', async () => {
+  const skillExecutionRegistry = {
+    async overview() {
+      return [{
+        slug:'open-kimi-ppt',
+        status:'partial',
+        modes:{
+          compose:{ status:'ready' },
+          visualQa:{ status:'needs_capability' },
+          export:{ status:'needs_capability' },
+        },
+        recovery:'需要隔离 Node 24 和兼容 agent-browser；不会自动安装。',
+      }];
+    },
+  };
+  const { service } = setup({ skillExecutionRegistry });
+  const overview = await service.overview();
+  const presentation = overview.capabilities.find((item) => item.id === 'office-presentation');
+  assert.equal(presentation.status, 'partial');
+  assert.match(presentation.detail, /PPTD 可用/);
+  assert.match(presentation.detail, /PPTX 暂不可用（needs_capability）/);
+  assert.match(presentation.detail, /不会自动安装/);
 });
 
 test('概览会如实显示官方飞书入口已经连接，不把等待状态冒充成已连接', async () => {

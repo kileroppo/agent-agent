@@ -14,10 +14,10 @@
 - 目标：把内容增长链升级为可恢复、可审计、可受控发布的真实执行循环。
 - 用户约束与不可做事项：抖音+小红书；旁白混剪；活动级预授权；不使用逆向接口、Cookie 导出、私信、评论、投流或自动删除。
 - 做完的定义：本地代码、自动化、fresh 运行时、多模态、Computer Use、双平台首发和 7 天指标回流分层有证据。
-- 唯一下一步：保持活动、Cron 和 Publisher 关闭，对 R4 live 做只读 production readiness，明确 Paperclip 兼容补丁、`0.4.9` 插件和真实 connector 各自仍缺的门禁；不要把 A君已切版写成活动已可发布。
+- 唯一下一步：保持当前活动暂停、M5 每日 Cron 和 Publisher 关闭，对 `0.4.9` live 做真实 Campaign StepFun Provider 前置验收；不要把插件已加载写成活动已可发布。
 - 允许继续的前提：A君`1051/1051`、Pipeline`67/67`、插件`97/97`、Publisher`203/203`
   和15/17/5 Paperclip live结构已通过；A君 16/18/6 代码与恢复硬化已进入 R4 live，但 Paperclip 16/18/6 资源尚未 apply。CuaDriver 辅助功能、屏幕录制和拒绝诊断已完成，完整本地假页
-  验收仍等待当次五分钟单次 approval token；插件 live `0.4.7`、`0.4.6` 回滚兼容链、Secret 引用、8 岗绑定及
+  验收仍等待当次五分钟单次 approval token；插件 live `0.4.9`、`0.4.6` 回滚兼容链、Secret 引用、8 岗绑定及
   StepFun 多模态生产账本和 21 支全量渲染/机器审核也已通过。还必须完成真实
   selector bundle/Profile lease/登录态和平台写权限等独立门禁，才能批准活动。
 
@@ -34,7 +34,7 @@
 | --- | --- | --- | --- |
 | 代码与文档 | A君 R4 已加载16阶段/18 Routine/6控制器代码；Paperclip资源仍为15/17/5 | R4 release、M5 PRD、架构、M5 验收 | Paperclip 16/18/6 尚未 apply |
 | 双平台内容变体 | `baseline` 独立驱动 master/小红书，`gray_douyin` 独立驱动抖音；脚本、TTS、模板绑定、渲染、机器审核和内容血缘按变体核验 | A君全量测试与 M5 验收 | 本地契约；没有真实平台发布 |
-| v2 clone cutover | Pipeline `6dfd94da…`、Project `86ad0a0a…`、草案 `8dd29a3b…` 已 live；A君 R4 回读既有 v2 ID/key，旧 v1/22 Case 保留 | live 回读、A君 4321 `/api/content-campaigns` | 新草案未批准 0/14，Cron off |
+| v2 clone cutover | Pipeline `6dfd94da…`、Project `86ad0a0a…`、活动 `8dd29a3b…` 已 live；A君回读既有 v2 ID/key，旧 v1/22 Case 保留 | live 回读、A君 4321 `/api/content-campaigns` | 活动当前 `paused`、无 active work，M5 每日 Cron off |
 | 现成控制面 | Paperclip `2026.722.0` 已含 Plugin、Pipeline、Routine、预算、审批、审计和恢复；Hermes 0.19 已含 Profile、skills audit、MCP、Cron、checkpoint | 本机健康接口、CLI 与官方源码 | 已验证 |
 | 自动化 | A君`1051/1051`、Pipeline`67/67`、插件`97/97`、Publisher`203/203` | [M5 验收](../../reviews/m5-high-autonomy-content-operations/acceptance.md) | 只证明本地源码和fixture |
 | 技术修复源码根 | 运行 release 与可写源码根分离；外置源码根须显式、clean、Git 身份可验证，修理副本绑定 task/common-dir/HEAD/精确范围；越界、错误归属、漂移和部分 promotion 失败均拒绝或回滚。成功只返回 `candidate_promoted` 并进入 `repair_candidate_awaiting_release` | 聚焦回归 `139/139`、M5 验收 | candidate 仍 awaiting release，不能冒充当前 live 已修复 |
@@ -43,7 +43,7 @@
 | A君上一版 release | HISTORICAL R2 / NOT CURRENT：source `33aa25bd…`；路径 `work/m5-runtime-releases/m5-8point-20260731-r2/ajun-runtime-release-v1-1c7f244ddaae055f336340ac0de566569012af3d39a6e66e8df528fda46ce0ef/`；release `1c7f244d…`、payload `7bd23d48…`、manifest `102daa78…`、full-dir `efc8967c…`、7571 项；隔离启动与 SIGTERM 退出曾通过 | 历史冻结与验收账本 | 不含 r3 硬化，不是当前候选，也不能冒充 live exact rollback |
 | Runtime 恢复 | degraded recovery ready 且已在实际切换中接管 4321；exact previous 不可用 | R4 plan、recovery health 与 launchd 记录 | 只读恢复不挂正式状态、不冒充旧 live |
 | Paperclip 待办清理 | 153 条历史巡检失败和 9 条历史验收已归档为取消/隐藏且未删除；当前 83 条：active_incident 16、unresolved 67 | `integrations/paperclip/scripts/classify-blocked-pending-issues.mjs`、M5 验收 | 真实故障与未决任务仍保留负责人和恢复动作 |
-| Paperclip / 插件 | live v2 为 17 Routine、15 阶段、5 个无模型 HTTP 控制器；插件 `agent-army.content-autonomy` live `0.4.7` 已从不可变净包安装并 `ready`。`0.4.9` 候选包 `payloadHash=b64760f6c00e2031d5a5ae51fac4a76e26183698e1bb9bf536e407fd27592c0d`、`entryCount=19986`、`manifestSha256=dabf16ac255eec3348e5800239f907793db1c1e507d1aa2820cd57fb71ec8dd7`、独立全目录哈希 `82f75845b927c8fa817e45e8e4d588338c7131677f2681c7297dba987db0c8bd`；搬移时仅 bundle 根由 `0555` 短暂调为 `0755`，内部未改，完成后根恢复 `0555`、manifest 保持 `0444`，独立复算与安全审计放行。源码 `97/97`、`check` 和 Paperclip 集成 `48/48` 通过；`0.4.8` 仅为历史候选，`0.4.6` 回滚兼容链保留 | live 资源核验、候选源码测试、不可变包、生成方与独立安全账本 | `0.4.9` 尚未安装到 live；配置校验和、对象形 Secret 引用和 8 岗绑定有效；新草案仍未批准，`approvedAt=null`、`0/14`、Cron 关闭 |
+| Paperclip / 插件 | live v2 为 17 Routine、15 阶段、5 个无模型 HTTP 控制器；插件 `agent-army.content-autonomy` live `0.4.9` 已从 SHA 命名不可变净包安装并 `ready/healthy`，API packagePath 与 worker 进程一致。`payloadHash=b64760f6c00e2031d5a5ae51fac4a76e26183698e1bb9bf536e407fd27592c0d`、`entryCount=19986`、`manifestSha256=dabf16ac255eec3348e5800239f907793db1c1e507d1aa2820cd57fb71ec8dd7`、独立全目录哈希 `82f75845b927c8fa817e45e8e4d588338c7131677f2681c7297dba987db0c8bd`。`0.4.6` 回滚链保留且维护脚本回归 `7/7`；`0.4.7` 本地包删除 | live API、进程、配置门禁、不可变包与维护脚本 | 活动当前 `paused`、每日 Cron 关闭；尚无真实 M5 Campaign StepFun 视觉调用，插件 ready 不等于发布授权 |
 | 预算 | 13 条 M5 Budget 策略分别覆盖公司、Project 和 11 个正式岗位；每条均为 625 分的同一分层硬上限；公司与 M5 v2 Project 累计均为 392 分，剩余 233 分；小创累计 62 分、小拆累计 30 分 | Paperclip live Budget 与 m5v2 费用事件 | 分层上限不能相加；保守 `cost-events` 不等于 StepFun 官方最终账单 |
 | Hermes Profile 与技能白名单 | 11 个正式 Profile、Paperclip Adapter 与 fresh A君 release 已切到 `deepseek/deepseek-v4-flash`，回退链为空；5 个常驻 Gateway 已重启 | Profile 配置、launchd PID/cwd、Paperclip 11/11 对账 | 未执行付费 DeepSeek 探针；微信取件员不属于 11 岗 |
 | 本地运行时 | Paperclip `3100/api/health` 200；A君 PID `58141` 的 `4321/api/overview` 200，cwd/entrypoint 指向 R4；Publisher `4390` disabled | listener/cwd、plist 与只读 HTTP | 活动未批准；没有触发 publisher/retrospective heartbeat |
@@ -62,7 +62,7 @@
 | 服务 | 地址 | 监听/进程 | cwd | 配置来源 |
 | --- | --- | --- | --- | --- |
 | A君运行台 | `http://127.0.0.1:4321` | PID `73653`；`/api/overview` 200 | `work/runtime-sources/deepseek-cutover-20260802-release-r1/…/apps/ajun-runtime` | `~/Library/LaunchAgents/ai.agent-army.ajun-runtime.plist` |
-| Paperclip | `http://127.0.0.1:3100` | 0.4.7 live 重载后 PID `51714` | 本仓库 | Paperclip `2026.722.0` 本机私有部署 |
+| Paperclip | `http://127.0.0.1:3100` | PID `990`；内容插件 `0.4.9` worker PID `1637` | 本仓库 | Paperclip `2026.722.0` 本机私有部署 |
 | Publisher Gateway | `http://127.0.0.1:4390` | listener PID `82321`；health=`disabled` | `integrations/publishing/m5-publisher-gateway` | `~/Library/LaunchAgents/ai.agent-army.m5-publisher-gateway.plist` |
 
 ## 3. 变更与决策
@@ -76,7 +76,7 @@
   Cron off、目标15阶段并完整解压指定 gzip 备份；随后保留 v1 全部资源，创建
   v2 Project/Pipeline/17 Routine/5 控制器与未批准草案，并封存旧草案。
 - 已完成：Xiaod `AssetPackage` 的真实视觉帧转存、版权依据、相对路径与哈希门禁；Remotion 三版 props 强制绑定真实 `coverSrc`/`imageSrc`/`assetLedger`，素材被替换会在渲染前失败；机器审核通过必须绑定固定 9 项产物的 `artifact-manifest.json`。
-- 已完成候选源码安全收口：固定视觉模型 `step-1o-turbo-vision`、生图/改图模型 `step-image-edit-2`、TTS 模型 `stepaudio-2.5-tts`。通用 Hermes one-shot 移除 `--ignore-rules`，普通调用固定 `clarify`，只有无 Provider 的受控故事板分支允许 `vision`；正式视觉绑定当前 Paperclip Run、固定 action、相对 PNG、帧哈希、时间点、confirmed receipt 和同一 Project。已有视觉 Work Product 重放同样校验，漂移时阻塞且不覆盖；渲染强制消费可信 `GeneratedImagePackage`，机器审核反查同 Project 三条 confirmed action/cost。候选源码为 `0.4.9`，`0.4.8` 仅为历史候选；该结果尚未进入 live `0.4.7` 或旧 A君进程，也没有真实 Campaign StepFun 视觉调用。
+- 已完成 `0.4.9` 安全收口并进入 live：固定视觉模型 `step-1o-turbo-vision`、生图/改图模型 `step-image-edit-2`、TTS 模型 `stepaudio-2.5-tts`。通用 Hermes one-shot 移除 `--ignore-rules`，普通调用固定 `clarify`，只有无 Provider 的受控故事板分支允许 `vision`；正式视觉绑定当前 Paperclip Run、固定 action、相对 PNG、帧哈希、时间点、confirmed receipt 和同一 Project。已有视觉 Work Product 重放同样校验，漂移时阻塞且不覆盖；渲染强制消费可信 `GeneratedImagePackage`，机器审核反查同 Project 三条 confirmed action/cost。live 加载不等于真实 Campaign StepFun 视觉调用，后者仍未验收。
 - 已完成：Paperclip blocked/pending 只读分类 dry-run；只取 companies、agents、issues，输出 historical_acceptance / active_incident / decision_required / unresolved、负责人和唯一恢复动作建议。
 - 已确定：Paperclip Pipeline/Routine/Plugin 与 Hermes Profile 是执行底座；发布由插件外的无模型 Publisher Gateway 执行。
 - 已确定：11 个正式岗位主模型固定为 `deepseek/deepseek-v4-flash`，不回退 StepFun 文本模型；M5 StepFun 多模态仍是独立媒体能力。微信私密只读检索岗位不计入 11 岗。
@@ -95,7 +95,7 @@
 | 七主题本地成片 | LOCAL PRODUCTION RENDER PASS / NO PUBLISH | `work/m5-content-autonomy/stepfun-seven-theme-render/m5v2/ledger.json`；7 主题、21/21 视频、7/7 review；63/63 固定产物 hash/bytes 一致；45 秒、1080×1920、H.264/AAC、无黑帧、-14.9 至 -15.2 LUFS；t04 原分辨率 8 点抽帧无人脸 | `externalPublished=false`；没有真实 PublishReceipt、指标或平台内容 ID |
 | 7 天真实 MP4 → Fake Publisher | LOCAL PASS / SIMULATED CLOCK | `work/m5-publisher-gateway/acceptance/fake-seven-day-2026-07-31-v1/`：7 个主题、14 支真实本地 MP4、14 个 fake 回执、42 个模拟快照；44 次 Runtime 重建后同一 72h 快照幂等重放，0 平台调用、0 成本；证据明确 `actualPlatformElapsedTime=false` | 不等于真实等待 72 小时、真实平台指标或真实发布 |
 | Paperclip 清理 | PARTIAL | 162 条历史记录已取消/隐藏且未删除；当前快照 83 条 | 仍有 16 条真实故障和 67 条未决 |
-| 运行时 | R4 FRESH / PAPERCLIP STRUCTURE UNCHANGED | A君 PID `58141` 为 R4；Paperclip v2 仍为 17 Routine / 15 阶段 / 5 控制器；草案 `0/14`，Cron disabled | Paperclip HTTP adapter 未启用 Run JWT；live 插件仍 `0.4.7`，Publisher 关闭 |
+| 运行时 | PAPERCLIP STRUCTURE UNCHANGED / PLUGIN CURRENT | Paperclip v2 仍为 17 Routine / 15 阶段 / 5 控制器；活动 `paused`、M5 每日 Cron disabled；插件 live `0.4.9` | Paperclip HTTP adapter 未启用 Run JWT；Publisher 关闭，真实 Provider/平台闭环未验收 |
 | 恢复 | DEGRADED LIVE EXERCISED | R4 recovery entrypoint 实际接管 4321 且无外部效果/写路由；生产随后恢复 | exact previous 仍不可用 |
 | Computer Use | DIAGNOSTIC FIX PASS / PRODUCTION APPROVAL PENDING | CuaDriver `0.17.0`、Accessibility `true`、Screen Recording `true`、`doctor` 正常；`browser_consent_required` 会保留真实拒绝，runner 使用只读语义查询和唯一标题/详情 URL 强回执门禁 | 当前网址的 Computer Use 操作受限；没有批准冻结的真实 selector bundle、命名 Profile lease 或 production Runtime 回执 |
 | 外部平台 | NOT CHECKED | 未执行外部写入 | 双平台发布未授权、未执行 |

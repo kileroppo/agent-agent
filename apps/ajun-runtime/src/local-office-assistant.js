@@ -14,6 +14,9 @@ export class LocalOfficeAssistant {
   supports(agent) { return agent?.agentId === 'office-assistant'; }
 
   async execute(task, { roleToolContext = null } = {}) {
+    if (task.taskType === 'office.presentation-package') {
+      return this.executePresentationPackage(task, roleToolContext);
+    }
     if (task.taskType === 'office.knowledge-summary') {
       return this.executeKnowledgeSummary(task, roleToolContext);
     }
@@ -204,6 +207,252 @@ export class LocalOfficeAssistant {
       }]
     };
   }
+
+  async executePresentationPackage(task, roleToolContext = null) {
+    if (!roleToolContext) {
+      return needsInput(
+        this.now(),
+        'presentation_workspace_required',
+        '演示文稿必须在当前 Paperclip execution workspace 中生成；本次没有可验证的工作区授权。',
+      );
+    }
+    const input = task?.input || {};
+    const title = clean(input.title);
+    const description = clean(input.description || input.purpose);
+    if (!title) {
+      return needsInput(this.now(), 'presentation_title_required', '请提供演示文稿标题。');
+    }
+    const allTasks = await roleToolContext.execute({
+      toolId:'army.task.read',
+      input:{
+        sourceTaskIds:list(input?.context?.sourceTaskIds || input.sourceTaskIds),
+        parentTaskId:task?.parentTaskId || null,
+        currentTaskId:task?.taskId,
+      },
+    });
+    const sources = referencedTasks(task, allTasks);
+    const completedAt = this.now().toISOString();
+    const taskSegment = safeSegment(task.taskId);
+    const projectBase = `work-products/${taskSegment}/presentation`;
+    const manifestRelativePath = `${projectBase}/deck.pptd`;
+    const sourceSummaries = sources.map((source) => [
+      source.title,
+      statusLabel(source.status),
+      source.artifacts.map((artifact) => artifact.title).join('、'),
+    ].filter(Boolean).join('｜'));
+    const written = await roleToolContext.execute({
+      toolId:'office.pptd.write',
+      relativePath:manifestRelativePath,
+      input:{
+        title,
+        purpose:description,
+        audience:input.audience,
+        slideCount:input.slideCount,
+        designMode:input.designMode,
+        designTokens:input.designTokens,
+        designSourceRef:input.designSourceRef,
+        templateArtifactRef:input.templateArtifactRef,
+        styleArtifactRef:input.styleArtifactRef,
+        slides:input.slides,
+        outline:input.outline,
+        media:input.media,
+        dataClassification:input.dataClassification || 'internal',
+        sourceSummaries,
+      },
+    });
+    const artifacts = [
+      presentationSourceArtifact(task, written, completedAt),
+      presentationQaArtifact(task, written, completedAt),
+    ];
+    const requestedOutputs = presentationOutputs(input.outputs);
+    if (!requestedOutputs.includes('pptx')) {
+      return presentationResult({
+        task,
+        completedAt,
+        artifacts,
+        status:'succeeded',
+        stage:'office_presentation_pptd_ready',
+        outcome:'pptd_ready',
+        tools:['army.task.read', 'office.pptd.write'],
+      });
+    }
+    try {
+      const pptxRelativePath = `${projectBase}/deck.pptx`;
+      const exported = await roleToolContext.execute({
+        toolId:'office.pptx.export',
+        relativePath:pptxRelativePath,
+        externalSideEffect:'external-data-processing',
+        dataClassification:input.dataClassification || 'internal',
+        externalProcessingApproved:input.externalProcessingApproved === true,
+        input:{
+          manifestRelativePath,
+          dataClassification:input.dataClassification || 'internal',
+          externalProcessingApproved:input.externalProcessingApproved === true,
+        },
+      });
+      artifacts[1] = presentationQaArtifact(task, written, completedAt, { exported });
+      artifacts.push(presentationPptxArtifact(task, exported, completedAt));
+      return presentationResult({
+        task,
+        completedAt,
+        artifacts,
+        status:'succeeded',
+        stage:'office_presentation_ready',
+        outcome:'pptd_pptx_ready',
+        tools:['army.task.read', 'office.pptd.write', 'office.pptx.export'],
+      });
+    } catch (error) {
+      const blocked = presentationExportBlocker(error);
+      artifacts[1] = presentationQaArtifact(task, written, completedAt, { blocker:blocked });
+      return {
+        ...presentationResult({
+          task,
+          completedAt,
+          artifacts,
+          status:'needs_input',
+          stage:blocked.stage,
+          outcome:'pptd_ready_export_blocked',
+          tools:['army.task.read', 'office.pptd.write'],
+        }),
+        error:{
+          code:blocked.code,
+          message:String(error?.message || blocked.userMessage).slice(0, 500),
+          userMessage:blocked.userMessage,
+          category:'manual',
+          stage:blocked.stage,
+          retryable:false,
+          occurredAt:completedAt,
+        },
+      };
+    }
+  }
+}
+
+function presentationSourceArtifact(task, written, completedAt) {
+  return {
+    artifactId:`office-presentation-source:${task.taskId}`,
+    taskId:task.taskId,
+    type:'office_presentation_source',
+    title:`${clean(task.input?.title) || '办公演示文稿'}（可编辑 PPTD）`,
+    location:`workspace://${written.manifestRelativePath}`,
+    mimeType:written.mimeType,
+    checksum:written.checksum,
+    accessScope:'local-owner',
+    createdAt:completedAt,
+    validation:written.validation,
+    data:{
+      toolId:'office.pptd.write',
+      projectRelativePath:written.projectRelativePath,
+      manifestRelativePath:written.manifestRelativePath,
+      pageCount:written.validation?.pageCount,
+      source:written.source,
+    },
+  };
+}
+
+function presentationQaArtifact(task, written, completedAt, { exported = null, blocker = null } = {}) {
+  const visualQaPassed = exported?.validation?.visualQaPassed === true;
+  return {
+    artifactId:`office-presentation-qa:${task.taskId}`,
+    taskId:task.taskId,
+    type:'office_presentation_qa',
+    title:`${clean(task.input?.title) || '办公演示文稿'}（结构质检）`,
+    location:`workspace://${written.qaRelativePath}`,
+    mimeType:'application/json',
+    checksum:written.checksum,
+    accessScope:'local-owner',
+    createdAt:completedAt,
+    validation:{
+      exists:true,
+      readable:true,
+      nonEmpty:true,
+      structuralQaPassed:written.validation?.structuralQaPassed === true,
+      visualQaPassed,
+      humanOfficeReviewRequired:true,
+    },
+    data:{
+      stage:visualQaPassed ? 'visual' : 'structural',
+      pageCount:written.validation?.pageCount,
+      previewRefs:exported?.qaOverviewRelativePath
+        ? [`workspace://${exported.qaOverviewRelativePath}`]
+        : [],
+      issues:blocker ? [{ code:blocker.code, message:blocker.userMessage }] : [],
+      visualReviewStatus:visualQaPassed ? 'passed' : 'not_run',
+    },
+  };
+}
+
+function presentationPptxArtifact(task, exported, completedAt) {
+  return {
+    artifactId:`office-pptx:${task.taskId}`,
+    taskId:task.taskId,
+    type:'office_pptx_document',
+    title:`${clean(task.input?.title) || '办公演示文稿'}（PPTX）`,
+    location:`workspace://${exported.relativePath}`,
+    mimeType:exported.mimeType,
+    checksum:exported.checksum,
+    accessScope:'local-owner',
+    createdAt:completedAt,
+    validation:exported.validation,
+    data:{
+      toolId:'office.pptx.export',
+      relativePath:exported.relativePath,
+      bytes:exported.bytes,
+      durationMs:exported.durationMs,
+      attempts:exported.attempts,
+      pageCount:exported.validation?.pageCount,
+      fadeTransitions:exported.validation?.fadeTransitions,
+      transitionXmlOrderValid:exported.validation?.transitionXmlOrderValid,
+      fontParts:exported.validation?.fontParts,
+      fontEmbeddingVerified:exported.validation?.fontEmbeddingVerified,
+    },
+  };
+}
+
+function presentationResult({ task, completedAt, artifacts, status, stage, outcome, tools }) {
+  return {
+    status,
+    currentStage:stage,
+    execution:{
+      executor:'office-assistant',
+      mode:'presentation_package',
+      startedAt:task.execution?.startedAt || completedAt,
+      finishedAt:completedAt,
+      outcome,
+    },
+    usage:{ tools:tools.map((id) => ({ id, name:id, calls:1 })) },
+    artifactRefs:artifacts,
+  };
+}
+
+function presentationOutputs(value) {
+  if (!Array.isArray(value) || !value.length) return ['pptd', 'pptx'];
+  const outputs = [...new Set(value.map((item) => String(item || '').trim().toLowerCase()))]
+    .filter((item) => ['pptd', 'pptx'].includes(item));
+  return outputs.length ? outputs : ['pptd', 'pptx'];
+}
+
+function presentationExportBlocker(error) {
+  const code = String(error?.code || 'presentation_export_needs_capability');
+  if (['external_data_processing_denied', 'presentation_external_processing_denied'].includes(code)) {
+    return {
+      code:'presentation_external_processing_denied',
+      stage:'office_presentation_external_processing_denied',
+      userMessage:'可编辑 PPTD 已生成；内部或敏感材料不能交给 Kimi 公共编辑器处理，因此没有生成 PPTX。',
+    };
+  }
+  if (['external_data_processing_approval_required', 'presentation_external_processing_approval_required'].includes(code)) {
+    return {
+      code:'presentation_external_processing_approval_required',
+      stage:'office_presentation_waiting_external_approval',
+      userMessage:'可编辑 PPTD 已生成；PPTX 导出会使用 Kimi 公共编辑器，需要负责人明确批准本次外部处理。',
+    };
+  }
+  return {
+    code:'presentation_export_needs_capability',
+    stage:'office_presentation_export_needs_capability',
+    userMessage:'可编辑 PPTD 已生成；当前缺少兼容的隔离导出依赖，PPTX 和图片质检尚未执行，系统没有自动安装或升级软件。',
+  };
 }
 
 async function writeRequestedOfficeArtifacts({
@@ -328,7 +577,7 @@ export function formatOfficeBriefingReply(report) {
 }
 
 function referencedTasks(task, allTasks) {
-  const explicit = list(task?.input?.context?.sourceTaskIds);
+  const explicit = list(task?.input?.context?.sourceTaskIds || task?.input?.sourceTaskIds);
   const siblingIds = task?.parentTaskId
     ? allTasks.filter((item) => item.parentTaskId === task.parentTaskId && item.taskId !== task.taskId && item.assigneeAgentId !== 'office-assistant').map((item) => item.taskId)
     : [];

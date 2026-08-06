@@ -285,6 +285,32 @@ test("内容方法升级由现有岗位承接，不新增任务真相或平台�
   }
 });
 
+test("小办 PPT 契约在 Manifest、Hermes Profile 和受控适配器之间完全一致", async () => {
+  const manifest = await readJson(
+    path.join(repositoryRoot, "agents/office-assistant/manifest.json")
+  );
+  const profile = await readJson(path.join(repositoryRoot, manifest.runtimeProfileRef));
+  assert.ok(manifest.acceptedTaskTypes.includes("office.presentation-package"));
+  assert.ok(profile.mcp.scope.taskTypes.includes("office.presentation-package"));
+  assert.deepEqual(profile.toolAllowlist, manifest.toolAllowlist);
+  assert.deepEqual(manifest.toolExecutionPolicy.grants["office.pptd.write"], {
+    adapter:"open-kimi-pptd",
+    access:"write",
+    externalSideEffect:"none"
+  });
+  assert.deepEqual(manifest.toolExecutionPolicy.grants["office.pptx.export"], {
+    adapter:"open-kimi-pptx",
+    access:"write",
+    externalSideEffect:"external-data-processing"
+  });
+  assert.ok(manifest.qualityGates.some(
+    ({ gate }) => gate === "presentation-pptd-self-contained-and-structurally-valid"
+  ));
+  assert.ok(manifest.qualityGates.some(
+    ({ gate }) => gate === "presentation-pptx-external-processing-approved-and-capability-ready"
+  ));
+});
+
 test("小拆把指标来源约束下沉到 Prompt、Skill、Manifest 和 Eval", async () => {
   const manifest = await readJson(
     path.join(repositoryRoot, "agents/video-content-analyst/manifest.json")

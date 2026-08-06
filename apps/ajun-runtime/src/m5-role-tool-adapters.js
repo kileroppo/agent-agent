@@ -10,6 +10,7 @@ export function createM5RoleToolAdapters({
   publicPdfReader,
   githubSearch,
   officeDocuments,
+  officePresentations,
   governance,
   store,
   knowledgeArchive,
@@ -80,6 +81,16 @@ export function createM5RoleToolAdapters({
     ...(typeof officeDocuments?.writePdf === 'function'
       ? {
           'hermes-office-pdf':(context) => officeDocuments.writePdf(context),
+        }
+      : {}),
+    ...(typeof officePresentations?.writePptd === 'function'
+      ? {
+          'open-kimi-pptd':(context) => officePresentations.writePptd(context),
+        }
+      : {}),
+    ...(typeof officePresentations?.exportPptx === 'function'
+      ? {
+          'open-kimi-pptx':(context) => officePresentations.exportPptx(context),
         }
       : {}),
     ...(typeof governance?.createIssueWorkProduct === 'function'

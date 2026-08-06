@@ -1,7 +1,8 @@
 import net from 'node:net';
 
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
-const ALLOWED_EXTERNAL_EFFECTS = new Set(['none', 'network-read']);
+const ALLOWED_EXTERNAL_EFFECTS = new Set(['none', 'network-read', 'external-data-processing']);
+const EXTERNAL_PROCESSING_CLASSIFICATIONS = new Set(['public', 'redacted']);
 const FORBIDDEN_EXTERNAL_EFFECTS = new Set([
   'external-write',
   'message-send',
@@ -70,7 +71,15 @@ export function compileM5RoleToolGrant({
         'role_tool_policy_invalid',
       );
     }
-    if (declaration.access === 'write' && declaration.externalSideEffect !== 'none') {
+    if (
+      declaration.access === 'write'
+      && declaration.externalSideEffect !== 'none'
+      && !(
+        toolId === 'office.pptx.export'
+        && declaration.adapter === 'open-kimi-pptx'
+        && declaration.externalSideEffect === 'external-data-processing'
+      )
+    ) {
       throw new M5RoleToolGrantError(
         `岗位工具 ${toolId} 不能同时获得工作区写入和外部写副作用。`,
         'role_tool_policy_invalid',
@@ -102,6 +111,8 @@ export function assertM5RoleToolAccess(grant, {
   externalSideEffect = 'none',
   relativePath = null,
   url = null,
+  dataClassification = null,
+  externalProcessingApproved = false,
 } = {}) {
   const declaration = grant?.grants?.[String(toolId || '').trim()];
   if (!declaration) {
@@ -131,6 +142,13 @@ export function assertM5RoleToolAccess(grant, {
   const publicUrl = declaration.externalSideEffect === 'network-read'
     ? publicNetworkUrl(url)
     : null;
+  const externalProcessing = declaration.externalSideEffect === 'external-data-processing'
+    ? externalProcessingScope({
+        adapter:declaration.adapter,
+        dataClassification,
+        externalProcessingApproved,
+      })
+    : null;
   return Object.freeze({
     toolId,
     adapter:declaration.adapter,
@@ -140,6 +158,36 @@ export function assertM5RoleToolAccess(grant, {
     executionWorkspaceId:grant.executionWorkspaceId,
     relativePath:relativePath == null ? null : String(relativePath),
     url:publicUrl,
+    dataClassification:externalProcessing?.dataClassification || null,
+    externalProcessingApproved:externalProcessing?.approved || false,
+    allowedHosts:externalProcessing?.allowedHosts || null,
+  });
+}
+
+function externalProcessingScope({ adapter, dataClassification, externalProcessingApproved }) {
+  if (adapter !== 'open-kimi-pptx') {
+    throw new M5RoleToolGrantError(
+      '只有 OpenKimi PPTX 适配器可以申请外部数据处理。',
+      'external_data_processing_denied',
+    );
+  }
+  const classification = String(dataClassification || '').trim();
+  if (!EXTERNAL_PROCESSING_CLASSIFICATIONS.has(classification)) {
+    throw new M5RoleToolGrantError(
+      '外部演示文稿处理只接受 public 或 redacted 数据。',
+      'external_data_processing_denied',
+    );
+  }
+  if (externalProcessingApproved !== true) {
+    throw new M5RoleToolGrantError(
+      '外部演示文稿处理尚未获得本次明确批准。',
+      'external_data_processing_approval_required',
+    );
+  }
+  return Object.freeze({
+    dataClassification:classification,
+    approved:true,
+    allowedHosts:Object.freeze(['www.kimi.com', 'statics.moonshot.cn']),
   });
 }
 

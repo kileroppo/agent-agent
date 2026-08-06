@@ -502,6 +502,34 @@ test('办公材料整理意图路由到办公执行助理并返回真实汇报�
   assert.match(result.reply, /已核对 3 项关联工作/);
 });
 
+test('PPT 意图路由到小办演示文稿任务，并分别说明 PPTD 与 PPTX 状态', async () => {
+  const calls = [];
+  const commander = new FeishuCommander({
+    tasks:{ async create(input) {
+      calls.push(input);
+      return {
+        taskId:'presentation-1',
+        taskType:input.taskType,
+        status:'needs_input',
+        input,
+        error:{ userMessage:'可编辑 PPTD 已生成；当前缺少兼容的隔离导出依赖，PPTX 尚未执行。' },
+        artifactRefs:[{
+          type:'office_presentation_source',
+          location:'workspace://work-products/presentation-1/presentation/deck.pptd',
+          validation:{ structuralQaPassed:true },
+        }],
+      };
+    } },
+    proposals:{},
+    planner:{ async decide() { return { intent:'office_presentation' }; } },
+  });
+  const result = await commander.handle({ text:'把季度复盘做成 PPT', sourceEventRef:'feishu:ppt-1', chatRef:'chat-office' });
+  assert.equal(calls[0].taskType, 'office.presentation-package');
+  assert.equal(calls[0].agentId, 'office-assistant');
+  assert.match(result.reply, /PPTD/);
+  assert.match(result.reply, /PPTX 尚未执行/);
+});
+
 test('从办公执行助理自己的飞书入口派活时保留员工身份和同一任务记录', async () => {
   const calls = [];
   const commander = new FeishuCommander({

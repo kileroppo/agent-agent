@@ -111,7 +111,7 @@ Routine + 1 个 daily Routine）和 6 个确定性控制器：`daily`、`paralle
 
 当前根自动化为 `1557/1557`，其中 A君 `1092/1092`、Pipeline `67/67`、内容插件
 `97/97`、Publisher `203/203`；Node 24.18.1 的完整 `test`/`check` 也通过。A君 `4321` 已加载
-本轮不可变 release，但 live 内容插件仍为 `0.4.7`。本轮没有真实 Provider 调用或平台发布。
+本轮不可变 release；live 内容插件已为 `0.4.9`，Paperclip API、插件健康检查与 worker 路径一致。版本收敛没有触发真实 Provider 调用或平台发布。
 Paperclip Run-JWT 与一次性恢复 Approval 版本锁定兼容补丁合并 `15/15`。controller
 cutover 工具 `15/15`，其快照读写 TOCTOU 已使用同 fd、`O_NOFOLLOW`、dev/ino 复验、
 原子 no-replace 发布和固定原目录身份的清理器修复；post-link 父目录替换后两侧目录零残留、
@@ -146,14 +146,14 @@ Project；新产物和已有视觉 Work Product 重放都必须通过同一校�
 模型 `stepaudio-2.5-tts`，Provider action、费用事件和产物血缘必须记录并反查同一模型身份。
 渲染必须实际消费可信 `GeneratedImagePackage`，机器审核必须从同 Project 插件状态反查
 图片、视觉、TTS 三条 confirmed action/cost。上述安全边界只在候选源码和本地 Fake 测试
-通过，live 插件 `0.4.7` 和当前 A君旧进程均未加载，也没有真实 M5 Campaign StepFun 视觉调用。
+通过并已随 live 插件 `0.4.9` 加载；这只证明运行版本与门禁代码已对账，仍没有真实 M5 Campaign StepFun 视觉调用。
 `0.4.9` 已冻结为候选包
 `work/m5-content-autonomy/plugin-packages/content-autonomy-bundle-0.4.9-b64760f6c00e2031d5a5ae51fac4a76e26183698e1bb9bf536e407fd27592c0d/`：
 `payloadHash=b64760f6c00e2031d5a5ae51fac4a76e26183698e1bb9bf536e407fd27592c0d`、
 `entryCount=19986`、`manifestSha256=dabf16ac255eec3348e5800239f907793db1c1e507d1aa2820cd57fb71ec8dd7`，
 独立全目录哈希为 `82f75845b927c8fa817e45e8e4d588338c7131677f2681c7297dba987db0c8bd`。
 为搬移候选包，仅 bundle 根目录曾由 `0555` 短暂调整为 `0755`，内部条目未改；完成后根目录
-恢复 `0555`、manifest 保持 `0444`，独立逐项复算与安全审计放行。该包仍未安装到 live。
+恢复 `0555`、manifest 保持 `0444`，独立逐项复算与安全审计放行。该包现已安装到 live 并处于 `ready/healthy`。
 
 内容插件上游原生 lineage 的历史本地产物仍保留：`native-artifact-smoke` 以 Provider 0
 完成 1/1 份 lineage 和 3/3 支平台媒体，均为 1080×1920、45 秒、H.264/AAC、黑帧 0、
@@ -242,7 +242,7 @@ M3 内容增长链路在业务产物层新增两个后台按需岗位，不新�
 | 机器转录、质量报告、自动/人工确认声明和确认稿 | 小D业务存储 | 版本、确认方式和校验值不可静默覆盖；正式下游只认确认稿 |
 | 拆解、平台草稿和表现复盘 | A君业务产物存储 | 以来源产物引用连接版本；草稿不代表已发布 |
 | M5 活动阶段、并行分支、阻塞、预算、审批与恢复 | Paperclip Project / Case / Routine / Issue / Work Product | A君只聚合显示，不保存第二份活动状态；v2 已 live apply 为 15 阶段、17 Routine、5 控制器的结构。A君 live 已加载恢复 provider，但 Paperclip 侧 Run-JWT 与一次性恢复 Approval 兼容补丁未 apply，结构对账不等于执行闭环 |
-| M5 内容工具、素材/成片哈希、固定产物清单与插件费用事件 | Paperclip 内容插件与受控内容工作区 | live 插件为 `0.4.7`；Secret 值不进入产物或日志 |
+| M5 内容工具、素材/成片哈希、固定产物清单与插件费用事件 | Paperclip 内容插件与受控内容工作区 | live 插件为 `0.4.9`，`0.4.6` 为不可变回滚包；Secret 值不进入产物或日志 |
 | M5 发布凭证与指标快照 | Publisher Gateway 插件状态及 Paperclip Work Product | 独立 `4390` 服务默认 `disabled`；production 代码已接线但 live 未注入，且无真实 selector、Profile lease 或写授权 |
 | Agent军团知识总结笔记 | Auto-work 统一内容库 `Agent军团/` | 小办只有受限写入，不拥有 Vault 全盘读取 |
 | 运维健康事件和安全恢复记录 | M2 Agent 运维官 / 治理控制面 | 只记录脱敏事件、动作和结果 |
