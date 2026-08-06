@@ -19,7 +19,7 @@ import threading
 
 from . import db as db_module
 from .army_adapter import ArmyAdapter, ArmyDispatchError
-from .collected_metrics import build_collected_score, bundle_to_record
+from .collected_metrics import build_collected_score, build_score_comparison, bundle_to_record
 from .scorer import (
     platform_core_metric,
     evaluate_grade,
@@ -321,6 +321,7 @@ def ingest_metrics_bundle(bundle: Dict[str, Any]) -> Dict[str, Any]:
             'message': '内容可继续做普通拆解，但当前没有可靠爆款分级依据。',
             'metrics': bundle,
             'score': None,
+            'shadow_score': None,
         }
     record = bundle_to_record(bundle)
     creator_db_id = store.upsert_creator(
@@ -331,9 +332,18 @@ def ingest_metrics_bundle(bundle: Dict[str, Any]) -> Dict[str, Any]:
     )
     work_db_id, _ = store.upsert_work(creator_db_id, record['platform'], record)
     frozen_score = store.get_score(work_db_id)
-    score = build_collected_score(bundle, frozen_score=frozen_score)
+    frozen_shadow_score = store.get_shadow_score(work_db_id)
+    comparison = build_score_comparison(
+        bundle,
+        frozen_score=frozen_score,
+        frozen_shadow_score=frozen_shadow_score,
+    )
+    score = comparison['official_score']
+    shadow_score = comparison['shadow_score']
     store.upsert_score(work_db_id, score)
+    store.upsert_shadow_score(work_db_id, shadow_score)
     work = store.get_work(work_db_id)
+    # Shadow v2 is observation-only. Dispatch remains bound to the frozen v1 score.
     if should_auto_enqueue_grade(str(score['grade'])):
         store.upsert_analysis_queue(
             work_db_id,
@@ -345,8 +355,9 @@ def ingest_metrics_bundle(bundle: Dict[str, Any]) -> Dict[str, Any]:
         'status': bundle.get('status') or 'collected',
         'work_id': work_db_id,
         'score': score,
+        'shadow_score': shadow_score,
         'metrics': bundle,
-        'message': '历史样本不足，保持 N0，不自动拆解。' if score['grade'] == 'N0' and score.get('baseline_metric') is None else '指标已读取并完成评分。',
+        'message': '历史样本不足，保持 N0，不自动拆解。' if score['grade'] == 'N0' and score.get('baseline_metric') is None else '指标已读取；正式 v1 决定派发，v2 仅作影子对照。',
     }
 
 
@@ -513,12 +524,21 @@ def list_works(grade: Optional[str] = None, platform: Optional[str] = None, crea
     }
 
 
+@app.get('/api/shadow-scores')
+def list_shadow_scores(limit: int = 100):
+    return {
+        'version': 'shadow-v2',
+        'controls_dispatch': False,
+        'items': store.list_shadow_scores(limit=max(1, min(int(limit), 500))),
+    }
+
+
 @app.get('/api/works/{work_id}')
 def get_work(work_id: int):
     row = store.get_work_detail(int(work_id))
     if not row:
         raise HTTPException(status_code=404, detail='找不到作品')
-    return {'work': row}
+    return {'work': row, 'shadow_score': store.get_shadow_score(int(work_id))}
 
 
 @app.get('/api/scan/jobs')

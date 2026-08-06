@@ -1,6 +1,6 @@
 import unittest
 
-from boom_monitor.collected_metrics import build_collected_score, bundle_to_record
+from boom_monitor.collected_metrics import build_score_comparison, build_collected_score, build_shadow_score, bundle_to_record
 
 
 def bundle(platform='xiaohongshu', history_count=6):
@@ -25,6 +25,121 @@ def bundle(platform='xiaohongshu', history_count=6):
 
 
 class CollectedMetricsTests(unittest.TestCase):
+    def test_comparison_keeps_v1_as_official_and_marks_v2_as_non_dispatching(self):
+        value = bundle()
+        value['creator']['followerCount'] = 2_147
+        value['currentWork'].update({'likes': 93, 'favorites': 34, 'shares': 24, 'comments': 7})
+        value['historyWorks'] = [
+            {'id': f'history-{index}', 'likes': 8, 'favorites': 2, 'shares': 0, 'comments': 0}
+            for index in range(12)
+        ]
+
+        result = build_score_comparison(value)
+
+        self.assertEqual(result['official_score']['grade'], 'N0')
+        self.assertEqual(result['shadow_score']['grade'], 'T1')
+        self.assertEqual(result['shadow_score']['official_grade'], 'N0')
+        self.assertEqual(result['shadow_score']['differs_from_official'], True)
+        self.assertEqual(result['shadow_score']['controls_dispatch'], False)
+
+    def test_shadow_v2_observes_small_absolute_boom_without_promoting_it_past_t1(self):
+        value = bundle()
+        value['creator']['followerCount'] = 2_147
+        value['currentWork'].update({'likes': 93, 'favorites': 34, 'shares': 24, 'comments': 7})
+        value['historyWorks'] = [
+            {'id': f'history-{index}', 'likes': 8, 'favorites': 2, 'shares': 0, 'comments': 0}
+            for index in range(12)
+        ]
+        value['sampleCount'] = 12
+
+        shadow = build_shadow_score(value)
+
+        self.assertEqual(shadow['version'], 'shadow-v2')
+        self.assertEqual(shadow['grade'], 'T1')
+        self.assertEqual(shadow['absolute_interactions'], 127)
+        self.assertEqual(shadow['signals']['quality']['passed'], True)
+        self.assertEqual(shadow['controls_dispatch'], False)
+
+    def test_shadow_v2_caps_tiny_absolute_activity_at_t1_and_explains_the_cap(self):
+        value = bundle()
+        value['creator']['followerCount'] = 300
+        value['currentWork'].update({'likes': 30, 'favorites': 15, 'shares': 8, 'comments': 4})
+        value['historyWorks'] = [
+            {'id': f'history-{index}', 'likes': 1, 'favorites': 1, 'shares': 0, 'comments': 0}
+            for index in range(6)
+        ]
+        value['sampleCount'] = 6
+
+        shadow = build_shadow_score(value)
+
+        self.assertEqual(shadow['grade'], 'T1')
+        self.assertEqual(shadow['grade_cap'], 'T1')
+        self.assertEqual(shadow['grade_cap_reason'], 'low_absolute_volume')
+
+    def test_shadow_v2_recommends_full_analysis_for_a_multi_signal_t3_without_controlling_dispatch(self):
+        value = bundle()
+        value['creator']['followerCount'] = 200_000
+        value['currentWork'].update({'likes': 20_000, 'favorites': 5_000, 'shares': 1_000, 'comments': 500})
+        value['historyWorks'] = [
+            {'id': f'history-{index}', 'likes': 1_000, 'favorites': 500, 'shares': 20, 'comments': 20}
+            for index in range(8)
+        ]
+        value['sampleCount'] = 8
+
+        shadow = build_shadow_score(value)
+
+        self.assertEqual(shadow['grade'], 'T3')
+        self.assertEqual(shadow['recommended_analysis_depth'], 'full')
+        self.assertEqual(shadow['controls_dispatch'], False)
+
+    def test_shadow_v2_accepts_quality_that_is_strong_relative_to_the_creator_history(self):
+        value = bundle()
+        value['creator']['followerCount'] = 10_000
+        value['currentWork'].update({'likes': 1_000, 'favorites': 100, 'shares': 10, 'comments': 20})
+        value['historyWorks'] = [
+            {'id': f'history-{index}', 'likes': 100, 'favorites': 2, 'shares': 1, 'comments': 2}
+            for index in range(8)
+        ]
+        value['sampleCount'] = 8
+
+        shadow = build_shadow_score(value)
+
+        self.assertEqual(shadow['grade'], 'T2')
+        self.assertEqual(shadow['signals']['quality']['passed'], True)
+        self.assertEqual(shadow['signals']['quality']['favorite_rate_vs_history'], 5.0)
+
+    def test_shadow_v2_keeps_its_first_valid_baseline_frozen(self):
+        value = bundle()
+        value['historyWorks'] = [
+            {'id': f'history-{index}', 'likes': 1_000, 'favorites': 200}
+            for index in range(6)
+        ]
+        frozen = {
+            'version': 'shadow-v2',
+            'baseline_version': 'url-history-shadow-v2',
+            'baseline_metric': 100,
+            'sample_count': 6,
+            'follower_snapshot': 2_000,
+            'baseline_at': '2026-08-01T00:00:00Z',
+            'signals': {
+                'quality': {
+                    'history_medians': {
+                        'favorite_rate': 0.02,
+                        'share_rate': None,
+                        'comment_rate': None,
+                    },
+                },
+            },
+        }
+
+        shadow = build_shadow_score(value, frozen_score=frozen)
+
+        self.assertEqual(shadow['baseline_metric'], 100)
+        self.assertEqual(shadow['sample_count'], 6)
+        self.assertEqual(shadow['follower_snapshot'], 2_000)
+        self.assertEqual(shadow['baseline_at'], '2026-08-01T00:00:00Z')
+        self.assertEqual(shadow['signals']['quality']['favorite_rate_vs_history'], 10.0)
+
     def test_scores_explicit_ordered_history_without_fake_publish_dates(self):
         value = bundle()
         record = bundle_to_record(value)

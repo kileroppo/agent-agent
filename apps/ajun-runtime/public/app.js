@@ -602,7 +602,7 @@ function render() {
   capabilitySummary.textContent = `${readyCapabilities} 项已就绪${limitedCapabilities ? ` · ${limitedCapabilities} 项受限或待准备` : ''}`;
   const directEmployees = overview.alwaysOnAgents?.length ? overview.alwaysOnAgents : overview.agents.filter(isDirectEmployee);
   const supportEmployees = overview.onDemandAgents?.length ? overview.onDemandAgents : overview.agents.filter((agent) => !isDirectEmployee(agent));
-  agentList.replaceChildren(...[
+  replaceChildrenPreservingDisclosureState(agentList, [
     agentGroupTitle('常驻员工', '保持飞书入口或后台巡检常驻'),
     ...directEmployees.map((agent) => agentCard(agent, false)),
     agentGroupTitle('后台按需能力', '不常驻飞书入口，由 A君或 Paperclip 按任务唤醒'),
@@ -882,7 +882,7 @@ function agentCard(agent, support) {
   const summaryTypes = agent.acceptedTaskTypes.slice(0, 2).map(taskTypeLabel).join(' · ') || '职责待核对';
   const independent = independentRuntimeLabel(agent);
   node.innerHTML = `
-    <details class="agent-disclosure">
+    <details class="agent-disclosure" data-disclosure-key="agent:${escapeHtml(agent.agentId)}">
       <summary>
         <span class="agent-avatar">${escapeHtml(agent.name.slice(0, 1))}</span>
         <span class="agent-summary-copy">

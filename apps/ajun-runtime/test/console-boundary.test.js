@@ -43,6 +43,13 @@ test('A君控制台只在本机提供员工接线，不把应用凭据写进页�
   assert.match(script, /\/\^ou_\[a-zA-Z0-9\]\+\$\//);
 });
 
+test('员工页后台自动同步保留已展开的员工卡片', async () => {
+  const script = await readFile(new URL('app.js', root), 'utf8');
+
+  assert.match(script, /replaceChildrenPreservingDisclosureState\(agentList/);
+  assert.match(script, /data-disclosure-key="agent:\$\{escapeHtml\(agent\.agentId\)\}"/);
+});
+
 test('A君控制台提供受控登录、续期、禁用和撤销，但不接收原始凭据', async () => {
   const [html, script] = await Promise.all([
     readFile(new URL('index.html', root), 'utf8'),

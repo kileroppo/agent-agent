@@ -294,5 +294,8 @@ cua-driver doctor
 | 本地兼容 | 真实页暴露文件 input 无可访问名称、正文为唯一 `div role=textbox`；runner 已补唯一 ref 失败关闭与标签追加 | 已由前次真实页面验证，未重复发布 |
 | 结果回读候选 | `read_result` 可只读跳转笔记管理，仅点击标题完全一致且唯一的详情入口，并组合列表中的平台状态与详情 URL 中的内容 ID；跨域、重复标题、缺状态或缺 ID 均硬停，发布按钮仍只允许一次。Publisher 全量 `221/221`、`npm run check`、`git diff --check` 通过 | 只证明候选源码和 fixture；受限网址无法再次通过 Computer Use 验证，且没有获批 selector/Profile lease 或 production Runtime `PublishReceipt` |
 | CuaDriver | 官方发布脚本 SHA-256 与 v0.17.0 release 一致后，由 `0.14.1` 更新到 `0.17.0`；守护进程已恢复，Accessibility 与 Screen Recording 均为 `true`，语义快照/点击/导航工具仍存在 | 官方 0.16/0.17 主要增强语义路由和原生桌面安全，不新增 DOM 任意属性读取；未借升级绕过平台或网址限制 |
+| selector / Profile 审批准备 | 根据负责人提供的真实创作页截图、已保存的单次冒烟回执和当前 CampaignGrant，生成候选 `xiaohongshu-1.1.0`；Paperclip `AGE-949` selector 冻结审批和 `AGE-950` Profile lease 审批已由负责人批准。selector 已冻结为 `0444` bundle/manifest，冻结文件与候选逐字节一致，规范哈希和文件哈希均匹配；Profile lease 校验通过 | 冻结不启用 Publisher、Cron 或发布；production Runtime 仍未构造 |
 
-唯一下一步：保持 Campaign、Cron 和 Publisher 关闭；为结果回读候选取得 selector/Profile lease 的 Paperclip 独立批准，再做 production Runtime 单条验收。不得把本次人工冒烟或本地 fixture 写成 M5 完成。
+最新只读 production readiness：selector candidate/frozen 与 Profile lease 均安全通过；Campaign 当前因“指标回流后置、先完成本地门禁”而暂停，4390 仍为 `disabled` 且未注入 production provider，因此总判定仍为 `not_ready`。恢复 Campaign、注入 provider 或启用 Publisher 均需另行授权。
+
+唯一下一步：保持 Campaign、Cron 和 Publisher 关闭；若负责人决定继续 production Runtime 验收，先单独授权恢复 Campaign，仍不得据此发布。不得把本次人工冒烟或本地 fixture 写成 M5 完成。

@@ -57,6 +57,25 @@ class DBTests(unittest.TestCase):
         })[0]
         self.assertIsNone(self.db.get_work(work_id)['plays'])
 
+    def test_versioned_shadow_score_is_persisted_without_replacing_the_dispatch_score(self):
+        work_id = self.add_work('shadowed', '2026-01-02T00:00:00Z', 100)
+        shadow = {
+            'version': 'shadow-v2',
+            'grade': 'T2',
+            'controls_dispatch': False,
+            'signals': {'quality': {'passed': True}},
+        }
+
+        self.db.upsert_shadow_score(work_id, shadow)
+
+        self.assertEqual(self.db.get_shadow_score(work_id), shadow)
+        self.assertEqual(self.db.get_score(work_id)['grade'], 'N0')
+
+        observations = self.db.list_shadow_scores()
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations[0]['official_grade'], 'N0')
+        self.assertEqual(observations[0]['shadow_score'], shadow)
+
 
 if __name__ == '__main__':
     unittest.main()

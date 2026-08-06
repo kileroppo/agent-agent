@@ -127,4 +127,6 @@
 - runner 已兼容无名称文件 input、唯一富文本正文和标签追加；新增笔记管理回读候选：只读跳转管理页，仅点击标题完全一致且唯一的详情入口，组合列表状态与详情 URL 内容 ID；缺 ID、重复标题或跨域均硬停，不重复点击发布。Publisher `221/221`、`npm run check`、`git diff --check` 通过。
 - 当前边界：结果回读只通过本地 fixture；Computer Use 对当前网址拒绝操作，没有进行第二次真实发布或真实详情点击，也没有 Paperclip selector/Profile lease 或 production Runtime `PublishReceipt`。
 - CuaDriver 已用官方 v0.17.0 发布脚本完成校验升级，daemon 已恢复，Accessibility/Screen Recording 仍为 `true`；新版未提供任意 DOM 属性读取，结果证据仍走受限语义快照和同源详情 URL。
-- 唯一下一步：保持 Campaign、Cron 和 Publisher 关闭，为结果回读候选取得 Paperclip selector/Profile lease 独立批准并执行 production Runtime 单条验收；抖音与指标仍需另行完成。
+- 已根据负责人提供的真实创作页截图、单次冒烟回执和当前 CampaignGrant 生成候选 `work/m5-publisher-gateway/selector-candidates/xiaohongshu-1.1.0.json`；Paperclip `AGE-949`（selector 冻结）和 `AGE-950`（Profile lease）均已由负责人批准。selector 已冻结为 `0444` bundle/manifest，冻结文件与候选逐字节一致，规范哈希和文件哈希均匹配；Profile lease 校验通过。二者都明确不授权发布。
+- 最新只读 production readiness 中 selector candidate/frozen 与 Profile lease 均安全通过；Campaign 当前因“指标回流后置、先完成本地门禁”而暂停，4390 仍为 `disabled` 且未注入 production provider，总判定为 `not_ready`。
+- 唯一下一步：保持 Campaign、Cron 和 Publisher 关闭；若负责人决定继续 production Runtime 验收，先单独授权恢复 Campaign，仍不得据此发布。抖音与指标仍需另行完成。

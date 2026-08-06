@@ -95,6 +95,18 @@ class DB:
                     FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS shadow_scores (
+                    work_id INTEGER NOT NULL,
+                    version TEXT NOT NULL,
+                    grade TEXT NOT NULL,
+                    score_json TEXT NOT NULL,
+                    observed_at TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (work_id, version),
+                    FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE
+                );
+
                 CREATE TABLE IF NOT EXISTS scan_jobs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     source_type TEXT NOT NULL,
@@ -150,6 +162,7 @@ class DB:
 
                 CREATE INDEX IF NOT EXISTS idx_works_creator_platform ON works(creator_id, platform, publish_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_scores_grade ON scores(grade, updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_shadow_scores_version_grade ON shadow_scores(version, grade, updated_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_scan_jobs_status ON scan_jobs(status, created_at ASC);
                 CREATE INDEX IF NOT EXISTS idx_analysis_status ON analysis_queue(status, priority DESC, created_at ASC);
                 '''
@@ -304,6 +317,41 @@ class DB:
             row = con.execute('SELECT * FROM scores WHERE work_id=?', (int(work_id),)).fetchone()
             return self.row_dict(row)
 
+    def get_shadow_score(self, work_id: int, version: str = 'shadow-v2') -> Optional[dict]:
+        with self.connection() as con:
+            row = con.execute(
+                'SELECT score_json FROM shadow_scores WHERE work_id=? AND version=?',
+                (int(work_id), str(version)),
+            ).fetchone()
+            if row is None:
+                return None
+            value = json.loads(row['score_json'])
+            return value if isinstance(value, dict) else None
+
+    def list_shadow_scores(self, version: str = 'shadow-v2', limit: int = 100) -> List[dict]:
+        with self.connection() as con:
+            rows = con.execute(
+                '''
+                SELECT ss.work_id, ss.version, ss.grade AS shadow_grade, ss.score_json, ss.observed_at,
+                       s.grade AS official_grade, w.platform, w.work_id AS external_work_id,
+                       w.title, w.source_url
+                FROM shadow_scores ss
+                JOIN works w ON w.id = ss.work_id
+                LEFT JOIN scores s ON s.work_id = ss.work_id
+                WHERE ss.version=?
+                ORDER BY ss.updated_at DESC
+                LIMIT ?
+                ''',
+                (str(version), max(1, min(int(limit), 500))),
+            ).fetchall()
+            result = []
+            for row in rows:
+                item = dict(row)
+                value = json.loads(item.pop('score_json'))
+                item['shadow_score'] = value if isinstance(value, dict) else None
+                result.append(item)
+            return result
+
     def history_metrics(self, creator_db_id: int, platform: str, exclude_work_id: int, limit: int = 20) -> List[float]:
         with self.connection() as con:
             rows = con.execute(
@@ -392,6 +440,34 @@ class DB:
                     now,
                     now,
                 )
+            )
+
+    def upsert_shadow_score(self, work_db_id: int, score: Dict[str, object]) -> None:
+        version = str(score.get('version') or '').strip()
+        grade = str(score.get('grade') or '').strip()
+        if not version or not grade:
+            raise ValueError('影子评分缺少版本或等级。')
+        now = self.now()
+        with self.connection() as con:
+            con.execute(
+                '''
+                INSERT INTO shadow_scores(work_id, version, grade, score_json, observed_at, created_at, updated_at)
+                VALUES(?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(work_id, version) DO UPDATE SET
+                  grade=excluded.grade,
+                  score_json=excluded.score_json,
+                  observed_at=excluded.observed_at,
+                  updated_at=excluded.updated_at
+                ''',
+                (
+                    int(work_db_id),
+                    version,
+                    grade,
+                    self.normalize_json(score),
+                    score.get('observed_at'),
+                    now,
+                    now,
+                ),
             )
 
     def get_work_detail(self, work_id: int) -> Optional[dict]:
