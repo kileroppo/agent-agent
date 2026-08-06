@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.agent-army.ajun-runtime</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/pengaro/.local/bin/node</string>
+    <string>/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/apps/ajun-runtime/src/server.js</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/apps/ajun-runtime</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>M5_ACTIVE_PIPELINE_ID</key>
+    <string>6dfd94da-75b1-4b8e-b8d0-f29233d19b92</string>
+    <key>M5_ACTIVE_PIPELINE_KEY</key>
+    <string>m5-ai-agent-content-v2</string>
+    <key>AJUN_HERMES_HOME</key>
+    <string>/Users/pengaro/.hermes/profiles/ajun</string>
+    <key>PORT</key>
+    <string>4321</string>
+    <key>AJUN_HOST</key>
+    <string>127.0.0.1</string>
+    <key>AGENT_ARMY_EMPLOYEE_FEISHU_OWNER</key>
+    <string>local</string>
+    <key>AGENT_ARMY_CONTENT_WORKSPACE_DIR</key>
+    <string>/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/work/m5-content-autonomy</string>
+    <key>AJUN_HERMES_NATIVE_EMPLOYEE_IDS</key>
+    <string>intel-researcher,office-assistant,creator,task-coordinator,reviewer,architect,operator,technical-expert</string>
+    <key>AJUN_HERMES_NATIVE_FEISHU</key>
+    <string>true</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/apps/ajun-runtime/data/ajun-runtime.launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/apps/ajun-runtime/data/ajun-runtime.launchd.error.log</string>
+</dict>
+</plist>

@@ -1,0 +1,18 @@
+{
+  "estimated_cost_usd": 0.0,
+  "cost_status": "unknown",
+  "cost_source": "none",
+  "input_tokens": 1576,
+  "output_tokens": 3101,
+  "cache_read_tokens": 3200,
+  "cache_write_tokens": 0,
+  "reasoning_tokens": 0,
+  "total_tokens": 7877,
+  "api_calls": 1,
+  "model": "step-router-v1",
+  "provider": "stepfun",
+  "session_id": "20260730_075607_ef8ac2",
+  "completed": true,
+  "failed": false,
+  "service_tier": null
+}

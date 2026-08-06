@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "agent.army/hermes-profile-map/v1",
+  "status": "verified-local",
+  "profileId": "reviewer",
+  "role": "审核官：核对范围、权限、预算和外部副作用，只给建议而不替老板授权。",
+  "localProfile": {
+    "created": true,
+    "gatewayStarted": true,
+    "modelSelectionConfigured": true,
+    "modelConfigured": true,
+    "credentialedTransportVerified": false,
+    "credentialedTransportVerification": {
+      "status": "model-transport-pending",
+      "primary": { "provider": "deepseek", "model": "deepseek-v4-flash", "verified": false },
+      "fallback": null
+    },
+    "skillsSeeded": true
+  },
+  "agentManifestRef": "agents/reviewer/manifest.json",
+  "promptRef": "agents/reviewer/prompts/system.md",
+  "appRef": "apps/ajun-runtime",
+  "modelSelection": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "secretStoredHere": false
+  },
+  "fallbackModels": [],
+  "gateway": {
+    "platform": "feishu",
+    "enabled": false,
+    "reason": "岗位保留为 Paperclip 按需能力；独立飞书 Gateway 已停用。"
+  },
+  "mcp": {
+    "server": "agent-army",
+    "tools": [
+      "capabilities",
+      "task_list",
+      "task_get",
+      "task_create",
+      "approval_list",
+      "paperclip_assignment_get",
+      "m5_stage_execute",
+      "paperclip_assignment_complete"
+    ],
+    "scope": {
+      "agentIds": ["reviewer"],
+      "taskTypes": [
+        "governance.approval-review",
+        "governance.assurance-review",
+        "content.campaign-machine-review",
+        "content.campaign-publish-approval",
+        "content.campaign-verify"
+      ],
+      "allowMissions": false
+    }
+  },
+  "toolAllowlist": [
+    "army.approval.read",
+    "army.approval.decide",
+    "army.task.status.read"
+  ],
+  "secrets": {
+    "source": "profile-environment-only",
+    "valuesStoredHere": false
+  }
+}

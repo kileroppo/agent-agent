@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent军团 · 飞书手机控制架构</title>
+  <!--
+    Assumption: the desired daily experience is one Feishu control conversation from any phone location.
+    This artifact separates the target architecture from what is already implemented: the Feishu command center
+    and approval cards are shown as the product target, while the local A君 / Hermes / Paperclip boundaries remain factual.
+    Design reasoning: use three selectable views so the owner can check the same system from architecture, normal work,
+    and travel-approval perspectives without reading a technical document.
+  -->
+  <style>
+    :root {
+      --night: #101724;
+      --night-2: #172235;
+      --ink: #1e2937;
+      --muted: #718096;
+      --line: #dce3ea;
+      --paper: #f4f7fa;
+      --card: #ffffff;
+      --blue: #3370ff;
+      --blue-soft: #eaf0ff;
+      --green: #087b68;
+      --green-soft: #e4f6f1;
+      --amber: #a26700;
+      --amber-soft: #fff1d7;
+      --red: #bd4141;
+      --red-soft: #fdecec;
+      --shadow: 0 22px 48px rgba(16, 23, 36, .12), 0 4px 12px rgba(16, 23, 36, .07);
+      font-family: -apple-system, "SF Pro Display", "PingFang SC", "Noto Sans SC", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--paper); }
+    body { margin: 0; color: var(--ink); background: var(--paper); }
+    button { font: inherit; }
+    .shell { width: min(1440px, calc(100vw - 40px)); margin: 0 auto; padding: 30px 0 48px; }
+    .top { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+    .brand { display: flex; align-items: center; gap: 11px; font-weight: 760; font-size: 14px; }
+    .brand-mark { display: grid; place-items: center; width: 35px; height: 35px; border-radius: 11px; background: var(--night); color: #fff; font-weight: 850; }
+    .eyebrow { margin: 0; color: var(--blue); font-size: 11px; font-weight: 800; letter-spacing: .12em; }
+    .state { display: inline-flex; align-items: center; gap: 8px; color: #627084; font-size: 12px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 0 4px var(--amber-soft); }
+    .hero { display: grid; grid-template-columns: 1fr 320px; gap: 28px; align-items: end; margin: 34px 0 24px; }
+    h1 { max-width: 820px; margin: 0; font-size: clamp(36px, 5vw, 66px); letter-spacing: -.065em; line-height: 1.01; text-wrap: balance; }
+    .hero p:not(.eyebrow) { max-width: 680px; margin: 16px 0 0; color: var(--muted); font-size: 15px; line-height: 1.76; }
+    .principle { padding: 19px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.76); color: var(--muted); font-size: 13px; line-height: 1.65; }
+    .principle b { display: block; margin-bottom: 5px; color: var(--ink); }
+    .switcher { display: flex; gap: 5px; padding: 5px; border: 1px solid var(--line); border-radius: 14px; background: #e9eef3; }
+    .tab { min-height: 38px; flex: 1; border: 0; border-radius: 10px; background: transparent; color: #657386; cursor: pointer; font-size: 13px; }
+    .tab:hover { color: var(--ink); }
+    .tab.active { background: #fff; color: var(--ink); font-weight: 760; box-shadow: 0 2px 5px rgba(25, 37, 52, .1); }
+    .view { display: none; margin-top: 18px; padding: 28px; overflow: hidden; border: 1px solid #dce3ea; border-radius: 24px; background: var(--card); box-shadow: var(--shadow); }
+    .view.active { display: block; animation: appear .26s ease-out; }
+    @keyframes appear { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+    .legend { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 23px; color: var(--muted); font-size: 11px; }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .legend i { width: 8px; height: 8px; border-radius: 50%; background: var(--blue); }
+    .legend .local { background: var(--green); }.legend .approval { background: var(--amber); }.legend .blocked { background: var(--red); }
+    .architecture { position: relative; display: grid; grid-template-columns: 1.05fr .9fr 1.2fr; gap: 18px; align-items: stretch; min-height: 540px; }
+    .zone { position: relative; display: flex; flex-direction: column; gap: 12px; padding: 17px; border-radius: 18px; }
+    .zone-title { margin: 0 0 3px; color: #758296; font-size: 11px; font-weight: 800; letter-spacing: .1em; }
+    .zone.phone { background: #f3f7ff; }.zone.mac { background: #eff9f6; }.zone.control { background: #f7f8fa; }
+    .node { padding: 15px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.96); box-shadow: 0 5px 12px rgba(20,35,50,.04); }
+    .node-head { display: flex; justify-content: space-between; align-items: start; gap: 10px; }
+    .node h2, .node h3 { margin: 0; letter-spacing: -.025em; }.node h2 { font-size: 18px; }.node h3 { font-size: 14px; }
+    .node p { margin: 7px 0 0; color: var(--muted); font-size: 12px; line-height: 1.62; }
+    .badge { display: inline-flex; align-items: center; min-height: 21px; padding: 0 8px; border-radius: 999px; background: var(--blue-soft); color: #2856c8; font-size: 10px; font-weight: 750; white-space: nowrap; }.badge.green { background: var(--green-soft); color: var(--green); }.badge.amber { background: var(--amber-soft); color: var(--amber); }.badge.red { background: var(--red-soft); color: var(--red); }
+    .phone-screen { display: grid; gap: 8px; margin-top: 13px; padding: 10px; border-radius: 12px; background: #111a2a; color: #fff; }
+    .chat-in, .chat-out { max-width: 88%; padding: 8px 10px; border-radius: 10px; font-size: 11px; line-height: 1.45; }.chat-in { background: #294470; justify-self: end; }.chat-out { background: #263243; }
+    .arrow-down { width: 2px; height: 22px; margin: 0 auto; background: #9bb4e9; }.arrow-down::after { content: ""; display: block; width: 7px; height: 7px; margin: 15px 0 0 -2px; border-right: 2px solid #9bb4e9; border-bottom: 2px solid #9bb4e9; transform: rotate(45deg); }
+    .agent-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }.agent { padding: 9px; border-radius: 10px; background: #f3f7f6; color: #526778; font-size: 11px; line-height: 1.45; }.agent b { display: block; color: var(--ink); font-size: 12px; }
+    .paperclip { border-color: #e8d7af; background: #fffdf7; }.paperclip .node-head h2 { color: #79510b; }
+    .boundary { margin-top: auto; padding: 12px; border-radius: 12px; background: #eef2f5; color: #647183; font-size: 11px; line-height: 1.55; }.boundary b { color: var(--ink); }
+    .warning { padding: 12px; border: 1px dashed #e0b972; border-radius: 12px; background: #fffaf0; color: #876010; font-size: 11px; line-height: 1.55; }
+    .flow { display: grid; grid-template-columns: 170px 1fr; gap: 34px; align-items: start; min-height: 510px; }.flow-sidebar { padding: 18px; border-radius: 16px; background: var(--night); color: #fff; }.flow-sidebar h2 { margin: 7px 0 0; font-size: 25px; letter-spacing: -.04em; }.flow-sidebar p { margin: 12px 0 0; color: #afbdcf; font-size: 12px; line-height: 1.65; }.flow-sidebar .mini { margin-top: 22px; padding: 10px; border-radius: 10px; background: rgba(255,255,255,.08); color: #d7e2f0; font-size: 11px; line-height: 1.55; }
+    .steps { display: grid; gap: 10px; }.step { display: grid; grid-template-columns: 37px minmax(150px,.72fr) 1fr; gap: 14px; align-items: center; min-height: 76px; padding: 13px; border: 1px solid var(--line); border-radius: 14px; }.num { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 9px; background: var(--blue-soft); color: var(--blue); font-weight: 850; font-size: 13px; }.step h3 { margin: 0; font-size: 14px; }.step p { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }.step .result { color: #536273; font-size: 11px; line-height: 1.55; }.step .result b { color: var(--ink); }.route { padding: 12px 14px; border-radius: 12px; background: #f4f7fb; color: #536577; font-size: 12px; line-height: 1.6; }.route strong { color: var(--blue); }
+    .approval-layout { display: grid; grid-template-columns: .9fr 1.12fr .9fr; gap: 18px; align-items: center; min-height: 510px; }.travel { padding: 22px; border-radius: 17px; background: linear-gradient(150deg, #142032, #253a59); color: #fff; }.travel h2 { margin: 6px 0 0; font-size: 25px; letter-spacing: -.04em; }.travel p { color: #b6c8df; font-size: 12px; line-height: 1.65; }.signal { display: flex; gap: 5px; margin-top: 26px; }.signal span { width: 17px; border-radius: 3px 3px 0 0; background: #8ce3cf; }.signal span:nth-child(1){height:8px}.signal span:nth-child(2){height:13px}.signal span:nth-child(3){height:19px}.signal span:nth-child(4){height:25px}
+    .approval-card { padding: 18px; border: 1px solid #d9e1eb; border-radius: 18px; background: #fff; box-shadow: 0 12px 30px rgba(22,35,51,.11); }.approval-card header { display: flex; justify-content: space-between; gap: 10px; }.approval-card h2 { margin: 0; font-size: 19px; letter-spacing: -.035em; }.approval-card .sub { margin: 8px 0 14px; color: var(--muted); font-size: 12px; line-height: 1.6; }.facts { display: grid; gap: 7px; padding: 11px; border-radius: 11px; background: #f5f7f9; }.fact { display: flex; justify-content: space-between; gap: 12px; color: #687789; font-size: 11px; }.fact b { color: var(--ink); font-weight: 650; text-align: right; }.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }.actions button { min-height: 37px; border: 0; border-radius: 9px; cursor: pointer; font-size: 12px; font-weight: 750; }.approve { background: var(--blue); color: #fff; }.reject { background: #f1f3f6; color: #586576; }.approval-status { display: none; margin-top: 10px; padding: 10px; border-radius: 9px; background: var(--green-soft); color: var(--green); font-size: 12px; font-weight: 700; }
+    .approval-status.visible { display: block; }.after { display: grid; gap: 11px; }.after .node { background: #f8fffc; border-color: #c5e5dc; }.after .node:first-child { background: #fffdf7; border-color: #eadcb9; }
+    .caption { margin: 18px 0 0; padding-top: 15px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.6; }.caption strong { color: var(--ink); }
+    @media (max-width: 900px) { .shell { width: min(100% - 24px, 1440px); padding-top: 18px; }.hero, .architecture, .flow, .approval-layout { grid-template-columns: 1fr; }.hero { margin-top: 22px; }.view { padding: 15px; }.flow { gap: 12px; }.flow-sidebar { padding: 15px; }.steps .step { grid-template-columns: 32px 1fr; }.step .result { grid-column: 2; }.switcher { overflow-x: auto; }.tab { min-width: 112px; }.top { align-items: flex-start; }.state { margin-top: 7px; }.architecture { min-height: auto; }.phone-screen { max-width: 370px; } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+  <main class="shell" data-screen-label="飞书手机控制军团架构与业务流程图">
+    <header class="top">
+      <div class="brand"><span class="brand-mark">A</span> Agent军团 · 手机控制视图</div>
+      <div class="state"><span class="dot"></span>目标架构 · 飞书总管与审批卡待接入</div>
+    </header>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">ONE PHONE / ONE COMMAND CENTER</p>
+        <h1>你在飞书发令，<br>Mac 上的军团自己分工。</h1>
+        <p>日常任务不必进入 A君网页；你只和一个“军团总管”说话。它把命令交给 Mac 上的 Hermes 和各个 Agent，需要你做决定时，再把审批卡发回手机。</p>
+      </div>
+      <aside class="principle"><b>看图时先检验这一点</b>你是否能只用飞书完成：下任务、看进度、批准高风险动作、拿到交付？如果任何一步要求你回 Mac 网页，体验就还没闭环。</aside>
+    </section>
+    <nav class="switcher" aria-label="图表切换">
+      <button class="tab active" type="button" data-view="architecture">应用架构</button>
+      <button class="tab" type="button" data-view="flow">日常任务怎么跑</button>
+      <button class="tab" type="button" data-view="approval">旅游时怎么审批</button>
+    </nav>
+
+    <section class="view active" id="architecture" data-screen-label="应用架构">
+      <div class="legend"><span><i></i>日常命令与回报</span><span><i class="local"></i>Mac 本地执行</span><span><i class="approval"></i>需要治理/审批</span><span><i class="blocked"></i>不能越过的边界</span></div>
+      <div class="architecture">
+        <section class="zone phone"><p class="zone-title">01 / 你在哪里都能用</p><article class="node"><div class="node-head"><h2>飞书 · A君军团总管</h2><span class="badge">唯一日常入口</span></div><p>私聊直接下令；群里 @A君 下令。手机不需要访问 Mac 的局域网。</p><div class="phone-screen"><div class="chat-in">检查 Mac 和所有 Agent 状态</div><div class="chat-out">已交给运维官。预计 30 秒返回。</div><div class="chat-in">小D 把这个视频整理成文档</div></div></article><div class="arrow-down"></div><article class="node"><div class="node-head"><h3>飞书状态投影</h3><span class="badge">不是任务真相</span></div><p>进度、审批卡、文档链接和最终结果都回到同一会话。</p></article></section>
+        <section class="zone mac"><p class="zone-title">02 / 你的 Mac 必须常驻在线</p><article class="node"><div class="node-head"><h2>Hermes Gateway</h2><span class="badge green">收发与路由</span></div><p>与飞书保持长连接，把消息送进 Mac；再把阶段和结果推回飞书。</p></article><div class="arrow-down"></div><article class="node"><div class="node-head"><h2>军团总管 / 协调官</h2><span class="badge green">可并发派活</span></div><p>识别命令并拆任务，不亲自做业务执行。</p><div class="agent-grid"><div class="agent"><b>小D</b>媒体、链接、文档</div><div class="agent"><b>运维官</b>健康、已知恢复</div><div class="agent"><b>创建官</b>新 Agent 草案</div><div class="agent"><b>架构/审核官</b>边界与风险意见</div></div></article><article class="node"><div class="node-head"><h3>A君运行时</h3><span class="badge green">受控工具箱</span></div><p>提供公开网页、媒体处理、连接健康、已登记恢复等本机能力。网页只作为故障后台。</p></article></section>
+        <section class="zone control"><p class="zone-title">03 / 只在需要时治理</p><article class="node paperclip"><div class="node-head"><h2>Paperclip</h2><span class="badge amber">组织级总控</span></div><p>新 Agent、权限扩展、对外发布、预算、长任务、跨 Agent 协作才进入这里。</p></article><article class="node"><div class="node-head"><h3>审批回飞书</h3><span class="badge amber">你手机决定</span></div><p>飞书只给你一张能看懂、能点的审批卡；普通一次性审批由 A君记录，组织级审批才由 Paperclip 记账。</p></article><div class="boundary"><b>不应进入 Paperclip：</b>查一次健康、重试一个已知失败、小D处理已有授权的素材，以及一次性、范围明确的普通批准。</div><div class="warning"><b>当前缺口：</b>小D飞书入口与“创建 Agent”路由已有基础；统一军团总管、飞书审批卡和按钮回调尚未完成。</div></section>
+      </div>
+      <p class="caption"><strong>这张图的判断标准：</strong>飞书负责“你看见和决定什么”；Hermes 负责“消息怎么到 Mac”；A君负责“Mac 能安全做什么”；Paperclip 负责“哪些事必须留下组织级审批和审计”。</p>
+    </section>
+
+    <section class="view" id="flow" data-screen-label="日常业务流程">
+      <div class="flow"><aside class="flow-sidebar"><p class="eyebrow" style="color:#8eb6ff">NORMAL WORK</p><h2>一次普通任务，应该不打扰你。</h2><p>例如你把视频丢给小D，或者让运维官检查本地服务。</p><div class="mini">原则：总管可并发派活；同一个账号、同一份文档、同一项上线审批才按资源加锁。</div></aside><div class="steps"><article class="step"><span class="num">1</span><div><h3>你在飞书说人话</h3><p>“把这个视频整理成文档”</p></div><div class="result"><b>工具：</b>飞书<br>不必打开 A君网页。</div></article><article class="step"><span class="num">2</span><div><h3>军团总管理解并派单</h3><p>判断为媒体处理，交给小D。</p></div><div class="result"><b>工具：</b>Hermes Gateway + 协调官<br>同一时间还可给运维官派别的任务。</div></article><article class="step"><span class="num">3</span><div><h3>小D调用受控能力</h3><p>获取已有授权的素材、转录、整理、生成交付。</p></div><div class="result"><b>工具：</b>小D + A君运行时<br>小D不保存账号或登录态。</div></article><article class="step"><span class="num">4</span><div><h3>结果回到原会话</h3><p>你收到阶段、文档链接或可恢复失败原因。</p></div><div class="result"><b>工具：</b>Hermes → 飞书<br>任务状态保留在运行时，不把聊天气泡当真相。</div></article><div class="route"><strong>什么情况下改道去 Paperclip？</strong> 任务涉及新 Agent、权限/账号、对外发布、花钱、长时间协作、暂停终止或跨 Agent 审计时，才创建组织级任务与审批。</div></div></div>
+      <p class="caption"><strong>手机体验：</strong>正常任务从你发出到交付都只在一个飞书会话里完成。你只在系统要你做“有影响的决定”时被打断。</p>
+    </section>
+
+    <section class="view" id="approval" data-screen-label="旅游审批流程">
+      <div class="approval-layout"><aside class="travel"><p class="eyebrow" style="color:#8ce3cf">TRAVEL MODE</p><h2>你在外面，Mac 仍在工作。</h2><p>系统不会把“要不要发布、要不要扩权、要花多少钱”替你决定。它把决策压缩成一张你能在手机上判断的卡。</p><div class="signal"><span></span><span></span><span></span><span></span></div></aside><article class="approval-card"><header><div><span class="badge amber">需要你的决定</span><h2 style="margin-top:9px">批准对外发布？</h2></div><span class="badge">本次有效</span></header><p class="sub">内容 Agent 已完成草稿，准备发往已登记的发布渠道。</p><div class="facts"><div class="fact"><span>动作</span><b>对外发布一篇内容</b></div><div class="fact"><span>范围</span><b>仅此草稿 · 仅此账号</b></div><div class="fact"><span>风险</span><b>公开可见，不可自动撤回</b></div><div class="fact"><span>费用</span><b>0 元</b></div><div class="fact"><span>执行者</span><b>内容 Agent</b></div></div><div class="actions"><button class="approve" type="button" id="approve">批准执行</button><button class="reject" type="button" id="reject">拒绝</button></div><div class="approval-status" id="approval-status" aria-live="polite"></div></article><section class="after"><article class="node"><div class="node-head"><h3>组织级才进 Paperclip</h3><span class="badge amber">本例需要</span></div><p>对外发布会进入 Paperclip，记录谁在何时批准了什么范围；普通一次性审批则只留在 A君。</p></article><article class="node"><div class="node-head"><h3>Mac 上继续执行</h3><span class="badge green">被批准后</span></div><p>Hermes 收到决定，A君校验本次范围后授予最小动作，Agent 执行并把结果回飞书。</p></article><article class="node"><div class="node-head"><h3>你收到结果</h3><span class="badge">回原会话</span></div><p>成功、失败或需人工补充都明确告诉你；不会把“发出请求”假装成“已经完成”。</p></article></section></div>
+      <p class="caption"><strong>按钮仅为交互示意：</strong>真实实现中，这两个飞书卡片按钮必须校验审批状态、动作范围与操作者，再通知 Mac 执行。</p>
+    </section>
+  </main>
+  <script>
+    const tabs = document.querySelectorAll('.tab');
+    const views = document.querySelectorAll('.view');
+    tabs.forEach((tab) => tab.addEventListener('click', () => {
+      tabs.forEach((item) => item.classList.toggle('active', item === tab));
+      views.forEach((view) => view.classList.toggle('active', view.id === tab.dataset.view));
+    }));
+    const status = document.querySelector('#approval-status');
+    document.querySelector('#approve').addEventListener('click', () => { status.textContent = '示意：已批准本次范围，Mac 上的执行任务将继续。'; status.classList.add('visible'); });
+    document.querySelector('#reject').addEventListener('click', () => { status.textContent = '示意：已拒绝，任务停止在审批前，不执行对外动作。'; status.classList.add('visible'); });
+  </script>
+</body>
+</html>

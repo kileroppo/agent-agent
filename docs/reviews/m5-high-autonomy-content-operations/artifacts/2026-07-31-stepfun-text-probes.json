@@ -1,0 +1,123 @@
+{
+  "schemaVersion": "agent.army/stepfun-text-probe-ledger/v1",
+  "generatedAt": "2026-07-30T17:30:09Z",
+  "scope": {
+    "sideEffect": "none",
+    "toolsAllowed": false,
+    "promptSha256": "0d3f1aea532e17a5526e0d73e01a1149b3bd7c12b46fe8dca8637669bf10af12",
+    "expectedOutput": "M5_OK"
+  },
+  "summary": {
+    "passed": 11,
+    "total": 11,
+    "provider": "stepfun",
+    "model": "step-3.5-flash-2603",
+    "deepseekCalls": 0,
+    "externalBusinessEffects": false
+  },
+  "results": [
+    {
+      "profile": "ajun",
+      "passed": true,
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 1,
+      "output": "M5_OK",
+      "error": null
+    },
+    {
+      "profile": "architect",
+      "passed": true,
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 1,
+      "output": "M5_OK",
+      "error": null
+    },
+    {
+      "profile": "content-creator",
+      "passed": true,
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 1,
+      "output": "M5_OK",
+      "error": null
+    },
+    {
+      "profile": "creator",
+      "passed": true,
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 1,
+      "output": "M5_OK",
+      "error": null
+    },
+    {
+      "profile": "intel-researcher",
+      "passed": true,
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 1,
+      "output": "M5_OK",
+      "error": null
+    },
+    {
+      "profile": "office-assistant",
+      "passed": true,
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 1,
+      "output": "M5_OK",
+      "error": null
+    },
+    {
+      "profile": "operator",
+      "passed": true,
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 1,
+      "output": "M5_OK",
+      "error": null
+    },
+    {
+      "profile": "reviewer",
+      "passed": true,
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 1,
+      "output": "M5_OK",
+      "error": null
+    },
+    {
+      "profile": "technical-expert",
+      "passed": true,
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 1,
+      "output": "M5_OK",
+      "error": null
+    },
+    {
+      "profile": "video-content-analyst",
+      "passed": true,
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 1,
+      "output": "M5_OK",
+      "error": null
+    },
+    {
+      "profile": "xiaod",
+      "passed": true,
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 1,
+      "output": "M5_OK",
+      "error": null
+    }
+  ],
+  "limitations": [
+    "This proves current primary text transport only.",
+    "It does not prove DeepSeek fallback, tool use, business task quality, Feishu delivery, Paperclip execution, or platform publishing."
+  ]
+}

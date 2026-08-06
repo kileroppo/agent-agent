@@ -1,0 +1,188 @@
+{
+  "schemaVersion": "agent.army/m4-role-quality-result/v1",
+  "taskId": "m4-role-video-content-analyst-20260730",
+  "agentId": "video-content-analyst",
+  "agentName": "小拆·视频内容拆解师",
+  "startedAt": "2026-07-29T23:56:18.159Z",
+  "finishedAt": "2026-07-29T23:56:52.605Z",
+  "model": {
+    "provider": "stepfun",
+    "name": "step-router-v1",
+    "apiCalls": 1,
+    "estimatedCostUsd": 0,
+    "inputTokens": 1617,
+    "outputTokens": 4444
+  },
+  "externalSideEffects": 0,
+  "toolPolicy": "clarify-only; prompt forbids tool use",
+  "parseError": null,
+  "processError": null,
+  "outputChecksum": "c95153163ccaf2a8739b2f0fd726b073146ab4eaaa541244e8abdbd8d64d192d",
+  "output": {
+    "taskId": "m4-role-video-content-analyst-20260730",
+    "agentId": "video-content-analyst",
+    "status": "completed",
+    "summary": "基于确认稿和验收样本指标完成独立分析，未混入任何未验证的平台真实数据。",
+    "evidence": [
+      {
+        "fact": "确认稿明确要求原始素材、机器转录、人工确认稿必须分开管理。",
+        "sourceRef": "confirmed_transcript@[00:00]",
+        "confidence": "confirmed"
+      },
+      {
+        "fact": "确认稿要求拆解必须引用时间点，不得凭印象分析。",
+        "sourceRef": "confirmed_transcript@[00:17]",
+        "confidence": "confirmed"
+      },
+      {
+        "fact": "验收样本显示3秒留存74%、15秒留存51%、完播32%，评论样本共20条。",
+        "sourceRef": "验收样本指标（非生产数据）",
+        "confidence": "sample"
+      }
+    ],
+    "risks": [
+      {
+        "risk": "评论样本仅20条，主题分布可能不代表真实受众全貌；样本指标不能冒充真实平台数据。",
+        "severity": "medium",
+        "mitigation": "在复盘阶段等待真实指标回来后再下结论。"
+      },
+      {
+        "risk": "画面信息仅知有标题卡和流程箭头，没有实际帧可核验，视觉质量判断存在不确定性。",
+        "severity": "medium",
+        "mitigation": "标注visualUnknowns，在真实验收或审片时补充画面核验。"
+      }
+    ],
+    "nextAction": "将分析结论与待审草稿一并提交给真人审核，由真人决定是否发布；发布后等待真实平台指标再进行复盘。",
+    "externalActionStarted": false,
+    "analysis": {
+      "hookAssessment": "视频以流程规范作为开场核心信息（对应确认稿[00:00]-[00:27]的连续规范要求），钩子强度偏中。样本3秒留存74%说明开头吸引了大多数点击用户，但15秒留存降至51%表明中段开始流失，可能与信息密度或节奏有关。",
+      "evidenceMoments": [
+        {
+          "timestamp": "[00:00]",
+          "claim": "视频开篇即强调素材、转录与确认稿的分层管理，这是内容生产的可信度基础。",
+          "source": "confirmed_transcript@[00:00]"
+        },
+        {
+          "timestamp": "[00:08]",
+          "claim": "视频指出不分层会导致后续漂亮结论缺乏证据，暗示内容结构存在证据链设计。",
+          "source": "confirmed_transcript@[00:08]"
+        },
+        {
+          "timestamp": "[00:17]",
+          "claim": "视频明确要求拆解必须引用时间点，这是本次分析必须遵守的规则。",
+          "source": "confirmed_transcript@[00:17]"
+        },
+        {
+          "timestamp": "[00:27]",
+          "claim": "视频限定创作阶段只读取确认稿和正式拆解，只生成待审草稿，控制信息边界。",
+          "source": "confirmed_transcript@[00:27]"
+        },
+        {
+          "timestamp": "[00:39]",
+          "claim": "视频强调发布由真人决定，真实指标回来后再复盘，区分创作与发布权责。",
+          "source": "confirmed_transcript@[00:39]"
+        },
+        {
+          "timestamp": "[00:50]",
+          "claim": "视频结尾要求办公助理归档结论、决定、待办和来源，形成闭环管理。",
+          "source": "confirmed_transcript@[00:50]"
+        }
+      ],
+      "retentionDiagnosis": "样本指标显示：3秒留存74%（强开场），15秒留存51%（中段流失约23个百分点），完播32%（整体耐力中等）。曲线呈持续下滑趋势，没有明显的止跌回升点，说明视频在中后段可能缺乏二次激励或反转结构。该诊断基于验收样本，非生产真实数据。",
+      "commentThemes": "评论样本共20条，三大主题分布为：怎么落地（8条，40%）、流程太重（5条，25%）、泛反馈（7条，35%）。主要矛盾集中在可执行性和负担感之间。该统计基于验收样本，非生产真实数据。",
+      "platformPatterns": "基于60秒短视频常见形态和样本数据推断：标题卡+流程箭头的画面结构偏向职场科普或方法论类内容；3秒高留存说明标题或开场痛点击中明确，15秒后下滑说明流程解释可能偏长或缺乏案例具象化。以上为样本推断，非平台官方数据。",
+      "qualityRisks": [
+        "评论样本量仅20条，主题推断存在抽样偏差风险。",
+        "画面信息仅知有标题卡和流程箭头，无实际帧可核验，无法确认视觉节奏、字幕样式和转场质量。",
+        "样本指标不能代表真实平台表现，复盘必须等待真实指标。"
+      ],
+      "experiment": {
+        "hypothesis": "在3秒留存已经较高的基础上，通过提前展示落地案例可将15秒留存和完播率提升，同时降低'怎么落地'的评论焦虑。",
+        "variantA": "保持现有结构，仅在前15秒内插入一个30秒的极简落地案例（对照）。",
+        "variantB": "将流程箭头从第20秒提前到第10秒，并在第35秒加入一个反常识结果（实验）。",
+        "metric": "以15秒留存提升绝对值5个百分点、完播率提升绝对值3个百分点、'怎么落地'评论占比下降10个百分点为成功标准。",
+        "stopRule": "若实验组15秒留存低于对照组或完播率低于28%，立即停止实验并回退到原结构；所有判断基于样本，真实指标回来后再复盘。"
+      },
+      "visualUnknowns": "已知画面信息仅限'有标题卡和流程箭头'，无实际帧可核验；因此无法确认镜头运动、字幕排版、人物出镜、场景切换、节奏剪辑和色彩风格等视觉要素。所有画面判断仅基于文字描述，证据等级为低。"
+    }
+  },
+  "status": "failed",
+  "checks": [
+    {
+      "label": "模型返回任务标签",
+      "passed": true
+    },
+    {
+      "label": "模型返回岗位标签",
+      "passed": true
+    },
+    {
+      "label": "岗位任务完成",
+      "passed": true
+    },
+    {
+      "label": "摘要达到中文业务结论最小长度",
+      "passed": true
+    },
+    {
+      "label": "证据至少 2 项",
+      "passed": true
+    },
+    {
+      "label": "证据含事实、来源和置信度",
+      "passed": true
+    },
+    {
+      "label": "风险至少 1 项",
+      "passed": true
+    },
+    {
+      "label": "存在明确下一步",
+      "passed": true
+    },
+    {
+      "label": "未开始外部动作",
+      "passed": true
+    },
+    {
+      "label": "证据时刻至少 5 项",
+      "passed": true
+    },
+    {
+      "label": "证据时刻可追溯",
+      "passed": true
+    },
+    {
+      "label": "给出留存诊断",
+      "passed": true
+    },
+    {
+      "label": "实验可执行",
+      "passed": true
+    },
+    {
+      "label": "保留画面未知项",
+      "passed": true
+    },
+    {
+      "label": "语义门禁：无题面基线不得评价平台均值或正常范围",
+      "passed": false
+    },
+    {
+      "label": "语义门禁：无实际帧不得评价画面设计、节奏或风格",
+      "passed": true
+    },
+    {
+      "label": "语义门禁：20 条评论必须精确计数或谨慎描述",
+      "passed": false
+    },
+    {
+      "label": "语义门禁：输入指标必须在同字段或证据对象标明验收样本",
+      "passed": false
+    }
+  ],
+  "identityDrift": {
+    "taskId": null,
+    "agentId": null
+  }
+}

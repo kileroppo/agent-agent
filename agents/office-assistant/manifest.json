@@ -1,0 +1,214 @@
+{
+  "schemaVersion": "agent.army/v1",
+  "manifestVersion": "0.6.0",
+  "agentId": "office-assistant",
+  "name": "小办·办公执行助理",
+  "department": "总经理办公室",
+  "role": "把老板提供的材料和其他员工的真实产物整理成办公汇报包，并按需写入受控知识归档。",
+  "responsibilities": [
+    "整理任务材料、员工结果、待办事项和未决问题",
+    "生成结构清晰、非空、可读取的 Markdown 汇报包",
+    "把当前任务的脱敏结论、决定、待办和来源写入统一知识库",
+    "按同平台、同内容类型和同观察窗口汇总可信内容指标，并形成待审核的单变量实验",
+    "如实区分已完成、未完成、异常和下一步"
+  ],
+  "nonResponsibilities": [
+    "不编造尚未产生的员工结果或外部事实",
+    "不擅自向外部人员发送、公开发布、删除或扩大权限",
+    "不读取密码、Cookie、token、未知日志或未授权的本机文件"
+  ],
+  "acceptedTaskTypes": [
+    "office.briefing-package",
+    "office.knowledge-summary",
+    "office.deliverable-program",
+    "content.campaign-metrics"
+  ],
+  "toolAllowlist": [
+    "army.task.read",
+    "office.artifact.write",
+    "office.docx.write",
+    "office.xlsx.write",
+    "office.pdf.write",
+    "office.report.daily.write",
+    "office.report.weekly.write",
+    "knowledge.archive.write"
+  ],
+  "toolExecutionPolicy": {
+    "unknownToolDecision": "deny",
+    "workspace": {
+      "scope": "paperclip-execution-workspace",
+      "pathMode": "relative-only"
+    },
+    "grants": {
+      "army.task.read": {
+        "adapter": "ajun-task-store",
+        "access": "read",
+        "externalSideEffect": "none"
+      },
+      "office.artifact.write": {
+        "adapter": "ajun-office-markdown",
+        "access": "write",
+        "externalSideEffect": "none"
+      },
+      "office.docx.write": {
+        "adapter": "hermes-docx",
+        "access": "write",
+        "externalSideEffect": "none"
+      },
+      "office.xlsx.write": {
+        "adapter": "hermes-xlsx",
+        "access": "write",
+        "externalSideEffect": "none"
+      },
+      "office.pdf.write": {
+        "adapter": "hermes-office-pdf",
+        "access": "write",
+        "externalSideEffect": "none"
+      },
+      "office.report.daily.write": {
+        "adapter": "paperclip-work-product",
+        "access": "write",
+        "externalSideEffect": "none"
+      },
+      "office.report.weekly.write": {
+        "adapter": "paperclip-work-product",
+        "access": "write",
+        "externalSideEffect": "none"
+      },
+      "knowledge.archive.write": {
+        "adapter": "content-library",
+        "access": "write",
+        "externalSideEffect": "none",
+        "scope": "agent-army-knowledge-archive"
+      }
+    }
+  },
+  "dataScopes": [
+    {
+      "scope": "assigned-task-and-referenced-artifacts",
+      "access": [
+        "read"
+      ],
+      "boundary": "只读取当前任务正文、明确引用的任务和白名单产物摘要"
+    },
+    {
+      "scope": "office-delivery-artifacts",
+      "access": [
+        "write"
+      ],
+      "boundary": "Markdown、DOCX、XLSX、PDF 只写当前 Paperclip Run 的 execution workspace；DOCX/PDF 回读正文，XLSX 重算并拒绝公式错误，日报/周报只以当前 Issue/Run 和受信来源任务写为幂等 Work Product"
+    },
+    {
+      "scope": "agent-army-knowledge-archive",
+      "access": [
+        "write"
+      ],
+      "boundary": "只通过 ContentLibrary 边界写入 Agent军团 逻辑目录，不读取私人笔记或接受任意路径"
+    }
+  ],
+  "approvalPolicies": [
+    {
+      "action": "external-send-publish-delete-or-permission-expansion",
+      "riskLevel": "high",
+      "decision": "require-approval"
+    },
+    {
+      "action": "local-owner-only-artifact",
+      "riskLevel": "low",
+      "decision": "auto"
+    }
+  ],
+  "qualityGates": [
+    {
+      "gate": "briefing-package-file-exists-and-non-empty",
+      "required": true
+    },
+    {
+      "gate": "source-task-statuses-are-not-overstated",
+      "required": true
+    },
+    {
+      "gate": "open-items-and-next-action-present",
+      "required": true
+    },
+    {
+      "gate": "knowledge-note-path-idempotency-and-readability-verified",
+      "required": true
+    },
+    {
+      "gate": "content-metrics-use-comparable-scope-median-and-p75",
+      "required": true
+    },
+    {
+      "gate": "content-retrospective-keeps-missing-values-null-and-avoids-causal-overclaim",
+      "required": true
+    },
+    {
+      "gate": "content-learning-proposes-only-one-reviewed-experiment",
+      "required": true
+    }
+  ],
+  "budgetPolicy": {
+    "maxAttempts": 2,
+    "maxRuntimeMinutes": 3,
+    "onLimit": "stop-and-report"
+  },
+  "runtimeCapabilities": {
+    "modelSelection": {
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash"
+    },
+    "fallbackModels": [],
+    "skills": ["paperclip", "docx", "xlsx", "pdf", "yichen-summary"],
+    "mcpTools": [
+      "capabilities",
+      "task_list",
+      "task_get",
+      "task_create",
+      "paperclip_assignment_get",
+      "employee_assignment_execute",
+      "local_ai_invoke",
+      "paperclip_assignment_complete"
+    ],
+    "localAiCapabilities": [
+      "knowledge.index",
+      "knowledge.search"
+    ],
+    "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
+    "paperclipToolsets": ["agent-army", "clarify"]
+  },
+  "interaction": {
+    "runtime": "hermes-profile",
+    "directFeishu": "required",
+    "visibility": "always-on",
+    "groupPolicy": "mention-only"
+  },
+  "executionOwner": "paperclip-hermes",
+  "openTaskPolicy": {
+    "domain": "office",
+    "qualityGateMode": "manifest-required"
+  },
+  "dynamicCapabilityPolicy": {
+    "allowDiscovery": true,
+    "allowedSources": ["repository", "installed-hermes", "official-source", "reviewed-third-party"],
+    "modelPolicyMutable": false,
+    "approvalRequiredFor": ["credentials", "external-write", "paid-action", "permission-expansion"]
+  },
+  "autonomyBudgetPolicy": {
+    "maxRuntimeMinutes": 60,
+    "maxModelCalls": 20,
+    "maxConcurrentSubtasks": 4,
+    "maxDelegationDepth": 2,
+    "paidApprovalThresholdUsd": 5
+  },
+  "promptRef": "agents/office-assistant/prompts/system.md",
+  "runtimeProfileRef": "integrations/hermes/profiles/office-assistant.profile.json",
+  "appRef": "apps/ajun-runtime",
+  "operationalPolicy": {
+    "heartbeatSeconds": 0,
+    "inputTimeoutMinutes": 30,
+    "retryStrategy": "single-safe-retry"
+  },
+  "owner": "A 君",
+  "status": "active"
+}

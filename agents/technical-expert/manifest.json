@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "agent.army/v1",
+  "manifestVersion": "0.6.0",
+  "agentId": "technical-expert",
+  "name": "技术专家",
+  "department": "军团中枢",
+  "role": "接手自动恢复无法解决的技术故障并形成可执行修复任务",
+  "responsibilities": [
+    "接收运维官升级的技术故障",
+    "先把故障分为代码缺陷、授权权限、输入素材、临时外部依赖或未知类型",
+    "根据脱敏失败信息定位故障范围",
+    "记录修复动作、验证要求和剩余风险"
+  ],
+  "nonResponsibilities": [
+    "读取或回显凭据和私密内容",
+    "未经批准扩权、外发或公开发布",
+    "在没有验证证据时宣称故障已修复"
+  ],
+  "acceptedTaskTypes": ["operations.technical-repair", "operations.engineering-resolution"],
+  "toolAllowlist": [
+    "army.task.status.read",
+    "army.operations.event.read",
+    "army.technical-repair.record"
+  ],
+  "dataScopes": [
+    {
+      "scope": "technical-repair-metadata",
+      "access": ["read", "write"],
+      "boundary": "仅脱敏错误、任务关系、修复步骤和验证结果"
+    }
+  ],
+  "approvalPolicies": [
+    {
+      "action": "external-change-or-permission-expansion",
+      "riskLevel": "high",
+      "decision": "require-approval"
+    }
+  ],
+  "qualityGates": [
+    { "gate": "failure-class-route-and-minimum-next-action-stated", "required": true },
+    { "gate": "repair-scope-paths-exist-before-execution", "required": true },
+    { "gate": "repair-evidence-and-unproven-items-stated", "required": true }
+  ],
+  "promptRef": "agents/technical-expert/prompts/system.md",
+  "runtimeProfileRef": "integrations/hermes/profiles/technical-expert.profile.json",
+  "appRef": "apps/ajun-runtime",
+  "interaction": {
+    "runtime": "hermes-profile",
+    "directFeishu": "disabled",
+    "visibility": "on-demand",
+    "groupPolicy": "mention-only"
+  },
+  "executionOwner": "paperclip-hermes",
+  "runtimeCapabilities": {
+    "modelSelection": {
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash"
+    },
+    "fallbackModels": [],
+    "skills": ["paperclip"],
+    "mcpTools": [
+      "task_list",
+      "task_get",
+      "task_create",
+      "paperclip_assignment_get",
+      "technical_repair_execute",
+      "paperclip_assignment_complete"
+    ],
+    "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
+    "paperclipToolsets": ["agent-army", "clarify"]
+  },
+  "openTaskPolicy": {
+    "domain": "operations",
+    "qualityGateMode": "manifest-required"
+  },
+  "dynamicCapabilityPolicy": {
+    "allowDiscovery": true,
+    "allowedSources": ["repository", "installed-hermes", "official-source", "reviewed-third-party"],
+    "modelPolicyMutable": false,
+    "approvalRequiredFor": ["credentials", "external-write", "paid-action", "permission-expansion"]
+  },
+  "autonomyBudgetPolicy": {
+    "maxRuntimeMinutes": 60,
+    "maxModelCalls": 20,
+    "maxConcurrentSubtasks": 4,
+    "maxDelegationDepth": 2,
+    "paidApprovalThresholdUsd": 5
+  },
+  "owner": "A 君",
+  "status": "active"
+}

@@ -1,0 +1,188 @@
+{
+  "schemaVersion": "agent.army/m4-role-quality-result/v1",
+  "taskId": "m4-role-intel-researcher-20260730",
+  "agentId": "intel-researcher",
+  "agentName": "小R·公开资料报告员",
+  "startedAt": "2026-07-29T23:55:32.830Z",
+  "finishedAt": "2026-07-29T23:56:05.920Z",
+  "model": {
+    "provider": "stepfun",
+    "name": "step-router-v1",
+    "apiCalls": 1,
+    "estimatedCostUsd": 0,
+    "inputTokens": 1657,
+    "outputTokens": 4041
+  },
+  "externalSideEffects": 0,
+  "toolPolicy": "clarify-only; prompt forbids tool use",
+  "parseError": null,
+  "processError": null,
+  "outputChecksum": "1e19a5ddafd9610fa679699e79a72f4c5cdc9c9545acd005c42a0534845fda24",
+  "output": {
+    "taskId": "m4-role-intel-researcher-20260730",
+    "agentId": "intel-researcher",
+    "status": "completed",
+    "summary": "M4已跨过Prompt强化阶段，建立了GoalSpec、DAG、CapabilityGrant、checkpoint和可验证产物定义的可验证执行框架，模型传输层（StepFun主路径+DeepSeek回退）已通过探针验证且无待处理回退；但飞书/Paperclip集成和11条真实复杂任务尚未验收，且当前工作树存在未提交变更，因此尚未完全进入可验证执行闭环，处于有条件进入状态。",
+    "evidence": [
+      {
+        "fact": "PRD明确要求开放任务必须生成GoalSpec、DAG、CapabilityGrant、checkpoint和可验证产物，表明执行框架已从Prompt层推进到结构化工件层。",
+        "sourceRef": "tasks/prd-m4-autonomous-agent-capabilities.md",
+        "confidence": "high"
+      },
+      {
+        "fact": "StepFun 11/11无副作用探针通过，DeepSeek受控回退1/1，说明模型主路径与传输回退已通过受控验证。",
+        "sourceRef": "docs/reviews/m4-autonomous-agent-capabilities/acceptance.md",
+        "confidence": "high"
+      },
+      {
+        "fact": "A君运行时返回0个model_transport_pending，4 ready、6 on_demand，说明模型传输层当前稳定，无待处理回退队列。",
+        "sourceRef": "runtime-snapshot:2026-07-30",
+        "confidence": "high"
+      }
+    ],
+    "risks": [
+      {
+        "risk": "飞书/Paperclip和11条真实复杂任务尚未验收，端到端可执行闭环存在缺口，无法证明框架在真实复杂场景下可验证执行。",
+        "sourceRef": "docs/reviews/m4-autonomous-agent-capabilities/acceptance.md",
+        "confidence": "high"
+      },
+      {
+        "risk": "当前工作树包含未提交的M4变更，本机状态不能等同于已发布版本，存在代码漂移和版本不一致风险。",
+        "sourceRef": "runtime-snapshot:2026-07-30",
+        "confidence": "high"
+      },
+      {
+        "risk": "外发、发布、付款、扩权仍需审批，即使内部执行框架就绪，外部动作仍受控，可能延迟可验证执行的边界扩展。",
+        "sourceRef": "tasks/prd-m4-autonomous-agent-capabilities.md",
+        "confidence": "high"
+      }
+    ],
+    "nextAction": "建议将飞书/Paperclip集成验收和11条真实复杂任务端到端验证作为下一里程碑；同步对齐A君运行时541/541与4 ready/6 on_demand的统计口径，并提交当前M4变更以固定可验证基线。",
+    "externalActionStarted": false,
+    "findings": [
+      {
+        "claim": "M4已完成Prompt强化阶段，进入可验证执行框架搭建阶段。",
+        "evidenceRefs": [
+          "tasks/prd-m4-autonomous-agent-capabilities.md",
+          "docs/reviews/m4-autonomous-agent-capabilities/acceptance.md"
+        ],
+        "confidence": "high",
+        "boundary": "限于PRD和验收报告描述的内容，不涉及未提供的实现代码或运行时日志细节。"
+      },
+      {
+        "claim": "可验证执行所需的五类工件已在PRD中定义，但本轮验收尚未覆盖真实复杂任务，存在定义与落地的时间差。",
+        "evidenceRefs": [
+          "tasks/prd-m4-autonomous-agent-capabilities.md",
+          "docs/reviews/m4-autonomous-agent-capabilities/acceptance.md"
+        ],
+        "confidence": "high",
+        "boundary": "无法从给定材料确认这些工件在实际运行中是否已100%生成。"
+      },
+      {
+        "claim": "模型传输层已稳定，StepFun主路径与DeepSeek回退机制已通过探针验证，且当前无待处理回退。",
+        "evidenceRefs": [
+          "docs/reviews/m4-autonomous-agent-capabilities/acceptance.md",
+          "runtime-snapshot:2026-07-30"
+        ],
+        "confidence": "high",
+        "boundary": "受控回退1/1为单次验证，未证明在所有负载或故障场景下均稳定。"
+      },
+      {
+        "claim": "A君运行时统计存在口径差异：验收报告称541/541，而snapshot显示4 ready/6 on_demand（共10个），需对齐指标定义。",
+        "evidenceRefs": [
+          "docs/reviews/m4-autonomous-agent-capabilities/acceptance.md",
+          "runtime-snapshot:2026-07-30"
+        ],
+        "confidence": "medium",
+        "boundary": "给定材料未解释541/541与4/6的具体统计差异，无法判断是否为同一指标。"
+      }
+    ],
+    "verdict": {
+      "level": "conditionally_entered",
+      "reasoning": "M4已跨过Prompt强化：PRD定义了完整可验证执行工件，验收报告显示StepFun主路径和DeepSeek回退通过探针，运行时无model_transport_pending，表明模型层已具备可验证执行条件。但飞书/Paperclip和11条真实复杂任务尚未验收，且存在未提交变更，因此尚未完成全链路可验证执行闭环，只能判定为有条件进入。"
+    },
+    "contradictions": [
+      {
+        "contradiction": "验收报告称A君运行时541/541，但runtime snapshot显示4 ready、6 on_demand（合计10），统计口径不明，可能指示同一指标的不同统计维度或版本差异。",
+        "sourceRefs": [
+          "docs/reviews/m4-autonomous-agent-capabilities/acceptance.md",
+          "runtime-snapshot:2026-07-30"
+        ],
+        "confidence": "medium"
+      },
+      {
+        "contradiction": "PRD要求开放任务生成可验证产物，但验收报告明确11条真实复杂任务尚未验收，说明定义存在但落地验证尚未完成。",
+        "sourceRefs": [
+          "tasks/prd-m4-autonomous-agent-capabilities.md",
+          "docs/reviews/m4-autonomous-agent-capabilities/acceptance.md"
+        ],
+        "confidence": "high"
+      }
+    ],
+    "recommendedNextChecks": [
+      "验证飞书/Paperclip集成是否已补验收或列入下一轮验收范围。",
+      "对11条真实复杂任务执行端到端验证，确认GoalSpec、DAG、CapabilityGrant、checkpoint和可验证产物是否按PRD生成。",
+      "对齐541/541与4 ready/6 on_demand的统计口径，确认A君运行时指标一致性。",
+      "确认未提交M4变更的提交计划与版本对应关系，避免本机状态与发布版本混淆。"
+    ]
+  },
+  "status": "failed",
+  "checks": [
+    {
+      "label": "模型返回任务标签",
+      "passed": true
+    },
+    {
+      "label": "模型返回岗位标签",
+      "passed": true
+    },
+    {
+      "label": "岗位任务完成",
+      "passed": true
+    },
+    {
+      "label": "摘要达到中文业务结论最小长度",
+      "passed": true
+    },
+    {
+      "label": "证据至少 2 项",
+      "passed": true
+    },
+    {
+      "label": "证据含事实、来源和置信度",
+      "passed": true
+    },
+    {
+      "label": "风险至少 1 项",
+      "passed": true
+    },
+    {
+      "label": "存在明确下一步",
+      "passed": true
+    },
+    {
+      "label": "未开始外部动作",
+      "passed": true
+    },
+    {
+      "label": "研究发现至少 4 项",
+      "passed": true
+    },
+    {
+      "label": "发现含来源与边界",
+      "passed": true
+    },
+    {
+      "label": "给出分级结论",
+      "passed": true
+    },
+    {
+      "label": "给出后续核验",
+      "passed": true
+    }
+  ],
+  "identityDrift": {
+    "taskId": null,
+    "agentId": null
+  }
+}

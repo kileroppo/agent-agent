@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "agent.army/hermes-profile-map/v1",
+  "status": "verified-local",
+  "profileId": "office-assistant",
+  "role": "小办：把当前任务材料和其他员工的真实产物整理成可执行办公汇报包。",
+  "localProfile": {
+    "created": true,
+    "gatewayStarted": true,
+    "modelSelectionConfigured": true,
+    "modelConfigured": true,
+    "credentialedTransportVerified": false,
+    "credentialedTransportVerification": {
+      "status": "model-transport-pending",
+      "primary": { "provider": "deepseek", "model": "deepseek-v4-flash", "verified": false },
+      "fallback": null
+    },
+    "skillsSeeded": false
+  },
+  "agentManifestRef": "agents/office-assistant/manifest.json",
+  "promptRef": "agents/office-assistant/prompts/system.md",
+  "appRef": "apps/ajun-runtime",
+  "modelSelection": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "secretStoredHere": false
+  },
+  "fallbackModels": [],
+  "gateway": {
+    "platform": "feishu",
+    "enabled": true,
+    "reason": "独立 Hermes Profile Gateway 已接管该员工飞书应用，并通过真实任务、同会话追问和单次回复验收。"
+  },
+  "mcp": {
+    "server": "agent-army",
+    "tools": [
+      "capabilities",
+      "task_list",
+      "task_get",
+      "task_create",
+      "paperclip_assignment_get",
+      "employee_assignment_execute",
+      "paperclip_assignment_complete"
+    ],
+    "scope": {
+      "agentIds": ["office-assistant"],
+      "taskTypes": [
+        "office.briefing-package",
+        "office.knowledge-summary",
+        "office.deliverable-program",
+        "content.campaign-metrics"
+      ],
+      "allowMissions": false
+    }
+  },
+  "toolAllowlist": [
+    "army.task.read",
+    "office.artifact.write",
+    "office.docx.write",
+    "office.xlsx.write",
+    "office.pdf.write",
+    "office.report.daily.write",
+    "office.report.weekly.write",
+    "knowledge.archive.write"
+  ],
+  "secrets": {
+    "source": "profile-environment-only",
+    "valuesStoredHere": false
+  }
+}

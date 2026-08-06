@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent 军团架构图</title>
+  <style>
+    :root { --ink:#f4f2eb; --muted:#a8a79f; --canvas:#121512; --panel:#1b1f1a; --line:#3d453b; --mint:#a6e96f; --blue:#8fd5ff; --orange:#ffbd73; --rose:#f1918b; --cream:#e9ddc2; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-width:1120px; color:var(--ink); background:radial-gradient(circle at 82% 4%, #26351e 0, transparent 27rem), var(--canvas); font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Noto Sans SC", sans-serif; }
+    main { max-width:1600px; margin:0 auto; padding:42px 52px 64px; }
+    header { display:flex; justify-content:space-between; align-items:flex-end; border-bottom:1px solid #383e34; padding-bottom:26px; }
+    .eyebrow { color:var(--mint); font-size:12px; letter-spacing:.18em; font-weight:750; margin:0 0 10px; }
+    h1 { margin:0; font-size:38px; letter-spacing:-.04em; }
+    .scope { margin:0; color:var(--muted); font-size:14px; line-height:1.7; text-align:right; }
+    .legend { display:flex; gap:16px; color:var(--muted); font-size:12px; }
+    .legend span { display:flex; align-items:center; gap:7px; }
+    .dot { width:9px; height:9px; border-radius:999px; background:var(--mint); }
+    .dot.blue { background:var(--blue); }.dot.orange { background:var(--orange); }.dot.rose { background:var(--rose); }
+    .diagram { display:grid; grid-template-columns:1fr 68px 1.22fr 68px 1.15fr 68px 1fr; align-items:stretch; margin-top:38px; }
+    .column { display:flex; min-height:610px; flex-direction:column; gap:12px; }
+    .column h2 { margin:0 0 5px; color:#c9d0c1; font-size:12px; letter-spacing:.16em; font-weight:700; }
+    .node { position:relative; padding:18px; border:1px solid var(--line); border-radius:14px; background:linear-gradient(140deg, #232921, #191d19); box-shadow:0 15px 34px #00000028; }
+    .node strong { display:block; font-size:16px; letter-spacing:-.02em; }.node small { display:block; color:var(--muted); font-size:12px; line-height:1.55; margin-top:8px; }
+    .node .tag { display:inline-block; margin-bottom:9px; color:var(--mint); font-size:10px; font-weight:750; letter-spacing:.12em; }
+    .node.blue .tag { color:var(--blue); }.node.orange .tag { color:var(--orange); }.node.rose .tag { color:var(--rose); }
+    .node.hero { padding:22px; border-color:#637a54; background:linear-gradient(140deg, #2d3b25, #1d241c); }.node.hero strong { font-size:21px; }
+    .node.muted { opacity:.63; border-style:dashed; }.node.muted .tag { color:var(--rose); }
+    .group { display:grid; grid-template-columns:1fr 1fr; gap:10px; }.group .node { min-height:128px; }
+    .group .node strong { font-size:14px; }
+    .arrow { display:flex; flex-direction:column; align-items:center; justify-content:center; color:#7b8876; gap:9px; }
+    .arrow i { width:48px; height:1px; background:#71806d; position:relative; }.arrow i::after { content:""; position:absolute; right:-1px; top:-4px; border-left:7px solid #71806d; border-top:4.5px solid transparent; border-bottom:4.5px solid transparent; }.arrow b { font-size:10px; font-weight:650; letter-spacing:.08em; writing-mode:vertical-rl; color:#84917d; }
+    .status { margin-top:22px; display:grid; grid-template-columns:1.3fr 1fr 1fr; gap:12px; }.note { min-height:120px; padding:18px; border-radius:12px; background:#181b18; border:1px solid #333a30; }.note h3 { margin:0 0 9px; font-size:13px; }.note p { margin:0; color:var(--muted); font-size:13px; line-height:1.65; }.note strong { color:var(--cream); }
+    footer { margin-top:25px; color:#7f887b; font-size:12px; } code { color:#caeab7; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
+    @media (max-width:1150px) { body { min-width:0; } main { padding:28px 20px; overflow:auto; } .diagram { min-width:1050px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="eyebrow">AGENT 军团 · 当前运行架构</p>
+        <h1>一个入口，七个独立智能体</h1>
+      </div>
+      <div>
+        <p class="scope">飞书私聊/群聊 → 本机运行台 → 岗位执行与治理<br>当前：7 个独立飞书智能体 WebSocket 已连接</p>
+        <div class="legend"><span><i class="dot"></i>智能体入口</span><span><i class="dot blue"></i>运行与调度</span><span><i class="dot orange"></i>岗位执行</span><span><i class="dot rose"></i>旧入口</span></div>
+      </div>
+    </header>
+
+    <section class="diagram" aria-label="Agent 军团架构">
+      <div class="column">
+        <h2>01 · 飞书入口</h2>
+        <div class="node hero"><span class="tag">智能体</span><strong>A君 · 军团总管</strong><small>军团总入口；理解请求、分派工作、汇总结果与审批。</small></div>
+        <div class="node blue"><span class="tag">智能体</span><strong>运维官</strong><small>运行状态、故障诊断、安全恢复。</small></div>
+        <div class="node muted"><span class="tag">旧机器人</span><strong>A君旧入口</strong><small>保留以便回滚；不再由本机运行台接管消息。</small></div>
+      </div>
+
+      <div class="arrow"><i></i><b>私聊 / 群聊 @</b></div>
+
+      <div class="column">
+        <h2>02 · 本机接入与调度</h2>
+        <div class="node hero blue"><span class="tag">运行台 · 127.0.0.1:4321</span><strong>Agent Feishu Channel Fleet</strong><small>每个应用使用独立 App 凭据、独立用户允许名单、WebSocket 长连接；消息回到原会话。</small></div>
+        <div class="node blue"><span class="tag">调度</span><strong>Feishu Commander</strong><small>识别意图；将消息按 <code>targetAgentId</code> 交给对应岗位，保留任务和聊天真相。</small></div>
+        <div class="node blue"><span class="tag">边界</span><strong>安全门</strong><small>私聊白名单 · 群聊必须 @ · 去重 · 队列 · 高风险事项进入审批。</small></div>
+      </div>
+
+      <div class="arrow"><i></i><b>岗位路由</b></div>
+
+      <div class="column">
+        <h2>03 · 独立岗位智能体</h2>
+        <div class="group">
+          <div class="node orange"><span class="tag">执行</span><strong>运维官</strong><small>健康检查、恢复链路</small></div>
+          <div class="node orange"><span class="tag">执行</span><strong>技术专家</strong><small>诊断、受控修复</small></div>
+          <div class="node orange"><span class="tag">治理</span><strong>架构师</strong><small>能力评估与方案</small></div>
+          <div class="node orange"><span class="tag">治理</span><strong>审核官</strong><small>审查结论与门禁</small></div>
+          <div class="node orange"><span class="tag">支持</span><strong>创建官</strong><small>岗位草案与试用</small></div>
+          <div class="node orange"><span class="tag">支持</span><strong>任务协调官</strong><small>协作拆分与排程</small></div>
+        </div>
+        <div class="node"><span class="tag">独立大脑</span><strong>Hermes Profiles</strong><small>A君与每个岗位都选择各自的 <code>HERMES_HOME</code> / profile，不共享角色提示词。</small></div>
+      </div>
+
+      <div class="arrow"><i></i><b>任务 / 状态</b></div>
+
+      <div class="column">
+        <h2>04 · 任务真相与治理</h2>
+        <div class="node hero"><span class="tag">本机任务真相</span><strong>Task Service + Runtime Store</strong><small>任务状态、会话关联、幂等、结果、完成通知。</small></div>
+        <div class="node blue"><span class="tag">组织治理</span><strong>Paperclip</strong><small>组织级审批、治理任务、岗位投影与心跳。</small></div>
+        <div class="node"><span class="tag">输出</span><strong>同一飞书会话</strong><small>回复、审批卡、任务完成通知回发至原聊天。</small></div>
+      </div>
+    </section>
+
+    <section class="status">
+      <article class="note"><h3>消息链路</h3><p><strong>飞书智能体</strong> 收到消息 → Channel Fleet 校验身份 → Commander 选择岗位 → 任务/岗位执行 → <strong>原会话回复</strong>。</p></article>
+      <article class="note"><h3>身份隔离</h3><p>每个智能体都有独立 App 凭据、飞书允许名单与 Hermes profile；不复用 A君身份。</p></article>
+      <article class="note"><h3>安全底线</h3><p>不登录、不外发、不付费；修复与外部动作仍受任务范围与审批约束。</p></article>
+    </section>
+    <footer>更新时间：2026-07-23 · 图中只表达已配置的当前架构，不代表每个岗位的业务能力均已完成真人验收。</footer>
+  </main>
+</body>
+</html>

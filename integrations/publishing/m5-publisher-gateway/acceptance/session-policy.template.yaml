@@ -1,0 +1,40 @@
+# 参考模板；运行脚本按同一契约生成临时策略，并写入精确 origin 与规范化测试目录。
+version: 2
+mode: bounded
+expires_after: 15m
+idle_timeout: 5m
+resources:
+  browser:
+    profiles:
+      - kind: isolated_new
+    origins:
+      - "__LOCAL_ACCEPTANCE_ORIGIN__"
+  desktop:
+    applications: []
+    windows: []
+    display: false
+  files:
+    read:
+      - dir: "__CANONICAL_TEST_DIRECTORY__"
+        recursive: false
+    write: []
+  processes:
+    terminate: []
+  driver_configuration:
+    changes: []
+allow:
+  tools:
+    - start_session
+    - end_session
+    - browser_prepare
+    - list_windows
+    - get_browser_state
+    - browser_navigate
+    - browser_set_input_files
+    - browser_type
+    - browser_click
+deny:
+  tools:
+    - page
+ask:
+  tools: []

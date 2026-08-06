@@ -1,0 +1,18 @@
+{
+  "type": "design",
+  "designSystems": [],
+  "primaryDesignSystem": null,
+  "assets": {
+    "agent-architecture": {
+      "versions": [
+        {
+          "path": "agent-architecture.html",
+          "createdAt": "2026-07-23T03:25:08.534Z",
+          "status": "needs-review"
+        }
+      ]
+    }
+  },
+  "createdAt": "2026-07-23T03:25:08.535Z",
+  "updatedAt": "2026-07-23T03:25:08.535Z"
+}

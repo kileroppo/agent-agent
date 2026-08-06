@@ -1,0 +1,187 @@
+{
+  "schemaVersion": "agent.army/m4-role-quality-result/v1",
+  "taskId": "m4-role-intel-researcher-20260730",
+  "agentId": "intel-researcher",
+  "agentName": "小R·公开资料报告员",
+  "startedAt": "2026-07-30T17:31:25.748Z",
+  "finishedAt": "2026-07-30T17:31:45.115Z",
+  "model": {
+    "provider": "stepfun",
+    "name": "step-3.5-flash-2603",
+    "apiCalls": 1,
+    "estimatedCostUsd": 0,
+    "inputTokens": 3700,
+    "outputTokens": 2014
+  },
+  "externalSideEffects": 0,
+  "toolPolicy": "clarify-only; prompt forbids tool use",
+  "parseError": null,
+  "processError": null,
+  "outputChecksum": "3229da34c2dd2d719a13cc652cbf76918cdd0553bb9fec42731e1a9c284372cf",
+  "output": {
+    "taskId": "m4-role-intel-researcher-20260730",
+    "agentId": "intel-researcher",
+    "status": "completed",
+    "summary": "M4 在基础设施层（Manifest、模型传输、运行时探针）已全部通过验收，但飞书/Paperclip 适配层与 11 条真实复杂任务的验收在本轮之前尚未完成，且当前工作树存在未提交变更，因此尚不能认定已跨过「Prompt 强化」而进入完全可验证执行状态。",
+    "evidence": [
+      {
+        "fact": "Manifest 13/13 全部通过；A君运行时 541/541 全部通过；StepFun 11/11 无副作用探针通过；DeepSeek 受控回退 1/1 通过。",
+        "sourceRef": "docs/reviews/m4-autonomous-agent-capabilities/acceptance.md",
+        "confidence": "high"
+      },
+      {
+        "fact": "A君 runtime-snapshot:2026-07-30 显示 4 个 ready、6 个 on_demand、0 个 model_transport_pending，无传输层积压。",
+        "sourceRef": "runtime-snapshot:2026-07-30",
+        "confidence": "high"
+      },
+      {
+        "fact": "飞书/Paperclip 适配层与 11 条真实复杂任务在本轮之前尚未验收。",
+        "sourceRef": "docs/reviews/m4-autonomous-agent-capabilities/acceptance.md",
+        "confidence": "high"
+      },
+      {
+        "fact": "当前工作树包含未提交的 M4 变更，不能将本机状态等同于已发布版本。",
+        "sourceRef": "runtime-snapshot:2026-07-30",
+        "confidence": "high"
+      }
+    ],
+    "risks": [
+      {
+        "risk": "真实复杂任务（飞书/Paperclip + 11 条）尚未验收，若直接进入生产调度，缺乏端到端可观测性与回滚验证，可能引发静默失败或错误扩权。"
+      }
+    ],
+    "nextAction": "完成飞书/Paperclip 适配层验收与 11 条真实复杂任务的真实验证，并提交当前未提交的 M4 变更后再评估是否升级为「可验证执行」状态。",
+    "externalActionStarted": false,
+    "findings": [
+      {
+        "claim": "Manifest 与 A君运行时已全量通过，基础执行框架可信。",
+        "evidenceRefs": [
+          "docs/reviews/m4-autonomous-agent-capabilities/acceptance.md"
+        ],
+        "confidence": "high",
+        "boundary": "基础设施层探针通过 ≠ 真实业务场景可验证执行"
+      },
+      {
+        "claim": "StepFun 与 DeepSeek 传输层探针均通过，模型路由稳定。",
+        "evidenceRefs": [
+          "docs/reviews/m4-autonomous-agent-capabilities/acceptance.md",
+          "runtime-snapshot:2026-07-30"
+        ],
+        "confidence": "high",
+        "boundary": "传输探针通过 ≠ 端到端任务链路可验证"
+      },
+      {
+        "claim": "11 条真实复杂任务与飞书/Paperclip 适配层验收尚未完成，存在执行盲区。",
+        "evidenceRefs": [
+          "docs/reviews/m4-autonomous-agent-capabilities/acceptance.md"
+        ],
+        "confidence": "high",
+        "boundary": "无真实场景验收记录，无法确认 Prompt 强化后行为一致性"
+      },
+      {
+        "claim": "当前工作树有未提交变更，本机状态不能代表已发布版本。",
+        "evidenceRefs": [
+          "runtime-snapshot:2026-07-30"
+        ],
+        "confidence": "high",
+        "boundary": "本地运行态 ≠ 已发布/已审计状态"
+      },
+      {
+        "claim": "A君运行时无传输积压（model_transport_pending=0），调度层无已知卡点。",
+        "evidenceRefs": [
+          "runtime-snapshot:2026-07-30"
+        ],
+        "confidence": "high",
+        "boundary": "无积压 ≠ 任务执行结果已核验"
+      },
+      {
+        "claim": "未登记能力不得自动安装、外发/扩权/付款仍需审批，安全策略已嵌入，但尚未在真实任务流中验证。",
+        "evidenceRefs": [
+          "tasks/prd-m4-autonomous-agent-capabilities.md"
+        ],
+        "confidence": "medium",
+        "boundary": "策略文档存在 ≠ 运行时行为已可观测"
+      }
+    ],
+    "verdict": {
+      "level": "partial",
+      "reasoning": "M4 的基础设施层（Manifest、运行时、模型传输）已全量通过验收，满足「可验证执行」的部分前提；但飞书/Paperclip 适配层与 11 条真实复杂任务的验收尚未完成，且本机工作树存在未提交变更，端到端真实场景可验证性尚未建立，因此尚未跨过「Prompt 强化」进入完整可验证执行状态。"
+    },
+    "contradictions": [
+      {
+        "contradiction": "Manifest/A君/探针全通过与「真实复杂任务未验收」并存，说明内部探针与真实任务流之间存在验收空白，内部指标全绿不代表端到端就绪。",
+        "severity": "high"
+      },
+      {
+        "contradiction": "runtime-snapshot 显示无传输积压且工作树有未提交变更，若本机状态被误认为已发布版本，可能导致部署文档与实际状态不一致，存在发布风险。",
+        "severity": "medium"
+      }
+    ],
+    "recommendedNextChecks": [
+      "完成飞书/Paperclip 适配层的功能验收与集成回归，获取验收记录",
+      "执行 11 条真实复杂任务的端到端真实验证，记录通过/失败账本",
+      "提交并审计当前 M4 未提交变更，确认发布状态与 runtime-snapshot 对齐",
+      "在真实任务流中验证「未登记能力不自动安装」和「扩权需审批」的运行时行为",
+      "确认 Paperclip/Hermes 作为计划/预算/审批/checkpoint 唯一真相来源的端到端链路"
+    ]
+  },
+  "status": "passed",
+  "checks": [
+    {
+      "label": "模型返回任务标签",
+      "passed": true
+    },
+    {
+      "label": "模型返回岗位标签",
+      "passed": true
+    },
+    {
+      "label": "岗位任务完成",
+      "passed": true
+    },
+    {
+      "label": "摘要达到中文业务结论最小长度",
+      "passed": true
+    },
+    {
+      "label": "证据至少 2 项",
+      "passed": true
+    },
+    {
+      "label": "证据含事实、来源和置信度",
+      "passed": true
+    },
+    {
+      "label": "风险至少 1 项",
+      "passed": true
+    },
+    {
+      "label": "存在明确下一步",
+      "passed": true
+    },
+    {
+      "label": "未开始外部动作",
+      "passed": true
+    },
+    {
+      "label": "研究发现至少 4 项",
+      "passed": true
+    },
+    {
+      "label": "发现含来源与边界",
+      "passed": true
+    },
+    {
+      "label": "给出分级结论",
+      "passed": true
+    },
+    {
+      "label": "给出后续核验",
+      "passed": true
+    }
+  ],
+  "identityDrift": {
+    "taskId": null,
+    "agentId": null
+  }
+}

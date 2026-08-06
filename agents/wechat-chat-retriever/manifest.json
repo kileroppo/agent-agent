@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "agent.army/v1",
+  "manifestVersion": "1.0.0",
+  "agentId": "wechat-chat-retriever",
+  "name": "微信聊天取件员",
+  "department": "本机资料",
+  "role": "按负责人批准的临时范围，只读本机微信 Vault，并仅用本机模型交付不含原文的分析",
+  "responsibilities": [
+    "按需增量刷新已初始化的本机微信 Vault",
+    "只读取本次批准的单一联系人或群聊及时间范围",
+    "默认今天至现在、最多 200 条，同名会话选择最近活跃的一条",
+    "交付摘要、主题、决定、待办、风险和回复建议，不持久化聊天原文"
+  ],
+  "nonResponsibilities": [
+    "不抓取、展示或传递微信数据库密钥、salt、wxid、Cookie 或完整明文数据库",
+    "不发送微信消息，不外发、不发布、不付费、不扩权",
+    "不后台常驻监控，不读取未被本次批准的其他会话",
+    "不把私密聊天原文发送给 StepFun、DeepSeek、Paperclip、飞书或其他模型与平台"
+  ],
+  "acceptedTaskTypes": ["wechat.chat.retrieval"],
+  "toolAllowlist": ["wechat.local-vault.chat.read"],
+  "dataScopes": [
+    {
+      "scope": "one-approved-wechat-chat-slice",
+      "access": ["read"],
+      "boundary": "逐次绑定当前 Agent、任务、单一会话、起止时间和最多 200 条；原文仅在本次进程内存中使用"
+    }
+  ],
+  "approvalPolicies": [
+    {
+      "action": "wechat-private-chat-read",
+      "riskLevel": "high",
+      "decision": "human-owner-required-for-bounded-temporary-grant"
+    }
+  ],
+  "qualityGates": [
+    {
+      "gate": "approval-scope-matches-agent-task-chat-time-and-limit",
+      "required": true
+    },
+    {
+      "gate": "report-contains-no-raw-chat-or-sender-identifiers",
+      "required": true
+    }
+  ],
+  "budgetPolicy": {
+    "maxRunsPerApproval": 10,
+    "maxMessages": 200,
+    "externalSpendAllowed": false
+  },
+  "promptRef": "agents/wechat-chat-retriever/prompts/system.md",
+  "runtimeProfileRef": "integrations/hermes/profiles/wechat-chat-retriever.profile.json",
+  "appRef": "apps/ajun-runtime",
+  "interaction": {
+    "runtime": "hermes-profile",
+    "directFeishu": "disabled",
+    "visibility": "on-demand",
+    "groupPolicy": "mention-only"
+  },
+  "executionOwner": "ajun-local",
+  "runtimeCapabilities": {
+    "modelSelection": {
+      "provider": "local-openai",
+      "model": "mlx-community/Qwen3.5-9B-MLX-4bit"
+    },
+    "fallbackModels": [],
+    "skills": ["yichen-wechat-local-vault"],
+    "mcpTools": [],
+    "feishuToolsets": [],
+    "paperclipToolsets": []
+  },
+  "operationalPolicy": {
+    "activation": "on-demand",
+    "defaultTimeRange": "local-today-to-now",
+    "defaultMaxMessages": 200,
+    "sameNameStrategy": "latest-active-session",
+    "refreshMode": "incremental",
+    "privateContentModelAccess": "local-only",
+    "grantTtlMinutes": 30,
+    "grantMaxUses": 10,
+    "rawChatPersistence": "disabled"
+  },
+  "owner": "A 君",
+  "status": "active"
+}

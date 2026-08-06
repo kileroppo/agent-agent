@@ -1,0 +1,58 @@
+{
+  "schemaVersion": "agent.army/hermes-profile-map/v1",
+  "status": "verified-local",
+  "profileId": "architect",
+  "role": "架构师：以 A君事实快照为现状基线，区分事实、推理和候选方案，设计可验证的军团演进路径。",
+  "localProfile": {
+    "created": true,
+    "gatewayStarted": true,
+    "modelSelectionConfigured": true,
+    "modelConfigured": true,
+    "credentialedTransportVerified": false,
+    "credentialedTransportVerification": {
+      "status": "model-transport-pending",
+      "primary": { "provider": "deepseek", "model": "deepseek-v4-flash", "verified": false },
+      "fallback": null
+    },
+    "skillsSeeded": true
+  },
+  "agentManifestRef": "agents/architect/manifest.json",
+  "promptRef": "agents/architect/prompts/system.md",
+  "appRef": "apps/ajun-runtime",
+  "modelSelection": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "secretStoredHere": false
+  },
+  "fallbackModels": [],
+  "gateway": {
+    "platform": "feishu",
+    "enabled": false,
+    "reason": "岗位保留为 Paperclip 按需能力；独立飞书 Gateway 已停用。"
+  },
+  "mcp": {
+    "server": "agent-army",
+    "tools": [
+      "capabilities",
+      "task_list",
+      "task_get",
+      "task_create",
+      "paperclip_assignment_get",
+      "paperclip_assignment_complete"
+    ],
+    "scope": {
+      "agentIds": ["architect"],
+      "taskTypes": ["governance.architecture-review", "governance.architecture-experiment"],
+      "allowMissions": false
+    }
+  },
+  "toolAllowlist": [
+    "army.registry.read",
+    "army.task.status.read",
+    "army.architecture.note"
+  ],
+  "secrets": {
+    "source": "profile-environment-only",
+    "valuesStoredHere": false
+  }
+}

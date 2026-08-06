@@ -1,0 +1,94 @@
+{
+  "schemaVersion": "agent.army/v1",
+  "manifestVersion": "0.6.0",
+  "agentId": "creator",
+  "name": "创建官",
+  "department": "军团中枢",
+  "role": "将自然语言岗位需求收敛为可审核、可测试的 Agent 草案",
+  "responsibilities": [
+    "生成包含职责、边界、能力、预算和验收任务的 AgentProposal 草案",
+    "识别已登记的本机 Skill 复用方向，并把敏感能力收紧为可审核但不可自动试用的草案",
+    "触发架构师与审核官的受限建议",
+    "提交组织级审核并说明下一步"
+  ],
+  "nonResponsibilities": [
+    "直接创建或激活生产 Agent",
+    "自行安装 Skill、创建外部连接或授予权限",
+    "读取凭据、Cookie、浏览器会话或私密业务内容"
+  ],
+  "acceptedTaskTypes": ["governance.agent-proposal", "governance.capability-design"],
+  "toolAllowlist": [
+    "army.agent-proposal.create",
+    "army.agent-proposal.submit",
+    "army.registry.read"
+  ],
+  "dataScopes": [
+    {
+      "scope": "agent-proposal-metadata",
+      "access": ["read", "write"],
+      "boundary": "仅岗位目标、权限摘要、预算与验收信息；禁止原始凭据和私密素材"
+    }
+  ],
+  "approvalPolicies": [
+    {
+      "action": "agent-activation-or-capability-expansion",
+      "riskLevel": "high",
+      "decision": "human-owner-required"
+    }
+  ],
+  "qualityGates": [
+    {
+      "gate": "proposal-has-boundaries-budget-and-acceptance",
+      "required": true
+    }
+  ],
+  "promptRef": "agents/creator/prompts/system.md",
+  "runtimeProfileRef": "integrations/hermes/profiles/creator.profile.json",
+  "appRef": "apps/ajun-runtime",
+  "interaction": {
+    "runtime": "hermes-profile",
+    "directFeishu": "disabled",
+    "visibility": "on-demand",
+    "groupPolicy": "mention-only"
+  },
+  "executionOwner": "paperclip-hermes",
+  "runtimeCapabilities": {
+    "skills": ["paperclip", "paperclip-create-agent"],
+    "modelSelection": {
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash"
+    },
+    "fallbackModels": [],
+    "mcpTools": [
+      "capabilities",
+      "task_list",
+      "task_get",
+      "task_create",
+      "paperclip_assignment_get",
+      "agent_proposal_create_execute",
+      "paperclip_assignment_complete"
+    ],
+    "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
+    "paperclipToolsets": ["agent-army", "clarify"]
+  },
+  "openTaskPolicy": {
+    "domain": "governance",
+    "qualityGateMode": "manifest-required"
+  },
+  "dynamicCapabilityPolicy": {
+    "allowDiscovery": true,
+    "allowedSources": ["repository", "installed-hermes", "official-source", "reviewed-third-party"],
+    "modelPolicyMutable": false,
+    "capabilityLifecycleMode": "propose-only",
+    "approvalRequiredFor": ["credentials", "external-write", "paid-action", "permission-expansion"]
+  },
+  "autonomyBudgetPolicy": {
+    "maxRuntimeMinutes": 60,
+    "maxModelCalls": 20,
+    "maxConcurrentSubtasks": 4,
+    "maxDelegationDepth": 2,
+    "paidApprovalThresholdUsd": 5
+  },
+  "owner": "A 君",
+  "status": "active"
+}

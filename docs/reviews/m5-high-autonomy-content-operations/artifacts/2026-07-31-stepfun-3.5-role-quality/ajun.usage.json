@@ -1,0 +1,18 @@
+{
+  "estimated_cost_usd": 0.0,
+  "cost_status": "unknown",
+  "cost_source": "none",
+  "input_tokens": 3616,
+  "output_tokens": 1412,
+  "cache_read_tokens": 1472,
+  "cache_write_tokens": 0,
+  "reasoning_tokens": 0,
+  "total_tokens": 6500,
+  "api_calls": 1,
+  "model": "step-3.5-flash-2603",
+  "provider": "stepfun",
+  "session_id": "20260731_013127_6ec040",
+  "completed": true,
+  "failed": false,
+  "service_tier": null
+}

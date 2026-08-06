@@ -1,0 +1,67 @@
+{
+  "schemaVersion": "agent.army/hermes-profile-map/v1",
+  "status": "active",
+  "profileId": "content-creator",
+  "role": "小创：基于正式分析和受控参考案例生成一版可拍脚本或平台草稿。",
+  "localProfile": {
+    "created": true,
+    "gatewayStarted": false,
+    "modelSelectionConfigured": true,
+    "modelConfigured": true,
+    "credentialedTransportVerified": false,
+    "credentialedTransportVerification": {
+      "status": "model-transport-pending",
+      "primary": { "provider": "deepseek", "model": "deepseek-v4-flash", "verified": false },
+      "fallback": null
+    },
+    "skillsSeeded": true,
+    "restrictedTestingConfigured": true
+  },
+  "agentManifestRef": "agents/content-creator/manifest.json",
+  "promptRef": "agents/content-creator/prompts/system.md",
+  "appRef": "apps/ajun-runtime",
+  "modelSelection": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "secretStoredHere": false
+  },
+  "fallbackModels": [],
+  "gateway": {
+    "platform": "feishu",
+    "enabled": false,
+    "reason": "后台按需岗位，由 A君统一接收、路由和交付。"
+  },
+  "mcp": {
+    "server": "agent-army",
+    "tools": [
+      "paperclip_assignment_get",
+      "platform_content_draft_execute",
+      "video_script_package_execute",
+      "m5_stage_execute",
+      "paperclip_assignment_complete"
+    ],
+    "scope": {
+      "agentIds": ["content-creator"],
+      "taskTypes": [
+        "content.platform-draft",
+        "content.video-script-package",
+        "content.creation-program",
+        "content.campaign-image-generation",
+        "content.campaign-voice",
+        "content.campaign-render"
+      ],
+      "allowMissions": false
+    }
+  },
+  "toolAllowlist": [
+    "army.task.status.read",
+    "content.artifact.read",
+    "content.draft.write",
+    "content.public.search",
+    "content.public.read"
+  ],
+  "secrets": {
+    "source": "profile-environment-only",
+    "valuesStoredHere": false
+  }
+}

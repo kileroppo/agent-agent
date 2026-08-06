@@ -1,0 +1,2 @@
+M5 local fake-platform upload fixture.
+This file never leaves the local browser page.

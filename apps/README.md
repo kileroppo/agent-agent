@@ -6,4 +6,5 @@
 
 当前应用：
 
+- [A君运行台](./ajun-runtime/README.md)：本地业务交办、Paperclip 执行适配、结果与故障恢复的过渡骨架；不承担军团总控。
 - `xiaod-media-transcriber`：音视频获取、转录、内容整理与飞书文档交付。

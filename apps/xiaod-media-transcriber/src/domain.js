@@ -6,14 +6,16 @@ export const STAGES = [
   ['preparing', '检查素材'],
   ['acquiring', '获取字幕或音频'],
   ['transcribing', '转录'],
+  ['analyzing_visual', '提取关键帧'],
   ['distilling', '整理文稿'],
+  ['awaiting_review', '等待人工完整听审'],
   ['delivering', '生成交付物'],
   ['completed', '已完成']
 ];
 
-export const ACTIVE_STATUSES = new Set(STAGES.slice(0, -1).map(([status]) => status));
+export const ACTIVE_STATUSES = new Set(STAGES.map(([status]) => status).filter((status) => !['awaiting_review', 'completed'].includes(status)).concat('pausing'));
 
-export function makeJob({ sourceType, sourceUrl = null, originalName = null, sourcePath = null, ingress = null }) {
+export function makeJob({ sourceType, sourceUrl = null, originalName = null, sourcePath = null, ingress = null, connectionId = null, connectionBinding = null, reviewPolicy = 'optional', visualMode = 'off', analysisDepth = 'fast', deliveryMode = 'feishu' }) {
   const now = new Date().toISOString();
   return {
     id: crypto.randomUUID(),
@@ -22,6 +24,12 @@ export function makeJob({ sourceType, sourceUrl = null, originalName = null, sou
     originalName,
     sourcePath,
     ingress,
+    connectionId,
+    connectionBinding,
+    reviewPolicy: reviewPolicy === 'required' ? 'required' : 'optional',
+    visualMode: visualMode === 'auto' || visualMode === 'required' ? visualMode : 'off',
+    analysisDepth: analysisDepth === 'full' ? 'full' : 'fast',
+    deliveryMode: deliveryMode === 'local_only' ? 'local_only' : 'feishu',
     title: originalName?.replace(/\.[^.]+$/, '') || sourceUrl || '未命名素材',
     status: 'queued',
     stageMessage: '已进入队列',
@@ -44,6 +52,13 @@ export function makeIngressKey({ platform, messageId, attachmentIndex = 0 }) {
   return `${platform}:${messageId}:${attachmentIndex}`;
 }
 
+export function normalizeIdempotencyKey(value) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value !== 'string') return null;
+  const key = value.trim();
+  return /^[a-zA-Z0-9:_-]{8,240}$/.test(key) ? key : null;
+}
+
 export function validatePublicHttpUrl(value) {
   let parsed;
   try {
@@ -52,7 +67,7 @@ export function validatePublicHttpUrl(value) {
     return { ok: false, reason: '请输入完整的 HTTP(S) 链接。' };
   }
   if (!['http:', 'https:'].includes(parsed.protocol)) {
-    return { ok: false, reason: '只支持 HTTP(S) 公开链接。' };
+    return { ok: false, reason: '只支持 HTTP(S) 链接。' };
   }
   const host = parsed.hostname.toLowerCase();
   if (host === 'localhost' || host.endsWith('.local') || host.endsWith('.internal')) {

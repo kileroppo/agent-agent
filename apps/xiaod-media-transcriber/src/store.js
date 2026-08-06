@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ACTIVE_STATUSES } from './domain.js';
+import { interruptedByRestartFailure } from './recovery.js';
 
 export class JobStore {
   constructor(workDir) {
@@ -14,10 +15,14 @@ export class JobStore {
       const jobs = JSON.parse(await fs.readFile(this.file, 'utf8'));
       for (const job of jobs) {
         if (ACTIVE_STATUSES.has(job.status)) {
+          const failure = interruptedByRestartFailure();
           job.status = 'failed';
           job.error = '服务重启导致任务中断，请重试。';
+          job.failure = failure;
           job.stageMessage = '任务已中断';
           job.updatedAt = new Date().toISOString();
+          job.failureHistory = [...(job.failureHistory || []), { at: job.updatedAt, error: job.error, failure }];
+          job.log = [...(job.log || []), { at: job.updatedAt, stage: 'failed', message: job.error }];
         }
         this.jobs.set(job.id, job);
       }

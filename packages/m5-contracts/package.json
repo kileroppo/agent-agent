@@ -1,0 +1,14 @@
+{
+  "name": "@agent-army/m5-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "M5 跨运行时共享的纯领域契约与稳定标识。",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check src/index.js"
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "schemaVersion": "agent.army/hermes-profile-map/v1",
+  "status": "active",
+  "profileId": "video-content-analyst",
+  "role": "小拆：基于受控转录、来源元数据和关键帧证据执行视频内容拆解和表现复盘。",
+  "localProfile": {
+    "created": true,
+    "gatewayStarted": false,
+    "modelSelectionConfigured": true,
+    "modelConfigured": true,
+    "credentialedTransportVerified": false,
+    "credentialedTransportVerification": {
+      "status": "model-transport-pending",
+      "primary": { "provider": "deepseek", "model": "deepseek-v4-flash", "verified": false },
+      "fallback": null
+    },
+    "skillsSeeded": true,
+    "restrictedTestingConfigured": true
+  },
+  "agentManifestRef": "agents/video-content-analyst/manifest.json",
+  "promptRef": "agents/video-content-analyst/prompts/system.md",
+  "appRef": "apps/ajun-runtime",
+  "modelSelection": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "secretStoredHere": false
+  },
+  "fallbackModels": [],
+  "gateway": {
+    "platform": "feishu",
+    "enabled": false,
+    "reason": "后台按需岗位，由 A君统一接收、路由和交付。"
+  },
+  "mcp": {
+    "server": "agent-army",
+    "tools": [
+      "paperclip_assignment_get",
+      "video_content_analyze_execute",
+      "content_performance_review_execute",
+      "paperclip_assignment_complete"
+    ],
+    "scope": {
+      "agentIds": ["video-content-analyst"],
+      "taskTypes": ["content.video-benchmark-analysis", "content.performance-review", "content.analysis-program", "content.campaign-visual-analysis"],
+      "allowMissions": false
+    }
+  },
+  "toolAllowlist": [
+    "army.task.status.read",
+    "content.artifact.read",
+    "content.analysis.write"
+  ],
+  "secrets": {
+    "source": "profile-environment-only",
+    "valuesStoredHere": false
+  }
+}

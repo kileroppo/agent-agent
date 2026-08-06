@@ -1,0 +1,19 @@
+{
+  "name": "ajun-common-access",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./bilibili-native-subtitle-adapter": "./bilibili-native-subtitle-adapter.js",
+    "./connection-broker": "./connection-broker.js",
+    "./connection-store": "./connection-store.js",
+    "./content-acquisition-center": "./content-acquisition-center.js",
+    "./mediacrawler-pro-adapter": "./mediacrawler-pro-adapter.js",
+    "./operations-event-store": "./operations-event-store.js",
+    "./wechat-local-vault-adapter": "./wechat-local-vault-adapter.js",
+    "./yt-dlp-general-media-adapter": "./yt-dlp-general-media-adapter.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}

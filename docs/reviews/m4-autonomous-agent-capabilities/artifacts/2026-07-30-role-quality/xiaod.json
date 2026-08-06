@@ -1,0 +1,137 @@
+{
+  "schemaVersion": "agent.army/m4-role-quality-result/v1",
+  "taskId": "m4-role-xiaod-20260730",
+  "agentId": "xiaod",
+  "agentName": "小D",
+  "startedAt": "2026-07-29T23:55:32.829Z",
+  "finishedAt": "2026-07-29T23:56:06.960Z",
+  "model": {
+    "provider": "stepfun",
+    "name": "step-router-v1",
+    "apiCalls": 1,
+    "estimatedCostUsd": 0,
+    "inputTokens": 1598,
+    "outputTokens": 4221
+  },
+  "externalSideEffects": 0,
+  "toolPolicy": "clarify-only; prompt forbids tool use",
+  "parseError": null,
+  "processError": null,
+  "outputChecksum": "718c0f79a4cd8b9a21e875a1a93a4f0641930a19438b38bf9435c0beb479a982",
+  "output": {
+    "taskId": "m4-role-xiaod-20260730",
+    "agentId": "xiaod",
+    "status": "completed",
+    "summary": "对 confirmed-transcript:m3-local-acceptance:v2 提供的人工确认时间轴样本完成整理与结构化提取，识别其核心为内容生产证据治理流程说明，而非可直接发布的视听文稿。样本保留全部5个时间点，未扩展未经验证的说话人或镜头信息。",
+    "evidence": [
+      {
+        "fact": "时间轴样本包含从00:00到00:52共5条记录，全部带有明确时间戳，内容为流程规范说明而非节目正文。",
+        "sourceRef": "confirmed-transcript:m3-local-acceptance:v2",
+        "confidence": 1
+      },
+      {
+        "fact": "样本明确规定了素材分层、拆解引用、创作输入、发布决策与知识库归档五段式边界。",
+        "sourceRef": "confirmed-transcript:m3-local-acceptance:v2",
+        "confidence": 1
+      }
+    ],
+    "risks": [
+      "若后续任务误将本样本当作完整节目文稿或可直接发布的脚本，将违反样本中“内容创作只读取确认稿并生成待审草稿”的边界要求。"
+    ],
+    "nextAction": "按岗位验收标准归档本整理稿；如接到新的完整素材，应重新走“原始素材→机器转录→人工确认稿”分层流程。",
+    "externalActionStarted": false,
+    "refinedTranscript": "经整理，本地时间轴样本原文如下： [00:00] 先把原始素材、机器转录、人工确认稿分开，后续判断才有证据边界。 [00:12] 视频拆解必须引用时间点或来源片段，不能凭印象声称结论。 [00:25] 内容创作只读取确认稿和正式拆解，并且只生成待审草稿。 [00:39] 发布继续由真人决定，真实指标回来后再做版本关联复盘。 [00:52] 最终由办公助理把结论、决定、待办和来源写入统一知识库。 以上为全部保留时间点的人工确认内容，未附加未经验证的视听细节。",
+    "chapters": [
+      {
+        "start": "00:00",
+        "title": "证据分层边界",
+        "evidence": "[00:00] 先把原始素材、机器转录、人工确认稿分开，后续判断才有证据边界。"
+      },
+      {
+        "start": "00:12",
+        "title": "视频拆解引用规范",
+        "evidence": "[00:12] 视频拆解必须引用时间点或来源片段，不能凭印象声称结论。"
+      },
+      {
+        "start": "00:25",
+        "title": "内容创作输入限制",
+        "evidence": "[00:25] 内容创作只读取确认稿和正式拆解，并且只生成待审草稿。"
+      },
+      {
+        "start": "00:39",
+        "title": "发布与复盘机制",
+        "evidence": "[00:39] 发布继续由真人决定，真实指标回来后再做版本关联复盘。"
+      },
+      {
+        "start": "00:52",
+        "title": "知识库归档",
+        "evidence": "[00:52] 最终由办公助理把结论、决定、待办和来源写入统一知识库。"
+      }
+    ],
+    "uncertainties": [
+      "未提供原始音视频内容，无法验证机器转录与人工确认稿之间是否存在额外修正或冲突。",
+      "样本仅覆盖五条时间轴条目，未说明完整工作流中审批链长度、责任人替换或超时处理方式。",
+      "未明确“统一知识库”的具体系统名称、写入schema或访问权限范围。"
+    ],
+    "downstreamHandoff": "本整理稿仅作为证据链样本归档。后续内容生产、发布决策或复盘任务需另行提供完整素材与正式拆解，不能直接引用本样本作为创作依据。"
+  },
+  "status": "failed",
+  "checks": [
+    {
+      "label": "模型返回任务标签",
+      "passed": true
+    },
+    {
+      "label": "模型返回岗位标签",
+      "passed": true
+    },
+    {
+      "label": "岗位任务完成",
+      "passed": true
+    },
+    {
+      "label": "摘要达到中文业务结论最小长度",
+      "passed": true
+    },
+    {
+      "label": "证据至少 2 项",
+      "passed": true
+    },
+    {
+      "label": "证据含事实、来源和置信度",
+      "passed": true
+    },
+    {
+      "label": "风险至少 1 项",
+      "passed": true
+    },
+    {
+      "label": "存在明确下一步",
+      "passed": true
+    },
+    {
+      "label": "未开始外部动作",
+      "passed": true
+    },
+    {
+      "label": "确认稿整理达到最小长度",
+      "passed": true
+    },
+    {
+      "label": "保留全部时间点",
+      "passed": true
+    },
+    {
+      "label": "章节至少 3 项",
+      "passed": true
+    },
+    {
+      "label": "不确定性至少 2 项",
+      "passed": true
+    }
+  ],
+  "identityDrift": {
+    "taskId": null,
+    "agentId": null
+  }
+}

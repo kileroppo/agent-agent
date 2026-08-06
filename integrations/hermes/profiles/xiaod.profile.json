@@ -1,15 +1,28 @@
 {
   "schemaVersion": "agent.army/hermes-profile-map/v1",
-  "status": "draft",
+  "status": "active",
   "profileId": "xiaod",
   "localProfile": {
     "created": true,
     "gatewayStarted": true,
-    "credentialedTransportVerified": true
+    "modelSelectionConfigured": true,
+    "modelConfigured": true,
+    "credentialedTransportVerified": false,
+    "credentialedTransportVerification": {
+      "status": "model-transport-pending",
+      "primary": { "provider": "deepseek", "model": "deepseek-v4-flash", "verified": false },
+      "fallback": null
+    }
   },
   "agentManifestRef": "agents/xiaod/manifest.json",
   "promptRef": "agents/xiaod/prompts/system.md",
   "appRef": "apps/xiaod-media-transcriber",
+  "modelSelection": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "secretStoredHere": false
+  },
+  "fallbackModels": [],
   "gateway": {
     "platform": "feishu",
     "connectionMode": "websocket",
@@ -19,12 +32,27 @@
   "kanban": {
     "enabled": true,
     "dispatcherIntervalSeconds": 60,
-    "taskTypes": ["media.transcribe-and-refine"]
+    "taskTypes": ["media.transcribe-and-refine", "media.open-production", "content.campaign-assets"]
+  },
+  "mcp": {
+    "server": "agent-army",
+    "tools": [
+      "paperclip_assignment_get",
+      "employee_assignment_execute",
+      "paperclip_assignment_complete"
+    ],
+    "scope": {
+      "agentIds": ["xiaod"],
+      "taskTypes": ["media.transcribe-and-refine", "media.open-production", "content.campaign-assets"],
+      "allowMissions": false
+    }
   },
   "toolAllowlist": [
     "xiaod.media.acquire",
     "xiaod.media.transcribe",
     "xiaod.text.refine",
+    "xiaod.transcript.evidence",
+    "xiaod.transcript.review",
     "xiaod.artifact.write",
     "lark.document.create",
     "lark.document.permission.verify",

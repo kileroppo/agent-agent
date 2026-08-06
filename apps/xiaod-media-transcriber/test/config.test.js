@@ -7,6 +7,7 @@ test('configuration reports only complete optional integrations', () => {
   const capabilities = configuredCapabilities();
   assert.equal(typeof capabilities.aiRefinement, 'boolean');
   assert.equal(typeof capabilities.lark, 'boolean');
+  assert.equal(typeof capabilities.mediaCrawlerDeep, 'boolean');
   assert.equal(typeof capabilities.testFailpointArmed, 'boolean');
 });
 
@@ -47,4 +48,16 @@ test('an empty refiner response falls back to a deliverable guide instead of fai
   assert.equal(result.usedRefiner, false);
   assert.match(result.markdown, /待人工确认/);
   assert.match(result.refinerFallbackReason, /没有返回正文/);
+});
+
+test('a stalled refiner falls back instead of leaving a task in the整理 stage', async () => {
+  const result = await requestRefinement(
+    { url: 'https://api.stepfun.com/v1/messages', apiKey: 'test-key', model: 'step-3.7-flash' },
+    '测试',
+    '原文',
+    async (_url, options) => new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason), { once:true })),
+    5
+  );
+  assert.equal(result.usedRefiner, false);
+  assert.match(result.refinerFallbackReason, /语义整理未完成/);
 });

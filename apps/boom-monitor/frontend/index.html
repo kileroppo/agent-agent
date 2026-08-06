@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Boom Monitor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1/dayjs.min.js"></script>
+    <style>
+      body { background: radial-gradient(1200px 600px at 10% -20%, #fef3c7, #fff); }
+      .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+      .badge-T3 { background-color: #ffe4e6; color: #be123c; }
+      .badge-T2 { background-color: #fef3c7; color: #b45309; }
+      .badge-T1 { background-color: #dcfce7; color: #15803d; }
+      .badge-N0 { background-color: #f1f5f9; color: #64748b; }
+    </style>
+  </head>
+  <body class="text-slate-800 min-h-screen">
+    <div id="app" class="max-w-6xl mx-auto px-4 py-6"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>

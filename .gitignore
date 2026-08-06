@@ -1,5 +1,6 @@
 node_modules/
 data/
+apps/ajun-runtime/data/
 .env
 .env.*
 !.env.example
@@ -9,3 +10,5 @@ data/
 *.sqlite
 *.sqlite3
 *-preview.png
+ajun-runtime-key-source-*.zip
+work/

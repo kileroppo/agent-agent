@@ -1,0 +1,34 @@
+{
+  "name": "agent-army",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/ajun-runtime",
+    "apps/animated-chart",
+    "apps/mac-worker",
+    "apps/project-progress-board",
+    "apps/xiaod-media-transcriber",
+    "integrations/access",
+    "integrations/boom-monitor",
+    "integrations/local-ai",
+    "integrations/m5-kernel",
+    "integrations/paperclip/m5-content-pipeline",
+    "integrations/paperclip/plugins/content-autonomy",
+    "integrations/publishing/m5-publisher-gateway",
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "npm test --workspaces --if-present && node --test scripts/*.test.mjs",
+    "check": "npm run check:architecture && npm run check --workspaces --if-present",
+    "check:architecture": "node scripts/check-architecture-boundaries.mjs",
+    "test:affected": "node scripts/run-affected-tests.mjs",
+    "test:contracts": "npm test --workspace=@agent-army/m5-contracts --if-present && npm test --workspace=@agent-army/paperclip-client --if-present",
+    "test:core": "npm test --workspace=ajun-runtime && npm test --workspace=@agent-army/m5-content-pipeline && npm test --workspace=@agent-army/paperclip-content-autonomy && npm test --workspace=@agent-army/m5-publisher-gateway",
+    "local-ai:status": "ops/local-ai/status.sh",
+    "local-ai:smoke": "ops/local-ai/smoke.sh"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

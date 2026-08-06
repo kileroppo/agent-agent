@@ -1,5 +1,19 @@
 export function classifyFailure(error) {
+  if (error?.accessFailure) {
+    return {
+      category: error.accessFailure.category || 'manual',
+      retryable: error.accessFailure.category === 'retryable',
+      recovery: error.accessFailure.safeMessage
+    };
+  }
   const message = error instanceof Error ? error.message : String(error);
+  if (error?.code === 'visual_evidence_required' || error?.code === 'visual_video_stream_required') {
+    return {
+      category:'needs_input',
+      retryable:false,
+      recovery:'本次任务要求画面分析，但没有取得可用视频。请补充本地视频、完成所需授权或改用自动模式。'
+    };
+  }
   if (/^ffmpeg 执行失败|Error opening input|Invalid data found/i.test(message)) {
     return {
       category: 'needs_input',
@@ -18,6 +32,14 @@ export function classifyFailure(error) {
     category: 'manual',
     retryable: false,
     recovery: '请保留任务编号并联系维护者检查；请勿重复上传。'
+  };
+}
+
+export function interruptedByRestartFailure() {
+  return {
+    category: 'retryable',
+    retryable: true,
+    recovery: '服务已恢复，可在飞书回复“重试小D任务”从安全断点继续，无需重复上传。'
   };
 }
 

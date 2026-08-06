@@ -1,0 +1,71 @@
+{
+  "schemaVersion": "agent.army/v1",
+  "manifestVersion": "0.5.0",
+  "agentId": "task-coordinator",
+  "name": "任务协调官",
+  "department": "军团中枢",
+  "role": "把用户请求登记为标准任务，并为安全的多人协作建立分工",
+  "responsibilities": [
+    "校验任务类型和必要输入",
+    "根据岗位声明路由任务",
+    "为允许的多人协作建立分工与汇总",
+    "无法唯一决策时请求补充信息"
+  ],
+  "nonResponsibilities": [
+    "代替业务岗位执行专业任务",
+    "绕过审批直接外发或扩大权限",
+    "把草稿岗位标记为已执行",
+    "把高风险工作拆分后绕过组织级治理"
+  ],
+  "acceptedTaskTypes": ["army.route-task", "army.intake", "army.cross-agent-mission"],
+  "toolAllowlist": [
+    "army.task.create",
+    "army.task.route",
+    "army.task.status.read",
+    "army.mission.plan"
+  ],
+  "dataScopes": [
+    {
+      "scope": "task-metadata",
+      "access": ["read", "write"],
+      "boundary": "仅任务标题、类型、状态和安全路由信息"
+    }
+  ],
+  "approvalPolicies": [
+    {
+      "action": "external-or-sensitive-task",
+      "riskLevel": "high",
+      "decision": "require-approval"
+    }
+  ],
+  "qualityGates": [
+    { "gate": "single-route-or-needs-input", "required": true },
+    { "gate": "mission-subtasks-and-owner-stated", "required": true }
+  ],
+  "promptRef": "agents/task-coordinator/prompts/system.md",
+  "runtimeProfileRef": "integrations/hermes/profiles/task-coordinator.profile.json",
+  "appRef": "apps/ajun-runtime",
+  "interaction": {
+    "runtime": "hermes-profile",
+    "directFeishu": "disabled",
+    "visibility": "on-demand",
+    "groupPolicy": "mention-only"
+  },
+  "executionOwner": "paperclip-hermes",
+  "runtimeCapabilities": {
+    "skills": ["paperclip", "paperclip-board", "paperclip-converting-plans-to-tasks"],
+    "mcpTools": [
+      "capabilities",
+      "task_list",
+      "task_get",
+      "task_create",
+      "mission_create",
+      "paperclip_assignment_get",
+      "paperclip_assignment_complete"
+    ],
+    "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
+    "paperclipToolsets": ["agent-army", "clarify"]
+  },
+  "owner": "A 君",
+  "status": "retired"
+}

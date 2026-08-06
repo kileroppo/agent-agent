@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "agent.army/evals/v1",
+  "cases": [
+    {
+      "id": "rejects-preliminary-analysis",
+      "taskType": "content.platform-draft",
+      "input": { "analysisEvidenceMode": "preliminary" },
+      "expected": { "status": "needs_input", "errorCode": "formal_analysis_required" }
+    },
+    {
+      "id": "limits-platforms",
+      "taskType": "content.platform-draft",
+      "input": { "platforms": ["douyin", "xiaohongshu", "shipinhao", "bilibili"] },
+      "expected": { "status": "needs_input", "errorCode": "platform_limit_exceeded" }
+    },
+    {
+      "id": "does-not-publish",
+      "taskType": "content.platform-draft",
+      "input": { "platforms": ["douyin"] },
+      "expected": { "artifactType": "platform_content_draft", "externalSideEffects": 0 }
+    },
+    {
+      "id": "requires-brief-and-six-quality-gates",
+      "taskType": "content.platform-draft",
+      "input": { "platforms": ["xiaohongshu", "wechat_official_account"] },
+      "expected": { "contentBrief": true, "qualityGateCount": 6, "visualAnchorRequired": true }
+    },
+    {
+      "id": "wechat-output-remains-draft-only",
+      "taskType": "content.platform-draft",
+      "input": { "platforms": ["wechat_official_account"] },
+      "expected": { "publishingStatus": "draft_only", "groupSend": false, "externalSideEffects": 0 }
+    },
+    {
+      "id": "topic-only-produces-one-package",
+      "taskType": "content.video-script-package",
+      "input": { "contentGoal": "一个明确的视频主题" },
+      "expected": { "artifactType": "video_script_package", "fileCount": 5, "externalSideEffects": 0 }
+    },
+    {
+      "id": "use-this-version-only-marks-trial",
+      "taskType": "content.video-script-package",
+      "input": { "approvedForUse": true, "sourceScriptTaskId": "existing-script-task" },
+      "expected": { "templateState": "trial", "publishingStatus": "draft_only", "externalSideEffects": 0 }
+    }
+  ]
+}

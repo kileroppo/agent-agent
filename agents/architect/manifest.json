@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "agent.army/v1",
+  "manifestVersion": "0.7.0",
+  "agentId": "architect",
+  "name": "架构师",
+  "department": "军团中枢",
+  "role": "从真实工作中发现结构性瓶颈，设计并验证跨岗位能力、边界和演进方案",
+  "responsibilities": [
+    "识别共享能力与接口边界",
+    "提出可验证的分阶段实施建议",
+    "维护架构决策的输入材料",
+    "把当前事实、架构判断和未来候选方案明确分层",
+    "比较复用、改造、新增和不做，并为候选方案设计最小验证",
+    "把每项当前事实绑定到 A君生成的真实岗位、任务或受控仓库引用"
+  ],
+  "nonResponsibilities": [
+    "未经确认改变系统边界",
+    "直接读取凭据或操作外部账号",
+    "安装或启用能力、扩大权限或绕过审核上线方案"
+  ],
+  "acceptedTaskTypes": ["governance.architecture-review", "governance.architecture-experiment"],
+  "toolAllowlist": [
+    "army.registry.read",
+    "army.task.status.read",
+    "army.architecture.note"
+  ],
+  "dataScopes": [
+    {
+      "scope": "architecture-documents",
+      "access": ["read", "write"],
+      "boundary": "版本化设计、契约和安全摘要"
+    }
+  ],
+  "approvalPolicies": [
+    {
+      "action": "architecture-boundary-change",
+      "riskLevel": "high",
+      "decision": "require-approval"
+    }
+  ],
+  "qualityGates": [
+    { "gate": "scope-and-non-goals-stated", "required": true },
+    { "gate": "all-current-state-claims-reference-ground-truth", "required": true },
+    { "gate": "judgments-state-basis-assumptions-and-confidence", "required": true },
+    { "gate": "candidate-proposals-have-validation-plan-risks-and-non-goals", "required": true },
+    { "gate": "facts-judgments-and-proposals-explicitly-separated", "required": true }
+  ],
+  "promptRef": "agents/architect/prompts/system.md",
+  "runtimeProfileRef": "integrations/hermes/profiles/architect.profile.json",
+  "appRef": "apps/ajun-runtime",
+  "interaction": {
+    "runtime": "hermes-profile",
+    "directFeishu": "disabled",
+    "visibility": "on-demand",
+    "groupPolicy": "mention-only"
+  },
+  "executionOwner": "paperclip-hermes",
+  "runtimeCapabilities": {
+    "modelSelection": {
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash"
+    },
+    "fallbackModels": [],
+    "skills": ["paperclip", "paperclip-converting-plans-to-tasks"],
+    "mcpTools": [
+      "capabilities",
+      "task_list",
+      "task_get",
+      "task_create",
+      "paperclip_assignment_get",
+      "paperclip_assignment_complete"
+    ],
+    "feishuToolsets": ["skills", "memory", "session_search", "clarify"],
+    "paperclipToolsets": ["agent-army", "clarify"]
+  },
+  "openTaskPolicy": {
+    "domain": "governance",
+    "qualityGateMode": "manifest-required"
+  },
+  "dynamicCapabilityPolicy": {
+    "allowDiscovery": true,
+    "allowedSources": ["repository", "installed-hermes", "official-source", "reviewed-third-party"],
+    "modelPolicyMutable": false,
+    "capabilityLifecycleMode": "propose-only",
+    "approvalRequiredFor": ["credentials", "external-write", "paid-action", "permission-expansion"]
+  },
+  "autonomyBudgetPolicy": {
+    "maxRuntimeMinutes": 60,
+    "maxModelCalls": 20,
+    "maxConcurrentSubtasks": 4,
+    "maxDelegationDepth": 2,
+    "paidApprovalThresholdUsd": 5
+  },
+  "owner": "A 君",
+  "status": "active"
+}

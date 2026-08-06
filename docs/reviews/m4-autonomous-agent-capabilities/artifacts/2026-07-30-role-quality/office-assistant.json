@@ -1,0 +1,186 @@
+{
+  "schemaVersion": "agent.army/m4-role-quality-result/v1",
+  "taskId": "m4-role-office-assistant-20260730",
+  "agentId": "office-assistant",
+  "agentName": "小办·办公执行助理",
+  "startedAt": "2026-07-29T23:55:32.831Z",
+  "finishedAt": "2026-07-29T23:55:48.844Z",
+  "model": {
+    "provider": "stepfun",
+    "name": "step-router-v1",
+    "apiCalls": 1,
+    "estimatedCostUsd": 0,
+    "inputTokens": 1577,
+    "outputTokens": 1867
+  },
+  "externalSideEffects": 0,
+  "toolPolicy": "clarify-only; prompt forbids tool use",
+  "parseError": null,
+  "processError": null,
+  "outputChecksum": "8f0c3a4adab23bd59346532a21fea76655b8563a275f09b6b93b7acf6898a95d",
+  "output": {
+    "taskId": "m4-role-office-assistant-20260730",
+    "agentId": "office-assistant",
+    "status": "completed",
+    "summary": "M4岗位架构已实现11岗位保留与核心治理机制，自动化层全项达标；外部模型主链路与受控回退已验证通过；当前运行态ready与on_demand岗位正常，无模型授权缺口。飞书/Paperclip集成与总体验收仍在执行中，工作树未提交。",
+    "evidence": [
+      {
+        "fact": "11个岗位保留不合并，GoalSpec、DAG、checkpoint、CapabilityGrant、硬预算和最多3次重规划已实现。",
+        "sourceRef": "用户提供的M4事实材料-已实现部分",
+        "confidence": "high"
+      },
+      {
+        "fact": "Manifest 13/13、A君运行时 541/541、Hermes集成 8/8 已完成。",
+        "sourceRef": "用户提供的M4事实材料-自动化部分",
+        "confidence": "high"
+      },
+      {
+        "fact": "StepFun主传输11/11、DeepSeek受控回退1/1；其余10个回退Profile未逐个付费探测。",
+        "sourceRef": "用户提供的M4事实材料-外部模型部分",
+        "confidence": "high"
+      },
+      {
+        "fact": "当前运行：4个常驻岗位ready，6个岗位on_demand，0个模型待授权。",
+        "sourceRef": "用户提供的M4事实材料-当前运行部分",
+        "confidence": "high"
+      }
+    ],
+    "risks": [
+      {
+        "risk": "飞书与Paperclip集成本轮未验收，外部平台接入状态未知。",
+        "impact": "影响M4端到端交付确认，可能延迟整体验收关闭。",
+        "mitigation": "等待A君或平台负责人安排真实验收窗口，本轮不做外发与探测。"
+      },
+      {
+        "risk": "其余10个回退Profile未逐个付费探测，模型回退链路存在未验证盲区。",
+        "impact": "生产回退场景可能出现未预期行为或配额问题。",
+        "mitigation": "后续由A君决策是否启动专项付费验证，本周期保持现状。"
+      },
+      {
+        "risk": "工作树未提交，代码与配置变更未固化。",
+        "impact": "存在丢失或协作冲突风险，影响里程碑审计追溯。",
+        "mitigation": "待验收通过后由负责人统一提交，禁止拆分提交。"
+      }
+    ],
+    "nextAction": "等待飞书/Paperclip验收结果及11条岗位复杂任务与跨岗位总验收完成，随后提交工作树。",
+    "externalActionStarted": false,
+    "executiveBrief": {
+      "headline": "M4岗位治理与自动化基础设施已配置完成，外部集成验收与最终提交待推进。",
+      "completed": [
+        "11个岗位保留不合并，核心治理机制（GoalSpec、DAG、checkpoint、CapabilityGrant、硬预算、最多3次重规划）已实现。",
+        "自动化全项通过：Manifest 13/13、A君运行时 541/541、Hermes集成 8/8。",
+        "外部模型主链路验证：StepFun主传输11/11；DeepSeek受控回退1/1。",
+        "运行态正常：4个常驻岗位ready，6个岗位on_demand，0个模型待授权。"
+      ],
+      "openRisks": [
+        "飞书/Paperclip本轮未验收，外部平台接入未闭环。",
+        "10个回退Profile未逐个付费探测，模型回退存在未验证项。",
+        "工作树未提交，变更未固化。"
+      ],
+      "decisionsNeeded": [
+        "是否启动剩余10个回退Profile的专项付费探测。",
+        "飞书/Paperclip验收的时间窗口与责任人确认。"
+      ],
+      "nextActions": [
+        {
+          "action": "完成飞书与Paperclip集成真实验收",
+          "owner": "A君",
+          "deadlineRule": "本轮验收周期内",
+          "acceptance": "出具验收记录并关闭外部集成风险项。"
+        },
+        {
+          "action": "执行11条岗位复杂任务与跨岗位总验收",
+          "owner": "岗位执行负责人",
+          "deadlineRule": "当前M4验收批次结束前",
+          "acceptance": "全量任务closed，跨岗位总验收通过。"
+        },
+        {
+          "action": "提交工作树",
+          "owner": "代码负责人",
+          "deadlineRule": "验收全部通过后",
+          "acceptance": "工作树无未提交变更，审计链路完整。"
+        }
+      ],
+      "evidenceLedger": [
+        {
+          "item": "岗位治理与自动化完成项",
+          "ref": "用户提供的M4事实材料-已实现与自动化部分",
+          "status": "已核对"
+        },
+        {
+          "item": "外部模型验证项",
+          "ref": "用户提供的M4事实材料-外部模型部分",
+          "status": "已核对"
+        },
+        {
+          "item": "当前运行态",
+          "ref": "用户提供的M4事实材料-当前运行部分",
+          "status": "已核对"
+        }
+      ]
+    }
+  },
+  "status": "failed",
+  "checks": [
+    {
+      "label": "模型返回任务标签",
+      "passed": true
+    },
+    {
+      "label": "模型返回岗位标签",
+      "passed": true
+    },
+    {
+      "label": "岗位任务完成",
+      "passed": true
+    },
+    {
+      "label": "摘要达到中文业务结论最小长度",
+      "passed": true
+    },
+    {
+      "label": "证据至少 2 项",
+      "passed": true
+    },
+    {
+      "label": "证据含事实、来源和置信度",
+      "passed": true
+    },
+    {
+      "label": "风险至少 1 项",
+      "passed": true
+    },
+    {
+      "label": "存在明确下一步",
+      "passed": true
+    },
+    {
+      "label": "未开始外部动作",
+      "passed": true
+    },
+    {
+      "label": "存在汇报标题",
+      "passed": true
+    },
+    {
+      "label": "已完成至少 3 项",
+      "passed": true
+    },
+    {
+      "label": "风险至少 2 项",
+      "passed": true
+    },
+    {
+      "label": "下一步至少 2 项",
+      "passed": true
+    },
+    {
+      "label": "下一步具备负责人和验收",
+      "passed": true
+    }
+  ],
+  "identityDrift": {
+    "taskId": null,
+    "agentId": null
+  }
+}

@@ -3,25 +3,59 @@ import path from 'node:path';
 import express from 'express';
 import multer from 'multer';
 import { config, configuredCapabilities } from './config.js';
-import { makeJob, validatePublicHttpUrl } from './domain.js';
+import { makeJob, normalizeIdempotencyKey, validatePublicHttpUrl } from './domain.js';
 import { canRetryJob, retryPatch } from './recovery.js';
+import { createPersistentOneShotFailpoint, resetPersistentOneShotFailpoint } from './test-failpoint.js';
 import { IntakeError, createFeishuMediaJob } from './feishu-media-intake.js';
-import { MediaPipeline } from './pipeline.js';
+import { MediaPipeline, deliverToLark } from './pipeline.js';
+import { JobPauseController, JobPauseError } from './job-pause-controller.js';
 import { JobStore } from './store.js';
+import { ConnectionSelectionError, createContentRuntime } from './content-runtime.js';
+import { ConnectionInputError } from 'ajun-common-access/connection-store';
+import { reviewTranscript, TranscriptReviewError } from './transcript-review.js';
+import { collectMetricsRequest, MetricsRequestError } from './metrics-api.js';
 
 await fs.mkdir(config.workDir, { recursive: true });
 const uploadsDir = path.join(config.workDir, 'uploads');
 await fs.mkdir(uploadsDir, { recursive: true });
 const store = new JobStore(config.workDir);
 await store.init();
-const pipeline = new MediaPipeline({ store, workDir: config.workDir });
+const contentRuntime = await createContentRuntime(config.workDir);
+const pauseController = new JobPauseController({ store });
+const failpointMarkerPath = path.join(config.workDir, '.acceptance-test-failpoint-consumed');
+if (!config.testFailOnceAt) await resetPersistentOneShotFailpoint(failpointMarkerPath);
+const pipeline = new MediaPipeline({
+  store,
+  workDir: config.workDir,
+  contentCenter: contentRuntime.contentCenter,
+  pauseController,
+  failpoint: createPersistentOneShotFailpoint(config.testFailOnceAt, failpointMarkerPath)
+});
 const upload = multer({ dest: uploadsDir, limits: { fileSize: 1024 * 1024 * 1024 } });
 const app = express();
 app.use(express.json({ limit: '64kb' }));
 app.use(express.static(path.resolve('public')));
 
-app.get('/api/health', (_req, res) => res.json({ ok: true, capabilities: configuredCapabilities() }));
+app.get('/api/health', (_req, res) => res.json({ ok: true, capabilities: configuredCapabilities(), commonAccess: contentRuntime.health() }));
 app.get('/api/jobs', (_req, res) => res.json({ jobs: store.list() }));
+app.get('/api/connections', (_req, res) => res.json({ connections: contentRuntime.connectionStore.list() }));
+app.get('/api/operations/events', (_req, res) => res.json({ events: contentRuntime.operations.list() }));
+app.get('/api/cookie-bridge/accounts', async (_req, res) => {
+  const endpoint = localCookieBridgeAccountsEndpoint(config.mediaCrawler.cookieBridgeUrl);
+  if (!endpoint) return res.status(503).json({ error: 'CookieBridge 本机服务未配置。' });
+  try {
+    const response = await fetch(endpoint, { headers: { Accept: 'application/json' } });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.isok === false) throw new Error('unavailable');
+    const accounts = Array.isArray(payload?.data?.accounts) ? payload.data.accounts : [];
+    res.json({ accounts: accounts.map((account) => ({
+      clientId: String(account.client_id || ''), connected: Boolean(account.connected),
+      platforms: Object.keys(account.platforms || {}), nicknames: account.nicknames && typeof account.nicknames === 'object' ? account.nicknames : {}
+    })).filter((account) => account.clientId) });
+  } catch {
+    res.status(503).json({ error: 'CookieBridge 本机服务暂时不可用。' });
+  }
+});
 app.get('/api/jobs/:id', (req, res) => {
   const job = store.get(req.params.id);
   if (!job) return res.status(404).json({ error: '任务不存在' });
@@ -53,16 +87,107 @@ app.post('/api/jobs', async (req, res, next) => {
   try {
     const valid = validatePublicHttpUrl(req.body?.url || '');
     if (!valid.ok) return res.status(422).json({ error: valid.reason });
-    const job = await store.create(makeJob({ sourceType: 'url', sourceUrl: valid.url }));
-    void pipeline.run(job.id);
-    res.status(202).json({ job });
+    const idempotencyKey = normalizeIdempotencyKey(req.body?.idempotencyKey);
+    if (req.body?.idempotencyKey !== undefined && !idempotencyKey) return res.status(422).json({ error:'幂等标识格式不正确。' });
+    const requestedConnectionId = req.body?.connectionId || null;
+    if (requestedConnectionId !== null && (typeof requestedConnectionId !== 'string' || !requestedConnectionId.trim())) return res.status(422).json({ error: '连接标识格式不正确。' });
+    const connectionBinding = await contentRuntime.resolveConnectionBindingForSource(valid.url, requestedConnectionId);
+    const connectionId = connectionBinding?.connectionId || null;
+    const candidate = makeJob({
+      sourceType:'url',
+      sourceUrl:valid.url,
+      connectionId,
+      connectionBinding,
+      reviewPolicy:req.body?.reviewPolicy,
+      visualMode:req.body?.visualMode,
+      analysisDepth:req.body?.analysisDepth,
+      deliveryMode:req.body?.deliveryMode,
+      ingress:idempotencyKey ? { platform:'agent-army-mac-worker', idempotencyKey } : null
+    });
+    const result = idempotencyKey
+      ? await store.createOrGetByIngressKey(candidate)
+      : { job:await store.create(candidate), created:true };
+    if (result.created) void pipeline.run(result.job.id);
+    res.status(result.created ? 202 : 200).json({ job:result.job, duplicate:!result.created });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/metrics/collect', async (req, res, next) => {
+  try {
+    const metrics = await collectMetricsRequest({ contentRuntime, input:req.body || {} });
+    res.json({ metrics });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/connections/browser-session', async (req, res, next) => {
+  try {
+    const connection = await contentRuntime.connectionStore.createBrowserSessionConnection(req.body || {});
+    res.status(201).json({ connection });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/connections/cookie-bridge', async (req, res, next) => {
+  try {
+    const connection = await contentRuntime.connectionStore.createCookieBridgeConnection(req.body || {});
+    res.status(201).json({ connection });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/connections/:id/default', async (req, res, next) => {
+  try {
+    const connection = await contentRuntime.connectionStore.setDefault(req.params.id);
+    if (!connection) return res.status(404).json({ error: '账号连接不存在。' });
+    await contentRuntime.operations.record({
+      subjectType:'connection',
+      subjectRef:connection.connectionId,
+      eventType:'connection_default_selected',
+      severity:'info',
+      safeMessage:`已将“${connection.accountAlias}”设为该平台默认只读账号。`,
+      recommendedAction:'none'
+    });
+    res.json({ connection });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/connections/:id/revoke', async (req, res, next) => {
+  try {
+    const connection = await contentRuntime.connectionStore.revoke(req.params.id);
+    if (!connection) return res.status(404).json({ error: '账号连接不存在。' });
+    await contentRuntime.operations.record({ subjectType: 'connection', subjectRef: connection.connectionId, eventType: 'connection_revoked', severity: 'info', safeMessage: '账号连接已撤销，后续任务将要求重新授权。', recommendedAction: 'reauthorize' });
+    res.json({ connection });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/connections/:id/disable', async (req, res, next) => {
+  try {
+    const connection = await contentRuntime.connectionStore.disable(req.params.id);
+    if (!connection) return res.status(404).json({ error: '账号连接不存在。' });
+    await contentRuntime.operations.record({ subjectType:'connection', subjectRef:connection.connectionId, eventType:'connection_disabled', severity:'info', safeMessage:'账号连接已暂时禁用，后续任务将要求重新授权。', recommendedAction:'reauthorize' });
+    res.json({ connection });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/connections/:id/reauthorize', async (req, res, next) => {
+  try {
+    const connection = await contentRuntime.connectionStore.reauthorizeCookieBridgeConnection(req.params.id, req.body || {});
+    if (!connection) return res.status(404).json({ error: '账号连接不存在。' });
+    await contentRuntime.operations.record({ subjectType:'connection', subjectRef:connection.connectionId, eventType:'connection_reauthorized', severity:'info', safeMessage:'账号连接已重新授权，可以继续获准的只读任务。', recommendedAction:'retry' });
+    res.json({ connection });
   } catch (error) { next(error); }
 });
 
 app.post('/api/jobs/upload', upload.single('media'), async (req, res, next) => {
   try {
     if (!req.file) return res.status(422).json({ error: '请选择一个音频或视频文件。' });
-    const job = await store.create(makeJob({ sourceType: 'upload', originalName: req.file.originalname, sourcePath: req.file.path }));
+    const job = await store.create(makeJob({
+      sourceType:'upload',
+      originalName:req.file.originalname,
+      sourcePath:req.file.path,
+      reviewPolicy:req.body?.reviewPolicy,
+      visualMode:req.body?.visualMode,
+      analysisDepth:req.body?.analysisDepth,
+      deliveryMode:req.body?.deliveryMode
+    }));
     void pipeline.run(job.id);
     res.status(202).json({ job });
   } catch (error) { next(error); }
@@ -92,11 +217,75 @@ app.post('/api/jobs/:id/retry', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.post('/api/jobs/:id/pause', async (req, res, next) => {
+  try {
+    const job = await pauseController.request(req.params.id);
+    res.status(202).json({ job });
+  } catch (error) {
+    if (error instanceof JobPauseError) return res.status(409).json({ error: error.message });
+    next(error);
+  }
+});
+
+app.post('/api/jobs/:id/resume', async (req, res, next) => {
+  try {
+    const job = await pauseController.resume(req.params.id);
+    void pipeline.run(job.id);
+    res.status(202).json({ job });
+  } catch (error) {
+    if (error instanceof JobPauseError) return res.status(409).json({ error: error.message });
+    next(error);
+  }
+});
+
+app.post('/api/jobs/:id/redeliver', async (req, res, next) => {
+  try {
+    const job = store.get(req.params.id);
+    if (!job?.output?.markdownPath) return res.status(404).json({ error: '该任务没有可重新交付的整理稿。' });
+    const markdown = await fs.readFile(job.output.markdownPath, 'utf8');
+    const requestedTitle = typeof req.body?.title === 'string' ? req.body.title.trim().replace(/\s+/g, ' ').slice(0, 200) : '';
+    const title = requestedTitle || job.title;
+    const lark = await deliverToLark(title, markdown.replace(/^#\s+[^\n]+/m, `# ${title}`));
+    if (lark.configured === false) return res.status(503).json({ error: '飞书交付尚未配置。' });
+    await store.update(job.id, { title, output: { ...job.output, larkUrl: lark.url, larkPermissionGranted: lark.permissionGranted || false } }, { stage: 'delivering', message: '已按新版阅读排版重新交付' });
+    res.status(201).json({ job: store.get(job.id) });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/jobs/:id/transcript-review', async (req, res, next) => {
+  try {
+    const result = await reviewTranscript({ store, job:store.get(req.params.id), input:req.body || {} });
+    res.status(result.duplicate ? 200 : 201).json(result);
+  } catch (error) {
+    if (error instanceof TranscriptReviewError) return res.status(error.status).json({ error:error.message });
+    next(error);
+  }
+});
+
 app.use((error, _req, res, _next) => {
   if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: '文件超过 1GB 上传上限。' });
   if (error instanceof IntakeError) return res.status(error.status).json({ error: error.message });
+  if (error instanceof ConnectionInputError) return res.status(422).json({ error: error.message });
+  if (error instanceof MetricsRequestError) return res.status(error.status).json({
+    error:error.message,
+    code:error.code,
+    recommendedAction:error.recommendedAction
+  });
+  if (error instanceof ConnectionSelectionError) return res.status(409).json({
+    error:error.message,
+    code:'connection_selection_required',
+    provider:error.provider,
+    candidates:error.candidates
+  });
   console.error(error instanceof Error ? error.message : 'unknown server error');
   res.status(500).json({ error: '服务发生异常，请查看终端日志。' });
 });
 
 app.listen(config.port, config.host, () => console.log(`媒体转录 Agent 已启动：http://${config.host}:${config.port}`));
+
+function localCookieBridgeAccountsEndpoint(value) {
+  try {
+    const endpoint = new URL('/api/accounts', value);
+    return ['127.0.0.1', 'localhost', '::1'].includes(endpoint.hostname) ? endpoint : null;
+  } catch { return null; }
+}

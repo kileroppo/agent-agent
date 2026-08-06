@@ -1,0 +1,141 @@
+{
+  "schemaVersion": "agent.army/m4-role-quality-acceptance/v1",
+  "status": "passed",
+  "generatedAt": "2026-07-30T20:36:29.170Z",
+  "authorizedScope": {
+    "roleTasks": 11,
+    "crossRoleTasks": 1,
+    "externalDelivery": false
+  },
+  "roleTaskCount": 11,
+  "rolePassedCount": 11,
+  "crossRoleStatus": "passed",
+  "providerCounts": {
+    "stepfun/step-3.5-flash-2603": 12
+  },
+  "totalApiCalls": 13,
+  "estimatedCostUsd": 0,
+  "externalSideEffects": 0,
+  "roleResults": [
+    {
+      "taskId": "m4-role-ajun-20260730",
+      "agentId": "ajun",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 1,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "65d5345a3239b2196122fdc9d9e9e2eb74b73b04812059589478b7e911211e07"
+    },
+    {
+      "taskId": "m4-role-xiaod-20260730",
+      "agentId": "xiaod",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 1,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "a91bd63cf8931913dccb550d8654f84b03f0e4de26dbd197f46538e4840338c2"
+    },
+    {
+      "taskId": "m4-role-intel-researcher-20260730",
+      "agentId": "intel-researcher",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 1,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "3229da34c2dd2d719a13cc652cbf76918cdd0553bb9fec42731e1a9c284372cf"
+    },
+    {
+      "taskId": "m4-role-office-assistant-20260730",
+      "agentId": "office-assistant",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 1,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "f85fc2010d7556c6096bc2a8c95299949e5685ad0276a3fe342060420f36804b"
+    },
+    {
+      "taskId": "m4-role-operator-20260730",
+      "agentId": "operator",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 1,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "6b1c8d59634eeff60745f7e6c41331c654c66f8a096c19d11f59368feaabfd2c"
+    },
+    {
+      "taskId": "m4-role-creator-20260730",
+      "agentId": "creator",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 1,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "2e93d2e55fbd146d0a2c959744326413c3a7a0facfcd41221e68f9a8bf96e866"
+    },
+    {
+      "taskId": "m4-role-reviewer-20260730",
+      "agentId": "reviewer",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 1,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "46e0d0dd0d8585016817d260d89733aeb4ffc707c68ed8a47aaacd2b2525dc2d"
+    },
+    {
+      "taskId": "m4-role-architect-20260730",
+      "agentId": "architect",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 1,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "13ed7360489f474708e07be7ec3f4c5db365669f89b3e8a67a33af5bfe14e9c3"
+    },
+    {
+      "taskId": "m4-role-technical-expert-20260730",
+      "agentId": "technical-expert",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 1,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "065833574c892bd1b92acd1d2256f58d3d5c84cd8b3219160fa91a3d65798f3c"
+    },
+    {
+      "taskId": "m4-role-video-content-analyst-20260730",
+      "agentId": "video-content-analyst",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 1,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "ecbbbe7d7e4209a0f44c70010d3ef544e785c5d1904d6b487f46e0198e2741e5"
+    },
+    {
+      "taskId": "m4-role-content-creator-20260730",
+      "agentId": "content-creator",
+      "status": "passed",
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603",
+      "apiCalls": 2,
+      "estimatedCostUsd": 0,
+      "outputChecksum": "1e030ee84e29b1eae355ff6d8af4f4cd281b9acf77f5833dfcf8cf543e8b8f50"
+    }
+  ],
+  "crossRole": {
+    "taskId": "m4-cross-role-acceptance-20260730",
+    "status": "passed",
+    "provider": "stepfun",
+    "model": "step-3.5-flash-2603",
+    "apiCalls": 1,
+    "estimatedCostUsd": 0,
+    "outputChecksum": "9177eac9c9489fbcdbd8a0908850fd3ddbfffde27976a71ca6109e9ddb4e60ab"
+  },
+  "evidenceDirectory": "docs/reviews/m5-high-autonomy-content-operations/artifacts/2026-07-31-stepfun-3.5-role-quality"
+}

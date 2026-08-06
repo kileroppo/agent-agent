@@ -1,0 +1,17 @@
+{
+  "node": "rtx-4070ti-super",
+  "capabilities": {
+    "image.generate": {
+      "command": ["python", "desktop_comfyui_adapter.py", "invoke", "image.generate"],
+      "healthCommand": ["python", "desktop_comfyui_adapter.py", "health", "image.generate"],
+      "resource": "gpu-heavy",
+      "timeoutSeconds": 3600
+    },
+    "image.edit": {
+      "command": ["python", "desktop_comfyui_adapter.py", "invoke", "image.edit"],
+      "healthCommand": ["python", "desktop_comfyui_adapter.py", "health", "image.edit"],
+      "resource": "gpu-heavy",
+      "timeoutSeconds": 3600
+    }
+  }
+}

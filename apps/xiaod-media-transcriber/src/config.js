@@ -37,6 +37,12 @@ export const config = {
     appId: process.env.LARK_APP_ID || '',
     appSecret: process.env.LARK_APP_SECRET || '',
     userOpenId: process.env.LARK_USER_OPEN_ID || ''
+  },
+  mediaCrawler: {
+    // These two A君-managed services are intentionally loopback-only. They can
+    // still be disabled by setting either environment value to an empty string.
+    cookieBridgeUrl: process.env.MEDIACRAWLER_COOKIE_BRIDGE_URL ?? 'http://127.0.0.1:8274',
+    downloadServerUrl: process.env.MEDIACRAWLER_DOWNLOAD_SERVER_URL ?? 'http://127.0.0.1:8205'
   }
 };
 
@@ -44,5 +50,6 @@ export const configuredCapabilities = () => ({
   asr: Boolean(config.asrBin),
   aiRefinement: Boolean(config.refiner.url && config.refiner.model),
   lark: Boolean(config.lark.appId && config.lark.appSecret),
+  mediaCrawlerDeep: Boolean(config.mediaCrawler.cookieBridgeUrl && config.mediaCrawler.downloadServerUrl),
   testFailpointArmed: Boolean(config.testFailOnceAt)
 });

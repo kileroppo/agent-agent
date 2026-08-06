@@ -33,6 +33,52 @@
     "nonResponsibilities": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
     "acceptedTaskTypes": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$" }, "uniqueItems": true },
     "toolAllowlist": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$" }, "uniqueItems": true },
+    "toolExecutionPolicy": {
+      "type": "object",
+      "required": ["unknownToolDecision", "workspace", "grants"],
+      "properties": {
+        "unknownToolDecision": { "const": "deny" },
+        "workspace": {
+          "type": "object",
+          "required": ["scope", "pathMode"],
+          "properties": {
+            "scope": { "enum": ["paperclip-execution-workspace", "paperclip-project-workspace"] },
+            "pathMode": { "const": "relative-only" }
+          },
+          "additionalProperties": false
+        },
+        "grants": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["adapter", "access", "externalSideEffect"],
+            "properties": {
+              "adapter": {
+                "enum": [
+                  "ajun-public-search",
+                  "ajun-public-fetch",
+                  "ajun-task-store",
+                  "ajun-office-markdown",
+                  "hermes-public-browser",
+                  "hermes-pdf",
+                  "github-public",
+                  "paperclip-work-product",
+                  "hermes-docx",
+                  "hermes-xlsx",
+                  "hermes-office-pdf",
+                  "content-library"
+                ]
+              },
+              "access": { "enum": ["read", "write"] },
+              "externalSideEffect": { "enum": ["none", "network-read"] },
+              "scope": { "enum": ["paperclip-execution-workspace", "agent-army-knowledge-archive"] }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "dataScopes": { "type": "array", "items": { "type": "object" } },
     "approvalPolicies": { "type": "array", "items": { "type": "object" } },
     "qualityGates": { "type": "array", "minItems": 1, "items": { "type": "object" } },
@@ -40,6 +86,148 @@
     "promptRef": { "type": "string", "minLength": 1 },
     "runtimeProfileRef": { "type": "string", "minLength": 1 },
     "appRef": { "type": "string", "minLength": 1 },
+    "interaction": {
+      "type": "object",
+      "required": ["runtime", "directFeishu", "visibility", "groupPolicy"],
+      "properties": {
+        "runtime": { "enum": ["hermes-profile"] },
+        "directFeishu": { "enum": ["required", "disabled"] },
+        "visibility": { "enum": ["on-demand", "always-visible"] },
+        "groupPolicy": { "enum": ["mention-only", "disabled"] }
+      },
+      "additionalProperties": false
+    },
+    "executionOwner": { "enum": ["ajun-local", "paperclip-hermes"] },
+    "runtimeCapabilities": {
+      "type": "object",
+      "required": ["skills", "mcpTools", "feishuToolsets", "paperclipToolsets"],
+      "properties": {
+        "modelSelection": {
+          "type": "object",
+          "required": ["provider", "model"],
+          "properties": {
+            "provider": { "enum": ["openai-codex", "openrouter", "nous", "zai", "kimi-coding", "minimax", "minimax-cn", "stepfun", "deepseek", "local-openai"] },
+            "model": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._/-]{1,127}$" }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": { "provider": { "const": "stepfun" } },
+                "required": ["provider"]
+              },
+              "then": {
+                "properties": { "model": { "const": "step-3.5-flash-2603" } }
+              }
+            },
+            {
+              "if": {
+                "properties": { "provider": { "const": "deepseek" } },
+                "required": ["provider"]
+              },
+              "then": {
+                "properties": { "model": { "const": "deepseek-v4-flash" } }
+              }
+            }
+          ],
+          "additionalProperties": false
+        },
+        "fallbackModels": {
+          "type": "array",
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["provider", "model", "trigger"],
+            "properties": {
+              "provider": { "const": "deepseek" },
+              "model": { "const": "deepseek-v4-flash" },
+              "trigger": { "const": "transport_unavailable" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "skills": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+          "uniqueItems": true
+        },
+        "mcpTools": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "uniqueItems": true
+        },
+        "localAiCapabilities": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "text.generate",
+              "vision.analyze",
+              "video.analyze",
+              "audio.transcribe",
+              "audio.synthesize",
+              "image.generate",
+              "image.edit",
+              "embedding.create",
+              "rerank.score",
+              "knowledge.index",
+              "knowledge.search"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "feishuToolsets": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "uniqueItems": true
+        },
+        "paperclipToolsets": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "openTaskPolicy": {
+      "type": "object",
+      "required": ["domain", "qualityGateMode"],
+      "properties": {
+        "domain": { "type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$" },
+        "qualityGateMode": { "const": "manifest-required" }
+      },
+      "additionalProperties": false
+    },
+    "dynamicCapabilityPolicy": {
+      "type": "object",
+      "required": ["allowDiscovery", "allowedSources", "modelPolicyMutable", "approvalRequiredFor"],
+      "properties": {
+        "allowDiscovery": { "type": "boolean" },
+        "allowedSources": {
+          "type": "array",
+          "items": { "enum": ["repository", "installed-hermes", "official-source", "reviewed-third-party"] },
+          "uniqueItems": true
+        },
+        "modelPolicyMutable": { "const": false },
+        "capabilityLifecycleMode": { "enum": ["bounded-use", "propose-only"] },
+        "approvalRequiredFor": {
+          "type": "array",
+          "items": { "enum": ["credentials", "external-write", "paid-action", "permission-expansion"] },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "autonomyBudgetPolicy": {
+      "type": "object",
+      "required": ["maxRuntimeMinutes", "maxModelCalls", "maxConcurrentSubtasks", "maxDelegationDepth", "paidApprovalThresholdUsd"],
+      "properties": {
+        "maxRuntimeMinutes": { "type": "integer", "minimum": 1, "maximum": 60 },
+        "maxModelCalls": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "maxConcurrentSubtasks": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "maxDelegationDepth": { "type": "integer", "minimum": 0, "maximum": 2 },
+        "paidApprovalThresholdUsd": { "type": "number", "minimum": 0, "maximum": 5 }
+      },
+      "additionalProperties": false
+    },
     "operationalPolicy": { "type": "object" },
     "evalRefs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
     "owner": { "type": "string", "minLength": 1 },

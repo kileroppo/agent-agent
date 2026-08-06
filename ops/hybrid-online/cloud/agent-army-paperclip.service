@@ -1,0 +1,25 @@
+[Unit]
+Description=Agent Army Paperclip governance control plane
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=agentarmy
+Group=agentarmy
+WorkingDirectory=/opt/agent-army/current
+Environment=HOME=/var/lib/agent-army
+ExecStart=/usr/local/bin/node /opt/agent-army/shared/paperclip/node_modules/paperclipai/dist/index.js run --no-repair
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/agent-army
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
