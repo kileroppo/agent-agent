@@ -27,13 +27,14 @@ agent-agent/
 
 ## 当前状态
 
-### 机器事实（2026-08-06 18:35 CST）
+### 机器事实（2026-08-06）
 
-- **A君已切入新的不可变 release**：PID `36973`，`releaseHash=0ba4980dad1df73b3bc0b32d8364d0a5600ae516d056602911d5e7d010b96752`，`payloadHash=e7ec9ea89300dddc8a58bed5d5ea9262a084c361e5d65c8132234690de537147`，来源为 clean commit `bf8b6586f3e21b241a270e70142fe44745e194f7`；`/api/overview=200`，11 个 Agent、771 条任务、0 条进行中/后台/待审批任务。
+- **运行身份不再手工猜测**：执行 `npm run runtime:fingerprint` 同时读取当前源码 Git、脏文件计数、不可变 release 身份和关键服务摘要；文档中的历史 PID/release 只保留为验收记录，不能替代当前机器输出。
 - **依赖服务健康，生产写入继续关闭**：Paperclip、小D、Publisher 健康接口均为 200；Publisher 为 `disabled`、`realConnectorsConfigured=false`，Campaign 与 M5 Cron 未恢复。本轮未调用 Provider、未执行发布、未发送外部消息。
-- **共享主工作树不是 live 源码**：仍位于 `experiment/governance-hermes-full-migration`、HEAD `6cccefb851072866777fa39c0775d1320e7aa590`，保留既有未提交变更且 staged 为 0。live 使用隔离 clean worktree，因此 `runtime:fingerprint` 报 `different_git_head` 是预期的身份差异，不是运行漂移。
-- **验证通过**：控制台导航/运行时/PPT 聚焦测试 `24/24`，A君全量 `1143/1143`，架构检查、release main/recovery smoke 和不可变 payload 校验通过；真实 Chrome DevTools 协议验证 `#employees` 在后台同步及整页重载后仍保持选中，浏览器错误 0。
-- **M5 仍为 PARTIAL**。唯一安全下一步：生成并人工审阅一份不含 Secret 的当前 Campaign readiness 输入快照，再执行只读 `production:readiness`；恢复 Campaign、注入 provider、启用 Publisher 或发布均须另行批准。
+- **共享主工作树不是 live 源码**：仍位于 `experiment/governance-hermes-full-migration`、HEAD `6cccefb851072866777fa39c0775d1320e7aa590`，保留既有未提交变更且 staged 为 0。live 使用 `codex/m5-release-integration-20260806` 的隔离 clean worktree；从该工作树执行 `runtime:fingerprint` 应为 `same_git_head`。
+- **核心编排已拆分并设防回涨**：`TaskService` 从 3370 行降至约 1060 行，M5 `ContentCampaignKernel` 从 3022 行降至约 830 行，Publisher Gateway 收敛至 1287 行；执行编排、产物校验和共享 primitives 分文件持有，架构检查对各责任文件设独立行数上限。核心回归、M5 深链、Publisher `221/221`、Local AI `28/28` 和架构门禁通过。
+- **日期炸弹已修复**：Publisher 的 4 个到期 lease 用例注入固定时钟，不再依赖执行当天日期，也没有把批准到期日向后延长。
+- **M5 仍为 PARTIAL**。只读 `production:readiness` 当前预期因 Publisher/connector、Campaign 快照、selector、Profile lease 和 provider 缺口返回 `not_ready`；恢复 Campaign、注入 provider、启用 Publisher 或发布均须另行批准。
 
 > 以下按日期保留历史验收，不再作为当前 PID、release 或唯一下一步的依据。
 

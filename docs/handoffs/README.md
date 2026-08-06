@@ -55,13 +55,13 @@
 
 ## 当前交接
 
-- [小办演示文稿能力交接](./current/office-presentation-capability-handoff.md)：PPTD 自包含交付、受控 PPTX 门禁和离线/降级验证已完成；PPTX 仍因隔离 Node 24+ 与 `agent-browser >= 0.33.2` 缺失为 `needs_capability`。唯一下一步是准备锁定的隔离工具链并重新验证 readiness，外部 live 仍需当次批准。
+- [小办演示文稿能力交接](./current/office-presentation-capability-handoff.md)：候选和 Kimi 图片阶段 `ETIMEDOUT` 证据已保留在独立分支，当前暂停且不进入 M5 release。没有新的外部动作；后续继续仍需负责人重新批准。
 - [小R多路线搜索与证据方法交接](./current/intel-research-search-method-handoff.md)：Yichen 技能已同步到小R Profile，六路规划器已在 Profile 实跑；A君执行器源码和全量回归已通过。唯一下一步是从独立干净 worktree 冻结并切换不可变 release，再用一条真实公开研究任务验收结果质量。
 - [本地 AI 能力系统交接](./current/local-ai-capability-system-handoff.md)：九项 Mac 本地能力和统一网关已完成真实样本验收；唯一下一步是等待 18081 当前请求自然结束后切换 launchd，并完成重启恢复与 A君运行证据。
 - [Agent 技能接线与微信本机分析交接](./current/agent-skill-and-private-wechat-capability-handoff.md)：代码、岗位技能同步、Paperclip 公司技能、本机模型和 4321 不可变 release 已完成；唯一下一步是由主人指定一次微信会话与范围，验收临时授权、撤销和本机脱敏摘要。
 - [系统重构与技术负债偿还交接](./current/system-architecture-debt-repayment-handoff.md)：已关闭；候选 1–7、可追溯不可变 release、SQLite 迁移及二次启动恢复均通过，外部平台仍按原独立授权边界保持关闭。
 - [M2 多账号与三平台只读增量验收交接](./current/m2-multi-account-crawl-acceptance-handoff.md)：已关闭；多账号、运行台及小红书/抖音/B站真实只读均已通过，小红书成功样本使用发现页自然生成的完整链接。
-- [M5 高权限内容自治交接](./current/m5-high-autonomy-content-operations-handoff.md)：v2 15 阶段/17 Routine/5 个无模型控制器及内容插件 `0.4.7` 已对账到 live，`0.4.6` 回滚链、Paperclip Secret 引用和 8 岗插件绑定已完成；活动仍未批准。唯一下一步是保持活动、Cron 和真实 Publisher 关闭，冻结真实 selector、签发绑定 accountRef 的命名 Profile lease，并在取得平台写权限后单独批准首发。
+- [M5 高权限内容自治交接](./current/m5-high-autonomy-content-operations-handoff.md)：本地候选已完成静态卡与核心编排拆分；Paperclip live 仍为 15 阶段/17 Routine/5 控制器、插件 `0.4.9`，活动暂停，Cron 与 Publisher 关闭。只读 readiness 保留阻断项；任何恢复或平台写入仍需独立批准。
 - [M4 岗位自主执行与模型切换交接](./current/m4-autonomous-agent-capabilities-handoff.md)：代码、契约与模型元数据实施中；唯一下一步是负责人通过 Hermes 官方入口补齐各 Profile 的 StepFun/DeepSeek 授权，再做一次性重启和真实验收。
 - [M2 Agent 人性化体验验收交接](./current/m2-agent-experience-polish-handoff.md)：本机实现、自动检查与真实浏览器检查已通过；唯一下一步是在 A君真实飞书原会话验证中文 `/new` 按钮和可点击任务号。
 - [M3 内容增长与知识归档交接](../archive/handoffs/m3-content-growth-handoff.md)：已关闭并归档；负责人确认已于 2026-07-29 完成新版内容质量和最终飞书脚本闭环验收，后续进入 M4。

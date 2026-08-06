@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 2026-08-06 A君不可变 release `0ba4980d…` 已 live，PID `36973`，服务与浏览器关键路径通过；Campaign、Cron、Publisher 继续关闭，M5 未完成 |
+| 状态 | 2026-08-06 本地候选已完成 M5 静态卡、核心编排拆分、Publisher 恢复职责提取与固定时钟回归；运行身份以 `npm run runtime:fingerprint` 为准。Campaign、Cron、Publisher 继续关闭，M5 未完成 |
 | 创建时间 | 2026-07-30 Asia/Shanghai |
 | 交出者 | Codex |
 | 接手者 | Codex / A君 |
@@ -14,8 +14,15 @@
 - 目标：把内容增长链升级为可恢复、可审计、可受控发布的真实执行循环。
 - 用户约束与不可做事项：抖音+小红书；旁白混剪；活动级预授权；不使用逆向接口、Cookie 导出、私信、评论、投流或自动删除。
 - 做完的定义：本地代码、自动化、fresh 运行时、多模态、Computer Use、双平台首发和 7 天指标回流分层有证据。
-- 唯一下一步：保持 Campaign、M5 Cron 和 Publisher 关闭；生成并人工审阅一份不含 Secret 的当前 Campaign readiness 输入快照，然后执行只读 `production:readiness`。恢复 Campaign、注入 provider、启用 Publisher 或发布均须另行批准。
-- 允许继续的前提：A君 live release `0ba4980d…`、A君 `1143/1143`、Pipeline `67/67`、内容插件 `97/97`、release main/recovery smoke、架构检查和真实浏览器关键路径已通过；Paperclip 仍为 15/17/5。selector/Profile lease、登录态、provider 与平台写权限必须按目标动作重新只读核验，不能从历史批准推断当前有效。
+- 唯一下一步：保持 Campaign、M5 Cron 和 Publisher 关闭；只读 `production:readiness` 已可重复列出缺失的 connector、Campaign 快照、selector、Profile lease 和 provider。补齐任何一项外部条件、恢复 Campaign、注入 provider、启用 Publisher 或发布均须另行批准。
+- 允许继续的前提：当前源码/release/服务身份由 `runtime:fingerprint` 核对，核心回归、架构检查和 release smoke 必须通过；Paperclip 仍为 15/17/5。selector/Profile lease、登录态、provider 与平台写权限必须按目标动作重新只读核验，不能从历史批准推断当前有效。
+
+## 2026-08-06 补充：编排职责收敛
+
+- `TaskService` 门面约 1060 行；Paperclip/Hermes 员工执行和 M5 产物校验分别进入 execution/support 模块。
+- `ContentCampaignKernel` 门面约 830 行；阶段执行、Work Product 校验和 ID/text primitives 分离，公开 Control Plane 契约保持不变。
+- Publisher 指标调用恢复进入独立 `metric-invocation-recovery.js`；Gateway 约 1287 行。
+- 架构检查对上述责任文件设独立上限，并有失败用例防止重新长回巨型文件。
 
 ## 2026-08-06 补充：A君 release 收口
 

@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 2026-08-06 A君已从 clean commit `bf8b6586…` 切入不可变 release `0ba4980d…`，main/recovery smoke、A君 `1143/1143` 和真实浏览器导航持久性通过；Paperclip 资源仍为 15/17/5，Campaign、Cron 与 Publisher 关闭。2026-08-05 的小红书单次受控发布仍只是隔离人工冒烟，不能替代 production Runtime `PublishReceipt`、抖音、指标或 7 天闭环，因此 M5 未完成 |
+| 状态 | 2026-08-06 本地候选已完成静态卡、核心编排拆分、Publisher 恢复职责提取和固定时钟回归；当前运行身份必须由 `npm run runtime:fingerprint` 读取。Paperclip 资源仍为 15/17/5，Campaign、Cron 与 Publisher 关闭；小红书单次人工冒烟不能替代 production Runtime `PublishReceipt`、抖音、指标或 7 天闭环，因此 M5 未完成 |
 | 负责人 | A君 |
 | 创建时间 | 2026-07-30 |
 | 上游 | [Agent军团总 PRD](./prd-agent-army-master.md) |

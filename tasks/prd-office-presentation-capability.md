@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 首版代码完成，待隔离兼容工具链和外部验收 |
+| 状态 | 首版 PPTD 与阶段级 Playwright 诊断完成本地验证；此前 Kimi live 在图片阶段超时，PPTX 保持 needs_capability |
 | 负责人 | 小办 / A君 |
 | 最后更新 | 2026-08-06 |
 | 关联设计 | [受控 OpenKimi PPT 适配设计](../docs/design/office-presentation-capability.md) |
@@ -40,7 +40,7 @@
 - `external-data-processing` 只允许 `open-kimi-pptx`，只放行 `www.kimi.com` 与 `statics.moonshot.cn`；`internal`/`sensitive` 或未批准任务在浏览器启动前拒绝。
 - 运行时不得执行全局 npm/pip 安装、自动升级或上游 `--force`。
 - 共享技能固定为相对入口 `open-kimi-ppt-skill/skills/open-kimi-ppt/SKILL.md`，首版允许版本 `1.0.0`，技能入口、两份导出脚本和导出页面的组合源码 SHA-256 为 `672358d16ef70aa907b8181d451e649465aded3ed1a9cf613b2de5771a70cb10`；漂移时失败关闭。
-- A君继续使用 Node 22。PPTX 仅在隔离 Node 24+、Python 依赖、Chromium 和 `agent-browser >= 0.33.2` 全部通过后可用。
+- A君主运行时不升级。PPTX 使用独立锁定工具链：Node 24+、Python 依赖、`playwright-core 1.62.1`（版本与入口哈希双校验）和现有 Chromium；只有公开固定样例 live 图片/PPTX 均通过后才可用。
 
 ## 4. 完成定义
 

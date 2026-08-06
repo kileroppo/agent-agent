@@ -309,7 +309,7 @@ cua-driver doctor
 | CuaDriver | 官方发布脚本 SHA-256 与 v0.17.0 release 一致后，由 `0.14.1` 更新到 `0.17.0`；守护进程已恢复，Accessibility 与 Screen Recording 均为 `true`，语义快照/点击/导航工具仍存在 | 官方 0.16/0.17 主要增强语义路由和原生桌面安全，不新增 DOM 任意属性读取；未借升级绕过平台或网址限制 |
 | selector / Profile 审批准备 | 根据负责人提供的真实创作页截图、已保存的单次冒烟回执和当前 CampaignGrant，生成候选 `xiaohongshu-1.1.0`；Paperclip `AGE-949` selector 冻结审批和 `AGE-950` Profile lease 审批已由负责人批准。selector 已冻结为 `0444` bundle/manifest，冻结文件与候选逐字节一致，规范哈希和文件哈希均匹配；Profile lease 校验通过 | 冻结不启用 Publisher、Cron 或发布；production Runtime 仍未构造 |
 
-最新只读 production readiness：selector candidate/frozen 与 Profile lease 均安全通过；Campaign 当前因“指标回流后置、先完成本地门禁”而暂停，4390 仍为 `disabled` 且未注入 production provider，因此总判定仍为 `not_ready`。恢复 Campaign、注入 provider 或启用 Publisher 均需另行授权。
+该次带输入快照的只读 production readiness：selector candidate/frozen 与 Profile lease 均安全通过；Campaign 因“指标回流后置、先完成本地门禁”而暂停，4390 仍为 `disabled` 且未注入 production provider，因此总判定为 `not_ready`。当前不带输入快照的复核则明确报告 selector/Profile lease 缺失；两者都不授权恢复 Campaign、注入 provider 或启用 Publisher。
 
 当时下一步（历史）：保持 Campaign、Cron 和 Publisher 关闭；若负责人决定继续 production Runtime 验收，先单独授权恢复 Campaign，仍不得据此发布。不得把本次人工冒烟或本地 fixture 写成 M5 完成。
 
@@ -322,5 +322,16 @@ cua-driver doctor
 | 自动化 | LOCAL PASS | 内容插件 `100/100`、M5 contracts `13/13`、M5 kernel `13/13`、A君 Runtime `1146/1146`，架构检查通过 |
 | 真实渲染 | LOCAL PASS / HUMAN REVIEWED | `work/m5-social-card-acceptance-20260806-e/candidate/social-cards/` 的 3/3 PNG 均为 1080×1440；props、manifest、每张卡均有 SHA-256；人工复核封面、证据页和清单页无裁切 |
 | 外部状态 | UNCHANGED | 使用仓库自有图片和本机 Chrome；无 Provider 调用、无平台访问、无发布。Campaign/Cron/Publisher 未启用，live 插件仍为 `0.4.9` |
+
+## 2026-08-06 核心编排与验证信号收敛
+
+| 项目 | 结果 | 证据与边界 |
+| --- | --- | --- |
+| TaskService | LOCAL PASS | 门面约 1060 行；执行编排约 1550 行；M5 校验/血缘支持约 910 行；公开调用由原测试覆盖 |
+| ContentCampaignKernel | LOCAL PASS | 门面约 830 行；阶段执行约 1160 行；产物校验约 1180 行；M5 Control Plane 公开契约未变 |
+| Publisher | LOCAL PASS | Gateway 1287 行，指标调用恢复已进入独立模块；`221/221` 通过 |
+| 防回涨门禁 | PASS | 架构检查对各责任文件设置独立上限，超限 fixture 会失败 |
+| 日期稳定性 | PASS | 4 个 lease 测试注入固定 clock，没有延长批准有效期 |
+| 外部状态 | UNCHANGED | 没有恢复 Campaign/Cron/Publisher，没有调用 Provider 或平台；只读 readiness 仍为 `not_ready` |
 
 本次验收只证明 `0.5.0` 候选源码、自动化和本机静态输出。它不证明 live 已安装、不批准恢复 Campaign，也不授权任何发布动作。
