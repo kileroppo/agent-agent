@@ -244,3 +244,38 @@ test('已完成或并发的 Paperclip 任务不会重复执行', async () => {
   const completed = new PaperclipHeartbeatHandler({ operator:{ async execute() { throw new Error('不应执行'); } }, governance:{ async verifySystemAssignment() { return { issue:{ status:'done', description:'[agent-army:operations-health:routine]' } }; } } });
   assert.deepEqual(await completed.handle({ runId:'run-3', agentId:'agent-1', context:{ taskId:'issue-1' } }), { accepted:true, skipped:true, issueId:'issue-1', reason:'任务已完成，不重复执行。' });
 });
+
+test('Paperclip 对同一巡检先 assignment 后 automation 时复用刚完成结果', async () => {
+  let verifies = 0;
+  let executes = 0;
+  const handler = new PaperclipHeartbeatHandler({
+    operator:{ async execute() {
+      executes += 1;
+      return {
+        status:'succeeded',
+        currentStage:'health_report_ready',
+        artifactRefs:[{ type:'health_report', data:{ overall:'healthy' } }],
+      };
+    } },
+    governance:{
+      async verifySystemAssignment() {
+        verifies += 1;
+        if (verifies > 1) throw new Error('已完成任务的第二次唤醒不应重新核验');
+        return { issue:{ status:'in_progress', description:'[agent-army:operations-health:routine]' } };
+      },
+      async completePaperclipIssue() {},
+    },
+  });
+
+  await handler.handle({ runId:'assignment-run', agentId:'controller-1', context:{ taskId:'issue-1' } });
+  const replay = await handler.handle({ runId:'automation-run', agentId:'controller-1', context:{ taskId:'issue-1' } });
+
+  assert.equal(verifies, 1);
+  assert.equal(executes, 1);
+  assert.deepEqual(replay, {
+    accepted:true,
+    skipped:true,
+    issueId:'issue-1',
+    reason:'任务刚刚已由同一控制器完成，不重复执行。',
+  });
+});

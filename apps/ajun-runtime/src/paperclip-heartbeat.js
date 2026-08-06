@@ -5,6 +5,8 @@ import {
   recoverM5SystemControllerFailure,
 } from './m5-system-controller-recovery.js';
 
+const COMPLETED_HEALTH_REPLAY_WINDOW_MS = 30_000;
+
 export class PaperclipHeartbeatHandler {
   constructor({ operator, governance, incidentDispatcher = null, now = () => new Date() } = {}) {
     this.operator = operator;
@@ -12,6 +14,7 @@ export class PaperclipHeartbeatHandler {
     this.incidentDispatcher = incidentDispatcher;
     this.now = now;
     this.inFlightIssues = new Map();
+    this.recentCompletions = new Map();
   }
 
   async handle(payload) {
@@ -21,11 +24,36 @@ export class PaperclipHeartbeatHandler {
     if (!runId || !agentId) throw new PaperclipHeartbeatError('Paperclip heartbeat 缺少运行或岗位标识。');
     if (!issueId) return { accepted: true, skipped: true, reason: '当前 heartbeat 没有分配任务。' };
 
+    const nowMs = this.now().getTime();
+    for (const [completedIssueId, completion] of this.recentCompletions) {
+      if (completion.expiresAt <= nowMs) this.recentCompletions.delete(completedIssueId);
+    }
+    const recent = this.recentCompletions.get(issueId);
+    if (recent?.agentId === agentId) {
+      return {
+        accepted:true,
+        skipped:true,
+        issueId,
+        reason:'任务刚刚已由同一控制器完成，不重复执行。',
+      };
+    }
+
     if (this.inFlightIssues.has(issueId)) return this.inFlightIssues.get(issueId);
 
     const execution = this.executeIssue({ issueId, runId, agentId });
     this.inFlightIssues.set(issueId, execution);
-    try { return await execution; } finally { this.inFlightIssues.delete(issueId); }
+    try {
+      const result = await execution;
+      if (result?.accepted && !result?.skipped) {
+        this.recentCompletions.set(issueId, {
+          agentId,
+          expiresAt:this.now().getTime() + COMPLETED_HEALTH_REPLAY_WINDOW_MS,
+        });
+      }
+      return result;
+    } finally {
+      this.inFlightIssues.delete(issueId);
+    }
   }
 
   async executeIssue({ issueId, runId, agentId }) {
