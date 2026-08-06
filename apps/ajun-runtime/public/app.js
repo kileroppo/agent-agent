@@ -652,15 +652,13 @@ function renderTaskLists() {
   ].some((value) => String(value || '').toLocaleLowerCase('zh-CN').includes(normalizedQuery)));
   const shown = selectedTaskId ? filtered : filtered.slice(0, visibleTaskCount);
   taskCount.textContent = filtered.length > shown.length ? `显示 ${shown.length}/${filtered.length} 条` : `${filtered.length} 条`;
-  taskList.replaceChildren();
-  if (!filtered.length) {
-    taskList.append(document.querySelector('#empty').content.cloneNode(true));
-  } else {
-    taskList.append(...shown.map(taskCard));
-    if (selectedTaskId && !selectedTaskRevealed) {
-      selectedTaskRevealed = true;
-      requestAnimationFrame(() => taskList.querySelector(`[data-task-id="${CSS.escape(selectedTaskId)}"]`)?.scrollIntoView({ block:'center' }));
-    }
+  const taskNodes = !filtered.length
+    ? [...document.querySelector('#empty').content.cloneNode(true).childNodes]
+    : shown.map(taskCard);
+  replaceChildrenPreservingDisclosureState(taskList, taskNodes);
+  if (filtered.length && selectedTaskId && !selectedTaskRevealed) {
+    selectedTaskRevealed = true;
+    requestAnimationFrame(() => taskList.querySelector(`[data-task-id="${CSS.escape(selectedTaskId)}"]`)?.scrollIntoView({ block:'center' }));
   }
   taskLoadMore.hidden = Boolean(selectedTaskId) || shown.length >= filtered.length;
   if (!taskLoadMore.hidden) taskLoadMore.textContent = `再显示 ${Math.min(24, filtered.length - shown.length)} 条`;
@@ -748,7 +746,7 @@ function taskCard(task) {
     technical:{ taskId:task.taskId, status:task.status, currentStage:task.currentStage, errorCode:task.error?.code }
   };
   node.innerHTML = `
-    <details class="task-disclosure"${selectedTaskId === task.taskId ? ' open' : ''}>
+    <details class="task-disclosure" data-disclosure-key="task:${escapeHtml(task.taskId)}"${selectedTaskId === task.taskId ? ' open' : ''}>
       <summary>
         <div class="task-summary-main">
           <span class="status ${escapeHtml(shownStatus.className)}">${escapeHtml(shownStatus.label)}</span>
@@ -769,7 +767,7 @@ function taskCard(task) {
             <a class="task-detail-link" href="${escapeHtml(presentation.detailPath)}">查看任务 ${escapeHtml(presentation.taskRef)}</a>
             <button class="task-copy-id" type="button">复制完整编号</button>
           </div>
-          <details class="task-technical">
+          <details class="task-technical" data-disclosure-key="task-technical:${escapeHtml(task.taskId)}">
             <summary>技术详情</summary>
             <dl>
               <div><dt>完整编号</dt><dd>${escapeHtml(presentation.technical.taskId || task.taskId)}</dd></div>

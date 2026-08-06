@@ -81,6 +81,7 @@ class DB:
 
                 CREATE TABLE IF NOT EXISTS scores (
                     work_id INTEGER PRIMARY KEY,
+                    score_version TEXT NOT NULL DEFAULT 'legacy-v1',
                     r_value REAL NOT NULL,
                     m_value REAL NOT NULL,
                     grade TEXT NOT NULL,
@@ -174,6 +175,7 @@ class DB:
             self._ensure_column(con, 'analysis_queue', 'dispatch_result_json', 'TEXT')
             self._ensure_column(con, 'analysis_queue', 'dispatched_at', 'TEXT')
             self._ensure_column(con, 'scores', 'baseline_version', 'TEXT')
+            self._ensure_column(con, 'scores', 'score_version', "TEXT NOT NULL DEFAULT 'legacy-v1'")
 
     @staticmethod
     def _ensure_column(con: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -265,8 +267,8 @@ class DB:
             db_work_id = int(row['id'])
             con.execute(
                 '''
-                INSERT INTO scores(work_id, r_value, m_value, grade, tier, baseline_metric, baseline_sample_count, follower_snapshot, baseline_at, baseline_version, created_at, updated_at)
-                VALUES(?, 0, 0, 'N0', 'low', NULL, 0, 0, NULL, NULL, ?, ?)
+                INSERT INTO scores(work_id, score_version, r_value, m_value, grade, tier, baseline_metric, baseline_sample_count, follower_snapshot, baseline_at, baseline_version, created_at, updated_at)
+                VALUES(?, 'legacy-v1', 0, 0, 'N0', 'low', NULL, 0, 0, NULL, NULL, ?, ?)
                 ON CONFLICT(work_id) DO NOTHING
                 ''',
                 (db_work_id, now, now)
@@ -412,9 +414,10 @@ class DB:
             now = self.now()
             con.execute(
                 '''
-                INSERT INTO scores(work_id, r_value, m_value, grade, tier, baseline_metric, baseline_sample_count, follower_snapshot, baseline_at, baseline_version, created_at, updated_at)
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO scores(work_id, score_version, r_value, m_value, grade, tier, baseline_metric, baseline_sample_count, follower_snapshot, baseline_at, baseline_version, created_at, updated_at)
+                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(work_id) DO UPDATE SET
+                  score_version=excluded.score_version,
                   r_value=excluded.r_value,
                   m_value=excluded.m_value,
                   grade=excluded.grade,
@@ -428,6 +431,7 @@ class DB:
                 ''',
                 (
                     work_db_id,
+                    str(score.get('version') or 'legacy-v1'),
                     float(score['r_value']),
                     float(score['m_value']),
                     str(score['grade']),
@@ -476,7 +480,7 @@ class DB:
                 '''
                 SELECT
                     w.*, c.platform AS creator_platform, c.creator_id AS creator_external_id, c.creator_name, c.follower_count,
-                    s.r_value, s.m_value, s.grade, s.tier, s.baseline_metric, s.baseline_sample_count, s.follower_snapshot,
+                    s.score_version, s.r_value, s.m_value, s.grade, s.tier, s.baseline_metric, s.baseline_sample_count, s.follower_snapshot,
                     s.baseline_at AS score_baseline_at, aq.tier AS queue_tier, aq.status AS analysis_status,
                     t.status AS transcript_status, t.provider, t.transcript_text
                 FROM works w
@@ -545,6 +549,19 @@ class DB:
                 (int(work_id), str(grade), int(priority), now, now, self.normalize_json(score_snapshot or {}), 'full' if analysis_depth == 'full' else 'fast')
             )
 
+    def cancel_pending_analysis(self, work_id: int, reason: str) -> bool:
+        with self.connection() as con:
+            now = self.now()
+            cur = con.execute(
+                '''
+                UPDATE analysis_queue
+                SET status='cancelled', dispatch_error=?, updated_at=?
+                WHERE work_id=? AND status IN ('queued', 'waiting_source', 'dispatch_failed')
+                ''',
+                (str(reason), now, int(work_id)),
+            )
+            return cur.rowcount > 0
+
     def next_dispatch_batch(self, limit: int = 20) -> List[dict]:
         with self.connection() as con:
             rows = con.execute(
@@ -552,7 +569,7 @@ class DB:
                 SELECT aq.*, w.title, w.work_id AS external_work_id, w.source_url, w.platform,
                        w.likes, w.favorites, w.plays, w.publish_at,
                        c.creator_id AS creator_external_id, c.creator_name, c.follower_count,
-                       s.r_value, s.m_value, s.grade, s.tier, s.baseline_metric,
+                       s.score_version, s.r_value, s.m_value, s.grade, s.tier, s.baseline_metric,
                        s.baseline_sample_count, s.follower_snapshot, s.baseline_at
                 FROM analysis_queue aq
                 JOIN works w ON w.id=aq.work_id
@@ -690,7 +707,7 @@ class DB:
         where = ' AND '.join(conditions)
         query = f'''
             SELECT w.id, w.platform, c.creator_id AS creator_external_id, c.creator_name, w.work_id, w.title, w.publish_at,
-                   w.likes, w.favorites, w.plays, s.grade, s.r_value, s.m_value, s.tier, s.updated_at AS scored_at,
+                   w.likes, w.favorites, w.plays, s.score_version, s.grade, s.r_value, s.m_value, s.tier, s.updated_at AS scored_at,
                    aq.status AS analysis_status
             FROM works w
             JOIN creators c ON c.id = w.creator_id

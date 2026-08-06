@@ -105,3 +105,11 @@ test('任务记录默认只呈现需要复盘的前 24 条，并支持搜索和�
   assert.match(script, /\.slice\(0, visibleTaskCount\)/);
   assert.match(script, /visibleTaskCount \+= 24/);
 });
+
+test('记录页后台自动同步保留任务卡片和技术详情的展开状态', async () => {
+  const script = await readFile(new URL('app.js', root), 'utf8');
+
+  assert.match(script, /replaceChildrenPreservingDisclosureState\(taskList/);
+  assert.match(script, /data-disclosure-key="task:\$\{escapeHtml\(task\.taskId\)\}"/);
+  assert.match(script, /data-disclosure-key="task-technical:\$\{escapeHtml\(task\.taskId\)\}"/);
+});

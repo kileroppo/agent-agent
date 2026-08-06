@@ -135,7 +135,7 @@ Manifest 是活动岗位的唯一真相。运行时提案不能覆盖正式 Mani
 | `content.performance-review` | `video-content-analyst` | 原拆解、原草稿、真实结构化指标 | 不把相关性写成确定因果 |
 | `office.knowledge-summary` | `office-assistant` | 当前任务脱敏正文、明确的 `sourceTaskIds`/产物引用或受限会话快照 | 只写统一内容库 `Agent军团/`，不接受任意路径 |
 
-Boom Monitor 可以并行保存版本化影子评分，用于比较规则而不改变任务行为。影子评分必须标明 `controlsDispatch: false`，不得写入正式 `boomSignal` 或触发军团派发；只有经过样本复核并显式升级为正式版本后，才能替换派发所用评分。缺少发布时间的影子评分只能描述累计表现，不能表述为实时爆发。
+Boom Monitor 的正式链接评分版本为 `v2`，正式 `boomSignal` 必须携带 `scoreVersion: v2`，并由该版本决定等级和派发深度。旧 `v1` 只作为版本化回滚对照，必须标明 `controlsDispatch: false`，不得触发军团派发。缺少发布时间的评分只能描述累计表现，不能表述为实时爆发。
 
 小拆 `fast` 最长 5 分钟、最多 2 次尝试；`full` 最长 12 分钟，最多一次安全重试。超限后停止扩大模型调用并交付已有可验证部分。小创一次最多生成三个平台版本。
 

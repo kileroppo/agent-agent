@@ -7,10 +7,11 @@ from .scorer import evaluate_grade, m_threshold_by_followers, platform_core_metr
 
 
 SCHEMA_VERSION = 'agent.army/boom-metrics-bundle/v1'
-SHADOW_SCORE_VERSION = 'shadow-v2'
+V2_SCORE_VERSION = 'v2'
+LEGACY_SHADOW_SCORE_VERSION = 'shadow-v2'
 
 
-def build_shadow_score(bundle: Dict[str, Any], frozen_score: Optional[dict] = None) -> dict:
+def build_v2_score(bundle: Dict[str, Any], frozen_score: Optional[dict] = None) -> dict:
     _validate_bundle(bundle)
     creator = bundle.get('creator') or {}
     current = bundle.get('currentWork') or {}
@@ -43,8 +44,8 @@ def build_shadow_score(bundle: Dict[str, Any], frozen_score: Optional[dict] = No
 
     frozen_baseline_valid = bool(
         frozen_score
-        and frozen_score.get('version') == SHADOW_SCORE_VERSION
-        and frozen_score.get('baseline_version') == 'url-history-shadow-v2'
+        and frozen_score.get('version') in {V2_SCORE_VERSION, LEGACY_SHADOW_SCORE_VERSION}
+        and frozen_score.get('baseline_version') in {'url-history-v2', 'url-history-shadow-v2'}
         and frozen_score.get('baseline_metric') is not None
     )
     if frozen_baseline_valid:
@@ -59,11 +60,18 @@ def build_shadow_score(bundle: Dict[str, Any], frozen_score: Optional[dict] = No
         baseline_at = str(bundle.get('observedAt') or '') if baseline > 0 and sample_count >= 5 else None
     if sample_count < 5 or followers <= 0 or baseline <= 0:
         return {
-            'version': SHADOW_SCORE_VERSION,
+            'version': V2_SCORE_VERSION,
             'grade': 'N0',
             'status': 'insufficient_history',
-            'controls_dispatch': False,
+            'controls_dispatch': True,
+            'r_value': 0.0,
+            'm_value': 0.0 if followers <= 0 else likes / followers,
+            'tier': tier_key_from_followers(followers),
+            'baseline_metric': None,
             'sample_count': sample_count,
+            'follower_snapshot': followers,
+            'baseline_at': None,
+            'baseline_version': None,
             'time_basis': 'cumulative_unknown_age',
         }
 
@@ -125,19 +133,20 @@ def build_shadow_score(bundle: Dict[str, Any], frozen_score: Optional[dict] = No
         grade_cap = 'T1'
         grade_cap_reason = 'low_absolute_volume'
     result = {
-        'version': SHADOW_SCORE_VERSION,
+        'version': V2_SCORE_VERSION,
         'grade': grade,
         'status': 'evaluated',
-        'controls_dispatch': False,
+        'controls_dispatch': True,
         'recommended_analysis_depth': 'full' if grade == 'T3' else 'fast' if grade in {'T1', 'T2'} else None,
         'r_value': round(r_value, 4),
         'm_value': round(m_value, 4),
+        'tier': tier_key_from_followers(followers),
         'absolute_interactions': current_metric,
         'baseline_metric': round(baseline, 4),
         'sample_count': sample_count,
         'follower_snapshot': followers,
         'baseline_at': baseline_at,
-        'baseline_version': 'url-history-shadow-v2',
+        'baseline_version': 'url-history-v2',
         'time_basis': 'cumulative_unknown_age',
         'signals': {
             'relative': {'passed': r_value >= 2, 'value': round(r_value, 4)},
@@ -167,18 +176,27 @@ def build_shadow_score(bundle: Dict[str, Any], frozen_score: Optional[dict] = No
 
 def build_score_comparison(
     bundle: Dict[str, Any],
-    frozen_score: Optional[dict] = None,
-    frozen_shadow_score: Optional[dict] = None,
+    frozen_legacy_score: Optional[dict] = None,
+    frozen_v2_score: Optional[dict] = None,
 ) -> dict:
-    official_score = build_collected_score(bundle, frozen_score=frozen_score)
-    shadow_score = build_shadow_score(bundle, frozen_score=frozen_shadow_score)
-    shadow_score['official_grade'] = official_score['grade']
-    shadow_score['differs_from_official'] = shadow_score['grade'] != official_score['grade']
-    shadow_score['observed_at'] = str(bundle.get('observedAt') or '')
+    legacy_score = build_collected_score(bundle, frozen_score=frozen_legacy_score)
+    official_score = build_v2_score(bundle, frozen_score=frozen_v2_score)
+    official_score['legacy_grade'] = legacy_score['grade']
+    official_score['differs_from_legacy'] = official_score['grade'] != legacy_score['grade']
+    official_score['observed_at'] = str(bundle.get('observedAt') or '')
+    legacy_score['version'] = 'legacy-v1'
+    legacy_score['controls_dispatch'] = False
+    legacy_score['official_grade'] = official_score['grade']
+    legacy_score['differs_from_official'] = legacy_score['grade'] != official_score['grade']
+    legacy_score['observed_at'] = str(bundle.get('observedAt') or '')
     return {
         'official_score': official_score,
-        'shadow_score': shadow_score,
+        'legacy_score': legacy_score,
     }
+
+
+# Compatibility for callers from the observation-only rollout.
+build_shadow_score = build_v2_score
 
 
 def _history_rate_median(history_rates: list[float]) -> Optional[float]:

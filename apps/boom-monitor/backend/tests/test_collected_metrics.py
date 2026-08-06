@@ -1,6 +1,6 @@
 import unittest
 
-from boom_monitor.collected_metrics import build_score_comparison, build_collected_score, build_shadow_score, bundle_to_record
+from boom_monitor.collected_metrics import build_score_comparison, build_collected_score, build_v2_score, bundle_to_record
 
 
 def bundle(platform='xiaohongshu', history_count=6):
@@ -25,7 +25,7 @@ def bundle(platform='xiaohongshu', history_count=6):
 
 
 class CollectedMetricsTests(unittest.TestCase):
-    def test_comparison_keeps_v1_as_official_and_marks_v2_as_non_dispatching(self):
+    def test_comparison_promotes_v2_to_official_and_keeps_v1_for_rollback(self):
         value = bundle()
         value['creator']['followerCount'] = 2_147
         value['currentWork'].update({'likes': 93, 'favorites': 34, 'shares': 24, 'comments': 7})
@@ -36,13 +36,15 @@ class CollectedMetricsTests(unittest.TestCase):
 
         result = build_score_comparison(value)
 
-        self.assertEqual(result['official_score']['grade'], 'N0')
-        self.assertEqual(result['shadow_score']['grade'], 'T1')
-        self.assertEqual(result['shadow_score']['official_grade'], 'N0')
-        self.assertEqual(result['shadow_score']['differs_from_official'], True)
-        self.assertEqual(result['shadow_score']['controls_dispatch'], False)
+        self.assertEqual(result['official_score']['version'], 'v2')
+        self.assertEqual(result['official_score']['grade'], 'T1')
+        self.assertEqual(result['official_score']['controls_dispatch'], True)
+        self.assertEqual(result['legacy_score']['version'], 'legacy-v1')
+        self.assertEqual(result['legacy_score']['grade'], 'N0')
+        self.assertEqual(result['legacy_score']['controls_dispatch'], False)
+        self.assertEqual(result['legacy_score']['official_grade'], 'T1')
 
-    def test_shadow_v2_observes_small_absolute_boom_without_promoting_it_past_t1(self):
+    def test_v2_promotes_small_absolute_boom_to_official_t1(self):
         value = bundle()
         value['creator']['followerCount'] = 2_147
         value['currentWork'].update({'likes': 93, 'favorites': 34, 'shares': 24, 'comments': 7})
@@ -52,13 +54,13 @@ class CollectedMetricsTests(unittest.TestCase):
         ]
         value['sampleCount'] = 12
 
-        shadow = build_shadow_score(value)
+        score = build_v2_score(value)
 
-        self.assertEqual(shadow['version'], 'shadow-v2')
-        self.assertEqual(shadow['grade'], 'T1')
-        self.assertEqual(shadow['absolute_interactions'], 127)
-        self.assertEqual(shadow['signals']['quality']['passed'], True)
-        self.assertEqual(shadow['controls_dispatch'], False)
+        self.assertEqual(score['version'], 'v2')
+        self.assertEqual(score['grade'], 'T1')
+        self.assertEqual(score['absolute_interactions'], 127)
+        self.assertEqual(score['signals']['quality']['passed'], True)
+        self.assertEqual(score['controls_dispatch'], True)
 
     def test_shadow_v2_caps_tiny_absolute_activity_at_t1_and_explains_the_cap(self):
         value = bundle()
@@ -70,13 +72,13 @@ class CollectedMetricsTests(unittest.TestCase):
         ]
         value['sampleCount'] = 6
 
-        shadow = build_shadow_score(value)
+        shadow = build_v2_score(value)
 
         self.assertEqual(shadow['grade'], 'T1')
         self.assertEqual(shadow['grade_cap'], 'T1')
         self.assertEqual(shadow['grade_cap_reason'], 'low_absolute_volume')
 
-    def test_shadow_v2_recommends_full_analysis_for_a_multi_signal_t3_without_controlling_dispatch(self):
+    def test_v2_recommends_full_analysis_for_an_official_t3(self):
         value = bundle()
         value['creator']['followerCount'] = 200_000
         value['currentWork'].update({'likes': 20_000, 'favorites': 5_000, 'shares': 1_000, 'comments': 500})
@@ -86,11 +88,11 @@ class CollectedMetricsTests(unittest.TestCase):
         ]
         value['sampleCount'] = 8
 
-        shadow = build_shadow_score(value)
+        shadow = build_v2_score(value)
 
         self.assertEqual(shadow['grade'], 'T3')
         self.assertEqual(shadow['recommended_analysis_depth'], 'full')
-        self.assertEqual(shadow['controls_dispatch'], False)
+        self.assertEqual(shadow['controls_dispatch'], True)
 
     def test_shadow_v2_accepts_quality_that_is_strong_relative_to_the_creator_history(self):
         value = bundle()
@@ -102,7 +104,7 @@ class CollectedMetricsTests(unittest.TestCase):
         ]
         value['sampleCount'] = 8
 
-        shadow = build_shadow_score(value)
+        shadow = build_v2_score(value)
 
         self.assertEqual(shadow['grade'], 'T2')
         self.assertEqual(shadow['signals']['quality']['passed'], True)
@@ -132,7 +134,7 @@ class CollectedMetricsTests(unittest.TestCase):
             },
         }
 
-        shadow = build_shadow_score(value, frozen_score=frozen)
+        shadow = build_v2_score(value, frozen_score=frozen)
 
         self.assertEqual(shadow['baseline_metric'], 100)
         self.assertEqual(shadow['sample_count'], 6)

@@ -321,7 +321,7 @@ def ingest_metrics_bundle(bundle: Dict[str, Any]) -> Dict[str, Any]:
             'message': '内容可继续做普通拆解，但当前没有可靠爆款分级依据。',
             'metrics': bundle,
             'score': None,
-            'shadow_score': None,
+            'legacy_score': None,
         }
     record = bundle_to_record(bundle)
     creator_db_id = store.upsert_creator(
@@ -331,19 +331,23 @@ def ingest_metrics_bundle(bundle: Dict[str, Any]) -> Dict[str, Any]:
         record['follower_count'],
     )
     work_db_id, _ = store.upsert_work(creator_db_id, record['platform'], record)
-    frozen_score = store.get_score(work_db_id)
-    frozen_shadow_score = store.get_shadow_score(work_db_id)
+    persisted_score = store.get_score(work_db_id)
+    frozen_legacy_score = persisted_score if str(persisted_score.get('baseline_version') or '') == 'url-history-v1' else store.get_shadow_score(work_db_id, 'legacy-v1')
+    frozen_v2_score = store.get_shadow_score(work_db_id, 'v2') or store.get_shadow_score(work_db_id, 'shadow-v2')
+    if frozen_v2_score is None and str(persisted_score.get('baseline_version') or '') in {'url-history-v2', 'url-history-shadow-v2'}:
+        frozen_v2_score = {**persisted_score, 'version': str(persisted_score.get('score_version') or 'v2')}
     comparison = build_score_comparison(
         bundle,
-        frozen_score=frozen_score,
-        frozen_shadow_score=frozen_shadow_score,
+        frozen_legacy_score=frozen_legacy_score,
+        frozen_v2_score=frozen_v2_score,
     )
     score = comparison['official_score']
-    shadow_score = comparison['shadow_score']
+    legacy_score = comparison['legacy_score']
     store.upsert_score(work_db_id, score)
-    store.upsert_shadow_score(work_db_id, shadow_score)
+    store.upsert_shadow_score(work_db_id, score)
+    store.upsert_shadow_score(work_db_id, legacy_score)
     work = store.get_work(work_db_id)
-    # Shadow v2 is observation-only. Dispatch remains bound to the frozen v1 score.
+    # V2 is the official score and the only score allowed to control dispatch.
     if should_auto_enqueue_grade(str(score['grade'])):
         store.upsert_analysis_queue(
             work_db_id,
@@ -351,13 +355,15 @@ def ingest_metrics_bundle(bundle: Dict[str, Any]) -> Dict[str, Any]:
             _boom_signal(work, score),
             'full' if score['grade'] == 'T3' else 'fast',
         )
+    elif get_analysis_auto_config()['enabled']:
+        store.cancel_pending_analysis(work_db_id, '正式 v2 等级未命中当前自动派发范围')
     return {
         'status': bundle.get('status') or 'collected',
         'work_id': work_db_id,
         'score': score,
-        'shadow_score': shadow_score,
+        'legacy_score': legacy_score,
         'metrics': bundle,
-        'message': '历史样本不足，保持 N0，不自动拆解。' if score['grade'] == 'N0' and score.get('baseline_metric') is None else '指标已读取；正式 v1 决定派发，v2 仅作影子对照。',
+        'message': '历史样本不足，保持 N0，不自动拆解。' if score['grade'] == 'N0' and score.get('baseline_metric') is None else '指标已读取；正式 v2 已完成评分并决定派发。',
     }
 
 
@@ -375,10 +381,13 @@ def _boom_signal(work: dict, score: dict) -> dict:
         'observedAt': now_local_iso(),
         'evidenceKind': 'platform_observed',
         'sourceRef': source_url or f"boom-monitor:work:{work.get('id')}",
+        'scoreVersion': str(score.get('version') or score.get('score_version') or 'legacy-v1'),
         'grade': str(score.get('grade') or 'N0'),
         'tier': str(score.get('tier') or 'low'),
         'rValue': float(score.get('r_value') or 0),
         'mValue': float(score.get('m_value') or 0),
+        'absoluteInteractions': score.get('absolute_interactions'),
+        'signals': score.get('signals') or {},
         'observedMetrics': {
             'likes': int(work.get('likes') or 0),
             'favorites': int(work.get('favorites') or 0),
@@ -395,6 +404,7 @@ def _boom_signal(work: dict, score: dict) -> dict:
         'formulas': {
             'R': 'platform_core_metric / frozen_history_median',
             'M': 'likes / frozen_follower_snapshot',
+            'grade': 'v2: R + reach(M or absolute interactions) + favorite/share/comment quality',
         },
         'baselineVersion': score.get('baseline_version'),
     }
@@ -524,13 +534,19 @@ def list_works(grade: Optional[str] = None, platform: Optional[str] = None, crea
     }
 
 
+@app.get('/api/versioned-scores')
+def list_versioned_scores(version: str = 'v2', limit: int = 100):
+    return {
+        'version': version,
+        'controls_dispatch': version == 'v2',
+        'items': store.list_shadow_scores(version=version, limit=max(1, min(int(limit), 500))),
+    }
+
+
 @app.get('/api/shadow-scores')
 def list_shadow_scores(limit: int = 100):
-    return {
-        'version': 'shadow-v2',
-        'controls_dispatch': False,
-        'items': store.list_shadow_scores(limit=max(1, min(int(limit), 500))),
-    }
+    # Compatibility alias from the v2 observation phase.
+    return list_versioned_scores('v2', limit)
 
 
 @app.get('/api/works/{work_id}')
@@ -538,7 +554,12 @@ def get_work(work_id: int):
     row = store.get_work_detail(int(work_id))
     if not row:
         raise HTTPException(status_code=404, detail='找不到作品')
-    return {'work': row, 'shadow_score': store.get_shadow_score(int(work_id))}
+    score_details = store.get_shadow_score(int(work_id), 'v2') or store.get_shadow_score(int(work_id), 'shadow-v2')
+    return {
+        'work': row,
+        'score_details': score_details,
+        'legacy_score': store.get_shadow_score(int(work_id), 'legacy-v1'),
+    }
 
 
 @app.get('/api/scan/jobs')
@@ -642,6 +663,7 @@ def enqueue_work_analysis(work_id: int):
         raise HTTPException(status_code=404, detail='作品不存在')
     grade = str(row.get('grade') or 'N0')
     score = {
+        'score_version': row.get('score_version'),
         'grade': grade,
         'tier': row.get('tier'),
         'r_value': row.get('r_value'),

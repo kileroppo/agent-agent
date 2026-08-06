@@ -76,6 +76,25 @@ class DBTests(unittest.TestCase):
         self.assertEqual(observations[0]['official_grade'], 'N0')
         self.assertEqual(observations[0]['shadow_score'], shadow)
 
+    def test_official_score_records_that_v2_controls_dispatch(self):
+        work_id = self.add_work('official-v2', '2026-01-03T00:00:00Z', 1_000)
+        self.db.upsert_score(work_id, {
+            'version': 'v2',
+            'r_value': 4.0,
+            'm_value': 0.1,
+            'grade': 'T2',
+            'tier': 'mid',
+            'baseline_metric': 250,
+            'sample_count': 8,
+            'follower_snapshot': 100_000,
+            'baseline_at': '2026-01-03T00:00:00Z',
+            'baseline_version': 'url-history-v2',
+        })
+
+        official = self.db.get_score(work_id)
+        self.assertEqual(official['score_version'], 'v2')
+        self.assertEqual(official['grade'], 'T2')
+
 
 if __name__ == '__main__':
     unittest.main()

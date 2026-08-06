@@ -37,6 +37,7 @@ import { TechnicalRepairWatchdog } from './technical-repair-watchdog.js';
 import { TechnicalRepairDiagnoser } from './technical-repair-diagnoser.js';
 import { FailureRecoveryCoordinator } from './failure-recovery-coordinator.js';
 import {
+  createOperationsHealthIncidentDispatcher,
   PaperclipCampaignDailyHandler,
   PaperclipHeartbeatHandler,
   PaperclipParallelWorkHandler,
@@ -350,7 +351,11 @@ tasks.setWorkerStatus((currentTasks) => deploymentMode === 'cloud'
 tasks.setM5WorkProductObserver(
   async (event) => (await campaigns()).onM5WorkProductSynced(event),
 );
-const paperclipHeartbeat = new PaperclipHeartbeatHandler({ operator, governance });
+const paperclipHeartbeat = new PaperclipHeartbeatHandler({
+  operator,
+  governance,
+  incidentDispatcher:createOperationsHealthIncidentDispatcher({ tasks }),
+});
 const paperclipCampaignDaily = new PaperclipCampaignDailyHandler({
   governance,
   campaignActivator:async () => (await campaigns()).activateScheduledDay(),

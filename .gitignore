@@ -6,6 +6,11 @@ apps/ajun-runtime/data/
 !.env.example
 .DS_Store
 .idea/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 *.log
 *.sqlite
 *.sqlite3

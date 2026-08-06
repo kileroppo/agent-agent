@@ -221,7 +221,7 @@ createApp({
 
       <section v-if="state.view==='dashboard'" class="bg-white rounded-xl p-4 space-y-3">
         <h2 class="font-semibold text-lg">粘贴链接判断值不值得拆</h2>
-        <p class="text-sm text-slate-500">支持小红书、抖音。正式 v1 继续控制派发；v2 同时观察 R、触达规模、绝对互动和收藏/分享质量，但暂不派发。</p>
+        <p class="text-sm text-slate-500">支持小红书、抖音。正式 v2 同时判断 R、触达规模、绝对互动和收藏/分享质量，并据此决定是否派发拆解。</p>
         <div class="flex gap-2">
           <input v-model="state.sourceUrl" class="flex-1 border rounded px-3 py-2" placeholder="粘贴小红书或抖音作品链接" />
           <button class="px-4 py-2 rounded bg-slate-900 text-white disabled:opacity-50" @click="collectUrl" :disabled="state.collectLoading">
@@ -231,25 +231,25 @@ createApp({
         <div v-if="state.collectResult" class="rounded-lg bg-slate-50 p-3 text-sm">
           <div>{{ state.collectResult.message }}</div>
           <div v-if="state.collectResult.score" class="mt-1">
-            正式 v1 <span class="badge" :class="gradeClass(state.collectResult.score.grade)">{{ state.collectResult.score.grade }}</span>
+            正式 v2 <span class="badge" :class="gradeClass(state.collectResult.score.grade)">{{ state.collectResult.score.grade }}</span>
             · R {{ Number(state.collectResult.score.r_value || 0).toFixed(2) }}
             · M {{ Number(state.collectResult.score.m_value || 0).toFixed(4) }}
             · 历史样本 {{ state.collectResult.score.sample_count }} 条
-          </div>
-          <div v-if="state.collectResult.shadow_score" class="mt-2 border-t border-slate-200 pt-2">
-            影子 v2 <span class="badge" :class="gradeClass(state.collectResult.shadow_score.grade)">{{ state.collectResult.shadow_score.grade }}</span>
-            <span class="ml-1 text-slate-500">（不控制派发）</span>
-            <template v-if="state.collectResult.shadow_score.status === 'evaluated'">
-              · 绝对互动 {{ state.collectResult.shadow_score.absolute_interactions }}
-              · 质量信号 {{ state.collectResult.shadow_score.signals?.quality?.passed ? '通过' : '未通过' }}
+            <template v-if="state.collectResult.score.status === 'evaluated'">
+              · 绝对互动 {{ state.collectResult.score.absolute_interactions }}
+              · 质量信号 {{ state.collectResult.score.signals?.quality?.passed ? '通过' : '未通过' }}
             </template>
-            <div v-if="state.collectResult.shadow_score.differs_from_official" class="mt-1 text-amber-700">
-              v1 与 v2 结果不同，已记录为观察样本，不会改变本次派发。
-            </div>
-            <div v-if="state.collectResult.shadow_score.grade_cap_reason === 'low_absolute_volume'" class="mt-1 text-slate-500">
+            <div v-if="state.collectResult.score.grade_cap_reason === 'low_absolute_volume'" class="mt-1 text-slate-500">
               绝对互动量过小，最高只记 T1，防止小基数制造虚假高倍数。
             </div>
             <div class="mt-1 text-slate-500">缺少发布时间时只判断累计表现，不宣称“正在爆”。</div>
+          </div>
+          <div v-if="state.collectResult.legacy_score" class="mt-2 border-t border-slate-200 pt-2 text-slate-500">
+            旧 v1 对照 <span class="badge" :class="gradeClass(state.collectResult.legacy_score.grade)">{{ state.collectResult.legacy_score.grade }}</span>
+            <span>（仅供回滚，不控制派发）</span>
+            <div v-if="state.collectResult.legacy_score.differs_from_official" class="mt-1 text-amber-700">
+              v1 与 v2 结果不同；本次按 v2 执行。
+            </div>
           </div>
         </div>
         <h2 class="font-semibold text-lg pt-2">健康状态</h2>
@@ -357,9 +357,12 @@ createApp({
         <div>M: {{ Number(state.selected.work.m_value || 0).toFixed(4) }}</div>
         <div>基线: {{ state.selected.work.baseline_metric }}</div>
         <div>军团派发: {{ state.selected.work.analysis_status }}</div>
-        <div v-if="state.selected.shadow_score" class="mt-2 border-t border-slate-200 pt-2">
-          影子 v2: <span class="badge" :class="gradeClass(state.selected.shadow_score.grade)">{{ state.selected.shadow_score.grade }}</span>
-          · 不控制派发
+        <div v-if="state.selected.score_details" class="mt-2 border-t border-slate-200 pt-2">
+          正式 v2: <span class="badge" :class="gradeClass(state.selected.score_details.grade)">{{ state.selected.score_details.grade }}</span>
+          · 控制派发
+        </div>
+        <div v-if="state.selected.legacy_score" class="text-slate-500">
+          旧 v1 对照: {{ state.selected.legacy_score.grade }} · 不控制派发
         </div>
       </section>
     </div>
