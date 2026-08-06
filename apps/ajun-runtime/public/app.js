@@ -3,6 +3,7 @@ import {
   replaceChildrenPreservingDisclosureState,
   setTextIfChanged,
 } from './disclosure-state.js';
+import { createConsoleNavigation } from './console-navigation.js';
 
 const capabilityList = document.querySelector('#capability-list');
 const agentList = document.querySelector('#agent-list');
@@ -136,6 +137,11 @@ const attentionTaskStatuses = new Set([
 
 let overview;
 const selectedTaskId = taskIdFromPath(location.pathname);
+const moduleNavigation = createConsoleNavigation({
+  selectedTaskId,
+  getHash:() => location.hash,
+  activate:activateModule,
+});
 let selectedTaskRevealed = false;
 let shareKey = sessionStorage.getItem('ajun-share-key') || '';
 let requesterName = sessionStorage.getItem('ajun-requester-name') || '';
@@ -176,7 +182,7 @@ async function load({ background = false } = {}) {
     await renderLocalShare();
     render();
     updateOwnerNavigation();
-    activateModuleFromHash();
+    moduleNavigation.initialize();
     setSyncStatus(`已同步 · ${new Date().toLocaleTimeString()}`, 'synced');
     document.body.classList.remove('is-loading');
   } catch (error) {
@@ -279,10 +285,6 @@ function isLoopbackLocation() {
 function updateOwnerNavigation() {
   for (const element of ownerOnlyElements) element.hidden = !localOwner;
   if (!localOwner && ['#connections', '#campaigns'].includes(location.hash)) activateModule('overview', { replaceHash: true });
-}
-
-function activateModuleFromHash() {
-  activateModule(selectedTaskId ? 'records' : location.hash.slice(1) || 'overview');
 }
 
 function activateModule(name, { replaceHash = false } = {}) {
@@ -602,7 +604,7 @@ function render() {
   capabilitySummary.textContent = `${readyCapabilities} 项已就绪${limitedCapabilities ? ` · ${limitedCapabilities} 项受限或待准备` : ''}`;
   const directEmployees = overview.alwaysOnAgents?.length ? overview.alwaysOnAgents : overview.agents.filter(isDirectEmployee);
   const supportEmployees = overview.onDemandAgents?.length ? overview.onDemandAgents : overview.agents.filter((agent) => !isDirectEmployee(agent));
-  agentList.replaceChildren(...[
+  replaceChildrenPreservingDisclosureState(agentList, [
     agentGroupTitle('常驻员工', '保持飞书入口或后台巡检常驻'),
     ...directEmployees.map((agent) => agentCard(agent, false)),
     agentGroupTitle('后台按需能力', '不常驻飞书入口，由 A君或 Paperclip 按任务唤醒'),
@@ -652,15 +654,13 @@ function renderTaskLists() {
   ].some((value) => String(value || '').toLocaleLowerCase('zh-CN').includes(normalizedQuery)));
   const shown = selectedTaskId ? filtered : filtered.slice(0, visibleTaskCount);
   taskCount.textContent = filtered.length > shown.length ? `显示 ${shown.length}/${filtered.length} 条` : `${filtered.length} 条`;
-  taskList.replaceChildren();
-  if (!filtered.length) {
-    taskList.append(document.querySelector('#empty').content.cloneNode(true));
-  } else {
-    taskList.append(...shown.map(taskCard));
-    if (selectedTaskId && !selectedTaskRevealed) {
-      selectedTaskRevealed = true;
-      requestAnimationFrame(() => taskList.querySelector(`[data-task-id="${CSS.escape(selectedTaskId)}"]`)?.scrollIntoView({ block:'center' }));
-    }
+  const taskNodes = !filtered.length
+    ? [...document.querySelector('#empty').content.cloneNode(true).childNodes]
+    : shown.map(taskCard);
+  replaceChildrenPreservingDisclosureState(taskList, taskNodes);
+  if (filtered.length && selectedTaskId && !selectedTaskRevealed) {
+    selectedTaskRevealed = true;
+    requestAnimationFrame(() => taskList.querySelector(`[data-task-id="${CSS.escape(selectedTaskId)}"]`)?.scrollIntoView({ block:'center' }));
   }
   taskLoadMore.hidden = Boolean(selectedTaskId) || shown.length >= filtered.length;
   if (!taskLoadMore.hidden) taskLoadMore.textContent = `再显示 ${Math.min(24, filtered.length - shown.length)} 条`;
@@ -748,7 +748,7 @@ function taskCard(task) {
     technical:{ taskId:task.taskId, status:task.status, currentStage:task.currentStage, errorCode:task.error?.code }
   };
   node.innerHTML = `
-    <details class="task-disclosure"${selectedTaskId === task.taskId ? ' open' : ''}>
+    <details class="task-disclosure" data-disclosure-key="task:${escapeHtml(task.taskId)}"${selectedTaskId === task.taskId ? ' open' : ''}>
       <summary>
         <div class="task-summary-main">
           <span class="status ${escapeHtml(shownStatus.className)}">${escapeHtml(shownStatus.label)}</span>
@@ -769,7 +769,7 @@ function taskCard(task) {
             <a class="task-detail-link" href="${escapeHtml(presentation.detailPath)}">查看任务 ${escapeHtml(presentation.taskRef)}</a>
             <button class="task-copy-id" type="button">复制完整编号</button>
           </div>
-          <details class="task-technical">
+          <details class="task-technical" data-disclosure-key="task-technical:${escapeHtml(task.taskId)}">
             <summary>技术详情</summary>
             <dl>
               <div><dt>完整编号</dt><dd>${escapeHtml(presentation.technical.taskId || task.taskId)}</dd></div>
@@ -882,7 +882,7 @@ function agentCard(agent, support) {
   const summaryTypes = agent.acceptedTaskTypes.slice(0, 2).map(taskTypeLabel).join(' · ') || '职责待核对';
   const independent = independentRuntimeLabel(agent);
   node.innerHTML = `
-    <details class="agent-disclosure">
+    <details class="agent-disclosure" data-disclosure-key="agent:${escapeHtml(agent.agentId)}">
       <summary>
         <span class="agent-avatar">${escapeHtml(agent.name.slice(0, 1))}</span>
         <span class="agent-summary-copy">
@@ -1316,7 +1316,7 @@ taskLoadMore.addEventListener('click', () => {
   renderTaskLists();
 });
 
-window.addEventListener('hashchange', activateModuleFromHash);
+window.addEventListener('hashchange', moduleNavigation.locationChanged);
 
 function canAutoSync() {
   return !document.hidden
@@ -1334,7 +1334,6 @@ document.addEventListener('visibilitychange', () => {
 });
 
 setAccessStep(1);
-activateModuleFromHash();
 load().catch((error) => {
   setSyncStatus(error.message, 'error');
 });
