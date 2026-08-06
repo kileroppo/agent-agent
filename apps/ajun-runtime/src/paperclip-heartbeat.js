@@ -6,9 +6,10 @@ import {
 } from './m5-system-controller-recovery.js';
 
 export class PaperclipHeartbeatHandler {
-  constructor({ operator, governance, now = () => new Date() } = {}) {
+  constructor({ operator, governance, incidentDispatcher = null, now = () => new Date() } = {}) {
     this.operator = operator;
     this.governance = governance;
+    this.incidentDispatcher = incidentDispatcher;
     this.now = now;
     this.inFlightIssues = new Map();
   }
@@ -28,7 +29,17 @@ export class PaperclipHeartbeatHandler {
   }
 
   async executeIssue({ issueId, runId, agentId }) {
-    const current = await this.governance.getPaperclipIssue(issueId);
+    const assignment = await this.governance.verifySystemAssignment({
+      issueId,
+      runId,
+      paperclipAgentId:agentId,
+      systemRole:'operations-health-controller',
+    });
+    const current = assignment.issue;
+    const contractText = `${String(current.title || '')}\n${String(current.description || '')}`;
+    if (!contractText.includes('[agent-army:operations-health:routine]')) {
+      throw new PaperclipHeartbeatError('本机健康控制器只接受本机健康巡检 Routine。');
+    }
     if (current.status === 'done') return { accepted: true, skipped: true, issueId, reason: '任务已完成，不重复执行。' };
 
     const task = {
@@ -39,13 +50,30 @@ export class PaperclipHeartbeatHandler {
 
     try {
       const result = await this.operator.execute(task);
+      const healthReport = result.artifactRefs?.find((item) => item.type === 'health_report')?.data;
+      const health = healthReport?.overall === 'healthy' ? 'healthy' : 'degraded';
+      const incident = health === 'degraded' && typeof this.incidentDispatcher === 'function'
+        ? await this.incidentDispatcher({
+            sourceIssueId:issueId,
+            sourceRunId:runId,
+            checkedAt:String(healthReport?.checkedAt || this.now().toISOString()),
+            report:healthReport,
+          })
+        : null;
       await this.governance.completePaperclipIssue(issueId, {
         runId,
         agentId,
         result,
-        hideFromDashboard:true,
+        hideFromDashboard:health === 'healthy',
       });
-      return { accepted: true, issueId, stage: result.currentStage, status: result.status };
+      return {
+        accepted:true,
+        issueId,
+        stage:result.currentStage,
+        status:result.status,
+        health,
+        incident,
+      };
     } catch (error) {
       await this.governance.failPaperclipIssue(issueId, { runId, agentId, error }).catch(() => undefined);
       throw error;
@@ -251,7 +279,76 @@ export class PaperclipParallelWorkHandler {
   }
 }
 
+export function createOperationsHealthIncidentDispatcher({ tasks } = {}) {
+  if (typeof tasks?.create !== 'function') {
+    throw new PaperclipHeartbeatError('运维事故派发器缺少任务服务。');
+  }
+  return async ({ sourceIssueId, sourceRunId, checkedAt, report } = {}) => {
+    const unhealthyComponents = (Array.isArray(report?.components) ? report.components : [])
+      .filter((item) => item?.status !== 'healthy')
+      .map((item) => ({
+        componentId:String(item?.id || 'unknown').slice(0, 80),
+        name:String(item?.name || item?.id || '未知组件').slice(0, 120),
+        status:String(item?.status || 'degraded').slice(0, 40),
+        errorCode:String(item?.evidence?.errorCode || 'health_degraded').slice(0, 120),
+      }))
+      .sort((left, right) => left.componentId.localeCompare(right.componentId));
+    if (unhealthyComponents.length === 0) {
+      throw new PaperclipHeartbeatError('健康报告未包含可派发的异常组件。');
+    }
+    const safeCheckedAt = validIsoDate(checkedAt) || new Date().toISOString();
+    const day = shanghaiDate(safeCheckedAt);
+    const signature = unhealthyComponents
+      .map((item) => `${safeKeyPart(item.componentId)}:${safeKeyPart(item.status)}:${safeKeyPart(item.errorCode)}`)
+      .join('|');
+    const summary = unhealthyComponents
+      .map((item) => `${item.name}(${item.errorCode})`)
+      .join('、');
+    return tasks.create({
+      title:`本机巡检发现异常：${unhealthyComponents.map((item) => item.name).join('、')}`,
+      description:`确定性本机巡检发现 ${summary}。请只依据已登记的健康证据判断影响和安全恢复边界；不得读取凭据、登录、扩权或执行未登记命令。`,
+      taskType:'operations.incident-response',
+      agentId:'operator',
+      idempotencyKey:`operations-health-incident:${day}:${signature}`,
+      source:{
+        channel:'paperclip-health-controller',
+        paperclipIssueId:String(sourceIssueId || '').slice(0, 120),
+        paperclipRunId:String(sourceRunId || '').slice(0, 120),
+      },
+      context:{
+        healthIncident:{
+          checkedAt:safeCheckedAt,
+          overall:'degraded',
+          unhealthyComponents,
+          sourceIssueId:String(sourceIssueId || '').slice(0, 120),
+          sourceRunId:String(sourceRunId || '').slice(0, 120),
+        },
+      },
+    });
+  };
+}
+
 export class PaperclipHeartbeatError extends Error {}
+
+function validIsoDate(value) {
+  const parsed = new Date(String(value || ''));
+  return Number.isNaN(parsed.getTime()) ? '' : parsed.toISOString();
+}
+
+function shanghaiDate(value) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone:'Asia/Shanghai',
+    year:'numeric',
+    month:'2-digit',
+    day:'2-digit',
+  }).formatToParts(new Date(value));
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${byType.year}-${byType.month}-${byType.day}`;
+}
+
+function safeKeyPart(value) {
+  return String(value || 'unknown').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 120) || 'unknown';
+}
 
 function assertNoDailySelectionParameters(payload) {
   const denied = new Set(['campaignId', 'scheduledDate', 'caseId', 'platform', 'contentVersion']);

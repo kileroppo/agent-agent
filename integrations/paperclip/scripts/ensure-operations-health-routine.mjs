@@ -3,7 +3,10 @@
 const BASE_URL = 'http://127.0.0.1:3100';
 const COMPANY_NAME = 'Agent军团';
 const ROUTINE_TITLE = 'A君定时本机巡检';
-const ROUTINE_MARKER = 'agent-army:operations-health-v1';
+const ROUTINE_MARKER = 'agent-army:operations-health-v2';
+const ROUTINE_CONTRACT_MARKER = '[agent-army:operations-health:routine]';
+const CONTROLLER_ROLE = 'operations-health-controller';
+const CONTROLLER_URL = 'http://127.0.0.1:4321/api/paperclip/heartbeat';
 const TRIGGER_LABEL = '每半小时巡检一次';
 const CRON = '*/30 * * * *';
 const TIMEZONE = 'Asia/Shanghai';
@@ -23,19 +26,44 @@ export async function ensureOperationsHealthRoutine({ fetchImpl = fetch } = {}) 
   const company = asList(companies).find((item) => item.name === COMPANY_NAME);
   if (!company) throw new Error('Paperclip 中未找到 Agent军团。');
   const agents = await request(`/api/companies/${company.id}/agents`);
-  const operator = asList(agents).find((agent) =>
-    agent.status !== 'terminated'
-    && (agent.metadata?.agentArmyId === 'operator' || agent.name === '运维官')
-    && ['hermes', 'hermes_local'].includes(agent.adapterType)
+  const controllerBody = {
+    name:'本机健康确定性控制器',
+    role:'devops',
+    title:'每半小时执行登记服务的无模型只读健康检查',
+    icon:'radar',
+    capabilities:'无模型、无自由参数；只读检查登记的本机健康接口，异常时才派发运维事故。',
+    adapterType:'http',
+    adapterConfig:{ url:CONTROLLER_URL },
+    budgetMonthlyCents:0,
+    permissions:{ canCreateAgents:false, canCreateSkills:false, canAssignTasks:false },
+    metadata:{
+      agentArmySystemRole:CONTROLLER_ROLE,
+      agentArmyManagedOnly:false,
+      executionOwner:'ajun-runtime-deterministic',
+    },
+  };
+  const matchingControllers = asList(agents).filter((agent) =>
+    agent.status !== 'terminated' && agent.metadata?.agentArmySystemRole === CONTROLLER_ROLE
   );
-  if (!operator) throw new Error('Paperclip 中未找到已接入 Hermes 的运维官。');
+  if (matchingControllers.length > 1) throw new Error(`Paperclip 本机健康控制器必须唯一，当前为 ${matchingControllers.length} 个。`);
+  const controllerCreated = matchingControllers.length === 0;
+  let controller = matchingControllers[0] || await request(`/api/companies/${company.id}/agents`, { method:'POST', body:controllerBody });
+  if (controllerCreated || controllerNeedsUpdate(controller, controllerBody)) {
+    controller = await request(`/api/agents/${encodeURIComponent(controller.id)}`, {
+      method:'PATCH',
+      body:{
+        ...(controllerCreated ? {} : controllerBody),
+        status:'idle',
+      },
+    });
+  }
 
   const routines = await request(`/api/companies/${company.id}/routines`);
-  let routine = asList(routines).find((item) => item.title === ROUTINE_TITLE || String(item.description || '').includes(ROUTINE_MARKER));
+  let routine = asList(routines).find((item) => item.title === ROUTINE_TITLE || /agent-army:operations-health-v\d+/.test(String(item.description || '')));
   const routineBody = {
     title:ROUTINE_TITLE,
-    description:`${ROUTINE_MARKER}\n只检查 A君、小D 与 Paperclip 的本机运行状态；不登录、不外发、不修改业务数据。异常只留下可追踪的健康结果，由既有恢复流程决定后续处理。`,
-    assigneeAgentId:operator.id,
+    description:`${ROUTINE_MARKER}\n${ROUTINE_CONTRACT_MARKER}\n由无模型 HTTP 控制器只读检查 A君、小D 与 Paperclip 的本机运行状态；正常时不调用任何大模型。只有发现异常时才幂等派发运维事故；不登录、不外发、不修改业务数据。`,
+    assigneeAgentId:controller.id,
     priority:'low', status:'active', concurrencyPolicy:'skip_if_active', catchUpPolicy:'skip_missed'
   };
   const created = !routine;
@@ -52,10 +80,23 @@ export async function ensureOperationsHealthRoutine({ fetchImpl = fetch } = {}) 
     ? await request(`/api/routine-triggers/${encodeURIComponent(trigger.id)}`, { method:'PATCH', body:triggerBody })
     : await request(`/api/routines/${encodeURIComponent(routine.id)}/triggers`, { method:'POST', body:{ kind:'schedule', ...triggerBody } });
 
-  return { created, triggerCreated, routine:{ id:routine.id, title:routine.title || ROUTINE_TITLE, status:routine.status || 'active' }, trigger:{ id:trigger.id, cronExpression:trigger.cronExpression || CRON, timezone:trigger.timezone || TIMEZONE } };
+  return {
+    controller:{ id:controller.id, created:controllerCreated, adapterType:'http', url:CONTROLLER_URL },
+    created,
+    triggerCreated,
+    routine:{ id:routine.id, title:routine.title || ROUTINE_TITLE, status:routine.status || 'active' },
+    trigger:{ id:trigger.id, cronExpression:trigger.cronExpression || CRON, timezone:trigger.timezone || TIMEZONE },
+  };
 }
 
 function asList(value) { return Array.isArray(value) ? value : Array.isArray(value?.items) ? value.items : []; }
+
+function controllerNeedsUpdate(current, desired) {
+  return current.status !== 'idle'
+    || current.adapterType !== desired.adapterType
+    || current.adapterConfig?.url !== desired.adapterConfig.url
+    || current.metadata?.executionOwner !== desired.metadata.executionOwner;
+}
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   ensureOperationsHealthRoutine()
