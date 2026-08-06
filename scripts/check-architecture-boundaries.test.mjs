@@ -56,6 +56,18 @@ test('架构检查拒绝应用层重新引入 m5-kernel 一行转发门面', asy
   assert.match(result.stderr, /已退役的 M5 转发门面不得回流/);
 });
 
+test('架构检查拒绝核心责任模块重新长回巨型文件', async (context) => {
+  const root = await fixture(context);
+  await write(
+    root,
+    'apps/ajun-runtime/src/task-service.js',
+    `${Array.from({ length:1201 }, (_, index) => `// ${index}`).join('\n')}\n`,
+  );
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /责任模块超过 1200 行/);
+});
+
 async function fixture(context, { appDependencies = {} } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-army-architecture-check-'));
   context.after(() => fs.rm(root, { recursive:true, force:true }));

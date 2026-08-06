@@ -16,6 +16,15 @@ const retiredAjunM5Facades = new Set([
   'm5-routine-execution-contract.js',
   'm5-work-product-integrity.js',
 ]);
+const responsibilityLineLimits = new Map([
+  ['apps/ajun-runtime/src/task-service.js', 1200],
+  ['apps/ajun-runtime/src/task-service-execution.js', 1700],
+  ['apps/ajun-runtime/src/task-service-execution-support.js', 1100],
+  ['integrations/m5-kernel/src/content-campaign-kernel.js', 1000],
+  ['integrations/m5-kernel/src/content-campaign-execution.js', 1300],
+  ['integrations/m5-kernel/src/content-campaign-execution-support.js', 1300],
+  ['integrations/publishing/m5-publisher-gateway/src/gateway.js', 1400],
+]);
 const violations = [];
 const manifestCache = new Map();
 const workspaceManifests = await discoverWorkspaceManifests();
@@ -37,6 +46,11 @@ for (const sourceRoot of sourceRoots) {
   for (const file of files) {
     const relative = path.relative(root, file);
     const source = await fs.readFile(file, 'utf8');
+    const portableRelative = relative.split(path.sep).join('/');
+    const lineLimit = responsibilityLineLimits.get(portableRelative);
+    if (lineLimit && source.split(/\r?\n/).length > lineLimit) {
+      violations.push(`${portableRelative}: 责任模块超过 ${lineLimit} 行，请先提取有明确边界的协作者再继续扩展`);
+    }
     const ownerManifest = await owningPackageManifest(file);
     const productionSource = !relative.split(path.sep).some((segment) => ['test', 'tests', 'scripts'].includes(segment));
     if (relative.startsWith('packages/')) {
