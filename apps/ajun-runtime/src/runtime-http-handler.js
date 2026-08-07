@@ -177,6 +177,13 @@ export function createAjunHttpHandler({
       });
       if (boomMonitorResult) return sendJson(response, boomMonitorResult.status, boomMonitorResult.payload);
       if (request.method === 'GET' && request.url === '/api/overview') return sendJson(response, 200, await tasks.overview());
+      if (request.method === 'GET' && request.url === '/api/console-overview') return sendJson(response, 200, await tasks.consoleOverview());
+      const taskRecordUrl = request.method === 'GET' && request.url?.startsWith('/api/task-records')
+        ? new URL(request.url, 'http://127.0.0.1')
+        : null;
+      if (taskRecordUrl?.pathname === '/api/task-records') {
+        return sendJson(response, 200, await tasks.listTaskRecords(Object.fromEntries(taskRecordUrl.searchParams.entries())));
+      }
       if (request.method === 'GET' && request.url === '/api/local-ai/control') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'AI 能力控制只能由老板在本机查看。' });
         if (!localAi) return sendJson(response, 503, { error:'本机 AI 控制入口尚未接入。' });
@@ -196,7 +203,7 @@ export function createAjunHttpHandler({
       }
       const taskDetailMatch = request.url?.match(/^\/api\/tasks\/([0-9a-f-]{36})$/i);
       if (request.method === 'GET' && taskDetailMatch) {
-        const task = (await tasks.overview()).tasks.find((item) => item.taskId === taskDetailMatch[1]);
+        const task = await tasks.taskRecordDetail(taskDetailMatch[1]);
         if (!task) return sendJson(response, 404, { error:'没有找到这条任务。' });
         return sendJson(response, 200, { task });
       }
@@ -450,15 +457,17 @@ export function createAjunHttpHandler({
         return sendJson(response, 200, { task:decision === 'approve' ? await tasks.approveApproval(approvalId, options) : await tasks.rejectApproval(approvalId, options) });
       }
 
-      if (request.method === 'GET' && (request.url === '/' || request.url === '/index.html' || /^\/tasks\/[0-9a-f-]{36}$/i.test(request.url || ''))) return sendFile(response, publicDir, 'index.html', 'text/html; charset=utf-8');
-      if (request.method === 'GET' && request.url === '/app.js') return sendFile(response, publicDir, 'app.js', 'text/javascript; charset=utf-8');
-      if (request.method === 'GET' && request.url === '/app-access-views.js') return sendFile(response, publicDir, 'app-access-views.js', 'text/javascript; charset=utf-8');
-      if (request.method === 'GET' && request.url === '/app-interactions.js') return sendFile(response, publicDir, 'app-interactions.js', 'text/javascript; charset=utf-8');
-      if (request.method === 'GET' && request.url === '/boom-monitor-console.js') return sendFile(response, publicDir, 'boom-monitor-console.js', 'text/javascript; charset=utf-8');
-      if (request.method === 'GET' && request.url === '/console-navigation.js') return sendFile(response, publicDir, 'console-navigation.js', 'text/javascript; charset=utf-8');
-      if (request.method === 'GET' && request.url === '/disclosure-state.js') return sendFile(response, publicDir, 'disclosure-state.js', 'text/javascript; charset=utf-8');
-      if (request.method === 'GET' && request.url === '/task-record-filter.js') return sendFile(response, publicDir, 'task-record-filter.js', 'text/javascript; charset=utf-8');
-      if (request.method === 'GET' && request.url === '/styles.css') return sendFile(response, publicDir, 'styles.css', 'text/css; charset=utf-8');
+      const publicPath = new URL(request.url || '/', 'http://127.0.0.1').pathname;
+      if (request.method === 'GET' && (publicPath === '/' || publicPath === '/index.html' || /^\/tasks\/[0-9a-f-]{36}$/i.test(publicPath))) return sendFile(response, publicDir, 'index.html', 'text/html; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/app.js') return sendFile(response, publicDir, 'app.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/app-access-views.js') return sendFile(response, publicDir, 'app-access-views.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/app-interactions.js') return sendFile(response, publicDir, 'app-interactions.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/boom-monitor-console.js') return sendFile(response, publicDir, 'boom-monitor-console.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/console-navigation.js') return sendFile(response, publicDir, 'console-navigation.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/disclosure-state.js') return sendFile(response, publicDir, 'disclosure-state.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/task-record-filter.js') return sendFile(response, publicDir, 'task-record-filter.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/task-record-workbench.js') return sendFile(response, publicDir, 'task-record-workbench.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/styles.css') return sendFile(response, publicDir, 'styles.css', 'text/css; charset=utf-8');
       return sendJson(response, 404, { error:'未找到该入口。' });
     } catch (error) {
       return sendJson(response, errorStatus(error), { error:error.message || '运行台暂时不可用。' });

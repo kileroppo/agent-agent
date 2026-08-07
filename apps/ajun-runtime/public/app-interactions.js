@@ -1,5 +1,3 @@
-import { selectTaskRecordFilter } from './task-record-filter.js';
-
 export function bindConsoleInteractions({
   elements,
   state,
@@ -8,7 +6,6 @@ export function bindConsoleInteractions({
   setSyncStatus,
   moduleNavigation,
   accessViews,
-  renderTaskLists,
 }) {
   const {
     accessForm, accessKey, collaboratorName, rotateShareKey, shareMessage,
@@ -18,7 +15,7 @@ export function bindConsoleInteractions({
     refreshLoginAccounts, accessLoginForm, saveAccessConnection,
     cancelAccessReauthorize, accessConnectionList, accessConnectionMessage,
     accessLoginAlias, accessLoginDisclosure,
-    campaignList, campaignMessage, taskFilterButtons, taskSearch, taskLoadMore,
+    campaignList, campaignMessage,
     accessGate,
   } = elements;
 
@@ -321,28 +318,6 @@ campaignList?.addEventListener('click', async (event) => {
   }
 });
 
-for (const button of taskFilterButtons) {
-  button.addEventListener('click', () => {
-    const selection = selectTaskRecordFilter(state.selectedTaskId, button.dataset.taskFilter);
-    state.selectedTaskId = selection.selectedTaskId;
-    state.currentTaskFilter = selection.currentTaskFilter;
-    if (selection.exitedTaskDetail) history.replaceState(null, '', '/#records');
-    state.visibleTaskCount = 24;
-    renderTaskLists();
-  });
-}
-
-taskSearch.addEventListener('input', () => {
-  state.taskSearchQuery = taskSearch.value.trim();
-  state.visibleTaskCount = 24;
-  renderTaskLists();
-});
-
-taskLoadMore.addEventListener('click', () => {
-  state.visibleTaskCount += 24;
-  renderTaskLists();
-});
-
 window.addEventListener('hashchange', moduleNavigation.locationChanged);
 
 function canAutoSync() {
@@ -354,7 +329,7 @@ function canAutoSync() {
 
 setInterval(() => {
   if (canAutoSync()) load({ background:true }).catch(() => {});
-}, 5000);
+}, 15000);
 
 document.addEventListener('visibilitychange', () => {
   if (canAutoSync()) load({ background:true }).catch(() => {});

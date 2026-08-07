@@ -3,6 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
+  encodeTaskRecordCursor,
+  normalizeTaskRecordQuery,
+  taskRecordStatusSets,
+} from './task-record-query.js';
+import {
   applyApprovalPatch,
   applyTaskStatusPatch,
   applyWorkerTaskPatch,
@@ -32,6 +37,85 @@ export class SQLiteTaskStore {
   }
 
   async list() { return this.#listRecords('tasks', 'updated_at DESC'); }
+  async getTask(taskId) {
+    const row = this.database.prepare(`SELECT data_json, ${taskViewSql()} AS record_view FROM tasks WHERE task_id = ?`).get(taskId);
+    return row ? { ...parseRecord(row.data_json), recordView:row.record_view } : null;
+  }
+  async queryTasks(input = {}) {
+    const query = normalizeTaskRecordQuery(input);
+    const base = taskRecordBaseSql(query);
+    const visible = [...base.clauses];
+    const visibleParams = [...base.params];
+    if (!query.includeRoutine) visible.push(`NOT (${routineTaskSql()})`);
+
+    const countRow = this.database.prepare(`
+      SELECT
+        SUM(CASE WHEN record_view = 'needs_action' THEN 1 ELSE 0 END) AS needs_action,
+        SUM(CASE WHEN record_view = 'active' THEN 1 ELSE 0 END) AS active,
+        SUM(CASE WHEN record_view = 'completed' THEN 1 ELSE 0 END) AS completed,
+        COUNT(*) AS all_count
+      FROM (SELECT ${taskViewSql()} AS record_view FROM tasks${whereSql(visible)})
+    `).get(...visibleParams);
+    const counts = {
+      needs_action:Number(countRow.needs_action || 0),
+      active:Number(countRow.active || 0),
+      completed:Number(countRow.completed || 0),
+      all:Number(countRow.all_count || 0),
+    };
+
+    const selected = [...visible];
+    const selectedParams = [...visibleParams];
+    if (query.view !== 'all') {
+      selected.push(`${taskViewSql()} = ?`);
+      selectedParams.push(query.view);
+    }
+    if (query.cursor) {
+      selected.push('(updated_at < ? OR (updated_at = ? AND task_id < ?))');
+      selectedParams.push(query.cursor.updatedAt, query.cursor.updatedAt, query.cursor.taskId);
+    }
+    const rows = this.database.prepare(`
+      SELECT data_json, ${taskViewSql()} AS record_view FROM tasks${whereSql(selected)}
+      ORDER BY updated_at DESC, task_id DESC LIMIT ?
+    `).all(...selectedParams, query.limit + 1);
+    const parsed = rows.map((row) => ({ ...parseRecord(row.data_json), recordView:row.record_view }));
+    const hasMore = parsed.length > query.limit;
+    const items = hasMore ? parsed.slice(0, query.limit) : parsed;
+
+    const revisionClauses = [...visible];
+    const revisionParams = [...visibleParams];
+    if (query.view !== 'all') {
+      revisionClauses.push(`${taskViewSql()} = ?`);
+      revisionParams.push(query.view);
+    }
+    const revisionRow = this.database.prepare(`
+      SELECT task_id, updated_at FROM tasks${whereSql(revisionClauses)}
+      ORDER BY updated_at DESC, task_id DESC LIMIT 1
+    `).get(...revisionParams);
+
+    const routineClauses = [...base.clauses, routineTaskSql()];
+    const routine = query.includeRoutine ? { hidden:0, today:0, attention:0, latestUpdatedAt:null } : this.database.prepare(`
+      SELECT COUNT(*) AS hidden,
+        SUM(CASE WHEN substr(updated_at, 1, 10) = ? THEN 1 ELSE 0 END) AS today,
+        SUM(CASE WHEN json_extract(data_json, '$.status') IN ('failed', 'needs_input', 'pending_approval', 'waiting_approval', 'waiting_test', 'paused', 'blocked', 'error') THEN 1 ELSE 0 END) AS attention,
+        MAX(updated_at) AS latest_updated_at
+      FROM tasks${whereSql(routineClauses)}
+    `).get(new Date().toISOString().slice(0, 10), ...base.params);
+
+    return {
+      items,
+      total:counts[query.view],
+      counts,
+      nextCursor:hasMore ? encodeTaskRecordCursor(items.at(-1)) : null,
+      revision:[revisionRow?.updated_at || '', revisionRow?.task_id || '', counts.all].join(':'),
+      routineSummary:{
+        hidden:Number(routine.hidden || 0),
+        today:Number(routine.today || 0),
+        attention:Number(routine.attention || 0),
+        latestUpdatedAt:routine.latest_updated_at || null,
+      },
+      query:{ ...query, cursor:query.cursor ? input.cursor : null },
+    };
+  }
   async listApprovals() { return this.#listRecords('approvals', 'created_at DESC'); }
   async listProposals() { return this.#listRecords('proposals', 'updated_at DESC'); }
   async listTestInstances() { return this.#listRecords('test_instances', 'updated_at DESC'); }
@@ -222,6 +306,9 @@ export class SQLiteTaskStore {
       CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS tasks (task_id TEXT PRIMARY KEY, idempotency_key TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, data_json TEXT NOT NULL);
       CREATE UNIQUE INDEX IF NOT EXISTS tasks_idempotency_key ON tasks(idempotency_key) WHERE idempotency_key IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS tasks_status_updated ON tasks(json_extract(data_json, '$.status'), updated_at DESC, task_id DESC);
+      CREATE INDEX IF NOT EXISTS tasks_agent_updated ON tasks(json_extract(data_json, '$.assigneeAgentId'), updated_at DESC, task_id DESC);
+      CREATE INDEX IF NOT EXISTS tasks_type_updated ON tasks(json_extract(data_json, '$.taskType'), updated_at DESC, task_id DESC);
       CREATE TABLE IF NOT EXISTS approvals (approval_id TEXT PRIMARY KEY, created_at TEXT NOT NULL, data_json TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS proposals (proposal_id TEXT PRIMARY KEY, source_event_ref TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, data_json TEXT NOT NULL);
       CREATE UNIQUE INDEX IF NOT EXISTS proposals_source_event_ref ON proposals(source_event_ref) WHERE source_event_ref IS NOT NULL;
@@ -279,6 +366,98 @@ export class SQLiteTaskStore {
   #metadata(key) { return this.database.prepare('SELECT value FROM metadata WHERE key = ?').get(key)?.value || null; }
   #setMetadata(key, value) { this.database.prepare('INSERT INTO metadata(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value); }
   #secureFiles() { for (const suffix of ['', '-wal', '-shm']) { try { fs.chmodSync(`${this.filePath}${suffix}`, 0o600); } catch (error) { if (error.code !== 'ENOENT') throw error; } } }
+}
+
+function taskRecordBaseSql(query) {
+  const clauses = [];
+  const params = [];
+  if (query.agentId) {
+    clauses.push(`json_extract(data_json, '$.assigneeAgentId') = ?`);
+    params.push(query.agentId);
+  }
+  if (query.taskType) {
+    clauses.push(`json_extract(data_json, '$.taskType') = ?`);
+    params.push(query.taskType);
+  }
+  if (query.since) {
+    clauses.push('updated_at >= ?');
+    params.push(query.since);
+  }
+  if (query.until) {
+    clauses.push('updated_at <= ?');
+    params.push(query.until);
+  }
+  for (const term of query.q.split(/\s+/).filter(Boolean)) {
+    const pattern = `%${escapeLike(term)}%`;
+    clauses.push(`(
+      lower(task_id) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(json_extract(data_json, '$.input.title'), '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(json_extract(data_json, '$.input.description'), '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(json_extract(data_json, '$.assigneeAgentId'), '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(json_extract(data_json, '$.taskType'), '')) LIKE ? ESCAPE '\\'
+      OR lower(COALESCE(json_extract(data_json, '$.status'), '')) LIKE ? ESCAPE '\\'
+    )`);
+    params.push(pattern, pattern, pattern, pattern, pattern, pattern);
+  }
+  return { clauses, params };
+}
+
+function taskViewSql() {
+  const { completed } = taskRecordStatusSets();
+  const values = (items) => items.map((item) => `'${item}'`).join(', ');
+  const status = `json_extract(tasks.data_json, '$.status')`;
+  const channel = `COALESCE(json_extract(tasks.data_json, '$.source.channel'), '')`;
+  const origin = `COALESCE(json_extract(tasks.data_json, '$.source.originChannel'), '')`;
+  const userFacing = (alias) => `(
+    COALESCE(json_extract(${alias}.data_json, '$.source.channel'), '') IN ('feishu', 'local-ui', 'hermes-native')
+    OR COALESCE(json_extract(${alias}.data_json, '$.source.originChannel'), '') IN ('feishu', 'local-ui', 'hermes-native')
+  )`;
+  return `CASE
+    WHEN ${status} IN (${values(completed)}) THEN 'completed'
+    WHEN ${status} IN ('pending_approval', 'waiting_approval', 'paused', 'blocked', 'error') THEN 'needs_action'
+    WHEN ${status} IN ('failed', 'needs_input', 'waiting_test')
+      AND (
+        (${channel} = '' AND ${origin} = '')
+        OR (
+          (${channel} IN ('feishu', 'local-ui', 'hermes-native') OR ${origin} IN ('feishu', 'local-ui', 'hermes-native'))
+          AND NOT EXISTS (
+            SELECT 1 FROM tasks AS later
+            WHERE later.updated_at > tasks.updated_at
+              AND json_extract(later.data_json, '$.status') IN ('succeeded', 'cancelled')
+              AND ${userFacing('later')}
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM tasks AS superseding
+            WHERE COALESCE(json_extract(tasks.data_json, '$.input.sourceUrl'), '') != ''
+              AND superseding.updated_at > tasks.updated_at
+              AND json_extract(superseding.data_json, '$.status') = 'succeeded'
+              AND json_extract(superseding.data_json, '$.taskType') = json_extract(tasks.data_json, '$.taskType')
+              AND json_extract(superseding.data_json, '$.input.sourceUrl') = json_extract(tasks.data_json, '$.input.sourceUrl')
+          )
+        )
+      ) THEN 'needs_action'
+    WHEN ${status} IN ('queued', 'running', 'pausing', 'waiting_worker', 'recovery_pending', 'technical_repair') THEN 'active'
+    ELSE 'archived'
+  END`;
+}
+
+function routineTaskSql() {
+  return `(
+    json_extract(data_json, '$.taskType') = 'operations.health-review'
+    AND json_extract(data_json, '$.source.channel') = 'paperclip'
+    AND (
+      trim(COALESCE(json_extract(data_json, '$.input.title'), '')) = 'A君定时本机巡检'
+      OR trim(COALESCE(json_extract(data_json, '$.input.description'), '')) LIKE 'agent-army:operations-health-v1%'
+    )
+  )`;
+}
+
+function whereSql(clauses) {
+  return clauses.length ? ` WHERE ${clauses.map((clause) => `(${clause})`).join(' AND ')}` : '';
+}
+
+function escapeLike(value) {
+  return String(value || '').replace(/[\\%_]/g, (match) => `\\${match}`);
 }
 
 function normalizeSnapshot(snapshot) {

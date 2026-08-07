@@ -75,6 +75,26 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
   const payload = await overview.json();
   assert.ok(Array.isArray(payload.tasks));
 
+  const consoleOverview = await fetch(`${baseUrl}/api/console-overview`);
+  assert.equal(consoleOverview.status, 200);
+  const consolePayload = await consoleOverview.json();
+  assert.equal(Object.hasOwn(consolePayload, 'tasks'), false);
+  assert.ok(Array.isArray(consolePayload.recentTasks));
+
+  const taskRecords = await fetch(`${baseUrl}/api/task-records?view=needs_action&limit=24`);
+  assert.equal(taskRecords.status, 200);
+  assert.deepEqual(await taskRecords.json(), {
+    items:[],
+    total:0,
+    counts:{ needs_action:0, active:0, completed:0, all:0 },
+    nextCursor:null,
+    revision:'::0',
+    routineSummary:{ hidden:0, today:0, attention:0, latestUpdatedAt:null },
+    query:{
+      view:'needs_action', q:'', agentId:'', taskType:'', since:'', until:'', includeRoutine:false, limit:24, cursor:null,
+    },
+  });
+
   const disclosureState = await fetch(`${baseUrl}/disclosure-state.js`);
   assert.equal(disclosureState.status, 200);
   assert.match(disclosureState.headers.get('content-type'), /^text\/javascript/);
@@ -99,6 +119,20 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
   assert.equal(taskRecordFilter.status, 200);
   assert.match(taskRecordFilter.headers.get('content-type'), /^text\/javascript/);
   assert.match(await taskRecordFilter.text(), /selectTaskRecordFilter/);
+
+  const taskRecordWorkbench = await fetch(`${baseUrl}/task-record-workbench.js`);
+  assert.equal(taskRecordWorkbench.status, 200);
+  assert.match(taskRecordWorkbench.headers.get('content-type'), /^text\/javascript/);
+  assert.match(await taskRecordWorkbench.text(), /createTaskRecordWorkbench/);
+
+  const consoleWithRecordState = await fetch(`${baseUrl}/?recordView=all&recordTime=all`);
+  assert.equal(consoleWithRecordState.status, 200);
+  assert.match(consoleWithRecordState.headers.get('content-type'), /^text\/html/);
+  assert.match(await consoleWithRecordState.text(), /id="record-workbench"/);
+
+  const versionedRecordWorkbench = await fetch(`${baseUrl}/task-record-workbench.js?v=acceptance`);
+  assert.equal(versionedRecordWorkbench.status, 200);
+  assert.match(versionedRecordWorkbench.headers.get('content-type'), /^text\/javascript/);
 
   const boomConsole = await fetch(`${baseUrl}/boom-monitor-console.js`);
   assert.equal(boomConsole.status, 200);

@@ -6,7 +6,7 @@ export function buildTaskFocus(tasks, approvals) {
   const ownerPriority = ['waiting_approval', 'needs_input', 'paused', 'failed', 'waiting_test'];
   const systemPriority = ['pausing', 'running', 'waiting_worker', 'queued'];
   const ownerActionableTasks = ownerPriority.flatMap((status) =>
-    tasks.filter((task) => task.status === status && isOwnerActionable(task, tasks))
+    tasks.filter((task) => task.status === status && isOwnerActionableTask(task, tasks))
   );
   const businessInProgressTasks = systemPriority.flatMap((status) =>
     tasks.filter((task) => task.status === status && !isBackgroundSystemTask(task))
@@ -50,7 +50,7 @@ function isBackgroundSystemTask(task) {
   return title === 'A君定时本机巡检' || description.startsWith('agent-army:operations-health-v1');
 }
 
-function isOwnerActionable(task, tasks) {
+export function isOwnerActionableTask(task, tasks) {
   if (!['needs_input', 'failed', 'waiting_test'].includes(task.status)) return true;
   if (isSupersededBySuccess(task, tasks)) return false;
   const channel = String(task.source?.channel || '').trim();
