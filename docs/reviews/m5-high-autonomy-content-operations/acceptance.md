@@ -357,9 +357,14 @@ cua-driver doctor
 | `TaskIntake` | `create(input)` | LOCAL PASS / 约 297 行 | 任务规范化、幂等、岗位路由、Manifest 能力门禁、风险审批和 Paperclip 投影只在一个 Seam 维护 |
 | `TaskNotification` | `status(taskId, chatRef)` | LOCAL PASS / 约 285 行 | 任务链、恢复状态和各岗位真实产物交付统一解释，调用方不再复制状态分支 |
 | `CampaignLifecycle` | 批准、控制、每日激活与只读生命周期查询 | LOCAL PASS / 约 465 行 | CampaignGrant、Cron、预算、插件/Routine readiness、串行化和失败回滚集中维护 |
+| `PaperclipAssignment` / `RoleExecution` | 指派核验与岗位受控执行 | LOCAL PASS / 约 274/654 行 | 身份、Case、工具授权、并发去重、恢复路线和岗位产物只在各自 Seam 维护 |
+| Campaign Route / Replay / Planning | 阶段路由、证据重放和工具规划 | LOCAL PASS / 约 338/338/444 行 | 原执行入口只组合 method set，Kernel 不再同时持有三组阶段规则 |
+| Work Product Lineage / Delivery Validation | 来源血缘与跨产物交付不变量 | LOCAL PASS / 约 447/675 行 | PublishReceipt、Provider confirmed 回执及脚本到审核证据集中且可重放 |
+| Publish / Metric Collection Execution | `publish(request)` / `collect(input)` | LOCAL PASS / 约 509/630 行 | 预算、租约、幂等、连接器批准、CAS、暂停和 hard-stop 协议隐藏在单方法 Interface 后 |
 | 兼容入口 | `TaskService` / `ContentCampaignKernel` | LOCAL PASS / 约 545/294 行 | 既有 HTTP、MCP、Publisher 与测试调用方式不变；入口只负责装配和稳定 Interface |
-| 防回涨 | 五个责任文件 | PASS | 上限分别收紧为 650/400/350/350/550 行，超限 fixture 失败 |
+| 大文件收敛 | Task execution / Campaign execution / support / Publisher Gateway | LOCAL PASS / 约 607/36/171/243 行 | 四个原千行文件均已降到 700 行以内，新增责任 Module 均有独立上限 |
+| 防回涨 | 核心责任文件 | PASS | Task 与 Campaign 新旧责任 Module 均设置独立行数上限，超限 fixture 失败 |
 | 自动化 | 本地候选 | PASS | A君 `1133/1133`、Kernel `13/13`、核心整包、根 `npm run check`、架构门禁和 `git diff --check` 通过 |
 | 外部状态 | live / Provider / 平台 | UNCHANGED | 未生成 release、未重启 live、未恢复 Campaign/Cron/Publisher，外部调用为 0 |
 
-两个职责族合计代码量没有因抽象而显著下降；本轮价值是 Interface 变小、规则获得 Locality，且测试继续穿过原公开 Seam。`task-service-execution.js` 与两个 execution-support 文件仍是下一轮大文件候选，不能把本轮写成全部技术债已清零。
+第一轮抽象没有显著减少职责族总行数；本轮继续按完整业务行为收敛后，三个原千行执行文件均已低于 700 行，测试仍穿过原公开 Seam。新增 Module 的 Interface、行数门禁和 deletion test 共同防止重新退化为巨型文件或无价值 helper；这仍只证明候选源码，不代表 live 或外部闭环完成。

@@ -93,5 +93,14 @@ A君、Pipeline、内容插件与 Publisher 重复；启动文件同时承担装
   Cron 原状态恢复与串行控制；Kernel 保留兼容 Interface 和执行装配，不再同时实现生命周期。
 - 这轮以 Depth、Leverage 和 Locality 为目标，不以总行数下降冒充架构改善。TaskService 与 Kernel
   两个入口分别约 545/294 行；五个责任 Module 均进入防回涨门禁。现有执行文件仍是下一轮候选。
+- 后续执行收敛已完成：`task-service-execution` 只保留 M5 阶段结果写回与 Work Product 同步，
+  Paperclip 指派和岗位执行分别进入独立 Module；调用方继续使用原 TaskService Interface。
+- Campaign 执行以唯一 composition Seam 组合 Route、Replay、Planning 三个 method set；Work Product 来源
+  血缘与脚本到发布凭证的交付校验分别进入冻结 Interface，原 Kernel 调用不需要知道内部拆分。
+- 这些 Module 通过 deletion test：移除任一 Module 会让身份/Case 绑定、重放不变量或跨产物证据规则
+  回流多个调用点；它们不是为了缩短文件而增加的一次性 helper。
+- Publisher Gateway 继续作为唯一安全入口，但发布尝试与指标采集分别由 `publish(request)` 和
+  `collect(input)` 两个小 Interface 隐藏预算、租约、幂等、连接器批准、CAS、暂停与 hard-stop 协议；
+  Gateway 只保留组合、Paperclip 暂停和全局安全门闩。
 - 本节仍只证明候选源码和自动化；没有生成不可变 release、切换 live、恢复 Campaign/Cron/Publisher
   或触发任何外部效果。

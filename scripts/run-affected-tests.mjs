@@ -30,6 +30,16 @@ const AJUN_MODULE_TESTS = Object.freeze({
     'test/task-service.test.js',
     'test/cross-agent-mission-service.test.js',
   ]),
+  'src/task-paperclip-assignment.js': Object.freeze([
+    'test/task-service.test.js',
+    'test/m5-role-tool-execution.test.js',
+    'test/paperclip-employee-assignment.test.js',
+  ]),
+  'src/task-role-execution.js': Object.freeze([
+    'test/task-service.test.js',
+    'test/m5-role-tool-execution.test.js',
+    'test/local-content-growth.test.js',
+  ]),
   'src/task-overview-focus.js': Object.freeze([
     'test/task-overview-focus.test.js',
     'test/task-service.test.js',

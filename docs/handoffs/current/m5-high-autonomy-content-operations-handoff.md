@@ -29,6 +29,9 @@
 - `TaskIntake.create` 统一任务规范化、幂等、路由、能力门禁、风险审批和 Paperclip 投影；`TaskNotification.status` 统一恢复状态与真实产物通知。
 - `CampaignLifecycle` 统一活动批准、暂停/恢复、每日激活、readiness、Cron 一致性和失败回滚；Kernel 继续提供兼容 Interface。
 - `TaskService`/Kernel 入口约 545/294 行，新 Module 分别约 297/285/465 行；架构门禁上限为 650/400/350/350/550。
+- 任务执行入口由 1510 收敛到约 607 行；Paperclip 指派约 274 行、岗位执行约 654 行，各自维护身份/Case/工具授权和岗位产物不变量。
+- Campaign 执行/支持入口由 1124/1154 收敛到约 36/171 行；Route、Replay、Planning、Work Product 血缘和交付校验 Module 分别约 338/338/444/447/675 行。
+- Publisher Gateway 由 1287 收敛到约 243 行；发布尝试/指标采集 Module 分别约 509/630 行，公开 Interface 和安全顺序不变。
 - A君 `1133/1133`、Kernel `13/13`、核心整包、根 check 与架构门禁通过；本候选仍未部署。
 
 ## 2026-08-06 补充：编排职责收敛

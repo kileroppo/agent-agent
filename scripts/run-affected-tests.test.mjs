@@ -69,6 +69,18 @@ test('A君深层模块变更只选择该模块及 TaskService 接缝测试', () 
       'test/task-service.test.js',
     ],
   );
+  assert.deepEqual(
+    selectAffectedTestFiles([
+      'apps/ajun-runtime/src/task-paperclip-assignment.js',
+      'apps/ajun-runtime/src/task-role-execution.js',
+    ], ajun),
+    [
+      'test/local-content-growth.test.js',
+      'test/m5-role-tool-execution.test.js',
+      'test/paperclip-employee-assignment.test.js',
+      'test/task-service.test.js',
+    ],
+  );
 });
 
 test('A君未知或跨模块文件变更退回 workspace 全量测试', () => {
