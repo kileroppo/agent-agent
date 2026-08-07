@@ -61,5 +61,5 @@ test('结构化 PPT 投影为留痕 Issue 但不唤醒模型执行', async () =>
   });
   const issueCall = calls.find((call) => call.path.endsWith('/issues'));
   assert.equal(issueCall.body.status, 'backlog');
-  assert.equal(issueCall.body.assigneeAgentId, 'office-1');
+  assert.equal(issueCall.body.assigneeAgentId, undefined);
 });
