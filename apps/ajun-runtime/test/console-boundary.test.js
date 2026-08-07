@@ -100,7 +100,8 @@ test('任务记录默认只呈现需要复盘的前 24 条，并支持搜索和�
   ]);
   assert.match(html, /id="task-search"/);
   assert.match(html, /id="task-load-more"/);
-  assert.match(script, /currentTaskFilter = selectedTaskId \? 'all' : 'attention'/);
+  assert.match(script, /currentTaskFilter = state\.selectedTaskId \? 'all' : 'attention'/);
+  assert.match(script, /state\.selectedTaskId = selection\.selectedTaskId/);
   assert.match(script, /visibleTaskCount = 24/);
   assert.match(script, /\.slice\(0, visibleTaskCount\)/);
   assert.match(script, /visibleTaskCount \+= 24/);

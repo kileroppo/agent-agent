@@ -96,6 +96,11 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
   assert.match(interactions.headers.get('content-type'), /^text\/javascript/);
   assert.match(await interactions.text(), /export function bindConsoleInteractions/);
 
+  const taskRecordFilter = await fetch(`${baseUrl}/task-record-filter.js`);
+  assert.equal(taskRecordFilter.status, 200);
+  assert.match(taskRecordFilter.headers.get('content-type'), /^text\/javascript/);
+  assert.match(await taskRecordFilter.text(), /selectTaskRecordFilter/);
+
   const boomConsole = await fetch(`${baseUrl}/boom-monitor-console.js`);
   assert.equal(boomConsole.status, 200);
   assert.match(boomConsole.headers.get('content-type'), /^text\/javascript/);
