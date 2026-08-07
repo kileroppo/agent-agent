@@ -2180,28 +2180,27 @@ test('概览如实区分已能收发飞书与尚未接入的外部账号写入�
   assert.match(authorizedRead.detail, /具体任务验证/);
 });
 
-test('概览如实显示小办 PPTD 可用且 PPTX 仍受兼容依赖门禁', async () => {
+test('概览如实显示小办 PPTD 与本地 PPTX 均可用', async () => {
   const skillExecutionRegistry = {
     async overview() {
       return [{
         slug:'open-kimi-ppt',
-        status:'partial',
+        status:'ready',
         modes:{
           compose:{ status:'ready' },
-          visualQa:{ status:'needs_capability' },
-          export:{ status:'needs_capability' },
+          visualQa:{ status:'ready' },
+          export:{ status:'ready' },
         },
-        recovery:'需要隔离 Node 和 Playwright，并完成公开样例 live 验证；不会自动安装。',
+        recovery:null,
       }];
     },
   };
   const { service } = setup({ skillExecutionRegistry });
   const overview = await service.overview();
   const presentation = overview.capabilities.find((item) => item.id === 'office-presentation');
-  assert.equal(presentation.status, 'partial');
+  assert.equal(presentation.status, 'ready');
   assert.match(presentation.detail, /PPTD 可用/);
-  assert.match(presentation.detail, /PPTX 暂不可用（needs_capability）/);
-  assert.match(presentation.detail, /不会自动安装/);
+  assert.match(presentation.detail, /PPTX 可用/);
 });
 
 test('概览会如实显示官方飞书入口已经连接，不把等待状态冒充成已连接', async () => {

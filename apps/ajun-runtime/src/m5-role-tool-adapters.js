@@ -90,7 +90,7 @@ export function createM5RoleToolAdapters({
       : {}),
     ...(typeof officePresentations?.exportPptx === 'function'
       ? {
-          'open-kimi-pptx':(context) => officePresentations.exportPptx(context),
+          'local-pptx':(context) => officePresentations.exportPptx(context),
         }
       : {}),
     ...(typeof governance?.createIssueWorkProduct === 'function'

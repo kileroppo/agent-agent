@@ -68,6 +68,7 @@ import { LocalOfficeAssistant } from './local-office-assistant.js';
 import { createM5RoleToolAdapters } from './m5-role-tool-adapters.js';
 import { OfficeDocumentAdapter, officeBinariesAvailable } from './office-document-adapter.js';
 import { OpenKimiPptAdapter } from './open-kimi-ppt-adapter.js';
+import { LocalPptxAdapter, OfficePresentationAdapter } from './local-pptx-adapter.js';
 import { KnowledgeArchiveWriter } from './knowledge-archive-writer.js';
 import { LocalContentCreator, LocalVideoContentAnalyst } from './local-content-growth.js';
 import { LocalVideoScriptPackage } from './local-video-script-package.js';
@@ -233,7 +234,10 @@ const officeAssistant = new LocalOfficeAssistant({ store, artifactsDir:path.join
 const officeDocuments = await officeBinariesAvailable()
   ? new OfficeDocumentAdapter()
   : null;
-const officePresentations = new OpenKimiPptAdapter();
+const officePresentations = new OfficePresentationAdapter({
+  pptdAdapter:new OpenKimiPptAdapter(),
+  pptxAdapter:new LocalPptxAdapter(),
+});
 const m5RoleToolAdapters = createM5RoleToolAdapters({
   publicWebSearch,
   publicWebFetch,

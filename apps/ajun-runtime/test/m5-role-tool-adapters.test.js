@@ -96,7 +96,7 @@ test('只有真实可调用实现才注册动态网页、PDF和Office适配器',
     'hermes-xlsx',
     'hermes-office-pdf',
     'open-kimi-pptd',
-    'open-kimi-pptx',
+    'local-pptx',
   ]) {
     assert.equal(name in unavailable, false);
   }
@@ -120,7 +120,7 @@ test('只有真实可调用实现才注册动态网页、PDF和Office适配器',
     'hermes-xlsx',
     'hermes-office-pdf',
     'open-kimi-pptd',
-    'open-kimi-pptx',
+    'local-pptx',
   ]) {
     assert.equal(typeof available[name], 'function');
   }

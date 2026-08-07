@@ -66,6 +66,7 @@ test('小办声明的办公输出逐项绑定适配器，知识库使用独立�
     'office.xlsx.write':'hermes-xlsx',
     'office.pdf.write':'hermes-office-pdf',
     'office.pptd.write':'open-kimi-pptd',
+    'office.pptx.export':'local-pptx',
     'office.report.daily.write':'paperclip-work-product',
     'office.report.weekly.write':'paperclip-work-product',
     'knowledge.archive.write':'content-library',
@@ -84,33 +85,27 @@ test('小办声明的办公输出逐项绑定适配器，知识库使用独立�
   }
 });
 
-test('PPTX 外部数据处理只允许 OpenKimi、公开或脱敏数据和本次明确批准', async () => {
+test('PPTX 使用本地适配器且不申请外部数据处理', async () => {
   const grant = await roleGrant('office-assistant');
-  const approved = assertM5RoleToolAccess(grant, {
+  const access = assertM5RoleToolAccess(grant, {
+    toolId:'office.pptx.export',
+    executionWorkspaceId:ids.workspace,
+    externalSideEffect:'none',
+    relativePath:'deliverables/deck.pptx',
+    dataClassification:'sensitive',
+    externalProcessingApproved:false,
+  });
+  assert.equal(access.adapter, 'local-pptx');
+  assert.equal(access.externalSideEffect, 'none');
+  assert.equal(access.allowedHosts, null);
+  assert.throws(() => assertM5RoleToolAccess(grant, {
     toolId:'office.pptx.export',
     executionWorkspaceId:ids.workspace,
     externalSideEffect:'external-data-processing',
     relativePath:'deliverables/deck.pptx',
-    dataClassification:'redacted',
+    dataClassification:'public',
     externalProcessingApproved:true,
-  });
-  assert.equal(approved.adapter, 'open-kimi-pptx');
-  assert.deepEqual(approved.allowedHosts, ['www.kimi.com', 'statics.moonshot.cn']);
-  for (const input of [
-    { dataClassification:'sensitive', externalProcessingApproved:true },
-    { dataClassification:'public', externalProcessingApproved:false },
-  ]) {
-    assert.throws(
-      () => assertM5RoleToolAccess(grant, {
-        toolId:'office.pptx.export',
-        executionWorkspaceId:ids.workspace,
-        externalSideEffect:'external-data-processing',
-        relativePath:'deliverables/deck.pptx',
-        ...input,
-      }),
-      (error) => ['external_data_processing_denied', 'external_data_processing_approval_required'].includes(error?.code),
-    );
-  }
+  }), { code:'external_side_effect_denied' });
 });
 
 test('未知工具、越权外部副作用、跨工作区和路径逃逸全部拒绝', async () => {

@@ -55,7 +55,7 @@
 
 ## 当前交接
 
-- [小办演示文稿能力交接](./current/office-presentation-capability-handoff.md)：PPTD、Playwright 隔离工具链和阶段诊断已完成；获批 checkpoint live 两次尝试均稳定停在 `visualQa.download_wait`，没有图片 ZIP/PPTX，能力继续为 `needs_capability`。唯一下一步是修复下载捕获/落盘与图片 ZIP 识别，并先用 localhost 下载 fixture 验证。
+- [小办演示文稿能力交接](./current/office-presentation-capability-handoff.md)：本地 PPTD/PPTX、逐页 QA、结构校验和 WPS 固定样例验收已完成；唯一下一步是加载不可变 release 并完成真实任务回传验收。
 - [小R多路线搜索与证据方法交接](./current/intel-research-search-method-handoff.md)：Yichen 技能已同步到小R Profile，六路规划器已在 Profile 实跑；A君执行器源码和全量回归已通过。唯一下一步是从独立干净 worktree 冻结并切换不可变 release，再用一条真实公开研究任务验收结果质量。
 - [本地 AI 能力系统交接](./current/local-ai-capability-system-handoff.md)：九项 Mac 本地能力和统一网关已完成真实样本验收；唯一下一步是等待 18081 当前请求自然结束后切换 launchd，并完成重启恢复与 A君运行证据。
 - [Agent 技能接线与微信本机分析交接](./current/agent-skill-and-private-wechat-capability-handoff.md)：代码、岗位技能同步、Paperclip 公司技能、本机模型和 4321 不可变 release 已完成；唯一下一步是由主人指定一次微信会话与范围，验收临时授权、撤销和本机脱敏摘要。

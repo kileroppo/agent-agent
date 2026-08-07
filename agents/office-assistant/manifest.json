@@ -74,9 +74,9 @@
         "externalSideEffect": "none"
       },
       "office.pptx.export": {
-        "adapter": "open-kimi-pptx",
+        "adapter": "local-pptx",
         "access": "write",
-        "externalSideEffect": "external-data-processing"
+        "externalSideEffect": "none"
       },
       "office.report.daily.write": {
         "adapter": "paperclip-work-product",
@@ -116,7 +116,7 @@
       "access": [
         "write"
       ],
-      "boundary": "PPTD 只写当前 execution workspace 且必须自包含；PPTX 仅处理 public/redacted 且获得本次外部处理批准的 PPTD，其他分类只保留 PPTD"
+      "boundary": "PPTD 与 PPTX 只写当前 execution workspace 且必须自包含；PPTX 使用锁定的本地 Artifact Tool 运行时离线生成，不把页面内容发送到外部编辑器"
     },
     {
       "scope": "agent-army-knowledge-archive",
@@ -160,7 +160,7 @@
       "required": true
     },
     {
-      "gate": "presentation-pptx-external-processing-approved-and-capability-ready",
+      "gate": "presentation-pptx-local-export-render-and-structure-ready",
       "required": true
     },
     {

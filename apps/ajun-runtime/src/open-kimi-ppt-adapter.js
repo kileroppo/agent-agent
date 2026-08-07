@@ -638,7 +638,7 @@ function presentationTheme(design) {
     muted:'#64748B', paper:'#F8FAFC', line:'#CBD5E1',
     ...(design?.colors || {}),
   };
-  const headingFont = design?.fonts?.heading || 'MiSans';
+  const headingFont = design?.fonts?.heading || 'Arial Unicode MS';
   const bodyFont = design?.fonts?.body || headingFont;
   return {
     colors,

@@ -281,13 +281,10 @@ export class LocalOfficeAssistant {
       const exported = await roleToolContext.execute({
         toolId:'office.pptx.export',
         relativePath:pptxRelativePath,
-        externalSideEffect:'external-data-processing',
-        dataClassification:input.dataClassification || 'internal',
-        externalProcessingApproved:input.externalProcessingApproved === true,
+        externalSideEffect:'none',
         input:{
           manifestRelativePath,
           dataClassification:input.dataClassification || 'internal',
-          externalProcessingApproved:input.externalProcessingApproved === true,
         },
       });
       artifacts[1] = presentationQaArtifact(task, written, completedAt, { exported });
@@ -471,7 +468,7 @@ function presentationExportBlocker(error) {
   return {
     code:'presentation_export_needs_capability',
     stage:'office_presentation_export_needs_capability',
-    userMessage:'可编辑 PPTD 已生成；当前缺少兼容的隔离导出依赖，PPTX 和图片质检尚未执行，系统没有自动安装或升级软件。',
+    userMessage:'可编辑 PPTD 已生成；当前缺少兼容的本地 PPTX 导出依赖，页面渲染质检尚未完成，系统没有自动安装或升级软件。',
   };
 }
 
