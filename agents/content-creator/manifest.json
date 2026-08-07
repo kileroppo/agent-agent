@@ -107,6 +107,24 @@
     "groupPolicy": "mention-only"
   },
   "executionOwner": "paperclip-hermes",
+  "userManual": {
+    "aliases": ["小创", "内容创作师"],
+    "whatItIs": "基于确认稿、正式拆解和受控参考案例，生成待人工审核的脚本、平台草稿或生产包。",
+    "savesWork": {
+      "before": "人工从素材找角度，写标题、脚本、镜头、字幕和发布前检查表。",
+      "now": "提供确认稿、正式拆解、主题和平台后，生成最多三个平台版本或五文件脚本生产包。",
+      "measurement": "默认最多两次尝试和5分钟；人工创作节省尚未建立三次对照。"
+    },
+    "tools": ["Hermes：组织创作简报、平台表达和质量门禁。", "小D与小拆产物：提供确认稿、正式拆解和证据。", "受控公开搜索与本地图片、语音能力：只在任务批准范围内使用。", "A君与Paperclip：按需唤醒、登记草稿和外部副作用。"],
+    "inputs": ["小D确认稿任务短号。", "小拆正式报告或受控参考案例。", "主题、受众、平台、时长和品牌语气。", "禁区和人工审核标准。"],
+    "trigger": "没有独立飞书入口；请在飞书找A君转派，或由Paperclip按需唤醒。",
+    "examplePrompt": "请让小创基于确认稿[短号]和正式拆解[短号]，为这个主题生成一版45秒抖音可拍脚本。只复用结构，不复制人物和台词；输出标题、口播、镜头、字幕、来源和检查表，不要发布。",
+    "outputs": ["待审平台草稿或可拍脚本。", "标题、开场、正文、节奏与镜头提示。", "来源、字幕和发布前人工检查表。", "明确的draft_only或未发布边界。"],
+    "outputExample": "真实任务a5415600-1a4e-41e9-8779-655cbd69e058生成35秒抖音职场短剧待审稿，含3个标题、完整台词与节奏、5条来源证据和6项人工检查；状态为draft_only且外部副作用为0。",
+    "successEvidence": {"status":"record-only", "summary":"已有M3内容增长验收，公开飞书截图仍待补；截图应同屏显示来源任务、首选标题、完整口播、检查清单和未发布状态。", "references":["docs/reviews/m3-content-growth/acceptance.md", "task:a5415600-1a4e-41e9-8779-655cbd69e058"]},
+    "usageSteps": ["先准备确认稿和正式拆解。", "找A君引用来源任务并指定主题、平台和时长。", "人工检查事实、品牌声音、可拍性和合规性。"],
+    "limitations": ["不使用未确认转录作为正式创作依据。", "不自行抓取账号、读取Cookie、发布、私信或投流。", "不承诺播放量或转化率。", "草稿完成不等于已发布。"]
+  },
   "runtimeCapabilities": {
     "modelSelection": {
       "provider": "deepseek",
@@ -115,6 +133,7 @@
     "fallbackModels": [],
     "skills": ["paperclip"],
     "mcpTools": [
+      "agent_manual",
       "paperclip_assignment_get",
       "platform_content_draft_execute",
       "video_script_package_execute",

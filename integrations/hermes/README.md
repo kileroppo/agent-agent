@@ -74,9 +74,10 @@ node integrations/hermes/scripts/reconcile-hermes-skill-whitelist.mjs --agent xi
 
 ## Agent Army MCP
 
-正式与隔离 Profile 可复用同一个 `stdio` MCP Server。当前按岗位从 13 个工具中取最小子集：能力、军团状态、员工状态、任务列表、任务详情、单任务创建、老板多人总任务创建、暂停/继续、审批列表、审批处理、Paperclip 指派读取/完成和技术修复执行。Server 只访问 `127.0.0.1` 的 A君运行时，不读取飞书凭据，不维护会话数据库，也不复制 Paperclip 队列。
+正式与隔离 Profile 可复用同一个 `stdio` MCP Server。每个正式岗位都包含只读 `agent_manual`：A君可以查询任一岗位或全部使用说明书，其他员工只能查询自己的说明书。其余工具继续按 Manifest 取最小子集，包括能力、军团状态、员工状态、任务读写、多人任务、审批、Paperclip 指派和受控岗位执行。Server 只访问本机 A君运行时和不可变 release 内的 Manifest，不读取飞书凭据，不维护会话数据库，也不复制 Paperclip 队列。
 
 - 状态、能力和追问只读，不创建任务；
+- 使用说明书问题只调用 `agent_manual`，不创建业务任务；A君传 `all` 可取全员，独立员工越权查询其他岗位时失败关闭；
 - 用户明确要求执行时才创建任务，并使用稳定请求引用防重；
 - 同一交办含 2–3 项明确工作时，A君使用一个 `mission_create` 总任务；独立员工 Profile 通过环境作用域只能创建本岗位任务，不能创建多人总任务或替其他岗位派活；
 - 批准必须经过 Hermes 当前会话的 elicitation；明确拒绝直接安全关闭，批准超时或离开会话时失败关闭；

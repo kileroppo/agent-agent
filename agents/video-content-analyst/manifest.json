@@ -104,6 +104,24 @@
     "groupPolicy": "mention-only"
   },
   "executionOwner": "paperclip-hermes",
+  "userManual": {
+    "aliases": ["小拆", "视频内容拆解师"],
+    "whatItIs": "复用小D的确认稿、来源和关键帧，输出带时间点与画面引用的视频结构拆解或表现复盘。",
+    "savesWork": {
+      "before": "人工反复看视频、记时间点、截关键帧、拆结构并整理报告。",
+      "now": "小D先生成可追溯证据，小拆再按fast或full深度完成分析。",
+      "measurement": "岗位硬上限为fast 5分钟、full 12分钟；人工节省尚未建立三次对照。"
+    },
+    "tools": ["Hermes：执行岗位分析和证据约束。", "小D内容包：提供确认稿、来源、时间点、关键帧和故事板。", "agent-army-video-content与本地视觉能力：生成结构和画面证据。", "A君与Paperclip：按需唤醒并登记产物。"],
+    "inputs": ["小D确认稿任务短号或产物引用。", "fast或full分析深度。", "结构、节奏、画面或复盘目标。", "带来源和基线的可选表现数据。"],
+    "trigger": "没有独立飞书入口；请在飞书找A君转派，或由Paperclip按需唤醒。",
+    "examplePrompt": "请让小拆基于小D任务[短号]做full视频拆解。重点看开场、信息推进、情绪转折、镜头与字幕配合。每项判断引用时间点或关键帧，不预测播放量。",
+    "outputs": ["fast或full视频拆解报告。", "绑定字幕片段、时间点和帧ID的结论。", "可复用结构、风险和下一步。"],
+    "outputExample": "真实任务4f8b55ca-8c53-4f48-aeb5-95bf1165b60a基于系统确认稿、17帧和2组故事板，生成complete的13模块full拆解，结论绑定来源片段、时间点和帧ID。",
+    "successEvidence": {"status":"record-only", "summary":"已有M3任务验收，公开飞书截图仍待补；适合展示关键帧故事板和带时间点或帧ID的拆解结论。", "references":["docs/reviews/m3-content-growth/acceptance.md", "task:4f8b55ca-8c53-4f48-aeb5-95bf1165b60a"]},
+    "usageSteps": ["先让小D生成确认稿。", "找A君引用小D任务并选择深度。", "检查关键结论能否回到字幕或关键帧。"],
+    "limitations": ["未确认机器稿不能驱动正式创作。", "不直接下载、登录或绕过内容获取中心。", "没有基线时不写因果结论。", "不负责发布、私信或扩权。"]
+  },
   "runtimeCapabilities": {
     "modelSelection": {
       "provider": "deepseek",
@@ -124,6 +142,7 @@
       }
     ],
     "mcpTools": [
+      "agent_manual",
       "paperclip_assignment_get",
       "video_content_analyze_execute",
       "content_performance_review_execute",

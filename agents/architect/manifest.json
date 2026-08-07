@@ -55,6 +55,24 @@
     "groupPolicy": "mention-only"
   },
   "executionOwner": "paperclip-hermes",
+  "userManual": {
+    "aliases": ["架构师", "能力评估"],
+    "whatItIs": "根据真实岗位、任务和仓库证据，判断现有军团能否完成目标、结构性缺口在哪里，以及最小验证先做什么。",
+    "savesWork": {
+      "before": "人工翻岗位、任务、工具和历史问题，再判断是路由问题、能力缺口还是需要新岗位。",
+      "now": "架构师分开陈述当前事实、架构判断和未来候选方案，并给出最小验证。",
+      "measurement": "分析范围差异很大；人工节省尚未建立三次对照。"
+    },
+    "tools": ["Hermes：完成分析、假设和候选方案表达。", "A君岗位注册表与任务真相：提供当前员工、任务类型、工具和证据。", "Paperclip：承接架构审查并记录后续验证任务。"],
+    "inputs": ["业务目标和当前症状。", "已知任务短号、岗位或失败记录。", "允许改变和明确不改变的边界。", "期望评估、候选方案或最小实验。"],
+    "trigger": "没有独立飞书入口；请在飞书找A君转派，或由Paperclip按需唤醒。",
+    "examplePrompt": "请让架构师判断目前军团能不能稳定完成内容机器审核。只依据当前Manifest、工具和最近任务，区分事实、判断和候选方案。先给最小验证，不要安装工具、扩权或新建员工。",
+    "outputs": ["当前事实及证据引用。", "架构判断、假设和置信度。", "候选方案、风险、非目标和最小验证计划。"],
+    "outputExample": "真实任务371caaa4-72e1-4f8c-b3a4-6de22a241e7d判断一次高周转根因是任务路由与工具能力不匹配，而非审核官效率问题，并列出事实、假设、置信度、止血方案、候选和验证计划。",
+    "successEvidence": {"status":"record-only", "summary":"已有真实架构审查任务记录，公开飞书截图仍待补；截图应展示当前事实、架构判断、候选方案和最小验证四部分。", "references":["task:371caaa4-72e1-4f8c-b3a4-6de22a241e7d"]},
+    "usageSteps": ["提供真实目标、症状和任务短号。", "明确本轮不能改变的边界。", "先执行最小验证，再决定架构变化。"],
+    "limitations": ["候选方案不是已实现能力。", "不直接装工具、接账号、扩权或上线岗位。", "没有证据时必须写未知项。", "优先复用现有平台和适配器。"]
+  },
   "runtimeCapabilities": {
     "modelSelection": {
       "provider": "deepseek",
@@ -63,6 +81,7 @@
     "fallbackModels": [],
     "skills": ["paperclip", "paperclip-converting-plans-to-tasks"],
     "mcpTools": [
+      "agent_manual",
       "capabilities",
       "task_list",
       "task_get",

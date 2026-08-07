@@ -33,6 +33,7 @@
   "mcp": {
     "server": "agent-army",
     "tools": [
+      "agent_manual",
       "capabilities",
       "task_list",
       "task_get",

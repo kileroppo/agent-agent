@@ -104,6 +104,24 @@
     "maxRuntimeMinutes": 180,
     "onLimit": "pause-and-report"
   },
+  "userManual": {
+    "aliases": ["小D", "音视频转录整理助手"],
+    "whatItIs": "把已获授权的公开链接或本地音视频变成可核验原始转录、质量报告、确认稿、整理稿和交付结果。",
+    "savesWork": {
+      "before": "人工获取素材、找字幕或转录工具、检查完整性、整理排版、创建飞书文档并配置权限。",
+      "now": "发送链接或文件后自动完成可安全自动化的阶段，低置信度或完整性异常才请求人工听审。",
+      "measurement": "不同素材长度差异很大；尚未建立长播客的三次人工对照，不能直接宣传固定10分钟。"
+    },
+    "tools": ["Hermes：承载小D的独立会话、记忆和Skills。", "内容获取中心、yt-dlp与ffmpeg：受控获取字幕、音轨或媒体。", "faster-whisper或mlx-whisper：本地语音转文字。", "飞书接入层：创建文档、验证权限并交付链接。"],
+    "inputs": ["公开音视频URL。", "已通过账号连接管理授权的平台素材。", "飞书上传或允许目录内的音视频文件。", "可选要求：语言、时间点、关键帧、完整人工听审。"],
+    "trigger": "直接私聊小D Bot，或在飞书找A君转派。",
+    "examplePrompt": "请转录并整理这个公开视频：[URL]。保留原始转录和来源证据，输出中文分段整理稿，术语不确定处标出来，不要发布。",
+    "outputs": ["不可覆盖的机器原始转录。", "来源证据与转录质量报告。", "系统或人工确认稿。", "结构化整理稿、关键帧或飞书文档链接。"],
+    "outputExample": "真实任务c0636161-cb44-4449-81ee-9baa4e027570生成来源证据、机器原始转录、质量报告、交付记录、17帧/2组故事板、质量确认记录和确认稿；该样例larkUrl=null，不能说成飞书文档交付。",
+    "successEvidence": {"status":"record-only", "summary":"已有本地任务和历史飞书交付验收，但仓库尚未保存可公开复用的小D对话加飞书文档截图。", "references":["docs/reviews/m2-authorization-connectors/acceptance.md", "task:c0636161-cb44-4449-81ee-9baa4e027570"]},
+    "usageSteps": ["发送获授权的链接或媒体文件。", "说明用途、语言、是否要时间点和人工听审。", "正式使用前核对人名、术语、数字和低置信度标记。"],
+    "limitations": ["不能绕过登录、付费、Cookie、地区限制或访问控制。", "ASR可能错听人名、术语和数字。", "硬完整性失败不能靠人工点击绕过。", "未批准时不能外发或公开发布。"]
+  },
   "runtimeCapabilities": {
     "modelSelection": {
       "provider": "deepseek",
@@ -112,6 +130,7 @@
     "fallbackModels": [],
     "skills": ["paperclip", "yichen-asr", "yichen-content-archive"],
     "mcpTools": [
+      "agent_manual",
       "paperclip_assignment_get",
       "employee_assignment_execute",
       "local_ai_invoke",
