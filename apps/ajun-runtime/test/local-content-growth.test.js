@@ -935,7 +935,7 @@ test('Hermes 预算失败时仍交付本机证据化兜底并保留已消耗用�
   assert.equal(result.usage.model.apiCalls, 2);
 });
 
-test('普通故事板没有受控 Provider 时明确 needs_input，不启动岗位主模型', async (t) => {
+test('普通故事板没有受控 Provider 时自动模式降级为部分文字报告', async (t) => {
   const root = await sandbox(t);
   const transcriptPath = path.join(root, 'confirmed-visual.md');
   const sourceEvidencePath = path.join(root, 'source-evidence.json');
@@ -1001,11 +1001,13 @@ test('普通故事板没有受控 Provider 时明确 needs_input，不启动岗�
       context:{ sourceTaskIds:[sourceTask.taskId] }
     }
   });
-  assert.equal(result.status, 'needs_input');
-  assert.equal(result.error.code, 'controlled_provider_vision_required');
-  assert.match(result.error.userMessage, /不会直接读取本机图片/);
-  assert.equal(advisorCalls, 0);
-  assert.equal(result.artifactRefs, undefined);
+  assert.equal(result.status, 'succeeded');
+  const report = result.artifactRefs.find((item) => item.type === 'video_content_analysis_report')?.data;
+  assert.equal(report.completeness, 'partial');
+  assert.equal(report.visualCoverage.status, 'unavailable');
+  const markdown = await fs.readFile(new URL(result.artifactRefs[0].location), 'utf8');
+  assert.match(markdown, /没有通过证据门禁的画面结论/);
+  assert.equal(advisorCalls, 1);
 });
 
 test('visualMode off 明确忽略故事板，只执行无视觉工具的文本拆解', async (t) => {

@@ -104,16 +104,20 @@ export class LocalVideoContentAnalyst {
     const sourceEvidence = sourceEvidenceArtifact ? await readArtifactJson(sourceEvidenceArtifact, this.allowedArtifactRoots) : null;
     const sourceMetadata = normalizeSourceMetadata(sourceEvidence?.sourceMetadata);
     const boomSignal = normalizeBoomSignalContext(task.input?.context?.boomSignal);
-    const visualEvidence = visualArtifact && visualMode !== 'off'
+    const availableVisualEvidence = visualArtifact && visualMode !== 'off'
       ? await readVisualEvidence(visualArtifact, this.allowedArtifactRoots)
       : null;
-    if (visualEvidence) {
+    if (availableVisualEvidence && visualMode === 'required') {
       return needsInput(
         this.now(),
         'controlled_provider_vision_required',
         '已有故事板，但普通拆解尚未接入可核验的受控 Provider 视觉观察。Hermes 不会直接读取本机图片；请接入受控视觉回执或将 visualMode 设为 off 后仅做文本拆解。',
       );
     }
+    // auto means "use visual evidence when a controlled observer exists".  A
+    // storyboard alone is not an observation, so continue with a truthful
+    // partial text report instead of failing the whole analysis.
+    const visualEvidence = null;
     const effectiveTitle = sourceMetadata.title || clean(task.input?.title, 300) || transcriptArtifact.title || '视频内容';
     const segments = evidenceSegments(transcript);
     const advisorTranscript = segments.map((segment) => (

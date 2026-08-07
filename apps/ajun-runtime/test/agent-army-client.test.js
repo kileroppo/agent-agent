@@ -73,6 +73,69 @@ test('AgentArmyClient creates an idempotent Hermes task and returns its read mod
   assert.deepEqual(watch.body, { taskId:'22222222-2222-2222-2222-222222222222', chatRef:'oc_test' });
 });
 
+test('服务端已登记终态回告时客户端不重复登记', async () => {
+  const requests = [];
+  const missionId = '29292929-2929-2929-2929-292929292929';
+  const client = new AgentArmyClient({
+    fetchImpl:async (url, options = {}) => {
+      const key = `${options.method || 'GET'} ${new URL(url).pathname}`;
+      requests.push(key);
+      if (key === 'POST /api/mcp/missions') return response(201, {
+        mission:{ taskId:missionId }, children:[], reply:'总任务已经登记。',
+        completionWatch:{ required:true, registered:true, taskId:missionId },
+      });
+      if (key === 'GET /api/overview') return response(200, {
+        ...overview,
+        tasks:[{
+          taskId:missionId, taskType:'army.cross-agent-mission', assigneeAgentId:'ajun',
+          status:'running', currentStage:'paperclip_hermes_running', input:{ title:'视频分析' },
+          approvalRefs:[], artifactRefs:[],
+        }],
+      });
+      return response(404, { error:'missing' });
+    },
+  });
+
+  const result = await client.createMission({
+    title:'视频分析', chatRef:'oc_owner',
+    items:[{ key:'media', title:'获取视频', taskType:'media.transcribe-and-refine', agentId:'xiaod' }],
+  });
+
+  assert.equal(result.completionWatch.registered, true);
+  assert.equal(requests.includes('POST /api/mcp/completion-watches'), false);
+});
+
+test('终态回告两次登记均失败时明确告知不能承诺自动通知', async () => {
+  const missionId = '30303030-3030-3030-3030-303030303030';
+  const client = new AgentArmyClient({
+    fetchImpl:async (url, options = {}) => {
+      const key = `${options.method || 'GET'} ${new URL(url).pathname}`;
+      if (key === 'POST /api/mcp/missions') return response(201, {
+        mission:{ taskId:missionId }, children:[], reply:'总任务已经登记。',
+        completionWatch:{ required:true, registered:false, errorCode:'completion_watch_registration_failed' },
+      });
+      if (key === 'POST /api/mcp/completion-watches') return response(500, { error:'watch unavailable' });
+      if (key === 'GET /api/overview') return response(200, {
+        ...overview,
+        tasks:[{
+          taskId:missionId, taskType:'army.cross-agent-mission', assigneeAgentId:'ajun',
+          status:'running', currentStage:'paperclip_hermes_running', input:{ title:'视频分析' },
+          approvalRefs:[], artifactRefs:[],
+        }],
+      });
+      return response(404, { error:'missing' });
+    },
+  });
+
+  const result = await client.createMission({
+    title:'视频分析', chatRef:'oc_owner',
+    items:[{ key:'media', title:'获取视频', taskType:'media.transcribe-and-refine', agentId:'xiaod' }],
+  });
+
+  assert.equal(result.completionWatch.registered, false);
+  assert.match(result.userMessage, /自动回告暂未登记成功/);
+});
+
 test('AgentArmyClient 拒绝非法账号连接标识', async () => {
   const client = new AgentArmyClient({ fetchImpl:async () => { throw new Error('不应请求'); } });
   await assert.rejects(() => client.createTask({
@@ -439,6 +502,7 @@ test('AgentArmyClient creates one idempotent mission with explicit employee depe
         children:[{ taskId:childId }],
         reply:'总任务已建立。'
       });
+      if (key === 'POST /api/mcp/completion-watches') return response(200, { registered:true });
       if (key === 'GET /api/overview') return response(200, {
         ...overview,
         tasks:[

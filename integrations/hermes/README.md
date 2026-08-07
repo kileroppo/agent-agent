@@ -24,7 +24,22 @@ M2 当前总管路径见 [ADR-0007](../../docs/adr/0007-hermes-native-feishu-run
 ```bash
 node integrations/hermes/scripts/patch-hermes-chinese-busy-notice.mjs
 node integrations/hermes/scripts/patch-feishu-agent-proposal-router.mjs
+node integrations/hermes/scripts/patch-hermes-platform-notification-isolation.mjs
 ```
+
+正式业务 Profile 还必须关闭对话后的隐式 Memory/Skill 自改和自动 Curator，
+显式写入统一进入人工审批。该策略避免后台自我改进改变岗位行为，也避免其
+生命周期通知串入飞书业务聊天。配置后用只读检查器逐个核对明确指定的
+Hermes Home；检查器不发现 Profile、不读取 `.env`、也不修改配置：
+
+```bash
+node integrations/hermes/scripts/check-hermes-business-profile-policy.mjs \
+  --home /Users/pengaro/.hermes \
+  --home /Users/pengaro/.hermes/profiles/xiaod
+```
+
+任务受理、终态回告、依赖证据、可选能力降级和业务通道隔离的统一规则见
+[Agent 任务可靠性契约](../../docs/architecture/agent-task-reliability-contract.md)。
 
 治理员工清单不再维护第二份硬编码名单，而是自动发现所有 `active + hermes-profile + paperclip-hermes` Manifest。配置器按 `interaction.directFeishu` 调和生命周期：`required` 才执行 `enable + kickstart`；`disabled` 必须执行 `bootout + disable`，反复运行也不得重新拉起。新增符合契约的员工后可沿用同一配置和真实飞书验收命令。
 
