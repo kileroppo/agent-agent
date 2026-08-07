@@ -140,7 +140,7 @@ except RuntimeError:
   assert.equal(document.errorCode, 'playwright_download_event_timeout');
 });
 
-test('Python 桥接在 RPC 前规范化 macOS 临时目录路径别名', async (t) => {
+test('图片下载在 RPC 前规范化 macOS 临时目录路径别名', async (t) => {
   const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'open-kimi-path-alias-'));
   t.after(() => fs.rm(runtimeRoot, { recursive:true, force:true }));
   const realRoot = path.join(runtimeRoot, 'real');
@@ -155,13 +155,15 @@ from pathlib import Path
 spec = importlib.util.spec_from_file_location("open_kimi_bridge", os.environ["OPEN_KIMI_BRIDGE_PATH"])
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-module.EXPORT_MODE = "pptx"
+module.EXPORT_MODE = "images"
 session = object.__new__(module.PlaywrightBrowserSession)
 captured = {}
 session.rpc = lambda action, **values: captured.update({"action": action, **values})
-session.run(["download", "@e1", os.environ["OPEN_KIMI_ALIAS_OUTPUT"]])
+session.download_dir = Path(os.environ["OPEN_KIMI_REAL_OUTPUT"]).resolve().parent
+module.normalize_image_download = lambda output, _download_dir: output
+session.run(["download", "@e1", os.environ["OPEN_KIMI_ALIAS_OUTPUT"]], timeout=300)
 expected = str(Path(os.environ["OPEN_KIMI_REAL_OUTPUT"]).resolve())
-raise SystemExit(0 if captured.get("output") == expected else 1)
+raise SystemExit(0 if captured.get("output") == expected and captured.get("timeout") == 120 else 1)
 `;
   await execute('/usr/bin/python3', ['-c', code], {
     env:{
@@ -171,6 +173,84 @@ raise SystemExit(0 if captured.get("output") == expected else 1)
       OPEN_KIMI_REAL_OUTPUT:path.join(realRoot, 'browser-output.pptx'),
     },
   });
+});
+
+test('PPTX 下载只触发按钮并由受控目录轮询发现文件', async (t) => {
+  const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'open-kimi-pptx-trigger-'));
+  t.after(() => fs.rm(runtimeRoot, { recursive:true, force:true }));
+  const progressRecord = path.join(runtimeRoot, 'stage-progress.json');
+  const code = `
+import importlib.util
+import os
+
+spec = importlib.util.spec_from_file_location("open_kimi_bridge", os.environ["OPEN_KIMI_BRIDGE_PATH"])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.EXPORT_MODE = "pptx"
+session = object.__new__(module.PlaywrightBrowserSession)
+captured = {}
+session.rpc = lambda action, **values: captured.update({"action": action, **values})
+session.run(["download", "@e1", os.path.join(os.environ["OPEN_KIMI_WORK_ROOT"], "browser-output.pptx")], timeout=300)
+
+observed = {}
+def find_fixture(*_args, **kwargs):
+    observed.update(kwargs)
+    return "fixture.pptx"
+
+result = module.download_wait_wrapper(find_fixture, "pptx.download_wait")([], timeout=90)
+valid = (
+    captured.get("action") == "triggerDownloadRef"
+    and captured.get("ref") == "@e1"
+    and captured.get("timeout") == 180
+    and "output" not in captured
+    and observed.get("timeout") == 180.0
+    and result == "fixture.pptx"
+)
+raise SystemExit(0 if valid else 1)
+`;
+  await execute('/usr/bin/python3', ['-c', code], {
+    env:{
+      PATH:'/usr/bin:/bin',
+      OPEN_KIMI_BRIDGE_PATH:BRIDGE,
+      OPEN_KIMI_WORK_ROOT:runtimeRoot,
+      AGENT_ARMY_OPEN_KIMI_PROGRESS_RECORD:progressRecord,
+    },
+  });
+  const document = JSON.parse(await fs.readFile(progressRecord, 'utf8'));
+  assert.equal(document.stage, 'pptx.download_wait');
+  assert.equal(document.status, 'completed');
+});
+
+test('PPTX 目录轮询超时写入稳定脱敏 checkpoint', async (t) => {
+  const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'open-kimi-pptx-wait-timeout-'));
+  t.after(() => fs.rm(runtimeRoot, { recursive:true, force:true }));
+  const progressRecord = path.join(runtimeRoot, 'stage-progress.json');
+  const code = `
+import importlib.util
+import os
+
+spec = importlib.util.spec_from_file_location("open_kimi_bridge", os.environ["OPEN_KIMI_BRIDGE_PATH"])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.EXPORT_MODE = "pptx"
+def fail(*_args, **_kwargs):
+    raise RuntimeError("details are not persisted")
+try:
+    module.download_wait_wrapper(fail, "pptx.download_wait")([], timeout=90)
+except RuntimeError:
+    pass
+`;
+  await execute('/usr/bin/python3', ['-c', code], {
+    env:{
+      PATH:'/usr/bin:/bin',
+      OPEN_KIMI_BRIDGE_PATH:BRIDGE,
+      AGENT_ARMY_OPEN_KIMI_PROGRESS_RECORD:progressRecord,
+    },
+  });
+  const document = JSON.parse(await fs.readFile(progressRecord, 'utf8'));
+  assert.equal(document.stage, 'pptx.download_wait');
+  assert.equal(document.status, 'failed');
+  assert.equal(document.errorCode, 'playwright_download_file_timeout');
 });
 
 test('上游非零返回不得把详细下载失败 checkpoint 覆盖成整体完成', async (t) => {
@@ -197,6 +277,66 @@ test('上游非零返回不得把详细下载失败 checkpoint 覆盖成整体�
   assert.equal(document.stage, 'visualQa.download');
   assert.equal(document.status, 'failed');
   assert.equal(document.errorCode, 'playwright_download_invalid_image_archive');
+});
+
+test('上游非零返回且没有细粒度失败时写入稳定整体失败 checkpoint', async (t) => {
+  const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'open-kimi-overall-nonzero-'));
+  t.after(() => fs.rm(runtimeRoot, { recursive:true, force:true }));
+  const progressRecord = path.join(runtimeRoot, 'stage-progress.json');
+  const code = [
+    'import importlib.util, os',
+    'spec = importlib.util.spec_from_file_location("open_kimi_bridge", os.environ["OPEN_KIMI_BRIDGE_PATH"])',
+    'module = importlib.util.module_from_spec(spec)',
+    'spec.loader.exec_module(module)',
+    'module.EXPORT_MODE = "images"',
+    'module.write_progress("visualQa.download_wait", "completed")',
+    'module.record_overall_result("visualQa.images", 1)',
+  ].join('; ');
+  await execute('/usr/bin/python3', ['-c', code], {
+    env:{
+      PATH:'/usr/bin:/bin',
+      OPEN_KIMI_BRIDGE_PATH:BRIDGE,
+      AGENT_ARMY_OPEN_KIMI_PROGRESS_RECORD:progressRecord,
+    },
+  });
+  const document = JSON.parse(await fs.readFile(progressRecord, 'utf8'));
+  assert.equal(document.stage, 'visualQa.images');
+  assert.equal(document.status, 'failed');
+  assert.equal(document.errorCode, 'upstream_nonzero');
+});
+
+test('图片兜底轮询优先返回桥接器已验证并重封装的归档', async (t) => {
+  const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'open-kimi-normalized-wait-'));
+  t.after(() => fs.rm(runtimeRoot, { recursive:true, force:true }));
+  const progressRecord = path.join(runtimeRoot, 'stage-progress.json');
+  const normalized = path.join(runtimeRoot, 'normalized-image-output.zip');
+  await fs.writeFile(normalized, Buffer.from('fixture'));
+  const code = `
+import importlib.util
+import os
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("open_kimi_bridge", os.environ["OPEN_KIMI_BRIDGE_PATH"])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module.EXPORT_MODE = "images"
+module.LAST_NORMALIZED_IMAGE_DOWNLOAD = Path(os.environ["OPEN_KIMI_NORMALIZED"])
+def denied(*_args, **_kwargs):
+    raise RuntimeError("raw search must not run")
+result = module.download_wait_wrapper(denied, "visualQa.download_wait")([], timeout=240)
+raise SystemExit(0 if result == module.LAST_NORMALIZED_IMAGE_DOWNLOAD or result == Path(os.environ["OPEN_KIMI_NORMALIZED"]) else 1)
+`;
+  await execute('/usr/bin/python3', ['-c', code], {
+    env:{
+      PATH:'/usr/bin:/bin',
+      OPEN_KIMI_BRIDGE_PATH:BRIDGE,
+      OPEN_KIMI_NORMALIZED:normalized,
+      AGENT_ARMY_OPEN_KIMI_PROGRESS_RECORD:progressRecord,
+    },
+  });
+  const document = JSON.parse(await fs.readFile(progressRecord, 'utf8'));
+  assert.equal(document.stage, 'visualQa.download_wait');
+  assert.equal(document.status, 'completed');
 });
 
 test('Kimi 返回单张图片文件时，桥接器在受控临时目录重新封装为上游可接受 ZIP', async (t) => {
@@ -229,6 +369,40 @@ test('Kimi 返回单张图片文件时，桥接器在受控临时目录重新封
   assert.equal((await fs.stat(normalized)).isFile(), true);
   const listing = await execute('/usr/bin/unzip', ['-Z1', normalized]);
   assert.deepEqual(listing.stdout.trim().split('\n').map((name) => path.extname(name)).sort(), ['.jpeg', '.png']);
+});
+
+test('Kimi 返回图片 ZIP 时，桥接器解压校验后写入确定命名的新归档', async (t) => {
+  const runtimeRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'open-kimi-zip-normalize-'));
+  t.after(() => fs.rm(runtimeRoot, { recursive:true, force:true }));
+  const downloadRoot = path.join(runtimeRoot, 'downloads');
+  await fs.mkdir(downloadRoot);
+  const source = path.join(runtimeRoot, 'browser-output.zip');
+  const code = `
+import importlib.util
+import os
+import zipfile
+from pathlib import Path
+
+source = Path(os.environ["OPEN_KIMI_SOURCE"])
+with zipfile.ZipFile(source, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    archive.writestr("nested/original-name.bin", b"\\x89PNG\\r\\n\\x1a\\nfixture")
+    archive.writestr("ignored.txt", b"not an image")
+spec = importlib.util.spec_from_file_location("open_kimi_bridge", os.environ["OPEN_KIMI_BRIDGE_PATH"])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+normalized = module.normalize_image_download(source, Path(os.environ["OPEN_KIMI_DOWNLOADS"]))
+with zipfile.ZipFile(normalized) as archive:
+    names = archive.namelist()
+raise SystemExit(0 if names == ["01.png"] else 1)
+`;
+  await execute('/usr/bin/python3', ['-c', code], {
+    env:{
+      PATH:'/usr/bin:/bin',
+      OPEN_KIMI_BRIDGE_PATH:BRIDGE,
+      OPEN_KIMI_SOURCE:source,
+      OPEN_KIMI_DOWNLOADS:downloadRoot,
+    },
+  });
 });
 
 async function allExist(paths) {

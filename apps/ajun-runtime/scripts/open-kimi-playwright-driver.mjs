@@ -120,6 +120,10 @@ async function handle(request) {
     await frame.locator('.radio-group-item.active').filter({ hasText:/^\s*图片\s*$/ }).waitFor({ state:'visible', timeout });
     return { selected:true };
   }
+  if (action === 'triggerDownloadRef') {
+    const locator = locatorForRef(request.ref);
+    return triggerDownload(locator, timeout);
+  }
   if (action === 'downloadRef') {
     const output = safeOutputPath(request.output);
     const locator = locatorForRef(request.ref);
@@ -133,7 +137,21 @@ async function handle(request) {
     const locator = page.getByRole('button', { name:'下载', exact:true });
     return captureDownload(page, locator, output, timeout);
   }
+  if (action === 'fixtureTriggerDownload') {
+    if (process.env.AGENT_ARMY_OPEN_KIMI_LOCAL_DOWNLOAD_FIXTURE !== '1' || !isLocalBridgeUrl(page.url())) {
+      throw policyError('playwright_command_denied');
+    }
+    const locator = page.getByRole('button', { name:'下载', exact:true });
+    return triggerDownload(locator, timeout);
+  }
   throw policyError('playwright_command_denied');
+}
+
+export async function triggerDownload(locator, timeout) {
+  await locator.click({ timeout, noWaitAfter:true }).catch((cause) => {
+    throw operationError('playwright_download_trigger_failed', cause);
+  });
+  return { triggered:true };
 }
 
 export async function captureDownload(targetPage, locator, output, timeout) {
