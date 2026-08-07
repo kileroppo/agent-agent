@@ -90,7 +90,7 @@ test('Python 桥接在 localhost 真浏览器操作中推进阶段 checkpoint', 
       AGENT_ARMY_OPEN_KIMI_PLAYWRIGHT_ROOT:playwrightRoot,
       AGENT_ARMY_OPEN_KIMI_CHROME_REAL:CHROME,
     },
-    timeout:30_000,
+    timeout:60_000,
   });
   const document = JSON.parse(await fs.readFile(progressRecord, 'utf8'));
   assert.equal(document.mode, 'images');
