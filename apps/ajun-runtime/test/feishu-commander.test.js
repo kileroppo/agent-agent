@@ -33,6 +33,27 @@ test('自然语言要视频脚本时直接交给小创，不误当成小D素材�
   assert.equal(result.kind, 'content_script');
 });
 
+test('飞书中的视频分析模式会建立一次小D获取和一次小拆分析', async () => {
+  const calls = [];
+  const commander = new FeishuCommander({
+    tasks:{ async create() { throw new Error('视频链接分析应建立受控总任务'); } },
+    proposals:{},
+    missions:{ async createBusinessMission(input) { calls.push(input); return { mission:{ taskId:'mission-video' }, children:[], reply:'已建立视频分析任务。' }; } }
+  });
+  const result = await commander.handle({
+    text:'请对 https://example.com/video 做模板学习',
+    sourceEventRef:'feishu:video-template-1',
+    chatRef:'chat-video-template'
+  });
+  assert.equal(result.mission.taskId, 'mission-video');
+  assert.equal(calls[0].items.length, 2);
+  assert.equal(calls[0].items[0].agentId, 'xiaod');
+  assert.equal(calls[0].items[0].analysisIntent, 'template');
+  assert.equal(calls[0].items[1].agentId, 'video-content-analyst');
+  assert.equal(calls[0].items[1].analysisIntent, 'template');
+  assert.equal(calls[0].items[1].dependsOnPrevious, true);
+});
+
 test('用户一句话改稿时复用当前会话最新脚本，不要求重新讲背景', async () => {
   const calls = [];
   const latest = {

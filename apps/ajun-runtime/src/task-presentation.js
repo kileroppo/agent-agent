@@ -25,12 +25,20 @@ export function presentTask(task = {}, { approvals = [], detailBaseUrl = '' } = 
   );
   const base = pendingApproval ? STATUS_PRESENTATION.waiting_approval : STATUS_PRESENTATION[status];
   const errorMessage = cleanText(task.error?.userMessage, 500);
-  const summary = base?.summary
+  const analysisReport = (task.artifactRefs || []).find((artifact) =>
+    artifact?.type === 'video_content_analysis_report'
+  )?.data;
+  const analysisIntent = cleanText(analysisReport?.analysisIntent || task.input?.analysisIntent, 20);
+  const analysisNextAction = cleanText(analysisReport?.nextAction?.label, 500);
+  const analysisSummary = analysisReport && analysisIntent
+    ? `${title}：${analysisIntentLabel(analysisIntent)}报告已完成。`
+    : null;
+  const summary = analysisSummary || (base?.summary
     ? `${title}：${base.summary}`
-    : `${title}：状态已更新。`;
+    : `${title}：状态已更新。`);
   const nextAction = errorMessage && ['failed', 'needs_input', 'waiting_test'].includes(status)
     ? errorMessage
-    : base?.nextAction || '等待新的进度；无需重复提交。';
+    : analysisNextAction || base?.nextAction || '等待新的进度；无需重复提交。';
   const detailPath = taskId ? `/tasks/${encodeURIComponent(taskId)}` : null;
   return {
     taskRef:shortTaskRef(taskId),
@@ -44,7 +52,9 @@ export function presentTask(task = {}, { approvals = [], detailBaseUrl = '' } = 
       taskId:taskId || null,
       status,
       currentStage:cleanText(task.currentStage, 120) || null,
-      errorCode:cleanText(task.error?.code, 120) || null
+      errorCode:cleanText(task.error?.code, 120) || null,
+      analysisIntent:analysisIntent || null,
+      reportVersion:cleanText(analysisReport?.reportVersion, 80) || null
     }
   };
 }
@@ -90,4 +100,8 @@ function taskDetailUrl(baseUrl, detailPath) {
 
 function cleanText(value, limit) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit);
+}
+
+function analysisIntentLabel(value) {
+  return ({ digest:'精华提炼', deep:'深度拆解', template:'模板学习', style:'风格探索' })[value] || '视频分析';
 }

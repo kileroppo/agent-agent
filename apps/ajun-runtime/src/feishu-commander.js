@@ -1,5 +1,6 @@
 import { formatPublicReportReply } from './public-report-presentation.js';
 import { formatOfficeBriefingReply } from './local-office-assistant.js';
+import { resolveAnalysisIntent } from './analysis-intent.js';
 
 // Allow the user to name the new role between “创建一个” and “Agent”, such as
 // “创建一个公开网页摘要 Agent”.  The previous expression only recognised an
@@ -18,6 +19,7 @@ const CAPABILITIES_RE = /(?:你|军团|现在).*(?:能干什么|能做什么|可
 const OPERATIONS_TRIAGE_RE = /(?:怀疑|担心|看看|查(?:一下|下)?|检查|判断).{0,48}(?:异常|故障|出问题|卡住|卡死)|(?:异常|故障|出问题|卡住|卡死).{0,80}(?:安全(?:处理|恢复)|谁(?:来|该)接手|怎么处理|需要我做什么)/i;
 const MEDIA_RE = /视频|音频|转录|字幕|整理素材|youtube|bilibili|抖音|快手|transcri/i;
 const VIDEO_SCRIPT_RE = /(?:写|生成|做|出).{0,20}(?:视频)?(?:脚本|口播稿|拍摄稿)|按.{0,40}(?:套路|结构|视频|案例).{0,40}(?:写|生成|做|出)|(?:脚本|口播稿).{0,40}(?:主题|关于)/i;
+const VIDEO_ANALYSIS_MODE_RE = /总结|提炼|精华|快速看懂|重点是什么|深度拆解|完整分析|完整拆解|为什么有效|学习方法|13\s*模块|模板学习|提取模板|学习模板|复用结构|开头套路|填空模板|换种风格|风格探索|专业版|幽默版|故事版|数据版/iu;
 const USE_THIS_VERSION_RE = /^\s*(?:用这版|就这版|采用这版|按这版做|这版可以)\s*[。！!]?\s*$/;
 const SCRIPT_REVISION_RE = /(?:更像我|更口语|更自然|节奏快|节奏慢|短一点|长一点|改(?:一下|成)|重写|开头.{0,12}(?:换|改)|语气.{0,12}(?:换|改))/i;
 const OFFICE_RE = /办公汇报|汇报包|整理成(?:文档|表格|清单)|任务清单|会议材料|会议纪要|把.{0,40}(?:结果|材料).{0,20}整理/i;
@@ -188,6 +190,32 @@ export class FeishuCommander {
             ? 'content-creator'
             : undefined;
     const researchInput = taskType === 'research.github-search' ? githubTaskInput(text) : taskType === 'research.intel-report' ? { topic:text } : {};
+    const analysisUrl = taskType === 'content.video-benchmark-analysis' ? publicUrl(text) : null;
+    if (analysisUrl && typeof this.missions?.createBusinessMission === 'function') {
+      const analysis = resolveAnalysisIntent({ title:text });
+      if (analysis.error) return this.clarify('检测到多个分析模式，请只选精华提炼、深度拆解、模板学习或风格探索中的一种。');
+      return this.missions.createBusinessMission({
+        title:`${text}｜受控获取与分析`,
+        requester,
+        source,
+        idempotencyKey:`feishu:${sourceEventRef}`,
+        items:[
+          {
+            key:'acquire-transcript', title:`获取并整理：${text}`, taskType:'media.transcribe-and-refine', agentId:'xiaod',
+            description:'通过内容获取中心处理公开或已授权素材；复用已有字幕，必要时才转录。',
+            acceptance:'生成来源证据、质量报告和系统或人工确认稿。', sourceUrls:[analysisUrl],
+            reviewPolicy:'optional', evidenceMode:'formal', analysisIntent:analysis.analysisIntent, depth:analysis.depth, visualMode:'auto'
+          },
+          {
+            key:'analyze-video', title:text, taskType:'content.video-benchmark-analysis', agentId:'video-content-analyst',
+            description:'只在确认稿存在后生成对应模式的证据化分析。',
+            acceptance:'所有关键内容绑定字幕片段、时间点或画面证据。', sourceUrls:[analysisUrl],
+            reviewPolicy:'optional', evidenceMode:'formal', analysisIntent:analysis.analysisIntent, depth:analysis.depth, visualMode:'auto',
+            dependsOnPrevious:true, dependsOn:['acquire-transcript']
+          }
+        ]
+      });
+    }
     const task = await this.tasks.create({
       title: text, description:['office.briefing-package', 'office.presentation-package'].includes(taskType) ? text : '', taskType, requester, source,
       agentId: entryAgentId || plan.agentId || defaultAgentId, ...researchInput, idempotencyKey: `feishu:${sourceEventRef}`
@@ -633,6 +661,8 @@ export class FeishuCommander {
 
   async intentFor(text) {
     if (VIDEO_SCRIPT_RE.test(text)) return { intent:'route_task', taskType:'content.video-script-package', agentId:'content-creator' };
+    const analysisPlan = videoAnalysisPlan(text);
+    if (analysisPlan) return analysisPlan;
     if (typeof this.planner?.decide !== 'function') return directIntent(text);
     try {
       const [routes, employees] = await Promise.all([this.availableRoutes(), this.availableEmployees()]);
@@ -711,6 +741,8 @@ function directIntent(text) {
     if (CAPABILITIES_RE.test(text)) return { intent:'army_capabilities' };
     if (HEALTH_RE.test(text)) return { intent:'health_check' };
     if (VIDEO_SCRIPT_RE.test(text)) return { intent:'route_task', taskType:'content.video-script-package', agentId:'content-creator' };
+    const analysisPlan = videoAnalysisPlan(text);
+    if (analysisPlan) return analysisPlan;
     if (MEDIA_RE.test(text)) return { intent:'media_task' };
     if (OFFICE_RE.test(text)) return { intent:'office_briefing' };
     if (isGithubRequest(text)) return { intent:'github_search' };
@@ -719,6 +751,15 @@ function directIntent(text) {
     if (/优先.*(?:做|处理)|怎么推进|安排.*(?:合适|员工|人).*做|最值得.*(?:做|处理)|下一步.*(?:做|处理)/.test(text)) return { intent:'army_planning' };
     if (/重复.*工作|反复.*事情|需要.*新员工|岗位.*缺口|能力.*缺口|架构.*评估|复盘.*工作/.test(text)) return { intent:'architecture_review' };
     return { intent:'intake' };
+}
+
+function videoAnalysisPlan(text) {
+  if (!VIDEO_ANALYSIS_MODE_RE.test(text) || !(MEDIA_RE.test(text) || publicUrl(text))) return null;
+  const analysis = resolveAnalysisIntent({ title:text });
+  if (analysis.error === 'analysis_intent_conflict') {
+    return { intent:'clarify', reply:'检测到多个分析模式，请只选精华提炼、深度拆解、模板学习或风格探索中的一种。' };
+  }
+  return { intent:'route_task', taskType:'content.video-benchmark-analysis', agentId:'video-content-analyst' };
 }
 
 function isSafePublicResearchRequest(text) {

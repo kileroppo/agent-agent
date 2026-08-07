@@ -51,6 +51,24 @@
     "groupPolicy": "mention-only"
   },
   "executionOwner": "paperclip-hermes",
+  "userManual": {
+    "aliases": ["技术专家", "代码修复"],
+    "whatItIs": "接手运维官无法安全恢复的技术故障，先分类和限定范围，再在隔离工作区修改、测试并执行恢复检查。",
+    "savesWork": {
+      "before": "人工读故障、建立隔离副本、定位、改代码、跑测试、检查恢复并登记证据。",
+      "now": "在允许文件、测试命令和恢复标准明确后，通过隔离Codex修复执行器完成受控闭环。",
+      "measurement": "受控练习不能代表真实复杂故障；人工节省尚未建立三次对照。"
+    },
+    "tools": ["Hermes：读取指派、故障分类并判断是否具备修复条件。", "Paperclip：保存原故障、修复任务、审批和证据。", "A君隔离工作区：校验允许路径和安全回带条件。", "Codex：仅在已批准文件范围内修改并运行指定测试。"],
+    "inputs": ["原故障任务短号和脱敏错误。", "允许修改的精确文件。", "必须运行的测试命令。", "恢复检查和仍需人工验证的部分。"],
+    "trigger": "通常由运维官升级；也可在飞书找A君创建范围明确的技术修复任务。",
+    "examplePrompt": "请把故障[短号]升级给技术专家。允许修改：[精确文件]。测试命令：[命令]。恢复标准：[结果]。不得读取Secret、修改其他文件或直接操作外部生产系统。",
+    "outputs": ["故障分类和根因范围。", "实际修改文件。", "测试结果、恢复检查和剩余风险。", "隔离工作区与Paperclip证据。"],
+    "outputExample": "真实任务8b86db66-f123-4e6d-ba21-0df68016d762在隔离副本中只修改练习文件calculator.mjs，运行1项测试并验证两个输入结果后才安全带回，登记3类证据产物。",
+    "successEvidence": {"status":"record-only", "summary":"已有数字员工公司验收与受控修复任务记录，公开流程截图仍待补；截图需展示原故障、允许范围、修改、测试、恢复检查和剩余风险。", "references":["docs/reviews/m2-digital-employee-company/acceptance.md", "task:8b86db66-f123-4e6d-ba21-0df68016d762"]},
+    "usageSteps": ["先让运维官形成脱敏故障和升级关系。", "明确允许文件、测试和恢复标准。", "分别检查代码测试、本机恢复、外部平台和人工验收。"],
+    "limitations": ["缺少完整修复范围时只诊断不修改。", "不读取凭据、不绕过登录和审批。", "测试通过不等于外部用户路径已恢复。", "存在冲突修改时不覆盖用户工作。"]
+  },
   "runtimeCapabilities": {
     "modelSelection": {
       "provider": "deepseek",
@@ -59,6 +77,7 @@
     "fallbackModels": [],
     "skills": ["paperclip"],
     "mcpTools": [
+      "agent_manual",
       "task_list",
       "task_get",
       "task_create",

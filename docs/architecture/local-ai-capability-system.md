@@ -57,7 +57,7 @@ flowchart LR
 | `text.generate` | Qwen3.5-9B | 按需启动、空闲释放 | Qwen continuous batching |
 | `vision.analyze` | Qwen3.5-9B | 按需启动、空闲释放 | Qwen continuous batching |
 | `video.analyze` | FFmpeg 抽帧 + Qwen3.5 | 按请求 | heavy + Qwen |
-| `audio.transcribe` | Whisper large-v3-turbo | 按请求 | speech |
+| `audio.transcribe` | Whisper large-v3-turbo；小D隔离保留 faster-whisper-small 作为人工复核型故障降级 | 按请求 | speech |
 | `audio.synthesize` | Qwen3-TTS 0.6B CustomVoice | 按请求 | speech |
 | `image.generate` / `image.edit` | MFLUX + FLUX.2 klein 4B | 按请求 | heavy，串行 |
 | `embedding.create` | Qwen3-Embedding 0.6B | 按需加载、空闲释放 | retrieval |
@@ -69,6 +69,7 @@ flowchart LR
 ## 资源与恢复
 
 - `speech` 串行化 Whisper 与 TTS，防止同一统一内存上重复加载语音模型；
+- 小D的现有 `4318` 媒体执行器保持“可靠字幕优先 → MLX large-v3-turbo 质量主路”。2026-08-07 本机基准证明 CPU `faster-whisper-small` 比 MLX 大模型更慢且更容易出现专有词和繁简混杂，因此渐进快路默认关闭；备用模型只在 MLX 失败、任务为普通快速任务且时长未超限时应急接管，并强制人工完整听审。备用稿、路由原因和实际模型写入任务证据，不把降级冒充自动确认。
 - `heavy` 串行化视频抽帧和 FLUX 任务；图片请求支持稳定 request ID 和进程组取消；
 - `retrieval` 保护共享模型实例；Embedding 与 Reranker 首次使用时加载，空闲后释放；
 - 子进程超时、非零退出和 OOM 分别保留真实失败，不把部分产物标成成功；

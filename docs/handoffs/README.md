@@ -55,6 +55,7 @@
 
 ## 当前交接
 
+- [Agent 使用说明书问答接入交接](./current/agent-manual-query-handoff.md)：不可变 release `99f99c56…` 已切到 4321，11 个 Hermes Profile 已同步且 5 个常驻 Gateway 已重启。唯一下一步是负责人完成四条真实飞书问答与排版验收。
 - [小办演示文稿能力交接](./current/office-presentation-capability-handoff.md)：已关闭；不可变 release、真实公开任务、三类 Work Product、自动视觉 QA 与 WPS 固定样例验收均完成。
 - [小R多路线搜索与证据方法交接](./current/intel-research-search-method-handoff.md)：Yichen 技能已同步到小R Profile，六路规划器已在 Profile 实跑；A君执行器源码和全量回归已通过。唯一下一步是从独立干净 worktree 冻结并切换不可变 release，再用一条真实公开研究任务验收结果质量。
 - [本地 AI 能力系统交接](./current/local-ai-capability-system-handoff.md)：九项 Mac 本地能力和统一网关已完成真实样本验收；唯一下一步是等待 18081 当前请求自然结束后切换 launchd，并完成重启恢复与 A君运行证据。

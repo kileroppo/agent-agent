@@ -22,6 +22,7 @@ export class HermesContentGrowthAdvisor {
   async analyze({
     title,
     transcript,
+    analysisIntent,
     depth,
     evidenceMode,
     focus,
@@ -51,6 +52,7 @@ export class HermesContentGrowthAdvisor {
       analysisPrompt({
         title,
         transcript,
+        analysisIntent,
         depth,
         evidenceMode,
         focus,
@@ -188,6 +190,7 @@ export class HermesContentGrowthAdvisor {
 function analysisPrompt({
   title,
   transcript,
+  analysisIntent,
   depth,
   evidenceMode,
   focus,
@@ -211,6 +214,8 @@ function analysisPrompt({
       ? '每个模块必须同时包含 originalAnalysis、diagnosis、optimization 三个非空数组；每项判断都要带 evidence。给定转录已整理为最多 30 个连续证据段落；全文逐句作用拆解必须让 sentenceBreakdown 逐项覆盖每个段落且不遗漏，逐项格式为 {"original":"段落原文","role":"作用","explanation":"解释","evidence":{"timestamp":"00:00或null","fragment":"与该段落逐字一致的完整原文"}}。'
       : '快速模式每个模块包含 finding、evidence 和 confidence。',
     'modules 必须按“必须覆盖模块”的顺序逐项输出，不得改名、合并或遗漏。',
+    `当前分析模式：${JSON.stringify(analysisIntent || (depth === 'full' ? 'deep' : 'digest'))}。精华提炼要突出最少信息量；深度拆解要区分观察事实与机制推断；模板学习只复用结构作用；风格探索不得改变事实或编造数据。`,
+    analysisModeOutputInstruction(analysisIntent || (depth === 'full' ? 'deep' : 'digest')),
     '只输出单行 JSON：{"summary":"摘要","modules":[{"name":"模块","finding":"判断","originalAnalysis":[{"claim":"原文分析","evidence":{"timestamp":"00:00或null","fragment":"原文"}}],"diagnosis":[{"issue":"问题","severity":"high|medium|low","evidence":{"timestamp":"00:00或null","fragment":"原文"}}],"optimization":[{"action":"具体改法","evidence":{"timestamp":"00:00或null","fragment":"原文"}}],"evidence":{"timestamp":"00:00或null","fragment":"原文"},"confidence":"high|medium|low"}],"visualFindings":[{"category":"opening_visual_hook|shot_and_pacing|captions_and_graphics|people_objects_scenes|reusable_visual_pattern","finding":"只描述可见事实及其内容作用","evidence":{"timestamp":"与帧目录完全一致","frameRef":"frame-001"},"confidence":"high|medium|low"}],"reusablePatterns":["模式"],"actionItems":["行动"]}。',
     depth === 'full'
       ? '“全文逐句作用拆解”对应的模块对象必须在上述字段之外实际包含 "sentenceBreakdown":[{"original":"完整证据段落原文","role":"作用","explanation":"解释","evidence":{"timestamp":null,"fragment":"完整证据段落原文"}}]，不得只在 finding 中声称已覆盖。'
@@ -232,6 +237,13 @@ function analysisPrompt({
       : '',
     `转录：${JSON.stringify(String(transcript || '').slice(0, 80_000))}`
   ].join('\n');
+}
+
+function analysisModeOutputInstruction(analysisIntent) {
+  if (analysisIntent === 'digest') return '除 modules 外必须输出 digest：oneSentenceSummary；3至5条 corePoints，每条含 point 和逐字证据；2至3条 goldenQuotes，quote 必须与 evidence.fragment 完全相同且逐字存在于转录；1至3条 actionItems。';
+  if (analysisIntent === 'template') return '除 modules 外必须输出 templateLearning：status 固定 candidate；三段 structure，每段含 module、purpose、placeholder、replacementGuide、逐字 evidence；三个 openingTemplates；communicationElements；differentTopicExample；originalityReminder；performanceClaim 必须说明无真实指标时不构成爆款承诺。';
+  if (analysisIntent === 'style') return '除 modules 外必须输出 styleExploration：factsLocked=true；facts 每条含 fact 和逐字 evidence；variants 固定四项，依次为专业严谨版、轻松幽默版、故事化版、数据或证据驱动版，每个 sample 150至250个中文字符并含 applicableScene、advantage、risk；无真实数据时第四项必须名为证据驱动版且禁止编造数字；另含 recommendation。';
+  return '深度拆解的模块判断必须区分可观察事实和分析推断；不要把心理或传播机制写成已证实因果。';
 }
 
 function draftPrompt({ title, contentGoal, platforms, transcript, analysis }) {

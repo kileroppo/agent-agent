@@ -29,6 +29,7 @@ agent-agent/
 
 ### 机器事实（2026-08-07 13:50 CST）
 
+- **小D已接入无感 ASR 路由，但不会为“快模型”牺牲速度或质量**：字幕仍优先；本机基准显示 M1 Max 上 `mlx-whisper large-v3-turbo` 明显快于 CPU `faster-whisper-small`，因此日常任务继续走 MLX 质量主路。隔离安装的 `faster-whisper 1.2.1` 只在质量模型失败、任务非正式且不超过受控时长时应急接管；应急稿强制进入人工完整听审，不能自动确认。跨模型抽样校验路径保留但默认关闭，后续只有在目标机器基准证明更快时才启用。小D自动检查 56/56 通过。
 - **A君已切入小办 PPT 能力的不可变 release**：PID `56917`，`releaseHash=811d3c471c4e3ab48d3f67fe8b586a3d6941eba8e7f41c38a29c2133f510593b`，`payloadHash=31e2f5d1eaeb17c37a2fcd36521f3110142b27896fed30cbbc3d9a3092107444`，来源为 clean commit `9204a92a057c7ed52a552c9f93b9a748cfa6e9a6`；`/api/overview=200`，11 个 Agent、776 条任务，演示能力显示“PPTD 可用；PPTX 可用”。
 - **小办 PPT 真实任务已完成**：A君任务 `ca1c34a8-f58f-48ff-a86b-c1a1e06ea5a8` 成功，Paperclip `AGE-1036` 为 done，三类 Work Product 均 healthy；4 页 PPTX 通过 ZIP/XML、fade、回读渲染和无溢出检查。执行全程使用受控本地工具链，不访问 Kimi、不读取 Cookie/Vault、不触发 Hermes 模型 Run。
 - **共享主工作树不是 live 源码**：现有未提交修改继续保留；live 使用隔离 clean worktree `work/runtime-sources/office-presentation-local-pptx-20260807` 和分支 `codex/office-presentation-local-pptx-runtime-20260807`，没有把其他脏改动带入 release。
@@ -119,6 +120,7 @@ agent-agent/
 - [系统架构](./docs/architecture/system-architecture.md)
 - [M1 平台兼容性验证](./docs/architecture/m1-platform-compatibility-validation.md)
 - [核心契约](./docs/contracts/core-contracts.md)
+- [Agent军团使用说明书](./docs/guides/Agent军团使用说明书.md)
 - [Agent 搭建与上线流程](./agents/agent-build-and-release.md)
 - [创建 Hermes Agent 与飞书 Bot 接线教程](./docs/guides/创建Hermes-Agent与飞书Bot接线教程.md)
 - [目录与代码规范](./docs/standards/repository-and-code.md)

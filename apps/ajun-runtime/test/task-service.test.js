@@ -32,6 +32,20 @@ function setup({
 }
 const coordinator = { agentId:'ajun', name:'A君', status:'active', acceptedTaskTypes:['army.intake', 'army.route-task', 'army.cross-agent-mission'] };
 
+test('任务服务统一保存分析模式并保持与兼容深度一致', async () => {
+  const analyst = { agentId:'video-content-analyst', name:'小拆', status:'active', acceptedTaskTypes:['content.video-benchmark-analysis'] };
+  const { service } = setup({ agents:[analyst] });
+  const task = await service.create({
+    title:'快速总结这个视频',
+    taskType:'content.video-benchmark-analysis',
+    agentId:'video-content-analyst',
+    analysisIntent:'template',
+    depth:'fast'
+  });
+  assert.equal(task.input.analysisIntent, 'template');
+  assert.equal(task.input.depth, 'full');
+});
+
 test('军团路由任务统一登记到 A君', async () => {
   const { service } = setup({ agents:[coordinator] }); const task = await service.create({ title:'安排一次任务', taskType:'army.route-task' });
   assert.equal(task.assigneeAgentId, 'ajun'); assert.equal(task.status, 'queued');

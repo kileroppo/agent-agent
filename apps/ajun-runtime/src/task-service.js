@@ -19,6 +19,7 @@ import { SkillExecutionRegistry } from './skill-execution-registry.js';
 import { TaskCapabilityCatalog } from './task-capability-catalog.js';
 import { TaskExecutionCoordinator } from './task-execution-coordinator.js';
 import { buildTaskFocus } from './task-overview-focus.js';
+import { resolveAnalysisIntent } from './analysis-intent.js';
 import { privateReadGrantStatus, revokePrivateReadGrant } from './private-read-grant.js';
 import {
   assertPaperclipEmployeeExecutorAssignment,
@@ -160,6 +161,21 @@ export class TaskService {
     const wechatChat = taskType === WECHAT_CHAT_TASK_TYPE ? normalizeWechatChatRequest({ ...input, title, description }) : null;
     const sourceUrls = uniquePublicUrls([String(input?.sourceUrl || '').trim(), ...(Array.isArray(input?.sourceUrls) ? input.sourceUrls : []), ...extractPublicUrls(`${title}\n${description}`)]);
     const sourceUrl = sourceUrls[0] || null;
+    const analysis = taskType === 'content.video-benchmark-analysis'
+      ? resolveAnalysisIntent({
+          analysisIntent:input?.analysisIntent,
+          title,
+          description,
+          focus:input?.focus,
+          depth:input?.depth,
+        })
+      : null;
+    if (analysis?.error === 'invalid_analysis_intent') {
+      throw new ValidationError('分析模式无效；请选择精华提炼、深度拆解、模板学习或风格探索。');
+    }
+    if (analysis?.error === 'analysis_intent_conflict') {
+      throw new ValidationError('检测到多个分析模式，请只选择一种：精华提炼、深度拆解、模板学习或风格探索。');
+    }
     let task = await this.store.createTask({
       taskType, idempotencyKey: suppliedIdempotencyKey || `local:${cryptoSafe(title)}:${Date.now()}`, requester: input?.requester || { kind: requesterName === 'A君' ? 'local-owner' : 'lan-collaborator', ref: requesterName }, source: input?.source || { channel: 'ajun-runtime' },
       assigneeAgentId: agent?.agentId || null, parentTaskId: String(input?.parentTaskId || '').trim() || null, recovery: input?.recovery || undefined, input: {
@@ -174,7 +190,8 @@ export class TaskService {
         topic:optionalInput(input?.topic),
         reviewPolicy:input?.reviewPolicy === 'required' ? 'required' : 'optional',
         evidenceMode:input?.evidenceMode === 'preliminary' ? 'preliminary' : 'formal',
-        depth:input?.depth === 'full' ? 'full' : 'fast',
+        analysisIntent:analysis?.analysisIntent || (['digest', 'deep', 'template', 'style'].includes(input?.analysisIntent) ? input.analysisIntent : undefined),
+        depth:analysis?.depth || (input?.depth === 'full' ? 'full' : 'fast'),
         visualMode:input?.visualMode === 'auto' || input?.visualMode === 'required'
           ? input.visualMode
           : input?.visualMode === 'off'
@@ -3286,7 +3303,10 @@ function contentGrowthArtifactVerified(task, artifact, { expectedProjectId = nul
   const formalFullAnalysis = task?.taskType === 'content.video-benchmark-analysis'
     && task?.input?.evidenceMode === 'formal'
     && task?.input?.depth === 'full';
-  return !formalFullAnalysis || artifact.validation?.semanticValidationPassed === true;
+  if (!formalFullAnalysis) return artifact.validation?.modeStructurePassed !== false;
+  const analysisIntent = task?.input?.analysisIntent || 'deep';
+  if (analysisIntent === 'deep') return artifact.validation?.semanticValidationPassed === true;
+  return artifact.validation?.modeStructurePassed === true;
 }
 function storedContentGrowthResult(task) {
   const execution = task?.execution?.contentGrowth;
@@ -3353,7 +3373,8 @@ function formatHealthReportReply(report) {
   return `【运维官健康检查】\n整体：${overall}\n${components}\n建议：${report.recommendedAction || '暂无。'}`;
 }
 function formatVideoAnalysisDelivery(report) {
-  const modules = report.modules.slice(0, 13).map((item, index) => `${index + 1}. ${item.name}：${item.finding}\n   证据：${item.evidence?.timestamp ? `[${item.evidence.timestamp}] ` : ''}${item.evidence?.fragment || '证据缺失'}`).join('\n');
+  const analysisIntent = report.analysisIntent || (report.depth === 'full' || report.modules?.length >= 13 ? 'deep' : 'digest');
+  const modules = (report.modules || []).slice(0, 13).map((item, index) => `${index + 1}. ${item.name}：${item.finding}\n   证据：${item.evidence?.timestamp ? `[${item.evidence.timestamp}] ` : ''}${item.evidence?.fragment || '证据缺失'}`).join('\n');
   const actions = Array.isArray(report.actionItems) && report.actionItems.length
     ? `\n\n行动清单：\n${report.actionItems.slice(0, 5).map((item) => `- ${item}`).join('\n')}`
     : '';
@@ -3371,7 +3392,33 @@ function formatVideoAnalysisDelivery(report) {
     : report.generationMode === 'hermes_advisor_evidence_repaired'
       ? 'Hermes 深度分析（证据结构已按确认稿修复）'
       : '本机证据化兜底（模型结果未通过结构校验）';
-  return `【小拆视频内容拆解】\n模式：${generation}\n完整度：${completeness}\n证据：${report.evidenceLabel || report.evidenceMode}${source}\n${report.summary}\n\n${modules}${visual}${actions}`;
+  const modeName = ({ digest:'精华提炼', deep:'深度拆解', template:'模板学习', style:'风格探索' })[analysisIntent] || '精华提炼';
+  let body = modules;
+  if (analysisIntent === 'digest' && report.digest) {
+    body = [
+      `一句话总结：${report.digest.oneSentenceSummary}`,
+      '',
+      '核心要点：',
+      ...report.digest.corePoints.map((item) => `- ${item.point}\n  证据：${item.evidence?.timestamp ? `[${item.evidence.timestamp}] ` : ''}${item.evidence?.fragment || '证据缺失'}`),
+      '',
+      '原文金句：',
+      ...report.digest.goldenQuotes.map((item) => `- “${item.quote}”${item.evidence?.timestamp ? ` [${item.evidence.timestamp}]` : ' [时间点缺失]'}`),
+    ].join('\n');
+  } else if (analysisIntent === 'template' && report.templateLearning) {
+    body = [
+      '结构模板候选：',
+      ...report.templateLearning.structure.map((item) => `- ${item.module}｜${item.purpose}\n  ${item.placeholder}\n  替换：${item.replacementGuide}`),
+      '',
+      '三种开头：',
+      ...report.templateLearning.openingTemplates.map((item) => `- ${item}`),
+      '',
+      report.templateLearning.originalityReminder,
+    ].join('\n');
+  } else if (analysisIntent === 'style' && report.styleExploration) {
+    body = report.styleExploration.variants.map((item) => `【${item.name}】\n${item.sample}\n适用：${item.applicableScene}；优势：${item.advantage}；风险：${item.risk}`).join('\n\n');
+  }
+  const nextAction = report.nextAction?.label ? `\n\n下一步：${report.nextAction.label}` : '';
+  return `【小拆视频内容分析｜${modeName}】\n执行：${generation}\n完整度：${completeness}\n证据：${report.evidenceLabel || report.evidenceMode}${source}\n${report.summary}\n\n${body}${visual}${analysisIntent === 'deep' ? actions : ''}${nextAction}`;
 }
 function formatPlatformDraftDelivery(report) {
   const drafts = report.drafts.slice(0, 3).map((item) => `- ${item.platform}：${item.titleCandidates?.[0] || '已生成草稿'}\n  开场：${item.opening || ''}`).join('\n');
