@@ -3,6 +3,7 @@ import {
   replaceChildrenPreservingDisclosureState,
   setTextIfChanged,
 } from './disclosure-state.js';
+import { createConsoleNavigation } from './console-navigation.js';
 
 const capabilityList = document.querySelector('#capability-list');
 const agentList = document.querySelector('#agent-list');
@@ -138,6 +139,11 @@ const attentionTaskStatuses = new Set([
 
 let overview;
 const selectedTaskId = taskIdFromPath(location.pathname);
+const moduleNavigation = createConsoleNavigation({
+  selectedTaskId,
+  getHash:() => location.hash,
+  activate:activateModule,
+});
 let selectedTaskRevealed = false;
 let shareKey = sessionStorage.getItem('ajun-share-key') || '';
 let requesterName = sessionStorage.getItem('ajun-requester-name') || '';
@@ -178,7 +184,7 @@ async function load({ background = false } = {}) {
     await renderLocalShare();
     render();
     updateOwnerNavigation();
-    activateModuleFromHash();
+    moduleNavigation.initialize();
     setSyncStatus(`已同步 · ${new Date().toLocaleTimeString()}`, 'synced');
     document.body.classList.remove('is-loading');
   } catch (error) {
@@ -281,10 +287,6 @@ function isLoopbackLocation() {
 function updateOwnerNavigation() {
   for (const element of ownerOnlyElements) element.hidden = !localOwner;
   if (!localOwner && ['#connections', '#campaigns'].includes(location.hash)) activateModule('overview', { replaceHash: true });
-}
-
-function activateModuleFromHash() {
-  activateModule(selectedTaskId ? 'records' : location.hash.slice(1) || 'overview');
 }
 
 function activateModule(name, { replaceHash = false } = {}) {
@@ -1316,7 +1318,7 @@ taskLoadMore.addEventListener('click', () => {
   renderTaskLists();
 });
 
-window.addEventListener('hashchange', activateModuleFromHash);
+window.addEventListener('hashchange', moduleNavigation.locationChanged);
 
 function canAutoSync() {
   return !document.hidden
@@ -1334,7 +1336,6 @@ document.addEventListener('visibilitychange', () => {
 });
 
 setAccessStep(1);
-activateModuleFromHash();
 load().catch((error) => {
   setSyncStatus(error.message, 'error');
 });
