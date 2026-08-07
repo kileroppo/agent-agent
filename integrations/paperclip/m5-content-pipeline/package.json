@@ -8,7 +8,7 @@
   },
   "scripts": {
     "test": "node --test",
-    "test:fake-e2e": "node --test test/fake-e2e.test.js ../../../apps/ajun-runtime/test/m5-parallel-work-coordinator.test.js",
+    "test:fake-e2e": "node --test test/fake-e2e.test.js",
     "acceptance:fake-e2e": "node scripts/run-local-fake-e2e.mjs",
     "validate": "node src/cli.js validate",
     "dry-run": "node src/cli.js dry-run",

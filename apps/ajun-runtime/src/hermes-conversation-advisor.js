@@ -1,14 +1,16 @@
-import { execFile } from 'node:child_process';
-import os from 'node:os';
-import path from 'node:path';
-import { NO_SIDE_EFFECT_HERMES_ARGS } from './hermes-oneshot-policy.js';
+import {
+  defaultHermesCommand,
+  NO_SIDE_EFFECT_HERMES_ARGS,
+  parseHermesJson,
+  runHermesCommand,
+} from './hermes-oneshot-policy.js';
 
 const ACTIONS = new Set(['show_last_usage_items', 'not_applicable']);
 
 // Hermes is used here to understand a follow-up in a conversation, not to
 // invent a response. The only accepted action is mapped back to local facts.
 export class HermesConversationAdvisor {
-  constructor({ command = process.env.AJUN_HERMES_COMMAND || path.join(os.homedir(), '.local', 'bin', 'hermes'), hermesHome = process.env.AJUN_HERMES_HOME || '', timeoutMs = 18_000, run = runCommand } = {}) {
+  constructor({ command = defaultHermesCommand(), hermesHome = process.env.AJUN_HERMES_HOME || '', timeoutMs = 18_000, run = runHermesCommand } = {}) {
     this.command = command;
     this.hermesHome = hermesHome;
     this.timeoutMs = timeoutMs;
@@ -39,11 +41,6 @@ function promptFor(message, context) {
 }
 
 function parseDecision(raw) {
-  const text = String(raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  const parsed = JSON.parse(text);
+  const parsed = parseHermesJson(raw);
   return ACTIONS.has(parsed?.action) ? { action:parsed.action } : null;
-}
-
-function runCommand(command, args, { timeoutMs, env }) {
-  return new Promise((resolve, reject) => execFile(command, args, { timeout:timeoutMs, maxBuffer:16 * 1024, env }, (error, stdout) => error ? reject(error) : resolve(stdout)));
 }

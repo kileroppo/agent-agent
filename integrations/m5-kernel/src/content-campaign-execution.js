@@ -1,23 +1,12 @@
-import crypto from 'node:crypto';
 import {
-  M5_PLATFORMS,
-  M5_SCHEMA_IDS,
   M5_STEPFUN_MODELS,
 } from '@agent-army/m5-contracts';
-import { assertM5ControlPlane } from './control-plane.js';
 import {
-  campaignNextAction as nextAction,
   ContentCampaignError,
-  normalizeCampaignDraft as normalizeDraft,
   requireActiveCampaignGrant as requireActiveGrant,
-  requireCampaignGrant as requireGrant,
-  safeCampaignGrantView as safeGrantView,
-  samePluginApproval,
 } from './campaign-domain.js';
 export { ContentCampaignError } from './campaign-domain.js';
-import { M5ParallelWorkCoordinator } from './parallel-work-coordinator.js';
 import {
-  assertM5RoutineExecutionContracts,
   getM5RoutineExecutionContract,
 } from './routine-execution-contract.js';
 import {
@@ -29,28 +18,16 @@ import {
   m5StageWorkProductCandidates,
 } from './stage-recovery-controller.js';
 import {
-  assertChangedM5RecoveryRoute,
-  createM5RouteExecution,
-  validM5RouteExecution,
-} from './route-execution.js';
-import {
   assertM5WorkspaceArtifact,
   M5WorkspaceArtifactError,
   validM5WorkProductArtifactHash,
 } from './work-product-integrity.js';
-import {
-  M5ProductionTemplateResolutionError,
-  defaultM5ProductionTemplateBinding,
-  validM5ProductionTemplateBinding,
-} from './production-template-binding.js';
-
 import { asList, safeId, safeReceiptId, safeText } from './content-campaign-primitives.js';
 import {
   workProductArtifact,
   replayM5StageWorkProduct,
   artifactData,
   verifyPublishReceiptArtifact,
-  snakeKind,
   safeWorkspaceRelativePath,
   positiveVersion,
   boundedDurationSeconds,
@@ -64,10 +41,8 @@ import {
   confirmedM5ProviderReceipt,
   assertReplayProviderReceipt,
   m5WorkProductDrift,
-  validM5FixtureProvenance,
   optionalM5GrayScriptVariants,
   requireM5GrayScriptVariants,
-  validM5ScriptVariant,
   m5ScriptHash,
   assertM5GrayTargetBinding,
   confirmedM5VoiceVariant,
@@ -81,18 +56,8 @@ import {
   buildM5RenderProps,
   buildM5SocialCardProps,
   validM5SocialCardPackageReceipt,
-  validM5Sha256,
-  m5TextHash,
   resolveM5TemplateForRender,
-  sameTemplateBinding,
-  captionSafeText,
   deterministicM5ReviewChecks,
-  validM5ReviewSource,
-  bindingMatchesEvidenceClaim,
-  evidenceFragmentKey,
-  sameStringSet,
-  containsSensitiveM5Text,
-  containsUnsupportedPromise,
   m5HermesRouteExecution,
   m5HermesStrategy,
   m5HermesStageToolIds,
@@ -101,12 +66,8 @@ import {
   routeOutputHashes,
 } from './content-campaign-execution-support.js';
 
-const CASE_ID = /^[0-9a-f-]{8,80}$/i;
 const RECEIPT_ID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
-const PLATFORMS = M5_PLATFORMS;
-const CONTROL_ACTIONS = new Set(['pause', 'resume', 'stop']);
 const CONTENT_AUTONOMY_PLUGIN_KEY = 'agent-army.content-autonomy';
-const INVOKABLE_AGENT_STATUSES = new Set(['active', 'idle', 'running']);
 const M5_PROVIDER_MODELS = M5_STEPFUN_MODELS;
 
 export const contentCampaignExecutionMethods = {
@@ -975,7 +936,6 @@ export const contentCampaignExecutionMethods = {
     const voice = selectedLineage
       ? voicePackage.variants[selectedLineage.variantKey]
       : voicePackage;
-    const scheduledDate = String(targetCase?.scheduledDate || '').trim();
     const contentVersionId = deriveM5ContentVersionId({
       pipelineCaseId:targetCaseId,
       platform,

@@ -1,24 +1,10 @@
-import crypto from 'node:crypto';
 import path from 'node:path';
 import { recordTaskUsage } from './task-usage.js';
-import { formatPublicReportReply } from './public-report-presentation.js';
-import { formatOfficeBriefingReply } from './local-office-assistant.js';
-import { canonicalizeBusinessAssignment, githubRepositoryQuery } from './business-task-routing.js';
 import { usesPaperclipHermesExecution } from './governance-hermes-runtime.js';
-import { buildArchitectureGroundTruth, validateArchitectureEvidenceRefs } from './architecture-evidence.js';
-import { presentTask } from './task-presentation.js';
+import { validateArchitectureEvidenceRefs } from './architecture-evidence.js';
 import {
   executeIntelResearchOpenTaskStep,
-  inspectOpenTaskManifestCapabilities,
-  routeOpenTaskForExecutor,
-  supportsOpenTask
 } from './open-task-routing.js';
-import { WECHAT_CHAT_TASK_TYPE, normalizeWechatChatRequest, wechatApprovalScope } from './wechat-chat-defaults.js';
-import { SkillExecutionRegistry } from './skill-execution-registry.js';
-import { TaskCapabilityCatalog } from './task-capability-catalog.js';
-import { TaskExecutionCoordinator } from './task-execution-coordinator.js';
-import { buildTaskFocus } from './task-overview-focus.js';
-import { privateReadGrantStatus, revokePrivateReadGrant } from './private-read-grant.js';
 import {
   assertPaperclipEmployeeExecutorAssignment,
   resolvePaperclipAssignmentTaskType,
@@ -32,56 +18,30 @@ import {
 } from './m5-stage-recovery-controller.js';
 import {
   assertChangedM5RecoveryRoute,
-  createM5RouteExecution,
-  validM5RouteExecution,
 } from '@agent-army/m5-kernel/route-execution';
-import { m5WorkProductArtifactHash } from '@agent-army/m5-kernel/work-product-integrity';
-import {
-  M5_PLATFORMS,
-  M5_SCHEMA_IDS,
-  M5_STEPFUN_MODELS,
-  normalizeM5Sha256,
-} from '@agent-army/m5-contracts';
 import {
   compileM5RoleToolGrant,
   createM5RoleToolExecutionContext,
   M5RoleToolGrantError,
 } from './m5-role-tool-grant.js';
 
-import { ValidationError } from './task-service-error.js';
-import { isTerminalTask } from './task-service-state.js';
-
 import {
+  ValidationError,
+  isTerminalTask,
   validatedM5StagePluginData,
-  declaredM5StageArtifact,
-  validM5RenderOutput,
-  validM5SocialCardPackage,
-  safeRelativeDirectory,
-  sha256Text,
-  findUnsafeM5PluginValue,
-  safeRelativeArtifactPath,
-  safeRelativeImageArtifactPath,
   safeM5VisionRelativePath,
-  sha256Value,
   paperclipUuid,
-  validConfirmedM5ProviderReceipt,
   taskExecutionView,
   paperclipCaseContextFields,
   m5PlanRevisionExecutionContext,
   assertM5PlanRevisionConsumed,
   prepareM5ExecutorTask,
   assertM5ExecutorRouteReceipt,
-  m5BusinessExecutionInput,
   trustedRoleToolScope,
   m5PipelineCaseChainIds,
   m5RelatedTaskContext,
   m5WorkProductMetadata,
   m5WorkProductProvider,
-  sanitizeM5ArtifactData,
-  validM5ContentVersion,
-  validM5MachineReview,
-  validM5ArtifactPackage,
-  validM5RelativePath,
   outputItems,
   canonicalOpenResearchExecutionPolicy,
   verifiedAssignmentArtifact,
@@ -91,8 +51,6 @@ import {
   storedContentGrowthResult,
   settleWithin,
   normalizeArchitectureLayers,
-  architectureText,
-  architectureStrings,
 } from './task-service-execution-support.js';
 
 const ROLE_TOOL_GRANT = Symbol('m5RoleToolGrant');

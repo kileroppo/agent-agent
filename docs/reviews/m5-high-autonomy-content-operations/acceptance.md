@@ -335,3 +335,17 @@ cua-driver doctor
 | 外部状态 | UNCHANGED | 没有恢复 Campaign/Cron/Publisher，没有调用 Provider 或平台；只读 readiness 仍为 `not_ready` |
 
 本次验收只证明 `0.5.0` 候选源码、自动化和本机静态输出。它不证明 live 已安装、不批准恢复 Campaign，也不授权任何发布动作。
+
+## 2026-08-07 Ponytail 代码瘦身
+
+| 项目 | 结果 | 证据与边界 |
+| --- | --- | --- |
+| 删除重复能力 | LOCAL PASS | 删除未被生产入口引用的旧任务准备器、本地探针、旧并行协调器、单行转发层和过渡项目看板；Paperclip 与 A君仍是唯一控制入口 |
+| 编排代码 | LOCAL PASS | 清理 TaskService 与 ContentCampaignKernel 拆分后遗留的复制 import、无效参数和一次性包装；两个门面分别约 1030/785 行，职责文件总量比上一候选减少约 228 行，公开契约不变 |
+| Hermes | LOCAL PASS | 六个 one-shot advisor 复用既有 policy 中的命令执行、JSON 解析和文本清理；保留需要更大输出缓冲的内容增长专用 runner |
+| 依赖与规模 | PASS | 删除未使用的直接 Prettier 依赖；连同验收文档，本分支总计新增 120 行、删除 1540 行，净减少 1420 行 |
+| 自动化 | PASS | 根 `npm test`、根 `npm run check`、`test:core`、架构检查、各独立 workspace 回归、Local-AI `28/28` 与 Python 编译检查通过；`git diff --check` 通过 |
+| 恢复工具 | RETAINED | v2 迁移、Run-JWT cutover 等一次性工具仍在当前恢复文档和 package scripts 中，是数日前切换的回滚接口；恢复窗口结束前不删除 |
+| 外部状态 | UNCHANGED | 未部署 release、未重启 live、未恢复 Campaign/Cron/Publisher，未调用 Provider、平台或外部消息 |
+
+这次变更解决的是重复代码和废弃入口，不把“门面文件变短”冒充整个编排系统已经简单。后续若继续缩小 TaskService/Kernel，应按业务职责消除状态与分支，而不是再做机械搬文件。

@@ -1,43 +1,17 @@
 import crypto from 'node:crypto';
 import {
-  M5_PLATFORMS,
   M5_SCHEMA_IDS,
   M5_STEPFUN_MODELS,
 } from '@agent-army/m5-contracts';
-import { assertM5ControlPlane } from './control-plane.js';
 import {
-  campaignNextAction as nextAction,
   ContentCampaignError,
-  normalizeCampaignDraft as normalizeDraft,
-  requireActiveCampaignGrant as requireActiveGrant,
-  requireCampaignGrant as requireGrant,
-  safeCampaignGrantView as safeGrantView,
-  samePluginApproval,
 } from './campaign-domain.js';
 export { ContentCampaignError } from './campaign-domain.js';
-import { M5ParallelWorkCoordinator } from './parallel-work-coordinator.js';
-import {
-  assertM5RoutineExecutionContracts,
-  getM5RoutineExecutionContract,
-} from './routine-execution-contract.js';
-import {
-  buildM5PlatformCopy,
-  deriveM5ContentVersionId,
-} from './content-version.js';
-import {
-  healthyM5StageWorkProducts,
-  m5StageWorkProductCandidates,
-} from './stage-recovery-controller.js';
 import {
   assertChangedM5RecoveryRoute,
   createM5RouteExecution,
   validM5RouteExecution,
 } from './route-execution.js';
-import {
-  assertM5WorkspaceArtifact,
-  M5WorkspaceArtifactError,
-  validM5WorkProductArtifactHash,
-} from './work-product-integrity.js';
 import {
   M5ProductionTemplateResolutionError,
   defaultM5ProductionTemplateBinding,

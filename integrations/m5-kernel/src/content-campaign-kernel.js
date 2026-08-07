@@ -1,8 +1,5 @@
-import crypto from 'node:crypto';
 import {
   M5_PLATFORMS,
-  M5_SCHEMA_IDS,
-  M5_STEPFUN_MODELS,
 } from '@agent-army/m5-contracts';
 import { assertM5ControlPlane } from './control-plane.js';
 import {
@@ -22,37 +19,11 @@ import {
   assertM5RoutineExecutionContracts,
   getM5RoutineExecutionContract,
 } from './routine-execution-contract.js';
-import {
-  buildM5PlatformCopy,
-  deriveM5ContentVersionId,
-} from './content-version.js';
-import {
-  healthyM5StageWorkProducts,
-  m5StageWorkProductCandidates,
-} from './stage-recovery-controller.js';
-import {
-  assertChangedM5RecoveryRoute,
-  createM5RouteExecution,
-  validM5RouteExecution,
-} from './route-execution.js';
-import {
-  assertM5WorkspaceArtifact,
-  M5WorkspaceArtifactError,
-  validM5WorkProductArtifactHash,
-} from './work-product-integrity.js';
-import {
-  M5ProductionTemplateResolutionError,
-  defaultM5ProductionTemplateBinding,
-  validM5ProductionTemplateBinding,
-} from './production-template-binding.js';
 
-const CASE_ID = /^[0-9a-f-]{8,80}$/i;
-const RECEIPT_ID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const PLATFORMS = M5_PLATFORMS;
 const CONTROL_ACTIONS = new Set(['pause', 'resume', 'stop']);
 const CONTENT_AUTONOMY_PLUGIN_KEY = 'agent-army.content-autonomy';
 const INVOKABLE_AGENT_STATUSES = new Set(['active', 'idle', 'running']);
-const M5_PROVIDER_MODELS = M5_STEPFUN_MODELS;
 
 export class ContentCampaignKernel {
   constructor({
@@ -432,7 +403,7 @@ export class ContentCampaignKernel {
     if (!companyId || !projectId) {
       throw new ContentCampaignError('无法核验 Paperclip 公司或项目预算，活动保持未启动。');
     }
-    const pluginApproval = await this.assertExecutionReady(pipeline, companyId);
+    const pluginApproval = await this.assertExecutionReady(pipeline);
     if (
       campaignGrant.pluginApproval
       && !samePluginApproval(campaignGrant.pluginApproval, pluginApproval)
@@ -466,7 +437,7 @@ export class ContentCampaignKernel {
     return pluginApproval;
   }
 
-  async assertExecutionReady(pipeline, companyId) {
+  async assertExecutionReady(pipeline) {
     const failures = [];
     let executionContracts = [];
     try {
@@ -601,13 +572,7 @@ export class ContentCampaignKernel {
 }
 
 
-Object.defineProperties(ContentCampaignKernel.prototype, Object.fromEntries(
-  Object.entries(contentCampaignExecutionMethods).map(([name, method]) => [name, {
-    value:method,
-    configurable:true,
-    writable:true,
-  }]),
-));
+Object.assign(ContentCampaignKernel.prototype, contentCampaignExecutionMethods);
 
 function campaignView(item, related = {}, definition = {}) {
   const grant = item.campaignGrant || {};
@@ -799,14 +764,6 @@ function commaSeparated(value) {
     ? value.value
     : value;
   return [...new Set(String(resolved || '').split(',').map((item) => item.trim()).filter(Boolean))];
-}
-
-function safeDateOnly(value) {
-  const date = String(value || '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00Z`))) {
-    throw new ContentCampaignError('startDate 必须是有效的 YYYY-MM-DD 日期。');
-  }
-  return date;
 }
 
 function dateOnlyInTimeZone(value, timeZone) {

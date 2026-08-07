@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { inspectContentAutonomyPluginReadiness } from '../src/content-autonomy-plugin-preflight.js';
+import { inspectContentAutonomyPluginReadiness } from '@agent-army/m5-kernel/paperclip-content-autonomy-preflight';
 
 const companyId = 'company-m5';
 const plugin = { id:'plugin-content-autonomy', pluginKey:'agent-army.content-autonomy', status:'ready' };

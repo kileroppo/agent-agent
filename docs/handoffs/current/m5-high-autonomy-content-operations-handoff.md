@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 2026-08-06 本地候选已完成 M5 静态卡、核心编排拆分、Publisher 恢复职责提取与固定时钟回归；运行身份以 `npm run runtime:fingerprint` 为准。Campaign、Cron、Publisher 继续关闭，M5 未完成 |
+| 状态 | 2026-08-07 本地候选已完成静态卡、核心编排拆分与第二轮代码瘦身；运行身份以 `npm run runtime:fingerprint` 为准。Campaign、Cron、Publisher 继续关闭，M5 未完成 |
 | 创建时间 | 2026-07-30 Asia/Shanghai |
 | 交出者 | Codex |
 | 接手者 | Codex / A君 |
@@ -16,6 +16,13 @@
 - 做完的定义：本地代码、自动化、fresh 运行时、多模态、Computer Use、双平台首发和 7 天指标回流分层有证据。
 - 唯一下一步：保持 Campaign、M5 Cron 和 Publisher 关闭；只读 `production:readiness` 已可重复列出缺失的 connector、Campaign 快照、selector、Profile lease 和 provider。补齐任何一项外部条件、恢复 Campaign、注入 provider、启用 Publisher 或发布均须另行批准。
 - 允许继续的前提：当前源码/release/服务身份由 `runtime:fingerprint` 核对，核心回归、架构检查和 release smoke 必须通过；Paperclip 仍为 15/17/5。selector/Profile lease、登录态、provider 与平台写权限必须按目标动作重新只读核验，不能从历史批准推断当前有效。
+
+## 2026-08-07 补充：Ponytail 代码瘦身
+
+- 删除无生产引用的旧任务准备器、本地探针、并行协调器、单行转发层和过渡项目看板；Paperclip 与 A君继续作为唯一控制入口。
+- TaskService/Kernel 清理机械拆分遗留，Hermes 六个 advisor 复用同一 one-shot policy；连同验收文档，本分支净减少 1420 行。
+- 根测试、根检查、核心套件、架构门禁、独立 workspace 与 Local-AI 回归通过。
+- v2 迁移和 Run-JWT cutover 工具仍属于当前恢复窗口，暂不删除；本候选未部署，live 状态没有改变。
 
 ## 2026-08-06 补充：编排职责收敛
 

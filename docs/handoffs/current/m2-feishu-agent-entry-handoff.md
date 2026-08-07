@@ -43,7 +43,7 @@
 | Live implementation | `apps/xiaod-media-transcriber/` | 小D已有媒体转录、整理和飞书交付能力 | 已有真实交付记录；本轮未重测 |
 | Control plane | Paperclip `http://127.0.0.1:3100` | 组织、任务、heartbeat、预算、审批与审计唯一总控 | 已完成一条本机低风险任务闭环 |
 | User entry | 飞书原生 Agent 会话列表 | 用户选择不同 Agent 并对话的实际界面，不是本仓库网页要复刻的 UI | 具体多 Agent 接入方式待官方资料与本地接入核对 |
-| Prototype/reference | `apps/project-progress-board/`、A君旧任务页 | 过渡性本地视图，不是军团组织或飞书侧栏替代品 | 不得继续扩成第二个控制台 |
+| Prototype/reference | A君历史任务页 | 仅作历史参考，不是军团组织或飞书侧栏替代品 | 不得继续扩成第二个控制台 |
 
 ## Completed and decided
 

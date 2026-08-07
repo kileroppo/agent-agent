@@ -1,12 +1,15 @@
-import { execFile } from 'node:child_process';
-import os from 'node:os';
-import path from 'node:path';
-import { NO_SIDE_EFFECT_HERMES_ARGS } from './hermes-oneshot-policy.js';
+import {
+  cleanHermesText as cleanText,
+  defaultHermesCommand,
+  NO_SIDE_EFFECT_HERMES_ARGS,
+  parseHermesJson,
+  runHermesCommand,
+} from './hermes-oneshot-policy.js';
 
 const MAX_POINTS = 4;
 
 export class HermesPublicSummaryAdvisor {
-  constructor({ command = process.env.AJUN_HERMES_COMMAND || path.join(os.homedir(), '.local', 'bin', 'hermes'), hermesHome = process.env.AJUN_HERMES_HOME || '', timeoutMs = 18_000, run = runCommand } = {}) {
+  constructor({ command = defaultHermesCommand(), hermesHome = process.env.AJUN_HERMES_HOME || '', timeoutMs = 18_000, run = runHermesCommand } = {}) {
     this.command = command;
     this.hermesHome = hermesHome;
     this.timeoutMs = timeoutMs;
@@ -31,8 +34,7 @@ function promptFor(source) {
 }
 
 function parseRefinement(raw, sourceSummary) {
-  const text = String(raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  const parsed = JSON.parse(text);
+  const parsed = parseHermesJson(raw);
   const keyPoints = cleanClaims(parsed?.keyPoints, sourceSummary);
   const recommendation = cleanClaim(parsed?.recommendation, sourceSummary, 420);
   if (!keyPoints.length) return null;
@@ -45,9 +47,4 @@ function cleanClaim(value, sourceSummary, limit) {
   const evidence = cleanText(value?.evidence, 1000);
   return text && evidence && normalize(sourceSummary).includes(normalize(evidence)) ? text : null;
 }
-function cleanText(value, limit) { return String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit); }
 function normalize(value) { return cleanText(value, 10_000).toLowerCase(); }
-
-function runCommand(command, args, { timeoutMs, env }) {
-  return new Promise((resolve, reject) => execFile(command, args, { timeout:timeoutMs, maxBuffer:16 * 1024, env }, (error, stdout) => error ? reject(error) : resolve(stdout)));
-}

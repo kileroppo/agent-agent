@@ -1,12 +1,15 @@
-import { execFile } from 'node:child_process';
-import os from 'node:os';
-import path from 'node:path';
-import { NO_SIDE_EFFECT_HERMES_ARGS } from './hermes-oneshot-policy.js';
+import {
+  cleanHermesText as cleanText,
+  defaultHermesCommand,
+  NO_SIDE_EFFECT_HERMES_ARGS,
+  parseHermesJson,
+  runHermesCommand,
+} from './hermes-oneshot-policy.js';
 
 const MAX_ITEMS = 5;
 
 export class HermesIntelResearchAdvisor {
-  constructor({ command = process.env.AJUN_HERMES_COMMAND || path.join(os.homedir(), '.local', 'bin', 'hermes'), hermesHome = process.env.AJUN_HERMES_HOME || '', timeoutMs = 18_000, run = runCommand } = {}) {
+  constructor({ command = defaultHermesCommand(), hermesHome = process.env.AJUN_HERMES_HOME || '', timeoutMs = 18_000, run = runHermesCommand } = {}) {
     this.command = command;
     this.hermesHome = hermesHome;
     this.timeoutMs = timeoutMs;
@@ -83,8 +86,7 @@ function promptFor(topic, sources) {
 
 function parseResearch(raw, sources) {
   try {
-    const text = String(raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-    const parsed = JSON.parse(text);
+    const parsed = parseHermesJson(raw);
     const background = cleanText(parsed?.background, 700);
     const claims = cleanClaims(parsed?.claims, sources);
     const findings = claims.map((claim) => claim.text);
@@ -129,5 +131,3 @@ function cleanClaims(value, sources) {
   });
 }
 function cleanList(value) { return (Array.isArray(value) ? value : []).map((item) => cleanText(item, 420)).filter(Boolean).slice(0, MAX_ITEMS); }
-function cleanText(value, limit) { return String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit); }
-function runCommand(command, args, { timeoutMs, env }) { return new Promise((resolve, reject) => execFile(command, args, { timeout:timeoutMs, maxBuffer:16 * 1024, env }, (error, stdout) => error ? reject(error) : resolve(stdout))); }

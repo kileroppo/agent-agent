@@ -1,12 +1,15 @@
-import { execFile } from 'node:child_process';
-import os from 'node:os';
-import path from 'node:path';
-import { NO_SIDE_EFFECT_HERMES_ARGS } from './hermes-oneshot-policy.js';
+import {
+  cleanHermesText as cleanText,
+  defaultHermesCommand,
+  NO_SIDE_EFFECT_HERMES_ARGS,
+  parseHermesJson,
+  runHermesCommand,
+} from './hermes-oneshot-policy.js';
 
 const MAX_ITEMS = 4;
 
 export class HermesTaskAdvisor {
-  constructor({ command = process.env.AJUN_HERMES_COMMAND || path.join(os.homedir(), '.local', 'bin', 'hermes'), hermesHome = process.env.AJUN_HERMES_HOME || '', timeoutMs = 18_000, run = runCommand } = {}) {
+  constructor({ command = defaultHermesCommand(), hermesHome = process.env.AJUN_HERMES_HOME || '', timeoutMs = 18_000, run = runHermesCommand } = {}) {
     this.command = command;
     this.hermesHome = hermesHome;
     this.timeoutMs = timeoutMs;
@@ -31,8 +34,7 @@ function promptFor(request, employees) {
 }
 
 function parseAdvice(raw) {
-  const text = String(raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  const parsed = JSON.parse(text);
+  const parsed = parseHermesJson(raw);
   const understanding = cleanText(parsed?.understanding, 300);
   const deliverable = cleanText(parsed?.deliverable, 300);
   const safeNextStep = cleanText(parsed?.safeNextStep, 400);
@@ -46,10 +48,4 @@ function normalizeEmployees(employees) {
     name:cleanText(employee?.name, 80),
     taskTypes:Array.isArray(employee?.acceptedTaskTypes) ? employee.acceptedTaskTypes.map((type) => cleanText(type, 100)).filter(Boolean).slice(0, 8) : []
   })).filter((employee) => employee.name);
-}
-
-function cleanText(value, limit) { return String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit); }
-
-function runCommand(command, args, { timeoutMs, env }) {
-  return new Promise((resolve, reject) => execFile(command, args, { timeout:timeoutMs, maxBuffer:16 * 1024, env }, (error, stdout) => error ? reject(error) : resolve(stdout)));
 }

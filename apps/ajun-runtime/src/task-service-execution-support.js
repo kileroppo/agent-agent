@@ -1,37 +1,5 @@
 import crypto from 'node:crypto';
-import path from 'node:path';
-import { recordTaskUsage } from './task-usage.js';
-import { formatPublicReportReply } from './public-report-presentation.js';
-import { formatOfficeBriefingReply } from './local-office-assistant.js';
-import { canonicalizeBusinessAssignment, githubRepositoryQuery } from './business-task-routing.js';
-import { usesPaperclipHermesExecution } from './governance-hermes-runtime.js';
-import { buildArchitectureGroundTruth, validateArchitectureEvidenceRefs } from './architecture-evidence.js';
-import { presentTask } from './task-presentation.js';
 import {
-  executeIntelResearchOpenTaskStep,
-  inspectOpenTaskManifestCapabilities,
-  routeOpenTaskForExecutor,
-  supportsOpenTask
-} from './open-task-routing.js';
-import { WECHAT_CHAT_TASK_TYPE, normalizeWechatChatRequest, wechatApprovalScope } from './wechat-chat-defaults.js';
-import { SkillExecutionRegistry } from './skill-execution-registry.js';
-import { TaskCapabilityCatalog } from './task-capability-catalog.js';
-import { TaskExecutionCoordinator } from './task-execution-coordinator.js';
-import { buildTaskFocus } from './task-overview-focus.js';
-import { privateReadGrantStatus, revokePrivateReadGrant } from './private-read-grant.js';
-import {
-  assertPaperclipEmployeeExecutorAssignment,
-  resolvePaperclipAssignmentTaskType,
-} from './paperclip-employee-assignment.js';
-import { getM5RoutineExecutionContract } from '@agent-army/m5-kernel/routine-execution-contract';
-import {
-  getActiveM5PlanRevision,
-  healthyM5StageWorkProducts,
-  m5StageWorkProductCandidates,
-  M5StageRecoveryController,
-} from './m5-stage-recovery-controller.js';
-import {
-  assertChangedM5RecoveryRoute,
   createM5RouteExecution,
   validM5RouteExecution,
 } from '@agent-army/m5-kernel/route-execution';
@@ -42,14 +10,11 @@ import {
   M5_STEPFUN_MODELS,
   normalizeM5Sha256,
 } from '@agent-army/m5-contracts';
-import {
-  compileM5RoleToolGrant,
-  createM5RoleToolExecutionContext,
-  M5RoleToolGrantError,
-} from './m5-role-tool-grant.js';
+export class ValidationError extends Error {}
 
-import { ValidationError } from './task-service-error.js';
-import { isTerminalTask } from './task-service-state.js';
+export function isTerminalTask(task) {
+  return ['succeeded', 'failed', 'cancelled', 'waiting_test'].includes(task?.status);
+}
 
 export function validatedM5StagePluginData(stageKey, expectedArtifactKind, result) {
   const declared = declaredM5StageArtifact(result, expectedArtifactKind);

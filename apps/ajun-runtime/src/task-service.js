@@ -1,14 +1,11 @@
-import crypto from 'node:crypto';
-import path from 'node:path';
-import { recordTaskUsage, summarizeTaskUsage } from './task-usage.js';
+import { summarizeTaskUsage } from './task-usage.js';
 import { formatPublicReportReply } from './public-report-presentation.js';
 import { formatOfficeBriefingReply } from './local-office-assistant.js';
 import { canonicalizeBusinessAssignment, githubRepositoryQuery } from './business-task-routing.js';
 import { usesPaperclipHermesExecution } from './governance-hermes-runtime.js';
-import { buildArchitectureGroundTruth, validateArchitectureEvidenceRefs } from './architecture-evidence.js';
+import { buildArchitectureGroundTruth } from './architecture-evidence.js';
 import { presentTask } from './task-presentation.js';
 import {
-  executeIntelResearchOpenTaskStep,
   inspectOpenTaskManifestCapabilities,
   routeOpenTaskForExecutor,
   supportsOpenTask
@@ -18,39 +15,10 @@ import { SkillExecutionRegistry } from './skill-execution-registry.js';
 import { TaskCapabilityCatalog } from './task-capability-catalog.js';
 import { TaskExecutionCoordinator } from './task-execution-coordinator.js';
 import { taskServiceExecutionMethods } from './task-service-execution.js';
-import { ValidationError } from './task-service-error.js';
-import { isTerminalTask } from './task-service-state.js';
-export { ValidationError } from './task-service-error.js';
+import { ValidationError } from './task-service-execution-support.js';
+export { ValidationError } from './task-service-execution-support.js';
 import { buildTaskFocus } from './task-overview-focus.js';
 import { privateReadGrantStatus, revokePrivateReadGrant } from './private-read-grant.js';
-import {
-  assertPaperclipEmployeeExecutorAssignment,
-  resolvePaperclipAssignmentTaskType,
-} from './paperclip-employee-assignment.js';
-import { getM5RoutineExecutionContract } from '@agent-army/m5-kernel/routine-execution-contract';
-import {
-  getActiveM5PlanRevision,
-  healthyM5StageWorkProducts,
-  m5StageWorkProductCandidates,
-  M5StageRecoveryController,
-} from './m5-stage-recovery-controller.js';
-import {
-  assertChangedM5RecoveryRoute,
-  createM5RouteExecution,
-  validM5RouteExecution,
-} from '@agent-army/m5-kernel/route-execution';
-import { m5WorkProductArtifactHash } from '@agent-army/m5-kernel/work-product-integrity';
-import {
-  M5_PLATFORMS,
-  M5_SCHEMA_IDS,
-  M5_STEPFUN_MODELS,
-  normalizeM5Sha256,
-} from '@agent-army/m5-contracts';
-import {
-  compileM5RoleToolGrant,
-  createM5RoleToolExecutionContext,
-  M5RoleToolGrantError,
-} from './m5-role-tool-grant.js';
 
 const highRiskActions = ['外发', '发布', '删除', '付款', '付费', '扩权', '敏感'];
 const organizationGovernanceWords = /创建.*(?:agent|智能体|岗位)|新建.*(?:agent|智能体|岗位)|扩权|账号|连接|公开发布|对外发布|付款|付费|预算|暂停|终止|跨\s*agent/i;
@@ -781,13 +749,7 @@ export class TaskService {
 }
 
 
-Object.defineProperties(TaskService.prototype, Object.fromEntries(
-  Object.entries(taskServiceExecutionMethods).map(([name, method]) => [name, {
-    value:method,
-    configurable:true,
-    writable:true,
-  }]),
-));
+Object.assign(TaskService.prototype, taskServiceExecutionMethods);
 
 function safeAgentChannelStates(source) {
   try {

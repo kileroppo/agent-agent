@@ -1,12 +1,15 @@
-import { execFile } from 'node:child_process';
-import os from 'node:os';
-import path from 'node:path';
-import { NO_SIDE_EFFECT_HERMES_ARGS } from './hermes-oneshot-policy.js';
+import {
+  cleanHermesText as cleanText,
+  defaultHermesCommand,
+  NO_SIDE_EFFECT_HERMES_ARGS,
+  parseHermesJson,
+  runHermesCommand,
+} from './hermes-oneshot-policy.js';
 
 const MAX_POINTS = 4;
 
 export class HermesPublicComparisonAdvisor {
-  constructor({ command = process.env.AJUN_HERMES_COMMAND || path.join(os.homedir(), '.local', 'bin', 'hermes'), hermesHome = process.env.AJUN_HERMES_HOME || '', timeoutMs = 18_000, run = runCommand } = {}) {
+  constructor({ command = defaultHermesCommand(), hermesHome = process.env.AJUN_HERMES_HOME || '', timeoutMs = 18_000, run = runHermesCommand } = {}) {
     this.command = command;
     this.hermesHome = hermesHome;
     this.timeoutMs = timeoutMs;
@@ -31,8 +34,7 @@ function promptFor(sources) {
 }
 
 function parseComparison(raw) {
-  const text = String(raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  const parsed = JSON.parse(text);
+  const parsed = parseHermesJson(raw);
   const commonPoints = cleanList(parsed?.commonPoints);
   const differences = cleanList(parsed?.differences);
   const recommendation = cleanText(parsed?.recommendation, 420);
@@ -41,8 +43,3 @@ function parseComparison(raw) {
 }
 
 function cleanList(value) { return (Array.isArray(value) ? value : []).map((item) => cleanText(item, 360)).filter(Boolean).slice(0, MAX_POINTS); }
-function cleanText(value, limit) { return String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit); }
-
-function runCommand(command, args, { timeoutMs, env }) {
-  return new Promise((resolve, reject) => execFile(command, args, { timeout:timeoutMs, maxBuffer:16 * 1024, env }, (error, stdout) => error ? reject(error) : resolve(stdout)));
-}

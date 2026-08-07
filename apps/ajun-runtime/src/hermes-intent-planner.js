@@ -1,12 +1,16 @@
-import { execFile } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
-import { NO_SIDE_EFFECT_HERMES_ARGS } from './hermes-oneshot-policy.js';
+import {
+  defaultHermesCommand,
+  NO_SIDE_EFFECT_HERMES_ARGS,
+  parseHermesJson,
+  runHermesCommand,
+} from './hermes-oneshot-policy.js';
 
 const INTENTS = new Set(['identity', 'army_overview', 'army_report', 'usage_report', 'task_progress', 'agent_proposal', 'architecture_review', 'army_planning', 'cross_agent_mission', 'health_check', 'media_task', 'public_report', 'github_search', 'intel_research', 'office_briefing', 'office_presentation', 'employee_status', 'route_task', 'intake', 'clarify']);
 
 export class HermesIntentPlanner {
-  constructor({ command = process.env.AJUN_HERMES_COMMAND || path.join(os.homedir(), '.local', 'bin', 'hermes'), hermesHome = process.env.AJUN_HERMES_HOME || '', profileRoot = process.env.AGENT_ARMY_HERMES_PROFILE_ROOT || path.join(os.homedir(), '.hermes/profiles'), timeoutMs = 18_000, run = runCommand } = {}) {
+  constructor({ command = defaultHermesCommand(), hermesHome = process.env.AJUN_HERMES_HOME || '', profileRoot = process.env.AGENT_ARMY_HERMES_PROFILE_ROOT || path.join(os.homedir(), '.hermes/profiles'), timeoutMs = 18_000, run = runHermesCommand } = {}) {
     this.command = command; this.hermesHome = hermesHome; this.profileRoot = profileRoot; this.timeoutMs = timeoutMs; this.run = run;
   }
 
@@ -37,8 +41,7 @@ function agentProfileHome(profileRoot, agentId) {
 }
 
 function parseDecision(raw, routes, employees) {
-  const text = String(raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
-  const parsed = JSON.parse(text);
+  const parsed = parseHermesJson(raw);
   if (parsed?.intent === 'route_task') {
     const route = routes.find((item) => item.taskType === parsed.taskType && item.agentId === parsed.agentId);
     return route ? { intent:'route_task', taskType:route.taskType, agentId:route.agentId } : null;
@@ -66,8 +69,4 @@ function normalizeRoutes(routes) {
 
 function normalizeEmployees(employees) {
   return (Array.isArray(employees) ? employees : []).map((employee) => ({ agentId:String(employee?.agentId || '').trim(), name:String(employee?.name || '').trim() })).filter((employee) => employee.agentId && employee.name);
-}
-
-function runCommand(command, args, { timeoutMs, env }) {
-  return new Promise((resolve, reject) => execFile(command, args, { timeout: timeoutMs, maxBuffer: 16 * 1024, env }, (error, stdout) => error ? reject(error) : resolve(stdout)));
 }
