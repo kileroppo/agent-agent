@@ -1,3 +1,5 @@
+import { selectTaskRecordFilter } from './task-record-filter.js';
+
 export function bindConsoleInteractions({
   elements,
   state,
@@ -321,7 +323,10 @@ campaignList?.addEventListener('click', async (event) => {
 
 for (const button of taskFilterButtons) {
   button.addEventListener('click', () => {
-    state.currentTaskFilter = button.dataset.taskFilter;
+    const selection = selectTaskRecordFilter(state.selectedTaskId, button.dataset.taskFilter);
+    state.selectedTaskId = selection.selectedTaskId;
+    state.currentTaskFilter = selection.currentTaskFilter;
+    if (selection.exitedTaskDetail) history.replaceState(null, '', '/#records');
     state.visibleTaskCount = 24;
     renderTaskLists();
   });

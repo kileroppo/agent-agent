@@ -7,6 +7,7 @@ import { createConsoleNavigation } from './console-navigation.js';
 import { createAccessViews } from './app-access-views.js';
 import { bindConsoleInteractions } from './app-interactions.js';
 import { createBoomMonitorConsole } from './boom-monitor-console.js';
+import { filterTaskRecords, taskStatusGroup } from './task-record-filter.js';
 
 const capabilityList = document.querySelector('#capability-list');
 const agentList = document.querySelector('#agent-list');
@@ -128,17 +129,6 @@ const directEmployeeTaskTypes = [
   'office.briefing-package',
   'office.presentation-package'
 ];
-const completedTaskStatuses = new Set(['succeeded', 'cancelled', 'rejected']);
-const attentionTaskStatuses = new Set([
-  'failed',
-  'needs_input',
-  'pending_approval',
-  'waiting_approval',
-  'waiting_test',
-  'paused',
-  'blocked',
-  'error'
-]);
 const ownerOnlyModules = new Set(['connections', 'campaigns', 'boom-monitor']);
 let boomMonitor;
 
@@ -148,6 +138,7 @@ function taskIdFromPath(pathname) {
 
 const state = {
   overview:undefined,
+  selectedTaskId:taskIdFromPath(location.pathname),
   selectedTaskRevealed:false,
   shareKey:sessionStorage.getItem('ajun-share-key') || '',
   requesterName:sessionStorage.getItem('ajun-requester-name') || '',
@@ -160,14 +151,13 @@ const state = {
   reauthorizeConnectionId:'',
 };
 
-const selectedTaskId = taskIdFromPath(location.pathname);
 const moduleNavigation = createConsoleNavigation({
-  selectedTaskId,
+  selectedTaskId:state.selectedTaskId,
   getHash:() => location.hash,
   activate:activateModule,
 });
 
-state.currentTaskFilter = selectedTaskId ? 'all' : 'attention';
+state.currentTaskFilter = state.selectedTaskId ? 'all' : 'attention';
 
 async function api(url, options = {}) {
   const headers = new Headers(options.headers || {});
@@ -291,28 +281,27 @@ function statCard(label, value, note, icon, attention = false) {
 function renderTaskLists() {
   const tasks = state.overview.tasks || [];
   const normalizedQuery = state.taskSearchQuery.toLocaleLowerCase('zh-CN');
-  const filtered = tasks.filter((task) =>
-    selectedTaskId
-      ? task.taskId === selectedTaskId
-      : state.currentTaskFilter === 'all' || taskStatusGroup(task.status) === state.currentTaskFilter
-  ).filter((task) => !normalizedQuery || [
+  const filtered = filterTaskRecords(tasks, {
+    selectedTaskId:state.selectedTaskId,
+    statusFilter:state.currentTaskFilter,
+  }).filter((task) => !normalizedQuery || [
     task.input?.title,
     task.taskId,
     agentName(task.assigneeAgentId),
     taskTypeLabel(task.taskType),
     statusLabel(task.status)
   ].some((value) => String(value || '').toLocaleLowerCase('zh-CN').includes(normalizedQuery)));
-  const shown = selectedTaskId ? filtered : filtered.slice(0, state.visibleTaskCount);
+  const shown = state.selectedTaskId ? filtered : filtered.slice(0, state.visibleTaskCount);
   taskCount.textContent = filtered.length > shown.length ? `显示 ${shown.length}/${filtered.length} 条` : `${filtered.length} 条`;
   const taskNodes = !filtered.length
     ? [...document.querySelector('#empty').content.cloneNode(true).childNodes]
     : shown.map(taskCard);
   replaceChildrenPreservingDisclosureState(taskList, taskNodes);
-  if (filtered.length && selectedTaskId && !state.selectedTaskRevealed) {
+  if (filtered.length && state.selectedTaskId && !state.selectedTaskRevealed) {
     state.selectedTaskRevealed = true;
-    requestAnimationFrame(() => taskList.querySelector(`[data-task-id="${CSS.escape(selectedTaskId)}"]`)?.scrollIntoView({ block:'center' }));
+    requestAnimationFrame(() => taskList.querySelector(`[data-task-id="${CSS.escape(state.selectedTaskId)}"]`)?.scrollIntoView({ block:'center' }));
   }
-  taskLoadMore.hidden = Boolean(selectedTaskId) || shown.length >= filtered.length;
+  taskLoadMore.hidden = Boolean(state.selectedTaskId) || shown.length >= filtered.length;
   if (!taskLoadMore.hidden) taskLoadMore.textContent = `再显示 ${Math.min(24, filtered.length - shown.length)} 条`;
   updateTaskFilterCounts(tasks);
   renderRecentTasks(tasks.filter(isRecentOwnerTask).slice(0, 3));
@@ -398,7 +387,7 @@ function taskCard(task) {
     technical:{ taskId:task.taskId, status:task.status, currentStage:task.currentStage, errorCode:task.error?.code }
   };
   node.innerHTML = `
-    <details class="task-disclosure" data-disclosure-key="task:${escapeHtml(task.taskId)}"${selectedTaskId === task.taskId ? ' open' : ''}>
+    <details class="task-disclosure" data-disclosure-key="task:${escapeHtml(task.taskId)}"${state.selectedTaskId === task.taskId ? ' open' : ''}>
       <summary>
         <div class="task-summary-main">
           <span class="status ${escapeHtml(shownStatus.className)}">${escapeHtml(shownStatus.label)}</span>
@@ -450,12 +439,6 @@ function taskCard(task) {
     setTimeout(() => { button.textContent = '复制完整编号'; }, 1600);
   });
   return node;
-}
-
-function taskStatusGroup(status) {
-  if (completedTaskStatuses.has(status)) return 'completed';
-  if (attentionTaskStatuses.has(status)) return 'attention';
-  return 'active';
 }
 
 function renderFocus(focus) {
