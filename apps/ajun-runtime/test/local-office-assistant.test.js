@@ -192,3 +192,141 @@ test('小办日报只把受控写回返回的 Paperclip Work Product 登记为�
   assert.equal(product.data.workProductId, 'wp-daily-1');
   assert.equal(product.validation.paperclipWorkProduct, true);
 });
+
+test('小办演示文稿默认先交付 PPTD，并在 PPTX 依赖缺失时保留真实阻塞状态', async () => {
+  const calls = [];
+  const roleToolContext = {
+    async execute(input) {
+      calls.push(input);
+      if (input.toolId === 'army.task.read') return [];
+      if (input.toolId === 'office.pptd.write') {
+        return {
+          manifestRelativePath:input.relativePath,
+          projectRelativePath:'work-products/presentation-task/presentation',
+          qaRelativePath:'work-products/presentation-task/presentation/qa/structural-validation.json',
+          mimeType:'application/vnd.open-kimi.pptd+yaml',
+          checksum:'d'.repeat(64),
+          source:{ skillVersion:'1.0.0', sourceHash:'fixture' },
+          validation:{ pageCount:3, structuralQaPassed:true, selfContained:true },
+        };
+      }
+      if (input.toolId === 'office.pptx.export') {
+        const error = new Error('agent-browser 未安装');
+        error.code = 'presentation_export_needs_capability';
+        throw error;
+      }
+      throw new Error(`unexpected ${input.toolId}`);
+    },
+  };
+  const worker = new LocalOfficeAssistant({ now, store:{ async list() { return []; } } });
+  const result = await worker.execute({
+    taskId:'presentation-task',
+    taskType:'office.presentation-package',
+    input:{
+      title:'季度复盘',
+      purpose:'管理层汇报',
+      dataClassification:'redacted',
+      externalProcessingApproved:true,
+      outline:[{ title:'结论', bullets:['增长 12%'] }, { title:'下一步', bullets:['继续验证'] }],
+    },
+  }, { roleToolContext });
+
+  assert.equal(result.status, 'needs_input');
+  assert.equal(result.currentStage, 'office_presentation_export_needs_capability');
+  assert.equal(result.error.code, 'presentation_export_needs_capability');
+  assert.deepEqual(result.artifactRefs.map((item) => item.type), [
+    'office_presentation_source',
+    'office_presentation_qa',
+  ]);
+  assert.deepEqual(calls.map((item) => item.toolId), [
+    'army.task.read',
+    'office.pptd.write',
+    'office.pptx.export',
+  ]);
+});
+
+test('小办显式请求 PPTD-only 时完成本地交付且不触发外部处理', async () => {
+  const calls = [];
+  const worker = new LocalOfficeAssistant({ now, store:{ async list() { return []; } } });
+  const result = await worker.execute({
+    taskId:'presentation-pptd-only',
+    taskType:'office.presentation-package',
+    input:{ title:'内部方案', outputs:['pptd'], dataClassification:'sensitive' },
+  }, { roleToolContext:{
+    async execute(input) {
+      calls.push(input.toolId);
+      if (input.toolId === 'army.task.read') return [];
+      if (input.toolId === 'office.pptd.write') return {
+        manifestRelativePath:input.relativePath,
+        projectRelativePath:'work-products/presentation-pptd-only/presentation',
+        qaRelativePath:'work-products/presentation-pptd-only/presentation/qa/structural-validation.json',
+        mimeType:'application/vnd.open-kimi.pptd+yaml',
+        checksum:'e'.repeat(64),
+        source:{ skillVersion:'1.0.0', sourceHash:'fixture' },
+        validation:{ pageCount:2, structuralQaPassed:true, selfContained:true },
+      };
+      throw new Error(`unexpected ${input.toolId}`);
+    },
+  } });
+  assert.equal(result.status, 'succeeded');
+  assert.equal(result.currentStage, 'office_presentation_pptd_ready');
+  assert.deepEqual(calls, ['army.task.read', 'office.pptd.write']);
+});
+
+test('PPTX 导出成功后分别登记可编辑源、视觉 QA 和已验证 PPTX', async () => {
+  const worker = new LocalOfficeAssistant({ now, store:{ async list() { return []; } } });
+  const result = await worker.execute({
+    taskId:'presentation-ready',
+    taskType:'office.presentation-package',
+    input:{
+      title:'公开演示',
+      dataClassification:'public',
+      externalProcessingApproved:true,
+    },
+  }, { roleToolContext:{
+    async execute(input) {
+      if (input.toolId === 'army.task.read') return [];
+      if (input.toolId === 'office.pptd.write') return {
+        manifestRelativePath:input.relativePath,
+        projectRelativePath:'work-products/presentation-ready/presentation',
+        qaRelativePath:'work-products/presentation-ready/presentation/qa/structural-validation.json',
+        mimeType:'application/vnd.open-kimi.pptd+yaml',
+        checksum:'f'.repeat(64),
+        source:{ skillVersion:'1.0.0', sourceHash:'fixture' },
+        validation:{ pageCount:2, structuralQaPassed:true, selfContained:true },
+      };
+      if (input.toolId === 'office.pptx.export') return {
+        relativePath:input.relativePath,
+        qaOverviewRelativePath:'work-products/presentation-ready/presentation/.qa-images/overview.jpg',
+        mimeType:'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        checksum:'a'.repeat(64),
+        bytes:2048,
+        durationMs:900,
+        validation:{
+          exists:true,
+          readable:true,
+          visualQaPassed:true,
+          pageCount:2,
+          fadeTransitions:2,
+          transitionXmlOrderValid:true,
+          fontParts:1,
+          fontEmbeddingVerified:true,
+          humanOfficeReviewRequired:true,
+        },
+      };
+      throw new Error(`unexpected ${input.toolId}`);
+    },
+  } });
+  assert.equal(result.status, 'succeeded');
+  assert.deepEqual(result.artifactRefs.map((item) => item.type), [
+    'office_presentation_source',
+    'office_presentation_qa',
+    'office_pptx_document',
+  ]);
+  assert.equal(result.artifactRefs[1].validation.visualQaPassed, true);
+  assert.deepEqual(result.artifactRefs[1].data.previewRefs, [
+    'workspace://work-products/presentation-ready/presentation/.qa-images/overview.jpg',
+  ]);
+  assert.equal(result.artifactRefs[2].data.fadeTransitions, 2);
+  assert.equal(result.artifactRefs[2].data.fontEmbeddingVerified, true);
+});

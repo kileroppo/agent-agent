@@ -19,6 +19,7 @@
   ],
   "acceptedTaskTypes": [
     "office.briefing-package",
+    "office.presentation-package",
     "office.knowledge-summary",
     "office.deliverable-program",
     "content.campaign-metrics"
@@ -29,6 +30,8 @@
     "office.docx.write",
     "office.xlsx.write",
     "office.pdf.write",
+    "office.pptd.write",
+    "office.pptx.export",
     "office.report.daily.write",
     "office.report.weekly.write",
     "knowledge.archive.write"
@@ -65,6 +68,16 @@
         "access": "write",
         "externalSideEffect": "none"
       },
+      "office.pptd.write": {
+        "adapter": "open-kimi-pptd",
+        "access": "write",
+        "externalSideEffect": "none"
+      },
+      "office.pptx.export": {
+        "adapter": "open-kimi-pptx",
+        "access": "write",
+        "externalSideEffect": "external-data-processing"
+      },
       "office.report.daily.write": {
         "adapter": "paperclip-work-product",
         "access": "write",
@@ -97,6 +110,13 @@
         "write"
       ],
       "boundary": "Markdown、DOCX、XLSX、PDF 只写当前 Paperclip Run 的 execution workspace；DOCX/PDF 回读正文，XLSX 重算并拒绝公式错误，日报/周报只以当前 Issue/Run 和受信来源任务写为幂等 Work Product"
+    },
+    {
+      "scope": "office-presentation-artifacts",
+      "access": [
+        "write"
+      ],
+      "boundary": "PPTD 只写当前 execution workspace 且必须自包含；PPTX 仅处理 public/redacted 且获得本次外部处理批准的 PPTD，其他分类只保留 PPTD"
     },
     {
       "scope": "agent-army-knowledge-archive",
@@ -133,6 +153,14 @@
     },
     {
       "gate": "knowledge-note-path-idempotency-and-readability-verified",
+      "required": true
+    },
+    {
+      "gate": "presentation-pptd-self-contained-and-structurally-valid",
+      "required": true
+    },
+    {
+      "gate": "presentation-pptx-external-processing-approved-and-capability-ready",
       "required": true
     },
     {

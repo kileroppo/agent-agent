@@ -69,6 +69,7 @@ const taskLabels = {
   'research.github-search': '小R：公开 GitHub 检索',
   'research.intel-report': '小R：公开资料研究',
   'office.briefing-package': '办公执行助理：汇报包',
+  'office.presentation-package': '小办：演示文稿',
   'office.knowledge-summary': '小办：知识归档',
   'content.video-benchmark-analysis': '小拆：视频内容拆解',
   'content.performance-review': '小拆：内容表现复盘',
@@ -121,7 +122,8 @@ const directEmployeeTaskTypes = [
   'media.transcribe-and-refine',
   'report.public-material',
   'research.intel-report',
-  'office.briefing-package'
+  'office.briefing-package',
+  'office.presentation-package'
 ];
 const completedTaskStatuses = new Set(['succeeded', 'cancelled', 'rejected']);
 const attentionTaskStatuses = new Set([

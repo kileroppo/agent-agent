@@ -7,6 +7,7 @@ import {
 
 test('任务能力目录集中固定岗位、开放委派和内容产物契约', () => {
   assert.equal(DEFAULT_TASK_CAPABILITY_CATALOG.fixedAgentId('content.video-script-package'), 'content-creator');
+  assert.equal(DEFAULT_TASK_CAPABILITY_CATALOG.fixedAgentId('office.presentation-package'), 'office-assistant');
   assert.equal(DEFAULT_TASK_CAPABILITY_CATALOG.openDelegate('research.open-investigation'), 'research.intel-report');
   assert.deepEqual(
     DEFAULT_TASK_CAPABILITY_CATALOG.contentGrowthContract('content.performance-review', 'video-content-analyst'),

@@ -1,0 +1,25 @@
+{
+  "title": "Agent军团季度复盘",
+  "purpose": "验证小办的可编辑演示文稿交付链",
+  "audience": "负责人",
+  "slideCount": 4,
+  "designMode": "self_directed",
+  "dataClassification": "public",
+  "slides": [
+    {
+      "title": "关键结论",
+      "bullets": ["PPTD 工程必须自包含", "PPTX 外部导出必须单独过门禁"],
+      "image": "agent-army.svg"
+    },
+    {
+      "title": "能力状态",
+      "bullets": ["结构化产物先交付", "外部与人工验收分开记录"],
+      "table": [["阶段", "状态"], ["PPTD", "ready"], ["PPTX", "needs_capability"]]
+    },
+    {
+      "title": "验证覆盖",
+      "bullets": ["offline", "fallback", "live-opt-in"],
+      "chart": {"title": "门禁数量", "categories": ["结构", "安全", "外部"], "values": [6, 5, 2]}
+    }
+  ]
+}

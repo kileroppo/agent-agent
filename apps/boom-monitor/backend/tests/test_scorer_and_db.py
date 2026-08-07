@@ -57,6 +57,44 @@ class DBTests(unittest.TestCase):
         })[0]
         self.assertIsNone(self.db.get_work(work_id)['plays'])
 
+    def test_versioned_shadow_score_is_persisted_without_replacing_the_dispatch_score(self):
+        work_id = self.add_work('shadowed', '2026-01-02T00:00:00Z', 100)
+        shadow = {
+            'version': 'shadow-v2',
+            'grade': 'T2',
+            'controls_dispatch': False,
+            'signals': {'quality': {'passed': True}},
+        }
+
+        self.db.upsert_shadow_score(work_id, shadow)
+
+        self.assertEqual(self.db.get_shadow_score(work_id), shadow)
+        self.assertEqual(self.db.get_score(work_id)['grade'], 'N0')
+
+        observations = self.db.list_shadow_scores()
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations[0]['official_grade'], 'N0')
+        self.assertEqual(observations[0]['shadow_score'], shadow)
+
+    def test_official_score_records_that_v2_controls_dispatch(self):
+        work_id = self.add_work('official-v2', '2026-01-03T00:00:00Z', 1_000)
+        self.db.upsert_score(work_id, {
+            'version': 'v2',
+            'r_value': 4.0,
+            'm_value': 0.1,
+            'grade': 'T2',
+            'tier': 'mid',
+            'baseline_metric': 250,
+            'sample_count': 8,
+            'follower_snapshot': 100_000,
+            'baseline_at': '2026-01-03T00:00:00Z',
+            'baseline_version': 'url-history-v2',
+        })
+
+        official = self.db.get_score(work_id)
+        self.assertEqual(official['score_version'], 'v2')
+        self.assertEqual(official['grade'], 'T2')
+
 
 if __name__ == '__main__':
     unittest.main()

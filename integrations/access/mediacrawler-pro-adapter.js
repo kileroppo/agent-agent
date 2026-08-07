@@ -45,17 +45,18 @@ export class MediaCrawlerProAdapter {
     }
     let cookies = '';
     try {
+      const resolvedSource = await this.resolveSource(source, provider);
       cookies = await this.readCookies(provider, connectionUse.cookieBridgeClientId);
       const response = await this.fetchImpl(`${this.downloadServerUrl}/api/v1/content_detail`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ platform: provider, content_url: source, cookies })
+        body: JSON.stringify({ platform: provider, content_url: resolvedSource, cookies })
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || payload.isok === false || payload.biz_code) throw new Error('MediaCrawlerPro 内容读取未成功。');
       const normalized = normalizeContent(payload?.data?.content, { runtimeRequirement });
       if (['remote_media', 'remote_audio'].includes(normalized.runtime?.kind) && workspace) {
         normalized.runtime = await this.downloadAuthorizedMedia({
-          source,
+          source:resolvedSource,
           mediaUrl:normalized.runtime.url,
           cookies,
           workspace,
@@ -82,14 +83,15 @@ export class MediaCrawlerProAdapter {
     const limit = Math.max(5, Math.min(Number(historyLimit) || 20, 20));
     let cookies = '';
     try {
+      const resolvedSource = await this.resolveSource(source, provider);
       cookies = await this.readCookies(provider, connectionUse.cookieBridgeClientId);
       const detailPayload = await this.postDownloadServer('/api/v1/content_detail', {
         platform:provider,
-        content_url:source,
+        content_url:resolvedSource,
         cookies
       });
       const detail = detailPayload?.data?.content || {};
-      const currentWork = normalizeMetricWork(detail, source);
+      const currentWork = sanitizeMetricWork(normalizeMetricWork(detail, source));
       const detailAuthor = normalizeMetricAuthor(detail.author, provider);
       const base = {
         schemaVersion:'agent.army/boom-metrics-bundle/v1',
@@ -155,7 +157,9 @@ export class MediaCrawlerProAdapter {
         cursor = hasMore ? String(page.next_cursor) : '';
       }
 
-      const sampleCount = historyWorks.filter((work) => hasCoreMetric(provider, work)).length;
+      const enrichedHistoryWorks = (await this.enrichHistoryMetrics(provider, historyWorks, cookies))
+        .map(sanitizeMetricWork);
+      const sampleCount = enrichedHistoryWorks.filter((work) => hasCoreMetric(provider, work)).length;
       const unavailableReasons = [];
       if (!creator.followerCount || creator.followerCount <= 0) unavailableReasons.push('follower_count_unavailable');
       if (!hasCoreMetric(provider, currentWork)) unavailableReasons.push('current_work_metric_unavailable');
@@ -164,12 +168,67 @@ export class MediaCrawlerProAdapter {
         status:unavailableReasons.length ? 'metrics_unavailable' : sampleCount < 5 ? 'insufficient_history' : 'collected',
         ...(unavailableReasons.length ? { unavailableReasons } : {}),
         creator,
-        historyWorks,
+        historyWorks:enrichedHistoryWorks,
         sampleCount
       };
     } finally {
       cookies = '';
     }
+  }
+
+  async resolveSource(source, provider) {
+    if (provider !== 'xhs' || !isXhsShortUrl(source)) return source;
+    try {
+      const response = await this.fetchImpl(source, {
+        method:'GET',
+        redirect:'follow',
+        headers:{
+          Accept:'text/html,application/xhtml+xml',
+          'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/131 Safari/537.36'
+        }
+      });
+      let resolved = new URL(response.url);
+      if (resolved.pathname === '/login') {
+        const redirectPath = resolved.searchParams.get('redirectPath');
+        if (!redirectPath) throw new Error('missing xhs login redirect path');
+        resolved = new URL(redirectPath);
+      }
+      if (!response.ok || !isXhsContentHost(resolved.hostname)) throw new Error('unexpected redirect target');
+      const discoveryMatch = resolved.pathname.match(/^\/discovery\/item\/([^/]+)\/?$/);
+      if (discoveryMatch) resolved.pathname = `/explore/${discoveryMatch[1]}`;
+      if (!/^\/explore\/[^/]+\/?$/.test(resolved.pathname)) throw new Error('unsupported xhs content path');
+      return resolved.toString();
+    } catch {
+      const error = new Error('小红书分享短链解析失败。');
+      error.code = 'adapter_unavailable';
+      throw error;
+    }
+  }
+
+  async enrichHistoryMetrics(provider, historyWorks, cookies) {
+    if (provider !== 'xhs') return historyWorks;
+    const enriched = [...historyWorks];
+    let nextIndex = 0;
+    const worker = async () => {
+      while (nextIndex < enriched.length) {
+        const index = nextIndex++;
+        const work = enriched[index];
+        if (hasCoreMetric(provider, work) || !isPublicHttpUrl(work.sourceUrl)) continue;
+        try {
+          const payload = await this.postDownloadServer('/api/v1/content_detail', {
+            platform:provider,
+            content_url:work.sourceUrl,
+            cookies
+          });
+          const detail = normalizeMetricWork(payload?.data?.content || {}, work.sourceUrl);
+          if (detail.id && detail.id === work.id) enriched[index] = detail;
+        } catch {
+          // A missing/deleted history item must not invalidate the current work.
+        }
+      }
+    };
+    await Promise.all(Array.from({ length:Math.min(4, enriched.length) }, worker));
+    return enriched;
   }
 
   async postDownloadServer(pathname, body) {
@@ -229,6 +288,19 @@ function assertCookieBridgeConnection(connectionUse) {
   throw error;
 }
 
+function isXhsShortUrl(source) {
+  try {
+    return ['xhslink.cn', 'xhslink.com'].includes(new URL(source).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function isXhsContentHost(hostname) {
+  const host = String(hostname || '').toLowerCase();
+  return host === 'xiaohongshu.com' || host.endsWith('.xiaohongshu.com');
+}
+
 function publicPlatform(provider) {
   return provider === 'xhs' ? 'xiaohongshu' : 'douyin';
 }
@@ -262,6 +334,18 @@ function normalizeMetricWork(content = {}, sourceFallback = null) {
     comments:normalizeExactCount(interaction.comment_count),
     shares:normalizeExactCount(interaction.share_count)
   };
+}
+
+function sanitizeMetricWork(work) {
+  if (!work?.sourceUrl) return work;
+  try {
+    const source = new URL(work.sourceUrl);
+    source.search = '';
+    source.hash = '';
+    return { ...work, sourceUrl:source.toString() };
+  } catch {
+    return { ...work, sourceUrl:null };
+  }
 }
 
 function normalizeExactCount(value) {

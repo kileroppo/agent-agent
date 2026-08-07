@@ -2,6 +2,7 @@ import { DEFAULT_TASK_CAPABILITY_CATALOG } from './task-capability-catalog.js';
 
 const OFFICE_AGENT_ID = 'office-assistant';
 const OFFICE_TASK_TYPE = 'office.briefing-package';
+const OFFICE_PRESENTATION_TASK_TYPE = 'office.presentation-package';
 const GITHUB_AGENT_ID = 'intel-researcher';
 const GITHUB_TASK_TYPE = 'research.github-search';
 const RESEARCH_TASK_TYPES = new Set(['army.intake', 'report.public-material', 'research.github-search', 'research.intel-report']);
@@ -14,14 +15,17 @@ export function canonicalizeBusinessAssignment(input = {}, { index = 0 } = {}) {
   const requestedAgentId = text(input.agentId);
   const dependsOnPrevious = input.dependsOnPrevious === true;
   const combined = `${title}\n${description}\n${acceptance}`;
-  const explicitOffice = requestedTaskType === OFFICE_TASK_TYPE || requestedAgentId === OFFICE_AGENT_ID;
+  const explicitOffice = [OFFICE_TASK_TYPE, OFFICE_PRESENTATION_TASK_TYPE].includes(requestedTaskType) || requestedAgentId === OFFICE_AGENT_ID;
+  const presentationDeliverable = /(?:(?:制作|生成|整理|设计|修改|输出).{0,16}(?:pptx?|幻灯片|演示文稿))|(?:(?:pptx?|幻灯片|演示文稿).{0,16}(?:制作|生成|整理|设计|修改|输出))/i.test(combined);
   const officeDeliverable = /(?:老板|统一|最终|办公).{0,12}(?:汇报|汇总)|(?:汇报|汇总).{0,12}(?:老板|统一|最终)|汇报包/i.test(combined);
   const referencesPriorWork = /(?:基于|根据|等待|等).{0,40}(?:任务|工作|结果|产物)|前\s*[两二三23]\s*项|完成情况.{0,40}未决事项|主要结论.{0,40}下一步/i.test(combined);
   const explicitVideoScript = /(?:可拍|短剧|视频脚本|分镜|镜头脚本|一人分饰)/i.test(combined)
     && /(?:脚本|口播|分镜)/i.test(combined);
   const normalizedTaskType = ['content.platform-draft', OFFICE_TASK_TYPE].includes(requestedTaskType) && explicitVideoScript
     ? 'content.video-script-package'
-    : requestedTaskType;
+    : presentationDeliverable && ['army.intake', OFFICE_TASK_TYPE, OFFICE_PRESENTATION_TASK_TYPE].includes(requestedTaskType)
+      ? OFFICE_PRESENTATION_TASK_TYPE
+      : requestedTaskType;
   const isDependentOfficeBriefing = explicitOffice
     || (officeDeliverable && (dependsOnPrevious || index > 0 || referencesPriorWork));
   const explicitGithubResearch = RESEARCH_TASK_TYPES.has(requestedTaskType)

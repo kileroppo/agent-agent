@@ -631,6 +631,50 @@ test('MediaCrawlerPro reports insufficient history without inventing missing met
   assert.equal(result.historyWorks[1].likes, null);
 });
 
+test('MediaCrawlerPro 补查小红书历史详情取得收藏数后再计算有效样本', async () => {
+  const adapter = new MediaCrawlerProAdapter({
+    cookieBridgeUrl:'http://127.0.0.1:8274',
+    downloadServerUrl:'http://127.0.0.1:8205',
+    fetchImpl:async (url, options = {}) => {
+      const pathname = new URL(url).pathname;
+      if (pathname === '/api/cookies/xhs') return jsonResponse({ isok:true, data:{ cookies:'test-cookie' } });
+      if (pathname === '/api/v1/content_detail') {
+        const input = JSON.parse(options.body);
+        if (input.content_url.endsWith('/current')) return jsonResponse({ isok:true, data:{ content:{
+          id:'current', title:'当前', url:input.content_url,
+          author:{ user_id:'creator-1' }, interaction:{ liked_count:'100', collected_count:'20' }
+        } } });
+        const id = new URL(input.content_url).pathname.split('/').at(-1);
+        return jsonResponse({ isok:true, data:{ content:{
+          id, title:id, url:input.content_url,
+          interaction:{ liked_count:'10', collected_count:'3' }
+        } } });
+      }
+      if (pathname === '/api/v1/creator_query') return jsonResponse({ isok:true, data:{ user_id:'creator-1', follower_count:'1000' } });
+      if (pathname === '/api/v1/creator_contents') return jsonResponse({ isok:true, data:{
+        contents:Array.from({ length:5 }, (_, index) => ({
+          id:`history-${index + 1}`,
+          title:`历史 ${index + 1}`,
+          url:`https://www.xiaohongshu.com/explore/history-${index + 1}?xsec_token=history-secret`,
+          interaction:{ liked_count:'10', collected_count:'' }
+        })),
+        has_more:false
+      } });
+      throw new Error(`unexpected ${url}`);
+    }
+  });
+
+  const result = await adapter.collectMetrics({
+    source:'https://www.xiaohongshu.com/explore/current',
+    connectionUse:{ credentialKind:'cookie_bridge', cookieBridgeClientId:'local_xhs_account_1' }
+  });
+
+  assert.equal(result.status, 'collected');
+  assert.equal(result.sampleCount, 5);
+  assert.deepEqual(result.historyWorks.map((work) => work.favorites), [3, 3, 3, 3, 3]);
+  assert.equal(JSON.stringify(result).includes('history-secret'), false);
+});
+
 test('content center authorizes a metrics read and returns only the sanitized bundle', async (t) => {
   const { connectionStore, broker, operations } = await sandbox(t);
   const connection = await connectionStore.createCookieBridgeConnection({
@@ -665,6 +709,59 @@ test('MediaCrawlerPro 识别小红书当前分享口令短链域名', () => {
   });
   assert.equal(adapter.matches('http://xhslink.cn/o/3HInBgvjTG'), true);
   assert.equal(adapter.providerFor('http://xhslink.cn/o/3HInBgvjTG'), 'xhs');
+});
+
+test('MediaCrawlerPro 在适配层解析小红书短链并转换为官方服务支持的 explore URL', async () => {
+  const requested = [];
+  const adapter = new MediaCrawlerProAdapter({
+    cookieBridgeUrl:'http://127.0.0.1:8274',
+    downloadServerUrl:'http://127.0.0.1:8205',
+    fetchImpl:async (url, options = {}) => {
+      const pathname = new URL(url).pathname;
+      requested.push({ url:String(url), body:options.body ? JSON.parse(options.body) : null });
+      if (String(url) === 'http://xhslink.cn/o/example') {
+        return { ok:true, url:'https://www.xiaohongshu.com/discovery/item/note-1?xsec_token=token&xsec_source=app_share', body:null };
+      }
+      if (pathname === '/api/cookies/xhs') return jsonResponse({ isok:true, data:{ cookies:'test-cookie' } });
+      if (pathname === '/api/v1/content_detail') return jsonResponse({ isok:true, data:{ content:{
+          id:'note-1', title:'短链笔记', url:'https://www.xiaohongshu.com/explore/note-1?xsec_token=detail-secret',
+        author:{ user_id:'creator-1' }, interaction:{ liked_count:'10', collected_count:'2' }
+      } } });
+      if (pathname === '/api/v1/creator_query') return jsonResponse({ isok:true, data:{ user_id:'creator-1', follower_count:'100' } });
+      if (pathname === '/api/v1/creator_contents') return jsonResponse({ isok:true, data:{ contents:[], has_more:false } });
+      throw new Error(`unexpected ${url}`);
+    }
+  });
+
+  const result = await adapter.collectMetrics({
+    source:'http://xhslink.cn/o/example',
+    connectionUse:{ credentialKind:'cookie_bridge', cookieBridgeClientId:'local_xhs_account_1' }
+  });
+
+  const detailCall = requested.find((call) => new URL(call.url).pathname === '/api/v1/content_detail');
+  assert.equal(detailCall.body.content_url, 'https://www.xiaohongshu.com/explore/note-1?xsec_token=token&xsec_source=app_share');
+  assert.equal(result.currentWork.id, 'note-1');
+  assert.equal(result.currentWork.sourceUrl, 'https://www.xiaohongshu.com/explore/note-1');
+});
+
+test('MediaCrawlerPro 从小红书登录页 redirectPath 恢复短链的真实笔记地址', async () => {
+  const adapter = new MediaCrawlerProAdapter({
+    cookieBridgeUrl:'http://127.0.0.1:8274',
+    downloadServerUrl:'http://127.0.0.1:8205',
+    fetchImpl:async (url) => {
+      if (String(url) !== 'http://xhslink.cn/o/login-redirect') throw new Error(`unexpected ${url}`);
+      const target = 'https://www.xiaohongshu.com/discovery/item/note-2?xsec_token=token-2&xsec_source=app_share';
+      return {
+        ok:true,
+        url:`https://www.xiaohongshu.com/login?redirectPath=${encodeURIComponent(target)}`,
+        body:null
+      };
+    }
+  });
+
+  const resolved = await adapter.resolveSource('http://xhslink.cn/o/login-redirect', 'xhs');
+
+  assert.equal(resolved, 'https://www.xiaohongshu.com/explore/note-2?xsec_token=token-2&xsec_source=app_share');
 });
 
 test('MediaCrawlerPro 为 B站转录优先下载独立音轨而不是无声视频分片', async (t) => {

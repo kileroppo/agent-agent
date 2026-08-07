@@ -1,4 +1,4 @@
-const { createApp, ref, computed, onMounted } = Vue
+const { createApp, ref, computed, onMounted, reactive } = Vue
 
 createApp({
   setup() {
@@ -181,7 +181,7 @@ createApp({
     const booms = computed(() => (state.dashboard.value ? state.dashboard.value.boom : {}))
 
     return {
-      state,
+      state: reactive(state),
       gradeClass,
       fmt,
       loadWorks,
@@ -215,26 +215,41 @@ createApp({
       <section class="grid md:grid-cols-4 gap-3">
         <div class="bg-white p-4 rounded-xl shadow">创作者 {{ state.dashboard?.totals?.creators || 0 }}</div>
         <div class="bg-white p-4 rounded-xl shadow">作品 {{ state.dashboard?.totals?.works || 0 }}</div>
-        <div class="bg-white p-4 rounded-xl shadow">T3 {{ booms.value.T3 || 0 }}</div>
-        <div class="bg-white p-4 rounded-xl shadow">T2 {{ booms.value.T2 || 0 }}</div>
+        <div class="bg-white p-4 rounded-xl shadow">T3 {{ booms.T3 || 0 }}</div>
+        <div class="bg-white p-4 rounded-xl shadow">T2 {{ booms.T2 || 0 }}</div>
       </section>
 
       <section v-if="state.view==='dashboard'" class="bg-white rounded-xl p-4 space-y-3">
         <h2 class="font-semibold text-lg">粘贴链接判断值不值得拆</h2>
-        <p class="text-sm text-slate-500">支持小红书、抖音。系统会读取当前指标、作者粉丝和最多 20 条历史作品，再用现有 R/M 算法评级。</p>
+        <p class="text-sm text-slate-500">支持小红书、抖音。正式 v2 同时判断 R、触达规模、绝对互动和收藏/分享质量，并据此决定是否派发拆解。</p>
         <div class="flex gap-2">
-          <input v-model="state.sourceUrl.value" class="flex-1 border rounded px-3 py-2" placeholder="粘贴小红书或抖音作品链接" />
-          <button class="px-4 py-2 rounded bg-slate-900 text-white disabled:opacity-50" @click="collectUrl" :disabled="state.collectLoading.value">
-            {{ state.collectLoading.value ? '正在读取…' : '判断并评分' }}
+          <input v-model="state.sourceUrl" class="flex-1 border rounded px-3 py-2" placeholder="粘贴小红书或抖音作品链接" />
+          <button class="px-4 py-2 rounded bg-slate-900 text-white disabled:opacity-50" @click="collectUrl" :disabled="state.collectLoading">
+            {{ state.collectLoading ? '正在读取…' : '判断并评分' }}
           </button>
         </div>
-        <div v-if="state.collectResult.value" class="rounded-lg bg-slate-50 p-3 text-sm">
-          <div>{{ state.collectResult.value.message }}</div>
-          <div v-if="state.collectResult.value.score" class="mt-1">
-            等级 <span class="badge" :class="gradeClass(state.collectResult.value.score.grade)">{{ state.collectResult.value.score.grade }}</span>
-            · R {{ Number(state.collectResult.value.score.r_value || 0).toFixed(2) }}
-            · M {{ Number(state.collectResult.value.score.m_value || 0).toFixed(4) }}
-            · 历史样本 {{ state.collectResult.value.score.sample_count }} 条
+        <div v-if="state.collectResult" class="rounded-lg bg-slate-50 p-3 text-sm">
+          <div>{{ state.collectResult.message }}</div>
+          <div v-if="state.collectResult.score" class="mt-1">
+            正式 v2 <span class="badge" :class="gradeClass(state.collectResult.score.grade)">{{ state.collectResult.score.grade }}</span>
+            · R {{ Number(state.collectResult.score.r_value || 0).toFixed(2) }}
+            · M {{ Number(state.collectResult.score.m_value || 0).toFixed(4) }}
+            · 历史样本 {{ state.collectResult.score.sample_count }} 条
+            <template v-if="state.collectResult.score.status === 'evaluated'">
+              · 绝对互动 {{ state.collectResult.score.absolute_interactions }}
+              · 质量信号 {{ state.collectResult.score.signals?.quality?.passed ? '通过' : '未通过' }}
+            </template>
+            <div v-if="state.collectResult.score.grade_cap_reason === 'low_absolute_volume'" class="mt-1 text-slate-500">
+              绝对互动量过小，最高只记 T1，防止小基数制造虚假高倍数。
+            </div>
+            <div class="mt-1 text-slate-500">缺少发布时间时只判断累计表现，不宣称“正在爆”。</div>
+          </div>
+          <div v-if="state.collectResult.legacy_score" class="mt-2 border-t border-slate-200 pt-2 text-slate-500">
+            旧 v1 对照 <span class="badge" :class="gradeClass(state.collectResult.legacy_score.grade)">{{ state.collectResult.legacy_score.grade }}</span>
+            <span>（仅供回滚，不控制派发）</span>
+            <div v-if="state.collectResult.legacy_score.differs_from_official" class="mt-1 text-amber-700">
+              v1 与 v2 结果不同；本次按 v2 执行。
+            </div>
           </div>
         </div>
         <h2 class="font-semibold text-lg pt-2">健康状态</h2>
@@ -248,20 +263,20 @@ createApp({
 
       <section v-if="state.view==='works'" class="bg-white rounded-xl p-4">
         <div class="flex flex-wrap gap-2 mb-3">
-          <select v-model="state.filters.grade.value" class="border rounded px-2 py-1">
+          <select v-model="state.filters.grade" class="border rounded px-2 py-1">
             <option value="">全部</option>
             <option value="T1">T1</option>
             <option value="T2">T2</option>
             <option value="T3">T3</option>
             <option value="N0">N0</option>
           </select>
-          <select v-model="state.filters.platform.value" class="border rounded px-2 py-1">
+          <select v-model="state.filters.platform" class="border rounded px-2 py-1">
             <option value="">全部平台</option>
             <option value="douyin">抖音</option>
             <option value="xiaohongshu">小红书</option>
             <option value="youtube">YouTube</option>
           </select>
-          <input v-model="state.filters.creatorId.value" placeholder="creator_id" class="border rounded px-2 py-1" />
+          <input v-model="state.filters.creatorId" placeholder="creator_id" class="border rounded px-2 py-1" />
           <button class="px-3 py-1.5 rounded bg-slate-900 text-white" @click="loadWorks">查询</button>
         </div>
         <table class="w-full text-sm">
@@ -310,25 +325,25 @@ createApp({
         <h3 class="font-semibold mb-3">设置</h3>
         <div class="space-y-3 max-w-xl">
           <label class="flex items-center gap-2">
-            <input type="checkbox" v-model="state.settingsDraft.value.analysis_auto_enabled" />
+            <input type="checkbox" v-model="state.settingsDraft.analysis_auto_enabled" />
             <span>自动拆解命中的作品</span>
           </label>
           <label class="block">
             <div class="mb-1 text-sm">自动入队等级（逗号分隔）</div>
             <input
-              v-model="state.settingsDraft.value.analysis_auto_grades"
+              v-model="state.settingsDraft.analysis_auto_grades"
               class="w-full border rounded px-2 py-1"
               placeholder="推荐 T2,T3"
             />
           </label>
           <div class="text-xs text-slate-500">
-            当前配置: {{ state.settings.value ? ('enabled=' + state.settings.value.enabled + ', grades=' + (state.settings.value.grades || []).join(',')) : '-' }}
+            当前配置: {{ state.settings ? ('enabled=' + state.settings.enabled + ', grades=' + (state.settings.grades || []).join(',')) : '-' }}
           </div>
           <div class="flex items-center gap-2">
-            <button class="px-3 py-1.5 rounded bg-slate-900 text-white" @click="saveSettings" :disabled="state.settingsLoading.value">
+            <button class="px-3 py-1.5 rounded bg-slate-900 text-white" @click="saveSettings" :disabled="state.settingsLoading">
               保存
             </button>
-            <span class="text-sm text-emerald-700" v-if="state.settingsMessage.value">{{ state.settingsMessage.value }}</span>
+            <span class="text-sm text-emerald-700" v-if="state.settingsMessage">{{ state.settingsMessage }}</span>
           </div>
         </div>
       </section>
@@ -342,6 +357,13 @@ createApp({
         <div>M: {{ Number(state.selected.work.m_value || 0).toFixed(4) }}</div>
         <div>基线: {{ state.selected.work.baseline_metric }}</div>
         <div>军团派发: {{ state.selected.work.analysis_status }}</div>
+        <div v-if="state.selected.score_details" class="mt-2 border-t border-slate-200 pt-2">
+          正式 v2: <span class="badge" :class="gradeClass(state.selected.score_details.grade)">{{ state.selected.score_details.grade }}</span>
+          · 控制派发
+        </div>
+        <div v-if="state.selected.legacy_score" class="text-slate-500">
+          旧 v1 对照: {{ state.selected.legacy_score.grade }} · 不控制派发
+        </div>
       </section>
     </div>
   `,

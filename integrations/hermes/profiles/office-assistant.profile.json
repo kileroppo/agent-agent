@@ -45,6 +45,7 @@
       "agentIds": ["office-assistant"],
       "taskTypes": [
         "office.briefing-package",
+        "office.presentation-package",
         "office.knowledge-summary",
         "office.deliverable-program",
         "content.campaign-metrics"
@@ -58,6 +59,8 @@
     "office.docx.write",
     "office.xlsx.write",
     "office.pdf.write",
+    "office.pptd.write",
+    "office.pptx.export",
     "office.report.daily.write",
     "office.report.weekly.write",
     "knowledge.archive.write"

@@ -9,6 +9,16 @@ const DEFINITIONS = Object.freeze({
   'yichen-grok-consult':{ owner:'intel-researcher', readiness:'needs_login' },
   'yichen-asr':{ owner:'xiaod', readiness:'needs_setup', recovery:'请配置 StepFun 或火山 ASR 凭据后再用；不会自动跨供应商重试。' },
   'yichen-summary':{ owner:'office-assistant', readiness:'ready', executionBoundary:'knowledge.archive.write' },
+  'open-kimi-ppt':{
+    owner:'office-assistant',
+    readiness:'needs_capability',
+    entryPath:'open-kimi-ppt-skill/skills/open-kimi-ppt/SKILL.md',
+    packagePath:'open-kimi-ppt-skill/package.json',
+    executionBoundary:'office.pptd.write + approval-gated office.pptx.export',
+    dataBoundary:'assigned-task-and-workspace-only',
+    externalSideEffects:['external-data-processing'],
+    recovery:'PPTD 可在共享技能源码校验通过后生成；PPTX 需要隔离 Node 24+ 与 agent-browser >= 0.33.2，运行时不会自动安装。',
+  },
   'yichen-wechat-local-vault':{ owner:'wechat-chat-retriever', readiness:'ready', executionBoundary:'wechat.local-vault.chat.read' },
 });
 
@@ -19,18 +29,28 @@ export class SkillExecutionRegistry {
     grokAccessMode = process.env.AGENT_ARMY_GROK_ACCESS || 'auto',
     adapters = {},
     readinessOverrides = {},
+    readinessProbes = {},
   } = {}) {
     this.sharedRoot = path.resolve(sharedRoot);
     this.grokAuthPath = path.resolve(grokAuthPath);
     this.grokAccessMode = normalizeGrokAccessMode(grokAccessMode);
     this.adapters = { ...adapters };
     this.readinessOverrides = { ...readinessOverrides };
+    this.readinessProbes = { ...readinessProbes };
   }
 
   async overview() {
     return Promise.all(Object.entries(DEFINITIONS).map(async ([slug, definition]) => {
-      const installed = await fs.access(path.join(this.sharedRoot, slug, 'SKILL.md')).then(() => true).catch(() => false);
+      const entryPath = definition.entryPath || `${slug}/SKILL.md`;
+      const installed = await fs.access(path.join(this.sharedRoot, entryPath)).then(() => true).catch(() => false);
+      const probe = installed && typeof this.readinessProbes[slug] === 'function'
+        ? await this.readinessProbes[slug]().catch((error) => ({
+            status:'needs_capability',
+            recovery:`能力探针失败：${String(error?.message || error).slice(0, 200)}`,
+          }))
+        : null;
       const configured = this.readinessOverrides[slug]
+        || probe?.status
         || await environmentReadiness(slug, {
           grokAuthPath:this.grokAuthPath,
           grokAccessMode:this.grokAccessMode,
@@ -41,8 +61,13 @@ export class SkillExecutionRegistry {
         slug,
         owners:definition.owners || [definition.owner],
         status,
+        entryPath,
+        source:probe?.source || await skillSource(this.sharedRoot, definition),
+        modes:probe?.modes || defaultModes(status),
+        dataBoundary:definition.dataBoundary || null,
+        externalSideEffects:definition.externalSideEffects || [],
         executionBoundary:definition.executionBoundary || 'bounded-adapter-only',
-        recovery:installed ? recoveryFor(slug, status, definition) : '技能目录未安装或不完整。',
+        recovery:installed ? probe?.recovery || recoveryFor(slug, status, definition) : '技能目录未安装或不完整。',
         genericTerminalAccess:false,
         genericBrowserAccess:false,
       };
@@ -63,6 +88,20 @@ export class SkillExecutionRegistry {
     }
     return adapter(input, context);
   }
+}
+
+async function skillSource(sharedRoot, definition) {
+  if (!definition.packagePath) return null;
+  try {
+    const packageDocument = JSON.parse(await fs.readFile(path.join(sharedRoot, definition.packagePath), 'utf8'));
+    return Object.freeze({ packageVersion:String(packageDocument.version || '') || null });
+  } catch {
+    return null;
+  }
+}
+
+function defaultModes(status) {
+  return Object.freeze({ execute:Object.freeze({ status }) });
 }
 
 async function environmentReadiness(slug, { grokAuthPath, grokAccessMode }) {

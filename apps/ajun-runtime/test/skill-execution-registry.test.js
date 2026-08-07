@@ -61,3 +61,33 @@ test('未订阅 Grok 时明确停用且保留小R其他研究能力', async () =
   assert.equal(grok.status, 'not_enabled');
   assert.match(grok.recovery, /网页研究和统一搜索/);
 });
+
+test('OpenKimi PPT 使用嵌套共享入口并分别报告 compose、visualQa 和 export readiness', async () => {
+  const sharedRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'open-kimi-registry-'));
+  const skillRoot = path.join(sharedRoot, 'open-kimi-ppt-skill');
+  await fs.mkdir(path.join(skillRoot, 'skills/open-kimi-ppt'), { recursive:true });
+  await fs.writeFile(path.join(skillRoot, 'skills/open-kimi-ppt/SKILL.md'), '# open-kimi-ppt\n');
+  await fs.writeFile(path.join(skillRoot, 'package.json'), '{"version":"1.0.0"}\n');
+  const registry = new SkillExecutionRegistry({
+    sharedRoot,
+    readinessProbes:{
+      'open-kimi-ppt':async () => ({
+        status:'partial',
+        source:{ packageVersion:'1.0.0', sourceHash:'fixture' },
+        modes:{
+          compose:{ status:'ready' },
+          visualQa:{ status:'needs_capability' },
+          export:{ status:'needs_capability' },
+        },
+        recovery:'agent-browser 版本不兼容；不会自动安装。',
+      }),
+    },
+  });
+  const capability = (await registry.overview()).find((item) => item.slug === 'open-kimi-ppt');
+  assert.equal(capability.status, 'partial');
+  assert.equal(capability.entryPath, 'open-kimi-ppt-skill/skills/open-kimi-ppt/SKILL.md');
+  assert.equal(capability.modes.compose.status, 'ready');
+  assert.equal(capability.modes.export.status, 'needs_capability');
+  assert.deepEqual(capability.externalSideEffects, ['external-data-processing']);
+  assert.match(capability.recovery, /不会自动安装/);
+});

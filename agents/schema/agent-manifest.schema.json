@@ -66,11 +66,13 @@
                   "hermes-docx",
                   "hermes-xlsx",
                   "hermes-office-pdf",
+                  "open-kimi-pptd",
+                  "open-kimi-pptx",
                   "content-library"
                 ]
               },
               "access": { "enum": ["read", "write"] },
-              "externalSideEffect": { "enum": ["none", "network-read"] },
+              "externalSideEffect": { "enum": ["none", "network-read", "external-data-processing"] },
               "scope": { "enum": ["paperclip-execution-workspace", "agent-army-knowledge-archive"] }
             },
             "additionalProperties": false

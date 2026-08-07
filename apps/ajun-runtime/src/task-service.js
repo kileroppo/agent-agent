@@ -2050,6 +2050,23 @@ export class TaskService {
       }] : []),
       { id: 'external-execution', name: '外部发布与写入', status: 'planned', detail: '外部发布和其他写入动作尚未接入；登录型只读采集不等于已经开放写入。' }
     ];
+    const presentationSkill = skillReadiness.find((item) => item.slug === 'open-kimi-ppt');
+    if (presentationSkill) {
+      const composeStatus = presentationSkill.modes?.compose?.status || presentationSkill.status;
+      const exportStatus = presentationSkill.modes?.export?.status || presentationSkill.status;
+      capabilities.push({
+        id:'office-presentation',
+        name:'小办演示文稿',
+        status:composeStatus === 'ready' && exportStatus === 'ready'
+          ? 'ready'
+          : composeStatus === 'ready' ? 'partial' : 'unavailable',
+        detail:[
+          `PPTD ${composeStatus === 'ready' ? '可用' : `不可用（${composeStatus}）`}`,
+          `PPTX ${exportStatus === 'ready' ? '可用' : `暂不可用（${exportStatus}）`}`,
+          presentationSkill.recovery,
+        ].filter(Boolean).join('；').slice(0, 500),
+      });
+    }
     const wechatHealth = runtimeHealth['wechat-chat-retriever'];
     if (wechatHealth) capabilities.push({
       id:'wechat-private-read',
@@ -2132,6 +2149,25 @@ export class TaskService {
         const report = current.artifactRefs?.find((item) => item.type === 'office_briefing_package')?.data;
         if (report?.summary && report?.markdown) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatOfficeBriefingReply(report) };
         return { terminal:true, status:'succeeded', taskId:root.taskId, message:`办公执行助理已经完成“${shortTaskTitle(root)}”，但汇报包没有通过读取确认；系统不会把它当作完整交付。` };
+      }
+      if (current.taskType === 'office.presentation-package') {
+        const source = current.artifactRefs?.find((item) => item.type === 'office_presentation_source');
+        const pptx = current.artifactRefs?.find((item) => item.type === 'office_pptx_document');
+        if (source?.validation?.structuralQaPassed && source?.location) {
+          return {
+            terminal:true,
+            status:'succeeded',
+            taskId:root.taskId,
+            message:[
+              `小办已完成“${shortTaskTitle(root)}”的可编辑 PPTD。`,
+              `PPTD：${source.location}`,
+              pptx?.validation?.visualQaPassed && pptx?.location
+                ? `PPTX：${pptx.location}`
+                : 'PPTX 和图片质检未作为本次完成证据。',
+            ].join('\n'),
+          };
+        }
+        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小办已经完成“${shortTaskTitle(root)}”，但 PPTD 没有通过结构检查；系统不会把它当作完整交付。` };
       }
       if (current.taskType === 'office.knowledge-summary') {
         const note = current.artifactRefs?.find((item) => item.type === 'knowledge_summary_note');

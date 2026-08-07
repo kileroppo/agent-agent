@@ -87,6 +87,7 @@ test('只有真实可调用实现才注册动态网页、PDF和Office适配器',
     publicDynamicWebReader:{ read:true },
     publicPdfReader:{ read:true },
     officeDocuments:{ writeDocx:true, writeXlsx:true, writePdf:true },
+    officePresentations:{ writePptd:true, exportPptx:true },
   });
   for (const name of [
     'hermes-public-browser',
@@ -94,6 +95,8 @@ test('只有真实可调用实现才注册动态网页、PDF和Office适配器',
     'hermes-docx',
     'hermes-xlsx',
     'hermes-office-pdf',
+    'open-kimi-pptd',
+    'open-kimi-pptx',
   ]) {
     assert.equal(name in unavailable, false);
   }
@@ -105,6 +108,10 @@ test('只有真实可调用实现才注册动态网页、PDF和Office适配器',
       async writeXlsx() {},
       async writePdf() {},
     },
+    officePresentations:{
+      async writePptd() {},
+      async exportPptx() {},
+    },
   });
   for (const name of [
     'hermes-public-browser',
@@ -112,6 +119,8 @@ test('只有真实可调用实现才注册动态网页、PDF和Office适配器',
     'hermes-docx',
     'hermes-xlsx',
     'hermes-office-pdf',
+    'open-kimi-pptd',
+    'open-kimi-pptx',
   ]) {
     assert.equal(typeof available[name], 'function');
   }

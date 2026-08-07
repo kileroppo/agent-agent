@@ -26,6 +26,16 @@ test('研究如何生成汇报的独立主题不会被误改成办公任务', ()
   assert.equal(assignment.dependsOnPrevious, false);
 });
 
+test('明确 PPT 成品请求固定路由给小办的演示文稿任务', () => {
+  const assignment = canonicalizeBusinessAssignment({
+    title:'把季度复盘材料制作成 8 页 PPT',
+    taskType:'office.briefing-package',
+    agentId:'intel-researcher',
+  });
+  assert.equal(assignment.taskType, 'office.presentation-package');
+  assert.equal(assignment.agentId, 'office-assistant');
+});
+
 test('模型误选主题研究时，明确 GitHub 开源项目请求仍强制交给小R的 GitHub 检索', () => {
   const assignment = canonicalizeBusinessAssignment({
     title:'查找 3 个 GitHub 开源 Agent 编排项目并给出链接与一句话判断',

@@ -21,6 +21,7 @@ const DEFINITIONS = Object.freeze([
     contentArtifactType:'video_script_package',
   }),
   capability('office.knowledge-summary', { agentId:'office-assistant' }),
+  capability('office.presentation-package', { agentId:'office-assistant' }),
   capability('army.goal-program', { openDelegate:'army.route-task' }),
   capability('media.open-production', { openDelegate:'media.transcribe-and-refine' }),
   capability('research.open-investigation', { openDelegate:'research.intel-report' }),

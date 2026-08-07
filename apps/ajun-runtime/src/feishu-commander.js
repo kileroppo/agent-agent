@@ -85,13 +85,13 @@ export class FeishuCommander {
       architect:'governance.architecture-review',
       xiaod:'media.transcribe-and-refine',
       'intel-researcher':'research.intel-report',
-      'office-assistant':'office.briefing-package'
+      'office-assistant':/(?:pptx?|幻灯片|演示文稿)/i.test(text) ? 'office.presentation-package' : 'office.briefing-package'
     };
     const taskType = directPlan?.intent === 'route_task' && directPlan.agentId === agentId ? directPlan.taskType : directTaskTypes[agentId];
     if (!taskType) return null;
     const task = await this.tasks.create({
       title:text,
-      description:['office.briefing-package', 'office.knowledge-summary'].includes(taskType) ? text : '',
+      description:['office.briefing-package', 'office.presentation-package', 'office.knowledge-summary'].includes(taskType) ? text : '',
       taskType,
       requester,
       source,
@@ -176,11 +176,11 @@ export class FeishuCommander {
     const feedback = feedbackSentiment(text);
     if (feedback) return this.recordFeedback(source.chatRef, text, feedback);
     if (FOLLOW_UP_RE.test(text)) return this.followUp(source.chatRef);
-    const taskType = plan.taskType || (intent === 'health_check' ? 'operations.health-review' : intent === 'media_task' ? 'media.transcribe-and-refine' : intent === 'public_report' ? 'report.public-material' : intent === 'github_search' ? 'research.github-search' : intent === 'intel_research' ? 'research.intel-report' : intent === 'office_briefing' ? 'office.briefing-package' : ['architecture_review', 'army_planning'].includes(intent) ? 'governance.architecture-review' : 'army.intake');
+    const taskType = plan.taskType || (intent === 'health_check' ? 'operations.health-review' : intent === 'media_task' ? 'media.transcribe-and-refine' : intent === 'public_report' ? 'report.public-material' : intent === 'github_search' ? 'research.github-search' : intent === 'intel_research' ? 'research.intel-report' : intent === 'office_presentation' ? 'office.presentation-package' : intent === 'office_briefing' ? 'office.briefing-package' : ['architecture_review', 'army_planning'].includes(intent) ? 'governance.architecture-review' : 'army.intake');
     const entryAgentId = await this.resolveEntryAgent(targetAgentId, taskType);
     const defaultAgentId = ['report.public-material', 'research.github-search', 'research.intel-report'].includes(taskType)
       ? 'intel-researcher'
-      : ['office.briefing-package', 'office.knowledge-summary'].includes(taskType)
+      : ['office.briefing-package', 'office.presentation-package', 'office.knowledge-summary'].includes(taskType)
         ? 'office-assistant'
         : ['content.video-benchmark-analysis', 'content.performance-review'].includes(taskType)
           ? 'video-content-analyst'
@@ -189,7 +189,7 @@ export class FeishuCommander {
             : undefined;
     const researchInput = taskType === 'research.github-search' ? githubTaskInput(text) : taskType === 'research.intel-report' ? { topic:text } : {};
     const task = await this.tasks.create({
-      title: text, description:taskType === 'office.briefing-package' ? text : '', taskType, requester, source,
+      title: text, description:['office.briefing-package', 'office.presentation-package'].includes(taskType) ? text : '', taskType, requester, source,
       agentId: entryAgentId || plan.agentId || defaultAgentId, ...researchInput, idempotencyKey: `feishu:${sourceEventRef}`
     });
     const intake = task.artifactRefs?.find((item) => item.type === 'task_intake_record')?.data;
@@ -854,6 +854,24 @@ function replyFor(task, taskType) {
     if (task.status === 'needs_input') return { kind:'office_briefing', task, reply:task.error?.userMessage || '办公执行助理还缺少需要整理的材料。' };
     return { kind:'office_briefing', task, reply:`已交给办公执行助理整理，任务号：${task.taskId}。完成后会回到当前飞书会话。` };
   }
+  if (taskType === 'office.presentation-package') {
+    const source = task.artifactRefs?.find((item) => item.type === 'office_presentation_source');
+    const pptx = task.artifactRefs?.find((item) => item.type === 'office_pptx_document');
+    if (source?.validation?.structuralQaPassed) {
+      return {
+        kind:'office_presentation',
+        task,
+        reply:[
+          `小办已生成可编辑 PPTD：${source.location}`,
+          pptx?.validation?.visualQaPassed
+            ? `PPTX 和图片质检已完成：${pptx.location}`
+            : task.error?.userMessage || 'PPTX 和图片质检尚未完成。',
+        ].join('\n'),
+      };
+    }
+    if (task.status === 'needs_input') return { kind:'office_presentation', task, reply:task.error?.userMessage || '小办还缺少演示文稿标题或逐页提纲。' };
+    return { kind:'office_presentation', task, reply:`已交给小办制作演示文稿，任务号：${task.taskId}。PPTD、PPTX 和视觉质检会分别报告。` };
+  }
   if (taskType === 'office.knowledge-summary') {
     const note = task.artifactRefs?.find((item) => item.type === 'knowledge_summary_note');
     if (note?.validation?.readable) return { kind:'knowledge_summary', task, reply:`小办已完成知识归档：${note.title}\n受控文件：${note.location}` };
@@ -1038,6 +1056,7 @@ function workerName(task) {
   if (task.taskType === 'research.github-search') return '小R';
   if (task.taskType === 'research.intel-report') return '小R';
   if (task.taskType === 'office.briefing-package') return '办公执行助理';
+  if (task.taskType === 'office.presentation-package') return '小办';
   if (task.taskType === 'office.knowledge-summary') return '小办';
   if (['content.video-benchmark-analysis', 'content.performance-review'].includes(task.taskType)) return '小拆';
   if (task.taskType === 'content.platform-draft') return '小创';
