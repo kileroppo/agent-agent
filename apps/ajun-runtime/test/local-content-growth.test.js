@@ -553,6 +553,47 @@ test('精华提炼输出短摘要、原文金句和唯一下一步并保留证�
   assert.ok(result.artifactRefs[0].validation.digestCharacterCount <= 800);
 });
 
+test('模型将精华字段放在顶层时结果页仍使用模型摘要而不是占位兜底', async (t) => {
+  const root = await sandbox(t);
+  const transcriptPath = path.join(root, 'confirmed-digest-top-level.md');
+  await fs.writeFile(transcriptPath, '[00:00] 先展示真实结果，再解释适用条件。\n[00:08] 每次只调整一个变量，才能知道变化来自哪里。\n[00:16] 最后记录结果并决定下一轮是否保留。\n');
+  const sourceTask = taskWithArtifact('source-task-digest-top-level', confirmedArtifact(transcriptPath, 'automatic'));
+  const evidence = [
+    { timestamp:'00:00', fragment:'先展示真实结果，再解释适用条件。' },
+    { timestamp:'00:08', fragment:'每次只调整一个变量，才能知道变化来自哪里。' },
+    { timestamp:'00:16', fragment:'最后记录结果并决定下一轮是否保留。' },
+  ];
+  const analyst = new LocalVideoContentAnalyst({
+    store:{ list:async () => [sourceTask] },
+    artifactsDir:path.join(root, 'out'),
+    allowedArtifactRoots:[root],
+    advisor:{ async analyze() { return { data:{
+      summary:'模型总结：先展示结果，再单变量验证并记录下一轮决策。',
+      modules:['定位与受众', '开场钩子', '内容结构', '核心价值点', '可执行优化建议'].map((name, index) => ({
+        name,
+        finding:`模型判断${index + 1}`,
+        evidence:evidence[index % evidence.length],
+        confidence:'high'
+      })),
+      corePoints:evidence.map((item, index) => ({ point:`模型核心要点${index + 1}`, evidence:item })),
+      goldenQuotes:evidence.slice(0, 2).map((item) => ({ quote:item.fragment, evidence:item })),
+      actionItems:['今天只调整一个变量并记录结果。']
+    } }; } }
+  });
+  const result = await analyst.execute({
+    taskId:'analysis-task-digest-top-level',
+    taskType:'content.video-benchmark-analysis',
+    input:{ title:'精华提炼', analysisIntent:'digest', evidenceMode:'formal', context:{ sourceTaskIds:[sourceTask.taskId] } }
+  });
+  const artifact = result.artifactRefs[0];
+  assert.equal(artifact.validation.advisorApplied, true);
+  assert.equal(artifact.data.generationMode, 'hermes_advisor');
+  assert.equal(artifact.data.digest.oneSentenceSummary, '模型总结：先展示结果，再单变量验证并记录下一轮决策。');
+  assert.deepEqual(artifact.data.digest.corePoints.map((item) => item.point), ['模型核心要点1', '模型核心要点2', '模型核心要点3']);
+  assert.deepEqual(artifact.data.digest.goldenQuotes.map((item) => item.quote), evidence.slice(0, 2).map((item) => item.fragment));
+  assert.deepEqual(artifact.data.digest.actionItems, ['今天只调整一个变量并记录结果。']);
+});
+
 test('模型精华输出含伪造金句时保留证据化兜底内容', async (t) => {
   const root = await sandbox(t);
   const transcriptPath = path.join(root, 'confirmed-digest-guard.md');

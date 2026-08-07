@@ -1178,12 +1178,25 @@ function mergeAdvisedReport(fallback, advised, analysisIntent, transcript) {
   }
   const sectionKey = ({ digest:'digest', template:'templateLearning', style:'styleExploration' })[analysisIntent];
   if (sectionKey) {
-    const candidate = advised?.[sectionKey];
-    if (!candidate || !validModeReport({ ...fallback, [sectionKey]:candidate }, analysisIntent, transcript)) {
-      merged[sectionKey] = fallback[sectionKey];
-    }
+    const candidates = [
+      advised?.[sectionKey],
+      analysisIntent === 'digest' ? digestFromAdvisedTopLevel(advised, fallback.digest) : null,
+    ].filter(Boolean);
+    const candidate = candidates.find((item) => validModeReport({ ...fallback, [sectionKey]:item }, analysisIntent, transcript));
+    merged[sectionKey] = candidate || fallback[sectionKey];
   }
   return merged;
+}
+
+function digestFromAdvisedTopLevel(advised, fallbackDigest) {
+  if (!advised || typeof advised !== 'object' || Array.isArray(advised)) return null;
+  return {
+    ...fallbackDigest,
+    oneSentenceSummary:advised.summary,
+    corePoints:advised.corePoints,
+    goldenQuotes:advised.goldenQuotes,
+    actionItems:advised.actionItems,
+  };
 }
 
 function moduleFinding(name, evidence, focus) {
