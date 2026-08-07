@@ -1,9 +1,10 @@
 const FAILURE_STATUSES = new Set(['blocked', 'failed']);
 
 export class PaperclipHermesTaskReconciler {
-  constructor({ store, governance, now = () => Date.now(), intervalMs = 10_000 } = {}) {
+  constructor({ store, governance, fallback = null, now = () => Date.now(), intervalMs = 10_000 } = {}) {
     this.store = store;
     this.governance = governance;
+    this.fallback = fallback;
     this.now = now;
     this.intervalMs = intervalMs;
     this.timer = null;
@@ -54,6 +55,7 @@ export class PaperclipHermesTaskReconciler {
 
     if (FAILURE_STATUSES.has(issue?.status)) {
       const hasArtifact = hasReadableArtifact(task);
+      if (!hasArtifact && await this.tryLocalEvidenceFallback(task, issue)) return;
       await this.settle(task, hasArtifact ? {
         status:'waiting_test',
         currentStage:'paperclip_hermes_waiting_test',
@@ -96,6 +98,43 @@ export class PaperclipHermesTaskReconciler {
     }
   }
 
+  async tryLocalEvidenceFallback(task, issue) {
+    if (task.taskType !== 'content.video-benchmark-analysis' || typeof this.fallback !== 'function') return false;
+    let result;
+    try {
+      result = await this.fallback(task, { issue });
+    } catch {
+      return false;
+    }
+    const expectedIntent = expectedAnalysisIntent(task.input);
+    const artifact = (result?.artifactRefs || []).find((candidate) => validLocalEvidenceReport(candidate, expectedIntent, task.input?.evidenceMode));
+    if (!artifact) return false;
+    const requiresReview = expectedIntent === 'deep';
+    const currentStage = requiresReview
+      ? 'local_evidence_fallback_waiting_test'
+      : 'local_evidence_fallback_ready';
+    const finishedAt = new Date(this.now()).toISOString();
+    await this.store.updateTask(task.taskId, {
+      status:requiresReview ? 'waiting_test' : 'succeeded',
+      currentStage,
+      execution:{
+        ...(task.execution || {}),
+        ...(result.execution || {}),
+        owner:'local-evidence-fallback',
+        finishedAt,
+        outcome:currentStage
+      },
+      usage:result.usage || task.usage,
+      artifactRefs:result.artifactRefs,
+      error:requiresReview ? taskFailure(
+        'local_evidence_fallback_requires_review',
+        'Hermes 未能完成深度分析；本机已生成证据化 13 模块报告，需人工核对后采用。',
+        this.now()
+      ) : null
+    });
+    return true;
+  }
+
   async settle(task, { status, currentStage, outcome, error }) {
     const finishedAt = new Date(this.now()).toISOString();
     await this.store.updateTask(task.taskId, {
@@ -120,6 +159,32 @@ function hasReadableArtifact(task) {
     && artifact.validation.readable === true
     && artifact.validation.nonEmpty === true
   );
+}
+
+function expectedAnalysisIntent(input = {}) {
+  const structured = String(input?.analysisIntent || '').trim().toLowerCase();
+  if (['digest', 'deep', 'template', 'style'].includes(structured)) return structured;
+  return input?.depth === 'full' ? 'deep' : 'digest';
+}
+
+function validLocalEvidenceReport(artifact, expectedIntent, evidenceMode) {
+  const validation = artifact?.validation || {};
+  const data = artifact?.data || {};
+  return artifact?.type === 'video_content_analysis_report'
+    && validation.exists === true
+    && validation.readable === true
+    && validation.nonEmpty === true
+    && validation.modeStructurePassed === true
+    && validation.claimsEvidenceLinked === true
+    && (evidenceMode !== 'formal' || validation.formalSourceConfirmed === true)
+    && validation.analysisIntent === expectedIntent
+    && validation.reportVersion === 'video-analysis/v2'
+    && data.analysisIntent === expectedIntent
+    && data.reportVersion === 'video-analysis/v2'
+    && data.generationMode === 'deterministic_fallback'
+    && Boolean(data.sourceTranscriptArtifactId)
+    && Array.isArray(artifact.sourceRefs)
+    && artifact.sourceRefs.includes(data.sourceTranscriptArtifactId);
 }
 
 function taskFailure(code, userMessage, now) {

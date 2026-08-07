@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PaperclipHermesTaskReconciler } from '../src/paperclip-hermes-task-reconciler.js';
 
-function setup({ issueStatus, artifactRefs = [], taskType = 'governance.architecture-review', error = null, issueError = null }) {
+function setup({ issueStatus, artifactRefs = [], taskType = 'governance.architecture-review', input = {}, error = null, issueError = null, fallback = null }) {
   let task = {
     taskId:'task-1',
     taskType,
@@ -10,6 +10,7 @@ function setup({ issueStatus, artifactRefs = [], taskType = 'governance.architec
     currentStage:'paperclip_hermes_running',
     execution:{ owner:'paperclip-hermes' },
     governance:{ paperclipIssueId:'issue-1' },
+    input,
     artifactRefs,
     error
   };
@@ -30,6 +31,7 @@ function setup({ issueStatus, artifactRefs = [], taskType = 'governance.architec
   const reconciler = new PaperclipHermesTaskReconciler({
     store,
     governance,
+    fallback,
     now:() => Date.parse('2026-07-28T10:00:00.000Z')
   });
   return { reconciler, get task() { return task; } };
@@ -49,6 +51,124 @@ test('Paperclip 已阻塞且没有本地产物时如实记为失败', async () =
   assert.equal(fixture.task.status, 'failed');
   assert.equal(fixture.task.currentStage, 'paperclip_hermes_failed');
   assert.equal(fixture.task.error.code, 'paperclip_hermes_failed');
+});
+
+test('视频分析的 Hermes 外层失败时只接受本机证据化报告兜底', async () => {
+  const calls = [];
+  const fixture = setup({
+    issueStatus:'blocked',
+    taskType:'content.video-benchmark-analysis',
+    input:{ analysisIntent:'digest', evidenceMode:'formal' },
+    fallback:async (task) => {
+      calls.push(task.taskId);
+      return {
+        status:'succeeded',
+        currentStage:'digest_analysis_ready',
+        artifactRefs:[{
+          type:'video_content_analysis_report',
+          sourceRefs:['confirmed-transcript-1'],
+          validation:{
+            exists:true,
+            readable:true,
+            nonEmpty:true,
+            modeStructurePassed:true,
+            claimsEvidenceLinked:true,
+            formalSourceConfirmed:true,
+            analysisIntent:'digest',
+            reportVersion:'video-analysis/v2'
+          },
+          data:{
+            analysisIntent:'digest',
+            reportVersion:'video-analysis/v2',
+            generationMode:'deterministic_fallback',
+            sourceTranscriptArtifactId:'confirmed-transcript-1'
+          }
+        }]
+      };
+    }
+  });
+
+  await fixture.reconciler.reconcile();
+
+  assert.deepEqual(calls, ['task-1']);
+  assert.equal(fixture.task.status, 'succeeded');
+  assert.equal(fixture.task.currentStage, 'local_evidence_fallback_ready');
+  assert.equal(fixture.task.execution.outcome, 'local_evidence_fallback_ready');
+  assert.equal(fixture.task.artifactRefs[0].data.reportVersion, 'video-analysis/v2');
+});
+
+test('正式深度拆解的本机兜底只进入待测试，不冒充模型深度分析成功', async () => {
+  const fixture = setup({
+    issueStatus:'failed',
+    taskType:'content.video-benchmark-analysis',
+    input:{ analysisIntent:'deep', evidenceMode:'formal' },
+    fallback:async () => ({
+      status:'succeeded',
+      artifactRefs:[{
+        type:'video_content_analysis_report',
+        sourceRefs:['confirmed-transcript-1'],
+        validation:{
+          exists:true,
+          readable:true,
+          nonEmpty:true,
+          modeStructurePassed:true,
+          claimsEvidenceLinked:true,
+          formalSourceConfirmed:true,
+          analysisIntent:'deep',
+          reportVersion:'video-analysis/v2'
+        },
+        data:{
+          analysisIntent:'deep',
+          reportVersion:'video-analysis/v2',
+          generationMode:'deterministic_fallback',
+          sourceTranscriptArtifactId:'confirmed-transcript-1'
+        }
+      }]
+    })
+  });
+
+  await fixture.reconciler.reconcile();
+
+  assert.equal(fixture.task.status, 'waiting_test');
+  assert.equal(fixture.task.currentStage, 'local_evidence_fallback_waiting_test');
+  assert.equal(fixture.task.error.code, 'local_evidence_fallback_requires_review');
+});
+
+test('本机兜底报告缺少证据校验或模式不匹配时仍如实失败', async () => {
+  const fixture = setup({
+    issueStatus:'blocked',
+    taskType:'content.video-benchmark-analysis',
+    input:{ analysisIntent:'style', evidenceMode:'formal' },
+    fallback:async () => ({
+      status:'succeeded',
+      artifactRefs:[{
+        type:'video_content_analysis_report',
+        validation:{ exists:true, readable:true, nonEmpty:true, modeStructurePassed:true },
+        data:{ analysisIntent:'digest', reportVersion:'video-analysis/v2', generationMode:'deterministic_fallback' }
+      }]
+    })
+  });
+
+  await fixture.reconciler.reconcile();
+
+  assert.equal(fixture.task.status, 'failed');
+  assert.equal(fixture.task.currentStage, 'paperclip_hermes_failed');
+});
+
+test('非视频任务不调用本机视频分析兜底', async () => {
+  let calls = 0;
+  const fixture = setup({
+    issueStatus:'blocked',
+    fallback:async () => {
+      calls += 1;
+      return null;
+    }
+  });
+
+  await fixture.reconciler.reconcile();
+
+  assert.equal(calls, 0);
+  assert.equal(fixture.task.status, 'failed');
 });
 
 test('Paperclip 已阻塞但留有可读产物时转为待测试而不冒充成功', async () => {

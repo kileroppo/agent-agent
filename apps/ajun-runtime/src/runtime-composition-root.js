@@ -216,7 +216,12 @@ xiaodReconciler = new XiaodReconciler({
   contentWorkspaceDir:m5ContentWorkspaceDir,
 });
 const paperclipRepairReconciler = new PaperclipRepairReconciler({ store, governance, evidenceRelay:new TechnicalRepairEvidenceRelay({ governance, projectRoot:sourceProjectRoot, allowedWorkspaceRoots:[repairWorktreeParent], verifySourceRoot:runtimeSource.verifyIdentity }) });
-const paperclipHermesTaskReconciler = new PaperclipHermesTaskReconciler({ store, governance });
+let executeVideoAnalysisFallback = null;
+const paperclipHermesTaskReconciler = new PaperclipHermesTaskReconciler({
+  store,
+  governance,
+  fallback:(task, context) => executeVideoAnalysisFallback?.(task, context),
+});
 const operator = new LocalHealthOperator({ governance });
 const publicWebTransport = new PublicWebTransport();
 const publicWebFetch = new PublicWebFetch({ fetchImpl: (...args) => publicWebTransport.fetch(...args) });
@@ -261,6 +266,7 @@ const videoContentAnalyst = new LocalVideoContentAnalyst({
   allowedArtifactRoots:contentArtifactRoots,
   advisor:videoContentAdvisor
 });
+executeVideoAnalysisFallback = async (task) => videoContentAnalyst.execute(task, { allowAdvisor:false });
 const videoScriptPackage = new LocalVideoScriptPackage({
   store,
   artifactsDir:path.join(dataDir, 'content-growth-artifacts'),
