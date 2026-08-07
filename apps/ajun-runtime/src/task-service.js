@@ -19,6 +19,8 @@ import { SkillExecutionRegistry } from './skill-execution-registry.js';
 import { TaskCapabilityCatalog } from './task-capability-catalog.js';
 import { TaskExecutionCoordinator } from './task-execution-coordinator.js';
 import { isVerifiedVideoAnalysisArtifact, validateTaskCompletion } from './task-completion-contract.js';
+import { TaskRecordService } from './task-record-service.js';
+import { isRoutineHealthTask } from './task-record-query.js';
 import { buildTaskFocus } from './task-overview-focus.js';
 import { resolveAnalysisIntent } from './analysis-intent.ts';
 import { privateReadGrantStatus, revokePrivateReadGrant } from './private-read-grant.js';
@@ -127,6 +129,7 @@ export class TaskService {
       markFailureRecoveryPending:(task) => this.markFailureRecoveryPending(task),
       startFailureRecovery:(task) => this.startFailureRecovery(task),
     });
+    this.taskRecords = new TaskRecordService({ store, taskDetailBaseUrl });
   }
 
   setFeishuChannelStatus(status) { this.feishuChannelStatus = status; }
@@ -2599,7 +2602,7 @@ export class TaskService {
     });
   }
 
-  async overview() {
+  async overview({ includeTasks = true } = {}) {
     const [agents, manager, tasks, approvals, governance, skillReadiness, localAi] = await Promise.all([this.registry.list(), this.registry.get('ajun'), this.store.list(), this.store.listApprovals(), this.governance?.health() || { status: 'planned', version: null }, this.skillExecutionRegistry.overview(), this.localAiCapabilityStatus?.() || null]);
     const runtimeHealth = await executorRuntimeHealth(this.executors);
     const feishuChannel = channelCapability(this.feishuChannelStatus);
@@ -2617,10 +2620,12 @@ export class TaskService {
       ...(manager ? [manager] : []),
       ...visibleAgents.filter((agent) => agent.interaction?.directFeishu !== 'disabled')
     ];
-    const presentedTasks = tasks.map((task) => ({
+    const present = (task) => ({
       ...task,
       presentation:presentTask(task, { approvals, detailBaseUrl:this.taskDetailBaseUrl })
-    }));
+    });
+    const presentedTasks = includeTasks ? tasks.map(present) : null;
+    const recentTasks = tasks.filter(isRecentConsoleTask).slice(0, 3).map(present);
     const presentedApprovals = approvals.map((approval) => ({
       ...approval,
       ...(approval.privateReadGrant ? { privateReadGrantStatus:privateReadGrantStatus(approval.privateReadGrant) } : {}),
@@ -2668,8 +2673,25 @@ export class TaskService {
     });
     const billingSince = startOfRecentDays(7);
     const billing = this.billingOverview(tasks, [...agents, ...(manager ? [manager] : [])], billingSince);
-    return { agents:visibleAgents, alwaysOnAgents, onDemandAgents, tasks:presentedTasks, approvals:presentedApprovals, skillReadiness, taskFocus: buildTaskFocus(tasks, approvals), usage:summarizeTaskUsage(tasks, { since:startOfToday() }), billing, capabilities };
+    return {
+      agents:visibleAgents,
+      alwaysOnAgents,
+      onDemandAgents,
+      ...(includeTasks ? { tasks:presentedTasks, approvals:presentedApprovals } : {}),
+      recentTasks,
+      skillReadiness,
+      taskFocus:buildTaskFocus(tasks, approvals),
+      usage:summarizeTaskUsage(tasks, { since:startOfToday() }),
+      billing,
+      capabilities,
+    };
   }
+
+  async consoleOverview() { return this.overview({ includeTasks:false }); }
+
+  async listTaskRecords(query = {}) { return this.taskRecords.list(query); }
+
+  async taskRecordDetail(taskId) { return this.taskRecords.detail(taskId); }
 
   async usageOverview() {
     const tasks = await this.store.list();
@@ -2963,6 +2985,12 @@ function stringList(value, limit) {
   if (!Array.isArray(value)) return undefined;
   const items = value.map((item) => String(item || '').trim()).filter(Boolean).slice(0, limit);
   return items.length ? items : undefined;
+}
+
+function isRecentConsoleTask(task) {
+  if (isRoutineHealthTask(task)) return false;
+  const channels = [task?.source?.channel, task?.source?.originChannel].map((value) => String(value || '').trim());
+  return channels.some((channel) => ['feishu', 'local-ui', 'hermes-native'].includes(channel));
 }
 
 function safeAgentChannelStates(source) {

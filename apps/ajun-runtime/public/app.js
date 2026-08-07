@@ -7,17 +7,14 @@ import { createConsoleNavigation } from './console-navigation.js';
 import { createAccessViews } from './app-access-views.js';
 import { bindConsoleInteractions } from './app-interactions.js';
 import { createBoomMonitorConsole } from './boom-monitor-console.js';
-import { filterTaskRecords, taskStatusGroup } from './task-record-filter.js';
+import { taskStatusGroup } from './task-record-filter.js';
+import { createTaskRecordWorkbench } from './task-record-workbench.js';
 
 const capabilityList = document.querySelector('#capability-list');
 const agentList = document.querySelector('#agent-list');
-const taskList = document.querySelector('#task-list');
 const recentTaskList = document.querySelector('#recent-task-list');
 const overviewStats = document.querySelector('#overview-stats');
 const overviewSummary = document.querySelector('#overview-summary');
-const taskCount = document.querySelector('#task-count');
-const taskSearch = document.querySelector('#task-search');
-const taskLoadMore = document.querySelector('#task-load-more');
 const focusPanel = document.querySelector('#focus-panel');
 const capabilitySummary = document.querySelector('#capability-summary');
 const accessGate = document.querySelector('#access-gate');
@@ -56,7 +53,6 @@ const campaignMessage = document.querySelector('#campaign-message');
 const moduleLinks = [...document.querySelectorAll('[data-module]')];
 const modulePages = [...document.querySelectorAll('[data-module-page]')];
 const ownerOnlyElements = [...document.querySelectorAll('[data-owner-only]')];
-const taskFilterButtons = [...document.querySelectorAll('[data-task-filter]')];
 const accessStepPanels = [...document.querySelectorAll('[data-access-step-panel]')];
 const accessStepIndicators = [...document.querySelectorAll('[data-access-step-indicator]')];
 const accessStepNext2 = document.querySelector('#access-step-next-2');
@@ -131,6 +127,7 @@ const directEmployeeTaskTypes = [
 ];
 const ownerOnlyModules = new Set(['connections', 'campaigns', 'boom-monitor']);
 let boomMonitor;
+let recordWorkbench;
 
 function taskIdFromPath(pathname) {
   return pathname.match(/^\/tasks\/([0-9a-f-]{36})$/i)?.[1] || '';
@@ -144,9 +141,6 @@ const state = {
   requesterName:sessionStorage.getItem('ajun-requester-name') || '',
   localOwner:false,
   loading:false,
-  currentTaskFilter:'',
-  taskSearchQuery:'',
-  visibleTaskCount:24,
   accessLoginOptions:{ providers:[], accounts:[] },
   reauthorizeConnectionId:'',
 };
@@ -156,8 +150,6 @@ const moduleNavigation = createConsoleNavigation({
   getHash:() => location.hash,
   activate:activateModule,
 });
-
-state.currentTaskFilter = state.selectedTaskId ? 'all' : 'attention';
 
 async function api(url, options = {}) {
   const headers = new Headers(options.headers || {});
@@ -182,13 +174,15 @@ async function load({ background = false } = {}) {
   state.loading = true;
   markSyncStarted(syncIndicator, { background });
   try {
-    state.overview = await api('/api/overview');
+    state.overview = await api('/api/console-overview');
     accessGate.hidden = true;
     document.body.classList.remove('access-required');
     await accessViews.renderLocalShare();
     render();
+    recordWorkbench?.updateFilterOptions();
     updateOwnerNavigation();
     moduleNavigation.initialize();
+    if (background) await recordWorkbench?.refresh({ background:true });
     setSyncStatus(`已同步 · ${new Date().toLocaleTimeString()}`, 'synced');
     document.body.classList.remove('is-loading');
   } catch (error) {
@@ -227,6 +221,7 @@ function activateModule(name, { replaceHash = false } = {}) {
   }
   document.title = `${moduleTitle(selected)} · A君运行台`;
   if (selected === 'boom-monitor') boomMonitor?.activate();
+  recordWorkbench?.setActive(selected === 'records').catch((error) => setSyncStatus(error.message, 'error'));
   if (replaceHash && location.hash !== `#${selected}`) history.replaceState(null, '', `#${selected}`);
 }
 
@@ -250,7 +245,7 @@ function render() {
     agentGroupTitle('后台按需能力', '不常驻飞书入口，由 A君或 Paperclip 按任务唤醒'),
     ...supportEmployees.map((agent) => agentCard(agent, true))
   ]);
-  renderTaskLists();
+  renderRecentTasks(state.overview.recentTasks || []);
 }
 
 function renderOverviewStats() {
@@ -278,47 +273,6 @@ function statCard(label, value, note, icon, attention = false) {
   return node;
 }
 
-function renderTaskLists() {
-  const tasks = state.overview.tasks || [];
-  const normalizedQuery = state.taskSearchQuery.toLocaleLowerCase('zh-CN');
-  const filtered = filterTaskRecords(tasks, {
-    selectedTaskId:state.selectedTaskId,
-    statusFilter:state.currentTaskFilter,
-  }).filter((task) => !normalizedQuery || [
-    task.input?.title,
-    task.taskId,
-    agentName(task.assigneeAgentId),
-    taskTypeLabel(task.taskType),
-    statusLabel(task.status)
-  ].some((value) => String(value || '').toLocaleLowerCase('zh-CN').includes(normalizedQuery)));
-  const shown = state.selectedTaskId ? filtered : filtered.slice(0, state.visibleTaskCount);
-  taskCount.textContent = filtered.length > shown.length ? `显示 ${shown.length}/${filtered.length} 条` : `${filtered.length} 条`;
-  const taskNodes = !filtered.length
-    ? [...document.querySelector('#empty').content.cloneNode(true).childNodes]
-    : shown.map(taskCard);
-  replaceChildrenPreservingDisclosureState(taskList, taskNodes);
-  if (filtered.length && state.selectedTaskId && !state.selectedTaskRevealed) {
-    state.selectedTaskRevealed = true;
-    requestAnimationFrame(() => taskList.querySelector(`[data-task-id="${CSS.escape(state.selectedTaskId)}"]`)?.scrollIntoView({ block:'center' }));
-  }
-  taskLoadMore.hidden = Boolean(state.selectedTaskId) || shown.length >= filtered.length;
-  if (!taskLoadMore.hidden) taskLoadMore.textContent = `再显示 ${Math.min(24, filtered.length - shown.length)} 条`;
-  updateTaskFilterCounts(tasks);
-  renderRecentTasks(tasks.filter(isRecentOwnerTask).slice(0, 3));
-}
-
-function updateTaskFilterCounts(tasks) {
-  const labels = { attention:'待复盘', active:'进行中', completed:'已结束', all:'全部' };
-  for (const button of taskFilterButtons) {
-    const filter = button.dataset.taskFilter;
-    const count = filter === 'all' ? tasks.length : tasks.filter((task) => taskStatusGroup(task.status) === filter).length;
-    const active = filter === state.currentTaskFilter;
-    button.textContent = `${labels[filter]} ${count}`;
-    button.classList.toggle('is-active', active);
-    button.setAttribute('aria-pressed', String(active));
-  }
-}
-
 function renderRecentTasks(tasks) {
   recentTaskList.replaceChildren();
   if (!tasks.length) {
@@ -337,110 +291,6 @@ function renderRecentTasks(tasks) {
   }));
 }
 
-function isRoutineNoise(task) {
-  if (task?.taskType !== 'operations.health-review' || task?.source?.channel !== 'paperclip') return false;
-  const title = String(task.input?.title || '').trim();
-  const description = String(task.input?.description || '').trim();
-  return title === 'A君定时本机巡检' || description.startsWith('agent-army:operations-health-v1');
-}
-
-function isRecentOwnerTask(task) {
-  if (isRoutineNoise(task)) return false;
-  const channels = [task?.source?.channel, task?.source?.originChannel].map((value) => String(value || '').trim());
-  return channels.some((channel) => ['feishu', 'local-ui', 'hermes-native'].includes(channel));
-}
-
-function taskCard(task) {
-  const node = document.createElement('article');
-  node.className = 'task';
-  node.dataset.taskId = task.taskId;
-  const approval = state.overview.approvals.find((item) => task.approvalRefs?.includes(item.approvalId));
-  const pendingApproval = approval?.status === 'pending' ? approval : null;
-  const artifacts = task.artifactRefs || [];
-  const report = artifacts.find((item) => item.type === 'health_report')?.data;
-  const intake = artifacts.find((item) => item.type === 'task_intake_record')?.data;
-  const review = artifacts.find((item) => item.type === 'review_report')?.data;
-  const architecture = artifacts.find((item) => item.type === 'architecture_review')?.data;
-  const xiaodResult = artifacts.find((item) => item.type === 'xiaod_media_delivery');
-  const publicReport = artifacts.find((item) => item.type === 'public_web_report')?.data;
-  const recovery = recoveryState(task);
-  const approvalResult = pendingApproval
-    ? `<p class="result degraded">待你确认：${escapeHtml(pendingApproval.reason)}<br><small>本次范围：${escapeHtml(pendingApproval.requestedScope?.title || task.input.title)} · ${escapeHtml(taskTypeLabel(pendingApproval.requestedScope?.taskType || task.taskType))}</small></p>`
-    : '';
-  const result = approvalResult || (
-    recovery ? `<p class="result ${recovery.tone}">${escapeHtml(recovery.detail)}</p>`
-      : task.error?.userMessage ? `<p class="result degraded">需要处理：${escapeHtml(task.error.userMessage)}</p>`
-        : report ? `<p class="result ${escapeHtml(report.overall)}">健康检查：${escapeHtml(report.overall === 'healthy' ? '正常' : '需要关注')} · ${escapeHtml(report.components.map((item) => `${item.name}${item.status === 'healthy' ? '正常' : '异常'}`).join('、'))}</p>`
-          : intake ? `<p class="result healthy">下一步建议：${escapeHtml(intake.nextAction)}</p>`
-            : review ? `<p class="result ${review.scopeStated ? 'healthy' : 'degraded'}">审核结论：${escapeHtml(review.nextAction)}</p>`
-              : architecture ? `<p class="result healthy">能力评估：已启用 ${architecture.currentCapabilities.length} 个岗位 · ${escapeHtml(architecture.nextAction)}</p>`
-                : publicReport ? `<p class="result healthy">网页摘要：${escapeHtml(publicReport.summary)}</p>`
-                  : xiaodResult ? `<p class="result ${xiaodResult.validation?.qualityPassed ? 'healthy' : 'degraded'}">小D交付已生成 · ${xiaodResult.validation?.qualityPassed ? '质量检查通过' : '建议人工校对'}</p>`
-                    : ''
-  );
-  const shownStatus = recovery || { label: statusLabel(task.status), className: task.status };
-  const presentation = task.presentation || {
-    taskRef:`#${String(task.taskId || '').replaceAll('-', '').slice(0, 8).toUpperCase()}`,
-    summary:`${task.input.title}：${statusLabel(task.status)}`,
-    nextAction:task.error?.userMessage || '等待新的进度。',
-    detailPath:`/tasks/${encodeURIComponent(task.taskId)}`,
-    technical:{ taskId:task.taskId, status:task.status, currentStage:task.currentStage, errorCode:task.error?.code }
-  };
-  node.innerHTML = `
-    <details class="task-disclosure" data-disclosure-key="task:${escapeHtml(task.taskId)}"${state.selectedTaskId === task.taskId ? ' open' : ''}>
-      <summary>
-        <div class="task-summary-main">
-          <span class="status ${escapeHtml(shownStatus.className)}">${escapeHtml(shownStatus.label)}</span>
-          <div class="task-summary-copy">
-            <h3>${escapeHtml(task.input.title)}</h3>
-            <p>${escapeHtml(taskTypeLabel(task.taskType))}</p>
-          </div>
-        </div>
-        <span class="task-owner">${escapeHtml(agentName(task.assigneeAgentId))}</span>
-        <svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg>
-      </summary>
-      <div class="task-body">
-        <div class="task-body-copy">
-          <p class="task-human-summary">${escapeHtml(presentation.summary)}</p>
-          <p class="task-next-action"><strong>下一步</strong>${escapeHtml(presentation.nextAction)}</p>
-          ${result}
-          <div class="task-actions">
-            <a class="task-detail-link" href="${escapeHtml(presentation.detailPath)}">查看任务 ${escapeHtml(presentation.taskRef)}</a>
-            <button class="task-copy-id" type="button">复制完整编号</button>
-          </div>
-          <details class="task-technical" data-disclosure-key="task-technical:${escapeHtml(task.taskId)}">
-            <summary>技术详情</summary>
-            <dl>
-              <div><dt>完整编号</dt><dd>${escapeHtml(presentation.technical.taskId || task.taskId)}</dd></div>
-              <div><dt>原始状态</dt><dd>${escapeHtml(presentation.technical.status || task.status)}</dd></div>
-              <div><dt>当前阶段</dt><dd>${escapeHtml(presentation.technical.currentStage || '未记录')}</dd></div>
-              ${presentation.technical.errorCode ? `<div><dt>错误代码</dt><dd>${escapeHtml(presentation.technical.errorCode)}</dd></div>` : ''}
-              <div><dt>路由说明</dt><dd>${escapeHtml(task.routing?.reason || '未记录')}</dd></div>
-            </dl>
-          </details>
-        </div>
-        <div class="task-meta">
-          <strong>${escapeHtml(agentName(task.assigneeAgentId))}</strong>
-          <span>${escapeHtml(taskTypeLabel(task.taskType))}</span>
-          <span>提交人：${escapeHtml(requesterLabel(task))}</span>
-          ${task.parentTaskId ? '<span>来自 A君建议</span>' : ''}
-          ${pendingApproval ? '<span class="approval">请在飞书原会话处理</span>' : ''}
-        </div>
-      </div>
-    </details>`;
-  node.querySelector('.task-copy-id')?.addEventListener('click', async () => {
-    const button = node.querySelector('.task-copy-id');
-    try {
-      await navigator.clipboard.writeText(task.taskId);
-      button.textContent = '已复制';
-    } catch {
-      button.textContent = '复制失败，请展开技术详情';
-    }
-    setTimeout(() => { button.textContent = '复制完整编号'; }, 1600);
-  });
-  return node;
-}
-
 function renderFocus(focus) {
   focusPanel.classList.remove('skeleton-panel');
   if (!focus?.total) {
@@ -448,16 +298,12 @@ function renderFocus(focus) {
     return;
   }
   const current = focus.next;
-  const focusTask = state.overview.tasks.find((task) => task.taskId === current?.taskId);
-  const recovery = focusTask ? recoveryState(focusTask) : null;
   const ownerStatuses = new Set(['waiting_approval', 'needs_input', 'paused', 'failed', 'waiting_test', 'succeeded']);
   const needsOwner = Boolean(current && ownerStatuses.has(current.status));
   const title = current ? escapeHtml(current.title) : '现在没有必须处理的事';
-  const action = recovery
-    ? escapeHtml(recovery.detail)
-    : current
-      ? escapeHtml(current.action)
-      : '历史失败和待验证记录都留在“记录”中，不会自动重试或对外发布。';
+  const action = current
+    ? escapeHtml(current.action)
+    : '历史失败和待验证记录都留在“记录”中，不会自动重试或对外发布。';
   const reason = current?.status === 'succeeded'
     ? '这是建议，不会自动创建后续任务。'
     : needsOwner
@@ -575,24 +421,6 @@ function formatDate(value) {
   return Number.isNaN(date.getTime()) ? '待确认' : date.toLocaleString();
 }
 
-function recoveryState(task) {
-  if (task.status !== 'failed') return null;
-  const children = state.overview?.tasks?.filter((item) => item.parentTaskId === task.taskId) || [];
-  const latest = (items) => [...items].sort((left, right) => String(right.updatedAt || right.createdAt || '').localeCompare(String(left.updatedAt || left.createdAt || '')))[0];
-  const technical = latest(children.filter((item) => item.taskType === 'operations.technical-repair'));
-  if (technical?.status === 'waiting_test') return { label: '待测试', className: 'waiting_test', tone: 'degraded', active: false, detail: '技术专家已保留当前结果，但这轮检查还需要后续验证；其他工作会继续推进。' };
-  if (technical?.status === 'succeeded') return { label: '修复已核对', className: 'succeeded', tone: 'healthy', active: false, detail: '技术专家已经完成本轮修复和检查；A君正在保留最终记录。' };
-  if (technical?.status === 'failed') return { label: '修复未完成', className: 'failed', tone: 'degraded', active: false, detail: '技术专家本轮没有修复成功，当前记录已保留，不会假装完成。' };
-  if (technical && ['queued', 'running'].includes(technical.status)) return { label: '技术专家处理中', className: 'running', tone: 'healthy', active: true, detail: '技术专家正在处理这件事，A君会继续跟进最终结果；你不用重复提交。' };
-  const retry = latest(children.filter((item) => item.taskType === task.taskType && item.recovery?.rootTaskId === task.taskId));
-  if (retry && ['queued', 'running'].includes(retry.status)) return { label: '正在自动重试', className: 'running', tone: 'healthy', active: true, detail: '运维官正在按安全规则重试一次，A君会继续跟进结果。' };
-  const coordination = task.recovery?.coordination?.status;
-  if (coordination === 'pending') return { label: '系统正在接手', className: 'running', tone: 'healthy', active: true, detail: '任务遇到问题，运维官正在判断安全的恢复办法。' };
-  if (coordination === 'retrying') return { label: '正在自动重试', className: 'running', tone: 'healthy', active: true, detail: '运维官正在按安全规则重试一次，A君会继续跟进结果。' };
-  if (coordination === 'escalated') return { label: '技术专家处理中', className: 'running', tone: 'healthy', active: true, detail: '这件事已经交给技术专家，A君会继续跟进最终结果。' };
-  return null;
-}
-
 function agentName(agentId) {
   return state.overview?.agents.find((agent) => agent.agentId === agentId)?.name || '等待分配';
 }
@@ -607,16 +435,6 @@ function providerLabel(provider) {
   })[provider] || provider || '未知平台';
 }
 
-function requesterLabel(task) {
-  const requester = task?.requester || {};
-  if (/^ou_[a-zA-Z0-9]+$/.test(String(requester.ref || ''))) return '飞书老板';
-  if (requester.kind === 'local-owner') return '老板';
-  if (requester.kind === 'feishu-user') return '飞书老板';
-  if (requester.kind === 'local-system') return 'A君';
-  if (requester.kind === 'lan-collaborator') return requester.ref || '局域网同事';
-  return '内部协作';
-}
-
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (char) => ({
     '&': '&amp;',
@@ -629,8 +447,8 @@ function escapeHtml(value) {
 
 
 const elements = {
-  capabilityList, agentList, taskList, recentTaskList, overviewStats, overviewSummary,
-  taskCount, taskSearch, taskLoadMore, focusPanel, capabilitySummary, accessGate,
+  capabilityList, agentList, recentTaskList, overviewStats, overviewSummary,
+  focusPanel, capabilitySummary, accessGate,
   accessForm, accessKey, collaboratorName, accessMessage, shareInfo, rotateShareKey,
   shareMessage, syncStatus, syncIndicator, employeeConnections, employeeConnectionList,
   accessConnections, aiControl, aiServiceList, aiControlMessage, aiRoutingList,
@@ -638,7 +456,7 @@ const elements = {
   accessLoginDisclosure, accessLoginForm, accessLoginProvider, accessLoginAlias,
   accessLoginAccount, accessLoginMessage, openPlatformLogin, refreshLoginAccounts,
   saveAccessConnection, cancelAccessReauthorize, campaignList, campaignMessage,
-  moduleLinks, modulePages, ownerOnlyElements, taskFilterButtons, accessStepPanels,
+  moduleLinks, modulePages, ownerOnlyElements, accessStepPanels,
   accessStepIndicators, accessStepNext2, accessStepNext3, accessStepBack1, accessStepBack2,
 };
 
@@ -653,6 +471,15 @@ const accessViews = createAccessViews({
   agentName,
   replaceChildrenPreservingDisclosureState,
   setTextIfChanged,
+});
+
+recordWorkbench = createTaskRecordWorkbench({
+  api,
+  getAgents:() => state.overview?.agents || [],
+  taskTypeLabel,
+  agentName,
+  escapeHtml,
+  initialTaskId:state.selectedTaskId,
 });
 
 boomMonitor = createBoomMonitorConsole({
@@ -670,5 +497,4 @@ bindConsoleInteractions({
   setSyncStatus,
   moduleNavigation,
   accessViews,
-  renderTaskLists,
 });

@@ -410,33 +410,56 @@
       </section>
 
       <section id="module-records" class="module-page" data-module-page="records" aria-labelledby="records-title">
-        <div class="module-heading">
+        <div class="module-heading record-heading">
           <div>
             <h1 id="records-title">任务记录</h1>
-            <p id="records-subtitle" class="subtle">这里用于查结果和故障；继续、补充或审批仍回到飞书原会话。</p>
+            <p class="subtle">结果、异常和下一步集中在这里。</p>
           </div>
         </div>
 
-        <div id="task-detail-context" class="task-detail-context" hidden>
-          <div>
-            <span>正在查看单条任务</span>
-            <strong id="task-detail-ref"></strong>
+        <div class="record-toolbar">
+          <div class="record-view-tabs" aria-label="按当前需要查看任务">
+            <button type="button" class="record-view-tab is-active" data-record-view="needs_action" aria-pressed="true">需要我处理</button>
+            <button type="button" class="record-view-tab" data-record-view="active" aria-pressed="false">处理中</button>
+            <button type="button" class="record-view-tab" data-record-view="completed" aria-pressed="false">已完成</button>
+            <button type="button" class="record-view-tab" data-record-view="all" aria-pressed="false">全部记录</button>
           </div>
-          <a href="/#records">返回全部任务</a>
+          <div class="record-query-tools">
+            <label class="task-search"><span class="visually-hidden">搜索任务</span><input id="task-search" type="search" autocomplete="off" placeholder="搜索任务名或编号"></label>
+            <button id="record-filter-toggle" class="record-filter-toggle secondary-action" type="button" aria-expanded="false" aria-controls="record-filter-panel">筛选</button>
+          </div>
         </div>
 
-        <div id="record-toolbar" class="record-toolbar">
-          <div class="filter-group" aria-label="筛选任务状态">
-            <button type="button" class="filter-button is-active" data-task-filter="attention" aria-pressed="true">待复盘</button>
-            <button type="button" class="filter-button" data-task-filter="active" aria-pressed="false">进行中</button>
-            <button type="button" class="filter-button" data-task-filter="completed" aria-pressed="false">已结束</button>
-            <button type="button" class="filter-button" data-task-filter="all" aria-pressed="false">全部</button>
+        <div id="record-filter-panel" class="record-filter-panel" hidden>
+          <label>员工<select id="record-agent-filter"><option value="">全部员工</option></select></label>
+          <label>任务类型<select id="record-type-filter"><option value="">全部类型</option></select></label>
+          <label>时间范围<select id="record-time-filter"><option value="30d">近 30 天</option><option value="7d">近 7 天</option><option value="all">全部时间</option></select></label>
+          <label class="record-routine-option"><input id="record-routine-filter" type="checkbox">显示例行巡检明细</label>
+          <div class="record-filter-actions">
+            <button id="record-filter-reset" class="text-action" type="button">恢复默认</button>
+            <button id="record-filter-apply" type="button">应用</button>
           </div>
-          <label class="task-search"><span class="visually-hidden">搜索任务</span><input id="task-search" type="search" placeholder="搜索标题、岗位或短编号"></label>
-          <span id="task-count" class="task-count"></span>
         </div>
-        <div id="task-list" class="task-list"></div>
-        <button id="task-load-more" class="task-load-more secondary-action" type="button" hidden>再显示 24 条</button>
+        <div id="record-active-filters" class="record-active-filters" hidden></div>
+        <button id="record-new-items" class="record-new-items" type="button" hidden>有新的记录，点击更新</button>
+
+        <div id="record-workbench" class="record-workbench">
+          <section class="record-list-panel" aria-label="任务记录列表">
+            <div class="record-list-summary">
+              <strong id="task-count">正在读取…</strong>
+              <span id="record-list-context">按更新时间排列</span>
+            </div>
+            <div id="task-list" class="task-list" role="listbox" aria-label="任务记录"></div>
+            <button id="task-load-more" class="task-load-more secondary-action" type="button" hidden>加载更多</button>
+            <div id="record-routine-summary" class="record-routine-summary" hidden></div>
+          </section>
+          <aside id="record-detail" class="record-detail" aria-live="polite">
+            <div class="record-detail-empty">
+              <svg aria-hidden="true"><use href="#icon-records"></use></svg>
+              <p>选择一条记录查看结果和下一步</p>
+            </div>
+          </aside>
+        </div>
       </section>
     </main>
   </div>
