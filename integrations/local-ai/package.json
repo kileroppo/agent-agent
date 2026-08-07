@@ -4,8 +4,8 @@
   "private": true,
   "description": "Local AI capability gateway for the M1 primary node and an approval-gated 4070 enhancement node.",
   "scripts": {
-    "test": "../../work/local-ai/venvs/retrieval/bin/python -m unittest discover -s test -p 'test_*.py'",
-    "check": "../../work/local-ai/venvs/retrieval/bin/python -m py_compile local_ai_gateway.py desktop_enhancement_node.py desktop_comfyui_adapter.py retrieval_engine.py knowledge_index.py ../../ops/local-ai/desktop/desktop_node_launcher.py ../../ops/local-ai/desktop/download-desktop-models.py ../../ops/local-ai/desktop/smoke-simulated-node.py",
-    "smoke:desktop-simulated": "../../work/local-ai/venvs/retrieval/bin/python ../../ops/local-ai/desktop/smoke-simulated-node.py"
+    "test": "node scripts/run-python.mjs test",
+    "check": "node scripts/run-python.mjs check",
+    "smoke:desktop-simulated": "node scripts/run-python.mjs smoke:desktop-simulated"
   }
 }

@@ -134,7 +134,7 @@ Manifest 是活动岗位的唯一真相。运行时提案不能覆盖正式 Mani
 | `content.video-script-package` | `content-creator` | 一句话主题；可选明确引用的正式拆解、平台、时长和公开来源 | 自动匹配参考案例，只返回一版主脚本；内部生产包固定五个文件，禁止生成成片和发布 |
 | `content.performance-review` | `video-content-analyst` | 原拆解、原草稿、真实结构化指标 | 不把相关性写成确定因果 |
 | `office.knowledge-summary` | `office-assistant` | 当前任务脱敏正文、明确的 `sourceTaskIds`/产物引用或受限会话快照 | 只写统一内容库 `Agent军团/`，不接受任意路径 |
-| `office.presentation-package` | `office-assistant` | 标题、用途、受众、页数或逐页提纲；可选 `designMode`、`sourceTaskIds`、本地媒体、`outputs`、`dataClassification` 和 `externalProcessingApproved` | PPTD 只写当前 execution workspace 且自包含；PPTX 只接受 `public`/`redacted` 且本次明确批准，依赖未就绪时保留 PPTD 并进入 `needs_input`/`waiting_test` |
+| `office.presentation-package` | `office-assistant` | 标题、用途、受众、页数或逐页提纲；可选 `designMode`、`sourceTaskIds`、本地媒体、`outputs` 和 `dataClassification` | PPTD/PPTX 只写当前 execution workspace 且自包含；PPTX 使用锁定本地工具链离线导出，依赖未就绪时保留 PPTD 并进入 `needs_input`/`waiting_test` |
 
 Boom Monitor 的正式链接评分版本为 `v2`，正式 `boomSignal` 必须携带 `scoreVersion: v2`，并由该版本决定等级和派发深度。旧 `v1` 只作为版本化回滚对照，必须标明 `controlsDispatch: false`，不得触发军团派发。缺少发布时间的评分只能描述累计表现，不能表述为实时爆发。
 

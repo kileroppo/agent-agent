@@ -7,6 +7,7 @@ import { TaskCapabilityCatalog } from './task-capability-catalog.js';
 import { TaskExecutionCoordinator } from './task-execution-coordinator.js';
 import { TaskIntake } from './task-intake.js';
 import { TaskNotification } from './task-notification.js';
+import { OfficePresentationExecution } from './office-presentation-execution.js';
 import { taskServiceExecutionMethods } from './task-service-execution.js';
 import { ValidationError } from './task-service-execution-support.js';
 export { ValidationError } from './task-service-execution-support.js';
@@ -32,6 +33,7 @@ export class TaskService {
     skillExecutionRegistry = new SkillExecutionRegistry(),
     capabilityCatalog = new TaskCapabilityCatalog({ executors }),
     localAiCapabilityStatus = null,
+    officePresentationWorkspaceRoot = null,
   }) {
     this.registry = registry;
     this.store = store;
@@ -66,6 +68,14 @@ export class TaskService {
       fallbackExecutorResolver:() => this.fallbackExecutor,
       markFailureRecoveryPending:(task) => this.markFailureRecoveryPending(task),
       startFailureRecovery:(task) => this.startFailureRecovery(task),
+    });
+    this.officePresentationExecution = new OfficePresentationExecution({
+      workspaceRoot:officePresentationWorkspaceRoot,
+      store,
+      governance,
+      capabilityCatalog,
+      executorResolver:(agentId) => capabilityCatalog.executor(agentId, this.executors),
+      roleToolAdapters,
     });
     this.intake = new TaskIntake({
       registry,
@@ -356,6 +366,9 @@ export class TaskService {
   }
 
   async executeTask(task, agent) {
+    if (this.officePresentationExecution.supports(task, agent)) {
+      return this.officePresentationExecution.execute(task, agent);
+    }
     return this.executionCoordinator.execute(task, agent);
   }
 

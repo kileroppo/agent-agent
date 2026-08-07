@@ -299,15 +299,15 @@ test("小办 PPT 契约在 Manifest、Hermes Profile 和受控适配器之间完
     externalSideEffect:"none"
   });
   assert.deepEqual(manifest.toolExecutionPolicy.grants["office.pptx.export"], {
-    adapter:"open-kimi-pptx",
+    adapter:"local-pptx",
     access:"write",
-    externalSideEffect:"external-data-processing"
+    externalSideEffect:"none"
   });
   assert.ok(manifest.qualityGates.some(
     ({ gate }) => gate === "presentation-pptd-self-contained-and-structurally-valid"
   ));
   assert.ok(manifest.qualityGates.some(
-    ({ gate }) => gate === "presentation-pptx-external-processing-approved-and-capability-ready"
+    ({ gate }) => gate === "presentation-pptx-local-export-render-and-structure-ready"
   ));
 });
 

@@ -206,6 +206,7 @@ function taskRecord(input, requested, route, idempotencyKey) {
       approvedForUse:input.approvedForUse === true,
       sourceScriptTaskId:optionalInput(input.sourceScriptTaskId),
       metrics:input.metrics && typeof input.metrics === 'object' && !Array.isArray(input.metrics) ? input.metrics : undefined,
+      ...presentationTaskInput(taskType, input),
       ...(wechatChat ? { wechatChat } : {}),
       goalSpec:input.goalSpec && typeof input.goalSpec === 'object' && !Array.isArray(input.goalSpec) ? input.goalSpec : undefined,
       context:input.context || undefined,
@@ -236,6 +237,37 @@ function taskRecord(input, requested, route, idempotencyKey) {
 function optionalInput(value) {
   const text = String(value || '').trim();
   return text || undefined;
+}
+
+function presentationTaskInput(taskType, input) {
+  if (taskType !== 'office.presentation-package') return {};
+  return {
+    purpose:optionalInput(input.purpose),
+    audience:optionalInput(input.audience),
+    slideCount:Number.isInteger(Number(input.slideCount)) ? Number(input.slideCount) : undefined,
+    designMode:optionalInput(input.designMode),
+    designTokens:plainObject(input.designTokens),
+    designSourceRef:optionalInput(input.designSourceRef),
+    templateArtifactRef:optionalInput(input.templateArtifactRef),
+    styleArtifactRef:optionalInput(input.styleArtifactRef),
+    sourceTaskIds:stringList(input.sourceTaskIds, 50),
+    slides:Array.isArray(input.slides) ? input.slides : undefined,
+    outline:Array.isArray(input.outline) ? input.outline : undefined,
+    media:Array.isArray(input.media) ? input.media : undefined,
+    outputs:stringList(input.outputs, 2),
+    dataClassification:optionalInput(input.dataClassification),
+    externalProcessingApproved:input.externalProcessingApproved === true,
+  };
+}
+
+function plainObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : undefined;
+}
+
+function stringList(value, limit) {
+  if (!Array.isArray(value)) return undefined;
+  const items = value.map((item) => String(item || '').trim()).filter(Boolean).slice(0, limit);
+  return items.length ? items : undefined;
 }
 
 function optionalConnectionId(value) {
