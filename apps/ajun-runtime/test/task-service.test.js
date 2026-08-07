@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import { TaskService, ValidationError } from '../src/task-service.js';
 import {
@@ -15,6 +18,9 @@ function setup({
   m5ProviderVision = null,
   m5WorkProductValidator = async () => true,
   skillExecutionRegistry = undefined,
+  executors = {},
+  roleToolAdapters = {},
+  officePresentationWorkspaceRoot = null,
 } = {}) {
   const records = { tasks: [], approvals: [] };
   const store = { async createTask(task) { const record = { taskId: `task-${records.tasks.length + 1}`, approvalRefs: [], ...task }; records.tasks.push(record); return record; }, async createApproval(approval) { const record = { approvalId: `approval-${records.approvals.length + 1}`, status:'pending', ...approval }; records.approvals.push(record); const task = records.tasks.find((item) => item.taskId === approval.taskId); task.approvalRefs.push(record.approvalId); if (approval.holdTask !== false) { task.status='waiting_approval'; task.currentStage='approval_required'; } return record; }, async updateApproval(approvalId, patch) { const approval = records.approvals.find((item) => item.approvalId === approvalId); Object.assign(approval, patch); return approval; }, async updateTask(taskId, patch) { const task = records.tasks.find((item) => item.taskId === taskId); Object.assign(task, patch); return task; }, async list(){return records.tasks}, async listApprovals(){return records.approvals} };
@@ -22,7 +28,7 @@ function setup({
     async assertCaseIssueLink() {},
     ...governance,
   } : governance;
-  return { records, service: new TaskService({ registry: { async list(){return agents}, async get(agentId){return agents.find((agent)=>agent.agentId === agentId) || null}, async candidates(type){return agents.filter((agent)=>agent.acceptedTaskTypes.includes(type))} }, store, governance:testGovernance, onTaskFailed, agentChannelStates, contentGrowthWaitMs, m5ProviderVision, m5WorkProductValidator, ...(skillExecutionRegistry ? { skillExecutionRegistry } : {}) }) };
+  return { records, service: new TaskService({ registry: { async list(){return agents}, async get(agentId){return agents.find((agent)=>agent.agentId === agentId) || null}, async candidates(type){return agents.filter((agent)=>agent.acceptedTaskTypes.includes(type))} }, store, governance:testGovernance, executors, roleToolAdapters, officePresentationWorkspaceRoot, onTaskFailed, agentChannelStates, contentGrowthWaitMs, m5ProviderVision, m5WorkProductValidator, ...(skillExecutionRegistry ? { skillExecutionRegistry } : {}) }) };
 }
 const coordinator = { agentId:'ajun', name:'A君', status:'active', acceptedTaskTypes:['army.intake', 'army.route-task', 'army.cross-agent-mission'] };
 
@@ -87,6 +93,106 @@ test('GitHub 和研究任务都由小R保留受限执行器需要的公开输入
   const intelTask = await service.create({ title:'研究主题', taskType:'research.intel-report', agentId:'intel-researcher', topic:'Agent 运行时', sourceUrls:['https://example.com/a'] });
   assert.equal(intelTask.input.topic, 'Agent 运行时');
   assert.deepEqual(intelTask.input.sourceUrls, ['https://example.com/a']);
+});
+test('小办 PPT 任务保留受控创作字段并允许敏感材料走本地 PPTX', async () => {
+  const office = { agentId:'office-assistant', name:'小办', status:'draft', acceptedTaskTypes:['office.presentation-package'] };
+  const { service, records } = setup({ agents:[office] });
+  const task = await service.create({
+    title:'公开固定样例',
+    purpose:'验证本地演示文稿交付链',
+    audience:'负责人',
+    taskType:'office.presentation-package',
+    slideCount:2,
+    designMode:'design_system',
+    designTokens:{ colors:{ primary:'#2563EB' }, fonts:{ heading:'Arial Unicode MS' } },
+    outline:[{ title:'结论', bullets:['本地导出'] }, { title:'验收', bullets:['WPS 打开'] }],
+    outputs:['pptd', 'pptx'],
+    dataClassification:'sensitive',
+    externalProcessingApproved:false,
+  });
+  assert.equal(task.input.purpose, '验证本地演示文稿交付链');
+  assert.equal(task.input.audience, '负责人');
+  assert.equal(task.input.slideCount, 2);
+  assert.equal(task.input.designMode, 'design_system');
+  assert.deepEqual(task.input.outline.map((item) => item.title), ['结论', '验收']);
+  assert.deepEqual(task.input.outputs, ['pptd', 'pptx']);
+  assert.equal(task.input.dataClassification, 'sensitive');
+  assert.equal(task.input.externalProcessingApproved, false);
+  assert.equal(records.approvals.length, 0);
+});
+test('结构化 PPT 由 A君受控本地执行并把三类引用写回 Paperclip', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-presentation-task-'));
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const office = { agentId:'office-assistant', name:'小办', status:'active', acceptedTaskTypes:['office.presentation-package'], executionOwner:'paperclip-hermes', interaction:{ runtime:'hermes-profile' } };
+  const workProducts = [];
+  const toolCalls = [];
+  const governance = {
+    async project() {
+      return { status:'synced', paperclipIssueId:'issue-1', paperclipIssueIdentifier:'AGE-1' };
+    },
+    async update(task) {
+      return { ...task.governance, status:'synced' };
+    },
+    async getIssueWorkProducts() {
+      return workProducts;
+    },
+    async createIssueWorkProduct(_issueId, product) {
+      workProducts.push(product);
+      return product;
+    },
+  };
+  const roleToolAdapters = {
+    'ajun-task-store':async () => [],
+    'open-kimi-pptd':async ({ access, workspaceRoot }) => {
+      toolCalls.push({ toolId:access.toolId, workspaceRoot });
+      return { ok:true };
+    },
+    'local-pptx':async ({ access, workspaceRoot }) => {
+      toolCalls.push({ toolId:access.toolId, workspaceRoot });
+      return { ok:true };
+    },
+  };
+  const artifacts = ['office_presentation_source', 'office_presentation_qa', 'office_pptx_document'].map((type, index) => ({
+    artifactId:`artifact-${index + 1}`,
+    taskId:'task-1',
+    type,
+    title:type,
+    location:`workspace://artifact-${index + 1}`,
+    checksum:String(index + 1).repeat(64),
+    validation:{ exists:true, readable:true, nonEmpty:true },
+  }));
+  const executors = {
+    'office-assistant':{
+      async execute(_task, { roleToolContext }) {
+        await roleToolContext.execute({ toolId:'army.task.read', input:{} });
+        await roleToolContext.execute({ toolId:'office.pptd.write', relativePath:'work-products/task-1/presentation/deck.pptd', input:{} });
+        await roleToolContext.execute({ toolId:'office.pptx.export', relativePath:'work-products/task-1/presentation/deck.pptx', input:{} });
+        return { status:'succeeded', currentStage:'office_presentation_ready', artifactRefs:artifacts };
+      },
+    },
+  };
+  const { service } = setup({
+    agents:[office], governance, executors, roleToolAdapters,
+    officePresentationWorkspaceRoot:root,
+  });
+  const task = await service.create({
+    title:'公开固定样例',
+    taskType:'office.presentation-package',
+    slides:[{ title:'结论', bullets:['本地导出'] }],
+    outputs:['pptd', 'pptx'],
+    dataClassification:'public',
+  });
+  assert.equal(task.status, 'succeeded', JSON.stringify(task.error));
+  assert.equal(task.execution.owner, 'ajun-controlled-local');
+  assert.equal(task.execution.toolAccesses.length, 3);
+  assert.equal(toolCalls.length, 2);
+  assert.ok(toolCalls.every((item) => item.workspaceRoot.startsWith(root)));
+  assert.deepEqual(workProducts.map((item) => item.metadata.artifactType).sort(), [
+    'office_pptx_document',
+    'office_presentation_qa',
+    'office_presentation_source',
+  ]);
+  assert.ok(workProducts.every((item) => !('body' in item) && !('content' in item)));
 });
 test('开放复杂任务直接复用岗位专有执行器且不生成DAG或能力授权产物', async () => {
   const intel = {
@@ -2180,28 +2286,27 @@ test('概览如实区分已能收发飞书与尚未接入的外部账号写入�
   assert.match(authorizedRead.detail, /具体任务验证/);
 });
 
-test('概览如实显示小办 PPTD 可用且 PPTX 仍受兼容依赖门禁', async () => {
+test('概览如实显示小办 PPTD 与本地 PPTX 均可用', async () => {
   const skillExecutionRegistry = {
     async overview() {
       return [{
         slug:'open-kimi-ppt',
-        status:'partial',
+        status:'ready',
         modes:{
           compose:{ status:'ready' },
-          visualQa:{ status:'needs_capability' },
-          export:{ status:'needs_capability' },
+          visualQa:{ status:'ready' },
+          export:{ status:'ready' },
         },
-        recovery:'需要隔离 Node 和 Playwright，并完成公开样例 live 验证；不会自动安装。',
+        recovery:null,
       }];
     },
   };
   const { service } = setup({ skillExecutionRegistry });
   const overview = await service.overview();
   const presentation = overview.capabilities.find((item) => item.id === 'office-presentation');
-  assert.equal(presentation.status, 'partial');
+  assert.equal(presentation.status, 'ready');
   assert.match(presentation.detail, /PPTD 可用/);
-  assert.match(presentation.detail, /PPTX 暂不可用（needs_capability）/);
-  assert.match(presentation.detail, /不会自动安装/);
+  assert.match(presentation.detail, /PPTX 可用/);
 });
 
 test('概览会如实显示官方飞书入口已经连接，不把等待状态冒充成已连接', async () => {

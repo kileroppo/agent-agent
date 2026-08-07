@@ -12,24 +12,31 @@ export class PaperclipTaskProjector {
   async project(task, approval) {
     try {
       const company = await this.companyForRuntime();
+      const deterministicPresentation = task.taskType === 'office.presentation-package';
       const managedAgent = task.assigneeAgentId
         ? await this.managedAgent(task.assigneeAgentId, company.id)
         : null;
       const issue = await this.client.createIssue(company.id, {
         title:task.input.title,
         description:describeTask(task),
-        status:approval ? 'blocked' : managedAgent ? 'todo' : 'backlog',
+        status:approval
+          ? 'blocked'
+          : deterministicPresentation
+            ? 'backlog'
+            : managedAgent
+              ? 'todo'
+              : 'backlog',
         priority:priorityFor(task.priority),
         ...(task.taskType === 'operations.technical-repair' && managedAgent?.metadata?.paperclipProjectId
           ? { projectId:managedAgent.metadata.paperclipProjectId }
           : {}),
-        ...(managedAgent ? { assigneeAgentId:managedAgent.id } : {}),
+        ...(managedAgent && !deterministicPresentation ? { assigneeAgentId:managedAgent.id } : {}),
       });
       const result = {
         status:'synced',
         paperclipIssueId:issue.id,
         paperclipIssueIdentifier:issue.identifier,
-        ...(managedAgent ? {
+        ...(managedAgent && !deterministicPresentation ? {
           paperclipAssigneeAgentId:managedAgent.id,
           paperclipAssigneeName:managedAgent.name,
         } : {}),

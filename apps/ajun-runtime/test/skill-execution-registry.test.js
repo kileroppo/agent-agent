@@ -79,7 +79,7 @@ test('OpenKimi PPT 使用嵌套共享入口并分别报告 compose、visualQa �
           visualQa:{ status:'needs_capability' },
           export:{ status:'needs_capability' },
         },
-        recovery:'Playwright 隔离工具链尚未完成 live 验证；不会自动安装。',
+        recovery:'本地 Artifact Tool 尚未就绪；不会自动安装。',
       }),
     },
   });
@@ -88,6 +88,6 @@ test('OpenKimi PPT 使用嵌套共享入口并分别报告 compose、visualQa �
   assert.equal(capability.entryPath, 'open-kimi-ppt-skill/skills/open-kimi-ppt/SKILL.md');
   assert.equal(capability.modes.compose.status, 'ready');
   assert.equal(capability.modes.export.status, 'needs_capability');
-  assert.deepEqual(capability.externalSideEffects, ['external-data-processing']);
+  assert.deepEqual(capability.externalSideEffects, []);
   assert.match(capability.recovery, /不会自动安装/);
 });

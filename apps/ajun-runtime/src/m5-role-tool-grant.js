@@ -71,15 +71,7 @@ export function compileM5RoleToolGrant({
         'role_tool_policy_invalid',
       );
     }
-    if (
-      declaration.access === 'write'
-      && declaration.externalSideEffect !== 'none'
-      && !(
-        toolId === 'office.pptx.export'
-        && declaration.adapter === 'open-kimi-pptx'
-        && declaration.externalSideEffect === 'external-data-processing'
-      )
-    ) {
+    if (declaration.access === 'write' && declaration.externalSideEffect !== 'none') {
       throw new M5RoleToolGrantError(
         `岗位工具 ${toolId} 不能同时获得工作区写入和外部写副作用。`,
         'role_tool_policy_invalid',

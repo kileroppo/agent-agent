@@ -243,9 +243,10 @@ test('小办演示文稿默认先交付 PPTD，并在 PPTX 依赖缺失时保留
     'office.pptd.write',
     'office.pptx.export',
   ]);
+  assert.equal(calls.find((item) => item.toolId === 'office.pptx.export').externalSideEffect, 'none');
 });
 
-test('小办把 Playwright 临时失败写成 waiting_test 并保留脱敏子阶段', async () => {
+test('小办仍能把遗留外部临时失败写成 waiting_test 并保留脱敏子阶段', async () => {
   const roleToolContext = {
     async execute(input) {
       if (input.toolId === 'army.task.read') return [];
@@ -295,7 +296,7 @@ test('小办把 Playwright 临时失败写成 waiting_test 并保留脱敏子阶
   assert.match(qa.data.issues[0].message, /下载页面图片/);
 });
 
-test('小办显式请求 PPTD-only 时完成本地交付且不触发外部处理', async () => {
+test('小办显式请求 PPTD-only 时完成本地交付且不触发 PPTX 导出', async () => {
   const calls = [];
   const worker = new LocalOfficeAssistant({ now, store:{ async list() { return []; } } });
   const result = await worker.execute({
@@ -347,7 +348,7 @@ test('PPTX 导出成功后分别登记可编辑源、视觉 QA 和已验证 PPTX
       };
       if (input.toolId === 'office.pptx.export') return {
         relativePath:input.relativePath,
-        qaOverviewRelativePath:'work-products/presentation-ready/presentation/.qa-images/overview.jpg',
+        qaOverviewRelativePath:'work-products/presentation-ready/presentation/qa/local-pptx/overview.jpg',
         mimeType:'application/vnd.openxmlformats-officedocument.presentationml.presentation',
         checksum:'a'.repeat(64),
         bytes:2048,
@@ -375,7 +376,7 @@ test('PPTX 导出成功后分别登记可编辑源、视觉 QA 和已验证 PPTX
   ]);
   assert.equal(result.artifactRefs[1].validation.visualQaPassed, true);
   assert.deepEqual(result.artifactRefs[1].data.previewRefs, [
-    'workspace://work-products/presentation-ready/presentation/.qa-images/overview.jpg',
+    'workspace://work-products/presentation-ready/presentation/qa/local-pptx/overview.jpg',
   ]);
   assert.equal(result.artifactRefs[2].data.fadeTransitions, 2);
   assert.equal(result.artifactRefs[2].data.fontEmbeddingVerified, true);

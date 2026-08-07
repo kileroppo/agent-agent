@@ -8,18 +8,18 @@
   "slides": [
     {
       "title": "关键结论",
-      "bullets": ["PPTD 工程必须自包含", "PPTX 外部导出必须单独过门禁"],
+      "bullets": ["PPTD 工程必须自包含", "PPTX 由锁定本地工具链离线导出"],
       "image": "agent-army.svg"
     },
     {
       "title": "能力状态",
-      "bullets": ["结构化产物先交付", "外部与人工验收分开记录"],
-      "table": [["阶段", "状态"], ["PPTD", "ready"], ["PPTX", "needs_capability"]]
+      "bullets": ["结构、渲染和人工验收分开记录", "内部材料也不需要送入公共编辑器"],
+      "table": [["阶段", "状态"], ["PPTD", "ready"], ["PPTX", "ready"]]
     },
     {
       "title": "验证覆盖",
-      "bullets": ["offline", "fallback", "live-opt-in"],
-      "chart": {"title": "门禁数量", "categories": ["结构", "安全", "外部"], "values": [6, 5, 2]}
+      "bullets": ["offline", "fallback", "local-export"],
+      "chart": {"title": "门禁数量", "categories": ["结构", "安全", "本地导出"], "values": [6, 5, 5]}
     }
   ]
 }

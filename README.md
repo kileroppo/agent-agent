@@ -27,12 +27,12 @@ agent-agent/
 
 ## 当前状态
 
-### 机器事实（2026-08-06 18:35 CST）
+### 机器事实（2026-08-07 13:50 CST）
 
-- **A君已切入新的不可变 release**：PID `36973`，`releaseHash=0ba4980dad1df73b3bc0b32d8364d0a5600ae516d056602911d5e7d010b96752`，`payloadHash=e7ec9ea89300dddc8a58bed5d5ea9262a084c361e5d65c8132234690de537147`，来源为 clean commit `bf8b6586f3e21b241a270e70142fe44745e194f7`；`/api/overview=200`，11 个 Agent、771 条任务、0 条进行中/后台/待审批任务。
-- **依赖服务健康，生产写入继续关闭**：Paperclip、小D、Publisher 健康接口均为 200；Publisher 为 `disabled`、`realConnectorsConfigured=false`，Campaign 与 M5 Cron 未恢复。本轮未调用 Provider、未执行发布、未发送外部消息。
-- **共享主工作树不是 live 源码**：仍位于 `experiment/governance-hermes-full-migration`、HEAD `6cccefb851072866777fa39c0775d1320e7aa590`，保留既有未提交变更且 staged 为 0。live 使用隔离 clean worktree，因此 `runtime:fingerprint` 报 `different_git_head` 是预期的身份差异，不是运行漂移。
-- **验证通过**：控制台导航/运行时/PPT 聚焦测试 `24/24`，A君全量 `1143/1143`，架构检查、release main/recovery smoke 和不可变 payload 校验通过；真实 Chrome DevTools 协议验证 `#employees` 在后台同步及整页重载后仍保持选中，浏览器错误 0。
+- **A君已切入小办 PPT 能力的不可变 release**：PID `56917`，`releaseHash=811d3c471c4e3ab48d3f67fe8b586a3d6941eba8e7f41c38a29c2133f510593b`，`payloadHash=31e2f5d1eaeb17c37a2fcd36521f3110142b27896fed30cbbc3d9a3092107444`，来源为 clean commit `9204a92a057c7ed52a552c9f93b9a748cfa6e9a6`；`/api/overview=200`，11 个 Agent、776 条任务，演示能力显示“PPTD 可用；PPTX 可用”。
+- **小办 PPT 真实任务已完成**：A君任务 `ca1c34a8-f58f-48ff-a86b-c1a1e06ea5a8` 成功，Paperclip `AGE-1036` 为 done，三类 Work Product 均 healthy；4 页 PPTX 通过 ZIP/XML、fade、回读渲染和无溢出检查。执行全程使用受控本地工具链，不访问 Kimi、不读取 Cookie/Vault、不触发 Hermes 模型 Run。
+- **共享主工作树不是 live 源码**：现有未提交修改继续保留；live 使用隔离 clean worktree `work/runtime-sources/office-presentation-local-pptx-20260807` 和分支 `codex/office-presentation-local-pptx-runtime-20260807`，没有把其他脏改动带入 release。
+- **验证通过**：Manifest `17/17`，最终 Task/Projector 回归 `131/131`，此前 PPT 聚焦回归 `145/145`，架构检查、不可变 release 全量验证、main/recovery smoke 和 payload 校验均通过；固定公开样例另经 WPS 逐页检查中文、表格、图表、图片与可编辑性。
 - **M5 仍为 PARTIAL**。唯一安全下一步：生成并人工审阅一份不含 Secret 的当前 Campaign readiness 输入快照，再执行只读 `production:readiness`；恢复 Campaign、注入 provider、启用 Publisher 或发布均须另行批准。
 
 > 以下按日期保留历史验收，不再作为当前 PID、release 或唯一下一步的依据。

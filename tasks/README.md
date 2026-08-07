@@ -13,7 +13,7 @@
 | [M3 内容分析与知识归档](./prd-m3-content-analysis-and-knowledge-archive.md) | 小D证据链、小拆正式拆解、小创平台草稿和小办统一知识归档 | 已验收：两个新增岗位、真实内容链路、知识归档和负责人内容质量确认均已完成 |
 | [M4 岗位自主执行与能力深化](./prd-m4-autonomous-agent-capabilities.md) | 11 个活动岗位的开放任务、岗位能力和统一模型回退 | 已完成并由 M5 纠偏：开放任务保留，无状态复用岗位执行器；本地 DAG、预算和 CapabilityGrant Store 已退出生产 |
 | [M5 高权限内容自治](./prd-m5-high-autonomy-content-operations.md) | Paperclip 内容流水线、StepFun/媒体工具、确定性发布、指标与受控学习闭环 | 源码16/18/6，r3已冻结且双smoke通过但未激活；live仍15/17/5。本轮无真实Provider调用或发布 |
-| [小办演示文稿能力](./prd-office-presentation-capability.md) | `office.presentation-package`、PPTD 自包含交付和受控 PPTX 外部导出 | 首版代码与离线/降级验证完成；PPTD `ready`，PPTX 因兼容依赖为 `needs_capability`，尚无 Kimi 外部 E2E |
+| [小办演示文稿能力](./prd-office-presentation-capability.md) | `office.presentation-package`、PPTD 自包含交付和受控本地 PPTX 导出 | 已完成：不可变运行时、真实公开任务、PPTD/PPTX/逐页 QA、三类 Work Product 与 WPS 固定样例均通过 |
 
 M2 已用小红书完成“从零登录 → 命名连接 → 真实读取 → 飞书交付 → 撤销 → 获取前拒绝 → 重新授权 → 再次交付”的登录型平台闭环。A君现已提供白名单平台登录、刷新账号、续期、暂时禁用和撤销入口，真实连接完成禁用与同 ID 续期恢复。当前单用户、本机回环阶段由负责人接受来源链接敏感参数的已知风险，该项不阻塞 M2；CookieBridge 仍只是 A君内部连接器，不是万能登录器。
 

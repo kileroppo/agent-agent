@@ -134,7 +134,7 @@ Manifest 是活动岗位的唯一真相。运行时提案不能覆盖正式 Mani
 | `content.video-script-package` | `content-creator` | 一句话主题；可选明确引用的正式拆解、平台、时长和公开来源 | 自动匹配参考案例，只返回一版主脚本；内部生产包固定五个文件，禁止生成成片和发布 |
 | `content.performance-review` | `video-content-analyst` | 原拆解、原草稿、真实结构化指标 | 不把相关性写成确定因果 |
 | `office.knowledge-summary` | `office-assistant` | 当前任务脱敏正文、明确的 `sourceTaskIds`/产物引用或受限会话快照 | 只写统一内容库 `Agent军团/`，不接受任意路径 |
-| `office.presentation-package` | `office-assistant` | 标题、用途、受众、页数或逐页提纲；可选 `designMode`、`sourceTaskIds`、本地媒体、`outputs`、`dataClassification` 和 `externalProcessingApproved` | PPTD 只写当前 execution workspace 且自包含；PPTX 只接受 `public`/`redacted` 且本次明确批准，依赖未就绪时保留 PPTD 并进入 `needs_input`/`waiting_test` |
+| `office.presentation-package` | `office-assistant` | 标题、用途、受众、页数或逐页提纲；可选 `designMode`、`sourceTaskIds`、本地媒体、`outputs` 和 `dataClassification` | PPTD/PPTX 只写当前 A君受控任务工作区且自包含；结构化任务由窄适配器确定性执行，PPTX 使用锁定本地工具链离线导出；依赖未就绪时保留 PPTD 并进入 `needs_input`/`waiting_test` |
 
 Boom Monitor 的正式链接评分版本为 `v2`，正式 `boomSignal` 必须携带 `scoreVersion: v2`，并由该版本决定等级和派发深度。旧 `v1` 只作为版本化回滚对照，必须标明 `controlsDispatch: false`，不得触发军团派发。缺少发布时间的评分只能描述累计表现，不能表述为实时爆发。
 
@@ -312,7 +312,7 @@ Worker API 必须使用独立 Bearer Token；云端地址必须为 HTTPS（回�
 | `video_script_package` | 小创 | 包含可读脚本、镜头、SRT、来源和 manifest；记录参考匹配、模板生命周期、校验值与 `externalSideEffects=0` |
 | `content_performance_report` | 小拆 | 引用原拆解和草稿，包含真实指标并避免因果过度推断 |
 | `knowledge_summary_note` | 小办 | 路径受限、回读成功、幂等、校验值和来源任务明确 |
-| `office_presentation_source` | 小办 | 自包含目录、`.pptd`、逐页 `.page`、本地 `media/`、页数和源码版本/哈希完整；不得引用远程素材或越出 execution workspace |
+| `office_presentation_source` | 小办 | 自包含目录、`.pptd`、逐页 `.page`、本地 `media/`、页数和源码版本/哈希完整；不得引用远程素材或越出 A君受控任务工作区 |
 | `office_presentation_qa` | 小办 | 结构检查、页面数、预览引用、问题清单和结构/视觉质检状态分开记录；未运行外部图片质检时不得标记通过 |
 | `office_pptx_document` | 小办 | ZIP/CRC、页数、每页唯一根级 fade 转场、合法 XML 顺序、字体部件结果和人工 Office/WPS 复核要求明确 |
 | `intel_research_report` | 小R | 搜索型任务携带 `agent.army/research-method/v1`：六路可审计查询计划、路线覆盖、来源评估和主张级证据账本；搜索排名、头衔和“内幕/真相”措辞都不是可信度信号；不同域名不得冒充独立来源，未找到利益冲突或反证只能记录 `not_established` / `not_identified_at_claim_level` |
