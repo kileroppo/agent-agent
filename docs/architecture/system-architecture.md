@@ -4,8 +4,8 @@
 | --- | --- |
 | 状态 | 生效；M5 并行 v2 已 live apply，发布活动仍关闭 |
 | 负责人 | 技术负责人 / Codex 工作台 |
-| 版本 | v1.12 |
-| 最后更新 | 2026-08-02 |
+| 版本 | v1.13 |
+| 最后更新 | 2026-08-07 |
 | 更新触发 | 核心组件、数据真相、部署边界或平台选型变化 |
 
 ## 1. 架构目标
@@ -55,7 +55,10 @@ M5 Campaign 领域、HTTP 路由、Paperclip Client 和持久化接口形成可�
 Paperclip 与 Hermes 继续保持既有独立部署边界。`packages/m5-contracts` 保存跨 A君、Pipeline、
 内容插件和 Publisher 的稳定 M5 不变量，`packages/paperclip-client` 保存唯一底层 HTTP transport、
 Run 身份头、错误规范化和 M5 语义端点。A君 `server.js` 只启动 `startRuntime()`；构造、监听与
-后台服务生命周期可以分别测试。共享包不得反向依赖 `apps/` 或 `integrations/`。
+后台服务生命周期可以分别测试。爆款雷达也作为 A君内部业务模块运行：复用 `node:sqlite`、同源
+HTTP 控制台和进程内小D/军团任务回调，不再保留 Docker/Caddy/跨进程 Token 作为正式链路；
+它只保存指标、冻结评分基线和派发引用，不成为组织级任务真相。共享包不得反向依赖 `apps/`
+或 `integrations/`。
 
 任务状态由 `task-lifecycle` 统一验证，JSON 与 SQLite Store 使用同一迁移规则。SQLite 使用 Node
 内置 `node:sqlite`、WAL 和版本化 schema；A君 live 已显式设置

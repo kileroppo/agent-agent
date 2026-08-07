@@ -235,8 +235,8 @@ agent-agent/
 | [`apps/xiaod-media-transcriber`](../apps/xiaod-media-transcriber/) | 小D媒体获取、字幕/ASR、整理、任务阶段与飞书交付 | `127.0.0.1:4318` |
 | [`apps/mac-worker`](../apps/mac-worker/) | 私人云办公室到 Mac 工作间的出站短租约桥 | 无固定 UI |
 | [`apps/animated-chart`](../apps/animated-chart/) | M5 固定 Remotion Composition 与受控渲染 | Remotion Studio |
-| [`apps/project-progress-board`](../apps/project-progress-board/) | 本机 SQLite 多项目进度看板，按需工具，不是常驻军团控制面 | `127.0.0.1:4320` |
-| [`apps/boom-monitor`](../apps/boom-monitor/) | 独立监测应用；通过集成边界接入，不成为任务真相 | 见其 README |
+| [`apps/ajun-runtime/src/boom-monitor`](../apps/ajun-runtime/src/boom-monitor/) | A君内建爆款雷达；导入、v2 评分、历史基线、队列和进程内军团派发 | `127.0.0.1:4321/#boom-monitor` |
+| [`apps/boom-monitor`](../apps/boom-monitor/) | 已退役的 Python/Docker 回滚资产，不作为正式入口 | 见其 README |
 
 ### 主要集成与共享包
 
@@ -386,7 +386,6 @@ Qwen3.6 35B 的 `18080` 是默认禁用的显式质量候选，不进入任何 A
 | --- | --- | --- |
 | `3100` | Paperclip | 本机控制面，不直接暴露公网 |
 | `4318` | 小D媒体应用 | loopback，本地调试与执行 |
-| `4320` | 项目进度看板 | 按需启动，不属于五个常驻服务 |
 | `4321` | A君运行台/API | loopback 或受控局域网读取；日常派活仍在飞书 |
 | `4390` | M5 Publisher Gateway | loopback，默认 `disabled` |
 | `18080` | Qwen3.6 35B 候选 | loopback，默认不进入路由 |
@@ -445,7 +444,7 @@ Qwen3.6 35B 的 `18080` 是默认禁用的显式质量候选，不进入任何 A
 先确认是否已有 live 服务，避免用开发进程抢占正式端口：
 
 ```bash
-lsof -nP -iTCP -sTCP:LISTEN | rg ':(3100|4318|4320|4321|4390|18080|18081|18082|18083)'
+lsof -nP -iTCP -sTCP:LISTEN | rg ':(3100|4318|4321|4390|18080|18081|18082|18083)'
 ```
 
 运行 A君开发版：

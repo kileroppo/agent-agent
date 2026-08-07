@@ -104,7 +104,9 @@ import { isLoopbackHost, loadLanShareKey } from './lan-access.js';
 import { taskDetailBaseUrl } from './task-presentation.js';
 import { createFeishuApprovalResolver } from './runtime-http-feishu.js';
 import { createAjunHttpHandler } from './runtime-http-handler.js';
+import { createBoomMonitorService } from './boom-monitor/index.js';
 import { resolveRuntimeSourceRoot } from './runtime-source-root.js';
+import { dispatchBoomSignal } from '@agent-army/boom-monitor';
 import { defaultDefinition, HttpPaperclipAdapter } from '@agent-army/m5-content-pipeline';
 
 export async function createRuntime({
@@ -318,6 +320,14 @@ const approvalExpiryReconciler = new ApprovalExpiryReconciler({ tasks, onResult:
 proposals.taskService = tasks;
 const missions = new CrossAgentMissionService({ tasks, store, governance });
 const missionReconciler = new CrossAgentMissionReconciler({ store, missions });
+const boomMonitorEnabled = String(environment.AJUN_BOOM_MONITOR_ENABLED || 'true').trim().toLowerCase() !== 'false';
+const boomMonitor = boomMonitorEnabled ? createBoomMonitorService({
+  dbPath:path.join(dataDir, 'boom-monitor.sqlite'),
+  dataDir:path.join(dataDir, 'boom-monitor'),
+  collectMetrics:(input) => xiaod.collectMetrics(input),
+  dispatchBoomSignal:(input) => dispatchBoomSignal(input, { missions }),
+  analysisDailyLimit:Number(environment.BOOM_ANALYSIS_DAILY_LIMIT || 5),
+}) : null;
 const hermesFeishuSender = new HermesFeishuSender();
 const hermesNativeCompletionWatcher = new OfficialFeishuCompletionWatcher({
   taskStatus:(taskId, chatId) => tasks.notificationStatus(taskId, chatId),
@@ -440,7 +450,7 @@ const handler = createAjunHttpHandler({
     paperclipLearningLifecycle,
     canonicalPaperclipHeartbeat,
   },
-  work:{ tasks, store, proposals, missions, macWorker, xiaod },
+  work:{ tasks, store, proposals, missions, macWorker, xiaod, boomMonitor, boomMonitorEnabled },
   connections:{
     employeeFeishuConnections,
     employeeModelSetup,
@@ -457,6 +467,7 @@ const handler = createAjunHttpHandler({
   m5:{ campaigns },
 });
 const server = http.createServer(handler);
+server.once('close', () => boomMonitor?.close());
 
 async function campaigns() {
   if (contentCampaignService) return contentCampaignService;
@@ -527,6 +538,7 @@ return Object.freeze({
     paperclipRepairReconciler,
     paperclipHermesTaskReconciler,
     missionReconciler,
+    boomMonitor:boomMonitorEnabled ? boomMonitor : null,
     hermesNativeCompletionWatcher,
     technicalRepairWatchdog,
     officialFeishuChannelRunner,
