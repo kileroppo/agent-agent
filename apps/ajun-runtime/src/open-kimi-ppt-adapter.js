@@ -23,6 +23,7 @@ const EXPORT_DIAGNOSTIC_STAGES = new Set([
   'visualQa.images', 'export.pptx', 'browser.launch', 'browser.navigation', 'deck.ready',
   'browser.viewport', 'editor.snapshot', 'editor.control', 'editor.export_dialog',
   'editor.image_format', 'visualQa.download', 'visualQa.download_wait',
+  'visualQa.extract', 'visualQa.overview',
   'pptx.download', 'pptx.download_wait',
 ]);
 const EXPORT_DIAGNOSTIC_STATUSES = new Set(['started', 'completed', 'failed']);
@@ -236,7 +237,7 @@ export class OpenKimiPptAdapter {
           exportOutput = await this.run(
             executionEnvironment.pythonBinary,
             [PLAYWRIGHT_EXPORT, 'pptx', path.join(this.skillRoot, 'skills/open-kimi-ppt/scripts'), manifest.target, '--output', output.target],
-            commandOptions(240_000, executionEnvironment.env),
+            commandOptions(270_000, executionEnvironment.env),
           );
           break;
         } catch (error) {
@@ -1049,7 +1050,7 @@ function classifyCommandFailure(error, stdout, stderr) {
       code:'EBROWSERCONTEXT', category:'temporary_dependency', retryable:true,
     });
   }
-  if (/playwright_(?:timeout|browser_unavailable|editor_frame_unavailable|download_(?:event_timeout|trigger_failed|save_failed|empty))/i.test(detail)) {
+  if (/playwright_(?:timeout|browser_unavailable|editor_frame_unavailable|download_(?:event_timeout|file_timeout|trigger_failed|save_failed|empty))/i.test(detail)) {
     return Object.assign(new Error('Playwright 浏览器会话暂时不可用。'), {
       code:'EPLAYWRIGHT', category:'temporary_dependency', retryable:true,
     });

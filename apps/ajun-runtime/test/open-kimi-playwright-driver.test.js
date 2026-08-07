@@ -163,6 +163,17 @@ test('隔离 Playwright 捕获 localhost 图片 ZIP，并同时落入显式输�
     'raise SystemExit(0 if all(is_image_zip(Path(item)) for item in sys.argv[1:]) else 1)',
   ].join(';'), ...candidates], { cwd:OPEN_KIMI_SCRIPTS, timeout:15_000 });
 
+  const beforeTrigger = new Set(await fs.readdir(path.join(workRoot, 'downloads')));
+  const triggered = await rpc('fixtureTriggerDownload');
+  assert.equal(triggered.triggered, true);
+  const triggeredFile = await waitForNewFile(path.join(workRoot, 'downloads'), beforeTrigger);
+  await execute(pythonBinary, ['-c', [
+    'import sys',
+    'from pathlib import Path',
+    'from export_images import is_image_zip',
+    'raise SystemExit(0 if is_image_zip(Path(sys.argv[1])) else 1)',
+  ].join(';'), triggeredFile], { cwd:OPEN_KIMI_SCRIPTS, timeout:15_000 });
+
   const closed = await rpc('close');
   assert.equal(closed.closed, true);
 });
@@ -186,4 +197,19 @@ function createRpc(child) {
 async function allExist(paths) {
   const states = await Promise.all(paths.map((target) => fs.access(target).then(() => true).catch(() => false)));
   return states.every(Boolean);
+}
+
+async function waitForNewFile(directory, previousNames, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const names = await fs.readdir(directory);
+    const added = names.find((name) => !previousNames.has(name));
+    if (added) {
+      const target = path.join(directory, added);
+      const stat = await fs.stat(target).catch(() => null);
+      if (stat?.isFile() && stat.size > 0) return target;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error('普通点击后受控下载目录没有出现新文件');
 }

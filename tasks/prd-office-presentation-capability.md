@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 首版 PPTD 完成；2026-08-07 最新 Kimi live 仍未形成可验收图片归档，非零 checkpoint 与独立图片归档兼容已在本地修复，PPTX 保持 needs_capability |
+| 状态 | 首版 PPTD 与真实 Kimi 图片视觉 QA 完成；PPTX 在 120 秒和 180 秒下载事件等待下均失败，已按上游 1.1.3 的成熟方式改为受控下载目录轮询但尚未外部复验，PPTX 保持 needs_capability |
 | 负责人 | 小办 / A君 |
 | 最后更新 | 2026-08-07 |
 | 关联设计 | [受控 OpenKimi PPT 适配设计](../docs/design/office-presentation-capability.md) |
