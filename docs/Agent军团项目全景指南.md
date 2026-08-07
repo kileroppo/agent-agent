@@ -235,7 +235,8 @@ agent-agent/
 | [`apps/xiaod-media-transcriber`](../apps/xiaod-media-transcriber/) | 小D媒体获取、字幕/ASR、整理、任务阶段与飞书交付 | `127.0.0.1:4318` |
 | [`apps/mac-worker`](../apps/mac-worker/) | 私人云办公室到 Mac 工作间的出站短租约桥 | 无固定 UI |
 | [`apps/animated-chart`](../apps/animated-chart/) | M5 固定 Remotion Composition 与受控渲染 | Remotion Studio |
-| [`apps/boom-monitor`](../apps/boom-monitor/) | 独立监测应用；通过集成边界接入，不成为任务真相 | 见其 README |
+| [`apps/ajun-runtime/src/boom-monitor`](../apps/ajun-runtime/src/boom-monitor/) | A君内建爆款雷达；导入、v2 评分、历史基线、队列和进程内军团派发 | `127.0.0.1:4321/#boom-monitor` |
+| [`apps/boom-monitor`](../apps/boom-monitor/) | 已退役的 Python/Docker 回滚资产，不作为正式入口 | 见其 README |
 
 ### 主要集成与共享包
 

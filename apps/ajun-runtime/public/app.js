@@ -6,6 +6,7 @@ import {
 import { createConsoleNavigation } from './console-navigation.js';
 import { createAccessViews } from './app-access-views.js';
 import { bindConsoleInteractions } from './app-interactions.js';
+import { createBoomMonitorConsole } from './boom-monitor-console.js';
 
 const capabilityList = document.querySelector('#capability-list');
 const agentList = document.querySelector('#agent-list');
@@ -138,6 +139,8 @@ const attentionTaskStatuses = new Set([
   'blocked',
   'error'
 ]);
+const ownerOnlyModules = new Set(['connections', 'campaigns', 'boom-monitor']);
+let boomMonitor;
 
 function taskIdFromPath(pathname) {
   return pathname.match(/^\/tasks\/([0-9a-f-]{36})$/i)?.[1] || '';
@@ -172,7 +175,7 @@ async function api(url, options = {}) {
   const response = await fetch(url, { ...options, headers });
   const payload = await response.json();
   if (!response.ok) {
-    const error = new Error(payload.error || '请求失败。');
+    const error = new Error(payload.detail || payload.error || '请求失败。');
     error.status = response.status;
     throw error;
   }
@@ -215,12 +218,12 @@ async function load({ background = false } = {}) {
 
 function updateOwnerNavigation() {
   for (const element of ownerOnlyElements) element.hidden = !state.localOwner;
-  if (!state.localOwner && ['#connections', '#campaigns'].includes(location.hash)) activateModule('overview', { replaceHash: true });
+  if (!state.localOwner && ownerOnlyModules.has(location.hash.slice(1))) activateModule('overview', { replaceHash: true });
 }
 
 function activateModule(name, { replaceHash = false } = {}) {
   const requested = modulePages.some((page) => page.dataset.modulePage === name) ? name : 'overview';
-  const selected = ['connections', 'campaigns'].includes(requested) && !state.localOwner ? 'overview' : requested;
+  const selected = ownerOnlyModules.has(requested) && !state.localOwner ? 'overview' : requested;
   for (const link of moduleLinks) {
     const active = link.dataset.module === selected;
     link.classList.toggle('is-active', active);
@@ -233,11 +236,12 @@ function activateModule(name, { replaceHash = false } = {}) {
     page.setAttribute('aria-hidden', String(!active));
   }
   document.title = `${moduleTitle(selected)} · A君运行台`;
+  if (selected === 'boom-monitor') boomMonitor?.activate();
   if (replaceHash && location.hash !== `#${selected}`) history.replaceState(null, '', `#${selected}`);
 }
 
 function moduleTitle(name) {
-  return ({ overview: '总览', employees: '员工', connections: '账号与接入', campaigns:'发布活动', records: '任务记录' })[name] || '总览';
+  return ({ overview: '总览', employees: '员工', connections: '账号与接入', campaigns:'发布活动', 'boom-monitor':'爆款雷达', records: '任务记录' })[name] || '总览';
 }
 
 
@@ -666,6 +670,13 @@ const accessViews = createAccessViews({
   agentName,
   replaceChildrenPreservingDisclosureState,
   setTextIfChanged,
+});
+
+boomMonitor = createBoomMonitorConsole({
+  root:document.querySelector('#module-boom-monitor'),
+  api,
+  escapeHtml,
+  formatDate,
 });
 
 bindConsoleInteractions({

@@ -2,7 +2,38 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import test from 'node:test';
 
-import { createAjunHttpHandler } from '../src/runtime-http-handler.js';
+import {
+  createAjunHttpHandler,
+  isBoomLegacyIntegrationAuthorized,
+  isBoomLegacyIntegrationPath,
+} from '../src/runtime-http-handler.js';
+
+test('旧版爆款雷达容器只能用回滚凭据访问兼容入口', () => {
+  const expectedToken = 'rollback-token-with-enough-entropy';
+  assert.equal(isBoomLegacyIntegrationAuthorized({
+    remoteAddress:'172.17.0.2',
+    authorization:`Bearer ${expectedToken}`,
+    expectedToken,
+  }), true);
+  assert.equal(isBoomLegacyIntegrationAuthorized({
+    remoteAddress:'172.17.0.2',
+    authorization:'Bearer wrong-token',
+    expectedToken,
+  }), false);
+  assert.equal(isBoomLegacyIntegrationAuthorized({
+    remoteAddress:'172.17.0.2',
+    authorization:`Bearer ${expectedToken}`,
+    expectedToken:'',
+  }), false);
+  assert.equal(isBoomLegacyIntegrationAuthorized({
+    remoteAddress:'127.0.0.1',
+    authorization:'',
+    expectedToken:'',
+  }), true);
+  assert.equal(isBoomLegacyIntegrationPath('/api/integrations/boom-monitor/health'), true);
+  assert.equal(isBoomLegacyIntegrationPath('/api/integrations/boom-monitor/metrics'), true);
+  assert.equal(isBoomLegacyIntegrationPath('/api/overview'), false);
+});
 
 test('M5 每日入口通过真实 HTTP 委托确定性处理器', async (context) => {
   const calls = [];
@@ -91,6 +122,7 @@ test('M5 复盘入口只返回确定性处理器产生的待审核建议', async
 test('爆款雷达指标入口只代理本机小D的脱敏指标包', async (context) => {
   const expected = { schemaVersion:'agent.army/boom-metrics-bundle/v1', status:'collected' };
   const fixture = await startHandler(context, {}, {
+    boomMonitorEnabled:false,
     xiaod:{
       async collectMetrics(input) {
         assert.deepEqual(input, { url:'https://www.douyin.com/video/target', historyLimit:20 });
@@ -107,6 +139,19 @@ test('爆款雷达指标入口只代理本机小D的脱敏指标包', async (con
 
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { metrics:expected });
+});
+
+test('旧版爆款雷达回滚桥提供无副作用健康探针', async (context) => {
+  const fixture = await startHandler(context, {}, { boomMonitorEnabled:false });
+  const response = await fetch(`${fixture.baseUrl}/api/integrations/boom-monitor/health`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { status:'ready', mode:'legacy_rollback_bridge' });
+});
+
+test('native writer 启用时旧版爆款雷达回滚桥失败关闭', async (context) => {
+  const fixture = await startHandler(context, {}, { boomMonitorEnabled:true });
+  const response = await fetch(`${fixture.baseUrl}/api/integrations/boom-monitor/health`);
+  assert.equal(response.status, 503);
 });
 
 async function startHandler(context, paperclipOverrides = {}, workOverrides = {}) {

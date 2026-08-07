@@ -1,43 +1,30 @@
 # Boom Monitor（爆款雷达）
 
-本应用只负责导入指标、冻结每条作品的历史基线并计算 R/M/Tier。命中配置等级后，它通过 A君正式入口建立“小D取证 → 小拆分析”军团任务；不再维护独立 L1/L2 模型管线。
+爆款雷达已并入 A君模块化单体。日常只访问 [A君运行台](http://127.0.0.1:4321/#boom-monitor)；评分、SQLite、扫描和派发均在 A君进程内完成，不再依赖 Docker、Caddy、独立端口或跨进程 Token。
 
-## 启动
+`apps/boom-monitor/` 保留旧 Python/Docker 实现作为迁移依据和受控回滚资产，不是当前正式启动入口。原生实现位于 `apps/ajun-runtime/src/boom-monitor/`，数据位于 A君 `AGENT_ARMY_DATA_DIR/boom-monitor.sqlite`。
 
-```bash
-cd apps/boom-monitor
-docker compose up -d --build
-```
+## 当前入口
 
-访问: http://localhost:8080
-
-- API: `GET /api/health`
-- 仪表: `GET /api/dashboard`
-- 作品列表: `GET /api/works`
-- 版本化评分记录: `GET /api/versioned-scores?version=v2&limit=100`
-- 触发扫描入队: `POST /api/scan/run`
-- 触发L1: `POST /api/analysis/run`
+- API: `GET /api/boom-monitor/health`
+- 仪表: `GET /api/boom-monitor/dashboard`
+- 作品列表: `GET /api/boom-monitor/works`
+- 版本化评分记录: `GET /api/boom-monitor/versioned-scores?version=v2&limit=100`
+- 触发扫描入队: `POST /api/boom-monitor/scan/run`
+- 显式派发: `POST /api/boom-monitor/analysis/run`
 - 自动入队配置: 
-  - `BOOM_ANALYSIS_AUTO_ENABLED`（默认 `false`，也可在页面用一个开关控制）
-  - `BOOM_ANALYSIS_AUTO_GRADES`（默认 `T2,T3`）
-  - `BOOM_ANALYSIS_DAILY_LIMIT`（默认每天最多派发 `5` 条；达到上限后留在队列次日再处理，设为 `0` 可停止派发）
-  - `BOOM_ARMY_BASE_URL`（Compose 默认 `http://host.docker.internal:4321`）
+  - 默认关闭，可在页面显式开启；
+  - 默认等级 `T2,T3`；
+  - 默认每天最多派发 `5` 条，设为 `0` 可停止派发；
+  - 设置保存在同一 SQLite，重启后保留。
 
 自动拆解关闭时仍会正常导入和评分，但不会创建军团任务。设置保存在 SQLite，重启后不会丢失。
 
-Compose 默认通过 `http://localhost:8081` 访问；可用 `BOOM_HTTP_PORT` 修改宿主机端口。
-
-如果 Boom Monitor 运行在 Docker、A君运行在宿主机，需要给两边设置相同的随机 Token：
-
-```bash
-export BOOM_MONITOR_BEARER_TOKEN='请使用本机随机长字符串'
-```
-
-A君读取 `BOOM_MONITOR_BEARER_TOKEN`，Compose 将它注入 Boom Monitor。不要把真实 Token 写入仓库。
+旧 Docker 的迁移、退役和恢复只能使用 `ops/boom-monitor/docker-lifecycle.sh`，不得直接删除 volume。恢复前必须先用 `AJUN_BOOM_MONITOR_ENABLED=false` 停住 A君原生 writer，避免两个数据库同时写入。
 
 ## 当前数据入口
 
-首页可直接粘贴小红书或抖音作品链接。Boom Monitor 通过已有的 A君 Bearer 通道请求本机小D，小D再调用 Agent军团自己的 MediaCrawlerPro 适配器，依次读取作品详情、作者粉丝数和作者主页最多 20 条历史作品；Cookie 只在本机 CookieBridge 与 MediaCrawlerPro 之间流转，不进入 Boom Monitor。
+首页可直接粘贴小红书或抖音作品链接。A君在进程内请求本机小D，小D再调用 Agent军团自己的 MediaCrawlerPro 适配器，依次读取作品详情、作者粉丝数和作者主页最多 20 条历史作品；Cookie 只在本机 CookieBridge 与 MediaCrawlerPro 之间流转，不进入爆款雷达数据库。
 
 这条链路不修改 MediaCrawlerPro 官方仓库，也不把观测时间伪装成发布时间。官方接口未返回发布时间时，评分器直接使用作者主页返回顺序中的历史指标计算中位数，并以 `url-history-v1` 冻结首次有效基线。
 

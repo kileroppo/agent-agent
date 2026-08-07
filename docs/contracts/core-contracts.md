@@ -136,7 +136,7 @@ Manifest 是活动岗位的唯一真相。运行时提案不能覆盖正式 Mani
 | `office.knowledge-summary` | `office-assistant` | 当前任务脱敏正文、明确的 `sourceTaskIds`/产物引用或受限会话快照 | 只写统一内容库 `Agent军团/`，不接受任意路径 |
 | `office.presentation-package` | `office-assistant` | 标题、用途、受众、页数或逐页提纲；可选 `designMode`、`sourceTaskIds`、本地媒体、`outputs` 和 `dataClassification` | PPTD/PPTX 只写当前 execution workspace 且自包含；PPTX 使用锁定本地工具链离线导出，依赖未就绪时保留 PPTD 并进入 `needs_input`/`waiting_test` |
 
-Boom Monitor 的正式链接评分版本为 `v2`，正式 `boomSignal` 必须携带 `scoreVersion: v2`，并由该版本决定等级和派发深度。旧 `v1` 只作为版本化回滚对照，必须标明 `controlsDispatch: false`，不得触发军团派发。缺少发布时间的评分只能描述累计表现，不能表述为实时爆发。
+A君内建爆款雷达的正式链接评分版本为 `v2`，正式 `boomSignal` 必须携带 `scoreVersion: v2`，并由该版本决定等级和派发深度。旧 `v1` 只作为版本化回滚对照，必须标明 `controlsDispatch: false`，不得触发军团派发。缺少发布时间的评分只能描述累计表现，不能表述为实时爆发。自动派发默认关闭；单作品手动派发必须绑定精确 `work_id`，不能顺带处理其他队列项，`N0` 不得派发。
 
 小拆 `fast` 最长 5 分钟、最多 2 次尝试；`full` 最长 12 分钟，最多一次安全重试。超限后停止扩大模型调用并交付已有可验证部分。小创一次最多生成三个平台版本。
 

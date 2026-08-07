@@ -15,6 +15,7 @@ docs/reviews/
 
 当前记录：
 
+- [Boom Monitor 收敛到 A君验收](./boom-monitor-ajun-convergence/acceptance.md)：原生服务、同源页面、历史数据迁移、在线备份、唯一 writer、Docker 退役和受控回滚门禁均已完成真实本机验收。
 - [M0 文档与设计基线验收](./m0-documentation-baseline/acceptance.md)
 - [M1 小D飞书受控验证](./m1-xiaod-feishu-closure/acceptance.md)
 - [M2 授权连接与内容获取验收](./m2-authorization-connectors/acceptance.md)：已完成；公开视频、小红书从零登录只读、撤销恢复，以及 A君续期/禁用入口均已验证。敏感来源参数本机保存风险已由负责人在当前单用户边界内接受。

@@ -60,6 +60,7 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
       XIAOD_ARTIFACT_ROOT:path.join(temporaryRoot, 'xiaod'),
       AJUN_HERMES_NATIVE_FEISHU:'false',
       AJUN_HERMES_NATIVE_EMPLOYEE_IDS:'',
+      AJUN_BOOM_MONITOR_ENABLED:'true',
     },
     logger:{ log:(message) => logs.push(message), warn:() => undefined },
   });
@@ -94,6 +95,19 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
   assert.match(interactions.headers.get('content-type'), /^text\/javascript/);
   assert.match(await interactions.text(), /export function bindConsoleInteractions/);
 
+  const boomConsole = await fetch(`${baseUrl}/boom-monitor-console.js`);
+  assert.equal(boomConsole.status, 200);
+  assert.match(boomConsole.headers.get('content-type'), /^text\/javascript/);
+  assert.match(await boomConsole.text(), /createBoomMonitorConsole/);
+
+  const boomHealth = await fetch(`${baseUrl}/api/boom-monitor/health`);
+  assert.equal(boomHealth.status, 200);
+  assert.deepEqual((await boomHealth.json()).runtime, 'ajun-native');
+
+  const boomSettings = await fetch(`${baseUrl}/api/boom-monitor/settings`);
+  assert.equal(boomSettings.status, 200);
+  assert.equal((await boomSettings.json()).analysis_auto.enabled, false);
+
   const missing = await fetch(`${baseUrl}/api/not-found`);
   assert.equal(missing.status, 404);
   assert.deepEqual(await missing.json(), { error:'未找到该入口。' });
@@ -117,6 +131,7 @@ test('后台服务沿用原启动顺序，cloud 模式不启动本机小D', () =
       paperclipRepairReconciler:service('repair'),
       paperclipHermesTaskReconciler:service('hermes-task'),
       missionReconciler:service('mission'),
+      boomMonitor:service('boom-monitor'),
       hermesNativeCompletionWatcher:service('completion-watch'),
       technicalRepairWatchdog:service('repair-watchdog'),
       officialFeishuChannelRunner:service('legacy-feishu'),
@@ -130,10 +145,45 @@ test('后台服务沿用原启动顺序，cloud 模式不启动本机小D', () =
     'repair',
     'hermes-task',
     'mission',
+    'boom-monitor',
     'completion-watch',
     'repair-watchdog',
     'legacy-feishu',
     'employee-feishu',
   ]);
   assert.deepEqual(calls.at(-1)[1], { skipAgentIds:['ajun'] });
+});
+
+test('禁用原生爆款雷达时不打开或创建目标 SQLite', async (t) => {
+  const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-boom-fence-'));
+  t.after(() => fs.rm(temporaryRoot, { recursive:true, force:true }));
+  const dataDir = path.join(temporaryRoot, 'data');
+  const runtime = await startRuntime({
+    createRuntime,
+    startBackgroundServices:false,
+    environment:{
+      ...process.env,
+      PORT:'0',
+      AJUN_HOST:'127.0.0.1',
+      AGENT_ARMY_SOURCE_PROJECT_ROOT:'',
+      AGENT_ARMY_TASK_STORE:'json',
+      AGENT_ARMY_DATA_DIR:dataDir,
+      AGENT_ARMY_PRIVATE_DIR:path.join(temporaryRoot, 'private'),
+      PAPERCLIP_REPAIR_WORKTREE_PARENT:path.join(temporaryRoot, 'worktrees'),
+      AGENT_ARMY_CONTENT_WORKSPACE_DIR:path.join(temporaryRoot, 'content'),
+      AGENT_ARMY_HERMES_PROFILE_ROOT:path.join(temporaryRoot, 'hermes'),
+      AUTO_WORK_ROOT:path.join(temporaryRoot, 'auto-work'),
+      XIAOD_ARTIFACT_ROOT:path.join(temporaryRoot, 'xiaod'),
+      AJUN_HERMES_NATIVE_FEISHU:'false',
+      AJUN_HERMES_NATIVE_EMPLOYEE_IDS:'',
+      AJUN_BOOM_MONITOR_ENABLED:'false',
+    },
+    logger:{ log:() => undefined, warn:() => undefined },
+  });
+  t.after(() => new Promise((resolve) => runtime.server.close(resolve)));
+  assert.equal(runtime.services.boomMonitor, null);
+  const health = await fetch(`http://127.0.0.1:${runtime.port}/api/boom-monitor/health`);
+  assert.equal(health.status, 503);
+  await assert.rejects(fs.access(path.join(dataDir, 'boom-monitor.sqlite')), { code:'ENOENT' });
+  await assert.rejects(fs.access(path.join(dataDir, 'boom-monitor', 'backups')), { code:'ENOENT' });
 });

@@ -25,6 +25,7 @@ export function startRuntimeBackgroundServices(runtime) {
   services.paperclipRepairReconciler?.start();
   services.paperclipHermesTaskReconciler?.start();
   services.missionReconciler?.start();
+  services.boomMonitor?.start();
   startWithoutBlocking(services.hermesNativeCompletionWatcher, null, runtime.logger);
   services.technicalRepairWatchdog?.start();
   if (runtime.feishuChannelStartup?.startLegacyAJun) {
