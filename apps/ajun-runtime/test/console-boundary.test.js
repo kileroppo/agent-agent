@@ -4,6 +4,15 @@ import { readFile } from 'node:fs/promises';
 
 const root = new URL('../public/', import.meta.url);
 
+async function readConsoleScripts() {
+  return (await Promise.all([
+    'app.js',
+    'app-access-views.js',
+    'app-interactions.js',
+    'task-record-workbench.js',
+  ].map((name) => readFile(new URL(name, root), 'utf8')))).join('\n');
+}
+
 test('A君控制台不提供日常派活或审批按钮', async () => {
   const [html, script] = await Promise.all([
     readFile(new URL('index.html', root), 'utf8'),
@@ -39,7 +48,7 @@ test('A君控制台只在本机提供员工接线，不把应用凭据写进页�
   assert.doesNotMatch(html, /cli_[a-zA-Z0-9]{8,}/);
   assert.doesNotMatch(script, /sessionStorage\.setItem\([^)]*Secret/i);
   assert.doesNotMatch(script, /提交人：\$\{escapeHtml\(task\.requester\?\.ref/);
-  assert.match(script, /requester\.kind === 'feishu-user'.*'飞书老板'/);
+  assert.match(script, /kind === 'feishu-user'.*'飞书老板'/);
   assert.match(script, /\/\^ou_\[a-zA-Z0-9\]\+\$\//);
 });
 
@@ -75,16 +84,14 @@ test('A君控制台先说明当前状态和唯一下一步，并把历史噪音�
   ]);
   assert.match(html, /军团状态/);
   assert.match(html, /下一步/);
-  assert.match(html, /待复盘/);
+  assert.match(html, /需要我处理/);
   assert.match(html, /capabilities-disclosure/);
   assert.match(script, /需要你/);
   assert.match(script, /无需处理/);
   assert.match(script, /对外发布关闭/);
   assert.match(script, /今日费用未上报/);
   assert.match(script, /正式岗位，不含系统控制器/);
-  assert.match(script, /isRoutineNoise/);
-  assert.match(script, /isRecentOwnerTask/);
-  assert.match(script, /'feishu', 'local-ui', 'hermes-native'/);
+  assert.match(script, /例行巡检已自动归档/);
   assert.match(script, /focus\.inProgress/);
   assert.match(script, /默认账号已明确/);
   assert.match(script, /真实读取成功/);
@@ -93,41 +100,32 @@ test('A君控制台先说明当前状态和唯一下一步，并把历史噪音�
   assert.match(script, /历史连接/);
 });
 
-test('任务记录默认只呈现需要复盘的前 24 条，并支持搜索和继续加载', async () => {
+test('任务记录使用服务端用户意图查询、游标分页、搜索和低频筛选', async () => {
   const [html, script] = await Promise.all([
     readFile(new URL('index.html', root), 'utf8'),
     readFile(new URL('app.js', root), 'utf8')
   ]);
   assert.match(html, /id="task-search"/);
   assert.match(html, /id="task-load-more"/);
-  assert.match(script, /currentTaskFilter = state\.selectedTaskId \? 'all' : 'attention'/);
-  assert.match(script, /state\.selectedTaskId = selection\.selectedTaskId/);
-  assert.match(script, /visibleTaskCount = 24/);
-  assert.match(script, /\.slice\(0, visibleTaskCount\)/);
-  assert.match(script, /visibleTaskCount \+= 24/);
+  assert.match(html, /data-record-view="needs_action"/);
+  assert.match(html, /id="record-filter-panel"/);
+  assert.match(html, /id="record-detail"/);
+  assert.match(script, /api\('\/api\/console-overview'\)/);
+  assert.match(script, /\/api\/task-records\?/);
+  assert.match(script, /limit:'24'/);
+  assert.match(script, /params\.set\('cursor', cursor\)/);
+  assert.match(script, /setTimeout\(async \(\) =>/);
+  assert.doesNotMatch(script, /state\.overview\.tasks/);
 });
 
-test('任务详情深链接提供明确的详情状态和返回入口，不再看起来点击无反应', async () => {
-  const [html, script] = await Promise.all([
-    readFile(new URL('index.html', root), 'utf8'),
-    readFile(new URL('app.js', root), 'utf8')
-  ]);
+test('记录页后台自动同步不重排当前列表，并单独刷新选中详情', async () => {
+  const script = await readConsoleScripts();
 
-  assert.match(html, /id="task-detail-context"/);
-  assert.match(html, /href="\/#records">返回全部任务/);
-  assert.match(script, /recordsTitle\.textContent = '任务详情'/);
-  assert.match(script, /recordToolbar\.hidden = true/);
-  assert.match(script, /selectedTaskDisclosure\.setAttribute\('open', ''\)/);
-  assert.match(script, /details\[data-task-id=/);
-  assert.match(script, /'任务详情' : moduleTitle\(selected\)/);
-  assert.match(script, /task-detail-current/);
-  assert.match(script, /没有找到这条任务/);
-});
-
-test('记录页后台自动同步保留任务卡片和技术详情的展开状态', async () => {
-  const script = await readFile(new URL('app.js', root), 'utf8');
-
-  assert.match(script, /replaceChildrenPreservingDisclosureState\(taskList/);
-  assert.match(script, /data-disclosure-key="task:\$\{escapeHtml\(task\.taskId\)\}"/);
-  assert.match(script, /data-disclosure-key="task-technical:\$\{escapeHtml\(task\.taskId\)\}"/);
+  assert.match(script, /if \(page\.revision !== state\.revision\)/);
+  assert.match(script, /有新的记录，点击更新/);
+  assert.match(script, /if \(state\.selectedTaskId\) await loadSelectedDetail/);
+  assert.match(script, /if \(quiet && state\.selectedDetailLoaded && payload\.task\.updatedAt === state\.selectedTask\?\.updatedAt/);
+  assert.match(script, /if \(!quiet\) renderList\(\)/);
+  assert.match(script, /history\.replaceState\(null, '', `\/tasks\//);
+  assert.match(script, /record-detail-back/);
 });

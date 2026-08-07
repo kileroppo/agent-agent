@@ -15,6 +15,7 @@ test('持久化层拒绝绕过生命周期状态机的非法跳转', async () =>
       (error) => error.code === 'task_status_transition_invalid',
     );
     assert.equal((await store.list())[0].status, 'queued');
+    assert.equal((await store.getTask(task.taskId)).recordView, 'active');
   } finally {
     await fs.rm(directory, { recursive:true, force:true });
   }

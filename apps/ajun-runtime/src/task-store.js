@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { queryTaskRecordsInMemory, taskRecordViewForTask } from './task-record-query.js';
 import {
   applyApprovalPatch,
   applyTaskStatusPatch,
@@ -18,6 +19,13 @@ export class TaskStore {
   constructor(filePath) { this.filePath = filePath; this.pendingMutation = Promise.resolve(); }
 
   async list() { await this.pendingMutation; return (await this.read()).tasks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); }
+  async getTask(taskId) {
+    await this.pendingMutation;
+    const tasks = (await this.read()).tasks;
+    const task = tasks.find((item) => item.taskId === taskId);
+    return task ? { ...task, recordView:taskRecordViewForTask(task, tasks) } : null;
+  }
+  async queryTasks(query = {}) { await this.pendingMutation; return queryTaskRecordsInMemory((await this.read()).tasks, query); }
   async listApprovals() { await this.pendingMutation; return (await this.read()).approvals.sort((a, b) => b.createdAt.localeCompare(a.createdAt)); }
   async listProposals() { await this.pendingMutation; return (await this.read()).proposals.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); }
   async listTestInstances() { await this.pendingMutation; return (await this.read()).testInstances.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); }
