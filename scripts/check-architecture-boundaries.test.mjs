@@ -68,6 +68,18 @@ test('架构检查拒绝核心责任模块重新长回巨型文件', async (cont
   assert.match(result.stderr, /责任模块超过 650 行/);
 });
 
+test('架构检查拒绝未登记的生产源码超过一千行', async (context) => {
+  const root = await fixture(context);
+  await write(
+    root,
+    'apps/runtime/src/unlisted-large-module.js',
+    `${Array.from({ length:1001 }, (_, index) => `// ${index}`).join('\n')}\n`,
+  );
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /生产源码超过 1000 行/);
+});
+
 async function fixture(context, { appDependencies = {} } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-army-architecture-check-'));
   context.after(() => fs.rm(root, { recursive:true, force:true }));

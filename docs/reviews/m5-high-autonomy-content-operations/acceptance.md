@@ -368,3 +368,16 @@ cua-driver doctor
 | 外部状态 | live / Provider / 平台 | UNCHANGED | 未生成 release、未重启 live、未恢复 Campaign/Cron/Publisher，外部调用为 0 |
 
 第一轮抽象没有显著减少职责族总行数；本轮继续按完整业务行为收敛后，三个原千行执行文件均已低于 700 行，测试仍穿过原公开 Seam。新增 Module 的 Interface、行数门禁和 deletion test 共同防止重新退化为巨型文件或无价值 helper；这仍只证明候选源码，不代表 live 或外部闭环完成。
+
+## 2026-08-07 全仓生产千行文件收敛
+
+| 原责任文件 | 原行数 → 当前入口 | 深层 Module | 验证 |
+| --- | --- | --- | --- |
+| Local Content / Open Task / Paperclip Bridge | 1655→7 / 1425→19 / 1474→51 | 分析、视觉、创作、Artifact；Policy、State、Execution；Organization、Issue、Case、Publisher | A君 1133/1133 |
+| Feishu Commander / Console app | 1205→45 / 1341→680 | Routing、Followup、Context、Replies；Access Views、Interactions | A君 1133/1133；HTTP 新模块 200 |
+| Stage Recovery / Local Chaos | 1059→23 / 1202→340 | State、PlanRevision、Execution；Journey、Adapters、Fixtures、Ledger | Kernel 13/13；Local Chaos 4/4 |
+| CUA Runner / Media Tools | 1198→458 / 1011→35 | CLI Bridge、Semantic Snapshot；Runtime、Provider Lineage、Artifact Package | Publisher 221/221；插件 100/100 |
+| M5 v2 Reconcile / Controller JWT Cutover | 1265→10 / 1156→31 | Inspection、Execution、Recovery、Journal；Contract、Snapshot Store、Operations | Pipeline 67/67；安全故障 15/15 |
+| 全仓门禁 | 最大生产源码 992 行 | 未登记生产源码统一上限 1000；本轮 Module 独立上限 100–750 | 架构 fixture 覆盖通用与责任上限 |
+
+这些数字排除不可变 release、测试、data 与运维 scripts。兼容入口只有在现有调用方仍依赖稳定路径时保留，并采用直接组合、冻结 Interface 或一次性 destructuring export；没有新增第二套任务状态、Paperclip transport 或 Publisher 安全门闩。候选仍未部署，外部状态保持不变。

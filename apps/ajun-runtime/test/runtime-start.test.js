@@ -84,6 +84,16 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
   assert.match(consoleNavigation.headers.get('content-type'), /^text\/javascript/);
   assert.match(await consoleNavigation.text(), /createConsoleNavigation/);
 
+  const accessViews = await fetch(`${baseUrl}/app-access-views.js`);
+  assert.equal(accessViews.status, 200);
+  assert.match(accessViews.headers.get('content-type'), /^text\/javascript/);
+  assert.match(await accessViews.text(), /export function createAccessViews/);
+
+  const interactions = await fetch(`${baseUrl}/app-interactions.js`);
+  assert.equal(interactions.status, 200);
+  assert.match(interactions.headers.get('content-type'), /^text\/javascript/);
+  assert.match(await interactions.text(), /export function bindConsoleInteractions/);
+
   const missing = await fetch(`${baseUrl}/api/not-found`);
   assert.equal(missing.status, 404);
   assert.deepEqual(await missing.json(), { error:'未找到该入口。' });

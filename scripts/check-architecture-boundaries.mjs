@@ -23,7 +23,35 @@ const responsibilityLineLimits = new Map([
   ['apps/ajun-runtime/src/task-service-execution.js', 700],
   ['apps/ajun-runtime/src/task-paperclip-assignment.js', 350],
   ['apps/ajun-runtime/src/task-role-execution.js', 750],
-  ['apps/ajun-runtime/src/task-service-execution-support.js', 1100],
+  ['apps/ajun-runtime/src/task-service-execution-support.js', 950],
+  ['apps/ajun-runtime/src/feishu-commander.js', 100],
+  ['apps/ajun-runtime/src/feishu-commander-routing.js', 400],
+  ['apps/ajun-runtime/src/feishu-commander-followup.js', 300],
+  ['apps/ajun-runtime/src/feishu-commander-context.js', 400],
+  ['apps/ajun-runtime/src/feishu-commander-replies.js', 600],
+  ['apps/ajun-runtime/src/local-content-growth.js', 100],
+  ['apps/ajun-runtime/src/local-content-analysis.js', 750],
+  ['apps/ajun-runtime/src/local-content-artifacts.js', 450],
+  ['apps/ajun-runtime/src/local-content-creation.js', 450],
+  ['apps/ajun-runtime/src/local-content-m5-vision.js', 400],
+  ['apps/ajun-runtime/src/open-task-routing.js', 100],
+  ['apps/ajun-runtime/src/open-task-routing-policy.js', 350],
+  ['apps/ajun-runtime/src/open-task-research-state.js', 650],
+  ['apps/ajun-runtime/src/open-task-research-execution.js', 700],
+  ['apps/ajun-runtime/src/paperclip-bridge.js', 100],
+  ['apps/ajun-runtime/src/paperclip-organization.js', 250],
+  ['apps/ajun-runtime/src/paperclip-issue-operations.js', 250],
+  ['apps/ajun-runtime/src/paperclip-m5-case-operations.js', 350],
+  ['apps/ajun-runtime/src/paperclip-publisher.js', 650],
+  ['apps/ajun-runtime/src/paperclip-publisher-contract.js', 400],
+  ['apps/ajun-runtime/src/m5-local-chaos-acceptance.js', 450],
+  ['apps/ajun-runtime/src/m5-local-chaos-journey.js', 400],
+  ['apps/ajun-runtime/src/m5-local-chaos-adapters.js', 350],
+  ['apps/ajun-runtime/src/m5-local-chaos-fixtures.js', 250],
+  ['apps/ajun-runtime/src/m5-local-chaos-ledger.js', 250],
+  ['apps/ajun-runtime/public/app.js', 750],
+  ['apps/ajun-runtime/public/app-access-views.js', 500],
+  ['apps/ajun-runtime/public/app-interactions.js', 450],
   ['integrations/m5-kernel/src/content-campaign-kernel.js', 400],
   ['integrations/m5-kernel/src/campaign-lifecycle.js', 550],
   ['integrations/m5-kernel/src/content-campaign-execution.js', 100],
@@ -33,9 +61,29 @@ const responsibilityLineLimits = new Map([
   ['integrations/m5-kernel/src/content-campaign-execution-support.js', 250],
   ['integrations/m5-kernel/src/campaign-work-product-lineage.js', 525],
   ['integrations/m5-kernel/src/campaign-delivery-validation.js', 750],
+  ['integrations/m5-kernel/src/stage-recovery-controller.js', 100],
+  ['integrations/m5-kernel/src/stage-recovery-state.js', 650],
+  ['integrations/m5-kernel/src/stage-recovery-plan-revision.js', 350],
+  ['integrations/m5-kernel/src/stage-recovery-execution.js', 400],
+  ['integrations/paperclip/m5-content-pipeline/src/reconcile-existing-v2.js', 100],
+  ['integrations/paperclip/m5-content-pipeline/src/reconcile-v2-inspection.js', 600],
+  ['integrations/paperclip/m5-content-pipeline/src/reconcile-v2-execution.js', 250],
+  ['integrations/paperclip/m5-content-pipeline/src/reconcile-v2-recovery.js', 450],
+  ['integrations/paperclip/m5-content-pipeline/src/reconcile-v2-journal.js', 350],
+  ['integrations/paperclip/m5-content-pipeline/src/controller-run-jwt-cutover.js', 100],
+  ['integrations/paperclip/m5-content-pipeline/src/controller-run-jwt-contract.js', 400],
+  ['integrations/paperclip/m5-content-pipeline/src/controller-run-jwt-snapshot-store.js', 750],
+  ['integrations/paperclip/m5-content-pipeline/src/controller-run-jwt-operations.js', 350],
+  ['integrations/paperclip/plugins/content-autonomy/src/media-tools.js', 100],
+  ['integrations/paperclip/plugins/content-autonomy/src/media-runtime.js', 350],
+  ['integrations/paperclip/plugins/content-autonomy/src/media-provider-lineage.js', 500],
+  ['integrations/paperclip/plugins/content-autonomy/src/media-artifact-package.js', 450],
   ['integrations/publishing/m5-publisher-gateway/src/gateway.js', 300],
   ['integrations/publishing/m5-publisher-gateway/src/publish-execution.js', 600],
   ['integrations/publishing/m5-publisher-gateway/src/metric-collection-execution.js', 700],
+  ['integrations/publishing/m5-publisher-gateway/src/cua-driver-runner.js', 550],
+  ['integrations/publishing/m5-publisher-gateway/src/cua-driver-cli-bridge.js', 500],
+  ['integrations/publishing/m5-publisher-gateway/src/cua-semantic-snapshot.js', 450],
 ]);
 const violations = [];
 const manifestCache = new Map();
@@ -65,6 +113,9 @@ for (const sourceRoot of sourceRoots) {
     }
     const ownerManifest = await owningPackageManifest(file);
     const productionSource = !relative.split(path.sep).some((segment) => ['test', 'tests', 'scripts'].includes(segment));
+    if (productionSource && source.split(/\r?\n/).length > 1000) {
+      violations.push(`${relative}: 生产源码超过 1000 行，请按完整领域行为提取深层 Module`);
+    }
     if (relative.startsWith('packages/')) {
       for (const match of source.matchAll(/(?:from\s+|import\s*\(\s*|import\s+)["']([^"']+)["']/g)) {
         if (!match[1].startsWith('.')) continue;

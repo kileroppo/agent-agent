@@ -102,5 +102,10 @@ A君、Pipeline、内容插件与 Publisher 重复；启动文件同时承担装
 - Publisher Gateway 继续作为唯一安全入口，但发布尝试与指标采集分别由 `publish(request)` 和
   `collect(input)` 两个小 Interface 隐藏预算、租约、幂等、连接器批准、CAS、暂停与 hard-stop 协议；
   Gateway 只保留组合、Paperclip 暂停和全局安全门闩。
+- 全仓后续收敛按相同原则处理本机内容生产、开放研究、Paperclip 业务投影、飞书指挥、Stage
+  Recovery、CUA Publisher Session、控制台 ES Module、媒体产物、M5 v2 对账、Controller JWT Cutover
+  与本地 chaos 验收；原公开路径仅保留必要 composition/export Seam，不新增平行状态或 transport。
+- 生产源码新增通用 1000 行硬门禁；本轮新增 Module 另设 100–750 行责任上限。历史 release、测试、
+  data 与运维 scripts 不进入该门禁，避免为了统计数字拆散不可变归档或一次性命令。
 - 本节仍只证明候选源码和自动化；没有生成不可变 release、切换 live、恢复 Campaign/Cron/Publisher
   或触发任何外部效果。

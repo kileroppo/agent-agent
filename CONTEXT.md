@@ -16,6 +16,18 @@ _Avoid_: 聊天状态、完成文案
 已核验的 Paperclip 指派被绑定到岗位、Case、可信工具范围和唯一任务信封后，由对应岗位执行器产生并回读已验证 Work Product 的过程。
 _Avoid_: 员工 handler、岗位分支集合
 
+**飞书指挥（Feishu Command）**：
+把飞书对话解释为确定性路由、任务跟进或受控审批动作，并把任务真相格式化回原会话的入口编排。
+_Avoid_: 聊天 handler、关键词分支
+
+**开放研究执行（Open Research Execution）**：
+开放任务从 Manifest 能力判断、公开来源检查点、预算推进到 ResearchReport 写回的可恢复执行过程。
+_Avoid_: 搜索 helper、研究路由函数
+
+**本机内容生产（Local Content Production）**：
+本机视频拆解、受控视觉分析、平台草稿生成及证据文件落盘共同组成的内容生产过程。
+_Avoid_: 内容增长大类、媒体 helper
+
 **活动生命周期（Campaign Lifecycle）**：
 CampaignGrant 从草案、批准、运行、暂停/恢复到停止，并与每日 Case、Cron 和 readiness 保持一致的状态序列。
 _Avoid_: Campaign helper、状态更新器
@@ -23,6 +35,10 @@ _Avoid_: Campaign helper、状态更新器
 **活动阶段执行（Campaign Stage Execution）**：
 活动 Case 按固定 Route 进入 Hermes 或确定性工具，并在执行前规划输入、在重放时核验同一 Case 与 Work Product 证据的过程。
 _Avoid_: 阶段 method、工具参数 helper
+
+**阶段恢复（Stage Recovery）**：
+从失败 Case、Issue、Run、Event 与 Work Product 派生唯一恢复真相，生成受版本保护的 PlanRevision，并由系统 Controller 幂等消费的过程。
+_Avoid_: 重试 helper、恢复状态拼装
 
 **活动交付证据（Campaign Delivery Evidence）**：
 把脚本、配音、渲染、静态卡、机器审核、PublishReceipt 与 Provider 回执绑定为同一来源链的一组可重放不变量。
@@ -36,14 +52,30 @@ _Avoid_: 发布请求、connector 调用
 PublishReceipt 到期后，以固定 2h/24h/72h collectionKey 领取短租约、调用只读指标连接器并以 CAS 写回快照的安全协议。
 _Avoid_: 指标查询、采集 helper
 
+**CUA 发布会话（CUA Publish Session）**：
+在隔离 Profile 与不可变媒体租约上按固定动作序列驱动浏览器，并从语义快照核验账号、origin、停止原因和强发布回执的有界会话。
+_Avoid_: 浏览器脚本、CLI wrapper
+
+**M5 v2 对账（M5 v2 Reconciliation）**：
+在任何写入前完成只读检查和私有 rollback snapshot，再执行受控变更、写后回读，并在失败时逆序恢复的迁移协议。
+_Avoid_: 迁移脚本、修数据命令
+
+**Controller JWT 切换（Controller JWT Cutover）**：
+以固定 Controller 白名单、私有不可替换快照和 pinned cleaner 完成 Run-JWT 配置切换或逆序回滚的安全协议。
+_Avoid_: 配置更新脚本、JWT helper
+
 ## Relationships
 
 - 一次 **任务受理** 产生一个可执行或等待输入/审批的任务信封。
 - **岗位执行** 只能消费已核验的 Paperclip 指派，并将结果写回原任务信封与原 Case。
+- **飞书指挥** 只解释和展示任务真相；需要外部写入或权限变化时仍必须经过审批。
+- **开放研究执行** 和 **本机内容生产** 都通过岗位执行进入，不能创建第二套任务状态。
 - 一个任务信封在任意时刻最多派生一条当前 **任务通知**。
 - **活动生命周期** 使用 Paperclip Case 和 CampaignGrant 作为唯一活动真相，不创建第二套任务状态。
 - **活动阶段执行** 只能推进活动生命周期允许的 Case；它产生的 **活动交付证据** 必须能从同一 Case、Project、Provider 回执和工作区文件重放。
 - **发布尝试** 只能消费已完成重放校验的 **活动交付证据**；成功后产生的 PublishReceipt 是后续 **指标采集** 的唯一输入。
+- **CUA 发布会话** 只是发布尝试的一个 Adapter，不能自行推进活动生命周期。
+- **M5 v2 对账** 与 **Controller JWT 切换** 都必须先持久化可验证恢复锚，再允许第一笔变更。
 
 ## Example dialogue
 

@@ -81,6 +81,22 @@ test('A君深层模块变更只选择该模块及 TaskService 接缝测试', () 
       'test/task-service.test.js',
     ],
   );
+  assert.deepEqual(
+    selectAffectedTestFiles([
+      'apps/ajun-runtime/src/open-task-research-execution.js',
+      'apps/ajun-runtime/src/local-content-analysis.js',
+      'apps/ajun-runtime/public/app-interactions.js',
+    ], ajun),
+    [
+      'test/console-boundary.test.js',
+      'test/content-campaign-ui.test.js',
+      'test/local-content-growth.test.js',
+      'test/open-task-routing.test.js',
+      'test/open-task-runtime-wiring.test.js',
+      'test/runtime-start.test.js',
+      'test/task-service.test.js',
+    ],
+  );
 });
 
 test('A君未知或跨模块文件变更退回 workspace 全量测试', () => {
