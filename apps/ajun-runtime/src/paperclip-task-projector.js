@@ -18,7 +18,13 @@ export class PaperclipTaskProjector {
       const issue = await this.client.createIssue(company.id, {
         title:task.input.title,
         description:describeTask(task),
-        status:approval ? 'blocked' : managedAgent ? 'todo' : 'backlog',
+        status:approval
+          ? 'blocked'
+          : task.taskType === 'office.presentation-package'
+            ? 'backlog'
+            : managedAgent
+              ? 'todo'
+              : 'backlog',
         priority:priorityFor(task.priority),
         ...(task.taskType === 'operations.technical-repair' && managedAgent?.metadata?.paperclipProjectId
           ? { projectId:managedAgent.metadata.paperclipProjectId }
