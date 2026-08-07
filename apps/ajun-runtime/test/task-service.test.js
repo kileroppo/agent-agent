@@ -88,6 +88,32 @@ test('GitHub 和研究任务都由小R保留受限执行器需要的公开输入
   assert.equal(intelTask.input.topic, 'Agent 运行时');
   assert.deepEqual(intelTask.input.sourceUrls, ['https://example.com/a']);
 });
+test('小办 PPT 任务保留受控创作字段并允许敏感材料走本地 PPTX', async () => {
+  const office = { agentId:'office-assistant', name:'小办', status:'draft', acceptedTaskTypes:['office.presentation-package'] };
+  const { service, records } = setup({ agents:[office] });
+  const task = await service.create({
+    title:'公开固定样例',
+    purpose:'验证本地演示文稿交付链',
+    audience:'负责人',
+    taskType:'office.presentation-package',
+    slideCount:2,
+    designMode:'design_system',
+    designTokens:{ colors:{ primary:'#2563EB' }, fonts:{ heading:'Arial Unicode MS' } },
+    outline:[{ title:'结论', bullets:['本地导出'] }, { title:'验收', bullets:['WPS 打开'] }],
+    outputs:['pptd', 'pptx'],
+    dataClassification:'sensitive',
+    externalProcessingApproved:false,
+  });
+  assert.equal(task.input.purpose, '验证本地演示文稿交付链');
+  assert.equal(task.input.audience, '负责人');
+  assert.equal(task.input.slideCount, 2);
+  assert.equal(task.input.designMode, 'design_system');
+  assert.deepEqual(task.input.outline.map((item) => item.title), ['结论', '验收']);
+  assert.deepEqual(task.input.outputs, ['pptd', 'pptx']);
+  assert.equal(task.input.dataClassification, 'sensitive');
+  assert.equal(task.input.externalProcessingApproved, false);
+  assert.equal(records.approvals.length, 0);
+});
 test('开放复杂任务直接复用岗位专有执行器且不生成DAG或能力授权产物', async () => {
   const intel = {
     agentId:'intel-researcher',
