@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -32,6 +33,7 @@ import { OfficialFeishuCompletionWatcherError } from './official-feishu-completi
 import { presentCommanderReply } from './runtime-http-feishu.js';
 import { ValidationError } from './task-service.js';
 import { dispatchBoomSignal } from '@agent-army/boom-monitor';
+import { routeBoomMonitorApi } from './boom-monitor/index.js';
 
 const MAX_JSON_BODY_BYTES = 1024 * 1024;
 
@@ -40,7 +42,6 @@ export function createAjunHttpHandler({
   publicDir,
   dataDir,
   detailBaseUrl,
-  development = {},
   network,
   paperclip,
   work,
@@ -74,6 +75,8 @@ export function createAjunHttpHandler({
     missions,
     macWorker,
     xiaod,
+    boomMonitor,
+    boomMonitorEnabled,
   } = work;
   const {
     employeeFeishuConnections,
@@ -91,14 +94,6 @@ export function createAjunHttpHandler({
 
   return async function ajunHttpHandler(request, response) {
     try {
-      if (request.method === 'GET' && request.url === '/api/dev/hot-reload') {
-        if (!development.hotReload?.enabled) return sendJson(response, 404, { error:'开发热更新未启用。' });
-        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'开发热更新只能在本机使用。' });
-        return sendJson(response, 200, {
-          enabled:true,
-          revision:development.hotReload.revision,
-        });
-      }
       if (request.method === 'POST' && request.url === '/api/paperclip/heartbeat') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'Paperclip heartbeat 只能由本机服务调用。' });
         return sendJson(response, 202, await paperclipHeartbeat.handle(await readJsonBody(request)));
@@ -172,7 +167,18 @@ export function createAjunHttpHandler({
         lanAccess.key = await rotateLanShareKey(path.join(dataDir, 'lan-share-key'), lanEnabled);
         return sendJson(response, 200, { enabled:lanEnabled, addresses:lanEnabled ? lanAddresses() : [], accessKey:lanAccess.key });
       }
-      if (request.url?.startsWith('/api/') && !canAccessApi(request, lanAccess)) return sendJson(response, 401, { error:'请输入局域网共享口令。' });
+      if (request.url?.startsWith('/api/')
+        && !isBoomLegacyIntegrationPath(request.url)
+        && !canAccessApi(request, lanAccess)) return sendJson(response, 401, { error:'请输入局域网共享口令。' });
+      const boomMonitorResult = await routeBoomMonitorApi({
+        method:request.method,
+        url:request.url,
+        local:isLocalAddress(request.socket.remoteAddress),
+        enabled:boomMonitorEnabled,
+        readBody:() => readJsonBody(request),
+        getService:() => boomMonitor,
+      });
+      if (boomMonitorResult) return sendJson(response, boomMonitorResult.status, boomMonitorResult.payload);
       if (request.method === 'GET' && request.url === '/api/overview') return sendJson(response, 200, await tasks.overview());
       if (request.method === 'GET' && request.url === '/api/local-ai/control') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'AI 能力控制只能由老板在本机查看。' });
@@ -365,18 +371,31 @@ export function createAjunHttpHandler({
         if (!isLocalAddress(request.socket.remoteAddress) && !String(input.requesterName || '').trim()) throw new ValidationError('局域网协作者请先填写自己的称呼。');
         return sendJson(response, 201, { task:await tasks.create(input) });
       }
+      if (request.method === 'GET' && request.url === '/api/integrations/boom-monitor/health') {
+        if (boomMonitorEnabled !== false) return sendJson(response, 503, { error:'旧版爆款雷达回滚桥仅在 native writer 已关闭时开放。' });
+        if (!isBoomLegacyIntegrationAuthorized({
+          remoteAddress:request.socket.remoteAddress,
+          authorization:request.headers.authorization,
+          expectedToken:environment.BOOM_MONITOR_BEARER_TOKEN,
+        })) return sendJson(response, 401, { error:'旧版爆款雷达回滚桥认证失败。' });
+        return sendJson(response, 200, { status:'ready', mode:'legacy_rollback_bridge' });
+      }
       if (request.method === 'POST' && request.url === '/api/integrations/boom-monitor/dispatch') {
-        const local = isLocalAddress(request.socket.remoteAddress);
-        const expectedToken = String(environment.BOOM_MONITOR_BEARER_TOKEN || '').trim();
-        const providedToken = bearerToken(request.headers.authorization);
-        if (!local && (!expectedToken || providedToken !== expectedToken)) return sendJson(response, 403, { error:'爆款雷达派发需要本机访问或有效 Bearer Token。' });
+        if (boomMonitorEnabled !== false) return sendJson(response, 503, { error:'旧版爆款雷达回滚桥仅在 native writer 已关闭时开放。' });
+        if (!isBoomLegacyIntegrationAuthorized({
+          remoteAddress:request.socket.remoteAddress,
+          authorization:request.headers.authorization,
+          expectedToken:environment.BOOM_MONITOR_BEARER_TOKEN,
+        })) return sendJson(response, 403, { error:'旧版爆款雷达派发兼容入口需要本机访问或回滚凭据。' });
         return sendJson(response, 201, await dispatchBoomSignal(await readJsonBody(request), { missions }));
       }
       if (request.method === 'POST' && request.url === '/api/integrations/boom-monitor/metrics') {
-        const local = isLocalAddress(request.socket.remoteAddress);
-        const expectedToken = String(environment.BOOM_MONITOR_BEARER_TOKEN || '').trim();
-        const providedToken = bearerToken(request.headers.authorization);
-        if (!local && (!expectedToken || providedToken !== expectedToken)) return sendJson(response, 403, { error:'爆款雷达指标读取需要本机访问或有效 Bearer Token。' });
+        if (boomMonitorEnabled !== false) return sendJson(response, 503, { error:'旧版爆款雷达回滚桥仅在 native writer 已关闭时开放。' });
+        if (!isBoomLegacyIntegrationAuthorized({
+          remoteAddress:request.socket.remoteAddress,
+          authorization:request.headers.authorization,
+          expectedToken:environment.BOOM_MONITOR_BEARER_TOKEN,
+        })) return sendJson(response, 403, { error:'旧版爆款雷达指标兼容入口需要本机访问或回滚凭据。' });
         try {
           return sendJson(response, 200, { metrics:await xiaod.collectMetrics(await readJsonBody(request)) });
         } catch (error) {
@@ -450,7 +469,9 @@ export function createAjunHttpHandler({
 
       if (request.method === 'GET' && (request.url === '/' || request.url === '/index.html' || /^\/tasks\/[0-9a-f-]{36}$/i.test(request.url || ''))) return sendFile(response, publicDir, 'index.html', 'text/html; charset=utf-8');
       if (request.method === 'GET' && request.url === '/app.js') return sendFile(response, publicDir, 'app.js', 'text/javascript; charset=utf-8');
-      if (request.method === 'GET' && request.url === '/hot-reload-client.js') return sendFile(response, publicDir, 'hot-reload-client.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && request.url === '/app-access-views.js') return sendFile(response, publicDir, 'app-access-views.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && request.url === '/app-interactions.js') return sendFile(response, publicDir, 'app-interactions.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && request.url === '/boom-monitor-console.js') return sendFile(response, publicDir, 'boom-monitor-console.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && request.url === '/console-navigation.js') return sendFile(response, publicDir, 'console-navigation.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && request.url === '/disclosure-state.js') return sendFile(response, publicDir, 'disclosure-state.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && request.url === '/styles.css') return sendFile(response, publicDir, 'styles.css', 'text/css; charset=utf-8');
@@ -504,6 +525,22 @@ function sendJson(response, status, data) {
 function bearerToken(value) {
   const match = String(value || '').match(/^Bearer\s+(.+)$/i);
   return match ? match[1].trim() : '';
+}
+
+export function isBoomLegacyIntegrationAuthorized({ remoteAddress, authorization, expectedToken }) {
+  if (isLocalAddress(remoteAddress)) return true;
+  const supplied = bearerToken(authorization);
+  const expected = String(expectedToken || '');
+  if (!supplied || !expected || supplied.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
+}
+
+export function isBoomLegacyIntegrationPath(url) {
+  return [
+    '/api/integrations/boom-monitor/health',
+    '/api/integrations/boom-monitor/dispatch',
+    '/api/integrations/boom-monitor/metrics',
+  ].includes(String(url || ''));
 }
 
 function errorStatus(error) {
