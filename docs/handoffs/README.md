@@ -55,6 +55,7 @@
 
 ## 当前交接
 
+- [视频分析四模式飞书验收交接](./current/video-analysis-modes-feishu-acceptance-handoff.md)：四模式契约、证据复用、指标学习门禁、本机回退和不可变 live 已完成；唯一下一步是负责人在 A君 真实飞书私聊发送一条指定模式的视频链接，核对原会话结果中的模式、版本和唯一下一步。
 - [Agent 使用说明书问答接入交接](./current/agent-manual-query-handoff.md)：不可变 release `99f99c56…` 已切到 4321，11 个 Hermes Profile 已同步且 5 个常驻 Gateway 已重启。唯一下一步是负责人完成四条真实飞书问答与排版验收。
 - [小办演示文稿能力交接](./current/office-presentation-capability-handoff.md)：已关闭；不可变 release、真实公开任务、三类 Work Product、自动视觉 QA 与 WPS 固定样例验收均完成。
 - [小R多路线搜索与证据方法交接](./current/intel-research-search-method-handoff.md)：Yichen 技能已同步到小R Profile，六路规划器已在 Profile 实跑；A君执行器源码和全量回归已通过。唯一下一步是从独立干净 worktree 冻结并切换不可变 release，再用一条真实公开研究任务验收结果质量。
