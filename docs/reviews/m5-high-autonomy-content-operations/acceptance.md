@@ -348,3 +348,14 @@ cua-driver doctor
 | 外部飞书 | NOT CHECKED | 本地解析与字段透传测试通过 | 必须由负责人在 A君 真实飞书会话发送一条带模式的视频任务 |
 
 当前唯一外部下一步见 [视频分析四模式飞书验收交接](../../handoffs/current/video-analysis-modes-feishu-acceptance-handoff.md)。
+
+### 模型恢复与结果页修复追加验收（2026-08-07 23:14 CST）
+
+| 层级 | 结论 | 证据 | 未证明部分 |
+| --- | --- | --- | --- |
+| 凭据与真实模型 | PASS | `video-content-analyst` 独立 Profile 更新后，任务 `4b899f6d-22dc-4588-baa0-2ef47067da59`、Paperclip `AGE-1061` 首次返回 `generationMode=hermes_advisor`，`advisorApplied=true`、`semanticValidationPassed=true`，不再出现 401 | 不展示或记录凭据值 |
+| 结果页缺陷回归 | PASS | 首次真实报告暴露“模型把精华字段放在顶层、结果页仍显示占位 digest”；提交 `d6eb8b73e6810ef023bf52d5f49f26bcbe3ff9f0` 增加证据校验后的顶层字段归一化。回归先失败后通过，聚焦 28/28，A君 `1188/1188`、Manifest `18/18`、架构边界通过 | 只修复报告拼装，不改变四模式契约或发布权限 |
+| 不可变运行 | PASS | 代码等价 release `976c6f506ea9b32a379ce3c6c918597146e24b96eee7df93f557ab9485ff145b`、`payloadHash=9f42fcce7a210946678230b7a7b07e591bca1f24f030375ca3f52540fb6dabe7`、7104 条目，主入口与只读恢复 smoke 均通过；切换后历史快照 PID `98647` 监听 4321，cwd/命令指向该 release，`/api/overview=200` | PID 为追加验收快照；当前值须读取 launchd |
+| 最终真实摘要 | PASS | 任务 `1f5d2f8a-ab1f-4ee3-aeb8-e44124743867`、Paperclip `AGE-1062` 成功；`generationMode=hermes_advisor`，模型摘要进入 `digest.oneSentenceSummary`，4 个要点、3 句金句、3 个行动建议全部带确认稿时间点或片段；`modeStructurePassed=true`、`digestCharacterCount=349` | 本轮只实跑 digest；deep/template/style 的模型语义质量仍由契约测试覆盖，使用时需逐模式人工审阅 |
+| 来源复用与下游隔离 | PASS | 报告继续引用 `confirmed-transcript:291f3588-82ea-4875-85ab-6bd4d1f0828e:v1` 与校验值 `96748e00c38e1fd8b05d3abba7946a5acd2bbc5f5b93f4bdbfde6d9f9adb5b92`；任务窗口只新增 `1f5d2f8a…`，媒体任务保持 44，Publisher 任务 0 | 没有重新下载、转写、抽帧、小创、审核或发布 |
+| 外部写入边界 | PASS / CLOSED | A君 `/api/content-campaigns` 显示活动 `8dd29a3b…` 为 `stopped`；两个 M5 每日入口 schedule 均 `enabled=false`；4390 为 `disabled`、`realConnectorsConfigured=false` | 真实飞书消息仍未发送；不等于真实平台发布验收 |

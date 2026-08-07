@@ -29,7 +29,7 @@ agent-agent/
 
 ### 机器事实（2026-08-07 21:49 CST）
 
-- **视频分析四模式已进入 A君 不可变运行链**：真实摘要任务 `7d45ed66-e86a-4a08-8179-509939352593` 复用既有确认稿，在 Hermes 外层 401 后安全生成本机证据化报告，返回 `analysisIntent=digest`、`reportVersion=video-analysis/v2`，未新增获取、转写、抽帧、小创、审核或发布任务。当前 PID 与 release 以 launchd entrypoint 和该目录 `release-manifest.json` 为准，避免在源码文档中形成自引用漂移。Publisher、Campaign 与 Cron 继续关闭；真实飞书模式消息仍待负责人验收。
+- **视频分析四模式已进入 A君 不可变运行链，真实 DeepSeek 摘要已通过**：任务 `1f5d2f8a-ab1f-4ee3-aeb8-e44124743867` 复用既有确认稿，返回 `analysisIntent=digest`、`reportVersion=video-analysis/v2`、`generationMode=hermes_advisor`；结果页实际使用模型的一句话总结、4 个证据化要点、3 句确认稿原文金句和唯一下一步。任务期间只新增该分析任务，没有重复获取、转写、抽帧，也没有创建小创、审核或发布任务。当前 PID 与 release 以 launchd entrypoint 和该目录 `release-manifest.json` 为准。M5 Campaign 已停止、每日入口 Cron 关闭、Publisher `disabled`；真实飞书模式消息仍待负责人验收。
 - **小D已接入无感 ASR 路由，但不会为“快模型”牺牲速度或质量**：字幕仍优先；本机基准显示 M1 Max 上 `mlx-whisper large-v3-turbo` 明显快于 CPU `faster-whisper-small`，因此日常任务继续走 MLX 质量主路。隔离安装的 `faster-whisper 1.2.1` 只在质量模型失败、任务非正式且不超过受控时长时应急接管；应急稿强制进入人工完整听审，不能自动确认。跨模型抽样校验路径保留但默认关闭，后续只有在目标机器基准证明更快时才启用。小D自动检查 56/56 通过。
 - **小办 PPT 不可变 release 是历史验收基线**：当时 PID `56917`，`releaseHash=811d3c471c4e3ab48d3f67fe8b586a3d6941eba8e7f41c38a29c2133f510593b`，`payloadHash=31e2f5d1eaeb17c37a2fcd36521f3110142b27896fed30cbbc3d9a3092107444`，来源为 clean commit `9204a92a057c7ed52a552c9f93b9a748cfa6e9a6`；其 PPT 能力验收仍有效，但 PID 与 release 不再代表当前 live。
 - **小办 PPT 真实任务已完成**：A君任务 `ca1c34a8-f58f-48ff-a86b-c1a1e06ea5a8` 成功，Paperclip `AGE-1036` 为 done，三类 Work Product 均 healthy；4 页 PPTX 通过 ZIP/XML、fade、回读渲染和无溢出检查。执行全程使用受控本地工具链，不访问 Kimi、不读取 Cookie/Vault、不触发 Hermes 模型 Run。
