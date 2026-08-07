@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 2026-08-07 本地候选已完成静态卡、代码瘦身与核心编排深层 Module 收敛；运行身份以 `npm run runtime:fingerprint` 为准。Campaign、Cron、Publisher 继续关闭，M5 未完成 |
+| 状态 | 2026-08-07 静态卡、代码瘦身与核心编排深层 Module 已随 `main@8d69073` 进入 A君不可变 live；运行身份以 `npm run runtime:fingerprint` 为准。Campaign、Cron、Publisher 继续关闭，M5 未完成 |
 | 创建时间 | 2026-07-30 Asia/Shanghai |
 | 交出者 | Codex |
 | 接手者 | Codex / A君 |
@@ -19,10 +19,10 @@
 
 ## 2026-08-07 补充：Ponytail 代码瘦身
 
-- 删除无生产引用的旧任务准备器、本地探针、并行协调器、单行转发层和过渡项目看板；Paperclip 与 A君继续作为唯一控制入口。
+- 删除无生产引用的旧任务准备器、本地探针、并行协调器和单行转发层；项目进度看板按主线要求保留为按需开发工具，不成为任务真相或控制入口。Paperclip 与 A君继续作为唯一控制入口。
 - TaskService/Kernel 清理机械拆分遗留，Hermes 六个 advisor 复用同一 one-shot policy；连同验收文档，本分支净减少 1420 行。
 - 根测试、根检查、核心套件、架构门禁、独立 workspace 与 Local-AI 回归通过。
-- v2 迁移和 Run-JWT cutover 工具仍属于当前恢复窗口，暂不删除；本候选未部署，live 状态没有改变。
+- v2 迁移和 Run-JWT cutover 工具仍属于当前恢复窗口，暂不删除；代码已随 release `41bc73a8506b…` 进入 A君 live，但 Paperclip 资源、Campaign、Cron、插件和 Publisher 状态没有随运行时切版改变。
 
 ## 2026-08-07 补充：深层 Module 收敛
 
@@ -34,7 +34,7 @@
 - Publisher Gateway 由 1287 收敛到约 243 行；发布尝试/指标采集 Module 分别约 509/630 行，公开 Interface 和安全顺序不变。
 - 其余生产千行文件全部完成纵切：Local Content 1655→7、Paperclip Bridge 1474→51、Open Task 1425→19、控制台 app 1341→680、M5 v2 reconcile 1265→10、Feishu Commander 1205→45、Local Chaos 1202→340、CUA Runner 1198→458、Controller JWT Cutover 1156→31、Stage Recovery 1059→23、Media Tools 1011→35。
 - 排除不可变 release、测试、数据与 scripts 后已无超过 1000 行的生产源码；通用 1000 行门禁和各 Module 更低责任上限阻止回涨。
-- A君 `1133/1133`、Kernel `13/13`、核心整包、根 check 与架构门禁通过；本候选仍未部署。
+- A君、Kernel、核心整包、根 check 与架构门禁通过；发布级冻结重新执行 A君、Kernel、Pipeline、内容插件、Publisher 契约和 Paperclip Client 检查，主启动/只读恢复 smoke 通过。切换后 PID `9309`、4321 HTTP 200、源码/live `same_git_head`。
 
 ## 2026-08-06 补充：编排职责收敛
 

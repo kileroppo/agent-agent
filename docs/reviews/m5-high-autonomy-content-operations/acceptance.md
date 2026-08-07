@@ -2,6 +2,16 @@
 
 > 当前总判定：**PARTIAL / M5 NOT COMPLETE**。2026-08-05 已完成一次负责人单独授权的小红书真实发布冒烟，平台分配内容 ID 且笔记当前“审核中”；该动作使用隔离 CuaDriver 人工验收链，不是 A君 production Runtime、Paperclip selector/Profile lease 或真实 PublishReceipt。Cron 与 Publisher 继续关闭；抖音发布、双平台回读、指标和 7 天闭环仍未完成。
 
+## 2026-08-07 main 收敛与 A君切换
+
+| 层级 | 结论 | 事实与边界 |
+| --- | --- | --- |
+| 主线来源 | PASS | 本地与远端 `main` 已收敛到 `8d6907397e9f0e9ae8ee694246c8f1221563f5bc`；发布源码工作树干净，根共享工作树的 32 处未提交修改未被覆盖 |
+| 不可变 release | PASS | release `41bc73a8506b8ef0b6ae162770977d4917afca5642211b7a2548139d57a65934`、payload `339233ce287ba4cce79d108ad12e8093c21f90902ad457da966a44b13b725af4`、7153 项；主启动和只读恢复 smoke 通过 |
+| live 运行 | PASS | PID `9309`，cwd/entrypoint 指向新 release，4321 `/api/overview=200`，11 个 Agent、776 条任务、0 条进行中/后台/待审批任务；`runtime:fingerprint` 为 `same_git_head` |
+| 生产边界 | CLOSED | Paperclip 仍为既有资源，Campaign 与 M5 Cron 未恢复；Publisher 保持 `disabled`、真实连接器未配置。本次切换没有 Provider、发布或外部消息动作，M5 仍为 PARTIAL |
+| 恢复 | DEGRADED READY / EXACT UNAVAILABLE | launchd 原配置已保存为 0600 备份；新 release 的 `verified_degraded_fallback` 为 ready，只提供不挂正式状态的本机只读恢复，不能冒充精确旧 live |
+
 ## 2026-08-06 A君不可变 release 收口
 
 | 层级 | 结论 | 事实与边界 |

@@ -27,13 +27,14 @@ agent-agent/
 
 ## 当前状态
 
-### 机器事实（2026-08-06）
+### 机器事实（2026-08-07）
 
 - **运行身份不再手工猜测**：执行 `npm run runtime:fingerprint` 同时读取当前源码 Git、脏文件计数、不可变 release 身份和关键服务摘要；文档中的历史 PID/release 只保留为验收记录，不能替代当前机器输出。
 - **依赖服务健康，生产写入继续关闭**：Paperclip、小D、Publisher 健康接口均为 200；Publisher 为 `disabled`、`realConnectorsConfigured=false`，Campaign 与 M5 Cron 未恢复。本轮未调用 Provider、未执行发布、未发送外部消息。
-- **共享主工作树不是 live 源码**：仍位于 `experiment/governance-hermes-full-migration`、HEAD `6cccefb851072866777fa39c0775d1320e7aa590`，保留既有未提交变更且 staged 为 0。live 使用 `codex/m5-release-integration-20260806` 的隔离 clean worktree；从该工作树执行 `runtime:fingerprint` 应为 `same_git_head`。
+- **正式源码与 live 已收敛到 main**：本地及远端 `main` 均包含提交 `8d6907397e9f0e9ae8ee694246c8f1221563f5bc`；隔离 main 工作树干净。A君由同一提交冻结的不可变 release `41bc73a8506b8ef0b6ae162770977d4917afca5642211b7a2548139d57a65934` 运行，切换后 PID `9309`、`/api/overview=200`，`runtime:fingerprint` 为 `same_git_head`。共享根工作树仍保留 32 处未提交修改，不作为 live 源码，也未在本轮被覆盖。
 - **核心编排大文件已按领域行为收敛**：`TaskService` 主入口约 545 行，任务受理、通知、Paperclip 指派和岗位执行分别进入深层 Module；原 1510 行任务执行入口降为约 607 行。M5 `ContentCampaignKernel` 主入口约 294 行，生命周期、Route、Replay、Planning、Work Product 血缘和交付校验各自由明确 Interface 持有；原 1124/1154 行执行文件降为约 36/171 行。Publisher Gateway 由 1287 降为约 243 行，发布尝试和指标采集分别隐藏在单方法 Interface 后。架构门禁限制这些责任 Module 回涨，既有 HTTP、MCP、Publisher 与测试调用方式不变。
-- **生产源码已清除千行单体**：本分支把 15 个原千行责任文件按本机内容生产、开放研究、Paperclip 投影、飞书指挥、阶段恢复、CUA 会话、媒体产物、M5 v2 对账和 Controller JWT 切换等完整行为深化为 Module；排除历史 release、测试、数据与运维脚本后，当前最大生产源码为 992 行。架构检查对所有未登记生产源码设置 1000 行硬上限，并为本轮 Module 设置更低的责任上限；这只证明候选源码，不表示 live 已切换。
+- **生产源码已清除千行单体并进入 live**：main 把 15 个原千行责任文件按本机内容生产、开放研究、Paperclip 投影、飞书指挥、阶段恢复、CUA 会话、媒体产物、M5 v2 对账和 Controller JWT 切换等完整行为深化为 Module；排除历史 release、测试、数据与运维脚本后，当前最大生产源码为 992 行。架构检查对所有未登记生产源码设置 1000 行硬上限，并为本轮 Module 设置更低的责任上限；发布级源码测试、主启动 smoke、只读恢复 smoke 和 live 指纹均通过。
+- **小办本地 PPTX 已进入 A君 live**：`office.presentation-package` 继续由小办承接，PPTD 与 PPTX 均为本地受控工具；live `office-presentation=ready`。这只证明运行时已加载能力，真实 Paperclip/Hermes 公开样例任务及三类 Work Product 回传仍待单独验收。
 - **日期炸弹已修复**：Publisher 的 4 个到期 lease 用例注入固定时钟，不再依赖执行当天日期，也没有把批准到期日向后延长。
 - **M5 仍为 PARTIAL**。只读 `production:readiness` 当前预期因 Publisher/connector、Campaign 快照、selector、Profile lease 和 provider 缺口返回 `not_ready`；恢复 Campaign、注入 provider、启用 Publisher 或发布均须另行批准。
 
