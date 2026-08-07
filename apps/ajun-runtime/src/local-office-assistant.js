@@ -318,8 +318,10 @@ export class LocalOfficeAssistant {
           code:blocked.code,
           message:String(error?.message || blocked.userMessage).slice(0, 500),
           userMessage:blocked.userMessage,
-          category:'manual',
+          category:blocked.category || 'manual',
           stage:blocked.stage,
+          diagnosticStage:blocked.diagnosticStage || null,
+          attempt:blocked.attempt || null,
           retryable:false,
           occurredAt:completedAt,
         },
@@ -376,7 +378,12 @@ function presentationQaArtifact(task, written, completedAt, { exported = null, b
       previewRefs:exported?.qaOverviewRelativePath
         ? [`workspace://${exported.qaOverviewRelativePath}`]
         : [],
-      issues:blocker ? [{ code:blocker.code, message:blocker.userMessage }] : [],
+      issues:blocker ? [{
+        code:blocker.code,
+        message:blocker.userMessage,
+        diagnosticStage:blocker.diagnosticStage || null,
+        attempt:blocker.attempt || null,
+      }] : [],
       visualReviewStatus:visualQaPassed ? 'passed' : 'not_run',
     },
   };
@@ -434,6 +441,8 @@ function presentationOutputs(value) {
 
 function presentationExportBlocker(error) {
   const code = String(error?.code || 'presentation_export_needs_capability');
+  const diagnosticStage = safePresentationDiagnosticStage(error?.stage);
+  const attempt = [1, 2].includes(Number(error?.attempt)) ? Number(error.attempt) : null;
   if (['external_data_processing_denied', 'presentation_external_processing_denied'].includes(code)) {
     return {
       code:'presentation_external_processing_denied',
@@ -448,11 +457,42 @@ function presentationExportBlocker(error) {
       userMessage:'可编辑 PPTD 已生成；PPTX 导出会使用 Kimi 公共编辑器，需要负责人明确批准本次外部处理。',
     };
   }
+  if (['ETIMEDOUT', 'EPLAYWRIGHT', 'ECONNRESET', 'ECONNREFUSED', 'EAI_AGAIN', 'ENETUNREACH'].includes(code)) {
+    const location = diagnosticStage ? `（${presentationDiagnosticLabel(diagnosticStage)}）` : '';
+    return {
+      code:'presentation_export_waiting_test',
+      stage:'office_presentation_waiting_test',
+      category:'temporary_dependency',
+      diagnosticStage,
+      attempt,
+      userMessage:`可编辑 PPTD 已生成；图片质检或 PPTX 外部导出${location}暂时失败，已停止自动重试并保留诊断阶段，等待受控复测。`,
+    };
+  }
   return {
     code:'presentation_export_needs_capability',
     stage:'office_presentation_export_needs_capability',
     userMessage:'可编辑 PPTD 已生成；当前缺少兼容的隔离导出依赖，PPTX 和图片质检尚未执行，系统没有自动安装或升级软件。',
   };
+}
+
+function safePresentationDiagnosticStage(value) {
+  const stage = String(value || '').trim();
+  return new Set([
+    'visualQa.images', 'export.pptx', 'browser.launch', 'browser.navigation', 'deck.ready',
+    'browser.viewport', 'editor.snapshot', 'editor.control', 'editor.export_dialog',
+    'editor.image_format', 'visualQa.download', 'visualQa.download_wait',
+    'pptx.download', 'pptx.download_wait',
+  ]).has(stage) ? stage : null;
+}
+
+function presentationDiagnosticLabel(stage) {
+  if (stage === 'browser.navigation') return '打开公共编辑器';
+  if (stage === 'deck.ready') return '等待演示文稿就绪';
+  if (stage.startsWith('editor.')) return '定位导出控件';
+  if (stage.startsWith('visualQa.download')) return '下载页面图片';
+  if (stage.startsWith('pptx.download')) return '下载 PPTX';
+  if (stage === 'browser.launch') return '启动隔离浏览器';
+  return stage === 'export.pptx' ? '生成 PPTX' : '生成页面图片';
 }
 
 async function writeRequestedOfficeArtifacts({

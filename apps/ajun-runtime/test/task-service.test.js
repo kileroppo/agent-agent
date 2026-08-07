@@ -2191,7 +2191,7 @@ test('概览如实显示小办 PPTD 可用且 PPTX 仍受兼容依赖门禁', as
           visualQa:{ status:'needs_capability' },
           export:{ status:'needs_capability' },
         },
-        recovery:'需要隔离 Node 24 和兼容 agent-browser；不会自动安装。',
+        recovery:'需要隔离 Node 和 Playwright，并完成公开样例 live 验证；不会自动安装。',
       }];
     },
   };

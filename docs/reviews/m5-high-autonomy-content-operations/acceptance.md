@@ -2,6 +2,19 @@
 
 > 当前总判定：**PARTIAL / M5 NOT COMPLETE**。2026-08-05 已完成一次负责人单独授权的小红书真实发布冒烟，平台分配内容 ID 且笔记当前“审核中”；该动作使用隔离 CuaDriver 人工验收链，不是 A君 production Runtime、Paperclip selector/Profile lease 或真实 PublishReceipt。Cron 与 Publisher 继续关闭；抖音发布、双平台回读、指标和 7 天闭环仍未完成。
 
+## 2026-08-06 A君不可变 release 收口
+
+| 层级 | 结论 | 事实与边界 |
+| --- | --- | --- |
+| 不可变来源 | PASS | clean commit `bf8b6586f3e21b241a270e70142fe44745e194f7`；release `0ba4980dad1df73b3bc0b32d8364d0a5600ae516d056602911d5e7d010b96752`；payload `e7ec9ea89300dddc8a58bed5d5ea9262a084c361e5d65c8132234690de537147` |
+| 自动化 | PASS | 聚焦 `24/24`、A君 `1143/1143`、Pipeline `67/67`、内容插件 `97/97`；架构检查、main/recovery smoke、payload 校验通过。隔离 worktree 的根 `npm run check` 仅因仓库外 Local-AI Python venv 路径未复制而不能完整执行，不是产品测试失败 |
+| live 运行 | PASS | PID `36973`，cwd/entrypoint 指向 release；`/api/overview=200`，11 个 Agent、771 条任务、0 条进行中/后台/待审批任务。Paperclip、小D、Publisher 健康接口为 200 |
+| 浏览器 | PASS | 真实 Chrome DevTools 协议验证任务详情 `#employees` 在后台同步和整页重载后仍保持选中；浏览器错误 0 |
+| 生产边界 | CLOSED | Publisher `disabled`、`realConnectorsConfigured=false`；Campaign、Cron 未恢复。Provider 调用、发布、外部消息均为 0；M5 仍为 PARTIAL |
+| 恢复 | DEGRADED PASS / EXACT UNAVAILABLE | 切换前 launchd plist 已以 `0600` 备份；只读 recovery smoke 证明 `local_recovery_only`、`externalEffects=false`、`writableRoutes=false`。没有 exact previous，备份只作审计与人工恢复材料 |
+
+唯一安全下一步：生成并人工审阅不含 Secret 的当前 Campaign readiness 输入快照，再执行只读 `production:readiness`。恢复 Campaign、注入 provider、启用 Publisher 或发布均须另行批准。
+
 ## 2026-08-02 DeepSeek 文本主模型切换追加证据
 
 | 项目 | 事实 | 边界 |
@@ -51,7 +64,7 @@
 | StepFun 复杂岗位任务 | STRUCTURE 11/11 / SEMANTIC 11/11 / CROSS PASS / PROFILE PROBE PASS | 最新 `video-content-analyst` 使用 `step-3.5-flash-2603`，18 项结构和语义门禁为 `18/18`，从而11个岗位全部通过。新的 Cross 首次因未转义 JSON 失败关闭，缩短并固定输出结构后安全重试为 `19/19`；最终 `summary.status=passed`、`rolePassedCount=11`、`crossRoleStatus=passed`，离线重验同样通过。此次新增 1 次 video 和 2 次 Cross StepFun 调用，工具调用 0、`externalSideEffects=0`；语义门禁与提示契约自测为 `72/72`。全军 Profile 收敛后另完成 1 次 `video-content-analyst` 真实 StepFun no-tool 探针，工具调用仍为 0 | usage 的 `cost_status=unknown` 必须保留；探针中的 `estimated_cost_usd=0` 只是 usage 字段，不是官方账单。no-tool 探针只证明文本传输和模型身份，不承担内容 Provider 血缘；这些证据不证明当前 A君已加载本轮源码、真实 M5 Campaign StepFun 视觉、平台发布或业务外部闭环 |
 | StepFun 多模态 | HISTORICAL PROVIDER LEDGER PASS / NO NEW CALL | 旧 `m5v2` 账本 `status=succeeded`：35 个 action-linked 费用记录合计 42 美分，`confirmedReplay=35`、`lifetimeProviderCalls=43`。本轮 Provider 请求/调用均为 0、没有新增费用或 `cost-event`；公司与 Project 累计仍为 392 分 | 42 美分是旧保守项目账本，不是 StepFun 官方最终账单；本轮没有新增付费调用，也不证明真实平台发布 |
 | 指标回流 | R4 BINDING LOADED / PIPELINE OFF | 2h/24h/72h、独立指标 approval、current-run scope 与 `PaperclipBridge` 六项核心 access 已由 R4 加载；发布与指标 runner/Profile 隔离 | Paperclip 原始 `2026.722.0` 的兼容补丁未 apply，R4 connector dependencies 为空并失败关闭；尚无真实 PublishReceipt、平台指标或人工核对 |
-| 生产 readiness | READ-ONLY / NOT READY | `npm run production:readiness` 固定检查 4390 health、Campaign snapshot、selector 安全、Profile lease 引用和 provider 注入；当前 `not_ready`、退出码 `2`、唯一下一步 `provide-campaign-status-snapshot` | 不读 `.env`/Secret，不启动服务、不批准 Campaign/Cron，不等于生产启用 |
+| 生产 readiness | READ-ONLY / NOT READY | `npm run production:readiness` 固定检查 4390 health、Campaign snapshot、selector 安全、Profile lease 引用和 provider 注入；无 snapshot 输入时为 `not_ready`、退出码 `2`，机器建议动作 `provide-campaign-status-snapshot` | 不读 `.env`/Secret，不启动服务、不批准 Campaign/Cron，不等于生产启用 |
 | 发布写回 | LIVE CONTROLLER / NO REAL RECEIPT | publisher 控制器与 Routine 已接入 live；production Runtime 覆盖注入式抖音官方 API 与 CUA；账号、日期、预算、幂等和强成功证据均在写回前硬校验；standalone 4390 禁止 real，真实入口只保留 A君逐请求刷新 Paperclip 批准的惰性路径 | live Publisher 为 `disabled`，没有真实连接器、平台内容 ID 或真实回执 |
 | 复盘学习 | LIVE CONTROLLER / NO REAL SAMPLE | retrospective 控制器与 Routine 已接入 live；只接受标准信任的同平台 72h `MetricSnapshot`，少于 5 条写 `insufficient_sample`，达到 5 条才附带 `proposed` LearningProposal | 无真实样本；不会自动修改 Prompt、权限、频率或投流，离线回放、审核和灰度均未执行 |
 | 本地成片与原生血缘 | LOCAL PRODUCTION RENDER + LINEAGE PASS / NO PUBLISH | 上游已直接生成 lineage；`native-artifact-smoke` 以 Provider 0 完成 1/1 份原生 lineage 和 3/3 支平台媒体，均为 45 秒、1080×1920、H.264/AAC、黑帧 0、-15.1 LUFS。历史 `m5v2-lineage-v2` 仍以 Provider 0 保留 7/7 份 lineage 和 21/21 支媒体复核，响度 -15.2 至 -14.9 LUFS；原 `m5v2` 保留 7/7 review、63/63 固定产物 hash/bytes 与 t04 八点人工抽帧证据；另有 3 主题、9 视频 dry-run `12/12` | 全部 `externalPublished=false`；证明本地成片与血缘，不证明真实平台发布、PublishReceipt 或指标回流 |
@@ -202,7 +215,7 @@ npm run acceptance:fake:seven-day -- \
 | 外部平台 | NOT AUTHORIZED / NOT CHECKED | 未读取 Secret，未调用公众号，未创建草稿或群发 | 需测试账号、Paperclip 批准、IP 白名单和一次明确草稿写入授权 |
 | 人工验收 | WAITING | 代码行为已固定为 `externalPublished=false`、`groupSent=false` | 仍需公众号后台预览正文、图片、主题和链接 |
 
-唯一下一步：保持现有 Campaign、Cron、Publisher 和公众号连接器关闭。只有负责人另行批准测试账号的一次“创建草稿”后，才配置 Wenyan、Paperclip accountRef/Secret Reference 和 IP 白名单，并在公众号后台人工预览，禁止群发。
+当时下一步（历史）：保持现有 Campaign、Cron、Publisher 和公众号连接器关闭。只有负责人另行批准测试账号的一次“创建草稿”后，才配置 Wenyan、Paperclip accountRef/Secret Reference 和 IP 白名单，并在公众号后台人工预览，禁止群发。
 
 cd apps/ajun-runtime
 node --test test/paperclip-bridge.test.js test/paperclip-retrospective.test.js \
@@ -298,4 +311,16 @@ cua-driver doctor
 
 最新只读 production readiness：selector candidate/frozen 与 Profile lease 均安全通过；Campaign 当前因“指标回流后置、先完成本地门禁”而暂停，4390 仍为 `disabled` 且未注入 production provider，因此总判定仍为 `not_ready`。恢复 Campaign、注入 provider 或启用 Publisher 均需另行授权。
 
-唯一下一步：保持 Campaign、Cron 和 Publisher 关闭；若负责人决定继续 production Runtime 验收，先单独授权恢复 Campaign，仍不得据此发布。不得把本次人工冒烟或本地 fixture 写成 M5 完成。
+当时下一步（历史）：保持 Campaign、Cron 和 Publisher 关闭；若负责人决定继续 production Runtime 验收，先单独授权恢复 Campaign，仍不得据此发布。不得把本次人工冒烟或本地 fixture 写成 M5 完成。
+
+## 2026-08-06 小红书静态卡本地候选验收
+
+| 项目 | 结果 | 证据与边界 |
+| --- | --- | --- |
+| 契约 | LOCAL PASS | 新增 `agent.army/social-card-package/v1`；`SocialCardPackage` 只作为现有 `RenderPackage` 的嵌套产物，Pipeline 阶段和控制器数量不变 |
+| 工具门禁 | LOCAL PASS | `social-card-render` 只接受 3–9 页固定 `cover/evidence/checklist`、受限文本、可信图片账本、版权依据与模板哈希；拒绝越界图片、素材哈希漂移和覆盖既有产物 |
+| 自动化 | LOCAL PASS | 内容插件 `100/100`、M5 contracts `13/13`、M5 kernel `13/13`、A君 Runtime `1146/1146`，架构检查通过 |
+| 真实渲染 | LOCAL PASS / HUMAN REVIEWED | `work/m5-social-card-acceptance-20260806-e/candidate/social-cards/` 的 3/3 PNG 均为 1080×1440；props、manifest、每张卡均有 SHA-256；人工复核封面、证据页和清单页无裁切 |
+| 外部状态 | UNCHANGED | 使用仓库自有图片和本机 Chrome；无 Provider 调用、无平台访问、无发布。Campaign/Cron/Publisher 未启用，live 插件仍为 `0.4.9` |
+
+本次验收只证明 `0.5.0` 候选源码、自动化和本机静态输出。它不证明 live 已安装、不批准恢复 Campaign，也不授权任何发布动作。

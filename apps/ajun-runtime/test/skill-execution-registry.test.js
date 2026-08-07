@@ -79,7 +79,7 @@ test('OpenKimi PPT 使用嵌套共享入口并分别报告 compose、visualQa �
           visualQa:{ status:'needs_capability' },
           export:{ status:'needs_capability' },
         },
-        recovery:'agent-browser 版本不兼容；不会自动安装。',
+        recovery:'Playwright 隔离工具链尚未完成 live 验证；不会自动安装。',
       }),
     },
   });

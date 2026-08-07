@@ -211,7 +211,7 @@ test('小办演示文稿默认先交付 PPTD，并在 PPTX 依赖缺失时保留
         };
       }
       if (input.toolId === 'office.pptx.export') {
-        const error = new Error('agent-browser 未安装');
+        const error = new Error('Playwright 隔离工具链未安装');
         error.code = 'presentation_export_needs_capability';
         throw error;
       }
@@ -243,6 +243,56 @@ test('小办演示文稿默认先交付 PPTD，并在 PPTX 依赖缺失时保留
     'office.pptd.write',
     'office.pptx.export',
   ]);
+});
+
+test('小办把 Playwright 临时失败写成 waiting_test 并保留脱敏子阶段', async () => {
+  const roleToolContext = {
+    async execute(input) {
+      if (input.toolId === 'army.task.read') return [];
+      if (input.toolId === 'office.pptd.write') {
+        return {
+          manifestRelativePath:input.relativePath,
+          projectRelativePath:'work-products/presentation-diagnostic/presentation',
+          qaRelativePath:'work-products/presentation-diagnostic/presentation/qa/structural-validation.json',
+          mimeType:'application/vnd.open-kimi.pptd+yaml',
+          checksum:'a'.repeat(64),
+          source:{ skillVersion:'1.0.0', sourceHash:'fixture' },
+          validation:{ pageCount:1, structuralQaPassed:true, selfContained:true },
+        };
+      }
+      if (input.toolId === 'office.pptx.export') {
+        throw Object.assign(new Error('外部演示文稿导出命令超时。'), {
+          code:'ETIMEDOUT',
+          stage:'visualQa.download',
+          stageStatus:'started',
+          attempt:2,
+        });
+      }
+      throw new Error(`unexpected ${input.toolId}`);
+    },
+  };
+  const worker = new LocalOfficeAssistant({ now, store:{ async list() { return []; } } });
+  const result = await worker.execute({
+    taskId:'presentation-diagnostic',
+    taskType:'office.presentation-package',
+    input:{
+      title:'诊断样例',
+      dataClassification:'public',
+      externalProcessingApproved:true,
+      outline:[{ title:'结论', bullets:['公开固定内容'] }],
+    },
+  }, { roleToolContext });
+
+  assert.equal(result.status, 'needs_input');
+  assert.equal(result.currentStage, 'office_presentation_waiting_test');
+  assert.equal(result.error.code, 'presentation_export_waiting_test');
+  assert.equal(result.error.category, 'temporary_dependency');
+  assert.equal(result.error.diagnosticStage, 'visualQa.download');
+  assert.equal(result.error.attempt, 2);
+  const qa = result.artifactRefs.find((item) => item.type === 'office_presentation_qa');
+  assert.equal(qa.data.issues[0].diagnosticStage, 'visualQa.download');
+  assert.equal(qa.data.issues[0].attempt, 2);
+  assert.match(qa.data.issues[0].message, /下载页面图片/);
 });
 
 test('小办显式请求 PPTD-only 时完成本地交付且不触发外部处理', async () => {

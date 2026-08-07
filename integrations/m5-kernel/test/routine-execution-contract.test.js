@@ -54,6 +54,9 @@ test('高风险内容插件阶段统一走无参数 m5_stage_execute 且 toolId 
     assert.deepEqual(contract.executionTool, { kind:'agent_army_mcp', id:'m5_stage_execute' });
     assert.equal(contract.pluginEntryTool, pluginEntryTool);
   }
+  assert.ok(
+    getM5RoutineExecutionContract('m5-render').pluginTools.includes('social-card-render'),
+  );
 });
 
 test('小拆 M5 画面分析契约只消费 AssetPackage 并输出 VisualAnalysisPackage', () => {

@@ -45,6 +45,9 @@ test('渲染重新解析生产模板并把同一绑定写入三份props', async 
     item.templateBindingHash === BINDING.bindingHash
     && /^sha256:[0-9a-f]{64}$/.test(item.scriptHash)
     && /^sha256:[0-9a-f]{64}$/.test(item.audioHash)));
+  assert.equal(parameters.socialCard.props.templateBinding.bindingHash, BINDING.bindingHash);
+  assert.equal(parameters.socialCard.props.platform, 'xiaohongshu');
+  assert.equal(parameters.socialCard.props.cards.length, 3);
 });
 
 test('脚本模板绑定与当前决定漂移时拒绝渲染', async () => {
@@ -146,6 +149,7 @@ test('灰度渲染严格把master和小红书接baseline、抖音接gray_douyin'
       BINDING.bindingHash,
     );
   }
+  assert.equal(parameters.socialCard.props.templateBinding.bindingHash, BINDING.bindingHash);
   assert.equal(byComposition.M5Douyin.variantKey, 'gray_douyin');
   assert.equal(
     byComposition.M5Douyin.props.voiceoverSrc,

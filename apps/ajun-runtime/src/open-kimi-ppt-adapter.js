@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { prepareWorkspaceFile } from './workspace-path-guard.js';
 
 const SKILL_RELATIVE_ROOT = 'open-kimi-ppt-skill';
@@ -11,9 +12,20 @@ const SKILL_ENTRY = 'skills/open-kimi-ppt/SKILL.md';
 const EXPORT_PPTX = 'skills/open-kimi-ppt/scripts/export_pptx.py';
 const EXPORT_IMAGES = 'skills/open-kimi-ppt/scripts/export_images.py';
 const EXPORT_HOST = 'skills/open-kimi-ppt/scripts/export_host.html';
+const PLAYWRIGHT_EXPORT = fileURLToPath(new URL('../scripts/open-kimi-playwright-export.py', import.meta.url));
+const PLAYWRIGHT_DRIVER = fileURLToPath(new URL('../scripts/open-kimi-playwright-driver.mjs', import.meta.url));
 const EXPECTED_PACKAGE_VERSION = '1.0.0';
 const EXPECTED_SOURCE_HASH = '672358d16ef70aa907b8181d451e649465aded3ed1a9cf613b2de5771a70cb10';
-const MIN_AGENT_BROWSER_VERSION = Object.freeze([0, 33, 2]);
+const EXPECTED_PLAYWRIGHT_VERSION = '1.62.1';
+const EXPECTED_PLAYWRIGHT_ENTRY_HASH = '3d36e2132d3c8b62397d23f0bb4177336aaee503203ae2a2c90fbeb5bf3317dd';
+const EXPORT_DIAGNOSTIC_SCHEMA = 'agent.army/open-kimi-ppt-stage-progress/v1';
+const EXPORT_DIAGNOSTIC_STAGES = new Set([
+  'visualQa.images', 'export.pptx', 'browser.launch', 'browser.navigation', 'deck.ready',
+  'browser.viewport', 'editor.snapshot', 'editor.control', 'editor.export_dialog',
+  'editor.image_format', 'visualQa.download', 'visualQa.download_wait',
+  'pptx.download', 'pptx.download_wait',
+]);
+const EXPORT_DIAGNOSTIC_STATUSES = new Set(['started', 'completed', 'failed']);
 const ALLOWED_DESIGN_MODES = new Set(['self_directed', 'design_system', 'template', 'style_transfer']);
 const ALLOWED_CLASSIFICATIONS = new Set(['public', 'redacted', 'internal', 'sensitive']);
 const EXTERNAL_CLASSIFICATIONS = new Set(['public', 'redacted']);
@@ -31,22 +43,35 @@ export class OpenKimiPptAdapter {
       || path.join(os.homedir(), 'Documents/work/AIcode/skills-lib'),
     pythonBinary = process.env.AGENT_ARMY_OPEN_KIMI_PYTHON || 'python3',
     nodeBinary = process.env.AGENT_ARMY_OPEN_KIMI_NODE || 'node',
-    agentBrowserBinary = process.env.AGENT_ARMY_OPEN_KIMI_AGENT_BROWSER || 'agent-browser',
+    playwrightRoot = process.env.AGENT_ARMY_OPEN_KIMI_PLAYWRIGHT_ROOT
+      || path.join(os.homedir(), '.agent-army/toolchains/open-kimi-ppt/1.1.0/node_modules/playwright-core'),
     chromeBinary = process.env.AGENT_ARMY_OPEN_KIMI_CHROME
       || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    expectedNodeVersion = process.env.AGENT_ARMY_OPEN_KIMI_NODE_VERSION || null,
+    expectedPythonVersion = process.env.AGENT_ARMY_OPEN_KIMI_PYTHON_VERSION || null,
+    expectedPlaywrightVersion = process.env.AGENT_ARMY_OPEN_KIMI_PLAYWRIGHT_VERSION || EXPECTED_PLAYWRIGHT_VERSION,
+    expectedPlaywrightEntryHash = process.env.AGENT_ARMY_OPEN_KIMI_PLAYWRIGHT_ENTRY_HASH || EXPECTED_PLAYWRIGHT_ENTRY_HASH,
+    expectedChromeVersion = process.env.AGENT_ARMY_OPEN_KIMI_CHROME_VERSION || null,
+    liveVerificationRecord = process.env.AGENT_ARMY_OPEN_KIMI_LIVE_VERIFICATION_RECORD || null,
     expectedPackageVersion = EXPECTED_PACKAGE_VERSION,
     expectedSourceHash = EXPECTED_SOURCE_HASH,
     readinessProbeImpl = null,
     runImpl = runCommand,
-    prepareExecutionEnvironmentImpl = prepareNoInstallEnvironment,
+    prepareExecutionEnvironmentImpl = prepareOpenKimiExecutionEnvironment,
     now = () => new Date(),
   } = {}) {
     this.sharedSkillsRoot = path.resolve(sharedSkillsRoot);
     this.skillRoot = path.join(this.sharedSkillsRoot, SKILL_RELATIVE_ROOT);
     this.pythonBinary = pythonBinary;
     this.nodeBinary = nodeBinary;
-    this.agentBrowserBinary = agentBrowserBinary;
+    this.playwrightRoot = path.resolve(playwrightRoot);
     this.chromeBinary = chromeBinary;
+    this.expectedNodeVersion = normalizedVersion(expectedNodeVersion);
+    this.expectedPythonVersion = normalizedVersion(expectedPythonVersion);
+    this.expectedPlaywrightVersion = normalizedVersion(expectedPlaywrightVersion);
+    this.expectedPlaywrightEntryHash = String(expectedPlaywrightEntryHash || '').trim().toLowerCase() || null;
+    this.expectedChromeVersion = normalizedVersion(expectedChromeVersion);
+    this.liveVerificationRecord = liveVerificationRecord ? path.resolve(liveVerificationRecord) : null;
     this.expectedPackageVersion = expectedPackageVersion;
     this.expectedSourceHash = expectedSourceHash;
     this.readinessProbeImpl = readinessProbeImpl;
@@ -61,16 +86,21 @@ export class OpenKimiPptAdapter {
     }
     const source = await this.#sourceReadiness();
     const dependencies = await this.#dependencyReadiness();
+    const liveVerification = await this.#liveVerificationReadiness(source, dependencies);
     const composeStatus = source.ready ? 'ready' : 'needs_capability';
     const missing = [
       ...(source.ready ? [] : source.issues),
       ...dependencies.issues,
+      ...(source.ready && dependencies.ready && !liveVerification.verified
+        ? ['公开固定样例尚未完成隔离导出验证']
+        : []),
     ];
-    const exportStatus = source.ready && dependencies.ready ? 'ready' : 'needs_capability';
+    const exportStatus = source.ready && dependencies.ready && liveVerification.verified ? 'ready' : 'needs_capability';
     return freezeReadiness({
       status:composeStatus === 'ready' && exportStatus === 'ready' ? 'ready' : composeStatus === 'ready' ? 'partial' : 'needs_capability',
       source,
       dependencies,
+      liveVerification,
       modes:{
         compose:{ status:composeStatus, externalDataProcessing:false },
         visualQa:{ status:exportStatus, externalDataProcessing:true },
@@ -165,10 +195,13 @@ export class OpenKimiPptAdapter {
     });
   }
 
-  async exportPptx({ access, input, workspaceRoot }) {
+  async exportPptx({ access, input, workspaceRoot, verificationMode = false }) {
     assertExternalProcessing(input);
     const readiness = await this.readiness();
-    if (readiness.modes?.export?.status !== 'ready') {
+    const verificationAllowed = verificationMode === true
+      && readiness.source?.ready === true
+      && readiness.dependencies?.ready === true;
+    if (readiness.modes?.export?.status !== 'ready' && !verificationAllowed) {
       const error = pptError(readiness.recovery || 'PPTX 导出依赖尚未就绪。', 'presentation_export_needs_capability');
       error.readiness = readiness;
       throw error;
@@ -183,27 +216,32 @@ export class OpenKimiPptAdapter {
       projectRoot,
       pythonBinary:this.pythonBinary,
       nodeBinary:this.nodeBinary,
-      agentBrowserBinary:this.agentBrowserBinary,
+      playwrightRoot:this.playwrightRoot,
+      chromeBinary:this.chromeBinary,
     });
     let exportOutput;
     let attempts = 0;
     try {
       while (attempts < 2) {
         attempts += 1;
+        if (executionEnvironment.progressRecord) {
+          await fs.rm(executionEnvironment.progressRecord, { force:true });
+        }
         try {
           await this.run(
             executionEnvironment.pythonBinary,
-            [path.join(this.skillRoot, EXPORT_IMAGES), manifest.target, '--output', qaDirectory],
+            [PLAYWRIGHT_EXPORT, 'images', path.join(this.skillRoot, 'skills/open-kimi-ppt/scripts'), manifest.target, '--output', qaDirectory],
             commandOptions(180_000, executionEnvironment.env),
           );
           exportOutput = await this.run(
             executionEnvironment.pythonBinary,
-            [path.join(this.skillRoot, EXPORT_PPTX), manifest.target, '--output', output.target],
+            [PLAYWRIGHT_EXPORT, 'pptx', path.join(this.skillRoot, 'skills/open-kimi-ppt/scripts'), manifest.target, '--output', output.target],
             commandOptions(240_000, executionEnvironment.env),
           );
           break;
         } catch (error) {
-          if (attempts >= 2 || !isRetryableExportError(error)) throw error;
+          const diagnosedError = await attachExportDiagnostic(error, executionEnvironment.progressRecord, attempts);
+          if (attempts >= 2 || !isRetryableExportError(diagnosedError)) throw diagnosedError;
           await Promise.all([
             fs.rm(qaDirectory, { recursive:true, force:true }),
             fs.rm(output.target, { force:true }),
@@ -242,6 +280,7 @@ export class OpenKimiPptAdapter {
       checksum:crypto.createHash('sha256').update(pptx).digest('hex'),
       durationMs:Math.max(0, this.now().getTime() - startedAt.getTime()),
       attempts,
+      verificationMode:verificationMode === true,
       validation:Object.freeze({
         exists:true,
         readable:true,
@@ -316,27 +355,75 @@ export class OpenKimiPptAdapter {
     const node = await probeVersion(this.run, this.nodeBinary, ['--version']);
     versions.node=node.version;
     if (!node.ok || majorVersion(node.version) < 24) issues.push('隔离 Node 24+ 未配置');
+    if (node.ok && this.expectedNodeVersion && normalizedVersion(node.version) !== this.expectedNodeVersion) {
+      issues.push(`隔离 Node 版本漂移：${normalizedVersion(node.version)} != ${this.expectedNodeVersion}`);
+    }
     const python = await probeVersion(this.run, this.pythonBinary, ['--version']);
     versions.python=python.version;
     if (!python.ok) issues.push('Python 3 不可用');
+    if (python.ok && this.expectedPythonVersion && normalizedVersion(python.version) !== this.expectedPythonVersion) {
+      issues.push(`Python 版本漂移：${normalizedVersion(python.version)} != ${this.expectedPythonVersion}`);
+    }
     if (python.ok) {
       const modules = await probeVersion(this.run, this.pythonBinary, ['-c', 'import yaml, PIL, websocket; print("ok")']);
       if (!modules.ok) issues.push('PyYAML、Pillow 或 websocket-client 未预装');
     }
-    const browser = await probeVersion(this.run, this.agentBrowserBinary, ['--version']);
-    versions.agentBrowser=browser.version;
-    if (!browser.ok || compareVersions(parseVersion(browser.version), MIN_AGENT_BROWSER_VERSION) < 0) {
-      issues.push(`agent-browser ${versionText(browser.version)} 低于 0.33.2 或未安装`);
+    const playwright = await playwrightReadiness(this.playwrightRoot);
+    versions.playwright=playwright.version;
+    if (!playwright.ready) issues.push(...playwright.issues);
+    if (playwright.ready && this.expectedPlaywrightVersion && normalizedVersion(playwright.version) !== this.expectedPlaywrightVersion) {
+      issues.push(`Playwright 版本漂移：${normalizedVersion(playwright.version)} != ${this.expectedPlaywrightVersion}`);
     }
-    const chrome = await fs.access(this.chromeBinary).then(() => true).catch(() => false);
-    if (!chrome) issues.push('Chromium 浏览器未配置');
+    if (playwright.ready && this.expectedPlaywrightEntryHash && playwright.entryHash !== this.expectedPlaywrightEntryHash) {
+      issues.push(`Playwright 源码校验和漂移：${playwright.entryHash || 'missing'} != ${this.expectedPlaywrightEntryHash}`);
+    }
+    const chromeExists = await fs.access(this.chromeBinary).then(() => true).catch(() => false);
+    const chrome = chromeExists ? await probeVersion(this.run, this.chromeBinary, ['--version']) : { ok:false, version:null };
+    versions.chrome=chrome.version;
+    if (!chrome.ok) issues.push('Chromium 浏览器未配置');
+    if (chrome.ok && this.expectedChromeVersion && normalizedVersion(chrome.version) !== this.expectedChromeVersion) {
+      issues.push(`Chromium 版本漂移：${normalizedVersion(chrome.version)} != ${this.expectedChromeVersion}`);
+    }
     return Object.freeze({
       ready:issues.length === 0,
       versions:Object.freeze(versions),
-      chromeBinary:chrome ? this.chromeBinary : null,
+      sourceHashes:Object.freeze({ playwright:playwright.entryHash }),
+      chromeBinary:chrome.ok ? this.chromeBinary : null,
       autoInstall:false,
       allowedHosts:Object.freeze(['www.kimi.com', 'statics.moonshot.cn']),
       issues:Object.freeze(issues),
+    });
+  }
+
+  async #liveVerificationReadiness(source, dependencies) {
+    if (!this.liveVerificationRecord) {
+      return Object.freeze({ verified:false, status:'not_configured', recordId:null });
+    }
+    let document;
+    try {
+      const stat = await fs.lstat(this.liveVerificationRecord);
+      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('not a regular file');
+      document = JSON.parse(await fs.readFile(this.liveVerificationRecord, 'utf8'));
+    } catch {
+      return Object.freeze({ verified:false, status:'missing_or_invalid', recordId:path.basename(this.liveVerificationRecord) });
+    }
+    const expectedVersions = normalizedDependencyVersions(dependencies?.versions);
+    const actualVersions = normalizedDependencyVersions(document?.dependencies);
+    const allowedHosts = Array.isArray(document?.allowedHosts) ? [...document.allowedHosts].sort() : [];
+    const valid = document?.schemaVersion === 'agent.army/open-kimi-ppt-live-verification/v2'
+      && document?.status === 'passed'
+      && document?.source?.packageVersion === source?.packageVersion
+      && document?.source?.sourceHash === source?.sourceHash
+      && JSON.stringify(actualVersions) === JSON.stringify(expectedVersions)
+      && JSON.stringify(allowedHosts) === JSON.stringify(['statics.moonshot.cn', 'www.kimi.com'])
+      && document?.validation?.visualQaPassed === true
+      && document?.validation?.zipIntegrityValid === true
+      && document?.validation?.transitionXmlOrderValid === true;
+    return Object.freeze({
+      verified:valid,
+      status:valid ? 'passed' : 'drifted',
+      recordId:path.basename(this.liveVerificationRecord),
+      verifiedAt:valid ? String(document.verifiedAt || '') || null : null,
     });
   }
 }
@@ -730,52 +817,75 @@ async function probeVersion(run, command, args) {
   }
 }
 
-function parseVersion(value) {
-  const match = String(value || '').match(/(\d+)\.(\d+)\.(\d+)/);
-  return match ? match.slice(1).map(Number) : [0, 0, 0];
-}
-
 function majorVersion(value) {
   const match = String(value || '').match(/v?(\d+)/);
   return match ? Number(match[1]) : 0;
 }
 
-function compareVersions(left, right) {
-  for (let index = 0; index < 3; index += 1) {
-    if ((left[index] || 0) !== (right[index] || 0)) return (left[index] || 0) - (right[index] || 0);
-  }
-  return 0;
+function normalizedVersion(value) {
+  const match = String(value || '').match(/(\d+\.\d+\.\d+(?:\.\d+)?)/);
+  return match?.[1] || null;
 }
 
-function versionText(value) {
-  return String(value || '未安装').replace(/^v/, '');
+function normalizedDependencyVersions(value = {}) {
+  return Object.freeze({
+    chrome:normalizedVersion(value.chrome),
+    node:normalizedVersion(value.node),
+    playwright:normalizedVersion(value.playwright),
+    python:normalizedVersion(value.python),
+  });
 }
 
 function commandOptions(timeoutMs = 180_000, env = null) {
   return { timeoutMs, maxBuffer:2 * 1024 * 1024, ...(env ? { env } : {}) };
 }
 
-async function prepareNoInstallEnvironment({ projectRoot, pythonBinary, nodeBinary, agentBrowserBinary }) {
+export async function prepareOpenKimiExecutionEnvironment({ projectRoot, pythonBinary, nodeBinary, playwrightRoot, chromeBinary }) {
   const runtimeRoot = path.join(projectRoot, `.qa-runtime-${crypto.randomUUID()}`);
+  const progressRecord = path.join(runtimeRoot, 'stage-progress.json');
   await assertPathMissing(runtimeRoot);
   await fs.mkdir(path.join(runtimeRoot, 'bin'), { recursive:true, mode:0o700 });
   try {
-    const [pythonPath, nodePath, browserPath] = await Promise.all([
+    const [pythonPath, nodePath, playwrightPath, chromePath] = await Promise.all([
       resolveExecutable(pythonBinary),
       resolveExecutable(nodeBinary),
-      resolveExecutable(agentBrowserBinary),
+      resolveDirectory(playwrightRoot),
+      resolveExecutable(chromeBinary),
     ]);
     const bin = path.join(runtimeRoot, 'bin');
     await fs.symlink(nodePath, path.join(bin, 'node'));
-    await fs.symlink(browserPath, path.join(bin, 'agent-browser'));
     const guardedPath = [bin, '/usr/bin', '/bin'].join(path.delimiter);
     if (await executableFromPath('npm', guardedPath)) {
       throw pptError('隔离导出 PATH 中出现 npm，拒绝运行带自动安装分支的上游脚本。', 'presentation_toolchain_unsafe');
     }
     return Object.freeze({
       pythonBinary:pythonPath,
+      progressRecord,
       env:Object.freeze({
         PATH:guardedPath,
+        AGENT_ARMY_OPEN_KIMI_NODE_REAL:nodePath,
+        AGENT_ARMY_OPEN_KIMI_PLAYWRIGHT_ROOT:playwrightPath,
+        AGENT_ARMY_OPEN_KIMI_PLAYWRIGHT_DRIVER:PLAYWRIGHT_DRIVER,
+        AGENT_ARMY_OPEN_KIMI_CHROME_REAL:chromePath,
+        AGENT_ARMY_OPEN_KIMI_PROGRESS_RECORD:progressRecord,
+        AGENT_ARMY_OPEN_KIMI_ALLOWED_DOMAINS:'127.0.0.1,localhost,www.kimi.com,statics.moonshot.cn',
+        NODE_OPTIONS:null,
+        PWDEBUG:null,
+        PLAYWRIGHT_BROWSERS_PATH:null,
+        AGENT_BROWSER_SESSION:null,
+        AGENT_BROWSER_SESSION_NAME:null,
+        AGENT_BROWSER_NAMESPACE:null,
+        AGENT_BROWSER_RESTORE:null,
+        AGENT_BROWSER_RESTORE_SAVE:'never',
+        AGENT_BROWSER_AUTO_CONNECT:null,
+        AGENT_BROWSER_PROFILE:null,
+        AGENT_BROWSER_STATE:null,
+        AGENT_BROWSER_ARGS:null,
+        AGENT_BROWSER_PROVIDER:null,
+        AGENT_BROWSER_EXTENSIONS:null,
+        AGENT_BROWSER_INIT_SCRIPTS:null,
+        AGENT_BROWSER_ENABLE:null,
+        AGENT_BROWSER_PLUGINS:'[]',
         PIP_DISABLE_PIP_VERSION_CHECK:'1',
         PIP_NO_INDEX:'1',
         PIP_REQUIRE_VIRTUALENV:'1',
@@ -789,6 +899,71 @@ async function prepareNoInstallEnvironment({ projectRoot, pythonBinary, nodeBina
     await fs.rm(runtimeRoot, { recursive:true, force:true });
     throw error;
   }
+}
+
+async function attachExportDiagnostic(error, progressRecord, attempt) {
+  const diagnostic = await readExportDiagnostic(progressRecord);
+  if (!diagnostic) return error;
+  return Object.assign(error, {
+    stage:diagnostic.stage,
+    stageStatus:diagnostic.status,
+    stageErrorCode:diagnostic.errorCode,
+    attempt,
+  });
+}
+
+async function readExportDiagnostic(progressRecord) {
+  if (!progressRecord) return null;
+  try {
+    const stat = await fs.lstat(progressRecord);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 4096) return null;
+    const document = JSON.parse(await fs.readFile(progressRecord, 'utf8'));
+    if (
+      document?.schemaVersion !== EXPORT_DIAGNOSTIC_SCHEMA
+      || !['images', 'pptx'].includes(document?.mode)
+      || !EXPORT_DIAGNOSTIC_STAGES.has(document?.stage)
+      || !EXPORT_DIAGNOSTIC_STATUSES.has(document?.status)
+    ) return null;
+    const errorCode = String(document?.errorCode || '').trim();
+    return Object.freeze({
+      stage:document.stage,
+      status:document.status,
+      errorCode:/^[a-z0-9_]{1,80}$/i.test(errorCode) ? errorCode : null,
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function playwrightReadiness(playwrightRoot) {
+  try {
+    const root = await resolveDirectory(playwrightRoot);
+    const packagePath = path.join(root, 'package.json');
+    const entryPath = path.join(root, 'index.mjs');
+    const [stat, document] = await Promise.all([
+      fs.lstat(entryPath),
+      fs.readFile(packagePath, 'utf8').then(JSON.parse),
+    ]);
+    if (!stat.isFile() || stat.isSymbolicLink() || document?.name !== 'playwright-core' || !normalizedVersion(document?.version)) {
+      throw new Error('invalid playwright package');
+    }
+    const entryHash = crypto.createHash('sha256').update(await fs.readFile(entryPath)).digest('hex');
+    return Object.freeze({ ready:true, version:normalizedVersion(document.version), entryHash, issues:Object.freeze([]) });
+  } catch {
+    return Object.freeze({ ready:false, version:null, entryHash:null, issues:Object.freeze(['隔离 Playwright Core 未安装或不可验证']) });
+  }
+}
+
+async function resolveDirectory(directory) {
+  const value = String(directory || '').trim();
+  if (!path.isAbsolute(value)) {
+    throw pptError(`隔离工具链目录必须是绝对路径：${value || 'empty'}`, 'presentation_export_needs_capability');
+  }
+  const real = await fs.realpath(value).catch(() => null);
+  if (!real) throw pptError(`隔离工具链无法解析目录：${value}`, 'presentation_export_needs_capability');
+  const stat = await fs.stat(real).catch(() => null);
+  if (!stat?.isDirectory()) throw pptError(`隔离工具链路径不是目录：${value}`, 'presentation_export_needs_capability');
+  return real;
 }
 
 async function resolveExecutable(command) {
@@ -849,17 +1024,55 @@ async function pptdPageCount(manifestPath) {
 }
 
 function runCommand(command, args, { timeoutMs = 30_000, maxBuffer = 1024 * 1024, env = {} } = {}) {
+  const childEnvironment = { ...process.env };
+  for (const [name, value] of Object.entries(env)) {
+    if (value == null) delete childEnvironment[name];
+    else childEnvironment[name] = String(value);
+  }
   return new Promise((resolve, reject) => execFile(command, args, {
     timeout:timeoutMs,
     maxBuffer,
     encoding:'utf8',
-    env:{ ...process.env, ...env },
-  }, (error, stdout) => error ? reject(error) : resolve(stdout)));
+    env:childEnvironment,
+  }, (error, stdout, stderr) => error ? reject(classifyCommandFailure(error, stdout, stderr)) : resolve(stdout)));
+}
+
+function classifyCommandFailure(error, stdout, stderr) {
+  const detail = [error?.message, stdout, stderr].filter(Boolean).join('\n');
+  if (String(error?.code || '').toUpperCase() === 'ETIMEDOUT' || error?.killed || /timed out/i.test(detail)) {
+    return Object.assign(new Error('外部演示文稿导出命令超时。'), {
+      code:'ETIMEDOUT', category:'temporary_dependency', retryable:true,
+    });
+  }
+  if (/Cannot find default execution context/i.test(detail)) {
+    return Object.assign(new Error('浏览器执行上下文暂时不可用。'), {
+      code:'EBROWSERCONTEXT', category:'temporary_dependency', retryable:true,
+    });
+  }
+  if (/playwright_(?:timeout|browser_unavailable|editor_frame_unavailable|download_(?:event_timeout|trigger_failed|save_failed|empty))/i.test(detail)) {
+    return Object.assign(new Error('Playwright 浏览器会话暂时不可用。'), {
+      code:'EPLAYWRIGHT', category:'temporary_dependency', retryable:true,
+    });
+  }
+  if (/playwright_(?:network_policy_blocked|navigation_denied|output_denied|output_exists|download_output_(?:invalid|exists)|command_denied|environment_invalid)/i.test(detail)) {
+    return Object.assign(new Error('Playwright 浏览器安全策略拒绝执行。'), {
+      code:'presentation_browser_policy_denied', category:'permission', retryable:false,
+    });
+  }
+  const code = String(error?.code || '').toUpperCase();
+  if (['ECONNRESET', 'ECONNREFUSED', 'EAI_AGAIN', 'ENETUNREACH'].includes(code)) {
+    return Object.assign(new Error('外部演示文稿导出网络暂时不可用。'), {
+      code, category:'temporary_dependency', retryable:true,
+    });
+  }
+  return Object.assign(new Error('外部演示文稿导出命令失败。'), {
+    code:'presentation_export_command_failed', category:'external_dependency', retryable:false,
+  });
 }
 
 function isRetryableExportError(error) {
   const code = String(error?.code || '').toUpperCase();
-  if (['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'EAI_AGAIN', 'ENETUNREACH'].includes(code)) return true;
+  if (['ETIMEDOUT', 'EBROWSERCONTEXT', 'EPLAYWRIGHT', 'ECONNRESET', 'ECONNREFUSED', 'EAI_AGAIN', 'ENETUNREACH'].includes(code)) return true;
   const message = String(error?.message || error || '').toLowerCase();
   return /\b(?:browser|network|socket|websocket|connection)\b/.test(message)
     && /\b(?:temporar|timeout|timed out|reset|refused|closed|unavailable|disconnected)\b/.test(message);

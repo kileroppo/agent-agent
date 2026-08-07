@@ -210,6 +210,7 @@ export const M5_ROUTINE_EXECUTION_CONTRACTS = Object.freeze([
     pluginTools:[
       'remotion-props-write',
       'remotion-render',
+      'social-card-render',
       'media-finalize',
       'media-probe',
       'media-validate',

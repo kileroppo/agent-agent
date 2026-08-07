@@ -424,6 +424,7 @@ test('媒体哈希或字节数漂移时在上传前硬失败并清理 session', 
     profileLease:profileLease(),
     bridge,
     temporaryRoot:root,
+    clock:() => new Date(PUBLISHED_AT),
   });
   const connector = new CuaPlatformConnector({
     platform:'douyin',
@@ -453,6 +454,7 @@ test('验证码首次出现即停止，不执行上传或表单动作', async ()
     selectorBundles:{ douyin:selectorBundle() },
     profileLease:profileLease(),
     bridge,
+    clock:() => new Date(PUBLISHED_AT),
   });
   const connector = new CuaPlatformConnector({
     platform:'douyin',
@@ -474,6 +476,7 @@ test('页面登录账号与 Profile lease 哈希不一致时在上传前停止',
     selectorBundles:{ douyin:selectorBundle() },
     profileLease:profileLease(),
     bridge,
+    clock:() => new Date(PUBLISHED_AT),
   });
   const connector = new CuaPlatformConnector({
     platform:'douyin',
@@ -636,6 +639,7 @@ test('回执在有界轮询内未出现时按 unknown_page 停止且不重发', 
     selectorBundles:{ douyin:selectorBundle() },
     profileLease:profileLease(),
     bridge,
+    clock:() => new Date(PUBLISHED_AT),
     resultPollAttempts:3,
     resultPollIntervalMs:0,
   });

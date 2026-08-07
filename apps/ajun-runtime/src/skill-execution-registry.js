@@ -17,7 +17,7 @@ const DEFINITIONS = Object.freeze({
     executionBoundary:'office.pptd.write + approval-gated office.pptx.export',
     dataBoundary:'assigned-task-and-workspace-only',
     externalSideEffects:['external-data-processing'],
-    recovery:'PPTD 可在共享技能源码校验通过后生成；PPTX 需要隔离 Node 24+ 与 agent-browser >= 0.33.2，运行时不会自动安装。',
+    recovery:'PPTD 可在共享技能源码校验通过后生成；PPTX 需要版本和源码校验通过的隔离 Node、Playwright Core 与 Chromium，并完成公开样例 live 验证。运行时不会自动安装。',
   },
   'yichen-wechat-local-vault':{ owner:'wechat-chat-retriever', readiness:'ready', executionBoundary:'wechat.local-vault.chat.read' },
 });

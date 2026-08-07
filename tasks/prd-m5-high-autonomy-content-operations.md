@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 当前源码候选为 16 阶段 / 18 Routine（17 阶段/分支 + 1 daily）/ 6 无模型控制器；r3 已冻结、main/recovery smoke 通过但未激活。live 仍为 15/17/5，Cron 与 Publisher 关闭。2026-08-05 已完成一次负责人单独授权的小红书真实发布冒烟，平台分配内容 ID 且当前“审核中”；Publisher 候选已补笔记管理的精确标题/状态/详情 URL 强回读并本地测试通过，但尚无获批 selector/Profile lease 或 production Runtime 真实验收，不能替代真实 PublishReceipt、抖音发布、指标或 7 天闭环，因此 M5 未完成 |
+| 状态 | 2026-08-06 A君已从 clean commit `bf8b6586…` 切入不可变 release `0ba4980d…`，main/recovery smoke、A君 `1143/1143` 和真实浏览器导航持久性通过；Paperclip 资源仍为 15/17/5，Campaign、Cron 与 Publisher 关闭。2026-08-05 的小红书单次受控发布仍只是隔离人工冒烟，不能替代 production Runtime `PublishReceipt`、抖音、指标或 7 天闭环，因此 M5 未完成 |
 | 负责人 | A君 |
 | 创建时间 | 2026-07-30 |
 | 上游 | [Agent军团总 PRD](./prd-agent-army-master.md) |
@@ -88,6 +88,7 @@
   - 当前源码候选声明 16 阶段 Pipeline、18 个 Routine（17 个阶段/分支 Routine + 1 个 daily Routine）和 6 个无模型 HTTP 控制器（daily、parallel、publisher、metrics、retrospective、learning）。研究、证据、画面分析和生图通过 Paperclip 子 Case/blocker 并行，配音等待脚本，四项可信 Work Product 由无模型汇聚控制器核验后才解锁渲染；这只是源码候选，live 仍为 15/17/5；
   - 灰度日不是“同一文案换标题”：`baseline` 独立驱动 `master.mp4` 与小红书版，`gray_douyin` 独立驱动抖音版。两条变体必须分别绑定脚本、TTS、渲染、机器审核、模板版本、目标日期 Case、平台 Case 与内容血缘；缺少任一完整变体、跨平台串线或哈希重复都失败关闭；
   - 内容自治插件 live `0.4.9` 的 14 个工具，包括 StepFun 多模态、FFmpeg/FFprobe、受控 Remotion、固定 9 项产物包、产物血缘和发布前门禁；Paperclip API、插件健康检查与 worker 进程均已对账到 SHA 命名的 `0.4.9` 不可变净包并处于 `ready/healthy`。`0.4.6` 不可变包和 Paperclip `2026.722.0` 二进制兼容回滚链保留，已淘汰的 `0.4.7` 本地包删除；
+  - 本地候选 `0.5.0` 在原 `render` 阶段增加确定性小红书静态卡输出：只消费 baseline 脚本、可信图片账本、版权依据和生产模板绑定，生成 3 页 1080×1440 PNG 与可回放 `SocialCardPackage`，嵌入原 `RenderPackage`。该候选没有新增 Pipeline 阶段、控制器、Provider 调用或发布动作，尚未安装到 live；
   - 无模型 Publisher Gateway 已覆盖双平台幂等、失败暂停、发布凭证和显式指标采集；抖音官方 API connector 已完成上传/创建/查询/本人指标的依赖注入源码契约，production composition 与 A君延迟授权代码也已接线，但 live 未注入 production access 或真实 connector dependencies，真实 Runtime 仍未启用；2h/24h/72h 调度由 Paperclip 原生 Issue Monitor 承担；
   - 自媒体内容方法 1–6 已复用现有 A君、小R、小创、审核官和小办岗位，新增 `ContentBrief`、`ContentOpportunity`、四平台 playbook、视觉锚点、六项语义质量门、标准化指标及同类样本中位数/P75；没有新增任务状态机，Paperclip 仍是唯一任务真相；
   - 第 7 项公众号能力以独立 `WechatDraftGateway` 接入：Paperclip 授权在文件获取前和 CLI 调用前各核验一次，文件使用 SHA-256 不可变租约，Secret 仅由 resolver 临时解析，Wenyan runner 只允许版本检查和创建草稿。结果固定为未发布、未群发；真实 Wenyan、公众号账号、IP 白名单和草稿写入尚未验收；
@@ -126,7 +127,7 @@
   - 真实 CUA 只有同时满足以下门禁才允许构造：selector bundle 经 Paperclip 批准后冻结且版本、规范哈希、文件哈希和有效期全部匹配；未过期的 `isolated_named` Profile lease 精确绑定平台、CampaignGrant `accountRef`、Profile 名和页面身份哈希；账号具备本次活动写授权；发布结果返回真实内容页、平台内容 ID、selector 版本/哈希和账号核验证据。任一缺失、错配、验证码、身份验证、账号切换、风控、违规或未知页面都在生成可信 PublishReceipt 前停止；
   - 7 天真实本地 MP4→Fake 证据位于 `work/m5-publisher-gateway/acceptance/fake-seven-day-2026-07-31-v1/`：7 个上海日历日、每天双平台，共 14 个 fake PublishReceipt 和 42 个 2h/24h/72h 模拟 MetricSnapshot；44 次 Runtime 重建后仍幂等重放同一 72h 快照。证据明确 `realPlatformTouched=false`、`externalPublished=false`、`realPlatformCalls=0`、`totalCostUsd=0`、`actualPlatformElapsedTime=false`，只证明本地发布账本、恢复和模拟指标回流，不是平台外发或真实 72h 等待；
   - 小红书本人指标已接入 Gateway production composition/Runtime/MetricSnapshot 链：发布与指标使用独立 Paperclip approval、runner 和命名 Profile，指标 runner 固定五步只读，并绑定可信 PublishReceipt、`accountRef`、内容 ID、selector 版本/哈希和页面身份；硬停会暂停 Campaign/Cron，批准到期与预算不足会在 connector 前拒绝。跨进程指标调用进入 `invoking` 后不可按租约换主；超过 10 分钟只会转为 `human_review`，禁止自动重试。Gateway 恢复要求有效持久 claimToken、全账本唯一 authorizationId，并在任何暂停或账本 mutation 前重新核验授权；确认存在外部效果时先暂停 Campaign/Cron，确认无外部效果时也不会自动再次调用。A君对完全一致的授权重放只读返回旧结果，绝不再次进入可写恢复。Paperclip `2026.722.0` 原始安装仍没有原生过期、撤销和原子 consume 的一次性恢复 Approval 契约；仓库现已提供版本锁定的 Run-JWT 转发与恢复 Approval 兼容补丁（合并定向测试 `15/15`），controller cutover 工具 `15/15`。快照读写 TOCTOU 已修复，包含 post-link 父目录替换后原目录/替代目录零残留、0 Paperclip PATCH，以及清理不完整时 `recoveryRequired`；清理器 ready/cleanup/close 均有硬超时，卡死时按 TERM、KILL、确认退出收口。只从 current-run provider 取身份和凭据的 A君恢复 access 已实际 wire 进 server composition/metrics 请求级作用域，provider composition `43/43`、相关 server/controller `84/84`。两份兼容补丁仍未 apply，live 控制器 adapterConfig 未启用 `forwardRunJwt`，当前 4321 也未加载新 binding，所以 live 恢复仍不可调用。抖音风控与费用上报双故障同样不会覆盖 hard-stop。当前没有真实浏览器、真实账号或平台指标，不能宣称真实回读；
-  - Publisher 提供只读 `npm run production:readiness`；当前 4390 为 disabled，Campaign snapshot、selector、Profile lease 和 production provider 均未提供，因此结果为 `not_ready`、退出码 `2`、唯一下一步为 `provide-campaign-status-snapshot`。该命令不读取 `.env`/Secret，不启动服务、不批准 Campaign/Cron；
+  - Publisher 提供只读 `npm run production:readiness`；在未提供 Campaign snapshot、selector、Profile lease 和 production provider 的输入下结果为 `not_ready`、退出码 `2`，机器建议动作为 `provide-campaign-status-snapshot`。该命令不读取 `.env`/Secret，不启动服务、不批准 Campaign/Cron；
   - 当前 `127.0.0.1:4321` 返回 `/api/overview` 200；Paperclip live 仍为 15/17/5，内容插件 live `0.4.9` `ready/healthy`，每日 Cron 关闭，M5 活动为 `paused`。11 个实际 Hermes Profile 已收敛，但 Publisher 仍关闭；现有 StepFun no-tool 探针只证明文本传输和模型身份，其 usage 中 `estimated_cost_usd=0` 不是官方账单，也不承担内容 Provider 血缘。正式视觉与三类 Provider 血缘门禁已随插件进入 live，但尚无真实 M5 Campaign StepFun 视觉调用。21/21 支本地视频及机器审核已经完成，publisher/retrospective 真实 Case 和平台外写均未发生。
 
 因此当前结论是“M5 执行、发布凭证写回、受控学习与并行 v2 已通过本地自动化并
