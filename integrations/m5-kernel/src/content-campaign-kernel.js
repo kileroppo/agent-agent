@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import {
   M5_PLATFORMS,
+  M5_SCHEMA_IDS,
   M5_STEPFUN_MODELS,
 } from '@agent-army/m5-contracts';
 import { assertM5ControlPlane } from './control-plane.js';
@@ -520,66 +521,85 @@ export class ContentCampaignKernel {
       };
     }
     if (contract.stageKey === 'render') {
-      const receipts = await executeM5Route(routeExecution, () => Promise.all(
-        parameters.renders.map(async (render) => {
-        const propsWrite = await this.executeTool({
+      const { receipts, socialCardPackage } = await executeM5Route(routeExecution, async () => {
+        const receipts = await Promise.all(parameters.renders.map(async (render) => {
+          const propsWrite = await this.executeTool({
+            campaignId:campaignCase.id,
+            caseId:targetCaseId,
+            toolId:`${CONTENT_AUTONOMY_PLUGIN_KEY}:remotion-props-write`,
+            parameters:{
+              composition:render.composition,
+              outputPath:render.propsPath,
+              props:render.props,
+            },
+          });
+          if (
+            propsWrite?.propsPath !== render.propsPath
+            || !/^sha256:[0-9a-f]{64}$/i.test(String(propsWrite?.checksum || ''))
+          ) {
+            throw new ContentCampaignError(
+              `${render.composition} props 写入后没有返回同一路径和真实哈希，渲染未启动。`,
+            );
+          }
+          const receipt = await this.executeTool({
+            campaignId:campaignCase.id,
+            caseId:targetCaseId,
+            toolId:`${CONTENT_AUTONOMY_PLUGIN_KEY}:${contract.pluginEntryTool}`,
+            parameters:{
+              composition:render.composition,
+              propsPath:render.propsPath,
+              outputPath:render.outputPath,
+            },
+          });
+          if (
+            receipt?.composition !== render.composition
+            || receipt?.propsPath !== render.propsPath
+            || receipt?.outputPath !== render.outputPath
+            || !/^sha256:[0-9a-f]{64}$/i.test(String(receipt?.checksum || ''))
+            || !Number.isInteger(Number(receipt?.bytes))
+            || Number(receipt.bytes) <= 0
+          ) {
+            throw new ContentCampaignError(`${render.composition} 没有返回匹配路径、真实哈希和字节数。`);
+          }
+          return {
+            composition:receipt.composition,
+            propsPath:receipt.propsPath,
+            outputPath:receipt.outputPath,
+            relativePath:receipt.outputPath,
+            checksum:receipt.checksum,
+            bytes:Number(receipt.bytes),
+            ...(render.variantKey ? {
+              variantKey:render.variantKey,
+              scriptHash:render.scriptHash,
+              audioHash:render.audioHash,
+              templateBindingHash:render.templateBindingHash,
+              voiceProviderActionId:render.voiceProviderActionId,
+            } : {}),
+            ...(Number.isFinite(Number(receipt.durationSeconds))
+              ? { durationSeconds:Number(receipt.durationSeconds) }
+              : {}),
+          };
+        }));
+        const rawSocialCards = await this.executeTool({
           campaignId:campaignCase.id,
           caseId:targetCaseId,
-          toolId:`${CONTENT_AUTONOMY_PLUGIN_KEY}:remotion-props-write`,
-          parameters:{
-            composition:render.composition,
-            outputPath:render.propsPath,
-            props:render.props,
-          },
+          toolId:`${CONTENT_AUTONOMY_PLUGIN_KEY}:social-card-render`,
+          parameters:parameters.socialCard,
         });
+        const socialCardPackage = rawSocialCards?.data && typeof rawSocialCards.data === 'object'
+          ? rawSocialCards.data
+          : rawSocialCards;
         if (
-          propsWrite?.propsPath !== render.propsPath
-          || !/^sha256:[0-9a-f]{64}$/i.test(String(propsWrite?.checksum || ''))
+          !validM5SocialCardPackageReceipt(socialCardPackage)
+          || socialCardPackage.outputDir !== parameters.socialCard.outputDir
+          || socialCardPackage.templateBindingHash
+            !== parameters.socialCard.props.templateBinding.bindingHash
+          || socialCardPackage.rightsBasis !== parameters.socialCard.props.rightsBasis
         ) {
-          throw new ContentCampaignError(
-            `${render.composition} props 写入后没有返回同一路径和真实哈希，渲染未启动。`,
-          );
+          throw new ContentCampaignError('静态卡工具没有返回匹配的 1080×1440 PNG、哈希、模板与版权血缘。');
         }
-        const receipt = await this.executeTool({
-          campaignId:campaignCase.id,
-          caseId:targetCaseId,
-          toolId:`${CONTENT_AUTONOMY_PLUGIN_KEY}:${contract.pluginEntryTool}`,
-          parameters:{
-            composition:render.composition,
-            propsPath:render.propsPath,
-            outputPath:render.outputPath,
-          },
-        });
-        if (
-          receipt?.composition !== render.composition
-          || receipt?.propsPath !== render.propsPath
-          || receipt?.outputPath !== render.outputPath
-          || !/^sha256:[0-9a-f]{64}$/i.test(String(receipt?.checksum || ''))
-          || !Number.isInteger(Number(receipt?.bytes))
-          || Number(receipt.bytes) <= 0
-        ) {
-          throw new ContentCampaignError(`${render.composition} 没有返回匹配路径、真实哈希和字节数。`);
-        }
-        return {
-          composition:receipt.composition,
-          propsPath:receipt.propsPath,
-          outputPath:receipt.outputPath,
-          relativePath:receipt.outputPath,
-          checksum:receipt.checksum,
-          bytes:Number(receipt.bytes),
-          ...(render.variantKey ? {
-            variantKey:render.variantKey,
-            scriptHash:render.scriptHash,
-            audioHash:render.audioHash,
-            templateBindingHash:render.templateBindingHash,
-            voiceProviderActionId:render.voiceProviderActionId,
-          } : {}),
-          ...(Number.isFinite(Number(receipt.durationSeconds))
-            ? { durationSeconds:Number(receipt.durationSeconds) }
-            : {}),
-        };
-        }),
-      ));
+        return { receipts, socialCardPackage };
+      });
       const outputs = Object.fromEntries(receipts.map((receipt) => [
         renderPlatformKey(receipt.composition),
         receipt,
@@ -587,12 +607,13 @@ export class ContentCampaignKernel {
       return {
         toolId:`${CONTENT_AUTONOMY_PLUGIN_KEY}:${contract.pluginEntryTool}`,
         pluginId:CONTENT_AUTONOMY_PLUGIN_KEY,
-        content:'三份受控 M5 成片已经生成并完成回执核验。',
+        content:'三份受控 M5 成片与小红书静态卡包已经生成并完成回执核验。',
         artifact:{
           type:contract.expectedWorkProduct.artifactKinds[0],
           schemaVersion:contract.expectedWorkProduct.schemaVersion,
           data:{
             outputs,
+            socialCardPackage,
             ...outputs.master,
           },
           validation:{
@@ -600,6 +621,7 @@ export class ContentCampaignKernel {
             readable:true,
             nonEmpty:true,
             fixedOutputsVerified:true,
+            socialCardsVerified:true,
           },
         },
         routeExecution,
@@ -777,6 +799,32 @@ export class ContentCampaignKernel {
           output.bytes,
           contract,
         );
+      }
+      if (data.socialCardPackage != null) {
+        const socialCards = data.socialCardPackage;
+        if (!validM5SocialCardPackageReceipt(socialCards)) {
+          throw m5WorkProductDrift(contract, 'SocialCardPackage 字段无效');
+        }
+        await this.assertWorkspaceReplayFile(
+          socialCards.propsPath,
+          socialCards.propsChecksum,
+          null,
+          contract,
+        );
+        await this.assertWorkspaceReplayFile(
+          socialCards.manifestPath,
+          socialCards.manifestChecksum,
+          null,
+          contract,
+        );
+        for (const card of socialCards.cards) {
+          await this.assertWorkspaceReplayFile(
+            card.relativePath,
+            card.checksum,
+            card.bytes,
+            contract,
+          );
+        }
       }
     } else if (stageKey === 'machine_review') {
       const review = data.reviewReport;
@@ -1007,6 +1055,15 @@ export class ContentCampaignKernel {
         templateBinding,
       });
       return {
+        socialCard:{
+          outputDir:`campaigns/${campaignCase.id}/${targetCase.id}/social-cards`,
+          props:buildM5SocialCardProps({
+            script:baselineScript,
+            visualAssets,
+            templateBinding,
+            rightsBasis:assetPackage.rightsBasis,
+          }),
+        },
         renders:[
           ['M5Master', 'master.mp4'],
           ['M5Douyin', 'douyin.mp4'],
@@ -2591,6 +2648,102 @@ function buildM5RenderProps({
   };
 }
 
+function buildM5SocialCardProps({
+  script,
+  visualAssets,
+  templateBinding,
+  rightsBasis,
+}) {
+  const ledger = visualAssets.slice(0, 12).map((asset) => ({
+    relativePath:asset.relativePath,
+    checksum:asset.checksum,
+  }));
+  const shotBullets = asList(script?.shots)
+    .map((shot) => safeText(shot?.narration || shot?.visual, 24))
+    .filter(Boolean)
+    .slice(0, 3);
+  const keyPoints = shotBullets.length
+    ? shotBullets
+    : ['明确任务边界', '保留真实回执', '由人工决定发布'];
+  return {
+    platform:'xiaohongshu',
+    title:safeText(script?.headline || script?.topic || 'AI Agent 实战', 40) || 'AI Agent 实战',
+    subtitle:safeText(script?.hook || '从目标到真实产物', 120) || '从目标到真实产物',
+    sourceLabel:'公开来源与本机自产素材',
+    rightsBasis:safeText(rightsBasis, 500),
+    templateBinding,
+    assetLedger:ledger,
+    cards:[
+      {
+        id:'cover',
+        kind:'cover',
+        headline:safeText(script?.headline || script?.topic || '别把运行当完成', 14) || '别把运行当完成',
+        body:safeText(script?.hook || script?.fullScript || '完成必须落到可核验的真实产物。', 60),
+        bullets:keyPoints,
+      },
+      {
+        id:'evidence',
+        kind:'evidence',
+        headline:'证据进入同一条链',
+        body:'素材、模板和输出都绑定到同一 Case，可按路径与哈希复核。',
+        bullets:keyPoints,
+        imageSrc:ledger[0].relativePath,
+      },
+      {
+        id:'checklist',
+        kind:'checklist',
+        headline:'交付前逐项核对',
+        body:'静态卡只是候选产物；审批、启用和发布仍是彼此独立的门禁。',
+        bullets:['代码与测试已通过', '素材与版权依据可追溯', '输出尺寸和哈希已核验', '发布需要负责人批准'],
+      },
+    ],
+  };
+}
+
+function validM5SocialCardPackageReceipt(value) {
+  const outputDir = safeWorkspaceRelativePath(value?.outputDir);
+  const cards = asList(value?.cards);
+  const checks = value?.checks;
+  return value?.schemaVersion === M5_SCHEMA_IDS.SOCIAL_CARD_PACKAGE
+    && value?.platform === 'xiaohongshu'
+    && outputDir
+    && safeWorkspaceRelativePath(value?.propsPath)
+    && String(value.propsPath).endsWith('/social-card.props.json')
+    && validM5Sha256(value?.propsChecksum)
+    && safeWorkspaceRelativePath(value?.manifestPath)
+    && String(value.manifestPath).endsWith('/social-card-render-manifest.json')
+    && validM5Sha256(value?.manifestChecksum)
+    && validM5Sha256(value?.templateBindingHash)
+    && safeText(value?.rightsBasis, 500)
+    && value?.rightsBasisHash === m5TextHash(value.rightsBasis)
+    && cards.length >= 3
+    && cards.length <= 9
+    && cards.every((card) =>
+      /^[a-z0-9][a-z0-9-]{1,48}$/i.test(String(card?.id || ''))
+      && safeWorkspaceRelativePath(card?.relativePath)
+      && String(card.relativePath).startsWith(`${outputDir}/`)
+      && String(card.relativePath).toLowerCase().endsWith('.png')
+      && Number(card?.width) === 1080
+      && Number(card?.height) === 1440
+      && Number.isInteger(Number(card?.bytes))
+      && Number(card.bytes) > 0
+      && validM5Sha256(card?.checksum)
+    )
+    && checks?.dimensions === true
+    && checks?.fileHashes === true
+    && checks?.assetLineage === true
+    && checks?.rightsBasis === true
+    && checks?.externalNetworkUsed === false;
+}
+
+function validM5Sha256(value) {
+  return /^sha256:[0-9a-f]{64}$/i.test(String(value || ''));
+}
+
+function m5TextHash(value) {
+  return `sha256:${crypto.createHash('sha256').update(String(value || ''), 'utf8').digest('hex')}`;
+}
+
 async function resolveM5TemplateForRender({
   resolver,
   pipelineCaseId,
@@ -2816,6 +2969,7 @@ function m5HermesStageToolIds(contract) {
     return [
       `${CONTENT_AUTONOMY_PLUGIN_KEY}:remotion-props-write`,
       `${CONTENT_AUTONOMY_PLUGIN_KEY}:remotion-render`,
+      `${CONTENT_AUTONOMY_PLUGIN_KEY}:social-card-render`,
     ];
   }
   if (contract.stageKey === 'machine_review') {

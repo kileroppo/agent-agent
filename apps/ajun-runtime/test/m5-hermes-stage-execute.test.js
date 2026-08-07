@@ -156,6 +156,38 @@ function testScriptVariant(variantKey, fullScript, templateBinding) {
   };
 }
 
+function socialCardReceipt(parameters) {
+  const outputDir = parameters.outputDir;
+  const cards = parameters.props.cards.map((card, index) => ({
+    id:card.id,
+    relativePath:`${outputDir}/xhs-${String(index + 1).padStart(2, '0')}-${card.id}.png`,
+    width:1080,
+    height:1440,
+    bytes:2048 + index,
+    checksum:`sha256:${String(index + 4).repeat(64)}`,
+  }));
+  return {
+    schemaVersion:'agent.army/social-card-package/v1',
+    platform:'xiaohongshu',
+    outputDir,
+    propsPath:`${outputDir}/social-card.props.json`,
+    propsChecksum:`sha256:${'4'.repeat(64)}`,
+    manifestPath:`${outputDir}/social-card-render-manifest.json`,
+    manifestChecksum:`sha256:${'5'.repeat(64)}`,
+    templateBindingHash:parameters.props.templateBinding.bindingHash,
+    rightsBasis:parameters.props.rightsBasis,
+    rightsBasisHash:`sha256:${crypto.createHash('sha256').update(parameters.props.rightsBasis).digest('hex')}`,
+    cards,
+    checks:{
+      dimensions:true,
+      fileHashes:true,
+      assetLineage:true,
+      rightsBasis:true,
+      externalNetworkUsed:false,
+    },
+  };
+}
+
 async function voiceReplayFixture(t) {
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'm5-voice-replay-'));
   t.after(() => fs.rm(workspace, { recursive:true, force:true }));
@@ -1095,6 +1127,9 @@ test('m5_stage_execute 渲染前先确定性写入并回读 props 哈希', async
             checksum:`sha256:${'b'.repeat(64)}`,
           };
         }
+        if (input.toolId.endsWith(':social-card-render')) {
+          return socialCardReceipt(input.parameters);
+        }
         return {
           toolId:input.toolId,
           composition:input.parameters.composition,
@@ -1113,9 +1148,10 @@ test('m5_stage_execute 渲染前先确定性写入并回读 props 哈希', async
       input:{ context:{ paperclipRoutineKey:'m5-render', pipelineCaseId:caseId } },
     },
   });
-  assert.equal(calls.length, 6);
+  assert.equal(calls.length, 7);
   assert.equal(calls.filter((call) => call.toolId.endsWith(':remotion-props-write')).length, 3);
   assert.equal(calls.filter((call) => call.toolId.endsWith(':remotion-render')).length, 3);
+  assert.equal(calls.filter((call) => call.toolId.endsWith(':social-card-render')).length, 1);
   assert.deepEqual(
     Object.fromEntries(Object.entries(result.artifact.data.outputs).map(([platform, output]) => [
       platform,
@@ -1128,6 +1164,8 @@ test('m5_stage_execute 渲染前先确定性写入并回读 props 哈希', async
     },
   );
   assert.equal(result.artifact.validation.fixedOutputsVerified, true);
+  assert.equal(result.artifact.validation.socialCardsVerified, true);
+  assert.equal(result.artifact.data.socialCardPackage.cards.length, 3);
   for (const output of Object.values(result.artifact.data.outputs)) {
     assert.equal(output.variantKey, 'baseline');
     assert.match(output.scriptHash, /^sha256:[0-9a-f]{64}$/);
@@ -2245,6 +2283,9 @@ test('灰度抖音真实阶段产物贯穿 Script→Voice→Render→MachineRevi
             durationSeconds:45,
           };
         }
+        if (input.toolId.endsWith(':social-card-render')) {
+          return socialCardReceipt(input.parameters);
+        }
         if (input.toolId.endsWith(':media-validate')) {
           return {
             passed:true,
@@ -2312,6 +2353,7 @@ test('灰度抖音真实阶段产物贯穿 Script→Voice→Render→MachineRevi
   });
   const renderArtifact = renderResult.artifact;
   const renderPackage = renderArtifact.data;
+  assert.equal(renderPackage.socialCardPackage.templateBindingHash, baselineBinding.bindingHash);
   const douyinRender = renderPackage.outputs.douyin;
   assert.equal(douyinRender.variantKey, 'gray_douyin');
   assert.equal(douyinRender.scriptHash, grayScript.scriptHash);

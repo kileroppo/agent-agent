@@ -12,6 +12,7 @@ export const M5_ROLE_TOOL_BUNDLES = Object.freeze({
     'media-finalize',
     'remotion-props-write',
     'remotion-render',
+    'social-card-render',
     'subtitle-layout-validate',
     'artifact-lineage-validate',
   ]),

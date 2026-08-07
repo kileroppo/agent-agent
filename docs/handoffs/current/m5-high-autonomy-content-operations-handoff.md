@@ -2,24 +2,29 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 2026-08-05 已完成一次负责人单独授权的小红书真实发布冒烟，平台内容 ID 已分配且当前“审核中”；该动作未经过 production Runtime。Cron 与 Publisher 继续关闭，Paperclip selector/Profile lease、抖音发布、指标和 7 天闭环未完成，M5 未完成 |
+| 状态 | 2026-08-06 A君不可变 release `0ba4980d…` 已 live，PID `36973`，服务与浏览器关键路径通过；Campaign、Cron、Publisher 继续关闭，M5 未完成 |
 | 创建时间 | 2026-07-30 Asia/Shanghai |
 | 交出者 | Codex |
 | 接手者 | Codex / A君 |
 | 关联任务 | [M5 PRD](../../../tasks/prd-m5-high-autonomy-content-operations.md) |
-| 截止条件 | R4 main/recovery smoke 与 live 切换已完成；下一门禁是只读 production readiness 和 Paperclip 兼容层/插件逐项 apply。未经独立批准不得开启 Publisher、批准活动或执行平台写入 |
+| 截止条件 | 下一门禁是准备并人工审阅脱敏 Campaign readiness 快照，再运行只读预检。未经独立批准不得恢复 Campaign、注入 provider、开启 Publisher 或执行平台写入 |
 
 ## 1. 接手目标
 
 - 目标：把内容增长链升级为可恢复、可审计、可受控发布的真实执行循环。
 - 用户约束与不可做事项：抖音+小红书；旁白混剪；活动级预授权；不使用逆向接口、Cookie 导出、私信、评论、投流或自动删除。
 - 做完的定义：本地代码、自动化、fresh 运行时、多模态、Computer Use、双平台首发和 7 天指标回流分层有证据。
-- 唯一下一步：保持当前活动暂停、M5 每日 Cron 和 Publisher 关闭，对 `0.4.9` live 做真实 Campaign StepFun Provider 前置验收；不要把插件已加载写成活动已可发布。
-- 允许继续的前提：A君`1051/1051`、Pipeline`67/67`、插件`97/97`、Publisher`203/203`
-  和15/17/5 Paperclip live结构已通过；A君 16/18/6 代码与恢复硬化已进入 R4 live，但 Paperclip 16/18/6 资源尚未 apply。CuaDriver 辅助功能、屏幕录制和拒绝诊断已完成，完整本地假页
-  验收仍等待当次五分钟单次 approval token；插件 live `0.4.9`、`0.4.6` 回滚兼容链、Secret 引用、8 岗绑定及
-  StepFun 多模态生产账本和 21 支全量渲染/机器审核也已通过。还必须完成真实
-  selector bundle/Profile lease/登录态和平台写权限等独立门禁，才能批准活动。
+- 唯一下一步：保持 Campaign、M5 Cron 和 Publisher 关闭；生成并人工审阅一份不含 Secret 的当前 Campaign readiness 输入快照，然后执行只读 `production:readiness`。恢复 Campaign、注入 provider、启用 Publisher 或发布均须另行批准。
+- 允许继续的前提：A君 live release `0ba4980d…`、A君 `1143/1143`、Pipeline `67/67`、内容插件 `97/97`、release main/recovery smoke、架构检查和真实浏览器关键路径已通过；Paperclip 仍为 15/17/5。selector/Profile lease、登录态、provider 与平台写权限必须按目标动作重新只读核验，不能从历史批准推断当前有效。
+
+## 2026-08-06 补充：A君 release 收口
+
+- 不可变来源：隔离 clean worktree 分支 `codex/ajun-release-closure-20260806`，commit `bf8b6586f3e21b241a270e70142fe44745e194f7`；release `0ba4980dad1df73b3bc0b32d8364d0a5600ae516d056602911d5e7d010b96752`，payload `e7ec9ea89300dddc8a58bed5d5ea9262a084c361e5d65c8132234690de537147`。
+- 自动化：控制台导航/运行时/PPT 聚焦 `24/24`，A君 `1143/1143`，Pipeline `67/67`，内容插件 `97/97`；架构检查、main startup smoke、只读 recovery smoke 与不可变 payload 校验通过。
+- live：PID `36973`，cwd/entrypoint 指向上述 release，`/api/overview=200`；11 个 Agent、771 条任务、0 条进行中/后台/待审批任务。Paperclip、小D、Publisher 健康接口为 200；Publisher `disabled`、`realConnectorsConfigured=false`。
+- 浏览器：真实 Chrome DevTools 协议验证任务详情 `#employees` 在后台同步及整页重载后仍保持选中，浏览器错误 0。
+- 恢复：切换前 launchd plist 已以 `0600` 备份；`verified_degraded_fallback` 只读恢复 smoke 通过，`exact_previous` 仍不可用，不得把审计备份写成自动精确回滚。
+- 边界：共享主工作树仍保留既有未提交变更且 staged 为 0，不是 live 源码。本轮未恢复 Campaign/Cron、未启用 Publisher、未调用 Provider、未发布或发送外部消息。
 
 ## 2. 当前事实
 
@@ -49,7 +54,7 @@
 | 本地运行时 | Paperclip `3100/api/health` 200；A君 PID `58141` 的 `4321/api/overview` 200，cwd/entrypoint 指向 R4；Publisher `4390` disabled | listener/cwd、plist 与只读 HTTP | 活动未批准；没有触发 publisher/retrospective heartbeat |
 | 运维巡检 | 修复后连续 3 次受控手动 Routine Run 与至少 1 次自然定时 Run 为 `completed` | Paperclip Routine Run 只读记录 | 更早失败仍作为历史保留 |
 | 指标回流 | current-run scope 与 `PaperclipBridge` 六项核心 access 已由 R4 加载；2h/24h/72h 与独立指标 approval 代码存在 | R4 live、代码与本地测试 | Paperclip 兼容补丁未 apply，connector dependencies 为空并失败关闭；无真实 PublishReceipt 或指标 |
-| 生产 readiness | 只读 CLI/API 已就绪；当前结果 `not_ready`、退出码 `2`、唯一下一步 `provide-campaign-status-snapshot` | `npm run production:readiness` | 4390 仍 disabled，缺 Campaign snapshot、selector、Profile lease 与 provider；预检不启用生产 |
+| 生产 readiness | 只读 CLI/API 已就绪；历史结果 `not_ready`、退出码 `2`、机器建议动作 `provide-campaign-status-snapshot` | `npm run production:readiness` | 4390 仍 disabled；预检不启用生产，输入必须按当前状态重新生成并人工审阅 |
 | 发布与复盘写回 | publisher 与 retrospective 控制器和 Routine 已接入 live；production Runtime/composition 与 A君惰性 provider 已接线，账号、日期、预算、幂等和强证据为硬门 | 代码、Pipeline `67/67`、live Agent/Routine 绑定 | live 未注入 production provider；没有真实连接器、发布凭证、学习样本或模板升级 |
 | StepFun | 文本实调用 `11/11`、岗位语义 `11/11`、新 Cross `19/19` passed；Profile 收敛后另完成 1 次 `video-content-analyst` 真实 no-tool 探针，工具调用 0。旧多模态 Provider 账本含35个action-linked费用记录、合计42美分、`lifetimeProviderCalls=43` | StepFun账本与语义证据 | 新调用 usage 的 `cost_status=unknown`；`estimated_cost_usd=0` 只是 usage 字段，不是官方账单。no-tool 探针只证明文本传输和模型身份，不承担内容 Provider 血缘；尚无真实 M5 Campaign StepFun 视觉，不证明 A君 live 或平台发布 |
 | 本地成片与血缘 | 上游已原生生成 lineage；native smoke为Provider0、1/1 lineage、3/3媒体，45秒、1080×1920、H.264/AAC、0黑帧、-15.1LUFS。历史lineage-v2仍为7/7 lineage、21/21媒体；另3主题9视频dry-run `12/12` | 本地账本 | `externalPublished=false`，不证明平台发布 |
@@ -117,7 +122,7 @@
 - 自动化：clean source 的 contracts `13/13`、A君全量 `1108/1108`、Manifest `16/16`、Publisher `214/214`（公众号专项 `11/11`）、架构边界通过；冻结工具又复跑发布级测试、主入口和只读恢复入口 smoke。
 - 运行时：不可变 release `e3b7ae7b1a1afac301a529e410743690edc2bfa4fd046e27b3a8bbdc6ae58017`、payload `fbbc1495006d801917d4c5b2b9115fdff076682c1158d5cb7dc6f126c4eb6893` 已切入 4321。受控重启 PID `14873 → 15283` 后 `/api/overview` 仍为 200，任务/审批保持 `744/25`；Paperclip health 正常，Publisher 仍为 `disabled`。
 - 外部平台：未安装或调用真实 Wenyan，未读取真实 Secret，未访问公众号，也未创建草稿或群发。
-- 唯一下一步：保持 Campaign、Cron、Publisher 和公众号连接器关闭；只有负责人对测试公众号的一次“创建草稿”给出独立授权后，才配置 accountRef、Secret Reference、IP 白名单并执行人工预览验收，仍不得群发。
+- 当时下一步（历史）：保持 Campaign、Cron、Publisher 和公众号连接器关闭；只有负责人对测试公众号的一次“创建草稿”给出独立授权后，才配置 accountRef、Secret Reference、IP 白名单并执行人工预览验收，仍不得群发。
 
 ## 2026-08-05 补充：小红书受控真实发布冒烟
 
@@ -129,4 +134,12 @@
 - CuaDriver 已用官方 v0.17.0 发布脚本完成校验升级，daemon 已恢复，Accessibility/Screen Recording 仍为 `true`；新版未提供任意 DOM 属性读取，结果证据仍走受限语义快照和同源详情 URL。
 - 已根据负责人提供的真实创作页截图、单次冒烟回执和当前 CampaignGrant 生成候选 `work/m5-publisher-gateway/selector-candidates/xiaohongshu-1.1.0.json`；Paperclip `AGE-949`（selector 冻结）和 `AGE-950`（Profile lease）均已由负责人批准。selector 已冻结为 `0444` bundle/manifest，冻结文件与候选逐字节一致，规范哈希和文件哈希均匹配；Profile lease 校验通过。二者都明确不授权发布。
 - 最新只读 production readiness 中 selector candidate/frozen 与 Profile lease 均安全通过；Campaign 当前因“指标回流后置、先完成本地门禁”而暂停，4390 仍为 `disabled` 且未注入 production provider，总判定为 `not_ready`。
-- 唯一下一步：保持 Campaign、Cron 和 Publisher 关闭；若负责人决定继续 production Runtime 验收，先单独授权恢复 Campaign，仍不得据此发布。抖音与指标仍需另行完成。
+- 当时下一步（历史）：保持 Campaign、Cron 和 Publisher 关闭；若负责人决定继续 production Runtime 验收，先单独授权恢复 Campaign，仍不得据此发布。抖音与指标仍需另行完成。
+
+## 2026-08-06 补充：小红书静态卡候选
+
+- 内容插件源码候选升到 `0.5.0`，新增 `social-card-render`；只授予 `content-creator`，不进入 reviewer/operator，也不增加控制器或 Pipeline 阶段。
+- 现有 `render` 阶段从 baseline 脚本、可信图片账本、版权依据和生产模板绑定派生 3 页静态卡，并把 `SocialCardPackage` 嵌入 `RenderPackage`；回放会重验 props、manifest 和每张 PNG 的路径、字节数及 SHA-256。
+- 本地真实 Chrome 验收输出位于 `work/m5-social-card-acceptance-20260806-e/candidate/social-cards/`：3/3 张均为 1080×1440，视觉复核无裁切；未访问外部网络、未调用 Provider、未发布。
+- live 仍是不可变 `0.4.9`；本轮没有安装插件、恢复 Campaign/Cron、启用 Publisher 或操作平台页面。
+- 当时下一步（历史）：先保持所有生产开关关闭；若要推进，需另行批准 `0.5.0` 不可变打包、安装和 live 只读对账，安装授权本身仍不授权发布。

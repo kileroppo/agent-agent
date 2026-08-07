@@ -11,7 +11,7 @@ const objectSchema = {
 const manifest = {
   id:'agent-army.content-autonomy',
   apiVersion:1,
-  version:'0.4.9',
+  version:'0.5.0',
   displayName:'Agent军团·内容自治',
   description:'为 Paperclip/Hermes 补充 StepFun 多模态、受控媒体处理和确定性发布策略，不复制任务、预算、审批或调度控制面。',
   author:'Agent军团',
@@ -188,6 +188,10 @@ const manifest = {
       propsPath:{ type:'string' },
       outputPath:{ type:'string' }
     }, ['composition', 'propsPath', 'outputPath']),
+    tool('social-card-render', '受控小红书静态卡渲染', '把可信脚本、素材账本、版权依据和生产模板绑定渲染为 1080×1440 PNG 卡包；不联网、不发布。', {
+      outputDir:{ type:'string' },
+      props:{ type:'object' }
+    }, ['outputDir', 'props']),
     tool('subtitle-layout-validate', '字幕布局门禁', '在渲染前检查字幕时间范围、重叠、行数和竖屏安全宽度。', {
       propsPath:{ type:'string' }
     }, ['propsPath']),

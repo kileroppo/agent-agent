@@ -17,6 +17,7 @@ import {
 import { isPaperclipSecretRef } from './secret-ref.js';
 import { validateExactAgentToolPolicy } from './role-tool-bundles.js';
 import { paidBudgetCheckerFromContext } from './paid-budget-guard.js';
+import { renderM5SocialCardPackage } from './social-card-tools.js';
 
 let healthy = true;
 
@@ -47,6 +48,7 @@ const plugin = definePlugin({
     register(ctx, 'media-finalize', (params, run) => mediaFinalize(ctx, params, run));
     register(ctx, 'remotion-props-write', (params, run) => writeM5RenderProps(ctx, params, run));
     register(ctx, 'remotion-render', (params, run) => renderM5Composition(ctx, params, run));
+    register(ctx, 'social-card-render', (params, run) => renderM5SocialCardPackage(ctx, params, run));
     register(ctx, 'subtitle-layout-validate', (params, run) => validateSubtitleLayoutFromProps(ctx, params, run));
     register(ctx, 'artifact-package-write', (params, run) => writeM5ArtifactPackage(ctx, params, run));
     register(ctx, 'artifact-lineage-validate', (params, run) => validateArtifactLineage(ctx, params, run));

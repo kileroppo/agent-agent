@@ -468,6 +468,7 @@ npm run dev
 根 Workspace 常用检查：
 
 ```bash
+npm run runtime:fingerprint
 npm test
 npm run check
 npm run test:affected
@@ -475,6 +476,8 @@ npm run check:architecture
 npm run test:contracts
 npm run test:core
 ```
+
+`runtime:fingerprint` 是只读机器指纹：输出当前源码 Git/脏状态计数、关键监听 PID/cwd、A君不可变 release/payload/Git 身份和固定健康字段。它不读取 Secret，不修改服务，也不把源码通过误报为 live 已加载。
 
 本地 AI 检查：
 
