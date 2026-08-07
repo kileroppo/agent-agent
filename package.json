@@ -7,6 +7,7 @@
     "apps/ajun-runtime",
     "apps/animated-chart",
     "apps/mac-worker",
+    "apps/project-progress-board",
     "apps/xiaod-media-transcriber",
     "integrations/access",
     "integrations/boom-monitor",
