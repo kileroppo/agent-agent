@@ -58,6 +58,17 @@ test('A君深层模块变更只选择该模块及 TaskService 接缝测试', () 
       'test/task-service.test.js',
     ],
   );
+  assert.deepEqual(
+    selectAffectedTestFiles([
+      'apps/ajun-runtime/src/task-intake.js',
+      'apps/ajun-runtime/src/task-notification.js',
+    ], ajun),
+    [
+      'test/cross-agent-mission-service.test.js',
+      'test/open-task-runtime-wiring.test.js',
+      'test/task-service.test.js',
+    ],
+  );
 });
 
 test('A君未知或跨模块文件变更退回 workspace 全量测试', () => {

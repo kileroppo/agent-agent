@@ -28,7 +28,7 @@ agent-agent/
 - **运行身份不再手工猜测**：执行 `npm run runtime:fingerprint` 同时读取当前源码 Git、脏文件计数、不可变 release 身份和关键服务摘要；文档中的历史 PID/release 只保留为验收记录，不能替代当前机器输出。
 - **依赖服务健康，生产写入继续关闭**：Paperclip、小D、Publisher 健康接口均为 200；Publisher 为 `disabled`、`realConnectorsConfigured=false`，Campaign 与 M5 Cron 未恢复。本轮未调用 Provider、未执行发布、未发送外部消息。
 - **共享主工作树不是 live 源码**：仍位于 `experiment/governance-hermes-full-migration`、HEAD `6cccefb851072866777fa39c0775d1320e7aa590`，保留既有未提交变更且 staged 为 0。live 使用 `codex/m5-release-integration-20260806` 的隔离 clean worktree；从该工作树执行 `runtime:fingerprint` 应为 `same_git_head`。
-- **核心编排按职责拆分并设防回涨**：`TaskService` 主入口约 1030 行，M5 `ContentCampaignKernel` 主入口约 785 行，Publisher Gateway 为 1287 行；本轮继续删除 legacy 路径和机械复制的 import，不再把“主文件变短”等同于“总代码变少”。根测试、根检查、核心回归、Publisher `221/221`、Local AI `28/28` 和架构门禁通过。
+- **核心编排已有深层 Module**：`TaskService` 主入口约 545 行，只装配任务受理、执行协调和通知读取；任务受理与通知分别由 `TaskIntake`、`TaskNotification` 隐藏完整规则。M5 `ContentCampaignKernel` 主入口约 294 行，批准、暂停/恢复、每日激活、readiness 与失败回滚由 `CampaignLifecycle` 统一持有。架构门禁限制这五个责任文件回涨；执行文件仍较大，后续必须按领域行为继续深化，不能再机械搬文件。
 - **日期炸弹已修复**：Publisher 的 4 个到期 lease 用例注入固定时钟，不再依赖执行当天日期，也没有把批准到期日向后延长。
 - **M5 仍为 PARTIAL**。只读 `production:readiness` 当前预期因 Publisher/connector、Campaign 快照、selector、Profile lease 和 provider 缺口返回 `not_ready`；恢复 Campaign、注入 provider、启用 Publisher 或发布均须另行批准。
 

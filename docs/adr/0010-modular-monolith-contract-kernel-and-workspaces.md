@@ -82,3 +82,16 @@ A君、Pipeline、内容插件与 Publisher 重复；启动文件同时承担装
   全量验证，避免用局部通过冒充整体通过。
 - 本节记录候选源码与自动化测试边界，不代表新的不可变 release、运行进程、Paperclip 资源
   或外部 Provider 已切换；这些仍需独立发布与 live 验收。
+
+## 2026-08-07 深层 Module 继续收敛
+
+- `TaskIntake` 以单一 `create(input)` Interface 隐藏任务规范化、幂等、岗位路由、Manifest
+  能力门禁、风险审批与 Paperclip 投影；`TaskService` 不再逐项知道受理顺序。
+- `TaskNotification` 以单一 `status(taskId, chatRef)` Interface 隐藏任务链选择、恢复状态与各岗位
+  产物交付文案；相同完成事实只在一个 Seam 解释。
+- `CampaignLifecycle` 集中活动批准、暂停/恢复、每日 Case 激活、预算/插件/Routine readiness、
+  Cron 原状态恢复与串行控制；Kernel 保留兼容 Interface 和执行装配，不再同时实现生命周期。
+- 这轮以 Depth、Leverage 和 Locality 为目标，不以总行数下降冒充架构改善。TaskService 与 Kernel
+  两个入口分别约 545/294 行；五个责任 Module 均进入防回涨门禁。现有执行文件仍是下一轮候选。
+- 本节仍只证明候选源码和自动化；没有生成不可变 release、切换 live、恢复 Campaign/Cron/Publisher
+  或触发任何外部效果。

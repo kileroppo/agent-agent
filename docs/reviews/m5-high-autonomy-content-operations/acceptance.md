@@ -349,3 +349,17 @@ cua-driver doctor
 | 外部状态 | UNCHANGED | 未部署 release、未重启 live、未恢复 Campaign/Cron/Publisher，未调用 Provider、平台或外部消息 |
 
 这次变更解决的是重复代码和废弃入口，不把“门面文件变短”冒充整个编排系统已经简单。后续若继续缩小 TaskService/Kernel，应按业务职责消除状态与分支，而不是再做机械搬文件。
+
+## 2026-08-07 核心编排深层 Module
+
+| Module | Interface | 结果 | Locality / Leverage |
+| --- | --- | --- | --- |
+| `TaskIntake` | `create(input)` | LOCAL PASS / 约 297 行 | 任务规范化、幂等、岗位路由、Manifest 能力门禁、风险审批和 Paperclip 投影只在一个 Seam 维护 |
+| `TaskNotification` | `status(taskId, chatRef)` | LOCAL PASS / 约 285 行 | 任务链、恢复状态和各岗位真实产物交付统一解释，调用方不再复制状态分支 |
+| `CampaignLifecycle` | 批准、控制、每日激活与只读生命周期查询 | LOCAL PASS / 约 465 行 | CampaignGrant、Cron、预算、插件/Routine readiness、串行化和失败回滚集中维护 |
+| 兼容入口 | `TaskService` / `ContentCampaignKernel` | LOCAL PASS / 约 545/294 行 | 既有 HTTP、MCP、Publisher 与测试调用方式不变；入口只负责装配和稳定 Interface |
+| 防回涨 | 五个责任文件 | PASS | 上限分别收紧为 650/400/350/350/550 行，超限 fixture 失败 |
+| 自动化 | 本地候选 | PASS | A君 `1133/1133`、Kernel `13/13`、核心整包、根 `npm run check`、架构门禁和 `git diff --check` 通过 |
+| 外部状态 | live / Provider / 平台 | UNCHANGED | 未生成 release、未重启 live、未恢复 Campaign/Cron/Publisher，外部调用为 0 |
+
+两个职责族合计代码量没有因抽象而显著下降；本轮价值是 Interface 变小、规则获得 Locality，且测试继续穿过原公开 Seam。`task-service-execution.js` 与两个 execution-support 文件仍是下一轮大文件候选，不能把本轮写成全部技术债已清零。

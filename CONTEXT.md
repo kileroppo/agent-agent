@@ -1,0 +1,32 @@
+# Agent军团领域语言
+
+本文件固定核心编排使用的业务词义，避免任务、通知和内容活动在不同运行时中被重复解释。
+
+## Language
+
+**任务受理（Task Intake）**：
+一个尚未执行、但已完成输入规范化、幂等识别、岗位路由、能力与风险门禁的任务信封。
+_Avoid_: 任务创建 helper、请求预处理
+
+**任务通知（Task Notification）**：
+从任务链、恢复链和已验证产物派生的单条用户可见进度或交付说明。
+_Avoid_: 聊天状态、完成文案
+
+**活动生命周期（Campaign Lifecycle）**：
+CampaignGrant 从草案、批准、运行、暂停/恢复到停止，并与每日 Case、Cron 和 readiness 保持一致的状态序列。
+_Avoid_: Campaign helper、状态更新器
+
+## Relationships
+
+- 一次 **任务受理** 产生一个可执行或等待输入/审批的任务信封。
+- 一个任务信封在任意时刻最多派生一条当前 **任务通知**。
+- **活动生命周期** 使用 Paperclip Case 和 CampaignGrant 作为唯一活动真相，不创建第二套任务状态。
+
+## Example dialogue
+
+> **开发者：** “收到内容发布请求后，是否直接进入活动生命周期？”
+> **领域负责人：** “不。先完成任务受理；只有 CampaignGrant 经负责人批准后，活动生命周期才能启用每日 Case 和 Cron。任务通知只解释当前真相，不能推进状态。”
+
+## Flagged ambiguities
+
+- “状态”曾同时指任务真相和聊天展示；已明确：任务/Paperclip 保存真相，**任务通知**只是派生说明。

@@ -22,6 +22,14 @@ const AJUN_MODULE_TESTS = Object.freeze({
     'test/task-execution-coordinator.test.js',
     'test/task-service.test.js',
   ]),
+  'src/task-intake.js': Object.freeze([
+    'test/task-service.test.js',
+    'test/open-task-runtime-wiring.test.js',
+  ]),
+  'src/task-notification.js': Object.freeze([
+    'test/task-service.test.js',
+    'test/cross-agent-mission-service.test.js',
+  ]),
   'src/task-overview-focus.js': Object.freeze([
     'test/task-overview-focus.test.js',
     'test/task-service.test.js',

@@ -17,10 +17,13 @@ const retiredAjunM5Facades = new Set([
   'm5-work-product-integrity.js',
 ]);
 const responsibilityLineLimits = new Map([
-  ['apps/ajun-runtime/src/task-service.js', 1200],
+  ['apps/ajun-runtime/src/task-service.js', 650],
+  ['apps/ajun-runtime/src/task-intake.js', 350],
+  ['apps/ajun-runtime/src/task-notification.js', 350],
   ['apps/ajun-runtime/src/task-service-execution.js', 1700],
   ['apps/ajun-runtime/src/task-service-execution-support.js', 1100],
-  ['integrations/m5-kernel/src/content-campaign-kernel.js', 1000],
+  ['integrations/m5-kernel/src/content-campaign-kernel.js', 400],
+  ['integrations/m5-kernel/src/campaign-lifecycle.js', 550],
   ['integrations/m5-kernel/src/content-campaign-execution.js', 1300],
   ['integrations/m5-kernel/src/content-campaign-execution-support.js', 1300],
   ['integrations/publishing/m5-publisher-gateway/src/gateway.js', 1400],

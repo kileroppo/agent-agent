@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 2026-08-07 本地候选已完成静态卡、核心编排拆分与第二轮代码瘦身；运行身份以 `npm run runtime:fingerprint` 为准。Campaign、Cron、Publisher 继续关闭，M5 未完成 |
+| 状态 | 2026-08-07 本地候选已完成静态卡、代码瘦身与核心编排深层 Module 收敛；运行身份以 `npm run runtime:fingerprint` 为准。Campaign、Cron、Publisher 继续关闭，M5 未完成 |
 | 创建时间 | 2026-07-30 Asia/Shanghai |
 | 交出者 | Codex |
 | 接手者 | Codex / A君 |
@@ -23,6 +23,13 @@
 - TaskService/Kernel 清理机械拆分遗留，Hermes 六个 advisor 复用同一 one-shot policy；连同验收文档，本分支净减少 1420 行。
 - 根测试、根检查、核心套件、架构门禁、独立 workspace 与 Local-AI 回归通过。
 - v2 迁移和 Run-JWT cutover 工具仍属于当前恢复窗口，暂不删除；本候选未部署，live 状态没有改变。
+
+## 2026-08-07 补充：深层 Module 收敛
+
+- `TaskIntake.create` 统一任务规范化、幂等、路由、能力门禁、风险审批和 Paperclip 投影；`TaskNotification.status` 统一恢复状态与真实产物通知。
+- `CampaignLifecycle` 统一活动批准、暂停/恢复、每日激活、readiness、Cron 一致性和失败回滚；Kernel 继续提供兼容 Interface。
+- `TaskService`/Kernel 入口约 545/294 行，新 Module 分别约 297/285/465 行；架构门禁上限为 650/400/350/350/550。
+- A君 `1133/1133`、Kernel `13/13`、核心整包、根 check 与架构门禁通过；本候选仍未部署。
 
 ## 2026-08-06 补充：编排职责收敛
 

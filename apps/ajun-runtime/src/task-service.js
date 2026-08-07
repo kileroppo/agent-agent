@@ -1,27 +1,17 @@
 import { summarizeTaskUsage } from './task-usage.js';
-import { formatPublicReportReply } from './public-report-presentation.js';
-import { formatOfficeBriefingReply } from './local-office-assistant.js';
-import { canonicalizeBusinessAssignment, githubRepositoryQuery } from './business-task-routing.js';
-import { usesPaperclipHermesExecution } from './governance-hermes-runtime.js';
 import { buildArchitectureGroundTruth } from './architecture-evidence.js';
 import { presentTask } from './task-presentation.js';
-import {
-  inspectOpenTaskManifestCapabilities,
-  routeOpenTaskForExecutor,
-  supportsOpenTask
-} from './open-task-routing.js';
-import { WECHAT_CHAT_TASK_TYPE, normalizeWechatChatRequest, wechatApprovalScope } from './wechat-chat-defaults.js';
+import { WECHAT_CHAT_TASK_TYPE } from './wechat-chat-defaults.js';
 import { SkillExecutionRegistry } from './skill-execution-registry.js';
 import { TaskCapabilityCatalog } from './task-capability-catalog.js';
 import { TaskExecutionCoordinator } from './task-execution-coordinator.js';
+import { TaskIntake } from './task-intake.js';
+import { TaskNotification } from './task-notification.js';
 import { taskServiceExecutionMethods } from './task-service-execution.js';
 import { ValidationError } from './task-service-execution-support.js';
 export { ValidationError } from './task-service-execution-support.js';
 import { buildTaskFocus } from './task-overview-focus.js';
 import { privateReadGrantStatus, revokePrivateReadGrant } from './private-read-grant.js';
-
-const highRiskActions = ['外发', '发布', '删除', '付款', '付费', '扩权', '敏感'];
-const organizationGovernanceWords = /创建.*(?:agent|智能体|岗位)|新建.*(?:agent|智能体|岗位)|扩权|账号|连接|公开发布|对外发布|付款|付费|预算|暂停|终止|跨\s*agent/i;
 
 export class TaskService {
   constructor({
@@ -77,6 +67,13 @@ export class TaskService {
       markFailureRecoveryPending:(task) => this.markFailureRecoveryPending(task),
       startFailureRecovery:(task) => this.startFailureRecovery(task),
     });
+    this.intake = new TaskIntake({
+      registry,
+      store,
+      governance,
+      execute:(task, agent) => this.executeTask(task, agent),
+    });
+    this.notification = new TaskNotification({ store, registry, executors });
   }
 
   setFeishuChannelStatus(status) { this.feishuChannelStatus = status; }
@@ -92,155 +89,7 @@ export class TaskService {
   }
 
   async create(input) {
-    const rawRequested = {
-      title:input?.title,
-      description:input?.description,
-      taskType:input?.taskType,
-      agentId:input?.agentId,
-      dependsOnPrevious:input?.context?.dependsOnPrevious === true
-    };
-    // 军团父任务是控制面信封，不能因标题中出现“老板汇报”而被改写成办公子任务。
-    // 业务分工仍会在 mission plan、MCP 边界和每个子任务创建时分别规范化。
-    const requested = String(rawRequested.taskType || '').startsWith('army.')
-      ? {
-          ...rawRequested,
-          title:String(rawRequested.title || '').trim(),
-          description:String(rawRequested.description || '').trim(),
-          taskType:String(rawRequested.taskType || '').trim(),
-          agentId:String(rawRequested.agentId || '').trim()
-        }
-      : canonicalizeBusinessAssignment(rawRequested);
-    const title = requested.title; const taskType = requested.taskType;
-    if (!title) throw new ValidationError('请说明要完成什么。');
-    if (!taskType) throw new ValidationError('请选择任务类型。');
-    const suppliedIdempotencyKey = String(input?.idempotencyKey || '').trim();
-    if (suppliedIdempotencyKey) {
-      const existing = (await this.store.list()).find((item) => item.idempotencyKey === suppliedIdempotencyKey);
-      if (existing) return existing;
-    }
-    const requesterName = String(input?.requesterName || '').trim() || 'A君';
-    const requestedAgentId = requested.agentId || null;
-    let candidates = await this.registry.candidates(taskType);
-    if (requestedAgentId) candidates = candidates.filter((agent) => agent.agentId === requestedAgentId);
-    const agent = candidates.length === 1 ? candidates[0] : null;
-    const description = requested.description;
-    const wechatChat = taskType === WECHAT_CHAT_TASK_TYPE ? normalizeWechatChatRequest({ ...input, title, description }) : null;
-    const sourceUrls = uniquePublicUrls([String(input?.sourceUrl || '').trim(), ...(Array.isArray(input?.sourceUrls) ? input.sourceUrls : []), ...extractPublicUrls(`${title}\n${description}`)]);
-    const sourceUrl = sourceUrls[0] || null;
-    let task = await this.store.createTask({
-      taskType, idempotencyKey: suppliedIdempotencyKey || `local:${cryptoSafe(title)}:${Date.now()}`, requester: input?.requester || { kind: requesterName === 'A君' ? 'local-owner' : 'lan-collaborator', ref: requesterName }, source: input?.source || { channel: 'ajun-runtime' },
-      assigneeAgentId: agent?.agentId || null, parentTaskId: String(input?.parentTaskId || '').trim() || null, recovery: input?.recovery || undefined, input: {
-        title,
-        description,
-        sourceUrl,
-        sourceUrls,
-        connectionId:optionalConnectionId(input?.connectionId),
-        query:githubQueryInput(taskType, input?.query, `${title}\n${description}`),
-        repo:optionalInput(input?.repo),
-        path:optionalInput(input?.path),
-        topic:optionalInput(input?.topic),
-        reviewPolicy:input?.reviewPolicy === 'required' ? 'required' : 'optional',
-        evidenceMode:input?.evidenceMode === 'preliminary' ? 'preliminary' : 'formal',
-        depth:input?.depth === 'full' ? 'full' : 'fast',
-        visualMode:input?.visualMode === 'auto' || input?.visualMode === 'required'
-          ? input.visualMode
-          : input?.visualMode === 'off'
-            ? 'off'
-            : taskType === 'content.video-benchmark-analysis'
-              ? 'auto'
-              : 'off',
-        focus:optionalInput(input?.focus),
-        platforms:Array.isArray(input?.platforms) ? input.platforms.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 10) : undefined,
-        contentGoal:optionalInput(input?.contentGoal),
-        durationSeconds:Number.isFinite(Number(input?.durationSeconds)) ? Number(input.durationSeconds) : undefined,
-        researchMode:input?.researchMode === 'off' ? 'off' : 'auto',
-        approvedForUse:input?.approvedForUse === true,
-        sourceScriptTaskId:optionalInput(input?.sourceScriptTaskId),
-        metrics:input?.metrics && typeof input.metrics === 'object' && !Array.isArray(input.metrics) ? input.metrics : undefined,
-        ...(wechatChat ? { wechatChat } : {}),
-        goalSpec:input?.goalSpec && typeof input.goalSpec === 'object' && !Array.isArray(input.goalSpec)
-          ? input.goalSpec
-          : undefined,
-        context: input?.context || undefined
-      },
-      status: wechatChat && !wechatChat.chatSelector ? 'needs_input' : agent?.status === 'active' ? 'queued' : 'needs_input',
-      currentStage: wechatChat && !wechatChat.chatSelector ? 'wechat_chat_required' : agent?.status === 'active' ? 'queued_for_execution' : agent ? 'waiting_for_agent_activation' : 'routing_needed',
-      routing: {
-        requestedAgentId,
-        candidateAgentIds: candidates.map((item) => item.agentId),
-        reason:wechatChat && !wechatChat.chatSelector
-          ? '只缺联系人或群名；其余范围使用安全默认值。'
-          : agent?.status === 'active' ? '已路由到已启用的本地执行器。' : agent ? '岗位骨架已登记，等待启用真实执行器。' : candidates.length === 0 ? '没有岗位声明支持该任务类型。' : '多个岗位匹配，请明确选择承接岗位。'
-      },
-      ...(wechatChat && !wechatChat.chatSelector ? {
-        error:{
-          code:'wechat_chat_required',
-          message:'微信聊天只读任务缺少联系人或群名。',
-          userMessage:'请只告诉我联系人或群名；时间默认今天至现在，最多 200 条，其余不用配置。',
-          category:'needs_input',
-          stage:'scope',
-          retryable:false,
-          occurredAt:new Date().toISOString()
-        }
-      } : {})
-    });
-    if (supportsOpenTask(task, agent)) {
-      let capabilityInspection;
-      try {
-        capabilityInspection = inspectOpenTaskManifestCapabilities(task, agent);
-      } catch (error) {
-        throw new ValidationError(error?.message || '开放任务的目标输入无效。');
-      }
-      if (!capabilityInspection.allowed) {
-        return this.store.updateTask(task.taskId, {
-          status:'needs_input',
-          currentStage:'manifest_capability_required',
-          error:{
-            code:'manifest_capability_required',
-            message:`能力不在岗位 Manifest 白名单：${capabilityInspection.missing.join('、')}`,
-            userMessage:'任务请求了该岗位没有的能力；系统没有创建临时授权、安装未知工具或扩大权限。',
-            category:'needs_input',
-            stage:'manifest_capability_check',
-            retryable:false,
-            occurredAt:new Date().toISOString()
-          }
-        });
-      }
-      const routed = routeOpenTaskForExecutor(task, agent);
-      task = await this.store.updateTask(task.taskId, {
-        input:{
-          ...(task.input || {}),
-          context:routed.input.context
-        }
-      });
-    }
-    if (taskType === WECHAT_CHAT_TASK_TYPE && wechatChat?.chatSelector) {
-      await this.store.createApproval({
-        taskId:task.taskId,
-        governanceMode:'local',
-        decisionChannel:'feishu_card',
-        action:'wechat-private-chat-read',
-        riskLevel:'high',
-        reason:`只读“${wechatChat.chatSelector}”今天至当前的聊天，最多 ${wechatChat.maxMessages} 条；同名时自动选最近活跃会话。原文不落盘，仅交给本机回环地址上的 Qwen3.5-9B 分析，不进入云模型或外部平台。批准后同一飞书会话、岗位和读取范围可在 30 分钟内复用，最多 10 个任务，可随时撤销。`,
-        requestedBy:'ajun',
-        approverScope:'A君',
-        requestedScope:wechatApprovalScope(task),
-        validUntil:new Date(Date.now() + 30 * 60 * 1000).toISOString()
-      });
-      task = (await this.store.list()).find((item) => item.taskId === task.taskId);
-    }
-    if (taskType !== WECHAT_CHAT_TASK_TYPE && hasAffirmativeHighRiskIntent(`${title} ${description}`)
-      && !['army.intake', 'governance.approval-review', 'office.knowledge-summary', 'content.platform-draft', 'content.video-script-package'].includes(taskType)) {
-      await this.store.createApproval({ taskId: task.taskId, governanceMode: requiresOrganizationGovernance(title, description) ? 'paperclip' : 'local', decisionChannel: 'feishu_card', action: 'manual-risk-review', riskLevel: 'high', reason: '任务描述包含高风险动作，必须人工确认范围。', requestedBy: 'ajun', approverScope: 'A君', requestedScope: { taskType, title, assigneeAgentId: agent?.agentId || null }, validUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() });
-      task = (await this.store.list()).find((item) => item.taskId === task.taskId);
-    }
-    const approval = task.approvalRefs.length ? (await this.store.listApprovals()).find((item) => item.approvalId === task.approvalRefs[0]) : null;
-    if (this.governance && (usesPaperclipHermesExecution(agent) || shouldProjectToPaperclip(task, approval))) {
-      const parentIssueId = String(task.input?.context?.parentPaperclipIssueId || '').trim();
-      const projection = parentIssueId && this.governance.projectChild ? await this.governance.projectChild(task, parentIssueId) : await this.governance.project(task, approval);
-      task = await this.store.updateTask(task.taskId, { governance: projection });
-    }
-    return this.executeTask(task, agent);
+    return this.intake.create(input);
   }
 
   async continueFromRecommendation(taskId) {
@@ -600,151 +449,7 @@ export class TaskService {
   async usageOverview() { return summarizeTaskUsage(await this.store.list(), { since:startOfToday() }); }
 
   async notificationStatus(taskId, chatRef = '') {
-    const tasks = await this.store.list();
-    const root = tasks.find((task) => task.taskId === taskId);
-    if (!root) throw new ValidationError('找不到要跟进的任务。');
-    const expectedChat = String(root.source?.chatRef || '').trim();
-    const actualChat = String(chatRef || '').trim();
-    if (expectedChat && actualChat !== expectedChat) throw new ValidationError('当前会话不能读取这条任务。');
-    const chain = taskChain(tasks, root.taskId);
-    if (root.status === 'paused') return { terminal:true, status:'paused', taskId:root.taskId, message:`“${shortTaskTitle(root)}”已经暂停。你确认继续前，小D不会开始新的处理步骤。` };
-    if (root.status === 'pausing') return { terminal:false, status:'pausing', taskId:root.taskId, message:`“${shortTaskTitle(root)}”正在暂停。小D会先完成当前一步，再在安全位置停下；不会再开始新的步骤。` };
-    const technical = latestTask(chain.filter((task) => task.taskType === 'operations.technical-repair'));
-    if (technical?.status === 'waiting_test') {
-      const evidence = technical.artifactRefs?.find((item) => item.type === 'technical_repair_evidence')?.data;
-      const nextAction = evidence?.nextAction || technical.error?.userMessage || '本轮自动检查没有完成，已保留为待测试。';
-      return { terminal:true, status:'waiting_test', taskId:root.taskId, message:`“${shortTaskTitle(root)}”本轮暂时无法完成自动验证，已标为待测试。技术专家已保留当前结果：${nextAction} 其他工作会继续推进，不需要你重复提交。` };
-    }
-    if (technical?.status === 'succeeded') {
-      const evidence = technical.artifactRefs?.find((item) => item.type === 'technical_repair_evidence');
-      if (evidence?.validation?.testsPassed === true && evidence?.validation?.recoveryVerified === true) return { terminal:true, status:'repair_verified', taskId:root.taskId, message:`“${shortTaskTitle(root)}”遇到的故障已由技术专家修复，相关测试和恢复检查已经通过；仍待人工验收的项目已保留在记录中。` };
-      return { terminal:true, status:'technical_repair', taskId:root.taskId, message:`“${shortTaskTitle(root)}”仍未完成。技术专家已经建立修复记录，但目前没有完整的修改、测试和恢复证据，A君不会把它当作已经修好。` };
-    }
-    if (technical?.status === 'failed') return { terminal:true, status:'technical_repair_failed', taskId:root.taskId, message:`“${shortTaskTitle(root)}”仍未完成。技术专家本轮也没有修复成功，故障记录已经保留，将继续进入下一轮处理。` };
-    if (technical) {
-      const stillWorking = ['queued', 'running'].includes(technical.status);
-      return {
-        terminal: !stillWorking,
-        status: 'technical_repair',
-        taskId: root.taskId,
-        message: `“${shortTaskTitle(root)}”仍未完成。运维官已经尝试安全恢复，现在已升级给技术专家并建立修复任务；暂时不需要你重复提交。`
-      };
-    }
-    const attempts = chain.filter((task) => task.taskType === root.taskType && (task.taskId === root.taskId || task.recovery?.rootTaskId === root.taskId));
-    const current = latestTask(attempts) || root;
-    const retried = current.taskId !== root.taskId;
-    if (current.taskType === 'army.cross-agent-mission') {
-      return missionNotification(current, {
-        chain,
-        approvals:await this.store.listApprovals(),
-        xiaod:this.executors.xiaod
-      });
-    }
-    if (current.status === 'succeeded') {
-      if (current.taskType === 'operations.health-review') {
-        const report = current.artifactRefs?.find((item) => item.type === 'health_report')?.data;
-        if (report?.overall && Array.isArray(report.components) && report.components.length) {
-          return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatHealthReportReply(report) };
-        }
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`运维官已经完成“${shortTaskTitle(root)}”，但结构化健康报告不可读；系统不会把它当作完整交付。` };
-      }
-      if (current.taskType === 'report.public-material') {
-        const report = current.artifactRefs?.find((item) => item.type === 'public_web_report')?.data;
-        if (report?.summary) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatPublicReportReply(report, { taskTitle:shortTaskTitle(root) }) };
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`公开资料报告员已经完成“${shortTaskTitle(root)}”，但摘要产物没有通过读取确认；系统不会把它当作完整交付。` };
-      }
-      if (current.taskType === 'research.github-search') {
-        const report = current.artifactRefs?.find((item) => item.type === 'research_github_report')?.data;
-        const read = current.artifactRefs?.find((item) => item.type === 'github_code_read')?.data;
-        if (report?.results?.length) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatGithubSearchDelivery(report) };
-        if (read?.summary) return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小R已读取 ${read.repo} 的 ${read.path}：${read.summary}\n来源：${read.source || `https://github.com/${read.repo}`}` };
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小R已经完成“${shortTaskTitle(root)}”，但公开 GitHub 产物不可读；系统不会把它当作完整交付。` };
-      }
-      if (current.taskType === 'research.intel-report') {
-        const report = current.artifactRefs?.find((item) => item.type === 'intel_research_report')?.data;
-        if (report?.conclusion && Array.isArray(report?.sources) && report.sources.length) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatIntelResearchDelivery(report) };
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小R已经完成“${shortTaskTitle(root)}”，但结构化研究产物或来源未通过读取确认；系统不会把它当作完整交付。` };
-      }
-      if (current.taskType === 'office.briefing-package') {
-        const report = current.artifactRefs?.find((item) => item.type === 'office_briefing_package')?.data;
-        if (report?.summary && report?.markdown) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatOfficeBriefingReply(report) };
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`办公执行助理已经完成“${shortTaskTitle(root)}”，但汇报包没有通过读取确认；系统不会把它当作完整交付。` };
-      }
-      if (current.taskType === 'office.presentation-package') {
-        const source = current.artifactRefs?.find((item) => item.type === 'office_presentation_source');
-        const pptx = current.artifactRefs?.find((item) => item.type === 'office_pptx_document');
-        if (source?.validation?.structuralQaPassed && source?.location) {
-          return {
-            terminal:true,
-            status:'succeeded',
-            taskId:root.taskId,
-            message:[
-              `小办已完成“${shortTaskTitle(root)}”的可编辑 PPTD。`,
-              `PPTD：${source.location}`,
-              pptx?.validation?.visualQaPassed && pptx?.location
-                ? `PPTX：${pptx.location}`
-                : 'PPTX 和图片质检未作为本次完成证据。',
-            ].join('\n'),
-          };
-        }
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小办已经完成“${shortTaskTitle(root)}”，但 PPTD 没有通过结构检查；系统不会把它当作完整交付。` };
-      }
-      if (current.taskType === 'office.knowledge-summary') {
-        const note = current.artifactRefs?.find((item) => item.type === 'knowledge_summary_note');
-        if (note?.validation?.readable && note?.location) return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小办已完成知识归档“${note.title}”。\n受控文件：${note.location}\n校验值：${note.checksum || '未提供'}` };
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小办已经完成“${shortTaskTitle(root)}”，但知识笔记没有通过可读性检查；系统不会把它当作完整归档。` };
-      }
-      if (current.taskType === 'content.video-benchmark-analysis') {
-        const report = current.artifactRefs?.find((item) => item.type === 'video_content_analysis_report')?.data;
-        if (report?.modules?.length) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatVideoAnalysisDelivery(report) };
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小拆已经完成“${shortTaskTitle(root)}”，但拆解报告没有通过读取确认；系统不会把它当作完整交付。` };
-      }
-      if (current.taskType === 'content.platform-draft') {
-        const draft = current.artifactRefs?.find((item) => item.type === 'platform_content_draft')?.data;
-        if (draft?.drafts?.length) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatPlatformDraftDelivery(draft) };
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小创已经完成“${shortTaskTitle(root)}”，但草稿产物没有通过读取确认；系统不会把它当作完整交付。` };
-      }
-      if (current.taskType === 'content.video-script-package') {
-        const script = current.artifactRefs?.find((item) => item.type === 'video_script_package')?.data;
-        if (script?.fullScript) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatVideoScriptDelivery(script) };
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小创已经完成“${shortTaskTitle(root)}”，但可拍脚本没有通过读取确认；系统不会把它当作完整交付。` };
-      }
-      if (current.taskType === 'content.performance-review') {
-        const report = current.artifactRefs?.find((item) => item.type === 'content_performance_report')?.data;
-        if (report?.metrics) return { terminal:true, status:'succeeded', taskId:root.taskId, message:`【小拆内容表现复盘】\n${report.summary}\n${(report.observations || []).slice(0, 5).map((item) => `- ${item}`).join('\n')}` };
-      }
-      const roleReport = current.artifactRefs?.find((item) => item.type === 'employee_role_report')?.data;
-      if (roleReport?.summary) {
-        const worker = await taskWorkerName(this.registry, current);
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`${worker}已完成“${shortTaskTitle(root)}”。\n${roleReport.summary}` };
-      }
-      const delivery = current.artifactRefs?.find((item) => item.type === 'xiaod_media_delivery');
-      const url = delivery?.data?.larkUrl;
-      const verified = delivery?.data?.larkPermissionGranted === true;
-      const prefix = retried ? '运维官自动恢复后，小D已经完成' : '小D已经完成';
-      return { terminal: true, status: 'succeeded', taskId: root.taskId, message: url && verified ? `${prefix}“${shortTaskTitle(root)}”。\n交付文档：${url}` : `${prefix}“${shortTaskTitle(root)}”，但飞书文档权限尚未确认；系统不会把它冒充完整交付。` };
-    }
-    if (['queued', 'running'].includes(current.status)) {
-      const worker = await taskWorkerName(this.registry, current);
-      return { terminal: false, status: current.status, taskId: root.taskId, message: retried ? `“${shortTaskTitle(root)}”第一次处理失败，运维官已自动重试，当前仍在处理中。` : `“${shortTaskTitle(root)}”正在由${worker}处理。` };
-    }
-    if (current.status === 'waiting_worker') {
-      return { terminal:false, status:'waiting_worker', taskId:root.taskId, message:`“${shortTaskTitle(root)}”需要老板的 Mac工作间处理。云端已安全排队；Mac 上线后会自动领取，不需要你重复提交。` };
-    }
-    if (current.status === 'failed' && current.recovery?.coordination?.status === 'pending') {
-      return { terminal: false, status: 'recovery_pending', taskId: root.taskId, message: `“${shortTaskTitle(root)}”遇到故障，正在交给运维官判断恢复办法。` };
-    }
-    if (current.status === 'failed' && current.recovery?.coordination?.status === 'retrying') {
-      return { terminal: false, status: 'recovery_pending', taskId: root.taskId, message: `“${shortTaskTitle(root)}”遇到故障，运维官已接手并正在从安全断点恢复；不需要你重复提交。` };
-    }
-    if (current.status === 'failed' && current.taskType === 'media.transcribe-and-refine' && !current.recovery?.coordination) {
-      return { terminal: false, status: 'recovery_pending', taskId: root.taskId, message: `“${shortTaskTitle(root)}”遇到故障，正在交给运维官判断恢复办法。` };
-    }
-    if (current.recovery?.coordination?.status === 'pending') return { terminal: false, status: 'recovery_pending', taskId: root.taskId, message: `“${shortTaskTitle(root)}”遇到故障，正在等待运维官接手。` };
-    if (current.status === 'waiting_test') return { terminal:true, status:'waiting_test', taskId:root.taskId, message:`“${shortTaskTitle(root)}”本轮自动检查没有完成，已标为待测试。其他工作会继续推进；这项检查恢复后会按记录继续。` };
-    if (current.status === 'needs_input') return { terminal: true, status: 'needs_input', taskId: root.taskId, message: current.error?.userMessage || `“${shortTaskTitle(root)}”缺少必要信息，暂时不能继续。` };
-    if (current.status === 'failed') return { terminal: true, status: 'failed', taskId: root.taskId, message: `“${shortTaskTitle(root)}”没有完成：${current.error?.userMessage || '处理时遇到问题。'}` };
-    return { terminal: false, status: current.status || 'unknown', taskId: root.taskId, message: `“${shortTaskTitle(root)}”已经登记，等待新的进度。` };
+    return this.notification.status(taskId, chatRef);
   }
 }
 
@@ -780,150 +485,6 @@ function withFeishuTaskEvidence(channel, agentId, tasks) {
   return verified ? { ...channel, verified:true } : channel;
 }
 
-function optionalInput(value) { const text = String(value || '').trim(); return text || undefined; }
-function optionalConnectionId(value) {
-  const id = optionalInput(value);
-  if (!id) return undefined;
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
-    throw new ValidationError('账号连接标识格式不正确。');
-  }
-  return id;
-}
-function githubQueryInput(taskType, suppliedQuery, requestText) {
-  const explicit = optionalInput(suppliedQuery);
-  if (explicit || taskType !== 'research.github-search') return explicit;
-  return githubRepositoryQuery(requestText) || undefined;
-}
-async function taskWorkerName(registry, task) {
-  const agentId = String(task?.assigneeAgentId || task?.execution?.executor || '').trim();
-  const agent = agentId && typeof registry?.get === 'function' ? await registry.get(agentId) : null;
-  return String(agent?.name || agentId || '承接员工').trim();
-}
-function formatGithubSearchDelivery(report) {
-  const items = report.results.slice(0, 5).map((item, index) => `${index + 1}. ${item.fullName}（★ ${item.stars}，${item.language || '语言未提供'}）\n${item.suitability || item.assessment || ''}${item.suitability && item.assessment ? `\n元数据判断：${item.assessment}` : ''}\n${item.url}`);
-  return ['【小R 公开 GitHub 检索】', `关键词：${report.query || '未提供'}`, '', ...items].join('\n');
-}
-function formatIntelResearchDelivery(report) {
-  const list = (items) => (Array.isArray(items) && items.length ? items.map((item) => `- ${item}`).join('\n') : '- 暂无。');
-  return ['【小R 研究报告】', `主题：${report.topic || '未提供'}`, `背景：${report.background || '仅根据已读取来源整理。'}`, `关键发现：\n${list(report.findings)}`, `结论：${report.conclusion}`, `行动建议：\n${list(report.recommendations)}`, `未决问题：\n${list(report.openQuestions)}`, `来源：\n${report.sources.slice(0, 5).map((source) => `- ${source.title || '公开来源'}\n  ${source.source}`).join('\n')}`].join('\n\n');
-}
-function formatHealthReportReply(report) {
-  const overall = report.overall === 'healthy' ? '正常' : report.overall === 'degraded' ? '存在降级' : String(report.overall || '未知');
-  const components = report.components.slice(0, 12).map((item) => {
-    const status = item.status === 'healthy' ? '正常' : item.status === 'degraded' ? '降级' : String(item.status || '未知');
-    return `- ${item.name || item.id || '未命名组件'}：${status}${item.detail ? `；${item.detail}` : ''}`;
-  }).join('\n');
-  return `【运维官健康检查】\n整体：${overall}\n${components}\n建议：${report.recommendedAction || '暂无。'}`;
-}
-function formatVideoAnalysisDelivery(report) {
-  const modules = report.modules.slice(0, 13).map((item, index) => `${index + 1}. ${item.name}：${item.finding}\n   证据：${item.evidence?.timestamp ? `[${item.evidence.timestamp}] ` : ''}${item.evidence?.fragment || '证据缺失'}`).join('\n');
-  const actions = Array.isArray(report.actionItems) && report.actionItems.length
-    ? `\n\n行动清单：\n${report.actionItems.slice(0, 5).map((item) => `- ${item}`).join('\n')}`
-    : '';
-  const visual = Array.isArray(report.visualFindings) && report.visualFindings.length
-    ? `\n\n画面观察：\n${report.visualFindings.slice(0, 5).map((item) => `- [${item.evidence?.timestamp || '时间点缺失'}｜${item.evidence?.frameRef || '帧缺失'}] ${item.finding}`).join('\n')}`
-    : '';
-  const completeness = report.completeness === 'complete'
-    ? '图文分析完整'
-    : '部分完成：字幕拆解已交付，画面分析未通过完整门禁';
-  const source = report.sourceMetadata?.title
-    ? `\n来源：${report.sourceMetadata.title}${report.sourceMetadata.author ? `｜${report.sourceMetadata.author}` : ''}${report.sourceMetadata.platform ? `｜${report.sourceMetadata.platform}` : ''}`
-    : '';
-  const generation = report.generationMode === 'hermes_advisor'
-    ? 'Hermes 深度分析'
-    : report.generationMode === 'hermes_advisor_evidence_repaired'
-      ? 'Hermes 深度分析（证据结构已按确认稿修复）'
-      : '本机证据化兜底（模型结果未通过结构校验）';
-  return `【小拆视频内容拆解】\n模式：${generation}\n完整度：${completeness}\n证据：${report.evidenceLabel || report.evidenceMode}${source}\n${report.summary}\n\n${modules}${visual}${actions}`;
-}
-function formatPlatformDraftDelivery(report) {
-  const drafts = report.drafts.slice(0, 3).map((item) => `- ${item.platform}：${item.titleCandidates?.[0] || '已生成草稿'}\n  开场：${item.opening || ''}`).join('\n');
-  return `【小创平台草稿】\n仅生成草稿，未发布。\n${drafts}\n发布前仍需真人检查。`;
-}
-function formatVideoScriptDelivery(report) {
-  if (report.templateLifecycle?.approvedForUse === true) {
-    return '已采用这版。可拍脚本和制作包已经准备好；没有生成成片，也没有发布。';
-  }
-  const notes = Array.isArray(report.shootingNotes)
-    ? report.shootingNotes.slice(0, 3).map((item) => `- ${item}`).join('\n')
-    : '';
-  return [
-    '【可拍脚本】',
-    `标题：${report.headline}`,
-    `建议：${report.platform || 'douyin'}｜约 ${report.durationSeconds || 45} 秒`,
-    '',
-    `开场：${report.hook}`,
-    '',
-    report.fullScript,
-    ...(notes ? ['', '拍摄提示：', notes] : []),
-    '',
-    '下一步：满意就回复“用这版”；要改直接说一句，例如“更像我说话”或“节奏快一点”。'
-  ].join('\n');
-}
-
-async function missionNotification(task, { chain = [], approvals = [], xiaod = null } = {}) {
-  const report = task.artifactRefs?.find((item) => item.type === 'cross_agent_mission_summary')?.data;
-  const statuses = Array.isArray(report?.statuses) ? report.statuses.slice(0, 3) : [];
-  const names = { xiaod:'小D', 'intel-researcher':'小R', 'office-assistant':'办公执行助理', 'video-content-analyst':'小拆', 'content-creator':'小创', operator:'运维官', architect:'架构师' };
-  const lines = statuses.map((item) => `- ${names[item.employeeId] || item.employeeId || '待定员工'}：${missionStatusLabel(item.status)}｜${String(item.title || '未命名分工').replace(/\s+/g, ' ').slice(0, 120)}`);
-  const terminal = ['succeeded', 'failed', 'cancelled', 'needs_input', 'waiting_test'].includes(task.status);
-  if (!report || !statuses.length) {
-    return {
-      terminal,
-      status:task.status,
-      taskId:task.taskId,
-      message:`总任务“${shortTaskTitle(task)}”${terminal ? '已经停止推进，但统一汇总不可读；系统不会把它当作完整交付。' : '正在建立和分派员工工作。'}`
-    };
-  }
-  const briefing = report.decision?.briefing;
-  const completed = statuses.filter((item) => item.status === 'succeeded').length;
-  const progressStatus = !terminal && statuses.some((item) => item.status === 'waiting_approval')
-    ? 'waiting_approval'
-    : task.status;
-  const summary = [
-    `【A君总任务】${String(report.summary || shortTaskTitle(task)).replace(/\s+/g, ' ').slice(0, 300)}`,
-    `进度：${completed}/${statuses.length} 项完成`,
-    ...lines
-  ];
-  if (briefing?.summary) {
-    summary.push(`统一汇报：${String(briefing.summary).replace(/\s+/g, ' ').slice(0, 800)}`);
-    if (Array.isArray(briefing.openItems) && briefing.openItems.length) summary.push(`仍需处理：${briefing.openItems.slice(0, 3).join('；')}`);
-    if (briefing.nextAction) summary.push(`下一步：${String(briefing.nextAction).replace(/\s+/g, ' ').slice(0, 500)}`);
-  } else if (terminal && completed === statuses.length) {
-    const analysisTaskId = statuses.find((item) => item.employeeId === 'video-content-analyst' && item.status === 'succeeded')?.taskId;
-    const analysisTask = chain.find((item) => item.taskId === analysisTaskId);
-    const analysis = analysisTask?.artifactRefs?.find((item) => item.type === 'video_content_analysis_report')?.data;
-    if (analysis?.modules?.length) summary.push('', formatVideoAnalysisDelivery(analysis));
-    else summary.push('所有分工已完成，但最终业务产物未通过读取确认；系统不会只用“完成”状态冒充交付。');
-  } else if (terminal && completed < statuses.length) {
-    summary.push('未完成部分已如实保留，没有被冒充为成功。');
-  } else if (progressStatus === 'waiting_approval') {
-    const reviewTask = chain.find((item) => item.status === 'waiting_approval'
-      && item.execution?.executor === 'xiaod'
-      && approvals.some((approval) => approval.taskId === item.taskId
-        && approval.status === 'pending'
-        && approval.action === 'confirm-transcript-after-complete-listen'));
-    let reviewUrl = '';
-    if (reviewTask?.execution?.xiaodJobId && typeof xiaod?.getJob === 'function') {
-      try {
-        const job = await xiaod.getJob(reviewTask.execution.xiaodJobId);
-        if (job.output?.larkPermissionGranted === true && /^https:\/\//.test(String(job.output?.larkUrl || ''))) {
-          reviewUrl = String(job.output.larkUrl);
-        }
-      } catch { /* 保留可操作的文字提醒，下一轮跟进可再次读取链接。 */ }
-    }
-    summary.push('机器稿已通过自动完整性检查；正式拆解仍未启动。');
-    if (reviewUrl) summary.push(`机器稿：${reviewUrl}`);
-    summary.push('请完整听完后在本会话回复“我已完整听审并确认”。A君会再弹出一次批准确认；未确认前不会启动小拆。');
-  } else if (!terminal) {
-    summary.push('A君会继续跟进这个总任务，不需要你分别追问每位员工。');
-  }
-  return { terminal, status:progressStatus, taskId:task.taskId, message:summary.join('\n') };
-}
-
-function missionStatusLabel(status) {
-  return ({ succeeded:'已完成', failed:'失败', needs_input:'等待补充信息', cancelled:'已取消', waiting_test:'等待验证', waiting_approval:'等待批准', running:'处理中', queued:'排队中', planned:'待开始' })[status] || String(status || '未知');
-}
 function channelCapability(source) {
   const state = typeof source === 'function' ? source() : source;
   if (state?.status === 'external') return { status:'ready', detail:state.message || 'A君飞书入口已由 Hermes 原生 Gateway 承载；会话、上下文与 MCP 工具链已接通。' };
@@ -932,35 +493,6 @@ function channelCapability(source) {
   if (state?.status === 'failed') return { status:'partial', detail:'官方飞书入口本次没有连上；现有 A君入口不受影响，问题已记录等待处理。' };
   return { status:'partial', detail:'A君私聊与审批卡已可用；官方收发入口已装好并默认关闭，待限定允许人员后接入官方通道并做真实飞书回归。' };
 }
-function cryptoSafe(value) { return Buffer.from(value).toString('base64url').slice(0, 24); }
-function extractPublicUrls(value) {
-  return [...String(value).matchAll(/https?:\/\/[^\s<>"'，。；：！？、【】（）《》“”‘’]+/gi)]
-    .map((match) => match[0].replace(/[)\]},.;]+$/, ''));
-}
-function uniquePublicUrls(values) { return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))]; }
-function hasAffirmativeHighRiskIntent(value) {
-  const text = String(value || '');
-  return highRiskActions.some((action) => {
-    let startAt = 0;
-    while (startAt < text.length) {
-      const index = text.indexOf(action, startAt);
-      if (index < 0) return false;
-      if (!isExplicitlyNegated(text.slice(0, index))) return true;
-      startAt = index + action.length;
-    }
-    return false;
-  });
-}
-function isExplicitlyNegated(prefix) {
-  if (/(?:不|无|禁止|不得|不可|不能|无需|不用|不需要|不允许|不涉及)\s*$/.test(prefix)) return true;
-  const clause = String(prefix || '').split(/[，,。；;：:！？!?\n]/).at(-1) || '';
-  return /^\s*(?:请)?(?:不要|不得|禁止|不可|不能|无需|不用|不需要|不允许|不涉及)[^，,。；;：:！？!?\n]{0,80}(?:、|或|和|以及)\s*$/.test(clause);
-}
-function shouldProjectToPaperclip(task, approval = null) {
-  return approval?.governanceMode === 'paperclip' || task.source?.channel === 'paperclip' || task.source?.channel === 'army-mission' || task.taskType.startsWith('governance.') || task.taskType === 'army.route-task' || task.taskType === 'army.cross-agent-mission' || task.taskType === 'operations.technical-repair';
-}
-
-function requiresOrganizationGovernance(title, description) { return organizationGovernanceWords.test(`${title} ${description}`); }
 function shouldStartFailureRecovery(task) {
   return task?.status === 'failed'
     && !['operations.failure-recovery', 'operations.technical-repair', WECHAT_CHAT_TASK_TYPE].includes(task.taskType);
@@ -1010,21 +542,4 @@ async function executorRuntimeHealth(executors) {
   return Object.fromEntries(entries.filter(Boolean));
 }
 
-function taskChain(tasks, rootTaskId) {
-  const included = new Set([rootTaskId]);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const task of tasks) {
-      if (task.parentTaskId && included.has(task.parentTaskId) && !included.has(task.taskId)) { included.add(task.taskId); changed = true; }
-    }
-  }
-  return tasks.filter((task) => included.has(task.taskId));
-}
-
-function latestTask(tasks) {
-  return [...tasks].sort((left, right) => String(right.updatedAt || right.createdAt || '').localeCompare(String(left.updatedAt || left.createdAt || '')))[0] || null;
-}
-
-function shortTaskTitle(task) { return String(task.input?.title || '未命名任务').replace(/\s+/g, ' ').slice(0, 48); }
 function startOfToday() { const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), now.getDate()); }

@@ -61,11 +61,11 @@ test('架构检查拒绝核心责任模块重新长回巨型文件', async (cont
   await write(
     root,
     'apps/ajun-runtime/src/task-service.js',
-    `${Array.from({ length:1201 }, (_, index) => `// ${index}`).join('\n')}\n`,
+    `${Array.from({ length:651 }, (_, index) => `// ${index}`).join('\n')}\n`,
   );
   const result = run(root);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /责任模块超过 1200 行/);
+  assert.match(result.stderr, /责任模块超过 650 行/);
 });
 
 async function fixture(context, { appDependencies = {} } = {}) {
