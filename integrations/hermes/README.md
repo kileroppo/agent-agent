@@ -25,7 +25,11 @@ M2 当前总管路径见 [ADR-0007](../../docs/adr/0007-hermes-native-feishu-run
 node integrations/hermes/scripts/patch-hermes-chinese-busy-notice.mjs
 node integrations/hermes/scripts/patch-feishu-agent-proposal-router.mjs
 node integrations/hermes/scripts/patch-hermes-platform-notification-isolation.mjs
+node integrations/hermes/scripts/patch-hermes-business-error-envelope.mjs
 ```
+
+通用异常回执统一使用中文错误编号，不把服务端异常误报为会话损坏，也不引导用户
+盲目 `/reset`。用户应先查询“进度”排除任务已创建但回执失败，再决定是否重试。
 
 正式业务 Profile 还必须关闭对话后的隐式 Memory/Skill 自改和自动 Curator，
 显式写入统一进入人工审批。该策略避免后台自我改进改变岗位行为，也避免其
