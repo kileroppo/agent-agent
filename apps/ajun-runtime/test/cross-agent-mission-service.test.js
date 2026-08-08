@@ -358,3 +358,89 @@ test('多人任务拒绝循环或不存在的依赖', async () => {
     /依赖必须引用/
   );
 });
+
+test('多人任务已持久化但计划仍在异步生成时返回已受理而不是抛错', async () => {
+  const mission = {
+    taskId:'mission-async-plan',
+    taskType:'army.cross-agent-mission',
+    status:'running',
+    currentStage:'paperclip_hermes_running',
+    artifactRefs:[],
+  };
+  const service = new CrossAgentMissionService({
+    tasks:{ async create(){ return mission; } },
+    store:{ async listApprovals(){ return []; } },
+    governance:{},
+  });
+
+  const result = await service.createBusinessMission({
+    title:'先获取视频再完成精华提炼',
+    items:[
+      { key:'media', title:'获取视频', taskType:'media.transcribe-and-refine', agentId:'xiaod' },
+      { key:'analysis', title:'精华提炼', taskType:'content.video-benchmark-analysis', agentId:'video-content-analyst', dependsOn:['media'] },
+    ],
+  });
+
+  assert.equal(result.mission.taskId, 'mission-async-plan');
+  assert.deepEqual(result.children, []);
+  assert.match(result.reply, /已经登记|计划生成后/);
+});
+
+test('依赖任务创建时显式绑定已完成前置任务编号供证据读取', async () => {
+  const created = [];
+  let mission = null;
+  const allTasks = [];
+  const service = new CrossAgentMissionService({
+    tasks:{
+      async create(input) {
+        created.push(input);
+        if (input.taskType === 'army.cross-agent-mission') {
+          mission = {
+            taskId:'mission-evidence',
+            taskType:'army.cross-agent-mission',
+            status:'running',
+            idempotencyKey:'mission:evidence',
+            requester:{ kind:'local-owner', ref:'A君' },
+            source:{ channel:'feishu', chatRef:'oc_evidence' },
+            governance:{ paperclipIssueId:'paperclip-evidence' },
+            artifactRefs:[{
+              type:'cross_agent_mission_plan',
+              data:{ kind:'business', safeOnly:true, summary:'视频精华提炼', subtasks:input.context.businessMissionItems },
+            }],
+          };
+          allTasks.push(mission);
+          return mission;
+        }
+        const child = {
+          taskId:input.taskType === 'media.transcribe-and-refine' ? 'media-evidence' : 'analysis-evidence',
+          taskType:input.taskType,
+          assigneeAgentId:input.agentId,
+          parentTaskId:input.parentTaskId,
+          idempotencyKey:input.idempotencyKey,
+          status:'succeeded',
+          artifactRefs:[{ type:'verified-result', validation:{ exists:true, nonEmpty:true } }],
+        };
+        allTasks.push(child);
+        return child;
+      },
+    },
+    store:{
+      async list(){ return allTasks; },
+      async updateTask(_id, patch){ mission = { ...mission, ...patch }; allTasks[0] = mission; return mission; },
+    },
+    governance:{ async update(){ return {}; } },
+  });
+
+  await service.createBusinessMission({
+    title:'视频精华提炼',
+    idempotencyKey:'mission:evidence',
+    items:[
+      { key:'media', title:'获取视频', taskType:'media.transcribe-and-refine', agentId:'xiaod' },
+      { key:'analysis', title:'精华提炼', taskType:'content.video-benchmark-analysis', agentId:'video-content-analyst', dependsOn:['media'] },
+    ],
+  });
+
+  const analysis = created.find((input) => input.taskType === 'content.video-benchmark-analysis');
+  assert.deepEqual(analysis.context.sourceTaskIds, ['media-evidence']);
+  assert.equal(analysis.context.dependsOnPrevious, true);
+});

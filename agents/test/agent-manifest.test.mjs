@@ -117,6 +117,15 @@ test("A君收到明确成品请求时必须建立业务任务，不能只在聊�
   assert.match(prompt, /不能只在聊天里直接写出/);
 });
 
+test("A君解释任务失败时以任务错误为主因，不用能力状态猜测或诱导无关恢复", async () => {
+  const prompt = await readFile(path.join(repositoryRoot, "agents/ajun/prompts/system.md"), "utf8");
+  assert.match(prompt, /先调用 `task_get`/);
+  assert.match(prompt, /`error\.code`、`error\.message` 和 `error\.stage`/);
+  assert.match(prompt, /不得用能力清单、旧健康状态或模型记忆覆盖任务错误/);
+  assert.match(prompt, /不得据此声称“服务未启动”/);
+  assert.match(prompt, /不得诱导负责人批准无关恢复/);
+});
+
 test("所有已上岗 Agent 统一使用中文任务摘要，内部状态只留在技术详情", async () => {
   const entries = await readdir(path.join(repositoryRoot, "agents"), { withFileTypes:true });
   for (const entry of entries.filter((item) => item.isDirectory())) {

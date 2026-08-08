@@ -31,6 +31,7 @@ import { PaperclipRetrospectiveError } from './paperclip-retrospective.js';
 import { PublicWebFetchError } from './public-web-fetch.js';
 import { OfficialFeishuCompletionWatcherError } from './official-feishu-completion-watcher.js';
 import { presentCommanderReply } from './runtime-http-feishu.js';
+import { registerSourceCompletionWatch } from './source-completion-watch.js';
 import { ValidationError } from './task-service.js';
 import { dispatchBoomSignal } from '@agent-army/boom-monitor';
 import { routeBoomMonitorApi } from './boom-monitor/index.js';
@@ -385,7 +386,9 @@ export function createAjunHttpHandler({
       if (request.method === 'POST' && request.url === '/api/tasks') {
         const input = await readJsonBody(request);
         if (!isLocalAddress(request.socket.remoteAddress) && !String(input.requesterName || '').trim()) throw new ValidationError('局域网协作者请先填写自己的称呼。');
-        return sendJson(response, 201, { task:await tasks.create(input) });
+        const task = await tasks.create(input);
+        const completionWatch = await registerSourceCompletionWatch(task, hermesNativeCompletionWatcher);
+        return sendJson(response, 201, { task, completionWatch });
       }
       if (request.method === 'GET' && request.url === '/api/integrations/boom-monitor/health') {
         if (boomMonitorEnabled !== false) return sendJson(response, 503, { error:'旧版爆款雷达回滚桥仅在 native writer 已关闭时开放。' });
@@ -424,7 +427,9 @@ export function createAjunHttpHandler({
       }
       if (request.method === 'POST' && request.url === '/api/mcp/missions') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'Hermes MCP 多人任务只能由本机调用。' });
-        return sendJson(response, 201, await missions.createBusinessMission(await readJsonBody(request)));
+        const result = await missions.createBusinessMission(await readJsonBody(request));
+        const completionWatch = await registerSourceCompletionWatch(result, hermesNativeCompletionWatcher);
+        return sendJson(response, 201, { ...result, completionWatch });
       }
       const rejectMatch = request.url?.match(/^\/api\/approvals\/([0-9a-f-]+)\/reject$/i);
       if (request.method === 'POST' && rejectMatch) {
