@@ -7,6 +7,7 @@ import { createConsoleNavigation } from './console-navigation.js';
 import { createAccessViews } from './app-access-views.js';
 import { bindConsoleInteractions } from './app-interactions.js';
 import { createBoomMonitorConsole } from './boom-monitor-console.js';
+import { BILLING_PAGE_SIZE, filterBillingEntries } from './billing-entry-filter.js';
 import { startBrowserHotReload } from './hot-reload-client.js';
 import { taskStatusGroup } from './task-record-filter.js';
 import { createTaskRecordWorkbench } from './task-record-workbench.js';
@@ -21,6 +22,12 @@ const billingStats = document.querySelector('#billing-stats');
 const billingAttribution = document.querySelector('#billing-attribution');
 const billingProfileList = document.querySelector('#billing-profile-list');
 const billingEntryList = document.querySelector('#billing-entry-list');
+const billingEntryCount = document.querySelector('#billing-entry-count');
+const billingListContext = document.querySelector('#billing-list-context');
+const billingSearch = document.querySelector('#billing-search');
+const billingAgentFilter = document.querySelector('#billing-agent-filter');
+const billingLoadMore = document.querySelector('#billing-load-more');
+const billingViewButtons = [...document.querySelectorAll('[data-billing-view]')];
 const focusPanel = document.querySelector('#focus-panel');
 const capabilitySummary = document.querySelector('#capability-summary');
 const accessGate = document.querySelector('#access-gate');
@@ -132,8 +139,10 @@ const directEmployeeTaskTypes = [
   'office.presentation-package'
 ];
 const ownerOnlyModules = new Set(['connections', 'campaigns', 'billing', 'boom-monitor']);
+const billingViewLabels = { all:'全部', unattributed:'未归属', attributed:'已归属' };
 let boomMonitor;
 let recordWorkbench;
+const billingLedgerState = { query:'', agentId:'', view:'all', visible:BILLING_PAGE_SIZE };
 
 function taskIdFromPath(pathname) {
   return pathname.match(/^\/tasks\/([0-9a-f-]{36})$/i)?.[1] || '';
@@ -268,6 +277,9 @@ function renderBilling() {
     billingAttribution.innerHTML = '<strong>账本暂不可用</strong><span>任务记录仍保留，但暂时无法核对全部模型消耗。</span>';
     billingProfileList.replaceChildren(billingEmpty('暂时无法读取岗位用量。'));
     billingEntryList.replaceChildren(billingEmpty('暂时没有可展示的消费流水。'));
+    billingEntryCount.textContent = '读取失败';
+    billingListContext.textContent = '请稍后重试';
+    billingLoadMore.hidden = true;
     return;
   }
   const totals = billing.totals || {};
@@ -292,12 +304,52 @@ function renderBilling() {
   billingAttribution.innerHTML = `<strong>${unattributed ? `${unattributed} 条消费尚未归属任务` : '消费均已归属任务'}</strong><span>${attributed} 条已与任务用量精确对上；“未归属”表示缺少稳定任务关联，不代表没有发生消费。</span>`;
   const profiles = Array.isArray(billing.profiles) ? billing.profiles : [];
   billingProfileList.replaceChildren(...(profiles.length ? profiles.map(billingProfileRow) : [billingEmpty('最近七天没有岗位模型用量。')]));
-  const allEntries = Array.isArray(billing.entries) ? billing.entries : [];
-  const entries = allEntries.slice(0, 30);
-  const entryNodes = entries.length ? entries.map(billingEntryRow) : [billingEmpty('最近七天没有模型消费流水。')];
-  if (allEntries.length > entries.length) entryNodes.push(billingEmpty(`当前展示最近 ${entries.length} 条；汇总已包含全部 ${allEntries.length} 条记录。`));
-  billingEntryList.replaceChildren(...entryNodes);
+  renderBillingEntries(Array.isArray(billing.entries) ? billing.entries : []);
 }
+
+function renderBillingEntries(entries) {
+  const filtered = filterBillingEntries(entries, billingLedgerState);
+  const visible = filtered.slice(0, billingLedgerState.visible);
+  const attributedCount = entries.filter((entry) => entry.attribution?.status === 'task').length;
+  const viewCounts = { all:entries.length, unattributed:entries.length - attributedCount, attributed:attributedCount };
+  billingEntryList.replaceChildren(...(visible.length ? visible.map(billingEntryRow) : [billingEmpty('没有匹配的消费流水。')]));
+  billingEntryCount.textContent = `${filtered.length} 条流水`;
+  billingListContext.textContent = visible.length < filtered.length ? `已显示 ${visible.length} 条` : '按时间排列';
+  billingLoadMore.hidden = visible.length >= filtered.length;
+  billingLoadMore.textContent = `继续加载（已显示 ${visible.length}/${filtered.length}）`;
+  for (const button of billingViewButtons) {
+    const active = button.dataset.billingView === billingLedgerState.view;
+    button.textContent = `${billingViewLabels[button.dataset.billingView]} ${viewCounts[button.dataset.billingView]}`;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-pressed', String(active));
+  }
+  const agentIds = [...new Set(entries.map((entry) => entry.agentId).filter(Boolean))];
+  const selectedAgent = billingAgentFilter.value;
+  billingAgentFilter.replaceChildren(billingOption('', '全部员工'), ...agentIds.map((id) => billingOption(id, agentName(id))));
+  billingAgentFilter.value = agentIds.includes(selectedAgent) ? selectedAgent : '';
+}
+
+function resetBillingPage() {
+  billingLedgerState.visible = BILLING_PAGE_SIZE;
+  renderBilling();
+}
+
+for (const button of billingViewButtons) button.addEventListener('click', () => {
+  billingLedgerState.view = button.dataset.billingView;
+  resetBillingPage();
+});
+billingSearch.addEventListener('input', () => {
+  billingLedgerState.query = billingSearch.value;
+  resetBillingPage();
+});
+billingAgentFilter.addEventListener('change', () => {
+  billingLedgerState.agentId = billingAgentFilter.value;
+  resetBillingPage();
+});
+billingLoadMore.addEventListener('click', () => {
+  billingLedgerState.visible += BILLING_PAGE_SIZE;
+  renderBilling();
+});
 
 function billingProfileRow(profile) {
   const node = document.createElement('article');
@@ -326,6 +378,13 @@ function billingEmpty(message) {
   const node = document.createElement('p');
   node.className = 'billing-empty';
   node.textContent = message;
+  return node;
+}
+
+function billingOption(value, label) {
+  const node = document.createElement('option');
+  node.value = value;
+  node.textContent = label;
   return node;
 }
 

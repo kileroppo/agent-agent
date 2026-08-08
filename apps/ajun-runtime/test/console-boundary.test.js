@@ -9,6 +9,7 @@ async function readConsoleScripts() {
     'app.js',
     'app-access-views.js',
     'app-interactions.js',
+    'billing-entry-filter.js',
     'task-record-workbench.js',
   ].map((name) => readFile(new URL(name, root), 'utf8')))).join('\n');
 }

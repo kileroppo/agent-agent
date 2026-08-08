@@ -495,6 +495,7 @@ export function createAjunHttpHandler({
       if (request.method === 'GET' && publicPath === '/app-access-views.js') return sendFile(response, publicDir, 'app-access-views.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && publicPath === '/app-interactions.js') return sendFile(response, publicDir, 'app-interactions.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && publicPath === '/boom-monitor-console.js') return sendFile(response, publicDir, 'boom-monitor-console.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/billing-entry-filter.js') return sendFile(response, publicDir, 'billing-entry-filter.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && publicPath === '/console-navigation.js') return sendFile(response, publicDir, 'console-navigation.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && publicPath === '/disclosure-state.js') return sendFile(response, publicDir, 'disclosure-state.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && publicPath === '/task-record-filter.js') return sendFile(response, publicDir, 'task-record-filter.js', 'text/javascript; charset=utf-8');

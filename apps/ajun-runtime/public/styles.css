@@ -1804,6 +1804,33 @@ button:disabled {
   border-bottom: 1px solid var(--line);
 }
 
+.billing-toolbar {
+  margin: 0;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.billing-toolbar .record-query-tools {
+  width: min(520px, 50%);
+}
+
+.billing-toolbar select {
+  width: 150px;
+  min-height: 42px;
+  margin: 0;
+}
+
+.billing-list-summary {
+  padding: 10px 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.billing-section > .task-load-more {
+  width: calc(100% - 44px);
+  min-height: 36px;
+  margin: 10px 22px 14px;
+}
+
 .billing-profile-list,
 .billing-entry-list {
   display: grid;
@@ -3617,6 +3644,18 @@ textarea:focus {
     align-items: flex-start;
     flex-direction: column;
     gap: 7px;
+  }
+
+  .billing-toolbar .record-query-tools {
+    width: 100%;
+  }
+
+  .billing-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .billing-toolbar select {
+    width: 132px;
   }
 
   .task-detail-context > div {

@@ -328,7 +328,24 @@
           <div class="section-head">
             <div><h2 id="billing-ledger-title">消费流水</h2><p class="section-intro">来自 Hermes 只读用量记录；不读取 Prompt、聊天正文、密钥或 Base URL。</p></div>
           </div>
+          <div class="record-toolbar billing-toolbar">
+            <div class="record-view-tabs" aria-label="按归属状态查看消费流水">
+              <button type="button" class="record-view-tab is-active" data-billing-view="all" aria-pressed="true">全部</button>
+              <button type="button" class="record-view-tab" data-billing-view="unattributed" aria-pressed="false">未归属</button>
+              <button type="button" class="record-view-tab" data-billing-view="attributed" aria-pressed="false">已归属</button>
+            </div>
+            <div class="record-query-tools">
+              <label class="task-search"><span class="visually-hidden">搜索消费流水</span><input id="billing-search" type="search" autocomplete="off" placeholder="搜索模型或任务"></label>
+              <label class="visually-hidden" for="billing-agent-filter">按员工筛选</label>
+              <select id="billing-agent-filter" aria-label="按员工筛选"><option value="">全部员工</option></select>
+            </div>
+          </div>
+          <div class="record-list-summary billing-list-summary">
+            <strong id="billing-entry-count">正在读取…</strong>
+            <span id="billing-list-context">按时间排列</span>
+          </div>
           <div id="billing-entry-list" class="billing-entry-list"></div>
+          <button id="billing-load-more" class="task-load-more secondary-action" type="button" hidden>继续加载</button>
         </section>
       </section>
 
