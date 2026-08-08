@@ -2,6 +2,7 @@
   "name": "ajun-common-access",
   "version": "0.1.0",
   "private": true,
+  "description": "Controlled account connection and content acquisition adapters",
   "type": "module",
   "exports": {
     "./bilibili-native-subtitle-adapter": "./bilibili-native-subtitle-adapter.js",

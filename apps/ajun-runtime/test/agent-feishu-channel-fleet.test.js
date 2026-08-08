@@ -66,6 +66,22 @@ test('员工更新本机应用资料时先关闭旧连接，再只启动一个�
   assert.equal(fleet.snapshot()['office-assistant'].status, 'connected');
 });
 
+test('员工飞书跟进有投递待核对时，集群快照读取运行中的真实状态', async () => {
+  const fleet = new AgentFeishuChannelFleet({
+    store:{ async getSecret() { return 'secret'; } },
+    bridge:{}, createChannel:async () => ({}),
+    runnerFactory:() => ({
+      async start() { return { status:'connected', message:'已连接。' }; },
+      async stop() {},
+      snapshot() { return { status:'delivery_uncertain', message:'有 1 条投递待核对。', uncertainDeliveries:1 }; }
+    })
+  });
+  await fleet.startApp({ agentId:'operator', appId:'cli-operator', allowedUserIds:['owner-open-id'], allowedGroupIds:[] });
+  assert.deepEqual(fleet.snapshot().operator, {
+    status:'delivery_uncertain', message:'有 1 条投递待核对。', uncertainDeliveries:1, agentId:'operator'
+  });
+});
+
 test('员工飞书入口只由指定运行环境接管，另一侧保持待命且不建立连接', async () => {
   let starts = 0;
   const fleet = new AgentFeishuChannelFleet({

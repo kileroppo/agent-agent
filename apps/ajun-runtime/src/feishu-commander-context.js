@@ -274,6 +274,8 @@ export const feishuCommanderContextMethods = {
 
   async intentFor(text) {
     if (VIDEO_SCRIPT_RE.test(text)) return { intent:'route_task', taskType:'content.video-script-package', agentId:'content-creator' };
+    const direct = highConfidenceReadonlyDirectIntent(text);
+    if (direct) return direct;
     if (typeof this.planner?.decide !== 'function') return directIntent(text);
     try {
       const [routes, employees] = await Promise.all([this.availableRoutes(), this.availableEmployees()]);
@@ -296,8 +298,8 @@ export const feishuCommanderContextMethods = {
       if (planned?.intent === 'intake' && isSafePublicResearchRequest(text)) return { intent:'public_report' };
       if (planned?.intent) return planned;
     } catch { /* AI 临时不可用时，继续使用现有安全识别。 */ }
-    const direct = directIntent(text);
-    if (direct.intent !== 'intake') return direct;
+    const fallback = directIntent(text);
+    if (fallback.intent !== 'intake') return fallback;
     // AI 偶尔会把“查公开竞品”保守地归成普通待办。这个兜底只接住
     // 目标明确、且没有登录/付费/外发风险的公开资料请求，避免负责人反复补链接。
     if (isGithubRequest(text)) return { intent:'github_search' };
@@ -305,7 +307,7 @@ export const feishuCommanderContextMethods = {
     if (isSafePublicResearchRequest(text)) return { intent:'public_report' };
     // AI 临时不可用时，也不能把一句闲聊、编号或模糊追问登记为一项
     // “泛任务”。只有看上去确实在交代工作时，才交给现有的能力评估流程。
-    return looksLikeWorkRequest(text) ? direct : { intent:'clarify' };
+    return looksLikeWorkRequest(text) ? fallback : { intent:'clarify' };
   },
 
   async availableRoutes() {
@@ -331,3 +333,46 @@ export const feishuCommanderContextMethods = {
     return { ...result, completionWatch: { kind:'ajun_task', taskId, baseUrl:this.ajunBaseUrl } };
   }
 };
+
+function highConfidenceReadonlyDirectIntent(text) {
+  const direct = directIntent(text);
+  if (isHighConfidenceReadonlyHealthQuestion(text)) return { intent:'health_check' };
+  if (isHighConfidenceReadonlyOverviewQuestion(text)) return { intent:'army_overview' };
+  if (isHighConfidenceReadonlyUsageQuestion(text)) return { intent:'usage_report' };
+  if (isHighConfidenceReadonlyArmyReportQuestion(text)) return { intent:'army_report' };
+  switch (direct?.intent) {
+    case 'identity':
+    case 'army_capabilities':
+      return direct;
+    default:
+      return null;
+  }
+}
+
+function isHighConfidenceReadonlyHealthQuestion(text) {
+  const value = String(text || '').trim();
+  return isOperationsTriageRequest(value)
+    || /^(?:帮我|麻烦你|请)?(?:检查|看下|看看|查下|查一下).{0,24}(?:系统|军团|服务|运行|健康|状态).{0,12}(?:有没有问题|是否正常|情况)?[。！!？?]?$/.test(value)
+    || /^(?:系统|军团|服务|运行|健康|状态).{0,18}(?:正常吗|有没有问题|如何|怎么样|什么情况)[。！!？?]?$/.test(value);
+}
+
+function isHighConfidenceReadonlyOverviewQuestion(text) {
+  const value = String(text || '').trim();
+  return /^(?:现在|目前)?(?:大家|军团|员工).{0,24}(?:都在干嘛|都在做什么|在做什么|谁在做什么|什么情况|状态如何|谁卡住了)[。！!？?]?$/.test(value)
+    || /^(?:今天|现在|目前).{0,24}(?:有什么|哪些).{0,18}(?:需要我|要我).{0,12}(?:处理|决定|确认|补充)[。！!？?]?$/.test(value)
+    || /^(?:现在|目前|当前)?(?:一共|总共|有)?多少(?:个|名)?(?:员工|agent|助手)(?:在岗|在线|可用)?[。！!？?]?$/.test(value);
+}
+
+function isHighConfidenceReadonlyUsageQuestion(text) {
+  const value = String(text || '').trim();
+  return /^(?:今天|今日).{0,8}(?:花了多少|用了多少|用量多少|消耗多少|成本多少|费用多少|token用了多少)[。！!？?]?$/.test(value)
+    || /^(?:看下|看看|查下|查一下|给我).{0,8}(?:今天|今日).{0,8}(?:用量|消耗|成本|费用|实际使用)[。！!？?]?$/.test(value)
+    || /^(?:今天|今日).{0,8}(?:实际使用|使用情况)(?:怎么样|如何|是什么|多少|呢)?[。！!？?]?$/.test(value);
+}
+
+function isHighConfidenceReadonlyArmyReportQuestion(text) {
+  const value = String(text || '').trim();
+  return /^(?:给我|看下|看看|查下|查一下).{0,8}(?:今天|今日).{0,8}(?:军团|工作).{0,8}(?:工作汇报|工作总结|日报|汇报)[。！!？?]?$/.test(value)
+    || /^(?:今天|今日).{0,8}(?:完成了什么|做了什么|干了什么|工作情况)[。！!？?]?$/.test(value)
+    || /^(?:给我|看下|看看|查下|查一下).{0,8}(?:今天|今日).{0,8}(?:完成了什么|做了什么|干了什么)[。！!？?]?$/.test(value);
+}

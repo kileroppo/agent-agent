@@ -123,3 +123,33 @@ test('Mac工作间不能把没有可验证产物的成功回报写成完成', as
   );
   assert.equal((await store.list())[0].status, 'running');
 });
+
+test('Mac工作间不能把未确认飞书权限的产物写成成功', async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-army-worker-permission-'));
+  t.after(() => fs.rm(directory, { recursive:true, force:true }));
+  const store = new TaskStore(path.join(directory, 'runtime.json'));
+  const task = await store.createTask({
+    taskType:'media.transcribe-and-refine',
+    status:'waiting_worker',
+    input:{ title:'整理公开视频', sourceUrl:'https://example.com/video.mp4' },
+    execution:{ executor:'xiaod', mode:'mac_worker', worker:{ state:'waiting' } },
+  });
+  const bridge = new MacWorkerTaskBridge({ store, token:'permission-worker-token-with-32-characters' });
+  const lease = await bridge.lease({ workerId:'boss-mac', capabilities:['media.transcribe-and-refine'] });
+
+  await assert.rejects(
+    () => bridge.complete(task.taskId, {
+      workerId:'boss-mac',
+      leaseId:lease.job.leaseId,
+      result:{
+        status:'succeeded',
+        xiaodJobId:'job-unverified-permission',
+        larkUrl:'https://example.feishu.cn/docx/unverified',
+        larkPermissionGranted:false,
+        validation:{ exists:true, readable:true, nonEmpty:true },
+      },
+    }),
+    (error) => error.code === 'worker_artifact_invalid',
+  );
+  assert.equal((await store.list())[0].status, 'running');
+});

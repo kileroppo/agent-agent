@@ -63,6 +63,7 @@ export async function createVisualEvidencePackage({
     const fileName = `frame-${String(index).padStart(3, '0')}-${timestampSlug(candidate.timestampSeconds)}.jpg`;
     const framePath = path.join(framesDir, fileName);
     await renderTimestampedFrame(resolvedVideo, candidate.timestampSeconds, framePath, run);
+    await fs.chmod(framePath, 0o600);
     const checksum = await fileSha256(framePath);
     frames.push({
       frameId:`frame-${String(index).padStart(3, '0')}`,
@@ -86,6 +87,7 @@ export async function createVisualEvidencePackage({
     const boardNumber = storyboards.length + 1;
     const boardPath = path.join(storyboardsDir, `storyboard-${String(boardNumber).padStart(2, '0')}.jpg`);
     await renderStoryboard(group.map((frame) => path.join(resolvedOutput, frame.localRef)), boardPath, resolvedOutput, run);
+    await fs.chmod(boardPath, 0o600);
     storyboards.push({
       storyboardId:`storyboard-${String(boardNumber).padStart(2, '0')}`,
       localRef:path.relative(resolvedOutput, boardPath),

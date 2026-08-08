@@ -47,6 +47,14 @@ export class CrossAgentMissionService {
         ...(approval ? { approval:{ approvalId:approval.approvalId, governanceMode:approval.governanceMode, action:approval.action, riskLevel:approval.riskLevel, reason:approval.reason, requestedScope:approval.requestedScope, validUntil:approval.validUntil } } : {})
       };
     }
+    const plan = mission.artifactRefs?.find((item) => item.type === 'cross_agent_mission_plan')?.data;
+    if (!plan) {
+      return {
+        mission,
+        children:[],
+        reply:'总任务已经登记；受控执行器生成计划后会自动分派员工并继续跟进。',
+      };
+    }
     return this.dispatch(mission);
   }
 
@@ -68,6 +76,10 @@ export class CrossAgentMissionService {
     const attemptedApprovalResume = new Set();
     const runSubtask = async (subtask) => {
       const idempotencyKey = `${mission.idempotencyKey || `mission:${mission.taskId}`}:${subtask.key}`;
+      const dependencyKeys = dependenciesFor(plan.subtasks, subtask);
+      const sourceTaskIds = dependencyKeys
+        .map((key) => childByKey.get(key)?.taskId)
+        .filter(Boolean);
       let child = existingChildren.find((task) => task.idempotencyKey === idempotencyKey) || null;
       if (!child) child = await this.tasks.create({
         title:subtask.title,
@@ -78,6 +90,7 @@ export class CrossAgentMissionService {
         connectionId:subtask.connectionId,
         reviewPolicy:subtask.reviewPolicy,
         evidenceMode:subtask.evidenceMode,
+        analysisIntent:subtask.analysisIntent,
         depth:subtask.depth,
         visualMode:subtask.visualMode,
         focus:subtask.focus,
@@ -97,7 +110,9 @@ export class CrossAgentMissionService {
           missionTaskId:mission.taskId,
           parentPaperclipIssueId:parentIssueId,
           missionSafeOnly:plan.safeOnly === true,
-          dependsOn:dependenciesFor(plan.subtasks, subtask)
+          dependsOn:dependencyKeys,
+          dependsOnPrevious:dependencyKeys.length > 0,
+          ...(sourceTaskIds.length ? { sourceTaskIds } : {}),
         }
       });
       if (child.status === 'waiting_approval'
@@ -233,6 +248,7 @@ function normalizeBusinessItems(items) {
       connectionId:normalizeConnectionId(item?.connectionId),
       reviewPolicy:item?.reviewPolicy === 'required' ? 'required' : 'optional',
       evidenceMode:item?.evidenceMode === 'preliminary' ? 'preliminary' : 'formal',
+      analysisIntent:['digest', 'deep', 'template', 'style'].includes(item?.analysisIntent) ? item.analysisIntent : undefined,
       depth:item?.depth === 'full' ? 'full' : 'fast',
       visualMode:item?.visualMode === 'off' || item?.visualMode === 'required' ? item.visualMode : 'auto',
       focus:clean(item?.focus, 500),
@@ -329,7 +345,9 @@ function hasDependencyCycle(subtasks) {
 }
 
 function isVerifiedArtifact(artifact) {
-  return artifact?.validation?.exists === true && artifact?.validation?.nonEmpty === true;
+  return artifact?.validation?.exists === true
+    && artifact.validation.readable === true
+    && artifact.validation.nonEmpty === true;
 }
 
 function containsHighRisk(value) {

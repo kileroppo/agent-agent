@@ -61,6 +61,36 @@ test('SQLite Store 用事务串行抢占 Mac worker 租约并校验续租身份'
   });
 });
 
+test('SQLite Store 在服务端完成任务筛选、计数、例行降噪和游标分页', async () => {
+  await withStore(async ({ store }) => {
+    const snapshot = {
+      tasks:[
+        fixtureTask('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'needs_input', '2026-08-07T10:00:00.000Z', '补充演示材料', 'office-assistant'),
+        fixtureTask('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'running', '2026-08-07T09:00:00.000Z', '生成演示稿', 'office-assistant'),
+        fixtureTask('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'succeeded', '2026-08-07T08:00:00.000Z', '公开资料整理', 'intel-researcher'),
+        fixtureTask('dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'succeeded', '2026-08-07T07:00:00.000Z', 'A君定时本机巡检', 'operations', true),
+        fixtureTask('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 'failed', '2026-08-07T06:00:00.000Z', 'A君定时本机巡检', 'operations', true),
+      ],
+      approvals:[], proposals:[], testInstances:[], conversationContexts:{},
+    };
+    await store.importSnapshot(snapshot, { sourceDigest:'task-query-fixture' });
+
+    const first = await store.queryTasks({ view:'all', limit:2 });
+    assert.deepEqual(first.counts, { needs_action:1, active:1, completed:1, all:3 });
+    assert.deepEqual(first.items.map((item) => item.taskId), snapshot.tasks.slice(0, 2).map((item) => item.taskId));
+    assert.equal(first.routineSummary.hidden, 2);
+    assert.equal(first.routineSummary.attention, 1);
+    assert.ok(first.nextCursor);
+
+    const next = await store.queryTasks({ view:'all', limit:2, cursor:first.nextCursor });
+    assert.deepEqual(next.items.map((item) => item.taskId), [snapshot.tasks[2].taskId]);
+    assert.equal((await store.getTask(snapshot.tasks[1].taskId)).input.title, '生成演示稿');
+
+    const searched = await store.queryTasks({ view:'all', q:'演示', agentId:'office-assistant' });
+    assert.deepEqual(searched.items.map((item) => item.taskId), snapshot.tasks.slice(0, 2).map((item) => item.taskId));
+  });
+});
+
 test('JSON 快照导入校验数量和关键 ID；相同源幂等，其他非空源拒绝覆盖', async () => {
   await withStore(async ({ store }) => {
     const snapshot = fixtureSnapshot();
@@ -110,5 +140,18 @@ function fixtureSnapshot() {
     proposals:[{ schemaVersion:'agent.army/proposal/v1', proposalId:'proposal-fixture', status:'approved', createdAt:'2026-01-01T00:00:00.000Z', updatedAt:'2026-01-01T01:00:00.000Z' }],
     testInstances:[{ schemaVersion:'agent.army/test-instance/v1', testInstanceId:'test-fixture', proposalId:'proposal-fixture', status:'stopped', createdAt:'2026-01-01T00:00:00.000Z', updatedAt:'2026-01-01T01:00:00.000Z' }],
     conversationContexts:{ 'chat-fixture':{ schemaVersion:'agent.army/conversation-context/v1', kind:'usage_report', updatedAt:'2026-01-01T01:00:00.000Z' } }
+  };
+}
+
+function fixtureTask(taskId, status, updatedAt, title, assigneeAgentId, routine = false) {
+  return {
+    schemaVersion:'agent.army/task/v1',
+    taskId,
+    taskType:routine ? 'operations.health-review' : 'office.presentation-package',
+    status,
+    assigneeAgentId,
+    input:{ title, ...(routine ? { description:'agent-army:operations-health-v1' } : {}) },
+    source:{ channel:routine ? 'paperclip' : 'feishu' },
+    approvalRefs:[], artifactRefs:[], createdAt:updatedAt, updatedAt,
   };
 }

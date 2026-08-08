@@ -2,16 +2,6 @@
 
 > 当前总判定：**PARTIAL / M5 NOT COMPLETE**。2026-08-05 已完成一次负责人单独授权的小红书真实发布冒烟，平台分配内容 ID 且笔记当前“审核中”；该动作使用隔离 CuaDriver 人工验收链，不是 A君 production Runtime、Paperclip selector/Profile lease 或真实 PublishReceipt。Cron 与 Publisher 继续关闭；抖音发布、双平台回读、指标和 7 天闭环仍未完成。
 
-## 2026-08-07 main 收敛与 A君切换
-
-| 层级 | 结论 | 事实与边界 |
-| --- | --- | --- |
-| 主线来源 | PASS | 本地与远端 `main` 已收敛到 `8d6907397e9f0e9ae8ee694246c8f1221563f5bc`；发布源码工作树干净，根共享工作树的 32 处未提交修改未被覆盖 |
-| 不可变 release | PASS | release `41bc73a8506b8ef0b6ae162770977d4917afca5642211b7a2548139d57a65934`、payload `339233ce287ba4cce79d108ad12e8093c21f90902ad457da966a44b13b725af4`、7153 项；主启动和只读恢复 smoke 通过 |
-| live 运行 | PASS | PID `9309`，cwd/entrypoint 指向新 release，4321 `/api/overview=200`，11 个 Agent、776 条任务、0 条进行中/后台/待审批任务；`runtime:fingerprint` 为 `same_git_head` |
-| 生产边界 | CLOSED | Paperclip 仍为既有资源，Campaign 与 M5 Cron 未恢复；Publisher 保持 `disabled`、真实连接器未配置。本次切换没有 Provider、发布或外部消息动作，M5 仍为 PARTIAL |
-| 恢复 | DEGRADED READY / EXACT UNAVAILABLE | launchd 原配置已保存为 0600 备份；新 release 的 `verified_degraded_fallback` 为 ready，只提供不挂正式状态的本机只读恢复，不能冒充精确旧 live |
-
 ## 2026-08-06 A君不可变 release 收口
 
 | 层级 | 结论 | 事实与边界 |
@@ -319,7 +309,7 @@ cua-driver doctor
 | CuaDriver | 官方发布脚本 SHA-256 与 v0.17.0 release 一致后，由 `0.14.1` 更新到 `0.17.0`；守护进程已恢复，Accessibility 与 Screen Recording 均为 `true`，语义快照/点击/导航工具仍存在 | 官方 0.16/0.17 主要增强语义路由和原生桌面安全，不新增 DOM 任意属性读取；未借升级绕过平台或网址限制 |
 | selector / Profile 审批准备 | 根据负责人提供的真实创作页截图、已保存的单次冒烟回执和当前 CampaignGrant，生成候选 `xiaohongshu-1.1.0`；Paperclip `AGE-949` selector 冻结审批和 `AGE-950` Profile lease 审批已由负责人批准。selector 已冻结为 `0444` bundle/manifest，冻结文件与候选逐字节一致，规范哈希和文件哈希均匹配；Profile lease 校验通过 | 冻结不启用 Publisher、Cron 或发布；production Runtime 仍未构造 |
 
-该次带输入快照的只读 production readiness：selector candidate/frozen 与 Profile lease 均安全通过；Campaign 因“指标回流后置、先完成本地门禁”而暂停，4390 仍为 `disabled` 且未注入 production provider，因此总判定为 `not_ready`。当前不带输入快照的复核则明确报告 selector/Profile lease 缺失；两者都不授权恢复 Campaign、注入 provider 或启用 Publisher。
+最新只读 production readiness：selector candidate/frozen 与 Profile lease 均安全通过；Campaign 当前因“指标回流后置、先完成本地门禁”而暂停，4390 仍为 `disabled` 且未注入 production provider，因此总判定仍为 `not_ready`。恢复 Campaign、注入 provider 或启用 Publisher 均需另行授权。
 
 当时下一步（历史）：保持 Campaign、Cron 和 Publisher 关闭；若负责人决定继续 production Runtime 验收，先单独授权恢复 Campaign，仍不得据此发布。不得把本次人工冒烟或本地 fixture 写成 M5 完成。
 
@@ -333,61 +323,40 @@ cua-driver doctor
 | 真实渲染 | LOCAL PASS / HUMAN REVIEWED | `work/m5-social-card-acceptance-20260806-e/candidate/social-cards/` 的 3/3 PNG 均为 1080×1440；props、manifest、每张卡均有 SHA-256；人工复核封面、证据页和清单页无裁切 |
 | 外部状态 | UNCHANGED | 使用仓库自有图片和本机 Chrome；无 Provider 调用、无平台访问、无发布。Campaign/Cron/Publisher 未启用，live 插件仍为 `0.4.9` |
 
-## 2026-08-06 核心编排与验证信号收敛
-
-| 项目 | 结果 | 证据与边界 |
-| --- | --- | --- |
-| TaskService | LOCAL PASS | 门面约 1060 行；执行编排约 1550 行；M5 校验/血缘支持约 910 行；公开调用由原测试覆盖 |
-| ContentCampaignKernel | LOCAL PASS | 门面约 830 行；阶段执行约 1160 行；产物校验约 1180 行；M5 Control Plane 公开契约未变 |
-| Publisher | LOCAL PASS | Gateway 1287 行，指标调用恢复已进入独立模块；`221/221` 通过 |
-| 防回涨门禁 | PASS | 架构检查对各责任文件设置独立上限，超限 fixture 会失败 |
-| 日期稳定性 | PASS | 4 个 lease 测试注入固定 clock，没有延长批准有效期 |
-| 外部状态 | UNCHANGED | 没有恢复 Campaign/Cron/Publisher，没有调用 Provider 或平台；只读 readiness 仍为 `not_ready` |
-
 本次验收只证明 `0.5.0` 候选源码、自动化和本机静态输出。它不证明 live 已安装、不批准恢复 Campaign，也不授权任何发布动作。
 
-## 2026-08-07 Ponytail 代码瘦身
+## 2026-08-07 视频分析四模式单版本验收
 
-| 项目 | 结果 | 证据与边界 |
+| 项目 | 验收条件 | 当前证据边界 |
 | --- | --- | --- |
-| 删除重复能力 | LOCAL PASS | 删除未被生产入口引用的旧任务准备器、本地探针、旧并行协调器、单行转发层和过渡项目看板；Paperclip 与 A君仍是唯一控制入口 |
-| 编排代码 | LOCAL PASS | 清理 TaskService 与 ContentCampaignKernel 拆分后遗留的复制 import、无效参数和一次性包装；两个门面分别约 1030/785 行，职责文件总量比上一候选减少约 228 行，公开契约不变 |
-| Hermes | LOCAL PASS | 六个 one-shot advisor 复用既有 policy 中的命令执行、JSON 解析和文本清理；保留需要更大输出缓冲的内容增长专用 runner |
-| 依赖与规模 | PASS | 删除未使用的直接 Prettier 依赖；连同验收文档，本分支总计新增 120 行、删除 1540 行，净减少 1420 行 |
-| 自动化 | PASS | 根 `npm test`、根 `npm run check`、`test:core`、架构检查、各独立 workspace 回归、Local-AI `28/28` 与 Python 编译检查通过；`git diff --check` 通过 |
-| 恢复工具 | RETAINED | v2 迁移、Run-JWT cutover 等一次性工具仍在当前恢复文档和 package scripts 中，是数日前切换的回滚接口；恢复窗口结束前不删除 |
-| 外部状态 | UNCHANGED | 未部署 release、未重启 live、未恢复 Campaign/Cron/Publisher，未调用 Provider、平台或外部消息 |
+| 统一契约 | `analysisIntent=digest|deep|template|style` 贯穿客户端、任务服务、MCP、Mission 和飞书；旧 `depth` 保持兼容 | 以 A君定向测试、全量测试和实际运行态回执分别记录，不能用源码替代 live |
+| 素材复用 | 首次 URL 建立“小D获取 → 小拆分析”；后续模式切换携带原来源任务编号，只新增分析任务 | 不得重新下载、转写或抽帧；来源任务和确认稿校验值应在报告中可追溯 |
+| 四类输出 | 精华提炼满足短摘要和原文引用；深度拆解保留 13 模块并区分事实/推断；模板只称候选；风格返回四个 150–250 字事实锁定短样稿 | 未确认机器稿只能初步分析，不能进入小创 |
+| 指标学习 | 平台、内容 ID、发布时间、内容版本和至少五条同类 72h 样本齐全时才生成待审核 `LearningProposal` | 永不自动改 Prompt、模板、频率、投流或权限 |
+| 外部边界 | 分析、模板和风格结果只提供人工下一步 | Campaign、Cron、Publisher 与真实平台写入继续关闭；真实飞书仍需负责人消息验收 |
 
-这次变更解决的是重复代码和废弃入口，不把“门面文件变短”冒充整个编排系统已经简单。后续若继续缩小 TaskService/Kernel，应按业务职责消除状态与分支，而不是再做机械搬文件。
+### 实际验收结果（2026-08-07 21:49 CST）
 
-## 2026-08-07 核心编排深层 Module
-
-| Module | Interface | 结果 | Locality / Leverage |
+| 层级 | 结论 | 证据 | 未证明部分 |
 | --- | --- | --- | --- |
-| `TaskIntake` | `create(input)` | LOCAL PASS / 约 297 行 | 任务规范化、幂等、岗位路由、Manifest 能力门禁、风险审批和 Paperclip 投影只在一个 Seam 维护 |
-| `TaskNotification` | `status(taskId, chatRef)` | LOCAL PASS / 约 285 行 | 任务链、恢复状态和各岗位真实产物交付统一解释，调用方不再复制状态分支 |
-| `CampaignLifecycle` | 批准、控制、每日激活与只读生命周期查询 | LOCAL PASS / 约 465 行 | CampaignGrant、Cron、预算、插件/Routine readiness、串行化和失败回滚集中维护 |
-| `PaperclipAssignment` / `RoleExecution` | 指派核验与岗位受控执行 | LOCAL PASS / 约 274/654 行 | 身份、Case、工具授权、并发去重、恢复路线和岗位产物只在各自 Seam 维护 |
-| Campaign Route / Replay / Planning | 阶段路由、证据重放和工具规划 | LOCAL PASS / 约 338/338/444 行 | 原执行入口只组合 method set，Kernel 不再同时持有三组阶段规则 |
-| Work Product Lineage / Delivery Validation | 来源血缘与跨产物交付不变量 | LOCAL PASS / 约 447/675 行 | PublishReceipt、Provider confirmed 回执及脚本到审核证据集中且可重放 |
-| Publish / Metric Collection Execution | `publish(request)` / `collect(input)` | LOCAL PASS / 约 509/630 行 | 预算、租约、幂等、连接器批准、CAS、暂停和 hard-stop 协议隐藏在单方法 Interface 后 |
-| 兼容入口 | `TaskService` / `ContentCampaignKernel` | LOCAL PASS / 约 545/294 行 | 既有 HTTP、MCP、Publisher 与测试调用方式不变；入口只负责装配和稳定 Interface |
-| 大文件收敛 | Task execution / Campaign execution / support / Publisher Gateway | LOCAL PASS / 约 607/36/171/243 行 | 四个原千行文件均已降到 700 行以内，新增责任 Module 均有独立上限 |
-| 防回涨 | 核心责任文件 | PASS | Task 与 Campaign 新旧责任 Module 均设置独立行数上限，超限 fixture 失败 |
-| 自动化 | 本地候选 | PASS | A君 `1133/1133`、Kernel `13/13`、核心整包、根 `npm run check`、架构门禁和 `git diff --check` 通过 |
-| 外部状态 | live / Provider / 平台 | UNCHANGED | 未生成 release、未重启 live、未恢复 Campaign/Cron/Publisher，外部调用为 0 |
+| 自动化 | PASS | 主工作区与隔离发布源码的 A君 均为 `1187/1187`；Manifest `18/18`；架构边界通过；Hermes 外层失败回退覆盖合格报告、深度待测试、证据拒绝和非视频隔离 | 不替代真实飞书或真实模型调用 |
+| 首次不可变验收包 | PASS | 代码快照 commit `0e2fdd400debef07da177fa5cfb5d4ac1a58ecbb`；`releaseHash=71aac0b41a699b7c6b4e759a6f689d06aba2b64f6fdc03ebd5efed2a18128d34`；`payloadHash=936401150f920b7c828f984e9a4a11291c90f0e21e681bb7be7084d481c359af`；`entryCount=7104`；主入口与只读恢复 smoke 通过 | 这是在线任务验收时的代码等价快照；最终 docs-bound release 以 launchd entrypoint 的 manifest 为准 |
+| 首次在线运行快照 | PASS | 验收时 launchd PID `10571`，监听 `127.0.0.1:4321`，命令与 cwd 指向只读 release；`/api/overview=200`，11 个 Agent | PID 是历史快照；当前值须重新读取 launchd；运行时通过不代表外部飞书收发通过 |
+| 真实任务 | PASS | 任务 `7d45ed66-e86a-4a08-8179-509939352593` 返回 `succeeded/local_evidence_fallback_ready`；报告为 `analysisIntent=digest`、`reportVersion=video-analysis/v2`、`generationMode=deterministic_fallback`，证据/模式/确认稿/800 字门禁均通过 | Hermes Profile 当前凭据返回 401，因此未形成真实 DeepSeek 语义报告；安全回退已实跑 |
+| 素材复用 | PASS | 来源任务 `c0636161-cb44-4449-81ee-9baa4e027570` 仍为 7 个来源产物；确认稿校验值保持 `96748e00c38e1fd8b05d3abba7946a5acd2bbc5f5b93f4bdbfde6d9f9adb5b92`；验收后新增媒体任务为 0 | 本轮只实跑 digest；其余三模式由自动化覆盖并复用同一契约 |
+| 下游与发布边界 | PASS | 验收任务之后只出现该分析任务；小创、审核、Publisher 任务为 0；`AJUN_M5_PUBLISHER_MODE`、Campaign 和 Cron 启用项均未设置 | 不批准真实发布或活动启用 |
+| 外部飞书 | NOT CHECKED | 本地解析与字段透传测试通过 | 必须由负责人在 A君 真实飞书会话发送一条带模式的视频任务 |
 
-第一轮抽象没有显著减少职责族总行数；本轮继续按完整业务行为收敛后，三个原千行执行文件均已低于 700 行，测试仍穿过原公开 Seam。新增 Module 的 Interface、行数门禁和 deletion test 共同防止重新退化为巨型文件或无价值 helper；这仍只证明候选源码，不代表 live 或外部闭环完成。
+当前唯一外部下一步见 [视频分析四模式飞书验收交接](../../handoffs/current/video-analysis-modes-feishu-acceptance-handoff.md)。
 
-## 2026-08-07 全仓生产千行文件收敛
+## 2026-08-08 当前活动与只读 readiness 复核
 
-| 原责任文件 | 原行数 → 当前入口 | 深层 Module | 验证 |
+| 层级 | 结论 | 当前证据 | 未证明部分 |
 | --- | --- | --- | --- |
-| Local Content / Open Task / Paperclip Bridge | 1655→7 / 1425→19 / 1474→51 | 分析、视觉、创作、Artifact；Policy、State、Execution；Organization、Issue、Case、Publisher | A君 1133/1133 |
-| Feishu Commander / Console app | 1205→45 / 1341→680 | Routing、Followup、Context、Replies；Access Views、Interactions | A君 1133/1133；HTTP 新模块 200 |
-| Stage Recovery / Local Chaos | 1059→23 / 1202→340 | State、PlanRevision、Execution；Journey、Adapters、Fixtures、Ledger | Kernel 13/13；Local Chaos 4/4 |
-| CUA Runner / Media Tools | 1198→458 / 1011→35 | CLI Bridge、Semantic Snapshot；Runtime、Provider Lineage、Artifact Package | Publisher 221/221；插件 100/100 |
-| M5 v2 Reconcile / Controller JWT Cutover | 1265→10 / 1156→31 | Inspection、Execution、Recovery、Journal；Contract、Snapshot Store、Operations | Pipeline 67/67；安全故障 15/15 |
-| 全仓门禁 | 最大生产源码 992 行 | 未登记生产源码统一上限 1000；本轮 Module 独立上限 100–750 | 架构 fixture 覆盖通用与责任上限 |
+| 活动状态 | STOPPED | A君 `GET /api/content-campaigns` 返回活动 `8dd29a3b…` 为 `stopped`、进度 `0/14`，并明确“重新运行必须创建新的授权草案” | 不批准创建新草案或恢复活动 |
+| Selector | PASS / READ ONLY | candidate 与 frozen 文件均为安全普通文件，内容 SHA-256 一致 | 不等于账号或页面仍匹配 |
+| Profile lease | EXPIRED | Paperclip 引用格式安全，但批准有效期止于 `2026-08-06T15:59:59.999Z`；新门禁返回 `profile_lease_expired` | 没有申请或签发新 lease |
+| Publisher / Provider | OFF | 4390 不可达，production provider 未注入，真实 connector 未配置 | 没有启动服务、读取凭据或访问平台 |
+| 只读预检 | EXPECTED NOT READY | `npm run production:readiness -- --snapshot <绝对路径>` 返回 `not_ready`、退出码 `2`；阻断为 stopped Campaign、过期 lease、Publisher 未就绪和 provider 未注入 | 不构成发布授权 |
 
-这些数字排除不可变 release、测试、data 与运维 scripts。兼容入口只有在现有调用方仍依赖稳定路径时保留，并采用直接组合、冻结 Interface 或一次性 destructuring export；没有新增第二套任务状态、Paperclip transport 或 Publisher 安全门闩。候选仍未部署，外部状态保持不变。
+本轮修复了旧预检只验证 lease 引用格式、无法识别过期授权的缺口；同时将 stopped Campaign 的机器下一步固定为新建授权草案，禁止把旧批准当作 paused 活动恢复。全程无外部效果。

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "agent.army/v1",
-  "manifestVersion": "0.4.1",
+  "manifestVersion": "0.5.0",
   "agentId": "video-content-analyst",
   "name": "小拆·视频内容拆解师",
   "department": "内容增长部",
@@ -9,7 +9,7 @@
     "复用小D已经生成的转录和证据产物",
     "在任务要求时读取小D生成的关键帧故事板，并把画面判断绑定到帧 ID 和时间点",
     "优先使用 ContentPackage 中的真实标题、作者、平台和时长，不把任务标题当作来源标题",
-    "按 fast 或 full 深度生成带时间点证据的内容拆解",
+    "按 digest、deep、template 或 style 模式生成带时间点证据的内容分析",
     "区分未确认机器稿的初步分析与基于系统或人工确认稿的正式分析",
     "把真实发布指标关联回原任务和内容版本进行复盘",
     "逐字段标记指标证据类型、来源和派生计算，拒绝无基线比较"
@@ -78,6 +78,14 @@
     {
       "gate": "preliminary-evidence-cannot-feed-creation",
       "required": true
+    },
+    {
+      "gate": "analysis-mode-output-structure-is-complete",
+      "required": true
+    },
+    {
+      "gate": "learning-proposal-requires-five-comparable-72h-samples-and-human-review",
+      "required": true
     }
   ],
   "evidencePolicy": {
@@ -104,6 +112,24 @@
     "groupPolicy": "mention-only"
   },
   "executionOwner": "paperclip-hermes",
+  "userManual": {
+    "aliases": ["小拆", "视频内容拆解师"],
+    "whatItIs": "复用小D的确认稿、来源和关键帧，输出带时间点与画面引用的视频结构拆解或表现复盘。",
+    "savesWork": {
+      "before": "人工反复看视频、记时间点、截关键帧、拆结构并整理报告。",
+      "now": "小D先生成可追溯证据，小拆再按精华提炼、深度拆解、模板学习或风格探索完成分析。",
+      "measurement": "岗位硬上限为fast 5分钟、full 12分钟；人工节省尚未建立三次对照。"
+    },
+    "tools": ["Hermes：执行岗位分析和证据约束。", "小D内容包：提供确认稿、来源、时间点、关键帧和故事板。", "agent-army-video-content与本地视觉能力：生成结构和画面证据。", "A君与Paperclip：按需唤醒并登记产物。"],
+    "inputs": ["小D确认稿任务短号或产物引用。", "digest、deep、template或style分析模式。", "结构、节奏、画面或复盘目标。", "带来源和基线的可选表现数据。"],
+    "trigger": "没有独立飞书入口；请在飞书找A君转派，或由Paperclip按需唤醒。",
+    "examplePrompt": "请让小拆基于小D任务[短号]做深度拆解。重点看开场、信息推进、情绪转折、镜头与字幕配合。每项判断引用时间点或关键帧，不预测播放量。",
+    "outputs": ["精华提炼、深度拆解、模板学习或风格探索报告。", "绑定字幕片段、时间点和帧ID的结论。", "可复用结构、风险和唯一下一步。"],
+    "outputExample": "基于系统确认稿、关键帧和故事板生成对应分析模式报告；深度拆解保留13模块，模板与风格结果明确候选边界，结论绑定来源片段、时间点和帧ID。",
+    "successEvidence": {"status":"record-only", "summary":"已有M3任务验收，公开飞书截图仍待补；适合展示关键帧故事板和带时间点或帧ID的拆解结论。", "references":["docs/reviews/m3-content-growth/acceptance.md", "task:4f8b55ca-8c53-4f48-aeb5-95bf1165b60a"]},
+    "usageSteps": ["先让小D生成确认稿。", "找A君引用小D任务并选择精华提炼、深度拆解、模板学习或风格探索。", "检查关键结论能否回到字幕或关键帧。"],
+    "limitations": ["未确认机器稿不能驱动正式创作。", "不直接下载、登录或绕过内容获取中心。", "没有基线时不写因果结论。", "不负责发布、私信或扩权。"]
+  },
   "runtimeCapabilities": {
     "modelSelection": {
       "provider": "deepseek",
@@ -116,14 +142,15 @@
         "slug": "agent-army-video-content",
         "companySkillId": "741c8f25-dbb7-4b18-845f-651b69c1c933",
         "auditVerdict": "pass",
-        "auditHash": "sha256:453bd9781d7d445858fe5fd2aa7aa1f1e2e1c8a60242eb004da3458d4ad7502f",
-        "auditedAt": "2026-07-30T20:42:55Z",
-        "auditBasis": "skill-inventory-v1",
-        "auditScope": "semantic-metric-provenance-only-no-permission-expansion",
-        "auditEvidence": ["skill-quick-validate", "agent-manifest-15-of-15", "stepfun-video-18-of-18"]
+        "auditHash": "sha256:39a2446ced6b856c49bafa626985c078e3ac1dd0d2fd5242954e792ca42afb75",
+        "auditedAt": "2026-08-07T13:25:53Z",
+        "auditBasis": "video-analysis-v2-contract-tests",
+        "auditScope": "four-analysis-modes-evidence-learning-and-no-publish-boundaries",
+        "auditEvidence": ["ajun-runtime-1183-of-1183", "agent-manifest-18-of-18", "architecture-boundaries-ok"]
       }
     ],
     "mcpTools": [
+      "agent_manual",
       "paperclip_assignment_get",
       "video_content_analyze_execute",
       "content_performance_review_execute",

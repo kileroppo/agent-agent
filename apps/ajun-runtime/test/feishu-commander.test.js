@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { FeishuCommander, FeishuCommanderValidationError } from '../src/feishu-commander.js';
 
+const readableValidation = { exists:true, readable:true, nonEmpty:true };
+
 function setup() {
   const calls = { tasks: [], proposals: [] };
   const task = (input) => ({ taskId: `task-${calls.tasks.length}`, input: { sourceUrl: input.title.match(/https?:\/\/\S+/)?.[0] || null }, artifactRefs: input.taskType === 'operations.health-review' ? [{ type: 'health_report', data: { overall: 'healthy' } }] : input.taskType === 'army.intake' ? [{ type: 'task_intake_record', data: { nextAction: '请补充交付物。' } }] : input.taskType === 'governance.architecture-review' ? [{ type:'architecture_review', data:{ workEvidence:{ frequentPatterns:[{ title:'整理竞品动态', count:3 }] }, roleOpportunities:[{ title:'竞品动态专员' }] } }] : [] });
@@ -31,6 +33,27 @@ test('自然语言要视频脚本时直接交给小创，不误当成小D素材�
   assert.equal(calls.tasks[0].taskType, 'content.video-script-package');
   assert.equal(calls.tasks[0].agentId, 'content-creator');
   assert.equal(result.kind, 'content_script');
+});
+
+test('飞书中的视频分析模式会建立一次小D获取和一次小拆分析', async () => {
+  const calls = [];
+  const commander = new FeishuCommander({
+    tasks:{ async create() { throw new Error('视频链接分析应建立受控总任务'); } },
+    proposals:{},
+    missions:{ async createBusinessMission(input) { calls.push(input); return { mission:{ taskId:'mission-video' }, children:[], reply:'已建立视频分析任务。' }; } }
+  });
+  const result = await commander.handle({
+    text:'请对 https://example.com/video 做模板学习',
+    sourceEventRef:'feishu:video-template-1',
+    chatRef:'chat-video-template'
+  });
+  assert.equal(result.mission.taskId, 'mission-video');
+  assert.equal(calls[0].items.length, 2);
+  assert.equal(calls[0].items[0].agentId, 'xiaod');
+  assert.equal(calls[0].items[0].analysisIntent, 'template');
+  assert.equal(calls[0].items[1].agentId, 'video-content-analyst');
+  assert.equal(calls[0].items[1].analysisIntent, 'template');
+  assert.equal(calls[0].items[1].dependsOnPrevious, true);
 });
 
 test('用户一句话改稿时复用当前会话最新脚本，不要求重新讲背景', async () => {
@@ -86,7 +109,8 @@ test('用户回复用这版时只采用最新脚本，不生成成片或发布',
         input,
         artifactRefs:[{
           type:'video_script_package',
-          data:{ fullScript:'已采用脚本', templateLifecycle:{ approvedForUse:true } }
+          data:{ fullScript:'已采用脚本', templateLifecycle:{ approvedForUse:true } },
+          validation:readableValidation
         }]
       };
     } },
@@ -117,7 +141,25 @@ test('重试小D任务不会落入普通对话，而是返回当前任务链真�
   assert.match(result.reply, /运维官正在接手/);
 });
 
-test('正常中文会先交给 AI 理解，而不是先被关键词规则截走', async () => {
+test('继续飞书交付只恢复当前会话的待交付小D任务，并立即返回受理回执', async () => {
+  const records = [{
+    taskId:'media-delivery', taskType:'media.transcribe-and-refine', status:'needs_input', currentStage:'xiaod_awaiting_delivery',
+    source:{ channel:'feishu', chatRef:'chat-delivery' }, input:{ title:'人工确认稿' }, updatedAt:'2026-08-08T07:00:00.000Z'
+  }];
+  const calls = [];
+  const commander = new FeishuCommander({
+    tasks:{ async continueXiaodDelivery(taskId, options) { calls.push({ taskId, options }); return { ...records[0], status:'running' }; } },
+    proposals:{}, store:{ async list() { return records; } }, ajunBaseUrl:'http://127.0.0.1:4321'
+  });
+  const result = await commander.handle({ text:'继续飞书交付', sourceEventRef:'feishu:delivery-1', chatRef:'chat-delivery' });
+  assert.equal(result.kind, 'xiaod_delivery');
+  assert.deepEqual(calls, [{ taskId:'media-delivery', options:{ chatRef:'chat-delivery' } }]);
+  assert.match(result.reply, /已登记继续飞书交付/);
+  assert.match(result.reply, /media-delivery/);
+  assert.deepEqual(result.completionWatch, { kind:'ajun_task', taskId:'media-delivery', baseUrl:'http://127.0.0.1:4321' });
+});
+
+test('高确定性的系统检查问法直接命中运维检查，不调用 planner', async () => {
   const { commander, calls } = setup();
   let plannerCalls = 0;
   commander.planner = {
@@ -126,11 +168,11 @@ test('正常中文会先交给 AI 理解，而不是先被关键词规则截走'
       return { intent:'army_overview' };
     }
   };
-  commander.tasks.overview = async () => ({ agents:[], tasks:[] });
   const result = await commander.handle({ text:'帮我检查一下军团现在有没有问题', sourceEventRef:'feishu:ai-first-1' });
-  assert.equal(plannerCalls, 1);
-  assert.equal(result.kind, 'army_overview');
-  assert.equal(calls.tasks.length, 0);
+  assert.equal(plannerCalls, 0);
+  assert.equal(calls.tasks.length, 1);
+  assert.equal(calls.tasks[0].taskType, 'operations.health-review');
+  assert.match(result.reply, /【运维官检查结果】/);
 });
 
 test('要求判断卡住原因和安全接手时，不能被 AI 误答成军团概览', async () => {
@@ -440,6 +482,26 @@ test('飞书军团总管把普通公开网页交给已上岗的网页摘要员�
   assert.match(result.reply, /公开网页摘要员工/);
 });
 
+test('执行层伪造成功但产物未过门禁时，飞书不得展示摘要或宣称完成', async () => {
+  const commander = new FeishuCommander({
+    tasks:{ async create(input) {
+      return {
+        taskId:'web-false-success',
+        taskType:input.taskType,
+        status:'succeeded',
+        input:{ title:input.title, sourceUrl:'https://example.com/article' },
+        artifactRefs:[{ type:'public_web_report', data:{ summary:'这段摘要没有通过产物可读性验证。' } }]
+      };
+    } },
+    proposals:{}
+  });
+  const result = await commander.handle({ text:'帮我整理这篇网页 https://example.com/article', sourceEventRef:'feishu:web-false-success' });
+  assert.equal(result.kind, 'completion_waiting_test');
+  assert.match(result.reply, /不会冒充成功/);
+  assert.doesNotMatch(result.reply, /这段摘要没有通过/);
+  assert.doesNotMatch(result.reply, /已完成/);
+});
+
 test('GitHub 意图路由到小R，并保留公开仓库输入和回执', async () => {
   const { commander, calls } = setup();
   commander.planner = { async decide() { return { intent:'github_search' }; } };
@@ -488,7 +550,7 @@ test('办公材料整理意图路由到办公执行助理并返回真实汇报�
         taskType:input.taskType,
         status:'succeeded',
         input:{ title:input.title, description:input.description },
-        artifactRefs:[{ type:'office_briefing_package', data:{ title:'本周工作｜办公汇报包', summary:'已整理三项工作。', sourceTasks:[{ taskId:'a' }, { taskId:'b' }, { taskId:'c' }], openItems:[], nextAction:'请审阅。', markdown:'# 汇报包' } }]
+        artifactRefs:[{ type:'office_briefing_package', data:{ title:'本周工作｜办公汇报包', summary:'已整理三项工作。', sourceTasks:[{ taskId:'a' }, { taskId:'b' }, { taskId:'c' }], openItems:[], nextAction:'请审阅。', markdown:'# 汇报包' }, validation:readableValidation }]
       };
     } },
     proposals:{},
@@ -580,18 +642,119 @@ test('AI 把明确公开资料请求保守归成普通待办时，仍会交给�
   assert.equal(calls.tasks[0].taskType, 'report.public-material');
 });
 
-test('管家问题也先由 AI 理解，再只读取本机真实状态回答', async () => {
+test('高确定性的能力问题直接回答，不调用 planner', async () => {
   const { commander, calls } = setup();
-  let plannerCalled = false;
-  commander.planner = { async decide() { plannerCalled = true; return { intent:'army_capabilities' }; } };
+  let plannerCalls = 0;
+  commander.planner = { async decide() { plannerCalls += 1; return { intent:'army_capabilities' }; } };
   commander.tasks.overview = async () => ({ agents:[
     { agentId:'operator', status:'active', acceptedTaskTypes:['operations.health-review'] },
     { agentId:'xiaod', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] }
   ] });
   const result = await commander.handle({ text:'你现在能干什么？', sourceEventRef:'feishu:fast-capabilities-1' });
-  assert.equal(plannerCalled, true);
+  assert.equal(plannerCalls, 0);
   assert.equal(calls.tasks.length, 0);
   assert.equal(result.kind, 'army_capabilities');
+});
+
+test('高确定性的军团概览问法直接读取真实状态，不调用 planner', async () => {
+  const { commander, calls } = setup();
+  let plannerCalls = 0;
+  commander.planner = { async decide() { plannerCalls += 1; return { intent:'clarify' }; } };
+  commander.tasks.overview = async () => ({
+    agents:[{ agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] }],
+    tasks:[{ assigneeAgentId:'xiaod', status:'running', input:{ title:'整理公开视频' } }]
+  });
+  const result = await commander.handle({ text:'现在大家都在干嘛？', sourceEventRef:'feishu:overview-direct-1', chatRef:'chat-safe-ref' });
+  assert.equal(plannerCalls, 0);
+  assert.equal(calls.tasks.length, 0);
+  assert.equal(result.kind, 'army_overview');
+  assert.match(result.reply, /【军团情况】/);
+});
+
+test('高确定性的使用情况问法直接汇总，不调用 planner', async () => {
+  const { commander, calls } = setup();
+  let plannerCalls = 0;
+  commander.planner = { async decide() { plannerCalls += 1; return { intent:'clarify' }; } };
+  commander.tasks.usageOverview = async () => ({ trackedTaskCount:2, actualToolCalls:3, cost:{ reportedTaskCount:0, totals:[] } });
+  const result = await commander.handle({ text:'今天花了多少？', sourceEventRef:'feishu:usage-direct-1', chatRef:'chat-safe-ref' });
+  assert.equal(plannerCalls, 0);
+  assert.equal(calls.tasks.length, 0);
+  assert.equal(result.kind, 'usage_report');
+});
+
+test('高确定性的军团工作汇报问法直接汇总，不调用 planner', async () => {
+  const { commander, calls } = setup();
+  let plannerCalls = 0;
+  const now = new Date().toISOString();
+  commander.planner = { async decide() { plannerCalls += 1; return { intent:'clarify' }; } };
+  commander.tasks.overview = async () => ({ tasks:[
+    { taskId:'done-1', status:'succeeded', taskType:'report.public-material', input:{ title:'整理公开网页' }, updatedAt:now }
+  ] });
+  const result = await commander.handle({ text:'给我今天军团工作汇报', sourceEventRef:'feishu:report-direct-1', chatRef:'chat-safe-ref' });
+  assert.equal(plannerCalls, 0);
+  assert.equal(calls.tasks.length, 0);
+  assert.equal(result.kind, 'army_report');
+});
+
+test('降低模型成本这类优化请求仍走 planner，不被使用汇总直判拦截', async () => {
+  const { commander, calls } = setup();
+  let plannerCalls = 0;
+  commander.planner = {
+    async decide() {
+      plannerCalls += 1;
+      return { intent:'architecture_review' };
+    }
+  };
+  const result = await commander.handle({ text:'帮我降低这个流程的模型成本', sourceEventRef:'feishu:cost-optimize-1' });
+  assert.equal(plannerCalls, 1);
+  assert.equal(calls.tasks.length, 1);
+  assert.equal(calls.tasks[0].taskType, 'governance.architecture-review');
+  assert.equal(result.kind, 'architecture_review');
+});
+
+test('使用情况后带分析诉求时仍走 planner，不被纯查询白名单截走', async () => {
+  const { commander, calls } = setup();
+  let plannerCalls = 0;
+  commander.planner = {
+    async decide() {
+      plannerCalls += 1;
+      return { intent:'architecture_review' };
+    }
+  };
+  const result = await commander.handle({ text:'今天使用情况帮我分析为什么涨了', sourceEventRef:'feishu:usage-analysis-1' });
+  assert.equal(plannerCalls, 1);
+  assert.equal(calls.tasks.length, 1);
+  assert.equal(result.kind, 'architecture_review');
+});
+
+test('询问新项目需要多少员工时仍走 planner，不误当当前员工数量查询', async () => {
+  const { commander, calls } = setup();
+  let plannerCalls = 0;
+  commander.planner = {
+    async decide() {
+      plannerCalls += 1;
+      return { intent:'army_planning' };
+    }
+  };
+  const result = await commander.handle({ text:'多少员工来做这个项目合适', sourceEventRef:'feishu:staff-planning-1' });
+  assert.equal(plannerCalls, 1);
+  assert.equal(calls.tasks.length, 1);
+  assert.notEqual(result.kind, 'army_overview');
+});
+
+test('模糊中文仍走 planner，不被只读直判误拦截', async () => {
+  const { commander, calls } = setup();
+  let plannerCalls = 0;
+  commander.planner = {
+    async decide() {
+      plannerCalls += 1;
+      return { intent:'clarify', reply:'你是想看军团状态，还是要我实际处理一个问题？' };
+    }
+  };
+  const result = await commander.handle({ text:'军团这个事你先看看', sourceEventRef:'feishu:ambiguous-1' });
+  assert.equal(plannerCalls, 1);
+  assert.equal(calls.tasks.length, 0);
+  assert.equal(result.kind, 'clarify');
 });
 
 test('陌生但低风险的工作会自动交给架构师评估能力缺口，不要求用户再说继续', async () => {
@@ -599,7 +762,7 @@ test('陌生但低风险的工作会自动交给架构师评估能力缺口，�
   const commander = new FeishuCommander({
     tasks: {
       async create() { return { taskId:'intake-1', taskType:'army.intake', status:'succeeded', input:{ title:'研究竞品' }, artifactRefs:[{ type:'task_intake_record', data:{ autoContinue:true, recommendedTaskType:'governance.architecture-review', recommendedAgentId:'architect' } }] }; },
-      async continueFromRecommendation(taskId) { continued.push(taskId); return { taskId:'architecture-1', taskType:'governance.architecture-review', status:'succeeded', input:{ title:'研究竞品' }, artifactRefs:[{ type:'architecture_review', data:{ workEvidence:{ frequentPatterns:[] }, roleOpportunities:[], nextAction:'先用公开资料验证最小工作范围。' } }] }; }
+      async continueFromRecommendation(taskId) { continued.push(taskId); return { taskId:'architecture-1', taskType:'governance.architecture-review', status:'succeeded', input:{ title:'研究竞品' }, artifactRefs:[{ type:'architecture_review', data:{ workEvidence:{ frequentPatterns:[] }, roleOpportunities:[], nextAction:'先用公开资料验证最小工作范围。' }, validation:readableValidation }] }; }
     }, proposals:{}
   });
   const result = await commander.handle({ text:'规划一个需要付费投放的竞品项目', sourceEventRef:'feishu:unknown-work-1' });
@@ -637,7 +800,8 @@ test('陌生工作的架构评估优先回复具体目标、交付物和缺少�
               workEvidence:{ frequentPatterns:[{ title:'整理视频', count:12 }] },
               roleOpportunities:[],
               nextAction:'先提供一份去标识的投诉样本，再验证分类规则。'
-            }
+            },
+            validation:readableValidation
           }]
         };
       }
@@ -823,7 +987,7 @@ test('用户选择刚才能力菜单的编号时，总管按原菜单执行，�
   const commander = new FeishuCommander({
     tasks: {
       async overview() { return { agents:[{ agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] }] }; },
-      async create(input) { calls.push(input); return { taskId:'health-choice-2', status:'succeeded', input:{}, artifactRefs:[{ type:'health_report', data:{ overall:'healthy' } }] }; }
+      async create(input) { calls.push(input); return { taskId:'health-choice-2', taskType:input.taskType, status:'succeeded', input:{}, artifactRefs:[{ type:'health_report', data:{ overall:'healthy', components:[{ name:'ajun', status:'healthy' }] }, validation:readableValidation }] }; }
     },
     proposals: {},
     store: {
@@ -1090,7 +1254,7 @@ test('飞书军团总管会在进度回复中带回已完成网页任务的真�
   const { commander } = setup();
   commander.store = {
     async list() {
-      return [{ taskId: 'web-done', taskType: 'report.public-material', status: 'succeeded', source: { channel: 'feishu', chatRef: 'chat-safe-ref' }, input: { title: '整理公开网页' }, artifactRefs: [{ type: 'public_web_report', data: { summary: '这篇文章主要讲公开资料整理。' } }] }];
+      return [{ taskId: 'web-done', taskType: 'report.public-material', status: 'succeeded', source: { channel: 'feishu', chatRef: 'chat-safe-ref' }, input: { title: '整理公开网页' }, artifactRefs: [{ type: 'public_web_report', data: { summary: '这篇文章主要讲公开资料整理。' }, validation:readableValidation }] }];
     }
   };
   const result = await commander.handle({ text: '结果呢', sourceEventRef: 'feishu:progress-web-2', chatRef: 'chat-safe-ref' });

@@ -73,6 +73,69 @@ test('AgentArmyClient creates an idempotent Hermes task and returns its read mod
   assert.deepEqual(watch.body, { taskId:'22222222-2222-2222-2222-222222222222', chatRef:'oc_test' });
 });
 
+test('服务端已登记终态回告时客户端不重复登记', async () => {
+  const requests = [];
+  const missionId = '29292929-2929-2929-2929-292929292929';
+  const client = new AgentArmyClient({
+    fetchImpl:async (url, options = {}) => {
+      const key = `${options.method || 'GET'} ${new URL(url).pathname}`;
+      requests.push(key);
+      if (key === 'POST /api/mcp/missions') return response(201, {
+        mission:{ taskId:missionId }, children:[], reply:'总任务已经登记。',
+        completionWatch:{ required:true, registered:true, taskId:missionId },
+      });
+      if (key === 'GET /api/overview') return response(200, {
+        ...overview,
+        tasks:[{
+          taskId:missionId, taskType:'army.cross-agent-mission', assigneeAgentId:'ajun',
+          status:'running', currentStage:'paperclip_hermes_running', input:{ title:'视频分析' },
+          approvalRefs:[], artifactRefs:[],
+        }],
+      });
+      return response(404, { error:'missing' });
+    },
+  });
+
+  const result = await client.createMission({
+    title:'视频分析', chatRef:'oc_owner',
+    items:[{ key:'media', title:'获取视频', taskType:'media.transcribe-and-refine', agentId:'xiaod' }],
+  });
+
+  assert.equal(result.completionWatch.registered, true);
+  assert.equal(requests.includes('POST /api/mcp/completion-watches'), false);
+});
+
+test('终态回告两次登记均失败时明确告知不能承诺自动通知', async () => {
+  const missionId = '30303030-3030-3030-3030-303030303030';
+  const client = new AgentArmyClient({
+    fetchImpl:async (url, options = {}) => {
+      const key = `${options.method || 'GET'} ${new URL(url).pathname}`;
+      if (key === 'POST /api/mcp/missions') return response(201, {
+        mission:{ taskId:missionId }, children:[], reply:'总任务已经登记。',
+        completionWatch:{ required:true, registered:false, errorCode:'completion_watch_registration_failed' },
+      });
+      if (key === 'POST /api/mcp/completion-watches') return response(500, { error:'watch unavailable' });
+      if (key === 'GET /api/overview') return response(200, {
+        ...overview,
+        tasks:[{
+          taskId:missionId, taskType:'army.cross-agent-mission', assigneeAgentId:'ajun',
+          status:'running', currentStage:'paperclip_hermes_running', input:{ title:'视频分析' },
+          approvalRefs:[], artifactRefs:[],
+        }],
+      });
+      return response(404, { error:'missing' });
+    },
+  });
+
+  const result = await client.createMission({
+    title:'视频分析', chatRef:'oc_owner',
+    items:[{ key:'media', title:'获取视频', taskType:'media.transcribe-and-refine', agentId:'xiaod' }],
+  });
+
+  assert.equal(result.completionWatch.registered, false);
+  assert.match(result.userMessage, /自动回告暂未登记成功/);
+});
+
 test('AgentArmyClient 拒绝非法账号连接标识', async () => {
   const client = new AgentArmyClient({ fetchImpl:async () => { throw new Error('不应请求'); } });
   await assert.rejects(() => client.createTask({
@@ -189,6 +252,73 @@ test('用户明确要求正式完整拆解时覆盖模型误传的 fast，但默
   const create = requests.find((item) => item.key === 'POST /api/mcp/missions');
   assert.equal(create.body.items[0].reviewPolicy, 'optional');
   assert.equal(create.body.items[1].depth, 'full');
+});
+
+test('结构化分析模式优先于自然语言并贯穿视频获取任务与小拆任务', async () => {
+  const requests = [];
+  const client = new AgentArmyClient({
+    fetchImpl:async (url, options = {}) => {
+      const key = `${options.method || 'GET'} ${new URL(url).pathname}`;
+      requests.push({ key, body:options.body ? JSON.parse(options.body) : null });
+      if (key === 'POST /api/mcp/missions') return response(201, {
+        mission:{ taskId:'27272727-2727-2727-2727-272727272727' },
+        children:[],
+        reply:'总任务已建立。'
+      });
+      if (key === 'POST /api/mcp/completion-watches') return response(200, { registered:true });
+      if (key === 'GET /api/overview') return response(200, { ...overview, tasks:[] });
+      return response(404, { error:'missing' });
+    }
+  });
+
+  await client.createTask({
+    title:'总结这个视频',
+    taskType:'content.video-benchmark-analysis',
+    sourceUrls:['https://example.com/video'],
+    analysisIntent:'style',
+    depth:'fast',
+    chatRef:'oc_content',
+    requestRef:'message-content-style'
+  });
+
+  const create = requests.find((item) => item.key === 'POST /api/mcp/missions');
+  assert.equal(create.body.items.length, 2);
+  assert.equal(create.body.items[0].analysisIntent, 'style');
+  assert.equal(create.body.items[0].depth, 'full');
+  assert.equal(create.body.items[1].analysisIntent, 'style');
+  assert.equal(create.body.items[1].depth, 'full');
+  assert.equal(create.body.items.some((item) => ['content-creator', 'reviewer', 'operator'].includes(item.agentId)), false);
+});
+
+test('自然语言同时命中多个分析模式时要求用户只选一种', async () => {
+  const client = new AgentArmyClient({ fetchImpl:async () => { throw new Error('不应发送请求'); } });
+  await assert.rejects(() => client.createTask({
+    title:'深度拆解并提取模板',
+    taskType:'content.video-benchmark-analysis',
+    sourceUrls:['https://example.com/video']
+  }), /检测到多个分析模式/);
+});
+
+test('切换分析模式并引用原小D任务时只创建新分析任务', async () => {
+  const requests = [];
+  const client = new AgentArmyClient({
+    fetchImpl:async (url, options = {}) => {
+      const key = `${options.method || 'GET'} ${new URL(url).pathname}`;
+      requests.push({ key, body:options.body ? JSON.parse(options.body) : null });
+      if (key === 'POST /api/tasks') return response(201, { task:{ taskId:'28282828-2828-2828-2828-282828282828' } });
+      if (key === 'POST /api/feishu/task-status') return response(200, { terminal:false, status:'running', message:'处理中。' });
+      if (key === 'GET /api/overview') return response(200, { ...overview, tasks:[{ ...overview.tasks[0], taskId:'28282828-2828-2828-2828-282828282828' }] });
+      return response(404, { error:'missing' });
+    }
+  });
+  await client.createTask({
+    title:'继续深度拆解', taskType:'content.video-benchmark-analysis', analysisIntent:'deep',
+    sourceUrls:['https://example.com/video'], sourceTaskIds:['source-task-1234']
+  });
+  assert.equal(requests.some((item) => item.key === 'POST /api/mcp/missions'), false);
+  const create = requests.find((item) => item.key === 'POST /api/tasks');
+  assert.deepEqual(create.body.context.sourceTaskIds, ['source-task-1234']);
+  assert.equal(create.body.analysisIntent, 'deep');
 });
 
 test('用户明确要求人工完整听审时保留人工确认门禁', async () => {
@@ -372,6 +502,7 @@ test('AgentArmyClient creates one idempotent mission with explicit employee depe
         children:[{ taskId:childId }],
         reply:'总任务已建立。'
       });
+      if (key === 'POST /api/mcp/completion-watches') return response(200, { registered:true });
       if (key === 'GET /api/overview') return response(200, {
         ...overview,
         tasks:[

@@ -19,6 +19,24 @@
   "dataScopes": [{"scope":"army-task-and-roster-metadata","access":["read", "write"],"boundary":"只保存任务目标、状态、审批和脱敏结果；不保存密钥或原始私密聊天内容"}],
   "approvalPolicies": [{"action":"external-write-or-permission-expansion","riskLevel":"high","decision":"require-approval"}],
   "qualityGates": [{"gate":"only-real-active-worker-can-be-assigned","required":true}, {"gate":"result-or-open-risk-stated","required":true}],
+  "userManual": {
+    "aliases": ["A君", "军团总管"],
+    "whatItIs": "军团统一任务入口，把自然语言目标整理成任务，安排已上岗员工，跟进真实进度并回到原聊天交付。",
+    "savesWork": {
+      "before": "负责人自己判断找谁、逐个派活、追进度并汇总结果。",
+      "now": "一次说清目标、材料、限制和完成标准，由A君路由和跟进。",
+      "measurement": "跨岗位人工节省尚未建立三次对照样本；不得把单个短任务耗时当成复杂任务承诺。"
+    },
+    "tools": ["Hermes：承载独立会话、记忆、模型和工具选择。", "Paperclip：管理跨岗位任务、依赖、预算、审批和审计。", "A君本地运行时：读取真实员工与任务状态并执行受控路由。", "飞书Bot：接单、追问、审批和交付。"],
+    "inputs": ["目标：想得到什么结果。", "材料：链接、文件或已有任务引用。", "限制：只读、外发、预算和截止时间。", "完成标准：什么产物算可用。"],
+    "trigger": "在飞书私聊A君；群聊必须真实@A君。",
+    "examplePrompt": "目标：把这条公开视频整理成中文重点并做一页汇报。材料：[公开URL]。限制：只读，不登录，不发布。完成标准：给我整理稿、来源和一页汇报，做不了的地方明确写出。",
+    "outputs": ["承接员工与任务短号。", "真实进度、卡点、审批和未决项。", "已验证产物入口或不能完成的真实原因。", "一个明确下一步。"],
+    "outputExample": "真实任务605b7988-fa26-4c2e-84ce-c4cfd01fdd26以succeeded结束并登记2个产物引用；对话交付应包含承接员工、任务短号、状态、产物入口、未完成项和一个下一步。",
+    "successEvidence": {"status":"record-only", "summary":"已有任务与验收记录，但仓库尚未保存可公开复用的A君飞书对话截图；对外前需补拍同一会话中的发起、分工和最终交付并脱敏。", "references":["docs/reviews/m2-real-small-army/acceptance.md", "task:605b7988-fa26-4c2e-84ce-c4cfd01fdd26"]},
+    "usageSteps": ["把目标、材料、限制和完成标准一次说清。", "在原会话回答补充问题或审批。", "最终检查真实产物，不只看完成状态。"],
+    "limitations": ["不把草案员工或未验证能力说成已经可用。", "登录、外发、付费、删除、扩权和公开发布必须人工批准。", "服务健康不等于业务交付成功。"]
+  },
   "runtimeCapabilities": {
     "modelSelection": {
       "provider": "deepseek",
@@ -27,6 +45,7 @@
     "fallbackModels": [],
     "skills": ["paperclip"],
     "mcpTools": [
+      "agent_manual",
       "status",
       "employee_status",
       "task_list",

@@ -15,7 +15,7 @@
 - 目标：完成小D证据链、小拆、小创和小办知识归档的 M3 首批闭环。
 - 用户约束与不可做事项：不自动发布，不读取/记录 Cookie、token 或微信明文数据库；转录默认自动质量确认，但不得冒充真人完整听审。
 - 做完的定义：以 M3 PRD 完成门禁和验收账本为准。
-- 唯一下一步：M3 无剩余动作；后续工作按 [M4 交接单](../../handoffs/current/m4-autonomous-agent-capabilities-handoff.md)继续。
+- 唯一下一步：M3 无剩余动作；后续 M4 记录见 [已归档交接](./m4-autonomous-agent-capabilities-handoff.md)。
 - 允许继续的前提：不得把历史 `partial` 或 `deterministic_fallback` 当作正式图文稿；当前草稿保持 `draft_only`，任何飞书测试消息或对外发布都需另行明确授权。
 
 ## 2. 当前事实

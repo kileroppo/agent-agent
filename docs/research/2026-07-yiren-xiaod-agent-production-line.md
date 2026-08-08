@@ -289,4 +289,4 @@ av-transcriber：按课程第一步新建的接线样板，只有独立工位和
 - 负责人提供的航海课程截图：六个关卡标题。
 - 负责人已登录的航海课程《AI Agent架构师丨实战手册丨2026 年 8 月航海》关卡 1“实操步骤”（本次只读核对）：确认了最小转录任务、Codex 与飞书应用的人工交接、私聊为第一关门槛、群聊为进阶项、能力边界提问和本地文件检查。
 - 负责人提供的创建指令与第一关音频转录任务。
-- 本项目当前材料：[`创建 Hermes Agent 与飞书 Bot 接线教程`](../guides/创建Hermes-Agent与飞书Bot接线教程.md)、[`agents/av-transcriber/README.md`](../../agents/av-transcriber/README.md)、[`音视频转录 Agent 接线交接`](../handoffs/current/av-transcriber-feishu-provisioning-handoff.md)、[`agents/xiaod/manifest.json`](../../agents/xiaod/manifest.json)、[`docs/reviews/m1-xiaod-feishu-closure/acceptance.md`](../reviews/m1-xiaod-feishu-closure/acceptance.md)。
+- 本项目当前材料：[`创建 Hermes Agent 与飞书 Bot 接线教程`](../guides/创建Hermes-Agent与飞书Bot接线教程.md)、[`agents/xiaod/README.md`](../../agents/xiaod/README.md)、[`音视频转录 Agent 接线交接`](../archive/handoffs/av-transcriber-feishu-provisioning-handoff.md)、[`agents/xiaod/manifest.json`](../../agents/xiaod/manifest.json)、[`docs/reviews/m1-xiaod-feishu-closure/acceptance.md`](../reviews/m1-xiaod-feishu-closure/acceptance.md)。

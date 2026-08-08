@@ -1,6 +1,7 @@
 import { usesPaperclipHermesExecution } from './governance-hermes-runtime.js';
 import { routeOpenTaskForExecutor } from './open-task-routing.js';
 import { recordTaskUsage } from './task-usage.js';
+import { validateTaskCompletion } from './task-completion-contract.js';
 
 export class TaskExecutionCoordinator {
   constructor({
@@ -35,14 +36,19 @@ export class TaskExecutionCoordinator {
     if (!executor || task.status === 'waiting_approval') return task;
 
     const executionStartedAt = new Date();
-    let updated = await this.store.updateTask(task.taskId, {
-      status:'running',
+    const startPatch = {
       currentStage:'starting',
       execution:{ executor:agent.agentId, startedAt:executionStartedAt.toISOString() },
-    });
+    };
+    const claim = typeof this.store.claimTaskExecution === 'function'
+      ? await this.store.claimTaskExecution(task.taskId, startPatch)
+      : { claimed:true, task:await this.store.updateTask(task.taskId, { ...startPatch, status:'running' }) };
+    if (!claim.claimed) return claim.task;
+    let updated = claim.task;
     updated = await this.syncGovernance(updated);
     try {
-      const result = await executor.execute(routeOpenTaskForExecutor(updated, agent));
+      const rawResult = await executor.execute(routeOpenTaskForExecutor(updated, agent));
+      const result = enforceCompletionContract(updated, rawResult);
       updated = await this.store.updateTask(updated.taskId, {
         ...result,
         usage:recordTaskUsage({ task:updated, result, startedAt:executionStartedAt }),
@@ -106,6 +112,40 @@ function executionFailure(task, error) {
       stage:'execution',
       retryable:error?.retryable === true,
       occurredAt:new Date().toISOString(),
+    },
+  };
+}
+
+function enforceCompletionContract(task, result = {}) {
+  if (result?.status !== 'succeeded') return result;
+  const artifacts = Array.isArray(result.artifactRefs)
+    ? result.artifactRefs
+    : task.artifactRefs || [];
+  const completion = validateTaskCompletion(task, artifacts);
+  if (completion.valid) return result;
+  const finishedAt = result.execution?.finishedAt || new Date().toISOString();
+  return {
+    ...result,
+    status:'waiting_test',
+    currentStage:'completion_evidence_invalid',
+    execution:{
+      ...(result.execution || {}),
+      finishedAt,
+      outcome:'completion_evidence_invalid',
+      completionValidation:{
+        reportedStatus:'succeeded',
+        valid:false,
+        expectedArtifactTypes:completion.expectedArtifactTypes,
+      },
+    },
+    error:{
+      code:'completion_evidence_invalid',
+      message:completion.reason,
+      userMessage:'执行器已经停止运行，但完成产物没有通过对应任务门禁；已转为待测试，不冒充成功。',
+      category:'manual',
+      stage:'completion_validation',
+      retryable:false,
+      occurredAt:finishedAt,
     },
   };
 }

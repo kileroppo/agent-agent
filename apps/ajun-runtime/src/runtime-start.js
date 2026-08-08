@@ -19,12 +19,14 @@ export async function startRuntime({
 
 export function startRuntimeBackgroundServices(runtime) {
   const services = runtime.services || {};
+  services.interruptedLocalExecutionReconciler?.start();
   services.paperclipRosterReconciler?.start();
   services.approvalExpiryReconciler?.start();
   if (runtime.deploymentMode !== 'cloud') services.xiaodReconciler?.start();
   services.paperclipRepairReconciler?.start();
   services.paperclipHermesTaskReconciler?.start();
   services.missionReconciler?.start();
+  services.boomMonitor?.start();
   startWithoutBlocking(services.hermesNativeCompletionWatcher, null, runtime.logger);
   services.technicalRepairWatchdog?.start();
   if (runtime.feishuChannelStartup?.startLegacyAJun) {

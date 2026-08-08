@@ -36,6 +36,13 @@ const PRODUCTION_HEALTH = {
   },
 };
 
+const READINESS_CLOCK = () => new Date('2026-08-08T00:00:00.000Z');
+const CURRENT_PROFILE_LEASE = Object.freeze({
+  ref:'paperclip:cua-profile-lease:xiaohongshu-primary',
+  status:'approved',
+  expiresAt:'2026-08-09T00:00:00.000Z',
+});
+
 test('Gateway 公共导出和 package CLI 暴露同一只读生产预检', async () => {
   assert.equal(typeof createProductionReadinessReport, 'function');
   assert.equal(
@@ -95,9 +102,10 @@ test('全部只读前置条件满足时仍只建议申请受控真实发布审�
     inputSnapshot:{
       campaign:{ status:'approved' },
       selectors:{ candidate, frozen },
-      profileLeaseRef:'paperclip:cua-profile-lease:xiaohongshu-primary',
+      profileLease:CURRENT_PROFILE_LEASE,
       productionProviderInjected:true,
     },
+    clock:READINESS_CLOCK,
   });
 
   assert.equal(report.status, 'ready');
@@ -127,9 +135,10 @@ test('已启动的 active Campaign 仍是有效生产授权状态', async (conte
     inputSnapshot:{
       campaign:{ status:'active' },
       selectors:{ candidate, frozen },
-      profileLeaseRef:'paperclip:cua-profile-lease:xiaohongshu-primary',
+      profileLease:CURRENT_PROFILE_LEASE,
       productionProviderInjected:true,
     },
+    clock:READINESS_CLOCK,
   });
 
   assert.equal(report.status, 'ready');
@@ -137,6 +146,26 @@ test('已启动的 active Campaign 仍是有效生产授权状态', async (conte
     snapshotPresent:true,
     status:'active',
     approved:true,
+  });
+});
+
+test('stopped Campaign 明确要求新建授权草案，不能被当成 paused 或旧批准继续', async () => {
+  const report = await createProductionReadinessReport({
+    healthSnapshot:PRODUCTION_HEALTH,
+    inputSnapshot:{
+      campaign:{ status:'stopped' },
+      selectors:{},
+      profileLease:CURRENT_PROFILE_LEASE,
+      productionProviderInjected:true,
+    },
+    clock:READINESS_CLOCK,
+  });
+
+  assert.equal(report.checks.campaign.status, 'stopped');
+  assert.ok(report.blockers.some((item) => item.code === 'campaign_stopped'));
+  assert.deepEqual(report.nextAction, {
+    action:'create-new-campaign-authorization-draft',
+    reason:'campaign_stopped',
   });
 });
 
@@ -158,9 +187,10 @@ test('selector 候选符号链接或 frozen 宽写权限都形成阻断', async 
     inputSnapshot:{
       campaign:{ status:'approved' },
       selectors:{ candidate, frozen },
-      profileLeaseRef:'paperclip:cua-profile-lease:xiaohongshu-primary',
+      profileLease:CURRENT_PROFILE_LEASE,
       productionProviderInjected:true,
     },
+    clock:READINESS_CLOCK,
   });
 
   assert.equal(report.status, 'not_ready');
@@ -181,15 +211,54 @@ test('输入快照或 Profile lease 引用夹带 Secret 标记时拒绝且不回
     inputSnapshot:{
       campaign:{ status:'approved', token:secret },
       selectors:{},
-      profileLeaseRef:`paperclip:secret:${secret}`,
+      profileLease:{
+        ref:`paperclip:secret:${secret}`,
+        status:'approved',
+        expiresAt:'2026-08-09T00:00:00.000Z',
+      },
       productionProviderInjected:true,
     },
+    clock:READINESS_CLOCK,
   });
 
   assert.equal(report.status, 'not_ready');
   assert.ok(report.blockers.some((item) => item.code === 'readiness_snapshot_contains_secret'));
   assert.ok(report.blockers.some((item) => item.code === 'profile_lease_reference_invalid'));
   assert.doesNotMatch(JSON.stringify(report), new RegExp(secret));
+});
+
+test('过期 Profile lease 和只有引用的旧快照都不能冒充当前有效授权', async () => {
+  const expired = await createProductionReadinessReport({
+    healthSnapshot:PRODUCTION_HEALTH,
+    inputSnapshot:{
+      campaign:{ status:'approved' },
+      selectors:{},
+      profileLease:{
+        ref:'paperclip:cua-profile-lease:xiaohongshu-primary',
+        status:'approved',
+        expiresAt:'2026-08-07T23:59:59.999Z',
+      },
+      productionProviderInjected:true,
+    },
+    clock:READINESS_CLOCK,
+  });
+  assert.ok(expired.blockers.some((item) => item.code === 'profile_lease_expired'));
+  assert.equal(expired.checks.profileLease.current, false);
+
+  const legacy = await createProductionReadinessReport({
+    healthSnapshot:PRODUCTION_HEALTH,
+    inputSnapshot:{
+      campaign:{ status:'approved' },
+      selectors:{},
+      profileLeaseRef:'paperclip:cua-profile-lease:xiaohongshu-primary',
+      productionProviderInjected:true,
+    },
+    clock:READINESS_CLOCK,
+  });
+  assert.ok(legacy.blockers.some(
+    (item) => item.code === 'profile_lease_status_unverified',
+  ));
+  assert.equal(legacy.checks.profileLease.current, false);
 });
 
 test('CLI 无输入时只探测固定 4390 并输出当前 not_ready，不接受 .env 快照', async () => {

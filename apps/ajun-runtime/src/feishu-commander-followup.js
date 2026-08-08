@@ -107,6 +107,24 @@ export const feishuCommanderFollowupMethods = {
     return { kind:'xiaod_retry', task, reply:progressReply(task) };
   },
 
+  async continueXiaodDelivery(chatRef) {
+    if (!this.store || !chatRef) return { kind:'xiaod_delivery', reply:'我暂时找不到当前会话里的小D任务。请回复原任务消息后再试。' };
+    const tasks = await this.store.list();
+    const task = mostRecentTask(tasks.filter((item) => item.source?.channel === 'feishu' && item.source?.chatRef === chatRef && item.taskType === 'media.transcribe-and-refine'));
+    if (!task) return { kind:'xiaod_delivery', reply:'当前会话没有可继续交付的小D任务。' };
+    if (typeof this.tasks?.continueXiaodDelivery !== 'function') return { kind:'xiaod_delivery', task, reply:'小D飞书交付恢复入口当前不可用；没有启动外部动作。' };
+    try {
+      const updated = await this.tasks.continueXiaodDelivery(task.taskId, { chatRef });
+      return this.completionWatchFor({
+        kind:'xiaod_delivery',
+        task:updated,
+        reply:`已登记继续飞书交付“${shortTitle(updated)}”。本地确认稿不会重新生成；交付结果会继续回到当前会话。\n任务号：${updated.taskId}。`,
+      });
+    } catch (error) {
+      return { kind:'xiaod_delivery', task, reply:String(error?.message || '飞书交付暂时无法继续；没有启动外部动作。') };
+    }
+  },
+
   async explicitEmployeeStatus(text) {
     if (!this.tasks?.overview || !isEmployeeStatusQuestion(text)) return null;
     const overview = await this.tasks.overview();

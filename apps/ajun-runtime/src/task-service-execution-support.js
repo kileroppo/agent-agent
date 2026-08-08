@@ -767,6 +767,8 @@ export function artifactExecutionView(item) {
     data:item.data
   };
 }
+import { isVerifiedVideoAnalysisArtifact } from './task-completion-contract.js';
+
 export function contentGrowthArtifactVerified(task, artifact, { expectedProjectId = null } = {}) {
   const readable = artifact?.validation?.exists === true
     && artifact?.validation?.readable === true
@@ -795,10 +797,10 @@ export function contentGrowthArtifactVerified(task, artifact, { expectedProjectI
         || receipt?.costCommit?.costEvent?.projectId === expectedProjectId
       );
   }
-  const formalFullAnalysis = task?.taskType === 'content.video-benchmark-analysis'
-    && task?.input?.evidenceMode === 'formal'
-    && task?.input?.depth === 'full';
-  return !formalFullAnalysis || artifact.validation?.semanticValidationPassed === true;
+  if (task?.taskType === 'content.video-benchmark-analysis') {
+    return isVerifiedVideoAnalysisArtifact(task, artifact);
+  }
+  return true;
 }
 export function storedContentGrowthResult(task) {
   const execution = task?.execution?.contentGrowth;

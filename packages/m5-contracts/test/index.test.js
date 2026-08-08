@@ -43,7 +43,7 @@ import {
   normalizeM5WorkProductKind,
   validM5WorkProductArtifactHash,
   summarizeComparableContentMetrics,
-} from '../src/index.js';
+} from '../src/index.ts';
 
 test('平台契约规范化大小写和首尾空白，并拒绝未知平台', () => {
   assert.deepEqual(M5_PLATFORM_IDS, {

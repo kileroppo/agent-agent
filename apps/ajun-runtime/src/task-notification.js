@@ -1,6 +1,7 @@
 import { formatPublicReportReply } from './public-report-presentation.js';
 import { formatOfficeBriefingReply } from './local-office-assistant.js';
 import { ValidationError } from './task-service-execution-support.js';
+import { validateTaskCompletion } from './task-completion-contract.js';
 
 export class TaskNotification {
   constructor({ store, registry, executors = {} }) {
@@ -27,7 +28,11 @@ export class TaskNotification {
         xiaod:this.executors.xiaod,
       });
     }
-    if (current.status === 'succeeded') return this.succeededStatus(root, current, retried);
+    if (current.status === 'succeeded') {
+      const completion = validateTaskCompletion(current);
+      if (!completion.valid) return incompleteDeliveryStatus(root, `${completion.reason} 系统不会把状态当作完整交付。`);
+      return this.succeededStatus(root, current, retried);
+    }
     if (['queued', 'running'].includes(current.status)) {
       const worker = await taskWorkerName(this.registry, current);
       return status(root, current.status, false, retried
@@ -168,6 +173,10 @@ function status(root, state, terminal, message) {
   return { terminal, status:state, taskId:root.taskId, message };
 }
 
+function incompleteDeliveryStatus(task, message) {
+  return status(task, 'waiting_test', true, message);
+}
+
 function artifact(task, type) {
   return task?.artifactRefs?.find((item) => item.type === type);
 }
@@ -228,6 +237,7 @@ async function missionNotification(task, { chain = [], approvals = [], xiaod = n
   const briefing = report.decision?.briefing;
   const completed = statuses.filter((item) => item.status === 'succeeded').length;
   const progressStatus = !terminal && statuses.some((item) => item.status === 'waiting_approval') ? 'waiting_approval' : task.status;
+  let deliveryStatus = progressStatus;
   const summary = [`【A君总任务】${String(report.summary || shortTaskTitle(task)).replace(/\s+/g, ' ').slice(0, 300)}`, `进度：${completed}/${statuses.length} 项完成`, ...lines];
   if (briefing?.summary) {
     summary.push(`统一汇报：${String(briefing.summary).replace(/\s+/g, ' ').slice(0, 800)}`);
@@ -236,8 +246,14 @@ async function missionNotification(task, { chain = [], approvals = [], xiaod = n
   } else if (terminal && completed === statuses.length) {
     const analysisTaskId = statuses.find((item) => item.employeeId === 'video-content-analyst' && item.status === 'succeeded')?.taskId;
     const analysis = artifact(chain.find((item) => item.taskId === analysisTaskId), 'video_content_analysis_report')?.data;
-    summary.push(analysis?.modules?.length ? `\n${formatVideoAnalysisDelivery(analysis)}` : '所有分工已完成，但最终业务产物未通过读取确认；系统不会只用“完成”状态冒充交付。');
+    if (analysis?.modules?.length && validateTaskCompletion(chain.find((item) => item.taskId === analysisTaskId)).valid) {
+      summary.push(`\n${formatVideoAnalysisDelivery(analysis)}`);
+    } else {
+      deliveryStatus = 'waiting_test';
+      summary.push('所有分工已完成，但最终业务产物未通过读取确认；系统不会只用“完成”状态冒充交付。');
+    }
   } else if (terminal && completed < statuses.length) {
+    if (task.status === 'succeeded') deliveryStatus = 'waiting_test';
     summary.push('未完成部分已如实保留，没有被冒充为成功。');
   } else if (progressStatus === 'waiting_approval') {
     const reviewTask = chain.find((item) => item.status === 'waiting_approval' && item.execution?.executor === 'xiaod' && approvals.some((approval) => approval.taskId === item.taskId && approval.status === 'pending' && approval.action === 'confirm-transcript-after-complete-listen'));
@@ -254,7 +270,7 @@ async function missionNotification(task, { chain = [], approvals = [], xiaod = n
   } else if (!terminal) {
     summary.push('A君会继续跟进这个总任务，不需要你分别追问每位员工。');
   }
-  return status(task, progressStatus, terminal, summary.join('\n'));
+  return status(task, deliveryStatus, terminal, summary.join('\n'));
 }
 
 function missionStatusLabel(value) {

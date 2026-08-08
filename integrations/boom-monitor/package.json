@@ -2,6 +2,7 @@
   "name": "@agent-army/boom-monitor",
   "version": "0.1.0",
   "private": true,
+  "description": "Compatibility intake between legacy Boom Monitor and the native AJun module",
   "type": "module",
   "exports": {
     ".": "./ajun-intake.js"

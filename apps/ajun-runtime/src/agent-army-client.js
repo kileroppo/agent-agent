@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { resolveAnalysisIntent } from './analysis-intent.ts';
 import { presentTask, taskDetailBaseUrl } from './task-presentation.js';
 
 const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'waiting_test', 'needs_input', 'paused']);
@@ -115,7 +116,22 @@ export class AgentArmyClient {
     const connectionId = optionalConnectionId(input.connectionId);
     const goalSpec = normalizeGoalSpecInput(input.goalSpec);
     const evidenceMode = input.evidenceMode === 'preliminary' ? 'preliminary' : 'formal';
-    const depth = requestedAnalysisDepth({ title, description, depth:input.depth });
+    const analysis = taskType === 'content.video-benchmark-analysis'
+      ? resolveAnalysisIntent({
+          analysisIntent:input.analysisIntent,
+          title,
+          description,
+          focus:input.focus,
+          depth:input.depth,
+        })
+      : { error:null, analysisIntent:undefined, depth:input.depth === 'full' ? 'full' : 'fast' };
+    if (analysis.error === 'invalid_analysis_intent') {
+      throw new AgentArmyClientError('分析模式无效；请选择精华提炼、深度拆解、模板学习或风格探索。');
+    }
+    if (analysis.error === 'analysis_intent_conflict') {
+      throw new AgentArmyClientError('检测到多个分析模式，请只选择一种：精华提炼、深度拆解、模板学习或风格探索。');
+    }
+    const { analysisIntent, depth } = analysis;
     const visualMode = input.visualMode === undefined
       ? taskType === 'content.video-benchmark-analysis' ? 'auto' : 'off'
       : normalizeVisualMode(input.visualMode);
@@ -141,7 +157,8 @@ export class AgentArmyClient {
             connectionId,
             reviewPolicy:input.reviewPolicy === 'required' ? 'required' : 'optional',
             visualMode,
-            depth
+            depth,
+            analysisIntent
           },
           {
             key:'analyze-video',
@@ -155,6 +172,7 @@ export class AgentArmyClient {
             dependsOnPrevious:true,
             evidenceMode,
             depth,
+            analysisIntent,
             visualMode,
             focus:safeText(input.focus, 500)
           }
@@ -179,6 +197,7 @@ export class AgentArmyClient {
         reviewPolicy:input.reviewPolicy === 'required' ? 'required' : 'optional',
         evidenceMode,
         depth,
+        analysisIntent,
         visualMode,
         focus:safeText(input.focus, 500) || undefined,
         platforms:safeStringList(input.platforms, 10, 40),
@@ -199,8 +218,8 @@ export class AgentArmyClient {
         idempotencyKey
       }
     });
-    await this.registerCompletionWatch(response.task?.taskId, chatRef);
-    return this.getTask(response.task?.taskId, { chatRef });
+    const completionWatch = await this.ensureCompletionWatch(response.completionWatch, response.task?.taskId, chatRef);
+    return { ...(await this.getTask(response.task?.taskId, { chatRef })), completionWatch };
   }
 
   async createMission(input = {}) {
@@ -226,7 +245,7 @@ export class AgentArmyClient {
         idempotencyKey
       }
     });
-    await this.registerCompletionWatch(response.mission?.taskId, chatRef);
+    const completionWatch = await this.ensureCompletionWatch(response.completionWatch, response.mission?.taskId, chatRef);
     let overview = await this.overview();
     let missionTask = findMissionTask(overview, response);
     if (input.waitForTerminal === true && missionTask && !TERMINAL_STATUSES.has(missionTask.status)) {
@@ -246,23 +265,29 @@ export class AgentArmyClient {
     return {
       mission:missionView,
       children:children.map((task) => taskView(task, overview.approvals || [], this.detailBaseUrl)),
-      userMessage:missionResultMessage(missionView, response.reply)
+      completionWatch,
+      userMessage:completionWatchMessage(missionResultMessage(missionView, response.reply), completionWatch)
     };
+  }
+
+  async ensureCompletionWatch(serverResult, taskId, chatRef) {
+    if (serverResult?.registered === true || serverResult?.required === false) return serverResult;
+    return this.registerCompletionWatch(taskId, chatRef);
   }
 
   async registerCompletionWatch(taskId, chatRef) {
     const task = safeText(taskId, 100);
     const chat = safeText(chatRef, 240);
-    if (!task || !chat) return { registered:false };
+    if (!task || !chat) return { required:false, registered:false };
     try {
-      return await this.request('/api/mcp/completion-watches', {
+      return { required:true, ...(await this.request('/api/mcp/completion-watches', {
         method:'POST',
         body:{ taskId:task, chatRef:chat }
-      });
+      })) };
     } catch {
       // 任务已成功创建时，通知登记暂时失败不能篡改任务事实。
       // 用户仍可通过 task_get 查询；运行台恢复后下一次请求会幂等补登记。
-      return { registered:false };
+      return { required:true, registered:false, taskId:task, errorCode:'completion_watch_registration_failed' };
     }
   }
 
@@ -460,12 +485,6 @@ export class AgentArmyClient {
     if (!response.ok) throw new AgentArmyClientError(safeText(payload?.error || `A君运行时返回 HTTP ${response.status}`, 500));
     return payload;
   }
-}
-
-function requestedAnalysisDepth({ title, description, depth }) {
-  const requestText = `${String(title || '')}\n${String(description || '')}`;
-  if (/完整.{0,8}(?:拆解|分析)|(?:拆解|分析).{0,8}完整|13\s*模块/u.test(requestText)) return 'full';
-  return depth === 'full' ? 'full' : 'fast';
 }
 
 function normalizeVisualMode(value) {
@@ -694,6 +713,14 @@ function missionResultMessage(mission, fallback) {
   return `总任务已进入终态：${mission.status}，${done}/${summary.statuses?.length || 0} 项分工完成。请根据 mission 和 children 中的已验证产物直接向负责人做最终汇报，不要再返回中间进度。`;
 }
 
+function completionWatchMessage(message, watch) {
+  const base = safeText(message, 2000);
+  if (watch?.required === true && watch?.registered !== true) {
+    return `${base}\n\n自动回告暂未登记成功；任务本身已建立，请保留任务编号并主动查询进度。`;
+  }
+  return base;
+}
+
 function artifactView(artifact = {}) {
   const validation = artifact.validation || {};
   const view = {
@@ -876,7 +903,8 @@ function normalizeMissionItems(value) {
     connectionId:optionalConnectionId(item?.connectionId),
     reviewPolicy:item?.reviewPolicy === 'required' ? 'required' : 'optional',
     evidenceMode:item?.evidenceMode === 'preliminary' ? 'preliminary' : 'formal',
-    depth:item?.depth === 'full' ? 'full' : 'fast',
+    analysisIntent:resolveMissionAnalysisIntent(item).analysisIntent,
+    depth:resolveMissionAnalysisIntent(item).depth,
     visualMode:normalizeVisualMode(item?.visualMode),
     focus:safeText(item?.focus, 500),
     platforms:safeStringList(item?.platforms, 3, 40),
@@ -892,6 +920,29 @@ function normalizeMissionItems(value) {
     && item.dependsOn.every((key) => keys.has(key) && key !== item.key)
   ));
   return valid ? items : [];
+}
+
+function resolveMissionAnalysisIntent(item) {
+  if (item?.taskType !== 'content.video-benchmark-analysis') {
+    return {
+      error:null,
+      analysisIntent:['digest', 'deep', 'template', 'style'].includes(item?.analysisIntent) ? item.analysisIntent : undefined,
+      depth:item?.depth === 'full' ? 'full' : 'fast',
+    };
+  }
+  const analysis = resolveAnalysisIntent({
+    analysisIntent:item?.analysisIntent,
+    title:item?.title,
+    description:item?.description,
+    focus:item?.focus,
+    depth:item?.depth,
+  });
+  if (analysis.error) {
+    throw new AgentArmyClientError(analysis.error === 'analysis_intent_conflict'
+      ? '多人任务中的视频分析分工命中了多个分析模式，请只保留一种。'
+      : '多人任务中的视频分析模式无效。');
+  }
+  return analysis;
 }
 
 function normalizeGoalSpecInput(value) {

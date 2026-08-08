@@ -61,6 +61,7 @@ async function copyInboundFile({ sourcePath, uploadsDir, originalName, maxBytes,
   if (stat.size > maxBytes) throw new IntakeError(413, '媒体文件超过当前 M1 的 1GB 上限。');
   const target = path.join(uploadsDir, `${crypto.randomUUID()}-${safeFilename(originalName)}`);
   await fs.copyFile(source, target, fs.constants.COPYFILE_EXCL);
+  await fs.chmod(target, 0o600);
   return target;
 }
 

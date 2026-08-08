@@ -32,8 +32,17 @@ export class ApprovalExpiryReconciler {
 
   async reconcileOnce() {
     try {
+      const decisions = typeof this.tasks.reconcilePendingPaperclipApprovals === 'function'
+        ? await this.tasks.reconcilePendingPaperclipApprovals()
+        : [];
       const expired = await this.tasks.expirePendingApprovals();
-      return { status:'synced', expired };
+      const pending = decisions.filter((item) => item.status === 'sync_pending');
+      return {
+        status:pending.length ? 'sync_pending' : 'synced',
+        ...(pending.length ? { reason:'已开始的组织级审批暂时无法完成本地收口。' } : {}),
+        decisions,
+        expired,
+      };
     } catch {
       return { status:'sync_pending', reason:'过期确认暂时无法自动整理。' };
     }

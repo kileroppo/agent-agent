@@ -37,6 +37,7 @@
   "mcp": {
     "server": "agent-army",
     "tools": [
+      "agent_manual",
       "paperclip_assignment_get",
       "employee_assignment_execute",
       "paperclip_assignment_complete"

@@ -128,6 +128,12 @@ export const paperclipOrganizationMethods = {
     const expected = normalized === 'approve' ? 'approved' : 'rejected';
     if (approval.status !== expected) throw new Error(`Paperclip 审批未进入预期状态：${approval.status || 'unknown'}。`);
     return approval;
+  },
+
+  async getApproval(approvalId) {
+    const normalized = String(approvalId || '').trim();
+    if (!normalized) throw new Error('Paperclip 审批 ID 不能为空。');
+    return this.request(`/api/approvals/${encodeURIComponent(normalized)}`);
   }
 };
 

@@ -1,0 +1,154 @@
+{
+  "schemaVersion": "agent.army/repository-catalog/v1",
+  "areas": [
+    { "path": "agents", "purpose": "岗位定义、权限和质量标准" },
+    { "path": "apps", "purpose": "可运行产品、业务 Agent、内部工具及显式保留的回滚资产" },
+    { "path": "designs", "purpose": "可运行原型与设计资产" },
+    { "path": "docs", "purpose": "产品、架构、契约、治理和验收事实" },
+    { "path": "integrations", "purpose": "平台 Adapter、工作流插件及受控领域内核" },
+    { "path": "ops", "purpose": "部署、监控、恢复和回滚协议" },
+    { "path": "packages", "purpose": "两个以上真实消费者共享的稳定 Module" },
+    { "path": "scripts", "purpose": "仓库级检查、测试选择和只读诊断工具" },
+    { "path": "tasks", "purpose": "总 PRD、里程碑 PRD 和实施状态" },
+    { "path": "work", "purpose": "本机生成物、候选包和隔离工作区，不作为产品源码入口" }
+  ],
+  "entries": [
+    {
+      "path": "apps/ajun-runtime",
+      "name": "ajun-runtime",
+      "classification": "product-runtime",
+      "lifecycle": "active",
+      "workspace": true,
+      "deployable": true,
+      "entrypoint": "apps/ajun-runtime/src/server.js"
+    },
+    {
+      "path": "apps/animated-chart",
+      "name": "animated-chart",
+      "classification": "delivery-tool",
+      "lifecycle": "on-demand",
+      "workspace": true,
+      "deployable": false,
+      "entrypoint": "apps/animated-chart/src/index.ts"
+    },
+    {
+      "path": "apps/boom-monitor",
+      "name": "boom-monitor-legacy",
+      "classification": "legacy-rollback",
+      "lifecycle": "retained-rollback",
+      "workspace": false,
+      "deployable": false,
+      "entrypoint": "ops/boom-monitor/docker-lifecycle.sh",
+      "replacement": "apps/ajun-runtime/src/boom-monitor/index.js"
+    },
+    {
+      "path": "apps/mac-worker",
+      "name": "agent-army-mac-worker",
+      "classification": "runtime-worker",
+      "lifecycle": "active",
+      "workspace": true,
+      "deployable": true,
+      "entrypoint": "apps/mac-worker/src/worker.js"
+    },
+    {
+      "path": "apps/project-progress-board",
+      "name": "project-progress-board",
+      "classification": "internal-tool",
+      "lifecycle": "on-demand",
+      "workspace": true,
+      "deployable": true,
+      "entrypoint": "apps/project-progress-board/src/server.js"
+    },
+    {
+      "path": "apps/xiaod-media-transcriber",
+      "name": "media-transcriber-agent",
+      "classification": "business-agent",
+      "lifecycle": "active",
+      "workspace": true,
+      "deployable": true,
+      "entrypoint": "apps/xiaod-media-transcriber/src/server.js"
+    },
+    {
+      "path": "integrations/access",
+      "name": "ajun-common-access",
+      "classification": "platform-adapter",
+      "lifecycle": "active",
+      "workspace": true,
+      "deployable": false,
+      "entrypoint": "integrations/access/content-acquisition-center.js"
+    },
+    {
+      "path": "integrations/boom-monitor",
+      "name": "@agent-army/boom-monitor",
+      "classification": "compatibility-adapter",
+      "lifecycle": "active",
+      "workspace": true,
+      "deployable": false,
+      "entrypoint": "integrations/boom-monitor/ajun-intake.js"
+    },
+    {
+      "path": "integrations/local-ai",
+      "name": "@agent-army/local-ai",
+      "classification": "platform-adapter",
+      "lifecycle": "active",
+      "workspace": true,
+      "deployable": true,
+      "entrypoint": "integrations/local-ai/local_ai_gateway.py"
+    },
+    {
+      "path": "integrations/m5-kernel",
+      "name": "@agent-army/m5-kernel",
+      "classification": "domain-kernel",
+      "lifecycle": "active",
+      "workspace": true,
+      "deployable": false,
+      "entrypoint": "integrations/m5-kernel/src/index.js"
+    },
+    {
+      "path": "integrations/paperclip/m5-content-pipeline",
+      "name": "@agent-army/m5-content-pipeline",
+      "classification": "workflow-adapter",
+      "lifecycle": "active",
+      "workspace": true,
+      "deployable": false,
+      "entrypoint": "integrations/paperclip/m5-content-pipeline/src/index.js"
+    },
+    {
+      "path": "integrations/paperclip/plugins/content-autonomy",
+      "name": "@agent-army/paperclip-content-autonomy",
+      "classification": "platform-plugin",
+      "lifecycle": "active",
+      "workspace": true,
+      "deployable": true,
+      "entrypoint": "integrations/paperclip/plugins/content-autonomy/src/worker.js"
+    },
+    {
+      "path": "integrations/publishing/m5-publisher-gateway",
+      "name": "@agent-army/m5-publisher-gateway",
+      "classification": "external-write-gateway",
+      "lifecycle": "active",
+      "runtimeMode": "disabled-by-default",
+      "workspace": true,
+      "deployable": true,
+      "entrypoint": "integrations/publishing/m5-publisher-gateway/src/index.js"
+    },
+    {
+      "path": "packages/m5-contracts",
+      "name": "@agent-army/m5-contracts",
+      "classification": "shared-contract",
+      "lifecycle": "active",
+      "workspace": true,
+      "deployable": false,
+      "entrypoint": "packages/m5-contracts/src/index.ts"
+    },
+    {
+      "path": "packages/paperclip-client",
+      "name": "@agent-army/paperclip-client",
+      "classification": "shared-client",
+      "lifecycle": "active",
+      "workspace": true,
+      "deployable": false,
+      "entrypoint": "packages/paperclip-client/src/index.js"
+    }
+  ]
+}

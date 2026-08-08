@@ -109,3 +109,37 @@ A君、Pipeline、内容插件与 Publisher 重复；启动文件同时承担装
   data 与运维 scripts 不进入该门禁，避免为了统计数字拆散不可变归档或一次性命令。
 - 本节仍只证明候选源码和自动化；没有生成不可变 release、切换 live、恢复 Campaign/Cron/Publisher
   或触发任何外部效果。
+
+## 2026-08-08 产品装配根深化
+
+- `runtime-composition-root.js` 从直接认识岗位、飞书、Campaign、Publisher 和系统 Controller 的宽入口，
+  收敛为组合深层运行 Module 的产品壳；公开 `createRuntime()` Interface、端口、数据目录、HTTP 路由和
+  后台服务顺序保持不变。
+- 活动生命周期运行装配进入 `runtime/content-campaign-composition.js`，集中 Paperclip Control Plane、
+  Publisher、预算票据、模板解析和视觉工具执行；调用方只消费 `campaigns()` 与受控执行能力。
+- 岗位执行装配进入 `runtime/role-execution-composition.js`，集中研究、办公、本机内容生产、技术修复、
+  提案与 TaskService 的实现知识；删除该 Module 会让这些装配规则重新扩散到产品根入口，因此通过
+  deletion test。
+- 飞书指挥和 Paperclip 系统 Controller 分别进入独立装配 Module；官方飞书、Hermes 原生交付、员工
+  飞书连接、heartbeat、daily/parallel、Publisher、指标、复盘与学习状态不再由产品根入口逐项构造。
+- 产品装配根设置 300 行和 35 个直接 import 的双门禁，各领域装配 Module 设置独立责任上限；
+  affected tests 将领域装配变更映射到真实消费者和 `runtime-start` 组合测试。
+- 本节仅证明共享源码结构和自动化验证；未生成或切换不可变 release，当前 `4321` live 不因本次源码
+  重构自动变化，也未恢复 Campaign/Cron/Publisher 或触发外部效果。
+- 根 `repository-catalog.json` 成为 Workspace、应用类型、生命周期和正式入口的机器可读真相；
+  `check:architecture` 要求全部 Workspace 和 `apps/*` 登记、入口存在、包名一致且每个 Workspace
+  提供用途描述与 README。`apps/boom-monitor` 被固定为非 Workspace 的 `legacy-rollback`，正式
+  replacement 仍是 A君原生 Module；其本机 SQLite/日志未做破坏性搬迁。
+
+## 2026-08-08 任务 Interface 深化
+
+- 删除 `TaskService` 中被 `task-approval-coordinator` 覆盖的旧审批、Paperclip 决定和小D控制实现；
+  公开方法名不变，运行时只保留一套审批真相。
+- 新增 `TaskOverview`，以 `read()`、`usage()` 与 `billing()` Interface 隐藏控制台展示、岗位连接状态、
+  本机能力健康、用量和账单解释；`TaskService` 不再同时承担查询视图构造。
+- `TaskService` 从 613 行收敛到 320 行，责任上限从 650 降到 350；审批与总览 Module 分别设置
+  300/275 行上限。门禁额外拒绝外层重新声明已经委托的同名方法。
+- affected tests 为审批和总览 Module 映射真实 TaskService/运行组合消费者；未知的 TaskService 变更
+  继续退回 A君 Workspace 全量测试。
+- 本节仍是候选源码结构，不代表当前 `4321` 不可变 release 已切换，也不证明任何飞书、Paperclip、
+  Publisher 或外部 Provider 行为发生变化。

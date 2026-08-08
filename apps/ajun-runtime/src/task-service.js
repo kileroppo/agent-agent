@@ -1,18 +1,19 @@
-import { summarizeTaskUsage } from './task-usage.js';
 import { buildArchitectureGroundTruth } from './architecture-evidence.js';
-import { presentTask } from './task-presentation.js';
 import { WECHAT_CHAT_TASK_TYPE } from './wechat-chat-defaults.js';
 import { SkillExecutionRegistry } from './skill-execution-registry.js';
 import { TaskCapabilityCatalog } from './task-capability-catalog.js';
 import { TaskExecutionCoordinator } from './task-execution-coordinator.js';
 import { TaskIntake } from './task-intake.js';
 import { TaskNotification } from './task-notification.js';
+import { TaskRecordService } from './task-record-service.js';
+import { TaskRecovery } from './task-recovery.js';
 import { OfficePresentationExecution } from './office-presentation-execution.js';
 import { taskServiceExecutionMethods } from './task-service-execution.js';
 import { ValidationError } from './task-service-execution-support.js';
 export { ValidationError } from './task-service-execution-support.js';
-import { buildTaskFocus } from './task-overview-focus.js';
 import { privateReadGrantStatus, revokePrivateReadGrant } from './private-read-grant.js';
+import { taskApprovalCoordinatorMethods } from './task-approval-coordinator.js';
+import { TaskOverview } from './task-overview.js';
 
 export class TaskService {
   constructor({
@@ -34,6 +35,7 @@ export class TaskService {
     capabilityCatalog = new TaskCapabilityCatalog({ executors }),
     localAiCapabilityStatus = null,
     officePresentationWorkspaceRoot = null,
+    usageLedger = null,
   }) {
     this.registry = registry;
     this.store = store;
@@ -55,9 +57,15 @@ export class TaskService {
       : null;
     this.skillExecutionRegistry = skillExecutionRegistry;
     this.localAiCapabilityStatus = typeof localAiCapabilityStatus === 'function' ? localAiCapabilityStatus : null;
+    this.usageLedger = usageLedger;
     this.contentGrowthWaitMs = Math.max(1, Math.min(Number(contentGrowthWaitMs) || 240_000, 240_000));
     this.contentGrowthRuns = new Map();
     this.employeeAssignmentRuns = new Map();
+    this.approvalResolutionRuns = new Map();
+    this.taskControlRuns = new Map();
+    this.xiaodDeliveryRequestRuns = new Map();
+    this.xiaodDeliveryRuns = new Map();
+    this.paperclipAssignmentCompletionRuns = new Map();
     this.m5WorkProductObserver = null;
     this.executionCoordinator = new TaskExecutionCoordinator({
       store,
@@ -84,6 +92,25 @@ export class TaskService {
       execute:(task, agent) => this.executeTask(task, agent),
     });
     this.notification = new TaskNotification({ store, registry, executors });
+    this.taskRecovery = new TaskRecovery({
+      store,
+      recover:typeof onTaskFailed === 'function' ? (task, input) => this.onTaskFailed(task, input) : null,
+      createTask:(input) => this.create(input),
+    });
+    this.taskRecords = new TaskRecordService({ store, taskDetailBaseUrl, taskRecovery:this.taskRecovery });
+    this.taskOverview = new TaskOverview({
+      registry,
+      store,
+      governance,
+      executors,
+      skillExecutionRegistry,
+      localAiCapabilityStatus:this.localAiCapabilityStatus,
+      usageLedger,
+      taskDetailBaseUrl,
+      getFeishuChannelStatus:() => this.feishuChannelStatus,
+      getAgentChannelStates:() => this.agentChannelStates,
+      getWorkerStatus:() => this.workerStatus,
+    });
   }
 
   setFeishuChannelStatus(status) { this.feishuChannelStatus = status; }
@@ -132,27 +159,6 @@ export class TaskService {
     });
   }
 
-  async rejectApproval(approvalId, { decisionBy = 'A君', decisionReason = '本机主人拒绝当前请求范围。', chatRef = '' } = {}) {
-    const approval = (await this.store.listApprovals()).find((item) => item.approvalId === approvalId);
-    if (!approval) throw new ValidationError('找不到这条审批。');
-    if (approval.status !== 'pending') throw new ValidationError('这条审批已经处理过了。');
-    if (isExpiredApproval(approval)) {
-      await this.expireApproval(approvalId);
-      throw new ValidationError('这条审批已过期，任务已自动关闭，未执行任何动作。');
-    }
-    const task = (await this.store.list()).find((item) => item.taskId === approval.taskId);
-    if (!task) throw new ValidationError('找不到关联任务。');
-    if (approval.governanceMode === 'paperclip' && chatRef) throw new ValidationError('这条组织级审批必须在 Paperclip 完成决定，不能由本机直接拒绝。');
-    validateApprovalChat(task, chatRef);
-    if (approval.action === 'confirm-transcript-after-complete-listen' && typeof this.executors.xiaod?.rejectTranscript === 'function') {
-      await this.executors.xiaod.rejectTranscript(task, { reviewerRef:decisionBy });
-    }
-    await this.store.updateApproval(approvalId, { status:'rejected', decisionBy:String(decisionBy).slice(0, 120), decisionReason:String(decisionReason).slice(0, 300), decidedAt:new Date().toISOString() });
-    let updated = await this.store.updateTask(task.taskId, { status:'cancelled', currentStage:'approval_rejected', error:{ code:'approval_rejected', message:'本机主人拒绝了当前审批范围。', userMessage:'这项高风险任务已被拒绝并关闭，未执行任何外部动作。', category:'manual', stage:'approval', occurredAt:new Date().toISOString() } });
-    if (this.governance && updated.governance?.paperclipIssueId) updated = await this.store.updateTask(updated.taskId, { governance: await this.governance.update(updated) });
-    return updated;
-  }
-
   startFailureRecovery(task) {
     if (!shouldStartFailureRecovery(task) || typeof this.onTaskFailed !== 'function') return;
     // 恢复链路可能需要受控诊断；原工作已经如实记为失败，不能因此卡住其他工作的返回。
@@ -167,36 +173,6 @@ export class TaskService {
         coordination: { status:'pending', requestedAt:new Date().toISOString(), reason:'任务执行出错，正在交给运维官判断安全恢复办法。' }
       }
     });
-  }
-
-  async approveApproval(approvalId, { decisionBy = 'A君', decisionReason = '已确认本次范围。', chatRef = '' } = {}) {
-    const approval = (await this.store.listApprovals()).find((item) => item.approvalId === approvalId);
-    if (!approval) throw new ValidationError('找不到这条审批。');
-    if (approval.governanceMode === 'paperclip') throw new ValidationError('这条组织级审批必须在 Paperclip 完成决定，不能由本机直接放行。');
-    if (approval.status !== 'pending') throw new ValidationError('这条审批已经处理过了。');
-    if (isExpiredApproval(approval)) {
-      await this.expireApproval(approvalId);
-      throw new ValidationError('这条审批已过期，任务已自动关闭，未执行任何动作。');
-    }
-    const task = (await this.store.list()).find((item) => item.taskId === approval.taskId);
-    if (!task) throw new ValidationError('找不到关联任务。');
-    validateApprovalChat(task, chatRef);
-    validateApprovalScope(task, approval);
-    await this.store.updateApproval(approvalId, { status:'approved', decisionBy:String(decisionBy).slice(0, 120), decisionReason:String(decisionReason).slice(0, 300), decidedAt:new Date().toISOString() });
-    if (approval.action === 'confirm-transcript-after-complete-listen') {
-      const xiaod = this.executors.xiaod;
-      if (typeof xiaod?.confirmTranscript !== 'function') throw new ValidationError('小D确认稿能力当前不可用，未生成确认稿。');
-      await xiaod.confirmTranscript(task, { reviewerRef:decisionBy });
-      return this.store.updateTask(task.taskId, {
-        status:'running',
-        currentStage:'xiaod_review_confirmed',
-        error:undefined,
-        execution:{ ...(task.execution || {}), polling:{ state:'pending', consecutiveFailures:0, nextPollAt:new Date().toISOString() } }
-      });
-    }
-    const agent = (await this.registry.list()).find((item) => item.agentId === task.assigneeAgentId) || null;
-    const queued = await this.store.updateTask(task.taskId, { status:'queued', currentStage:'approval_approved', error: undefined });
-    return this.executeTask(queued, agent);
   }
 
   async revokePrivateReadGrant(approvalId, { revokedBy = 'A君', chatRef = '' } = {}) {
@@ -224,60 +200,6 @@ export class TaskService {
 
   async requestPause(taskId) { return this.requestTaskControl(taskId, 'pause-task'); }
   async requestResume(taskId) { return this.requestTaskControl(taskId, 'resume-task'); }
-
-  async requestTaskControl(taskId, action) {
-    const task = (await this.store.list()).find((item) => item.taskId === taskId);
-    if (!task) throw new ValidationError('找不到要控制的任务。');
-    const isPause = action === 'pause-task';
-    if (!['pause-task', 'resume-task'].includes(action)) throw new ValidationError('不支持这项任务控制。');
-    if (task.execution?.executor !== 'xiaod' || !task.execution?.xiaodJobId) throw new ValidationError('目前只能控制正在由小D处理的任务。');
-    if (isPause ? !['queued', 'running', 'pausing'].includes(task.status) : task.status !== 'paused') {
-      throw new ValidationError(isPause ? '这条任务当前不能暂停。' : '只有已经暂停的任务可以继续。');
-    }
-    const existing = (await this.store.listApprovals()).find((approval) => approval.taskId === task.taskId && approval.action === action && approval.status === 'pending');
-    if (existing) return { task, approval:existing, duplicate:true };
-    const approval = await this.store.createApproval({
-      taskId:task.taskId, holdTask:false, governanceMode:'paperclip', decisionChannel:'feishu_card', action, riskLevel:'high',
-      reason:isPause ? '暂停会改变一项正在执行的工作。确认后，小D只会在当前步骤完成后的安全位置停下。' : '继续会恢复一项已暂停的工作。确认后，小D会从已保存的安全位置重新检查并继续处理。',
-      requestedBy:'A君', approverScope:'A君', requestedScope:{ taskType:task.taskType, title:task.input?.title || '', assigneeAgentId:task.assigneeAgentId || null },
-      validUntil:new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
-    });
-    let updated = task;
-    if (!this.governance?.project) throw new ValidationError('Paperclip 暂不可用，不能绕过组织级确认。');
-    const projection = await this.governance.project(task, approval);
-    updated = await this.store.updateTask(task.taskId, { governance:projection, execution:{ ...(task.execution || {}), control:{ action, status:'waiting_approval', approvalId:approval.approvalId, requestedAt:new Date().toISOString() } } });
-    return { task:updated, approval, duplicate:false };
-  }
-
-  async resolvePaperclipApproval(approvalId, decision, { decisionBy = 'A君', decisionReason = '由飞书组织级审批卡确认。', chatRef = '' } = {}) {
-    const approval = (await this.store.listApprovals()).find((item) => item.approvalId === approvalId);
-    if (!approval) throw new ValidationError('找不到这条审批。');
-    if (approval.governanceMode !== 'paperclip') throw new ValidationError('这不是组织级审批。');
-    if (approval.status !== 'pending') throw new ValidationError('这条审批已经处理过了。');
-    if (isExpiredApproval(approval)) {
-      await this.expireApproval(approvalId);
-      throw new ValidationError('这条审批已过期，任务已自动关闭，未执行任何动作。');
-    }
-    const task = (await this.store.list()).find((item) => item.taskId === approval.taskId);
-    if (!task) throw new ValidationError('找不到关联任务。');
-    validateApprovalChat(task, chatRef); validateApprovalScope(task, approval);
-    const paperclipApprovalId = String(task.governance?.paperclipApprovalId || '').trim();
-    if (!paperclipApprovalId || !this.governance?.resolveApproval) throw new ValidationError('Paperclip 审批投影不存在，未执行任务。');
-    const normalized = String(decision || '').trim().toLowerCase();
-    if (!['approve', 'reject'].includes(normalized)) throw new ValidationError('组织级审批决定无效。');
-    await this.governance.resolveApproval(paperclipApprovalId, normalized, decisionReason);
-    if (['pause-task', 'resume-task'].includes(approval.action)) return this.resolveTaskControlApproval(task, approval, normalized, decisionBy, decisionReason, paperclipApprovalId);
-    if (normalized === 'reject') {
-      await this.store.updateApproval(approvalId, { status:'rejected', decisionBy:String(decisionBy).slice(0,120), decisionReason:String(decisionReason).slice(0,300), decidedAt:new Date().toISOString(), paperclipApprovalId });
-      let closed = await this.store.updateTask(task.taskId, { status:'cancelled', currentStage:'governance_rejected', error:{ code:'governance_rejected', message:'Paperclip 组织级审批已拒绝。', userMessage:'该组织级请求已被拒绝，未执行任何外部动作。', category:'manual', stage:'governance_approval', occurredAt:new Date().toISOString() } });
-      if (closed.governance?.paperclipIssueId) closed = await this.store.updateTask(closed.taskId, { governance: await this.governance.update(closed) });
-      return closed;
-    }
-    await this.store.updateApproval(approvalId, { status:'approved', decisionBy:String(decisionBy).slice(0,120), decisionReason:String(decisionReason).slice(0,300), decidedAt:new Date().toISOString(), paperclipApprovalId });
-    const agent = (await this.registry.list()).find((item) => item.agentId === task.assigneeAgentId) || null;
-    const queued = await this.store.updateTask(task.taskId, { status:'queued', currentStage:'governance_approved', error: undefined });
-    return this.executeTask(queued, agent);
-  }
 
   async expirePendingApprovals({ now = Date.now() } = {}) {
     const approvals = await this.store.listApprovals();
@@ -315,28 +237,6 @@ export class TaskService {
       catch { /* 本机已如实关闭，Paperclip 恢复后会由既有补同步链路继续处理。 */ }
     }
     return { approval:expiredApproval, task:closed, expired:true };
-  }
-
-  async resolveTaskControlApproval(task, approval, decision, decisionBy, decisionReason, paperclipApprovalId) {
-    const approved = decision === 'approve';
-    await this.store.updateApproval(approval.approvalId, { status:approved ? 'approved' : 'rejected', decisionBy:String(decisionBy).slice(0,120), decisionReason:String(decisionReason).slice(0,300), decidedAt:new Date().toISOString(), paperclipApprovalId });
-    if (!approved) {
-      let unchanged = await this.store.updateTask(task.taskId, { execution:{ ...(task.execution || {}), control:{ ...(task.execution?.control || {}), action:approval.action, status:'rejected', decidedAt:new Date().toISOString() } } });
-      if (unchanged.governance?.paperclipIssueId) unchanged = await this.store.updateTask(unchanged.taskId, { governance:await this.governance.update(unchanged) });
-      return unchanged;
-    }
-    const executor = this.executors.xiaod;
-    if (!executor || typeof executor[approval.action === 'pause-task' ? 'pause' : 'resume'] !== 'function') throw new ValidationError('小D当前不支持这项控制，未改变任务状态。');
-    const method = approval.action === 'pause-task' ? 'pause' : 'resume';
-    const job = await executor[method](task);
-    const status = approval.action === 'pause-task' ? (job.status === 'paused' ? 'paused' : 'pausing') : 'running';
-    let updated = await this.store.updateTask(task.taskId, {
-      status, currentStage:approval.action === 'pause-task' ? `xiaod_${job.status || 'pausing'}` : 'xiaod_resumed', error:undefined,
-      execution:{ ...(task.execution || {}), xiaodStatus:job.status, xiaodProgress:job.progress, updatedAt:new Date().toISOString(), control:{ action:approval.action, status:approved ? 'accepted' : 'rejected', approvalId:approval.approvalId, decidedAt:new Date().toISOString() }, polling:{ state:status === 'paused' ? 'settled' : 'pending', consecutiveFailures:0, nextPollAt:status === 'paused' ? null : new Date().toISOString() } }
-    });
-    if (updated.governance?.paperclipIssueId) updated = await this.store.updateTask(updated.taskId, { governance:await this.governance.update(updated) });
-    if (approval.action === 'resume-task' && typeof executor.observe === 'function') executor.observe(updated);
-    return updated;
   }
 
   async resumeApprovedMissionChild(taskId) {
@@ -389,77 +289,23 @@ export class TaskService {
     });
   }
 
-  async overview() {
-    const [agents, manager, tasks, approvals, governance, skillReadiness, localAi] = await Promise.all([this.registry.list(), this.registry.get('ajun'), this.store.list(), this.store.listApprovals(), this.governance?.health() || { status: 'planned', version: null }, this.skillExecutionRegistry.overview(), this.localAiCapabilityStatus?.() || null]);
-    const runtimeHealth = await executorRuntimeHealth(this.executors);
-    const feishuChannel = channelCapability(this.feishuChannelStatus);
-    const agentChannels = safeAgentChannelStates(this.agentChannelStates);
-    const worker = safeWorkerStatus(this.workerStatus, tasks);
-    const visibleAgents = agents.map((agent) => ({
-      ...agent,
-      ...(runtimeHealth[agent.agentId] ? { runtimeHealth:runtimeHealth[agent.agentId] } : {}),
-      ...(agent.interaction?.directFeishu !== 'disabled' && agentChannels[agent.agentId]
-        ? { feishuChannel:withFeishuTaskEvidence(agentChannels[agent.agentId], agent.agentId, tasks) }
-        : {})
-    }));
-    const onDemandAgents = visibleAgents.filter((agent) => agent.interaction?.directFeishu === 'disabled');
-    const alwaysOnAgents = [
-      ...(manager ? [manager] : []),
-      ...visibleAgents.filter((agent) => agent.interaction?.directFeishu !== 'disabled')
-    ];
-    const presentedTasks = tasks.map((task) => ({
-      ...task,
-      presentation:presentTask(task, { approvals, detailBaseUrl:this.taskDetailBaseUrl })
-    }));
-    const presentedApprovals = approvals.map((approval) => ({
-      ...approval,
-      ...(approval.privateReadGrant ? { privateReadGrantStatus:privateReadGrantStatus(approval.privateReadGrant) } : {}),
-    }));
-    const capabilities = [
-      { id: 'task-coordination', name: '统一任务协调', status: 'ready', detail: '创建、路由和状态真相已就绪。' },
-      { id: 'agent-registry', name: '岗位注册表', status: 'ready', detail: '岗位职责、任务类型和权限边界从 Manifest 读取。' },
-      { id: 'approval-gate', name: '审批闸门', status: 'ready', detail: '高风险描述先进入待审批，不自动执行。' },
-      { id: 'content-public-web-fetch', name: '公开资料读取', status: 'ready', detail: '可读取公开网页、动态页面和 PDF；拒绝内网、登录态与越权内容。' },
-      { id: 'authorized-content-read', name: '登录平台只读采集', status: 'partial', detail: '小D已接入受控账号和平台专用通道；当前是否可读以“连接”页和具体任务验证为准。' },
-      { id: 'governance', name: 'Paperclip 治理投影', status: governance.status, detail: governance.status === 'ready' ? `本机 Paperclip 已连接（${governance.version || '未知版本'}）。` : 'Paperclip 未连接；任务仍可登记，后续可补同步。' },
-      { id: 'feishu-channel', name: '飞书收发与员工入口', status:feishuChannel.status, detail:feishuChannel.detail },
-      { id: 'mac-worker', name: 'Mac工作间安全接力', status:worker.status, detail:worker.detail },
-      ...(localAi ? [{
-        id:'local-ai',
-        name:'本机 AI 全能力网关',
-        status:localAi.status === 'healthy' ? 'ready' : localAi.status === 'degraded' ? 'partial' : 'unavailable',
-        detail:String(localAi.safeMessage || '本机 AI 网关状态未知。').slice(0, 300),
-      }] : []),
-      { id: 'external-execution', name: '外部发布与写入', status: 'planned', detail: '外部发布和其他写入动作尚未接入；登录型只读采集不等于已经开放写入。' }
-    ];
-    const presentationSkill = skillReadiness.find((item) => item.slug === 'open-kimi-ppt');
-    if (presentationSkill) {
-      const composeStatus = presentationSkill.modes?.compose?.status || presentationSkill.status;
-      const exportStatus = presentationSkill.modes?.export?.status || presentationSkill.status;
-      capabilities.push({
-        id:'office-presentation',
-        name:'小办演示文稿',
-        status:composeStatus === 'ready' && exportStatus === 'ready'
-          ? 'ready'
-          : composeStatus === 'ready' ? 'partial' : 'unavailable',
-        detail:[
-          `PPTD ${composeStatus === 'ready' ? '可用' : `不可用（${composeStatus}）`}`,
-          `PPTX ${exportStatus === 'ready' ? '可用' : `暂不可用（${exportStatus}）`}`,
-          presentationSkill.recovery,
-        ].filter(Boolean).join('；').slice(0, 500),
-      });
-    }
-    const wechatHealth = runtimeHealth['wechat-chat-retriever'];
-    if (wechatHealth) capabilities.push({
-      id:'wechat-private-read',
-      name:'微信本机只读',
-      status:wechatHealth.status === 'healthy' ? 'ready' : wechatHealth.status === 'degraded' ? 'partial' : 'unavailable',
-      detail:wechatHealth.safeMessage
-    });
-    return { agents:visibleAgents, alwaysOnAgents, onDemandAgents, tasks:presentedTasks, approvals:presentedApprovals, skillReadiness, taskFocus: buildTaskFocus(tasks, approvals), usage:summarizeTaskUsage(tasks, { since:startOfToday() }), capabilities };
+  async overview({ includeTasks = true } = {}) {
+    return this.taskOverview.read({ includeTasks });
   }
 
-  async usageOverview() { return summarizeTaskUsage(await this.store.list(), { since:startOfToday() }); }
+  async consoleOverview() { return this.overview({ includeTasks:false }); }
+
+  async listTaskRecords(query = {}, { audience = 'lan' } = {}) { return this.taskRecords.list(query, { audience }); }
+
+  async taskRecordDetail(taskId, { audience = 'lan' } = {}) { return this.taskRecords.detail(taskId, { audience }); }
+
+  async recoveryView(taskOrId, options = {}) { return this.taskRecovery.view(taskOrId, options); }
+
+  async requestRecovery(taskId, input, actor = {}) { return this.taskRecovery.request(taskId, input, actor); }
+
+  async usageOverview() {
+    return this.taskOverview.usage();
+  }
 
   async notificationStatus(taskId, chatRef = '') {
     return this.notification.status(taskId, chatRef);
@@ -468,53 +314,11 @@ export class TaskService {
 
 
 Object.assign(TaskService.prototype, taskServiceExecutionMethods);
+Object.assign(TaskService.prototype, taskApprovalCoordinatorMethods);
 
-function safeAgentChannelStates(source) {
-  try {
-    const states = typeof source === 'function' ? source() : source;
-    return Object.fromEntries(Object.entries(states || {}).flatMap(([agentId, state]) => {
-      const status = String(state?.status || '').trim();
-      const message = String(state?.message || '').trim();
-      return status && message ? [[agentId, { status, message }]] : [];
-    }));
-  } catch { return {}; }
-}
-
-function safeWorkerStatus(source, tasks) {
-  try {
-    const value = typeof source === 'function' ? source(tasks) : source;
-    const status = String(value?.status || '').trim();
-    const detail = String(value?.detail || '').trim();
-    return status && detail ? { status, detail } : { status:'local', detail:'当前由本机直接承接需要 Mac 的工作。' };
-  } catch {
-    return { status:'degraded', detail:'暂时无法读取 Mac工作间连接状态；任务事实不受影响。' };
-  }
-}
-
-function withFeishuTaskEvidence(channel, agentId, tasks) {
-  const verified = ['connected', 'external'].includes(channel.status) && (tasks || []).some((task) => task.source?.channel === 'feishu'
-    && task.source?.targetAgentId === agentId
-    && ['succeeded', 'failed', 'waiting_test', 'cancelled'].includes(task.status));
-  return verified ? { ...channel, verified:true } : channel;
-}
-
-function channelCapability(source) {
-  const state = typeof source === 'function' ? source() : source;
-  if (state?.status === 'external') return { status:'ready', detail:state.message || 'A君飞书入口已由 Hermes 原生 Gateway 承载；会话、上下文与 MCP 工具链已接通。' };
-  if (state?.status === 'connected') return { status:'ready', detail:'官方飞书入口已连接；消息、审批卡会回到原聊天，现有 A君入口仍可保留。' };
-  if (state?.status === 'connecting') return { status:'partial', detail:'官方飞书入口正在连接；现有 A君入口仍可用。' };
-  if (state?.status === 'failed') return { status:'partial', detail:'官方飞书入口本次没有连上；现有 A君入口不受影响，问题已记录等待处理。' };
-  return { status:'partial', detail:'A君私聊与审批卡已可用；官方收发入口已装好并默认关闭，待限定允许人员后接入官方通道并做真实飞书回归。' };
-}
 function shouldStartFailureRecovery(task) {
   return task?.status === 'failed'
     && !['operations.failure-recovery', 'operations.technical-repair', WECHAT_CHAT_TASK_TYPE].includes(task.taskType);
-}
-function validateApprovalScope(task, approval) {
-  const scope = approval.requestedScope || {};
-  if (scope.taskType !== task.taskType || scope.title !== task.input?.title || scope.assigneeAgentId !== (task.assigneeAgentId || null)) {
-    throw new ValidationError('审批范围与当前任务不一致，未执行任务。');
-  }
 }
 function validateApprovalChat(task, chatRef) {
   const expected = String(task.source?.chatRef || '').trim(); const actual = String(chatRef || '').trim();
@@ -524,35 +328,3 @@ function isExpiredApproval(approval, now = Date.now()) {
   const validUntil = Date.parse(approval?.validUntil || '');
   return approval?.status === 'pending' && Number.isFinite(validUntil) && validUntil <= now;
 }
-
-async function executorRuntimeHealth(executors) {
-  const entries = await Promise.all(Object.entries(executors || {}).map(async ([agentId, executor]) => {
-    if (typeof executor?.health !== 'function') return null;
-    try {
-      const value = await executor.health();
-      const status = ['healthy', 'degraded', 'unavailable'].includes(value?.status)
-        ? value.status
-        : 'unavailable';
-      return [agentId, {
-        status,
-        checkedAt:String(value?.checkedAt || ''),
-        requiredDatabases:{
-          contact:value?.requiredDatabases?.contact === true,
-          session:value?.requiredDatabases?.session === true,
-          message:value?.requiredDatabases?.message === true
-        },
-        safeMessage:String(value?.safeMessage || '本机执行器健康状态未知。').replace(/\s+/g, ' ').trim().slice(0, 300)
-      }];
-    } catch {
-      return [agentId, {
-        status:'unavailable',
-        checkedAt:'',
-        requiredDatabases:{ contact:false, session:false, message:false },
-        safeMessage:'本机执行器健康检查失败，请由运维官检查。'
-      }];
-    }
-  }));
-  return Object.fromEntries(entries.filter(Boolean));
-}
-
-function startOfToday() { const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), now.getDate()); }

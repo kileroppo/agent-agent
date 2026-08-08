@@ -20,17 +20,23 @@ export class HermesFeishuSender {
     const message = safeMessage(payload.markdown || payload.text);
     if (!message) throw new HermesFeishuSenderError('飞书回话内容为空。');
     await new Promise((resolve, reject) => {
-      const child = this.spawn(this.command, [
-        'send',
-        '--to',
-        `feishu:${chat}`,
-        '--file',
-        '-',
-        '--quiet'
-      ], {
-        env:{ ...process.env, HERMES_HOME:this.hermesHome },
-        stdio:['pipe', 'ignore', 'ignore']
-      });
+      let child;
+      try {
+        child = this.spawn(this.command, [
+          'send',
+          '--to',
+          `feishu:${chat}`,
+          '--file',
+          '-',
+          '--quiet'
+        ], {
+          env:{ ...process.env, HERMES_HOME:this.hermesHome },
+          stdio:['pipe', 'ignore', 'ignore']
+        });
+      } catch {
+        reject(new HermesFeishuSenderError('Hermes 飞书回话进程未启动，将保留任务跟进记录后重试。', { deliveryState:'not_started' }));
+        return;
+      }
       let settled = false;
       const finish = (error = null) => {
         if (settled) return;
@@ -41,11 +47,11 @@ export class HermesFeishuSender {
       };
       const timer = setTimeout(() => {
         child.kill('SIGTERM');
-        finish(new HermesFeishuSenderError('Hermes 飞书回话超时，将保留任务跟进记录后重试。'));
+        finish(new HermesFeishuSenderError('Hermes 飞书回话超时；无法确认平台是否已经收件。', { deliveryState:'unknown' }));
       }, this.timeoutMs);
       timer.unref?.();
-      child.once('error', () => finish(new HermesFeishuSenderError('Hermes 飞书回话进程不可用，将保留任务跟进记录后重试。')));
-      child.once('close', (code) => finish(code === 0 ? null : new HermesFeishuSenderError('Hermes 飞书回话未成功，将保留任务跟进记录后重试。')));
+      child.once('error', () => finish(new HermesFeishuSenderError('Hermes 飞书回话进程未启动，将保留任务跟进记录后重试。', { deliveryState:'not_started' })));
+      child.once('close', (code) => finish(code === 0 ? null : new HermesFeishuSenderError('Hermes 飞书回话未确认成功；无法判断平台是否已经收件。', { deliveryState:'unknown' })));
       child.stdin.once('error', () => undefined);
       child.stdin.end(message);
     });
@@ -53,7 +59,13 @@ export class HermesFeishuSender {
   }
 }
 
-export class HermesFeishuSenderError extends Error {}
+export class HermesFeishuSenderError extends Error {
+  constructor(message, { deliveryState = 'unknown' } = {}) {
+    super(message);
+    this.name = 'HermesFeishuSenderError';
+    this.deliveryState = deliveryState;
+  }
+}
 
 function safeChatId(value) {
   const chatId = String(value || '').trim();

@@ -14,12 +14,14 @@
     <symbol id="icon-employees" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3.5 20c.8-3.7 2.8-5.7 5.5-5.7s4.7 2 5.5 5.7M16 6.3a2.7 2.7 0 0 1 0 5.4M16 14.5c2.4.4 3.9 2.2 4.5 5.5"/></symbol>
     <symbol id="icon-connections" viewBox="0 0 24 24"><path d="M8.2 14.8 6 17a3.5 3.5 0 1 0 5 5l2.2-2.2M15.8 9.2 18 7a3.5 3.5 0 1 0-5-5l-2.2 2.2M8.5 15.5l7-7"/></symbol>
     <symbol id="icon-records" viewBox="0 0 24 24"><rect x="5" y="3.5" width="14" height="17" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></symbol>
+    <symbol id="icon-cost" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M9 9.2c.6-1 1.7-1.5 3.2-1.5 1.7 0 2.8.8 2.8 2 0 3-6 1.2-6 4.3 0 1.3 1.2 2.2 3.1 2.2 1.5 0 2.7-.5 3.4-1.5M12 5.8v12.4"/></symbol>
     <symbol id="icon-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="m15 9 5-5"/></symbol>
     <symbol id="icon-spark" viewBox="0 0 24 24"><path d="M12 3 13.8 8.2 19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3ZM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16Z"/></symbol>
     <symbol id="icon-message" viewBox="0 0 24 24"><path d="M4 5h16v12H9l-5 4V5Z"/><path d="M8 9h8M8 13h5"/></symbol>
     <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
     <symbol id="icon-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></symbol>
     <symbol id="icon-alert" viewBox="0 0 24 24"><path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v5M12 17.5v.1"/></symbol>
+    <symbol id="icon-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 12 18 6M12 2v2M22 12h-2"/></symbol>
     <symbol id="icon-share" viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="m8.2 10.8 7.6-3.6M8.2 13.2l7.6 3.6"/></symbol>
     <symbol id="icon-shield" viewBox="0 0 24 24"><path d="m12 3 7 3v5.5c0 4.3-2.9 8.1-7 9.5-4.1-1.4-7-5.2-7-9.5V6l7-3Z"/><path d="m9 12 2 2 4-4"/></symbol>
     <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></symbol>
@@ -39,25 +41,21 @@
 
   <div class="app-shell">
     <nav class="module-nav" aria-label="运行台模块">
-      <a href="#overview" class="module-link is-active" data-module="overview" aria-current="page">
+      <a href="#now" class="module-link is-active" data-module="overview" aria-current="page">
         <svg aria-hidden="true"><use href="#icon-overview"></use></svg>
-        <span>总览</span>
+        <span>现在</span>
       </a>
-      <a href="#employees" class="module-link" data-module="employees">
-        <svg aria-hidden="true"><use href="#icon-employees"></use></svg>
-        <span>员工</span>
-      </a>
-      <a href="#connections" class="module-link" data-module="connections" data-owner-only hidden>
-        <svg aria-hidden="true"><use href="#icon-connections"></use></svg>
-        <span>连接</span>
-      </a>
-      <a href="#campaigns" class="module-link" data-module="campaigns" data-owner-only hidden>
-        <svg aria-hidden="true"><use href="#icon-target"></use></svg>
-        <span>发布活动</span>
-      </a>
-      <a href="#records" class="module-link" data-module="records">
+      <a href="#runs" class="module-link" data-module="records">
         <svg aria-hidden="true"><use href="#icon-records"></use></svg>
-        <span>记录</span>
+        <span>运行</span>
+      </a>
+      <a href="#system" class="module-link" data-module="system">
+        <svg aria-hidden="true"><use href="#icon-connections"></use></svg>
+        <span>系统</span>
+      </a>
+      <a href="#tools" class="module-link" data-module="tools" data-owner-only hidden>
+        <svg aria-hidden="true"><use href="#icon-radar"></use></svg>
+        <span>工具</span>
       </a>
     </nav>
 
@@ -82,7 +80,7 @@
       <section id="module-overview" class="module-page is-active" data-module-page="overview" aria-labelledby="overview-title">
         <div class="module-heading">
           <div>
-            <h1 id="overview-title">军团状态</h1>
+            <h1 id="overview-title">现在</h1>
             <p id="overview-summary" class="module-summary">正在读取当前状态…</p>
           </div>
         </div>
@@ -140,6 +138,11 @@
             <h1 id="employees-title">谁能帮你</h1>
             <p class="subtle">按常用与按需分组；展开员工可看具体职责和接入状态。</p>
           </div>
+          <nav class="context-nav" aria-label="系统与接入">
+            <a href="#employees" data-context-page="employees">员工</a>
+            <a href="#connections" data-context-page="connections" data-owner-only hidden>接入</a>
+            <a href="#billing" data-context-page="billing" data-owner-only hidden>用量诊断</a>
+          </nav>
         </div>
         <div id="agent-list" class="agent-grid"></div>
       </section>
@@ -150,6 +153,11 @@
             <h1 id="connections-title">账号与接入</h1>
             <p class="subtle">先确认真实读取是否可用；登录、模型和飞书设置按需展开。</p>
           </div>
+          <nav class="context-nav" aria-label="系统与接入">
+            <a href="#employees" data-context-page="employees">员工</a>
+            <a href="#connections" data-context-page="connections">接入</a>
+            <a href="#billing" data-context-page="billing">用量诊断</a>
+          </nav>
         </div>
 
         <section id="ai-control" class="surface-section ai-control" hidden>
@@ -289,6 +297,10 @@
             <h1 id="campaigns-title">发布活动</h1>
             <p class="subtle">审批、暂停和恢复都以 Paperclip 为准；这里不另建流程。</p>
           </div>
+          <nav class="context-nav" aria-label="业务工具">
+            <a href="#boom-monitor" data-context-page="boom-monitor">爆款雷达</a>
+            <a href="#campaigns" data-context-page="campaigns">发布活动</a>
+          </nav>
         </div>
         <section class="surface-section campaign-console" aria-live="polite">
           <div class="section-head">
@@ -299,26 +311,214 @@
         </section>
       </section>
 
-      <section id="module-records" class="module-page" data-module-page="records" aria-labelledby="records-title">
+      <section id="module-billing" class="module-page" data-module-page="billing" data-owner-only aria-labelledby="billing-title">
         <div class="module-heading">
           <div>
-            <h1 id="records-title">任务记录</h1>
-            <p class="subtle">这里用于查结果和故障；继续、补充或审批仍回到飞书原会话。</p>
+            <h1 id="billing-title">AI 成本账本</h1>
+            <p id="billing-summary" class="subtle">正在核对 Hermes 会话用量与任务成本…</p>
+          </div>
+          <nav class="context-nav" aria-label="系统与接入">
+            <a href="#employees" data-context-page="employees">员工</a>
+            <a href="#connections" data-context-page="connections">接入</a>
+            <a href="#billing" data-context-page="billing">用量诊断</a>
+          </nav>
+        </div>
+        <div id="billing-stats" class="stat-grid" aria-label="最近七天 AI 成本概览"></div>
+        <div id="billing-cost-health" class="billing-cost-health" role="status"></div>
+        <div id="billing-attribution" class="billing-attribution"></div>
+        <section class="surface-section billing-section" aria-labelledby="billing-profile-title">
+          <div class="section-head">
+            <div><h2 id="billing-profile-title">花在哪里</h2><p class="section-intro">按岗位汇总模型请求、Token 和费用。</p></div>
+          </div>
+          <div id="billing-profile-list" class="billing-profile-list"></div>
+        </section>
+        <section class="surface-section billing-section" aria-labelledby="billing-ledger-title">
+          <div class="section-head">
+            <div><h2 id="billing-ledger-title">消费流水</h2><p class="section-intro">来自 Hermes 只读用量记录；不读取 Prompt、聊天正文、密钥或 Base URL。</p></div>
+          </div>
+          <div class="record-toolbar billing-toolbar">
+            <div class="record-view-tabs" aria-label="按归属状态查看消费流水">
+              <button type="button" class="record-view-tab is-active" data-billing-view="all" aria-pressed="true">全部</button>
+              <button type="button" class="record-view-tab" data-billing-view="unattributed" aria-pressed="false">未归属</button>
+              <button type="button" class="record-view-tab" data-billing-view="attributed" aria-pressed="false">已归属</button>
+            </div>
+            <div class="record-query-tools">
+              <label class="task-search"><span class="visually-hidden">搜索消费流水</span><input id="billing-search" type="search" autocomplete="off" placeholder="搜索模型或任务"></label>
+              <label class="visually-hidden" for="billing-agent-filter">按员工筛选</label>
+              <select id="billing-agent-filter" aria-label="按员工筛选"><option value="">全部员工</option></select>
+            </div>
+          </div>
+          <div class="record-list-summary billing-list-summary">
+            <strong id="billing-entry-count">正在读取…</strong>
+            <span id="billing-list-context">按时间排列</span>
+          </div>
+          <div id="billing-entry-list" class="billing-entry-list"></div>
+          <button id="billing-load-more" class="task-load-more secondary-action" type="button" hidden>继续加载</button>
+        </section>
+      </section>
+
+      <section id="module-boom-monitor" class="module-page" data-module-page="boom-monitor" data-owner-only aria-labelledby="boom-monitor-title">
+        <div class="module-heading">
+          <div>
+            <h1 id="boom-monitor-title">爆款雷达</h1>
+            <p class="subtle">采集作品指标并判断是否值得拆解；命中后仍由“小D取证 → 小拆分析”，这里不会直接发布内容。</p>
+          </div>
+          <div class="module-heading-actions">
+            <nav class="context-nav" aria-label="业务工具">
+              <a href="#boom-monitor" data-context-page="boom-monitor">爆款雷达</a>
+              <a href="#campaigns" data-context-page="campaigns">发布活动</a>
+            </nav>
+            <button id="boom-refresh" type="button" class="secondary-action">刷新雷达</button>
+          </div>
+        </div>
+
+        <p id="boom-message" class="boom-message" role="status" aria-live="polite">打开后读取雷达状态。</p>
+        <div id="boom-stats" class="boom-stat-grid" aria-label="爆款雷达概览"></div>
+
+        <section class="surface-section boom-collect-panel" aria-labelledby="boom-collect-title">
+          <div class="section-head">
+            <div>
+              <h2 id="boom-collect-title">粘贴链接评分</h2>
+              <p class="section-intro">支持小红书和抖音作品链接；默认只读取指标，后续派发严格服从下方设置。</p>
+            </div>
+          </div>
+          <form id="boom-collect-form" class="boom-inline-form">
+            <label><span class="visually-hidden">作品链接</span><input id="boom-source-url" type="url" inputmode="url" required placeholder="粘贴小红书或抖音作品链接"></label>
+            <button id="boom-collect-submit" type="submit">采集并评分</button>
+          </form>
+          <div id="boom-collect-result" class="boom-result" hidden></div>
+        </section>
+
+        <div class="boom-view-tabs" role="group" aria-label="爆款雷达内容">
+          <button type="button" class="filter-button is-active" data-boom-view="works" aria-pressed="true">作品</button>
+          <button type="button" class="filter-button" data-boom-view="queue" aria-pressed="false">队列</button>
+          <button type="button" class="filter-button" data-boom-view="import" aria-pressed="false">导入</button>
+          <button type="button" class="filter-button" data-boom-view="settings" aria-pressed="false">设置</button>
+        </div>
+
+        <section id="boom-view-works" class="surface-section boom-view is-active" data-boom-view-page="works">
+          <div class="section-head">
+            <div>
+              <h2>作品看板</h2>
+              <p class="section-intro">正式 v2 评分控制派发；N0 表示样本或表现尚未达到拆解门槛。</p>
+            </div>
+            <button id="boom-scan-run" type="button" class="secondary-action">扫描现有数据</button>
+          </div>
+          <form id="boom-work-filters" class="boom-filter-grid">
+            <label>等级<select id="boom-filter-grade"><option value="">全部等级</option><option>T3</option><option>T2</option><option>T1</option><option>N0</option></select></label>
+            <label>平台<select id="boom-filter-platform"><option value="">全部平台</option><option value="douyin">抖音</option><option value="xiaohongshu">小红书</option><option value="youtube">YouTube</option></select></label>
+            <label>创作者编号<input id="boom-filter-creator" placeholder="可不填"></label>
+            <button type="submit">查询</button>
+          </form>
+          <div id="boom-work-list" class="boom-list"></div>
+        </section>
+
+        <section id="boom-view-queue" class="surface-section boom-view" data-boom-view-page="queue" hidden>
+          <div class="section-head">
+            <div>
+              <h2>扫描与派发队列</h2>
+              <p class="section-intro">命中作品只会进入现有军团任务链，不在雷达内另起一套 AI。</p>
+            </div>
+            <div class="boom-section-actions">
+              <button id="boom-queue-refresh" type="button" class="secondary-action">刷新队列</button>
+              <button id="boom-dispatch-run" type="button">处理待派发项</button>
+            </div>
+          </div>
+          <div class="boom-queue-columns">
+            <div><h3>扫描任务</h3><div id="boom-scan-list" class="boom-list compact"></div></div>
+            <div><h3>军团派发</h3><div id="boom-analysis-list" class="boom-list compact"></div></div>
+          </div>
+        </section>
+
+        <section id="boom-view-import" class="surface-section boom-view" data-boom-view-page="import" hidden>
+          <div class="section-head">
+            <div>
+              <h2>导入历史作品</h2>
+              <p class="section-intro">可选 JSON/CSV 文件，或粘贴 JSON；导入后先进入扫描队列，后续派发严格服从下方设置。</p>
+            </div>
+          </div>
+          <form id="boom-import-form" class="boom-import-form">
+            <label>选择文件<input id="boom-import-file" type="file" accept=".json,.csv,application/json,text/csv"></label>
+            <div class="boom-divider"><span>或粘贴 JSON</span></div>
+            <label>JSON 数据<textarea id="boom-import-payload" rows="8" spellcheck="false" placeholder='{"platform":"douyin","creator_id":"xxx","creator_name":"name","follower_count":120000,"works":[{...}]}'></textarea></label>
+            <div class="boom-section-actions"><button id="boom-import-submit" type="submit">提交导入</button></div>
+          </form>
+          <pre id="boom-import-result" class="boom-import-result" hidden></pre>
+        </section>
+
+        <section id="boom-view-settings" class="surface-section boom-view" data-boom-view-page="settings" hidden>
+          <div class="section-head">
+            <div>
+              <h2>自动派发设置</h2>
+              <p class="section-intro">默认关闭。启用后，只有选中等级且未超过每日上限的作品才会交给小D和小拆。</p>
+            </div>
+          </div>
+          <form id="boom-settings-form" class="boom-settings-form">
+            <label class="boom-toggle"><input id="boom-auto-enabled" type="checkbox"><span><strong>自动派发命中作品</strong><small>关闭时只采集、评分和排队</small></span></label>
+            <fieldset>
+              <legend>允许自动派发的等级</legend>
+              <label><input type="checkbox" name="boom-grade" value="T1">T1</label>
+              <label><input type="checkbox" name="boom-grade" value="T2" checked>T2</label>
+              <label><input type="checkbox" name="boom-grade" value="T3" checked>T3</label>
+            </fieldset>
+            <label>每日派发上限<input id="boom-daily-limit" type="number" min="0" max="100" step="1" value="5"><small>设为 0 可停止当天派发。</small></label>
+            <div class="boom-budget" id="boom-budget">今日派发情况待读取。</div>
+            <div class="boom-section-actions"><button id="boom-settings-submit" type="submit">保存设置</button></div>
+          </form>
+        </section>
+      </section>
+
+      <section id="module-records" class="module-page" data-module-page="records" aria-labelledby="records-title">
+        <div class="module-heading record-heading">
+          <div>
+            <h1 id="records-title">运行记录</h1>
+            <p class="subtle">先处理异常，再确认运行结果；完整治理历史仍以 Paperclip 为准。</p>
           </div>
         </div>
 
         <div class="record-toolbar">
-          <div class="filter-group" aria-label="筛选任务状态">
-            <button type="button" class="filter-button is-active" data-task-filter="attention" aria-pressed="true">待复盘</button>
-            <button type="button" class="filter-button" data-task-filter="active" aria-pressed="false">进行中</button>
-            <button type="button" class="filter-button" data-task-filter="completed" aria-pressed="false">已结束</button>
-            <button type="button" class="filter-button" data-task-filter="all" aria-pressed="false">全部</button>
+          <div class="record-view-tabs" aria-label="按当前需要查看任务">
+            <button type="button" class="record-view-tab is-active" data-record-view="needs_action" aria-pressed="true">需要我处理</button>
+            <button type="button" class="record-view-tab" data-record-view="active" aria-pressed="false">处理中</button>
+            <button type="button" class="record-view-tab" data-record-view="completed" aria-pressed="false">已完成</button>
+            <button type="button" class="record-view-tab" data-record-view="all" aria-pressed="false">全部记录</button>
           </div>
-          <label class="task-search"><span class="visually-hidden">搜索任务</span><input id="task-search" type="search" placeholder="搜索标题、岗位或短编号"></label>
-          <span id="task-count" class="task-count"></span>
+          <div class="record-query-tools">
+            <label class="task-search"><span class="visually-hidden">搜索任务</span><input id="task-search" type="search" autocomplete="off" placeholder="搜索任务名或编号"></label>
+            <button id="record-filter-toggle" class="record-filter-toggle secondary-action" type="button" aria-expanded="false" aria-controls="record-filter-panel">筛选</button>
+          </div>
         </div>
-        <div id="task-list" class="task-list"></div>
-        <button id="task-load-more" class="task-load-more secondary-action" type="button" hidden>再显示 24 条</button>
+
+        <div id="record-filter-panel" class="record-filter-panel" hidden>
+          <label>员工<select id="record-agent-filter"><option value="">全部员工</option></select></label>
+          <label>任务类型<select id="record-type-filter"><option value="">全部类型</option></select></label>
+          <label>时间范围<select id="record-time-filter"><option value="30d">近 30 天</option><option value="7d">近 7 天</option><option value="all">全部时间</option></select></label>
+          <label class="record-routine-option"><input id="record-routine-filter" type="checkbox">显示例行巡检明细</label>
+          <div class="record-filter-actions">
+            <button id="record-filter-reset" class="text-action" type="button">恢复默认</button>
+            <button id="record-filter-apply" type="button">应用</button>
+          </div>
+        </div>
+        <div id="record-active-filters" class="record-active-filters" hidden></div>
+        <button id="record-new-items" class="record-new-items" type="button" hidden>有新的记录，点击更新</button>
+
+        <div id="record-workbench" class="record-workbench">
+          <section class="record-list-panel" aria-label="任务记录列表">
+            <div class="record-list-summary">
+              <strong id="task-count">正在读取…</strong>
+              <span id="record-list-context">按更新时间排列</span>
+            </div>
+            <div id="task-list" class="task-list" role="listbox" aria-label="任务记录"></div>
+            <button id="task-load-more" class="task-load-more secondary-action" type="button" hidden>加载更多</button>
+            <div id="record-routine-summary" class="record-routine-summary" hidden></div>
+          </section>
+          <aside id="record-detail" class="record-detail" aria-live="polite">
+            <div class="record-detail-empty">
+              <svg aria-hidden="true"><use href="#icon-records"></use></svg>
+              <p>选择一条记录查看结果和下一步</p>
+            </div>
+          </aside>
+        </div>
       </section>
     </main>
   </div>

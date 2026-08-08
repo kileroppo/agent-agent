@@ -373,6 +373,7 @@ test('CookieBridge connection stores an internal account reference without retur
   });
   assert.equal(granted.ok, true);
   assert.equal(granted.connectionUse.cookieBridgeClientId, 'local_xhs_account_1');
+  assert.equal((await fs.stat(path.join(root, 'connections.json'))).mode & 0o777, 0o600);
   await assert.rejects(
     connectionStore.createCookieBridgeConnection({
       provider: 'xhs', accountAlias: '错误连接', clientId: 'local_xhs_account_2', cookie: 'secret_cookie_value',
@@ -380,6 +381,64 @@ test('CookieBridge connection stores an internal account reference without retur
     }),
     /不得包含 Cookie/
   );
+});
+
+test('并发账号和运营事件写入不会损坏或丢失重启后的状态', async (t) => {
+  const { root, connectionStore, operations } = await sandbox(t);
+  const count = 24;
+  const [connections, events] = await Promise.all([
+    Promise.all(Array.from({ length:count }, (_, index) => connectionStore.createCookieBridgeConnection({
+      provider:'xhs', accountAlias:`账号${index}`, clientId:`client_${index}`,
+      grantedOperations:['read_media_metadata'], dataScope:['content:read'], allowedAgentIds:['xiaod']
+    }))),
+    Promise.all(Array.from({ length:count }, (_, index) => operations.record({
+      subjectType:'task', subjectRef:`task-${index}`, eventType:'audit',
+      safeMessage:`event ${index}`, recommendedAction:'none'
+    }))),
+  ]);
+
+  assert.equal(connections.length, count);
+  assert.equal(events.length, count);
+  assert.equal((await fs.stat(path.join(root, 'connections.json'))).mode & 0o777, 0o600);
+  assert.equal((await fs.stat(path.join(root, 'operations-events.json'))).mode & 0o777, 0o600);
+
+  const restartedConnections = new ConnectionStore(root);
+  const restartedEvents = new OperationsEventStore(root);
+  await Promise.all([restartedConnections.init(), restartedEvents.init()]);
+  assert.equal(restartedConnections.list().length, count);
+  assert.equal(restartedEvents.list().length, count);
+  assert.equal(restartedConnections.list().filter((item) => item.isDefault).length, 1);
+});
+
+test('持久化失败会回滚内存状态且后续写入仍可继续', async (t) => {
+  const { connectionStore, operations } = await sandbox(t);
+  const connection = await connectionStore.createCookieBridgeConnection({
+    provider:'xhs', accountAlias:'稳定账号', clientId:'stable_client',
+    grantedOperations:['read_media_metadata'], dataScope:['content:read'], allowedAgentIds:['xiaod']
+  });
+  await operations.record({
+    subjectType:'task', subjectRef:'before', eventType:'before', safeMessage:'before', recommendedAction:'none'
+  });
+
+  const persistConnections = connectionStore.persist.bind(connectionStore);
+  connectionStore.persist = async () => { throw new Error('simulated connection disk failure'); };
+  await assert.rejects(connectionStore.disable(connection.connectionId), /simulated connection disk failure/);
+  assert.equal(connectionStore.getSafe(connection.connectionId).status, 'active');
+  connectionStore.persist = persistConnections;
+  await connectionStore.markHealth(connection.connectionId);
+  assert.ok(connectionStore.getSafe(connection.connectionId).lastHealthAt);
+
+  const persistEvents = operations.persist.bind(operations);
+  operations.persist = async () => { throw new Error('simulated event disk failure'); };
+  await assert.rejects(operations.record({
+    subjectType:'task', subjectRef:'failed', eventType:'failed', safeMessage:'failed', recommendedAction:'none'
+  }), /simulated event disk failure/);
+  assert.equal(operations.list().length, 1);
+  operations.persist = persistEvents;
+  await operations.record({
+    subjectType:'task', subjectRef:'after', eventType:'after', safeMessage:'after', recommendedAction:'none'
+  });
+  assert.equal(operations.list().length, 2);
 });
 
 test('同一平台只保留一个默认账号，切换默认不会删除其他连接', async (t) => {

@@ -3,13 +3,17 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { config } from './config.js';
 import { cleanTranscript, composeDelivery, qualityCheck } from './domain.js';
-import { classifyFailure } from './recovery.js';
+import { classifyFailure, knownLarkDeliveryRecoveryPatch } from './recovery.js';
 import { createOneShotFailpoint } from './test-failpoint.js';
 import { JobPausedError } from './job-pause-controller.js';
 import { ContentAcquisitionError } from 'ajun-common-access/content-acquisition-center';
 import { automaticConfirmationDecision, buildEvidenceRecords, parseTimedTranscript, sha256, timedTranscriptMarkdown } from './transcript-evidence.js';
 import { createTranscriptConfirmationFiles } from './transcript-review.js';
 import { createVisualEvidencePackage, VisualEvidenceError } from './visual-evidence.js';
+import { AdaptiveAsrRuntime, compactAsrRouting, createSubtitleRoutingRecord } from './adaptive-asr-runtime.js';
+import { LarkDeliveryCoordinator } from './lark-delivery.js';
+
+export { deliverToLark, markdownToBlocks } from './lark-delivery.js';
 
 const REFINER_PROMPT = `你是中文音视频内容编辑。你只负责写“内容导览”，完整校对文本会由系统另行附在后面。
 
@@ -37,12 +41,14 @@ const REFINER_PROMPT = `你是中文音视频内容编辑。你只负责写“�
 如果原文确实没有足够证据，不要硬造“逻辑分析”“框架与心智模型”等章节。`;
 
 export class MediaPipeline {
-  constructor({ store, workDir, contentCenter = null, pauseController = null, failpoint = createOneShotFailpoint(config.testFailOnceAt) }) {
+  constructor({ store, workDir, contentCenter = null, pauseController = null, asrRuntime = new AdaptiveAsrRuntime(), failpoint = createOneShotFailpoint(config.testFailOnceAt), delivery = new LarkDeliveryCoordinator({ store }) }) {
     this.store = store;
     this.workDir = workDir;
     this.contentCenter = contentCenter;
     this.pauseController = pauseController;
+    this.asrRuntime = asrRuntime;
     this.failpoint = failpoint;
+    this.delivery = delivery;
   }
 
   async run(jobId) {
@@ -51,7 +57,8 @@ export class MediaPipeline {
     const jobDir = path.join(this.workDir, 'jobs', job.id);
     try {
       await this.checkpoint(job.id, '开始处理前');
-      await fs.mkdir(jobDir, { recursive: true });
+      await fs.mkdir(jobDir, { recursive:true, mode:0o700 });
+      await fs.chmod(jobDir, 0o700);
       await this.stage(job.id, 'preparing', 8, '正在检查素材格式与可读性');
       const acquired = await this.acquire(this.store.get(job.id), jobDir);
       await this.checkpoint(job.id, '素材检查完成');
@@ -62,23 +69,29 @@ export class MediaPipeline {
       // The source has already been copied/normalized into jobDir. Failing here
       // exercises retry without creating any external delivery side effect.
       await this.failpoint('transcribing');
+      const audioDurationSeconds = acquired.kind === 'audio' ? await probeDuration(acquired.path) : null;
       const transcription = acquired.kind === 'subtitle'
-        ? { text:await fs.readFile(acquired.path, 'utf8'), timed:null }
-        : await this.transcribe(acquired.path, jobDir);
+        ? {
+            text:await fs.readFile(acquired.path, 'utf8'),
+            timed:null,
+            routing:createSubtitleRoutingRecord(currentJob)
+          }
+        : await this.transcribe(acquired.path, jobDir, { job:currentJob, durationSeconds:audioDurationSeconds });
       const rawTranscript = transcription.text;
       await this.checkpoint(job.id, '转录完成');
       const transcript = cleanTranscript(rawTranscript);
       if (transcript.length < 20) throw new Error('未得到有效文字，请检查素材是否有声音、是否受限或更换转录模型。');
       const rawTranscriptPath = path.join(jobDir, acquired.kind === 'subtitle' ? 'raw-transcript.vtt' : 'raw-transcript.txt');
-      await fs.writeFile(rawTranscriptPath, rawTranscript);
+      await writePrivateFile(rawTranscriptPath, rawTranscript);
       const transcriptPath = path.join(jobDir, 'transcript-clean.txt');
-      await fs.writeFile(transcriptPath, transcript);
+      await writePrivateFile(transcriptPath, transcript);
       const timedSource = transcription.timed || rawTranscript;
       const segments = parseTimedTranscript(timedSource, { kind:transcription.timed ? 'subtitle' : acquired.kind });
       const timedTranscriptPath = path.join(jobDir, 'transcript-timed.md');
-      await fs.writeFile(timedTranscriptPath, timedTranscriptMarkdown(currentJob.title, segments));
+      await writePrivateFile(timedTranscriptPath, timedTranscriptMarkdown(currentJob.title, segments));
+      const asrRoutingPath = path.join(jobDir, 'asr-routing.json');
+      await writePrivateFile(asrRoutingPath, JSON.stringify(transcription.routing, null, 2));
       const reportedMediaDurationSeconds = Number(acquired.contentPackage?.contentItems?.basic_content?.durationSeconds) || null;
-      const audioDurationSeconds = acquired.kind === 'audio' ? await probeDuration(acquired.path) : null;
       const mediaDurationSeconds = qualityGateDuration({
         reportedDurationSeconds:reportedMediaDurationSeconds,
         probedAudioDurationSeconds:audioDurationSeconds
@@ -94,10 +107,11 @@ export class MediaPipeline {
         audioDurationSeconds,
         transcriptionQuality:transcription.qualitySignals || null
       });
+      evidence.qualityReport.asrRouting = compactAsrRouting(transcription.routing);
       const sourceEvidencePath = path.join(jobDir, 'source-evidence.json');
       const qualityReportPath = path.join(jobDir, 'transcript-quality-report.json');
-      await fs.writeFile(sourceEvidencePath, JSON.stringify(evidence.sourceEvidence, null, 2));
-      await fs.writeFile(qualityReportPath, JSON.stringify(evidence.qualityReport, null, 2));
+      await writePrivateFile(sourceEvidencePath, JSON.stringify(evidence.sourceEvidence, null, 2));
+      await writePrivateFile(qualityReportPath, JSON.stringify(evidence.qualityReport, null, 2));
       if (evidence.qualityReport.hardFailures.length) {
         const failure = new Error(`转录完整性检查未通过：${evidence.qualityReport.hardFailures.join(', ')}`);
         failure.code = 'transcript_integrity_failed';
@@ -118,22 +132,22 @@ export class MediaPipeline {
       const proofreadPath = path.join(jobDir, '完整校对文本.md');
       const markdown = composeDelivery(currentJob.title, refined.markdown, transcript);
       const markdownPath = path.join(jobDir, '分享式整理稿.md');
-      await fs.writeFile(guidePath, refined.markdown);
-      await fs.writeFile(proofreadPath, `# ${currentJob.title}\n\n${transcript}\n`);
-      await fs.writeFile(markdownPath, markdown);
+      await writePrivateFile(guidePath, refined.markdown);
+      await writePrivateFile(proofreadPath, `# ${currentJob.title}\n\n${transcript}\n`);
+      await writePrivateFile(markdownPath, markdown);
       const quality = qualityCheck(markdown, { usedRefiner: refined.usedRefiner, refinerFallback: Boolean(refined.refinerFallbackReason) });
 
-      await this.stage(job.id, 'delivering', 88, '正在准备本地交付物');
-      await this.checkpoint(job.id, '交付前');
-      const lark = currentJob.deliveryMode === 'local_only'
-        ? { configured:false, localOnly:true }
-        : await deliverToLark(currentJob.title, markdown).catch((error) => ({ error: error.message }));
       const warnings = [...quality.issues];
       if (refined.refinerFallbackReason) warnings.unshift(refined.refinerFallbackReason);
-      if (lark.error) warnings.push(`飞书交付未完成：${lark.error}`);
-      if (lark.configured === false && !lark.localOnly) warnings.push('未配置飞书 App；已生成本地 Markdown 交付物。');
       if (visual.warning) warnings.unshift(visual.warning);
-      const autoConfirmation = automaticConfirmationDecision({ qualityReport:evidence.qualityReport, transcript });
+      const baseAutoConfirmation = automaticConfirmationDecision({ qualityReport:evidence.qualityReport, transcript });
+      const autoConfirmation = transcription.routing.requiresHumanReview
+        ? {
+            ...baseAutoConfirmation,
+            eligible:false,
+            reasons:[...new Set([...baseAutoConfirmation.reasons, 'asr_fallback_requires_human_review'])]
+          }
+        : baseAutoConfirmation;
       const reviewRequired = currentJob.reviewPolicy === 'required' || !autoConfirmation.eligible;
       const confirmation = reviewRequired
         ? null
@@ -147,48 +161,90 @@ export class MediaPipeline {
             confirmerRef:'xiaod-quality-gate',
             version:1
           });
-      if (currentJob.reviewPolicy !== 'required' && !autoConfirmation.eligible) {
+      if (transcription.routing.requiresHumanReview) {
+        warnings.unshift('质量模型暂时不可用；已生成本机应急转录，必须人工完整听审后才能正式使用。');
+      } else if (currentJob.reviewPolicy !== 'required' && !autoConfirmation.eligible) {
         warnings.unshift(`自动确认未通过：${autoConfirmation.reasons.join(', ')}`);
       }
+
+      const localOutput = {
+        ...(this.store.get(job.id)?.output || {}),
+        rawTranscriptPath, transcriptPath, timedTranscriptPath, sourceEvidencePath, qualityReportPath, asrRoutingPath,
+        asrProvider:transcription.routing.selectedProvider,
+        asrModel:transcription.routing.selectedModel,
+        asrEscalated:transcription.routing.escalated === true,
+        visualEvidencePath:visual.manifestPath || null,
+        visualCoverage:visual.coverage,
+        visualFailureCode:visual.failureCode || null,
+        transcriptChecksum:sha256(transcript), evidenceLevel:evidence.qualityReport.evidenceLevel,
+        reviewStatus:reviewRequired ? 'awaiting_review' : 'auto_confirmed',
+        confirmationMode:reviewRequired ? null : 'automatic',
+        automaticConfirmation:autoConfirmation,
+        ...(confirmation || {}),
+        guidePath, proofreadPath, markdownPath,
+        rawCharacters: transcript.length, guideCharacters: refined.markdown.length,
+        deliveryMode:currentJob.deliveryMode,
+        sourceAcquisition: acquired.contentPackage ? {
+          provider: acquired.contentPackage.provider,
+          acquisitionPath: acquired.contentPackage.acquisitionPath,
+          providedCapabilities: acquired.contentPackage.providedCapabilities,
+          adapterRef: acquired.contentPackage.adapterRef,
+          access:acquired.contentPackage.access || null
+        } : null
+      };
       await this.store.update(job.id, {
-        status: reviewRequired ? 'awaiting_review' : 'completed',
-        progress: reviewRequired ? 92 : 100,
-        stageMessage: reviewRequired
-          ? currentJob.reviewPolicy === 'required'
-            ? '已按要求保留人工完整听审确认'
+        status:'delivering', progress:88, stageMessage:'本地交付物已落账，正在准备飞书交付',
+        quality, warnings, output:localOutput
+      }, { stage:'delivering', message:'本地交付物及校验凭据已落账' });
+      await this.checkpoint(job.id, '交付前');
+      const lark = reviewRequired
+        ? { configured:true, deferredForReview:true, state:'deferred_for_review' }
+        : currentJob.deliveryMode === 'local_only'
+        ? { configured:false, localOnly:true, state:'local_only' }
+        : await this.delivery.deliver({ jobId:job.id, title:currentJob.title, markdown });
+      if (lark.configured === false && !lark.localOnly) warnings.push('未配置飞书 App；本地交付物已完成，等待配置后交付。');
+      if (!lark.deferredForReview && lark.configured !== false && !lark.permissionGranted) warnings.push('飞书文档已创建，但目标用户权限尚未确认。');
+      const deliveryComplete = lark.localOnly || (lark.url && lark.permissionGranted);
+      const finalStatus = reviewRequired ? 'awaiting_review' : deliveryComplete ? 'completed' : 'awaiting_delivery';
+      const finalMessage = reviewRequired
+        ? currentJob.reviewPolicy === 'required'
+          ? '已按要求保留人工完整听审确认'
+          : transcription.routing.requiresHumanReview
+            ? '质量模型暂时不可用，已生成应急转录并等待人工完整听审'
             : '自动质量确认未通过，等待人工完整听审'
+        : finalStatus === 'awaiting_delivery'
+          ? '本地交付物已完成，等待飞书交付确认'
           : warnings.length
             ? '系统已自动确认转录，存在非阻断提示'
-            : '系统已自动确认转录并完成交付',
-        completedAt: reviewRequired ? null : new Date().toISOString(), quality, warnings,
+            : '系统已自动确认转录并完成交付';
+      await this.store.update(job.id, {
+        status:finalStatus,
+        progress:finalStatus === 'completed' ? 100 : 92,
+        stageMessage:finalMessage,
+        completedAt:finalStatus === 'completed' ? new Date().toISOString() : null,
+        quality, warnings,
         output: {
-          rawTranscriptPath, transcriptPath, timedTranscriptPath, sourceEvidencePath, qualityReportPath,
-          visualEvidencePath:visual.manifestPath || null,
-          visualCoverage:visual.coverage,
-          visualFailureCode:visual.failureCode || null,
-          transcriptChecksum:sha256(transcript), evidenceLevel:evidence.qualityReport.evidenceLevel,
-          reviewStatus:reviewRequired ? 'awaiting_review' : 'auto_confirmed',
-          confirmationMode:reviewRequired ? null : 'automatic',
-          automaticConfirmation:autoConfirmation,
-          ...(confirmation || {}),
-          guidePath, proofreadPath, markdownPath,
-          rawCharacters: transcript.length, guideCharacters: refined.markdown.length,
+          ...(this.store.get(job.id)?.output || localOutput),
           larkUrl: lark.url || null, larkPermissionGranted: lark.permissionGranted || false,
-          deliveryMode:currentJob.deliveryMode,
-          sourceAcquisition: acquired.contentPackage ? {
-            provider: acquired.contentPackage.provider,
-            acquisitionPath: acquired.contentPackage.acquisitionPath,
-            providedCapabilities: acquired.contentPackage.providedCapabilities,
-            adapterRef: acquired.contentPackage.adapterRef,
-            access:acquired.contentPackage.access || null
-          } : null
         }
       }, {
-        stage:reviewRequired ? 'awaiting_review' : 'completed',
-        message:reviewRequired ? '自动确认未完成，等待人工听审' : '系统质量确认完成，确认稿已生成'
+        stage:finalStatus,
+        message:reviewRequired
+          ? '自动确认未完成，等待人工听审'
+          : finalStatus === 'awaiting_delivery'
+            ? '本地确认稿已生成，飞书交付尚未完成'
+            : '系统质量确认完成，确认稿已生成'
       });
     } catch (error) {
       if (error instanceof JobPausedError) return;
+      const knownDelivery = knownLarkDeliveryRecoveryPatch(this.store.get(job.id));
+      if (knownDelivery) {
+        await this.store.update(job.id, knownDelivery, {
+          stage:knownDelivery.status,
+          message:'已从持久化飞书交付凭据恢复任务状态'
+        });
+        return;
+      }
       const errorMessage = humanizeError(error);
       const failure = classifyFailure(error);
       const current = this.store.get(job.id);
@@ -212,6 +268,7 @@ export class MediaPipeline {
     if (job.sourceType === 'upload') {
       const normalized = path.join(jobDir, 'audio.wav');
       await run('ffmpeg', ['-y', '-i', job.sourcePath, '-vn', '-ac', '1', '-ar', '16000', normalized]);
+      await fs.chmod(normalized, 0o600);
       return { kind: 'audio', path: normalized, visualSourcePath:job.sourcePath };
     }
     if (this.contentCenter) {
@@ -230,12 +287,14 @@ export class MediaPipeline {
         await this.stage(job.id, 'acquiring', 35, '正在将已授权媒体转为本地转录音频');
         const normalized = path.join(jobDir, 'audio.wav');
         await run('ffmpeg', ['-y', '-i', acquired.runtime.path, '-vn', '-ac', '1', '-ar', '16000', normalized]);
+        await fs.chmod(normalized, 0o600);
         return { kind: 'audio', path: normalized, contentPackage: acquired.contentPackage, visualSourcePath:acquired.runtime.path };
       }
       if (acquired.runtime?.kind === 'remote_media' && acquired.runtime.url) {
         await this.stage(job.id, 'acquiring', 35, '正在将已授权媒体转为本地转录音频');
         const normalized = path.join(jobDir, 'audio.wav');
         await run('ffmpeg', ['-y', '-i', acquired.runtime.url, '-vn', '-ac', '1', '-ar', '16000', normalized]);
+        await fs.chmod(normalized, 0o600);
         return { kind: 'audio', path: normalized, contentPackage: acquired.contentPackage };
       }
       if (acquired.runtime?.kind === 'audio' && acquired.runtime.path) {
@@ -245,6 +304,7 @@ export class MediaPipeline {
         }
         await this.stage(job.id, 'acquiring', 35, '正在规范化已授权音轨');
         await run('ffmpeg', ['-y', '-i', acquired.runtime.path, '-vn', '-ac', '1', '-ar', '16000', normalized]);
+        await fs.chmod(normalized, 0o600);
         return { kind:'audio', path:normalized, contentPackage:acquired.contentPackage };
       }
       return { ...acquired.runtime, contentPackage: acquired.contentPackage };
@@ -257,47 +317,25 @@ export class MediaPipeline {
     const subtitleTemplate = path.join(jobDir, 'subtitle.%(ext)s');
     await run('yt-dlp', ['--no-playlist', '--write-subs', '--write-auto-subs', '--sub-langs', 'zh-Hans,zh-Hant,en', '--skip-download', '-o', subtitleTemplate, job.sourceUrl], { allowFailure: true });
     const subtitle = await findFirst(jobDir, (name) => /\.vtt$|\.srt$/i.test(name));
-    if (subtitle) return { kind: 'subtitle', path: subtitle };
+    if (subtitle) {
+      await fs.chmod(subtitle, 0o600);
+      return { kind: 'subtitle', path: subtitle };
+    }
 
     await this.stage(job.id, 'acquiring', 32, '未找到字幕，正在下载音频');
     const audioTemplate = path.join(jobDir, 'source.%(ext)s');
     await run('yt-dlp', ['--no-playlist', '-f', 'ba[ext=m4a]/ba/b', '-x', '--audio-format', 'mp3', '-o', audioTemplate, job.sourceUrl]);
     const downloaded = await findFirst(jobDir, (name) => /^source\./.test(name));
     if (!downloaded) throw new Error('下载命令结束但没有找到音频文件。');
+    await fs.chmod(downloaded, 0o600);
     const normalized = path.join(jobDir, 'audio.wav');
     await run('ffmpeg', ['-y', '-i', downloaded, '-vn', '-ac', '1', '-ar', '16000', normalized]);
+    await fs.chmod(normalized, 0o600);
     return { kind: 'audio', path: normalized };
   }
 
-  async transcribe(audioPath, jobDir) {
-    await run(config.asrBin, [
-      audioPath,
-      '--model', config.asrModel,
-      '--output-dir', jobDir,
-      '--output-name', 'transcript',
-      '--output-format', 'all',
-      '--word-timestamps', 'True',
-      '--language', 'zh',
-      '--verbose', 'False'
-    ]);
-    const transcript = path.join(jobDir, 'transcript.txt');
-    try { await fs.access(transcript); } catch { throw new Error('ASR 已运行但没有生成 transcript.txt。'); }
-    const text = await fs.readFile(transcript, 'utf8');
-    const vttPath = path.join(jobDir, 'transcript.vtt');
-    const jsonPath = path.join(jobDir, 'transcript.json');
-    let asrJson = null;
-    try { asrJson = JSON.parse(await fs.readFile(jsonPath, 'utf8')); } catch { asrJson = null; }
-    let timed = null;
-    try {
-      timed = await fs.readFile(vttPath, 'utf8');
-    } catch {
-      try {
-        timed = jsonTranscriptToVtt(asrJson);
-      } catch {
-        timed = null;
-      }
-    }
-    return { text, timed, qualitySignals:asrQualitySignals(asrJson) };
+  async transcribe(audioPath, jobDir, { job = {}, durationSeconds = null } = {}) {
+    return this.asrRuntime.transcribe(audioPath, jobDir, { job, durationSeconds });
   }
 
   async prepareVisualEvidence({ job, jobDir, acquired, segments, sourceMetadata }) {
@@ -364,47 +402,6 @@ export class MediaPipeline {
       };
     }
   }
-}
-
-function asrQualitySignals(payload) {
-  const segments = Array.isArray(payload?.segments) ? payload.segments : [];
-  const words = segments.flatMap((segment) => Array.isArray(segment?.words) ? segment.words : []);
-  const probabilities = words.map((word) => Number(word?.probability)).filter(Number.isFinite);
-  const avgLogprobs = segments.map((segment) => Number(segment?.avg_logprob)).filter(Number.isFinite);
-  const noSpeech = segments.map((segment) => Number(segment?.no_speech_prob)).filter(Number.isFinite);
-  const compression = segments.map((segment) => Number(segment?.compression_ratio)).filter(Number.isFinite);
-  if (!probabilities.length && !avgLogprobs.length && !noSpeech.length && !compression.length) return null;
-  return {
-    meanWordProbability:mean(probabilities),
-    meanAvgLogprob:mean(avgLogprobs),
-    highNoSpeechSegmentRatio:noSpeech.length ? noSpeech.filter((value) => value > 0.6).length / noSpeech.length : null,
-    maxCompressionRatio:compression.length ? Math.max(...compression) : null
-  };
-}
-
-function mean(values) {
-  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
-}
-
-function jsonTranscriptToVtt(payload) {
-  const segments = Array.isArray(payload?.segments) ? payload.segments : [];
-  const cues = segments.map((segment, index) => {
-    const start = Number(segment?.start);
-    const end = Number(segment?.end);
-    const text = String(segment?.text || '').trim();
-    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start || !text) return null;
-    return `${index + 1}\n${vttTimestamp(start)} --> ${vttTimestamp(end)}\n${text}`;
-  }).filter(Boolean);
-  return cues.length ? `WEBVTT\n\n${cues.join('\n\n')}\n` : '';
-}
-
-function vttTimestamp(value) {
-  const milliseconds = Math.max(0, Math.round(Number(value) * 1000));
-  const hours = Math.floor(milliseconds / 3_600_000);
-  const minutes = Math.floor((milliseconds % 3_600_000) / 60_000);
-  const seconds = Math.floor((milliseconds % 60_000) / 1000);
-  const remainder = milliseconds % 1000;
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(remainder).padStart(3, '0')}`;
 }
 
 function stripDocumentHeading(value) {
@@ -526,82 +523,10 @@ function formatRefinerError(provider, status, payload) {
   return `${provider === 'stepfun' ? 'StepFun' : '语义整理服务'} 返回 HTTP ${status}${detail ? `：${String(detail).slice(0, 500)}` : ''}`;
 }
 
-export async function deliverToLark(title, markdown) {
-  if (!config.lark.appId || !config.lark.appSecret) return { configured: false };
-  const tokenResponse = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ app_id: config.lark.appId, app_secret: config.lark.appSecret })
-  });
-  const tokenPayload = await tokenResponse.json();
-  if (!tokenResponse.ok || tokenPayload.code) throw new Error(tokenPayload.msg || '无法获取飞书 tenant_access_token');
-  const headers = { Authorization: `Bearer ${tokenPayload.tenant_access_token}`, 'Content-Type': 'application/json' };
-  const create = await fetch('https://open.feishu.cn/open-apis/docx/v1/documents', { method: 'POST', headers, body: JSON.stringify({ title }) });
-  const created = await create.json();
-  if (!create.ok || created.code) throw new Error(created.msg || '无法创建飞书文档');
-  const document = created.data?.document || created.data;
-  if (!document?.document_id) throw new Error('飞书未返回文档标识。');
-  const children = markdownToBlocks(markdown);
-  // Feishu permits at most 50 children per request. The document id is also its
-  // root block id, so the new document can be populated without a second read.
-  for (const childrenBatch of chunk(children, 50)) {
-    const write = await fetch(`https://open.feishu.cn/open-apis/docx/v1/documents/${document.document_id}/blocks/${document.document_id}/children`, {
-      method: 'POST', headers, body: JSON.stringify({ index: -1, children: childrenBatch })
-    });
-    const written = await write.json();
-    if (!write.ok || written.code) throw new Error(written.msg || '飞书文档已创建，但写入正文失败');
-    if (children.length > 50) await delay(360);
-  }
-  let permissionGranted = false;
-  if (config.lark.userOpenId) {
-    const permission = await fetch(`https://open.feishu.cn/open-apis/drive/v1/permissions/${document.document_id}/members?type=docx&need_notification=false`, {
-      method: 'POST', headers,
-      body: JSON.stringify({ member_type: 'openid', member_id: config.lark.userOpenId, perm: 'full_access' })
-    });
-    const permissionResult = await permission.json().catch(() => ({}));
-    permissionGranted = permission.ok && !permissionResult.code;
-  }
-  return { configured: true, url: `https://feishu.cn/docx/${document.document_id}`, permissionGranted };
-}
 
-function chunk(items, size) {
-  return Array.from({ length: Math.ceil(items.length / size) }, (_, index) => items.slice(index * size, index * size + size));
-}
-
-function delay(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
-
-export function markdownToBlocks(markdown) {
-  let firstMeaningfulLine = true;
-  return markdown.split('\n').flatMap((rawLine) => {
-    const line = rawLine.trim();
-    if (!line || line === '---' || line.startsWith('>')) return [];
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
-    // The Feishu document already has a title. Repeating the Markdown H1 makes
-    // URL-sourced tasks show a distracting second, auto-linked URL heading.
-    if (firstMeaningfulLine && heading?.[1].length === 1) {
-      firstMeaningfulLine = false;
-      return [];
-    }
-    firstMeaningfulLine = false;
-    if (heading) {
-      const level = heading[1].length;
-      const blockType = level === 1 ? 3 : level === 2 ? 4 : 5;
-      const key = level === 1 ? 'heading1' : level === 2 ? 'heading2' : 'heading3';
-      return [{ block_type: blockType, [key]: { elements: inlineElements(heading[2]) } }];
-    }
-    const bullet = line.match(/^[-*]\s+(.+)$/);
-    if (bullet) return [{ block_type: 12, bullet: { elements: inlineElements(bullet[1]) } }];
-    return [{ block_type: 2, text: { elements: inlineElements(line) } }];
-  });
-}
-
-function inlineElements(value) {
-  const elements = [];
-  const parts = String(value).split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
-  for (const part of parts) {
-    const bold = part.startsWith('**') && part.endsWith('**');
-    const content = bold ? part.slice(2, -2) : part;
-    if (content) elements.push({ text_run: { content, ...(bold ? { text_element_style: { bold: true } } : {}) } });
-  }
-  return elements.length ? elements : [{ text_run: { content: String(value) } }];
+async function writePrivateFile(filePath, contents) {
+  await fs.writeFile(filePath, contents, { mode:0o600 });
+  await fs.chmod(filePath, 0o600);
 }
 
 function run(command, args, { allowFailure = false } = {}) {

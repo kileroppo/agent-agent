@@ -8,6 +8,50 @@ const DEFAULT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
 const ROOT_WIDE_PREFIXES = Object.freeze(['scripts/']);
 const AJUN_SHARED_PREFIXES = Object.freeze(['agents/', 'docs/contracts/']);
 const AJUN_MODULE_TESTS = Object.freeze({
+  'src/runtime/content-campaign-composition.js': Object.freeze([
+    'test/content-campaign-service.test.js',
+    'test/m5-role-tool-execution.test.js',
+    'test/m5-server-publisher-composition.test.js',
+    'test/runtime-start.test.js',
+  ]),
+  'src/runtime/feishu-command-composition.js': Object.freeze([
+    'test/agent-feishu-channel-fleet.test.js',
+    'test/employee-feishu-connection-service.test.js',
+    'test/feishu-channel-bridge.test.js',
+    'test/feishu-commander.test.js',
+    'test/official-feishu-channel-runner.test.js',
+    'test/official-feishu-completion-watcher.test.js',
+    'test/runtime-start.test.js',
+  ]),
+  'src/runtime/paperclip-system-control-composition.js': Object.freeze([
+    'test/paperclip-heartbeat.test.js',
+    'test/paperclip-learning-lifecycle.test.js',
+    'test/paperclip-metric-monitor.test.js',
+    'test/paperclip-publisher-controller.test.js',
+    'test/paperclip-publisher-run-context.test.js',
+    'test/paperclip-retrospective.test.js',
+    'test/runtime-start.test.js',
+  ]),
+  'src/runtime/role-execution-composition.js': Object.freeze([
+    'test/agent-proposal-service.test.js',
+    'test/local-content-growth.test.js',
+    'test/local-intel-researcher.test.js',
+    'test/local-office-assistant.test.js',
+    'test/local-technical-expert.test.js',
+    'test/open-task-runtime-wiring.test.js',
+    'test/runtime-start.test.js',
+    'test/task-service.test.js',
+    'test/technical-repair-diagnoser.test.js',
+    'test/technical-repair-promotion.test.js',
+    'test/technical-repair-watchdog.test.js',
+  ]),
+  'src/analysis-intent.ts': Object.freeze([
+    'test/analysis-intent.test.js',
+    'test/agent-army-client.test.js',
+    'test/feishu-commander.test.js',
+    'test/local-content-growth.test.js',
+    'test/task-service.test.js',
+  ]),
   'src/paperclip-task-projector.js': Object.freeze([
     'test/paperclip-task-projector.test.js',
     'test/paperclip-bridge.test.js',
@@ -29,6 +73,35 @@ const AJUN_MODULE_TESTS = Object.freeze({
   'src/task-notification.js': Object.freeze([
     'test/task-service.test.js',
     'test/cross-agent-mission-service.test.js',
+  ]),
+  'src/task-presentation.js': Object.freeze([
+    'test/task-presentation.test.js',
+  ]),
+  'src/task-record-service.js': Object.freeze([
+    'test/task-record-service.test.js',
+  ]),
+  'src/task-attention-presentation.js': Object.freeze([
+    'test/task-presentation.test.js',
+    'test/task-service.test.js',
+  ]),
+  'src/task-approval-coordinator.js': Object.freeze([
+    'test/task-service.test.js',
+  ]),
+  'src/task-recovery.js': Object.freeze([
+    'test/failure-recovery-coordinator.test.js',
+    'test/feishu-commander.test.js',
+    'test/production-control-plane-boundary.test.js',
+    'test/task-recovery.test.js',
+    'test/task-service.test.js',
+  ]),
+  'src/task-recovery-policy.js': Object.freeze([
+    'test/task-recovery.test.js',
+    'test/task-service.test.js',
+  ]),
+  'src/task-overview.js': Object.freeze([
+    'test/task-overview-focus.test.js',
+    'test/task-service.test.js',
+    'test/runtime-start.test.js',
   ]),
   'src/task-paperclip-assignment.js': Object.freeze([
     'test/task-service.test.js',
@@ -94,6 +167,18 @@ const AJUN_MODULE_TESTS = Object.freeze({
     'test/content-campaign-ui.test.js',
     'test/runtime-start.test.js',
   ]),
+  'public/console-navigation.js': Object.freeze([
+    'test/console-navigation.test.js',
+  ]),
+  'public/task-record-detail-view.js': Object.freeze([
+    'test/console-boundary.test.js',
+    'test/console-operator-flow-ui.test.js',
+    'test/task-record-service.test.js',
+  ]),
+  'public/refresh-scheduler.js': Object.freeze([
+    'test/refresh-scheduler.test.js',
+    'test/runtime-start.test.js',
+  ]),
   'src/task-overview-focus.js': Object.freeze([
     'test/task-overview-focus.test.js',
     'test/task-service.test.js',
@@ -134,6 +219,7 @@ export function selectAffectedWorkspaces(changedFiles, workspaces) {
   const changed = [...new Set(changedFiles.map(toPosix).filter(Boolean))];
   const selected = new Set();
   const rootWide = changed.some((file) => file === 'package.json'
+    || file === 'repository-catalog.json'
     || ROOT_WIDE_PREFIXES.some((prefix) => file.startsWith(prefix)));
   if (rootWide) {
     for (const name of workspaces.keys()) selected.add(name);

@@ -9,6 +9,9 @@ async function readConsoleScripts() {
     'app.js',
     'app-access-views.js',
     'app-interactions.js',
+    'billing-entry-filter.js',
+    'task-record-detail-view.js',
+    'task-record-workbench.js',
   ].map((name) => readFile(new URL(name, root), 'utf8')))).join('\n');
 }
 
@@ -47,12 +50,12 @@ test('A君控制台只在本机提供员工接线，不把应用凭据写进页�
   assert.doesNotMatch(html, /cli_[a-zA-Z0-9]{8,}/);
   assert.doesNotMatch(script, /sessionStorage\.setItem\([^)]*Secret/i);
   assert.doesNotMatch(script, /提交人：\$\{escapeHtml\(task\.requester\?\.ref/);
-  assert.match(script, /requester\.kind === 'feishu-user'.*'飞书老板'/);
-  assert.match(script, /\/\^ou_\[a-zA-Z0-9\]\+\$\//);
+  assert.doesNotMatch(script, /task\.requester(?:\?|\.)/);
+  assert.match(script, /attentionTechnical\(source\.technical\)/);
 });
 
 test('员工页后台自动同步保留已展开的员工卡片', async () => {
-  const script = await readConsoleScripts();
+  const script = await readFile(new URL('app.js', root), 'utf8');
 
   assert.match(script, /replaceChildrenPreservingDisclosureState\(agentList/);
   assert.match(script, /data-disclosure-key="agent:\$\{escapeHtml\(agent\.agentId\)\}"/);
@@ -81,18 +84,16 @@ test('A君控制台先说明当前状态和唯一下一步，并把历史噪音�
     readFile(new URL('index.html', root), 'utf8'),
     readConsoleScripts()
   ]);
-  assert.match(html, /军团状态/);
+  assert.match(html, /id="overview-title">现在/);
   assert.match(html, /下一步/);
-  assert.match(html, /待复盘/);
+  assert.match(html, /需要我处理/);
   assert.match(html, /capabilities-disclosure/);
   assert.match(script, /需要你/);
   assert.match(script, /无需处理/);
   assert.match(script, /对外发布关闭/);
   assert.match(script, /今日费用未上报/);
-  assert.match(script, /正式岗位，不含系统控制器/);
-  assert.match(script, /isRoutineNoise/);
-  assert.match(script, /isRecentOwnerTask/);
-  assert.match(script, /'feishu', 'local-ui', 'hermes-native'/);
+  assert.match(script, /已读取正式岗位 Hermes 用量/);
+  assert.match(script, /例行巡检已自动归档/);
   assert.match(script, /focus\.inProgress/);
   assert.match(script, /默认账号已明确/);
   assert.match(script, /真实读取成功/);
@@ -101,23 +102,61 @@ test('A君控制台先说明当前状态和唯一下一步，并把历史噪音�
   assert.match(script, /历史连接/);
 });
 
-test('任务记录默认只呈现需要复盘的前 24 条，并支持搜索和继续加载', async () => {
+test('控制台收敛为四个主导航，并保留旧 hash 深链兼容边界', async () => {
+  const [html, navigation] = await Promise.all([
+    readFile(new URL('index.html', root), 'utf8'),
+    readFile(new URL('console-navigation.js', root), 'utf8'),
+  ]);
+
+  assert.equal(html.match(/class="module-link(?: [^"]*)?"/g)?.length, 4);
+  assert.match(html, /href="#now"[^>]*data-module="overview"[\s\S]*?<span>现在<\/span>/);
+  assert.match(html, /href="#runs"[^>]*data-module="records"[\s\S]*?<span>运行<\/span>/);
+  assert.match(html, /href="#system"[^>]*data-module="system"[\s\S]*?<span>系统<\/span>/);
+  assert.match(html, /href="#tools"[^>]*data-module="tools"[^>]*data-owner-only[\s\S]*?<span>工具<\/span>/);
+
+  assert.match(navigation, /overview:\{ page:'overview', group:'overview' \}/);
+  assert.match(navigation, /records:\{ page:'records', group:'records' \}/);
+  assert.match(navigation, /employees:\{ page:'employees', group:'system' \}/);
+  assert.match(navigation, /connections:\{ page:'connections', group:'system' \}/);
+  assert.match(navigation, /billing:\{ page:'billing', group:'system' \}/);
+  assert.match(navigation, /campaigns:\{ page:'campaigns', group:'tools' \}/);
+  assert.match(navigation, /'boom-monitor':\{ page:'boom-monitor', group:'tools' \}/);
+});
+
+test('任务记录使用服务端用户意图查询、游标分页、搜索和低频筛选', async () => {
   const [html, script] = await Promise.all([
     readFile(new URL('index.html', root), 'utf8'),
     readConsoleScripts()
   ]);
   assert.match(html, /id="task-search"/);
   assert.match(html, /id="task-load-more"/);
-  assert.match(script, /currentTaskFilter = selectedTaskId \? 'all' : 'attention'/);
-  assert.match(script, /visibleTaskCount = 24/);
-  assert.match(script, /\.slice\(0, (?:state\.)?visibleTaskCount\)/);
-  assert.match(script, /visibleTaskCount \+= 24/);
+  assert.match(html, /data-record-view="needs_action"/);
+  assert.match(html, /id="record-filter-panel"/);
+  assert.match(html, /id="record-detail"/);
+  assert.match(script, /api\('\/api\/console-overview'\)/);
+  assert.match(script, /\/api\/task-records\?/);
+  assert.match(script, /limit:'24'/);
+  assert.match(script, /params\.set\('cursor', cursor\)/);
+  assert.match(script, /setTimeout\(async \(\) =>/);
+  assert.doesNotMatch(script, /state\.overview\.tasks/);
 });
 
-test('记录页后台自动同步保留任务卡片和技术详情的展开状态', async () => {
+test('记录页后台自动同步不重排当前列表，并单独刷新选中详情', async () => {
   const script = await readConsoleScripts();
 
-  assert.match(script, /replaceChildrenPreservingDisclosureState\(taskList/);
-  assert.match(script, /data-disclosure-key="task:\$\{escapeHtml\(task\.taskId\)\}"/);
-  assert.match(script, /data-disclosure-key="task-technical:\$\{escapeHtml\(task\.taskId\)\}"/);
+  assert.match(script, /if \(page\.revision !== state\.revision\)/);
+  assert.match(script, /有新的记录，点击更新/);
+  assert.match(script, /if \(state\.selectedTaskId\) await loadSelectedDetail/);
+  assert.match(script, /if \(quiet && state\.selectedDetailLoaded && payload\.task\.updatedAt === state\.selectedTask\?\.updatedAt/);
+  assert.match(script, /if \(!quiet\) renderList\(\)/);
+  assert.match(script, /history\.replaceState\(null, '', `\/tasks\//);
+  assert.match(script, /record-detail-back/);
+});
+
+test('控制台刷新由可测试 scheduler 管理，生产间隔保持十五秒', async () => {
+  const script = await readFile(new URL('app-interactions.js', root), 'utf8');
+
+  assert.match(script, /import \{ canRefreshConsole, startRefreshScheduler \} from '\.\/refresh-scheduler\.js'/);
+  assert.match(script, /startRefreshScheduler\(\{[\s\S]*refresh:load,[\s\S]*canRefresh:\(\) => canRefreshConsole\(\{[\s\S]*page:document,[\s\S]*accessGate,[\s\S]*forms:\[accessForm, accessLoginForm\][\s\S]*intervalMs:15_000/);
+  assert.doesNotMatch(script, /setInterval\(/);
 });

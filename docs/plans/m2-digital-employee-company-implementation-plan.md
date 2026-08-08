@@ -7,7 +7,7 @@
 | 开始时间 | 2026-07-26 |
 | 目标设计 | [数字员工公司体验设计](../design/digital-employee-company-experience.md) |
 | 验收账本 | [数字员工公司体验验收](../reviews/m2-digital-employee-company/acceptance.md) |
-| 交接单 | [数字员工公司体验实施交接](../handoffs/current/m2-digital-employee-company-handoff.md) |
+| 交接单 | [数字员工公司体验实施交接](../archive/handoffs/m2-digital-employee-company-handoff.md)（已归档） |
 
 ## 1. 用户结果
 

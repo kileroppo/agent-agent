@@ -8,18 +8,27 @@ const root = path.resolve(
 );
 const sourceRoots = ['apps', 'integrations', 'packages'];
 const ignoredSegments = new Set(['node_modules', 'data', 'dist', 'build', 'work', 'test', 'tests']);
-const sourceExtensions = new Set(['.js', '.mjs']);
+const sourceExtensions = new Set(['.js', '.mjs', '.ts', '.mts', '.cts', '.tsx']);
 const retiredAjunM5Facades = new Set([
-  'm5-campaign-domain.js',
-  'm5-content-version.js',
-  'm5-route-execution.js',
-  'm5-routine-execution-contract.js',
-  'm5-work-product-integrity.js',
+  'm5-campaign-domain',
+  'm5-content-version',
+  'm5-route-execution',
+  'm5-routine-execution-contract',
+  'm5-work-product-integrity',
 ]);
 const responsibilityLineLimits = new Map([
-  ['apps/ajun-runtime/src/task-service.js', 650],
+  ['apps/ajun-runtime/src/runtime-composition-root.js', 300],
+  ['apps/ajun-runtime/src/runtime/content-campaign-composition.js', 120],
+  ['apps/ajun-runtime/src/runtime/feishu-command-composition.js', 180],
+  ['apps/ajun-runtime/src/runtime/paperclip-system-control-composition.js', 100],
+  ['apps/ajun-runtime/src/runtime/role-execution-composition.js', 300],
+  ['apps/ajun-runtime/src/task-attention-presentation.js', 250],
+  ['apps/ajun-runtime/src/task-recovery.js', 300],
+  ['apps/ajun-runtime/src/task-service.js', 350],
+  ['apps/ajun-runtime/src/task-approval-coordinator.js', 300],
   ['apps/ajun-runtime/src/task-intake.js', 350],
   ['apps/ajun-runtime/src/task-notification.js', 350],
+  ['apps/ajun-runtime/src/task-overview.js', 275],
   ['apps/ajun-runtime/src/task-service-execution.js', 700],
   ['apps/ajun-runtime/src/task-paperclip-assignment.js', 350],
   ['apps/ajun-runtime/src/task-role-execution.js', 750],
@@ -52,6 +61,8 @@ const responsibilityLineLimits = new Map([
   ['apps/ajun-runtime/public/app.js', 750],
   ['apps/ajun-runtime/public/app-access-views.js', 500],
   ['apps/ajun-runtime/public/app-interactions.js', 450],
+  ['apps/ajun-runtime/public/task-record-detail-view.js', 450],
+  ['apps/ajun-runtime/public/refresh-scheduler.js', 150],
   ['integrations/m5-kernel/src/content-campaign-kernel.js', 400],
   ['integrations/m5-kernel/src/campaign-lifecycle.js', 550],
   ['integrations/m5-kernel/src/content-campaign-execution.js', 100],
@@ -85,9 +96,51 @@ const responsibilityLineLimits = new Map([
   ['integrations/publishing/m5-publisher-gateway/src/cua-driver-cli-bridge.js', 500],
   ['integrations/publishing/m5-publisher-gateway/src/cua-semantic-snapshot.js', 450],
 ]);
+const responsibilityImportLimits = new Map([
+  ['apps/ajun-runtime/src/runtime-composition-root.js', 35],
+  ['apps/ajun-runtime/src/task-attention-presentation.js', 8],
+  ['apps/ajun-runtime/src/task-recovery.js', 10],
+  ['apps/ajun-runtime/public/task-record-detail-view.js', 12],
+  ['apps/ajun-runtime/public/refresh-scheduler.js', 6],
+]);
+const repositoryClassifications = new Set([
+  'business-agent',
+  'compatibility-adapter',
+  'delivery-tool',
+  'domain-kernel',
+  'external-write-gateway',
+  'internal-tool',
+  'legacy-rollback',
+  'platform-adapter',
+  'platform-plugin',
+  'product-runtime',
+  'runtime-worker',
+  'shared-client',
+  'shared-contract',
+  'workflow-adapter',
+]);
+const repositoryLifecycles = new Set(['active', 'on-demand', 'retained-rollback']);
+const delegatedTaskServiceMethods = new Set([
+  'approveApproval',
+  'completePaperclipAssignment',
+  'completePaperclipAssignmentOnce',
+  'confirmPaperclipAssignmentCompletion',
+  'continueXiaodDelivery',
+  'ensurePaperclipAssignmentCompletion',
+  'handleM5ReportedFailure',
+  'reconcilePendingPaperclipApprovals',
+  'recordM5StageExecution',
+  'recordM5StageExecutionFailure',
+  'rejectApproval',
+  'requestTaskControl',
+  'resolvePaperclipApproval',
+  'runApprovalResolution',
+  'syncM5StageWorkProducts',
+]);
 const violations = [];
 const manifestCache = new Map();
 const workspaceManifests = await discoverWorkspaceManifests();
+await validateRepositoryCatalog();
 
 async function walk(directory) {
   const rows = [];
@@ -111,6 +164,18 @@ for (const sourceRoot of sourceRoots) {
     if (lineLimit && source.split(/\r?\n/).length > lineLimit) {
       violations.push(`${portableRelative}: 责任模块超过 ${lineLimit} 行，请先提取有明确边界的协作者再继续扩展`);
     }
+    const importLimit = responsibilityImportLimits.get(portableRelative);
+    const importCount = [...source.matchAll(/^\s*import\b/gm)].length;
+    if (importLimit && importCount > importLimit) {
+      violations.push(`${portableRelative}: 产品装配根超过 ${importLimit} 个直接 import，请将领域装配知识下沉到深层 Module`);
+    }
+    if (portableRelative === 'apps/ajun-runtime/src/task-service.js') {
+      for (const methodName of delegatedTaskServiceMethods) {
+        if (new RegExp(`^\\s+(?:async\\s+)?${methodName}\\s*\\(`, 'm').test(source)) {
+          violations.push(`${portableRelative}: ${methodName} 已委托给深层 Module，不得在 TaskService 保留影子实现`);
+        }
+      }
+    }
     const ownerManifest = await owningPackageManifest(file);
     const productionSource = !relative.split(path.sep).some((segment) => ['test', 'tests', 'scripts'].includes(segment));
     if (productionSource && source.split(/\r?\n/).length > 1000) {
@@ -129,7 +194,7 @@ for (const sourceRoot of sourceRoots) {
       violations.push(`${relative}: 生产源码不得静态导入 runtime.json`);
     }
     if (relative.startsWith(`apps${path.sep}ajun-runtime${path.sep}src${path.sep}`)
-      && retiredAjunM5Facades.has(path.basename(relative))) {
+      && retiredAjunM5Facades.has(path.parse(relative).name)) {
       violations.push(`${relative}: 已退役的 M5 转发门面不得回流，请直接使用 m5-kernel 包 exports`);
     }
     for (const match of source.matchAll(/(?:from\s+|import\s*\(\s*|import\s+)["']([^"']+)["']/g)) {
@@ -229,6 +294,133 @@ async function readManifest(manifestPath) {
     .catch(() => null);
   manifestCache.set(manifestPath, manifest);
   return manifest;
+}
+
+async function validateRepositoryCatalog() {
+  const catalogPath = path.join(root, 'repository-catalog.json');
+  if (!await pathExists(catalogPath)) return;
+  const catalog = await readJsonFile(catalogPath);
+  if (!catalog) {
+    violations.push('repository-catalog.json: 不是有效 JSON');
+    return;
+  }
+  if (catalog.schemaVersion !== 'agent.army/repository-catalog/v1') {
+    violations.push('repository-catalog.json: schemaVersion 必须是 agent.army/repository-catalog/v1');
+  }
+  const entries = Array.isArray(catalog.entries) ? catalog.entries : [];
+  const paths = entries.map((entry) => entry?.path).filter(Boolean);
+  if (new Set(paths).size !== paths.length) {
+    violations.push('repository-catalog.json: entry path 不得重复');
+  }
+  if (JSON.stringify(paths) !== JSON.stringify([...paths].sort())) {
+    violations.push('repository-catalog.json: entries 必须按 path 排序');
+  }
+
+  const entryByPath = new Map(entries.map((entry) => [entry?.path, entry]));
+  for (const entry of entries) {
+    if (!safeRepositoryPath(entry?.path)) {
+      violations.push(`repository-catalog.json: 非法 entry path（${String(entry?.path || '')}）`);
+      continue;
+    }
+    if (!repositoryClassifications.has(entry.classification)) {
+      violations.push(`${entry.path}: 未知 repository classification（${String(entry.classification || '')}）`);
+    }
+    if (!repositoryLifecycles.has(entry.lifecycle)) {
+      violations.push(`${entry.path}: 未知 repository lifecycle（${String(entry.lifecycle || '')}）`);
+    }
+    if (!await pathExists(path.join(root, entry.path))) {
+      violations.push(`${entry.path}: repository catalog 指向的目录不存在`);
+    }
+    if (!safeRepositoryPath(entry.entrypoint) || !await pathExists(path.join(root, entry.entrypoint))) {
+      violations.push(`${entry.path}: repository catalog entrypoint 不存在或越界`);
+    }
+    if (entry.workspace === true) {
+      const manifest = await readManifest(path.join(root, entry.path, 'package.json'));
+      if (!manifest || manifest.name !== entry.name) {
+        violations.push(`${entry.path}: Workspace package name 与 repository catalog 不一致`);
+      }
+      if (!String(manifest?.description || '').trim()) {
+        violations.push(`${entry.path}: Workspace package.json 必须说明产品或 Module 用途`);
+      }
+      if (!await pathExists(path.join(root, entry.path, 'README.md'))) {
+        violations.push(`${entry.path}: Workspace 必须提供 README 说明入口、验证和非目标`);
+      }
+    }
+    if (entry.classification === 'legacy-rollback') {
+      if (entry.lifecycle !== 'retained-rollback' || entry.workspace !== false) {
+        violations.push(`${entry.path}: legacy-rollback 必须是 retained-rollback 且不得进入 Workspace`);
+      }
+      if (!safeRepositoryPath(entry.replacement)
+        || !await pathExists(path.join(root, entry.replacement))) {
+        violations.push(`${entry.path}: legacy-rollback 必须指向存在的正式 replacement`);
+      }
+    }
+  }
+
+  const declaredWorkspaces = await declaredWorkspaceDirectories();
+  const catalogWorkspaces = new Set(
+    entries.filter((entry) => entry.workspace === true).map((entry) => entry.path),
+  );
+  for (const workspace of declaredWorkspaces) {
+    if (!catalogWorkspaces.has(workspace)) {
+      violations.push(`${workspace}: 根 Workspace 未登记到 repository-catalog.json`);
+    }
+  }
+  for (const workspace of catalogWorkspaces) {
+    if (!declaredWorkspaces.has(workspace)) {
+      violations.push(`${workspace}: repository catalog 标记为 Workspace，但根 package.json 未声明`);
+    }
+  }
+
+  const appsRoot = path.join(root, 'apps');
+  for (const app of await fs.readdir(appsRoot, { withFileTypes:true }).catch(() => [])) {
+    if (!app.isDirectory() || ignoredSegments.has(app.name)) continue;
+    const appPath = `apps/${app.name}`;
+    if (!entryByPath.has(appPath)) {
+      violations.push(`${appPath}: 应用目录未登记到 repository-catalog.json`);
+    }
+  }
+  for (const area of Array.isArray(catalog.areas) ? catalog.areas : []) {
+    if (!safeRepositoryPath(area?.path) || !await pathExists(path.join(root, area.path))) {
+      violations.push(`repository-catalog.json: area 不存在或越界（${String(area?.path || '')}）`);
+    }
+  }
+}
+
+async function declaredWorkspaceDirectories() {
+  const manifest = await readJsonFile(path.join(root, 'package.json'));
+  const directories = new Set();
+  for (const rawPattern of manifest?.workspaces || []) {
+    const pattern = String(rawPattern || '').replace(/\/$/, '');
+    if (!pattern.endsWith('/*')) {
+      if (safeRepositoryPath(pattern)) directories.add(pattern);
+      continue;
+    }
+    const parent = pattern.slice(0, -2);
+    if (!safeRepositoryPath(parent)) continue;
+    for (const entry of await fs.readdir(path.join(root, parent), { withFileTypes:true }).catch(() => [])) {
+      if (!entry.isDirectory()) continue;
+      const directory = `${parent}/${entry.name}`;
+      if (await pathExists(path.join(root, directory, 'package.json'))) directories.add(directory);
+    }
+  }
+  return directories;
+}
+
+function safeRepositoryPath(value) {
+  const candidate = String(value || '');
+  return Boolean(candidate)
+    && !path.isAbsolute(candidate)
+    && !candidate.includes('\\')
+    && candidate.split('/').every((segment) => segment && segment !== '.' && segment !== '..');
+}
+
+async function readJsonFile(file) {
+  return fs.readFile(file, 'utf8').then(JSON.parse).catch(() => null);
+}
+
+async function pathExists(target) {
+  return fs.access(target).then(() => true).catch(() => false);
 }
 
 if (violations.length) {

@@ -147,11 +147,54 @@ export class LocalIntelResearcher {
     const query = String(task?.input?.topic || task?.input?.title || '').trim();
     const result = await this.grokConsult.searchX({ query, hours:24, maxResults:10 });
     const completedAt = this.now().toISOString();
+    const text = String(result.text || '').trim();
+    const sourceUrls = publicUrls(text).slice(0, 10);
+    if (!text || !sourceUrls.length) {
+      return {
+        status:'waiting_test',
+        currentStage:'grok_public_x_research_requires_review',
+        execution:{ executor:'intel-researcher', mode:'yichen-grok-consult-mcp', finishedAt:completedAt, outcome:'source_evidence_missing' },
+        usage:{ tools:[{ id:'yichen-grok-consult', name:'Grok 公开 X 检索', calls:1 }] },
+        error:{
+          code:'grok_public_sources_missing',
+          message:'Grok 返回了文本，但没有可核验的公开来源链接。',
+          userMessage:'小R拿到了 Grok 查询文本，但没有可核验的公开 X 来源链接；已转为待测试，不冒充完整研究报告。',
+          category:'manual',
+          stage:'grok_public_x_research',
+          retryable:false,
+          occurredAt:completedAt,
+        },
+        artifactRefs:[{
+          artifactId:`grok-consult-raw:${task.taskId}`,
+          taskId:task.taskId,
+          type:'intel_x_search_raw_result',
+          title:`${query} Grok 公开检索原始结果`,
+          location:`runtime://${task.taskId}/grok-consult-raw`,
+          mimeType:'text/plain',
+          accessScope:'local-owner',
+          createdAt:completedAt,
+          validation:{ exists:true, readable:true, nonEmpty:Boolean(text), publicReadOnly:true, sourceUrlsPresent:false, route:result.route },
+          data:{ query, result:text, route:result.route },
+        }],
+      };
+    }
+    const report = {
+      schemaVersion:'agent.army/intel-x-search-report/v1',
+      topic:query,
+      background:'通过受控 Grok 插件检索最近 24 小时的公开 X/Twitter 内容。',
+      findings:[text.slice(0, 4_000)],
+      conclusion:text.slice(0, 4_000),
+      recommendations:['打开下列公开来源逐条复核后再用于业务决策。'],
+      openQuestions:['当前结果是否覆盖了足够多的独立公开账号，仍需人工判断。'],
+      sources:sourceUrls.map((source, index) => ({ title:`公开 X 来源 ${index + 1}`, source })),
+      route:result.route,
+      generatedAt:completedAt,
+    };
     return {
       status:'succeeded', currentStage:'grok_public_x_research_ready',
       execution:{ executor:'intel-researcher', mode:'yichen-grok-consult-mcp', finishedAt:completedAt, outcome:'research_ready' },
       usage:{ tools:[{ id:'yichen-grok-consult', name:'Grok 公开 X 检索', calls:1 }] },
-      artifactRefs:[{ artifactId:`grok-consult:${task.taskId}`, taskId:task.taskId, type:'intel_research_report', title:`${query} Grok 公开检索`, location:`runtime://${task.taskId}/grok-consult`, mimeType:'text/plain', accessScope:'local-owner', createdAt:completedAt, validation:{ exists:true, readable:true, nonEmpty:Boolean(result.text), publicReadOnly:true, route:result.route }, data:{ query, result:result.text, route:result.route } }],
+      artifactRefs:[{ artifactId:`grok-consult:${task.taskId}`, taskId:task.taskId, type:'intel_research_report', title:`${query} Grok 公开检索`, location:`runtime://${task.taskId}/grok-consult`, mimeType:'application/json', accessScope:'local-owner', createdAt:completedAt, validation:{ exists:true, readable:true, nonEmpty:true, publicReadOnly:true, structured:true, sourceCount:sourceUrls.length, sourceUrlsPresent:true, route:result.route }, data:report }],
     };
   }
 
@@ -365,6 +408,14 @@ export class LocalIntelResearcher {
 function shouldUseGrok(task) {
   const text = `${task?.input?.title || ''}\n${task?.input?.description || ''}\n${task?.input?.topic || ''}`;
   return /\bGrok\b|(?:搜索|查|研究).{0,8}(?:X\/Twitter|Twitter|推特)|(?:X\/Twitter|Twitter|推特).{0,8}(?:搜索|查|研究)/i.test(text);
+}
+
+function publicUrls(text) {
+  return [...new Set(
+    [...String(text || '').matchAll(/https?:\/\/[^\s<>()\[\]{}"'，。；：！？、【】（）《》“”‘’]+/gi)]
+      .map((match) => match[0].replace(/[.,;:!?]+$/g, ''))
+      .filter((url) => /^https?:\/\//i.test(url)),
+  )];
 }
 
 function campaignEvidencePackage({ task, topic, sources, analysis, completedAt, researchMethod }) {

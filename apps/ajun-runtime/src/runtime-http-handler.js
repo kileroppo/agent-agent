@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -28,15 +29,22 @@ import { PaperclipPublisherControllerError } from './paperclip-publisher-control
 import { PaperclipPublisherRunContextError } from './paperclip-publisher-run-context.js';
 import { PaperclipRetrospectiveError } from './paperclip-retrospective.js';
 import { PublicWebFetchError } from './public-web-fetch.js';
+import { OfficialFeishuCompletionWatcherError } from './official-feishu-completion-watcher.js';
 import { presentCommanderReply } from './runtime-http-feishu.js';
+import { registerSourceCompletionWatch } from './source-completion-watch.js';
 import { ValidationError } from './task-service.js';
 import { dispatchBoomSignal } from '@agent-army/boom-monitor';
+import { routeBoomMonitorApi } from './boom-monitor/index.js';
+
+const MAX_JSON_BODY_BYTES = 1024 * 1024;
+const OWNER_ACTION_NONCE_TTL_MS = 10 * 60 * 1000;
 
 export function createAjunHttpHandler({
   environment,
   publicDir,
   dataDir,
   detailBaseUrl,
+  development = {},
   network,
   paperclip,
   work,
@@ -70,6 +78,8 @@ export function createAjunHttpHandler({
     missions,
     macWorker,
     xiaod,
+    boomMonitor,
+    boomMonitorEnabled,
   } = work;
   const {
     employeeFeishuConnections,
@@ -84,9 +94,18 @@ export function createAjunHttpHandler({
     resolveFeishuApproval,
   } = feishu;
   const { campaigns } = m5;
+  const ownerActionSession = createOwnerActionSession();
 
   return async function ajunHttpHandler(request, response) {
     try {
+      if (request.method === 'GET' && request.url === '/api/dev/hot-reload') {
+        if (!development.hotReload?.enabled) return sendJson(response, 404, { error:'开发热更新未启用。' });
+        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'开发热更新只能在本机使用。' });
+        return sendJson(response, 200, {
+          enabled:true,
+          revision:development.hotReload.revision,
+        });
+      }
       if (request.method === 'POST' && request.url === '/api/paperclip/heartbeat') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'Paperclip heartbeat 只能由本机服务调用。' });
         return sendJson(response, 202, await paperclipHeartbeat.handle(await readJsonBody(request)));
@@ -160,8 +179,50 @@ export function createAjunHttpHandler({
         lanAccess.key = await rotateLanShareKey(path.join(dataDir, 'lan-share-key'), lanEnabled);
         return sendJson(response, 200, { enabled:lanEnabled, addresses:lanEnabled ? lanAddresses() : [], accessKey:lanAccess.key });
       }
-      if (request.url?.startsWith('/api/') && !canAccessApi(request, lanAccess)) return sendJson(response, 401, { error:'请输入局域网共享口令。' });
+      if (request.method === 'GET' && request.url === '/api/owner-action-session') {
+        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'本机动作会话只能由老板在这台设备上获取。' });
+        return sendJson(response, 200, ownerActionSession.issue());
+      }
+      const recoveryRequestMatch = request.url?.match(/^\/api\/tasks\/([0-9a-f-]+)\/recovery-actions\/(use_confirmed_transcript_only|request_safe_recovery|request_read_only_diagnosis)$/i);
+      if (request.method === 'POST' && recoveryRequestMatch) {
+        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'任务恢复只能由老板在本机发起。' });
+        if (!String(request.headers['content-type'] || '').toLowerCase().startsWith('application/json')) {
+          return sendJson(response, 415, { error:'任务恢复请求必须使用 application/json。' });
+        }
+        if (!hasSameOrigin(request)) return sendJson(response, 403, { error:'任务恢复请求必须来自当前 A君 控制台。' });
+        if (!ownerActionSession.authorize(request.headers['x-ajun-owner-action'])) {
+          return sendJson(response, 403, { error:'本机动作会话无效或已过期，请刷新任务详情后重试。' });
+        }
+        const input = await readJsonBody(request);
+        const requestId = String(request.headers['idempotency-key'] || '').trim();
+        const result = await tasks.requestRecovery(recoveryRequestMatch[1], {
+          actionKey:recoveryRequestMatch[2],
+          expectedUpdatedAt:input.expectedUpdatedAt,
+          requestId,
+        }, { kind:'local-owner', ref:'A君' });
+        return sendJson(response, result.status === 'accepted' ? 202 : 200, result);
+      }
+      if (request.url?.startsWith('/api/')
+        && !isBoomLegacyIntegrationPath(request.url)
+        && !canAccessApi(request, lanAccess)) return sendJson(response, 401, { error:'请输入局域网共享口令。' });
+      const boomMonitorResult = await routeBoomMonitorApi({
+        method:request.method,
+        url:request.url,
+        local:isLocalAddress(request.socket.remoteAddress),
+        enabled:boomMonitorEnabled,
+        readBody:() => readJsonBody(request),
+        getService:() => boomMonitor,
+      });
+      if (boomMonitorResult) return sendJson(response, boomMonitorResult.status, boomMonitorResult.payload);
       if (request.method === 'GET' && request.url === '/api/overview') return sendJson(response, 200, await tasks.overview());
+      if (request.method === 'GET' && request.url === '/api/console-overview') return sendJson(response, 200, await tasks.consoleOverview());
+      const taskRecordUrl = request.method === 'GET' && request.url?.startsWith('/api/task-records')
+        ? new URL(request.url, 'http://127.0.0.1')
+        : null;
+      if (taskRecordUrl?.pathname === '/api/task-records') {
+        const audience = isLocalAddress(request.socket.remoteAddress) ? 'local-owner' : 'lan';
+        return sendJson(response, 200, await tasks.listTaskRecords(Object.fromEntries(taskRecordUrl.searchParams.entries()), { audience }));
+      }
       if (request.method === 'GET' && request.url === '/api/local-ai/control') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'AI 能力控制只能由老板在本机查看。' });
         if (!localAi) return sendJson(response, 503, { error:'本机 AI 控制入口尚未接入。' });
@@ -181,7 +242,8 @@ export function createAjunHttpHandler({
       }
       const taskDetailMatch = request.url?.match(/^\/api\/tasks\/([0-9a-f-]{36})$/i);
       if (request.method === 'GET' && taskDetailMatch) {
-        const task = (await tasks.overview()).tasks.find((item) => item.taskId === taskDetailMatch[1]);
+        const audience = isLocalAddress(request.socket.remoteAddress) ? 'local-owner' : 'lan';
+        const task = await tasks.taskRecordDetail(taskDetailMatch[1], { audience });
         if (!task) return sendJson(response, 404, { error:'没有找到这条任务。' });
         return sendJson(response, 200, { task });
       }
@@ -262,6 +324,20 @@ export function createAjunHttpHandler({
         const input = await readJsonBody(request);
         return sendJson(response, 200, await tasks.notificationStatus(String(input.taskId || ''), String(input.chatRef || '')));
       }
+      if (request.method === 'POST' && request.url === '/api/mcp/completion-watches/resolve') {
+        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'飞书投递核对只能由本机执行。' });
+        const input = await readJsonBody(request);
+        const taskId = String(input.taskId || '').trim();
+        const chatRef = String(input.chatRef || '').trim();
+        const task = (await store.list()).find((item) => item.taskId === taskId);
+        if (!task) throw new ValidationError('找不到要核对的任务。');
+        if (task.source?.channel !== 'feishu' || String(task.source?.chatRef || '').trim() !== chatRef) throw new ValidationError('只能核对任务原飞书会话的投递。');
+        return sendJson(response, 200, await hermesNativeCompletionWatcher.resolveDelivery({
+          taskId,
+          chatId:chatRef,
+          outcome:String(input.outcome || '').trim()
+        }));
+      }
       if (request.method === 'POST' && request.url === '/api/mcp/completion-watches') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'Hermes 任务跟进只能由本机 MCP 登记。' });
         const input = await readJsonBody(request);
@@ -337,20 +413,35 @@ export function createAjunHttpHandler({
       if (request.method === 'POST' && request.url === '/api/tasks') {
         const input = await readJsonBody(request);
         if (!isLocalAddress(request.socket.remoteAddress) && !String(input.requesterName || '').trim()) throw new ValidationError('局域网协作者请先填写自己的称呼。');
-        return sendJson(response, 201, { task:await tasks.create(input) });
+        const task = await tasks.create(input);
+        const completionWatch = await registerSourceCompletionWatch(task, hermesNativeCompletionWatcher);
+        return sendJson(response, 201, { task, completionWatch });
+      }
+      if (request.method === 'GET' && request.url === '/api/integrations/boom-monitor/health') {
+        if (boomMonitorEnabled !== false) return sendJson(response, 503, { error:'旧版爆款雷达回滚桥仅在 native writer 已关闭时开放。' });
+        if (!isBoomLegacyIntegrationAuthorized({
+          remoteAddress:request.socket.remoteAddress,
+          authorization:request.headers.authorization,
+          expectedToken:environment.BOOM_MONITOR_BEARER_TOKEN,
+        })) return sendJson(response, 401, { error:'旧版爆款雷达回滚桥认证失败。' });
+        return sendJson(response, 200, { status:'ready', mode:'legacy_rollback_bridge' });
       }
       if (request.method === 'POST' && request.url === '/api/integrations/boom-monitor/dispatch') {
-        const local = isLocalAddress(request.socket.remoteAddress);
-        const expectedToken = String(environment.BOOM_MONITOR_BEARER_TOKEN || '').trim();
-        const providedToken = bearerToken(request.headers.authorization);
-        if (!local && (!expectedToken || providedToken !== expectedToken)) return sendJson(response, 403, { error:'爆款雷达派发需要本机访问或有效 Bearer Token。' });
+        if (boomMonitorEnabled !== false) return sendJson(response, 503, { error:'旧版爆款雷达回滚桥仅在 native writer 已关闭时开放。' });
+        if (!isBoomLegacyIntegrationAuthorized({
+          remoteAddress:request.socket.remoteAddress,
+          authorization:request.headers.authorization,
+          expectedToken:environment.BOOM_MONITOR_BEARER_TOKEN,
+        })) return sendJson(response, 403, { error:'旧版爆款雷达派发兼容入口需要本机访问或回滚凭据。' });
         return sendJson(response, 201, await dispatchBoomSignal(await readJsonBody(request), { missions }));
       }
       if (request.method === 'POST' && request.url === '/api/integrations/boom-monitor/metrics') {
-        const local = isLocalAddress(request.socket.remoteAddress);
-        const expectedToken = String(environment.BOOM_MONITOR_BEARER_TOKEN || '').trim();
-        const providedToken = bearerToken(request.headers.authorization);
-        if (!local && (!expectedToken || providedToken !== expectedToken)) return sendJson(response, 403, { error:'爆款雷达指标读取需要本机访问或有效 Bearer Token。' });
+        if (boomMonitorEnabled !== false) return sendJson(response, 503, { error:'旧版爆款雷达回滚桥仅在 native writer 已关闭时开放。' });
+        if (!isBoomLegacyIntegrationAuthorized({
+          remoteAddress:request.socket.remoteAddress,
+          authorization:request.headers.authorization,
+          expectedToken:environment.BOOM_MONITOR_BEARER_TOKEN,
+        })) return sendJson(response, 403, { error:'旧版爆款雷达指标兼容入口需要本机访问或回滚凭据。' });
         try {
           return sendJson(response, 200, { metrics:await xiaod.collectMetrics(await readJsonBody(request)) });
         } catch (error) {
@@ -363,7 +454,9 @@ export function createAjunHttpHandler({
       }
       if (request.method === 'POST' && request.url === '/api/mcp/missions') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'Hermes MCP 多人任务只能由本机调用。' });
-        return sendJson(response, 201, await missions.createBusinessMission(await readJsonBody(request)));
+        const result = await missions.createBusinessMission(await readJsonBody(request));
+        const completionWatch = await registerSourceCompletionWatch(result, hermesNativeCompletionWatcher);
+        return sendJson(response, 201, { ...result, completionWatch });
       }
       const rejectMatch = request.url?.match(/^\/api\/approvals\/([0-9a-f-]+)\/reject$/i);
       if (request.method === 'POST' && rejectMatch) {
@@ -422,13 +515,21 @@ export function createAjunHttpHandler({
         return sendJson(response, 200, { task:decision === 'approve' ? await tasks.approveApproval(approvalId, options) : await tasks.rejectApproval(approvalId, options) });
       }
 
-      if (request.method === 'GET' && (request.url === '/' || request.url === '/index.html' || /^\/tasks\/[0-9a-f-]{36}$/i.test(request.url || ''))) return sendFile(response, publicDir, 'index.html', 'text/html; charset=utf-8');
-      if (request.method === 'GET' && request.url === '/app.js') return sendFile(response, publicDir, 'app.js', 'text/javascript; charset=utf-8');
-      if (request.method === 'GET' && request.url === '/app-access-views.js') return sendFile(response, publicDir, 'app-access-views.js', 'text/javascript; charset=utf-8');
-      if (request.method === 'GET' && request.url === '/app-interactions.js') return sendFile(response, publicDir, 'app-interactions.js', 'text/javascript; charset=utf-8');
-      if (request.method === 'GET' && request.url === '/console-navigation.js') return sendFile(response, publicDir, 'console-navigation.js', 'text/javascript; charset=utf-8');
-      if (request.method === 'GET' && request.url === '/disclosure-state.js') return sendFile(response, publicDir, 'disclosure-state.js', 'text/javascript; charset=utf-8');
-      if (request.method === 'GET' && request.url === '/styles.css') return sendFile(response, publicDir, 'styles.css', 'text/css; charset=utf-8');
+      const publicPath = new URL(request.url || '/', 'http://127.0.0.1').pathname;
+      if (request.method === 'GET' && (publicPath === '/' || publicPath === '/index.html' || /^\/tasks\/[0-9a-f-]{36}$/i.test(publicPath))) return sendFile(response, publicDir, 'index.html', 'text/html; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/app.js') return sendFile(response, publicDir, 'app.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/hot-reload-client.js') return sendFile(response, publicDir, 'hot-reload-client.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/app-access-views.js') return sendFile(response, publicDir, 'app-access-views.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/app-interactions.js') return sendFile(response, publicDir, 'app-interactions.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/refresh-scheduler.js') return sendFile(response, publicDir, 'refresh-scheduler.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/boom-monitor-console.js') return sendFile(response, publicDir, 'boom-monitor-console.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/billing-entry-filter.js') return sendFile(response, publicDir, 'billing-entry-filter.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/console-navigation.js') return sendFile(response, publicDir, 'console-navigation.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/disclosure-state.js') return sendFile(response, publicDir, 'disclosure-state.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/task-record-filter.js') return sendFile(response, publicDir, 'task-record-filter.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/task-record-detail-view.js') return sendFile(response, publicDir, 'task-record-detail-view.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/task-record-workbench.js') return sendFile(response, publicDir, 'task-record-workbench.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/styles.css') return sendFile(response, publicDir, 'styles.css', 'text/css; charset=utf-8');
       return sendJson(response, 404, { error:'未找到该入口。' });
     } catch (error) {
       return sendJson(response, errorStatus(error), { error:error.message || '运行台暂时不可用。' });
@@ -436,10 +537,62 @@ export function createAjunHttpHandler({
   };
 }
 
+export function createOwnerActionSession({ clock = () => Date.now(), ttlMs = OWNER_ACTION_NONCE_TTL_MS } = {}) {
+  let nonce = '';
+  let expiresAtMs = 0;
+  function issue() {
+    const now = Number(clock());
+    if (!nonce || now >= expiresAtMs) {
+      nonce = crypto.randomBytes(24).toString('base64url');
+      expiresAtMs = now + Math.max(1_000, Number(ttlMs) || OWNER_ACTION_NONCE_TTL_MS);
+    }
+    return { nonce, expiresAt:new Date(expiresAtMs).toISOString() };
+  }
+  function authorize(value) {
+    const supplied = String(value || '');
+    const now = Number(clock());
+    if (!nonce || now >= expiresAtMs || supplied.length !== nonce.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(nonce));
+  }
+  return Object.freeze({ issue, authorize });
+}
+
+function hasSameOrigin(request) {
+  const origin = String(request.headers.origin || '').trim();
+  const host = String(request.headers.host || '').trim();
+  if (!origin || !host) return false;
+  const scheme = request.socket.encrypted ? 'https' : 'http';
+  return origin === `${scheme}://${host}`;
+}
+
 async function readJsonBody(request) {
-  let raw = '';
-  for await (const chunk of request) raw += chunk;
-  return raw ? JSON.parse(raw) : {};
+  const chunks = [];
+  let size = 0;
+  let tooLarge = false;
+  for await (const chunk of request) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += bytes.length;
+    if (size > MAX_JSON_BODY_BYTES) {
+      tooLarge = true;
+      continue;
+    }
+    chunks.push(bytes);
+  }
+  if (tooLarge) throw new JsonBodyError(413, '请求体超过 1 MiB 限制。');
+  if (!chunks.length) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks, size).toString('utf8'));
+  } catch {
+    throw new JsonBodyError(400, '请求体不是有效 JSON。');
+  }
+}
+
+class JsonBodyError extends Error {
+  constructor(httpStatus, message) {
+    super(message);
+    this.name = 'JsonBodyError';
+    this.httpStatus = httpStatus;
+  }
 }
 
 async function sendFile(response, publicDir, name, type) {
@@ -457,6 +610,22 @@ function bearerToken(value) {
   return match ? match[1].trim() : '';
 }
 
+export function isBoomLegacyIntegrationAuthorized({ remoteAddress, authorization, expectedToken }) {
+  if (isLocalAddress(remoteAddress)) return true;
+  const supplied = bearerToken(authorization);
+  const expected = String(expectedToken || '');
+  if (!supplied || !expected || supplied.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
+}
+
+export function isBoomLegacyIntegrationPath(url) {
+  return [
+    '/api/integrations/boom-monitor/health',
+    '/api/integrations/boom-monitor/dispatch',
+    '/api/integrations/boom-monitor/metrics',
+  ].includes(String(url || ''));
+}
+
 function errorStatus(error) {
   if (Number.isInteger(error?.httpStatus) && error.httpStatus >= 400 && error.httpStatus <= 599) return error.httpStatus;
   return error instanceof ValidationError
@@ -464,6 +633,7 @@ function errorStatus(error) {
     || error instanceof PublicWebFetchError
     || error instanceof FeishuCommanderValidationError
     || error instanceof FeishuChannelBridgeError
+    || error instanceof OfficialFeishuCompletionWatcherError
     || error instanceof MacWorkerBridgeError
     || error instanceof EmployeeFeishuConnectionError
     || error instanceof HermesModelSetupError

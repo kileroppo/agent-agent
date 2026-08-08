@@ -85,6 +85,47 @@
     "dataScopes": { "type": "array", "items": { "type": "object" } },
     "approvalPolicies": { "type": "array", "items": { "type": "object" } },
     "qualityGates": { "type": "array", "minItems": 1, "items": { "type": "object" } },
+    "userManual": {
+      "type": "object",
+      "required": ["whatItIs", "savesWork", "tools", "inputs", "trigger", "examplePrompt", "outputs", "outputExample", "successEvidence", "usageSteps", "limitations"],
+      "properties": {
+        "aliases": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "uniqueItems": true
+        },
+        "whatItIs": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "savesWork": {
+          "type": "object",
+          "required": ["before", "now", "measurement"],
+          "properties": {
+            "before": { "type": "string", "minLength": 1, "maxLength": 500 },
+            "now": { "type": "string", "minLength": 1, "maxLength": 500 },
+            "measurement": { "type": "string", "minLength": 1, "maxLength": 500 }
+          },
+          "additionalProperties": false
+        },
+        "tools": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1, "maxLength": 300 } },
+        "inputs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1, "maxLength": 300 } },
+        "trigger": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "examplePrompt": { "type": "string", "minLength": 1, "maxLength": 1200 },
+        "outputs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1, "maxLength": 300 } },
+        "outputExample": { "type": "string", "minLength": 1, "maxLength": 1200 },
+        "successEvidence": {
+          "type": "object",
+          "required": ["status", "summary", "references"],
+          "properties": {
+            "status": { "enum": ["verified", "record-only", "pending-screenshot"] },
+            "summary": { "type": "string", "minLength": 1, "maxLength": 1200 },
+            "references": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 500 }, "uniqueItems": true }
+          },
+          "additionalProperties": false
+        },
+        "usageSteps": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1, "maxLength": 300 } },
+        "limitations": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1, "maxLength": 300 } }
+      },
+      "additionalProperties": false
+    },
     "budgetPolicy": { "type": "object" },
     "promptRef": { "type": "string", "minLength": 1 },
     "runtimeProfileRef": { "type": "string", "minLength": 1 },

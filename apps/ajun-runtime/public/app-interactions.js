@@ -1,3 +1,5 @@
+import { canRefreshConsole, startRefreshScheduler } from './refresh-scheduler.js';
+
 export function bindConsoleInteractions({
   elements,
   state,
@@ -6,7 +8,6 @@ export function bindConsoleInteractions({
   setSyncStatus,
   moduleNavigation,
   accessViews,
-  renderTaskLists,
 }) {
   const {
     accessForm, accessKey, collaboratorName, rotateShareKey, shareMessage,
@@ -16,7 +17,7 @@ export function bindConsoleInteractions({
     refreshLoginAccounts, accessLoginForm, saveAccessConnection,
     cancelAccessReauthorize, accessConnectionList, accessConnectionMessage,
     accessLoginAlias, accessLoginDisclosure,
-    campaignList, campaignMessage, taskFilterButtons, taskSearch, taskLoadMore,
+    campaignList, campaignMessage,
     accessGate,
   } = elements;
 
@@ -319,40 +320,16 @@ campaignList?.addEventListener('click', async (event) => {
   }
 });
 
-for (const button of taskFilterButtons) {
-  button.addEventListener('click', () => {
-    state.currentTaskFilter = button.dataset.taskFilter;
-    state.visibleTaskCount = 24;
-    renderTaskLists();
-  });
-}
-
-taskSearch.addEventListener('input', () => {
-  state.taskSearchQuery = taskSearch.value.trim();
-  state.visibleTaskCount = 24;
-  renderTaskLists();
-});
-
-taskLoadMore.addEventListener('click', () => {
-  state.visibleTaskCount += 24;
-  renderTaskLists();
-});
-
 window.addEventListener('hashchange', moduleNavigation.locationChanged);
 
-function canAutoSync() {
-  return !document.hidden
-    && accessGate.hidden
-    && !accessForm.contains(document.activeElement)
-    && !accessLoginForm.contains(document.activeElement);
-}
-
-setInterval(() => {
-  if (canAutoSync()) load({ background:true }).catch(() => {});
-}, 5000);
-
-document.addEventListener('visibilitychange', () => {
-  if (canAutoSync()) load({ background:true }).catch(() => {});
+startRefreshScheduler({
+  refresh:load,
+  canRefresh:() => canRefreshConsole({
+    page:document,
+    accessGate,
+    forms:[accessForm, accessLoginForm],
+  }),
+  intervalMs:15_000,
 });
 
 accessViews.setAccessStep(1);

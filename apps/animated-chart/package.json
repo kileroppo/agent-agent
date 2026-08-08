@@ -1,7 +1,7 @@
 {
   "name": "animated-chart",
   "version": "1.0.0",
-  "description": "My Remotion video",
+  "description": "Controlled Remotion rendering tool for M5 content workspaces",
   "repository": {},
   "license": "UNLICENSED",
   "private": true,

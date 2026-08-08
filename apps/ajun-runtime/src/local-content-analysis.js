@@ -18,6 +18,16 @@ import {
   executeM5VisualAnalysis,
   validVisualFindings,
 } from './local-content-m5-vision.js';
+import { analysisIntentLabel, resolveAnalysisIntent } from './analysis-intent.ts';
+import {
+  analysisIntentOptions,
+  buildModeReport,
+  digestCharacterCount,
+  mergeAdvisedModeReport,
+  nextAnalysisAction,
+  validModeReport,
+} from './local-content-analysis-modes.js';
+import { buildMetricLearning } from './local-content-performance-learning.js';
 
 const FULL_ANALYSIS_MODULES = [
   '基本信息',
@@ -65,7 +75,23 @@ export class LocalVideoContentAnalyst {
       });
     }
     const evidenceMode = task.input?.evidenceMode === 'preliminary' ? 'preliminary' : 'formal';
-    const depth = task.input?.depth === 'full' ? 'full' : 'fast';
+    const analysis = resolveAnalysisIntent({
+      analysisIntent:task.input?.analysisIntent,
+      title:task.input?.title,
+      description:task.input?.description,
+      focus:task.input?.focus,
+      depth:task.input?.depth,
+    });
+    if (analysis.error) {
+      return needsInput(
+        this.now(),
+        analysis.error,
+        analysis.error === 'analysis_intent_conflict'
+          ? '检测到多个分析模式，请只选择精华提炼、深度拆解、模板学习或风格探索中的一种。'
+          : '分析模式无效，请重新选择。',
+      );
+    }
+    const { analysisIntent, depth } = analysis;
     const sources = Array.isArray(sourceArtifacts) ? sourceArtifacts : await referencedArtifacts(task, this.store);
     const transcriptArtifact = evidenceMode === 'formal'
       ? findArtifact(sources, 'confirmed_transcript')
@@ -89,22 +115,23 @@ export class LocalVideoContentAnalyst {
     const sourceEvidence = sourceEvidenceArtifact ? await readArtifactJson(sourceEvidenceArtifact, this.allowedArtifactRoots) : null;
     const sourceMetadata = normalizeSourceMetadata(sourceEvidence?.sourceMetadata);
     const boomSignal = normalizeBoomSignalContext(task.input?.context?.boomSignal);
-    const visualEvidence = visualArtifact && visualMode !== 'off'
+    const availableVisualEvidence = visualArtifact && visualMode !== 'off'
       ? await readVisualEvidence(visualArtifact, this.allowedArtifactRoots)
       : null;
-    if (visualEvidence) {
+    if (availableVisualEvidence && visualMode === 'required') {
       return needsInput(
         this.now(),
         'controlled_provider_vision_required',
         '已有故事板，但普通拆解尚未接入可核验的受控 Provider 视觉观察。Hermes 不会直接读取本机图片；请接入受控视觉回执或将 visualMode 设为 off 后仅做文本拆解。',
       );
     }
+    const visualEvidence = null;
     const effectiveTitle = sourceMetadata.title || clean(task.input?.title, 300) || transcriptArtifact.title || '视频内容';
     const segments = evidenceSegments(transcript);
     const advisorTranscript = segments.map((segment) => (
       segment.timestamp ? `[${segment.timestamp}] ${segment.text}` : segment.text
     )).join('\n\n');
-    const fallback = buildAnalysis({ title:effectiveTitle, transcript, segments, depth, evidenceMode, confirmationMode, focus:task.input?.focus, sourceMetadata });
+    const fallback = buildAnalysis({ title:effectiveTitle, transcript, segments, analysisIntent, depth, evidenceMode, confirmationMode, focus:task.input?.focus, sourceMetadata });
     let report = fallback;
     let modelUsage = null;
     let advisorApplied = false;
@@ -115,6 +142,7 @@ export class LocalVideoContentAnalyst {
         const advisedResult = await this.advisor.analyze({
           title:effectiveTitle,
           transcript:advisorTranscript,
+          analysisIntent,
           depth,
           evidenceMode,
           focus:task.input?.focus,
@@ -132,7 +160,7 @@ export class LocalVideoContentAnalyst {
         const advised = normalizeAdvisedAnalysis(advisedResult?.data || advisedResult, transcript, visualEvidence);
         modelUsage = advisedResult?.usage || null;
         if (validAdvisedAnalysis(advised, transcript, depth, visualEvidence)) {
-          report = { ...fallback, ...advised, evidenceMode, confirmationMode, depth };
+          report = mergeAdvisedModeReport(fallback, advised, analysisIntent, transcript);
           advisorApplied = true;
         } else {
           advisorFailure = 'content_analysis_semantic_validation_failed';
@@ -143,7 +171,7 @@ export class LocalVideoContentAnalyst {
           ? repairAdvisedAnalysis(error?.data, fallback, transcript, depth, visualEvidence)
           : null;
         if (repaired && validAdvisedAnalysis(repaired, transcript, depth, visualEvidence)) {
-          report = { ...fallback, ...repaired, evidenceMode, confirmationMode, depth };
+          report = mergeAdvisedModeReport(fallback, repaired, analysisIntent, transcript);
           advisorApplied = true;
           semanticRepairApplied = true;
         } else {
@@ -182,7 +210,15 @@ export class LocalVideoContentAnalyst {
       visualCoverage,
       visualFindings:Array.isArray(report.visualFindings) ? report.visualFindings : [],
       completeness,
-      boomSignal
+      boomSignal,
+      analysisIntent,
+      reportVersion:'video-analysis/v2',
+      creationEligible:evidenceMode === 'formal' && transcriptArtifact.type === 'confirmed_transcript',
+      ...(analysisIntent === 'digest' ? { availableAnalysisIntents:analysisIntentOptions() } : {}),
+      nextAction:{
+        ...nextAnalysisAction(analysisIntent),
+        sourceTaskIds:[...new Set(sources.map((artifact) => artifact?.taskId).filter(Boolean))],
+      },
     };
     const sourceRefs = [
       transcriptArtifact.artifactId,
@@ -193,7 +229,7 @@ export class LocalVideoContentAnalyst {
       artifactsDir:this.artifactsDir,
       task,
       type:'video_content_analysis_report',
-      title:`${effectiveTitle}｜${depth === 'full' ? '完整拆解' : '快速拆解'}`,
+      title:`${effectiveTitle}｜${analysisIntentLabel(analysisIntent)}`,
       data:{ ...report, generationMode:advisorApplied ? semanticRepairApplied ? 'hermes_advisor_evidence_repaired' : 'hermes_advisor' : 'deterministic_fallback', advisorFailure, semanticRepairApplied, sourceTranscriptArtifactId:transcriptArtifact.artifactId, sourceTranscriptChecksum:transcriptArtifact.checksum || null, generatedAt:completedAt },
       sourceRefs,
       validation:{
@@ -201,12 +237,19 @@ export class LocalVideoContentAnalyst {
         readable:true,
         nonEmpty:true,
         evidenceMode,
+        analysisIntent,
+        reportVersion:'video-analysis/v2',
         claimsEvidenceLinked:true,
         formalSourceConfirmed:evidenceMode !== 'formal' || transcriptArtifact.type === 'confirmed_transcript',
         confirmationMode:evidenceMode === 'formal' ? confirmationMode : null,
         moduleCount:report.modules.length,
         advisorApplied,
         semanticValidationPassed:advisorApplied,
+        modeStructurePassed:validModeReport(report, analysisIntent, transcript),
+        ...(analysisIntent === 'digest' ? {
+          digestCharacterCount:digestCharacterCount(report.digest),
+          digestWithinCharacterLimit:digestCharacterCount(report.digest) <= 800,
+        } : {}),
         boomSignalAttached:Boolean(boomSignal),
         semanticRepairApplied,
         visualMode,
@@ -235,6 +278,7 @@ export class LocalVideoContentAnalyst {
     const lifecycle = script ? await templateLifecycleForReview({ store:this.store, script, metrics }) : null;
     const completedAt = this.now().toISOString();
     const normalizedContentMetrics = deriveContentMetrics(metrics);
+    const learning = buildMetricLearning(task.input, metrics);
     const data = {
       summary:`已记录 ${Object.keys(metrics).length} 项真实表现指标；本报告只做版本关联和观察，不把单次结果解释为确定因果。`,
       metrics,
@@ -244,9 +288,11 @@ export class LocalVideoContentAnalyst {
         platform:normalizeContentChannel(task.input?.platform),
         contentType:clean(task.input?.contentType, 80) || null,
         observationWindow:clean(task.input?.observationWindow, 120) || null,
-        comparableSampleCount:Math.max(0, Number(task.input?.comparableSampleCount) || 0),
+        comparableSampleCount:learning.comparableSampleCount,
+        declaredComparableSampleCount:learning.declaredComparableSampleCount,
       },
       observations:metricObservations(metrics),
+      learning,
       nextActions:[...CONTENT_PERFORMANCE_NEXT_ACTIONS],
       decision:clean(task.input?.decision, 80) || 'collect_more_samples',
       experiment:task.input?.experiment && !Array.isArray(task.input.experiment)
@@ -274,6 +320,9 @@ export class LocalVideoContentAnalyst {
         metricsProvided:true,
         causalClaimAvoided:true,
         comparableScopeExplicit:true,
+        metricBindingComplete:learning.metricBindingComplete,
+        learningProposalReviewRequired:learning.status !== 'proposed' || learning.requiresHumanReview === true,
+        productionMutationAllowed:false,
         singleExperimentEnforced:!Array.isArray(task.input?.experiment),
         ...(lifecycle ? { templateState:lifecycle.state } : {}),
       },
@@ -306,7 +355,7 @@ function groupEvidenceSegments(segments, maxBlocks = 30) {
   return grouped;
 }
 
-function buildAnalysis({ title, segments, depth, evidenceMode, confirmationMode = 'human', focus, sourceMetadata = {} }) {
+function buildAnalysis({ title, segments, analysisIntent, depth, evidenceMode, confirmationMode = 'human', focus, sourceMetadata = {} }) {
   const usable = segments.length ? segments : [{ timestamp:null, text:'当前转录没有足够可引用片段。' }];
   const moduleNames = depth === 'full' ? FULL_ANALYSIS_MODULES : FAST_ANALYSIS_MODULES;
   const modules = moduleNames.map((name, index) => {
@@ -319,7 +368,7 @@ function buildAnalysis({ title, segments, depth, evidenceMode, confirmationMode 
       confidence:evidence.timestamp ? 'high' : 'medium'
     };
   });
-  return {
+  const report = {
     title:clean(title, 300) || '视频内容拆解',
     evidenceMode,
     confirmationMode:evidenceMode === 'formal' ? confirmationMode : null,
@@ -333,6 +382,10 @@ function buildAnalysis({ title, segments, depth, evidenceMode, confirmationMode 
       ? modules.find((item) => item.name === '可模仿点 Top3')?.reusablePoints || []
       : modules.slice(0, 3).map((item) => `${item.name}：${item.finding}`),
     actionItems:modules.slice(-3).map((item) => item.optimization?.[0]?.action || `围绕“${item.name}”做一项可单独验证的改动。`)
+  };
+  return {
+    ...report,
+    ...buildModeReport({ analysisIntent, segments:usable, modules, evidenceMode, sourceMetadata }),
   };
 }
 

@@ -17,3 +17,4 @@ __pycache__/
 *-preview.png
 ajun-runtime-key-source-*.zip
 work/
+docs/acceptance-fixtures/technical-repair-sandbox/paperclip-work-product.json

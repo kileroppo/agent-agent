@@ -2,10 +2,10 @@
   "name": "ajun-runtime",
   "version": "0.1.0",
   "private": true,
-  "description": "Local-first Agent Army coordination skeleton",
+  "description": "Agent Army local capability gateway, execution adapter, diagnostics, and recovery runtime",
   "type": "module",
   "scripts": {
-    "dev": "node --watch src/server.js",
+    "dev": "AJUN_HOST=127.0.0.1 AJUN_DEV_HOT_RELOAD=true AJUN_DISABLE_BACKGROUND_SERVICES=true PORT=${PORT:-4322} node --watch-preserve-output --watch-path=src --watch-path=public --watch-path=../../agents --watch-path=../../integrations --watch-path=../../packages src/server.js",
     "start": "node src/server.js",
     "acceptance:governance-feishu": "NODE_NO_WARNINGS=1 node scripts/verify-governance-feishu-acceptance.mjs",
     "acceptance:m3-content-growth": "node scripts/verify-m3-content-growth.mjs",
@@ -14,6 +14,8 @@
     "acceptance:m4-role-quality": "node scripts/verify-m4-role-quality.mjs",
     "verify:office-presentation": "node scripts/verify-office-presentation.mjs",
     "release:immutable": "node scripts/manage-immutable-runtime-release.mjs",
+    "check": "tsc -p tsconfig.json",
+    "pretest": "npm run check",
     "test": "node --test"
   },
   "dependencies": {
@@ -29,5 +31,11 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "ajun-common-access": "0.1.0",
     "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=22.18.0"
   }
 }

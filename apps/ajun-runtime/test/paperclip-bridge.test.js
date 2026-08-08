@@ -2,6 +2,17 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PaperclipBridge } from '../src/paperclip-bridge.js';
 
+test('PaperclipBridge 可只读回查单条审批，用于响应丢失后的收口', async () => {
+  const bridge = new PaperclipBridge();
+  bridge.request = async (requestPath, options) => {
+    assert.equal(requestPath, '/api/approvals/approval%2F1');
+    assert.equal(options, undefined);
+    return { id:'approval/1', status:'approved' };
+  };
+  assert.equal((await bridge.getApproval('approval/1')).status, 'approved');
+  await assert.rejects(() => bridge.getApproval('  '), /不能为空/);
+});
+
 test('PaperclipBridge 只预约当前日期之后最早的未执行日期Case作为单条灰度', async () => {
   const bridge = new PaperclipBridge();
   bridge.getPipelineCase = async (caseId) => caseId === 'current-case'
@@ -818,6 +829,19 @@ test('任务因过期确认关闭时，Paperclip 也显示为阻塞', async () =
   await bridge.update({ taskType:'army.route-task', status:'cancelled', governance:{ paperclipIssueId:'issue-1' } });
   const request = requests.find((item) => new URL(item.url).pathname === '/api/issues/issue-1');
   assert.equal(JSON.parse(request.options.body).status, 'blocked');
+});
+
+test('任务等待补充信息或已过期时，Paperclip 不会继续显示为待开始', async () => {
+  for (const status of ['needs_input', 'expired']) {
+    const requests = [];
+    const bridge = new PaperclipBridge({ fetchImpl:async (url, options = {}) => {
+      requests.push({ url, options });
+      return { ok:true, status:200, async json(){ return {}; } };
+    } });
+    await bridge.update({ taskType:'army.route-task', status, governance:{ paperclipIssueId:`issue-${status}` } });
+    const request = requests.find((item) => new URL(item.url).pathname === `/api/issues/issue-${status}`);
+    assert.equal(JSON.parse(request.options.body).status, 'blocked', status);
+  }
 });
 
 test('Hermes heartbeat 回写沿用 Paperclip run 身份，不触发重复唤醒', async () => {

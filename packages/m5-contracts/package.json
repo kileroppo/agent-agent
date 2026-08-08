@@ -5,10 +5,18 @@
   "type": "module",
   "description": "M5 跨运行时共享的纯领域契约与稳定标识。",
   "exports": {
-    ".": "./src/index.js"
+    ".": "./src/index.ts"
   },
   "scripts": {
+    "pretest": "npm run check",
     "test": "node --test",
-    "check": "node --check src/index.js"
+    "check": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=22.18.0"
   }
 }
