@@ -7,6 +7,7 @@ import { createConsoleNavigation } from './console-navigation.js';
 import { createAccessViews } from './app-access-views.js';
 import { bindConsoleInteractions } from './app-interactions.js';
 import { createBoomMonitorConsole } from './boom-monitor-console.js';
+import { startBrowserHotReload } from './hot-reload-client.js';
 import { taskStatusGroup } from './task-record-filter.js';
 import { createTaskRecordWorkbench } from './task-record-workbench.js';
 
@@ -15,6 +16,11 @@ const agentList = document.querySelector('#agent-list');
 const recentTaskList = document.querySelector('#recent-task-list');
 const overviewStats = document.querySelector('#overview-stats');
 const overviewSummary = document.querySelector('#overview-summary');
+const billingSummary = document.querySelector('#billing-summary');
+const billingStats = document.querySelector('#billing-stats');
+const billingAttribution = document.querySelector('#billing-attribution');
+const billingProfileList = document.querySelector('#billing-profile-list');
+const billingEntryList = document.querySelector('#billing-entry-list');
 const focusPanel = document.querySelector('#focus-panel');
 const capabilitySummary = document.querySelector('#capability-summary');
 const accessGate = document.querySelector('#access-gate');
@@ -125,7 +131,7 @@ const directEmployeeTaskTypes = [
   'office.briefing-package',
   'office.presentation-package'
 ];
-const ownerOnlyModules = new Set(['connections', 'campaigns', 'boom-monitor']);
+const ownerOnlyModules = new Set(['connections', 'campaigns', 'billing', 'boom-monitor']);
 let boomMonitor;
 let recordWorkbench;
 
@@ -226,7 +232,7 @@ function activateModule(name, { replaceHash = false } = {}) {
 }
 
 function moduleTitle(name) {
-  return ({ overview: '总览', employees: '员工', connections: '账号与接入', campaigns:'发布活动', 'boom-monitor':'爆款雷达', records: '任务记录' })[name] || '总览';
+  return ({ overview: '总览', employees: '员工', connections: '账号与接入', campaigns:'发布活动', billing:'AI 成本账本', 'boom-monitor':'爆款雷达', records: '任务记录' })[name] || '总览';
 }
 
 
@@ -245,7 +251,95 @@ function render() {
     agentGroupTitle('后台按需能力', '不常驻飞书入口，由 A君或 Paperclip 按任务唤醒'),
     ...supportEmployees.map((agent) => agentCard(agent, true))
   ]);
+  renderBilling();
   renderRecentTasks(state.overview.recentTasks || []);
+}
+
+function renderBilling() {
+  if (!billingSummary || !billingStats || !billingAttribution || !billingProfileList || !billingEntryList) return;
+  const billing = state.overview.billing;
+  if (!billing || billing.status === 'unavailable') {
+    billingSummary.textContent = 'Hermes 用量库暂时不可读；缺失数据不会显示成 0。';
+    billingStats.replaceChildren(
+      statCard('可核金额', '未知', '等待用量库恢复', 'cost', true),
+      statCard('模型请求', '未知', '暂时无法读取', 'clock'),
+      statCard('Token', '未知', '暂时无法读取', 'records'),
+    );
+    billingAttribution.innerHTML = '<strong>账本暂不可用</strong><span>任务记录仍保留，但暂时无法核对全部模型消耗。</span>';
+    billingProfileList.replaceChildren(billingEmpty('暂时无法读取岗位用量。'));
+    billingEntryList.replaceChildren(billingEmpty('暂时没有可展示的消费流水。'));
+    return;
+  }
+  const totals = billing.totals || {};
+  const cost = totals.cost || {};
+  const tokens = totals.tokens || {};
+  const knownCostCount = Number(cost.actualEntryCount || 0) + Number(cost.estimatedEntryCount || 0);
+  const periodStart = billing.period?.since ? formatDate(billing.period.since) : '最近七天';
+  const costNote = Number(cost.actualEntryCount || 0)
+    ? `含 ${cost.actualEntryCount} 条实际费用，其余为估算`
+    : Number(cost.estimatedEntryCount || 0)
+      ? '当前全部为 Hermes 估算，不是 Provider 最终账单'
+      : 'Provider 未返回可核金额';
+  billingSummary.textContent = `${periodStart} 至今 · ${billing.status === 'partial' ? '部分岗位暂不可读' : '已读取正式岗位 Hermes 用量'}`;
+  billingStats.replaceChildren(
+    statCard('可核金额', knownCostCount ? formatUsd(cost.knownUsd) : '未知', costNote, 'cost'),
+    statCard('模型请求', formatNumber(totals.apiCalls), `${formatNumber(totals.sessionCount)} 个会话`, 'clock'),
+    statCard('Token', formatCompactNumber(tokens.total), `输入、输出与缓存合计 ${formatNumber(tokens.total)}`, 'records'),
+  );
+  const attributed = Number(billing.attribution?.attributedEntryCount || 0);
+  const unattributed = Number(billing.attribution?.unattributedEntryCount || 0);
+  billingAttribution.classList.toggle('attention', unattributed > 0);
+  billingAttribution.innerHTML = `<strong>${unattributed ? `${unattributed} 条消费尚未归属任务` : '消费均已归属任务'}</strong><span>${attributed} 条已与任务用量精确对上；“未归属”表示缺少稳定任务关联，不代表没有发生消费。</span>`;
+  const profiles = Array.isArray(billing.profiles) ? billing.profiles : [];
+  billingProfileList.replaceChildren(...(profiles.length ? profiles.map(billingProfileRow) : [billingEmpty('最近七天没有岗位模型用量。')]));
+  const allEntries = Array.isArray(billing.entries) ? billing.entries : [];
+  const entries = allEntries.slice(0, 30);
+  const entryNodes = entries.length ? entries.map(billingEntryRow) : [billingEmpty('最近七天没有模型消费流水。')];
+  if (allEntries.length > entries.length) entryNodes.push(billingEmpty(`当前展示最近 ${entries.length} 条；汇总已包含全部 ${allEntries.length} 条记录。`));
+  billingEntryList.replaceChildren(...entryNodes);
+}
+
+function billingProfileRow(profile) {
+  const node = document.createElement('article');
+  node.className = 'billing-profile-row';
+  const knownCostCount = Number(profile.cost?.actualEntryCount || 0) + Number(profile.cost?.estimatedEntryCount || 0);
+  node.innerHTML = `<div><strong>${escapeHtml(agentName(profile.agentId))}</strong><span>${formatNumber(profile.apiCalls)} 次请求 · ${formatCompactNumber(profile.tokens?.total)} Token · ${formatNumber(profile.sessionCount)} 个会话</span></div><b>${knownCostCount ? formatUsd(profile.cost?.knownUsd) : '金额未知'}</b>`;
+  return node;
+}
+
+function billingEntryRow(entry) {
+  const node = document.createElement('article');
+  node.className = `billing-entry-row ${entry.attribution?.status === 'task' ? 'attributed' : 'unattributed'}`;
+  const attribution = entry.attribution?.status === 'task'
+    ? `<a href="/tasks/${encodeURIComponent(entry.attribution.taskId)}">${escapeHtml(entry.attribution.taskRef)} · ${escapeHtml(entry.attribution.taskTitle)}</a>`
+    : '<span class="billing-unattributed">未归属任务</span>';
+  const cost = entry.cost?.status === 'actual'
+    ? `${formatUsd(entry.cost.amountUsd)} 实际`
+    : entry.cost?.status === 'estimated'
+      ? `${formatUsd(entry.cost.amountUsd)} 估算`
+      : entry.cost?.status === 'included' ? '套餐内' : '金额未知';
+  node.innerHTML = `<div class="billing-entry-main"><span>${escapeHtml(formatDate(entry.occurredAt))}</span><strong>${escapeHtml(agentName(entry.agentId))} · ${escapeHtml(entry.model || '未知模型')}</strong><small>${formatNumber(entry.apiCalls)} 次请求 · ${formatNumber((entry.tokens?.input || 0) + (entry.tokens?.output || 0))} 输入/输出 Token · 缓存 ${formatNumber((entry.tokens?.cacheRead || 0) + (entry.tokens?.cacheWrite || 0))}</small>${attribution}</div><b>${escapeHtml(cost)}</b>`;
+  return node;
+}
+
+function billingEmpty(message) {
+  const node = document.createElement('p');
+  node.className = 'billing-empty';
+  node.textContent = message;
+  return node;
+}
+
+function formatNumber(value) {
+  return Number(value || 0).toLocaleString('zh-CN');
+}
+
+function formatCompactNumber(value) {
+  return new Intl.NumberFormat('zh-CN', { notation:'compact', maximumFractionDigits:1 }).format(Number(value || 0));
+}
+
+function formatUsd(value) {
+  const number = Number(value || 0);
+  return `$${number.toFixed(number >= 0.01 ? 2 : 4)}`;
 }
 
 function renderOverviewStats() {
@@ -498,3 +592,5 @@ bindConsoleInteractions({
   moduleNavigation,
   accessViews,
 });
+
+startBrowserHotReload();

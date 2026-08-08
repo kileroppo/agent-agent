@@ -42,6 +42,7 @@ export function createAjunHttpHandler({
   publicDir,
   dataDir,
   detailBaseUrl,
+  development = {},
   network,
   paperclip,
   work,
@@ -94,6 +95,14 @@ export function createAjunHttpHandler({
 
   return async function ajunHttpHandler(request, response) {
     try {
+      if (request.method === 'GET' && request.url === '/api/dev/hot-reload') {
+        if (!development.hotReload?.enabled) return sendJson(response, 404, { error:'开发热更新未启用。' });
+        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'开发热更新只能在本机使用。' });
+        return sendJson(response, 200, {
+          enabled:true,
+          revision:development.hotReload.revision,
+        });
+      }
       if (request.method === 'POST' && request.url === '/api/paperclip/heartbeat') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'Paperclip heartbeat 只能由本机服务调用。' });
         return sendJson(response, 202, await paperclipHeartbeat.handle(await readJsonBody(request)));
@@ -477,6 +486,7 @@ export function createAjunHttpHandler({
       const publicPath = new URL(request.url || '/', 'http://127.0.0.1').pathname;
       if (request.method === 'GET' && (publicPath === '/' || publicPath === '/index.html' || /^\/tasks\/[0-9a-f-]{36}$/i.test(publicPath))) return sendFile(response, publicDir, 'index.html', 'text/html; charset=utf-8');
       if (request.method === 'GET' && publicPath === '/app.js') return sendFile(response, publicDir, 'app.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/hot-reload-client.js') return sendFile(response, publicDir, 'hot-reload-client.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && publicPath === '/app-access-views.js') return sendFile(response, publicDir, 'app-access-views.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && publicPath === '/app-interactions.js') return sendFile(response, publicDir, 'app-interactions.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && publicPath === '/boom-monitor-console.js') return sendFile(response, publicDir, 'boom-monitor-console.js', 'text/javascript; charset=utf-8');
