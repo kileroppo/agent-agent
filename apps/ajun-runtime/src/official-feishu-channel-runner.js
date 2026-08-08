@@ -64,7 +64,12 @@ export class OfficialFeishuChannelRunner {
     this.setState('disabled', '官方飞书入口已关闭；现有 A君入口保持不变。');
   }
 
-  snapshot() { return { ...this.state }; }
+  snapshot() {
+    const delivery = this.completionWatcher?.snapshot?.();
+    return delivery?.status === 'delivery_uncertain'
+      ? { status:'delivery_uncertain', message:delivery.message, uncertainDeliveries:delivery.uncertainDeliveries }
+      : { ...this.state };
+  }
 
   setState(status, message) {
     this.state = channelState(status, message);
@@ -119,7 +124,7 @@ export class OfficialFeishuChannelRunner {
 
   createCompletionWatcher(channel) {
     if (!this.taskStatus || !this.completionWatchStore || typeof channel.send !== 'function') return null;
-    const input = { taskStatus:this.taskStatus, send:(chatId, content) => channel.send(chatId, content), store:this.completionWatchStore };
+    const input = { taskStatus:this.taskStatus, send:(chatId, content) => channel.send(chatId, content), store:this.completionWatchStore, logger:this.logger };
     return this.completionWatcherFactory ? this.completionWatcherFactory(input) : null;
   }
 }

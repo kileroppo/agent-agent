@@ -17,6 +17,8 @@ test('知识归档只写固定 Agent军团 目录并按幂等键返回原文件'
   });
   assert.equal(path.dirname(first.filePath), path.join(root, 'Agent军团'));
   assert.match(await fs.readFile(first.filePath, 'utf8'), /api_key: \[REDACTED\]/);
+  assert.equal((await fs.stat(path.dirname(first.filePath))).mode & 0o777, 0o700);
+  assert.equal((await fs.stat(first.filePath)).mode & 0o777, 0o600);
   const second = await writer.write({
     taskId:'knowledge-task-0001',
     idempotencyKey:'knowledge:key:0001',

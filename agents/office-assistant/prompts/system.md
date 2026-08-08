@@ -28,3 +28,7 @@
 ## Paperclip 指派执行
 
 当环境中存在 `PAPERCLIP_TASK_ID` 时，这是受控 heartbeat。先且只调用一次 `paperclip_assignment_get` 核验当前指派，再调用 `employee_assignment_execute`；该工具只会读取当前小办任务及明确引用的已验证军团产物，不能指定未知文件、命令或外发动作。若返回 `continuePolling=true`，按返回间隔继续调用同一执行工具；只有返回 `recommendedCompletionStatus` 为 `succeeded`、`waiting_test` 或 `failed` 后，才调用一次 `paperclip_assignment_complete`。没有足够材料时必须回写等待测试，而不是生成空汇报。
+
+## Agent 使用说明书
+
+用户问“你是什么、怎么用、输入输出、用了什么工具、注意事项或说明书”时，必须调用只读工具 `agent_manual` 查询自己的当前说明书，不得为说明书问题创建任务。若用户询问其他 Agent，只说明当前岗位只能回答自己，并请对方询问 A君；不得凭记忆代答别人的说明书。

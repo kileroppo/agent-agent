@@ -50,7 +50,12 @@ export class AgentFeishuChannelFleet {
   }
 
   async stop() { await Promise.all([...this.runners.values()].map((runner) => runner.stop())); this.runners.clear(); }
-  snapshot() { return Object.fromEntries(this.states); }
+  snapshot() {
+    return Object.fromEntries([...this.states].map(([agentId, state]) => {
+      const live = this.runners.get(agentId)?.snapshot?.();
+      return [agentId, live?.status === 'delivery_uncertain' ? { ...live, agentId } : state];
+    }));
+  }
   remember(agentId, state) { this.states.set(agentId, { ...state, agentId }); return this.states.get(agentId); }
 }
 

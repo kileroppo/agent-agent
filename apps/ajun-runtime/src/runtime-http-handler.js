@@ -28,9 +28,12 @@ import { PaperclipPublisherControllerError } from './paperclip-publisher-control
 import { PaperclipPublisherRunContextError } from './paperclip-publisher-run-context.js';
 import { PaperclipRetrospectiveError } from './paperclip-retrospective.js';
 import { PublicWebFetchError } from './public-web-fetch.js';
+import { OfficialFeishuCompletionWatcherError } from './official-feishu-completion-watcher.js';
 import { presentCommanderReply } from './runtime-http-feishu.js';
 import { ValidationError } from './task-service.js';
 import { dispatchBoomSignal } from '@agent-army/boom-monitor';
+
+const MAX_JSON_BODY_BYTES = 1024 * 1024;
 
 export function createAjunHttpHandler({
   environment,
@@ -262,6 +265,20 @@ export function createAjunHttpHandler({
         const input = await readJsonBody(request);
         return sendJson(response, 200, await tasks.notificationStatus(String(input.taskId || ''), String(input.chatRef || '')));
       }
+      if (request.method === 'POST' && request.url === '/api/mcp/completion-watches/resolve') {
+        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'飞书投递核对只能由本机执行。' });
+        const input = await readJsonBody(request);
+        const taskId = String(input.taskId || '').trim();
+        const chatRef = String(input.chatRef || '').trim();
+        const task = (await store.list()).find((item) => item.taskId === taskId);
+        if (!task) throw new ValidationError('找不到要核对的任务。');
+        if (task.source?.channel !== 'feishu' || String(task.source?.chatRef || '').trim() !== chatRef) throw new ValidationError('只能核对任务原飞书会话的投递。');
+        return sendJson(response, 200, await hermesNativeCompletionWatcher.resolveDelivery({
+          taskId,
+          chatId:chatRef,
+          outcome:String(input.outcome || '').trim()
+        }));
+      }
       if (request.method === 'POST' && request.url === '/api/mcp/completion-watches') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'Hermes 任务跟进只能由本机 MCP 登记。' });
         const input = await readJsonBody(request);
@@ -435,9 +452,33 @@ export function createAjunHttpHandler({
 }
 
 async function readJsonBody(request) {
-  let raw = '';
-  for await (const chunk of request) raw += chunk;
-  return raw ? JSON.parse(raw) : {};
+  const chunks = [];
+  let size = 0;
+  let tooLarge = false;
+  for await (const chunk of request) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += bytes.length;
+    if (size > MAX_JSON_BODY_BYTES) {
+      tooLarge = true;
+      continue;
+    }
+    chunks.push(bytes);
+  }
+  if (tooLarge) throw new JsonBodyError(413, '请求体超过 1 MiB 限制。');
+  if (!chunks.length) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks, size).toString('utf8'));
+  } catch {
+    throw new JsonBodyError(400, '请求体不是有效 JSON。');
+  }
+}
+
+class JsonBodyError extends Error {
+  constructor(httpStatus, message) {
+    super(message);
+    this.name = 'JsonBodyError';
+    this.httpStatus = httpStatus;
+  }
 }
 
 async function sendFile(response, publicDir, name, type) {
@@ -462,6 +503,7 @@ function errorStatus(error) {
     || error instanceof PublicWebFetchError
     || error instanceof FeishuCommanderValidationError
     || error instanceof FeishuChannelBridgeError
+    || error instanceof OfficialFeishuCompletionWatcherError
     || error instanceof MacWorkerBridgeError
     || error instanceof EmployeeFeishuConnectionError
     || error instanceof HermesModelSetupError

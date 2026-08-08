@@ -116,10 +116,15 @@ function normalizeResult(taskId, workerId, result, now) {
   if (status === 'succeeded') {
     const xiaodJobId = clean(result?.xiaodJobId, 160);
     const validation = result?.validation || {};
-    if (!xiaodJobId || validation.exists !== true || validation.readable !== true || validation.nonEmpty !== true) {
+    const larkUrl = safeHttpsUrl(result?.larkUrl);
+    if (!xiaodJobId
+      || validation.exists !== true
+      || validation.readable !== true
+      || validation.nonEmpty !== true
+      || !larkUrl
+      || result?.larkPermissionGranted !== true) {
       throw new MacWorkerBridgeError('Mac 工作间成功回报缺少可验证产物。', 'worker_artifact_invalid');
     }
-    const larkUrl = safeHttpsUrl(result?.larkUrl);
     const artifact = {
       artifactId:`xiaod-job:${xiaodJobId}`,
       taskId,
@@ -137,7 +142,7 @@ function normalizeResult(taskId, workerId, result, now) {
       createdAt:finishedAt,
       data:{
         larkUrl,
-        larkPermissionGranted:Boolean(larkUrl && result?.larkPermissionGranted === true)
+        larkPermissionGranted:true
       }
     };
     return {

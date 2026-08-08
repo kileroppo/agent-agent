@@ -83,6 +83,13 @@ test('长任务会登记为原会话跟进，不依赖用户再来问进度', as
   assert.deepEqual(watched, [{ taskId:'task-a', chatId:'chat-a' }]);
 });
 
+test('官方飞书跟进出现投递不确定时，连接快照不再显示完全正常', () => {
+  const { runner } = setup();
+  runner.state = { status:'connected', message:'已连接。' };
+  runner.completionWatcher = { snapshot:() => ({ status:'delivery_uncertain', uncertainDeliveries:2, message:'有 2 条投递待核对。' }) };
+  assert.deepEqual(runner.snapshot(), { status:'delivery_uncertain', uncertainDeliveries:2, message:'有 2 条投递待核对。' });
+});
+
 test('缺少人员白名单时，不生成可连接的官方飞书配置', () => {
   assert.throws(() => officialChannelOptions({ AJUN_FEISHU_CHANNEL_APP_ID:'app', AJUN_FEISHU_CHANNEL_APP_SECRET:'secret' }), OfficialFeishuChannelRunnerError);
 });

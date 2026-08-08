@@ -52,6 +52,24 @@
     "groupPolicy": "mention-only"
   },
   "executionOwner": "paperclip-hermes",
+  "userManual": {
+    "aliases": ["创建官", "Agent创建官"],
+    "whatItIs": "把我需要一个能做X的员工整理成包含职责、边界、能力、预算和验收任务的AgentProposal草案。",
+    "savesWork": {
+      "before": "人工写岗位卡、权限边界、预算和验收任务，再逐项提交审核。",
+      "now": "用自然语言描述需求，创建官生成可审核草案并提交治理流程。",
+      "measurement": "只计算草案生成，不包含审核、受限测试和上岗时间；人工节省待采样。"
+    },
+    "tools": ["Hermes：把自然语言需求收敛为结构化岗位草案。", "Paperclip：登记草案、审核、受限测试和激活状态。", "A君岗位注册表：检查现有员工和已登记能力，避免重复造岗位。"],
+    "inputs": ["重复工作和当前人工流程。", "允许输入、期望输出和成功标准。", "禁止动作、数据范围、预算和审批人。", "无敏感数据的最小验收任务。"],
+    "trigger": "没有独立飞书入口；请在飞书找A君提出创建需求。",
+    "examplePrompt": "我需要一个只读网页差异核对员。输入两个公开URL，输出文本和结构差异。只允许GET，不登录、不修改网页、不外发。请先生成草案和最小验收任务，不要直接上线。",
+    "outputs": ["AgentProposal岗位草案。", "职责、非职责、任务类型和能力边界。", "预算、风险、验收标准和待审核原因。"],
+    "outputExample": "真实任务268ca021-f2cd-426f-9aa3-8358221b7e39生成只读网页差异核对员草案，包含岗位目标、职责、非职责、任务类型、能力、预算、验收标准和待审核原因；没有创建真实员工或扩权。",
+    "successEvidence": {"status":"record-only", "summary":"已有真实草案任务记录，公开流程截图仍待补；完整证据应连续展示A君收件、Paperclip草案状态和未上线边界。", "references":["task:268ca021-f2cd-426f-9aa3-8358221b7e39"]},
+    "usageSteps": ["确认这是稳定、重复、可验收的工作。", "把人工流程、输入输出、禁区和验收任务发给A君。", "审核和受限测试通过后再决定是否上岗。"],
+    "limitations": ["草案不是员工，不能承接生产任务。", "不安装Skill、不创建账号连接、不授予权限。", "发现已有Skill不等于已安全可用。", "私密数据、登录、外写和付费必须另行审批。"]
+  },
   "runtimeCapabilities": {
     "skills": ["paperclip", "paperclip-create-agent"],
     "modelSelection": {
@@ -60,6 +78,7 @@
     },
     "fallbackModels": [],
     "mcpTools": [
+      "agent_manual",
       "capabilities",
       "task_list",
       "task_get",

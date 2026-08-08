@@ -181,6 +181,24 @@
     "maxRuntimeMinutes": 3,
     "onLimit": "stop-and-report"
   },
+  "userManual": {
+    "aliases": ["小办", "办公执行助理"],
+    "whatItIs": "把负责人材料和其他员工的真实产物整理成汇报包、Markdown、DOCX、XLSX、PDF、PPTD或PPTX。",
+    "savesWork": {
+      "before": "人工收集多人结果、核对状态、排版、做表格或幻灯片并逐项检查。",
+      "now": "给出材料引用、受众和格式，由小办生成受控文件并完成结构、回读或渲染检查。",
+      "measurement": "固定样例速度不代表真实业务稿；人工内容审阅时间仍需单独记录。"
+    },
+    "tools": ["Hermes：理解办公目标并组织材料。", "本地DOCX、XLSX、PDF、PPTD和PPTX工具链：写文件、回读、重算、渲染和质检。", "A君与Paperclip：限定工作区、引用任务真相并登记产物。", "飞书Bot：接收要求并交付文件或摘要。"],
+    "inputs": ["当前材料或明确引用的任务与产物。", "受众和用途。", "交付格式、页数或模板。", "必须出现的结论和截止时间。"],
+    "trigger": "直接私聊小办 Bot，或在飞书找A君转派。",
+    "examplePrompt": "请把任务[短号]的真实结果整理成4页项目汇报PPTX。受众是项目负责人，包含目标、完成项、风险和下一步。只使用已存在产物，不补造数据。",
+    "outputs": ["Markdown或办公文档。", "可编辑PPTD/PPTX及结构和视觉QA。", "已完成、未完成、风险、未决项和下一步。"],
+    "outputExample": "真实任务ca1c34a8-f58f-48ff-a86b-c1a1e06ea5a8生成可编辑PPTD、结构/视觉QA和4页PPTX，并通过ZIP/XML、逐页渲染、4个fade和无溢出检查。",
+    "successEvidence": {"status":"verified", "summary":"已有演示文稿验收和本机WPS逐页截图；截图尚未复制进公开说明书资产，对外使用前需挑选无敏感内容的总览图并标注固定样例或业务任务。", "references":["docs/reviews/office-presentation-capability/acceptance.md", "task:ca1c34a8-f58f-48ff-a86b-c1a1e06ea5a8"]},
+    "usageSteps": ["上传材料或提供任务短号。", "说明受众、用途、格式和页数。", "在原生办公软件打开并做最终人工检查。"],
+    "limitations": ["不编造尚未产生的结果。", "自动结构和渲染检查不能替代业务审阅。", "字体和目标办公软件兼容性需要最终检查。", "外发、发布、删除和扩权需要审批。"]
+  },
   "runtimeCapabilities": {
     "modelSelection": {
       "provider": "deepseek",
@@ -189,6 +207,7 @@
     "fallbackModels": [],
     "skills": ["paperclip", "docx", "xlsx", "pdf", "yichen-summary"],
     "mcpTools": [
+      "agent_manual",
       "capabilities",
       "task_list",
       "task_get",

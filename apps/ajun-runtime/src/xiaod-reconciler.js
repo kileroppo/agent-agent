@@ -1,6 +1,7 @@
 const BASE_BACKOFF_MS = 3_000;
 const MAX_BACKOFF_MS = 30_000;
 const MAX_UNAVAILABLE_POLLS = 5;
+import { validateTaskCompletion } from './task-completion-contract.js';
 
 export class XiaodReconciler {
   constructor({
@@ -52,10 +53,12 @@ export class XiaodReconciler {
   async reconcileTask(task) {
     try {
       const job = await this.xiaod.getJob(task.execution.xiaodJobId);
-      const status = job.status === 'completed'
+      let status = job.status === 'completed'
         ? 'succeeded'
         : job.status === 'awaiting_review'
           ? 'waiting_approval'
+          : job.status === 'awaiting_delivery'
+            ? 'needs_input'
           : job.status === 'failed' && job.failure?.category === 'needs_input'
             ? 'needs_input'
             : job.status === 'failed'
@@ -100,8 +103,33 @@ export class XiaodReconciler {
             contentWorkspaceDir:this.contentWorkspaceDir,
           }));
         }
+        const completion = validateTaskCompletion(task, patch.artifactRefs);
+        if (!completion.valid) {
+          status = 'waiting_test';
+          patch.status = 'waiting_test';
+          patch.currentStage = 'completion_evidence_invalid';
+          patch.execution = {
+            ...execution,
+            outcome:'completion_evidence_invalid',
+            completionValidation:{
+              reportedStatus:'succeeded',
+              valid:false,
+              expectedArtifactTypes:completion.expectedArtifactTypes,
+            },
+          };
+          patch.error = {
+            code:'completion_evidence_invalid',
+            message:completion.reason,
+            userMessage:'小D已经停止处理，但最终交付没有通过权限或可读性门禁；已转为待测试。',
+            category:'manual',
+            stage:'completion_validation',
+            retryable:false,
+            occurredAt:new Date(this.now()).toISOString(),
+          };
+        }
       }
-      if (status === 'failed' || status === 'needs_input') patch.error = failureFor(job);
+      if (job.status === 'awaiting_delivery') patch.error = deliveryWaitFor(job);
+      else if (status === 'failed' || status === 'needs_input') patch.error = failureFor(job);
       const updated = await this.persist(task.taskId, patch);
       if (status === 'failed') await this.coordinateFailure(updated);
     } catch (error) {
@@ -175,6 +203,32 @@ export class XiaodReconciler {
 
 function isRunningXiaodTask(task) {
   return ['running', 'pausing'].includes(task.status) && task.execution?.executor === 'xiaod' && Boolean(task.execution.xiaodJobId);
+}
+
+function deliveryWaitFor(job) {
+  const delivery = job.output?.larkDelivery || {};
+  const uncertain = delivery.state === 'uncertain' || job.failure?.retryable === false;
+  if (uncertain) return {
+    code:'xiaod_delivery_uncertain',
+    message:String(job.error || delivery.lastError || '飞书交付结果不确定。'),
+    userMessage:'小D已生成本地确认稿，但飞书可能已经收到交付。请先在本机运行台按任务编号核对并仲裁；确认前不要重试。',
+    category:'needs_input',
+    retryable:false,
+    stage:'awaiting_delivery',
+    occurredAt:new Date().toISOString(),
+  };
+  const documentReady = delivery.state === 'document_ready';
+  return {
+    code:'xiaod_delivery_pending',
+    message:String(delivery.lastError || (documentReady ? '飞书文档权限尚未确认。' : '飞书文档尚未创建。')),
+    userMessage:documentReady
+      ? '小D已生成飞书文档，但目标用户权限尚未确认。请修复权限配置后回复“继续飞书交付”。'
+      : '小D已安全保存本地确认稿，但飞书交付尚未开始。请修复飞书配置或连接后回复“继续飞书交付”。',
+    category:'needs_input',
+    retryable:true,
+    stage:'awaiting_delivery',
+    occurredAt:new Date().toISOString(),
+  };
 }
 
 function isPollDue(task, now) {

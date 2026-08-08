@@ -38,8 +38,13 @@ test('Agent Army MCP exposes factual read and controlled action tools', async (t
   const tools = await client.listTools();
   assert.deepEqual(
     tools.tools.map((tool) => tool.name).sort(),
-    ['agent_proposal_create_execute', 'approval_list', 'approval_resolve', 'capabilities', 'content_performance_review_execute', 'employee_assignment_execute', 'employee_status', 'm5_stage_execute', 'mission_create', 'operations_health_execute', 'paperclip_assignment_complete', 'paperclip_assignment_get', 'platform_content_draft_execute', 'private_read_grant_revoke', 'status', 'task_control', 'task_create', 'task_get', 'task_list', 'technical_repair_execute', 'video_content_analyze_execute', 'video_script_package_execute']
+    ['agent_manual', 'agent_proposal_create_execute', 'approval_list', 'approval_resolve', 'capabilities', 'content_performance_review_execute', 'employee_assignment_execute', 'employee_status', 'm5_stage_execute', 'mission_create', 'operations_health_execute', 'paperclip_assignment_complete', 'paperclip_assignment_get', 'platform_content_draft_execute', 'private_read_grant_revoke', 'status', 'task_control', 'task_create', 'task_get', 'task_list', 'technical_repair_execute', 'video_content_analyze_execute', 'video_script_package_execute']
   );
+
+  const allManuals = await client.callTool({ name:'agent_manual', arguments:{ agent:'all' } });
+  assert.equal(allManuals.isError, undefined);
+  assert.ok(allManuals.structuredContent.count >= 11);
+  assert.match(allManuals.content[0].text, /小D使用说明书/);
 
   const capabilities = await client.callTool({ name:'capabilities', arguments:{} });
   assert.equal(capabilities.structuredContent.employees[0].agentId, 'xiaod');
@@ -136,6 +141,46 @@ test('Agent Army MCP exposes factual read and controlled action tools', async (t
   assert.deepEqual(missionCall[1].items[2].platforms, ['douyin']);
   assert.equal(missionCall[1].items[2].contentGoal, '形成老板汇报');
   assert.equal(missionCall[1].waitForTerminal, true);
+});
+
+test('MCP 的单任务和多人任务都保留分析模式', async (t) => {
+  const calls = [];
+  const clientApi = {
+    capabilities:async () => ({}), armyStatus:async () => ({}), employeeStatus:async () => ({}),
+    listTasks:async () => [], getTask:async () => ({}),
+    createTask:async (input) => { calls.push(['task', input]); return { taskId:'analysis-created' }; },
+    createMission:async (input) => { calls.push(['mission', input]); return { mission:{ taskId:'mission-created' }, children:[] }; },
+    controlTask:async () => ({}), listApprovals:async () => [], resolveApproval:async () => ({})
+  };
+  const { client, server } = await connect(clientApi);
+  t.after(async () => { await client.close(); await server.close(); });
+
+  const task = await client.callTool({
+    name:'task_create',
+    arguments:{
+      title:'探索表达风格',
+      task_type:'content.video-benchmark-analysis',
+      agent_id:'video-content-analyst',
+      analysis_intent:'style'
+    }
+  });
+  assert.equal(task.isError, undefined);
+  assert.equal(calls[0][1].analysisIntent, 'style');
+
+  const mission = await client.callTool({
+    name:'mission_create',
+    arguments:{
+      title:'提取视频模板',
+      items:[{
+        title:'提取模板',
+        task_type:'content.video-benchmark-analysis',
+        agent_id:'video-content-analyst',
+        analysis_intent:'template'
+      }]
+    }
+  });
+  assert.equal(mission.isError, undefined);
+  assert.equal(calls[1][1].items[0].analysisIntent, 'template');
 });
 
 test('MCP 会修正模型误选的小R老板汇报并保留来源任务', async (t) => {
@@ -323,6 +368,53 @@ test('独立员工 MCP 作用域只展示和创建本岗位任务，不能创建
   assert.equal(created.length, 1);
 });
 
+test('A君可以查询全员说明书，独立员工只能回答自己的说明书', async (t) => {
+  const ajunConnection = await connect({}, {
+    scope:{
+      agentIds:['ajun'],
+      taskTypes:['army.intake'],
+      allowedTools:['agent_manual'],
+      allowMissions:true,
+    },
+  });
+  t.after(async () => { await ajunConnection.client.close(); await ajunConnection.server.close(); });
+  const all = await ajunConnection.client.callTool({ name:'agent_manual', arguments:{ agent:'all' } });
+  assert.equal(all.isError, undefined);
+  assert.ok(all.structuredContent.count >= 11);
+  assert.match(all.content[0].text, /A君·军团总管使用说明书/);
+  assert.match(all.content[0].text, /技术专家使用说明书/);
+  assert.match(all.content[0].text, /## 输出示例/);
+  assert.match(all.content[0].text, /## 成功运行证据/);
+
+  const xiaodConnection = await connect({}, {
+    scope:{
+      agentIds:['xiaod'],
+      taskTypes:['media.transcribe-and-refine'],
+      allowedTools:['agent_manual'],
+      allowMissions:false,
+    },
+  });
+  t.after(async () => { await xiaodConnection.client.close(); await xiaodConnection.server.close(); });
+  const own = await xiaodConnection.client.callTool({ name:'agent_manual', arguments:{} });
+  assert.equal(own.structuredContent.manual.agentId, 'xiaod');
+  assert.match(own.content[0].text, /音视频/);
+  assert.match(own.content[0].text, /尚未补公开截图/);
+
+  const denied = await xiaodConnection.client.callTool({
+    name:'agent_manual',
+    arguments:{ agent:'架构师' },
+  });
+  assert.equal(denied.isError, true);
+  assert.match(denied.content[0].text, /只能回答自己的使用说明书/);
+
+  const deniedAll = await xiaodConnection.client.callTool({
+    name:'agent_manual',
+    arguments:{ agent:'all' },
+  });
+  assert.equal(deniedAll.isError, true);
+  assert.match(deniedAll.content[0].text, /查询全部或其他岗位请询问 A君/);
+});
+
 test('治理员工 MCP 只注册 Manifest 明确允许的工具', async (t) => {
   const clientApi = {
     capabilities:async () => ({ employees:[] }),
@@ -391,13 +483,13 @@ test('Paperclip heartbeat 只暴露当前岗位的受控执行与指派工具', 
   ];
   const before = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   try {
-    process.env.AGENT_ARMY_ALLOWED_MCP_TOOLS = 'capabilities,task_list,task_create,paperclip_assignment_get,agent_proposal_create_execute,operations_health_execute,employee_assignment_execute,paperclip_assignment_complete';
+    process.env.AGENT_ARMY_ALLOWED_MCP_TOOLS = 'capabilities,task_list,task_create,agent_manual,paperclip_assignment_get,agent_proposal_create_execute,operations_health_execute,employee_assignment_execute,paperclip_assignment_complete';
     process.env.PAPERCLIP_TASK_ID = 'b3357f8c-1d3a-4a80-8bac-2eb44468e320';
     process.env.PAPERCLIP_RUN_ID = '4f968d26-9bd9-4e86-b4fd-8ef68ae82ea2';
     process.env.PAPERCLIP_AGENT_ID = '5afa80b6-dbc6-491d-9019-a234850b235b';
     assert.deepEqual(
       scopeFromEnvironment().allowedTools,
-      ['paperclip_assignment_get', 'agent_proposal_create_execute', 'operations_health_execute', 'employee_assignment_execute', 'paperclip_assignment_complete']
+      ['agent_manual', 'paperclip_assignment_get', 'agent_proposal_create_execute', 'operations_health_execute', 'employee_assignment_execute', 'paperclip_assignment_complete']
     );
   } finally {
     for (const key of keys) {

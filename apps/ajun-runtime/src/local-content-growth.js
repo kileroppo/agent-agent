@@ -16,6 +16,7 @@ import {
   summarizeComparableContentMetrics,
 } from '@agent-army/m5-contracts';
 import { validM5ProductionTemplateBinding } from './m5-production-template-resolver.js';
+import { analysisIntentLabel, resolveAnalysisIntent } from './analysis-intent.ts';
 
 const FULL_ANALYSIS_MODULES = [
   '基本信息',
@@ -63,7 +64,23 @@ export class LocalVideoContentAnalyst {
       });
     }
     const evidenceMode = task.input?.evidenceMode === 'preliminary' ? 'preliminary' : 'formal';
-    const depth = task.input?.depth === 'full' ? 'full' : 'fast';
+    const analysis = resolveAnalysisIntent({
+      analysisIntent:task.input?.analysisIntent,
+      title:task.input?.title,
+      description:task.input?.description,
+      focus:task.input?.focus,
+      depth:task.input?.depth,
+    });
+    if (analysis.error) {
+      return needsInput(
+        this.now(),
+        analysis.error,
+        analysis.error === 'analysis_intent_conflict'
+          ? '检测到多个分析模式，请只选择精华提炼、深度拆解、模板学习或风格探索中的一种。'
+          : '分析模式无效，请重新选择。',
+      );
+    }
+    const { analysisIntent, depth } = analysis;
     const sources = Array.isArray(sourceArtifacts) ? sourceArtifacts : await referencedArtifacts(task, this.store);
     const transcriptArtifact = evidenceMode === 'formal'
       ? findArtifact(sources, 'confirmed_transcript')
@@ -87,22 +104,25 @@ export class LocalVideoContentAnalyst {
     const sourceEvidence = sourceEvidenceArtifact ? await readArtifactJson(sourceEvidenceArtifact, this.allowedArtifactRoots) : null;
     const sourceMetadata = normalizeSourceMetadata(sourceEvidence?.sourceMetadata);
     const boomSignal = normalizeBoomSignalContext(task.input?.context?.boomSignal);
-    const visualEvidence = visualArtifact && visualMode !== 'off'
+    const availableVisualEvidence = visualArtifact && visualMode !== 'off'
       ? await readVisualEvidence(visualArtifact, this.allowedArtifactRoots)
       : null;
-    if (visualEvidence) {
+    if (availableVisualEvidence && visualMode === 'required') {
       return needsInput(
         this.now(),
         'controlled_provider_vision_required',
         '已有故事板，但普通拆解尚未接入可核验的受控 Provider 视觉观察。Hermes 不会直接读取本机图片；请接入受控视觉回执或将 visualMode 设为 off 后仅做文本拆解。',
       );
     }
+    // auto 只在存在受控视觉观察时使用画面证据。故事板本身不是
+    // 可引用的观察结论，因此自动模式继续交付如实标注的部分文字报告。
+    const visualEvidence = null;
     const effectiveTitle = sourceMetadata.title || clean(task.input?.title, 300) || transcriptArtifact.title || '视频内容';
     const segments = evidenceSegments(transcript);
     const advisorTranscript = segments.map((segment) => (
       segment.timestamp ? `[${segment.timestamp}] ${segment.text}` : segment.text
     )).join('\n\n');
-    const fallback = buildAnalysis({ title:effectiveTitle, transcript, segments, depth, evidenceMode, confirmationMode, focus:task.input?.focus, sourceMetadata });
+    const fallback = buildAnalysis({ title:effectiveTitle, transcript, segments, analysisIntent, depth, evidenceMode, confirmationMode, focus:task.input?.focus, sourceMetadata });
     let report = fallback;
     let modelUsage = null;
     let advisorApplied = false;
@@ -113,6 +133,7 @@ export class LocalVideoContentAnalyst {
         const advisedResult = await this.advisor.analyze({
           title:effectiveTitle,
           transcript:advisorTranscript,
+          analysisIntent,
           depth,
           evidenceMode,
           focus:task.input?.focus,
@@ -130,7 +151,7 @@ export class LocalVideoContentAnalyst {
         const advised = normalizeAdvisedAnalysis(advisedResult?.data || advisedResult, transcript, visualEvidence);
         modelUsage = advisedResult?.usage || null;
         if (validAdvisedAnalysis(advised, transcript, depth, visualEvidence)) {
-          report = { ...fallback, ...advised, evidenceMode, confirmationMode, depth };
+          report = mergeAdvisedReport(fallback, advised, analysisIntent, transcript);
           advisorApplied = true;
         } else {
           advisorFailure = 'content_analysis_semantic_validation_failed';
@@ -141,7 +162,7 @@ export class LocalVideoContentAnalyst {
           ? repairAdvisedAnalysis(error?.data, fallback, transcript, depth, visualEvidence)
           : null;
         if (repaired && validAdvisedAnalysis(repaired, transcript, depth, visualEvidence)) {
-          report = { ...fallback, ...repaired, evidenceMode, confirmationMode, depth };
+          report = mergeAdvisedReport(fallback, repaired, analysisIntent, transcript);
           advisorApplied = true;
           semanticRepairApplied = true;
         } else {
@@ -180,7 +201,15 @@ export class LocalVideoContentAnalyst {
       visualCoverage,
       visualFindings:Array.isArray(report.visualFindings) ? report.visualFindings : [],
       completeness,
-      boomSignal
+      boomSignal,
+      analysisIntent,
+      reportVersion:'video-analysis/v2',
+      creationEligible:evidenceMode === 'formal' && transcriptArtifact.type === 'confirmed_transcript',
+      ...(analysisIntent === 'digest' ? { availableAnalysisIntents:analysisIntentOptions() } : {}),
+      nextAction:{
+        ...nextAnalysisAction(analysisIntent),
+        sourceTaskIds:[...new Set(sources.map((artifact) => artifact?.taskId).filter(Boolean))],
+      },
     };
     const sourceRefs = [
       transcriptArtifact.artifactId,
@@ -191,7 +220,7 @@ export class LocalVideoContentAnalyst {
       artifactsDir:this.artifactsDir,
       task,
       type:'video_content_analysis_report',
-      title:`${effectiveTitle}｜${depth === 'full' ? '完整拆解' : '快速拆解'}`,
+      title:`${effectiveTitle}｜${analysisIntentLabel(analysisIntent)}`,
       data:{ ...report, generationMode:advisorApplied ? semanticRepairApplied ? 'hermes_advisor_evidence_repaired' : 'hermes_advisor' : 'deterministic_fallback', advisorFailure, semanticRepairApplied, sourceTranscriptArtifactId:transcriptArtifact.artifactId, sourceTranscriptChecksum:transcriptArtifact.checksum || null, generatedAt:completedAt },
       sourceRefs,
       validation:{
@@ -199,12 +228,19 @@ export class LocalVideoContentAnalyst {
         readable:true,
         nonEmpty:true,
         evidenceMode,
+        analysisIntent,
+        reportVersion:'video-analysis/v2',
         claimsEvidenceLinked:true,
         formalSourceConfirmed:evidenceMode !== 'formal' || transcriptArtifact.type === 'confirmed_transcript',
         confirmationMode:evidenceMode === 'formal' ? confirmationMode : null,
         moduleCount:report.modules.length,
         advisorApplied,
         semanticValidationPassed:advisorApplied,
+        modeStructurePassed:validModeReport(report, analysisIntent, transcript),
+        ...(analysisIntent === 'digest' ? {
+          digestCharacterCount:digestCharacterCount(report.digest),
+          digestWithinCharacterLimit:digestCharacterCount(report.digest) <= 800,
+        } : {}),
         boomSignalAttached:Boolean(boomSignal),
         semanticRepairApplied,
         visualMode,
@@ -377,6 +413,7 @@ export class LocalVideoContentAnalyst {
     const lifecycle = script ? await templateLifecycleForReview({ store:this.store, script, metrics }) : null;
     const completedAt = this.now().toISOString();
     const normalizedContentMetrics = deriveContentMetrics(metrics);
+    const learning = buildMetricLearning(task.input, metrics);
     const data = {
       summary:`已记录 ${Object.keys(metrics).length} 项真实表现指标；本报告只做版本关联和观察，不把单次结果解释为确定因果。`,
       metrics,
@@ -386,9 +423,11 @@ export class LocalVideoContentAnalyst {
         platform:normalizeContentChannel(task.input?.platform),
         contentType:clean(task.input?.contentType, 80) || null,
         observationWindow:clean(task.input?.observationWindow, 120) || null,
-        comparableSampleCount:Math.max(0, Number(task.input?.comparableSampleCount) || 0),
+        comparableSampleCount:learning.comparableSampleCount,
+        declaredComparableSampleCount:learning.declaredComparableSampleCount,
       },
       observations:metricObservations(metrics),
+      learning,
       nextActions:[...CONTENT_PERFORMANCE_NEXT_ACTIONS],
       decision:clean(task.input?.decision, 80) || 'collect_more_samples',
       experiment:task.input?.experiment && !Array.isArray(task.input.experiment)
@@ -416,6 +455,9 @@ export class LocalVideoContentAnalyst {
         metricsProvided:true,
         causalClaimAvoided:true,
         comparableScopeExplicit:true,
+        metricBindingComplete:learning.metricBindingComplete,
+        learningProposalReviewRequired:learning.status !== 'proposed' || learning.requiresHumanReview === true,
+        productionMutationAllowed:false,
         singleExperimentEnforced:!Array.isArray(task.input?.experiment),
         ...(lifecycle ? { templateState:lifecycle.state } : {}),
       },
@@ -423,6 +465,36 @@ export class LocalVideoContentAnalyst {
     });
     return successResult(task, artifact, completedAt, 'performance_review');
   }
+}
+
+function buildMetricLearning(input, metrics) {
+  const platform = normalizeContentChannel(input?.platform);
+  const contentType = clean(input?.contentType, 80) || null;
+  const observationWindow = clean(input?.observationWindow, 120) || null;
+  const declaredComparableSampleCount = Math.max(0, Number(input?.comparableSampleCount) || 0);
+  const binding = {
+    platform,
+    platformContentId:clean(metrics.platformContentId || input?.platformContentId, 200) || null,
+    publishedAt:clean(metrics.publishedAt || input?.publishedAt, 120) || null,
+    contentVersionId:clean(metrics.contentVersionId || input?.contentVersionId, 200) || null,
+  };
+  const metricBindingComplete = Boolean(binding.platform && binding.platformContentId && binding.publishedAt && binding.contentVersionId);
+  return {
+    status:'insufficient_sample',
+    reason:!metricBindingComplete
+      ? '指标缺少平台内容ID、发布时间、平台或内容版本绑定。'
+      : declaredComparableSampleCount >= 5 && Boolean(contentType) && observationWindow === '72h'
+        ? '调用方声明的样本数不能替代五条经 Paperclip 回读的可信 MetricSnapshot；学习提案只能由受控复盘链生成。'
+        : '需要至少五条经 Paperclip 回读、同平台、同内容类型、统一72小时口径的可信 MetricSnapshot。',
+    comparableSampleCount:0,
+    declaredComparableSampleCount,
+    metricBindingComplete,
+    binding,
+    proposal:null,
+    requiresHumanReview:true,
+    productionMutationAllowed:false,
+    governedLearningRoute:'paperclip-retrospective',
+  };
 }
 
 export class LocalContentCreator {
@@ -922,7 +994,7 @@ function groupEvidenceSegments(segments, maxBlocks = 30) {
   return grouped;
 }
 
-function buildAnalysis({ title, segments, depth, evidenceMode, confirmationMode = 'human', focus, sourceMetadata = {} }) {
+function buildAnalysis({ title, segments, analysisIntent, depth, evidenceMode, confirmationMode = 'human', focus, sourceMetadata = {} }) {
   const usable = segments.length ? segments : [{ timestamp:null, text:'当前转录没有足够可引用片段。' }];
   const moduleNames = depth === 'full' ? FULL_ANALYSIS_MODULES : FAST_ANALYSIS_MODULES;
   const modules = moduleNames.map((name, index) => {
@@ -935,7 +1007,7 @@ function buildAnalysis({ title, segments, depth, evidenceMode, confirmationMode 
       confidence:evidence.timestamp ? 'high' : 'medium'
     };
   });
-  return {
+  const report = {
     title:clean(title, 300) || '视频内容拆解',
     evidenceMode,
     confirmationMode:evidenceMode === 'formal' ? confirmationMode : null,
@@ -950,6 +1022,164 @@ function buildAnalysis({ title, segments, depth, evidenceMode, confirmationMode 
       : modules.slice(0, 3).map((item) => `${item.name}：${item.finding}`),
     actionItems:modules.slice(-3).map((item) => item.optimization?.[0]?.action || `围绕“${item.name}”做一项可单独验证的改动。`)
   };
+  if (analysisIntent === 'digest') report.digest = buildDigest(usable, modules, evidenceMode);
+  if (analysisIntent === 'deep') report.modules = modules.map(addTeachingFields);
+  if (analysisIntent === 'template') report.templateLearning = buildTemplateLearning(usable);
+  if (analysisIntent === 'style') report.styleExploration = buildStyleExploration(usable, sourceMetadata);
+  return report;
+}
+
+function buildDigest(segments, modules, evidenceMode) {
+  const selected = coverageSegments(segments, 3);
+  const corePoints = selected.map((segment) => ({
+    point:clean(segment.text, 100),
+    evidence:{ timestamp:segment.timestamp, fragment:segment.text },
+  }));
+  const goldenQuotes = selected.map((segment) => ({
+    quote:verbatimQuote(segment.text),
+    evidence:{ timestamp:segment.timestamp, fragment:verbatimQuote(segment.text) },
+  }));
+  return {
+    status:evidenceMode === 'formal' ? 'formal' : 'preliminary',
+    oneSentenceSummary:clean(selected.map((item) => item.text).join('；'), 120),
+    corePoints,
+    goldenQuotes,
+    actionItems:modules.slice(-2).map((module) => clean(module.optimization?.[0]?.action || module.finding, 50)),
+    evidenceStatus:evidenceMode === 'formal' ? 'confirmed_transcript' : 'preliminary_unconfirmed',
+  };
+}
+
+function coverageSegments(segments, maximum) {
+  if (segments.length <= maximum) return [...segments];
+  const indexes = Array.from({ length:maximum }, (_, index) => (
+    Math.round(index * (segments.length - 1) / (maximum - 1))
+  ));
+  return [...new Set(indexes)].map((index) => segments[index]);
+}
+
+function verbatimQuote(value) {
+  const text = clean(value, 500);
+  const sentence = text.match(/^.{4,136}?[。！？!?](?=\s|$)/u)?.[0];
+  return sentence || clean(text, 140);
+}
+
+function digestCharacterCount(digest) {
+  return [
+    digest?.oneSentenceSummary,
+    ...(digest?.corePoints || []).map((item) => item?.point),
+    ...(digest?.goldenQuotes || []).map((item) => item?.quote),
+    ...(digest?.actionItems || []),
+  ].map((item) => String(item || '')).join('').length;
+}
+
+function addTeachingFields(module) {
+  return {
+    ...module,
+    observedFact:{
+      statement:clean(module.finding, 500),
+      evidence:module.evidence,
+    },
+    mechanismInference:{
+      statement:`分析推断：该片段承担“${sentenceRole(module.evidence?.fragment)}”作用，可能通过降低理解成本或制造信息推进来维持注意。`,
+      certainty:'inference',
+    },
+    applicableWhen:'自己的内容具备同类信息任务，并且有事实材料能够支撑该结构时。',
+    failureConditions:'事实不足、承诺超出证据，或只复制措辞而没有对应内容时会失效。',
+    validationMethod:'下一版只改变这一项，关联同平台同口径指标并保留原版本作对照。',
+    reuseMethod:'复用结构作用和信息顺序，替换为自己的事实、案例与表达。',
+  };
+}
+
+function buildTemplateLearning(segments) {
+  const first = segments[0];
+  const middle = segments[Math.min(1, segments.length - 1)] || first;
+  const last = segments.at(-1) || first;
+  const evidence = (segment) => ({ timestamp:segment?.timestamp || null, fragment:segment?.text || '' });
+  return {
+    status:'candidate',
+    name:'结构模板候选',
+    structure:[
+      { module:'开场', purpose:'快速建立问题或结果预期', placeholder:'[目标人群遇到的问题或可核验结果]', replacementGuide:'替换为自己的真实结果或问题，不复制原句。', evidence:evidence(first) },
+      { module:'展开', purpose:'按单一逻辑递进解释方法和限制', placeholder:'[步骤/原因/限制条件]', replacementGuide:'每段只承担一个信息任务，并补充自己的事实依据。', evidence:evidence(middle) },
+      { module:'收束', purpose:'给出下一步行动并关闭叙事', placeholder:'[读者可以立刻执行的一步]', replacementGuide:'行动必须具体且不包含无法证实的结果承诺。', evidence:evidence(last) },
+    ],
+    openingTemplates:[
+      '先给结果：[我用____解决了____，但只适用于____。]',
+      '先提冲突：[大多数人以为____，实际关键是____。]',
+      '先给场景：[如果你正在____，先检查____。]',
+    ],
+    communicationElements:[
+      { element:'结果前置', usage:'先交付可核验信息，再解释过程。', evidence:evidence(first) },
+      { element:'单线推进', usage:'每个段落只解决一个问题。', evidence:evidence(middle) },
+      { element:'行动收束', usage:'用一个低门槛动作结束。', evidence:evidence(last) },
+    ],
+    differentTopicExample:'示例主题：家庭收纳。开场写真实痛点，中段给三个可执行分区步骤，结尾只要求今天清理一个抽屉。',
+    originalityReminder:'模板仅复用结构作用；必须使用自己的原创内容、事实、案例和表达，并完成事实与平台合规核验。',
+    performanceClaim:'没有合格真实指标，仅作为结构模板候选，不构成爆款或转化承诺。',
+  };
+}
+
+function buildStyleExploration(segments, sourceMetadata) {
+  const facts = segments.slice(0, 3).map((segment) => ({
+    fact:segment.text,
+    evidence:{ timestamp:segment.timestamp, fragment:segment.text },
+  }));
+  const factText = facts.map((item) => item.fact).join('；');
+  const topic = sourceMetadata?.title || '这个主题';
+  const variants = [
+    styleVariant('professional', '专业严谨版', `讨论${topic}时，先明确可核验事实：${factText}。据此可把方法拆成前提、步骤与限制三个部分。执行时应保留来源和版本记录，每轮只验证一个变量，避免把经验判断写成确定因果。`, '知识讲解、专业账号', '可信、清晰', '语气可能偏冷'),
+    styleVariant('humorous', '轻松幽默版', `别急着把${topic}讲成一门玄学。先看原材料里真正说了什么：${factText}。做法很朴素——一次改一个地方，记下结果，再决定要不要保留。少一点“我感觉”，多一点能回头核对的证据。`, '轻内容、社交平台', '亲近、易读', '幽默过度会削弱严肃信息'),
+    styleVariant('story', '故事化版', `一开始，我们只想弄清${topic}。线索依次出现：${factText}。转折在于，真正有用的不是照搬一句话，而是看懂它在什么时候推进信息、什么时候提醒限制。最后留下的行动，是只改一个变量并记录结果。`, '案例复盘、人物叙事', '有推进感', '故事包装不能替代事实'),
+    styleVariant('evidence', '证据驱动版', `当前没有可用于比较的真实表现数据，因此只做证据驱动表达。确认稿支持的事实包括：${factText}。这些信息只能说明内容采用了相应结构，不能证明播放或转化提升；后续需关联同平台、同口径指标再评估。`, '研究复盘、数据尚不完整', '边界清楚', '数据不足时冲击力较弱'),
+  ];
+  return {
+    facts,
+    factsLocked:true,
+    dataStatus:'insufficient',
+    variants,
+    recommendation:{ style:'professional', reason:'当前素材以方法和限制条件为主，专业严谨版最能保持事实边界。' },
+  };
+}
+
+function styleVariant(id, name, sample, scene, advantage, risk) {
+  const suffix = ' 所有结论仍需回到确认稿核对，完整创作必须在用户选定风格后交给小创。';
+  let text = clean(`${sample}${suffix}`, 250);
+  if (text.length < 150) text = clean(`${text}${suffix}`, 250);
+  return { id, name, sample:text, applicableScene:scene, advantage, risk };
+}
+
+function nextAnalysisAction(analysisIntent) {
+  return ({
+    digest:{ action:'continue_deep_analysis', label:'继续深度拆解', targetAnalysisIntent:'deep' },
+    deep:{ action:'extract_fillable_template', label:'提取可填写模板', targetAnalysisIntent:'template' },
+    template:{ action:'create_from_template', label:'用这个结构写我的主题', targetAgentId:'content-creator', requiresExplicitApproval:true },
+    style:{ action:'create_selected_style', label:'选择这个风格生成全文', targetAgentId:'content-creator', requiresExplicitApproval:true },
+  })[analysisIntent];
+}
+
+function analysisIntentOptions() {
+  return [
+    { id:'digest', label:'精华提炼' },
+    { id:'deep', label:'深度拆解' },
+    { id:'template', label:'模板学习' },
+    { id:'style', label:'风格探索' },
+  ];
+}
+
+function mergeAdvisedReport(fallback, advised, analysisIntent, transcript) {
+  const merged = { ...fallback, ...advised, evidenceMode:fallback.evidenceMode, confirmationMode:fallback.confirmationMode, depth:fallback.depth };
+  if (analysisIntent === 'deep' && Array.isArray(merged.modules)) {
+    const fallbackByName = new Map(fallback.modules.map((module) => [module.name, module]));
+    merged.modules = merged.modules.map((module) => ({ ...fallbackByName.get(module.name), ...module }));
+  }
+  const sectionKey = ({ digest:'digest', template:'templateLearning', style:'styleExploration' })[analysisIntent];
+  if (sectionKey) {
+    const candidate = advised?.[sectionKey];
+    if (!candidate || !validModeReport({ ...fallback, [sectionKey]:candidate }, analysisIntent, transcript)) {
+      merged[sectionKey] = fallback[sectionKey];
+    }
+  }
+  return merged;
 }
 
 function moduleFinding(name, evidence, focus) {
@@ -1185,6 +1415,7 @@ function renderArtifactMarkdown({ type, title, data, sourceRefs, completedAt }) 
 }
 
 export function renderVideoAnalysisMarkdown({ title, data, sourceRefs = [], completedAt = '' } = {}) {
+  const analysisIntent = data?.analysisIntent || (data?.depth === 'full' ? 'deep' : 'digest');
   const generation = data?.generationMode === 'hermes_advisor'
     ? 'Hermes 深度分析'
     : data?.generationMode === 'hermes_advisor_evidence_repaired'
@@ -1197,7 +1428,7 @@ export function renderVideoAnalysisMarkdown({ title, data, sourceRefs = [], comp
     '',
     `- 分析方式：${generation}`,
     `- 证据来源：${markdownText(data?.evidenceLabel || data?.evidenceMode) || '未提供'}`,
-    `- 分析深度：${data?.depth === 'full' ? '完整拆解' : '快速拆解'}`,
+    `- 分析模式：${analysisIntentLabel(analysisIntent)}`,
     `- 完整程度：${data?.completeness === 'complete' ? '图文分析完整' : '部分完成，画面分析未通过完整门禁'}`,
     `- 生成时间：${markdownText(completedAt || data?.generatedAt) || '未提供'}`,
     '',
@@ -1220,17 +1451,27 @@ export function renderVideoAnalysisMarkdown({ title, data, sourceRefs = [], comp
   } else {
     lines.push(data?.visualCoverage?.status === 'disabled' ? '- 本次按要求只分析文字。' : '- 没有通过证据门禁的画面结论；报告按部分完成交付。');
   }
-  lines.push(
-    '',
-    '## 行动清单',
-    ''
-  );
-  appendBullets(lines, data?.actionItems, '暂无明确行动项。');
-  lines.push('', '## 可复用模式', '');
-  appendBullets(lines, data?.reusablePatterns, '暂无可复用模式。');
-  lines.push('', '## 逐项拆解', '');
   const modules = Array.isArray(data?.modules) ? data.modules : [];
-  modules.forEach((module, index) => appendAnalysisModule(lines, module, index));
+  if (analysisIntent === 'digest') {
+    appendDigestReport(lines, data?.digest);
+    const options = Array.isArray(data?.availableAnalysisIntents) ? data.availableAnalysisIntents : [];
+    if (options.length) {
+      lines.push('', '## 可切换分析模式', '', `- ${options.map((item) => markdownText(item?.label)).filter(Boolean).join(' / ')}`, '');
+    }
+  }
+  else if (analysisIntent === 'template') appendTemplateReport(lines, data?.templateLearning);
+  else if (analysisIntent === 'style') appendStyleReport(lines, data?.styleExploration);
+  else {
+    lines.push('', '## 行动清单', '');
+    appendBullets(lines, data?.actionItems, '暂无明确行动项。');
+    lines.push('', '## 可复用模式', '');
+    appendBullets(lines, data?.reusablePatterns, '暂无可复用模式。');
+    lines.push('', '## 逐项拆解', '');
+    modules.forEach((module, index) => appendAnalysisModule(lines, module, index));
+  }
+  if (data?.nextAction?.label) {
+    lines.push('', '## 下一步', '', `- ${markdownText(data.nextAction.label)}`, '');
+  }
   lines.push(
     '',
     '## 证据说明',
@@ -1247,6 +1488,46 @@ export function renderVideoAnalysisMarkdown({ title, data, sourceRefs = [], comp
     ''
   );
   return lines.join('\n');
+}
+
+function appendDigestReport(lines, digest) {
+  lines.push('', '## 一句话总结', '', markdownText(digest?.oneSentenceSummary) || '暂无摘要。', '', '## 核心要点', '');
+  for (const item of digest?.corePoints || []) {
+    lines.push(`- ${markdownText(item?.point)}（${evidenceLabel(item?.evidence)}）`);
+  }
+  lines.push('', '## 原文金句', '');
+  for (const item of digest?.goldenQuotes || []) {
+    lines.push(`- “${markdownText(item?.quote)}”（${evidenceLabel(item?.evidence)}）`);
+  }
+  lines.push('', '## 可执行建议', '');
+  appendBullets(lines, digest?.actionItems, '暂无明确行动项。');
+}
+
+function appendTemplateReport(lines, template) {
+  lines.push('', '## 结构模板候选', '');
+  for (const item of template?.structure || []) {
+    lines.push(`### ${markdownText(item?.module)}`, '', `- 作用：${markdownText(item?.purpose)}`, `- 占位符：${markdownText(item?.placeholder)}`, `- 替换方法：${markdownText(item?.replacementGuide)}`, `- 证据：${evidenceLabel(item?.evidence)}`, '');
+  }
+  lines.push('## 三种开头模板', '');
+  appendBullets(lines, template?.openingTemplates, '暂无开头模板。');
+  lines.push('', '## 传播元素', '');
+  for (const item of template?.communicationElements || []) {
+    lines.push(`- ${markdownText(item?.element)}：${markdownText(item?.usage)}（${evidenceLabel(item?.evidence)}）`);
+  }
+  lines.push('', '## 异题示例', '', markdownText(template?.differentTopicExample), '', '## 原创与表现边界', '', `- ${markdownText(template?.originalityReminder)}`, `- ${markdownText(template?.performanceClaim)}`);
+}
+
+function appendStyleReport(lines, style) {
+  lines.push('', '## 事实清单（四版锁定一致）', '');
+  for (const item of style?.facts || []) lines.push(`- ${markdownText(item?.fact)}（${evidenceLabel(item?.evidence)}）`);
+  for (const variant of style?.variants || []) {
+    lines.push('', `## ${markdownText(variant?.name)}`, '', markdownText(variant?.sample), '', `- 适用场景：${markdownText(variant?.applicableScene)}`, `- 优势：${markdownText(variant?.advantage)}`, `- 风险：${markdownText(variant?.risk)}`);
+  }
+  if (style?.recommendation) lines.push('', '## 推荐', '', `- ${markdownText(style.recommendation.reason)}`);
+}
+
+function evidenceLabel(evidence) {
+  return `${markdownText(evidence?.timestamp) || '时间点缺失'}｜${markdownText(evidence?.fragment) || '片段缺失'}`;
 }
 
 function appendAnalysisModule(lines, module, index) {
@@ -1272,6 +1553,9 @@ function appendAnalysisModule(lines, module, index) {
   appendEvidenceSection(lines, '原文分析', module?.originalAnalysis, 'claim');
   appendEvidenceSection(lines, '问题诊断', module?.diagnosis, 'issue', (item) => severityLabel(item?.severity));
   appendEvidenceSection(lines, '优化建议', module?.optimization, 'action');
+  if (module?.observedFact) {
+    lines.push('#### 教学拆解', '', `- 观察事实：${markdownText(module.observedFact.statement)}（${evidenceLabel(module.observedFact.evidence)}）`, `- 机制推断：${markdownText(module.mechanismInference?.statement)}`, `- 适用条件：${markdownText(module.applicableWhen)}`, `- 失效场景：${markdownText(module.failureConditions)}`, `- 验证办法：${markdownText(module.validationMethod)}`, `- 复用方法：${markdownText(module.reuseMethod)}`, '');
+  }
   if (Array.isArray(module?.sentenceBreakdown) && module.sentenceBreakdown.length) {
     lines.push(
       '<details>',
@@ -1489,6 +1773,39 @@ function validAdvisedAnalysis(value, transcript, depth, visualEvidence = null) {
     minFindings:visualEvidence ? depth === 'full' ? 5 : 3 : 0,
     minCategories:visualEvidence ? depth === 'full' ? 3 : 2 : 0
   });
+}
+
+function validModeReport(report, analysisIntent, transcript) {
+  if (analysisIntent === 'digest') {
+    const digest = report?.digest;
+    return Boolean(
+      clean(digest?.oneSentenceSummary, 180)
+      && Array.isArray(digest?.corePoints) && digest.corePoints.length >= 3 && digest.corePoints.length <= 5
+      && digest.corePoints.every((item) => evidenceMatches(transcript, item?.evidence))
+      && Array.isArray(digest?.goldenQuotes) && digest.goldenQuotes.length >= 2 && digest.goldenQuotes.length <= 3
+      && digest.goldenQuotes.every((item) => item?.quote === item?.evidence?.fragment && evidenceMatches(transcript, item.evidence))
+      && Array.isArray(digest?.actionItems) && digest.actionItems.length >= 1 && digest.actionItems.length <= 3
+    );
+  }
+  if (analysisIntent === 'template') {
+    const template = report?.templateLearning;
+    return template?.status === 'candidate'
+      && Array.isArray(template?.structure) && template.structure.length === 3
+      && template.structure.every((item) => item?.placeholder && item?.replacementGuide && evidenceMatches(transcript, item?.evidence))
+      && Array.isArray(template?.openingTemplates) && template.openingTemplates.length === 3
+      && Boolean(template?.differentTopicExample && template?.originalityReminder);
+  }
+  if (analysisIntent === 'style') {
+    const style = report?.styleExploration;
+    return style?.factsLocked === true
+      && Array.isArray(style?.facts) && style.facts.length >= 1
+      && style.facts.every((item) => evidenceMatches(transcript, item?.evidence))
+      && Array.isArray(style?.variants) && style.variants.length === 4
+      && style.variants.every((item) => clean(item?.sample, 250).length >= 150 && clean(item?.sample, 250).length <= 250);
+  }
+  return Array.isArray(report?.modules)
+    && report.modules.length === FULL_ANALYSIS_MODULES.length
+    && report.modules.every((module) => module?.observedFact?.evidence?.fragment && module?.mechanismInference?.certainty === 'inference');
 }
 
 function repairAdvisedAnalysis(value, fallback, transcript, depth, visualEvidence = null) {

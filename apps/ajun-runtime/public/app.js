@@ -14,6 +14,11 @@ const overviewSummary = document.querySelector('#overview-summary');
 const taskCount = document.querySelector('#task-count');
 const taskSearch = document.querySelector('#task-search');
 const taskLoadMore = document.querySelector('#task-load-more');
+const recordToolbar = document.querySelector('#record-toolbar');
+const recordsTitle = document.querySelector('#records-title');
+const recordsSubtitle = document.querySelector('#records-subtitle');
+const taskDetailContext = document.querySelector('#task-detail-context');
+const taskDetailRef = document.querySelector('#task-detail-ref');
 const focusPanel = document.querySelector('#focus-panel');
 const capabilitySummary = document.querySelector('#capability-summary');
 const accessGate = document.querySelector('#access-gate');
@@ -303,7 +308,7 @@ function activateModule(name, { replaceHash = false } = {}) {
     page.classList.toggle('is-active', active);
     page.setAttribute('aria-hidden', String(!active));
   }
-  document.title = `${moduleTitle(selected)} · A君运行台`;
+  document.title = `${selectedTaskId && selected === 'records' ? '任务详情' : moduleTitle(selected)} · A君运行台`;
   if (replaceHash && location.hash !== `#${selected}`) history.replaceState(null, '', `#${selected}`);
 }
 
@@ -642,6 +647,7 @@ function statCard(label, value, note, icon, attention = false) {
 
 function renderTaskLists() {
   const tasks = overview.tasks || [];
+  renderTaskDetailContext(tasks);
   const normalizedQuery = taskSearchQuery.toLocaleLowerCase('zh-CN');
   const filtered = tasks.filter((task) =>
     selectedTaskId
@@ -657,17 +663,47 @@ function renderTaskLists() {
   const shown = selectedTaskId ? filtered : filtered.slice(0, visibleTaskCount);
   taskCount.textContent = filtered.length > shown.length ? `显示 ${shown.length}/${filtered.length} 条` : `${filtered.length} 条`;
   const taskNodes = !filtered.length
-    ? [...document.querySelector('#empty').content.cloneNode(true).childNodes]
+    ? selectedTaskId
+      ? [taskDetailNotFound()]
+      : [...document.querySelector('#empty').content.cloneNode(true).childNodes]
     : shown.map(taskCard);
   replaceChildrenPreservingDisclosureState(taskList, taskNodes);
-  if (filtered.length && selectedTaskId && !selectedTaskRevealed) {
-    selectedTaskRevealed = true;
-    requestAnimationFrame(() => taskList.querySelector(`[data-task-id="${CSS.escape(selectedTaskId)}"]`)?.scrollIntoView({ block:'center' }));
+  const selectedTaskDisclosure = selectedTaskId
+    ? taskList.querySelector(`details[data-task-id="${CSS.escape(selectedTaskId)}"]`)
+    : null;
+  if (selectedTaskDisclosure) {
+    selectedTaskDisclosure.setAttribute('open', '');
+    requestAnimationFrame(() => {
+      selectedTaskDisclosure.setAttribute('open', '');
+      if (!selectedTaskRevealed) {
+        selectedTaskRevealed = true;
+        selectedTaskDisclosure.scrollIntoView({ block:'center' });
+      }
+    });
   }
   taskLoadMore.hidden = Boolean(selectedTaskId) || shown.length >= filtered.length;
   if (!taskLoadMore.hidden) taskLoadMore.textContent = `再显示 ${Math.min(24, filtered.length - shown.length)} 条`;
   updateTaskFilterCounts(tasks);
   renderRecentTasks(tasks.filter(isRecentOwnerTask).slice(0, 3));
+}
+
+function renderTaskDetailContext(tasks) {
+  if (!selectedTaskId) return;
+  const task = tasks.find((item) => item.taskId === selectedTaskId);
+  recordsTitle.textContent = '任务详情';
+  recordsSubtitle.textContent = task
+    ? '这里显示这条任务的结果、下一步和技术详情；继续、补充或审批仍回到飞书原会话。'
+    : '没有找到这条任务；它可能已被清理，或链接中的编号不完整。';
+  recordToolbar.hidden = true;
+  taskDetailContext.hidden = false;
+  taskDetailRef.textContent = task?.presentation?.taskRef || shortTaskRef(selectedTaskId);
+}
+
+function taskDetailNotFound() {
+  const node = document.createElement('div');
+  node.className = 'empty';
+  node.innerHTML = '<svg aria-hidden="true"><use href="#icon-alert"></use></svg><p>没有找到这条任务</p><span>请返回全部任务搜索，或在飞书原会话重新打开任务链接。</span>';
+  return node;
 }
 
 function updateTaskFilterCounts(tasks) {
@@ -750,7 +786,7 @@ function taskCard(task) {
     technical:{ taskId:task.taskId, status:task.status, currentStage:task.currentStage, errorCode:task.error?.code }
   };
   node.innerHTML = `
-    <details class="task-disclosure" data-disclosure-key="task:${escapeHtml(task.taskId)}"${selectedTaskId === task.taskId ? ' open' : ''}>
+    <details class="task-disclosure" data-task-id="${escapeHtml(task.taskId)}" data-disclosure-key="task:${escapeHtml(task.taskId)}"${selectedTaskId === task.taskId ? ' open' : ''}>
       <summary>
         <div class="task-summary-main">
           <span class="status ${escapeHtml(shownStatus.className)}">${escapeHtml(shownStatus.label)}</span>
@@ -768,7 +804,9 @@ function taskCard(task) {
           <p class="task-next-action"><strong>下一步</strong>${escapeHtml(presentation.nextAction)}</p>
           ${result}
           <div class="task-actions">
-            <a class="task-detail-link" href="${escapeHtml(presentation.detailPath)}">查看任务 ${escapeHtml(presentation.taskRef)}</a>
+            ${selectedTaskId === task.taskId
+              ? '<span class="task-detail-current">当前任务</span>'
+              : `<a class="task-detail-link" href="${escapeHtml(presentation.detailPath)}">查看任务 ${escapeHtml(presentation.taskRef)}</a>`}
             <button class="task-copy-id" type="button">复制完整编号</button>
           </div>
           <details class="task-technical" data-disclosure-key="task-technical:${escapeHtml(task.taskId)}">
