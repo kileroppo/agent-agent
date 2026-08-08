@@ -133,6 +133,39 @@ test("所有已上岗 Agent 统一使用中文任务摘要，内部状态只留�
   }
 });
 
+test("所有已上岗 Agent 都有结构化使用说明书，正式岗位可通过 MCP 查询自己的说明书", async () => {
+  const entries = await readdir(path.join(repositoryRoot, "agents"), { withFileTypes:true });
+  const formalAgentIds = new Set([
+    "ajun", "xiaod", "intel-researcher", "office-assistant", "operator",
+    "creator", "reviewer", "architect", "technical-expert",
+    "video-content-analyst", "content-creator"
+  ]);
+  let activeCount = 0;
+  for (const entry of entries.filter((item) => item.isDirectory())) {
+    const filePath = path.join(repositoryRoot, "agents", entry.name, "manifest.json");
+    try {
+      const manifest = await readJson(filePath);
+      if (manifest.status !== "active") continue;
+      activeCount += 1;
+      assert.ok(manifest.userManual, `${manifest.agentId} 缺少 userManual`);
+      for (const key of ["whatItIs", "savesWork", "tools", "inputs", "trigger", "examplePrompt", "outputs", "outputExample", "successEvidence", "usageSteps", "limitations"]) {
+        assert.ok(manifest.userManual[key], `${manifest.agentId} 使用说明书缺少 ${key}`);
+      }
+      assert.match(manifest.userManual.successEvidence.status, /^(verified|record-only|pending-screenshot)$/u);
+      assert.ok(manifest.userManual.successEvidence.summary, `${manifest.agentId} 使用说明书缺少成功运行证据摘要`);
+      if (!formalAgentIds.has(manifest.agentId)) continue;
+      assert.ok(manifest.runtimeCapabilities.mcpTools.includes("agent_manual"));
+      const profile = await readJson(path.join(repositoryRoot, manifest.runtimeProfileRef));
+      assert.ok(profile.mcp.tools.includes("agent_manual"));
+      const prompt = await readFile(path.join(repositoryRoot, manifest.promptRef), "utf8");
+      assert.match(prompt, /`agent_manual`/u, `${manifest.agentId} Prompt 未要求查询当前说明书`);
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+  }
+  assert.equal(activeCount, 12);
+});
+
 test("治理岗位保留独立 Hermes 身份，只有运维官常驻飞书入口", async () => {
   for (const agentId of [...onDemandAgentIds, ...alwaysOnGovernanceAgentIds]) {
     const manifest = await readJson(path.join(repositoryRoot, "agents", agentId, "manifest.json"));
@@ -328,7 +361,11 @@ test("小拆把指标来源约束下沉到 Prompt、Skill、Manifest 和 Eval", 
   );
   const evals = await readJson(path.join(repositoryRoot, manifest.evalRefs[0]));
 
-  assert.equal(manifest.manifestVersion, "0.4.1");
+  assert.equal(manifest.manifestVersion, "0.5.0");
+  assert.match(prompt, /analysisIntent=digest\|deep\|template\|style/u);
+  assert.match(skill, /精华提炼 `digest`/u);
+  assert.match(skill, /模板学习 `template`/u);
+  assert.match(skill, /风格探索 `style`/u);
   assert.match(prompt, /任一字段只要出现指标数字、比例或由其推导的算术结果/u);
   assert.match(prompt, /不能依赖其他字段代为标注/u);
   assert.match(prompt, /没有平台或行业基线时禁止/u);

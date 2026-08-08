@@ -1,4 +1,12 @@
 import path from 'node:path';
+import os from 'node:os';
+import net from 'node:net';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const defaultFastPython = path.join(os.homedir(), '.local', 'share', 'agent-army', 'xiaod-faster-whisper', 'bin', 'python');
+const defaultFastModelRoot = path.join(os.homedir(), '.cache', 'huggingface', 'hub', 'models--Systran--faster-whisper-small', 'snapshots');
 
 // Local development is started directly with Node, so load the project's
 // untracked .env before deriving the immutable runtime config below.
@@ -13,7 +21,7 @@ try {
 
 export const config = {
   port: Number(process.env.PORT || 4318),
-  host: process.env.HOST || '127.0.0.1',
+  host: requireLoopbackHost(process.env.HOST || '127.0.0.1'),
   workDir: path.resolve(process.env.WORK_DIR || './data'),
   inboundMedia: {
     maxBytes: Number(process.env.INBOUND_MEDIA_MAX_BYTES || 1024 * 1024 * 1024),
@@ -25,6 +33,17 @@ export const config = {
   },
   asrBin: process.env.ASR_BIN || 'mlx_whisper',
   asrModel: process.env.ASR_MODEL || 'mlx-community/whisper-large-v3-turbo',
+  adaptiveAsr: {
+    enabled: process.env.ADAPTIVE_ASR_ENABLED !== '0',
+    fastPython: process.env.FASTER_WHISPER_PYTHON || defaultFastPython,
+    fastScript: process.env.FASTER_WHISPER_SCRIPT || path.join(appRoot, 'scripts', 'faster-whisper-transcribe.py'),
+    fastModelRoot: process.env.FASTER_WHISPER_MODEL_ROOT || defaultFastModelRoot,
+    fastModelId: process.env.FASTER_WHISPER_MODEL_ID || 'Systran/faster-whisper-small',
+    fastComputeType: process.env.FASTER_WHISPER_COMPUTE_TYPE || 'int8',
+    progressiveFastEnabled: process.env.FASTER_WHISPER_PROGRESSIVE_ENABLED === '1',
+    fastMinDurationSeconds: Number(process.env.FASTER_WHISPER_MIN_DURATION_SECONDS || 60),
+    fastMaxDurationSeconds: Number(process.env.FASTER_WHISPER_MAX_DURATION_SECONDS || 1800)
+  },
   // Explicit local acceptance-test hook. Never set this in normal operation.
   testFailOnceAt: launchedTestFailOnceAt || process.env.XIAOD_TEST_FAIL_ONCE_AT || '',
   refiner: {
@@ -46,8 +65,20 @@ export const config = {
   }
 };
 
+export function requireLoopbackHost(value) {
+  const host = String(value || '').trim().toLowerCase();
+  if (host === 'localhost' || host === '::1') return host;
+  if (net.isIPv4(host) && Number(host.split('.')[0]) === 127) return host;
+  throw new Error('小D服务只允许监听本机回环地址。');
+}
+
 export const configuredCapabilities = () => ({
   asr: Boolean(config.asrBin),
+  adaptiveAsr: config.adaptiveAsr.enabled,
+  fastAsrCandidate: config.adaptiveAsr.enabled
+    && existsSync(config.adaptiveAsr.fastPython)
+    && existsSync(config.adaptiveAsr.fastScript)
+    && existsSync(config.adaptiveAsr.fastModelRoot),
   aiRefinement: Boolean(config.refiner.url && config.refiner.model),
   lark: Boolean(config.lark.appId && config.lark.appSecret),
   mediaCrawlerDeep: Boolean(config.mediaCrawler.cookieBridgeUrl && config.mediaCrawler.downloadServerUrl),

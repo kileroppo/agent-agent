@@ -83,10 +83,29 @@ export class XiaodDelegate {
       method:'POST',
       headers:{ 'content-type':'application/json' },
       body:JSON.stringify({ decision:'confirm', completeListen:true, reviewerRef }),
-      signal:AbortSignal.timeout(5000)
+      signal:AbortSignal.timeout(90_000)
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok || !payload.job) throw new Error(payload.error || `小D确认稿生成失败 ${response.status}`);
+    return payload.job;
+  }
+
+  async redeliver(task) {
+    const jobId = String(task.execution?.xiaodJobId || '').trim();
+    if (!jobId) throw new Error('这条任务没有可继续交付的小D工作。');
+    const response = await this.fetch(`${this.baseUrl}/api/jobs/${encodeURIComponent(jobId)}/redeliver`, {
+      method:'POST',
+      headers:{ 'content-type':'application/json' },
+      body:'{}',
+      signal:AbortSignal.timeout(90_000)
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.job) {
+      const error = new Error(payload.error || `小D飞书交付失败 ${response.status}`);
+      error.code = payload.code || 'xiaod_delivery_retry_failed';
+      error.status = response.status;
+      throw error;
+    }
     return payload.job;
   }
 

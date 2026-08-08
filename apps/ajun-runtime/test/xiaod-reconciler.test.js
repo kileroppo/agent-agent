@@ -7,7 +7,7 @@ import { XiaodReconciler } from '../src/xiaod-reconciler.js';
 
 function setup({ taskPatch = {}, getJob, onFailure = null, contentWorkspaceDir = null } = {}) {
   const task = {
-    taskId: 'task-1', status: 'running', currentStage: 'delegated_to_xiaod', artifactRefs: [],
+    taskId: 'task-1', taskType:'media.transcribe-and-refine', status: 'running', currentStage: 'delegated_to_xiaod', artifactRefs: [],
     execution: { executor: 'xiaod', xiaodJobId: 'xiaod-1', polling: { state: 'pending', consecutiveFailures: 0, nextPollAt: null } },
     ...taskPatch
   };
@@ -36,6 +36,55 @@ test('central reconciler settles a persisted running task after restart', async 
   const delivery = task.artifactRefs.find((artifact) => artifact.type === 'xiaod_media_delivery');
   assert.equal(delivery.artifactId, 'xiaod-job:xiaod-1');
   assert.equal(delivery.data.larkPermissionGranted, true);
+});
+
+test('小D下游标记完成但飞书交付权限未确认时转为待测试', async () => {
+  const { task, reconciler } = setup({
+    getJob:async () => ({
+      id:'xiaod-1',
+      status:'completed',
+      title:'未确认交付',
+      output:{ markdownPath:'/tmp/result.md', larkUrl:'https://example.feishu.cn/docx/result', larkPermissionGranted:false },
+      quality:{ passed:true },
+    }),
+  });
+
+  await reconciler.reconcile();
+
+  assert.equal(task.status, 'waiting_test');
+  assert.equal(task.currentStage, 'completion_evidence_invalid');
+  assert.equal(task.error.code, 'completion_evidence_invalid');
+});
+
+test('小D等待飞书配置时A君停止伪装处理中，并给出可执行恢复口令', async () => {
+  const { task, reconciler } = setup({
+    getJob:async () => ({
+      id:'xiaod-1', status:'awaiting_delivery', progress:92,
+      output:{ markdownPath:'/tmp/result.md', larkDelivery:{ state:'failed_before_create', safeToRetry:true } }
+    })
+  });
+  await reconciler.reconcile();
+  assert.equal(task.status, 'needs_input');
+  assert.equal(task.currentStage, 'xiaod_awaiting_delivery');
+  assert.equal(task.execution.polling.state, 'settled');
+  assert.equal(task.error.code, 'xiaod_delivery_pending');
+  assert.match(task.error.userMessage, /继续飞书交付/);
+});
+
+test('小D飞书交付结果不确定时A君禁止自动重试并要求人工仲裁', async () => {
+  const { task, reconciler } = setup({
+    getJob:async () => ({
+      id:'xiaod-1', status:'awaiting_delivery', progress:92, error:'provider response lost',
+      failure:{ category:'manual', retryable:false },
+      output:{ markdownPath:'/tmp/result.md', larkDelivery:{ state:'uncertain', safeToRetry:false } }
+    })
+  });
+  await reconciler.reconcile();
+  assert.equal(task.status, 'needs_input');
+  assert.equal(task.execution.polling.state, 'settled');
+  assert.equal(task.error.code, 'xiaod_delivery_uncertain');
+  assert.equal(task.error.retryable, false);
+  assert.match(task.error.userMessage, /不要重试/);
 });
 
 test('系统自动确认稿进入正式产物链，但不会标记为人工听审', async () => {

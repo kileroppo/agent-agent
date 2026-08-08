@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { recordTaskUsage, summarizeTaskUsage } from './task-usage.js';
+import { reconcileUsageBilling, recordTaskUsage, summarizeTaskUsage } from './task-usage.js';
 import { formatPublicReportReply } from './public-report-presentation.js';
 import { formatOfficeBriefingReply } from './local-office-assistant.js';
 import { canonicalizeBusinessAssignment, githubRepositoryQuery } from './business-task-routing.js';
@@ -18,8 +18,16 @@ import { WECHAT_CHAT_TASK_TYPE, normalizeWechatChatRequest, wechatApprovalScope 
 import { SkillExecutionRegistry } from './skill-execution-registry.js';
 import { TaskCapabilityCatalog } from './task-capability-catalog.js';
 import { TaskExecutionCoordinator } from './task-execution-coordinator.js';
+import { isVerifiedVideoAnalysisArtifact, validateTaskCompletion } from './task-completion-contract.js';
 import { buildTaskFocus } from './task-overview-focus.js';
+import { resolveAnalysisIntent } from './analysis-intent.ts';
 import { privateReadGrantStatus, revokePrivateReadGrant } from './private-read-grant.js';
+import {
+  isPaperclipCompletableTaskStatus,
+  paperclipCompletionConfirmed,
+  paperclipCompletionSync,
+  paperclipIssueStatusForTask,
+} from './paperclip-assignment-completion.js';
 import {
   assertPaperclipEmployeeExecutorAssignment,
   resolvePaperclipAssignmentTaskType,
@@ -53,6 +61,7 @@ const highRiskActions = ['外发', '发布', '删除', '付款', '付费', '扩�
 const organizationGovernanceWords = /创建.*(?:agent|智能体|岗位)|新建.*(?:agent|智能体|岗位)|扩权|账号|连接|公开发布|对外发布|付款|付费|预算|暂停|终止|跨\s*agent/i;
 const ROLE_TOOL_GRANT = Symbol('m5RoleToolGrant');
 const OPEN_RESEARCH_EXECUTION_POLICY = Symbol('openResearchExecutionPolicy');
+const XIAOD_TERMINAL_OR_REVIEW_STATUSES = new Set(['awaiting_review', 'awaiting_delivery', 'completed', 'failed']);
 
 export class TaskService {
   constructor({
@@ -74,6 +83,7 @@ export class TaskService {
     capabilityCatalog = new TaskCapabilityCatalog({ executors }),
     localAiCapabilityStatus = null,
     officePresentationWorkspaceRoot = null,
+    usageLedger = null,
   }) {
     this.registry = registry;
     this.store = store;
@@ -96,9 +106,16 @@ export class TaskService {
     this.skillExecutionRegistry = skillExecutionRegistry;
     this.localAiCapabilityStatus = typeof localAiCapabilityStatus === 'function' ? localAiCapabilityStatus : null;
     this.officePresentationWorkspaceRoot = safeWorkspaceRoot(officePresentationWorkspaceRoot);
+    this.usageLedger = usageLedger;
     this.contentGrowthWaitMs = Math.max(1, Math.min(Number(contentGrowthWaitMs) || 240_000, 240_000));
     this.contentGrowthRuns = new Map();
     this.employeeAssignmentRuns = new Map();
+    this.taskCreationRuns = new Map();
+    this.approvalResolutionRuns = new Map();
+    this.taskControlRuns = new Map();
+    this.xiaodDeliveryRuns = new Map();
+    this.xiaodDeliveryRequestRuns = new Map();
+    this.paperclipAssignmentCompletionRuns = new Map();
     this.m5WorkProductObserver = null;
     this.executionCoordinator = new TaskExecutionCoordinator({
       store,
@@ -125,6 +142,26 @@ export class TaskService {
   }
 
   async create(input) {
+    const idempotencyKey = String(input?.idempotencyKey || '').trim();
+    if (!idempotencyKey) return this.createOnce(input);
+    const fingerprint = taskIdempotencyFingerprint(input);
+    const running = this.taskCreationRuns.get(idempotencyKey);
+    if (running) {
+      if (running.fingerprint !== fingerprint) {
+        throw new ValidationError('同一幂等键正在处理不同的任务内容；已拒绝串用结果。');
+      }
+      return running.execution;
+    }
+    const execution = this.createOnce(input).finally(() => {
+      if (this.taskCreationRuns.get(idempotencyKey)?.execution === execution) {
+        this.taskCreationRuns.delete(idempotencyKey);
+      }
+    });
+    this.taskCreationRuns.set(idempotencyKey, { fingerprint, execution });
+    return execution;
+  }
+
+  async createOnce(input) {
     const rawRequested = {
       title:input?.title,
       description:input?.description,
@@ -147,10 +184,6 @@ export class TaskService {
     if (!title) throw new ValidationError('请说明要完成什么。');
     if (!taskType) throw new ValidationError('请选择任务类型。');
     const suppliedIdempotencyKey = String(input?.idempotencyKey || '').trim();
-    if (suppliedIdempotencyKey) {
-      const existing = (await this.store.list()).find((item) => item.idempotencyKey === suppliedIdempotencyKey);
-      if (existing) return existing;
-    }
     const requesterName = String(input?.requesterName || '').trim() || 'A君';
     const requestedAgentId = requested.agentId || null;
     let candidates = await this.registry.candidates(taskType);
@@ -160,7 +193,22 @@ export class TaskService {
     const wechatChat = taskType === WECHAT_CHAT_TASK_TYPE ? normalizeWechatChatRequest({ ...input, title, description }) : null;
     const sourceUrls = uniquePublicUrls([String(input?.sourceUrl || '').trim(), ...(Array.isArray(input?.sourceUrls) ? input.sourceUrls : []), ...extractPublicUrls(`${title}\n${description}`)]);
     const sourceUrl = sourceUrls[0] || null;
-    let task = await this.store.createTask({
+    const analysis = taskType === 'content.video-benchmark-analysis'
+      ? resolveAnalysisIntent({
+          analysisIntent:input?.analysisIntent,
+          title,
+          description,
+          focus:input?.focus,
+          depth:input?.depth,
+        })
+      : null;
+    if (analysis?.error === 'invalid_analysis_intent') {
+      throw new ValidationError('分析模式无效；请选择精华提炼、深度拆解、模板学习或风格探索。');
+    }
+    if (analysis?.error === 'analysis_intent_conflict') {
+      throw new ValidationError('检测到多个分析模式，请只选择一种：精华提炼、深度拆解、模板学习或风格探索。');
+    }
+    const taskInput = {
       taskType, idempotencyKey: suppliedIdempotencyKey || `local:${cryptoSafe(title)}:${Date.now()}`, requester: input?.requester || { kind: requesterName === 'A君' ? 'local-owner' : 'lan-collaborator', ref: requesterName }, source: input?.source || { channel: 'ajun-runtime' },
       assigneeAgentId: agent?.agentId || null, parentTaskId: String(input?.parentTaskId || '').trim() || null, recovery: input?.recovery || undefined, input: {
         title,
@@ -174,7 +222,8 @@ export class TaskService {
         topic:optionalInput(input?.topic),
         reviewPolicy:input?.reviewPolicy === 'required' ? 'required' : 'optional',
         evidenceMode:input?.evidenceMode === 'preliminary' ? 'preliminary' : 'formal',
-        depth:input?.depth === 'full' ? 'full' : 'fast',
+        analysisIntent:analysis?.analysisIntent || (['digest', 'deep', 'template', 'style'].includes(input?.analysisIntent) ? input.analysisIntent : undefined),
+        depth:analysis?.depth || (input?.depth === 'full' ? 'full' : 'fast'),
         visualMode:input?.visualMode === 'auto' || input?.visualMode === 'required'
           ? input.visualMode
           : input?.visualMode === 'off'
@@ -217,7 +266,22 @@ export class TaskService {
           occurredAt:new Date().toISOString()
         }
       } : {})
-    });
+    };
+    if (suppliedIdempotencyKey) {
+      taskInput.idempotencyFingerprint = taskIdempotencyFingerprint({
+        taskType,
+        requestedAgentId,
+        requester:taskInput.requester,
+        source:taskInput.source,
+        parentTaskId:taskInput.parentTaskId,
+        input:taskInput.input,
+      });
+    }
+    const creation = typeof this.store.createTaskOnce === 'function'
+      ? await this.store.createTaskOnce(taskInput)
+      : { task:await this.store.createTask(taskInput), created:true };
+    let task = creation.task;
+    if (!creation.created) return task;
     if (supportsOpenTask(task, agent)) {
       let capabilityInspection;
       try {
@@ -307,12 +371,16 @@ export class TaskService {
     });
   }
 
-  async rejectApproval(approvalId, { decisionBy = 'A君', decisionReason = '本机主人拒绝当前请求范围。', chatRef = '' } = {}) {
+  async rejectApproval(approvalId, options = {}) {
+    return this.runApprovalResolution(approvalId, 'local:reject', () => this.rejectApprovalOnce(approvalId, options));
+  }
+
+  async rejectApprovalOnce(approvalId, { decisionBy = 'A君', decisionReason = '本机主人拒绝当前请求范围。', chatRef = '' } = {}) {
     const approval = (await this.store.listApprovals()).find((item) => item.approvalId === approvalId);
     if (!approval) throw new ValidationError('找不到这条审批。');
     if (approval.status !== 'pending') throw new ValidationError('这条审批已经处理过了。');
     if (isExpiredApproval(approval)) {
-      await this.expireApproval(approvalId);
+      await this.expireApprovalOnce(approvalId);
       throw new ValidationError('这条审批已过期，任务已自动关闭，未执行任何动作。');
     }
     const task = (await this.store.list()).find((item) => item.taskId === approval.taskId);
@@ -344,24 +412,28 @@ export class TaskService {
     });
   }
 
-  async approveApproval(approvalId, { decisionBy = 'A君', decisionReason = '已确认本次范围。', chatRef = '' } = {}) {
+  async approveApproval(approvalId, options = {}) {
+    return this.runApprovalResolution(approvalId, 'local:approve', () => this.approveApprovalOnce(approvalId, options));
+  }
+
+  async approveApprovalOnce(approvalId, { decisionBy = 'A君', decisionReason = '已确认本次范围。', chatRef = '' } = {}) {
     const approval = (await this.store.listApprovals()).find((item) => item.approvalId === approvalId);
     if (!approval) throw new ValidationError('找不到这条审批。');
     if (approval.governanceMode === 'paperclip') throw new ValidationError('这条组织级审批必须在 Paperclip 完成决定，不能由本机直接放行。');
     if (approval.status !== 'pending') throw new ValidationError('这条审批已经处理过了。');
     if (isExpiredApproval(approval)) {
-      await this.expireApproval(approvalId);
+      await this.expireApprovalOnce(approvalId);
       throw new ValidationError('这条审批已过期，任务已自动关闭，未执行任何动作。');
     }
     const task = (await this.store.list()).find((item) => item.taskId === approval.taskId);
     if (!task) throw new ValidationError('找不到关联任务。');
     validateApprovalChat(task, chatRef);
     validateApprovalScope(task, approval);
-    await this.store.updateApproval(approvalId, { status:'approved', decisionBy:String(decisionBy).slice(0, 120), decisionReason:String(decisionReason).slice(0, 300), decidedAt:new Date().toISOString() });
     if (approval.action === 'confirm-transcript-after-complete-listen') {
       const xiaod = this.executors.xiaod;
       if (typeof xiaod?.confirmTranscript !== 'function') throw new ValidationError('小D确认稿能力当前不可用，未生成确认稿。');
       await xiaod.confirmTranscript(task, { reviewerRef:decisionBy });
+      await this.store.updateApproval(approvalId, { status:'approved', decisionBy:String(decisionBy).slice(0, 120), decisionReason:String(decisionReason).slice(0, 300), decidedAt:new Date().toISOString() });
       return this.store.updateTask(task.taskId, {
         status:'running',
         currentStage:'xiaod_review_confirmed',
@@ -369,6 +441,7 @@ export class TaskService {
         execution:{ ...(task.execution || {}), polling:{ state:'pending', consecutiveFailures:0, nextPollAt:new Date().toISOString() } }
       });
     }
+    await this.store.updateApproval(approvalId, { status:'approved', decisionBy:String(decisionBy).slice(0, 120), decisionReason:String(decisionReason).slice(0, 300), decidedAt:new Date().toISOString() });
     const agent = (await this.registry.list()).find((item) => item.agentId === task.assigneeAgentId) || null;
     const queued = await this.store.updateTask(task.taskId, { status:'queued', currentStage:'approval_approved', error: undefined });
     return this.executeTask(queued, agent);
@@ -400,7 +473,95 @@ export class TaskService {
   async requestPause(taskId) { return this.requestTaskControl(taskId, 'pause-task'); }
   async requestResume(taskId) { return this.requestTaskControl(taskId, 'resume-task'); }
 
+  continueXiaodDelivery(taskId, options = {}) {
+    const key = String(taskId || '').trim();
+    const running = this.xiaodDeliveryRequestRuns.get(key);
+    if (running) return running;
+    const request = Promise.resolve()
+      .then(() => this.continueXiaodDeliveryOnce(taskId, options))
+      .finally(() => {
+        if (this.xiaodDeliveryRequestRuns.get(key) === request) this.xiaodDeliveryRequestRuns.delete(key);
+      });
+    this.xiaodDeliveryRequestRuns.set(key, request);
+    return request;
+  }
+
+  async continueXiaodDeliveryOnce(taskId, { chatRef = '' } = {}) {
+    const task = (await this.store.list()).find((item) => item.taskId === taskId);
+    if (!task) throw new ValidationError('找不到要继续交付的任务。');
+    validateApprovalChat(task, chatRef);
+    if (task.execution?.executor !== 'xiaod' || !task.execution?.xiaodJobId) throw new ValidationError('这条任务没有可继续交付的小D工作。');
+    if (this.xiaodDeliveryRuns.has(task.taskId)) return task;
+    if (task.currentStage !== 'xiaod_awaiting_delivery' || task.status !== 'needs_input') throw new ValidationError('这条任务当前不在等待飞书交付阶段。');
+    if (task.error?.code === 'xiaod_delivery_uncertain') throw new ValidationError(task.error.userMessage || '飞书交付结果不确定，必须先人工核对。');
+    const executor = this.executors.xiaod;
+    if (typeof executor?.redeliver !== 'function') throw new ValidationError('小D飞书交付能力当前不可用。');
+    const requested = await this.store.updateTask(task.taskId, {
+      status:'running',
+      currentStage:'xiaod_delivery_retry_requested',
+      error:undefined,
+      execution:{
+        ...(task.execution || {}),
+        polling:{ state:'pending', consecutiveFailures:0, nextPollAt:new Date().toISOString() }
+      }
+    });
+    const run = Promise.resolve()
+      .then(() => executor.redeliver(requested))
+      .then(async (job) => {
+        const deliveryPending = job.status === 'awaiting_delivery';
+        const updated = await this.store.updateTask(task.taskId, {
+          status:deliveryPending ? 'needs_input' : 'running',
+          currentStage:`xiaod_${job.status || 'delivery_retrying'}`,
+          error:deliveryPending ? xiaodDeliveryPendingError(job) : undefined,
+          execution:{
+            ...(requested.execution || {}),
+            xiaodStatus:job.status,
+            xiaodProgress:job.progress,
+            updatedAt:new Date().toISOString(),
+            polling:{ state:deliveryPending ? 'settled' : 'pending', consecutiveFailures:0, nextPollAt:deliveryPending ? null : new Date().toISOString() }
+          }
+        });
+        if (!deliveryPending && typeof executor.observe === 'function') executor.observe(updated);
+        return updated;
+      })
+      .catch(async (error) => {
+        const current = (await this.store.list()).find((item) => item.taskId === task.taskId) || requested;
+        return this.store.updateTask(task.taskId, {
+          status:'needs_input',
+          currentStage:'xiaod_awaiting_delivery',
+          error:{
+            code:error?.code === 'lark_delivery_uncertain' ? 'xiaod_delivery_uncertain' : 'xiaod_delivery_retry_failed',
+            message:String(error?.message || '小D飞书交付暂时失败。'),
+            userMessage:error?.code === 'lark_delivery_uncertain'
+              ? '飞书交付结果不确定，请先在本机运行台核对并仲裁；确认前不要重试。'
+              : '飞书交付仍未完成；本地确认稿已保留。请修复飞书配置或连接后再次回复“继续飞书交付”。',
+            category:'needs_input', retryable:error?.code !== 'lark_delivery_uncertain', stage:'awaiting_delivery', occurredAt:new Date().toISOString()
+          },
+          execution:{ ...(current.execution || {}), polling:{ state:'settled', consecutiveFailures:0, nextPollAt:null } }
+        });
+      })
+      .finally(() => {
+        if (this.xiaodDeliveryRuns.get(task.taskId) === run) this.xiaodDeliveryRuns.delete(task.taskId);
+      });
+    this.xiaodDeliveryRuns.set(task.taskId, run);
+    void run.catch(() => undefined);
+    return requested;
+  }
+
   async requestTaskControl(taskId, action) {
+    const key = `${String(taskId || '').trim()}:${String(action || '').trim()}`;
+    const running = this.taskControlRuns.get(key);
+    if (running) return running;
+    const execution = Promise.resolve()
+      .then(() => this.requestTaskControlOnce(taskId, action))
+      .finally(() => {
+        if (this.taskControlRuns.get(key) === execution) this.taskControlRuns.delete(key);
+      });
+    this.taskControlRuns.set(key, execution);
+    return execution;
+  }
+
+  async requestTaskControlOnce(taskId, action) {
     const task = (await this.store.list()).find((item) => item.taskId === taskId);
     if (!task) throw new ValidationError('找不到要控制的任务。');
     const isPause = action === 'pause-task';
@@ -424,34 +585,197 @@ export class TaskService {
     return { task:updated, approval, duplicate:false };
   }
 
-  async resolvePaperclipApproval(approvalId, decision, { decisionBy = 'A君', decisionReason = '由飞书组织级审批卡确认。', chatRef = '' } = {}) {
-    const approval = (await this.store.listApprovals()).find((item) => item.approvalId === approvalId);
-    if (!approval) throw new ValidationError('找不到这条审批。');
-    if (approval.governanceMode !== 'paperclip') throw new ValidationError('这不是组织级审批。');
-    if (approval.status !== 'pending') throw new ValidationError('这条审批已经处理过了。');
-    if (isExpiredApproval(approval)) {
-      await this.expireApproval(approvalId);
-      throw new ValidationError('这条审批已过期，任务已自动关闭，未执行任何动作。');
-    }
-    const task = (await this.store.list()).find((item) => item.taskId === approval.taskId);
-    if (!task) throw new ValidationError('找不到关联任务。');
-    validateApprovalChat(task, chatRef); validateApprovalScope(task, approval);
-    const paperclipApprovalId = String(task.governance?.paperclipApprovalId || '').trim();
-    if (!paperclipApprovalId || !this.governance?.resolveApproval) throw new ValidationError('Paperclip 审批投影不存在，未执行任务。');
+  async resolvePaperclipApproval(approvalId, decision, options = {}) {
     const normalized = String(decision || '').trim().toLowerCase();
     if (!['approve', 'reject'].includes(normalized)) throw new ValidationError('组织级审批决定无效。');
-    await this.governance.resolveApproval(paperclipApprovalId, normalized, decisionReason);
-    if (['pause-task', 'resume-task'].includes(approval.action)) return this.resolveTaskControlApproval(task, approval, normalized, decisionBy, decisionReason, paperclipApprovalId);
+    return this.runApprovalResolution(
+      approvalId,
+      `paperclip:${normalized}`,
+      () => this.resolvePaperclipApprovalOnce(approvalId, normalized, options),
+    );
+  }
+
+  async resolvePaperclipApprovalOnce(approvalId, normalized, { decisionBy = 'A君', decisionReason = '由飞书组织级审批卡确认。', chatRef = '' } = {}) {
+    let approval = (await this.store.listApprovals()).find((item) => item.approvalId === approvalId);
+    if (!approval) throw new ValidationError('找不到这条审批。');
+    if (approval.governanceMode !== 'paperclip') throw new ValidationError('这不是组织级审批。');
+    const task = (await this.store.list()).find((item) => item.taskId === approval.taskId);
+    if (!task) throw new ValidationError('找不到关联任务。');
+    validateApprovalChat(task, chatRef);
+    if (approval.status === 'pending' || approval.requestedScope) validateApprovalScope(task, approval);
+    const paperclipApprovalId = String(task.governance?.paperclipApprovalId || '').trim();
+    if (approval.status !== 'pending') {
+      return this.resumeCommittedPaperclipApproval(task, approval, normalized, {
+        decisionBy,
+        decisionReason,
+        paperclipApprovalId,
+      });
+    }
+    if (!paperclipApprovalId || !this.governance?.resolveApproval) throw new ValidationError('Paperclip 审批投影不存在，未执行任务。');
+    if (isExpiredApproval(approval)) {
+      await this.expireApprovalOnce(approvalId);
+      throw new ValidationError('这条审批已过期，任务已自动关闭，未执行任何动作。');
+    }
+    const existingDecision = String(approval.externalDecision?.decision || '').trim();
+    if (existingDecision && existingDecision !== normalized) {
+      const error = new ValidationError('这条审批已经开始处理另一个决定；已拒绝覆盖。');
+      error.code = 'approval_resolution_conflict';
+      throw error;
+    }
+    const requestedAt = approval.externalDecision?.requestedAt || new Date().toISOString();
+    approval = await this.store.updateApproval(approvalId, {
+      externalDecision:{
+        ...(approval.externalDecision || {}),
+        decision:normalized,
+        state:approval.externalDecision?.state === 'confirmed' ? 'confirmed' : 'resolving',
+        paperclipApprovalId,
+        requestedAt,
+        decisionBy:String(decisionBy).slice(0, 120),
+        decisionReason:String(decisionReason).slice(0, 300),
+        chatRef:String(chatRef || '').slice(0, 240),
+      },
+    });
+    const confirmedDecision = await this.confirmPaperclipApprovalDecision(approval, normalized, decisionReason, paperclipApprovalId);
+    approval = confirmedDecision.approval;
+    normalized = confirmedDecision.decision;
+    if (['pause-task', 'resume-task'].includes(approval.action)) {
+      return this.resolveTaskControlApproval(task, approval, normalized, decisionBy, decisionReason, paperclipApprovalId);
+    }
+    const decisionPatch = paperclipApprovalDecisionPatch(normalized, decisionBy, decisionReason, paperclipApprovalId, approval);
     if (normalized === 'reject') {
-      await this.store.updateApproval(approvalId, { status:'rejected', decisionBy:String(decisionBy).slice(0,120), decisionReason:String(decisionReason).slice(0,300), decidedAt:new Date().toISOString(), paperclipApprovalId });
-      let closed = await this.store.updateTask(task.taskId, { status:'cancelled', currentStage:'governance_rejected', error:{ code:'governance_rejected', message:'Paperclip 组织级审批已拒绝。', userMessage:'该组织级请求已被拒绝，未执行任何外部动作。', category:'manual', stage:'governance_approval', occurredAt:new Date().toISOString() } });
+      const committed = await this.store.resolveApprovalAndUpdateTask(
+        approvalId,
+        decisionPatch,
+        task.taskId,
+        { status:'cancelled', currentStage:'governance_rejected', error:governanceRejectedError() },
+      );
+      let closed = committed.task;
       if (closed.governance?.paperclipIssueId) closed = await this.store.updateTask(closed.taskId, { governance: await this.governance.update(closed) });
       return closed;
     }
-    await this.store.updateApproval(approvalId, { status:'approved', decisionBy:String(decisionBy).slice(0,120), decisionReason:String(decisionReason).slice(0,300), decidedAt:new Date().toISOString(), paperclipApprovalId });
     const agent = (await this.registry.list()).find((item) => item.agentId === task.assigneeAgentId) || null;
-    const queued = await this.store.updateTask(task.taskId, { status:'queued', currentStage:'governance_approved', error: undefined });
+    const committed = await this.store.resolveApprovalAndUpdateTask(
+      approvalId,
+      decisionPatch,
+      task.taskId,
+      { status:'queued', currentStage:'governance_approved', error:undefined },
+    );
+    return this.executeTask(committed.task, agent);
+  }
+
+  async confirmPaperclipApprovalDecision(approval, decision, decisionReason, paperclipApprovalId) {
+    if (approval.externalDecision?.state === 'confirmed') {
+      return { approval, decision:approval.externalDecision.decision || decision };
+    }
+    const expected = decision === 'approve' ? 'approved' : 'rejected';
+    let snapshot = null;
+    if (typeof this.governance?.getApproval === 'function') {
+      try { snapshot = await this.governance.getApproval(paperclipApprovalId); }
+      catch { /* POST 本身具备同决定幂等语义；读取失败时仍可安全尝试。 */ }
+    }
+    if (!paperclipDecisionForStatus(snapshot?.status) && snapshot?.status && snapshot.status !== 'pending') {
+      const error = new ValidationError(`Paperclip 审批处于无法自动收口的状态“${snapshot.status}”。`);
+      error.code = 'paperclip_approval_state_unsupported';
+      throw error;
+    }
+    if (!paperclipDecisionForStatus(snapshot?.status) && snapshot?.status !== expected) {
+      try {
+        snapshot = await this.governance.resolveApproval(paperclipApprovalId, decision, decisionReason);
+      } catch (error) {
+        if (typeof this.governance?.getApproval !== 'function') throw error;
+        let recovered = null;
+        try { recovered = await this.governance.getApproval(paperclipApprovalId); }
+        catch { throw error; }
+        if (!paperclipDecisionForStatus(recovered?.status)) throw error;
+        snapshot = recovered;
+      }
+    }
+    const confirmed = paperclipDecisionForStatus(snapshot?.status);
+    if (!confirmed) throw new ValidationError(`Paperclip 审批未进入已决状态：${snapshot?.status || 'unknown'}。`);
+    const updated = await this.store.updateApproval(approval.approvalId, {
+      externalDecision:{
+        ...(approval.externalDecision || {}),
+        requestedDecision:decision,
+        decision:confirmed,
+        state:'confirmed',
+        confirmedAt:new Date().toISOString(),
+        paperclipStatus:snapshot.status,
+      },
+    });
+    return { approval:updated, decision:confirmed };
+  }
+
+  async resumeCommittedPaperclipApproval(task, approval, decision, { decisionBy, decisionReason, paperclipApprovalId }) {
+    const expected = decision === 'approve' ? 'approved' : 'rejected';
+    if (approval.status !== expected) {
+      const error = new ValidationError(`这条审批已经处理为“${approval.status}”，拒绝相反决定。`);
+      error.code = 'approval_resolution_conflict';
+      throw error;
+    }
+    if (['pause-task', 'resume-task'].includes(approval.action)) {
+      if (task.execution?.control?.approvalId === approval.approvalId
+        && ['accepted', 'rejected', 'superseded'].includes(task.execution?.control?.status)) return task;
+      return this.resolveTaskControlApproval(task, approval, decision, decisionBy, decisionReason, paperclipApprovalId, { alreadyCommitted:true });
+    }
+    if (decision === 'reject') {
+      if (task.status === 'cancelled') return task;
+      let closed = await this.store.updateTask(task.taskId, {
+        status:'cancelled', currentStage:'governance_rejected', error:governanceRejectedError(),
+      });
+      if (closed.governance?.paperclipIssueId) closed = await this.store.updateTask(closed.taskId, { governance:await this.governance.update(closed) });
+      return closed;
+    }
+    if (task.status !== 'waiting_approval' && task.status !== 'queued') return task;
+    const agent = (await this.registry.list()).find((item) => item.agentId === task.assigneeAgentId) || null;
+    const queued = task.status === 'queued'
+      ? task
+      : await this.store.updateTask(task.taskId, { status:'queued', currentStage:'governance_approved', error:undefined });
     return this.executeTask(queued, agent);
+  }
+
+  async reconcilePendingPaperclipApprovals() {
+    const approvals = (await this.store.listApprovals()).filter((approval) => (
+      approval.status === 'pending'
+      && approval.governanceMode === 'paperclip'
+      && ['resolving', 'confirmed'].includes(approval.externalDecision?.state)
+      && ['approve', 'reject'].includes(approval.externalDecision?.decision)
+    ));
+    const results = [];
+    for (const approval of approvals) {
+      try {
+        const task = await this.resolvePaperclipApproval(approval.approvalId, approval.externalDecision.decision, {
+          decisionBy:approval.externalDecision.decisionBy || 'A君审批恢复器',
+          decisionReason:approval.externalDecision.decisionReason || '恢复已开始的 Paperclip 审批决定。',
+          chatRef:approval.externalDecision.chatRef || '',
+        });
+        results.push({ approvalId:approval.approvalId, status:'reconciled', taskId:task.taskId });
+      } catch (error) {
+        results.push({ approvalId:approval.approvalId, status:'sync_pending', reason:String(error?.message || 'unknown').slice(0, 300) });
+      }
+    }
+    return results;
+  }
+
+  runApprovalResolution(approvalId, intent, operation) {
+    const key = String(approvalId || '').trim();
+    const running = this.approvalResolutionRuns.get(key);
+    if (running) {
+      if (running.intent !== intent) {
+        const error = new ValidationError('同一条审批正在处理另一个决定；已拒绝并发覆盖。');
+        error.code = 'approval_resolution_conflict';
+        throw error;
+      }
+      return running.execution;
+    }
+    const execution = Promise.resolve()
+      .then(operation)
+      .finally(() => {
+        if (this.approvalResolutionRuns.get(key)?.execution === execution) {
+          this.approvalResolutionRuns.delete(key);
+        }
+      });
+    this.approvalResolutionRuns.set(key, { intent, execution });
+    return execution;
   }
 
   async expirePendingApprovals({ now = Date.now() } = {}) {
@@ -465,7 +789,15 @@ export class TaskService {
     return expired;
   }
 
-  async expireApproval(approvalId, { now = Date.now() } = {}) {
+  async expireApproval(approvalId, options = {}) {
+    return this.runApprovalResolution(
+      approvalId,
+      'system:expire',
+      () => this.expireApprovalOnce(approvalId, options),
+    );
+  }
+
+  async expireApprovalOnce(approvalId, { now = Date.now() } = {}) {
     const approval = (await this.store.listApprovals()).find((item) => item.approvalId === approvalId);
     if (!approval || !isExpiredApproval(approval, now)) return { approval, task:null, expired:false };
     const decidedAt = new Date(now).toISOString();
@@ -492,26 +824,81 @@ export class TaskService {
     return { approval:expiredApproval, task:closed, expired:true };
   }
 
-  async resolveTaskControlApproval(task, approval, decision, decisionBy, decisionReason, paperclipApprovalId) {
+  async resolveTaskControlApproval(task, approval, decision, decisionBy, decisionReason, paperclipApprovalId, { alreadyCommitted = false } = {}) {
     const approved = decision === 'approve';
-    await this.store.updateApproval(approval.approvalId, { status:approved ? 'approved' : 'rejected', decisionBy:String(decisionBy).slice(0,120), decisionReason:String(decisionReason).slice(0,300), decidedAt:new Date().toISOString(), paperclipApprovalId });
+    const decisionPatch = paperclipApprovalDecisionPatch(decision, decisionBy, decisionReason, paperclipApprovalId, approval);
     if (!approved) {
-      let unchanged = await this.store.updateTask(task.taskId, { execution:{ ...(task.execution || {}), control:{ ...(task.execution?.control || {}), action:approval.action, status:'rejected', decidedAt:new Date().toISOString() } } });
+      const taskPatch = (current) => ({
+        execution:{ ...(current.execution || {}), control:{ ...(current.execution?.control || {}), action:approval.action, status:'rejected', approvalId:approval.approvalId, decidedAt:new Date().toISOString() } },
+      });
+      let unchanged;
+      if (alreadyCommitted) unchanged = await this.store.updateTask(task.taskId, taskPatch(task));
+      else unchanged = (await this.store.resolveApprovalAndUpdateTask(approval.approvalId, decisionPatch, task.taskId, taskPatch)).task;
       if (unchanged.governance?.paperclipIssueId) unchanged = await this.store.updateTask(unchanged.taskId, { governance:await this.governance.update(unchanged) });
       return unchanged;
     }
     const executor = this.executors.xiaod;
     if (!executor || typeof executor[approval.action === 'pause-task' ? 'pause' : 'resume'] !== 'function') throw new ValidationError('小D当前不支持这项控制，未改变任务状态。');
     const method = approval.action === 'pause-task' ? 'pause' : 'resume';
-    const job = await executor[method](task);
+    if (!alreadyCommitted) {
+      approval = await this.store.updateApproval(approval.approvalId, {
+        localEffect:{
+          ...(approval.localEffect || {}),
+          action:approval.action,
+          state:'resolving',
+          requestedAt:approval.localEffect?.requestedAt || new Date().toISOString(),
+        },
+      });
+    }
+    const { job, outcome } = await this.ensureXiaodTaskControlEffect(task, approval, executor, method);
+    const decidedAt = new Date().toISOString();
+    const controlStatus = outcome === 'obsolete' ? 'superseded' : 'accepted';
     const status = approval.action === 'pause-task' ? (job.status === 'paused' ? 'paused' : 'pausing') : 'running';
-    let updated = await this.store.updateTask(task.taskId, {
-      status, currentStage:approval.action === 'pause-task' ? `xiaod_${job.status || 'pausing'}` : 'xiaod_resumed', error:undefined,
-      execution:{ ...(task.execution || {}), xiaodStatus:job.status, xiaodProgress:job.progress, updatedAt:new Date().toISOString(), control:{ action:approval.action, status:approved ? 'accepted' : 'rejected', approvalId:approval.approvalId, decidedAt:new Date().toISOString() }, polling:{ state:status === 'paused' ? 'settled' : 'pending', consecutiveFailures:0, nextPollAt:status === 'paused' ? null : new Date().toISOString() } }
-    });
+    const taskPatch = (current) => outcome === 'obsolete'
+      ? {
+          execution:{ ...(current.execution || {}), xiaodStatus:job.status, xiaodProgress:job.progress, updatedAt:decidedAt, control:{ action:approval.action, status:controlStatus, approvalId:approval.approvalId, decidedAt } },
+        }
+      : {
+          status, currentStage:approval.action === 'pause-task' ? `xiaod_${job.status || 'pausing'}` : 'xiaod_resumed', error:undefined,
+          execution:{ ...(current.execution || {}), xiaodStatus:job.status, xiaodProgress:job.progress, updatedAt:decidedAt, control:{ action:approval.action, status:controlStatus, approvalId:approval.approvalId, decidedAt }, polling:{ state:status === 'paused' ? 'settled' : 'pending', consecutiveFailures:0, nextPollAt:status === 'paused' ? null : decidedAt } },
+        };
+    let updated;
+    if (alreadyCommitted) updated = await this.store.updateTask(task.taskId, taskPatch(task));
+    else {
+      const committed = await this.store.resolveApprovalAndUpdateTask(
+        approval.approvalId,
+        { ...decisionPatch, localEffect:{ ...(approval.localEffect || {}), state:'confirmed', confirmedAt:decidedAt, xiaodStatus:job.status, outcome } },
+        task.taskId,
+        taskPatch,
+      );
+      updated = committed.task;
+    }
     if (updated.governance?.paperclipIssueId) updated = await this.store.updateTask(updated.taskId, { governance:await this.governance.update(updated) });
-    if (approval.action === 'resume-task' && typeof executor.observe === 'function') executor.observe(updated);
+    if (approval.action === 'resume-task' && outcome !== 'obsolete' && typeof executor.observe === 'function') executor.observe(updated);
     return updated;
+  }
+
+  async ensureXiaodTaskControlEffect(task, approval, executor, method) {
+    let observed = null;
+    if (typeof executor.getJob === 'function') {
+      observed = await executor.getJob(task.execution?.xiaodJobId);
+      const recovered = xiaodControlOutcome(approval.action, observed);
+      if (recovered) return { job:observed, outcome:recovered };
+    }
+    try {
+      const job = await executor[method](task);
+      const outcome = xiaodControlOutcome(approval.action, job);
+      if (!outcome) throw new ValidationError(`小D未确认${approval.action === 'pause-task' ? '暂停' : '继续'}结果。`);
+      return { job, outcome };
+    } catch (error) {
+      if (typeof executor.getJob !== 'function') throw error;
+      let recovered = null;
+      try { recovered = await executor.getJob(task.execution?.xiaodJobId); }
+      catch { throw error; }
+      const outcome = xiaodControlOutcome(approval.action, recovered);
+      if (!outcome) throw error;
+      return { job:recovered, outcome };
+    }
   }
 
   async resumeApprovedMissionChild(taskId) {
@@ -556,14 +943,8 @@ export class TaskService {
     if (!executor?.execute) throw new ValidationError('小办本地演示文稿执行器不可用。');
     const taskSegment = safeWorkspaceSegment(task.taskId);
     const workspaceRoot = path.join(this.officePresentationWorkspaceRoot, taskSegment);
-    await fs.mkdir(workspaceRoot, { recursive:true, mode:0o700 });
-    const stat = await fs.lstat(workspaceRoot);
-    if (!stat.isDirectory() || stat.isSymbolicLink()) {
-      throw new ValidationError('小办演示文稿工作区无效。');
-    }
     const startedAt = new Date();
-    let updated = await this.store.updateTask(task.taskId, {
-      status:'running',
+    const startPatch = {
       currentStage:'office_presentation_local_starting',
       execution:{
         ...(task.execution || {}),
@@ -572,8 +953,18 @@ export class TaskService {
         workspaceRoot,
         startedAt:startedAt.toISOString(),
       },
-    });
+    };
+    const claim = typeof this.store.claimTaskExecution === 'function'
+      ? await this.store.claimTaskExecution(task.taskId, startPatch)
+      : { claimed:true, task:await this.store.updateTask(task.taskId, { ...startPatch, status:'running' }) };
+    if (!claim.claimed) return claim.task;
+    let updated = claim.task;
     try {
+      await fs.mkdir(workspaceRoot, { recursive:true, mode:0o700 });
+      const stat = await fs.lstat(workspaceRoot);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) {
+        throw new ValidationError('小办演示文稿工作区无效。');
+      }
       const roleToolContext = localPresentationToolContext({
         task:updated,
         adapters:this.roleToolAdapters,
@@ -1035,25 +1426,39 @@ export class TaskService {
     });
   }
 
-  async completePaperclipAssignment(input = {}) {
+  completePaperclipAssignment(input = {}) {
+    const key = `${String(input.issueId || '').trim()}:${String(input.runId || '').trim()}`;
+    const fingerprint = taskIdempotencyFingerprint(Object.fromEntries(
+      Object.entries(input).filter(([name]) => name !== 'paperclipApiKey'),
+    ));
+    const running = this.paperclipAssignmentCompletionRuns.get(key);
+    if (running) {
+      if (running.fingerprint !== fingerprint) {
+        throw new ValidationError('同一 Paperclip Run 正在回报不同的完成结果；已拒绝覆盖。');
+      }
+      return running.execution;
+    }
+    const execution = Promise.resolve()
+      .then(() => this.completePaperclipAssignmentOnce(input))
+      .finally(() => {
+        if (this.paperclipAssignmentCompletionRuns.get(key)?.execution === execution) {
+          this.paperclipAssignmentCompletionRuns.delete(key);
+        }
+      });
+    this.paperclipAssignmentCompletionRuns.set(key, { fingerprint, execution });
+    return execution;
+  }
+
+  async completePaperclipAssignmentOnce(input = {}) {
     const { task, assignment } = await this.getPaperclipAssignment(input);
     if (isTerminalTask(task)) {
-      if (task.status === 'succeeded') {
-        const sync = await this.syncM5StageWorkProducts({
-          task,
-          assignment,
-          apiKey:input.paperclipApiKey,
-        });
-        if (sync.synced) {
-          await this.governance.completePaperclipIssue(assignment.issueId, {
-            runId:assignment.runId,
-            agentId:input.paperclipAgentId,
-            apiKey:input.paperclipApiKey,
-            result:task,
-          });
-        }
-      }
-      return { task, assignment, duplicate:true };
+      const synchronized = await this.ensurePaperclipAssignmentCompletion({
+        task,
+        assignment,
+        paperclipAgentId:input.paperclipAgentId,
+        apiKey:input.paperclipApiKey,
+      });
+      return { task:synchronized, assignment, duplicate:true };
     }
     const requestedStatus = String(input.status || 'succeeded').trim();
     if (!['succeeded', 'failed', 'waiting_test'].includes(requestedStatus)) {
@@ -1159,13 +1564,17 @@ export class TaskService {
       },
       validation:{ exists:true, readable:true, nonEmpty:true, checkedAt:completedAt }
     };
+    const completionArtifacts = [...(task.artifactRefs || []), artifact];
+    if (requestedStatus === 'succeeded') {
+      const completion = validateTaskCompletion(task, completionArtifacts);
+      if (!completion.valid) {
+        throw new ValidationError(`${completion.reason} Paperclip/Hermes 的文字回报不能替代专用业务产物。`);
+      }
+    }
     let updated = await this.store.updateTask(task.taskId, {
       status:requestedStatus,
       currentStage:requestedStatus === 'succeeded' ? 'paperclip_hermes_completed' : requestedStatus === 'waiting_test' ? 'paperclip_hermes_waiting_test' : 'paperclip_hermes_failed',
-      artifactRefs:[
-        ...(task.artifactRefs || []),
-        artifact
-      ],
+      artifactRefs:completionArtifacts,
       execution:{
         ...(task.execution || {}),
         owner:'paperclip-hermes',
@@ -1174,6 +1583,16 @@ export class TaskService {
         ...(m5PlanRevisionReceipt ? {
           m5PlanRevisionReceipt,
         } : {}),
+      },
+      governance:{
+        ...(task.governance || {}),
+        completionSync:paperclipCompletionSync({
+          status:'pending',
+          taskStatus:requestedStatus,
+          issueId:assignment.issueId,
+          runId:assignment.runId,
+          now:completedAt,
+        }),
       },
       ...(requestedStatus === 'failed' ? {
         error:{
@@ -1187,23 +1606,59 @@ export class TaskService {
         }
       } : { error:undefined })
     });
-    if (requestedStatus === 'succeeded') {
-      await this.syncM5StageWorkProducts({
-        task:updated,
-        assignment,
-        apiKey:input.paperclipApiKey,
-      });
-    }
-    await this.governance.completePaperclipIssue(assignment.issueId, {
-      runId:assignment.runId,
-      agentId:input.paperclipAgentId,
+    updated = await this.ensurePaperclipAssignmentCompletion({
+      task:updated,
+      assignment,
+      paperclipAgentId:input.paperclipAgentId,
       apiKey:input.paperclipApiKey,
-      result:updated
-    });
-    updated = await this.store.updateTask(updated.taskId, {
-      governance:{ ...(updated.governance || {}), status:'synced', syncedAt:new Date().toISOString() }
     });
     return { task:updated, assignment, duplicate:false };
+  }
+
+  async ensurePaperclipAssignmentCompletion({ task, assignment, paperclipAgentId, apiKey } = {}) {
+    if (!isPaperclipCompletableTaskStatus(task?.status)) return task;
+    if (task.status === 'succeeded') {
+      await this.syncM5StageWorkProducts({ task, assignment, apiKey });
+    }
+    if (paperclipCompletionConfirmed(task, assignment)) return task;
+
+    const expectedIssueStatus = paperclipIssueStatusForTask(task.status);
+    if (typeof this.governance?.getPaperclipIssue === 'function') {
+      try {
+        const issue = await this.governance.getPaperclipIssue(assignment.issueId);
+        if (String(issue?.status || '').trim() === expectedIssueStatus) {
+          return this.confirmPaperclipAssignmentCompletion(task, assignment);
+        }
+      } catch {
+        // 只读确认失败时继续执行幂等 PATCH；不能因观测故障永久丢失终态同步。
+      }
+    }
+
+    await this.governance.completePaperclipIssue(assignment.issueId, {
+      runId:assignment.runId,
+      agentId:paperclipAgentId,
+      apiKey,
+      result:task,
+    });
+    return this.confirmPaperclipAssignmentCompletion(task, assignment);
+  }
+
+  async confirmPaperclipAssignmentCompletion(task, assignment) {
+    const confirmedAt = new Date().toISOString();
+    return this.store.updateTask(task.taskId, {
+      governance:{
+        ...(task.governance || {}),
+        status:'synced',
+        syncedAt:confirmedAt,
+        completionSync:paperclipCompletionSync({
+          status:'confirmed',
+          taskStatus:task.status,
+          issueId:assignment.issueId,
+          runId:assignment.runId,
+          now:confirmedAt,
+        }),
+      },
+    });
   }
 
   async handleM5ReportedFailure({
@@ -1824,7 +2279,8 @@ export class TaskService {
       };
     }
     const artifacts = Array.isArray(result?.artifactRefs) ? result.artifactRefs : [];
-    const verified = result?.status === 'succeeded' && artifacts.some(verifiedAssignmentArtifact);
+    const completion = validateTaskCompletion(task, artifacts);
+    const verified = result?.status === 'succeeded' && completion.valid;
     const recommendedCompletionStatus = result?.status === 'running'
       ? 'running'
       : verified
@@ -2210,10 +2666,29 @@ export class TaskService {
       status:wechatHealth.status === 'healthy' ? 'ready' : wechatHealth.status === 'degraded' ? 'partial' : 'unavailable',
       detail:wechatHealth.safeMessage
     });
-    return { agents:visibleAgents, alwaysOnAgents, onDemandAgents, tasks:presentedTasks, approvals:presentedApprovals, skillReadiness, taskFocus: buildTaskFocus(tasks, approvals), usage:summarizeTaskUsage(tasks, { since:startOfToday() }), capabilities };
+    const billingSince = startOfRecentDays(7);
+    const billing = this.billingOverview(tasks, [...agents, ...(manager ? [manager] : [])], billingSince);
+    return { agents:visibleAgents, alwaysOnAgents, onDemandAgents, tasks:presentedTasks, approvals:presentedApprovals, skillReadiness, taskFocus: buildTaskFocus(tasks, approvals), usage:summarizeTaskUsage(tasks, { since:startOfToday() }), billing, capabilities };
   }
 
-  async usageOverview() { return summarizeTaskUsage(await this.store.list(), { since:startOfToday() }); }
+  async usageOverview() {
+    const tasks = await this.store.list();
+    const since = startOfToday();
+    const agents = await this.registry.list();
+    return {
+      ...summarizeTaskUsage(tasks, { since }),
+      billing:this.billingOverview(tasks, agents, since),
+    };
+  }
+
+  billingOverview(tasks, agents, since) {
+    if (!this.usageLedger?.summarize) return reconcileUsageBilling(tasks, null, { since });
+    const agentIds = (Array.isArray(agents) ? agents : [])
+      .filter((agent) => agent.executionOwner === 'paperclip-hermes')
+      .map((agent) => agent.agentId);
+    const ledger = this.usageLedger.summarize({ since, agentIds });
+    return reconcileUsageBilling(tasks, ledger, { since });
+  }
 
   async notificationStatus(taskId, chatRef = '') {
     const tasks = await this.store.list();
@@ -2257,34 +2732,41 @@ export class TaskService {
       });
     }
     if (current.status === 'succeeded') {
+      const completion = validateTaskCompletion(current);
+      if (!completion.valid) {
+        return incompleteDeliveryStatus(
+          root,
+          `“${shortTaskTitle(root)}”虽然被标记为完成，但统一产物门禁未通过：${completion.reason} 系统不会把它冒充完整成功。`,
+        );
+      }
       if (current.taskType === 'operations.health-review') {
         const report = current.artifactRefs?.find((item) => item.type === 'health_report')?.data;
         if (report?.overall && Array.isArray(report.components) && report.components.length) {
           return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatHealthReportReply(report) };
         }
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`运维官已经完成“${shortTaskTitle(root)}”，但结构化健康报告不可读；系统不会把它当作完整交付。` };
+        return incompleteDeliveryStatus(root, `运维官已经完成“${shortTaskTitle(root)}”，但结构化健康报告不可读；系统不会把它当作完整交付。`);
       }
       if (current.taskType === 'report.public-material') {
         const report = current.artifactRefs?.find((item) => item.type === 'public_web_report')?.data;
         if (report?.summary) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatPublicReportReply(report, { taskTitle:shortTaskTitle(root) }) };
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`公开资料报告员已经完成“${shortTaskTitle(root)}”，但摘要产物没有通过读取确认；系统不会把它当作完整交付。` };
+        return incompleteDeliveryStatus(root, `公开资料报告员已经完成“${shortTaskTitle(root)}”，但摘要产物没有通过读取确认；系统不会把它当作完整交付。`);
       }
       if (current.taskType === 'research.github-search') {
         const report = current.artifactRefs?.find((item) => item.type === 'research_github_report')?.data;
         const read = current.artifactRefs?.find((item) => item.type === 'github_code_read')?.data;
         if (report?.results?.length) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatGithubSearchDelivery(report) };
         if (read?.summary) return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小R已读取 ${read.repo} 的 ${read.path}：${read.summary}\n来源：${read.source || `https://github.com/${read.repo}`}` };
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小R已经完成“${shortTaskTitle(root)}”，但公开 GitHub 产物不可读；系统不会把它当作完整交付。` };
+        return incompleteDeliveryStatus(root, `小R已经完成“${shortTaskTitle(root)}”，但公开 GitHub 产物不可读；系统不会把它当作完整交付。`);
       }
       if (current.taskType === 'research.intel-report') {
         const report = current.artifactRefs?.find((item) => item.type === 'intel_research_report')?.data;
         if (report?.conclusion && Array.isArray(report?.sources) && report.sources.length) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatIntelResearchDelivery(report) };
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小R已经完成“${shortTaskTitle(root)}”，但结构化研究产物或来源未通过读取确认；系统不会把它当作完整交付。` };
+        return incompleteDeliveryStatus(root, `小R已经完成“${shortTaskTitle(root)}”，但结构化研究产物或来源未通过读取确认；系统不会把它当作完整交付。`);
       }
       if (current.taskType === 'office.briefing-package') {
         const report = current.artifactRefs?.find((item) => item.type === 'office_briefing_package')?.data;
         if (report?.summary && report?.markdown) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatOfficeBriefingReply(report) };
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`办公执行助理已经完成“${shortTaskTitle(root)}”，但汇报包没有通过读取确认；系统不会把它当作完整交付。` };
+        return incompleteDeliveryStatus(root, `办公执行助理已经完成“${shortTaskTitle(root)}”，但汇报包没有通过读取确认；系统不会把它当作完整交付。`);
       }
       if (current.taskType === 'office.presentation-package') {
         const source = current.artifactRefs?.find((item) => item.type === 'office_presentation_source');
@@ -2303,42 +2785,52 @@ export class TaskService {
             ].join('\n'),
           };
         }
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小办已经完成“${shortTaskTitle(root)}”，但 PPTD 没有通过结构检查；系统不会把它当作完整交付。` };
+        return incompleteDeliveryStatus(root, `小办已经完成“${shortTaskTitle(root)}”，但 PPTD 没有通过结构检查；系统不会把它当作完整交付。`);
       }
       if (current.taskType === 'office.knowledge-summary') {
         const note = current.artifactRefs?.find((item) => item.type === 'knowledge_summary_note');
         if (note?.validation?.readable && note?.location) return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小办已完成知识归档“${note.title}”。\n受控文件：${note.location}\n校验值：${note.checksum || '未提供'}` };
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小办已经完成“${shortTaskTitle(root)}”，但知识笔记没有通过可读性检查；系统不会把它当作完整归档。` };
+        return incompleteDeliveryStatus(root, `小办已经完成“${shortTaskTitle(root)}”，但知识笔记没有通过可读性检查；系统不会把它当作完整归档。`);
       }
       if (current.taskType === 'content.video-benchmark-analysis') {
-        const report = current.artifactRefs?.find((item) => item.type === 'video_content_analysis_report')?.data;
-        if (report?.modules?.length) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatVideoAnalysisDelivery(report) };
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小拆已经完成“${shortTaskTitle(root)}”，但拆解报告没有通过读取确认；系统不会把它当作完整交付。` };
+        const artifact = current.artifactRefs?.find((item) => item.type === 'video_content_analysis_report');
+        const report = artifact?.data;
+        if (report?.modules?.length && contentGrowthArtifactVerified(current, artifact)) {
+          return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatVideoAnalysisDelivery(report) };
+        }
+        return incompleteDeliveryStatus(root, `小拆已经完成“${shortTaskTitle(root)}”，但拆解报告没有通过读取确认；系统不会把它当作完整交付。`);
       }
       if (current.taskType === 'content.platform-draft') {
         const draft = current.artifactRefs?.find((item) => item.type === 'platform_content_draft')?.data;
         if (draft?.drafts?.length) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatPlatformDraftDelivery(draft) };
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小创已经完成“${shortTaskTitle(root)}”，但草稿产物没有通过读取确认；系统不会把它当作完整交付。` };
+        return incompleteDeliveryStatus(root, `小创已经完成“${shortTaskTitle(root)}”，但草稿产物没有通过读取确认；系统不会把它当作完整交付。`);
       }
       if (current.taskType === 'content.video-script-package') {
         const script = current.artifactRefs?.find((item) => item.type === 'video_script_package')?.data;
         if (script?.fullScript) return { terminal:true, status:'succeeded', taskId:root.taskId, message:formatVideoScriptDelivery(script) };
-        return { terminal:true, status:'succeeded', taskId:root.taskId, message:`小创已经完成“${shortTaskTitle(root)}”，但可拍脚本没有通过读取确认；系统不会把它当作完整交付。` };
+        return incompleteDeliveryStatus(root, `小创已经完成“${shortTaskTitle(root)}”，但可拍脚本没有通过读取确认；系统不会把它当作完整交付。`);
       }
       if (current.taskType === 'content.performance-review') {
         const report = current.artifactRefs?.find((item) => item.type === 'content_performance_report')?.data;
         if (report?.metrics) return { terminal:true, status:'succeeded', taskId:root.taskId, message:`【小拆内容表现复盘】\n${report.summary}\n${(report.observations || []).slice(0, 5).map((item) => `- ${item}`).join('\n')}` };
+        return incompleteDeliveryStatus(root, `小拆已经完成“${shortTaskTitle(root)}”，但表现复盘没有通过读取确认；系统不会把它当作完整交付。`);
       }
       const roleReport = current.artifactRefs?.find((item) => item.type === 'employee_role_report')?.data;
       if (roleReport?.summary) {
         const worker = await taskWorkerName(this.registry, current);
         return { terminal:true, status:'succeeded', taskId:root.taskId, message:`${worker}已完成“${shortTaskTitle(root)}”。\n${roleReport.summary}` };
       }
-      const delivery = current.artifactRefs?.find((item) => item.type === 'xiaod_media_delivery');
-      const url = delivery?.data?.larkUrl;
-      const verified = delivery?.data?.larkPermissionGranted === true;
-      const prefix = retried ? '运维官自动恢复后，小D已经完成' : '小D已经完成';
-      return { terminal: true, status: 'succeeded', taskId: root.taskId, message: url && verified ? `${prefix}“${shortTaskTitle(root)}”。\n交付文档：${url}` : `${prefix}“${shortTaskTitle(root)}”，但飞书文档权限尚未确认；系统不会把它冒充完整交付。` };
+      if (current.taskType === 'media.transcribe-and-refine') {
+        const delivery = current.artifactRefs?.find((item) => item.type === 'xiaod_media_delivery');
+        const url = delivery?.data?.larkUrl;
+        const verified = delivery?.data?.larkPermissionGranted === true;
+        const prefix = retried ? '运维官自动恢复后，小D已经完成' : '小D已经完成';
+        if (url && verified) {
+          return { terminal:true, status:'succeeded', taskId:root.taskId, message:`${prefix}“${shortTaskTitle(root)}”。\n交付文档：${url}` };
+        }
+        return incompleteDeliveryStatus(root, `${prefix}“${shortTaskTitle(root)}”，但飞书文档权限尚未确认；系统不会把它冒充完整交付。`);
+      }
+      return incompleteDeliveryStatus(root, `“${shortTaskTitle(root)}”虽然已停止运行，但没有找到该岗位的可验证交付物；系统不会把它冒充完整成功。`);
     }
     if (['queued', 'running'].includes(current.status)) {
       const worker = await taskWorkerName(this.registry, current);
@@ -3230,7 +3722,7 @@ function storedPaperclipEmployeeResult(task) {
     };
   }
   if (isTerminalTask(task)) {
-    const verified = task.status === 'succeeded' && (task.artifactRefs || []).some(verifiedAssignmentArtifact);
+    const verified = task.status === 'succeeded' && validateTaskCompletion(task).valid;
     return {
       status:task.status,
       currentStage:task.currentStage,
@@ -3254,6 +3746,9 @@ function artifactExecutionView(item) {
     validation:item.validation,
     data:item.data
   };
+}
+function incompleteDeliveryStatus(task, message) {
+  return { terminal:true, status:'waiting_test', taskId:task.taskId, message };
 }
 function contentGrowthArtifactVerified(task, artifact, { expectedProjectId = null } = {}) {
   const readable = artifact?.validation?.exists === true
@@ -3283,10 +3778,10 @@ function contentGrowthArtifactVerified(task, artifact, { expectedProjectId = nul
         || receipt?.costCommit?.costEvent?.projectId === expectedProjectId
       );
   }
-  const formalFullAnalysis = task?.taskType === 'content.video-benchmark-analysis'
-    && task?.input?.evidenceMode === 'formal'
-    && task?.input?.depth === 'full';
-  return !formalFullAnalysis || artifact.validation?.semanticValidationPassed === true;
+  if (task?.taskType === 'content.video-benchmark-analysis') {
+    return isVerifiedVideoAnalysisArtifact(task, artifact);
+  }
+  return true;
 }
 function storedContentGrowthResult(task) {
   const execution = task?.execution?.contentGrowth;
@@ -3353,7 +3848,8 @@ function formatHealthReportReply(report) {
   return `【运维官健康检查】\n整体：${overall}\n${components}\n建议：${report.recommendedAction || '暂无。'}`;
 }
 function formatVideoAnalysisDelivery(report) {
-  const modules = report.modules.slice(0, 13).map((item, index) => `${index + 1}. ${item.name}：${item.finding}\n   证据：${item.evidence?.timestamp ? `[${item.evidence.timestamp}] ` : ''}${item.evidence?.fragment || '证据缺失'}`).join('\n');
+  const analysisIntent = report.analysisIntent || (report.depth === 'full' || report.modules?.length >= 13 ? 'deep' : 'digest');
+  const modules = (report.modules || []).slice(0, 13).map((item, index) => `${index + 1}. ${item.name}：${item.finding}\n   证据：${item.evidence?.timestamp ? `[${item.evidence.timestamp}] ` : ''}${item.evidence?.fragment || '证据缺失'}`).join('\n');
   const actions = Array.isArray(report.actionItems) && report.actionItems.length
     ? `\n\n行动清单：\n${report.actionItems.slice(0, 5).map((item) => `- ${item}`).join('\n')}`
     : '';
@@ -3371,7 +3867,33 @@ function formatVideoAnalysisDelivery(report) {
     : report.generationMode === 'hermes_advisor_evidence_repaired'
       ? 'Hermes 深度分析（证据结构已按确认稿修复）'
       : '本机证据化兜底（模型结果未通过结构校验）';
-  return `【小拆视频内容拆解】\n模式：${generation}\n完整度：${completeness}\n证据：${report.evidenceLabel || report.evidenceMode}${source}\n${report.summary}\n\n${modules}${visual}${actions}`;
+  const modeName = ({ digest:'精华提炼', deep:'深度拆解', template:'模板学习', style:'风格探索' })[analysisIntent] || '精华提炼';
+  let body = modules;
+  if (analysisIntent === 'digest' && report.digest) {
+    body = [
+      `一句话总结：${report.digest.oneSentenceSummary}`,
+      '',
+      '核心要点：',
+      ...report.digest.corePoints.map((item) => `- ${item.point}\n  证据：${item.evidence?.timestamp ? `[${item.evidence.timestamp}] ` : ''}${item.evidence?.fragment || '证据缺失'}`),
+      '',
+      '原文金句：',
+      ...report.digest.goldenQuotes.map((item) => `- “${item.quote}”${item.evidence?.timestamp ? ` [${item.evidence.timestamp}]` : ' [时间点缺失]'}`),
+    ].join('\n');
+  } else if (analysisIntent === 'template' && report.templateLearning) {
+    body = [
+      '结构模板候选：',
+      ...report.templateLearning.structure.map((item) => `- ${item.module}｜${item.purpose}\n  ${item.placeholder}\n  替换：${item.replacementGuide}`),
+      '',
+      '三种开头：',
+      ...report.templateLearning.openingTemplates.map((item) => `- ${item}`),
+      '',
+      report.templateLearning.originalityReminder,
+    ].join('\n');
+  } else if (analysisIntent === 'style' && report.styleExploration) {
+    body = report.styleExploration.variants.map((item) => `【${item.name}】\n${item.sample}\n适用：${item.applicableScene}；优势：${item.advantage}；风险：${item.risk}`).join('\n\n');
+  }
+  const nextAction = report.nextAction?.label ? `\n\n下一步：${report.nextAction.label}` : '';
+  return `【小拆视频内容分析｜${modeName}】\n执行：${generation}\n完整度：${completeness}\n证据：${report.evidenceLabel || report.evidenceMode}${source}\n${report.summary}\n\n${body}${visual}${analysisIntent === 'deep' ? actions : ''}${nextAction}`;
 }
 function formatPlatformDraftDelivery(report) {
   const drafts = report.drafts.slice(0, 3).map((item) => `- ${item.platform}：${item.titleCandidates?.[0] || '已生成草稿'}\n  开场：${item.opening || ''}`).join('\n');
@@ -3407,7 +3929,7 @@ async function missionNotification(task, { chain = [], approvals = [], xiaod = n
   if (!report || !statuses.length) {
     return {
       terminal,
-      status:task.status,
+      status:terminal ? 'waiting_test' : task.status,
       taskId:task.taskId,
       message:`总任务“${shortTaskTitle(task)}”${terminal ? '已经停止推进，但统一汇总不可读；系统不会把它当作完整交付。' : '正在建立和分派员工工作。'}`
     };
@@ -3417,6 +3939,7 @@ async function missionNotification(task, { chain = [], approvals = [], xiaod = n
   const progressStatus = !terminal && statuses.some((item) => item.status === 'waiting_approval')
     ? 'waiting_approval'
     : task.status;
+  let deliveryStatus = progressStatus;
   const summary = [
     `【A君总任务】${String(report.summary || shortTaskTitle(task)).replace(/\s+/g, ' ').slice(0, 300)}`,
     `进度：${completed}/${statuses.length} 项完成`,
@@ -3429,10 +3952,16 @@ async function missionNotification(task, { chain = [], approvals = [], xiaod = n
   } else if (terminal && completed === statuses.length) {
     const analysisTaskId = statuses.find((item) => item.employeeId === 'video-content-analyst' && item.status === 'succeeded')?.taskId;
     const analysisTask = chain.find((item) => item.taskId === analysisTaskId);
-    const analysis = analysisTask?.artifactRefs?.find((item) => item.type === 'video_content_analysis_report')?.data;
-    if (analysis?.modules?.length) summary.push('', formatVideoAnalysisDelivery(analysis));
-    else summary.push('所有分工已完成，但最终业务产物未通过读取确认；系统不会只用“完成”状态冒充交付。');
+    const analysisArtifact = analysisTask?.artifactRefs?.find((item) => item.type === 'video_content_analysis_report');
+    const analysis = analysisArtifact?.data;
+    if (analysis?.modules?.length && contentGrowthArtifactVerified(analysisTask, analysisArtifact)) {
+      summary.push('', formatVideoAnalysisDelivery(analysis));
+    } else {
+      deliveryStatus = 'waiting_test';
+      summary.push('所有分工已完成，但最终业务产物未通过读取确认；系统不会只用“完成”状态冒充交付。');
+    }
   } else if (terminal && completed < statuses.length) {
+    if (task.status === 'succeeded') deliveryStatus = 'waiting_test';
     summary.push('未完成部分已如实保留，没有被冒充为成功。');
   } else if (progressStatus === 'waiting_approval') {
     const reviewTask = chain.find((item) => item.status === 'waiting_approval'
@@ -3455,7 +3984,7 @@ async function missionNotification(task, { chain = [], approvals = [], xiaod = n
   } else if (!terminal) {
     summary.push('A君会继续跟进这个总任务，不需要你分别追问每位员工。');
   }
-  return { terminal, status:progressStatus, taskId:task.taskId, message:summary.join('\n') };
+  return { terminal, status:deliveryStatus, taskId:task.taskId, message:summary.join('\n') };
 }
 
 function missionStatusLabel(status) {
@@ -3463,6 +3992,7 @@ function missionStatusLabel(status) {
 }
 function channelCapability(source) {
   const state = typeof source === 'function' ? source() : source;
+  if (state?.status === 'delivery_uncertain') return { status:'partial', detail:state.message || '有飞书完成跟进的投递结果不确定；已停止自动重发，等待本机核对。' };
   if (state?.status === 'external') return { status:'ready', detail:state.message || 'A君飞书入口已由 Hermes 原生 Gateway 承载；会话、上下文与 MCP 工具链已接通。' };
   if (state?.status === 'connected') return { status:'ready', detail:'官方飞书入口已连接；消息、审批卡会回到原聊天，现有 A君入口仍可保留。' };
   if (state?.status === 'connecting') return { status:'partial', detail:'官方飞书入口正在连接；现有 A君入口仍可用。' };
@@ -3470,6 +4000,26 @@ function channelCapability(source) {
   return { status:'partial', detail:'A君私聊与审批卡已可用；官方收发入口已装好并默认关闭，待限定允许人员后接入官方通道并做真实飞书回归。' };
 }
 function cryptoSafe(value) { return Buffer.from(value).toString('base64url').slice(0, 24); }
+
+function taskIdempotencyFingerprint(value) {
+  const canonical = canonicalIdempotencyValue(value);
+  return `sha256:${crypto.createHash('sha256').update(JSON.stringify(canonical), 'utf8').digest('hex')}`;
+}
+
+function canonicalIdempotencyValue(value) {
+  if (Array.isArray(value)) return value.map(canonicalIdempotencyValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().flatMap((key) => {
+      const item = value[key];
+      return item === undefined || typeof item === 'function' || typeof item === 'symbol'
+        ? []
+        : [[key, canonicalIdempotencyValue(item)]];
+    }));
+  }
+  if (typeof value === 'bigint') return String(value);
+  if (typeof value === 'number' && !Number.isFinite(value)) return String(value);
+  return value;
+}
 function extractPublicUrls(value) {
   return [...String(value).matchAll(/https?:\/\/[^\s<>"'，。；：！？、【】（）《》“”‘’]+/gi)]
     .map((match) => match[0].replace(/[)\]},.;]+$/, ''));
@@ -3559,9 +4109,70 @@ function validateApprovalChat(task, chatRef) {
   const expected = String(task.source?.chatRef || '').trim(); const actual = String(chatRef || '').trim();
   if (actual && expected && actual !== expected) throw new ValidationError('审批卡会话与原任务不一致，未执行任务。');
 }
+function paperclipApprovalDecisionPatch(decision, decisionBy, decisionReason, paperclipApprovalId, approval) {
+  const decidedAt = new Date().toISOString();
+  const authoritativeOverride = approval.externalDecision?.requestedDecision
+    && approval.externalDecision.requestedDecision !== decision;
+  return {
+    status:decision === 'approve' ? 'approved' : 'rejected',
+    decisionBy:authoritativeOverride ? 'Paperclip 已决事实' : String(decisionBy).slice(0, 120),
+    decisionReason:authoritativeOverride
+      ? `Paperclip 只读回查确认该审批已经${decision === 'approve' ? '批准' : '拒绝'}；旧入口的相反决定未覆盖权威状态。`
+      : String(decisionReason).slice(0, 300),
+    decidedAt,
+    paperclipApprovalId,
+    externalDecision:{
+      ...(approval.externalDecision || {}),
+      decision,
+      state:'confirmed',
+      paperclipApprovalId,
+      confirmedAt:approval.externalDecision?.confirmedAt || decidedAt,
+    },
+  };
+}
+function paperclipDecisionForStatus(status) {
+  if (status === 'approved') return 'approve';
+  if (status === 'rejected') return 'reject';
+  return null;
+}
+function governanceRejectedError() {
+  return {
+    code:'governance_rejected',
+    message:'Paperclip 组织级审批已拒绝。',
+    userMessage:'该组织级请求已被拒绝，未执行任何外部动作。',
+    category:'manual',
+    stage:'governance_approval',
+    occurredAt:new Date().toISOString(),
+  };
+}
+function xiaodControlOutcome(action, job) {
+  const status = String(job?.status || '').trim();
+  if (!status) return null;
+  if (XIAOD_TERMINAL_OR_REVIEW_STATUSES.has(status)) return 'obsolete';
+  if (action === 'pause-task') return ['pausing', 'paused'].includes(status) ? 'applied' : null;
+  return status === 'paused' ? null : 'applied';
+}
+function xiaodDeliveryPendingError(job) {
+  const delivery = job?.output?.larkDelivery || {};
+  const uncertain = delivery.state === 'uncertain' || job?.failure?.retryable === false;
+  return {
+    code:uncertain ? 'xiaod_delivery_uncertain' : 'xiaod_delivery_pending',
+    message:String(job?.error || delivery.lastError || '飞书交付尚未完成。'),
+    userMessage:uncertain
+      ? '飞书交付结果不确定，请先在本机运行台核对并仲裁；确认前不要重试。'
+      : delivery.state === 'document_ready'
+        ? '飞书文档已创建，但目标用户权限尚未确认。请修复权限配置后再次回复“继续飞书交付”。'
+        : '本地确认稿已保留，但飞书交付尚未完成。请修复飞书配置或连接后再次回复“继续飞书交付”。',
+    category:'needs_input',
+    retryable:!uncertain,
+    stage:'awaiting_delivery',
+    occurredAt:new Date().toISOString(),
+  };
+}
 function isExpiredApproval(approval, now = Date.now()) {
   const validUntil = Date.parse(approval?.validUntil || '');
-  return approval?.status === 'pending' && Number.isFinite(validUntil) && validUntil <= now;
+  const decisionInFlight = ['resolving', 'confirmed'].includes(approval?.externalDecision?.state);
+  return approval?.status === 'pending' && !decisionInFlight && Number.isFinite(validUntil) && validUntil <= now;
 }
 
 async function executorRuntimeHealth(executors) {
@@ -3612,3 +4223,4 @@ function latestTask(tasks) {
 
 function shortTaskTitle(task) { return String(task.input?.title || '未命名任务').replace(/\s+/g, ' ').slice(0, 48); }
 function startOfToday() { const now = new Date(); return new Date(now.getFullYear(), now.getMonth(), now.getDate()); }
+function startOfRecentDays(days) { const start = startOfToday(); start.setDate(start.getDate() - Math.max(0, Number(days || 1) - 1)); return start; }

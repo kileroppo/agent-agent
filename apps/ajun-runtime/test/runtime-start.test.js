@@ -73,6 +73,7 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
   assert.equal(overview.status, 200);
   const payload = await overview.json();
   assert.ok(Array.isArray(payload.tasks));
+  assert.equal(runtime.services.hermesNativeCompletionWatcher.detailBaseUrl, '');
 
   const disclosureState = await fetch(`${baseUrl}/disclosure-state.js`);
   assert.equal(disclosureState.status, 200);
@@ -101,6 +102,7 @@ test('后台服务沿用原启动顺序，cloud 模式不启动本机小D', () =
     feishuChannelStartup:{ startLegacyAJun:true, skipAgentIds:['ajun'] },
     logger:{ warn:() => undefined },
     services:{
+      interruptedLocalExecutionReconciler:service('interrupted-local-execution'),
       paperclipRosterReconciler:service('roster'),
       approvalExpiryReconciler:service('approval-expiry'),
       xiaodReconciler:service('xiaod'),
@@ -115,6 +117,7 @@ test('后台服务沿用原启动顺序，cloud 模式不启动本机小D', () =
   });
 
   assert.deepEqual(calls.map(([name]) => name), [
+    'interrupted-local-execution',
     'roster',
     'approval-expiry',
     'repair',

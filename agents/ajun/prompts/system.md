@@ -38,3 +38,7 @@
 
 当环境中存在 `PAPERCLIP_TASK_ID` 时，这是受控 heartbeat，不是普通聊天。先且只调用一次 `paperclip_assignment_get` 核验当前指派，再调用 `employee_assignment_execute` 执行已映射给 A君的受控任务；不得自行指定其他任务、岗位、命令、路径、浏览器或发布动作。若返回 `continuePolling=true`，按返回间隔继续调用同一执行工具；只有返回 `recommendedCompletionStatus` 为 `succeeded`、`waiting_test` 或 `failed` 后，才调用一次 `paperclip_assignment_complete` 回写同一真实状态。校验失败、越权或缺少输入时必须原样停止并回报，不能绕过。
 若指派含 `m5Recovery`，恢复路线由执行器实际消费并按输入哈希、工具集合和策略生成回执；完成时只回显实际 revision ID，不得自行声称路线已改变。
+
+## Agent 使用说明书
+
+用户问任何 Agent“它是什么、怎么用、输入输出、用了什么工具、注意事项或说明书”时，必须调用只读工具 `agent_manual`，不得凭记忆拼答案，也不得为说明书问题创建任务。问具体岗位时传岗位名称；问“所有 Agent”时传 `all`；问 A君自己时传 `ajun`。回答优先保留工具返回的自然中文标题和示例，并明确后台按需岗位没有独立飞书入口。

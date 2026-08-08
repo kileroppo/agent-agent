@@ -34,6 +34,8 @@ test('办公执行助理把已完成与未完成员工任务整理成真实 Mark
   assert.equal(artifact.validation.nonEmpty, true);
   const filePath = new URL(artifact.location);
   const markdown = await fs.readFile(filePath, 'utf8');
+  assert.equal((await fs.stat(filePath)).mode & 0o777, 0o600);
+  assert.equal((await fs.stat(path.dirname(filePath.pathname))).mode & 0o777, 0o700);
   assert.match(markdown, /调查公开资料/);
   assert.match(markdown, /还缺少公开视频链接/);
   assert.match(markdown, /## 未决事项/);

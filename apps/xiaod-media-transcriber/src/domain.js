@@ -10,10 +10,11 @@ export const STAGES = [
   ['distilling', '整理文稿'],
   ['awaiting_review', '等待人工完整听审'],
   ['delivering', '生成交付物'],
+  ['awaiting_delivery', '等待飞书交付'],
   ['completed', '已完成']
 ];
 
-export const ACTIVE_STATUSES = new Set(STAGES.map(([status]) => status).filter((status) => !['awaiting_review', 'completed'].includes(status)).concat('pausing'));
+export const ACTIVE_STATUSES = new Set(STAGES.map(([status]) => status).filter((status) => !['awaiting_review', 'awaiting_delivery', 'completed'].includes(status)).concat('pausing'));
 
 export function makeJob({ sourceType, sourceUrl = null, originalName = null, sourcePath = null, ingress = null, connectionId = null, connectionBinding = null, reviewPolicy = 'optional', visualMode = 'off', analysisDepth = 'fast', deliveryMode = 'feishu' }) {
   const now = new Date().toISOString();

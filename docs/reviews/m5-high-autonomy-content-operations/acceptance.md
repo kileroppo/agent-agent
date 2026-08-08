@@ -324,3 +324,27 @@ cua-driver doctor
 | 外部状态 | UNCHANGED | 使用仓库自有图片和本机 Chrome；无 Provider 调用、无平台访问、无发布。Campaign/Cron/Publisher 未启用，live 插件仍为 `0.4.9` |
 
 本次验收只证明 `0.5.0` 候选源码、自动化和本机静态输出。它不证明 live 已安装、不批准恢复 Campaign，也不授权任何发布动作。
+
+## 2026-08-07 视频分析四模式单版本验收
+
+| 项目 | 验收条件 | 当前证据边界 |
+| --- | --- | --- |
+| 统一契约 | `analysisIntent=digest|deep|template|style` 贯穿客户端、任务服务、MCP、Mission 和飞书；旧 `depth` 保持兼容 | 以 A君定向测试、全量测试和实际运行态回执分别记录，不能用源码替代 live |
+| 素材复用 | 首次 URL 建立“小D获取 → 小拆分析”；后续模式切换携带原来源任务编号，只新增分析任务 | 不得重新下载、转写或抽帧；来源任务和确认稿校验值应在报告中可追溯 |
+| 四类输出 | 精华提炼满足短摘要和原文引用；深度拆解保留 13 模块并区分事实/推断；模板只称候选；风格返回四个 150–250 字事实锁定短样稿 | 未确认机器稿只能初步分析，不能进入小创 |
+| 指标学习 | 平台、内容 ID、发布时间、内容版本和至少五条同类 72h 样本齐全时才生成待审核 `LearningProposal` | 永不自动改 Prompt、模板、频率、投流或权限 |
+| 外部边界 | 分析、模板和风格结果只提供人工下一步 | Campaign、Cron、Publisher 与真实平台写入继续关闭；真实飞书仍需负责人消息验收 |
+
+### 实际验收结果（2026-08-07 21:49 CST）
+
+| 层级 | 结论 | 证据 | 未证明部分 |
+| --- | --- | --- | --- |
+| 自动化 | PASS | 主工作区与隔离发布源码的 A君 均为 `1187/1187`；Manifest `18/18`；架构边界通过；Hermes 外层失败回退覆盖合格报告、深度待测试、证据拒绝和非视频隔离 | 不替代真实飞书或真实模型调用 |
+| 首次不可变验收包 | PASS | 代码快照 commit `0e2fdd400debef07da177fa5cfb5d4ac1a58ecbb`；`releaseHash=71aac0b41a699b7c6b4e759a6f689d06aba2b64f6fdc03ebd5efed2a18128d34`；`payloadHash=936401150f920b7c828f984e9a4a11291c90f0e21e681bb7be7084d481c359af`；`entryCount=7104`；主入口与只读恢复 smoke 通过 | 这是在线任务验收时的代码等价快照；最终 docs-bound release 以 launchd entrypoint 的 manifest 为准 |
+| 首次在线运行快照 | PASS | 验收时 launchd PID `10571`，监听 `127.0.0.1:4321`，命令与 cwd 指向只读 release；`/api/overview=200`，11 个 Agent | PID 是历史快照；当前值须重新读取 launchd；运行时通过不代表外部飞书收发通过 |
+| 真实任务 | PASS | 任务 `7d45ed66-e86a-4a08-8179-509939352593` 返回 `succeeded/local_evidence_fallback_ready`；报告为 `analysisIntent=digest`、`reportVersion=video-analysis/v2`、`generationMode=deterministic_fallback`，证据/模式/确认稿/800 字门禁均通过 | Hermes Profile 当前凭据返回 401，因此未形成真实 DeepSeek 语义报告；安全回退已实跑 |
+| 素材复用 | PASS | 来源任务 `c0636161-cb44-4449-81ee-9baa4e027570` 仍为 7 个来源产物；确认稿校验值保持 `96748e00c38e1fd8b05d3abba7946a5acd2bbc5f5b93f4bdbfde6d9f9adb5b92`；验收后新增媒体任务为 0 | 本轮只实跑 digest；其余三模式由自动化覆盖并复用同一契约 |
+| 下游与发布边界 | PASS | 验收任务之后只出现该分析任务；小创、审核、Publisher 任务为 0；`AJUN_M5_PUBLISHER_MODE`、Campaign 和 Cron 启用项均未设置 | 不批准真实发布或活动启用 |
+| 外部飞书 | NOT CHECKED | 本地解析与字段透传测试通过 | 必须由负责人在 A君 真实飞书会话发送一条带模式的视频任务 |
+
+当前唯一外部下一步见 [视频分析四模式飞书验收交接](../../handoffs/current/video-analysis-modes-feishu-acceptance-handoff.md)。

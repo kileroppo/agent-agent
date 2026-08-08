@@ -34,6 +34,7 @@
   "mcp": {
     "server": "agent-army",
     "tools": [
+      "agent_manual",
       "paperclip_assignment_get",
       "video_content_analyze_execute",
       "content_performance_review_execute",

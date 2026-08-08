@@ -36,3 +36,25 @@ test('Hermes 飞书回话拒绝非法会话标识和空消息', async () => {
   await assert.rejects(() => sender.send('../other', { markdown:'hello' }), HermesFeishuSenderError);
   await assert.rejects(() => sender.send('oc_content_1234', { markdown:'   ' }), /内容为空/);
 });
+
+test('Hermes 发送进程未启动与发送后结果未知会返回不同的投递真相', async () => {
+  const notStarted = new HermesFeishuSender({ spawnImpl:() => { throw new Error('spawn failed'); } });
+  await assert.rejects(
+    () => notStarted.send('oc_content_1234', { markdown:'任务已完成。' }),
+    (error) => error instanceof HermesFeishuSenderError && error.deliveryState === 'not_started'
+  );
+
+  const unknown = new HermesFeishuSender({
+    spawnImpl:() => {
+      const child = new EventEmitter();
+      child.stdin = new EventEmitter();
+      child.stdin.end = () => queueMicrotask(() => child.emit('close', 1));
+      child.kill = () => undefined;
+      return child;
+    }
+  });
+  await assert.rejects(
+    () => unknown.send('oc_content_1234', { markdown:'任务已完成。' }),
+    (error) => error instanceof HermesFeishuSenderError && error.deliveryState === 'unknown'
+  );
+});

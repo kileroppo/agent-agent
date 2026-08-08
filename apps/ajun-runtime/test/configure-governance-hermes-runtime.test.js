@@ -148,7 +148,7 @@ test('Profile 最小同步 dry-run 对指定岗位零写入、零 MCP 和零 Gat
   assert.equal(results.every((item) => item.writesPerformed === false), true);
   assert.deepEqual(
     results[0].mcp.scope.mcpTools.added,
-    ['local_ai_invoke', 'm5_stage_execute'],
+    ['agent_manual', 'local_ai_invoke', 'm5_stage_execute'],
   );
   assert.deepEqual(
     results[0].mcp.scope.taskTypes.added,

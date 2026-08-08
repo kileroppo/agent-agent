@@ -23,6 +23,43 @@ test('小R 没有来源且读取失败时明确 needs_input，不编造报告', 
   assert.match(result.error.userMessage, /公开来源/);
 });
 
+test('小R 的 Grok 公开 X 检索只有绑定公开来源链接后才生成标准研究报告', async () => {
+  const worker = new LocalIntelResearcher({
+    now,
+    grokConsult:{
+      async health() { return { status:'ready' }; },
+      async searchX() {
+        return { text:'公开讨论集中在运行稳定性。来源：https://x.com/example/status/123', route:'yichen-grok-consult-mcp' };
+      },
+    },
+  });
+
+  const result = await worker.execute({ taskId:'intel-grok', taskType:'research.intel-report', input:{ title:'用 Grok 搜索 X/Twitter 上的 Agent 讨论' } });
+
+  assert.equal(result.status, 'succeeded');
+  assert.equal(result.artifactRefs[0].type, 'intel_research_report');
+  assert.equal(result.artifactRefs[0].validation.sourceUrlsPresent, true);
+  assert.equal(result.artifactRefs[0].data.conclusion, '公开讨论集中在运行稳定性。来源：https://x.com/example/status/123');
+  assert.deepEqual(result.artifactRefs[0].data.sources, [{ title:'公开 X 来源 1', source:'https://x.com/example/status/123' }]);
+});
+
+test('Grok 查询文本没有公开来源链接时转为待测试而不冒充研究成功', async () => {
+  const worker = new LocalIntelResearcher({
+    now,
+    grokConsult:{
+      async health() { return { status:'ready' }; },
+      async searchX() { return { text:'只有一段未附来源的结论。', route:'yichen-grok-consult-mcp' }; },
+    },
+  });
+
+  const result = await worker.execute({ taskId:'intel-grok-no-source', taskType:'research.intel-report', input:{ title:'用 Grok 搜索 Twitter 上的 Agent 讨论' } });
+
+  assert.equal(result.status, 'waiting_test');
+  assert.equal(result.error.code, 'grok_public_sources_missing');
+  assert.equal(result.artifactRefs[0].type, 'intel_x_search_raw_result');
+  assert.equal(result.artifactRefs[0].validation.sourceUrlsPresent, false);
+});
+
 test('小R 会将主题扩展为六路查询，并在网页搜索无结果时用中性词回退 GitHub 元数据', async () => {
   const publicQueries = [];
   let githubQuery = null;

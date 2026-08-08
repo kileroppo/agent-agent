@@ -1,5 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { composeDelivery } from './domain.js';
+import { larkDeliveryUncertainFailure } from './recovery.js';
 import { confirmedTranscriptDocument } from './transcript-evidence.js';
 
 export async function createTranscriptConfirmationFiles({
@@ -43,8 +45,8 @@ export async function createTranscriptConfirmationFiles({
     correctionApplied:Boolean(correctionApplied),
     version
   };
-  await fs.writeFile(confirmedTranscriptPath, confirmed.markdown, { encoding:'utf8', flag:'wx' });
-  await fs.writeFile(attestationPath, JSON.stringify(attestation, null, 2), { encoding:'utf8', flag:'wx' });
+  await fs.writeFile(confirmedTranscriptPath, confirmed.markdown, { encoding:'utf8', flag:'wx', mode:0o600 });
+  await fs.writeFile(attestationPath, JSON.stringify(attestation, null, 2), { encoding:'utf8', flag:'wx', mode:0o600 });
   return {
     confirmationMode:mode,
     confirmedTranscriptPath,
@@ -55,9 +57,9 @@ export async function createTranscriptConfirmationFiles({
   };
 }
 
-export async function reviewTranscript({ store, job, input = {}, now = () => new Date() } = {}) {
+export async function reviewTranscript({ store, job, input = {}, now = () => new Date(), delivery = null } = {}) {
   if (!job) throw new TranscriptReviewError('任务不存在。', 404);
-  if (job.status === 'completed' && job.output?.confirmedTranscriptPath) return { job, duplicate:true };
+  if (['completed', 'awaiting_delivery'].includes(job.status) && job.output?.confirmedTranscriptPath) return { job, duplicate:true };
   if (job.status !== 'awaiting_review') throw new TranscriptReviewError('这条任务当前不在人工听审阶段。', 409);
   const decision = String(input.decision || '').trim().toLowerCase();
   if (!['confirm', 'reject'].includes(decision)) throw new TranscriptReviewError('听审决定只支持 confirm 或 reject。', 422);
@@ -96,17 +98,60 @@ export async function reviewTranscript({ store, job, input = {}, now = () => new
     version,
     correctionApplied:Boolean(corrected)
   });
-  const updated = await store.update(job.id, {
-    status:'completed',
-    progress:100,
-    stageMessage:'人工完整听审已确认',
-    completedAt:reviewedAt,
+  const guide = await readText(job.output?.guidePath);
+  const reviewedMarkdown = guide
+    ? composeDelivery(job.title, guide, transcript)
+    : `# ${job.title}\n\n## 完整校对文本\n\n${transcript}\n`;
+  const reviewedMarkdownPath = path.join(directory, `分享式确认稿-v${version}.md`);
+  await fs.writeFile(reviewedMarkdownPath, reviewedMarkdown, { encoding:'utf8', flag:'wx', mode:0o600 });
+  const localOnly = job.deliveryMode === 'local_only';
+  const status = localOnly ? 'completed' : 'awaiting_delivery';
+  let updated = await store.update(job.id, {
+    status,
+    progress:localOnly ? 100 : 92,
+    stageMessage:localOnly ? '人工完整听审已确认' : '人工完整听审已确认，正在准备飞书交付',
+    completedAt:localOnly ? reviewedAt : null,
     output:{
       ...(job.output || {}),
       reviewStatus:'confirmed',
+      previousMarkdownPath:job.output?.markdownPath || null,
+      markdownPath:reviewedMarkdownPath,
+      larkUrl:localOnly ? job.output?.larkUrl || null : null,
+      larkPermissionGranted:localOnly && job.output?.larkPermissionGranted === true,
       ...confirmation
     }
-  }, { stage:'completed', message:'人工完整听审已确认，确认稿已生成' });
+  }, { stage:status, message:localOnly ? '人工完整听审已确认，确认稿已生成' : '人工确认稿已生成，准备飞书交付' });
+
+  if (delivery && !localOnly) {
+    try {
+      const lark = await delivery.deliver({ jobId:job.id, title:job.title, markdown:reviewedMarkdown });
+      const delivered = Boolean(lark.url && lark.permissionGranted);
+      updated = await store.update(job.id, {
+        status:delivered ? 'completed' : 'awaiting_delivery',
+        progress:delivered ? 100 : 92,
+        stageMessage:delivered ? '人工确认稿已完成飞书交付' : '人工确认稿已生成，等待飞书权限确认',
+        completedAt:delivered ? reviewedAt : null,
+        output:{
+          ...store.get(job.id).output,
+          larkUrl:lark.url || null,
+          larkPermissionGranted:lark.permissionGranted === true
+        },
+        warnings:delivered
+          ? job.warnings || []
+          : [...(job.warnings || []), lark.configured === false ? '飞书尚未配置；人工确认稿已安全保存在本地。' : '飞书文档权限尚未确认。']
+      }, { stage:delivered ? 'completed' : 'awaiting_delivery', message:delivered ? '人工确认稿飞书交付已确认' : '飞书交付尚未完成' });
+    } catch (error) {
+      const uncertain = error?.code === 'lark_delivery_uncertain';
+      const failure = uncertain ? larkDeliveryUncertainFailure() : null;
+      updated = await store.update(job.id, {
+        status:'awaiting_delivery', progress:92,
+        stageMessage:uncertain ? '人工确认稿已生成，飞书交付结果待人工核对' : '人工确认稿已生成，等待飞书恢复后交付',
+        error:uncertain ? error.message : null,
+        failure,
+        warnings:[...(job.warnings || []), uncertain ? '飞书可能已接收交付，请先人工核对，禁止盲目重试。' : '飞书交付暂时失败，未创建文档，可稍后继续。']
+      }, { stage:'awaiting_delivery', message:uncertain ? '飞书交付结果不确定，已停止自动重试' : '飞书交付未开始，确认稿保留在本地' });
+    }
+  }
   return { job:updated, duplicate:false };
 }
 
@@ -119,6 +164,12 @@ export class TranscriptReviewError extends Error {
 
 async function readJson(filePath) {
   try { return JSON.parse(await fs.readFile(requiredPath(filePath), 'utf8')); }
+  catch { return null; }
+}
+
+async function readText(filePath) {
+  if (!filePath) return null;
+  try { return await fs.readFile(requiredPath(filePath), 'utf8'); }
   catch { return null; }
 }
 

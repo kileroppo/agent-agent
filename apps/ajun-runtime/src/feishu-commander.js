@@ -1,5 +1,7 @@
 import { formatPublicReportReply } from './public-report-presentation.js';
 import { formatOfficeBriefingReply } from './local-office-assistant.js';
+import { resolveAnalysisIntent } from './analysis-intent.ts';
+import { validateTaskCompletion } from './task-completion-contract.js';
 
 // Allow the user to name the new role between “创建一个” and “Agent”, such as
 // “创建一个公开网页摘要 Agent”.  The previous expression only recognised an
@@ -11,6 +13,7 @@ const FOLLOW_UP_RE = /^(?:需要|处理|继续|好的|好|行|可以|开始)$/;
 const PAUSE_RE = /(?:暂停|先别做|先停)/;
 const RESUME_RE = /(?:恢复|继续).*(?:任务|处理|执行)|^(?:继续|恢复)$/;
 const RETRY_XIAOD_RE = /^\s*重试\s*小\s*D\s*任务(?:\s+[0-9a-f-]{8,})?\s*$/i;
+const CONTINUE_XIAOD_DELIVERY_RE = /^\s*(?:继续|重试)\s*飞书交付(?:\s+[0-9a-f-]{8,})?\s*$/i;
 const POSITIVE_FEEDBACK_RE = /(?:不错|满意|有用|很好|挺好|做得好|谢谢|辛苦了)/;
 const NEGATIVE_FEEDBACK_RE = /(?:不行|不对|有问题|重做|重新做|改一下|需要改进|没用|不好)/;
 const HEALTH_RE = /健康|状态|服务|运行|paperclip|检查系统/i;
@@ -18,6 +21,7 @@ const CAPABILITIES_RE = /(?:你|军团|现在).*(?:能干什么|能做什么|可
 const OPERATIONS_TRIAGE_RE = /(?:怀疑|担心|看看|查(?:一下|下)?|检查|判断).{0,48}(?:异常|故障|出问题|卡住|卡死)|(?:异常|故障|出问题|卡住|卡死).{0,80}(?:安全(?:处理|恢复)|谁(?:来|该)接手|怎么处理|需要我做什么)/i;
 const MEDIA_RE = /视频|音频|转录|字幕|整理素材|youtube|bilibili|抖音|快手|transcri/i;
 const VIDEO_SCRIPT_RE = /(?:写|生成|做|出).{0,20}(?:视频)?(?:脚本|口播稿|拍摄稿)|按.{0,40}(?:套路|结构|视频|案例).{0,40}(?:写|生成|做|出)|(?:脚本|口播稿).{0,40}(?:主题|关于)/i;
+const VIDEO_ANALYSIS_MODE_RE = /总结|提炼|精华|快速看懂|重点是什么|深度拆解|完整分析|完整拆解|为什么有效|学习方法|13\s*模块|模板学习|提取模板|学习模板|复用结构|开头套路|填空模板|换种风格|风格探索|专业版|幽默版|故事版|数据版/iu;
 const USE_THIS_VERSION_RE = /^\s*(?:用这版|就这版|采用这版|按这版做|这版可以)\s*[。！!]?\s*$/;
 const SCRIPT_REVISION_RE = /(?:更像我|更口语|更自然|节奏快|节奏慢|短一点|长一点|改(?:一下|成)|重写|开头.{0,12}(?:换|改)|语气.{0,12}(?:换|改))/i;
 const OFFICE_RE = /办公汇报|汇报包|整理成(?:文档|表格|清单)|任务清单|会议材料|会议纪要|把.{0,40}(?:结果|材料).{0,20}整理/i;
@@ -43,6 +47,7 @@ export class FeishuCommander {
     }
     // A君 owns URL-created media work and its recovery chain.  Do not let the
     // old direct-Xiaod retry phrase fall through to a generic LLM conversation.
+    if (CONTINUE_XIAOD_DELIVERY_RE.test(text)) return this.continueXiaodDelivery(source.chatRef);
     if (RETRY_XIAOD_RE.test(text)) return this.retryXiaodTask(source.chatRef);
     // A progress question, a pasted task ID, or "小D 的进度" is a lookup of
     // facts already in this chat. Never send it to the model for a vague reply.
@@ -188,6 +193,32 @@ export class FeishuCommander {
             ? 'content-creator'
             : undefined;
     const researchInput = taskType === 'research.github-search' ? githubTaskInput(text) : taskType === 'research.intel-report' ? { topic:text } : {};
+    const analysisUrl = taskType === 'content.video-benchmark-analysis' ? publicUrl(text) : null;
+    if (analysisUrl && typeof this.missions?.createBusinessMission === 'function') {
+      const analysis = resolveAnalysisIntent({ title:text });
+      if (analysis.error) return this.clarify('检测到多个分析模式，请只选精华提炼、深度拆解、模板学习或风格探索中的一种。');
+      return this.missions.createBusinessMission({
+        title:`${text}｜受控获取与分析`,
+        requester,
+        source,
+        idempotencyKey:`feishu:${sourceEventRef}`,
+        items:[
+          {
+            key:'acquire-transcript', title:`获取并整理：${text}`, taskType:'media.transcribe-and-refine', agentId:'xiaod',
+            description:'通过内容获取中心处理公开或已授权素材；复用已有字幕，必要时才转录。',
+            acceptance:'生成来源证据、质量报告和系统或人工确认稿。', sourceUrls:[analysisUrl],
+            reviewPolicy:'optional', evidenceMode:'formal', analysisIntent:analysis.analysisIntent, depth:analysis.depth, visualMode:'auto'
+          },
+          {
+            key:'analyze-video', title:text, taskType:'content.video-benchmark-analysis', agentId:'video-content-analyst',
+            description:'只在确认稿存在后生成对应模式的证据化分析。',
+            acceptance:'所有关键内容绑定字幕片段、时间点或画面证据。', sourceUrls:[analysisUrl],
+            reviewPolicy:'optional', evidenceMode:'formal', analysisIntent:analysis.analysisIntent, depth:analysis.depth, visualMode:'auto',
+            dependsOnPrevious:true, dependsOn:['acquire-transcript']
+          }
+        ]
+      });
+    }
     const task = await this.tasks.create({
       title: text, description:['office.briefing-package', 'office.presentation-package'].includes(taskType) ? text : '', taskType, requester, source,
       agentId: entryAgentId || plan.agentId || defaultAgentId, ...researchInput, idempotencyKey: `feishu:${sourceEventRef}`
@@ -301,6 +332,24 @@ export class FeishuCommander {
       return { kind:'xiaod_retry', task, status, reply:status.message };
     }
     return { kind:'xiaod_retry', task, reply:progressReply(task) };
+  }
+
+  async continueXiaodDelivery(chatRef) {
+    if (!this.store || !chatRef) return { kind:'xiaod_delivery', reply:'我暂时找不到当前会话里的小D任务。请回复原任务消息后再试。' };
+    const tasks = await this.store.list();
+    const task = mostRecentTask(tasks.filter((item) => item.source?.channel === 'feishu' && item.source?.chatRef === chatRef && item.taskType === 'media.transcribe-and-refine'));
+    if (!task) return { kind:'xiaod_delivery', reply:'当前会话没有可继续交付的小D任务。' };
+    if (typeof this.tasks?.continueXiaodDelivery !== 'function') return { kind:'xiaod_delivery', task, reply:'小D飞书交付恢复入口当前不可用；没有启动外部动作。' };
+    try {
+      const updated = await this.tasks.continueXiaodDelivery(task.taskId, { chatRef });
+      return this.completionWatchFor({
+        kind:'xiaod_delivery',
+        task:updated,
+        reply:`已登记继续飞书交付“${shortTitle(updated)}”。本地确认稿不会重新生成；交付结果会继续回到当前会话。\n任务号：${updated.taskId}。`
+      });
+    } catch (error) {
+      return { kind:'xiaod_delivery', task, reply:String(error?.message || '飞书交付暂时无法继续；没有启动外部动作。') };
+    }
   }
 
   async explicitEmployeeStatus(text) {
@@ -541,9 +590,7 @@ export class FeishuCommander {
     const usageTasks = await this.todayUsageTasks();
     await this.rememberUsageContext(chatRef, usage, usageTasks);
     const workText = usage.trackedTaskCount ? `今天有 ${usage.trackedTaskCount} 项本机执行记录（包含业务工作、系统检查和测试/修复，不等于 ${usage.trackedTaskCount} 件已交付结果），共发生 ${usage.actualToolCalls} 次本机处理。` : '今天还没有留下可核对的实际执行记录。';
-    const costText = usage.cost.reportedTaskCount
-      ? `已收到 ${usage.cost.reportedTaskCount} 项费用数据：${usage.cost.totals.map((item) => `${item.amount} ${item.currency}`).join('，')}。`
-      : '执行方暂时没有返回可核对的费用数据，我不会猜金额。';
+    const costText = usageBillingText(usage);
     return { kind:'usage_report', usage, reply:`${workText}${costText}` };
   }
 
@@ -618,7 +665,13 @@ export class FeishuCommander {
     if (!tasks.length) return { kind:'usage_details', reply:'刚才那份使用汇总已经过期，或对应记录不在本机了。我不能编造明细；你可以再问一次“今天花了多少”，我会重新汇总。' };
     const lines = tasks.map((task, index) => {
       const toolCalls = (task.usage?.tools || []).reduce((total, tool) => total + Number(tool.calls || 0), 0);
-      return `${index + 1}. “${shortTitle(task)}”\n   - 承接：${workerName(task)}；当前：${taskStatusLabel(task.status)}；本机处理：${toolCalls} 次`;
+      const model = task.usage?.model?.status === 'reported'
+        ? `；模型：${Number(task.usage.model.apiCalls || 0)} 次 / ${Number(task.usage.model.inputTokens || 0) + Number(task.usage.model.outputTokens || 0)} Token`
+        : '';
+      const cost = task.usage?.cost?.status === 'reported'
+        ? `；任务费用：${task.usage.cost.amount} ${task.usage.cost.currency}`
+        : '';
+      return `${index + 1}. “${shortTitle(task)}”\n   - 承接：${workerName(task)}；当前：${taskStatusLabel(task.status)}；本机处理：${toolCalls} 次${model}${cost}`;
     });
     return {
       kind:'usage_details',
@@ -633,6 +686,8 @@ export class FeishuCommander {
 
   async intentFor(text) {
     if (VIDEO_SCRIPT_RE.test(text)) return { intent:'route_task', taskType:'content.video-script-package', agentId:'content-creator' };
+    const analysisPlan = videoAnalysisPlan(text);
+    if (analysisPlan) return analysisPlan;
     if (typeof this.planner?.decide !== 'function') return directIntent(text);
     try {
       const [routes, employees] = await Promise.all([this.availableRoutes(), this.availableEmployees()]);
@@ -691,6 +746,28 @@ export class FeishuCommander {
   }
 }
 
+function usageBillingText(usage) {
+  const billing = usage?.billing;
+  if (billing && billing.status !== 'unavailable') {
+    const totals = billing.totals || {};
+    const apiCalls = Number(totals.apiCalls || 0);
+    const tokens = Number(totals.tokens?.total || 0);
+    const cost = totals.cost || {};
+    const amount = Number(cost.knownUsd || 0);
+    const amountText = amount > 0
+      ? `已知金额约 ${formatUsd(amount)}（${Number(cost.actualEntryCount || 0) ? '含 Provider 实际费用' : 'Hermes 估算'}）`
+      : apiCalls ? '金额仍未由 Provider 返回，不能写成 0 元' : '没有产生模型费用';
+    return `Hermes 账本记录 ${apiCalls} 次模型调用、${tokens} Token，${amountText}；${Number(billing.attribution?.attributedEntryCount || 0)} 条已归属任务，${Number(billing.attribution?.unattributedEntryCount || 0)} 条尚未归属。`;
+  }
+  return usage.cost.reportedTaskCount
+    ? `已收到 ${usage.cost.reportedTaskCount} 项任务费用数据：${usage.cost.totals.map((item) => `${item.amount} ${item.currency}`).join('，')}。`
+    : '执行方暂时没有返回可核对的费用数据，我不会猜金额。';
+}
+
+function formatUsd(value) {
+  return `$${Number(value || 0).toFixed(Number(value || 0) >= 0.01 ? 2 : 4)}`;
+}
+
 export class FeishuCommanderValidationError extends Error {}
 
 function conversationControlIntent(text) {
@@ -711,6 +788,8 @@ function directIntent(text) {
     if (CAPABILITIES_RE.test(text)) return { intent:'army_capabilities' };
     if (HEALTH_RE.test(text)) return { intent:'health_check' };
     if (VIDEO_SCRIPT_RE.test(text)) return { intent:'route_task', taskType:'content.video-script-package', agentId:'content-creator' };
+    const analysisPlan = videoAnalysisPlan(text);
+    if (analysisPlan) return analysisPlan;
     if (MEDIA_RE.test(text)) return { intent:'media_task' };
     if (OFFICE_RE.test(text)) return { intent:'office_briefing' };
     if (isGithubRequest(text)) return { intent:'github_search' };
@@ -719,6 +798,15 @@ function directIntent(text) {
     if (/优先.*(?:做|处理)|怎么推进|安排.*(?:合适|员工|人).*做|最值得.*(?:做|处理)|下一步.*(?:做|处理)/.test(text)) return { intent:'army_planning' };
     if (/重复.*工作|反复.*事情|需要.*新员工|岗位.*缺口|能力.*缺口|架构.*评估|复盘.*工作/.test(text)) return { intent:'architecture_review' };
     return { intent:'intake' };
+}
+
+function videoAnalysisPlan(text) {
+  if (!VIDEO_ANALYSIS_MODE_RE.test(text) || !(MEDIA_RE.test(text) || publicUrl(text))) return null;
+  const analysis = resolveAnalysisIntent({ title:text });
+  if (analysis.error === 'analysis_intent_conflict') {
+    return { intent:'clarify', reply:'检测到多个分析模式，请只选精华提炼、深度拆解、模板学习或风格探索中的一种。' };
+  }
+  return { intent:'route_task', taskType:'content.video-benchmark-analysis', agentId:'video-content-analyst' };
 }
 
 function isSafePublicResearchRequest(text) {
@@ -814,6 +902,16 @@ function formatVideoScriptReply(report) {
 }
 
 function replyFor(task, taskType) {
+  if (task.status === 'succeeded' && !validateTaskCompletion(task).valid) {
+    return {
+      kind:'completion_waiting_test',
+      task,
+      reply:`“${shortTitle(task)}”已经停止运行，但完成产物没有通过对应任务门禁；已转交待测试，不会冒充成功。\n任务号：${task.taskId}。`,
+    };
+  }
+  if (['waiting_test', 'failed', 'cancelled'].includes(task.status)) {
+    return { kind:'task_status', task, reply:progressReply(task) };
+  }
   if (taskType === 'operations.health-review') {
     const report = task.artifactRefs?.find((item) => item.type === 'health_report')?.data;
     return { kind: 'health_review', task, reply: report ? healthReviewReply(task, report) : `运维官已接手检查，任务号：${task.taskId}。` };
@@ -995,6 +1093,9 @@ function progressReply(task) {
   const title = `“${shortTitle(task)}”`;
   const report = task.artifactRefs?.find((item) => item.type === 'public_web_report')?.data;
   if (task.status === 'running' || task.status === 'queued') return `${title}正在由${worker}处理。完成后会回到当前飞书会话。`;
+  if (task.status === 'succeeded' && !validateTaskCompletion(task).valid) {
+    return `${title}已经停止运行，但完成产物没有通过对应任务门禁，已转为待测试。`;
+  }
   if (task.status === 'succeeded' && report?.summary) return formatPublicReportReply(report, { taskTitle:shortTitle(task) });
   if (task.status === 'succeeded') return `${title}已经完成，结果已发回当前飞书会话。`;
   if (task.status === 'failed' && task.error?.code === 'executor_failed' && !task.execution?.xiaodJobId) {

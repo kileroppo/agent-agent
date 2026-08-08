@@ -488,7 +488,7 @@ test('正式 full 拆解只复用确认稿并生成 13 个带证据模块', asyn
     taskId:'analysis-task-0001',
     taskType:'content.video-benchmark-analysis',
     assigneeAgentId:'video-content-analyst',
-    input:{ title:'样片拆解', evidenceMode:'formal', depth:'full', context:{ sourceTaskIds:[sourceTask.taskId] } }
+    input:{ title:'样片拆解', analysisIntent:'deep', evidenceMode:'formal', depth:'full', context:{ sourceTaskIds:[sourceTask.taskId] } }
   });
   assert.equal(result.status, 'succeeded');
   const artifact = result.artifactRefs[0];
@@ -503,6 +503,9 @@ test('正式 full 拆解只复用确认稿并生成 13 个带证据模块', asyn
     'AI辅助创作建议', '可模仿点 Top3', '爆款结构模板'
   ]);
   assert.ok(artifact.data.modules.every((item) => item.originalAnalysis.length && item.diagnosis.length && item.optimization.length));
+  assert.ok(artifact.data.modules.every((item) => item.observedFact?.evidence?.fragment));
+  assert.ok(artifact.data.modules.every((item) => item.mechanismInference?.certainty === 'inference'));
+  assert.ok(artifact.data.modules.every((item) => item.applicableWhen && item.failureConditions && item.validationMethod && item.reuseMethod));
   const sentenceModule = artifact.data.modules.find((item) => item.name === '全文逐句作用拆解');
   assert.equal(sentenceModule.sentenceBreakdown.length, 2);
   assert.ok(sentenceModule.sentenceBreakdown.every((item) => item.original && item.role && item.evidence.fragment));
@@ -515,6 +518,128 @@ test('正式 full 拆解只复用确认稿并生成 13 个带证据模块', asyn
   assert.match(markdown, /展开全文作用拆解（2 个连续证据段）/);
   assert.doesNotMatch(markdown, /\[object Object\]/);
   assert.doesNotMatch(markdown, /## 结构化结果|```json|\"modules\"\\s*:/);
+});
+
+test('精华提炼输出短摘要、原文金句和唯一下一步并保留证据', async (t) => {
+  const root = await sandbox(t);
+  const transcriptPath = path.join(root, 'confirmed-digest.md');
+  await fs.writeFile(transcriptPath, '[00:00] 先展示真实结果，再解释适用条件。\n[00:08] 每次只调整一个变量，才能知道变化来自哪里。\n[00:16] 最后记录结果并决定下一轮是否保留。\n');
+  const sourceTask = taskWithArtifact('source-task-digest', confirmedArtifact(transcriptPath, 'automatic'));
+  const analyst = new LocalVideoContentAnalyst({
+    store:{ list:async () => [sourceTask] },
+    artifactsDir:path.join(root, 'out'),
+    allowedArtifactRoots:[root]
+  });
+  const result = await analyst.execute({
+    taskId:'analysis-task-digest',
+    taskType:'content.video-benchmark-analysis',
+    input:{
+      title:'快速看懂样片',
+      analysisIntent:'digest',
+      evidenceMode:'formal',
+      context:{ sourceTaskIds:[sourceTask.taskId] }
+    }
+  });
+  const data = result.artifactRefs[0].data;
+  assert.equal(data.analysisIntent, 'digest');
+  assert.equal(data.reportVersion, 'video-analysis/v2');
+  assert.deepEqual(data.availableAnalysisIntents.map((item) => item.id), ['digest', 'deep', 'template', 'style']);
+  assert.ok(data.digest.corePoints.length >= 3 && data.digest.corePoints.length <= 5);
+  assert.ok(data.digest.goldenQuotes.length >= 2 && data.digest.goldenQuotes.length <= 3);
+  assert.ok(data.digest.goldenQuotes.every((item) => item.quote && item.evidence.fragment === item.quote));
+  assert.equal(data.nextAction.action, 'continue_deep_analysis');
+  assert.equal(data.creationEligible, true);
+  assert.equal(result.artifactRefs[0].validation.digestWithinCharacterLimit, true);
+  assert.ok(result.artifactRefs[0].validation.digestCharacterCount <= 800);
+});
+
+test('精华提炼按开头、中段和结尾覆盖长确认稿，不只截取前三段', async (t) => {
+  const root = await sandbox(t);
+  const transcriptPath = path.join(root, 'confirmed-digest-coverage.md');
+  await fs.writeFile(transcriptPath, Array.from({ length:9 }, (_, index) => (
+    `[00:${String(index * 5).padStart(2, '0')}] 第${index + 1}段真实内容，承担独立信息任务。`
+  )).join('\n'));
+  const sourceTask = taskWithArtifact('source-task-digest-coverage', confirmedArtifact(transcriptPath));
+  const analyst = new LocalVideoContentAnalyst({ store:{ list:async () => [sourceTask] }, artifactsDir:path.join(root, 'out'), allowedArtifactRoots:[root] });
+  const result = await analyst.execute({
+    taskId:'analysis-task-digest-coverage', taskType:'content.video-benchmark-analysis',
+    input:{ title:'覆盖式精华提炼', analysisIntent:'digest', evidenceMode:'formal', context:{ sourceTaskIds:[sourceTask.taskId] } }
+  });
+  const digest = result.artifactRefs[0].data.digest;
+  assert.deepEqual(digest.goldenQuotes.map((item) => item.evidence.timestamp), ['00:00', '00:20', '00:40']);
+  assert.match(digest.oneSentenceSummary, /第1段/);
+  assert.match(digest.oneSentenceSummary, /第5段/);
+  assert.match(digest.oneSentenceSummary, /第9段/);
+});
+
+test('模型精华输出含伪造金句时保留证据化兜底内容', async (t) => {
+  const root = await sandbox(t);
+  const transcriptPath = path.join(root, 'confirmed-digest-guard.md');
+  await fs.writeFile(transcriptPath, '[00:00] 第一句真实内容。\n[00:08] 第二句真实内容。\n[00:16] 第三句真实内容。\n');
+  const sourceTask = taskWithArtifact('source-task-digest-guard', confirmedArtifact(transcriptPath));
+  const evidence = { timestamp:'00:00', fragment:'第一句真实内容。' };
+  const analyst = new LocalVideoContentAnalyst({
+    store:{ list:async () => [sourceTask] }, artifactsDir:path.join(root, 'out'), allowedArtifactRoots:[root],
+    advisor:{ async analyze() { return { data:{
+      summary:'模型摘要',
+      modules:['定位与受众', '开场钩子', '内容结构', '核心价值点', '可执行优化建议'].map((name) => ({ name, finding:name, evidence, confidence:'high' })),
+      digest:{
+        oneSentenceSummary:'模型摘要',
+        corePoints:[1, 2, 3].map((index) => ({ point:`重点${index}`, evidence })),
+        goldenQuotes:[1, 2].map((index) => ({ quote:`不存在的金句${index}`, evidence:{ timestamp:'00:00', fragment:`不存在的金句${index}` } })),
+        actionItems:['行动一']
+      }
+    } }; } }
+  });
+  const result = await analyst.execute({
+    taskId:'analysis-task-digest-guard', taskType:'content.video-benchmark-analysis',
+    input:{ title:'精华提炼', analysisIntent:'digest', evidenceMode:'formal', context:{ sourceTaskIds:[sourceTask.taskId] } }
+  });
+  const digest = result.artifactRefs[0].data.digest;
+  assert.equal(result.artifactRefs[0].validation.advisorApplied, true);
+  assert.ok(digest.goldenQuotes.every((item) => !item.quote.includes('不存在')));
+  assert.ok(digest.goldenQuotes.every((item) => item.quote === item.evidence.fragment));
+});
+
+test('模板学习只输出结构模板候选、替换指南和异题原创示例', async (t) => {
+  const root = await sandbox(t);
+  const transcriptPath = path.join(root, 'confirmed-template.md');
+  await fs.writeFile(transcriptPath, '[00:00] 开场先给出可核验结果。\n[00:08] 中段解释三个步骤和限制。\n[00:16] 结尾只给一个行动。\n');
+  const sourceTask = taskWithArtifact('source-task-template', confirmedArtifact(transcriptPath));
+  const analyst = new LocalVideoContentAnalyst({ store:{ list:async () => [sourceTask] }, artifactsDir:path.join(root, 'out'), allowedArtifactRoots:[root] });
+  const result = await analyst.execute({
+    taskId:'analysis-task-template', taskType:'content.video-benchmark-analysis',
+    input:{ title:'提取模板', analysisIntent:'template', evidenceMode:'formal', context:{ sourceTaskIds:[sourceTask.taskId] } }
+  });
+  const data = result.artifactRefs[0].data;
+  assert.equal(data.analysisIntent, 'template');
+  assert.equal(data.templateLearning.status, 'candidate');
+  assert.equal(data.templateLearning.openingTemplates.length, 3);
+  assert.ok(data.templateLearning.structure.every((item) => item.placeholder && item.replacementGuide && item.evidence.fragment));
+  assert.match(data.templateLearning.differentTopicExample, /家庭收纳/);
+  assert.match(data.templateLearning.originalityReminder, /原创内容/);
+  assert.doesNotMatch(data.templateLearning.performanceClaim, /验证有效/);
+  assert.equal(data.nextAction.requiresExplicitApproval, true);
+});
+
+test('风格探索返回四个事实锁定短样稿且无数据时降级为证据驱动版', async (t) => {
+  const root = await sandbox(t);
+  const transcriptPath = path.join(root, 'confirmed-style.md');
+  await fs.writeFile(transcriptPath, '[00:00] 开场先展示流程结果。\n[00:08] 中间解释为什么每次只改一个变量。\n[00:16] 最后记录限制并安排下一轮验证。\n');
+  const sourceTask = taskWithArtifact('source-task-style', confirmedArtifact(transcriptPath));
+  const analyst = new LocalVideoContentAnalyst({ store:{ list:async () => [sourceTask] }, artifactsDir:path.join(root, 'out'), allowedArtifactRoots:[root] });
+  const result = await analyst.execute({
+    taskId:'analysis-task-style', taskType:'content.video-benchmark-analysis',
+    input:{ title:'探索表达风格', analysisIntent:'style', evidenceMode:'formal', context:{ sourceTaskIds:[sourceTask.taskId] } }
+  });
+  const data = result.artifactRefs[0].data;
+  assert.equal(data.analysisIntent, 'style');
+  assert.equal(data.styleExploration.factsLocked, true);
+  assert.equal(data.styleExploration.variants.length, 4);
+  assert.ok(data.styleExploration.variants.every((item) => item.sample.length >= 150 && item.sample.length <= 250));
+  assert.equal(data.styleExploration.variants[3].name, '证据驱动版');
+  assert.match(data.styleExploration.variants[3].sample, /不能证明播放或转化提升/);
+  assert.equal(data.nextAction.requiresExplicitApproval, true);
 });
 
 test('正式分析缺少确认稿时拒绝，初步分析可读机器稿但明确降级', async (t) => {
@@ -538,6 +663,7 @@ test('正式分析缺少确认稿时拒绝，初步分析可读机器稿但明�
   });
   assert.equal(preliminary.status, 'succeeded');
   assert.equal(preliminary.artifactRefs[0].data.evidenceMode, 'preliminary');
+  assert.equal(preliminary.artifactRefs[0].data.creationEligible, false);
 });
 
 test('Hermes 完整拆解只有在 13 模块及逐项证据通过校验后才替换本机兜底', async (t) => {
@@ -984,6 +1110,9 @@ test('表现复盘派生标准化指标并明确同类范围、决策和唯一�
       observationWindow:'72h',
       comparableSampleCount:5,
       metrics:{
+        platformContentId:'note-100',
+        publishedAt:'2026-08-01T00:00:00Z',
+        contentVersionId:'content-v1',
         impressions:200,
         views:100,
         comments:2,
@@ -1009,10 +1138,36 @@ test('表现复盘派生标准化指标并明确同类范围、决策和唯一�
     platform:'xiaohongshu',
     contentType:'教程图文',
     observationWindow:'72h',
-    comparableSampleCount:5,
+    comparableSampleCount:0,
+    declaredComparableSampleCount:5,
   });
   assert.equal(artifact.data.decision, 'collect_more_samples');
+  assert.equal(artifact.data.learning.status, 'insufficient_sample');
+  assert.equal(artifact.data.learning.proposal, null);
+  assert.equal(artifact.data.learning.governedLearningRoute, 'paperclip-retrospective');
+  assert.match(artifact.data.learning.reason, /不能替代五条.*MetricSnapshot/);
+  assert.equal(artifact.data.learning.requiresHumanReview, true);
+  assert.equal(artifact.data.learning.productionMutationAllowed, false);
   assert.equal(artifact.validation.singleExperimentEnforced, true);
+});
+
+test('同类真实指标少于五条时只记录样本不足且不生成学习提案', async (t) => {
+  const root = await sandbox(t);
+  const analyst = new LocalVideoContentAnalyst({ store:{ list:async () => [] }, artifactsDir:path.join(root, 'out'), allowedArtifactRoots:[root] });
+  const result = await analyst.execute({
+    taskId:'performance-insufficient', taskType:'content.performance-review',
+    input:{
+      platform:'douyin', contentType:'口播', observationWindow:'72h', comparableSampleCount:4,
+      metrics:{ platformContentId:'video-1', publishedAt:'2026-08-01T00:00:00Z', views:100 }
+    }
+  }, { sourceArtifacts:[{
+    artifactId:'video_script_package:insufficient', type:'video_script_package',
+    validation:{ exists:true, readable:true, nonEmpty:true }, data:{ templateLifecycle:{ state:'trial', approvedForUse:true } }
+  }] });
+  const learning = result.artifactRefs[0].data.learning;
+  assert.equal(learning.status, 'insufficient_sample');
+  assert.equal(learning.proposal, null);
+  assert.equal(learning.productionMutationAllowed, false);
 });
 
 test('已采用脚本只有达到真实使用与账号基准门槛后才升级模板状态', async (t) => {

@@ -1,7 +1,12 @@
 import crypto from 'node:crypto';
 
+type UnknownRecord = Readonly<Record<string, unknown>>;
+
 export class M5ContractError extends TypeError {
-  constructor(code, message, details = undefined) {
+  readonly code: string;
+  readonly details?: unknown;
+
+  constructor(code: string, message: string, details: unknown = undefined) {
     super(message);
     this.name = 'M5ContractError';
     this.code = code;
@@ -19,20 +24,24 @@ export const M5_CONTRACT_ERROR_CODES = Object.freeze({
   SCHEMA_ID_UNSUPPORTED:'m5_schema_id_unsupported',
   SHA256_INVALID:'m5_sha256_invalid',
   WORK_PRODUCT_IDENTITY_INVALID:'m5_work_product_identity_invalid',
-});
+} as const);
 
 export const M5_PLATFORM_IDS = Object.freeze({
   DOUYIN:'douyin',
   XIAOHONGSHU:'xiaohongshu',
-});
+} as const);
 export const M5_PLATFORMS = Object.freeze(Object.values(M5_PLATFORM_IDS));
+export type M5Platform = typeof M5_PLATFORMS[number];
+
 export const CONTENT_CHANNEL_IDS = Object.freeze({
   DOUYIN:'douyin',
   XIAOHONGSHU:'xiaohongshu',
   WECHAT_OFFICIAL_ACCOUNT:'wechat_official_account',
   WECHAT_CHANNELS:'wechat_channels',
-});
+} as const);
 export const CONTENT_CHANNELS = Object.freeze(Object.values(CONTENT_CHANNEL_IDS));
+export type ContentChannel = typeof CONTENT_CHANNELS[number];
+
 export const CONTENT_QUALITY_GATE_IDS = Object.freeze([
   'evidence',
   'account_voice',
@@ -40,14 +49,18 @@ export const CONTENT_QUALITY_GATE_IDS = Object.freeze([
   'visual_consistency',
   'compliance',
   'delivery_completeness',
-]);
+] as const);
+export type ContentQualityGate = typeof CONTENT_QUALITY_GATE_IDS[number];
+
 export const CONTENT_REVIEW_DECISIONS = Object.freeze([
   'scale',
   'repackage',
   'adapt_platform',
   'stop',
   'collect_more_samples',
-]);
+] as const);
+export type ContentReviewDecision = typeof CONTENT_REVIEW_DECISIONS[number];
+
 export const CONTENT_PLATFORM_PLAYBOOKS = deepFreeze({
   [CONTENT_CHANNEL_IDS.DOUYIN]:{
     title:'用具体结果或冲突建立点击理由，不能超出正文证据。',
@@ -73,7 +86,9 @@ export const CONTENT_PLATFORM_PLAYBOOKS = deepFreeze({
     structure:'口播说得出口，事实完整，结尾只保留一个行动。',
     visual:'竖屏画面与字幕分工明确，避免无证据效果演示。',
   },
-});
+} as const);
+export type ContentPlatformPlaybook = typeof CONTENT_PLATFORM_PLAYBOOKS[ContentChannel];
+
 export const CONTENT_METRIC_KEYS = Object.freeze([
   'impressions',
   'views',
@@ -87,13 +102,17 @@ export const CONTENT_METRIC_KEYS = Object.freeze([
   'attributedRevenue',
   'productionMinutes',
   'successfulOutputs',
-]);
+] as const);
+export type ContentMetricKey = typeof CONTENT_METRIC_KEYS[number];
+
 export const M5_ALLOWED_PUBLISH_ACTIONS = Object.freeze([
   'upload',
   'fill_metadata',
   'schedule_or_publish',
   'read_own_metrics',
-]);
+] as const);
+export type M5AllowedPublishAction = typeof M5_ALLOWED_PUBLISH_ACTIONS[number];
+
 export const M5_PROHIBITED_PUBLISH_ACTIONS = Object.freeze([
   'direct_message',
   'comment',
@@ -102,13 +121,19 @@ export const M5_PROHIBITED_PUBLISH_ACTIONS = Object.freeze([
   'payment',
   'account_settings',
   'delete_history',
-]);
+] as const);
+export type M5ProhibitedPublishAction = typeof M5_PROHIBITED_PUBLISH_ACTIONS[number];
+export type M5PublishAction = M5AllowedPublishAction | M5ProhibitedPublishAction;
+
 export const M5_STEPFUN_MODELS = Object.freeze({
   vision:'step-1o-turbo-vision',
   image_generate:'step-image-edit-2',
   image_edit:'step-image-edit-2',
   tts:'stepaudio-2.5-tts',
-});
+} as const);
+export type M5ProviderOperation = keyof typeof M5_STEPFUN_MODELS;
+export type M5StepFunModel = typeof M5_STEPFUN_MODELS[M5ProviderOperation];
+
 export const M5_SCHEMA_IDS = Object.freeze({
   CAMPAIGN_GRANT:'agent.army/campaign-grant/v1',
   CAMPAIGN_PLAN:'agent.army/campaign-plan/v1',
@@ -143,7 +168,9 @@ export const M5_SCHEMA_IDS = Object.freeze({
   TEMPLATE_GRAY_RELEASE:'agent.army/template-gray-release/v1',
   TEMPLATE_DECISION:'agent.army/template-decision/v1',
   PRODUCTION_TEMPLATE_BINDING:'agent.army/production-template-binding/v1',
-});
+} as const);
+export type M5SchemaId = typeof M5_SCHEMA_IDS[keyof typeof M5_SCHEMA_IDS];
+
 export const M5_WORK_PRODUCT_SCHEMAS = Object.freeze({
   ContentBrief:M5_SCHEMA_IDS.CONTENT_BRIEF,
   ContentOpportunity:M5_SCHEMA_IDS.CONTENT_OPPORTUNITY,
@@ -172,21 +199,47 @@ export const M5_WORK_PRODUCT_SCHEMAS = Object.freeze({
   TemplateVersion:M5_SCHEMA_IDS.TEMPLATE_VERSION,
   TemplateGrayRelease:M5_SCHEMA_IDS.TEMPLATE_GRAY_RELEASE,
   TemplateDecision:M5_SCHEMA_IDS.TEMPLATE_DECISION,
-});
-export const M5_WORK_PRODUCT_KINDS = Object.freeze(Object.keys(M5_WORK_PRODUCT_SCHEMAS));
+} as const);
+export type M5WorkProductKind = keyof typeof M5_WORK_PRODUCT_SCHEMAS;
+export type M5WorkProductContract = {
+  [Kind in M5WorkProductKind]: Readonly<{
+    kind: Kind;
+    schemaVersion: typeof M5_WORK_PRODUCT_SCHEMAS[Kind];
+  }>;
+}[M5WorkProductKind];
+export const M5_WORK_PRODUCT_KINDS = Object.freeze(
+  Object.keys(M5_WORK_PRODUCT_SCHEMAS) as M5WorkProductKind[],
+);
 export const M5_SHA256_PATTERN = /^sha256:[0-9a-f]{64}$/;
+export type M5Sha256 = `sha256:${string}`;
 
-const M5_WORK_PRODUCT_KIND_BY_TOKEN = new Map(
+const M5_PLATFORM_SET: ReadonlySet<M5Platform> = new Set(M5_PLATFORMS);
+const CONTENT_CHANNEL_SET: ReadonlySet<ContentChannel> = new Set(CONTENT_CHANNELS);
+const CONTENT_CHANNEL_ALIASES: Readonly<Record<string, ContentChannel>> = Object.freeze({
+  xhs:CONTENT_CHANNEL_IDS.XIAOHONGSHU,
+  wechat:CONTENT_CHANNEL_IDS.WECHAT_OFFICIAL_ACCOUNT,
+  wechat_mp:CONTENT_CHANNEL_IDS.WECHAT_OFFICIAL_ACCOUNT,
+  mp:CONTENT_CHANNEL_IDS.WECHAT_OFFICIAL_ACCOUNT,
+  gongzhonghao:CONTENT_CHANNEL_IDS.WECHAT_OFFICIAL_ACCOUNT,
+  shipinhao:CONTENT_CHANNEL_IDS.WECHAT_CHANNELS,
+});
+const M5_ALLOWED_PUBLISH_ACTION_SET: ReadonlySet<M5AllowedPublishAction> = new Set(
+  M5_ALLOWED_PUBLISH_ACTIONS,
+);
+const M5_PROHIBITED_PUBLISH_ACTION_SET: ReadonlySet<M5ProhibitedPublishAction> = new Set(
+  M5_PROHIBITED_PUBLISH_ACTIONS,
+);
+const M5_WORK_PRODUCT_KIND_BY_TOKEN = new Map<string, M5WorkProductKind>(
   M5_WORK_PRODUCT_KINDS.map((kind) => [normalizeCompactToken(kind), kind]),
 );
-const M5_SCHEMA_ID_SET = new Set(Object.values(M5_SCHEMA_IDS));
+const M5_SCHEMA_ID_SET: ReadonlySet<M5SchemaId> = new Set(Object.values(M5_SCHEMA_IDS));
 
-export function normalizeM5Platform(value) {
+export function normalizeM5Platform(value: unknown): M5Platform | null {
   const normalized = normalizeToken(value);
-  return M5_PLATFORMS.includes(normalized) ? normalized : null;
+  return isMemberOf(M5_PLATFORM_SET, normalized) ? normalized : null;
 }
 
-export function assertM5Platform(value) {
+export function assertM5Platform(value: unknown): M5Platform {
   const normalized = normalizeM5Platform(value);
   if (normalized) return normalized;
   throw new M5ContractError(
@@ -196,20 +249,12 @@ export function assertM5Platform(value) {
   );
 }
 
-export function normalizeContentChannel(value) {
+export function normalizeContentChannel(value: unknown): ContentChannel | null {
   const token = normalizeSnakeToken(value);
-  const aliases = {
-    xhs:CONTENT_CHANNEL_IDS.XIAOHONGSHU,
-    wechat:CONTENT_CHANNEL_IDS.WECHAT_OFFICIAL_ACCOUNT,
-    wechat_mp:CONTENT_CHANNEL_IDS.WECHAT_OFFICIAL_ACCOUNT,
-    mp:CONTENT_CHANNEL_IDS.WECHAT_OFFICIAL_ACCOUNT,
-    gongzhonghao:CONTENT_CHANNEL_IDS.WECHAT_OFFICIAL_ACCOUNT,
-    shipinhao:CONTENT_CHANNEL_IDS.WECHAT_CHANNELS,
-  };
-  return CONTENT_CHANNELS.includes(token) ? token : aliases[token] || null;
+  return isMemberOf(CONTENT_CHANNEL_SET, token) ? token : CONTENT_CHANNEL_ALIASES[token] || null;
 }
 
-export function contentQualityChecklist(platform) {
+export function contentQualityChecklist(platform: unknown) {
   const channel = normalizeContentChannel(platform);
   if (!channel) {
     throw new M5ContractError(
@@ -226,11 +271,21 @@ export function contentQualityChecklist(platform) {
   }));
 }
 
-export function normalizeContentBrief(value = {}) {
+const CONTENT_CONFIRMATION_STATUSES = Object.freeze([
+  'confirmed',
+  'assumed_defaults',
+  'needs_confirmation',
+] as const);
+type ContentConfirmationStatus = typeof CONTENT_CONFIRMATION_STATUSES[number];
+const CONTENT_CONFIRMATION_STATUS_SET: ReadonlySet<ContentConfirmationStatus> = new Set(
+  CONTENT_CONFIRMATION_STATUSES,
+);
+
+export function normalizeContentBrief(value: UnknownRecord = {}) {
   const channels = [...new Set(
     (Array.isArray(value.channels) ? value.channels : [value.primaryChannel])
       .map(normalizeContentChannel)
-      .filter(Boolean),
+      .filter((channel): channel is ContentChannel => channel !== null),
   )].slice(0, 3);
   const audience = boundedText(value.audience, 300);
   const goal = boundedText(value.goal, 500);
@@ -248,18 +303,17 @@ export function normalizeContentBrief(value = {}) {
     primaryAction:boundedText(value.primaryAction, 300) || null,
     experiment:normalizeContentExperiment(value.experiment),
     assumptions:Object.freeze(uniqueTextList(value.assumptions, 10, 500)),
-    confirmationStatus:['confirmed', 'assumed_defaults', 'needs_confirmation']
-      .includes(value.confirmationStatus)
+    confirmationStatus:isContentConfirmationStatus(value.confirmationStatus)
       ? value.confirmationStatus
       : 'needs_confirmation',
   });
 }
 
-export function deriveContentMetrics(value = {}) {
+export function deriveContentMetrics(value: UnknownRecord = {}) {
   const metrics = Object.fromEntries(CONTENT_METRIC_KEYS.map((key) => [
     key,
     nonNegativeNumber(value[key]),
-  ]));
+  ])) as Record<ContentMetricKey, number | null>;
   return Object.freeze({
     ...metrics,
     followersPerThousandViews:safeRate(metrics.newFollowers, metrics.views, 1000),
@@ -278,19 +332,25 @@ export function deriveContentMetrics(value = {}) {
   });
 }
 
-export function summarizeComparableContentMetrics(samples = []) {
+const DERIVED_CONTENT_METRIC_KEYS = Object.freeze([
+  'followersPerThousandViews',
+  'deepEngagementRate',
+  'clickThroughRate',
+  'conversionRate',
+  'minutesPerSuccessfulOutput',
+] as const);
+type DerivedContentMetricKey = typeof DERIVED_CONTENT_METRIC_KEYS[number];
+type ComparableContentMetricKey = ContentMetricKey | DerivedContentMetricKey;
+
+export function summarizeComparableContentMetrics(samples: readonly UnknownRecord[] = []) {
   const normalized = (Array.isArray(samples) ? samples : [])
     .map((sample) => deriveContentMetrics(sample));
-  const metricKeys = [
+  const metricKeys: readonly ComparableContentMetricKey[] = [
     ...CONTENT_METRIC_KEYS,
-    'followersPerThousandViews',
-    'deepEngagementRate',
-    'clickThroughRate',
-    'conversionRate',
-    'minutesPerSuccessfulOutput',
+    ...DERIVED_CONTENT_METRIC_KEYS,
   ];
   return Object.freeze(Object.fromEntries(metricKeys.map((key) => {
-    const values = normalized.map((item) => item[key]).filter(Number.isFinite).sort((a, b) => a - b);
+    const values = normalized.map((item) => item[key]).filter(isFiniteNumber).sort((a, b) => a - b);
     return [key, Object.freeze({
       sampleCount:values.length,
       median:quantile(values, 0.5),
@@ -299,24 +359,23 @@ export function summarizeComparableContentMetrics(samples = []) {
   })));
 }
 
-export function normalizeM5PublishAction(value) {
+export function normalizeM5PublishAction(value: unknown): M5PublishAction | null {
   const normalized = normalizeSnakeToken(value);
-  return M5_ALLOWED_PUBLISH_ACTIONS.includes(normalized)
-    || M5_PROHIBITED_PUBLISH_ACTIONS.includes(normalized)
-    ? normalized
-    : null;
+  if (isMemberOf(M5_ALLOWED_PUBLISH_ACTION_SET, normalized)) return normalized;
+  if (isMemberOf(M5_PROHIBITED_PUBLISH_ACTION_SET, normalized)) return normalized;
+  return null;
 }
 
-export function assertM5PublishAction(value) {
+export function assertM5PublishAction(value: unknown): M5AllowedPublishAction {
   const action = normalizeSnakeToken(value);
-  if (M5_PROHIBITED_PUBLISH_ACTIONS.includes(action)) {
+  if (isMemberOf(M5_PROHIBITED_PUBLISH_ACTION_SET, action)) {
     throw new M5ContractError(
       M5_CONTRACT_ERROR_CODES.PUBLISH_ACTION_PROHIBITED,
       `M5 禁止发布动作：${action}。`,
       { action },
     );
   }
-  if (M5_ALLOWED_PUBLISH_ACTIONS.includes(action)) return action;
+  if (isMemberOf(M5_ALLOWED_PUBLISH_ACTION_SET, action)) return action;
   throw new M5ContractError(
     M5_CONTRACT_ERROR_CODES.PUBLISH_ACTION_UNSUPPORTED,
     'M5 发布动作不在允许白名单内。',
@@ -324,12 +383,12 @@ export function assertM5PublishAction(value) {
   );
 }
 
-export function normalizeM5ProviderOperation(value) {
+export function normalizeM5ProviderOperation(value: unknown): M5ProviderOperation | null {
   const normalized = normalizeSnakeToken(value);
-  return Object.hasOwn(M5_STEPFUN_MODELS, normalized) ? normalized : null;
+  return isM5ProviderOperation(normalized) ? normalized : null;
 }
 
-export function assertM5ProviderOperation(value) {
+export function assertM5ProviderOperation(value: unknown): M5ProviderOperation {
   const operation = normalizeM5ProviderOperation(value);
   if (operation) return operation;
   throw new M5ContractError(
@@ -339,15 +398,15 @@ export function assertM5ProviderOperation(value) {
   );
 }
 
-export function getM5StepFunModel(operation) {
+export function getM5StepFunModel(operation: unknown): M5StepFunModel {
   return M5_STEPFUN_MODELS[assertM5ProviderOperation(operation)];
 }
 
-export function normalizeM5WorkProductKind(value) {
+export function normalizeM5WorkProductKind(value: unknown): M5WorkProductKind | null {
   return M5_WORK_PRODUCT_KIND_BY_TOKEN.get(normalizeCompactToken(value)) || null;
 }
 
-export function assertM5WorkProductKind(value) {
+export function assertM5WorkProductKind(value: unknown): M5WorkProductKind {
   const kind = normalizeM5WorkProductKind(value);
   if (kind) return kind;
   throw new M5ContractError(
@@ -357,22 +416,29 @@ export function assertM5WorkProductKind(value) {
   );
 }
 
-export function getM5WorkProductSchema(kind) {
+export function getM5WorkProductSchema(kind: unknown): M5SchemaId {
   return M5_WORK_PRODUCT_SCHEMAS[assertM5WorkProductKind(kind)];
 }
 
-export function normalizeM5WorkProductContract(value) {
+type WorkProductContractInput = Readonly<{
+  kind?: unknown;
+  schemaVersion?: unknown;
+}> | null | undefined;
+
+export function normalizeM5WorkProductContract(
+  value: WorkProductContractInput,
+): M5WorkProductContract | null {
   const kind = normalizeM5WorkProductKind(value?.kind);
   const schemaVersion = normalizeM5SchemaId(value?.schemaVersion);
   if (!kind || !schemaVersion || M5_WORK_PRODUCT_SCHEMAS[kind] !== schemaVersion) return null;
-  return Object.freeze({ kind, schemaVersion });
+  return Object.freeze({ kind, schemaVersion }) as M5WorkProductContract;
 }
 
-export function assertM5WorkProductContract(value) {
+export function assertM5WorkProductContract(value: WorkProductContractInput): M5WorkProductContract {
   const kind = assertM5WorkProductKind(value?.kind);
   const schemaVersion = assertM5SchemaId(value?.schemaVersion);
   if (M5_WORK_PRODUCT_SCHEMAS[kind] === schemaVersion) {
-    return Object.freeze({ kind, schemaVersion });
+    return Object.freeze({ kind, schemaVersion }) as M5WorkProductContract;
   }
   throw new M5ContractError(
     M5_CONTRACT_ERROR_CODES.WORK_PRODUCT_SCHEMA_MISMATCH,
@@ -381,12 +447,12 @@ export function assertM5WorkProductContract(value) {
   );
 }
 
-export function normalizeM5SchemaId(value) {
+export function normalizeM5SchemaId(value: unknown): M5SchemaId | null {
   const normalized = normalizeToken(value);
-  return M5_SCHEMA_ID_SET.has(normalized) ? normalized : null;
+  return isMemberOf(M5_SCHEMA_ID_SET, normalized) ? normalized : null;
 }
 
-export function assertM5SchemaId(value) {
+export function assertM5SchemaId(value: unknown): M5SchemaId {
   const schemaId = normalizeM5SchemaId(value);
   if (schemaId) return schemaId;
   throw new M5ContractError(
@@ -396,14 +462,14 @@ export function assertM5SchemaId(value) {
   );
 }
 
-export function normalizeM5Sha256(value) {
+export function normalizeM5Sha256(value: unknown): M5Sha256 | null {
   const normalized = String(value || '').trim().toLowerCase();
-  if (M5_SHA256_PATTERN.test(normalized)) return normalized;
-  if (/^[0-9a-f]{64}$/.test(normalized)) return `sha256:${normalized}`;
+  if (M5_SHA256_PATTERN.test(normalized)) return normalized as M5Sha256;
+  if (/^[0-9a-f]{64}$/.test(normalized)) return `sha256:${normalized}` as M5Sha256;
   return null;
 }
 
-export function assertM5Sha256(value) {
+export function assertM5Sha256(value: unknown): M5Sha256 {
   const checksum = normalizeM5Sha256(value);
   if (checksum) return checksum;
   throw new M5ContractError(
@@ -412,24 +478,37 @@ export function assertM5Sha256(value) {
   );
 }
 
-export function canonicalizeM5Value(value) {
+export function canonicalizeM5Value(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalizeM5Value);
   if (!value || typeof value !== 'object' || Buffer.isBuffer(value) || ArrayBuffer.isView(value)) {
     return value;
   }
+  const record = value as UnknownRecord;
   return Object.fromEntries(
-    Object.keys(value).sort().map((key) => [key, canonicalizeM5Value(value[key])]),
+    Object.keys(record).sort().map((key) => [key, canonicalizeM5Value(record[key])]),
   );
 }
 
-export function m5Sha256(value) {
-  const input = Buffer.isBuffer(value) || ArrayBuffer.isView(value)
-    ? value
-    : typeof value === 'string'
-      ? value
-      : JSON.stringify(canonicalizeM5Value(value));
-  return `sha256:${crypto.createHash('sha256').update(input).digest('hex')}`;
+export function m5Sha256(value: unknown): M5Sha256 {
+  let input: string | NodeJS.ArrayBufferView;
+  if (Buffer.isBuffer(value)) input = value;
+  else if (ArrayBuffer.isView(value)) {
+    input = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+  } else if (typeof value === 'string') input = value;
+  else input = JSON.stringify(canonicalizeM5Value(value));
+  return `sha256:${crypto.createHash('sha256').update(input).digest('hex')}` as M5Sha256;
 }
+
+export type M5WorkProductArtifactIdentity = Readonly<{
+  sourceTaskId?: unknown;
+  sourceArtifactId?: unknown;
+  sourceIssueId?: unknown;
+  pipelineCaseId?: unknown;
+  projectId?: unknown;
+  sourceRunId?: unknown;
+  artifactKind?: unknown;
+  artifact?: unknown;
+}>;
 
 export function deriveM5WorkProductArtifactHash({
   sourceTaskId,
@@ -440,7 +519,7 @@ export function deriveM5WorkProductArtifactHash({
   sourceRunId,
   artifactKind,
   artifact,
-} = {}) {
+}: M5WorkProductArtifactIdentity = {}): M5Sha256 {
   const identity = {
     sourceTaskId:normalizeIdentityPart(sourceTaskId),
     sourceArtifactId:normalizeIdentityPart(sourceArtifactId),
@@ -460,34 +539,36 @@ export function deriveM5WorkProductArtifactHash({
   return m5Sha256(identity);
 }
 
-export function validM5WorkProductArtifactHash(metadata) {
+export function validM5WorkProductArtifactHash(
+  metadata: (M5WorkProductArtifactIdentity & Readonly<{ artifactHash?: unknown }>) | null | undefined,
+): boolean {
   const expected = normalizeM5Sha256(metadata?.artifactHash);
   if (!expected) return false;
   try {
-    return expected === deriveM5WorkProductArtifactHash(metadata);
+    return expected === deriveM5WorkProductArtifactHash(metadata || {});
   } catch {
     return false;
   }
 }
 
-function normalizeToken(value) {
+function normalizeToken(value: unknown): string {
   if (typeof value !== 'string') return '';
   return value.trim().toLowerCase();
 }
 
-function normalizeSnakeToken(value) {
+function normalizeSnakeToken(value: unknown): string {
   return normalizeToken(value).replace(/[\s-]+/g, '_');
 }
 
-function normalizeCompactToken(value) {
+function normalizeCompactToken(value: unknown): string {
   return normalizeToken(value).replace(/[\s_-]+/g, '');
 }
 
-function normalizeIdentityPart(value) {
+function normalizeIdentityPart(value: unknown): string {
   return String(value || '').trim();
 }
 
-function qualityInstruction(gate, playbook) {
+function qualityInstruction(gate: ContentQualityGate, playbook: ContentPlatformPlaybook): string {
   return ({
     evidence:'关键数字、身份、经历、比较和因果都能回到可信来源；标题不超出正文证据。',
     account_voice:'保留具体时间、动作、对象和取舍；删除百科腔、套话、整齐模板和空泛升华。',
@@ -498,44 +579,49 @@ function qualityInstruction(gate, playbook) {
   })[gate];
 }
 
-function normalizeContentExperiment(value) {
+function normalizeContentExperiment(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const variable = boundedText(value.variable, 200);
-  const hypothesis = boundedText(value.hypothesis, 500);
-  const successCriterion = boundedText(value.successCriterion, 500);
-  const observationWindow = boundedText(value.observationWindow, 120);
+  const record = value as UnknownRecord;
+  const variable = boundedText(record.variable, 200);
+  const hypothesis = boundedText(record.hypothesis, 500);
+  const successCriterion = boundedText(record.successCriterion, 500);
+  const observationWindow = boundedText(record.observationWindow, 120);
   if (!variable || !hypothesis || !successCriterion || !observationWindow) return null;
   return Object.freeze({ variable, hypothesis, successCriterion, observationWindow });
 }
 
-function uniqueTextList(value, maximumItems, maximumLength) {
+function uniqueTextList(value: unknown, maximumItems: number, maximumLength: number): string[] {
   const values = Array.isArray(value) ? value : value == null ? [] : [value];
   return [...new Set(values.map((item) => boundedText(item, maximumLength)).filter(Boolean))]
     .slice(0, maximumItems);
 }
 
-function boundedText(value, maximumLength) {
+function boundedText(value: unknown, maximumLength: number): string {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, maximumLength);
 }
 
-function nonNegativeNumber(value) {
+function nonNegativeNumber(value: unknown): number | null {
   if (value === '' || value == null) return null;
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? number : null;
 }
 
-function sumNullable(...values) {
-  const present = values.filter(Number.isFinite);
+function sumNullable(...values: Array<number | null>): number | null {
+  const present = values.filter(isFiniteNumber);
   return present.length ? present.reduce((total, item) => total + item, 0) : null;
 }
 
-function safeRate(numerator, denominator, multiplier) {
-  return Number.isFinite(numerator) && Number.isFinite(denominator) && denominator > 0
+function safeRate(
+  numerator: number | null,
+  denominator: number | null,
+  multiplier: number,
+): number | null {
+  return numerator !== null && denominator !== null && denominator > 0
     ? (numerator / denominator) * multiplier
     : null;
 }
 
-function quantile(values, percentile) {
+function quantile(values: readonly number[], percentile: number): number | null {
   if (!values.length) return null;
   if (values.length === 1) return values[0];
   const index = (values.length - 1) * percentile;
@@ -546,8 +632,24 @@ function quantile(values, percentile) {
   return values[lower] + (values[upper] - values[lower]) * weight;
 }
 
-function deepFreeze(value) {
+function isContentConfirmationStatus(value: unknown): value is ContentConfirmationStatus {
+  return typeof value === 'string' && isMemberOf(CONTENT_CONFIRMATION_STATUS_SET, value);
+}
+
+function isM5ProviderOperation(value: string): value is M5ProviderOperation {
+  return Object.hasOwn(M5_STEPFUN_MODELS, value);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isMemberOf<const T extends string>(set: ReadonlySet<T>, value: string): value is T {
+  return set.has(value as T);
+}
+
+function deepFreeze<T>(value: T): T {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
   for (const item of Object.values(value)) deepFreeze(item);
-  return Object.freeze(value);
+  return Object.freeze(value) as T;
 }

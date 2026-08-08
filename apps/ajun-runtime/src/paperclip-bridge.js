@@ -197,6 +197,12 @@ export class PaperclipBridge {
     return approval;
   }
 
+  async getApproval(approvalId) {
+    const normalized = String(approvalId || '').trim();
+    if (!normalized) throw new Error('Paperclip 审批 ID 不能为空。');
+    return this.request(`/api/approvals/${encodeURIComponent(normalized)}`);
+  }
+
   async update(task) {
     const projection = task.governance;
     if (!projection?.paperclipIssueId) return projection || { status: 'not_projected' };
@@ -1407,7 +1413,7 @@ function describeProposal(proposal) {
   ].join('\n\n');
 }
 
-function issueStatusFor(status) { return ({ running: 'backlog', pausing:'backlog', paused:'blocked', succeeded: 'done', failed: 'blocked', cancelled:'blocked', waiting_approval: 'blocked', waiting_test:'blocked' })[status] || 'backlog'; }
+function issueStatusFor(status) { return ({ running:'backlog', pausing:'backlog', paused:'blocked', succeeded:'done', failed:'blocked', cancelled:'blocked', expired:'blocked', needs_input:'blocked', waiting_approval:'blocked', waiting_test:'blocked' })[status] || 'backlog'; }
 function safeError(error) { return String(error?.message || 'Paperclip 暂不可用。').slice(0, 240); }
 
 function paperclipRosterEntry(manifest) {

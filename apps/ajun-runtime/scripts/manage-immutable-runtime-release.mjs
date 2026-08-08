@@ -157,11 +157,19 @@ const INTERNAL_WORKSPACE_PACKAGES = Object.freeze([
 const RUNTIME_WORKSPACE_ROOTS = Object.freeze(
   ['apps/ajun-runtime', ...INTERNAL_WORKSPACE_PACKAGES.map(([, relative]) => relative)],
 );
+const INTERNAL_WORKSPACE_PACKAGE_NAMES = new Set(
+  INTERNAL_WORKSPACE_PACKAGES.map(([packageName]) => packageName),
+);
 const VERIFY_COMMANDS = [
   {
     cwd:'integrations/m5-kernel',
     command:'npm',
     args:['test'],
+  },
+  {
+    cwd:'apps/ajun-runtime',
+    command:'npm',
+    args:['run', 'check'],
   },
   {
     cwd:'apps/ajun-runtime',
@@ -1233,12 +1241,18 @@ async function assertRuntimeStaticClosure(releaseRoot) {
         const resolved = await resolveRelativeModule(path.dirname(current), specifier);
         if (!resolved) throw new Error(`静态依赖无法解析: ${specifier} from ${path.relative(releaseRoot, current)}`);
         assertInside(releaseRoot, resolved, '静态依赖');
-        if (/\.(?:js|mjs|cjs)$/.test(resolved)) pending.push(resolved);
+        if (/\.(?:js|mjs|cjs|ts|mts|cts)$/.test(resolved)) pending.push(resolved);
         continue;
       }
       try {
         const resolved = await resolveEsmPackage(releaseRoot, current, specifier);
         assertInside(releaseRoot, resolved, `包依赖 ${specifier}`);
+        if (
+          INTERNAL_WORKSPACE_PACKAGE_NAMES.has(packageNameFromSpecifier(specifier))
+          && isRuntimeModule(resolved)
+        ) {
+          pending.push(resolved);
+        }
       } catch (error) {
         throw new Error(`静态依赖无法解析: ${specifier} from ${path.relative(releaseRoot, current)} (${error.message})`);
       }
@@ -1347,7 +1361,7 @@ async function assertGovernanceRosterSmoke(releaseRoot) {
 
 function extractStaticSpecifiers(source) {
   const found = [];
-  const staticPattern = /\b(?:import|export)\s+(?:(?:[\w*$,\s{}]+)\s+from\s+)?['"]([^'"]+)['"]/g;
+  const staticPattern = /\b(?:import|export)\s+(?!type\b)(?:(?:[\w*$,\s{}]+)\s+from\s+)?['"]([^'"]+)['"]/g;
   const dynamicPattern = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
   for (const pattern of [staticPattern, dynamicPattern]) {
     let match;
@@ -1363,14 +1377,31 @@ async function resolveRelativeModule(directory, specifier) {
     `${base}.js`,
     `${base}.mjs`,
     `${base}.cjs`,
+    `${base}.ts`,
+    `${base}.mts`,
+    `${base}.cts`,
     `${base}.json`,
     path.join(base, 'index.js'),
+    path.join(base, 'index.mjs'),
+    path.join(base, 'index.cjs'),
+    path.join(base, 'index.ts'),
+    path.join(base, 'index.mts'),
+    path.join(base, 'index.cts'),
   ];
   for (const candidate of candidates) {
     const stat = await lstatOrNull(candidate);
     if (stat?.isFile() && !stat.isSymbolicLink()) return candidate;
   }
   return null;
+}
+
+function isRuntimeModule(file) {
+  return /\.(?:js|mjs|cjs|ts|mts|cts)$/.test(file);
+}
+
+function packageNameFromSpecifier(specifier) {
+  const parts = specifier.split('/');
+  return specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
 }
 
 async function snapshotPayload(root, { requireReadonly }) {

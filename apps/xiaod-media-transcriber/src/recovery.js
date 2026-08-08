@@ -7,6 +7,7 @@ export function classifyFailure(error) {
     };
   }
   const message = error instanceof Error ? error.message : String(error);
+  if (error?.code === 'lark_delivery_uncertain') return larkDeliveryUncertainFailure();
   if (error?.code === 'visual_evidence_required' || error?.code === 'visual_video_stream_required') {
     return {
       category:'needs_input',
@@ -33,6 +34,50 @@ export function classifyFailure(error) {
     retryable: false,
     recovery: '请保留任务编号并联系维护者检查；请勿重复上传。'
   };
+}
+
+export function larkDeliveryUncertainFailure() {
+  return {
+    category:'manual',
+    retryable:false,
+    recovery:'飞书可能已收到本次交付。请先按任务编号核对飞书文档；在确认前不要重试，以免生成重复文档。'
+  };
+}
+
+export function knownLarkDeliveryRecoveryPatch(job) {
+  const delivery = job?.output?.larkDelivery;
+  if (!job?.output?.markdownPath || !delivery) return null;
+  const output = {
+    ...job.output,
+    larkUrl:delivery.url || job.output.larkUrl || null,
+    larkPermissionGranted:delivery.permissionGranted === true
+  };
+  if (delivery.state === 'delivered') {
+    const reviewPending = job.output.reviewStatus === 'awaiting_review';
+    return {
+      status:reviewPending ? 'awaiting_review' : 'completed',
+      progress:reviewPending ? 92 : 100,
+      stageMessage:reviewPending ? '飞书交付已确认，等待人工完整听审' : '飞书交付凭据已恢复，任务已完成',
+      completedAt:reviewPending ? null : delivery.completedAt || new Date().toISOString(),
+      error:null,
+      failure:null,
+      output
+    };
+  }
+  if (['document_ready', 'failed_before_create'].includes(delivery.state)) {
+    return {
+      status:'awaiting_delivery',
+      progress:92,
+      stageMessage:delivery.state === 'document_ready'
+        ? '飞书文档已创建，等待权限确认'
+        : '本地交付物已完成，等待飞书配置',
+      completedAt:null,
+      error:null,
+      failure:null,
+      output
+    };
+  }
+  return null;
 }
 
 export function interruptedByRestartFailure() {

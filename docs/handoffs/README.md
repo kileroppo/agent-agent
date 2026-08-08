@@ -55,6 +55,9 @@
 
 ## 当前交接
 
+- [系统产出稳定性对抗审查交接](./current/output-stability-audit-handoff.md)：统一产物门禁、并发状态事务、幂等意图、原子执行抢占、重启收敛、输入上限、私有产物权限，以及小D飞书文档单飞/持久化交付账本/不确定结果仲裁/听审后交付均已通过全量验证；A君候选 `4b4457ca2878be30…` 隔离启动通过，小D需按既有 LaunchAgent 单独重启；唯一下一步是负责人授权切入 4321/4318 并做一条真实飞书产物验收。
+- [视频分析四模式飞书验收交接](./current/video-analysis-modes-feishu-acceptance-handoff.md)：四模式契约、证据复用、指标学习门禁、本机回退和不可变 live 已完成；唯一下一步是负责人在 A君 真实飞书私聊发送一条指定模式的视频链接，核对原会话结果中的模式、版本和唯一下一步。
+- [Agent 使用说明书问答接入交接](./current/agent-manual-query-handoff.md)：不可变 release `99f99c56…` 已切到 4321，小D真实说明书调用已成功；发现的内部 `tool_describe` 进度泄漏已在 11 个正式 Profile 统一关闭并重启常驻 Gateway。唯一下一步是负责人复验小D只返回最终说明书，再完成其余权限边界验收。
 - [小办演示文稿能力交接](./current/office-presentation-capability-handoff.md)：已关闭；不可变 release、真实公开任务、三类 Work Product、自动视觉 QA 与 WPS 固定样例验收均完成。
 - [小R多路线搜索与证据方法交接](./current/intel-research-search-method-handoff.md)：Yichen 技能已同步到小R Profile，六路规划器已在 Profile 实跑；A君执行器源码和全量回归已通过。唯一下一步是从独立干净 worktree 冻结并切换不可变 release，再用一条真实公开研究任务验收结果质量。
 - [本地 AI 能力系统交接](./current/local-ai-capability-system-handoff.md)：九项 Mac 本地能力和统一网关已完成真实样本验收；唯一下一步是等待 18081 当前请求自然结束后切换 launchd，并完成重启恢复与 A君运行证据。

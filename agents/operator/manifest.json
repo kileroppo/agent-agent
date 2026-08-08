@@ -48,6 +48,24 @@
     "groupPolicy": "mention-only"
   },
   "executionOwner": "paperclip-hermes",
+  "userManual": {
+    "aliases": ["运维官", "健康检查"],
+    "whatItIs": "读取脱敏本机状态，发现异常时只做白名单内的受限恢复，仍失败就升级给技术专家。",
+    "savesWork": {
+      "before": "人工逐个检查进程、端口、任务和连接，再判断能否安全重试。",
+      "now": "按登记目标自动检查并给出组件状态、证据、恢复动作和升级对象。",
+      "measurement": "确定性健康检查通常很短，但人工节省尚未建立三次对照。"
+    },
+    "tools": ["确定性本机健康探针：检查登记服务、契约和依赖。", "A君本地运行时：执行白名单安全恢复和升级。", "Paperclip：记录巡检、Issue、恢复和审计。", "Hermes与飞书Bot：接收人工问题并返回中文报告。"],
+    "inputs": ["检查全军团或指定组件。", "任务短号和发生时间。", "用户看到的脱敏错误。", "是否允许一次已登记的安全重试。"],
+    "trigger": "直接私聊运维官 Bot、找A君转派，或由Paperclip Routine定时触发。",
+    "examplePrompt": "请检查A君、小D和Paperclip当前健康状态。只读检查；仅允许登记过的安全恢复，不要登录、扩权或重启未知服务。",
+    "outputs": ["带检查时间的组件健康报告。", "HTTP、端口、契约或依赖证据。", "已执行的安全恢复、升级对象和下一步。"],
+    "outputExample": "真实任务3a799143-764c-4481-8699-0175650464dd返回本机健康报告，核验A君、小D与Paperclip的HTTP状态、延迟和契约，并记录无需恢复动作。",
+    "successEvidence": {"status":"record-only", "summary":"已有机器可读健康报告和验收记录，公开飞书截图仍待补；截图必须显示检查时间、组件、证据和恢复动作。", "references":["docs/reviews/m2-real-small-army/acceptance.md", "task:3a799143-764c-4481-8699-0175650464dd"]},
+    "usageSteps": ["发送发生时间、任务短号和现象。", "不要发送密钥或整份敏感日志。", "按报告的证据和下一步继续同一任务链。"],
+    "limitations": ["服务能打开不等于业务任务已交付。", "不读取密钥、不代登录、不处理验证码。", "没有足够证据时写待测试。", "高风险恢复和外部变更需要批准。"]
+  },
   "runtimeCapabilities": {
     "modelSelection": {
       "provider": "deepseek",
@@ -56,6 +74,7 @@
     "fallbackModels": [],
     "skills": ["paperclip"],
     "mcpTools": [
+      "agent_manual",
       "status",
       "employee_status",
       "task_list",

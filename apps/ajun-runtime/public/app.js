@@ -4,6 +4,7 @@ import {
   setTextIfChanged,
 } from './disclosure-state.js';
 import { createConsoleNavigation } from './console-navigation.js';
+import { startBrowserHotReload } from './hot-reload-client.js';
 
 const capabilityList = document.querySelector('#capability-list');
 const agentList = document.querySelector('#agent-list');
@@ -14,6 +15,16 @@ const overviewSummary = document.querySelector('#overview-summary');
 const taskCount = document.querySelector('#task-count');
 const taskSearch = document.querySelector('#task-search');
 const taskLoadMore = document.querySelector('#task-load-more');
+const recordToolbar = document.querySelector('#record-toolbar');
+const recordsTitle = document.querySelector('#records-title');
+const recordsSubtitle = document.querySelector('#records-subtitle');
+const billingSummary = document.querySelector('#billing-summary');
+const billingStats = document.querySelector('#billing-stats');
+const billingAttribution = document.querySelector('#billing-attribution');
+const billingProfileList = document.querySelector('#billing-profile-list');
+const billingEntryList = document.querySelector('#billing-entry-list');
+const taskDetailContext = document.querySelector('#task-detail-context');
+const taskDetailRef = document.querySelector('#task-detail-ref');
 const focusPanel = document.querySelector('#focus-panel');
 const capabilitySummary = document.querySelector('#capability-summary');
 const accessGate = document.querySelector('#access-gate');
@@ -286,12 +297,12 @@ function isLoopbackLocation() {
 
 function updateOwnerNavigation() {
   for (const element of ownerOnlyElements) element.hidden = !localOwner;
-  if (!localOwner && ['#connections', '#campaigns'].includes(location.hash)) activateModule('overview', { replaceHash: true });
+  if (!localOwner && ['#connections', '#campaigns', '#billing'].includes(location.hash)) activateModule('overview', { replaceHash: true });
 }
 
 function activateModule(name, { replaceHash = false } = {}) {
   const requested = modulePages.some((page) => page.dataset.modulePage === name) ? name : 'overview';
-  const selected = ['connections', 'campaigns'].includes(requested) && !localOwner ? 'overview' : requested;
+  const selected = ['connections', 'campaigns', 'billing'].includes(requested) && !localOwner ? 'overview' : requested;
   for (const link of moduleLinks) {
     const active = link.dataset.module === selected;
     link.classList.toggle('is-active', active);
@@ -303,12 +314,12 @@ function activateModule(name, { replaceHash = false } = {}) {
     page.classList.toggle('is-active', active);
     page.setAttribute('aria-hidden', String(!active));
   }
-  document.title = `${moduleTitle(selected)} · A君运行台`;
+  document.title = `${selectedTaskId && selected === 'records' ? '任务详情' : moduleTitle(selected)} · A君运行台`;
   if (replaceHash && location.hash !== `#${selected}`) history.replaceState(null, '', `#${selected}`);
 }
 
 function moduleTitle(name) {
-  return ({ overview: '总览', employees: '员工', connections: '账号与接入', campaigns:'发布活动', records: '任务记录' })[name] || '总览';
+  return ({ overview: '总览', employees: '员工', connections: '账号与接入', campaigns:'发布活动', billing:'AI 成本账本', records: '任务记录' })[name] || '总览';
 }
 
 async function renderContentCampaigns() {
@@ -613,6 +624,89 @@ function render() {
     ...supportEmployees.map((agent) => agentCard(agent, true))
   ]);
   renderTaskLists();
+  renderBilling();
+}
+
+function renderBilling() {
+  if (!localOwner || !billingSummary || !billingStats || !billingAttribution || !billingProfileList || !billingEntryList) return;
+  const billing = overview.billing;
+  if (!billing || billing.status === 'unavailable') {
+    billingSummary.textContent = 'Hermes 用量库暂时不可读；这里不会把缺失数据写成 0。';
+    billingStats.replaceChildren(
+      statCard('可核金额', '未知', '用量数据不可读', 'cost', true),
+      statCard('模型请求', '未知', '等待 Hermes 用量库恢复', 'clock'),
+      statCard('Token', '未知', '没有用 0 代替缺失值', 'records'),
+    );
+    billingAttribution.innerHTML = '<strong>账本暂不可用</strong><span>任务记录仍保留，但无法确认全部 Hermes 会话消耗。</span>';
+    billingProfileList.replaceChildren(billingEmpty('暂时无法读取岗位用量。'));
+    billingEntryList.replaceChildren(billingEmpty('暂时没有可展示的消费流水。'));
+    return;
+  }
+  const totals = billing.totals || {};
+  const cost = totals.cost || {};
+  const tokens = totals.tokens || {};
+  const periodStart = billing.period?.since ? formatDate(billing.period.since) : '最近七天';
+  const costNote = Number(cost.actualEntryCount || 0)
+    ? `含 ${cost.actualEntryCount} 条实际费用，其余按 Hermes 估算`
+    : Number(cost.estimatedEntryCount || 0) ? '当前全部为 Hermes 估算，不是 Provider 最终账单' : 'Provider 未返回可核金额';
+  billingSummary.textContent = `${periodStart} 至今 · ${billing.status === 'partial' ? '部分岗位用量暂不可读' : '已读取正式岗位 Hermes 用量'}`;
+  billingStats.replaceChildren(
+    statCard('可核金额', Number(cost.knownUsd || 0) ? formatUsd(cost.knownUsd) : '$0.00', costNote, 'cost'),
+    statCard('模型请求', formatNumber(totals.apiCalls), `${formatNumber(totals.sessionCount)} 个会话`, 'clock'),
+    statCard('Token', formatCompactNumber(tokens.total), `输入/输出/缓存合计 ${formatNumber(tokens.total)}`, 'records'),
+  );
+  const attributed = Number(billing.attribution?.attributedEntryCount || 0);
+  const unattributed = Number(billing.attribution?.unattributedEntryCount || 0);
+  billingAttribution.classList.toggle('attention', unattributed > 0);
+  billingAttribution.innerHTML = `<strong>${unattributed ? `${unattributed} 条消费尚未归属任务` : '消费均已归属任务'}</strong><span>${attributed} 条已和任务用量精确对上；“未归属”表示缺少稳定任务关联，不代表没有发生消费。</span>`;
+  const profiles = billing.profiles || [];
+  billingProfileList.replaceChildren(...(profiles.length ? profiles.map(billingProfileRow) : [billingEmpty('最近七天没有岗位模型用量。')]));
+  const allEntries = billing.entries || [];
+  const entries = allEntries.slice(0, 30);
+  const entryNodes = entries.length ? entries.map(billingEntryRow) : [billingEmpty('最近七天没有模型消费流水。')];
+  if (allEntries.length > entries.length) entryNodes.push(billingEmpty(`当前展示最近 ${entries.length} 条；七天账本共 ${allEntries.length} 条，汇总金额与 Token 已包含全部记录。`));
+  billingEntryList.replaceChildren(...entryNodes);
+}
+
+function billingProfileRow(profile) {
+  const node = document.createElement('article');
+  node.className = 'billing-profile-row';
+  node.innerHTML = `<div><strong>${escapeHtml(agentName(profile.agentId))}</strong><span>${formatNumber(profile.apiCalls)} 次请求 · ${formatCompactNumber(profile.tokens?.total)} Token · ${formatNumber(profile.sessionCount)} 个会话</span></div><b>${profile.cost?.knownUsd ? formatUsd(profile.cost.knownUsd) : '金额未知'}</b>`;
+  return node;
+}
+
+function billingEntryRow(entry) {
+  const node = document.createElement('article');
+  node.className = `billing-entry-row ${entry.attribution?.status === 'task' ? 'attributed' : 'unattributed'}`;
+  const attribution = entry.attribution?.status === 'task'
+    ? `<a href="/tasks/${encodeURIComponent(entry.attribution.taskId)}">${escapeHtml(entry.attribution.taskRef)} · ${escapeHtml(entry.attribution.taskTitle)}</a>`
+    : '<span class="billing-unattributed">未归属任务</span>';
+  const cost = entry.cost?.status === 'actual'
+    ? `${formatUsd(entry.cost.amountUsd)} 实际`
+    : entry.cost?.status === 'estimated' ? `${formatUsd(entry.cost.amountUsd)} 估算` : entry.cost?.status === 'included' ? '套餐内' : '金额未知';
+  node.innerHTML = `<div class="billing-entry-main"><span>${escapeHtml(formatDate(entry.occurredAt))}</span><strong>${escapeHtml(agentName(entry.agentId))} · ${escapeHtml(entry.model || '未知模型')}</strong><small>${formatNumber(entry.apiCalls)} 次请求 · ${formatNumber((entry.tokens?.input || 0) + (entry.tokens?.output || 0))} 输入/输出 Token · 缓存 ${formatNumber((entry.tokens?.cacheRead || 0) + (entry.tokens?.cacheWrite || 0))}</small>${attribution}</div><b>${escapeHtml(cost)}</b>`;
+  return node;
+}
+
+function billingEmpty(message) {
+  const node = document.createElement('p');
+  node.className = 'billing-empty';
+  node.textContent = message;
+  return node;
+}
+
+function formatNumber(value) {
+  return Number(value || 0).toLocaleString('zh-CN');
+}
+
+function formatCompactNumber(value) {
+  const number = Number(value || 0);
+  return new Intl.NumberFormat('zh-CN', { notation:'compact', maximumFractionDigits:1 }).format(number);
+}
+
+function formatUsd(value) {
+  const number = Number(value || 0);
+  return `$${number.toFixed(number >= 0.01 ? 2 : 4)}`;
 }
 
 function renderOverviewStats() {
@@ -642,6 +736,7 @@ function statCard(label, value, note, icon, attention = false) {
 
 function renderTaskLists() {
   const tasks = overview.tasks || [];
+  renderTaskDetailContext(tasks);
   const normalizedQuery = taskSearchQuery.toLocaleLowerCase('zh-CN');
   const filtered = tasks.filter((task) =>
     selectedTaskId
@@ -657,17 +752,47 @@ function renderTaskLists() {
   const shown = selectedTaskId ? filtered : filtered.slice(0, visibleTaskCount);
   taskCount.textContent = filtered.length > shown.length ? `显示 ${shown.length}/${filtered.length} 条` : `${filtered.length} 条`;
   const taskNodes = !filtered.length
-    ? [...document.querySelector('#empty').content.cloneNode(true).childNodes]
+    ? selectedTaskId
+      ? [taskDetailNotFound()]
+      : [...document.querySelector('#empty').content.cloneNode(true).childNodes]
     : shown.map(taskCard);
   replaceChildrenPreservingDisclosureState(taskList, taskNodes);
-  if (filtered.length && selectedTaskId && !selectedTaskRevealed) {
-    selectedTaskRevealed = true;
-    requestAnimationFrame(() => taskList.querySelector(`[data-task-id="${CSS.escape(selectedTaskId)}"]`)?.scrollIntoView({ block:'center' }));
+  const selectedTaskDisclosure = selectedTaskId
+    ? taskList.querySelector(`details[data-task-id="${CSS.escape(selectedTaskId)}"]`)
+    : null;
+  if (selectedTaskDisclosure) {
+    selectedTaskDisclosure.setAttribute('open', '');
+    requestAnimationFrame(() => {
+      selectedTaskDisclosure.setAttribute('open', '');
+      if (!selectedTaskRevealed) {
+        selectedTaskRevealed = true;
+        selectedTaskDisclosure.scrollIntoView({ block:'center' });
+      }
+    });
   }
   taskLoadMore.hidden = Boolean(selectedTaskId) || shown.length >= filtered.length;
   if (!taskLoadMore.hidden) taskLoadMore.textContent = `再显示 ${Math.min(24, filtered.length - shown.length)} 条`;
   updateTaskFilterCounts(tasks);
   renderRecentTasks(tasks.filter(isRecentOwnerTask).slice(0, 3));
+}
+
+function renderTaskDetailContext(tasks) {
+  if (!selectedTaskId) return;
+  const task = tasks.find((item) => item.taskId === selectedTaskId);
+  recordsTitle.textContent = '任务详情';
+  recordsSubtitle.textContent = task
+    ? '这里显示这条任务的结果、下一步和技术详情；继续、补充或审批仍回到飞书原会话。'
+    : '没有找到这条任务；它可能已被清理，或链接中的编号不完整。';
+  recordToolbar.hidden = true;
+  taskDetailContext.hidden = false;
+  taskDetailRef.textContent = task?.presentation?.taskRef || shortTaskRef(selectedTaskId);
+}
+
+function taskDetailNotFound() {
+  const node = document.createElement('div');
+  node.className = 'empty';
+  node.innerHTML = '<svg aria-hidden="true"><use href="#icon-alert"></use></svg><p>没有找到这条任务</p><span>请返回全部任务搜索，或在飞书原会话重新打开任务链接。</span>';
+  return node;
 }
 
 function updateTaskFilterCounts(tasks) {
@@ -750,7 +875,7 @@ function taskCard(task) {
     technical:{ taskId:task.taskId, status:task.status, currentStage:task.currentStage, errorCode:task.error?.code }
   };
   node.innerHTML = `
-    <details class="task-disclosure" data-disclosure-key="task:${escapeHtml(task.taskId)}"${selectedTaskId === task.taskId ? ' open' : ''}>
+    <details class="task-disclosure" data-task-id="${escapeHtml(task.taskId)}" data-disclosure-key="task:${escapeHtml(task.taskId)}"${selectedTaskId === task.taskId ? ' open' : ''}>
       <summary>
         <div class="task-summary-main">
           <span class="status ${escapeHtml(shownStatus.className)}">${escapeHtml(shownStatus.label)}</span>
@@ -768,7 +893,9 @@ function taskCard(task) {
           <p class="task-next-action"><strong>下一步</strong>${escapeHtml(presentation.nextAction)}</p>
           ${result}
           <div class="task-actions">
-            <a class="task-detail-link" href="${escapeHtml(presentation.detailPath)}">查看任务 ${escapeHtml(presentation.taskRef)}</a>
+            ${selectedTaskId === task.taskId
+              ? '<span class="task-detail-current">当前任务</span>'
+              : `<a class="task-detail-link" href="${escapeHtml(presentation.detailPath)}">查看任务 ${escapeHtml(presentation.taskRef)}</a>`}
             <button class="task-copy-id" type="button">复制完整编号</button>
           </div>
           <details class="task-technical" data-disclosure-key="task-technical:${escapeHtml(task.taskId)}">
@@ -1336,6 +1463,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 setAccessStep(1);
+startBrowserHotReload();
 load().catch((error) => {
   setSyncStatus(error.message, 'error');
 });

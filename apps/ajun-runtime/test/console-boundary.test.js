@@ -106,6 +106,23 @@ test('任务记录默认只呈现需要复盘的前 24 条，并支持搜索和�
   assert.match(script, /visibleTaskCount \+= 24/);
 });
 
+test('任务详情深链接提供明确的详情状态和返回入口，不再看起来点击无反应', async () => {
+  const [html, script] = await Promise.all([
+    readFile(new URL('index.html', root), 'utf8'),
+    readFile(new URL('app.js', root), 'utf8')
+  ]);
+
+  assert.match(html, /id="task-detail-context"/);
+  assert.match(html, /href="\/#records">返回全部任务/);
+  assert.match(script, /recordsTitle\.textContent = '任务详情'/);
+  assert.match(script, /recordToolbar\.hidden = true/);
+  assert.match(script, /selectedTaskDisclosure\.setAttribute\('open', ''\)/);
+  assert.match(script, /details\[data-task-id=/);
+  assert.match(script, /'任务详情' : moduleTitle\(selected\)/);
+  assert.match(script, /task-detail-current/);
+  assert.match(script, /没有找到这条任务/);
+});
+
 test('记录页后台自动同步保留任务卡片和技术详情的展开状态', async () => {
   const script = await readFile(new URL('app.js', root), 'utf8');
 

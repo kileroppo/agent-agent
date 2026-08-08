@@ -6,10 +6,12 @@ import {
   applyApprovalPatch,
   applyTaskStatusPatch,
   applyWorkerTaskPatch,
+  assertTaskIdempotencyMatch,
   claimTaskForWorker,
   holdTaskForApproval,
   initializeApprovalRecord,
   initializeTaskRecord,
+  interruptedTaskExecutionPatch,
   isWorkerTaskClaimable,
 } from './task-lifecycle.js';
 
@@ -54,15 +56,23 @@ export class SQLiteTaskStore {
   }
 
   async createTask(task) {
+    return (await this.createTaskOnce(task)).task;
+  }
+
+  async createTaskOnce(task) {
     return this.#transaction(() => {
       if (task.idempotencyKey) {
         const existing = this.database.prepare('SELECT data_json FROM tasks WHERE idempotency_key = ?').get(task.idempotencyKey);
-        if (existing) return parseRecord(existing.data_json);
+        if (existing) {
+          const record = parseRecord(existing.data_json);
+          assertTaskIdempotencyMatch(record, task);
+          return { task:record, created:false };
+        }
       }
       const now = new Date().toISOString();
       const record = initializeTaskRecord(task, { taskId:crypto.randomUUID(), now });
       this.#insertRecord(COLLECTIONS[0], record);
-      return cloneRecord(record);
+      return { task:cloneRecord(record), created:true };
     });
   }
 
@@ -73,6 +83,37 @@ export class SQLiteTaskStore {
       Object.assign(task, applyTaskStatusPatch(task, patch, { approvals:this.#listRecords('approvals', 'created_at DESC') }), { updatedAt:new Date().toISOString() });
       this.#updateRecord(COLLECTIONS[0], task);
       return cloneRecord(task);
+    });
+  }
+
+  async claimTaskExecution(taskId, patch = {}) {
+    return this.#transaction(() => {
+      const task = this.#getRecord('tasks', 'task_id', taskId);
+      if (!task) throw new Error('找不到要执行的任务。');
+      if (task.status !== 'queued') return { task:cloneRecord(task), claimed:false };
+      Object.assign(task, applyTaskStatusPatch(task, { ...patch, status:'running' }, {
+        approvals:this.#listRecords('approvals', 'created_at DESC'),
+      }), { updatedAt:new Date().toISOString() });
+      this.#updateRecord(COLLECTIONS[0], task);
+      return { task:cloneRecord(task), claimed:true };
+    });
+  }
+
+  async recoverInterruptedTaskExecution(taskId, { expectedStartedAt, expectedStage, interruptedAt } = {}) {
+    return this.#transaction(() => {
+      const task = this.#getRecord('tasks', 'task_id', taskId);
+      if (!task) throw new Error('找不到要恢复的任务。');
+      if (task.status !== 'running'
+        || task.currentStage !== expectedStage
+        || task.execution?.startedAt !== expectedStartedAt) {
+        return { task:cloneRecord(task), recovered:false };
+      }
+      const detectedAt = interruptedAt || new Date().toISOString();
+      Object.assign(task, applyTaskStatusPatch(task, interruptedTaskExecutionPatch(task, detectedAt), {
+        approvals:this.#listRecords('approvals', 'created_at DESC'),
+      }), { updatedAt:detectedAt });
+      this.#updateRecord(COLLECTIONS[0], task);
+      return { task:cloneRecord(task), recovered:true };
     });
   }
 
@@ -98,6 +139,28 @@ export class SQLiteTaskStore {
       Object.assign(approval, applyApprovalPatch(approval, patch));
       this.#updateRecord(COLLECTIONS[1], approval);
       return cloneRecord(approval);
+    });
+  }
+
+  async resolveApprovalAndUpdateTask(approvalId, approvalPatch, taskId, taskPatch) {
+    return this.#transaction(() => {
+      const approval = this.#getRecord('approvals', 'approval_id', approvalId);
+      const task = this.#getRecord('tasks', 'task_id', taskId);
+      if (!approval) throw new Error('找不到要更新的审批。');
+      if (!task) throw new Error('找不到要更新的任务。');
+      if (approval.taskId !== task.taskId) throw new Error('审批与任务不匹配。');
+      Object.assign(approval, applyApprovalPatch(approval, approvalPatch));
+      const resolvedTaskPatch = typeof taskPatch === 'function'
+        ? taskPatch(task, approval)
+        : taskPatch;
+      Object.assign(task, applyTaskStatusPatch(task, resolvedTaskPatch, {
+        approvals:this.#listRecords('approvals', 'created_at DESC').map((item) => (
+          item.approvalId === approval.approvalId ? approval : item
+        )),
+      }), { updatedAt:new Date().toISOString() });
+      this.#updateRecord(COLLECTIONS[1], approval);
+      this.#updateRecord(COLLECTIONS[0], task);
+      return { approval:cloneRecord(approval), task:cloneRecord(task) };
     });
   }
 

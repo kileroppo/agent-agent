@@ -125,6 +125,8 @@ test('按运行时白名单冻结内容寻址只读包，并排除data、测试�
     entryPath === 'integrations/publishing/m5-publisher-gateway/src/index.js'));
   assert.ok(manifest.entries.some(({ path: entryPath }) =>
     entryPath === 'integrations/access/content-acquisition-center.js'));
+  assert.ok(manifest.entries.some(({ path: entryPath }) =>
+    entryPath === 'packages/m5-contracts/src/index.ts'));
   assert.ok(manifest.entries.some(({ type, path: entryPath }) =>
     type === 'symlink' && entryPath === 'node_modules/@agent-army/m5-kernel'));
   assert.ok(manifest.entries.some(({ type, path: entryPath }) =>
@@ -321,6 +323,22 @@ test('server静态依赖闭包缺文件时冻结失败关闭', async (context) =
   );
 });
 
+test('TypeScript Module 的静态依赖也进入不可变发布闭包', async (context) => {
+  const repoRoot = await createFixture(context, 'missing-typescript-import');
+  await fs.writeFile(
+    path.join(repoRoot, 'apps/ajun-runtime/src/local.js'),
+    "import './analysis-intent.ts';\n",
+  );
+  await fs.writeFile(
+    path.join(repoRoot, 'apps/ajun-runtime/src/analysis-intent.ts'),
+    "import './missing-contract.ts';\nexport const intent: string = 'digest';\n",
+  );
+  await assert.rejects(
+    freezeAjunRuntimeRelease({ repoRoot }),
+    /静态依赖无法解析.*missing-contract\.ts/,
+  );
+});
+
 test('verify要求真实启动级证据并执行必要源码测试，且清单记录结构化证据', async (context) => {
   const repoRoot = await createFixture(context, 'verify');
   const calls = [];
@@ -347,6 +365,11 @@ test('verify要求真实启动级证据并执行必要源码测试，且清单�
       command:'npm',
       args:['test'],
       cwd:'integrations/m5-kernel',
+    },
+    {
+      command:'npm',
+      args:['run', 'check'],
+      cwd:'apps/ajun-runtime',
     },
     {
       command:'npm',
@@ -385,7 +408,7 @@ test('verify要求真实启动级证据并执行必要源码测试，且清单�
     },
   ]);
   assert.equal(result.verification.requested, true);
-  assert.equal(result.verification.commands.length, 8);
+  assert.equal(result.verification.commands.length, 9);
   assert.equal(result.verification.commands[0].evidenceLayer, 'source_test');
   assert.equal(result.verification.startupSmoke.status, 'passed');
   assert.equal(result.verification.startupSmoke.httpStatus, 200);
@@ -1031,8 +1054,11 @@ async function createFixture(context, suffix) {
     ['integrations/boom-monitor/package.json', '{"name":"@agent-army/boom-monitor","type":"module","exports":"./ajun-intake.js"}\n'],
     ['integrations/m5-kernel/package.json', '{"name":"@agent-army/m5-kernel","type":"module","exports":"./src/index.js","scripts":{"test":"true"}}\n'],
     ['integrations/m5-kernel/src/index.js', 'export const kernel = true;\n'],
-    ['packages/m5-contracts/package.json', '{"name":"@agent-army/m5-contracts","type":"module","exports":"./src/index.js","scripts":{"check":"true"}}\n'],
-    ['packages/m5-contracts/src/index.js', 'export const contracts = true;\n'],
+    ['packages/m5-contracts/package.json', '{"name":"@agent-army/m5-contracts","type":"module","exports":"./src/index.ts","scripts":{"check":"true"}}\n'],
+    [
+      'packages/m5-contracts/src/index.ts',
+      "import type { MissingTypeOnlyDependency } from 'not-installed';\nexport const contracts: boolean = true;\n",
+    ],
     ['packages/paperclip-client/package.json', '{"name":"@agent-army/paperclip-client","type":"module","exports":"./src/index.js","scripts":{"test":"true"}}\n'],
     ['packages/paperclip-client/src/index.js', 'export const client = true;\n'],
   ]);

@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { createMutationSerializer, hardenPrivateFile, writePrivateJson } from './private-json-store.js';
 
 const VALID_STATUSES = new Set(['active', 'expiring', 'expired', 'revoked', 'disabled', 'error']);
 const VALID_BROWSERS = new Set(['chrome', 'chromium', 'brave', 'edge', 'firefox', 'opera', 'safari', 'vivaldi', 'whale']);
@@ -12,6 +13,19 @@ export class ConnectionStore {
   constructor(workDir) {
     this.file = path.join(workDir, 'connections.json');
     this.connections = new Map();
+    this.serializeMutation = createMutationSerializer();
+  }
+
+  async runMutation(operation) {
+    return this.serializeMutation(async () => {
+      const snapshot = [...this.connections.entries()].map(([id, connection]) => [id, structuredClone(connection)]);
+      try {
+        return await operation();
+      } catch (error) {
+        this.connections = new Map(snapshot);
+        throw error;
+      }
+    });
   }
 
   async init() {
@@ -46,6 +60,7 @@ export class ConnectionStore {
         changed = true;
       }
       if (changed) await this.persist();
+      else await hardenPrivateFile(this.file);
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
     }
@@ -62,44 +77,48 @@ export class ConnectionStore {
 
   async createCookieBridgeConnection(input) {
     const definition = validateCookieBridgeConnection(input);
-    const now = new Date().toISOString();
-    const connectionId = crypto.randomUUID();
-    const hasActiveProviderConnection = [...this.connections.values()]
-      .some((connection) => connection.provider === definition.provider && connection.status === 'active');
-    const connection = {
-      schemaVersion: '3.0',
-      connectionId,
-      provider: definition.provider,
-      accountAlias: definition.accountAlias,
-      credentialRef: `cookiebridge:${definition.provider}:${definition.clientId}:${connectionId}`,
-      credentialKind: 'cookie_bridge',
-      cookieBridgeClientId: definition.clientId,
-      grantedOperations: definition.grantedOperations,
-      dataScope: definition.dataScope,
-      allowedAgentIds: definition.allowedAgentIds,
-      approvalPolicyRef: null,
-      status: 'active',
-      isDefault: !hasActiveProviderConnection,
-      expiresAt: null,
-      lastHealthAt: null,
-      lastVerification: null,
-      createdAt: now,
-      updatedAt: now
-    };
-    this.connections.set(connectionId, connection);
-    await this.persist();
-    return toSafeConnection(connection);
+    return this.runMutation(async () => {
+      const now = new Date().toISOString();
+      const connectionId = crypto.randomUUID();
+      const hasActiveProviderConnection = [...this.connections.values()]
+        .some((connection) => connection.provider === definition.provider && connection.status === 'active');
+      const connection = {
+        schemaVersion: '3.0',
+        connectionId,
+        provider: definition.provider,
+        accountAlias: definition.accountAlias,
+        credentialRef: `cookiebridge:${definition.provider}:${definition.clientId}:${connectionId}`,
+        credentialKind: 'cookie_bridge',
+        cookieBridgeClientId: definition.clientId,
+        grantedOperations: definition.grantedOperations,
+        dataScope: definition.dataScope,
+        allowedAgentIds: definition.allowedAgentIds,
+        approvalPolicyRef: null,
+        status: 'active',
+        isDefault: !hasActiveProviderConnection,
+        expiresAt: null,
+        lastHealthAt: null,
+        lastVerification: null,
+        createdAt: now,
+        updatedAt: now
+      };
+      this.connections.set(connectionId, connection);
+      await this.persist();
+      return toSafeConnection(connection);
+    });
   }
 
   async updateStatus(connectionId, status) {
     if (!VALID_STATUSES.has(status)) throw new ConnectionInputError('不支持的连接状态。');
-    const connection = this.get(connectionId);
-    if (!connection) return null;
-    connection.status = status;
-    if (status !== 'active') connection.isDefault = false;
-    connection.updatedAt = new Date().toISOString();
-    await this.persist();
-    return toSafeConnection(connection);
+    return this.runMutation(async () => {
+      const connection = this.get(connectionId);
+      if (!connection) return null;
+      connection.status = status;
+      if (status !== 'active') connection.isDefault = false;
+      connection.updatedAt = new Date().toISOString();
+      await this.persist();
+      return toSafeConnection(connection);
+    });
   }
 
   async revoke(connectionId) { return this.updateStatus(connectionId, 'revoked'); }
@@ -107,73 +126,79 @@ export class ConnectionStore {
   async disable(connectionId) { return this.updateStatus(connectionId, 'disabled'); }
 
   async reauthorizeCookieBridgeConnection(connectionId, input = {}) {
-    const connection = this.get(connectionId);
-    if (!connection) return null;
-    if (connection.credentialKind !== 'cookie_bridge') throw new ConnectionInputError('该连接不支持通过受控账号重新授权。');
-    if (input.provider !== undefined && String(input.provider).trim().toLowerCase() !== connection.provider) {
-      throw new ConnectionInputError('重新授权的平台与原连接不一致。');
-    }
-    const definition = validateCookieBridgeConnection({
-      ...input,
-      provider:connection.provider,
-      grantedOperations:connection.grantedOperations,
-      dataScope:connection.dataScope,
-      allowedAgentIds:connection.allowedAgentIds
+    return this.runMutation(async () => {
+      const connection = this.get(connectionId);
+      if (!connection) return null;
+      if (connection.credentialKind !== 'cookie_bridge') throw new ConnectionInputError('该连接不支持通过受控账号重新授权。');
+      if (input.provider !== undefined && String(input.provider).trim().toLowerCase() !== connection.provider) {
+        throw new ConnectionInputError('重新授权的平台与原连接不一致。');
+      }
+      const definition = validateCookieBridgeConnection({
+        ...input,
+        provider:connection.provider,
+        grantedOperations:connection.grantedOperations,
+        dataScope:connection.dataScope,
+        allowedAgentIds:connection.allowedAgentIds
+      });
+      const now = new Date().toISOString();
+      connection.accountAlias = definition.accountAlias;
+      connection.credentialRef = `cookiebridge:${connection.provider}:${definition.clientId}:${connection.connectionId}`;
+      connection.cookieBridgeClientId = definition.clientId;
+      connection.status = 'active';
+      if (![...this.connections.values()].some((candidate) => (
+        candidate.connectionId !== connection.connectionId
+        && candidate.provider === connection.provider
+        && candidate.status === 'active'
+        && candidate.isDefault === true
+      ))) connection.isDefault = true;
+      connection.expiresAt = null;
+      connection.updatedAt = now;
+      await this.persist();
+      return toSafeConnection(connection);
     });
-    const now = new Date().toISOString();
-    connection.accountAlias = definition.accountAlias;
-    connection.credentialRef = `cookiebridge:${connection.provider}:${definition.clientId}:${connection.connectionId}`;
-    connection.cookieBridgeClientId = definition.clientId;
-    connection.status = 'active';
-    if (![...this.connections.values()].some((candidate) => (
-      candidate.connectionId !== connection.connectionId
-      && candidate.provider === connection.provider
-      && candidate.status === 'active'
-      && candidate.isDefault === true
-    ))) connection.isDefault = true;
-    connection.expiresAt = null;
-    connection.updatedAt = now;
-    await this.persist();
-    return toSafeConnection(connection);
   }
 
   async markHealth(connectionId) {
-    const connection = this.get(connectionId);
-    if (!connection) return null;
-    const now = new Date().toISOString();
-    connection.lastHealthAt = now;
-    connection.updatedAt = now;
-    await this.persist();
-    return toSafeConnection(connection);
+    return this.runMutation(async () => {
+      const connection = this.get(connectionId);
+      if (!connection) return null;
+      const now = new Date().toISOString();
+      connection.lastHealthAt = now;
+      connection.updatedAt = now;
+      await this.persist();
+      return toSafeConnection(connection);
+    });
   }
 
   async setDefault(connectionId) {
-    const connection = this.get(connectionId);
-    if (!connection) return null;
-    if (connection.status !== 'active') throw new ConnectionInputError('只有当前可用的账号连接才能设为默认。');
-    const now = new Date().toISOString();
-    for (const candidate of this.connections.values()) {
-      if (candidate.provider !== connection.provider) continue;
-      candidate.isDefault = candidate.connectionId === connection.connectionId;
-      candidate.updatedAt = now;
-    }
-    await this.persist();
-    return toSafeConnection(connection);
+    return this.runMutation(async () => {
+      const connection = this.get(connectionId);
+      if (!connection) return null;
+      if (connection.status !== 'active') throw new ConnectionInputError('只有当前可用的账号连接才能设为默认。');
+      const now = new Date().toISOString();
+      for (const candidate of this.connections.values()) {
+        if (candidate.provider !== connection.provider) continue;
+        candidate.isDefault = candidate.connectionId === connection.connectionId;
+        candidate.updatedAt = now;
+      }
+      await this.persist();
+      return toSafeConnection(connection);
+    });
   }
 
   async recordVerification(connectionId, input = {}) {
-    const connection = this.get(connectionId);
-    if (!connection) return null;
-    connection.lastVerification = normalizeVerification(input);
-    connection.updatedAt = connection.lastVerification.at;
-    await this.persist();
-    return toSafeConnection(connection);
+    return this.runMutation(async () => {
+      const connection = this.get(connectionId);
+      if (!connection) return null;
+      connection.lastVerification = normalizeVerification(input);
+      connection.updatedAt = connection.lastVerification.at;
+      await this.persist();
+      return toSafeConnection(connection);
+    });
   }
 
   async persist() {
-    const tmp = `${this.file}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify([...this.connections.values()], null, 2));
-    await fs.rename(tmp, this.file);
+    await writePrivateJson(this.file, [...this.connections.values()]);
   }
 }
 

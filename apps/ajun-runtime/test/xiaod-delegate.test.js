@@ -137,3 +137,20 @@ test('小D确认稿接口必须携带完整听审声明和受控审核人引用'
     body:{ decision:'confirm', completeListen:true, reviewerRef:'A君' }
   }]);
 });
+
+test('继续飞书交付只调用原小D任务的受控本机接口', async () => {
+  const calls = [];
+  const delegate = new XiaodDelegate({
+    fetchImpl:async (url, options) => {
+      calls.push({ url, method:options.method, body:options.body });
+      return new Response(JSON.stringify({ job:{ id:'xiaod-1', status:'completed' } }), { status:201 });
+    }
+  });
+  const job = await delegate.redeliver({ taskId:'task-1', execution:{ xiaodJobId:'xiaod-1' } });
+  assert.equal(job.status, 'completed');
+  assert.deepEqual(calls, [{
+    url:'http://127.0.0.1:4318/api/jobs/xiaod-1/redeliver',
+    method:'POST',
+    body:'{}'
+  }]);
+});

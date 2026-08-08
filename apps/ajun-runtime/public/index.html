@@ -14,6 +14,7 @@
     <symbol id="icon-employees" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3.5 20c.8-3.7 2.8-5.7 5.5-5.7s4.7 2 5.5 5.7M16 6.3a2.7 2.7 0 0 1 0 5.4M16 14.5c2.4.4 3.9 2.2 4.5 5.5"/></symbol>
     <symbol id="icon-connections" viewBox="0 0 24 24"><path d="M8.2 14.8 6 17a3.5 3.5 0 1 0 5 5l2.2-2.2M15.8 9.2 18 7a3.5 3.5 0 1 0-5-5l-2.2 2.2M8.5 15.5l7-7"/></symbol>
     <symbol id="icon-records" viewBox="0 0 24 24"><rect x="5" y="3.5" width="14" height="17" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></symbol>
+    <symbol id="icon-cost" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M9 9.2c.6-1 1.7-1.5 3.2-1.5 1.7 0 2.8.8 2.8 2 0 3-6 1.2-6 4.3 0 1.3 1.2 2.2 3.1 2.2 1.5 0 2.7-.5 3.4-1.5M12 5.8v12.4"/></symbol>
     <symbol id="icon-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="m15 9 5-5"/></symbol>
     <symbol id="icon-spark" viewBox="0 0 24 24"><path d="M12 3 13.8 8.2 19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3ZM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16Z"/></symbol>
     <symbol id="icon-message" viewBox="0 0 24 24"><path d="M4 5h16v12H9l-5 4V5Z"/><path d="M8 9h8M8 13h5"/></symbol>
@@ -54,6 +55,10 @@
       <a href="#campaigns" class="module-link" data-module="campaigns" data-owner-only hidden>
         <svg aria-hidden="true"><use href="#icon-target"></use></svg>
         <span>发布活动</span>
+      </a>
+      <a href="#billing" class="module-link" data-module="billing" data-owner-only hidden>
+        <svg aria-hidden="true"><use href="#icon-cost"></use></svg>
+        <span>成本</span>
       </a>
       <a href="#records" class="module-link" data-module="records">
         <svg aria-hidden="true"><use href="#icon-records"></use></svg>
@@ -299,15 +304,46 @@
         </section>
       </section>
 
+      <section id="module-billing" class="module-page" data-module-page="billing" data-owner-only aria-labelledby="billing-title">
+        <div class="module-heading">
+          <div>
+            <h1 id="billing-title">AI 成本账本</h1>
+            <p id="billing-summary" class="subtle">正在核对 Hermes 会话用量与任务成本…</p>
+          </div>
+        </div>
+        <div id="billing-stats" class="stat-grid" aria-label="最近七天 AI 成本概览"></div>
+        <div id="billing-attribution" class="billing-attribution"></div>
+        <section class="surface-section billing-section" aria-labelledby="billing-profile-title">
+          <div class="section-head">
+            <div><h2 id="billing-profile-title">花在哪里</h2><p class="section-intro">按岗位汇总模型请求、Token 和费用。</p></div>
+          </div>
+          <div id="billing-profile-list" class="billing-profile-list"></div>
+        </section>
+        <section class="surface-section billing-section" aria-labelledby="billing-ledger-title">
+          <div class="section-head">
+            <div><h2 id="billing-ledger-title">消费流水</h2><p class="section-intro">每条来自 Hermes 只读用量记录；不读取 Prompt、聊天正文、密钥或 Base URL。</p></div>
+          </div>
+          <div id="billing-entry-list" class="billing-entry-list"></div>
+        </section>
+      </section>
+
       <section id="module-records" class="module-page" data-module-page="records" aria-labelledby="records-title">
         <div class="module-heading">
           <div>
             <h1 id="records-title">任务记录</h1>
-            <p class="subtle">这里用于查结果和故障；继续、补充或审批仍回到飞书原会话。</p>
+            <p id="records-subtitle" class="subtle">这里用于查结果和故障；继续、补充或审批仍回到飞书原会话。</p>
           </div>
         </div>
 
-        <div class="record-toolbar">
+        <div id="task-detail-context" class="task-detail-context" hidden>
+          <div>
+            <span>正在查看单条任务</span>
+            <strong id="task-detail-ref"></strong>
+          </div>
+          <a href="/#records">返回全部任务</a>
+        </div>
+
+        <div id="record-toolbar" class="record-toolbar">
           <div class="filter-group" aria-label="筛选任务状态">
             <button type="button" class="filter-button is-active" data-task-filter="attention" aria-pressed="true">待复盘</button>
             <button type="button" class="filter-button" data-task-filter="active" aria-pressed="false">进行中</button>

@@ -34,6 +34,7 @@ import { IsolatedRepairWorkspace } from './isolated-repair-workspace.js';
 import { TechnicalExpertRunner } from './technical-expert-runner.js';
 import { TechnicalRepairPromotion } from './technical-repair-promotion.js';
 import { TechnicalRepairWatchdog } from './technical-repair-watchdog.js';
+import { InterruptedLocalExecutionReconciler } from './interrupted-local-execution-reconciler.js';
 import { TechnicalRepairDiagnoser } from './technical-repair-diagnoser.js';
 import { FailureRecoveryCoordinator } from './failure-recovery-coordinator.js';
 import {
@@ -74,6 +75,7 @@ import { LocalContentCreator, LocalVideoContentAnalyst } from './local-content-g
 import { LocalVideoScriptPackage } from './local-video-script-package.js';
 import { M5ProductionTemplateResolver } from './m5-production-template-resolver.js';
 import { HermesContentGrowthAdvisor } from './hermes-content-growth-advisor.js';
+import { HermesUsageLedger } from './hermes-usage-ledger.js';
 import { ProposalAcceptanceRunner } from './proposal-acceptance-runner.js';
 import { WeChatLocalVaultAcceptance } from './wechat-local-vault-acceptance.js';
 import { LocalWeChatChatRetriever } from './local-wechat-chat-retriever.js';
@@ -110,6 +112,7 @@ export async function createRuntime({
   environment = process.env,
   logger = console,
 } = {}) {
+const bootedAt = new Date().toISOString();
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const publicDir = path.join(root, 'apps/ajun-runtime/public');
 const dataDir = path.resolve(environment.AGENT_ARMY_DATA_DIR || path.join(root, 'apps/ajun-runtime/data'));
@@ -165,6 +168,13 @@ const m5PublisherBindings = createM5ServerPublisherComposition({
   },
 });
 const store = createTaskStore({ dataDir, mode:environment.AGENT_ARMY_TASK_STORE || 'json' });
+const interruptedLocalExecutionReconciler = new InterruptedLocalExecutionReconciler({
+  store,
+  bootedAt,
+  onResult:(result) => {
+    if (result.status !== 'reconciled') logger.warn('重启前中断的本地任务暂时无法整理，将保留原状态。');
+  },
+});
 const registry = new ProposalAgentRegistry({ baseRegistry: new AgentRegistry({ agentsDir: path.join(root, 'agents') }), store });
 const m5ProductionTemplateResolver = new M5ProductionTemplateResolver({ governance });
 let contentCampaignService = null;
@@ -216,7 +226,12 @@ xiaodReconciler = new XiaodReconciler({
   contentWorkspaceDir:m5ContentWorkspaceDir,
 });
 const paperclipRepairReconciler = new PaperclipRepairReconciler({ store, governance, evidenceRelay:new TechnicalRepairEvidenceRelay({ governance, projectRoot:sourceProjectRoot, allowedWorkspaceRoots:[repairWorktreeParent], verifySourceRoot:runtimeSource.verifyIdentity }) });
-const paperclipHermesTaskReconciler = new PaperclipHermesTaskReconciler({ store, governance });
+let executeVideoAnalysisFallback = null;
+const paperclipHermesTaskReconciler = new PaperclipHermesTaskReconciler({
+  store,
+  governance,
+  fallback:(task, context) => executeVideoAnalysisFallback?.(task, context),
+});
 const operator = new LocalHealthOperator({ governance });
 const publicWebTransport = new PublicWebTransport();
 const publicWebFetch = new PublicWebFetch({ fetchImpl: (...args) => publicWebTransport.fetch(...args) });
@@ -261,6 +276,7 @@ const videoContentAnalyst = new LocalVideoContentAnalyst({
   allowedArtifactRoots:contentArtifactRoots,
   advisor:videoContentAdvisor
 });
+executeVideoAnalysisFallback = async (task) => videoContentAnalyst.execute(task, { allowAdvisor:false });
 const videoScriptPackage = new LocalVideoScriptPackage({
   store,
   artifactsDir:path.join(dataDir, 'content-growth-artifacts'),
@@ -292,10 +308,11 @@ const proposals = new AgentProposalService({
 });
 const port = Number(environment.PORT || 4321);
 const host = environment.AJUN_HOST || '0.0.0.0';
-const detailBaseUrl = taskDetailBaseUrl(environment.AJUN_TASK_DETAIL_BASE_URL, `http://127.0.0.1:${port}`);
+const localDetailBaseUrl = taskDetailBaseUrl('', `http://127.0.0.1:${port}`);
+const feishuDetailBaseUrl = taskDetailBaseUrl(environment.AJUN_TASK_DETAIL_BASE_URL);
 let failureRecovery;
 const localAi = new LocalAiCapabilityClient();
-const tasks = new TaskService({ registry, store, governance, roleToolAdapters:m5RoleToolAdapters, officePresentationWorkspaceRoot:path.join(dataDir, 'office-presentation-workspaces'), m5ProviderVision:executeM5ProviderVision, m5WorkProductValidator:async (input) => (await campaigns()).assertReplayableM5WorkProduct(input), executors: { operator, xiaod, ajun: new LocalAjunCoordinator({ advisor:taskAdvisor, registry }), creator: new LocalCreator({ proposals }), reviewer: new LocalReviewer(), architect: new LocalArchitect({ registry, store }), 'technical-expert':new LocalTechnicalExpert({ workspace:repairWorkspace, runner:technicalExpertRunner, promotion:technicalRepairPromotion }), 'intel-researcher':intelResearcher, 'office-assistant':officeAssistant, 'video-content-analyst':videoContentAnalyst, 'content-creator':contentCreator, 'wechat-chat-retriever':new LocalWeChatChatRetriever({ store, ensureAnalysisReady:() => localAi.controlService('qwen35', 'start') }) }, fallbackExecutor:publicReport, onTaskFailed:(task) => failureRecovery?.handle(task), taskDetailBaseUrl:detailBaseUrl, skillExecutionRegistry:new SkillExecutionRegistry({ grokAccessMode:environment.AGENT_ARMY_GROK_ACCESS, readinessProbes:{ 'open-kimi-ppt':() => officePresentations.readiness() } }), localAiCapabilityStatus:() => localAi.health() });
+const tasks = new TaskService({ registry, store, governance, roleToolAdapters:m5RoleToolAdapters, officePresentationWorkspaceRoot:path.join(dataDir, 'office-presentation-workspaces'), usageLedger:new HermesUsageLedger({ profileRoot:hermesProfileRoot }), m5ProviderVision:executeM5ProviderVision, m5WorkProductValidator:async (input) => (await campaigns()).assertReplayableM5WorkProduct(input), executors: { operator, xiaod, ajun: new LocalAjunCoordinator({ advisor:taskAdvisor, registry }), creator: new LocalCreator({ proposals }), reviewer: new LocalReviewer(), architect: new LocalArchitect({ registry, store }), 'technical-expert':new LocalTechnicalExpert({ workspace:repairWorkspace, runner:technicalExpertRunner, promotion:technicalRepairPromotion }), 'intel-researcher':intelResearcher, 'office-assistant':officeAssistant, 'video-content-analyst':videoContentAnalyst, 'content-creator':contentCreator, 'wechat-chat-retriever':new LocalWeChatChatRetriever({ store, ensureAnalysisReady:() => localAi.controlService('qwen35', 'start') }) }, fallbackExecutor:publicReport, onTaskFailed:(task) => failureRecovery?.handle(task), taskDetailBaseUrl:localDetailBaseUrl, skillExecutionRegistry:new SkillExecutionRegistry({ grokAccessMode:environment.AGENT_ARMY_GROK_ACCESS, readinessProbes:{ 'open-kimi-ppt':() => officePresentations.readiness() } }), localAiCapabilityStatus:() => localAi.health() });
 const resolveFeishuApproval = createFeishuApprovalResolver({ proposals, tasks });
 const macWorker = new MacWorkerTaskBridge({ store, governance, onFailure:(task) => failureRecovery?.handle(task) });
 const approvalExpiryReconciler = new ApprovalExpiryReconciler({ tasks, onResult:(result) => { if (result.status !== 'synced') logger.warn('过期确认暂时无法自动整理，将自动重试。'); } });
@@ -307,7 +324,7 @@ const hermesNativeCompletionWatcher = new OfficialFeishuCompletionWatcher({
   taskStatus:(taskId, chatId) => tasks.notificationStatus(taskId, chatId),
   send:(chatId, payload) => hermesFeishuSender.send(chatId, payload),
   store:new FileCompletionWatchStore(path.join(dataDir, 'hermes-native-completion-watches.json')),
-  detailBaseUrl
+  detailBaseUrl:feishuDetailBaseUrl
 });
 failureRecovery = new FailureRecoveryCoordinator({ tasks, store, diagnoser:technicalRepairDiagnoser, projectRoot:sourceProjectRoot });
 xiaodReconciler.onFailure = (task) => failureRecovery.handle(task);
@@ -318,7 +335,7 @@ const officialFeishuChannelRunner = new OfficialFeishuChannelRunner({
   createChannel: asyncChannelFactory,
   taskStatus:(taskId, chatId) => tasks.notificationStatus(taskId, chatId),
   completionWatchStore:new FileCompletionWatchStore(path.join(dataDir, 'official-feishu-completion-watches.json')),
-  completionWatcherFactory:(input) => new OfficialFeishuCompletionWatcher({ ...input, detailBaseUrl }),
+  completionWatcherFactory:(input) => new OfficialFeishuCompletionWatcher({ ...input, detailBaseUrl:feishuDetailBaseUrl }),
   logger
 });
 const agentFeishuAppStore = new FileAgentFeishuAppStore({ directory:privateDir });
@@ -326,7 +343,7 @@ const agentFeishuChannelFleet = new AgentFeishuChannelFleet({
   store:agentFeishuAppStore, bridge:officialFeishuChannel, createChannel:asyncChannelFactory,
   taskStatus:(taskId, chatId) => tasks.notificationStatus(taskId, chatId),
   completionWatchStoreFactory:(agentId) => new FileCompletionWatchStore(path.join(dataDir, `official-feishu-${agentId}-completion-watches.json`)),
-  completionWatcherFactory:(input) => new OfficialFeishuCompletionWatcher({ ...input, detailBaseUrl }),
+  completionWatcherFactory:(input) => new OfficialFeishuCompletionWatcher({ ...input, detailBaseUrl:feishuDetailBaseUrl }),
   enabled:employeeFeishuChannelsEnabled({ deploymentMode, owner:employeeFeishuOwner }),
   externalAgentIds:hermesNativeEmployeeIds,
   logger
@@ -349,7 +366,9 @@ const feishuChannelStartup = feishuChannelStartupPlan({
 tasks.setFeishuChannelStatus(() => feishuChannelStartup.startLegacyAJun
   ? officialFeishuChannelRunner.snapshot()
   : feishuChannelStartup.ajunOwner === 'hermes-native'
-    ? { status:'external', message:'A君飞书入口已交由 Hermes 原生 Gateway；连接真相以 Hermes Gateway 为准。' }
+    ? hermesNativeCompletionWatcher.snapshot().status === 'delivery_uncertain'
+      ? hermesNativeCompletionWatcher.snapshot()
+      : { status:'external', message:'A君飞书入口已交由 Hermes 原生 Gateway；连接真相以 Hermes Gateway 为准。' }
     : agentFeishuChannelFleet.snapshot().ajun || { status:'connecting', message:'A君智能体入口正在连接。' });
 tasks.setAgentChannelStates(() => agentFeishuChannelFleet.snapshot());
 tasks.setWorkerStatus((currentTasks) => deploymentMode === 'cloud'
@@ -407,7 +426,13 @@ const handler = createAjunHttpHandler({
   environment,
   publicDir,
   dataDir,
-  detailBaseUrl,
+  detailBaseUrl:feishuDetailBaseUrl,
+  development:{
+    hotReload:{
+      enabled:String(environment.AJUN_DEV_HOT_RELOAD || '').trim().toLowerCase() === 'true',
+      revision:`boot:${bootedAt}:${process.pid}`,
+    },
+  },
   network:{ deploymentMode, lanEnabled, lanAccess },
   paperclip:{
     paperclipHeartbeat,
@@ -502,6 +527,7 @@ return Object.freeze({
     integrityLevel:runtimeSource.integrityLevel,
   }),
   services:Object.freeze({
+    interruptedLocalExecutionReconciler,
     paperclipRosterReconciler,
     approvalExpiryReconciler,
     xiaodReconciler,

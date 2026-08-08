@@ -23,7 +23,44 @@ function setup({
   officePresentationWorkspaceRoot = null,
 } = {}) {
   const records = { tasks: [], approvals: [] };
-  const store = { async createTask(task) { const record = { taskId: `task-${records.tasks.length + 1}`, approvalRefs: [], ...task }; records.tasks.push(record); return record; }, async createApproval(approval) { const record = { approvalId: `approval-${records.approvals.length + 1}`, status:'pending', ...approval }; records.approvals.push(record); const task = records.tasks.find((item) => item.taskId === approval.taskId); task.approvalRefs.push(record.approvalId); if (approval.holdTask !== false) { task.status='waiting_approval'; task.currentStage='approval_required'; } return record; }, async updateApproval(approvalId, patch) { const approval = records.approvals.find((item) => item.approvalId === approvalId); Object.assign(approval, patch); return approval; }, async updateTask(taskId, patch) { const task = records.tasks.find((item) => item.taskId === taskId); Object.assign(task, patch); return task; }, async list(){return records.tasks}, async listApprovals(){return records.approvals} };
+  const store = {
+    async createTask(task) { return (await this.createTaskOnce(task)).task; },
+    async createTaskOnce(task) {
+      const existing = task.idempotencyKey
+        ? records.tasks.find((item) => item.idempotencyKey === task.idempotencyKey)
+        : null;
+      if (existing) {
+        if (existing.idempotencyFingerprint && task.idempotencyFingerprint
+          && existing.idempotencyFingerprint !== task.idempotencyFingerprint) {
+          const error = new Error('同一幂等键不能绑定不同的任务内容。');
+          error.code = 'task_idempotency_conflict';
+          throw error;
+        }
+        return { task:existing, created:false };
+      }
+      const record = { taskId:`task-${records.tasks.length + 1}`, approvalRefs:[], ...task };
+      records.tasks.push(record);
+      return { task:record, created:true };
+    },
+    async createApproval(approval) { const record = { approvalId: `approval-${records.approvals.length + 1}`, status:'pending', ...approval }; records.approvals.push(record); const task = records.tasks.find((item) => item.taskId === approval.taskId); task.approvalRefs.push(record.approvalId); if (approval.holdTask !== false) { task.status='waiting_approval'; task.currentStage='approval_required'; } return record; },
+    async updateApproval(approvalId, patch) { const approval = records.approvals.find((item) => item.approvalId === approvalId); Object.assign(approval, patch); return approval; },
+    async updateTask(taskId, patch) { const task = records.tasks.find((item) => item.taskId === taskId); Object.assign(task, patch); return task; },
+    async resolveApprovalAndUpdateTask(approvalId, approvalPatch, taskId, taskPatch) {
+      const approval = records.approvals.find((item) => item.approvalId === approvalId);
+      const task = records.tasks.find((item) => item.taskId === taskId);
+      Object.assign(approval, approvalPatch);
+      Object.assign(task, typeof taskPatch === 'function' ? taskPatch(task, approval) : taskPatch);
+      return { approval, task };
+    },
+    async claimTaskExecution(taskId, patch) {
+      const task = records.tasks.find((item) => item.taskId === taskId);
+      if (task.status !== 'queued') return { task, claimed:false };
+      Object.assign(task, patch, { status:'running' });
+      return { task, claimed:true };
+    },
+    async list(){return records.tasks},
+    async listApprovals(){return records.approvals}
+  };
   const testGovernance = governance ? {
     async assertCaseIssueLink() {},
     ...governance,
@@ -31,6 +68,41 @@ function setup({
   return { records, service: new TaskService({ registry: { async list(){return agents}, async get(agentId){return agents.find((agent)=>agent.agentId === agentId) || null}, async candidates(type){return agents.filter((agent)=>agent.acceptedTaskTypes.includes(type))} }, store, governance:testGovernance, executors, roleToolAdapters, officePresentationWorkspaceRoot, onTaskFailed, agentChannelStates, contentGrowthWaitMs, m5ProviderVision, m5WorkProductValidator, ...(skillExecutionRegistry ? { skillExecutionRegistry } : {}) }) };
 }
 const coordinator = { agentId:'ajun', name:'A君', status:'active', acceptedTaskTypes:['army.intake', 'army.route-task', 'army.cross-agent-mission'] };
+
+function verifiedArtifact(task, type, data = {}, extra = {}) {
+  return {
+    taskId:task.taskId,
+    type,
+    location:extra.location || `runtime://${task.taskId}/${type}`,
+    validation:{ exists:true, readable:true, nonEmpty:true, ...(extra.validation || {}) },
+    data,
+  };
+}
+
+function verifiedHealthReport(task) {
+  return verifiedArtifact(task, 'health_report', {
+    overall:'healthy',
+    components:[{ id:'ajun-runtime', name:'A君运行台', status:'healthy' }],
+  });
+}
+
+function verifiedIntakeRecord(task, data = {}) {
+  return verifiedArtifact(task, 'task_intake_record', data);
+}
+
+test('任务服务统一保存分析模式并保持与兼容深度一致', async () => {
+  const analyst = { agentId:'video-content-analyst', name:'小拆', status:'active', acceptedTaskTypes:['content.video-benchmark-analysis'] };
+  const { service } = setup({ agents:[analyst] });
+  const task = await service.create({
+    title:'快速总结这个视频',
+    taskType:'content.video-benchmark-analysis',
+    agentId:'video-content-analyst',
+    analysisIntent:'template',
+    depth:'fast'
+  });
+  assert.equal(task.input.analysisIntent, 'template');
+  assert.equal(task.input.depth, 'full');
+});
 
 test('军团路由任务统一登记到 A君', async () => {
   const { service } = setup({ agents:[coordinator] }); const task = await service.create({ title:'安排一次任务', taskType:'army.route-task' });
@@ -194,6 +266,43 @@ test('结构化 PPT 由 A君受控本地执行并把三类引用写回 Paperclip
   ]);
   assert.ok(workProducts.every((item) => !('body' in item) && !('content' in item)));
 });
+test('本地 PPT 特殊通道并发恢复同一任务时只执行一次', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-presentation-claim-'));
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const office = { agentId:'office-assistant', name:'小办', status:'active', acceptedTaskTypes:['office.presentation-package'] };
+  let executions = 0;
+  const { service, records } = setup({
+    agents:[office],
+    officePresentationWorkspaceRoot:root,
+    executors:{
+      'office-assistant':{
+        async execute() {
+          executions += 1;
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          return { status:'needs_input', currentStage:'presentation_input_required' };
+        },
+      },
+    },
+  });
+  const task = {
+    taskId:'presentation-race-1',
+    taskType:'office.presentation-package',
+    status:'queued',
+    artifactRefs:[],
+    approvalRefs:[],
+    input:{ title:'并发 PPT' },
+  };
+  records.tasks.push(task);
+
+  const results = await Promise.all([
+    service.executeTask(task, office),
+    service.executeTask(task, office),
+  ]);
+
+  assert.equal(executions, 1);
+  assert.equal(results.every((item) => ['running', 'needs_input'].includes(item.status)), true);
+  assert.equal(task.status, 'needs_input');
+});
 test('开放复杂任务直接复用岗位专有执行器且不生成DAG或能力授权产物', async () => {
   const intel = {
     agentId:'intel-researcher',
@@ -345,7 +454,7 @@ test('高风险描述创建待审批记录', async () => {
 test('明确不外发的只读任务不触发审批', async () => {
   const reporter = { agentId:'public-reporter', name:'公开资料报告员', status:'active', acceptedTaskTypes:['report.public-material'], runtime:{ kind:'proposal-public-report' } };
   const { service, records } = setup({ agents:[reporter] });
-  service.fallbackExecutor = { supports(agent) { return agent.agentId === 'public-reporter'; }, async execute() { return { status:'succeeded', currentStage:'public_report_ready', artifactRefs:[] }; } };
+  service.fallbackExecutor = { supports(agent) { return agent.agentId === 'public-reporter'; }, async execute(task) { return { status:'succeeded', currentStage:'public_report_ready', artifactRefs:[verifiedArtifact(task, 'public_web_report', { summary:'公开网页摘要' })] }; } };
   const task = await service.create({ title:'整理公开网页', description:'只读公开页面，不外发、不发布、不付费。', taskType:'report.public-material', sourceUrl:'https://example.com' });
   assert.equal(records.approvals.length, 0);
   assert.equal(task.status, 'succeeded');
@@ -353,7 +462,7 @@ test('明确不外发的只读任务不触发审批', async () => {
 test('并列安全约束里的外发词不会被误判为高风险动作', async () => {
   const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
   const { service, records } = setup({ agents:[operator] });
-  service.executors.operator = { async execute() { return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[] }; } };
+  service.executors.operator = { async execute(task) { return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[verifiedHealthReport(task)] }; } };
   const task = await service.create({
     title:'军团健康检查',
     description:'只读健康检查，仅观察公共能力状态并返回结果，不涉及登录、外发、配置修改或执行恢复动作。',
@@ -366,8 +475,8 @@ test('只生成草稿或知识笔记的任务不会因描述发布检查而误�
   const office = { agentId:'office-assistant', name:'小办', status:'active', acceptedTaskTypes:['office.knowledge-summary'] };
   const { service } = setup({ agents:[office] });
   service.executors['office-assistant'] = {
-    async execute() {
-      return { status:'succeeded', currentStage:'knowledge_summary_archived', artifactRefs:[] };
+    async execute(task) {
+      return { status:'succeeded', currentStage:'knowledge_summary_archived', artifactRefs:[verifiedArtifact(task, 'knowledge_summary_note', {}, { location:`runtime://${task.taskId}/knowledge-summary.md` })] };
     }
   };
   const task = await service.create({
@@ -384,7 +493,7 @@ test('一次性外发审批留在 A君，批准后只恢复原任务一次', asy
   let executed = 0; let projected = 0;
   const governance = { async project() { projected += 1; return { status:'synced' }; }, async health() { return { status:'ready' }; } };
   const { service, records } = setup({ agents:[operator], governance });
-  service.executors.operator = { async execute() { executed += 1; return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[] }; } };
+  service.executors.operator = { async execute(task) { executed += 1; return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[verifiedHealthReport(task)] }; } };
   const task = await service.create({ title:'外发本次健康摘要', taskType:'operations.health-review' });
   assert.equal(task.status, 'waiting_approval'); assert.equal(records.approvals[0].governanceMode, 'local'); assert.equal(projected, 0); assert.equal(executed, 0);
   const resumed = await service.approveApproval(records.approvals[0].approvalId, { decisionBy:'A君' });
@@ -405,7 +514,7 @@ test('微信聊天任务自动采用默认范围并且只创建一次隐私确�
       assert.equal(task.input.wechatChat.sameNameStrategy, 'latest-active-session');
       assert.equal(task.input.wechatChat.privateContentModelAccess, 'local-only');
       assert.equal(task.input.wechatChat.outputMode, 'local-summary');
-      return { status:'succeeded', currentStage:'wechat_chat_slice_ready', artifactRefs:[] };
+      return { status:'succeeded', currentStage:'wechat_chat_slice_ready', artifactRefs:[verifiedArtifact(task, 'wechat_chat_analysis_report', { containsRawChat:false })] };
     }
   };
 
@@ -523,6 +632,156 @@ test('小D听审确认只生成确认稿并交回状态跟踪，不把审批点�
   assert.equal(updated.execution.polling.state, 'pending');
 });
 
+test('小D听审确认失败时审批保持待处理，允许安全重试幂等确认', async () => {
+  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const { service, records } = setup({ agents:[xiaod] });
+  records.tasks.push({
+    taskId:'media-review-failure', taskType:'media.transcribe-and-refine', status:'waiting_approval',
+    currentStage:'xiaod_awaiting_review', approvalRefs:['approval-review-failure'], assigneeAgentId:'xiaod',
+    input:{ title:'听审失败重试' }, execution:{ executor:'xiaod', xiaodJobId:'xiaod-review-failure' }
+  });
+  records.approvals.push({
+    approvalId:'approval-review-failure', taskId:'media-review-failure', status:'pending', governanceMode:'local',
+    action:'confirm-transcript-after-complete-listen',
+    requestedScope:{ taskType:'media.transcribe-and-refine', title:'听审失败重试', assigneeAgentId:'xiaod' },
+    validUntil:'2099-01-01T00:00:00.000Z'
+  });
+  service.executors.xiaod = { async confirmTranscript() { throw new Error('小D响应暂时丢失'); } };
+  await assert.rejects(service.approveApproval('approval-review-failure'), /响应暂时丢失/);
+  assert.equal(records.approvals[0].status, 'pending');
+  assert.equal(records.tasks[0].status, 'waiting_approval');
+});
+
+test('继续飞书交付立即返回受理状态，并在后台单飞调用小D后恢复跟踪', async () => {
+  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const { service, records } = setup({ agents:[xiaod] });
+  records.tasks.push({
+    taskId:'media-delivery-pending', taskType:'media.transcribe-and-refine', status:'needs_input',
+    currentStage:'xiaod_awaiting_delivery', approvalRefs:[], assigneeAgentId:'xiaod',
+    source:{ channel:'feishu', chatRef:'chat-delivery' }, input:{ title:'继续交付确认稿' },
+    error:{ code:'xiaod_delivery_pending', userMessage:'请继续飞书交付。' },
+    execution:{ executor:'xiaod', xiaodJobId:'xiaod-delivery-1', polling:{ state:'settled', nextPollAt:null } }
+  });
+  let release;
+  let calls = 0;
+  const observed = [];
+  service.executors.xiaod = {
+    async redeliver() { calls += 1; await new Promise((resolve) => { release = resolve; }); return { id:'xiaod-delivery-1', status:'completed', progress:100 }; },
+    observe(task) { observed.push(task.taskId); }
+  };
+  const [first, second] = await Promise.all([
+    service.continueXiaodDelivery('media-delivery-pending', { chatRef:'chat-delivery' }),
+    service.continueXiaodDelivery('media-delivery-pending', { chatRef:'chat-delivery' })
+  ]);
+  assert.equal(first.status, 'running');
+  assert.equal(second.status, 'running');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 1);
+  release();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(records.tasks[0].status, 'running');
+  assert.equal(records.tasks[0].currentStage, 'xiaod_completed');
+  assert.deepEqual(observed, ['media-delivery-pending']);
+});
+
+test('飞书交付结果不确定时继续口令也不能绕过人工仲裁', async () => {
+  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const { service, records } = setup({ agents:[xiaod] });
+  records.tasks.push({
+    taskId:'media-delivery-uncertain', taskType:'media.transcribe-and-refine', status:'needs_input',
+    currentStage:'xiaod_awaiting_delivery', source:{ channel:'feishu', chatRef:'chat-delivery' }, input:{ title:'不确定交付' },
+    error:{ code:'xiaod_delivery_uncertain', userMessage:'请先人工仲裁。' },
+    execution:{ executor:'xiaod', xiaodJobId:'xiaod-uncertain' }
+  });
+  let calls = 0;
+  service.executors.xiaod = { async redeliver() { calls += 1; } };
+  await assert.rejects(
+    service.continueXiaodDelivery('media-delivery-uncertain', { chatRef:'chat-delivery' }),
+    /人工仲裁/
+  );
+  assert.equal(calls, 0);
+  assert.equal(records.tasks[0].status, 'needs_input');
+});
+
+test('小D听审确认被并发重复点击时只调用一次下游确认', async () => {
+  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const { service, records } = setup({ agents:[xiaod] });
+  records.tasks.push({
+    taskId:'media-review-race',
+    taskType:'media.transcribe-and-refine',
+    status:'waiting_approval',
+    currentStage:'xiaod_awaiting_review',
+    approvalRefs:['approval-review-race'],
+    assigneeAgentId:'xiaod',
+    input:{ title:'并发完整听审' },
+    execution:{ executor:'xiaod', xiaodJobId:'xiaod-review-race' },
+  });
+  records.approvals.push({
+    approvalId:'approval-review-race',
+    taskId:'media-review-race',
+    status:'pending',
+    governanceMode:'local',
+    action:'confirm-transcript-after-complete-listen',
+    requestedScope:{ taskType:'media.transcribe-and-refine', title:'并发完整听审', assigneeAgentId:'xiaod' },
+    validUntil:'2099-01-01T00:00:00.000Z',
+  });
+  let confirmations = 0;
+  service.executors.xiaod = {
+    async confirmTranscript() {
+      confirmations += 1;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    },
+  };
+
+  const results = await Promise.all([
+    service.approveApproval('approval-review-race', { decisionBy:'A君' }),
+    service.approveApproval('approval-review-race', { decisionBy:'A君' }),
+  ]);
+
+  assert.equal(confirmations, 1);
+  assert.equal(results[0], results[1]);
+  assert.equal(results[0].status, 'running');
+});
+
+test('同一审批正在批准时拒绝并发拒绝决定，不覆盖下游动作', async () => {
+  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const { service, records } = setup({ agents:[xiaod] });
+  records.tasks.push({
+    taskId:'media-review-conflict',
+    taskType:'media.transcribe-and-refine',
+    status:'waiting_approval',
+    currentStage:'xiaod_awaiting_review',
+    approvalRefs:['approval-review-conflict'],
+    assigneeAgentId:'xiaod',
+    input:{ title:'冲突听审' },
+    execution:{ executor:'xiaod', xiaodJobId:'xiaod-review-conflict' },
+  });
+  records.approvals.push({
+    approvalId:'approval-review-conflict',
+    taskId:'media-review-conflict',
+    status:'pending',
+    governanceMode:'local',
+    action:'confirm-transcript-after-complete-listen',
+    requestedScope:{ taskType:'media.transcribe-and-refine', title:'冲突听审', assigneeAgentId:'xiaod' },
+    validUntil:'2099-01-01T00:00:00.000Z',
+  });
+  let rejected = 0;
+  service.executors.xiaod = {
+    async confirmTranscript() { await new Promise((resolve) => setTimeout(resolve, 20)); },
+    async rejectTranscript() { rejected += 1; },
+  };
+
+  const approving = service.approveApproval('approval-review-conflict');
+  await assert.rejects(
+    service.rejectApproval('approval-review-conflict'),
+    (error) => error?.code === 'approval_resolution_conflict',
+  );
+  await approving;
+
+  assert.equal(rejected, 0);
+  assert.equal(records.approvals[0].status, 'approved');
+});
+
 test('小D听审拒绝会通知小D并关闭正式下游链路', async () => {
   const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
   const { service, records } = setup({ agents:[xiaod] });
@@ -571,14 +830,83 @@ test('组织级飞书决定必须先回写 Paperclip，批准后才恢复原任�
   let resolved = 0; let executed = 0;
   const governance = {
     async project() { return { status:'synced', paperclipIssueId:'issue-1', paperclipApprovalId:'paperclip-approval-1' }; },
-    async resolveApproval(id, decision) { resolved += 1; assert.equal(id, 'paperclip-approval-1'); assert.equal(decision, 'approve'); return { status:'approved' }; },
+    async resolveApproval(id, decision) { resolved += 1; assert.equal(id, 'paperclip-approval-1'); assert.equal(decision, 'approve'); await new Promise((resolve) => setTimeout(resolve, 20)); return { status:'approved' }; },
     async update(task) { return task.governance; }, async health() { return { status:'ready' }; }
   };
   const { service, records } = setup({ agents:[operator], governance });
-  service.executors.operator = { async execute() { executed += 1; return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[] }; } };
+  service.executors.operator = { async execute(task) { executed += 1; return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[verifiedHealthReport(task)] }; } };
   const task = await service.create({ title:'公开发布系统摘要', taskType:'operations.health-review', source:{ channel:'feishu', chatRef:'chat-a' } });
-  const result = await service.resolvePaperclipApproval(records.approvals[0].approvalId, 'approve', { decisionBy:'feishu-user', chatRef:'chat-a' });
-  assert.equal(resolved, 1); assert.equal(executed, 1); assert.equal(records.approvals[0].status, 'approved'); assert.equal(result.status, 'succeeded');
+  const results = await Promise.all([
+    service.resolvePaperclipApproval(records.approvals[0].approvalId, 'approve', { decisionBy:'feishu-user', chatRef:'chat-a' }),
+    service.resolvePaperclipApproval(records.approvals[0].approvalId, 'approve', { decisionBy:'feishu-user', chatRef:'chat-a' }),
+  ]);
+  assert.equal(resolved, 1); assert.equal(executed, 1); assert.equal(records.approvals[0].status, 'approved'); assert.equal(results[0].status, 'succeeded'); assert.equal(results[0], results[1]);
+});
+test('Paperclip 已落决定但响应丢失时通过只读回查收口，不重复决定或执行', async () => {
+  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  let paperclipStatus = 'pending'; let resolved = 0; let executed = 0;
+  const governance = {
+    async project() { return { status:'synced', paperclipIssueId:'issue-lost', paperclipApprovalId:'approval-lost' }; },
+    async getApproval() { return { status:paperclipStatus }; },
+    async resolveApproval() { resolved += 1; paperclipStatus = 'approved'; throw new Error('response lost'); },
+    async update(task) { return task.governance; }, async health() { return { status:'ready' }; },
+  };
+  const { service, records } = setup({ agents:[operator], governance });
+  service.executors.operator = { async execute(task) { executed += 1; return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[verifiedHealthReport(task)] }; } };
+  await service.create({ title:'公开发布响应丢失验证', taskType:'operations.health-review' });
+  const result = await service.resolvePaperclipApproval(records.approvals[0].approvalId, 'approve');
+  assert.equal(result.status, 'succeeded');
+  assert.equal(resolved, 1);
+  assert.equal(executed, 1);
+  assert.equal(records.approvals[0].externalDecision.state, 'confirmed');
+  assert.equal(records.approvals[0].status, 'approved');
+});
+test('旧飞书卡的相反点击不能覆盖 Paperclip 已决事实，本地按权威决定收口', async () => {
+  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  let resolved = 0; let executed = 0;
+  const governance = {
+    async project() { return { status:'synced', paperclipIssueId:'issue-authority', paperclipApprovalId:'approval-authority' }; },
+    async getApproval() { return { status:'approved' }; },
+    async resolveApproval() { resolved += 1; return { status:'rejected' }; },
+    async update(task) { return task.governance; }, async health() { return { status:'ready' }; },
+  };
+  const { service, records } = setup({ agents:[operator], governance });
+  service.executors.operator = { async execute(task) { executed += 1; return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[verifiedHealthReport(task)] }; } };
+  await service.create({ title:'公开发布 Paperclip 权威决定验证', taskType:'operations.health-review' });
+  const result = await service.resolvePaperclipApproval(records.approvals[0].approvalId, 'reject');
+  assert.equal(result.status, 'succeeded');
+  assert.equal(resolved, 0);
+  assert.equal(executed, 1);
+  assert.equal(records.approvals[0].status, 'approved');
+  assert.equal(records.approvals[0].decisionBy, 'Paperclip 已决事实');
+  assert.equal(records.approvals[0].externalDecision.requestedDecision, 'reject');
+  assert.equal(records.approvals[0].externalDecision.decision, 'approve');
+});
+test('重启整理器会续接已开始的 Paperclip 决定，不等待再次点击审批卡', async () => {
+  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  let resolved = 0; let executed = 0;
+  const governance = {
+    async getApproval() { return { status:'approved' }; },
+    async resolveApproval() { resolved += 1; return { status:'approved' }; },
+    async update(task) { return task.governance; }, async health() { return { status:'ready' }; },
+  };
+  const { service, records } = setup({ agents:[operator], governance });
+  records.tasks.push({
+    taskId:'restart-task', taskType:'operations.health-review', status:'waiting_approval', approvalRefs:['restart-approval'], assigneeAgentId:'operator',
+    input:{ title:'重启后续接审批' }, governance:{ paperclipIssueId:'restart-issue', paperclipApprovalId:'restart-paperclip-approval' },
+  });
+  records.approvals.push({
+    approvalId:'restart-approval', taskId:'restart-task', status:'pending', governanceMode:'paperclip',
+    requestedScope:{ taskType:'operations.health-review', title:'重启后续接审批', assigneeAgentId:'operator' },
+    externalDecision:{ decision:'approve', state:'resolving', paperclipApprovalId:'restart-paperclip-approval', decisionBy:'feishu-user', decisionReason:'已确认' },
+  });
+  service.executors.operator = { async execute(task) { executed += 1; return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[verifiedHealthReport(task)] }; } };
+  const reconciled = await service.reconcilePendingPaperclipApprovals();
+  assert.equal(reconciled[0].status, 'reconciled');
+  assert.equal(resolved, 0);
+  assert.equal(executed, 1);
+  assert.equal(records.approvals[0].status, 'approved');
+  assert.equal(records.tasks[0].status, 'succeeded');
 });
 test('已批准的多人总任务可以恢复安全子工作，不重复要求审批', async () => {
   const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
@@ -589,7 +917,7 @@ test('已批准的多人总任务可以恢复安全子工作，不重复要求�
   );
   records.approvals.push({ approvalId:'approval-parent', taskId:'mission-1', status:'approved', governanceMode:'paperclip' }, { approvalId:'approval-child', taskId:'child-1', status:'pending', governanceMode:'paperclip' });
   let executed = 0;
-  service.executors.operator = { async execute(){ executed += 1; return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[] }; } };
+  service.executors.operator = { async execute(task){ executed += 1; return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[verifiedHealthReport(task)] }; } };
   const result = await service.resumeApprovedMissionChild('child-1');
   assert.equal(result.status, 'succeeded');
   assert.equal(executed, 1);
@@ -607,21 +935,63 @@ test('组织级拒绝先回写 Paperclip，关闭任务且不执行', async () =
 });
 test('暂停小D任务必须先走 Paperclip 确认，确认前不伪装成已经暂停', async () => {
   const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
-  let resolved = 0; let paused = 0;
+  let projected = 0; let resolved = 0; let paused = 0;
   const governance = {
-    async project() { return { status:'synced', paperclipIssueId:'pause-issue-1', paperclipApprovalId:'pause-approval-1' }; },
+    async project() { projected += 1; await new Promise((resolve) => setTimeout(resolve, 20)); return { status:'synced', paperclipIssueId:'pause-issue-1', paperclipApprovalId:'pause-approval-1' }; },
     async resolveApproval(id, decision) { resolved += 1; assert.equal(id, 'pause-approval-1'); assert.equal(decision, 'approve'); return { status:'approved' }; },
     async update(task) { return task.governance; }, async health() { return { status:'ready' }; }
   };
   const { service, records } = setup({ agents:[xiaod], governance });
   records.tasks.push({ taskId:'media-1', taskType:'media.transcribe-and-refine', status:'running', approvalRefs:[], assigneeAgentId:'xiaod', input:{ title:'整理公开视频' }, execution:{ executor:'xiaod', xiaodJobId:'xiaod-job-1' } });
   service.executors.xiaod = { async pause() { paused += 1; return { id:'xiaod-job-1', status:'pausing', progress:45 }; } };
-  const requested = await service.requestPause('media-1');
+  const requests = await Promise.all([
+    service.requestPause('media-1'),
+    service.requestPause('media-1'),
+  ]);
+  const requested = requests[0];
+  assert.equal(requests[0], requests[1]);
+  assert.equal(projected, 1);
+  assert.equal(records.approvals.length, 1);
   assert.equal(requested.task.status, 'running');
   assert.equal(requested.approval.governanceMode, 'paperclip');
   assert.equal(records.approvals[0].action, 'pause-task');
   const updated = await service.resolvePaperclipApproval(requested.approval.approvalId, 'approve');
   assert.equal(resolved, 1); assert.equal(paused, 1); assert.equal(updated.status, 'pausing');
+});
+test('小D暂停已生效但本地原子提交失败时可安全续接，不重复暂停或 Paperclip 决定', async () => {
+  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  let paperclipStatus = 'pending'; let resolved = 0; let paused = 0; let jobStatus = 'transcribing';
+  const governance = {
+    async project() { return { status:'synced', paperclipIssueId:'pause-issue-retry', paperclipApprovalId:'pause-approval-retry' }; },
+    async getApproval() { return { status:paperclipStatus }; },
+    async resolveApproval() { resolved += 1; paperclipStatus = 'approved'; return { status:'approved' }; },
+    async update(task) { return task.governance; }, async health() { return { status:'ready' }; },
+  };
+  const { service, records } = setup({ agents:[xiaod], governance });
+  records.tasks.push({ taskId:'media-retry', taskType:'media.transcribe-and-refine', status:'running', approvalRefs:[], assigneeAgentId:'xiaod', input:{ title:'暂停响应丢失' }, execution:{ executor:'xiaod', xiaodJobId:'xiaod-job-retry' } });
+  service.executors.xiaod = {
+    async getJob() { return { id:'xiaod-job-retry', status:jobStatus, progress:40 }; },
+    async pause() { paused += 1; jobStatus = 'pausing'; return { id:'xiaod-job-retry', status:jobStatus, progress:40 }; },
+  };
+  const requested = await service.requestPause('media-retry');
+  const atomicCommit = service.store.resolveApprovalAndUpdateTask.bind(service.store);
+  let failCommit = true;
+  service.store.resolveApprovalAndUpdateTask = async (...args) => {
+    if (failCommit) { failCommit = false; throw new Error('disk unavailable'); }
+    return atomicCommit(...args);
+  };
+  await assert.rejects(
+    service.resolvePaperclipApproval(requested.approval.approvalId, 'approve'),
+    /disk unavailable/,
+  );
+  assert.equal(records.approvals[0].status, 'pending');
+  assert.equal(records.approvals[0].externalDecision.state, 'confirmed');
+  assert.equal(records.approvals[0].localEffect.state, 'resolving');
+  const updated = await service.resolvePaperclipApproval(requested.approval.approvalId, 'approve');
+  assert.equal(updated.status, 'pausing');
+  assert.equal(records.approvals[0].status, 'approved');
+  assert.equal(resolved, 1);
+  assert.equal(paused, 1);
 });
 
 test('拒绝暂停小D任务不会关闭或打断原任务', async () => {
@@ -845,6 +1215,186 @@ test('Paperclip Hermes heartbeat 会关联原 A君任务并幂等回写同一终
   assert.deepEqual(completed.task.artifactRefs[0].data.currentStateUnknowns, ['飞书真人回归待完成。']);
   assert.equal(completions.length, 1);
   assert.equal(duplicate.duplicate, true);
+});
+
+test('Paperclip 终态同步明确失败后可重放，failed 与 waiting_test 不会永久卡在两套真相', async (t) => {
+  for (const reportedStatus of ['failed', 'waiting_test']) {
+    await t.test(reportedStatus, async () => {
+      const reviewer = {
+        agentId:'reviewer', name:'审核官', status:'active',
+        acceptedTaskTypes:['governance.approval-review'],
+        interaction:{ runtime:'hermes-profile' }, executionOwner:'paperclip-hermes'
+      };
+      const identity = {
+        issue:{ id:`issue-${reportedStatus}`, identifier:`AGE-${reportedStatus}`, title:'审查任务', description:'只读审查。' },
+        run:{ id:`run-${reportedStatus}` },
+        paperclipAgent:{ id:'paperclip-reviewer', name:'审核官' },
+        agentArmyId:'reviewer'
+      };
+      let issueStatus = 'in_progress';
+      let completionAttempts = 0;
+      const governance = {
+        async project() { return { status:'synced', paperclipIssueId:identity.issue.id, paperclipAssigneeAgentId:identity.paperclipAgent.id }; },
+        async verifyHermesAssignment() { return identity; },
+        async getPaperclipIssue() { return { ...identity.issue, status:issueStatus }; },
+        async completePaperclipIssue() {
+          completionAttempts += 1;
+          if (completionAttempts === 1) throw new Error('definite connection failure');
+          issueStatus = 'blocked';
+        }
+      };
+      const { service, records } = setup({ agents:[reviewer], governance });
+      await service.create({ title:'审查任务', taskType:'governance.approval-review', agentId:'reviewer' });
+      const input = {
+        issueId:identity.issue.id, runId:identity.run.id,
+        paperclipAgentId:identity.paperclipAgent.id, agentArmyId:'reviewer',
+        status:reportedStatus, summary:'本轮未形成可采用结论。'
+      };
+
+      await assert.rejects(service.completePaperclipAssignment(input), /definite connection failure/);
+      assert.equal(records.tasks[0].status, reportedStatus);
+      assert.equal(records.tasks[0].governance.completionSync.status, 'pending');
+
+      const replay = await service.completePaperclipAssignment(input);
+      assert.equal(replay.duplicate, true);
+      assert.equal(completionAttempts, 2);
+      assert.equal(issueStatus, 'blocked');
+      assert.equal(replay.task.governance.completionSync.status, 'confirmed');
+    });
+  }
+});
+
+test('Paperclip 终态响应丢失时先读回外部状态，不重复追加完成动作', async () => {
+  const reviewer = {
+    agentId:'reviewer', name:'审核官', status:'active',
+    acceptedTaskTypes:['governance.approval-review'],
+    interaction:{ runtime:'hermes-profile' }, executionOwner:'paperclip-hermes'
+  };
+  const identity = {
+    issue:{ id:'issue-response-lost', identifier:'AGE-LOST', title:'审查任务', description:'只读审查。' },
+    run:{ id:'run-response-lost' }, paperclipAgent:{ id:'paperclip-reviewer', name:'审核官' }, agentArmyId:'reviewer'
+  };
+  let issueStatus = 'in_progress';
+  let completionAttempts = 0;
+  const governance = {
+    async project() { return { status:'synced', paperclipIssueId:identity.issue.id, paperclipAssigneeAgentId:identity.paperclipAgent.id }; },
+    async verifyHermesAssignment() { return identity; },
+    async getPaperclipIssue() { return { ...identity.issue, status:issueStatus }; },
+    async completePaperclipIssue() {
+      completionAttempts += 1;
+      issueStatus = 'blocked';
+      throw new Error('response lost after apply');
+    }
+  };
+  const { service, records } = setup({ agents:[reviewer], governance });
+  await service.create({ title:'审查任务', taskType:'governance.approval-review', agentId:'reviewer' });
+  const input = {
+    issueId:identity.issue.id, runId:identity.run.id,
+    paperclipAgentId:identity.paperclipAgent.id, agentArmyId:'reviewer',
+    status:'waiting_test', summary:'已有局部结果，等待人工验证。'
+  };
+
+  await assert.rejects(service.completePaperclipAssignment(input), /response lost after apply/);
+  assert.equal(records.tasks[0].governance.completionSync.status, 'pending');
+  const replay = await service.completePaperclipAssignment(input);
+  assert.equal(replay.task.governance.completionSync.status, 'confirmed');
+  assert.equal(completionAttempts, 1);
+});
+
+test('同一 Paperclip Run 的并发完成回报单飞，冲突终态不会覆盖已开始的结果', async () => {
+  const reviewer = {
+    agentId:'reviewer', name:'审核官', status:'active',
+    acceptedTaskTypes:['governance.approval-review'],
+    interaction:{ runtime:'hermes-profile' }, executionOwner:'paperclip-hermes'
+  };
+  const identity = {
+    issue:{ id:'issue-concurrent-complete', identifier:'AGE-CONCURRENT', title:'审查任务', description:'只读审查。' },
+    run:{ id:'run-concurrent-complete' }, paperclipAgent:{ id:'paperclip-reviewer', name:'审核官' }, agentArmyId:'reviewer'
+  };
+  let releaseCompletion;
+  const blocked = new Promise((resolve) => { releaseCompletion = resolve; });
+  let completionAttempts = 0;
+  const governance = {
+    async project() { return { status:'synced', paperclipIssueId:identity.issue.id, paperclipAssigneeAgentId:identity.paperclipAgent.id }; },
+    async verifyHermesAssignment() { return identity; },
+    async completePaperclipIssue() { completionAttempts += 1; await blocked; }
+  };
+  const { service, records } = setup({ agents:[reviewer], governance });
+  await service.create({ title:'审查任务', taskType:'governance.approval-review', agentId:'reviewer' });
+  const input = {
+    issueId:identity.issue.id, runId:identity.run.id,
+    paperclipAgentId:identity.paperclipAgent.id, agentArmyId:'reviewer',
+    status:'waiting_test', summary:'已有局部结果，等待人工验证。'
+  };
+
+  const first = service.completePaperclipAssignment(input);
+  const duplicate = service.completePaperclipAssignment(input);
+  await assert.rejects(
+    Promise.resolve().then(() => service.completePaperclipAssignment({ ...input, status:'failed' })),
+    /正在回报不同的完成结果/
+  );
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(completionAttempts, 1);
+  releaseCompletion();
+  const [one, two] = await Promise.all([first, duplicate]);
+  assert.equal(one.task.taskId, two.task.taskId);
+  assert.equal(records.tasks[0].artifactRefs.filter((item) => item.type === 'employee_role_report').length, 1);
+  assert.equal(records.tasks[0].governance.completionSync.status, 'confirmed');
+});
+
+test('Paperclip Hermes 不能用文字岗位回报替代小R专用研究产物', async () => {
+  const researcher = {
+    agentId:'intel-researcher',
+    name:'小R',
+    status:'active',
+    acceptedTaskTypes:['research.intel-report'],
+    executionOwner:'paperclip-hermes',
+    interaction:{ runtime:'hermes-profile' },
+  };
+  const identity = {
+    issue:{ id:'intel-issue-1', identifier:'AGE-INTEL-1', title:'研究 Agent 稳定性', description:'形成有来源的研究报告。' },
+    run:{ id:'intel-run-1' },
+    paperclipAgent:{ id:'intel-paperclip-agent-1', name:'小R' },
+    agentArmyId:'intel-researcher',
+  };
+  const completions = [];
+  const governance = {
+    async project() {
+      return { status:'synced', paperclipIssueId:identity.issue.id, paperclipAssigneeAgentId:identity.paperclipAgent.id };
+    },
+    async verifyHermesAssignment() { return identity; },
+    async completePaperclipIssue(issueId) { completions.push(issueId); },
+  };
+  const { service, records } = setup({ agents:[researcher], governance });
+  const task = await service.create({
+    title:'研究 Agent 稳定性',
+    taskType:'research.intel-report',
+    agentId:'intel-researcher',
+  });
+  const input = {
+    issueId:identity.issue.id,
+    runId:identity.run.id,
+    paperclipAgentId:identity.paperclipAgent.id,
+    agentArmyId:'intel-researcher',
+    status:'succeeded',
+    summary:'研究已经完成。',
+  };
+
+  await assert.rejects(
+    () => service.completePaperclipAssignment(input),
+    /intel_research_report.*文字回报不能替代/,
+  );
+  assert.equal(records.tasks[0].status, 'running');
+  assert.equal(completions.length, 0);
+
+  records.tasks[0].artifactRefs = [verifiedArtifact(task, 'intel_research_report', {
+    conclusion:'稳定性依赖完成契约。',
+    sources:[{ source:'https://example.com/stability' }],
+  })];
+  const completed = await service.completePaperclipAssignment(input);
+  assert.equal(completed.task.status, 'succeeded');
+  assert.equal(completed.task.artifactRefs.some((item) => item.type === 'intel_research_report'), true);
+  assert.equal(completions.length, 1);
 });
 
 test('创建官 heartbeat 真实写入一次岗位草案并保持任务等待最终回报', async () => {
@@ -1805,6 +2355,69 @@ test('小拆 heartbeat 通过受控执行桥写回真实分析产物且重复调
   assert.deepEqual(persisted.usage.cost, { status:'reported', amount:0, currency:'USD' });
 });
 
+test('v2 视频分析缺少模式结构证明时不能被 heartbeat 标成成功', async () => {
+  const analyst = {
+    agentId:'video-content-analyst',
+    name:'小拆',
+    status:'active',
+    acceptedTaskTypes:['content.video-benchmark-analysis'],
+    interaction:{ runtime:'hermes-profile', directFeishu:'disabled' },
+    executionOwner:'paperclip-hermes'
+  };
+  const identity = {
+    issue:{ id:'paperclip-issue-v2-unverified', identifier:'AGE-V2-UNVERIFIED', title:'精华提炼', description:'引用确认稿。' },
+    run:{ id:'paperclip-run-v2-unverified' },
+    paperclipAgent:{ id:'paperclip-agent-v2-unverified', name:'小拆' },
+    agentArmyId:'video-content-analyst'
+  };
+  const governance = {
+    async project() {
+      return { status:'synced', paperclipIssueId:identity.issue.id, paperclipAssigneeAgentId:identity.paperclipAgent.id };
+    },
+    async verifyHermesAssignment() { return identity; }
+  };
+  const { service, records } = setup({ agents:[analyst], governance });
+  service.executors['video-content-analyst'] = {
+    async execute(task) {
+      return {
+        status:'succeeded',
+        currentStage:'digest_analysis_ready',
+        artifactRefs:[{
+          artifactId:`video-analysis:${task.taskId}`,
+          taskId:task.taskId,
+          type:'video_content_analysis_report',
+          validation:{
+            exists:true,
+            readable:true,
+            nonEmpty:true,
+            analysisIntent:'digest',
+            reportVersion:'video-analysis/v2'
+          },
+          data:{ analysisIntent:'digest', reportVersion:'video-analysis/v2', modules:[{ name:'定位与受众' }] }
+        }]
+      };
+    }
+  };
+  await service.create({
+    title:'精华提炼',
+    taskType:'content.video-benchmark-analysis',
+    agentId:'video-content-analyst',
+    analysisIntent:'digest',
+    evidenceMode:'formal'
+  });
+  const result = await service.executeContentGrowthAssignment({
+    issueId:identity.issue.id,
+    runId:identity.run.id,
+    paperclipAgentId:identity.paperclipAgent.id,
+    agentArmyId:identity.agentArmyId
+  });
+  assert.equal(result.result.verified, false);
+  assert.equal(result.result.recommendedCompletionStatus, 'waiting_test');
+  const persisted = records.tasks.find((task) => task.taskId === result.task.taskId);
+  assert.equal(persisted.execution.contentGrowth.verified, false);
+  assert.equal(persisted.execution.contentGrowth.recommendedCompletionStatus, 'waiting_test');
+});
+
 test('长视频拆解按 240 秒以内分段等待并复用同一个后台执行', async () => {
   const analyst = {
     agentId:'video-content-analyst',
@@ -1932,21 +2545,39 @@ test('正式完整拆解的语义兜底不能冒充成功，迟到产物不能�
   assert.equal(persisted.error.code, 'paperclip_hermes_reported_failure');
   assert.equal(persisted.artifactRefs[0].validation.semanticValidationPassed, false);
 });
-test('相同飞书幂等键直接返回原任务，不会二次执行 Agent', async () => {
+test('相同飞书幂等键并发到达时共享同一次执行结果，不会二次执行 Agent', async () => {
   const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
   let executed = 0;
   const { service, records } = setup({ agents:[operator] });
-  service.executors.operator = { async execute() { executed += 1; return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[] }; } };
+  service.executors.operator = { async execute(task) {
+    executed += 1;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[verifiedHealthReport(task)] };
+  } };
   const input = { title:'检查系统状态', taskType:'operations.health-review', idempotencyKey:'feishu:message-42', source:{ channel:'feishu', eventRef:'feishu:message-42' } };
-  const first = await service.create(input); const duplicate = await service.create(input);
+  const [first, duplicate] = await Promise.all([service.create(input), service.create(input)]);
   assert.equal(first.taskId, duplicate.taskId);
+  assert.equal(first.status, 'succeeded');
+  assert.equal(duplicate.status, 'succeeded');
   assert.equal(records.tasks.length, 1);
   assert.equal(executed, 1);
+});
+test('相同幂等键携带不同任务内容时明确拒绝，不返回旧任务冒充本次结果', async () => {
+  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  const { service } = setup({ agents:[operator] });
+  service.executors.operator = { async execute(task) {
+    return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[verifiedHealthReport(task)] };
+  } };
+  await service.create({ title:'检查系统 A', taskType:'operations.health-review', idempotencyKey:'feishu:drift-42' });
+  await assert.rejects(
+    service.create({ title:'检查系统 B', taskType:'operations.health-review', idempotencyKey:'feishu:drift-42' }),
+    (error) => error.code === 'task_idempotency_conflict',
+  );
 });
 test('已启用的运维官会完成低风险健康任务并留下报告', async () => {
   const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
   const governance = { async project() { return { status: 'synced', paperclipIssueId: 'issue-1' }; }, async update(task) { return task.governance; }, async health() { return { status: 'ready', version: 'test' }; } };
-  const executor = { async execute(task) { return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[{ taskId:task.taskId, type:'health_report' }] }; } };
+  const executor = { async execute(task) { return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[verifiedHealthReport(task)] }; } };
   const { service } = setup({ agents:[operator], governance }); service.executors.operator = executor;
   const task = await service.create({ title:'检查本机健康', taskType:'operations.health-review' });
   assert.equal(task.status, 'succeeded'); assert.equal(task.artifactRefs[0].type, 'health_report');
@@ -2013,7 +2644,7 @@ test('小D登记完成后才启动状态跟踪，缺少链接不会调用下游'
 });
 test('A君会留下任务接收记录', async () => {
   const coordinator = { agentId:'ajun', name:'A君', status:'active', acceptedTaskTypes:['army.intake'] };
-  const executor = { async execute(task) { return { status:'succeeded', currentStage:'intake_record_ready', artifactRefs:[{ taskId:task.taskId, type:'task_intake_record' }] }; } };
+  const executor = { async execute(task) { return { status:'succeeded', currentStage:'intake_record_ready', artifactRefs:[verifiedIntakeRecord(task)] }; } };
   const { service } = setup({ agents:[coordinator] }); service.executors.ajun = executor;
   const task = await service.create({ title:'先帮我判断怎么推进', taskType:'army.intake' });
   assert.equal(task.status, 'succeeded'); assert.equal(task.artifactRefs[0].type, 'task_intake_record');
@@ -2021,20 +2652,20 @@ test('A君会留下任务接收记录', async () => {
 test('默认接收高风险描述只生成审核建议，不创建审批或外部动作', async () => {
   const coordinator = { agentId:'ajun', name:'A君', status:'active', acceptedTaskTypes:['army.intake'] };
   const { service, records } = setup({ agents:[coordinator] });
-  service.executors.ajun = { async execute(task) { return { status:'succeeded', currentStage:'intake_record_ready', artifactRefs:[{ taskId:task.taskId, type:'task_intake_record', data:{ recommendedTaskType:'governance.approval-review', recommendedAgentId:'reviewer', externalActionStarted:false } }] }; } };
+  service.executors.ajun = { async execute(task) { return { status:'succeeded', currentStage:'intake_record_ready', artifactRefs:[verifiedIntakeRecord(task, { recommendedTaskType:'governance.approval-review', recommendedAgentId:'reviewer', externalActionStarted:false })] }; } };
   const task = await service.create({ title:'审核发布范围', taskType:'army.intake' });
   assert.equal(task.status, 'succeeded'); assert.equal(records.approvals.length, 0); assert.equal(task.artifactRefs[0].data.recommendedAgentId, 'reviewer');
 });
 test('审核任务可产生审查结论，但不创建第二个审批闸门', async () => {
   const reviewer = { agentId:'reviewer', name:'审核官', status:'active', acceptedTaskTypes:['governance.approval-review'] };
-  const executor = { async execute(task) { return { status:'succeeded', currentStage:'review_report_ready', artifactRefs:[{ taskId:task.taskId, type:'review_report' }] }; } };
+  const executor = { async execute(task) { return { status:'succeeded', currentStage:'review_report_ready', artifactRefs:[verifiedArtifact(task, 'review_report', { recommendation:'human_owner_decision_required' })] }; } };
   const { service, records } = setup({ agents:[reviewer] }); service.executors.reviewer = executor;
   const task = await service.create({ title:'审核发布范围', description:'只审内部草稿，今天有效。', taskType:'governance.approval-review' });
   assert.equal(task.status, 'succeeded'); assert.equal(task.artifactRefs[0].type, 'review_report'); assert.equal(records.approvals.length, 0);
 });
 test('已启用架构师会生成评估结果，但不触发审批或外部执行', async () => {
   const architect = { agentId:'architect', name:'架构师', status:'active', acceptedTaskTypes:['governance.architecture-review'] };
-  const executor = { async execute(task) { return { status:'succeeded', currentStage:'architecture_review_ready', artifactRefs:[{ taskId:task.taskId, type:'architecture_review' }] }; } };
+  const executor = { async execute(task) { return { status:'succeeded', currentStage:'architecture_review_ready', artifactRefs:[verifiedArtifact(task, 'architecture_review', { nextAction:'继续验证' })] }; } };
   const { service, records } = setup({ agents:[architect] }); service.executors.architect = executor;
   const task = await service.create({ title:'评估当前岗位能力', taskType:'governance.architecture-review' });
   assert.equal(task.status, 'succeeded'); assert.equal(task.artifactRefs[0].type, 'architecture_review'); assert.equal(records.approvals.length, 0);
@@ -2043,8 +2674,8 @@ test('可按已完成的接收建议创建同一输入的子任务', async () =>
   const coordinator = { agentId:'ajun', name:'A君', status:'active', acceptedTaskTypes:['army.intake'] };
   const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
   const { service } = setup({ agents:[coordinator, operator] });
-  service.executors.ajun = { async execute(task) { return { status:'succeeded', currentStage:'intake_record_ready', artifactRefs:[{ taskId:task.taskId, type:'task_intake_record', data:{ recommendedTaskType:'operations.health-review', recommendedAgentId:'operator' } }] }; } };
-  service.executors.operator = { async execute(task) { return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[{ taskId:task.taskId, type:'health_report' }] }; } };
+  service.executors.ajun = { async execute(task) { return { status:'succeeded', currentStage:'intake_record_ready', artifactRefs:[verifiedIntakeRecord(task, { recommendedTaskType:'operations.health-review', recommendedAgentId:'operator' })] }; } };
+  service.executors.operator = { async execute(task) { return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[verifiedHealthReport(task)] }; } };
   const intake = await service.create({ title:'检查本机健康', taskType:'army.intake' }); const next = await service.continueFromRecommendation(intake.taskId);
   assert.equal(next.parentTaskId, intake.taskId); assert.equal(next.taskType, 'operations.health-review'); assert.equal(next.assigneeAgentId, 'operator'); assert.equal(next.status, 'succeeded');
 });
@@ -2053,8 +2684,8 @@ test('自动能力评估会把 AI 已理解的目标带给架构师，不要求�
   const coordinator = { agentId:'ajun', name:'A君', status:'active', acceptedTaskTypes:['army.intake'] };
   const architect = { agentId:'architect', name:'架构师', status:'active', acceptedTaskTypes:['governance.architecture-review'] };
   const { service } = setup({ agents:[coordinator, architect] });
-  service.executors.ajun = { async execute(task) { return { status:'succeeded', currentStage:'intake_record_ready', artifactRefs:[{ taskId:task.taskId, type:'task_intake_record', data:{ recommendedTaskType:'governance.architecture-review', recommendedAgentId:'architect', autoContinue:true, advisor:{ understanding:'研究竞品', deliverable:'竞品行动清单', missing:['竞品名称'] } } }] }; } };
-  service.executors.architect = { async execute(task) { return { status:'succeeded', currentStage:'architecture_review_ready', artifactRefs:[{ taskId:task.taskId, type:'architecture_review', data:{ context:task.input.context } }] }; } };
+  service.executors.ajun = { async execute(task) { return { status:'succeeded', currentStage:'intake_record_ready', artifactRefs:[verifiedIntakeRecord(task, { recommendedTaskType:'governance.architecture-review', recommendedAgentId:'architect', autoContinue:true, advisor:{ understanding:'研究竞品', deliverable:'竞品行动清单', missing:['竞品名称'] } })] }; } };
+  service.executors.architect = { async execute(task) { return { status:'succeeded', currentStage:'architecture_review_ready', artifactRefs:[verifiedArtifact(task, 'architecture_review', { context:task.input.context })] }; } };
   const intake = await service.create({ title:'研究竞品', taskType:'army.intake' });
   const next = await service.continueFromRecommendation(intake.taskId);
   assert.equal(next.input.context.autoCapabilityAssessment, true);
@@ -2082,8 +2713,8 @@ test('局域网协作者称呼会写入任务，并在继续建议时保留', as
   const coordinator = { agentId:'ajun', name:'A君', status:'active', acceptedTaskTypes:['army.intake'] };
   const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
   const { service } = setup({ agents:[coordinator, operator] });
-  service.executors.ajun = { async execute(task) { return { status:'succeeded', currentStage:'intake_record_ready', artifactRefs:[{ taskId:task.taskId, type:'task_intake_record', data:{ recommendedTaskType:'operations.health-review', recommendedAgentId:'operator' } }] }; } };
-  service.executors.operator = { async execute() { return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[] }; } };
+  service.executors.ajun = { async execute(task) { return { status:'succeeded', currentStage:'intake_record_ready', artifactRefs:[verifiedIntakeRecord(task, { recommendedTaskType:'operations.health-review', recommendedAgentId:'operator' })] }; } };
+  service.executors.operator = { async execute(task) { return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[verifiedHealthReport(task)] }; } };
   const intake = await service.create({ title:'检查本机健康', taskType:'army.intake', requesterName:'志鹏' }); const next = await service.continueFromRecommendation(intake.taskId);
   assert.deepEqual(intake.requester, { kind:'lan-collaborator', ref:'志鹏' }); assert.deepEqual(next.requester, intake.requester);
 });
@@ -2327,6 +2958,15 @@ test('概览把 Hermes 原生飞书入口显示为已就绪', async () => {
   assert.match(feishu.detail, /Hermes 原生 Gateway/);
 });
 
+test('概览不会把飞书投递结果不确定显示成入口完全正常', async () => {
+  const { service } = setup();
+  service.setFeishuChannelStatus(() => ({ status:'delivery_uncertain', message:'有 1 条飞书完成跟进的投递结果不确定。' }));
+  const overview = await service.overview();
+  const feishu = overview.capabilities.find((item) => item.id === 'feishu-channel');
+  assert.equal(feishu.status, 'partial');
+  assert.match(feishu.detail, /投递结果不确定/);
+});
+
 test('概览优先显示独立飞书应用的实时连接状态，不把静态 Profile 当成入口真相', async () => {
   const operator = {
     agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'],
@@ -2387,12 +3027,45 @@ test('Hermes 接管的独立员工已有飞书终态任务时也标记为已验�
 
 test('飞书跟进在小D完成并确认文档权限后返回真实交付链接', async () => {
   const { service, records } = setup();
-  records.tasks.push({ taskId:'task-media', taskType:'media.transcribe-and-refine', status:'succeeded', source:{ chatRef:'chat-a' }, input:{ title:'整理公开视频' }, updatedAt:'2026-07-21T10:00:00.000Z', artifactRefs:[{ type:'xiaod_media_delivery', data:{ larkUrl:'https://example.feishu.cn/docx/example', larkPermissionGranted:true } }] });
+  records.tasks.push({ taskId:'task-media', taskType:'media.transcribe-and-refine', status:'succeeded', source:{ chatRef:'chat-a' }, input:{ title:'整理公开视频' }, updatedAt:'2026-07-21T10:00:00.000Z', artifactRefs:[{ type:'xiaod_media_delivery', validation:{ exists:true, readable:true, nonEmpty:true }, data:{ larkUrl:'https://example.feishu.cn/docx/example', larkPermissionGranted:true } }] });
   const result = await service.notificationStatus('task-media', 'chat-a');
   assert.equal(result.terminal, true);
   assert.equal(result.status, 'succeeded');
   assert.match(result.message, /交付文档/);
   assert.match(result.message, /example\.feishu\.cn/);
+});
+
+test('终态任务缺少专用可验证产物时返回待测试而不冒充成功', async () => {
+  const { service, records } = setup();
+  const cases = [
+    { taskId:'invalid-health', taskType:'operations.health-review', artifactRefs:[{ type:'health_report', data:{} }] },
+    { taskId:'invalid-web', taskType:'report.public-material', artifactRefs:[{ type:'public_web_report', data:{} }] },
+    { taskId:'invalid-github', taskType:'research.github-search', artifactRefs:[{ type:'employee_role_report', validation:{ exists:true, readable:true, nonEmpty:true }, data:{ summary:'泛化回报' } }] },
+    { taskId:'invalid-intel', taskType:'research.intel-report', artifactRefs:[{ type:'intel_research_report', data:{ conclusion:'缺少来源' } }] },
+    { taskId:'invalid-briefing', taskType:'office.briefing-package', artifactRefs:[{ type:'office_briefing_package', data:{ summary:'缺少正文' } }] },
+    { taskId:'invalid-presentation', taskType:'office.presentation-package', artifactRefs:[{ type:'office_presentation_source', location:'work/output.pptd', validation:{ structuralQaPassed:false } }] },
+    { taskId:'invalid-note', taskType:'office.knowledge-summary', artifactRefs:[{ type:'knowledge_summary_note', location:'work/note.md', validation:{ readable:false } }] },
+    { taskId:'invalid-analysis', taskType:'content.video-benchmark-analysis', input:{ analysisIntent:'deep', depth:'full' }, artifactRefs:[{ type:'video_content_analysis_report', validation:{ exists:true, readable:true, nonEmpty:true, modeStructurePassed:true, semanticValidationPassed:true, analysisIntent:'digest', reportVersion:'video-analysis/v2' }, data:{ analysisIntent:'digest', reportVersion:'video-analysis/v2', modules:[{ name:'泛化模块' }] } }] },
+    { taskId:'invalid-draft', taskType:'content.platform-draft', artifactRefs:[{ type:'platform_content_draft', data:{ drafts:[] } }] },
+    { taskId:'invalid-script', taskType:'content.video-script-package', artifactRefs:[{ type:'video_script_package', data:{} }] },
+    { taskId:'invalid-review', taskType:'content.performance-review', artifactRefs:[{ type:'content_performance_report', data:{} }] },
+    { taskId:'invalid-media', taskType:'media.transcribe-and-refine', artifactRefs:[{ type:'xiaod_media_delivery', data:{ larkUrl:'https://example.feishu.cn/docx/unverified', larkPermissionGranted:false } }] },
+    { taskId:'invalid-generic', taskType:'governance.approval-review', artifactRefs:[] },
+  ];
+  records.tasks.push(...cases.map((item, index) => ({
+    ...item,
+    status:'succeeded',
+    source:{ chatRef:'chat-a' },
+    input:{ title:item.taskId, ...(item.input || {}) },
+    updatedAt:`2026-08-07T10:${String(index).padStart(2, '0')}:00.000Z`,
+  })));
+
+  for (const item of cases) {
+    const result = await service.notificationStatus(item.taskId, 'chat-a');
+    assert.equal(result.terminal, true, item.taskId);
+    assert.equal(result.status, 'waiting_test', item.taskId);
+    assert.match(result.message, /不会|没有找到/, item.taskId);
+  }
 });
 
 test('后台按需员工运行中和完成时按真实岗位回话，不误报为小D', async () => {
@@ -2408,7 +3081,7 @@ test('后台按需员工运行中和完成时按真实岗位回话，不误报�
   assert.doesNotMatch(running.message, /小D/);
 
   records.tasks[0].status = 'succeeded';
-  records.tasks[0].artifactRefs = [{ type:'employee_role_report', data:{ summary:'边界符合本轮只读审核要求。' } }];
+  records.tasks[0].artifactRefs = [{ type:'employee_role_report', validation:{ exists:true, readable:true, nonEmpty:true }, data:{ summary:'边界符合本轮只读审核要求。' } }];
   const completed = await service.notificationStatus('task-review', 'chat-a');
   assert.match(completed.message, /审核官已完成/);
   assert.match(completed.message, /边界符合/);
@@ -2420,7 +3093,7 @@ test('飞书跟进会返回运维官的结构化健康报告，不误报成小D�
   records.tasks.push({
     taskId:'task-health', taskType:'operations.health-review', status:'succeeded',
     source:{ chatRef:'chat-a' }, input:{ title:'军团健康检查' }, updatedAt:'2026-07-26T02:29:51.710Z',
-    artifactRefs:[{ type:'health_report', data:{
+    artifactRefs:[{ type:'health_report', validation:{ exists:true, readable:true, nonEmpty:true }, data:{
       overall:'healthy',
       components:[{ id:'ajun-runtime', name:'A君运行台', status:'healthy', detail:'运行正常。' }],
       recommendedAction:'无需恢复动作。'
@@ -2436,7 +3109,7 @@ test('飞书跟进会返回运维官的结构化健康报告，不误报成小D�
 
 test('飞书跟进会按公开资料报告员的真实摘要回话，不冒充是小D完成', async () => {
   const { service, records } = setup();
-  records.tasks.push({ taskId:'task-web', taskType:'report.public-material', status:'succeeded', source:{ chatRef:'chat-a' }, input:{ title:'整理公开网页' }, updatedAt:'2026-07-22T10:00:00.000Z', artifactRefs:[{ type:'public_web_report', data:{ summary:'这是一份可读的公开网页摘要。' } }] });
+  records.tasks.push({ taskId:'task-web', taskType:'report.public-material', status:'succeeded', source:{ chatRef:'chat-a' }, input:{ title:'整理公开网页' }, updatedAt:'2026-07-22T10:00:00.000Z', artifactRefs:[{ type:'public_web_report', validation:{ exists:true, readable:true, nonEmpty:true }, data:{ summary:'这是一份可读的公开网页摘要。' } }] });
   const result = await service.notificationStatus('task-web', 'chat-a');
   assert.equal(result.terminal, true);
   assert.match(result.message, /公开资料报告员/);
@@ -2448,8 +3121,8 @@ test('飞书跟进会按公开资料报告员的真实摘要回话，不冒充�
 test('飞书跟进会把小R的 GitHub 和主题研究产物回到原会话', async () => {
   const { service, records } = setup();
   records.tasks.push(
-    { taskId:'github-result', taskType:'research.github-search', status:'succeeded', source:{ chatRef:'chat-a' }, input:{ title:'找开源项目' }, updatedAt:'2026-07-23T10:00:00.000Z', artifactRefs:[{ type:'research_github_report', data:{ query:'agent', results:[{ fullName:'openai/example', stars:100, language:'JavaScript', assessment:'近三个月仍有更新。', url:'https://github.com/openai/example' }] } }] },
-    { taskId:'intel-result', taskType:'research.intel-report', status:'succeeded', source:{ chatRef:'chat-a' }, input:{ title:'研究主题' }, updatedAt:'2026-07-23T10:01:00.000Z', artifactRefs:[{ type:'intel_research_report', data:{ topic:'Agent 运行时', background:'公开背景', findings:['公开发现'], conclusion:'公开结论', recommendations:['先验证'], openQuestions:['还需来源'], sources:[{ title:'资料', source:'https://example.com/a' }] } }] }
+    { taskId:'github-result', taskType:'research.github-search', status:'succeeded', source:{ chatRef:'chat-a' }, input:{ title:'找开源项目' }, updatedAt:'2026-07-23T10:00:00.000Z', artifactRefs:[{ type:'research_github_report', validation:{ exists:true, readable:true, nonEmpty:true }, data:{ query:'agent', results:[{ fullName:'openai/example', stars:100, language:'JavaScript', assessment:'近三个月仍有更新。', url:'https://github.com/openai/example' }] } }] },
+    { taskId:'intel-result', taskType:'research.intel-report', status:'succeeded', source:{ chatRef:'chat-a' }, input:{ title:'研究主题' }, updatedAt:'2026-07-23T10:01:00.000Z', artifactRefs:[{ type:'intel_research_report', validation:{ exists:true, readable:true, nonEmpty:true }, data:{ topic:'Agent 运行时', background:'公开背景', findings:['公开发现'], conclusion:'公开结论', recommendations:['先验证'], openQuestions:['还需来源'], sources:[{ title:'资料', source:'https://example.com/a' }] } }] }
   );
   const github = await service.notificationStatus('github-result', 'chat-a');
   assert.match(github.message, /小R/);
@@ -2546,6 +3219,40 @@ test('老板多人任务仍在推进时只回真实阶段，不提前宣布完�
   assert.equal(result.terminal, false);
   assert.match(result.message, /1\/3 项完成/);
   assert.match(result.message, /不需要你分别追问/);
+});
+
+test('老板多人任务状态虽成功但业务产物缺失或分工未完成时返回待测试', async () => {
+  const { service, records } = setup();
+  records.tasks.push(
+    {
+      taskId:'mission-missing-delivery', taskType:'army.cross-agent-mission', status:'succeeded',
+      source:{ chatRef:'chat-boss' }, input:{ title:'完成视频拆解' },
+      artifactRefs:[{ type:'cross_agent_mission_summary', validation:{ exists:true, readable:true, nonEmpty:true }, data:{
+        summary:'完成视频拆解', statuses:[
+          { title:'获取并完整听审', employeeId:'xiaod', status:'succeeded' },
+          { title:'正式拆解', employeeId:'video-content-analyst', taskId:'missing-analysis', status:'succeeded' }
+        ]
+      } }]
+    },
+    {
+      taskId:'mission-incomplete-child', taskType:'army.cross-agent-mission', status:'succeeded',
+      source:{ chatRef:'chat-boss' }, input:{ title:'完成多人任务' },
+      artifactRefs:[{ type:'cross_agent_mission_summary', validation:{ exists:true, readable:true, nonEmpty:true }, data:{
+        summary:'完成多人任务', statuses:[
+          { title:'研究公开资料', employeeId:'intel-researcher', status:'succeeded' },
+          { title:'整理汇报', employeeId:'office-assistant', status:'failed' }
+        ]
+      } }]
+    }
+  );
+
+  const missing = await service.notificationStatus('mission-missing-delivery', 'chat-boss');
+  assert.equal(missing.status, 'waiting_test');
+  assert.match(missing.message, /最终业务产物未通过读取确认/);
+
+  const incomplete = await service.notificationStatus('mission-incomplete-child', 'chat-boss');
+  assert.equal(incomplete.status, 'waiting_test');
+  assert.match(incomplete.message, /未完成部分已如实保留/);
 });
 
 test('内容总任务完成时直接交付小拆的真实 13 模块报告而不是只报 2/2', async () => {
@@ -2674,6 +3381,38 @@ test('飞书跟进不会在运维官接手前过早宣布任务失败', async ()
   const result = await service.notificationStatus('task-media', 'chat-a');
   assert.equal(result.terminal, false);
   assert.equal(result.status, 'recovery_pending');
+});
+
+test('飞书跟进会原样给出小D待交付的可操作指令并结束本轮监听', async () => {
+  const { service, records } = setup();
+  records.tasks.push({
+    taskId:'task-delivery-pending', taskType:'media.transcribe-and-refine', status:'needs_input', currentStage:'xiaod_awaiting_delivery',
+    source:{ chatRef:'chat-a' }, input:{ title:'整理公开视频' },
+    error:{ code:'xiaod_delivery_pending', userMessage:'本地确认稿已保留。请修复飞书配置后回复“继续飞书交付”。' },
+    updatedAt:'2026-08-08T10:00:00.000Z'
+  });
+  const result = await service.notificationStatus('task-delivery-pending', 'chat-a');
+  assert.deepEqual(result, {
+    terminal:true,
+    status:'needs_input',
+    taskId:'task-delivery-pending',
+    message:'本地确认稿已保留。请修复飞书配置后回复“继续飞书交付”。'
+  });
+});
+
+test('飞书跟进遇到交付结果不确定时只要求人工仲裁，不会诱导重试', async () => {
+  const { service, records } = setup();
+  records.tasks.push({
+    taskId:'task-delivery-uncertain', taskType:'media.transcribe-and-refine', status:'needs_input', currentStage:'xiaod_awaiting_delivery',
+    source:{ chatRef:'chat-a' }, input:{ title:'整理公开视频' },
+    error:{ code:'xiaod_delivery_uncertain', userMessage:'飞书交付结果不确定，请先在本机核对并仲裁；确认前不要重试。' },
+    updatedAt:'2026-08-08T10:00:00.000Z'
+  });
+  const result = await service.notificationStatus('task-delivery-uncertain', 'chat-a');
+  assert.equal(result.terminal, true);
+  assert.equal(result.status, 'needs_input');
+  assert.match(result.message, /本机核对并仲裁/);
+  assert.doesNotMatch(result.message, /继续飞书交付/);
 });
 
 test('安全重试已登记但子任务尚未读到时，飞书先回执运维官接手', async () => {
@@ -2894,7 +3633,7 @@ test('M5 Hermes 阶段必须把专用产物写回同一 Case 后才能完成 Iss
   });
   assert.equal(duplicate.duplicate, true);
   assert.equal(outputs.length, 1);
-  assert.equal(completions.length, 2);
+  assert.equal(completions.length, 1);
   assert.equal(workProductValidations, 2);
 });
 

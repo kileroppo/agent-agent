@@ -28,15 +28,19 @@ import { PaperclipPublisherControllerError } from './paperclip-publisher-control
 import { PaperclipPublisherRunContextError } from './paperclip-publisher-run-context.js';
 import { PaperclipRetrospectiveError } from './paperclip-retrospective.js';
 import { PublicWebFetchError } from './public-web-fetch.js';
+import { OfficialFeishuCompletionWatcherError } from './official-feishu-completion-watcher.js';
 import { presentCommanderReply } from './runtime-http-feishu.js';
 import { ValidationError } from './task-service.js';
 import { dispatchBoomSignal } from '@agent-army/boom-monitor';
+
+const MAX_JSON_BODY_BYTES = 1024 * 1024;
 
 export function createAjunHttpHandler({
   environment,
   publicDir,
   dataDir,
   detailBaseUrl,
+  development = {},
   network,
   paperclip,
   work,
@@ -87,6 +91,14 @@ export function createAjunHttpHandler({
 
   return async function ajunHttpHandler(request, response) {
     try {
+      if (request.method === 'GET' && request.url === '/api/dev/hot-reload') {
+        if (!development.hotReload?.enabled) return sendJson(response, 404, { error:'开发热更新未启用。' });
+        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'开发热更新只能在本机使用。' });
+        return sendJson(response, 200, {
+          enabled:true,
+          revision:development.hotReload.revision,
+        });
+      }
       if (request.method === 'POST' && request.url === '/api/paperclip/heartbeat') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'Paperclip heartbeat 只能由本机服务调用。' });
         return sendJson(response, 202, await paperclipHeartbeat.handle(await readJsonBody(request)));
@@ -262,6 +274,20 @@ export function createAjunHttpHandler({
         const input = await readJsonBody(request);
         return sendJson(response, 200, await tasks.notificationStatus(String(input.taskId || ''), String(input.chatRef || '')));
       }
+      if (request.method === 'POST' && request.url === '/api/mcp/completion-watches/resolve') {
+        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'飞书投递核对只能由本机执行。' });
+        const input = await readJsonBody(request);
+        const taskId = String(input.taskId || '').trim();
+        const chatRef = String(input.chatRef || '').trim();
+        const task = (await store.list()).find((item) => item.taskId === taskId);
+        if (!task) throw new ValidationError('找不到要核对的任务。');
+        if (task.source?.channel !== 'feishu' || String(task.source?.chatRef || '').trim() !== chatRef) throw new ValidationError('只能核对任务原飞书会话的投递。');
+        return sendJson(response, 200, await hermesNativeCompletionWatcher.resolveDelivery({
+          taskId,
+          chatId:chatRef,
+          outcome:String(input.outcome || '').trim()
+        }));
+      }
       if (request.method === 'POST' && request.url === '/api/mcp/completion-watches') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'Hermes 任务跟进只能由本机 MCP 登记。' });
         const input = await readJsonBody(request);
@@ -424,6 +450,7 @@ export function createAjunHttpHandler({
 
       if (request.method === 'GET' && (request.url === '/' || request.url === '/index.html' || /^\/tasks\/[0-9a-f-]{36}$/i.test(request.url || ''))) return sendFile(response, publicDir, 'index.html', 'text/html; charset=utf-8');
       if (request.method === 'GET' && request.url === '/app.js') return sendFile(response, publicDir, 'app.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && request.url === '/hot-reload-client.js') return sendFile(response, publicDir, 'hot-reload-client.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && request.url === '/console-navigation.js') return sendFile(response, publicDir, 'console-navigation.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && request.url === '/disclosure-state.js') return sendFile(response, publicDir, 'disclosure-state.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && request.url === '/styles.css') return sendFile(response, publicDir, 'styles.css', 'text/css; charset=utf-8');
@@ -435,9 +462,33 @@ export function createAjunHttpHandler({
 }
 
 async function readJsonBody(request) {
-  let raw = '';
-  for await (const chunk of request) raw += chunk;
-  return raw ? JSON.parse(raw) : {};
+  const chunks = [];
+  let size = 0;
+  let tooLarge = false;
+  for await (const chunk of request) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += bytes.length;
+    if (size > MAX_JSON_BODY_BYTES) {
+      tooLarge = true;
+      continue;
+    }
+    chunks.push(bytes);
+  }
+  if (tooLarge) throw new JsonBodyError(413, '请求体超过 1 MiB 限制。');
+  if (!chunks.length) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks, size).toString('utf8'));
+  } catch {
+    throw new JsonBodyError(400, '请求体不是有效 JSON。');
+  }
+}
+
+class JsonBodyError extends Error {
+  constructor(httpStatus, message) {
+    super(message);
+    this.name = 'JsonBodyError';
+    this.httpStatus = httpStatus;
+  }
 }
 
 async function sendFile(response, publicDir, name, type) {
@@ -462,6 +513,7 @@ function errorStatus(error) {
     || error instanceof PublicWebFetchError
     || error instanceof FeishuCommanderValidationError
     || error instanceof FeishuChannelBridgeError
+    || error instanceof OfficialFeishuCompletionWatcherError
     || error instanceof MacWorkerBridgeError
     || error instanceof EmployeeFeishuConnectionError
     || error instanceof HermesModelSetupError

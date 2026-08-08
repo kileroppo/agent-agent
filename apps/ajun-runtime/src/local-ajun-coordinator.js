@@ -177,6 +177,7 @@ function normalizeBusinessMissionItems(value) {
     sourceUrls:Array.isArray(item?.sourceUrls) ? item.sourceUrls.map((url) => String(url || '').trim()).filter(Boolean).slice(0, 5) : [],
     reviewPolicy:item?.reviewPolicy === 'required' ? 'required' : 'optional',
     evidenceMode:item?.evidenceMode === 'preliminary' ? 'preliminary' : 'formal',
+    analysisIntent:['digest', 'deep', 'template', 'style'].includes(item?.analysisIntent) ? item.analysisIntent : undefined,
     depth:item?.depth === 'full' ? 'full' : 'fast',
     visualMode:item?.visualMode === 'off' || item?.visualMode === 'required' ? item.visualMode : 'auto',
     focus:String(item?.focus || '').trim().slice(0, 500),

@@ -24,6 +24,7 @@ test('Feishu intake validates a media attachment and deduplicates by message and
   assert.equal(second.created, false);
   assert.equal(second.job.id, first.job.id);
   assert.equal(await fs.readFile(first.job.sourcePath, 'utf8'), 'small test media');
+  assert.equal((await fs.stat(first.job.sourcePath)).mode & 0o777, 0o600);
 });
 
 test('Feishu intake rejects non-media names before touching the file system', () => {
