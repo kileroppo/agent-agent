@@ -23,6 +23,7 @@ M2 当前总管路径见 [ADR-0007](../../docs/adr/0007-hermes-native-feishu-run
 
 ```bash
 node integrations/hermes/scripts/patch-hermes-chinese-busy-notice.mjs
+node integrations/hermes/scripts/patch-hermes-chinese-provider-errors.mjs
 node integrations/hermes/scripts/patch-feishu-agent-proposal-router.mjs
 node integrations/hermes/scripts/patch-hermes-display-setting-scope.mjs
 ```
