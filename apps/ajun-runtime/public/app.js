@@ -19,6 +19,7 @@ const overviewStats = document.querySelector('#overview-stats');
 const overviewSummary = document.querySelector('#overview-summary');
 const billingSummary = document.querySelector('#billing-summary');
 const billingStats = document.querySelector('#billing-stats');
+const billingCostHealth = document.querySelector('#billing-cost-health');
 const billingAttribution = document.querySelector('#billing-attribution');
 const billingProfileList = document.querySelector('#billing-profile-list');
 const billingEntryList = document.querySelector('#billing-entry-list');
@@ -38,6 +39,7 @@ const accessMessage = document.querySelector('#access-message');
 const shareInfo = document.querySelector('#share-info');
 const rotateShareKey = document.querySelector('#rotate-share-key');
 const shareMessage = document.querySelector('#share-message');
+const syncBadge = document.querySelector('.sync-badge');
 const syncStatus = document.querySelector('#sync-status');
 const syncIndicator = document.querySelector('#sync-indicator');
 const employeeConnections = document.querySelector('#employee-connections');
@@ -65,6 +67,7 @@ const campaignList = document.querySelector('#campaign-list');
 const campaignMessage = document.querySelector('#campaign-message');
 const moduleLinks = [...document.querySelectorAll('[data-module]')];
 const modulePages = [...document.querySelectorAll('[data-module-page]')];
+const contextLinks = [...document.querySelectorAll('[data-context-page]')];
 const ownerOnlyElements = [...document.querySelectorAll('[data-owner-only]')];
 const accessStepPanels = [...document.querySelectorAll('[data-access-step-panel]')];
 const accessStepIndicators = [...document.querySelectorAll('[data-access-step-indicator]')];
@@ -138,7 +141,7 @@ const directEmployeeTaskTypes = [
   'office.briefing-package',
   'office.presentation-package'
 ];
-const ownerOnlyModules = new Set(['connections', 'campaigns', 'billing', 'boom-monitor']);
+const ownerOnlyModules = new Set(['connections', 'campaigns', 'billing', 'boom-monitor', 'tools']);
 const billingViewLabels = { all:'全部', unattributed:'未归属', attributed:'已归属' };
 let boomMonitor;
 let recordWorkbench;
@@ -161,8 +164,9 @@ const state = {
 };
 
 const moduleNavigation = createConsoleNavigation({
-  selectedTaskId:state.selectedTaskId,
   getHash:() => location.hash,
+  getPathname:() => location.pathname,
+  replaceLocation:(value) => history.replaceState(null, '', value),
   activate:activateModule,
 });
 
@@ -180,8 +184,10 @@ async function api(url, options = {}) {
 }
 
 function setSyncStatus(message, state) {
-  syncStatus.textContent = message;
+  const quiet = state === 'synced';
+  syncStatus.textContent = quiet ? '已同步' : message;
   syncIndicator.className = `sync-indicator ${state}`;
+  syncBadge?.classList.toggle('is-quiet', quiet);
 }
 
 async function load({ background = false } = {}) {
@@ -217,14 +223,26 @@ async function load({ background = false } = {}) {
 
 function updateOwnerNavigation() {
   for (const element of ownerOnlyElements) element.hidden = !state.localOwner;
-  if (!state.localOwner && ownerOnlyModules.has(location.hash.slice(1))) activateModule('overview', { replaceHash: true });
+  if (!state.localOwner && ownerOnlyModules.has(location.hash.slice(1))) activateModule('overview', { navigationGroup:'overview', replaceHash:true });
 }
 
-function activateModule(name, { replaceHash = false } = {}) {
-  const requested = modulePages.some((page) => page.dataset.modulePage === name) ? name : 'overview';
+function activateModule(name, { navigationGroup = '', replaceHash = false } = {}) {
+  const virtualPage = name === 'system'
+    ? state.localOwner ? 'connections' : 'employees'
+    : name === 'tools' ? 'boom-monitor' : name;
+  const requested = modulePages.some((page) => page.dataset.modulePage === virtualPage) ? virtualPage : 'overview';
   const selected = ownerOnlyModules.has(requested) && !state.localOwner ? 'overview' : requested;
+  const selectedGroup = selected === 'overview'
+    ? 'overview'
+    : selected === 'records'
+      ? 'records'
+      : ['employees', 'connections', 'billing'].includes(selected)
+        ? 'system'
+        : ['campaigns', 'boom-monitor'].includes(selected)
+          ? 'tools'
+          : navigationGroup || 'overview';
   for (const link of moduleLinks) {
-    const active = link.dataset.module === selected;
+    const active = link.dataset.module === selectedGroup;
     link.classList.toggle('is-active', active);
     if (active) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
@@ -234,14 +252,20 @@ function activateModule(name, { replaceHash = false } = {}) {
     page.classList.toggle('is-active', active);
     page.setAttribute('aria-hidden', String(!active));
   }
+  for (const link of contextLinks) {
+    const active = link.dataset.contextPage === selected;
+    link.classList.toggle('is-active', active);
+    if (active) link.setAttribute('aria-current', 'page');
+    else link.removeAttribute('aria-current');
+  }
   document.title = `${moduleTitle(selected)} · A君运行台`;
   if (selected === 'boom-monitor') boomMonitor?.activate();
   recordWorkbench?.setActive(selected === 'records').catch((error) => setSyncStatus(error.message, 'error'));
-  if (replaceHash && location.hash !== `#${selected}`) history.replaceState(null, '', `#${selected}`);
+  if (replaceHash && location.hash !== '#now') history.replaceState(null, '', '#now');
 }
 
 function moduleTitle(name) {
-  return ({ overview: '总览', employees: '员工', connections: '账号与接入', campaigns:'发布活动', billing:'AI 成本账本', 'boom-monitor':'爆款雷达', records: '任务记录' })[name] || '总览';
+  return ({ overview:'现在', employees:'员工', connections:'账号与接入', campaigns:'发布活动', billing:'AI 成本账本', 'boom-monitor':'爆款雷达', records:'运行记录' })[name] || '现在';
 }
 
 
@@ -265,7 +289,7 @@ function render() {
 }
 
 function renderBilling() {
-  if (!billingSummary || !billingStats || !billingAttribution || !billingProfileList || !billingEntryList) return;
+  if (!billingSummary || !billingStats || !billingCostHealth || !billingAttribution || !billingProfileList || !billingEntryList) return;
   const billing = state.overview.billing;
   if (!billing || billing.status === 'unavailable') {
     billingSummary.textContent = 'Hermes 用量库暂时不可读；缺失数据不会显示成 0。';
@@ -274,6 +298,7 @@ function renderBilling() {
       statCard('模型请求', '未知', '暂时无法读取', 'clock'),
       statCard('Token', '未知', '暂时无法读取', 'records'),
     );
+    renderBillingCostHealth(null);
     billingAttribution.innerHTML = '<strong>账本暂不可用</strong><span>任务记录仍保留，但暂时无法核对全部模型消耗。</span>';
     billingProfileList.replaceChildren(billingEmpty('暂时无法读取岗位用量。'));
     billingEntryList.replaceChildren(billingEmpty('暂时没有可展示的消费流水。'));
@@ -298,6 +323,7 @@ function renderBilling() {
     statCard('模型请求', formatNumber(totals.apiCalls), `${formatNumber(totals.sessionCount)} 个会话`, 'clock'),
     statCard('Token', formatCompactNumber(tokens.total), `输入、输出与缓存合计 ${formatNumber(tokens.total)}`, 'records'),
   );
+  renderBillingCostHealth(billing.health);
   const attributed = Number(billing.attribution?.attributedEntryCount || 0);
   const unattributed = Number(billing.attribution?.unattributedEntryCount || 0);
   billingAttribution.classList.toggle('attention', unattributed > 0);
@@ -305,6 +331,23 @@ function renderBilling() {
   const profiles = Array.isArray(billing.profiles) ? billing.profiles : [];
   billingProfileList.replaceChildren(...(profiles.length ? profiles.map(billingProfileRow) : [billingEmpty('最近七天没有岗位模型用量。')]));
   renderBillingEntries(Array.isArray(billing.entries) ? billing.entries : []);
+}
+
+function renderBillingCostHealth(health) {
+  billingCostHealth.className = 'billing-cost-health';
+  const title = document.createElement('strong');
+  const detail = document.createElement('span');
+  if (!health) {
+    billingCostHealth.classList.add('unavailable');
+    title.textContent = '成本健康状态未知';
+    detail.textContent = '账本恢复后再判断缓存命中、调用量、推理占比和费用覆盖。';
+  } else {
+    const status = ['warning', 'attention', 'healthy'].includes(health.status) ? health.status : 'attention';
+    billingCostHealth.classList.add(status);
+    title.textContent = status === 'healthy' ? '成本健康正常' : status === 'warning' ? '成本需要处理' : '成本需要关注';
+    detail.textContent = health.operatorMessage || '成本健康数据不完整，暂不下结论。';
+  }
+  billingCostHealth.replaceChildren(title, detail);
 }
 
 function renderBillingEntries(entries) {
@@ -406,15 +449,16 @@ function renderOverviewStats() {
   const active = Number.isFinite(focus.inProgress) ? focus.inProgress : 0;
   const ownerActionable = Number.isFinite(focus.ownerActionable) ? focus.ownerActionable : (focus.next ? 1 : 0);
   const readyAgents = state.overview.agents.filter((agent) => ['active', 'ready', 'external', 'connected', 'verified'].includes(agent.status)).length;
+  const unavailableAgents = Math.max(0, state.overview.agents.length - readyAgents);
   overviewSummary.textContent = ownerActionable
     ? `${ownerActionable} 件事需要你决定。`
     : active
       ? `${active} 项工作正在推进，你暂时不用处理。`
       : '当前没有必须处理的事。';
   const cards = [
-    statCard('需要你', ownerActionable, ownerActionable ? '打开上方下一步处理' : '目前无需决定', 'target', ownerActionable > 0),
-    statCard('正在处理', active, active ? '系统会继续推进' : '没有执行中的工作', 'clock'),
-    statCard('可用员工', `${readyAgents}/${state.overview.agents.length}`, '正式岗位，不含系统控制器', 'employees')
+    statCard('待处理', ownerActionable, ownerActionable ? '打开上方事项处理' : '目前无需决定', 'target', ownerActionable > 0),
+    statCard('运行中', active, active ? '系统会继续推进' : '当前没有执行中的工作', 'clock'),
+    ...(unavailableAgents ? [statCard('接入异常', unavailableAgents, '前往系统页检查员工与连接', 'alert', true)] : []),
   ];
   overviewStats.replaceChildren(...cards);
 }
@@ -436,8 +480,9 @@ function renderRecentTasks(tasks) {
     return;
   }
   recentTaskList.append(...tasks.map((task) => {
-    const item = document.createElement('div');
+    const item = document.createElement('a');
     item.className = 'recent-task';
+    item.href = `/tasks/${encodeURIComponent(task.taskId)}`;
     const attention = taskStatusGroup(task.status) === 'attention';
     item.innerHTML = `<span class="recent-task-dot${attention ? ' attention' : ''}"></span><span class="recent-task-title">${escapeHtml(task.input.title)}</span><span class="recent-task-status">${escapeHtml(statusLabel(task.status))}</span>`;
     return item;

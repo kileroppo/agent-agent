@@ -7,7 +7,7 @@ test('可重试故障先交给运维官，并且只创建一次自动重试任�
   const tasks = {
     async create(input) {
       created.push(input);
-      if (input.taskType === 'operations.failure-recovery') return { taskId: 'operator-task', artifactRefs: [{ type: 'recovery_decision', data: { action: 'retry_once' } }] };
+      if (input.taskType === 'operations.failure-recovery') return { taskId: 'operator-task', artifactRefs: [{ type: 'recovery_decision', data: { action: 'retry_once', executionAuthorized:true } }] };
       return { taskId: 'retry-task', status: 'running' };
     }
   };
@@ -56,6 +56,43 @@ test('运维恢复任务或技术修复任务自身失败时不再递归创建�
   const technical = await coordinator.handle(failedTask({ taskType:'operations.technical-repair' }));
   assert.equal(recovery.status, 'ignored');
   assert.equal(technical.status, 'ignored');
+  assert.deepEqual(created, []);
+});
+
+test('只读诊断不进入本机恢复协调器', async () => {
+  const created = [];
+  const coordinator = new FailureRecoveryCoordinator({
+    tasks:{ async create(input) { created.push(input); return { taskId:'operator-task', artifactRefs:[] }; } },
+    store:{ async updateTask() {} },
+  });
+  const result = await coordinator.handle(failedTask(), {
+    actionKey:'request_read_only_diagnosis',
+    requestId:'recovery-request-0004',
+    requestedBy:{ kind:'local-owner', ref:'A君' },
+  });
+  assert.equal(result.status, 'ignored');
+  assert.deepEqual(created, []);
+});
+
+test('Paperclip Hermes 原任务不进入本机安全恢复', async () => {
+  const created = [];
+  const coordinator = new FailureRecoveryCoordinator({
+    tasks:{
+      async create(input) {
+        created.push(input);
+        if (input.taskType === 'operations.failure-recovery') {
+          return { taskId:'operator-task', artifactRefs:[{ type:'recovery_decision', data:{ action:'retry_once', executionAuthorized:true } }] };
+        }
+        return { taskId:'technical-task' };
+      },
+    },
+    store:{ async updateTask() {} },
+  });
+  const result = await coordinator.handle(failedTask({
+    execution:{ owner:'paperclip-hermes' },
+    governance:{ paperclipIssueId:'paperclip-issue-original' },
+  }), { actionKey:'request_safe_recovery' });
+  assert.equal(result.status, 'requires_external');
   assert.deepEqual(created, []);
 });
 

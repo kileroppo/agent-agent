@@ -61,3 +61,122 @@ test('视频分析结果展示当前模式和唯一的人工下一步', () => {
   assert.equal(presentation.technical.analysisIntent, 'template');
   assert.equal(presentation.technical.reportVersion, 'video-analysis/v2');
 });
+
+test('失败展示选择当前 Paperclip Run 的岗位回报并过滤旧套话', () => {
+  const recoveryView = {
+    actions:[
+      { actionId:'legacy-invalid', label:'没有 actionKey 的动作必须丢弃' },
+      { actionKey:'retry', label:'重新尝试', emphasis:'primary', confirmation:'确认依赖已恢复。', internal:'不能透传' },
+      { actionKey:'diagnose', label:'查看诊断', emphasis:'secondary', confirmation:'只读检查。' },
+      { actionKey:'dismiss', label:'暂不处理', emphasis:'secondary', confirmation:'保留现状。' },
+      { actionKey:'overflow', label:'不应进入契约', emphasis:'secondary', confirmation:'不应进入。' },
+    ],
+    verification:{ state:'pending', taskId:'verify-1', detailPath:'/tasks/verify-1', internal:'不能透传' },
+  };
+  const presentation = presentTask({
+    taskId:'failure-report-1',
+    status:'failed',
+    currentStage:'paperclip_hermes_failed',
+    input:{ title:'审查供应商结果' },
+    governance:{ completionSync:{ runId:'run-current' } },
+    execution:{ finishedAt:'2026-08-08T02:00:00.000Z' },
+    artifactRefs:[
+      { type:'employee_role_report', data:{ paperclipRunId:'run-old', summary:'旧运行失败。', remainingRisks:'旧风险。' } },
+      { type:'employee_role_report', data:{ paperclipRunId:'run-current', summary:'供应商额度不足，本轮没有形成结果。', evidence:'调用 https://provider.example/result?token=secret 在产物生成前停止，token=raw-secret。', remainingRisks:'额度恢复前原样重试仍会失败。' } },
+    ],
+    error:{
+      code:'paperclip_hermes_reported_failure',
+      userMessage:'员工已如实回报任务失败，请查看结果摘要和剩余风险。',
+      category:'manual',
+      stage:'paperclip_hermes',
+      retryable:false,
+      occurredAt:'2026-08-08T02:00:00.000Z',
+    },
+  }, { recoveryView });
+
+  assert.equal(presentation.attention.schemaVersion, 'agent.army/task-attention-presentation/v1');
+  assert.equal(presentation.attention.kind, 'failed');
+  assert.equal(presentation.attention.headline, '本轮未完成');
+  assert.equal(presentation.attention.cause, '供应商额度不足，本轮没有形成结果。');
+  assert.equal(Object.hasOwn(presentation.attention, 'summary'), false);
+  assert.match(presentation.attention.evidence, /\[链接已脱敏\]/);
+  assert.match(presentation.attention.evidence, /\[已脱敏\]/);
+  assert.doesNotMatch(presentation.attention.evidence, /provider\.example|raw-secret/);
+  assert.equal(presentation.attention.remainingRisks, '额度恢复前原样重试仍会失败。');
+  assert.equal(presentation.attention.nextAction, '当前不应原样重试；请根据失败原因补充信息或调整范围。');
+  assert.deepEqual(presentation.attention.actions, [
+    { actionKey:'retry', label:'重新尝试', emphasis:'primary', confirmation:'确认依赖已恢复。' },
+    { actionKey:'diagnose', label:'查看诊断', emphasis:'secondary', confirmation:'只读检查。' },
+    { actionKey:'dismiss', label:'暂不处理', emphasis:'secondary', confirmation:'保留现状。' },
+  ]);
+  assert.deepEqual(presentation.attention.verification, {
+    state:'pending',
+    taskId:'verify-1',
+    detailPath:'/tasks/verify-1',
+  });
+  assert.deepEqual(Object.keys(presentation.attention.technical).sort(), ['code', 'occurredAt', 'retryable', 'stage']);
+  assert.match(presentation.summary, /供应商额度不足/);
+  assert.doesNotMatch(presentation.nextAction, /员工已如实回报/);
+});
+
+test('当前 Run 没有匹配报告时倒序兼容最后一份有摘要的旧报告', () => {
+  const presentation = presentTask({
+    taskId:'legacy-run-fallback',
+    status:'failed',
+    input:{ title:'历史失败' },
+    governance:{ completionSync:{ runId:'run-current' } },
+    artifactRefs:[
+      { type:'employee_role_report', data:{ paperclipRunId:'run-old-1', summary:'较早原因。' } },
+      { type:'employee_role_report', data:{ paperclipRunId:'run-old-2' } },
+      { type:'employee_role_report', data:{ paperclipRunId:'run-old-3', summary:'最后一份可用原因。' } },
+    ],
+    error:{ code:'legacy_failure', retryable:false },
+  });
+
+  assert.equal(presentation.attention.cause, '最后一份可用原因。');
+});
+
+test('旧失败任务没有岗位报告时保留精确安全错误并输出空恢复视图', () => {
+  const presentation = presentTask({
+    taskId:'legacy-failure-1',
+    status:'failed',
+    currentStage:'execution_failed',
+    input:{ title:'旧任务' },
+    updatedAt:'2026-08-08T03:00:00.000Z',
+    error:{
+      code:'executor_failed',
+      userMessage:'本地任务未能完成，请检查输入文件。',
+      category:'manual',
+      stage:'execution',
+      retryable:true,
+    },
+  });
+
+  assert.equal(presentation.attention.cause, '本地任务未能完成，请检查输入文件。');
+  assert.equal(presentation.attention.evidence, null);
+  assert.equal(presentation.attention.remainingRisks, null);
+  assert.deepEqual(presentation.attention.actions, []);
+  assert.equal(presentation.attention.verification, null);
+  assert.equal(presentation.attention.technical.code, 'executor_failed');
+  assert.equal(presentation.attention.technical.retryable, true);
+});
+
+test('待处理状态统一映射为稳定 attention kind', () => {
+  for (const [status, kind] of [
+    ['needs_input', 'needs_input'],
+    ['waiting_test', 'waiting_test'],
+    ['pending_approval', 'waiting_approval'],
+    ['waiting_approval', 'waiting_approval'],
+    ['paused', 'paused'],
+  ]) {
+    const presentation = presentTask({
+      taskId:`attention-${status}`,
+      status,
+      input:{ title:'待处理任务' },
+      error:{ userMessage:'请查看并处理。' },
+    });
+    assert.equal(presentation.attention.kind, kind);
+    assert.ok(presentation.attention.cause);
+    assert.ok(presentation.attention.impact);
+  }
+});

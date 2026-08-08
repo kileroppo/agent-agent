@@ -242,10 +242,18 @@ export const taskServiceExecutionMethods = {
       }
     }
     const artifact = {
+      artifactId:`employee-role-report:${assignment.issueId}:${assignment.runId}`,
       taskId:task.taskId,
       type:'employee_role_report',
+      title:'员工岗位回报',
+      createdAt:completedAt,
       data:{
+        schemaVersion:'agent.army/employee-role-report/v1',
         agentId:assignment.agentId,
+        reportedStatus:requestedStatus,
+        attempt:Number.isInteger(task.recovery?.attempt)
+          ? task.recovery.attempt
+          : Number.isInteger(task.attempt) ? task.attempt : 1,
         summary,
         evidence:String(input.evidence || '').replace(/\s+/g, ' ').trim().slice(0, 4000),
         remainingRisks:String(input.remainingRisks || '').replace(/\s+/g, ' ').trim().slice(0, 2000),
@@ -294,15 +302,7 @@ export const taskServiceExecutionMethods = {
         completionSync:paperclipCompletionSync({ status:'pending', taskStatus:requestedStatus, issueId:assignment.issueId, runId:assignment.runId, now:completedAt }),
       },
       ...(requestedStatus === 'failed' ? {
-        error:{
-          code:'paperclip_hermes_reported_failure',
-          message:summary,
-          userMessage:'员工已如实回报任务失败，请查看结果摘要和剩余风险。',
-          category:'manual',
-          stage:'paperclip_hermes',
-          retryable:false,
-          occurredAt:completedAt
-        }
+        error:reportedFailureError(task.error, summary, completedAt)
       } : { error:undefined })
     });
     updated = await this.ensurePaperclipAssignmentCompletion({ task:updated, assignment, paperclipAgentId:input.paperclipAgentId, apiKey:input.paperclipApiKey });
@@ -355,8 +355,15 @@ export const taskServiceExecutionMethods = {
       artifactId:failureArtifactId,
       taskId:task.taskId,
       type:'employee_role_report',
+      title:'员工岗位失败回报',
+      createdAt:completedAt,
       data:{
+        schemaVersion:'agent.army/employee-role-report/v1',
         agentId:assignment.agentId,
+        reportedStatus:'failed',
+        attempt:Number.isInteger(task.recovery?.attempt)
+          ? task.recovery.attempt
+          : Number.isInteger(task.attempt) ? task.attempt : 1,
         summary,
         paperclipIssueId:assignment.issueId,
         paperclipRunId:assignment.runId,
@@ -627,3 +634,35 @@ export const taskServiceExecutionMethods = {
 
   ...taskRoleExecutionMethods,
 };
+
+function reportedFailureError(existing, summary, completedAt) {
+  const code = String(existing?.code || '').trim().slice(0, 120);
+  const message = String(existing?.message || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+  const userMessage = reportedFailureSummary(existing?.userMessage);
+  if (code && code !== 'paperclip_hermes_reported_failure' && (message || userMessage)) {
+    return {
+      code,
+      message:message || userMessage,
+      userMessage:userMessage || message,
+      category:String(existing?.category || 'manual').trim().slice(0, 80) || 'manual',
+      stage:String(existing?.stage || 'paperclip_hermes').trim().slice(0, 120) || 'paperclip_hermes',
+      retryable:existing?.retryable === true,
+      occurredAt:String(existing?.occurredAt || completedAt),
+    };
+  }
+  const safeSummary = reportedFailureSummary(summary);
+  return {
+    code:'paperclip_hermes_reported_failure',
+    message:safeSummary || null,
+    userMessage:safeSummary || null,
+    category:'manual',
+    stage:'paperclip_hermes',
+    retryable:false,
+    occurredAt:completedAt,
+  };
+}
+
+function reportedFailureSummary(value) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+  return text === '员工已如实回报任务失败，请查看结果摘要和剩余风险。' ? '' : text;
+}

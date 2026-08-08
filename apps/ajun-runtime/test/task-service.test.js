@@ -824,6 +824,8 @@ test('公开发布等组织级审批投影 Paperclip，不能由本机直接放�
   const task = await service.create({ title:'公开发布系统摘要', taskType:'operations.health-review' });
   assert.equal(task.status, 'waiting_approval'); assert.equal(records.approvals[0].governanceMode, 'paperclip'); assert.equal(projected, 1);
   await assert.rejects(() => service.approveApproval(records.approvals[0].approvalId), /Paperclip/);
+  await assert.rejects(() => service.rejectApproval(records.approvals[0].approvalId), /Paperclip/);
+  assert.equal(records.approvals[0].status, 'pending');
 });
 test('组织级飞书决定必须先回写 Paperclip，批准后才恢复原任务', async () => {
   const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
@@ -1218,16 +1220,20 @@ test('Paperclip Hermes heartbeat 会关联原 A君任务并幂等回写同一终
 });
 
 test('Paperclip 终态同步明确失败后可重放，failed 与 waiting_test 不会永久卡在两套真相', async (t) => {
-  for (const reportedStatus of ['failed', 'waiting_test']) {
-    await t.test(reportedStatus, async () => {
+  for (const { label, reportedStatus, preciseError } of [
+    { label:'failed-precise-error', reportedStatus:'failed', preciseError:true },
+    { label:'failed-report-summary', reportedStatus:'failed', preciseError:false },
+    { label:'waiting_test', reportedStatus:'waiting_test', preciseError:false },
+  ]) {
+    await t.test(label, async () => {
       const reviewer = {
         agentId:'reviewer', name:'审核官', status:'active',
         acceptedTaskTypes:['governance.approval-review'],
         interaction:{ runtime:'hermes-profile' }, executionOwner:'paperclip-hermes'
       };
       const identity = {
-        issue:{ id:`issue-${reportedStatus}`, identifier:`AGE-${reportedStatus}`, title:'审查任务', description:'只读审查。' },
-        run:{ id:`run-${reportedStatus}` },
+        issue:{ id:`issue-${label}`, identifier:`AGE-${label}`, title:'审查任务', description:'只读审查。' },
+        run:{ id:`run-${label}` },
         paperclipAgent:{ id:'paperclip-reviewer', name:'审核官' },
         agentArmyId:'reviewer'
       };
@@ -1245,15 +1251,55 @@ test('Paperclip 终态同步明确失败后可重放，failed 与 waiting_test �
       };
       const { service, records } = setup({ agents:[reviewer], governance });
       await service.create({ title:'审查任务', taskType:'governance.approval-review', agentId:'reviewer' });
+      if (preciseError) {
+        records.tasks[0].recovery = { attempt:3 };
+        records.tasks[0].error = {
+          code:'controlled_provider_vision_required',
+          message:'当前任务要求受控视觉 Provider，但该能力没有返回可验证结果。',
+          userMessage:'当前任务需要受控视觉能力；能力恢复前不会降级为无画面分析。',
+          category:'capability',
+          stage:'visual_analysis',
+          retryable:true,
+          occurredAt:'2026-08-08T01:00:00.000Z',
+        };
+      }
       const input = {
         issueId:identity.issue.id, runId:identity.run.id,
         paperclipAgentId:identity.paperclipAgent.id, agentArmyId:'reviewer',
-        status:reportedStatus, summary:'本轮未形成可采用结论。'
+        status:reportedStatus,
+        summary:'本轮未形成可采用结论。',
+        evidence:'没有产生可验证的审核结论。',
+        remainingRisks:'原样采用可能误判。',
       };
 
       await assert.rejects(service.completePaperclipAssignment(input), /definite connection failure/);
       assert.equal(records.tasks[0].status, reportedStatus);
       assert.equal(records.tasks[0].governance.completionSync.status, 'pending');
+      const report = records.tasks[0].artifactRefs.find((artifact) => artifact.type === 'employee_role_report');
+      assert.equal(report.artifactId, `employee-role-report:${identity.issue.id}:${identity.run.id}`);
+      assert.equal(report.title, '员工岗位回报');
+      assert.ok(Number.isFinite(Date.parse(report.createdAt)));
+      assert.equal(report.data.schemaVersion, 'agent.army/employee-role-report/v1');
+      assert.equal(report.data.reportedStatus, reportedStatus);
+      assert.equal(report.data.attempt, preciseError ? 3 : 1);
+      assert.equal(report.data.evidence, '没有产生可验证的审核结论。');
+      assert.equal(report.data.remainingRisks, '原样采用可能误判。');
+      if (preciseError) {
+        assert.deepEqual(records.tasks[0].error, {
+          code:'controlled_provider_vision_required',
+          message:'当前任务要求受控视觉 Provider，但该能力没有返回可验证结果。',
+          userMessage:'当前任务需要受控视觉能力；能力恢复前不会降级为无画面分析。',
+          category:'capability',
+          stage:'visual_analysis',
+          retryable:true,
+          occurredAt:'2026-08-08T01:00:00.000Z',
+        });
+      } else if (reportedStatus === 'failed') {
+        assert.equal(records.tasks[0].error.code, 'paperclip_hermes_reported_failure');
+        assert.equal(records.tasks[0].error.message, input.summary);
+        assert.equal(records.tasks[0].error.userMessage, input.summary);
+        assert.doesNotMatch(JSON.stringify(records.tasks[0].error), /员工已如实回报任务失败/);
+      }
 
       const replay = await service.completePaperclipAssignment(input);
       assert.equal(replay.duplicate, true);

@@ -1,3 +1,5 @@
+import { canRefreshConsole, startRefreshScheduler } from './refresh-scheduler.js';
+
 export function bindConsoleInteractions({
   elements,
   state,
@@ -320,19 +322,14 @@ campaignList?.addEventListener('click', async (event) => {
 
 window.addEventListener('hashchange', moduleNavigation.locationChanged);
 
-function canAutoSync() {
-  return !document.hidden
-    && accessGate.hidden
-    && !accessForm.contains(document.activeElement)
-    && !accessLoginForm.contains(document.activeElement);
-}
-
-setInterval(() => {
-  if (canAutoSync()) load({ background:true }).catch(() => {});
-}, 15000);
-
-document.addEventListener('visibilitychange', () => {
-  if (canAutoSync()) load({ background:true }).catch(() => {});
+startRefreshScheduler({
+  refresh:load,
+  canRefresh:() => canRefreshConsole({
+    page:document,
+    accessGate,
+    forms:[accessForm, accessLoginForm],
+  }),
+  intervalMs:15_000,
 });
 
 accessViews.setAccessStep(1);

@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 import { createRuntime } from '../src/runtime-composition-root.js';
 import { startRuntime, startRuntimeBackgroundServices } from '../src/runtime-start.js';
+import { startConsoleRuntimeFixture } from './fixtures/console-runtime-fixture.js';
 
 test('startRuntime 负责监听，并可在隔离冒烟中关闭后台副作用', async (context) => {
   const calls = [];
@@ -116,6 +117,16 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
   assert.match(interactions.headers.get('content-type'), /^text\/javascript/);
   assert.match(await interactions.text(), /export function bindConsoleInteractions/);
 
+  const refreshScheduler = await fetch(`${baseUrl}/refresh-scheduler.js`);
+  assert.equal(refreshScheduler.status, 200);
+  assert.match(refreshScheduler.headers.get('content-type'), /^text\/javascript/);
+  assert.match(await refreshScheduler.text(), /export function startRefreshScheduler/);
+
+  const taskRecordDetailView = await fetch(`${baseUrl}/task-record-detail-view.js`);
+  assert.equal(taskRecordDetailView.status, 200);
+  assert.match(taskRecordDetailView.headers.get('content-type'), /^text\/javascript/);
+  assert.match(await taskRecordDetailView.text(), /export function renderAttentionDetail/);
+
   const taskRecordFilter = await fetch(`${baseUrl}/task-record-filter.js`);
   assert.equal(taskRecordFilter.status, 200);
   assert.match(taskRecordFilter.headers.get('content-type'), /^text\/javascript/);
@@ -160,6 +171,47 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
   assert.equal(runtime.source.projectRoot, await fs.realpath(fileURLToPath(new URL('../../..', import.meta.url))));
   assert.equal(runtime.source.mode, 'legacy_runtime_git_root');
   assert.equal(logs.length, 1);
+});
+
+test('隔离 HTTP 夹具完整提供失败、待补充、待验证、待审批和成功记录', async (context) => {
+  const fixture = await startConsoleRuntimeFixture();
+  context.after(() => fixture.close());
+  const { baseUrl } = fixture;
+  const pageResponse = await fetch(`${baseUrl}/api/task-records?view=all&limit=24`);
+  assert.equal(pageResponse.status, 200);
+  const page = await pageResponse.json();
+  assert.equal(page.total, 5);
+  assert.deepEqual(
+    page.items.map((task) => task.status).sort(),
+    ['failed', 'needs_input', 'succeeded', 'waiting_approval', 'waiting_test'],
+  );
+
+  for (const summary of page.items) {
+    const detailResponse = await fetch(`${baseUrl}/api/tasks/${summary.taskId}`);
+    assert.equal(detailResponse.status, 200);
+    const { task } = await detailResponse.json();
+    assert.equal(task.status, summary.status);
+    assert.equal(task.recordSummary, undefined);
+  }
+
+  const failedSummary = page.items.find((task) => task.status === 'failed');
+  const failed = await (await fetch(`${baseUrl}/api/tasks/${failedSummary.taskId}`)).json();
+  const roleReport = failed.task.artifactRefs.find((artifact) => artifact.type === 'employee_role_report');
+  assert.equal(Object.hasOwn(roleReport, 'data'), false);
+  assert.match(failed.task.presentation.attention.cause, /Chrome 会话/);
+  assert.match(failed.task.presentation.attention.remainingRisks, /真实读取能力/);
+
+  const approvalSummary = page.items.find((task) => task.status === 'waiting_approval');
+  const approval = await (await fetch(`${baseUrl}/api/tasks/${approvalSummary.taskId}`)).json();
+  assert.equal(approval.task.pendingApproval.reason, '需要确认只读检查仅覆盖指定公开页面。');
+  assert.deepEqual(approval.task.pendingApproval.requestedScope, { mode:'read_only', targets:['公开页面'] });
+
+  const overviewResponse = await fetch(`${baseUrl}/api/console-overview`);
+  assert.equal(overviewResponse.status, 200);
+  const overview = await overviewResponse.json();
+  assert.equal(Object.hasOwn(overview, 'tasks'), false);
+  assert.equal(overview.taskFocus.ownerActionable, 4);
+  assert.equal(overview.taskFocus.next.status, 'waiting_approval');
 });
 
 test('后台服务沿用原启动顺序，cloud 模式不启动本机小D', () => {

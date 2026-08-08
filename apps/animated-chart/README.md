@@ -1,15 +1,7 @@
-# Remotion video
+# M5 Remotion 受控渲染工具
 
-<p align="center">
-  <a href="https://github.com/remotion-dev/logo">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://github.com/remotion-dev/logo/raw/main/animated-logo-banner-dark.apng">
-      <img alt="Animated Remotion Logo" src="https://github.com/remotion-dev/logo/raw/main/animated-logo-banner-light.gif">
-    </picture>
-  </a>
-</p>
-
-Welcome to your Remotion project!
+为 Agent军团 M5 内容工作区生成视频和静态卡的按需交付工具。它不是常驻业务 Agent，也不能直接
+接收任意 Composition、越界素材或发布动作。
 
 ## Commands
 

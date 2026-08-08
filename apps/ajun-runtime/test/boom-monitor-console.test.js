@@ -12,7 +12,8 @@ test('A君控制台内建爆款雷达入口并统一使用同源 API', async () 
     readFile(new URL('boom-monitor-console.js', publicRoot), 'utf8'),
   ]);
 
-  assert.match(html, /data-module="boom-monitor"/);
+  assert.match(html, /href="#boom-monitor" data-context-page="boom-monitor"/);
+  assert.doesNotMatch(html, /data-module="boom-monitor"/);
   assert.match(html, /data-module-page="boom-monitor"/);
   assert.match(html, /爆款雷达/);
   assert.match(app, /createBoomMonitorConsole/);

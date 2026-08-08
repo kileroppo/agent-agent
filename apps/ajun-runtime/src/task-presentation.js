@@ -1,3 +1,5 @@
+import { presentTaskAttention } from './task-attention-presentation.js';
+
 const STATUS_PRESENTATION = {
   queued:{ label:'等待开始', tone:'active', summary:'任务已登记，正在等待开始。', nextAction:'无需重复提交；开始处理后会更新进度。' },
   running:{ label:'处理中', tone:'active', summary:'任务正在处理中。', nextAction:'等待新的进度或结果即可。' },
@@ -16,7 +18,7 @@ const STATUS_PRESENTATION = {
   rejected:{ label:'已拒绝', tone:'muted', summary:'任务请求已被拒绝，未继续执行。', nextAction:'如需继续，请调整范围后重新发起。' }
 };
 
-export function presentTask(task = {}, { approvals = [], detailBaseUrl = '' } = {}) {
+export function presentTask(task = {}, { approvals = [], detailBaseUrl = '', recoveryView = null } = {}) {
   const taskId = String(task.taskId || '').trim();
   const title = cleanText(task.input?.title || task.title, 160) || '未命名任务';
   const status = String(task.status || 'unknown').trim() || 'unknown';
@@ -24,7 +26,7 @@ export function presentTask(task = {}, { approvals = [], detailBaseUrl = '' } = 
     approval?.status === 'pending' && (task.approvalRefs || []).includes(approval.approvalId)
   );
   const base = pendingApproval ? STATUS_PRESENTATION.waiting_approval : STATUS_PRESENTATION[status];
-  const errorMessage = cleanText(task.error?.userMessage, 500);
+  const attention = presentTaskAttention(task, { pendingApproval, recoveryView });
   const analysisReport = (task.artifactRefs || []).find((artifact) =>
     artifact?.type === 'video_content_analysis_report'
   )?.data;
@@ -33,12 +35,15 @@ export function presentTask(task = {}, { approvals = [], detailBaseUrl = '' } = 
   const analysisSummary = analysisReport && analysisIntent
     ? `${title}：${analysisIntentLabel(analysisIntent)}报告已完成。`
     : null;
-  const summary = analysisSummary || (base?.summary
-    ? `${title}：${base.summary}`
-    : `${title}：状态已更新。`);
-  const nextAction = errorMessage && ['failed', 'needs_input', 'waiting_test'].includes(status)
-    ? errorMessage
-    : analysisNextAction || base?.nextAction || '等待新的进度；无需重复提交。';
+  const summary = attention?.cause
+    ? `${title}：${attention.cause}`
+    : analysisSummary || (base?.summary
+      ? `${title}：${base.summary}`
+      : `${title}：状态已更新。`);
+  const nextAction = attention?.nextAction
+    || analysisNextAction
+    || base?.nextAction
+    || '等待新的进度；无需重复提交。';
   const detailPath = taskId ? `/tasks/${encodeURIComponent(taskId)}` : null;
   return {
     taskRef:shortTaskRef(taskId),
@@ -48,6 +53,7 @@ export function presentTask(task = {}, { approvals = [], detailBaseUrl = '' } = 
     nextAction,
     detailPath,
     detailUrl:detailPath ? taskDetailUrl(detailBaseUrl, detailPath) : null,
+    attention,
     technical:{
       taskId:taskId || null,
       status,

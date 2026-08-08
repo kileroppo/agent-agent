@@ -4,9 +4,21 @@ import test from 'node:test';
 
 import {
   createAjunHttpHandler,
+  createOwnerActionSession,
   isBoomLegacyIntegrationAuthorized,
   isBoomLegacyIntegrationPath,
 } from '../src/runtime-http-handler.js';
+
+test('本机动作 nonce 只在进程内短期有效', () => {
+  let now = Date.parse('2026-08-08T08:00:00.000Z');
+  const session = createOwnerActionSession({ clock:() => now, ttlMs:2_000 });
+  const issued = session.issue();
+  assert.equal(session.authorize(issued.nonce), true);
+  assert.equal(session.authorize(`${issued.nonce}x`), false);
+  now += 2_001;
+  assert.equal(session.authorize(issued.nonce), false);
+  assert.notEqual(session.issue().nonce, issued.nonce);
+});
 
 test('旧版爆款雷达容器只能用回滚凭据访问兼容入口', () => {
   const expectedToken = 'rollback-token-with-enough-entropy';
@@ -202,6 +214,80 @@ test('native writer 启用时旧版爆款雷达回滚桥失败关闭', async (co
   const fixture = await startHandler(context, {}, { boomMonitorEnabled:true });
   const response = await fetch(`${fixture.baseUrl}/api/integrations/boom-monitor/health`);
   assert.equal(response.status, 503);
+});
+
+test('恢复 POST 要求本机同源 JSON、短期 nonce 和 header 幂等键', async (context) => {
+  const calls = [];
+  const fixture = await startHandler(context, {}, {
+    tasks:{
+      async requestRecovery(taskId, input, actor) {
+        calls.push({ taskId, input, actor });
+        return { status:'accepted', taskId, actionKey:input.actionKey };
+      },
+    },
+  });
+  const taskId = '11111111-1111-4111-a111-111111111111';
+  const url = `${fixture.baseUrl}/api/tasks/${taskId}/recovery-actions/request_safe_recovery`;
+  const sessionResponse = await fetch(`${fixture.baseUrl}/api/owner-action-session`);
+  assert.equal(sessionResponse.status, 200);
+  const session = await sessionResponse.json();
+  assert.equal(typeof session.nonce, 'string');
+  assert.equal(Number.isFinite(Date.parse(session.expiresAt)), true);
+
+  const missingJson = await fetch(url, { method:'POST', body:'{}' });
+  assert.equal(missingJson.status, 415);
+  const crossOrigin = await fetch(url, {
+    method:'POST',
+    headers:{ 'content-type':'application/json', origin:'https://evil.example', 'x-ajun-owner-action':session.nonce, 'idempotency-key':'recovery-request-http-1' },
+    body:JSON.stringify({ expectedUpdatedAt:'2026-08-08T08:00:00.000Z' }),
+  });
+  assert.equal(crossOrigin.status, 403);
+  const missingNonce = await fetch(url, {
+    method:'POST',
+    headers:{ 'content-type':'application/json', origin:fixture.baseUrl, 'idempotency-key':'recovery-request-http-1' },
+    body:JSON.stringify({ expectedUpdatedAt:'2026-08-08T08:00:00.000Z' }),
+  });
+  assert.equal(missingNonce.status, 403);
+  const accepted = await fetch(url, {
+    method:'POST',
+    headers:{
+      'content-type':'application/json',
+      origin:fixture.baseUrl,
+      'x-ajun-owner-action':session.nonce,
+      'idempotency-key':'recovery-request-http-1',
+    },
+    body:JSON.stringify({ expectedUpdatedAt:'2026-08-08T08:00:00.000Z', requestId:'body-must-not-win' }),
+  });
+  assert.equal(accepted.status, 202);
+  assert.deepEqual(await accepted.json(), { status:'accepted', taskId, actionKey:'request_safe_recovery' });
+  assert.deepEqual(calls, [{
+    taskId,
+    input:{ actionKey:'request_safe_recovery', expectedUpdatedAt:'2026-08-08T08:00:00.000Z', requestId:'recovery-request-http-1' },
+    actor:{ kind:'local-owner', ref:'A君' },
+  }]);
+});
+
+test('恢复业务非合资格响应保持可分支状态，静态刷新模块可访问', async (context) => {
+  const fixture = await startHandler(context, {}, {
+    tasks:{ async requestRecovery(taskId, input) { return { status:'requires_external', taskId, actionKey:input.actionKey }; } },
+  });
+  const session = await (await fetch(`${fixture.baseUrl}/api/owner-action-session`)).json();
+  const taskId = '11111111-1111-4111-a111-111111111111';
+  const response = await fetch(`${fixture.baseUrl}/api/tasks/${taskId}/recovery-actions/request_safe_recovery`, {
+    method:'POST',
+    headers:{
+      'content-type':'application/json',
+      origin:fixture.baseUrl,
+      'x-ajun-owner-action':session.nonce,
+      'idempotency-key':'recovery-request-http-2',
+    },
+    body:JSON.stringify({ expectedUpdatedAt:'2026-08-08T08:00:00.000Z' }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).status, 'requires_external');
+  const staticModule = await fetch(`${fixture.baseUrl}/refresh-scheduler.js`);
+  assert.equal(staticModule.status, 200);
+  assert.match(staticModule.headers.get('content-type'), /text\/javascript/);
 });
 
 async function startHandler(context, paperclipOverrides = {}, workOverrides = {}, feishuOverrides = {}) {

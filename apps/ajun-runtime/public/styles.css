@@ -212,6 +212,13 @@ h3 {
   background: rgba(255, 255, 255, .72);
   color: var(--muted);
   font: 11px/1 var(--mono);
+  transition: border-color .2s ease, background .2s ease, color .2s ease;
+}
+
+.sync-badge.is-quiet {
+  border-color: transparent;
+  background: transparent;
+  color: color-mix(in srgb, var(--muted) 72%, transparent);
 }
 
 .sync-indicator {
@@ -408,6 +415,45 @@ h3 {
   margin-bottom: 24px;
 }
 
+.module-heading-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.context-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+}
+
+.context-nav a {
+  min-height: 32px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.context-nav a:hover {
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+}
+
+.context-nav a.is-active {
+  background: var(--mint-soft);
+  color: var(--mint-deep);
+}
+
 .module-summary {
   max-width: 720px;
   margin: 12px 0 0;
@@ -529,7 +575,7 @@ h3 {
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
   margin-bottom: 22px;
 }
@@ -987,6 +1033,11 @@ h3 {
   gap: 10px;
   color: var(--ink-soft);
   font-size: 12px;
+  text-decoration: none;
+}
+
+.recent-task:hover .recent-task-title {
+  color: var(--mint-deep);
 }
 
 .recent-task-dot {
@@ -1764,6 +1815,7 @@ button:disabled {
 
 /* Tasks */
 
+.billing-cost-health,
 .billing-attribution {
   display: flex;
   align-items: center;
@@ -1777,17 +1829,26 @@ button:disabled {
   color: var(--mint-deep);
 }
 
+.billing-cost-health {
+  margin-bottom: 12px;
+}
+
+.billing-cost-health.warning,
+.billing-cost-health.attention,
+.billing-cost-health.unavailable,
 .billing-attribution.attention {
   border-color: var(--amber-line);
   background: var(--amber-soft);
   color: var(--amber);
 }
 
+.billing-cost-health strong,
 .billing-attribution strong {
   flex: none;
   font-size: 12px;
 }
 
+.billing-cost-health span,
 .billing-attribution span {
   color: var(--ink-soft);
   font-size: 11px;
@@ -3058,6 +3119,17 @@ textarea:focus {
   white-space: nowrap;
 }
 
+.record-row-reason {
+  display: -webkit-box;
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 11px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .record-row-meta {
   display: flex;
   min-width: 0;
@@ -3233,6 +3305,133 @@ textarea:focus {
   line-height: 1.55;
 }
 
+.record-attention {
+  margin: 20px 0 4px;
+  overflow: hidden;
+  border: 1px solid var(--amber-line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--amber-soft) 46%, var(--surface));
+}
+
+.record-attention-head {
+  padding: 17px 18px;
+  border-bottom: 1px solid var(--amber-line);
+}
+
+.record-attention-head span {
+  color: var(--amber);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: .06em;
+}
+
+.record-attention-head h3 {
+  margin: 5px 0 0;
+  font-size: 18px;
+}
+
+.record-attention-step {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 10px;
+  padding: 15px 18px;
+  border-bottom: 1px solid color-mix(in srgb, var(--amber-line) 72%, transparent);
+}
+
+.record-attention-step:last-child {
+  border-bottom: 0;
+}
+
+.record-attention-number {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--amber);
+  font: 700 10px/1 var(--mono);
+}
+
+.record-attention-step h3 {
+  margin: 2px 0 6px;
+  font-size: 12px;
+}
+
+.record-attention-step p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.record-attention-step.is-muted p {
+  color: var(--muted);
+}
+
+.record-attention-step.is-action {
+  background: var(--surface);
+}
+
+.record-attention-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.record-attention-actions button {
+  min-height: 38px;
+}
+
+.record-attention-primary {
+  background: var(--ink);
+  color: #fff;
+}
+
+.record-attention-evidence {
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.record-attention-evidence summary {
+  cursor: pointer;
+}
+
+.record-attention-evidence p {
+  margin-top: 7px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 11px;
+}
+
+.record-recovery-status.is-running,
+.record-recovery-status.is-pending {
+  background: var(--blue-soft);
+}
+
+.record-recovery-status.is-success {
+  background: var(--mint-soft);
+}
+
+.record-recovery-status.is-failed {
+  background: var(--rose-soft);
+}
+
+.record-recovery-link {
+  display: inline-flex;
+  margin-top: 8px;
+  color: var(--mint-deep);
+  font-size: 11px;
+  font-weight: 720;
+  text-decoration: none;
+}
+
+.record-recovery-link:hover {
+  text-decoration: underline;
+}
+
 .record-detail-section {
   padding: 17px 0;
   border-bottom: 1px solid var(--line);
@@ -3398,6 +3597,21 @@ textarea:focus {
     margin-bottom: 22px;
   }
 
+  .module-heading:has(.context-nav),
+  .module-heading-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .module-heading-actions,
+  .context-nav {
+    width: 100%;
+  }
+
+  .context-nav {
+    overflow-x: auto;
+  }
+
   .heading-icon {
     width: 60px;
     height: 60px;
@@ -3549,7 +3763,7 @@ textarea:focus {
   }
 
   .stat-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
     gap: 7px;
   }
 
@@ -3638,6 +3852,7 @@ textarea:focus {
     align-items: flex-start;
   }
 
+  .billing-cost-health,
   .billing-attribution,
   .billing-profile-row,
   .billing-entry-row {
@@ -3711,6 +3926,15 @@ textarea:focus {
 
   .record-detail {
     padding: 18px 17px 148px;
+  }
+
+  .record-attention-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .record-attention-actions button {
+    width: 100%;
   }
 
   .filter-button {

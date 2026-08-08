@@ -37,6 +37,7 @@ import { dispatchBoomSignal } from '@agent-army/boom-monitor';
 import { routeBoomMonitorApi } from './boom-monitor/index.js';
 
 const MAX_JSON_BODY_BYTES = 1024 * 1024;
+const OWNER_ACTION_NONCE_TTL_MS = 10 * 60 * 1000;
 
 export function createAjunHttpHandler({
   environment,
@@ -93,6 +94,7 @@ export function createAjunHttpHandler({
     resolveFeishuApproval,
   } = feishu;
   const { campaigns } = m5;
+  const ownerActionSession = createOwnerActionSession();
 
   return async function ajunHttpHandler(request, response) {
     try {
@@ -177,6 +179,29 @@ export function createAjunHttpHandler({
         lanAccess.key = await rotateLanShareKey(path.join(dataDir, 'lan-share-key'), lanEnabled);
         return sendJson(response, 200, { enabled:lanEnabled, addresses:lanEnabled ? lanAddresses() : [], accessKey:lanAccess.key });
       }
+      if (request.method === 'GET' && request.url === '/api/owner-action-session') {
+        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'本机动作会话只能由老板在这台设备上获取。' });
+        return sendJson(response, 200, ownerActionSession.issue());
+      }
+      const recoveryRequestMatch = request.url?.match(/^\/api\/tasks\/([0-9a-f-]+)\/recovery-actions\/(use_confirmed_transcript_only|request_safe_recovery|request_read_only_diagnosis)$/i);
+      if (request.method === 'POST' && recoveryRequestMatch) {
+        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'任务恢复只能由老板在本机发起。' });
+        if (!String(request.headers['content-type'] || '').toLowerCase().startsWith('application/json')) {
+          return sendJson(response, 415, { error:'任务恢复请求必须使用 application/json。' });
+        }
+        if (!hasSameOrigin(request)) return sendJson(response, 403, { error:'任务恢复请求必须来自当前 A君 控制台。' });
+        if (!ownerActionSession.authorize(request.headers['x-ajun-owner-action'])) {
+          return sendJson(response, 403, { error:'本机动作会话无效或已过期，请刷新任务详情后重试。' });
+        }
+        const input = await readJsonBody(request);
+        const requestId = String(request.headers['idempotency-key'] || '').trim();
+        const result = await tasks.requestRecovery(recoveryRequestMatch[1], {
+          actionKey:recoveryRequestMatch[2],
+          expectedUpdatedAt:input.expectedUpdatedAt,
+          requestId,
+        }, { kind:'local-owner', ref:'A君' });
+        return sendJson(response, result.status === 'accepted' ? 202 : 200, result);
+      }
       if (request.url?.startsWith('/api/')
         && !isBoomLegacyIntegrationPath(request.url)
         && !canAccessApi(request, lanAccess)) return sendJson(response, 401, { error:'请输入局域网共享口令。' });
@@ -195,7 +220,8 @@ export function createAjunHttpHandler({
         ? new URL(request.url, 'http://127.0.0.1')
         : null;
       if (taskRecordUrl?.pathname === '/api/task-records') {
-        return sendJson(response, 200, await tasks.listTaskRecords(Object.fromEntries(taskRecordUrl.searchParams.entries())));
+        const audience = isLocalAddress(request.socket.remoteAddress) ? 'local-owner' : 'lan';
+        return sendJson(response, 200, await tasks.listTaskRecords(Object.fromEntries(taskRecordUrl.searchParams.entries()), { audience }));
       }
       if (request.method === 'GET' && request.url === '/api/local-ai/control') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'AI 能力控制只能由老板在本机查看。' });
@@ -216,7 +242,8 @@ export function createAjunHttpHandler({
       }
       const taskDetailMatch = request.url?.match(/^\/api\/tasks\/([0-9a-f-]{36})$/i);
       if (request.method === 'GET' && taskDetailMatch) {
-        const task = await tasks.taskRecordDetail(taskDetailMatch[1]);
+        const audience = isLocalAddress(request.socket.remoteAddress) ? 'local-owner' : 'lan';
+        const task = await tasks.taskRecordDetail(taskDetailMatch[1], { audience });
         if (!task) return sendJson(response, 404, { error:'没有找到这条任务。' });
         return sendJson(response, 200, { task });
       }
@@ -494,11 +521,13 @@ export function createAjunHttpHandler({
       if (request.method === 'GET' && publicPath === '/hot-reload-client.js') return sendFile(response, publicDir, 'hot-reload-client.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && publicPath === '/app-access-views.js') return sendFile(response, publicDir, 'app-access-views.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && publicPath === '/app-interactions.js') return sendFile(response, publicDir, 'app-interactions.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/refresh-scheduler.js') return sendFile(response, publicDir, 'refresh-scheduler.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && publicPath === '/boom-monitor-console.js') return sendFile(response, publicDir, 'boom-monitor-console.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && publicPath === '/billing-entry-filter.js') return sendFile(response, publicDir, 'billing-entry-filter.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && publicPath === '/console-navigation.js') return sendFile(response, publicDir, 'console-navigation.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && publicPath === '/disclosure-state.js') return sendFile(response, publicDir, 'disclosure-state.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && publicPath === '/task-record-filter.js') return sendFile(response, publicDir, 'task-record-filter.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/task-record-detail-view.js') return sendFile(response, publicDir, 'task-record-detail-view.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && publicPath === '/task-record-workbench.js') return sendFile(response, publicDir, 'task-record-workbench.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && publicPath === '/styles.css') return sendFile(response, publicDir, 'styles.css', 'text/css; charset=utf-8');
       return sendJson(response, 404, { error:'未找到该入口。' });
@@ -506,6 +535,34 @@ export function createAjunHttpHandler({
       return sendJson(response, errorStatus(error), { error:error.message || '运行台暂时不可用。' });
     }
   };
+}
+
+export function createOwnerActionSession({ clock = () => Date.now(), ttlMs = OWNER_ACTION_NONCE_TTL_MS } = {}) {
+  let nonce = '';
+  let expiresAtMs = 0;
+  function issue() {
+    const now = Number(clock());
+    if (!nonce || now >= expiresAtMs) {
+      nonce = crypto.randomBytes(24).toString('base64url');
+      expiresAtMs = now + Math.max(1_000, Number(ttlMs) || OWNER_ACTION_NONCE_TTL_MS);
+    }
+    return { nonce, expiresAt:new Date(expiresAtMs).toISOString() };
+  }
+  function authorize(value) {
+    const supplied = String(value || '');
+    const now = Number(clock());
+    if (!nonce || now >= expiresAtMs || supplied.length !== nonce.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(nonce));
+  }
+  return Object.freeze({ issue, authorize });
+}
+
+function hasSameOrigin(request) {
+  const origin = String(request.headers.origin || '').trim();
+  const host = String(request.headers.host || '').trim();
+  if (!origin || !host) return false;
+  const scheme = request.socket.encrypted ? 'https' : 'http';
+  return origin === `${scheme}://${host}`;
 }
 
 async function readJsonBody(request) {

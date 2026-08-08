@@ -2,15 +2,15 @@
 | 字段 | 内容 |
 | --- | --- |
 | 状态 | 生效 |
-| 版本 | v1.0 |
-| 最后更新 | 2026-07-18 |
+| 版本 | v1.1 |
+| 最后更新 | 2026-08-08 |
 | 更新触发 | 目录职责、语言工具链或代码边界变化 |
 
 ## 1. 根目录职责
 
 ```text
 agent-agent/
-├── apps/           可独立运行、部署和验收的业务 Agent
+├── apps/           正式产品、业务 Agent、按需工具和显式保留的回滚资产
 ├── agents/         岗位 Manifest、职责、权限和质量标准
 ├── integrations/   飞书、Paperclip、Hermes 等平台适配器
 ├── packages/       至少被两个真实消费者复用的公共模块
@@ -18,14 +18,19 @@ agent-agent/
 ├── tasks/          总 PRD、里程碑 PRD 和实施状态
 ├── docs/           产品、设计、架构、契约、规范和验收记录
 ├── designs/        可运行的 UI 原型与设计资产
+├── repository-catalog.json  Workspace、应用和生命周期机器真相
 └── README.md       当前阶段与统一导航入口
 ```
 
 不在根目录堆放单个应用源码、临时脚本、模型输出或运行产物。
 
+所有根 Workspace 和 `apps/*` 目录必须登记到 `repository-catalog.json`，并由
+`npm run check:architecture` 验证路径、包名、入口、用途描述、README 和生命周期。清单损坏、漏登
+Workspace、出现未分类应用或把回滚资产重新放入 Workspace 都必须失败。
+
 ## 2. 应用目录
 
-每个 `apps/<app>/` 至少包含：
+每个活动 Workspace 至少包含 `README.md` 和准确的 `package.json#description`。可部署应用还应包含：
 
 - `README.md`：目的、入口、配置、运行、测试、依赖与已知限制；
 - `.env.example`：仅列变量名和安全示例；
@@ -35,6 +40,10 @@ agent-agent/
 - 明确的运行产物目录，并在 README 说明是否应提交。
 
 应用必须能够独立启动和验收。岗位定义放在 `agents/`，不能只藏在应用 Prompt 中。
+
+历史实现只有在仍承担已验证迁移或回滚协议时才可暂留 `apps/`；必须标为 `legacy-rollback`、退出
+Workspace、指向正式 replacement，并通过 `ops/` 的唯一受控入口操作。含本机数据库或日志时不得为
+追求目录观感直接搬迁；完成数据保留期和恢复演练后再归档到仓库外。
 
 ## 3. 分层依赖规则
 

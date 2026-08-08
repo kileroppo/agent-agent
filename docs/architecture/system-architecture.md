@@ -60,6 +60,20 @@ HTTP 控制台和进程内小D/军团任务回调，不再保留 Docker/Caddy/�
 它只保存指标、冻结评分基线和派发引用，不成为组织级任务真相。共享包不得反向依赖 `apps/`
 或 `integrations/`。
 
+产品装配根只组合四类深层运行 Module：活动生命周期、岗位执行、飞书指挥和 Paperclip 系统控制。
+具体研究、办公、内容、修复、飞书 Channel、Publisher 与 Controller Adapter 留在所属 Module 的
+Implementation 内，不再由 `runtime-composition-root.js` 逐项构造。结构门禁限制该根入口不超过
+300 行和 35 个直接 import；各装配 Module 的 Interface 与真实消费者测试共同构成回归 Seam。
+
+任务核心继续通过稳定 `TaskService` Interface 对外，但任务受理、执行协调、审批控制、运行总览和
+通知分别由深层 Module 隐藏 Implementation。`TaskOverview` 集中控制台展示、能力健康、用量和账单
+解释；`task-approval-coordinator` 是批准、拒绝、Paperclip 已决事实恢复与小D控制的唯一实现。
+任务注意力展示、任务恢复、任务记录详情视图和前端刷新调度已落成独立 Module：服务端只输出
+版本化安全关注契约与按访问者分级的任务投影；恢复端只接受登记动作、短期主人 nonce、幂等键和
+乐观并发版本，并把 Paperclip 恢复追加到原 Issue 子任务链；前端详情区块和 15 秒刷新调度保持
+可独立测试。上述仍是候选源码 Implementation，尚未冻结或切换到当前 `4321` live。
+架构门禁限制 `TaskService` 不超过 350 行，并拒绝在外层重新声明已委托方法，避免两套行为真相。
+
 任务状态由 `task-lifecycle` 统一验证，JSON 与 SQLite Store 使用同一迁移规则。SQLite 使用 Node
 内置 `node:sqlite`、WAL 和版本化 schema；A君 live 已显式设置
 `AGENT_ARMY_TASK_STORE=sqlite`，最终 JSON 快照 `587/25/16/6/5` 的数量与关键 ID 校验通过，原

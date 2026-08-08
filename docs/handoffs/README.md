@@ -55,6 +55,7 @@
 
 ## 当前交接
 
+- [标准产品仓库结构改造交接](./current/standard-product-repository-architecture-handoff.md)：产品目录、装配根、TaskService 深层 Module，以及控制台任务关注、分级安全详情、受控恢复、纯详情视图和刷新调度均已落地；候选源码、全量自动化和隔离浏览器通过。唯一下一步是获得明确发布授权后，从干净隔离工作树冻结不可变 release，再核对 4321 的 PID/cwd/release、核心路由和失败任务页面两个刷新周期。
 - [系统产出稳定性对抗审查交接](./current/output-stability-audit-handoff.md)：统一产物门禁、并发状态事务、幂等意图、原子执行抢占、重启收敛、输入上限、私有产物权限，以及小D飞书文档单飞/持久化交付账本/不确定结果仲裁/听审后交付均已通过全量验证；A君候选 `4b4457ca2878be30…` 隔离启动通过，小D需按既有 LaunchAgent 单独重启；唯一下一步是负责人授权切入 4321/4318 并做一条真实飞书产物验收。
 - [视频分析四模式飞书验收交接](./current/video-analysis-modes-feishu-acceptance-handoff.md)：四模式契约、证据复用、指标学习门禁、本机回退和不可变 live 已完成；唯一下一步是负责人在 A君 真实飞书私聊发送一条指定模式的视频链接，核对原会话结果中的模式、版本和唯一下一步。
 - [Agent 使用说明书问答接入交接](./current/agent-manual-query-handoff.md)：不可变 release `99f99c56…` 已切到 4321，小D真实说明书调用已成功；发现的内部 `tool_describe` 进度泄漏已在 11 个正式 Profile 统一关闭并重启常驻 Gateway。唯一下一步是负责人复验小D只返回最终说明书，再完成其余权限边界验收。

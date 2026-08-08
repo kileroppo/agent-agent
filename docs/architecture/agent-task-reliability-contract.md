@@ -23,3 +23,12 @@
 ## 四、验收证据
 
 交付必须分别记录：代码与测试、不可变 release、A君监听端口/PID/工作目录、Hermes Gateway PID、真实 API 返回，以及需要用户发送消息才能完成的飞书外部验收。任何一层通过都不能冒充另一层通过。
+
+## 五、任务关注与受控恢复
+
+- `task-attention-presentation` 是首页、记录和详情共用的安全展示契约。它优先选择当前 Paperclip Run 的岗位报告，过滤无信息套话，只投影原因、影响、证据、未知风险、受控动作、验证状态和折叠技术字段；旧任务继续兼容读取，不迁移 Store。
+- `task-record-service` 按 `local-owner` 与 `lan` 明确投影详情。LAN 只读访问不得获得原始输入、路由、治理、恢复事件、原始错误或产物内容；本机主人也只获得执行受控动作所需的白名单字段。
+- `task-recovery` 只登记并执行 `use_confirmed_transcript_only`、`request_safe_recovery`、`request_read_only_diagnosis` 三类动作。动作必须由本机同源页面携带短期主人 nonce、幂等键和 `expectedUpdatedAt` 发起；LAN share key 永远只读。
+- Paperclip 所属恢复通过 `projectChild` 追加到原 Issue 审计链；原失败任务保持失败终态。存在恢复链时只展示进度，不重复执行。`governanceMode=paperclip` 的审批不得由本机 reject 路径单边改写。
+- `task-record-detail-view` 是详情区块的纯生成 Interface；`refresh-scheduler` 提供可注入的 15 秒调度、可见性门禁、不重入与清理。静态 ESM 资源必须同时通过 HTTP 200 与 JavaScript Content-Type 门禁。
+- 上述实现和隔离浏览器验收只证明候选源码可用；当前 `4321` 不可变 live 未切换，飞书、Paperclip、Publisher、Provider 及真实恢复按钮均未做外部写入验收。

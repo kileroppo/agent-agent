@@ -2,6 +2,7 @@
   "name": "@agent-army/paperclip-client",
   "version": "0.1.0",
   "private": true,
+  "description": "Shared Paperclip transport and organization/M5 semantic clients",
   "type": "module",
   "exports": {
     ".": "./src/index.js"

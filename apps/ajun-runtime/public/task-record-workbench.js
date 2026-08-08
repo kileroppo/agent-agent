@@ -1,3 +1,11 @@
+import {
+  cleanAttentionText,
+  recoverySubmissionView,
+  renderAttentionDetail,
+  taskAttentionView,
+} from './task-record-detail-view.js';
+export { taskAttentionView } from './task-record-detail-view.js';
+
 const VIEW_LABELS = Object.freeze({
   needs_action:'需要我处理',
   active:'处理中',
@@ -34,6 +42,7 @@ export function createTaskRecordWorkbench({
     selectedTask:null,
     selectedDetailLoaded:false,
     autoExpanded:false,
+    actionState:new Map(),
   };
   let searchTimer;
 
@@ -200,6 +209,9 @@ export function createTaskRecordWorkbench({
       const detailScrollTop = quiet ? elements.detail.scrollTop : 0;
       state.selectedTask = payload.task;
       state.selectedDetailLoaded = true;
+      if (!payload.task?.presentation?.attention || payload.task.presentation.attention.verification) {
+        state.actionState.delete(payload.task.taskId);
+      }
       if (!quiet) renderList();
       renderDetail();
       if (quiet) elements.detail.scrollTop = detailScrollTop;
@@ -261,9 +273,11 @@ export function createTaskRecordWorkbench({
       const selected = state.selectedTaskId === task.taskId;
       const presentation = task.presentation || {};
       const tone = presentation.tone || 'active';
+      const reason = compactAttentionReason(task);
       return `<button class="record-row${selected ? ' is-selected' : ''}" type="button" role="option" aria-selected="${selected}" data-record-task-id="${escapeHtml(task.taskId)}">
         <span class="record-row-main">
           <span class="record-row-title">${escapeHtml(displayTaskTitle(task))}</span>
+          ${reason ? `<span class="record-row-reason">${escapeHtml(reason)}</span>` : ''}
           <span class="record-row-meta"><span>${escapeHtml(agentName(task.assigneeAgentId))}</span><span>·</span><span>${escapeHtml(relativeTime(task.updatedAt || task.createdAt))}</span></span>
         </span>
         <span class="record-row-status ${escapeHtml(tone)}">${escapeHtml(presentation.statusLabel || '状态更新')}</span>
@@ -293,8 +307,10 @@ export function createTaskRecordWorkbench({
     const presentation = task.presentation || {};
     const taskView = task.recordView || stateForTask(task.status);
     const needsAction = taskView === 'needs_action';
+    const attention = taskAttentionView(task);
     const result = resultSummary(task);
-    const artifacts = artifactItems(task.artifactRefs || []);
+    const artifacts = artifactItems(task.artifactRefs || [], { hideEmployeeReport:Boolean(attention) });
+    const actionState = state.actionState.get(task.taskId) || null;
     elements.detail.innerHTML = `
       <button class="record-detail-back" type="button">← 返回记录</button>
       <header class="record-detail-header">
@@ -302,29 +318,21 @@ export function createTaskRecordWorkbench({
         <h2>${escapeHtml(displayTaskTitle(task))}</h2>
         <div class="record-detail-meta"><span>${escapeHtml(agentName(task.assigneeAgentId))}</span><span>${escapeHtml(taskTypeLabel(task.taskType))}</span><span>更新于 ${escapeHtml(relativeTime(task.updatedAt || task.createdAt))}</span></div>
       </header>
-      <div class="record-decision${needsAction ? ' needs-action' : ''}">
-        <span>${needsAction ? '你现在需要做什么' : taskView === 'active' ? '当前状态' : taskView === 'completed' ? '结果' : '历史状态'}</span>
-        <strong>${escapeHtml(presentation.nextAction || '等待新的进度。')}</strong>
-      </div>
-      <section class="record-detail-section">
-        <h3>发生了什么</h3>
-        <p>${escapeHtml(presentation.summary || `${displayTaskTitle(task)}状态已更新。`)}</p>
-      </section>
-      ${result ? `<section class="record-detail-section"><h3>${escapeHtml(result.label)}</h3><p>${escapeHtml(result.text)}</p></section>` : ''}
-      ${task.pendingApproval?.reason ? `<section class="record-detail-section"><h3>等待确认的原因</h3><p>${escapeHtml(task.pendingApproval.reason)}</p></section>` : ''}
+      ${attention
+        ? renderAttentionDetail(attention, actionState, escapeHtml)
+        : `<div class="record-decision${needsAction ? ' needs-action' : ''}">
+            <span>${needsAction ? '你现在需要做什么' : taskView === 'active' ? '当前状态' : taskView === 'completed' ? '结果' : '历史状态'}</span>
+            <strong>${escapeHtml(presentation.nextAction || '等待新的进度。')}</strong>
+          </div>
+          <section class="record-detail-section">
+            <h3>发生了什么</h3>
+            <p>${escapeHtml(presentation.summary || `${displayTaskTitle(task)}状态已更新。`)}</p>
+          </section>
+          ${result ? `<section class="record-detail-section"><h3>${escapeHtml(result.label)}</h3><p>${escapeHtml(result.text)}</p></section>` : ''}
+          ${task.pendingApproval?.reason ? `<section class="record-detail-section"><h3>等待确认的原因</h3><p>${escapeHtml(task.pendingApproval.reason)}</p></section>` : ''}`}
       ${artifacts.length ? `<section class="record-detail-section"><h3>交付与证据</h3><ul class="record-artifact-list">${artifacts.map(renderArtifact).join('')}</ul></section>` : ''}
       <div class="record-detail-actions"><button class="secondary-action record-copy-id" type="button">复制任务编号</button></div>
-      <details class="record-technical">
-        <summary>技术详情</summary>
-        <dl>
-          <div><dt>完整编号</dt><dd>${escapeHtml(task.taskId)}</dd></div>
-          <div><dt>原始状态</dt><dd>${escapeHtml(task.status || '未记录')}</dd></div>
-          <div><dt>当前阶段</dt><dd>${escapeHtml(task.currentStage || '未记录')}</dd></div>
-          <div><dt>提交人</dt><dd>${escapeHtml(requesterLabel(task))}</dd></div>
-          ${task.error?.code ? `<div><dt>错误代码</dt><dd>${escapeHtml(task.error.code)}</dd></div>` : ''}
-          <div><dt>路由说明</dt><dd>${escapeHtml(task.routing?.reason || '未记录')}</dd></div>
-        </dl>
-      </details>`;
+      ${renderTechnicalDetails(task, presentation, attention, escapeHtml)}`;
     elements.detail.querySelector('.record-detail-back')?.addEventListener('click', () => {
       elements.workbench.classList.remove('is-detail-open');
       replaceRecordUrl();
@@ -337,6 +345,50 @@ export function createTaskRecordWorkbench({
         event.currentTarget.textContent = '复制失败';
       }
     });
+    for (const button of elements.detail.querySelectorAll('[data-attention-action]')) {
+      button.addEventListener('click', () => executeAttentionAction(task, button.dataset.attentionAction));
+    }
+  }
+
+  async function executeAttentionAction(task, actionKey) {
+    const attention = taskAttentionView(task);
+    const action = attention?.actions.find((item) => item.actionKey === actionKey);
+    if (!action || state.actionState.get(task.taskId)?.status === 'submitting') return;
+    const confirmation = action.confirmation || `确认执行“${action.label}”？系统只会执行这条明确的恢复动作。`;
+    if (!window.confirm(confirmation)) return;
+
+    state.actionState.set(task.taskId, { status:'submitting', message:`正在${action.label}…` });
+    renderDetail();
+    try {
+      const session = await api('/api/owner-action-session');
+      const nonce = String(session?.nonce || '').trim();
+      if (!nonce) throw new Error('暂时无法取得本机操作授权，请刷新后重试。');
+      const idempotencyKey = newIdempotencyKey(task.taskId, action.actionKey);
+      const payload = await api(`/api/tasks/${encodeURIComponent(task.taskId)}/recovery-actions/${encodeURIComponent(action.actionKey)}`, {
+        method:'POST',
+        headers:{
+          'content-type':'application/json',
+          'Idempotency-Key':idempotencyKey,
+          'X-Ajun-Owner-Action':nonce,
+        },
+        body:JSON.stringify({ expectedUpdatedAt:task.updatedAt || null }),
+      });
+      if (payload?.task) {
+        state.selectedTask = payload.task;
+        state.selectedTaskId = task.taskId;
+        state.selectedDetailLoaded = true;
+      }
+      state.actionState.set(task.taskId, recoverySubmissionView(payload, action.label));
+      await loadSelectedDetail({ revealDetail:false, quiet:false });
+    } catch (error) {
+      state.actionState.set(task.taskId, {
+        status:'failed',
+        message:error?.status === 404 || error?.status === 501
+          ? '当前运行版本尚未接入这项恢复动作；任务没有被更改，请按提示前往飞书补充信息。'
+          : error.message || '恢复请求没有提交，请稍后重试。',
+      });
+      renderDetail();
+    }
   }
 
   function renderFilters() {
@@ -344,7 +396,7 @@ export function createTaskRecordWorkbench({
     if (state.q) chips.push(`搜索：${state.q}`);
     if (state.agentId) chips.push(agentName(state.agentId));
     if (state.taskType) chips.push(taskTypeLabel(state.taskType));
-    chips.push(state.time === 'all' ? '全部时间' : state.time === '7d' ? '近 7 天' : '近 30 天');
+    if (state.time !== '30d') chips.push(state.time === 'all' ? '全部时间' : '近 7 天');
     if (state.includeRoutine) chips.push('包含例行巡检');
     elements.activeFilters.innerHTML = chips.map((chip) => `<span class="record-filter-chip">${escapeHtml(chip)}</span>`).join('');
     elements.activeFilters.hidden = !chips.length;
@@ -416,6 +468,39 @@ export function createTaskRecordWorkbench({
   function emptyDetailLabel() {
     return state.view === 'needs_action' ? '目前没有需要你处理的事' : '当前条件下没有记录';
   }
+}
+
+function compactAttentionReason(task) {
+  const attention = taskAttentionView(task);
+  if (!attention) return '';
+  return attention.cause;
+}
+
+function renderTechnicalDetails(task, presentation, attention, escapeHtml) {
+  const attentionTechnicalView = attention?.technical || null;
+  const presentationTechnical = presentation?.technical && typeof presentation.technical === 'object'
+    ? presentation.technical
+    : {};
+  const values = {
+    taskId:cleanAttentionText(presentationTechnical.taskId || task.taskId, 80),
+    status:cleanAttentionText(presentationTechnical.status, 80),
+    stage:cleanAttentionText(attentionTechnicalView?.stage || presentationTechnical.currentStage, 120),
+    errorCode:cleanAttentionText(attentionTechnicalView?.code || presentationTechnical.errorCode, 120),
+  };
+  const rows = [
+    ['完整编号', values.taskId],
+    ['原始状态', values.status],
+    ['当前阶段', values.stage],
+    ['错误代码', values.errorCode],
+  ].filter(([, value]) => value);
+  if (!rows.length) return '';
+  return `<details class="record-technical"><summary>技术详情</summary><dl>${rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl></details>`;
+}
+
+function newIdempotencyKey(taskId, actionKey) {
+  const random = globalThis.crypto?.randomUUID?.()
+    || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return `ajun-console:${String(taskId).slice(0, 36)}:${String(actionKey).slice(0, 40)}:${random}`;
 }
 
 function recordElements() {
@@ -493,19 +578,7 @@ function relativeTime(value) {
   return new Date(timestamp).toLocaleDateString('zh-CN', { month:'short', day:'numeric' });
 }
 
-function requesterLabel(task) {
-  const kind = String(task.requester?.kind || '').trim();
-  const ref = String(task.requester?.ref || '').trim();
-  if (/^ou_[a-zA-Z0-9]+$/.test(ref)) return '飞书老板';
-  if (kind === 'local-owner') return '老板';
-  if (kind === 'local-system') return 'A君';
-  if (kind === 'lan-collaborator') return ref || '局域网协作者';
-  if (kind === 'feishu-user') return '飞书老板';
-  return ref || '未记录';
-}
-
 function resultSummary(task) {
-  if (task.error?.userMessage) return { label:'未完成原因', text:task.error.userMessage };
   const artifacts = Array.isArray(task.artifactRefs) ? task.artifactRefs : [];
   const report = artifacts.find((item) => item?.type === 'health_report')?.data;
   if (report) return { label:'检查结果', text:`${report.overall === 'healthy' ? '运行正常' : '发现需要关注的项目'}${Array.isArray(report.components) ? `：${report.components.map((item) => `${item.name}${item.status === 'healthy' ? '正常' : '异常'}`).join('、')}` : ''}` };
@@ -519,8 +592,10 @@ function resultSummary(task) {
   return null;
 }
 
-function artifactItems(artifacts) {
-  return (Array.isArray(artifacts) ? artifacts : []).map((artifact, index) => {
+function artifactItems(artifacts, { hideEmployeeReport = false } = {}) {
+  return (Array.isArray(artifacts) ? artifacts : [])
+    .filter((artifact) => !(hideEmployeeReport && artifact?.type === 'employee_role_report'))
+    .map((artifact, index) => {
     if (typeof artifact === 'string') return { label:artifact, url:null };
     const label = String(artifact?.title || artifact?.name || artifact?.type || `产物 ${index + 1}`).replaceAll('_', ' ');
     const candidate = artifact?.url || artifact?.location || artifact?.href || '';
@@ -532,7 +607,7 @@ function artifactItems(artifacts) {
       // Local references remain evidence labels and are not exposed as unsafe links.
     }
     return { label, url };
-  }).slice(0, 12);
+    }).slice(0, 12);
 }
 
 function renderArtifact(artifact) {

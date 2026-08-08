@@ -6,10 +6,13 @@ Agent军团是一套以飞书为日常业务入口、以 Hermes 等运行时承�
 
 ## 目录结构
 
+正式产品、按需工具、共享 Module 与历史回滚资产的唯一分类见
+[仓库产品地图](./docs/product/repository-map.md)；机器可读真相由
+[`repository-catalog.json`](./repository-catalog.json) 保存，并由架构检查验证。
+
 ```text
 agent-agent/
-├── apps/           可独立运行、部署和验收的业务 Agent
-│   └── xiaod-media-transcriber/  小D：音视频转录整理与飞书交付
+├── apps/           正式产品、业务 Agent、按需工具及显式标记的历史回滚资产
 ├── agents/         数字员工的岗位、职责、权限和质量标准
 ├── integrations/   Paperclip、Hermes、飞书等平台适配层
 ├── packages/       多个 Agent 共用的代码与能力模块
@@ -18,6 +21,10 @@ agent-agent/
 ├── docs/           产品、设计、架构、契约、规范和验收记录
 └── designs/        可运行的 UI 原型与设计资产
 ```
+
+`apps/ajun-runtime` 与 `apps/xiaod-media-transcriber` 是当前主要产品运行面；
+`apps/mac-worker` 是受控运行桥，`apps/project-progress-board` 与 `apps/animated-chart` 按需运行。
+`apps/boom-monitor` 仅保留旧 Python/Docker 回滚资产，不是正式产品入口，也不属于 npm Workspace。
 
 ### 局域网项目进度看板
 

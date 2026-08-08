@@ -41,33 +41,21 @@
 
   <div class="app-shell">
     <nav class="module-nav" aria-label="运行台模块">
-      <a href="#overview" class="module-link is-active" data-module="overview" aria-current="page">
+      <a href="#now" class="module-link is-active" data-module="overview" aria-current="page">
         <svg aria-hidden="true"><use href="#icon-overview"></use></svg>
-        <span>总览</span>
+        <span>现在</span>
       </a>
-      <a href="#employees" class="module-link" data-module="employees">
-        <svg aria-hidden="true"><use href="#icon-employees"></use></svg>
-        <span>员工</span>
-      </a>
-      <a href="#connections" class="module-link" data-module="connections" data-owner-only hidden>
-        <svg aria-hidden="true"><use href="#icon-connections"></use></svg>
-        <span>连接</span>
-      </a>
-      <a href="#campaigns" class="module-link" data-module="campaigns" data-owner-only hidden>
-        <svg aria-hidden="true"><use href="#icon-target"></use></svg>
-        <span>发布活动</span>
-      </a>
-      <a href="#billing" class="module-link" data-module="billing" data-owner-only hidden>
-        <svg aria-hidden="true"><use href="#icon-cost"></use></svg>
-        <span>AI 账单</span>
-      </a>
-      <a href="#boom-monitor" class="module-link" data-module="boom-monitor" data-owner-only hidden>
-        <svg aria-hidden="true"><use href="#icon-radar"></use></svg>
-        <span>爆款雷达</span>
-      </a>
-      <a href="#records" class="module-link" data-module="records">
+      <a href="#runs" class="module-link" data-module="records">
         <svg aria-hidden="true"><use href="#icon-records"></use></svg>
-        <span>记录</span>
+        <span>运行</span>
+      </a>
+      <a href="#system" class="module-link" data-module="system">
+        <svg aria-hidden="true"><use href="#icon-connections"></use></svg>
+        <span>系统</span>
+      </a>
+      <a href="#tools" class="module-link" data-module="tools" data-owner-only hidden>
+        <svg aria-hidden="true"><use href="#icon-radar"></use></svg>
+        <span>工具</span>
       </a>
     </nav>
 
@@ -92,7 +80,7 @@
       <section id="module-overview" class="module-page is-active" data-module-page="overview" aria-labelledby="overview-title">
         <div class="module-heading">
           <div>
-            <h1 id="overview-title">军团状态</h1>
+            <h1 id="overview-title">现在</h1>
             <p id="overview-summary" class="module-summary">正在读取当前状态…</p>
           </div>
         </div>
@@ -150,6 +138,11 @@
             <h1 id="employees-title">谁能帮你</h1>
             <p class="subtle">按常用与按需分组；展开员工可看具体职责和接入状态。</p>
           </div>
+          <nav class="context-nav" aria-label="系统与接入">
+            <a href="#employees" data-context-page="employees">员工</a>
+            <a href="#connections" data-context-page="connections" data-owner-only hidden>接入</a>
+            <a href="#billing" data-context-page="billing" data-owner-only hidden>用量诊断</a>
+          </nav>
         </div>
         <div id="agent-list" class="agent-grid"></div>
       </section>
@@ -160,6 +153,11 @@
             <h1 id="connections-title">账号与接入</h1>
             <p class="subtle">先确认真实读取是否可用；登录、模型和飞书设置按需展开。</p>
           </div>
+          <nav class="context-nav" aria-label="系统与接入">
+            <a href="#employees" data-context-page="employees">员工</a>
+            <a href="#connections" data-context-page="connections">接入</a>
+            <a href="#billing" data-context-page="billing">用量诊断</a>
+          </nav>
         </div>
 
         <section id="ai-control" class="surface-section ai-control" hidden>
@@ -299,6 +297,10 @@
             <h1 id="campaigns-title">发布活动</h1>
             <p class="subtle">审批、暂停和恢复都以 Paperclip 为准；这里不另建流程。</p>
           </div>
+          <nav class="context-nav" aria-label="业务工具">
+            <a href="#boom-monitor" data-context-page="boom-monitor">爆款雷达</a>
+            <a href="#campaigns" data-context-page="campaigns">发布活动</a>
+          </nav>
         </div>
         <section class="surface-section campaign-console" aria-live="polite">
           <div class="section-head">
@@ -315,8 +317,14 @@
             <h1 id="billing-title">AI 成本账本</h1>
             <p id="billing-summary" class="subtle">正在核对 Hermes 会话用量与任务成本…</p>
           </div>
+          <nav class="context-nav" aria-label="系统与接入">
+            <a href="#employees" data-context-page="employees">员工</a>
+            <a href="#connections" data-context-page="connections">接入</a>
+            <a href="#billing" data-context-page="billing">用量诊断</a>
+          </nav>
         </div>
         <div id="billing-stats" class="stat-grid" aria-label="最近七天 AI 成本概览"></div>
+        <div id="billing-cost-health" class="billing-cost-health" role="status"></div>
         <div id="billing-attribution" class="billing-attribution"></div>
         <section class="surface-section billing-section" aria-labelledby="billing-profile-title">
           <div class="section-head">
@@ -355,7 +363,13 @@
             <h1 id="boom-monitor-title">爆款雷达</h1>
             <p class="subtle">采集作品指标并判断是否值得拆解；命中后仍由“小D取证 → 小拆分析”，这里不会直接发布内容。</p>
           </div>
-          <button id="boom-refresh" type="button" class="secondary-action">刷新雷达</button>
+          <div class="module-heading-actions">
+            <nav class="context-nav" aria-label="业务工具">
+              <a href="#boom-monitor" data-context-page="boom-monitor">爆款雷达</a>
+              <a href="#campaigns" data-context-page="campaigns">发布活动</a>
+            </nav>
+            <button id="boom-refresh" type="button" class="secondary-action">刷新雷达</button>
+          </div>
         </div>
 
         <p id="boom-message" class="boom-message" role="status" aria-live="polite">打开后读取雷达状态。</p>
@@ -457,8 +471,8 @@
       <section id="module-records" class="module-page" data-module-page="records" aria-labelledby="records-title">
         <div class="module-heading record-heading">
           <div>
-            <h1 id="records-title">任务记录</h1>
-            <p class="subtle">结果、异常和下一步集中在这里。</p>
+            <h1 id="records-title">运行记录</h1>
+            <p class="subtle">先处理异常，再确认运行结果；完整治理历史仍以 Paperclip 为准。</p>
           </div>
         </div>
 

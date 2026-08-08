@@ -159,7 +159,7 @@ test('继续飞书交付只恢复当前会话的待交付小D任务，并立即�
   assert.deepEqual(result.completionWatch, { kind:'ajun_task', taskId:'media-delivery', baseUrl:'http://127.0.0.1:4321' });
 });
 
-test('正常中文会先交给 AI 理解，而不是先被关键词规则截走', async () => {
+test('高确定性的系统检查问法直接命中运维检查，不调用 planner', async () => {
   const { commander, calls } = setup();
   let plannerCalls = 0;
   commander.planner = {
@@ -168,11 +168,11 @@ test('正常中文会先交给 AI 理解，而不是先被关键词规则截走'
       return { intent:'army_overview' };
     }
   };
-  commander.tasks.overview = async () => ({ agents:[], tasks:[] });
   const result = await commander.handle({ text:'帮我检查一下军团现在有没有问题', sourceEventRef:'feishu:ai-first-1' });
-  assert.equal(plannerCalls, 1);
-  assert.equal(result.kind, 'army_overview');
-  assert.equal(calls.tasks.length, 0);
+  assert.equal(plannerCalls, 0);
+  assert.equal(calls.tasks.length, 1);
+  assert.equal(calls.tasks[0].taskType, 'operations.health-review');
+  assert.match(result.reply, /【运维官检查结果】/);
 });
 
 test('要求判断卡住原因和安全接手时，不能被 AI 误答成军团概览', async () => {
@@ -642,18 +642,119 @@ test('AI 把明确公开资料请求保守归成普通待办时，仍会交给�
   assert.equal(calls.tasks[0].taskType, 'report.public-material');
 });
 
-test('管家问题也先由 AI 理解，再只读取本机真实状态回答', async () => {
+test('高确定性的能力问题直接回答，不调用 planner', async () => {
   const { commander, calls } = setup();
-  let plannerCalled = false;
-  commander.planner = { async decide() { plannerCalled = true; return { intent:'army_capabilities' }; } };
+  let plannerCalls = 0;
+  commander.planner = { async decide() { plannerCalls += 1; return { intent:'army_capabilities' }; } };
   commander.tasks.overview = async () => ({ agents:[
     { agentId:'operator', status:'active', acceptedTaskTypes:['operations.health-review'] },
     { agentId:'xiaod', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] }
   ] });
   const result = await commander.handle({ text:'你现在能干什么？', sourceEventRef:'feishu:fast-capabilities-1' });
-  assert.equal(plannerCalled, true);
+  assert.equal(plannerCalls, 0);
   assert.equal(calls.tasks.length, 0);
   assert.equal(result.kind, 'army_capabilities');
+});
+
+test('高确定性的军团概览问法直接读取真实状态，不调用 planner', async () => {
+  const { commander, calls } = setup();
+  let plannerCalls = 0;
+  commander.planner = { async decide() { plannerCalls += 1; return { intent:'clarify' }; } };
+  commander.tasks.overview = async () => ({
+    agents:[{ agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] }],
+    tasks:[{ assigneeAgentId:'xiaod', status:'running', input:{ title:'整理公开视频' } }]
+  });
+  const result = await commander.handle({ text:'现在大家都在干嘛？', sourceEventRef:'feishu:overview-direct-1', chatRef:'chat-safe-ref' });
+  assert.equal(plannerCalls, 0);
+  assert.equal(calls.tasks.length, 0);
+  assert.equal(result.kind, 'army_overview');
+  assert.match(result.reply, /【军团情况】/);
+});
+
+test('高确定性的使用情况问法直接汇总，不调用 planner', async () => {
+  const { commander, calls } = setup();
+  let plannerCalls = 0;
+  commander.planner = { async decide() { plannerCalls += 1; return { intent:'clarify' }; } };
+  commander.tasks.usageOverview = async () => ({ trackedTaskCount:2, actualToolCalls:3, cost:{ reportedTaskCount:0, totals:[] } });
+  const result = await commander.handle({ text:'今天花了多少？', sourceEventRef:'feishu:usage-direct-1', chatRef:'chat-safe-ref' });
+  assert.equal(plannerCalls, 0);
+  assert.equal(calls.tasks.length, 0);
+  assert.equal(result.kind, 'usage_report');
+});
+
+test('高确定性的军团工作汇报问法直接汇总，不调用 planner', async () => {
+  const { commander, calls } = setup();
+  let plannerCalls = 0;
+  const now = new Date().toISOString();
+  commander.planner = { async decide() { plannerCalls += 1; return { intent:'clarify' }; } };
+  commander.tasks.overview = async () => ({ tasks:[
+    { taskId:'done-1', status:'succeeded', taskType:'report.public-material', input:{ title:'整理公开网页' }, updatedAt:now }
+  ] });
+  const result = await commander.handle({ text:'给我今天军团工作汇报', sourceEventRef:'feishu:report-direct-1', chatRef:'chat-safe-ref' });
+  assert.equal(plannerCalls, 0);
+  assert.equal(calls.tasks.length, 0);
+  assert.equal(result.kind, 'army_report');
+});
+
+test('降低模型成本这类优化请求仍走 planner，不被使用汇总直判拦截', async () => {
+  const { commander, calls } = setup();
+  let plannerCalls = 0;
+  commander.planner = {
+    async decide() {
+      plannerCalls += 1;
+      return { intent:'architecture_review' };
+    }
+  };
+  const result = await commander.handle({ text:'帮我降低这个流程的模型成本', sourceEventRef:'feishu:cost-optimize-1' });
+  assert.equal(plannerCalls, 1);
+  assert.equal(calls.tasks.length, 1);
+  assert.equal(calls.tasks[0].taskType, 'governance.architecture-review');
+  assert.equal(result.kind, 'architecture_review');
+});
+
+test('使用情况后带分析诉求时仍走 planner，不被纯查询白名单截走', async () => {
+  const { commander, calls } = setup();
+  let plannerCalls = 0;
+  commander.planner = {
+    async decide() {
+      plannerCalls += 1;
+      return { intent:'architecture_review' };
+    }
+  };
+  const result = await commander.handle({ text:'今天使用情况帮我分析为什么涨了', sourceEventRef:'feishu:usage-analysis-1' });
+  assert.equal(plannerCalls, 1);
+  assert.equal(calls.tasks.length, 1);
+  assert.equal(result.kind, 'architecture_review');
+});
+
+test('询问新项目需要多少员工时仍走 planner，不误当当前员工数量查询', async () => {
+  const { commander, calls } = setup();
+  let plannerCalls = 0;
+  commander.planner = {
+    async decide() {
+      plannerCalls += 1;
+      return { intent:'army_planning' };
+    }
+  };
+  const result = await commander.handle({ text:'多少员工来做这个项目合适', sourceEventRef:'feishu:staff-planning-1' });
+  assert.equal(plannerCalls, 1);
+  assert.equal(calls.tasks.length, 1);
+  assert.notEqual(result.kind, 'army_overview');
+});
+
+test('模糊中文仍走 planner，不被只读直判误拦截', async () => {
+  const { commander, calls } = setup();
+  let plannerCalls = 0;
+  commander.planner = {
+    async decide() {
+      plannerCalls += 1;
+      return { intent:'clarify', reply:'你是想看军团状态，还是要我实际处理一个问题？' };
+    }
+  };
+  const result = await commander.handle({ text:'军团这个事你先看看', sourceEventRef:'feishu:ambiguous-1' });
+  assert.equal(plannerCalls, 1);
+  assert.equal(calls.tasks.length, 0);
+  assert.equal(result.kind, 'clarify');
 });
 
 test('陌生但低风险的工作会自动交给架构师评估能力缺口，不要求用户再说继续', async () => {

@@ -100,7 +100,7 @@ async function rejectLocal(approvalId, { decisionBy = 'A君', decisionReason = '
   const approval = await approvalFor(this, approvalId);
   if (approval.status !== 'pending') throw new ValidationError('这条审批已经处理过了。');
   const task = await taskForApproval(this, approval, chatRef);
-  if (approval.governanceMode === 'paperclip' && chatRef) throw new ValidationError('这条组织级审批必须在 Paperclip 完成决定，不能由本机直接拒绝。');
+  if (approval.governanceMode === 'paperclip') throw new ValidationError('这条组织级审批必须在 Paperclip 完成决定，不能由本机直接拒绝。');
   if (approval.action === 'confirm-transcript-after-complete-listen' && typeof this.executors.xiaod?.rejectTranscript === 'function') {
     await this.executors.xiaod.rejectTranscript(task, { reviewerRef:decisionBy });
   }

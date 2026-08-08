@@ -2,6 +2,7 @@
   "name": "project-progress-board",
   "version": "0.1.0",
   "private": true,
+  "description": "On-demand local project progress board backed by SQLite",
   "type": "module",
   "scripts": {
     "dev": "node --watch src/server.js",
