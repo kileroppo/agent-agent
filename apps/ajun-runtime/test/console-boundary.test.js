@@ -16,7 +16,7 @@ async function readConsoleScripts() {
 test('A君控制台不提供日常派活或审批按钮', async () => {
   const [html, script] = await Promise.all([
     readFile(new URL('index.html', root), 'utf8'),
-    readFile(new URL('app.js', root), 'utf8')
+    readConsoleScripts()
   ]);
   assert.match(html, /派活和审批去飞书/);
   assert.doesNotMatch(html, /id="task-form"/);
@@ -29,7 +29,7 @@ test('A君控制台不提供日常派活或审批按钮', async () => {
 test('A君控制台只在本机提供员工接线，不把应用凭据写进页面或读取接口', async () => {
   const [html, script] = await Promise.all([
     readFile(new URL('index.html', root), 'utf8'),
-    readFile(new URL('app.js', root), 'utf8')
+    readConsoleScripts()
   ]);
   assert.match(html, /员工模型与飞书入口/);
   assert.match(script, /name="appSecret" type="password"/);
@@ -62,7 +62,7 @@ test('员工页后台自动同步保留已展开的员工卡片', async () => {
 test('A君控制台提供受控登录、续期、禁用和撤销，但不接收原始凭据', async () => {
   const [html, script] = await Promise.all([
     readFile(new URL('index.html', root), 'utf8'),
-    readFile(new URL('app.js', root), 'utf8')
+    readConsoleScripts()
   ]);
   assert.match(html, /网站账号与采集/);
   assert.match(html, /打开 Chrome 登录页/);
@@ -80,7 +80,7 @@ test('A君控制台提供受控登录、续期、禁用和撤销，但不接收�
 test('A君控制台先说明当前状态和唯一下一步，并把历史噪音与能力详情降级展示', async () => {
   const [html, script] = await Promise.all([
     readFile(new URL('index.html', root), 'utf8'),
-    readFile(new URL('app.js', root), 'utf8')
+    readConsoleScripts()
   ]);
   assert.match(html, /军团状态/);
   assert.match(html, /下一步/);
@@ -103,7 +103,7 @@ test('A君控制台先说明当前状态和唯一下一步，并把历史噪音�
 test('任务记录使用服务端用户意图查询、游标分页、搜索和低频筛选', async () => {
   const [html, script] = await Promise.all([
     readFile(new URL('index.html', root), 'utf8'),
-    readFile(new URL('app.js', root), 'utf8')
+    readConsoleScripts()
   ]);
   assert.match(html, /id="task-search"/);
   assert.match(html, /id="task-load-more"/);
