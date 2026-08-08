@@ -6,10 +6,12 @@ import {
   applyApprovalPatch,
   applyTaskStatusPatch,
   applyWorkerTaskPatch,
+  assertTaskIdempotencyMatch,
   claimTaskForWorker,
   holdTaskForApproval,
   initializeApprovalRecord,
   initializeTaskRecord,
+  interruptedTaskExecutionPatch,
   isWorkerTaskClaimable,
 } from './task-lifecycle.js';
 
@@ -40,14 +42,21 @@ export class TaskStore {
   }
 
   async createTask(task) {
+    return (await this.createTaskOnce(task)).task;
+  }
+
+  async createTaskOnce(task) {
     return this.mutate(async () => {
       const data = await this.read(); const now = new Date().toISOString();
       if (task.idempotencyKey) {
         const existing = data.tasks.find((item) => item.idempotencyKey === task.idempotencyKey);
-        if (existing) return existing;
+        if (existing) {
+          assertTaskIdempotencyMatch(existing, task);
+          return { task:existing, created:false };
+        }
       }
       const record = initializeTaskRecord(task, { taskId:crypto.randomUUID(), now });
-      data.tasks.push(record); await this.write(data); return record;
+      data.tasks.push(record); await this.write(data); return { task:record, created:true };
     });
   }
 
@@ -70,6 +79,37 @@ export class TaskStore {
       if (!task) throw new Error('找不到要更新的任务。');
       Object.assign(task, applyTaskStatusPatch(task, patch, { approvals:data.approvals }), { updatedAt: new Date().toISOString() });
       await this.write(data); return task;
+    });
+  }
+
+  async claimTaskExecution(taskId, patch = {}) {
+    return this.mutate(async () => {
+      const data = await this.read(); const task = data.tasks.find((item) => item.taskId === taskId);
+      if (!task) throw new Error('找不到要执行的任务。');
+      if (task.status !== 'queued') return { task, claimed:false };
+      Object.assign(task, applyTaskStatusPatch(task, { ...patch, status:'running' }, { approvals:data.approvals }), {
+        updatedAt:new Date().toISOString(),
+      });
+      await this.write(data);
+      return { task, claimed:true };
+    });
+  }
+
+  async recoverInterruptedTaskExecution(taskId, { expectedStartedAt, expectedStage, interruptedAt } = {}) {
+    return this.mutate(async () => {
+      const data = await this.read(); const task = data.tasks.find((item) => item.taskId === taskId);
+      if (!task) throw new Error('找不到要恢复的任务。');
+      if (task.status !== 'running'
+        || task.currentStage !== expectedStage
+        || task.execution?.startedAt !== expectedStartedAt) {
+        return { task, recovered:false };
+      }
+      const detectedAt = interruptedAt || new Date().toISOString();
+      Object.assign(task, applyTaskStatusPatch(task, interruptedTaskExecutionPatch(task, detectedAt), {
+        approvals:data.approvals,
+      }), { updatedAt:detectedAt });
+      await this.write(data);
+      return { task, recovered:true };
     });
   }
 
@@ -115,6 +155,26 @@ export class TaskStore {
       const data = await this.read(); const approval = data.approvals.find((item) => item.approvalId === approvalId);
       if (!approval) throw new Error('找不到要更新的审批。');
       Object.assign(approval, applyApprovalPatch(approval, patch)); await this.write(data); return approval;
+    });
+  }
+
+  async resolveApprovalAndUpdateTask(approvalId, approvalPatch, taskId, taskPatch) {
+    return this.mutate(async () => {
+      const data = await this.read();
+      const approval = data.approvals.find((item) => item.approvalId === approvalId);
+      const task = data.tasks.find((item) => item.taskId === taskId);
+      if (!approval) throw new Error('找不到要更新的审批。');
+      if (!task) throw new Error('找不到要更新的任务。');
+      if (approval.taskId !== task.taskId) throw new Error('审批与任务不匹配。');
+      Object.assign(approval, applyApprovalPatch(approval, approvalPatch));
+      const resolvedTaskPatch = typeof taskPatch === 'function'
+        ? taskPatch(task, approval)
+        : taskPatch;
+      Object.assign(task, applyTaskStatusPatch(task, resolvedTaskPatch, { approvals:data.approvals }), {
+        updatedAt:new Date().toISOString(),
+      });
+      await this.write(data);
+      return { approval, task };
     });
   }
 

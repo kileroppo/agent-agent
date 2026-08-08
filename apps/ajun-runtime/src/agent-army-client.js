@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { resolveAnalysisIntent } from './analysis-intent.ts';
 import { presentTask, taskDetailBaseUrl } from './task-presentation.js';
 
 const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'waiting_test', 'needs_input', 'paused']);
@@ -115,7 +116,22 @@ export class AgentArmyClient {
     const connectionId = optionalConnectionId(input.connectionId);
     const goalSpec = normalizeGoalSpecInput(input.goalSpec);
     const evidenceMode = input.evidenceMode === 'preliminary' ? 'preliminary' : 'formal';
-    const depth = requestedAnalysisDepth({ title, description, depth:input.depth });
+    const analysis = taskType === 'content.video-benchmark-analysis'
+      ? resolveAnalysisIntent({
+          analysisIntent:input.analysisIntent,
+          title,
+          description,
+          focus:input.focus,
+          depth:input.depth,
+        })
+      : { error:null, analysisIntent:undefined, depth:input.depth === 'full' ? 'full' : 'fast' };
+    if (analysis.error === 'invalid_analysis_intent') {
+      throw new AgentArmyClientError('分析模式无效；请选择精华提炼、深度拆解、模板学习或风格探索。');
+    }
+    if (analysis.error === 'analysis_intent_conflict') {
+      throw new AgentArmyClientError('检测到多个分析模式，请只选择一种：精华提炼、深度拆解、模板学习或风格探索。');
+    }
+    const { analysisIntent, depth } = analysis;
     const visualMode = input.visualMode === undefined
       ? taskType === 'content.video-benchmark-analysis' ? 'auto' : 'off'
       : normalizeVisualMode(input.visualMode);
@@ -141,7 +157,8 @@ export class AgentArmyClient {
             connectionId,
             reviewPolicy:input.reviewPolicy === 'required' ? 'required' : 'optional',
             visualMode,
-            depth
+            depth,
+            analysisIntent
           },
           {
             key:'analyze-video',
@@ -155,6 +172,7 @@ export class AgentArmyClient {
             dependsOnPrevious:true,
             evidenceMode,
             depth,
+            analysisIntent,
             visualMode,
             focus:safeText(input.focus, 500)
           }
@@ -179,6 +197,7 @@ export class AgentArmyClient {
         reviewPolicy:input.reviewPolicy === 'required' ? 'required' : 'optional',
         evidenceMode,
         depth,
+        analysisIntent,
         visualMode,
         focus:safeText(input.focus, 500) || undefined,
         platforms:safeStringList(input.platforms, 10, 40),
@@ -460,12 +479,6 @@ export class AgentArmyClient {
     if (!response.ok) throw new AgentArmyClientError(safeText(payload?.error || `A君运行时返回 HTTP ${response.status}`, 500));
     return payload;
   }
-}
-
-function requestedAnalysisDepth({ title, description, depth }) {
-  const requestText = `${String(title || '')}\n${String(description || '')}`;
-  if (/完整.{0,8}(?:拆解|分析)|(?:拆解|分析).{0,8}完整|13\s*模块/u.test(requestText)) return 'full';
-  return depth === 'full' ? 'full' : 'fast';
 }
 
 function normalizeVisualMode(value) {
@@ -876,7 +889,8 @@ function normalizeMissionItems(value) {
     connectionId:optionalConnectionId(item?.connectionId),
     reviewPolicy:item?.reviewPolicy === 'required' ? 'required' : 'optional',
     evidenceMode:item?.evidenceMode === 'preliminary' ? 'preliminary' : 'formal',
-    depth:item?.depth === 'full' ? 'full' : 'fast',
+    analysisIntent:resolveMissionAnalysisIntent(item).analysisIntent,
+    depth:resolveMissionAnalysisIntent(item).depth,
     visualMode:normalizeVisualMode(item?.visualMode),
     focus:safeText(item?.focus, 500),
     platforms:safeStringList(item?.platforms, 3, 40),
@@ -892,6 +906,29 @@ function normalizeMissionItems(value) {
     && item.dependsOn.every((key) => keys.has(key) && key !== item.key)
   ));
   return valid ? items : [];
+}
+
+function resolveMissionAnalysisIntent(item) {
+  if (item?.taskType !== 'content.video-benchmark-analysis') {
+    return {
+      error:null,
+      analysisIntent:['digest', 'deep', 'template', 'style'].includes(item?.analysisIntent) ? item.analysisIntent : undefined,
+      depth:item?.depth === 'full' ? 'full' : 'fast',
+    };
+  }
+  const analysis = resolveAnalysisIntent({
+    analysisIntent:item?.analysisIntent,
+    title:item?.title,
+    description:item?.description,
+    focus:item?.focus,
+    depth:item?.depth,
+  });
+  if (analysis.error) {
+    throw new AgentArmyClientError(analysis.error === 'analysis_intent_conflict'
+      ? '多人任务中的视频分析分工命中了多个分析模式，请只保留一种。'
+      : '多人任务中的视频分析模式无效。');
+  }
+  return analysis;
 }
 
 function normalizeGoalSpecInput(value) {

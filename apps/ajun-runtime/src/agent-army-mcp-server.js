@@ -6,8 +6,19 @@ import { AgentArmyClient, AgentArmyClientError } from './agent-army-client.js';
 import { canonicalizeBusinessAssignment } from './business-task-routing.js';
 import { formatTaskPresentation } from './task-presentation.js';
 import { LocalAiCapabilityClient } from './local-ai-capability-client.js';
+import { AgentRegistry } from './agent-registry.js';
+import { AgentManualService } from './agent-manual-service.js';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-export function createAgentArmyMcpServer({ client = new AgentArmyClient(), localAi = new LocalAiCapabilityClient(), scope = scopeFromEnvironment() } = {}) {
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+
+export function createAgentArmyMcpServer({
+  client = new AgentArmyClient(),
+  localAi = new LocalAiCapabilityClient(),
+  manuals = new AgentManualService({ registry:new AgentRegistry({ agentsDir:path.join(repositoryRoot, 'agents') }) }),
+  scope = scopeFromEnvironment()
+} = {}) {
   const server = new McpServer({
     name:'agent-army',
     version:'0.1.0'
@@ -24,6 +35,14 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), local
     description:'列出当前真正已上岗的员工、每位员工可接受的任务类型，以及军团公共能力状态。回答“你能做什么”“谁能做这件事”前先调用；不要凭记忆编造能力。',
     inputSchema:z.object({})
   }, async () => scopedCapabilities(await client.capabilities(), scope));
+
+  read('agent_manual', {
+    title:'Agent使用说明书',
+    description:'用户问“这个 Agent 是什么、怎么用、输入输出、用了什么工具、注意事项、说明书”时必须调用。A君可按名称查询任一已上岗 Agent，传 all 可返回全部说明书；其他 Agent 只能查询自己的说明书。这是只读查询，禁止为说明书问题创建任务。',
+    inputSchema:z.object({
+      agent:z.string().min(1).max(80).optional().describe('Agent 名称、agentId，或 all。当前 Agent 查询自己时可省略。')
+    })
+  }, ({ agent }) => manuals.get({ agent, requesterAgentIds:scope.agentIds }));
 
   read('status', {
     title:'Agent军团总览',
@@ -75,6 +94,7 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), local
       source_task_ids:z.array(z.string().min(8).max(100)).max(20).optional().describe('需要引用的既有任务编号；可拍脚本未提供时会自动匹配参考案例'),
       review_policy:z.enum(['optional', 'required']).optional().describe('默认 optional：质量合格时系统自动确认，异常时转人工；只有用户明确要求完整听审时使用 required'),
       evidence_mode:z.enum(['preliminary', 'formal']).optional(),
+      analysis_intent:z.enum(['digest', 'deep', 'template', 'style']).optional().describe('视频分析模式：精华提炼、深度拆解、模板学习或风格探索'),
       depth:z.enum(['fast', 'full']).optional(),
       visual_mode:z.enum(['auto', 'off', 'required']).optional().describe('默认 auto：快速模式最多 12 帧，完整模式最多 48 帧；off 只分析文字；required 缺少画面时要求补充素材'),
       focus:z.string().max(500).optional(),
@@ -104,7 +124,7 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), local
       chat_ref:z.string().max(240).optional().describe('当前 Hermes 会话上下文中可见的原飞书 chat id；用于任务归属和恢复'),
       request_ref:z.string().max(240).optional().describe('当前消息或稳定请求引用；有则用于严格幂等')
     })
-  }, ({ title, task_type, agent_id, description, source_urls, connection_id, source_task_ids, review_policy, evidence_mode, depth, visual_mode, focus, platforms, content_goal, duration_seconds, research_mode, approved_for_use, source_script_task_id, metrics, goal, deliverables, constraints, acceptance_criteria, capability_requests, autonomy_budget, chat_ref, request_ref }) => {
+  }, ({ title, task_type, agent_id, description, source_urls, connection_id, source_task_ids, review_policy, evidence_mode, analysis_intent, depth, visual_mode, focus, platforms, content_goal, duration_seconds, research_mode, approved_for_use, source_script_task_id, metrics, goal, deliverables, constraints, acceptance_criteria, capability_requests, autonomy_budget, chat_ref, request_ref }) => {
     assertSingleTaskRequest({ title, description });
     const assignment = canonicalizeBusinessAssignment({
       title,
@@ -124,6 +144,7 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), local
       sourceTaskIds:source_task_ids,
       reviewPolicy:review_policy,
       evidenceMode:evidence_mode,
+      analysisIntent:analysis_intent,
       depth,
       visualMode:visual_mode,
       focus,
@@ -172,6 +193,7 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), local
         source_urls:z.array(z.string().url()).max(5).optional(),
         review_policy:z.enum(['optional', 'required']).optional().describe('默认自动质量确认；用户明确要求人工完整听审时传 required'),
         evidence_mode:z.enum(['preliminary', 'formal']).optional(),
+        analysis_intent:z.enum(['digest', 'deep', 'template', 'style']).optional(),
         depth:z.enum(['fast', 'full']).optional(),
         visual_mode:z.enum(['auto', 'off', 'required']).optional(),
         focus:z.string().max(500).optional(),
@@ -195,6 +217,7 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), local
         sourceUrls:item.source_urls,
         reviewPolicy:item.review_policy,
         evidenceMode:item.evidence_mode,
+        analysisIntent:item.analysis_intent,
         depth:item.depth,
         visualMode:item.visual_mode,
         focus:item.focus,
@@ -501,6 +524,7 @@ function humanReadableToolText(value) {
     const task = formatTaskPresentation(value.task);
     if (task) return task;
   }
+  if (typeof value?.manualText === 'string') return value.manualText;
   if (Array.isArray(value?.employees) && Array.isArray(value?.capabilities)) {
     const employees = value.employees.map((item) => `${item.name || item.agentId}：${item.role || '已上岗'}`).join('\n');
     const capabilities = value.capabilities.map((item) => `${item.name || item.id}：${item.detail || item.status || '可用'}`).join('\n');
@@ -528,6 +552,7 @@ export function scopeFromEnvironment() {
   const allowedTools = paperclipHeartbeat
     ? configuredTools.filter((name) => [
         'paperclip_assignment_get',
+        'agent_manual',
         'agent_proposal_create_execute',
         'technical_repair_execute',
         'operations_health_execute',

@@ -96,6 +96,24 @@
     { "gate": "content-opportunity-has-original-angles-and-unproven-boundary", "required": true }
   ],
   "budgetPolicy": { "maxAttempts": 2, "maxRuntimeMinutes": 8, "onLimit": "stop-and-report" },
+  "userManual": {
+    "aliases": ["小R", "情报研究员", "公开资料研究员"],
+    "whatItIs": "读取无需登录的公开网页、PDF和GitHub，输出带来源、证据边界、结论和行动建议的中文研究报告。",
+    "savesWork": {
+      "before": "人工搜索、打开多条来源、摘录、去重、比较并写成报告。",
+      "now": "给出研究问题、范围和输出要求，由小R完成公开来源读取与结构化整理。",
+      "measurement": "简单GitHub检索和深度研究不可混为一谈；人工节省尚未建立三次对照。"
+    },
+    "tools": ["Hermes：承载研究会话、记忆、模型和Skills。", "公开网页搜索、动态网页只读和PDF读取适配器。", "GitHub公开检索与读取适配器。", "Paperclip与飞书：登记长任务并交付报告。"],
+    "inputs": ["要回答的研究问题。", "指定URL、站点或允许自行搜索的公开范围。", "时间范围、排除项和判断标准。", "期望的摘要、比较、结论或建议格式。"],
+    "trigger": "直接私聊小R Bot，或在飞书找A君转派。",
+    "examplePrompt": "请研究多Agent编排产品的治理能力。只看公开官网、官方文档和公开GitHub，不登录、不读付费内容。输出3个候选、差异、适用场景、来源和仍未证明的地方。",
+    "outputs": ["可点击来源清单。", "背景、关键发现、比较、结论和行动建议。", "证据不足和仍未证明的事项。"],
+    "outputExample": "真实任务5c485f4b-8b2a-4ef1-8ad1-02a5eeca496c以agent orchestration为关键词返回3个公开GitHub项目，包含名称、描述、Stars、语言、更新时间、URL、评估和证据边界。",
+    "successEvidence": {"status":"record-only", "summary":"已有真实研究任务和数字员工公司验收记录；公开飞书报告截图仍待补，截图应同时展示问题、来源、结论和未证明边界。", "references":["docs/reviews/m2-digital-employee-company/acceptance.md", "task:5c485f4b-8b2a-4ef1-8ad1-02a5eeca496c"]},
+    "usageSteps": ["明确问题、范围和输出形式。", "在原会话补充会改变结论的材料。", "收到报告后随机打开来源核对。"],
+    "limitations": ["只读公开且无需登录的资料。", "Stars、互动量和单页信息只是线索，不是商业证明。", "来源不足时必须说明不能判断。", "不负责外发、购买、发布或修改外部系统。"]
+  },
   "runtimeCapabilities": {
     "modelSelection": {
       "provider": "deepseek",
@@ -104,6 +122,7 @@
     "fallbackModels": [],
     "skills": ["paperclip", "pdf", "yichen-web-research", "yichen-unified-search", "yichen-content-archive", "yichen-grok-consult"],
     "mcpTools": [
+      "agent_manual",
       "capabilities",
       "task_list",
       "task_get",

@@ -53,8 +53,10 @@ export class LocalOfficeAssistant {
     } else {
       const directory = path.join(this.artifactsDir, safeSegment(task.taskId));
       filePath = path.join(directory, '办公汇报包.md');
-      await fs.mkdir(directory, { recursive:true });
-      await fs.writeFile(filePath, report.markdown, 'utf8');
+      await fs.mkdir(directory, { recursive:true, mode:0o700 });
+      await fs.chmod(directory, 0o700);
+      await fs.writeFile(filePath, report.markdown, { encoding:'utf8', mode:0o600 });
+      await fs.chmod(filePath, 0o600);
       const stat = await fs.stat(filePath);
       if (!stat.isFile() || stat.size < 1) throw new Error('办公汇报包写入后为空。');
       bytes = stat.size;

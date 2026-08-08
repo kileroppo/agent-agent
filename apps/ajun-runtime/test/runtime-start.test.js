@@ -74,6 +74,27 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
   assert.equal(overview.status, 200);
   const payload = await overview.json();
   assert.ok(Array.isArray(payload.tasks));
+  assert.equal(runtime.services.hermesNativeCompletionWatcher.detailBaseUrl, '');
+
+  const consoleOverview = await fetch(`${baseUrl}/api/console-overview`);
+  assert.equal(consoleOverview.status, 200);
+  const consolePayload = await consoleOverview.json();
+  assert.equal(Object.hasOwn(consolePayload, 'tasks'), false);
+  assert.ok(Array.isArray(consolePayload.recentTasks));
+
+  const taskRecords = await fetch(`${baseUrl}/api/task-records?view=needs_action&limit=24`);
+  assert.equal(taskRecords.status, 200);
+  assert.deepEqual(await taskRecords.json(), {
+    items:[],
+    total:0,
+    counts:{ needs_action:0, active:0, completed:0, all:0 },
+    nextCursor:null,
+    revision:'::0',
+    routineSummary:{ hidden:0, today:0, attention:0, latestUpdatedAt:null },
+    query:{
+      view:'needs_action', q:'', agentId:'', taskType:'', since:'', until:'', includeRoutine:false, limit:24, cursor:null,
+    },
+  });
 
   const consoleOverview = await fetch(`${baseUrl}/api/console-overview`);
   assert.equal(consoleOverview.status, 200);
@@ -164,6 +185,7 @@ test('后台服务沿用原启动顺序，cloud 模式不启动本机小D', () =
     feishuChannelStartup:{ startLegacyAJun:true, skipAgentIds:['ajun'] },
     logger:{ warn:() => undefined },
     services:{
+      interruptedLocalExecutionReconciler:service('interrupted-local-execution'),
       paperclipRosterReconciler:service('roster'),
       approvalExpiryReconciler:service('approval-expiry'),
       xiaodReconciler:service('xiaod'),
@@ -179,6 +201,7 @@ test('后台服务沿用原启动顺序，cloud 模式不启动本机小D', () =
   });
 
   assert.deepEqual(calls.map(([name]) => name), [
+    'interrupted-local-execution',
     'roster',
     'approval-expiry',
     'repair',

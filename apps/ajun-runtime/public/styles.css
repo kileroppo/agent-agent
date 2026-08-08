@@ -1764,6 +1764,45 @@ button:disabled {
 
 /* Tasks */
 
+.task-detail-context {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 11px 14px;
+  border: 1px solid var(--mint-line);
+  border-radius: 12px;
+  background: var(--mint-soft);
+  color: var(--mint-deep);
+}
+
+.task-detail-context[hidden] {
+  display: none;
+}
+
+.task-detail-context > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.task-detail-context span {
+  font-size: 12px;
+}
+
+.task-detail-context strong {
+  font: 700 12px/1 var(--mono);
+}
+
+.task-detail-context a {
+  flex: none;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .record-toolbar {
   display: grid;
   grid-template-columns: auto minmax(220px, 320px) auto;
@@ -1958,6 +1997,7 @@ button:disabled {
 }
 
 .task-detail-link,
+.task-detail-current,
 .task-copy-id {
   min-height: 34px;
   padding: 7px 11px;
@@ -1968,6 +2008,11 @@ button:disabled {
 }
 
 .task-detail-link {
+  background: var(--mint-soft);
+  color: var(--mint-deep);
+}
+
+.task-detail-current {
   background: var(--mint-soft);
   color: var(--mint-deep);
 }
@@ -3445,6 +3490,16 @@ textarea:focus {
 
   .record-toolbar {
     gap: 9px;
+  }
+
+  .task-detail-context {
+    align-items: flex-start;
+  }
+
+  .task-detail-context > div {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
   }
 
   .content-access-summary {

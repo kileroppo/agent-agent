@@ -38,3 +38,26 @@ test('短编号只用于展示，完整编号仍保留在技术详情中', () =>
   assert.equal(shortTaskRef(task.taskId), '#7DF3C85A');
   assert.equal(presentTask(task).technical.taskId, task.taskId);
 });
+
+test('视频分析结果展示当前模式和唯一的人工下一步', () => {
+  const presentation = presentTask({
+    taskId:'video-analysis-1',
+    taskType:'content.video-benchmark-analysis',
+    status:'succeeded',
+    currentStage:'analysis_ready',
+    input:{ title:'分析这个视频', analysisIntent:'template' },
+    artifactRefs:[{
+      type:'video_content_analysis_report',
+      data:{
+        analysisIntent:'template',
+        reportVersion:'video-analysis/v2',
+        nextAction:{ label:'用这个结构写我的主题', requiresExplicitUserChoice:true }
+      }
+    }]
+  });
+
+  assert.match(presentation.summary, /模板学习报告已完成/);
+  assert.equal(presentation.nextAction, '用这个结构写我的主题');
+  assert.equal(presentation.technical.analysisIntent, 'template');
+  assert.equal(presentation.technical.reportVersion, 'video-analysis/v2');
+});

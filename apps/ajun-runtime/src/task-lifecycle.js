@@ -41,6 +41,7 @@ export const TASK_LIFECYCLE_ERROR_CODES = Object.freeze({
   INVALID_TERMINAL_ROLLBACK: 'task_terminal_rollback_invalid',
   RETRY_ATTEMPT_REQUIRED: 'task_terminal_retry_attempt_required',
   RETRY_ATTEMPT_INVALID: 'task_terminal_retry_attempt_invalid',
+  IDEMPOTENCY_CONFLICT: 'task_idempotency_conflict',
 });
 
 const STATUS_SET = new Set(TASK_STATUSES);
@@ -176,6 +177,21 @@ export function initializeTaskRecord(input, { taskId, now } = {}) {
     createdAt:timestamp,
     updatedAt:timestamp,
   };
+}
+
+export function assertTaskIdempotencyMatch(existing, candidate) {
+  const existingKey = String(existing?.idempotencyKey || '').trim();
+  const candidateKey = String(candidate?.idempotencyKey || '').trim();
+  if (!existingKey || existingKey !== candidateKey) return;
+  const existingFingerprint = String(existing?.idempotencyFingerprint || '').trim();
+  const candidateFingerprint = String(candidate?.idempotencyFingerprint || '').trim();
+  // 历史任务没有指纹时保持可读取；所有新任务都会绑定请求意图。
+  if (!existingFingerprint || !candidateFingerprint || existingFingerprint === candidateFingerprint) return;
+  throw lifecycleError(
+    TASK_LIFECYCLE_ERROR_CODES.IDEMPOTENCY_CONFLICT,
+    '同一幂等键不能绑定不同的任务内容。',
+    { idempotencyKey:existingKey },
+  );
 }
 
 export function initializeApprovalRecord(input, { approvalId, now } = {}) {
@@ -443,6 +459,28 @@ export function validateTaskStatusPatch(task, patch, { approvals = [] } = {}) {
 export function applyTaskStatusPatch(task, patch, options = {}) {
   validateTaskStatusPatch(task, patch, options);
   return { ...task, ...patch };
+}
+
+export function interruptedTaskExecutionPatch(task, detectedAt) {
+  return {
+    status:'waiting_test',
+    currentStage:'local_execution_interrupted',
+    execution:{
+      ...(task.execution || {}),
+      finishedAt:detectedAt,
+      outcome:'interrupted',
+      interruption:{ reason:'runtime_restart', detectedAt },
+    },
+    error:{
+      code:'local_execution_interrupted',
+      message:'A君运行进程在本地执行器回写结果前中断。',
+      userMessage:'这项本地工作在运行台重启前没有留下完整结果；已转为待测试，不会自动重做或冒充成功。',
+      category:'manual',
+      stage:'local_execution',
+      retryable:false,
+      occurredAt:detectedAt,
+    },
+  };
 }
 
 function assertTaskApprovalDecision(task, patch, approvals, acceptedStatuses) {

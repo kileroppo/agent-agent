@@ -25,7 +25,8 @@ export class KnowledgeArchiveWriter {
     const base = await this.resolveContentRoot();
     const archiveDir = path.resolve(base, 'Agent军团');
     assertWithin(base, archiveDir);
-    await fs.mkdir(archiveDir, { recursive:true });
+    await fs.mkdir(archiveDir, { recursive:true, mode:0o700 });
+    await fs.chmod(archiveDir, 0o700);
     const date = this.now().toISOString().slice(0, 10);
     const stem = `${date}-${slug(title)}-${safeTaskId.slice(0, 8)}`;
     const prepared = withFrontmatter(redactSensitive(markdown), { taskId:safeTaskId, idempotencyKey:safeKey, generatedAt:this.now().toISOString() });
