@@ -61,6 +61,38 @@ test('仅用确认稿恢复会复核条件并创建原 Paperclip Issue 的文本
   assert.deepEqual(stored.recovery.events.map((event) => event.event), ['requested', 'child_created']);
 });
 
+test('旧任务可用已验证自动确认凭证证明确认稿，不要求迁移历史 artifact data', () => {
+  const tasks = eligibleTasks();
+  tasks[1] = {
+    taskId:'transcript-task',
+    taskType:'media.transcribe-and-refine',
+    status:'succeeded',
+    artifactRefs:[
+      {
+        artifactId:'automatic-confirmation-legacy',
+        type:'automatic_transcript_attestation',
+        validation:{ exists:true, readable:true, nonEmpty:true },
+      },
+      {
+        artifactId:'confirmed-transcript-legacy',
+        type:'confirmed_transcript',
+        validation:{ exists:true, readable:true, nonEmpty:true },
+      },
+    ],
+  };
+
+  assert.deepEqual(
+    view(tasks[0], { audience:'local-owner', relatedTasks:tasks }).actions.map((item) => item.actionKey),
+    ['use_confirmed_transcript_only', 'request_read_only_diagnosis'],
+  );
+
+  tasks[1].artifactRefs.shift();
+  assert.deepEqual(
+    view(tasks[0], { audience:'local-owner', relatedTasks:tasks }).actions.map((item) => item.actionKey),
+    ['request_read_only_diagnosis'],
+  );
+});
+
 test('恢复请求要求 expectedUpdatedAt 并只将本机失败交给安全恢复协调器', async () => {
   const tasks = localFailureTasks();
   const store = memoryStore(tasks);

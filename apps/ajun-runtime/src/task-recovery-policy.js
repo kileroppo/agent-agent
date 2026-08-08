@@ -37,10 +37,16 @@ export function confirmedTranscriptFor(task, tasks) {
   const sourceTaskIds = new Set(uniqueStrings(task?.input?.context?.sourceTaskIds || []));
   for (const candidate of Array.isArray(tasks) ? tasks : []) {
     if (candidate.taskId !== task?.taskId && !sourceTaskIds.has(candidate.taskId)) continue;
-    const artifact = (candidate.artifactRefs || []).find(validConfirmedTranscript);
+    const artifact = (candidate.artifactRefs || []).find((item) => validConfirmedTranscript(
+      item,
+      { legacyAttested:legacyConfirmedTranscriptTask(candidate) },
+    ));
     if (artifact) return { taskId:candidate.taskId, artifact };
   }
-  const own = (task?.artifactRefs || []).find(validConfirmedTranscript);
+  const own = (task?.artifactRefs || []).find((item) => validConfirmedTranscript(
+    item,
+    { legacyAttested:legacyConfirmedTranscriptTask(task) },
+  ));
   return own ? { taskId:task.taskId, artifact:own } : null;
 }
 
@@ -123,11 +129,20 @@ function paperclipDiagnosisEligible(task) {
     && Boolean(String(task?.governance?.paperclipIssueId || '').trim())
     && !['operations.failure-recovery', 'operations.technical-repair'].includes(task?.taskType);
 }
-function validConfirmedTranscript(artifact) {
+function validConfirmedTranscript(artifact, { legacyAttested = false } = {}) {
   const mode = String(artifact?.data?.confirmationMode || '');
   return artifact?.type === 'confirmed_transcript'
     && artifact.validation?.exists === true && artifact.validation?.readable === true
-    && artifact.validation?.nonEmpty === true && ['automatic', 'human'].includes(mode);
+    && artifact.validation?.nonEmpty === true
+    && (['automatic', 'human'].includes(mode) || legacyAttested);
+}
+function legacyConfirmedTranscriptTask(task) {
+  return task?.status === 'succeeded'
+    && task?.taskType === 'media.transcribe-and-refine'
+    && (task.artifactRefs || []).some((artifact) => artifact?.type === 'automatic_transcript_attestation'
+      && artifact.validation?.exists === true
+      && artifact.validation?.readable === true
+      && artifact.validation?.nonEmpty === true);
 }
 function mayNeedConfirmedTranscriptChain(task) {
   return task?.status === 'failed' && task?.taskType === 'content.video-benchmark-analysis'
