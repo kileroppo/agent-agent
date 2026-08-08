@@ -27,16 +27,15 @@ agent-agent/
 
 ## 当前状态
 
-### 机器事实（2026-08-07）
+### 机器事实（2026-08-07 21:49 CST）
 
-- **运行身份不再手工猜测**：执行 `npm run runtime:fingerprint` 同时读取当前源码 Git、脏文件计数、不可变 release 身份和关键服务摘要；文档中的历史 PID/release 只保留为验收记录，不能替代当前机器输出。
-- **依赖服务健康，生产写入继续关闭**：Paperclip、小D、Publisher 健康接口均为 200；Publisher 为 `disabled`、`realConnectorsConfigured=false`，Campaign 与 M5 Cron 未恢复。本轮未调用 Provider、未执行发布、未发送外部消息。
-- **正式源码与 live 已收敛到本地 `main`**：Boom Monitor 已作为 A君原生模块和同源页面“爆款雷达”接管 4321，不再依赖 8081 或独立 Docker。历史 SQLite 已按表、行数、评分版本、逻辑指纹和源主键身份迁入 A君数据目录；自动派发默认关闭，只有 `T1/T2/T3` 可在明确设置或人工确认后进入小D→小拆链。旧容器和网络已退役，Docker 数据卷与迁移前快照保留用于受控回滚；A君提供每日在线一致性备份并保留 14 份。源码、迁移与真实运行证据见 [收敛验收账本](./docs/reviews/boom-monitor-ajun-convergence/acceptance.md)。本轮只提交到本地 `main`，未推送远端；共享根工作树的既有修改未被覆盖。
-- **核心编排大文件已按领域行为收敛**：`TaskService` 主入口约 545 行，任务受理、通知、Paperclip 指派和岗位执行分别进入深层 Module；原 1510 行任务执行入口降为约 607 行。M5 `ContentCampaignKernel` 主入口约 294 行，生命周期、Route、Replay、Planning、Work Product 血缘和交付校验各自由明确 Interface 持有；原 1124/1154 行执行文件降为约 36/171 行。Publisher Gateway 由 1287 降为约 243 行，发布尝试和指标采集分别隐藏在单方法 Interface 后。架构门禁限制这些责任 Module 回涨，既有 HTTP、MCP、Publisher 与测试调用方式不变。
-- **生产源码已清除千行单体并进入 live**：main 把 15 个原千行责任文件按本机内容生产、开放研究、Paperclip 投影、飞书指挥、阶段恢复、CUA 会话、媒体产物、M5 v2 对账和 Controller JWT 切换等完整行为深化为 Module；排除历史 release、测试、数据与运维脚本后，当前最大生产源码为 992 行。架构检查对所有未登记生产源码设置 1000 行硬上限，并为本轮 Module 设置更低的责任上限；发布级源码测试、主启动 smoke、只读恢复 smoke 和 live 指纹均通过。
-- **小办本地 PPTX 已进入 A君 live**：`office.presentation-package` 继续由小办承接，PPTD 与 PPTX 均为本地受控工具；live `office-presentation=ready`。这只证明运行时已加载能力，真实 Paperclip/Hermes 公开样例任务及三类 Work Product 回传仍待单独验收。
-- **日期炸弹已修复**：Publisher 的 4 个到期 lease 用例注入固定时钟，不再依赖执行当天日期，也没有把批准到期日向后延长。
-- **M5 仍为 PARTIAL**。只读 `production:readiness` 当前预期因 Publisher/connector、Campaign 快照、selector、Profile lease 和 provider 缺口返回 `not_ready`；恢复 Campaign、注入 provider、启用 Publisher 或发布均须另行批准。
+- **视频分析四模式已进入 A君 不可变运行链**：真实摘要任务 `7d45ed66-e86a-4a08-8179-509939352593` 复用既有确认稿，在 Hermes 外层 401 后安全生成本机证据化报告，返回 `analysisIntent=digest`、`reportVersion=video-analysis/v2`，未新增获取、转写、抽帧、小创、审核或发布任务。当前 PID 与 release 以 launchd entrypoint 和该目录 `release-manifest.json` 为准，避免在源码文档中形成自引用漂移。Publisher、Campaign 与 Cron 继续关闭；真实飞书模式消息仍待负责人验收。
+- **小D已接入无感 ASR 路由，但不会为“快模型”牺牲速度或质量**：字幕仍优先；本机基准显示 M1 Max 上 `mlx-whisper large-v3-turbo` 明显快于 CPU `faster-whisper-small`，因此日常任务继续走 MLX 质量主路。隔离安装的 `faster-whisper 1.2.1` 只在质量模型失败、任务非正式且不超过受控时长时应急接管；应急稿强制进入人工完整听审，不能自动确认。跨模型抽样校验路径保留但默认关闭，后续只有在目标机器基准证明更快时才启用。小D自动检查 56/56 通过。
+- **小办 PPT 不可变 release 是历史验收基线**：当时 PID `56917`，`releaseHash=811d3c471c4e3ab48d3f67fe8b586a3d6941eba8e7f41c38a29c2133f510593b`，`payloadHash=31e2f5d1eaeb17c37a2fcd36521f3110142b27896fed30cbbc3d9a3092107444`，来源为 clean commit `9204a92a057c7ed52a552c9f93b9a748cfa6e9a6`；其 PPT 能力验收仍有效，但 PID 与 release 不再代表当前 live。
+- **小办 PPT 真实任务已完成**：A君任务 `ca1c34a8-f58f-48ff-a86b-c1a1e06ea5a8` 成功，Paperclip `AGE-1036` 为 done，三类 Work Product 均 healthy；4 页 PPTX 通过 ZIP/XML、fade、回读渲染和无溢出检查。执行全程使用受控本地工具链，不访问 Kimi、不读取 Cookie/Vault、不触发 Hermes 模型 Run。
+- **共享主工作树不是 live 源码**：现有未提交修改继续保留；live 使用隔离 clean worktree `work/runtime-sources/office-presentation-local-pptx-20260807` 和分支 `codex/office-presentation-local-pptx-runtime-20260807`，没有把其他脏改动带入 release。
+- **验证通过**：Manifest `17/17`，最终 Task/Projector 回归 `131/131`，此前 PPT 聚焦回归 `145/145`，架构检查、不可变 release 全量验证、main/recovery smoke 和 payload 校验均通过；固定公开样例另经 WPS 逐页检查中文、表格、图表、图片与可编辑性。
+- **M5 仍为 PARTIAL**。唯一安全下一步：生成并人工审阅一份不含 Secret 的当前 Campaign readiness 输入快照，再执行只读 `production:readiness`；恢复 Campaign、注入 provider、启用 Publisher 或发布均须另行批准。
 
 > 以下按日期保留历史验收，不再作为当前 PID、release 或唯一下一步的依据。
 
@@ -122,6 +121,7 @@ agent-agent/
 - [系统架构](./docs/architecture/system-architecture.md)
 - [M1 平台兼容性验证](./docs/architecture/m1-platform-compatibility-validation.md)
 - [核心契约](./docs/contracts/core-contracts.md)
+- [Agent军团使用说明书](./docs/guides/Agent军团使用说明书.md)
 - [Agent 搭建与上线流程](./agents/agent-build-and-release.md)
 - [创建 Hermes Agent 与飞书 Bot 接线教程](./docs/guides/创建Hermes-Agent与飞书Bot接线教程.md)
 - [目录与代码规范](./docs/standards/repository-and-code.md)

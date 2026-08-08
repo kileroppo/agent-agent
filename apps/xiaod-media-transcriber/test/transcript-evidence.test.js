@@ -103,6 +103,8 @@ test('质量门禁通过时默认生成系统确认稿，不冒充人工完整�
   const attestation = JSON.parse(await fs.readFile(confirmation.confirmationAttestationPath, 'utf8'));
   assert.equal(attestation.completeListen, false);
   assert.equal(attestation.confirmationMode, 'automatic');
+  assert.equal((await fs.stat(confirmation.confirmedTranscriptPath)).mode & 0o777, 0o600);
+  assert.equal((await fs.stat(confirmation.confirmationAttestationPath)).mode & 0o777, 0o600);
 });
 
 test('转录异常时自动确认停止并转人工，不绕过质量问题', () => {
@@ -150,17 +152,35 @@ test('人工完整听审生成独立确认稿和校验值，重复确认幂等',
   await fs.mkdir(jobDir, { recursive:true });
   const transcriptPath = path.join(jobDir, 'transcript-timed.md');
   const qualityReportPath = path.join(jobDir, 'quality.json');
+  const guidePath = path.join(jobDir, 'guide.md');
+  const originalMarkdownPath = path.join(jobDir, 'draft.md');
   await fs.writeFile(transcriptPath, '# 样片\n\n[00:00] 这是已经完整听审的测试转录正文。');
   await fs.writeFile(qualityReportPath, JSON.stringify({ hardFailures:[] }));
+  await fs.writeFile(guidePath, '## 概述\n\n这是忠实的内容导览。');
+  await fs.writeFile(originalMarkdownPath, '# 样片\n\n## 完整校对文本\n\n机器稿。');
   const awaiting = await store.update(job.id, {
     status:'awaiting_review',
-    output:{ timedTranscriptPath:transcriptPath, transcriptPath, qualityReportPath, transcriptChecksum:sha256('机器稿'), reviewStatus:'awaiting_review' }
+    output:{ timedTranscriptPath:transcriptPath, transcriptPath, qualityReportPath, guidePath, markdownPath:originalMarkdownPath, transcriptChecksum:sha256('机器稿'), reviewStatus:'awaiting_review' }
   });
-  const first = await reviewTranscript({ store, job:awaiting, input:{ decision:'confirm', completeListen:true, reviewerRef:'owner' } });
+  let deliveredMarkdown = null;
+  const delivery = { deliver:async ({ markdown }) => {
+    deliveredMarkdown = markdown;
+    return { configured:true, url:'https://feishu.cn/docx/reviewed', permissionGranted:true };
+  } };
+  const correctedTranscript = '这是已经由人工完整听审并修正后的测试转录正文，飞书只能收到这一版。';
+  const first = await reviewTranscript({
+    store, job:awaiting, delivery,
+    input:{ decision:'confirm', completeListen:true, reviewerRef:'owner', correctedTranscript }
+  });
   assert.equal(first.job.output.reviewStatus, 'confirmed');
   assert.equal(first.job.output.confirmationMode, 'human');
   assert.equal(first.job.output.confirmedTranscriptChecksum.length, 64);
+  assert.equal(first.job.status, 'completed');
+  assert.equal(first.job.output.larkUrl, 'https://feishu.cn/docx/reviewed');
+  assert.match(deliveredMarkdown, /人工完整听审并修正后/);
+  assert.doesNotMatch(deliveredMarkdown, /机器稿。/);
+  assert.equal(await fs.readFile(first.job.output.markdownPath, 'utf8'), deliveredMarkdown);
   assert.match(await fs.readFile(first.job.output.confirmedTranscriptPath, 'utf8'), /completeListen: true/);
-  const second = await reviewTranscript({ store, job:first.job, input:{ decision:'confirm', completeListen:true, reviewerRef:'owner' } });
+  const second = await reviewTranscript({ store, job:first.job, delivery, input:{ decision:'confirm', completeListen:true, reviewerRef:'owner' } });
   assert.equal(second.duplicate, true);
 });

@@ -30,6 +30,6 @@
     "local-ai:smoke": "ops/local-ai/smoke.sh"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18.0"
   }
 }

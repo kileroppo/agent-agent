@@ -15,6 +15,14 @@ test('架构检查拒绝 packages 反向依赖 apps', async (context) => {
   assert.match(result.stderr, /packages 不得反向依赖 apps/);
 });
 
+test('架构检查同样审查 TypeScript 生产源码', async (context) => {
+  const root = await fixture(context);
+  await write(root, 'packages/contracts/src/index.ts', "import '../../../apps/runtime/src/app.ts';\n");
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /packages 不得反向依赖 apps/);
+});
+
 test('架构检查拒绝生产源码深相对跨 workspace', async (context) => {
   const root = await fixture(context, { appDependencies:{ '@example/contracts':'1.0.0' } });
   await write(root, 'apps/runtime/src/app.js', "import '../../../packages/contracts/src/index.js';\n");
@@ -48,7 +56,7 @@ test('架构检查拒绝应用层重新引入 m5-kernel 一行转发门面', asy
   const root = await fixture(context);
   await write(
     root,
-    'apps/ajun-runtime/src/m5-route-execution.js',
+    'apps/ajun-runtime/src/m5-route-execution.ts',
     "export * from '@agent-army/m5-kernel/route-execution';\n",
   );
   const result = run(root);

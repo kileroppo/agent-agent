@@ -16,8 +16,26 @@
     {
       "id": "claims-require-evidence",
       "taskType": "content.video-benchmark-analysis",
-      "input": { "evidenceMode": "formal", "depth": "full" },
+      "input": { "evidenceMode": "formal", "analysisIntent": "deep", "depth": "full" },
       "expected": { "validation": "claimsEvidenceLinked" }
+    },
+    {
+      "id": "digest-quotes-are-verbatim",
+      "taskType": "content.video-benchmark-analysis",
+      "input": { "evidenceMode": "formal", "analysisIntent": "digest" },
+      "expected": { "validation": "modeStructurePassed", "quoteCount": "2-3" }
+    },
+    {
+      "id": "template-is-candidate-with-originality-guard",
+      "taskType": "content.video-benchmark-analysis",
+      "input": { "evidenceMode": "formal", "analysisIntent": "template" },
+      "expected": { "validation": "modeStructurePassed", "templateStatus": "candidate" }
+    },
+    {
+      "id": "style-locks-facts-and-needs-selection",
+      "taskType": "content.video-benchmark-analysis",
+      "input": { "evidenceMode": "formal", "analysisIntent": "style" },
+      "expected": { "validation": "modeStructurePassed", "variantCount": 4, "factsLocked": true }
     },
     {
       "id": "visual-claims-require-frame-evidence",

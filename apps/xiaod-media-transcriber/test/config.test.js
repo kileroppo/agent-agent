@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { configuredCapabilities } from '../src/config.js';
+import { configuredCapabilities, requireLoopbackHost } from '../src/config.js';
 import { buildRefinerRequest, extractRefinerMarkdown, fallbackGuide, requestRefinement } from '../src/pipeline.js';
 
 test('configuration reports only complete optional integrations', () => {
@@ -9,6 +9,15 @@ test('configuration reports only complete optional integrations', () => {
   assert.equal(typeof capabilities.lark, 'boolean');
   assert.equal(typeof capabilities.mediaCrawlerDeep, 'boolean');
   assert.equal(typeof capabilities.testFailpointArmed, 'boolean');
+});
+
+test('小D运行台只允许回环监听，拒绝环境变量把无鉴权入口暴露到局域网', () => {
+  assert.equal(requireLoopbackHost('127.0.0.1'), '127.0.0.1');
+  assert.equal(requireLoopbackHost('127.1.2.3'), '127.1.2.3');
+  assert.equal(requireLoopbackHost('localhost'), 'localhost');
+  assert.equal(requireLoopbackHost('::1'), '::1');
+  assert.throws(() => requireLoopbackHost('0.0.0.0'), /只允许监听本机回环地址/);
+  assert.throws(() => requireLoopbackHost('192.168.1.20'), /只允许监听本机回环地址/);
 });
 
 test('StepFun uses Messages API and corrects a Step Plan base for step-3.7', () => {

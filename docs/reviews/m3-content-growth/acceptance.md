@@ -4,7 +4,7 @@
 | --- | --- |
 | 状态 | 已验收 |
 | 关联 PRD | [M3 内容分析与知识归档](../../../tasks/prd-m3-content-analysis-and-knowledge-archive.md) |
-| 最后更新 | 2026-07-30 |
+| 最后更新 | 2026-08-07 |
 
 ## 验收总览
 
@@ -57,6 +57,13 @@
 - 结果：40 + 19 + 469 + 9，共 537 项通过。
 - 覆盖：`visualMode` 默认与透传、B站/非B站/本地上传路由、转录音轨与视觉视频分流、词级时间轴、真实来源元数据、12/48 帧上限、场景/字幕/均匀补帧、重复帧过滤、故事板、校验值、跨句引用忽略中间时间戳但仍核验来源时间点、关键帧引用门禁、`complete|partial|needs_input` 降级，以及非飞书来源 `local_only` 不创建飞书文档。
 - 权限：小拆 Manifest/Profile 没有增加下载器、Cookie、任意文件或独立飞书 Gateway 权限。
+
+### M3-AUTO-010：小D无感 ASR 路由
+
+- 命令：`cd apps/xiaod-media-transcriber && npm test`。
+- 结果：56/56 通过。
+- 覆盖：可靠字幕不运行 ASR；正式听审、完整分析和必须画面证据的任务固定走质量模型；备用模型的语言概率、词概率、段落 logprob、无语音联合信号、压缩率、时间轴和重复文本门禁；跨模型三段抽查；质量模型失败时只有普通任务可降级；备用稿强制人工完整听审，正式任务拒绝降级。
+- 依赖：`faster-whisper 1.2.1` 与 `ctranslate2 4.8.1` 安装在用户级隔离环境，未进入系统 Python 或仓库；模型固定使用本机缓存的 `Systran/faster-whisper-small`，运行时禁止下载新模型。
 
 ### M3-AUTO-003：岗位契约
 
@@ -200,6 +207,17 @@
 - 验收结果：M3 新版图文报告、真实草稿、可拍脚本和“用这版”业务路径获得负责人确认，M3 人工质量门禁关闭。
 - 证据边界：本条记录的是负责人最终验收确认，不补造飞书消息 ID、截图或任务 ID；既有自动化、本机运行、Hermes/Paperclip、飞书链路和产物证据仍分别保留。
 - 微信本机 Vault 的真实私密读取不属于 M3 完成条件；该候选岗位继续保持 `testing`，不得因 M3 关闭而激活或扩权。
+
+### M3-REAL-010：小D本机双 Whisper 路由基准与运行切换
+
+- 状态：本机运行 PASS；未发送飞书消息、未读取外部素材、未调用文本整理 Provider。
+- 隔离运行时：`faster-whisper 1.2.1`、`ctranslate2 4.8.1`，CPU 支持 `float32`、`int8`、`int8_float32`；使用保留的 `Systran/faster-whisper-small` 完整本地快照，禁止运行时下载。
+- 输入：本机 `say` 生成、FFmpeg 规范化的 127.524813 秒简体中文合成音频，不含私人或外部数据。
+- 同机单模型基准：`mlx-community/whisper-large-v3-turbo` 为 8.93 秒、500 字符、33 段；`faster-whisper-small int8` 为 45.84 秒、499 字符、9 段。当前 Mac 上备用小模型约慢 5.1 倍，且测试中出现繁简混杂和专有词误识别，因此不能作为日常快速主路。
+- 最终策略：可靠字幕优先；MLX 大模型为默认质量主路；faster-whisper 只在 MLX 失败、任务非正式/非完整分析且时长未超限时应急降级，降级结果固定 `requiresHumanReview=true`。跨模型抽样一致性路径保留但 `FASTER_WHISPER_PROGRESSIVE_ENABLED=0`。
+- 活动服务：重启前确认 77 个历史 Job、0 个进行中；最终 `ai.agent-army.xiaod` PID 为 `31365`，cwd 仍为仓库内 `apps/xiaod-media-transcriber`，只监听 `127.0.0.1:4318`。新健康响应返回 `adaptiveAsr=true`、`fastAsrCandidate=true`，三个内容获取适配器继续 healthy。
+- 自动化：小D 56/56 通过；覆盖质量主路、低风险故障降级、备用稿强制人工听审、正式任务拒绝降级和路由证据。
+- 证据边界：活动健康与本地合成音频证明代码、依赖、模型和当前进程已加载；本轮没有人为制造正式服务的 MLX 故障，真实故障降级由隔离编排测试覆盖，不冒充已在用户真实素材上发生。
 
 ## 候选能力状态
 

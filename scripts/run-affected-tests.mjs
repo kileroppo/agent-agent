@@ -8,6 +8,13 @@ const DEFAULT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
 const ROOT_WIDE_PREFIXES = Object.freeze(['scripts/']);
 const AJUN_SHARED_PREFIXES = Object.freeze(['agents/', 'docs/contracts/']);
 const AJUN_MODULE_TESTS = Object.freeze({
+  'src/analysis-intent.ts': Object.freeze([
+    'test/analysis-intent.test.js',
+    'test/agent-army-client.test.js',
+    'test/feishu-commander.test.js',
+    'test/local-content-growth.test.js',
+    'test/task-service.test.js',
+  ]),
   'src/paperclip-task-projector.js': Object.freeze([
     'test/paperclip-task-projector.test.js',
     'test/paperclip-bridge.test.js',

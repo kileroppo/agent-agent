@@ -55,13 +55,16 @@
 
 ## 当前交接
 
-- [小办演示文稿能力交接](./current/office-presentation-capability-handoff.md)：本地 PPTD/PPTX、逐页 QA、WPS 固定样例和不可变运行时切换已完成；唯一下一步是完成真实公开样例任务的三类 Work Product 回传验收。
+- [系统产出稳定性对抗审查交接](./current/output-stability-audit-handoff.md)：统一产物门禁、并发状态事务、幂等意图、原子执行抢占、重启收敛、输入上限、私有产物权限，以及小D飞书文档单飞/持久化交付账本/不确定结果仲裁/听审后交付均已通过全量验证；A君候选 `4b4457ca2878be30…` 隔离启动通过，小D需按既有 LaunchAgent 单独重启；唯一下一步是负责人授权切入 4321/4318 并做一条真实飞书产物验收。
+- [视频分析四模式飞书验收交接](./current/video-analysis-modes-feishu-acceptance-handoff.md)：四模式契约、证据复用、指标学习门禁、本机回退和不可变 live 已完成；唯一下一步是负责人在 A君 真实飞书私聊发送一条指定模式的视频链接，核对原会话结果中的模式、版本和唯一下一步。
+- [Agent 使用说明书问答接入交接](./current/agent-manual-query-handoff.md)：不可变 release `99f99c56…` 已切到 4321，小D真实说明书调用已成功；发现的内部 `tool_describe` 进度泄漏已在 11 个正式 Profile 统一关闭并重启常驻 Gateway。唯一下一步是负责人复验小D只返回最终说明书，再完成其余权限边界验收。
+- [小办演示文稿能力交接](./current/office-presentation-capability-handoff.md)：已关闭；不可变 release、真实公开任务、三类 Work Product、自动视觉 QA 与 WPS 固定样例验收均完成。
 - [小R多路线搜索与证据方法交接](./current/intel-research-search-method-handoff.md)：Yichen 技能已同步到小R Profile，六路规划器已在 Profile 实跑；A君执行器源码和全量回归已通过。唯一下一步是从独立干净 worktree 冻结并切换不可变 release，再用一条真实公开研究任务验收结果质量。
 - [本地 AI 能力系统交接](./current/local-ai-capability-system-handoff.md)：九项 Mac 本地能力和统一网关已完成真实样本验收；唯一下一步是等待 18081 当前请求自然结束后切换 launchd，并完成重启恢复与 A君运行证据。
 - [Agent 技能接线与微信本机分析交接](./current/agent-skill-and-private-wechat-capability-handoff.md)：代码、岗位技能同步、Paperclip 公司技能、本机模型和 4321 不可变 release 已完成；唯一下一步是由主人指定一次微信会话与范围，验收临时授权、撤销和本机脱敏摘要。
 - [系统重构与技术负债偿还交接](./current/system-architecture-debt-repayment-handoff.md)：已关闭；候选 1–7、可追溯不可变 release、SQLite 迁移及二次启动恢复均通过，外部平台仍按原独立授权边界保持关闭。
 - [M2 多账号与三平台只读增量验收交接](./current/m2-multi-account-crawl-acceptance-handoff.md)：已关闭；多账号、运行台及小红书/抖音/B站真实只读均已通过，小红书成功样本使用发现页自然生成的完整链接。
-- [M5 高权限内容自治交接](./current/m5-high-autonomy-content-operations-handoff.md)：本地候选已完成静态卡与核心编排拆分；Paperclip live 仍为 15 阶段/17 Routine/5 控制器、插件 `0.4.9`，活动暂停，Cron 与 Publisher 关闭。只读 readiness 保留阻断项；任何恢复或平台写入仍需独立批准。
+- [M5 高权限内容自治交接](./current/m5-high-autonomy-content-operations-handoff.md)：v2 15 阶段/17 Routine/5 个无模型控制器及内容插件 `0.4.7` 已对账到 live，`0.4.6` 回滚链、Paperclip Secret 引用和 8 岗插件绑定已完成；活动仍未批准。唯一下一步是保持活动、Cron 和真实 Publisher 关闭，冻结真实 selector、签发绑定 accountRef 的命名 Profile lease，并在取得平台写权限后单独批准首发。
 - [M4 岗位自主执行与模型切换交接](./current/m4-autonomous-agent-capabilities-handoff.md)：代码、契约与模型元数据实施中；唯一下一步是负责人通过 Hermes 官方入口补齐各 Profile 的 StepFun/DeepSeek 授权，再做一次性重启和真实验收。
 - [M2 Agent 人性化体验验收交接](./current/m2-agent-experience-polish-handoff.md)：本机实现、自动检查与真实浏览器检查已通过；唯一下一步是在 A君真实飞书原会话验证中文 `/new` 按钮和可点击任务号。
 - [M3 内容增长与知识归档交接](../archive/handoffs/m3-content-growth-handoff.md)：已关闭并归档；负责人确认已于 2026-07-29 完成新版内容质量和最终飞书脚本闭环验收，后续进入 M4。

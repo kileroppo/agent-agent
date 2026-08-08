@@ -96,6 +96,14 @@
   - 复盘少于 5 条同类型真实 72h `MetricSnapshot` 时只记录 `insufficient_sample`，达到 5 条才生成状态为 `proposed` 的 `LearningProposal`；提案必须离线回放、审核和单条灰度，不能直接修改生产 Prompt、权限、频率或投流；
   - A君内容活动 API、控制台、CampaignGrant、暂停/恢复/停止与“插件或公司级配置不完整即关闭”的失败关闭边界；
   - Paperclip `2026.722.0` 对象形 `secret_ref` 契约；旧字符串引用、缺失 Secret 元数据/绑定、未配置 Provider、岗位 grant、费率、官方音色或工作区会在活动批准/恢复前被只读门禁拒绝，门禁不解析 Secret 值。
+
+## 8. 单版本视频分析模式契约（2026-08-07）
+
+- 普通视频分析统一使用 `analysisIntent=digest|deep|template|style`；分别输出精华提炼、13 模块教学式深度拆解、结构模板候选和四种事实锁定短样稿。旧 `depth=fast|full` 继续兼容，不能成为第二套模式真相。
+- A君、飞书、MCP 单任务、Mission 和 HTTP 任务入口必须保留同一字段。视频 URL 只建立一次“小D获取确认 → 小拆分析”；切换模式通过原来源任务引用复用确认稿和画面证据，不重新下载、转写或抽帧。
+- 正式输出继续要求确认稿；原文金句、结构结论和风格事实清单都必须绑定字幕片段、时间点或帧。机制说明标为推断，无真实指标时模板只称候选、数据版降级为证据驱动版。
+- 分析报告只提供一个下一步。模板或风格结果只有在负责人明确选择后才能交给小创；本契约不批准 Campaign、Cron、Publisher、平台写入或自动发布。
+- 表现学习继续复用现有指标闭环：指标必须绑定平台、平台内容 ID、发布时间和内容版本；少于五条同平台同类 72h 样本只记录 `insufficient_sample`，达到门槛也只生成等待人工审核的 `LearningProposal`。
 - 当前自动化证据：A君 `1051/1051`、Pipeline `67/67`、内容插件 `97/97`、Publisher `203/203`。结果覆盖当前 16/18/6 契约、真实双变体、模板绑定、Publisher 六项 Paperclip 核心 access 和恢复失败关闭；只证明本地源码与测试 fixture，不替代 live、StepFun Provider、Computer Use 或真实平台验收。
 - 当前控制面与运行事实：
   - live v2 为 M5 Goal、Project `86ad0a0a…`、17 个有效 Routine、15 阶段 Pipeline `6dfd94da…`，以及 daily、parallel、publisher、metrics、retrospective 5 个无模型 HTTP 控制器；没有分支引用且从未触发的旧 `m5-research` Routine 已归档并保留记录。归档后的只读 reconcile/dry-run 为有效 Routine `17/17`、转换 `16/16`、blocker 0，草案仍为 `0/14`、Cron off；旧 v1 Pipeline 和 22 个 Case 原样保留；

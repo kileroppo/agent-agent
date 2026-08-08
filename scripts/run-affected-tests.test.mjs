@@ -99,6 +99,20 @@ test('A君深层模块变更只选择该模块及 TaskService 接缝测试', () 
   );
 });
 
+test('分析意图 TypeScript Module 变更选择自身及四个真实消费者测试', () => {
+  const ajun = graph.get('ajun-runtime');
+  assert.deepEqual(
+    selectAffectedTestFiles(['apps/ajun-runtime/src/analysis-intent.ts'], ajun),
+    [
+      'test/agent-army-client.test.js',
+      'test/analysis-intent.test.js',
+      'test/feishu-commander.test.js',
+      'test/local-content-growth.test.js',
+      'test/task-service.test.js',
+    ],
+  );
+});
+
 test('A君未知或跨模块文件变更退回 workspace 全量测试', () => {
   const ajun = graph.get('ajun-runtime');
   assert.equal(

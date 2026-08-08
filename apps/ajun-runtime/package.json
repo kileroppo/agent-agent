@@ -5,7 +5,7 @@
   "description": "Local-first Agent Army coordination skeleton",
   "type": "module",
   "scripts": {
-    "dev": "node --watch src/server.js",
+    "dev": "AJUN_HOST=127.0.0.1 AJUN_DEV_HOT_RELOAD=true AJUN_DISABLE_BACKGROUND_SERVICES=true PORT=${PORT:-4322} node --watch-preserve-output --watch-path=src --watch-path=public --watch-path=../../agents --watch-path=../../integrations --watch-path=../../packages src/server.js",
     "start": "node src/server.js",
     "acceptance:governance-feishu": "NODE_NO_WARNINGS=1 node scripts/verify-governance-feishu-acceptance.mjs",
     "acceptance:m3-content-growth": "node scripts/verify-m3-content-growth.mjs",

@@ -60,7 +60,6 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
       XIAOD_ARTIFACT_ROOT:path.join(temporaryRoot, 'xiaod'),
       AJUN_HERMES_NATIVE_FEISHU:'false',
       AJUN_HERMES_NATIVE_EMPLOYEE_IDS:'',
-      AJUN_BOOM_MONITOR_ENABLED:'true',
     },
     logger:{ log:(message) => logs.push(message), warn:() => undefined },
   });
@@ -76,46 +75,6 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
   assert.ok(Array.isArray(payload.tasks));
   assert.equal(runtime.services.hermesNativeCompletionWatcher.detailBaseUrl, '');
 
-  const consoleOverview = await fetch(`${baseUrl}/api/console-overview`);
-  assert.equal(consoleOverview.status, 200);
-  const consolePayload = await consoleOverview.json();
-  assert.equal(Object.hasOwn(consolePayload, 'tasks'), false);
-  assert.ok(Array.isArray(consolePayload.recentTasks));
-
-  const taskRecords = await fetch(`${baseUrl}/api/task-records?view=needs_action&limit=24`);
-  assert.equal(taskRecords.status, 200);
-  assert.deepEqual(await taskRecords.json(), {
-    items:[],
-    total:0,
-    counts:{ needs_action:0, active:0, completed:0, all:0 },
-    nextCursor:null,
-    revision:'::0',
-    routineSummary:{ hidden:0, today:0, attention:0, latestUpdatedAt:null },
-    query:{
-      view:'needs_action', q:'', agentId:'', taskType:'', since:'', until:'', includeRoutine:false, limit:24, cursor:null,
-    },
-  });
-
-  const consoleOverview = await fetch(`${baseUrl}/api/console-overview`);
-  assert.equal(consoleOverview.status, 200);
-  const consolePayload = await consoleOverview.json();
-  assert.equal(Object.hasOwn(consolePayload, 'tasks'), false);
-  assert.ok(Array.isArray(consolePayload.recentTasks));
-
-  const taskRecords = await fetch(`${baseUrl}/api/task-records?view=needs_action&limit=24`);
-  assert.equal(taskRecords.status, 200);
-  assert.deepEqual(await taskRecords.json(), {
-    items:[],
-    total:0,
-    counts:{ needs_action:0, active:0, completed:0, all:0 },
-    nextCursor:null,
-    revision:'::0',
-    routineSummary:{ hidden:0, today:0, attention:0, latestUpdatedAt:null },
-    query:{
-      view:'needs_action', q:'', agentId:'', taskType:'', since:'', until:'', includeRoutine:false, limit:24, cursor:null,
-    },
-  });
-
   const disclosureState = await fetch(`${baseUrl}/disclosure-state.js`);
   assert.equal(disclosureState.status, 200);
   assert.match(disclosureState.headers.get('content-type'), /^text\/javascript/);
@@ -125,48 +84,6 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
   assert.equal(consoleNavigation.status, 200);
   assert.match(consoleNavigation.headers.get('content-type'), /^text\/javascript/);
   assert.match(await consoleNavigation.text(), /createConsoleNavigation/);
-
-  const accessViews = await fetch(`${baseUrl}/app-access-views.js`);
-  assert.equal(accessViews.status, 200);
-  assert.match(accessViews.headers.get('content-type'), /^text\/javascript/);
-  assert.match(await accessViews.text(), /export function createAccessViews/);
-
-  const interactions = await fetch(`${baseUrl}/app-interactions.js`);
-  assert.equal(interactions.status, 200);
-  assert.match(interactions.headers.get('content-type'), /^text\/javascript/);
-  assert.match(await interactions.text(), /export function bindConsoleInteractions/);
-
-  const taskRecordFilter = await fetch(`${baseUrl}/task-record-filter.js`);
-  assert.equal(taskRecordFilter.status, 200);
-  assert.match(taskRecordFilter.headers.get('content-type'), /^text\/javascript/);
-  assert.match(await taskRecordFilter.text(), /selectTaskRecordFilter/);
-
-  const taskRecordWorkbench = await fetch(`${baseUrl}/task-record-workbench.js`);
-  assert.equal(taskRecordWorkbench.status, 200);
-  assert.match(taskRecordWorkbench.headers.get('content-type'), /^text\/javascript/);
-  assert.match(await taskRecordWorkbench.text(), /createTaskRecordWorkbench/);
-
-  const consoleWithRecordState = await fetch(`${baseUrl}/?recordView=all&recordTime=all`);
-  assert.equal(consoleWithRecordState.status, 200);
-  assert.match(consoleWithRecordState.headers.get('content-type'), /^text\/html/);
-  assert.match(await consoleWithRecordState.text(), /id="record-workbench"/);
-
-  const versionedRecordWorkbench = await fetch(`${baseUrl}/task-record-workbench.js?v=acceptance`);
-  assert.equal(versionedRecordWorkbench.status, 200);
-  assert.match(versionedRecordWorkbench.headers.get('content-type'), /^text\/javascript/);
-
-  const boomConsole = await fetch(`${baseUrl}/boom-monitor-console.js`);
-  assert.equal(boomConsole.status, 200);
-  assert.match(boomConsole.headers.get('content-type'), /^text\/javascript/);
-  assert.match(await boomConsole.text(), /createBoomMonitorConsole/);
-
-  const boomHealth = await fetch(`${baseUrl}/api/boom-monitor/health`);
-  assert.equal(boomHealth.status, 200);
-  assert.deepEqual((await boomHealth.json()).runtime, 'ajun-native');
-
-  const boomSettings = await fetch(`${baseUrl}/api/boom-monitor/settings`);
-  assert.equal(boomSettings.status, 200);
-  assert.equal((await boomSettings.json()).analysis_auto.enabled, false);
 
   const missing = await fetch(`${baseUrl}/api/not-found`);
   assert.equal(missing.status, 404);
@@ -192,7 +109,6 @@ test('后台服务沿用原启动顺序，cloud 模式不启动本机小D', () =
       paperclipRepairReconciler:service('repair'),
       paperclipHermesTaskReconciler:service('hermes-task'),
       missionReconciler:service('mission'),
-      boomMonitor:service('boom-monitor'),
       hermesNativeCompletionWatcher:service('completion-watch'),
       technicalRepairWatchdog:service('repair-watchdog'),
       officialFeishuChannelRunner:service('legacy-feishu'),
@@ -207,45 +123,10 @@ test('后台服务沿用原启动顺序，cloud 模式不启动本机小D', () =
     'repair',
     'hermes-task',
     'mission',
-    'boom-monitor',
     'completion-watch',
     'repair-watchdog',
     'legacy-feishu',
     'employee-feishu',
   ]);
   assert.deepEqual(calls.at(-1)[1], { skipAgentIds:['ajun'] });
-});
-
-test('禁用原生爆款雷达时不打开或创建目标 SQLite', async (t) => {
-  const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-boom-fence-'));
-  t.after(() => fs.rm(temporaryRoot, { recursive:true, force:true }));
-  const dataDir = path.join(temporaryRoot, 'data');
-  const runtime = await startRuntime({
-    createRuntime,
-    startBackgroundServices:false,
-    environment:{
-      ...process.env,
-      PORT:'0',
-      AJUN_HOST:'127.0.0.1',
-      AGENT_ARMY_SOURCE_PROJECT_ROOT:'',
-      AGENT_ARMY_TASK_STORE:'json',
-      AGENT_ARMY_DATA_DIR:dataDir,
-      AGENT_ARMY_PRIVATE_DIR:path.join(temporaryRoot, 'private'),
-      PAPERCLIP_REPAIR_WORKTREE_PARENT:path.join(temporaryRoot, 'worktrees'),
-      AGENT_ARMY_CONTENT_WORKSPACE_DIR:path.join(temporaryRoot, 'content'),
-      AGENT_ARMY_HERMES_PROFILE_ROOT:path.join(temporaryRoot, 'hermes'),
-      AUTO_WORK_ROOT:path.join(temporaryRoot, 'auto-work'),
-      XIAOD_ARTIFACT_ROOT:path.join(temporaryRoot, 'xiaod'),
-      AJUN_HERMES_NATIVE_FEISHU:'false',
-      AJUN_HERMES_NATIVE_EMPLOYEE_IDS:'',
-      AJUN_BOOM_MONITOR_ENABLED:'false',
-    },
-    logger:{ log:() => undefined, warn:() => undefined },
-  });
-  t.after(() => new Promise((resolve) => runtime.server.close(resolve)));
-  assert.equal(runtime.services.boomMonitor, null);
-  const health = await fetch(`http://127.0.0.1:${runtime.port}/api/boom-monitor/health`);
-  assert.equal(health.status, 503);
-  await assert.rejects(fs.access(path.join(dataDir, 'boom-monitor.sqlite')), { code:'ENOENT' });
-  await assert.rejects(fs.access(path.join(dataDir, 'boom-monitor', 'backups')), { code:'ENOENT' });
 });

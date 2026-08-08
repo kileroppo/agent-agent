@@ -139,12 +139,14 @@ function renderJob(job) {
   if (job.output?.proofreadPath) { const link = document.createElement('a'); link.className = 'link-button'; link.href = `/api/jobs/${job.id}/download/proofread`; link.textContent = '校对文本'; actions.append(link); }
   if (job.output?.larkUrl) { const link = document.createElement('a'); link.className = 'link-button'; link.href = job.output.larkUrl; link.target = '_blank'; link.rel = 'noreferrer'; link.textContent = '打开飞书'; actions.append(link); }
   if (job.status === 'failed' && job.failure?.retryable === true) { const retry = document.createElement('button'); retry.className = 'secondary'; retry.textContent = '重试任务'; retry.onclick = () => retryJob(job.id); actions.append(retry); }
+  if (job.status === 'awaiting_delivery' && job.output?.markdownPath && job.output?.larkDelivery?.state !== 'uncertain') { const redeliver = document.createElement('button'); redeliver.className = 'secondary'; redeliver.textContent = '继续飞书交付'; redeliver.onclick = () => redeliverJob(job.id); actions.append(redeliver); }
   const log = card.querySelector('.job-log ol'); job.log.slice().reverse().forEach((item) => { const li = document.createElement('li'); li.textContent = `${new Date(item.at).toLocaleString()} · ${item.message}`; log.append(li); });
   jobsEl.append(card);
 }
 
 async function retryJob(id) { const response = await fetch(`/api/jobs/${id}/retry`, { method: 'POST' }); const data = await response.json(); if (!response.ok) return setMessage(data.error || '无法重试', true); setMessage('任务已重新进入队列。'); loadJobs(); }
-function statusLabel(status) { return ({ queued:'等待中', preparing:'检查素材', acquiring:'获取素材', transcribing:'转录中', distilling:'整理中', delivering:'交付中', completed:'已完成', failed:'失败' })[status] || status; }
+async function redeliverJob(id) { const response = await fetch(`/api/jobs/${id}/redeliver`, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:'{}' }); const data = await response.json(); if (!response.ok) return setMessage(data.error || '无法继续飞书交付', true); setMessage('飞书交付状态已更新。'); loadJobs(); }
+function statusLabel(status) { return ({ queued:'等待中', preparing:'检查素材', acquiring:'获取素材', transcribing:'转录中', distilling:'整理中', delivering:'交付中', awaiting_review:'等待听审', awaiting_delivery:'等待飞书交付', completed:'已完成', failed:'失败' })[status] || status; }
 function connectionStatusLabel(status) { return ({ active:'已授权待验证', expiring:'即将过期', expired:'已过期', revoked:'已撤销', disabled:'已停用', error:'异常' })[status] || status; }
 function setMessage(message, isError = false) { messageEl.textContent = message; messageEl.classList.toggle('error', isError); }
 
