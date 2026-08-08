@@ -24,6 +24,7 @@ export class OfficePresentationExecution {
     this.capabilityCatalog = capabilityCatalog;
     this.executorResolver = executorResolver;
     this.roleToolAdapters = roleToolAdapters;
+    this.runs = new Map();
   }
 
   supports(task, agent) {
@@ -33,6 +34,14 @@ export class OfficePresentationExecution {
   }
 
   async execute(task, agent) {
+    const running = this.runs.get(task.taskId);
+    if (running) return running;
+    const execution = this.executeOnce(task, agent).finally(() => this.runs.get(task.taskId) === execution && this.runs.delete(task.taskId));
+    this.runs.set(task.taskId, execution);
+    return execution;
+  }
+
+  async executeOnce(task, agent) {
     const executor = this.executorResolver(agent.agentId)
       || this.capabilityCatalog.executor(agent.agentId);
     if (!executor?.execute) throw new ValidationError('小办本地演示文稿执行器不可用。');

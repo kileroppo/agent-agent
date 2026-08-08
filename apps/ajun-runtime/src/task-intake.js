@@ -11,6 +11,8 @@ import {
   wechatApprovalScope,
 } from './wechat-chat-defaults.js';
 import { ValidationError } from './task-service-execution-support.js';
+import { resolveAnalysisIntent } from './analysis-intent.ts';
+import { TaskCreationCoordinator, taskIdempotencyFingerprint } from './task-idempotency.js';
 
 const HIGH_RISK_ACTIONS = ['外发', '发布', '删除', '付款', '付费', '扩权', '敏感'];
 const ORGANIZATION_GOVERNANCE_WORDS = /创建.*(?:agent|智能体|岗位)|新建.*(?:agent|智能体|岗位)|扩权|账号|连接|公开发布|对外发布|付款|付费|预算|暂停|终止|跨\s*agent/i;
@@ -21,9 +23,14 @@ export class TaskIntake {
     this.store = store;
     this.governance = governance;
     this.execute = execute;
+    this.creation = new TaskCreationCoordinator((input) => this.createOnce(input));
   }
 
   async create(input = {}) {
+    return this.creation.run(input);
+  }
+
+  async createOnce(input = {}) {
     const requested = normalizeAssignment(input);
     const { title, taskType } = requested;
     if (!title) throw new ValidationError('请说明要完成什么。');
@@ -32,7 +39,14 @@ export class TaskIntake {
     const idempotencyKey = String(input.idempotencyKey || '').trim();
     if (idempotencyKey) {
       const existing = (await this.store.list()).find((item) => item.idempotencyKey === idempotencyKey);
-      if (existing) return existing;
+      if (existing) {
+        if (existing.idempotencyFingerprint && existing.idempotencyFingerprint !== taskIdempotencyFingerprint(input)) {
+          const error = new ValidationError('同一幂等键不能绑定不同的任务内容。');
+          error.code = 'task_idempotency_conflict';
+          throw error;
+        }
+        return existing;
+      }
     }
 
     const route = await this.resolveRoute(requested);
@@ -174,9 +188,14 @@ function taskRecord(input, requested, route, idempotencyKey) {
   ]);
   const agent = route.agent;
   const needsWechatChat = Boolean(wechatChat && !wechatChat.chatSelector);
+  const analysis = taskType === 'content.video-benchmark-analysis'
+    ? resolveAnalysisIntent({ analysisIntent:input.analysisIntent, title, description, focus:input.focus, depth:input.depth })
+    : null;
+  if (analysis?.error) throw new ValidationError(analysis.error === 'analysis_intent_conflict' ? '检测到多个分析模式，请只选择一种。' : '分析模式无效。');
   return {
     taskType,
     idempotencyKey:idempotencyKey || `local:${Buffer.from(title).toString('base64url').slice(0, 24)}:${Date.now()}`,
+    ...(idempotencyKey ? { idempotencyFingerprint:taskIdempotencyFingerprint(input) } : {}),
     requester:input.requester || { kind:requesterName === 'A君' ? 'local-owner' : 'lan-collaborator', ref:requesterName },
     source:input.source || { channel:'ajun-runtime' },
     assigneeAgentId:agent?.agentId || null,
@@ -194,7 +213,8 @@ function taskRecord(input, requested, route, idempotencyKey) {
       topic:optionalInput(input.topic),
       reviewPolicy:input.reviewPolicy === 'required' ? 'required' : 'optional',
       evidenceMode:input.evidenceMode === 'preliminary' ? 'preliminary' : 'formal',
-      depth:input.depth === 'full' ? 'full' : 'fast',
+      analysisIntent:analysis?.analysisIntent || undefined,
+      depth:analysis?.depth || (input.depth === 'full' ? 'full' : 'fast'),
       visualMode:input.visualMode === 'auto' || input.visualMode === 'required'
         ? input.visualMode
         : input.visualMode === 'off' ? 'off' : taskType === 'content.video-benchmark-analysis' ? 'auto' : 'off',

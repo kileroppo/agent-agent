@@ -6,6 +6,7 @@ import {
   PAUSE_RE,
   RESUME_RE,
   RETRY_XIAOD_RE,
+  CONTINUE_XIAOD_DELIVERY_RE,
   POSITIVE_FEEDBACK_RE,
   NEGATIVE_FEEDBACK_RE,
   HEALTH_RE,
@@ -76,6 +77,7 @@ import {
   safeAgentId,
   safeLoopbackBaseUrl,
 } from './feishu-commander-replies.js';
+import { resolveAnalysisIntent } from './analysis-intent.ts';
 
 export const feishuCommanderRoutingMethods = {
   async handle(input) {
@@ -95,6 +97,7 @@ export const feishuCommanderRoutingMethods = {
     }
     // A君 owns URL-created media work and its recovery chain.  Do not let the
     // old direct-Xiaod retry phrase fall through to a generic LLM conversation.
+    if (CONTINUE_XIAOD_DELIVERY_RE.test(text)) return this.continueXiaodDelivery(source.chatRef);
     if (RETRY_XIAOD_RE.test(text)) return this.retryXiaodTask(source.chatRef);
     // A progress question, a pasted task ID, or "小D 的进度" is a lookup of
     // facts already in this chat. Never send it to the model for a vague reply.
@@ -240,6 +243,32 @@ export const feishuCommanderRoutingMethods = {
             ? 'content-creator'
             : undefined;
     const researchInput = taskType === 'research.github-search' ? githubTaskInput(text) : taskType === 'research.intel-report' ? { topic:text } : {};
+    const analysisUrl = taskType === 'content.video-benchmark-analysis' ? publicUrl(text) : null;
+    if (analysisUrl && typeof this.missions?.createBusinessMission === 'function') {
+      const analysis = resolveAnalysisIntent({ title:text });
+      if (analysis.error) return this.clarify('检测到多个分析模式，请只选精华提炼、深度拆解、模板学习或风格探索中的一种。');
+      return this.missions.createBusinessMission({
+        title:`${text}｜受控获取与分析`,
+        requester,
+        source,
+        idempotencyKey:`feishu:${sourceEventRef}`,
+        items:[
+          {
+            key:'acquire-transcript', title:`获取并整理：${text}`, taskType:'media.transcribe-and-refine', agentId:'xiaod',
+            description:'通过内容获取中心处理公开或已授权素材；复用已有字幕，必要时才转录。',
+            acceptance:'生成来源证据、质量报告和系统或人工确认稿。', sourceUrls:[analysisUrl],
+            reviewPolicy:'optional', evidenceMode:'formal', analysisIntent:analysis.analysisIntent, depth:analysis.depth, visualMode:'auto',
+          },
+          {
+            key:'analyze-video', title:text, taskType:'content.video-benchmark-analysis', agentId:'video-content-analyst',
+            description:'只在确认稿存在后生成对应模式的证据化分析。',
+            acceptance:'所有关键内容绑定字幕片段、时间点或画面证据。', sourceUrls:[analysisUrl],
+            reviewPolicy:'optional', evidenceMode:'formal', analysisIntent:analysis.analysisIntent, depth:analysis.depth, visualMode:'auto',
+            dependsOnPrevious:true, dependsOn:['acquire-transcript'],
+          },
+        ],
+      });
+    }
     const task = await this.tasks.create({
       title: text, description:['office.briefing-package', 'office.presentation-package'].includes(taskType) ? text : '', taskType, requester, source,
       agentId: entryAgentId || plan.agentId || defaultAgentId, ...researchInput, idempotencyKey: `feishu:${sourceEventRef}`

@@ -218,8 +218,8 @@ export class AgentArmyClient {
         idempotencyKey
       }
     });
-    await this.registerCompletionWatch(response.task?.taskId, chatRef);
-    return this.getTask(response.task?.taskId, { chatRef });
+    const completionWatch = await this.ensureCompletionWatch(response.completionWatch, response.task?.taskId, chatRef);
+    return { ...(await this.getTask(response.task?.taskId, { chatRef })), completionWatch };
   }
 
   async createMission(input = {}) {
@@ -245,7 +245,7 @@ export class AgentArmyClient {
         idempotencyKey
       }
     });
-    await this.registerCompletionWatch(response.mission?.taskId, chatRef);
+    const completionWatch = await this.ensureCompletionWatch(response.completionWatch, response.mission?.taskId, chatRef);
     let overview = await this.overview();
     let missionTask = findMissionTask(overview, response);
     if (input.waitForTerminal === true && missionTask && !TERMINAL_STATUSES.has(missionTask.status)) {
@@ -265,23 +265,29 @@ export class AgentArmyClient {
     return {
       mission:missionView,
       children:children.map((task) => taskView(task, overview.approvals || [], this.detailBaseUrl)),
-      userMessage:missionResultMessage(missionView, response.reply)
+      completionWatch,
+      userMessage:completionWatchMessage(missionResultMessage(missionView, response.reply), completionWatch)
     };
+  }
+
+  async ensureCompletionWatch(serverResult, taskId, chatRef) {
+    if (serverResult?.registered === true || serverResult?.required === false) return serverResult;
+    return this.registerCompletionWatch(taskId, chatRef);
   }
 
   async registerCompletionWatch(taskId, chatRef) {
     const task = safeText(taskId, 100);
     const chat = safeText(chatRef, 240);
-    if (!task || !chat) return { registered:false };
+    if (!task || !chat) return { required:false, registered:false };
     try {
-      return await this.request('/api/mcp/completion-watches', {
+      return { required:true, ...(await this.request('/api/mcp/completion-watches', {
         method:'POST',
         body:{ taskId:task, chatRef:chat }
-      });
+      })) };
     } catch {
       // 任务已成功创建时，通知登记暂时失败不能篡改任务事实。
       // 用户仍可通过 task_get 查询；运行台恢复后下一次请求会幂等补登记。
-      return { registered:false };
+      return { required:true, registered:false, taskId:task, errorCode:'completion_watch_registration_failed' };
     }
   }
 
@@ -705,6 +711,14 @@ function missionResultMessage(mission, fallback) {
   if (!summary) return safeText(fallback, 2000);
   const done = (summary.statuses || []).filter((item) => item.status === 'succeeded').length;
   return `总任务已进入终态：${mission.status}，${done}/${summary.statuses?.length || 0} 项分工完成。请根据 mission 和 children 中的已验证产物直接向负责人做最终汇报，不要再返回中间进度。`;
+}
+
+function completionWatchMessage(message, watch) {
+  const base = safeText(message, 2000);
+  if (watch?.required === true && watch?.registered !== true) {
+    return `${base}\n\n自动回告暂未登记成功；任务本身已建立，请保留任务编号并主动查询进度。`;
+  }
+  return base;
 }
 
 function artifactView(artifact = {}) {

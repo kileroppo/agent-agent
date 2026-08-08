@@ -180,5 +180,5 @@ export const paperclipIssueMethods = {
   }
 };
 
-function issueStatusFor(status) { return ({ running: 'backlog', pausing:'backlog', paused:'blocked', succeeded: 'done', failed: 'blocked', cancelled:'blocked', waiting_approval: 'blocked', waiting_test:'blocked' })[status] || 'backlog'; }
+function issueStatusFor(status) { return ({ running: 'backlog', pausing:'backlog', paused:'blocked', succeeded: 'done', failed: 'blocked', cancelled:'blocked', waiting_approval: 'blocked', waiting_test:'blocked', needs_input:'blocked', expired:'blocked' })[status] || 'backlog'; }
 function safeError(error) { return String(error?.message || 'Paperclip 暂不可用。').slice(0, 240); }

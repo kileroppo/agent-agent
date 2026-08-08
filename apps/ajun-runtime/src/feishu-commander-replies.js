@@ -1,5 +1,7 @@
 import { formatPublicReportReply } from './public-report-presentation.js';
 import { formatOfficeBriefingReply } from './local-office-assistant.js';
+import { resolveAnalysisIntent } from './analysis-intent.ts';
+import { validateTaskCompletion } from './task-completion-contract.js';
 
 export const CREATE_AGENT_RE = /(?:创建|新建|招募|招)\s*(?:一个\s*)?.{0,80}?(?:agent|智能体|岗位|助手)/i;
 export const PROGRESS_RE = /进度|进展|做到哪|处理得怎么样|完成了吗|结果呢|任务状态/;
@@ -8,6 +10,7 @@ export const FOLLOW_UP_RE = /^(?:需要|处理|继续|好的|好|行|可以|开�
 export const PAUSE_RE = /(?:暂停|先别做|先停)/;
 export const RESUME_RE = /(?:恢复|继续).*(?:任务|处理|执行)|^(?:继续|恢复)$/;
 export const RETRY_XIAOD_RE = /^\s*重试\s*小\s*D\s*任务(?:\s+[0-9a-f-]{8,})?\s*$/i;
+export const CONTINUE_XIAOD_DELIVERY_RE = /^\s*(?:继续|重试)\s*飞书交付(?:\s+[0-9a-f-]{8,})?\s*$/i;
 export const POSITIVE_FEEDBACK_RE = /(?:不错|满意|有用|很好|挺好|做得好|谢谢|辛苦了)/;
 export const NEGATIVE_FEEDBACK_RE = /(?:不行|不对|有问题|重做|重新做|改一下|需要改进|没用|不好)/;
 export const HEALTH_RE = /健康|状态|服务|运行|paperclip|检查系统/i;
@@ -15,6 +18,7 @@ export const CAPABILITIES_RE = /(?:你|军团|现在).*(?:能干什么|能做什
 export const OPERATIONS_TRIAGE_RE = /(?:怀疑|担心|看看|查(?:一下|下)?|检查|判断).{0,48}(?:异常|故障|出问题|卡住|卡死)|(?:异常|故障|出问题|卡住|卡死).{0,80}(?:安全(?:处理|恢复)|谁(?:来|该)接手|怎么处理|需要我做什么)/i;
 export const MEDIA_RE = /视频|音频|转录|字幕|整理素材|youtube|bilibili|抖音|快手|transcri/i;
 export const VIDEO_SCRIPT_RE = /(?:写|生成|做|出).{0,20}(?:视频)?(?:脚本|口播稿|拍摄稿)|按.{0,40}(?:套路|结构|视频|案例).{0,40}(?:写|生成|做|出)|(?:脚本|口播稿).{0,40}(?:主题|关于)/i;
+export const VIDEO_ANALYSIS_MODE_RE = /总结|提炼|精华|快速看懂|重点是什么|深度拆解|完整分析|完整拆解|为什么有效|学习方法|13\s*模块|模板学习|提取模板|学习模板|复用结构|开头套路|填空模板|换种风格|风格探索|专业版|幽默版|故事版|数据版/iu;
 export const USE_THIS_VERSION_RE = /^\s*(?:用这版|就这版|采用这版|按这版做|这版可以)\s*[。！!]?\s*$/;
 export const SCRIPT_REVISION_RE = /(?:更像我|更口语|更自然|节奏快|节奏慢|短一点|长一点|改(?:一下|成)|重写|开头.{0,12}(?:换|改)|语气.{0,12}(?:换|改))/i;
 export const OFFICE_RE = /办公汇报|汇报包|整理成(?:文档|表格|清单)|任务清单|会议材料|会议纪要|把.{0,40}(?:结果|材料).{0,20}整理/i;
@@ -40,6 +44,8 @@ export function directIntent(text) {
     if (CAPABILITIES_RE.test(text)) return { intent:'army_capabilities' };
     if (HEALTH_RE.test(text)) return { intent:'health_check' };
     if (VIDEO_SCRIPT_RE.test(text)) return { intent:'route_task', taskType:'content.video-script-package', agentId:'content-creator' };
+    const analysisPlan = videoAnalysisPlan(text);
+    if (analysisPlan) return analysisPlan;
     if (MEDIA_RE.test(text)) return { intent:'media_task' };
     if (OFFICE_RE.test(text)) return { intent:'office_briefing' };
     if (isGithubRequest(text)) return { intent:'github_search' };
@@ -48,6 +54,15 @@ export function directIntent(text) {
     if (/优先.*(?:做|处理)|怎么推进|安排.*(?:合适|员工|人).*做|最值得.*(?:做|处理)|下一步.*(?:做|处理)/.test(text)) return { intent:'army_planning' };
     if (/重复.*工作|反复.*事情|需要.*新员工|岗位.*缺口|能力.*缺口|架构.*评估|复盘.*工作/.test(text)) return { intent:'architecture_review' };
     return { intent:'intake' };
+}
+
+function videoAnalysisPlan(text) {
+  if (!VIDEO_ANALYSIS_MODE_RE.test(text) || !(MEDIA_RE.test(text) || publicUrl(text))) return null;
+  const analysis = resolveAnalysisIntent({ title:text });
+  if (analysis.error === 'analysis_intent_conflict') {
+    return { intent:'clarify', reply:'检测到多个分析模式，请只选精华提炼、深度拆解、模板学习或风格探索中的一种。' };
+  }
+  return { intent:'route_task', taskType:'content.video-benchmark-analysis', agentId:'video-content-analyst' };
 }
 
 export function isSafePublicResearchRequest(text) {
@@ -143,6 +158,16 @@ export function formatVideoScriptReply(report) {
 }
 
 export function replyFor(task, taskType) {
+  if (task.status === 'succeeded' && !validateTaskCompletion(task).valid) {
+    return {
+      kind:'completion_waiting_test',
+      task,
+      reply:`“${shortTitle(task)}”已经停止运行，但完成产物没有通过对应任务门禁；已转交待测试，不会冒充成功。\n任务号：${task.taskId}。`,
+    };
+  }
+  if (['waiting_test', 'failed', 'cancelled'].includes(task.status)) {
+    return { kind:'task_status', task, reply:progressReply(task) };
+  }
   if (taskType === 'operations.health-review') {
     const report = task.artifactRefs?.find((item) => item.type === 'health_report')?.data;
     return { kind: 'health_review', task, reply: report ? healthReviewReply(task, report) : `运维官已接手检查，任务号：${task.taskId}。` };

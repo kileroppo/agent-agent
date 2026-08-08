@@ -7,6 +7,14 @@ import {
 } from './m5-stage-recovery-controller.js';
 import { taskPaperclipAssignmentMethods } from './task-paperclip-assignment.js';
 import { taskRoleExecutionMethods } from './task-role-execution.js';
+import { validateTaskCompletion } from './task-completion-contract.js';
+import { taskIdempotencyFingerprint } from './task-idempotency.js';
+import {
+  isPaperclipCompletableTaskStatus,
+  paperclipCompletionConfirmed,
+  paperclipCompletionSync,
+  paperclipIssueStatusForTask,
+} from './paperclip-assignment-completion.js';
 
 import {
   ValidationError,
@@ -138,25 +146,26 @@ export const taskServiceExecutionMethods = {
     });
   },
 
-  async completePaperclipAssignment(input = {}) {
+  completePaperclipAssignment(input = {}) {
+    const key = `${String(input.issueId || '').trim()}:${String(input.runId || '').trim()}`;
+    const fingerprint = taskIdempotencyFingerprint(Object.fromEntries(Object.entries(input).filter(([name]) => name !== 'paperclipApiKey')));
+    const running = this.paperclipAssignmentCompletionRuns.get(key);
+    if (running) {
+      if (running.fingerprint !== fingerprint) throw new ValidationError('同一 Paperclip Run 正在回报不同的完成结果；已拒绝覆盖。');
+      return running.execution;
+    }
+    const execution = Promise.resolve().then(() => this.completePaperclipAssignmentOnce(input)).finally(() => {
+      if (this.paperclipAssignmentCompletionRuns.get(key)?.execution === execution) this.paperclipAssignmentCompletionRuns.delete(key);
+    });
+    this.paperclipAssignmentCompletionRuns.set(key, { fingerprint, execution });
+    return execution;
+  },
+
+  async completePaperclipAssignmentOnce(input = {}) {
     const { task, assignment } = await this.getPaperclipAssignment(input);
     if (isTerminalTask(task)) {
-      if (task.status === 'succeeded') {
-        const sync = await this.syncM5StageWorkProducts({
-          task,
-          assignment,
-          apiKey:input.paperclipApiKey,
-        });
-        if (sync.synced) {
-          await this.governance.completePaperclipIssue(assignment.issueId, {
-            runId:assignment.runId,
-            agentId:input.paperclipAgentId,
-            apiKey:input.paperclipApiKey,
-            result:task,
-          });
-        }
-      }
-      return { task, assignment, duplicate:true };
+      const synchronized = await this.ensurePaperclipAssignmentCompletion({ task, assignment, paperclipAgentId:input.paperclipAgentId, apiKey:input.paperclipApiKey });
+      return { task:synchronized, assignment, duplicate:true };
     }
     const requestedStatus = String(input.status || 'succeeded').trim();
     if (!['succeeded', 'failed', 'waiting_test'].includes(requestedStatus)) {
@@ -262,13 +271,15 @@ export const taskServiceExecutionMethods = {
       },
       validation:{ exists:true, readable:true, nonEmpty:true, checkedAt:completedAt }
     };
+    const completionArtifacts = [...(task.artifactRefs || []), artifact];
+    if (requestedStatus === 'succeeded') {
+      const completion = validateTaskCompletion(task, completionArtifacts);
+      if (!completion.valid) throw new ValidationError(`${completion.reason} Paperclip/Hermes 的文字回报不能替代专用业务产物。`);
+    }
     let updated = await this.store.updateTask(task.taskId, {
       status:requestedStatus,
       currentStage:requestedStatus === 'succeeded' ? 'paperclip_hermes_completed' : requestedStatus === 'waiting_test' ? 'paperclip_hermes_waiting_test' : 'paperclip_hermes_failed',
-      artifactRefs:[
-        ...(task.artifactRefs || []),
-        artifact
-      ],
+      artifactRefs:completionArtifacts,
       execution:{
         ...(task.execution || {}),
         owner:'paperclip-hermes',
@@ -277,6 +288,10 @@ export const taskServiceExecutionMethods = {
         ...(m5PlanRevisionReceipt ? {
           m5PlanRevisionReceipt,
         } : {}),
+      },
+      governance:{
+        ...(task.governance || {}),
+        completionSync:paperclipCompletionSync({ status:'pending', taskStatus:requestedStatus, issueId:assignment.issueId, runId:assignment.runId, now:completedAt }),
       },
       ...(requestedStatus === 'failed' ? {
         error:{
@@ -290,23 +305,30 @@ export const taskServiceExecutionMethods = {
         }
       } : { error:undefined })
     });
-    if (requestedStatus === 'succeeded') {
-      await this.syncM5StageWorkProducts({
-        task:updated,
-        assignment,
-        apiKey:input.paperclipApiKey,
-      });
-    }
-    await this.governance.completePaperclipIssue(assignment.issueId, {
-      runId:assignment.runId,
-      agentId:input.paperclipAgentId,
-      apiKey:input.paperclipApiKey,
-      result:updated
-    });
-    updated = await this.store.updateTask(updated.taskId, {
-      governance:{ ...(updated.governance || {}), status:'synced', syncedAt:new Date().toISOString() }
-    });
+    updated = await this.ensurePaperclipAssignmentCompletion({ task:updated, assignment, paperclipAgentId:input.paperclipAgentId, apiKey:input.paperclipApiKey });
     return { task:updated, assignment, duplicate:false };
+  },
+
+  async ensurePaperclipAssignmentCompletion({ task, assignment, paperclipAgentId, apiKey } = {}) {
+    if (!isPaperclipCompletableTaskStatus(task?.status)) return task;
+    if (task.status === 'succeeded') await this.syncM5StageWorkProducts({ task, assignment, apiKey });
+    if (paperclipCompletionConfirmed(task, assignment)) return task;
+    const expected = paperclipIssueStatusForTask(task.status);
+    if (typeof this.governance?.getPaperclipIssue === 'function') {
+      try {
+        const issue = await this.governance.getPaperclipIssue(assignment.issueId);
+        if (String(issue?.status || '').trim() === expected) return this.confirmPaperclipAssignmentCompletion(task, assignment);
+      } catch {}
+    }
+    await this.governance.completePaperclipIssue(assignment.issueId, { runId:assignment.runId, agentId:paperclipAgentId, apiKey, result:task });
+    return this.confirmPaperclipAssignmentCompletion(task, assignment);
+  },
+
+  async confirmPaperclipAssignmentCompletion(task, assignment) {
+    const confirmedAt = new Date().toISOString();
+    return this.store.updateTask(task.taskId, {
+      governance:{ ...(task.governance || {}), status:'synced', syncedAt:confirmedAt, completionSync:paperclipCompletionSync({ status:'confirmed', taskStatus:task.status, issueId:assignment.issueId, runId:assignment.runId, now:confirmedAt }) },
+    });
   },
 
   async handleM5ReportedFailure({
