@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 2026-08-06 本地候选已完成静态卡、核心编排拆分、Publisher 恢复职责提取和固定时钟回归；当前运行身份必须由 `npm run runtime:fingerprint` 读取。Paperclip 资源仍为 15/17/5，Campaign、Cron 与 Publisher 关闭；小红书单次人工冒烟不能替代 production Runtime `PublishReceipt`、抖音、指标或 7 天闭环，因此 M5 未完成 |
+| 状态 | 2026-08-08 M5 仍未完成。活动 `8dd29a3b…` 已由负责人停止，旧授权和 Profile lease 均已过期；当前只读 readiness 为 `not_ready`，明确阻断在 stopped Campaign、过期 lease、Publisher 未运行和 production provider 未注入。重新运行必须创建新授权草案，不能恢复旧授权 |
 | 负责人 | A君 |
 | 创建时间 | 2026-07-30 |
 | 上游 | [Agent军团总 PRD](./prd-agent-army-master.md) |
@@ -108,14 +108,14 @@
 - 当前控制面与运行事实：
   - live v2 为 M5 Goal、Project `86ad0a0a…`、17 个有效 Routine、15 阶段 Pipeline `6dfd94da…`，以及 daily、parallel、publisher、metrics、retrospective 5 个无模型 HTTP 控制器；没有分支引用且从未触发的旧 `m5-research` Routine 已归档并保留记录。归档后的只读 reconcile/dry-run 为有效 Routine `17/17`、转换 `16/16`、blocker 0，草案仍为 `0/14`、Cron off；旧 v1 Pipeline 和 22 个 Case 原样保留；
   - 13 条 M5 Budget 策略分别覆盖公司、Project 和 11 个正式岗位，每条均是 625 美分的同一分层硬上限，不能相加为总预算；公司与 M5 v2 Project 当前累计均为 392 分，剩余 233 分。Paperclip `cost-events` 是按配置记录的保守项目成本，不等于 StepFun 官方最终账单；
-  - 本机 Paperclip 为 `2026.722.0`；内容自治插件 `agent-army.content-autonomy` live `0.4.9` 已从 SHA 命名的不可变净包安装并处于 `ready/healthy`，对象形 Secret 引用有效且没有 Secret 值落入配置输出；当前 M5 活动为 `paused`、无 active work，每日 Cron 关闭。`0.4.6` 不可变包、版本锁定维护脚本和二进制兼容回滚链保留；
+  - 本机 Paperclip 为 `2026.722.0`；内容自治插件 `agent-army.content-autonomy` live `0.4.9` 已从 SHA 命名的不可变净包安装并处于 `ready/healthy`，对象形 Secret 引用有效且没有 Secret 值落入配置输出；当前 M5 活动为 `stopped`、无 active work，每日 Cron 关闭。`0.4.6` 不可变包、版本锁定维护脚本和二进制兼容回滚链保留；
   - 公司级插件配置已使用对象形 Secret 引用并绑定 8 个执行岗位；门禁只读取引用元数据，不解析或回显 Secret 值；
   - publisher 与 retrospective 控制器和对应 Routine 已接入 live，但 Publisher Runtime 默认关闭，且没有真实发布凭证、指标或学习样本；
   - live 指标控制器只从同 Case 的可信 PublishReceipt 派生 2h/24h/72h 检查点，并把 MetricSnapshot 写为 Work Product。Publisher 不保存指标计划，也不创建 Cron；
   - A君、小R、小D和小办均已成为可调用的 Paperclip `hermes_local` 岗位；每个岗位只获得自身身份和声明的 M5 任务工具；高风险内容阶段使用无参数 `m5_stage_execute`，调用方不能选择工具、Case、路径或发布参数；
   - 11 个正式 Hermes Profile 的岗位技能白名单已在 live 对账为无额外、无缺失；`xiaod` 原有 78 个额外技能已禁用并保留可恢复路径；
   - 11 个正式 Hermes Profile、本机 Gateway 与 Paperclip Adapter 已切到 `deepseek/deepseek-v4-flash`，回退链为空；A君已切到包含同一策略的 fresh 不可变 release。未执行付费模型探针，因此只证明配置与 live 对账，不证明 DeepSeek 真实调用；
-  - v2 已创建 1 个正式但未批准的活动草案 `8dd29a3b…`，`approvedAt=null`、进度 `0/14`；旧 v1 草案已 superseded/cancelled；没有启动活动或执行阶段；
+  - v2 活动 `8dd29a3b…` 曾进入批准状态，当前已经 `stopped`、进度 `0/14`；旧批准和 Profile lease 均已过期，重新运行必须创建新的授权草案。旧 v1 草案已 superseded/cancelled；
   - “A君定时本机巡检”修复后连续 3 次受控手动 Routine Run 为 `completed`，随后至少 1 次自然定时运行也为 `completed`；更早失败仍保留为历史；
   - 已将 153 条带确定标记的历史巡检失败和 9 条历史验收记录归档为取消/隐藏；不删除记录。当前 blocked/pending 快照为 83 条（16 条 `active_incident`、67 条 `unresolved`），真实故障与未决任务仍保留负责人和恢复动作；
   - 11 个正式 Profile 已以 `step-3.5-flash-2603` 完成当前无副作用文本实调用 `11/11`，均返回 `M5_OK`，DeepSeek 调用为 0，证据为 `docs/reviews/m5-high-autonomy-content-operations/artifacts/2026-07-31-stepfun-text-probes.json`；这是当前 Provider 文本传输 PASS。最新 `video-content-analyst` 真实回归为 `18/18`，11 个岗位语义结果全部通过；新的 Cross 首次因未转义 JSON 失败关闭，缩短并固定输出契约后安全重试为 `19/19`。最终离线汇总为 `summary.status=passed`、`rolePassedCount=11`、`crossRoleStatus=passed`，随后的离线重验也通过；此次新增 1 次 video 和 2 次 Cross StepFun 调用，工具调用 0、`externalSideEffects=0`，语义门禁自测为 `72/72`。usage 记录 `cost_status=unknown`，不能把 `estimatedCostUsd=0` 当成已知零费用。证据目录为 `docs/reviews/m5-high-autonomy-content-operations/artifacts/2026-07-31-stepfun-3.5-role-quality/`。该结论证明当前本地题面下的岗位语义与跨岗位整合，不证明 Hermes/Paperclip live、平台发布或真实业务外部闭环；
@@ -136,9 +136,9 @@
   - 7 天真实本地 MP4→Fake 证据位于 `work/m5-publisher-gateway/acceptance/fake-seven-day-2026-07-31-v1/`：7 个上海日历日、每天双平台，共 14 个 fake PublishReceipt 和 42 个 2h/24h/72h 模拟 MetricSnapshot；44 次 Runtime 重建后仍幂等重放同一 72h 快照。证据明确 `realPlatformTouched=false`、`externalPublished=false`、`realPlatformCalls=0`、`totalCostUsd=0`、`actualPlatformElapsedTime=false`，只证明本地发布账本、恢复和模拟指标回流，不是平台外发或真实 72h 等待；
   - 小红书本人指标已接入 Gateway production composition/Runtime/MetricSnapshot 链：发布与指标使用独立 Paperclip approval、runner 和命名 Profile，指标 runner 固定五步只读，并绑定可信 PublishReceipt、`accountRef`、内容 ID、selector 版本/哈希和页面身份；硬停会暂停 Campaign/Cron，批准到期与预算不足会在 connector 前拒绝。跨进程指标调用进入 `invoking` 后不可按租约换主；超过 10 分钟只会转为 `human_review`，禁止自动重试。Gateway 恢复要求有效持久 claimToken、全账本唯一 authorizationId，并在任何暂停或账本 mutation 前重新核验授权；确认存在外部效果时先暂停 Campaign/Cron，确认无外部效果时也不会自动再次调用。A君对完全一致的授权重放只读返回旧结果，绝不再次进入可写恢复。Paperclip `2026.722.0` 原始安装仍没有原生过期、撤销和原子 consume 的一次性恢复 Approval 契约；仓库现已提供版本锁定的 Run-JWT 转发与恢复 Approval 兼容补丁（合并定向测试 `15/15`），controller cutover 工具 `15/15`。快照读写 TOCTOU 已修复，包含 post-link 父目录替换后原目录/替代目录零残留、0 Paperclip PATCH，以及清理不完整时 `recoveryRequired`；清理器 ready/cleanup/close 均有硬超时，卡死时按 TERM、KILL、确认退出收口。只从 current-run provider 取身份和凭据的 A君恢复 access 已实际 wire 进 server composition/metrics 请求级作用域，provider composition `43/43`、相关 server/controller `84/84`。两份兼容补丁仍未 apply，live 控制器 adapterConfig 未启用 `forwardRunJwt`，当前 4321 也未加载新 binding，所以 live 恢复仍不可调用。抖音风控与费用上报双故障同样不会覆盖 hard-stop。当前没有真实浏览器、真实账号或平台指标，不能宣称真实回读；
   - Publisher 提供只读 `npm run production:readiness`；在未提供 Campaign snapshot、selector、Profile lease 和 production provider 的输入下结果为 `not_ready`、退出码 `2`，机器建议动作为 `provide-campaign-status-snapshot`。该命令不读取 `.env`/Secret，不启动服务、不批准 Campaign/Cron；
-  - 当前 `127.0.0.1:4321` 返回 `/api/overview` 200；Paperclip live 仍为 15/17/5，内容插件 live `0.4.9` `ready/healthy`，每日 Cron 关闭，M5 活动为 `paused`。11 个实际 Hermes Profile 已收敛，但 Publisher 仍关闭；现有 StepFun no-tool 探针只证明文本传输和模型身份，其 usage 中 `estimated_cost_usd=0` 不是官方账单，也不承担内容 Provider 血缘。正式视觉与三类 Provider 血缘门禁已随插件进入 live，但尚无真实 M5 Campaign StepFun 视觉调用。21/21 支本地视频及机器审核已经完成，publisher/retrospective 真实 Case 和平台外写均未发生。
+  - 当前 `127.0.0.1:4321` 返回 `/api/overview` 200；Paperclip live 仍为 15/17/5，内容插件 live `0.4.9` `ready/healthy`，每日 Cron 关闭，M5 活动为 `stopped`。11 个实际 Hermes Profile 已收敛，但 Publisher 仍关闭；现有 StepFun no-tool 探针只证明文本传输和模型身份，其 usage 中 `estimated_cost_usd=0` 不是官方账单，也不承担内容 Provider 血缘。正式视觉与三类 Provider 血缘门禁已随插件进入 live，但尚无真实 M5 Campaign StepFun 视觉调用。21/21 支本地视频及机器审核已经完成，publisher/retrospective 真实 Case 和平台外写均未发生。
 
-因此当前结论是“M5 执行、发布凭证写回、受控学习与并行 v2 已通过本地自动化并
-安全克隆到 live 15/17/5 结构，七主题 21 支生产素材本地成片与机器审核已通过；Computer Use 只完成权限和拒绝诊断，完整本地假平台页仍待验收”。活动仍是未批准
-草案；真实 selector map 与 Publisher Connector、真实 PublishReceipt/指标、平台写授权和双平台发布仍是不同的
+因此当前结论是：M5 本地执行、发布凭证写回、受控学习与并行 v2 已通过自动化并进入
+live 15/17/5 结构；七主题本地成片与机器审核也有证据。活动当前已经停止，旧授权不可恢复；
+真实 Publisher、未过期 Profile lease、production provider、PublishReceipt、指标与双平台发布仍是互相独立的
 未完成验收层，不能合并宣称完成。

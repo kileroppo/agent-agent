@@ -12,6 +12,7 @@ export async function createProductionReadinessReport({
   healthSnapshot = null,
   inputSnapshot = null,
   fileSystem = fs,
+  clock = () => new Date(),
 } = {}) {
   const blockers = [];
   const health = inspectHealth(healthSnapshot, blockers);
@@ -34,7 +35,12 @@ export async function createProductionReadinessReport({
     ),
   ]);
   blockers.push(...candidateBlockers, ...frozenBlockers);
-  const profileLease = inspectProfileLeaseReference(snapshot?.profileLeaseRef, blockers);
+  const profileLease = inspectProfileLease(
+    snapshot?.profileLease,
+    snapshot?.profileLeaseRef,
+    blockers,
+    clock,
+  );
   const productionProvider = inspectProductionProvider(
     snapshot?.productionProviderInjected,
     blockers,
@@ -108,11 +114,19 @@ function inspectCampaign(snapshot, blockers) {
   if (!snapshot) {
     return { snapshotPresent:false, status:'missing', approved:false };
   }
-  const status = ['draft', 'approved', 'active', 'paused'].includes(snapshot?.campaign?.status)
+  const status = ['draft', 'approved', 'active', 'paused', 'stopped'].includes(
+    snapshot?.campaign?.status,
+  )
     ? snapshot.campaign.status
     : 'unknown';
   const approved = status === 'approved' || status === 'active';
-  if (!approved) {
+  if (status === 'stopped') {
+    blockers.push(blocker(
+      'campaign_stopped',
+      'campaign',
+      'Campaign 已停止；重新运行必须创建新的授权草案。',
+    ));
+  } else if (!approved) {
     blockers.push(blocker(
       'campaign_not_approved',
       'campaign',
@@ -171,29 +185,87 @@ async function inspectSelectorFile(value, kind, fileSystem, blockers) {
   }
 }
 
-function inspectProfileLeaseReference(value, blockers) {
-  if (value === null || value === undefined || value === '') {
+function inspectProfileLease(value, legacyReference, blockers, clock) {
+  const snapshot = value && typeof value === 'object' && !Array.isArray(value)
+    ? value
+    : null;
+  const reference = snapshot?.ref || snapshot?.leaseRef || legacyReference;
+  if (reference === null || reference === undefined || reference === '') {
     blockers.push(blocker(
       'profile_lease_reference_missing',
       'profile_lease',
       '缺少 Paperclip Profile lease 引用。',
     ));
-    return { present:false, safe:false, source:null };
+    return {
+      present:false,
+      safeReference:false,
+      status:null,
+      expiresAt:null,
+      current:false,
+      source:null,
+    };
   }
-  const safe = typeof value === 'string'
-    && value.startsWith('paperclip:')
-    && !FORBIDDEN_REFERENCE.test(value);
-  if (!safe) {
+  const safeReference = typeof reference === 'string'
+    && reference.startsWith('paperclip:')
+    && !FORBIDDEN_REFERENCE.test(reference);
+  if (!safeReference) {
     blockers.push(blocker(
       'profile_lease_reference_invalid',
       'profile_lease',
       'Profile lease 只能提供不含 Secret 的 Paperclip 引用。',
     ));
   }
+
+  if (!snapshot) {
+    if (safeReference) {
+      blockers.push(blocker(
+        'profile_lease_status_unverified',
+        'profile_lease',
+        '只有 Profile lease 引用，无法证明当前批准状态和有效期。',
+      ));
+    }
+    return {
+      present:true,
+      safeReference,
+      status:'unverified',
+      expiresAt:null,
+      current:false,
+      source:safeReference ? 'paperclip_reference' : null,
+    };
+  }
+
+  const status = snapshot.status === 'approved' ? 'approved' : 'unknown';
+  const expiresAtMs = typeof snapshot.expiresAt === 'string'
+    ? Date.parse(snapshot.expiresAt)
+    : Number.NaN;
+  const now = clock();
+  const nowMs = now instanceof Date ? now.getTime() : Number.NaN;
+  const hasValidStatus = status === 'approved'
+    && Number.isFinite(expiresAtMs)
+    && Number.isFinite(nowMs);
+  const current = safeReference && hasValidStatus && expiresAtMs > nowMs;
+  if (!hasValidStatus) {
+    blockers.push(blocker(
+      'profile_lease_status_invalid',
+      'profile_lease',
+      'Profile lease 快照必须包含 approved 状态和有效 expiresAt。',
+    ));
+  } else if (!current) {
+    blockers.push(blocker(
+      'profile_lease_expired',
+      'profile_lease',
+      'Profile lease 已过期，不能用于生产预检。',
+    ));
+  }
   return {
     present:true,
-    safe,
-    source:safe ? 'paperclip_reference' : null,
+    safeReference,
+    status,
+    expiresAt:Number.isFinite(expiresAtMs)
+      ? new Date(expiresAtMs).toISOString()
+      : null,
+    current,
+    source:safeReference ? 'paperclip_reference' : null,
   };
 }
 
@@ -226,6 +298,7 @@ function nextAction(blockers) {
   for (const [reason, action] of [
     ['readiness_snapshot_contains_secret', 'replace-snapshot-with-reference-only-fields'],
     ['campaign_snapshot_missing', 'provide-campaign-status-snapshot'],
+    ['campaign_stopped', 'create-new-campaign-authorization-draft'],
     ['campaign_not_approved', 'obtain-approved-campaign-snapshot'],
     ['selector_candidate_missing', 'prepare-safe-selector-candidate'],
     ['selector_candidate_unsafe', 'prepare-safe-selector-candidate'],
@@ -233,6 +306,9 @@ function nextAction(blockers) {
     ['selector_frozen_unsafe', 'freeze-approved-selector-bundle'],
     ['profile_lease_reference_missing', 'obtain-paperclip-profile-lease-reference'],
     ['profile_lease_reference_invalid', 'replace-profile-lease-with-safe-reference'],
+    ['profile_lease_status_unverified', 'provide-current-profile-lease-snapshot'],
+    ['profile_lease_status_invalid', 'obtain-current-paperclip-profile-lease'],
+    ['profile_lease_expired', 'renew-paperclip-profile-lease'],
     ['production_provider_not_injected', 'inject-approved-production-provider'],
     ['publisher_health_not_production_ready', 'verify-production-health-on-4390'],
   ]) {

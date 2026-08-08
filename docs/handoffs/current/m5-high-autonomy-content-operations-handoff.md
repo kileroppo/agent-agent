@@ -2,19 +2,19 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 2026-08-07 静态卡、代码瘦身与核心编排深层 Module 已随 `main@8d69073` 进入 A君不可变 live；运行身份以 `npm run runtime:fingerprint` 为准。Campaign、Cron、Publisher 继续关闭，M5 未完成 |
+| 状态 | 2026-08-08 M5 未完成；活动已停止，旧 Profile lease 已过期，只读 readiness 正确返回 `not_ready` |
 | 创建时间 | 2026-07-30 Asia/Shanghai |
 | 交出者 | Codex |
 | 接手者 | Codex / A君 |
 | 关联任务 | [M5 PRD](../../../tasks/prd-m5-high-autonomy-content-operations.md) |
-| 截止条件 | 下一门禁是准备并人工审阅脱敏 Campaign readiness 快照，再运行只读预检。未经独立批准不得恢复 Campaign、注入 provider、开启 Publisher 或执行平台写入 |
+| 截止条件 | 已生成并审阅当前脱敏快照、完成只读预检；若继续 M5，必须从新的活动授权草案和新的 Profile lease 开始 |
 
 ## 1. 接手目标
 
 - 目标：把内容增长链升级为可恢复、可审计、可受控发布的真实执行循环。
 - 用户约束与不可做事项：抖音+小红书；旁白混剪；活动级预授权；不使用逆向接口、Cookie 导出、私信、评论、投流或自动删除。
 - 做完的定义：本地代码、自动化、fresh 运行时、多模态、Computer Use、双平台首发和 7 天指标回流分层有证据。
-- 唯一下一步：保持 Campaign、M5 Cron 和 Publisher 关闭；只读 `production:readiness` 已可重复列出缺失的 connector、Campaign 快照、selector、Profile lease 和 provider。补齐任何一项外部条件、恢复 Campaign、注入 provider、启用 Publisher 或发布均须另行批准。
+- 唯一下一步：保持 M5 Cron、Publisher 和外部写入关闭。只有负责人另行决定重启 M5 时，才创建新的活动授权草案并申请新的 Profile lease；旧停止活动和旧批准不得恢复。
 - 允许继续的前提：当前源码/release/服务身份由 `runtime:fingerprint` 核对，核心回归、架构检查和 release smoke 必须通过；Paperclip 仍为 15/17/5。selector/Profile lease、登录态、provider 与平台写权限必须按目标动作重新只读核验，不能从历史批准推断当前有效。
 
 ## 2026-08-07 补充：Ponytail 代码瘦身
@@ -65,7 +65,7 @@
 | --- | --- | --- | --- |
 | 代码与文档 | A君 R4 已加载16阶段/18 Routine/6控制器代码；Paperclip资源仍为15/17/5 | R4 release、M5 PRD、架构、M5 验收 | Paperclip 16/18/6 尚未 apply |
 | 双平台内容变体 | `baseline` 独立驱动 master/小红书，`gray_douyin` 独立驱动抖音；脚本、TTS、模板绑定、渲染、机器审核和内容血缘按变体核验 | A君全量测试与 M5 验收 | 本地契约；没有真实平台发布 |
-| v2 clone cutover | Pipeline `6dfd94da…`、Project `86ad0a0a…`、活动 `8dd29a3b…` 已 live；A君回读既有 v2 ID/key，旧 v1/22 Case 保留 | live 回读、A君 4321 `/api/content-campaigns` | 活动当前 `paused`、无 active work，M5 每日 Cron off |
+| v2 clone cutover | Pipeline `6dfd94da…`、Project `86ad0a0a…`、活动 `8dd29a3b…` 已 live；A君回读既有 v2 ID/key，旧 v1/22 Case 保留 | live 回读、A君 4321 `/api/content-campaigns` | 活动当前 `stopped`、无 active work，M5 每日 Cron off |
 | 现成控制面 | Paperclip `2026.722.0` 已含 Plugin、Pipeline、Routine、预算、审批、审计和恢复；Hermes 0.19 已含 Profile、skills audit、MCP、Cron、checkpoint | 本机健康接口、CLI 与官方源码 | 已验证 |
 | 自动化 | A君`1051/1051`、Pipeline`67/67`、插件`97/97`、Publisher`203/203` | [M5 验收](../../reviews/m5-high-autonomy-content-operations/acceptance.md) | 只证明本地源码和fixture |
 | 技术修复源码根 | 运行 release 与可写源码根分离；外置源码根须显式、clean、Git 身份可验证，修理副本绑定 task/common-dir/HEAD/精确范围；越界、错误归属、漂移和部分 promotion 失败均拒绝或回滚。成功只返回 `candidate_promoted` 并进入 `repair_candidate_awaiting_release` | 聚焦回归 `139/139`、M5 验收 | candidate 仍 awaiting release，不能冒充当前 live 已修复 |
@@ -74,7 +74,7 @@
 | A君上一版 release | HISTORICAL R2 / NOT CURRENT：source `33aa25bd…`；路径 `work/m5-runtime-releases/m5-8point-20260731-r2/ajun-runtime-release-v1-1c7f244ddaae055f336340ac0de566569012af3d39a6e66e8df528fda46ce0ef/`；release `1c7f244d…`、payload `7bd23d48…`、manifest `102daa78…`、full-dir `efc8967c…`、7571 项；隔离启动与 SIGTERM 退出曾通过 | 历史冻结与验收账本 | 不含 r3 硬化，不是当前候选，也不能冒充 live exact rollback |
 | Runtime 恢复 | degraded recovery ready 且已在实际切换中接管 4321；exact previous 不可用 | R4 plan、recovery health 与 launchd 记录 | 只读恢复不挂正式状态、不冒充旧 live |
 | Paperclip 待办清理 | 153 条历史巡检失败和 9 条历史验收已归档为取消/隐藏且未删除；当前 83 条：active_incident 16、unresolved 67 | `integrations/paperclip/scripts/classify-blocked-pending-issues.mjs`、M5 验收 | 真实故障与未决任务仍保留负责人和恢复动作 |
-| Paperclip / 插件 | live v2 为 17 Routine、15 阶段、5 个无模型 HTTP 控制器；插件 `agent-army.content-autonomy` live `0.4.9` 已从 SHA 命名不可变净包安装并 `ready/healthy`，API packagePath 与 worker 进程一致。`payloadHash=b64760f6c00e2031d5a5ae51fac4a76e26183698e1bb9bf536e407fd27592c0d`、`entryCount=19986`、`manifestSha256=dabf16ac255eec3348e5800239f907793db1c1e507d1aa2820cd57fb71ec8dd7`、独立全目录哈希 `82f75845b927c8fa817e45e8e4d588338c7131677f2681c7297dba987db0c8bd`。`0.4.6` 回滚链保留且维护脚本回归 `7/7`；`0.4.7` 本地包删除 | live API、进程、配置门禁、不可变包与维护脚本 | 活动当前 `paused`、每日 Cron 关闭；尚无真实 M5 Campaign StepFun 视觉调用，插件 ready 不等于发布授权 |
+| Paperclip / 插件 | live v2 为 17 Routine、15 阶段、5 个无模型 HTTP 控制器；插件 `agent-army.content-autonomy` live `0.4.9` 已从 SHA 命名不可变净包安装并 `ready/healthy`，API packagePath 与 worker 进程一致。`payloadHash=b64760f6c00e2031d5a5ae51fac4a76e26183698e1bb9bf536e407fd27592c0d`、`entryCount=19986`、`manifestSha256=dabf16ac255eec3348e5800239f907793db1c1e507d1aa2820cd57fb71ec8dd7`、独立全目录哈希 `82f75845b927c8fa817e45e8e4d588338c7131677f2681c7297dba987db0c8bd`。`0.4.6` 回滚链保留且维护脚本回归 `7/7`；`0.4.7` 本地包删除 | live API、进程、配置门禁、不可变包与维护脚本 | 活动当前 `stopped`、每日 Cron 关闭；尚无真实 M5 Campaign StepFun 视觉调用，插件 ready 不等于发布授权 |
 | 预算 | 13 条 M5 Budget 策略分别覆盖公司、Project 和 11 个正式岗位；每条均为 625 分的同一分层硬上限；公司与 M5 v2 Project 累计均为 392 分，剩余 233 分；小创累计 62 分、小拆累计 30 分 | Paperclip live Budget 与 m5v2 费用事件 | 分层上限不能相加；保守 `cost-events` 不等于 StepFun 官方最终账单 |
 | Hermes Profile 与技能白名单 | 11 个正式 Profile、Paperclip Adapter 与 fresh A君 release 已切到 `deepseek/deepseek-v4-flash`，回退链为空；5 个常驻 Gateway 已重启 | Profile 配置、launchd PID/cwd、Paperclip 11/11 对账 | 未执行付费 DeepSeek 探针；微信取件员不属于 11 岗 |
 | 本地运行时 | Paperclip `3100/api/health` 200；A君 PID `58141` 的 `4321/api/overview` 200，cwd/entrypoint 指向 R4；Publisher `4390` disabled | listener/cwd、plist 与只读 HTTP | 活动未批准；没有触发 publisher/retrospective heartbeat |
@@ -134,8 +134,8 @@
 
 ## 5. 风险、权限与关闭
 
-- 当前阻塞或风险：A君 R4 已 fresh，degraded recovery 可用但 exact previous 仍不可用；Paperclip 仍为15/17/5且兼容补丁未 apply，Publisher 为 disabled。本轮无真实Provider调用或发布。
-- 当前未发生：未批准或启动活动；production connector 代码虽已接 Runtime/composition，但 live 未注入 provider、未配置真实连接器，未操作平台页面、未真实发布，未生成真实 `LearningProposal`；1 个草案保持 `approvedAt=null`、Routine 定义 active 但 schedule trigger 关闭且从未触发。
+- 当前阻塞或风险：活动已经停止，旧活动批准和 Profile lease 均已过期；Paperclip 仍为15/17/5，Publisher 未运行且 production provider 未注入。本轮无真实 Provider 调用或发布。
+- 当前未发生：未创建新的活动授权草案，未签发新 Profile lease，未配置真实连接器，未操作平台页面、未真实发布，未生成真实 `LearningProposal`。
 - 不得复制或展示的信息：模型 Key、Cookie、OAuth Token、账号授权链接。
 - 需要谁确认：屏幕录制、插件升级和本轮付费多模态已经完成；抖音/小红书写权限和真实发布活动仍需负责人分别确认。
 - 关闭条件：M5 验收记录的全部层级达到约定门禁。
@@ -159,7 +159,14 @@
 - 当前边界：结果回读只通过本地 fixture；Computer Use 对当前网址拒绝操作，没有进行第二次真实发布或真实详情点击，也没有 Paperclip selector/Profile lease 或 production Runtime `PublishReceipt`。
 - CuaDriver 已用官方 v0.17.0 发布脚本完成校验升级，daemon 已恢复，Accessibility/Screen Recording 仍为 `true`；新版未提供任意 DOM 属性读取，结果证据仍走受限语义快照和同源详情 URL。
 - 已根据负责人提供的真实创作页截图、单次冒烟回执和当前 CampaignGrant 生成候选 `work/m5-publisher-gateway/selector-candidates/xiaohongshu-1.1.0.json`；Paperclip `AGE-949`（selector 冻结）和 `AGE-950`（Profile lease）均已由负责人批准。selector 已冻结为 `0444` bundle/manifest，冻结文件与候选逐字节一致，规范哈希和文件哈希均匹配；Profile lease 校验通过。二者都明确不授权发布。
-- 最新只读 production readiness 中 selector candidate/frozen 与 Profile lease 均安全通过；Campaign 当前因“指标回流后置、先完成本地门禁”而暂停，4390 仍为 `disabled` 且未注入 production provider，总判定为 `not_ready`。
+- 2026-08-08 只读 production readiness 中 selector candidate/frozen 仍安全；活动为 `stopped`，Profile lease 已过期，4390 未运行且未注入 production provider，总判定为 `not_ready`、退出码 `2`。
+
+## 2026-08-08 补充：当前 readiness 收口
+
+- A君只读 `/api/content-campaigns` 显示活动 `8dd29a3b…` 为 `stopped`、进度 `0/14`，停止原因为本机负责人停止；系统明确提示重新运行必须创建新授权草案。
+- 当前脱敏输入快照位于忽略目录 `work/m5-publisher-gateway/production-readiness/campaign-8dd29a3b-20260808-stopped.json`，仅包含活动状态、文件引用、Paperclip lease 引用/状态/有效期和 provider 布尔值，不包含 Secret。
+- readiness 新增 Profile lease 状态与有效期门禁；只有引用的旧快照标为不可证明，已过期 lease 明确阻断。stopped Campaign 返回机器动作 `create-new-campaign-authorization-draft`，不再建议恢复旧批准。
+- 本次未启动 4390、未恢复 Campaign/Cron、未注入 provider、未读取凭据、未调用付费模型或平台。
 - 当时下一步（历史）：保持 Campaign、Cron 和 Publisher 关闭；若负责人决定继续 production Runtime 验收，先单独授权恢复 Campaign，仍不得据此发布。抖音与指标仍需另行完成。
 
 ## 2026-08-06 补充：小红书静态卡候选

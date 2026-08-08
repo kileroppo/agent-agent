@@ -1,5 +1,7 @@
 # M1 小D飞书运行环境交接
 
+> 2026-08-08 已归档：该事项已经完成或被后续运行事实与验收记录替代，不再作为当前唯一下一步。
+
 > 已被 [`m1-xiaod-media-routing-acceptance-handoff.md`](./m1-xiaod-media-routing-acceptance-handoff.md) 替代。旧单保留用于追溯早期文本链路与环境配置过程；继续M1时以新单的运行快照、唯一下一步和验收门禁为准。
 
 | 字段 | 内容 |

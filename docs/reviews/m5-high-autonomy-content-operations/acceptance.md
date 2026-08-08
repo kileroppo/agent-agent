@@ -348,3 +348,15 @@ cua-driver doctor
 | 外部飞书 | NOT CHECKED | 本地解析与字段透传测试通过 | 必须由负责人在 A君 真实飞书会话发送一条带模式的视频任务 |
 
 当前唯一外部下一步见 [视频分析四模式飞书验收交接](../../handoffs/current/video-analysis-modes-feishu-acceptance-handoff.md)。
+
+## 2026-08-08 当前活动与只读 readiness 复核
+
+| 层级 | 结论 | 当前证据 | 未证明部分 |
+| --- | --- | --- | --- |
+| 活动状态 | STOPPED | A君 `GET /api/content-campaigns` 返回活动 `8dd29a3b…` 为 `stopped`、进度 `0/14`，并明确“重新运行必须创建新的授权草案” | 不批准创建新草案或恢复活动 |
+| Selector | PASS / READ ONLY | candidate 与 frozen 文件均为安全普通文件，内容 SHA-256 一致 | 不等于账号或页面仍匹配 |
+| Profile lease | EXPIRED | Paperclip 引用格式安全，但批准有效期止于 `2026-08-06T15:59:59.999Z`；新门禁返回 `profile_lease_expired` | 没有申请或签发新 lease |
+| Publisher / Provider | OFF | 4390 不可达，production provider 未注入，真实 connector 未配置 | 没有启动服务、读取凭据或访问平台 |
+| 只读预检 | EXPECTED NOT READY | `npm run production:readiness -- --snapshot <绝对路径>` 返回 `not_ready`、退出码 `2`；阻断为 stopped Campaign、过期 lease、Publisher 未就绪和 provider 未注入 | 不构成发布授权 |
+
+本轮修复了旧预检只验证 lease 引用格式、无法识别过期授权的缺口；同时将 stopped Campaign 的机器下一步固定为新建授权草案，禁止把旧批准当作 paused 活动恢复。全程无外部效果。

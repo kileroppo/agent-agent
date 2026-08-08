@@ -1,5 +1,7 @@
 # Session handoff
 
+> 2026-08-08 已归档：该事项已经完成或被后续运行事实与验收记录替代，不再作为当前唯一下一步。
+
 Updated at: `2026-07-19 19:35 Asia/Shanghai`
 
 ## Continue with this
@@ -30,8 +32,8 @@ Updated at: `2026-07-19 19:35 Asia/Shanghai`
 
 - Completed scope: 小D `POST /api/internal/feishu-media` 已校验Hermes缓存路径、复制文件、按 `messageId + attachmentIndex` 幂等创建任务；飞书适配器现在在模型前把音频/视频附件直接投递到该入口；小D服务改为默认只监听 `127.0.0.1`。首条真实附件已创建唯一任务并完成本地转录、整理和飞书文档交付的系统验证。随后发现适配器仅发送“已创建”消息而不回传终态，已补为轮询本机任务状态并向原会话发送一次终态通知。
 - Durable decisions and invariants: M1 使用传统飞书机器人 + 隔离 Hermes Profile + 小D应用；Paperclip延后到M2；媒体附件是确定性业务路由，不由LLM决定；语音条仍是Hermes即时转写，非本入口；非本机 ingress URL 被拒绝；模型不得自行删除/下载转写模型。
-- Important changed files: `apps/xiaod-media-transcriber/src/config.js`、`src/server.js`、`src/feishu-media-intake.js`、`src/domain.js`、`src/store.js`、`src/pipeline.js`、`src/test-failpoint.js`、`scripts/submit-feishu-media.mjs`、`test/feishu-media-intake.test.js`、`test/test-failpoint.test.js`、`agents/xiaod/prompts/system.md`、`integrations/hermes/xiaod-feishu-media-router.md`、`docs/handoffs/current/m1-xiaod-feishu-runtime-setup.md`；另有运行时适配器补丁见上方绝对路径。
-- Existing artifacts to read instead of duplicating here: `tasks/prd-agent-army-master.md`、`tasks/prd-m1-xiaod-feishu-closure.md`、`docs/contracts/core-contracts.md`、`docs/reviews/m1-xiaod-feishu-closure/acceptance.md`、`docs/handoffs/current/m1-xiaod-feishu-runtime-setup.md`。
+- Important changed files: `apps/xiaod-media-transcriber/src/config.js`、`src/server.js`、`src/feishu-media-intake.js`、`src/domain.js`、`src/store.js`、`src/pipeline.js`、`src/test-failpoint.js`、`scripts/submit-feishu-media.mjs`、`test/feishu-media-intake.test.js`、`test/test-failpoint.test.js`、`agents/xiaod/prompts/system.md`、`integrations/hermes/xiaod-feishu-media-router.md`、`docs/archive/handoffs/m1-xiaod-feishu-runtime-setup.md`；另有运行时适配器补丁见上方绝对路径。
+- Existing artifacts to read instead of duplicating here: `tasks/prd-agent-army-master.md`、`tasks/prd-m1-xiaod-feishu-closure.md`、`docs/contracts/core-contracts.md`、`docs/reviews/m1-xiaod-feishu-closure/acceptance.md`、`docs/archive/handoffs/m1-xiaod-feishu-runtime-setup.md`。
 
 ## Verification ledger
 
