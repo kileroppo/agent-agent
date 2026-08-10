@@ -22,6 +22,7 @@ const overview = {
   }],
   approvals:[],
   taskFocus:{ inProgress:1 },
+  validationCampaign:{ taskCount:2, groupCount:1 },
   usage:{ taskCount:1 }
 };
 
@@ -35,6 +36,7 @@ test('AgentArmyClient exposes factual capability and employee views', async () =
   assert.equal(capabilities.employees[0].capabilityTruth.overall, 'live');
   assert.equal(capabilities.capabilities[0].truth.overall, 'verified');
   assert.equal(employee.recentTasks[0].status, 'running');
+  assert.deepEqual((await client.armyStatus()).validationCampaign, { taskCount:2, groupCount:1 });
 });
 
 test('AgentArmyClient creates an idempotent Hermes task and returns its read model', async () => {

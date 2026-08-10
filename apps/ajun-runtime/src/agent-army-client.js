@@ -39,6 +39,7 @@ export class AgentArmyClient {
     const overview = await this.overview();
     return {
       taskFocus: overview.taskFocus || {},
+      validationCampaign: overview.validationCampaign || {},
       workflows: safeWorkflowViews(overview.workflows),
       usage: overview.usage || {},
       capabilities: (overview.capabilities || []).map(capabilityView),

@@ -6,6 +6,7 @@ import { privateReadGrantStatus } from './private-read-grant.js';
 import { evaluateHermesCostPolicy } from './hermes-cost-policy.js';
 import { evaluateWorkflowTasks } from './workflow/evaluation.ts';
 import { agentCapabilityTruth, capabilityTruthState } from './workflow/capability-truth.ts';
+import { buildValidationCampaign } from './workflow/validation-campaign.ts';
 export class TaskOverview {
   constructor({
     registry,
@@ -77,6 +78,10 @@ export class TaskOverview {
       tasks,
       approvals,
     });
+    const evidenceContext = {
+      proposals,
+      taskTypeDelegates:this.capabilityCatalog?.openTaskDelegates?.() || {},
+    };
     return {
       agents:visibleAgents,
       alwaysOnAgents:[
@@ -94,10 +99,8 @@ export class TaskOverview {
       recentTasks:tasks.filter(isRecentConsoleTask).slice(0, 3).map(present),
       workflows:evaluateWorkflowTasks(tasks),
       skillReadiness,
-      taskFocus:buildTaskFocus(tasks, approvals, {
-        proposals,
-        taskTypeDelegates:this.capabilityCatalog?.openTaskDelegates?.() || {},
-      }),
+      taskFocus:buildTaskFocus(tasks, approvals, evidenceContext),
+      validationCampaign:buildValidationCampaign(tasks, evidenceContext),
       usage:summarizeTaskUsage(tasks, { since:startOfToday() }),
       billing:this.billing(tasks, [...agents, ...(manager ? [manager] : [])], startOfRecentDays(7)),
       capabilities,

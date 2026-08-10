@@ -6,6 +6,7 @@ import { CapabilityExecutionEngine } from '../src/workflow/capability-execution.
 import { evaluateWorkflow, evaluateWorkflowTasks } from '../src/workflow/evaluation.ts';
 import { agentCapabilityTruth } from '../src/workflow/capability-truth.ts';
 import { summarizeBacklog } from '../src/workflow/backlog-classification.ts';
+import { buildValidationCampaign } from '../src/workflow/validation-campaign.ts';
 import { createLocalAiCapabilityAdapter } from '../src/adapters/local-ai-capability-adapter.ts';
 
 function capabilityRequest(overrides = {}) {
@@ -204,4 +205,22 @@ test('正式委托任务和已激活岗位草案可作为旧验证任务的后�
   assert.equal(summary.counts.validated_by_later_evidence, 2);
   assert.equal(summary.reviewBacklog, 0);
   assert.equal(summary.validatedByLaterEvidence, 2);
+});
+
+test('待验证任务按能力链路生成 AI 与人工结合的可执行验证账本', () => {
+  const campaign = buildValidationCampaign([
+    { taskId:'research', status:'failed', taskType:'research.intel-report' },
+    { taskId:'mission', status:'failed', taskType:'army.cross-agent-mission', input:{ title:'公开视频精华拆解' } },
+    { taskId:'analysis', status:'failed', taskType:'content.video-benchmark-analysis' },
+    { taskId:'draft', status:'failed', taskType:'content.platform-draft' },
+    { taskId:'recovery', status:'failed', taskType:'operations.failure-recovery' },
+    { taskId:'repair', status:'failed', taskType:'operations.technical-repair' },
+    { taskId:'done', status:'succeeded', taskType:'content.platform-draft' },
+  ]);
+  assert.equal(campaign.taskCount, 6);
+  assert.equal(campaign.groupCount, 5);
+  assert.equal(campaign.readyForAutomation, 2);
+  assert.equal(campaign.requiresExplicitAuthority, 4);
+  assert.deepEqual(campaign.groups.find((item) => item.id === 'video-analysis')?.taskIds, ['mission', 'analysis']);
+  assert.match(campaign.groups.find((item) => item.id === 'technical-repair')?.failureAction || '', /停止修改/);
 });
