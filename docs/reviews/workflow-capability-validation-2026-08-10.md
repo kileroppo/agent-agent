@@ -1,13 +1,15 @@
-# Business Workflow 与能力治理候选验收记录
+# Business Workflow 与能力治理 live 验收记录
 
 | 层级 | 结论 | 证据 | 未证明部分 |
 | --- | --- | --- | --- |
 | TypeScript | PASS | `npm run check --workspace=ajun-runtime` | 无 |
 | 架构门禁 | PASS | `npm run check:architecture`；Workflow 必须 TS，禁止直连平台、网络和进程 | 无 |
 | 自动化 | PASS | 根目录 `npm test` 全量通过 | 不代表外部平台闭环 |
-| 候选运行态 | PASS | `4322`、禁用后台服务；首页 200，overview 返回分层能力真相和 237 条历史验证欠账 | 使用兼容本地账本，不等于 4321 live |
-| live 身份 | PARTIAL | `npm run runtime:fingerprint`：4321 可达但绑定 release `2f8309d7…` / Git `aebb7f0…`，与候选源码不同 | 未冻结、未切换新 release |
-| 飞书外部验收 | NOT CHECKED | 未发送测试消息 | 新能力真相文案、真实业务 Workflow、人工评价闭环待新 release 后验证 |
+| 不可变发布 | PASS | release `7adb3f3d…`，payload `e4326d7a…`，Git `b18c3d2…`；冻结校验、启动冒烟和只读恢复冒烟均通过 | 无 |
+| live 身份 | PASS | `runtime:fingerprint`：PID `16240`，`same_git_head`，源码 clean，live HTTP 200 | Publisher 关闭使整体指纹保持 degraded，这是安全边界 |
+| 飞书状态验收 | PASS | A君回复按“已登记/在线/已验证/人工验收”分层；处理图标出现，回复后刷新无残留，未创建任务 | 无 |
+| 真实 Workflow | PASS | 任务 `#167203DF`，Workflow `workflow:a5517f230c8b1f465471dcef`，Step `step:health-observation:cb458f79e30b9338`；A君、小D、Paperclip 均 healthy | 健康验收不等于所有业务能力已验证 |
+| 人工评价闭环 | PASS | 原飞书会话调用 `task_feedback`，账本写入 `feedback.sentiment=useful` 和 `humanAcceptance.status=accepted` | 无 |
 | 外部写入 | NOT CHECKED / DISABLED | Publisher 4390 未运行 | Campaign、Cron、Provider 和平台写入均不在本轮范围 |
 
 ## 已验证行为
@@ -20,3 +22,10 @@
 - 小办在任何工具调用前核对“总页数包含封面”，提纲冲突直接 needs_input；
 - 飞书结果评价复用为 Workflow 人工验收：有用=`accepted`，需改进=`revision_required`；
 - MCP、飞书和控制台不再把岗位登记/进程在线格式化为“全部可用”。
+- `不外发或发布` 会整体按并列否定处理，不再把后半句误判为高风险；原误判任务 `#4C4C2921` 已拒绝关闭，未执行。
+- A君 Hermes Profile 已受控新增 `task_feedback`；跨飞书会话写回会被拒绝，聊天中的“存档”不再代替任务账本事实。
+
+## 最终边界
+
+- 当前 245 条 unresolved 是历史验证欠账，不是当前需负责人立即处理的 245 件事；`ownerActionable=0`。
+- Publisher、Campaign、Cron、付费 Provider 和真实平台写入继续关闭；本记录不将其声称为已验证。

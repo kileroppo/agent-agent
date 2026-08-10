@@ -59,7 +59,6 @@
 [`docs/archive/handoffs/`](../archive/handoffs/)，不得继续提供互相竞争的“唯一下一步”。
 
 - [系统产出稳定性对抗审查](./current/output-stability-audit-handoff.md)：等待下一条自然飞书消息验证完整产物链；不补发测试消息。
-- [Business Workflow 与能力治理 live 验收](./current/workflow-capability-live-acceptance-handoff.md)：候选源码和 4322 已通过；先形成 clean Git 身份并冻结新 release，再验收真实飞书 Workflow 与人工评价。
 - [视频分析四模式飞书验收](./current/video-analysis-modes-feishu-acceptance-handoff.md)：由负责人发送一条指定模式的视频链接，核对原会话结果。
 - [Agent 使用说明书问答验收](./current/agent-manual-query-handoff.md)：由负责人复验小D只返回最终说明书，再完成权限边界验收。
 - [小R多路线搜索与证据方法](./current/intel-research-search-method-handoff.md)：完成不可变 release 与一条真实公开研究质量验收。

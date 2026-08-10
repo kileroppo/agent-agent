@@ -36,15 +36,15 @@ agent-agent/
 
 ### 当前机器事实（2026-08-10）
 
-- A君 `4321` 正常运行，PID `82330`，绑定 clean 不可变 release `2f8309d7…`、payload `da95f8fd…` 和源码提交 `aebb7f0…`；它与当前候选源码 `5b2444f…` 不是同一 Git HEAD。
-- Paperclip `3100`、Hermes `9119` 与小D运行面可达；Publisher `4390` 未运行，Campaign、M5 Cron 和所有真实外写继续关闭。
-- 当前候选源码已在无后台服务的 `4322` 验证 Workflow、能力真相和历史验证欠账投影；这不等于 `4321` 已切换。运行身份必须以 `npm run runtime:fingerprint` 为准。
+- A君 `4321` 正常运行，PID `16240`，绑定 clean 不可变 release `7adb3f3d…`、payload `e4326d7a…` 和源码提交 `b18c3d2…`；`runtime:fingerprint` 确认 live 与 clean 源码为 `same_git_head`。
+- Paperclip `3100`、Hermes Gateway 和小D运行面可达；Publisher `4390` 未运行，Campaign、M5 Cron 和所有真实外写继续关闭。
+- Business Workflow、能力真相、并列否定策略和人工评价写回已进入 `4321` live；飞书任务 `#167203DF` 完成一条真实只读 Workflow，并将 `useful` / `accepted` 写回任务账本。
 
 ### 当前产品结论
 
 - M0–M3 已完成；M4 本地岗位质量与模型回归已完成，剩余项均为明确的外部或人工验收；M5 仍为 **PARTIAL**。
-- 候选源码以 Business Workflow 作为新任务主对象，新增 TypeScript Policy、CapabilityAdapter、ExecutionReceipt、Evaluation 和五层能力真相；历史任务只读分类，不改写旧终态。
-- 候选 `4322` 对历史兼容账本分类出 237 条待验证/未解决记录；这是验证欠账，不是 237 项当前待办，也不会自动重试。`4321` live 仍按旧投影显示 798 条任务、0 项进行中。
+- Business Workflow 已作为新任务主对象，TypeScript Policy、CapabilityAdapter、ExecutionReceipt、Evaluation 和五层能力真相已在 live 生效；历史任务只读分类，不改写旧终态。
+- `4321` 当前显示 800 条任务、0 项进行中、0 项待审批、0 项负责人必须立即处理；245 条 unresolved 是历史验证欠账，不会自动重试或冒充当前待办。
 - 本周账本的 1284 次模型 API 调用中，1050 次来自运维官；绝大多数发生在 8 月 1–5 日旧模型巡检路径。无模型健康巡检切换后，8 月 7–8 日运维官合计只有 10 次调用。当前问题是历史窗口和任务归因，不是费用失控；详见[产品收口运行账本](./docs/reviews/operations-health/product-closure-2026-08-08.md)。
 
 ### 当前边界与下一步
