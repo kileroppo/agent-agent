@@ -36,7 +36,7 @@ agent-agent/
 
 ### 当前机器事实（2026-08-10）
 
-- A君 `4321` 绑定 clean 不可变 release 正常运行；`runtime:fingerprint` 必须确认当前源码与 live 为 `same_git_head`，精确 PID、release、payload 与 Git 身份以当前 release manifest 和该只读指纹为准。本轮真实业务 E2E 运行在代码 release `9a5ab1c1…` / payload `df15752d…` / Git `334c664…`，其后的文档收口 release 保持同一 payload，不重复执行模型任务。
+- A君 `4321` 绑定 clean 不可变 release 正常运行；`runtime:fingerprint` 已从干净主线源确认源码与 live 为 `same_git_head`、HTTP 200。精确 PID、release、payload 与 Git 身份以当前 release manifest 和该只读指纹为准，不在 README 固化易漂移值。
 - Paperclip `3100`、Hermes Gateway 和小D运行面可达；Paperclip roster 已同步 12 个岗位，小拆与 A君 Hermes Profile 再次 dry-run 均为 `changed=false`。Publisher `4390` 未运行，Campaign 与 M5 Cron 继续关闭。
 - Business Workflow、能力真相、并列否定策略和人工评价写回已进入 `4321` live；飞书任务 `#167203DF` 完成一条真实只读 Workflow，并将 `useful` / `accepted` 写回任务账本。
 
@@ -45,7 +45,7 @@ agent-agent/
 - M0–M3 已完成；M4 本地岗位质量与模型回归已完成，剩余项均为明确的外部或人工验收；M5 仍为 **PARTIAL**。
 - Business Workflow 已作为新任务主对象，TypeScript Policy、CapabilityAdapter、ExecutionReceipt、Evaluation 和五层能力真相已在 live 生效；历史任务只读分类，不改写旧终态。
 - 任务与待办数量以 live `/api/overview.taskFocus` 为准，README 不再固化会持续变化的计数。真正的 `waiting_acceptance` Workflow 会进入 `ownerActionable`；等待自动验证的 `waiting_test` 或产物门禁未通过会显示为 `waiting_validation`，不再冒充老板待办。历史分类仍只读，不改写旧任务终态。
-- live `agent.army/validation-campaign/v1` 已收敛为 `taskCount=0`、`groupCount=0`。首次真实小拆 `#716FA2E8` 因模式结构未通过停在 `waiting_test`；修复后的 `#B5403CD9` 以 `paperclip_hermes_completed` 成功，结构校验由 `false` 经一次 deterministic repair 变为 `true`，生成 7077 bytes、194 字摘要报告。
+- live `agent.army/validation-campaign/v1` 已收敛为 `taskCount=0`、`groupCount=0`。首次真实小拆 `#716FA2E8` 的任务终态仍保留为 `waiting_test`，Workflow 正确呈现为 `waiting_validation` 且不产生负责人动作；修复后的 `#B5403CD9` 以 `paperclip_hermes_completed` 成功，其 Workflow 为 `waiting_acceptance`，结构校验由 `false` 经一次 deterministic repair 变为 `true`，生成 7077 bytes、194 字摘要报告。
 - 两条真实小拆均各调用 DeepSeek 1 次：首次 5218/13466 tokens、估算 0.004501 USD；成功任务 3043/8809 tokens、估算 0.0028986328 USD。两次都未调用视觉 Provider。任务账本未报告外部写入，也没有独立外写回执，因此不能断言外部写入为零；Paperclip 本机 completion sync 不等于外部发布。
 - 真实 `runtime.sqlite` 只读回放复用了任务 `#10E4F814` 的实际确认稿、10 帧和 1 个故事板，在无 Advisor、无视觉 Provider 时生成 13 模块 `deterministic_fallback` 报告，并正确标记 `partial` / `unavailable`；数据库写入、live 任务写入、Provider 调用和付费调用均为 0，临时目录已清理。M3 无 Provider 本机纵向验收同样通过。
 - 模型账本以 live `/api/overview.billing` 的滚动窗口为准，不再在 README 固化过期 API 次数。账本分开 `task`、`system`、`agent_session` 和真正 `unattributed`；仅有可对账的 Hermes session 才绑定具体任务/Workflow，其余会话不再被笼统说成“未归属”。历史窗口分析见[产品收口运行账本](./docs/reviews/operations-health/product-closure-2026-08-08.md)。
@@ -55,7 +55,7 @@ agent-agent/
 - M5 活动 `8dd29a3b…` 当前已经 `stopped`，不是旧文档中的 `paused`；旧 Profile lease 已过期。重新运行必须创建新授权草案，不能恢复旧授权。
 - 先维护只读 readiness、任务恢复和审计质量；恢复 Campaign、启动 Publisher 或平台写入仍需独立授权。模型型验证必须先通过现有预算 Policy；本轮真实小拆已产生两次有账本的 DeepSeek 调用，未调用视觉 Provider。
 - 新任务通过 `Model → Agent Runtime → Skills/Workflow → Policy/Permission → MCP/Tool Gateway → Provider` 执行；Model 不得自批权限。已登记同机只读能力可自动恢复一次并重试一次，仍失败才提示负责人。
-- `334c664…` 已完成不可变部署、真实 DeepSeek 小拆终态和 Paperclip 本机完成同步；自动结构通过只证明产物满足机器门禁，不等于负责人已经采用内容。
+- 当前主线已完成不可变部署、真实 DeepSeek 小拆终态、Workflow/能力证据/用量归因修复和 Paperclip 本机完成同步；自动结构通过只证明产物满足机器门禁，不等于负责人已经采用内容。
 - 历史能力验证批次的自动化闭环已完成，该批次仅保留可选人工内容质量抽查：如需形成最终采用结论，可对 `#B5403CD9` 登记 `accepted` 或 `revision_required`。项目其他外部/人工验收仍以[当前交接](./docs/handoffs/README.md#当前交接)为准，不将某一批次的闭环误说成整个项目只剩一件事。
 - 仍需负责人参与的真实验收统一见[当前交接](./docs/handoffs/README.md#当前交接)；已经完成或被替代的事项不得继续占用当前状态。
 - 2026-08-08 以前的详细运行快照已移至[历史运行状态](./docs/archive/product-state-history-2026-08-08.md)，不再作为当前 PID、版本或唯一下一步依据。
