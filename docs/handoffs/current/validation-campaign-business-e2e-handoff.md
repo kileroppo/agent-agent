@@ -21,7 +21,7 @@
 
 | 类别 | 事实 | 证据位置 | 状态 |
 | --- | --- | --- | --- |
-| 当前 live 运行时 | release `9a5ab1c1…`，payload `df15752d…`，Git `334c664…`，PID `11677`，HTTP 200；源码与 live 为 `same_git_head` | 根目录 `npm run runtime:fingerprint` | 已验证 |
+| 当前 live 运行时 | clean 不可变 release，HTTP 200；源码与 live 必须为 `same_git_head`，精确 release / payload / Git / PID 以当前 manifest 与 `runtime:fingerprint` 为准。真实业务 E2E 运行于代码 release `9a5ab1c1…` / payload `df15752d…` / Git `334c664…`，后续仅做同 payload 文档收口 | 根目录 `npm run runtime:fingerprint` | 已验证 |
 | live 任务账本 | 802 条任务；owner 0、review 0、verification 0、unresolved 0、历史归档 184、后续证据 92；`validationCampaign=0/0` | live `/api/overview` | 已验证 |
 | 岗位运行面 | Paperclip roster 同步 12 个岗位；小拆与 A君 Hermes Profile 二次 dry-run 均 `changed=false` | roster/Profile 对账 | 已验证 |
 | 外部写入 | 任务账本没有报告外部写入，也没有独立外写回执；Paperclip completion sync 是本机任务同步 | 任务账本与 Paperclip 回读 | 不能断言外写为零 |
@@ -44,7 +44,7 @@
 | M3 本机纵向 | PASS / NO PROVIDER | 分析、草稿、知识归档纵向链通过，未启用 Provider | Paperclip、飞书、真人听审和内容质量 |
 | 首次真实任务 | EXPECTED WAITING TEST | `#716FA2E8` 为 `waiting_test`；DeepSeek 1 次，5218/13466 tokens，估算 0.004501 USD；结构未通过；视觉 Provider 未调用 | 没有成功终态 |
 | 修复后真实任务 | PASS | `#B5403CD9` 为 `succeeded` / `paperclip_hermes_completed`；结构 `false → 单次 deterministic repair → true`；报告 7077 bytes、摘要 194 字；DeepSeek 1 次，3043/8809 tokens，估算 0.0028986328 USD；视觉 Provider 未调用 | 人工内容质量 |
-| live 运行时 | PASS | `9a5ab1c1…` / `df15752d…` / `334c664…`，PID `11677`，`same_git_head`；验证批次 0/0 | 无自动化剩余项 |
+| live 运行时 | PASS | 当前 manifest 与 `runtime:fingerprint` 显示 clean immutable release、HTTP 200、`same_git_head`；代码 E2E release 为 `9a5ab1c1…` / `df15752d…` / `334c664…`；验证批次 0/0 | 无自动化剩余项 |
 | 外部平台 | NOT REPORTED | 两条真实任务没有独立外写回执；Paperclip 本机 completion sync 不等于外部发布 | 账本未报告，不能断言外部写入为零 |
 | 人工验收 | NOT CHECKED | 自动结构门禁已通过，但尚无 `accepted` / `revision_required` | 精华提炼和内容判断是否忠于原视频、可被采用 |
 

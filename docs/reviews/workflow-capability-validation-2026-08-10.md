@@ -5,8 +5,8 @@
 | TypeScript | PASS | `npm run check --workspace=ajun-runtime` | 无 |
 | 架构门禁 | PASS | `npm run check:architecture`；Workflow 必须 TS，禁止直连平台、网络和进程 | 无 |
 | 自动化 | PASS | 根目录 `npm test` 全量通过 | 不代表外部平台闭环 |
-| 不可变发布 | PASS | release `9a5ab1c1…`，payload `df15752d…`，Git `334c664…`；PID `11677`，live HTTP 200 | 无 |
-| live 身份 | PASS | `runtime:fingerprint`：源码与 live 为 `same_git_head`，release worktree clean | Publisher 关闭使整体指纹保持 degraded，这是安全边界 |
+| 不可变发布 | PASS | 真实业务 E2E 使用代码 release `9a5ab1c1…`、payload `df15752d…`、Git `334c664…`；后续文档收口 release 保持同一 payload，未重复执行模型任务 | 当前精确 release 身份以 manifest 为准 |
+| live 身份 | PASS | `runtime:fingerprint` 必须显示源码与 live 为 `same_git_head`、release worktree clean、HTTP 200；精确 PID 与 release 哈希不在会改变自身 Git 身份的文档中硬编码 | Publisher 关闭使整体指纹保持 degraded，这是安全边界 |
 | Paperclip / Hermes 岗位同步 | PASS | Paperclip roster 已同步 12 个岗位；小拆与 A君 Hermes Profile 二次 dry-run 均为 `changed=false` | 不代表外部发布或人工内容采用 |
 | 飞书状态验收 | PASS | A君回复按“已登记/在线/已验证/人工验收”分层；处理图标出现，回复后刷新无残留，未创建任务 | 无 |
 | 真实 Workflow | PASS | 任务 `#167203DF`，Workflow `workflow:a5517f230c8b1f465471dcef`，Step `step:health-observation:cb458f79e30b9338`；A君、小D、Paperclip 均 healthy | 健康验收不等于所有业务能力已验证 |

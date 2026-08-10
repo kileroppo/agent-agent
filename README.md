@@ -36,7 +36,7 @@ agent-agent/
 
 ### 当前机器事实（2026-08-10）
 
-- A君 `4321` 正常运行，PID `11677`，绑定 clean 不可变 release `9a5ab1c1…`、payload `df15752d…` 和源码提交 `334c664…`；`runtime:fingerprint` 确认源码与 live 为 `same_git_head`。
+- A君 `4321` 绑定 clean 不可变 release 正常运行；`runtime:fingerprint` 必须确认当前源码与 live 为 `same_git_head`，精确 PID、release、payload 与 Git 身份以当前 release manifest 和该只读指纹为准。本轮真实业务 E2E 运行在代码 release `9a5ab1c1…` / payload `df15752d…` / Git `334c664…`，其后的文档收口 release 保持同一 payload，不重复执行模型任务。
 - Paperclip `3100`、Hermes Gateway 和小D运行面可达；Paperclip roster 已同步 12 个岗位，小拆与 A君 Hermes Profile 再次 dry-run 均为 `changed=false`。Publisher `4390` 未运行，Campaign 与 M5 Cron 继续关闭。
 - Business Workflow、能力真相、并列否定策略和人工评价写回已进入 `4321` live；飞书任务 `#167203DF` 完成一条真实只读 Workflow，并将 `useful` / `accepted` 写回任务账本。
 
