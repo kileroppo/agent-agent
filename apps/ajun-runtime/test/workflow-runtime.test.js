@@ -220,7 +220,8 @@ test('待验证任务按能力链路生成 AI 与人工结合的可执行验证�
   assert.equal(campaign.taskCount, 6);
   assert.equal(campaign.groupCount, 5);
   assert.equal(campaign.readyForAutomation, 2);
-  assert.equal(campaign.requiresExplicitAuthority, 4);
+  assert.equal(campaign.policyGatedAutomation, 4);
+  assert.equal(campaign.requiresExplicitAuthority, 0);
   assert.deepEqual(campaign.groups.find((item) => item.id === 'video-analysis')?.taskIds, ['mission', 'analysis']);
   assert.match(campaign.groups.find((item) => item.id === 'technical-repair')?.failureAction || '', /停止修改/);
 });

@@ -4,8 +4,8 @@ import {
   type BacklogClassification,
 } from './backlog-classification.ts';
 
-type ValidationAuthority = 'none' | 'provider_cost' | 'public_source_and_provider' | 'isolated_local_write';
-type ValidationState = 'ready_for_automation' | 'requires_explicit_authority';
+type ValidationAuthority = 'none' | 'budget_policy' | 'public_source_and_budget_policy' | 'isolated_local_write';
+type ValidationState = 'ready_for_automation' | 'policy_gated_automation' | 'requires_explicit_authority';
 
 type ValidationSpec = Readonly<{
   id: string;
@@ -29,7 +29,7 @@ const SPECS: readonly ValidationSpec[] = Object.freeze([
     id:'research-intelligence',
     name:'小R公开研究',
     taskTypes:['research.intel-report'],
-    authority:'public_source_and_provider',
+    authority:'public_source_and_budget_policy',
     automatedMethod:'用非敏感公开主题执行一次完整研究 Workflow，检查多路检索、来源绑定、反证搜索和可读产物。',
     acceptanceStandard:'新任务成功；产物非空可读；至少满足研究 Workflow 的来源数量、搜索多样性、反证与主张证据绑定门禁。',
     humanCheck:'人工抽查结论是否准确、来源是否支持结论。',
@@ -41,7 +41,7 @@ const SPECS: readonly ValidationSpec[] = Object.freeze([
     taskTypes:['content.video-benchmark-analysis'],
     extraMatch:(task) => task?.taskType === 'army.cross-agent-mission'
       && /视频|拆解|精华|转录/.test(String(task?.input?.title || '')),
-    authority:'public_source_and_provider',
+    authority:'public_source_and_budget_policy',
     automatedMethod:'复用已确认转录优先执行纯文本分析；有视觉主张时再走受控视觉 Provider，并记录转录、分析和视觉证据三层结果。',
     acceptanceStandard:'新任务成功；报告版本、正式来源确认、模式结构和视觉主张证据绑定门禁全部通过；没有视觉证据时不得生成视觉事实。',
     humanCheck:'人工抽查精华提炼和内容判断是否忠于原视频。',
@@ -51,7 +51,7 @@ const SPECS: readonly ValidationSpec[] = Object.freeze([
     id:'content-draft',
     name:'小创内容草稿',
     taskTypes:['content.platform-draft'],
-    authority:'provider_cost',
+    authority:'budget_policy',
     automatedMethod:'用非发布型测试输入生成结构化草稿，只验证内容产物，不调用发布接口。',
     acceptanceStandard:'新任务成功；草稿非空可读；格式、平台结构和来源约束通过；externalPublished 必须保持 false。',
     humanCheck:'人工验收内容质量、口吻和业务可用性。',
@@ -111,6 +111,8 @@ export function buildValidationCampaign(
     groupCount:items.length,
     readyForAutomation:items.filter((item) => item.state === 'ready_for_automation')
       .reduce((count, item) => count + item.taskCount, 0),
+    policyGatedAutomation:items.filter((item) => item.state === 'policy_gated_automation')
+      .reduce((count, item) => count + item.taskCount, 0),
     requiresExplicitAuthority:items.filter((item) => item.state === 'requires_explicit_authority')
       .reduce((count, item) => count + item.taskCount, 0),
     groups:Object.freeze(items),
@@ -118,9 +120,9 @@ export function buildValidationCampaign(
 }
 
 function validationState(authority: ValidationAuthority): ValidationState {
-  return ['none', 'isolated_local_write'].includes(authority)
-    ? 'ready_for_automation'
-    : 'requires_explicit_authority';
+  if (['none', 'isolated_local_write'].includes(authority)) return 'ready_for_automation';
+  if (['budget_policy', 'public_source_and_budget_policy'].includes(authority)) return 'policy_gated_automation';
+  return 'requires_explicit_authority';
 }
 
 function spec(input: {
@@ -147,7 +149,7 @@ function fallbackSpec(task: any): ValidationSpec {
     id:`other:${taskType}`,
     name:`其他待验证能力：${taskType}`,
     matches:() => true,
-    authority:'provider_cost',
+    authority:'budget_policy',
     automatedMethod:'先识别该任务依赖的 Runtime、Skill、Policy 与 Tool Gateway，再选择不产生外部副作用的最小验证。',
     acceptanceStandard:'必须产生新的成功任务和可验证产物；只有代码或配置存在不能视为通过。',
     humanCheck:'由人工确认业务结果是否可用。',
