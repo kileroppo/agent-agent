@@ -2789,8 +2789,8 @@ test('概览优先呈现待审批任务，并给出不会自动继续的下一�
   assert.deepEqual(overview.taskFocus, {
     total:3, completed:1, inProgress:1, backgroundInProgress:0, paused:0,
     needsInput:0, waitingApproval:1, waitingTest:0, failed:0,
-    ownerActionable:1, reviewBacklog:0, verificationBacklog:0, unresolvedFailures:0, historicalArchived:0,
-    backlog:{ current:1, superseded:0, expected_acceptance_failure:0, intentionally_disabled:0, needs_human:1, archived_cancelled:0, needs_reverification:0, unresolved_failure:0, unresolved:0, completed:1 },
+    ownerActionable:1, reviewBacklog:0, verificationBacklog:0, unresolvedFailures:0, historicalArchived:0, validatedByLaterEvidence:0,
+    backlog:{ current:1, superseded:0, validated_by_later_evidence:0, expected_acceptance_failure:0, intentionally_disabled:0, needs_human:1, archived_cancelled:0, needs_reverification:0, unresolved_failure:0, unresolved:0, completed:1 },
     actions:[waitingAction], next:waitingAction,
   });
 });

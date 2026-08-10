@@ -44,6 +44,7 @@ export function buildTaskFocus(tasks, approvals) {
     verificationBacklog:backlog.verificationBacklog,
     unresolvedFailures:backlog.unresolvedFailures,
     historicalArchived:backlog.historicalArchived,
+    validatedByLaterEvidence:backlog.validatedByLaterEvidence,
     backlog:backlog.counts,
     actions,
     next:current ? focusItem(current) : null,

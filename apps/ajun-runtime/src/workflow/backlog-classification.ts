@@ -1,6 +1,7 @@
 export type BacklogClassification =
   | 'current'
   | 'superseded'
+  | 'validated_by_later_evidence'
   | 'expected_acceptance_failure'
   | 'intentionally_disabled'
   | 'needs_human'
@@ -15,6 +16,7 @@ export function classifyTaskBacklog(task: any, allTasks: readonly any[] = []): B
   if (isIntentionallyDisabled(task)) return 'intentionally_disabled';
   if (isExpectedAcceptanceFailure(task)) return 'expected_acceptance_failure';
   if (isSuperseded(task, allTasks)) return 'superseded';
+  if (isValidatedByLaterEvidence(task, allTasks)) return 'validated_by_later_evidence';
   if (task?.status === 'needs_input' || task?.status === 'waiting_approval') return 'needs_human';
   if (['running', 'queued', 'received', 'waiting_worker', 'pausing', 'paused'].includes(task?.status)) return 'current';
   if (task?.status === 'cancelled') return 'archived_cancelled';
@@ -29,11 +31,13 @@ export function summarizeBacklog(tasks: readonly any[]): Readonly<{
   verificationBacklog: number;
   unresolvedFailures: number;
   historicalArchived: number;
+  validatedByLaterEvidence: number;
   ownerActionable: number;
 }> {
   const counts: Record<BacklogClassification, number> = {
     current:0,
     superseded:0,
+    validated_by_later_evidence:0,
     expected_acceptance_failure:0,
     intentionally_disabled:0,
     needs_human:0,
@@ -50,6 +54,7 @@ export function summarizeBacklog(tasks: readonly any[]): Readonly<{
     verificationBacklog:counts.needs_reverification,
     unresolvedFailures:counts.unresolved_failure + counts.unresolved,
     historicalArchived:counts.archived_cancelled + counts.superseded + counts.expected_acceptance_failure,
+    validatedByLaterEvidence:counts.validated_by_later_evidence,
     ownerActionable:counts.needs_human,
   });
 }
@@ -86,4 +91,21 @@ function isSuperseded(task: any, allTasks: readonly any[]): boolean {
     && candidate?.assigneeAgentId === task?.assigneeAgentId
     && Date.parse(candidate?.createdAt || '') > createdAt
     && candidate?.status === 'succeeded');
+}
+
+function isValidatedByLaterEvidence(task: any, allTasks: readonly any[]): boolean {
+  if (!['waiting_test', 'failed'].includes(task?.status)) return false;
+  const taskTime = Date.parse(task?.updatedAt || task?.createdAt || '') || 0;
+  return allTasks.some((candidate) => candidate?.taskId !== task?.taskId
+    && candidate?.status === 'succeeded'
+    && candidate?.taskType === task?.taskType
+    && candidate?.assigneeAgentId === task?.assigneeAgentId
+    && (Date.parse(candidate?.updatedAt || candidate?.createdAt || '') || 0) > taskTime
+    && hasVerifiedArtifact(candidate));
+}
+
+function hasVerifiedArtifact(task: any): boolean {
+  return (task?.artifactRefs || []).some((artifact: any) => artifact?.validation?.exists === true
+    && artifact?.validation?.readable === true
+    && artifact?.validation?.nonEmpty === true);
 }
