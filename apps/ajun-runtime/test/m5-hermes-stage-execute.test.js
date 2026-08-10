@@ -2709,6 +2709,7 @@ test('发布审批会解包 ContentVersion 和 MachineReview 后再交固定 pre
     adapter:withActivePipeline(adapter),
     activePipelineId:PIPELINE.id,
     definition:defaultDefinition,
+    now:() => new Date('2026-07-30T02:00:00.000Z'),
     toolExecutor:{ async execute(input) {
       calls.push(input);
       return { passed:true, errors:[], idempotencyKey:'campaign:douyin:version:date' };
