@@ -31,8 +31,8 @@ export function createAgentArmyMcpServer({
   };
 
   read('capabilities', {
-    title:'Agent军团可用能力',
-    description:'列出当前真正已上岗的员工、每位员工可接受的任务类型，以及军团公共能力状态。回答“你能做什么”“谁能做这件事”前先调用；不要凭记忆编造能力。',
+    title:'Agent军团能力真相',
+    description:'列出岗位登记、可接受任务类型，以及能力从已声明到真实任务验证的分层状态。回答“你能做什么”“谁能做这件事”前先调用；不得把已登记或在线冒充已验证。',
     inputSchema:z.object({})
   }, async () => scopedCapabilities(await client.capabilities(), scope));
 
@@ -526,11 +526,22 @@ function humanReadableToolText(value) {
   }
   if (typeof value?.manualText === 'string') return value.manualText;
   if (Array.isArray(value?.employees) && Array.isArray(value?.capabilities)) {
-    const employees = value.employees.map((item) => `${item.name || item.agentId}：${item.role || '已上岗'}`).join('\n');
-    const capabilities = value.capabilities.map((item) => `${item.name || item.id}：${item.detail || item.status || '可用'}`).join('\n');
-    return [`当前员工：\n${employees || '暂无已上岗员工。'}`, `可用能力：\n${capabilities || '暂无可用能力。'}`].join('\n\n');
+    const employees = value.employees.map((item) => `${item.name || item.agentId}：${truthText(item.capabilityTruth)}；${item.role || '岗位职责已登记'}`).join('\n');
+    const capabilities = value.capabilities.map((item) => `${item.name || item.id}：${truthText(item.truth)}；${item.detail || item.status || '状态待核对'}`).join('\n');
+    return [`岗位登记（不等于业务已验证）：\n${employees || '暂无岗位登记。'}`, `能力实证：\n${capabilities || '暂无能力记录。'}`].join('\n\n');
   }
   return JSON.stringify(value, null, 2);
+}
+
+function truthText(value) {
+  return ({
+    human_accepted:'人工已验收',
+    verified:'真实任务已验证',
+    live:'运行可达，待业务验证',
+    configured:'已配置，待运行验证',
+    declared:'仅已声明',
+    not_declared:'尚未接入',
+  })[value?.overall] || '状态待核对';
 }
 
 function jsonObject(value) {

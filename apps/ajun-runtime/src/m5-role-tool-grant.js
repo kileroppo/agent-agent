@@ -18,20 +18,30 @@ export function compileM5RoleToolGrant({
   paperclipAgentId,
   projectId,
   executionWorkspaceId,
+  requireProjectId = true,
+  requireExecutionWorkspaceId = true,
   availableAdapters = [],
 } = {}) {
   const agentId = String(manifest?.agentId || '').trim();
   if (!agentId || profile?.profileId !== agentId || profile?.agentManifestRef !== `agents/${agentId}/manifest.json`) {
     throw new M5RoleToolGrantError('Manifest 与 Hermes Profile 岗位身份不一致。', 'role_identity_mismatch');
   }
-  for (const [name, value] of [
-    ['paperclipAgentId', paperclipAgentId],
-    ['projectId', projectId],
-    ['executionWorkspaceId', executionWorkspaceId],
-  ]) {
+  for (const [name, value] of [['paperclipAgentId', paperclipAgentId]]) {
     if (!UUID.test(String(value || ''))) {
       throw new M5RoleToolGrantError(`${name} 必须来自 Paperclip 当前指派。`, 'paperclip_scope_invalid');
     }
+  }
+  if (requireProjectId && !UUID.test(String(projectId || ''))) {
+    throw new M5RoleToolGrantError('projectId 必须来自 Paperclip 当前指派。', 'paperclip_scope_invalid');
+  }
+  if (!requireProjectId && projectId && !UUID.test(String(projectId))) {
+    throw new M5RoleToolGrantError('projectId 必须来自 Paperclip 当前指派。', 'paperclip_scope_invalid');
+  }
+  if (requireExecutionWorkspaceId && !UUID.test(String(executionWorkspaceId || ''))) {
+    throw new M5RoleToolGrantError('executionWorkspaceId 必须来自 Paperclip 当前指派。', 'paperclip_scope_invalid');
+  }
+  if (!requireExecutionWorkspaceId && executionWorkspaceId && !UUID.test(String(executionWorkspaceId))) {
+    throw new M5RoleToolGrantError('executionWorkspaceId 必须来自 Paperclip 当前指派。', 'paperclip_scope_invalid');
   }
 
   const allowedTools = uniqueStrings(manifest.toolAllowlist);
@@ -85,8 +95,9 @@ export function compileM5RoleToolGrant({
     schemaVersion:'agent.army/m5-role-tool-grant/v1',
     agentId,
     paperclipAgentId,
-    projectId,
-    executionWorkspaceId,
+    projectId:projectId || null,
+    executionWorkspaceId:executionWorkspaceId || null,
+    workspaceRequired:requireExecutionWorkspaceId,
     unknownToolDecision:'deny',
     workspace:Object.freeze({
       scope:'paperclip-execution-workspace',
@@ -188,7 +199,10 @@ export function createM5RoleToolExecutionContext(grant, {
   workspaceRoot = null,
   trustedScope = {},
 } = {}) {
-  if (!grant?.executionWorkspaceId || !plainObject(grant.grants)) {
+  if (
+    !plainObject(grant?.grants)
+    || (grant.workspaceRequired !== false && !grant.executionWorkspaceId)
+  ) {
     throw new M5RoleToolGrantError('岗位工具授权上下文无效。', 'role_tool_context_invalid');
   }
   const accesses = [];

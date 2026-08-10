@@ -1,4 +1,7 @@
+import { summarizeBacklog } from './workflow/backlog-classification.ts';
+
 export function buildTaskFocus(tasks, approvals) {
+  const backlog = summarizeBacklog(tasks);
   const counts = Object.fromEntries(
     ['queued', 'running', 'waiting_worker', 'pausing', 'paused', 'waiting_approval', 'waiting_test', 'needs_input', 'succeeded', 'failed']
       .map((status) => [status, tasks.filter((task) => task.status === status).length]),
@@ -37,7 +40,9 @@ export function buildTaskFocus(tasks, approvals) {
     waitingTest:counts.waiting_test,
     failed:counts.failed,
     ownerActionable:ownerActionableTasks.length,
-    reviewBacklog:ownerActionableTasks.filter((task) => ['failed', 'waiting_test'].includes(task.status)).length,
+    reviewBacklog:backlog.reviewBacklog,
+    verificationBacklog:backlog.counts.unresolved,
+    backlog:backlog.counts,
     actions,
     next:current ? focusItem(current) : null,
   };

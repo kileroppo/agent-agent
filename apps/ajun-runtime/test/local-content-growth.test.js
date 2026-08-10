@@ -999,8 +999,89 @@ test('普通故事板没有受控 Provider 时自动模式降级为部分文字�
     }
   });
   assert.equal(required.status, 'needs_input');
-  assert.equal(required.error.code, 'controlled_provider_vision_required');
+  assert.equal(required.error.code, 'controlled_vision_capability_unavailable');
+  assert.match(required.error.userMessage, /自动启动和安全恢复后仍不可用/);
   assert.equal(advisorCalls, 1);
+});
+
+test('普通故事板通过本机受控视觉能力形成完整画面拆解并保存执行凭证', async (t) => {
+  const root = await sandbox(t);
+  const transcriptPath = path.join(root, 'confirmed-controlled-visual.md');
+  const visualDir = path.join(root, 'controlled-visual');
+  const storyboardDir = path.join(visualDir, 'storyboards');
+  await fs.mkdir(storyboardDir, { recursive:true });
+  await fs.writeFile(transcriptPath, '[00:00] 开场直接给出结果。\n[00:05] 接着说明方法和边界。\n');
+  await fs.writeFile(path.join(storyboardDir, 'storyboard-01.jpg'), 'storyboard');
+  const frames = [
+    { frameId:'frame-001', timestamp:'00:00', reason:'opening_anchor' },
+    { frameId:'frame-002', timestamp:'00:05', reason:'transcript_cue' },
+    { frameId:'frame-003', timestamp:'00:12', reason:'scene_change' },
+  ];
+  await fs.writeFile(path.join(visualDir, 'visual-evidence.json'), JSON.stringify({
+    schemaVersion:'agent.army/visual-evidence/v1',
+    frames,
+    storyboards:[{ storyboardId:'storyboard-01', localRef:'storyboards/storyboard-01.jpg', frameRefs:frames.map((frame) => frame.frameId) }],
+    coverage:{ firstFrameAt:'00:00', lastFrameAt:'00:12' },
+  }));
+  const sourceTask = {
+    taskId:'source-controlled-visual',
+    status:'succeeded',
+    artifactRefs:[
+      confirmedArtifact(transcriptPath, 'automatic'),
+      {
+        artifactId:'visual-controlled',
+        type:'visual_evidence_package',
+        location:`file://${path.join(visualDir, 'visual-evidence.json')}`,
+        validation:{ exists:true, readable:true, nonEmpty:true },
+      },
+    ],
+  };
+  const evidence = { timestamp:'00:00', fragment:'开场直接给出结果。' };
+  const analyst = new LocalVideoContentAnalyst({
+    store:{ list:async () => [sourceTask] },
+    artifactsDir:path.join(root, 'out'),
+    allowedArtifactRoots:[root],
+    visionExecution:async ({ visualEvidence }) => {
+      assert.match(visualEvidence.storyboards[0].filePath, /storyboard-01\.jpg$/);
+      return {
+        observation:'开场画面直接展示核心结果，并使用字幕强化结论。',
+        receipt:{ receiptId:'receipt:local-vision', attempts:1, recovered:false, costUsd:0 },
+        usage:null,
+      };
+    },
+    advisor:{ async analyze(input) {
+      assert.match(input.providerVisionObservation, /展示核心结果/);
+      const data = {
+        summary:'文字和画面共同强化开场结论。',
+        modules:['定位与受众', '开场钩子', '内容结构', '核心价值点', '可执行优化建议'].map((name) => ({
+          name, finding:name, evidence, confidence:'high',
+        })),
+        visualFindings:[
+          { category:'opening_visual_hook', finding:'开场直接展示核心结果。', evidence:{ frameRef:'frame-001', timestamp:'00:00' }, confidence:'high' },
+          { category:'captions_and_graphics', finding:'字幕强化开场结论。', evidence:{ frameRef:'frame-002', timestamp:'00:05' }, confidence:'medium' },
+          { category:'reusable_visual_pattern', finding:'结论与画面同步出现。', evidence:{ frameRef:'frame-003', timestamp:'00:12' }, confidence:'medium' },
+        ],
+      };
+      assert.equal(input.validate(data), true);
+      return { data };
+    } },
+  });
+  const result = await analyst.execute({
+    taskId:'analysis-controlled-visual',
+    taskType:'content.video-benchmark-analysis',
+    assigneeAgentId:'video-content-analyst',
+    idempotencyKey:'controlled-visual',
+    input:{
+      title:'受控视觉分析', evidenceMode:'formal', depth:'fast', visualMode:'required',
+      context:{ sourceTaskIds:[sourceTask.taskId] },
+    },
+  });
+  assert.equal(result.status, 'succeeded');
+  const artifact = result.artifactRefs[0];
+  assert.equal(artifact.data.completeness, 'complete');
+  assert.equal(artifact.data.visualExecutionReceipt.receiptId, 'receipt:local-vision');
+  assert.equal(artifact.validation.controlledVisionInvoked, true);
+  assert.equal(artifact.validation.visualExecutionReceiptValid, true);
 });
 
 test('visualMode off 明确忽略故事板，只执行无视觉工具的文本拆解', async (t) => {

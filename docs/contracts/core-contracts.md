@@ -4,8 +4,8 @@
 | --- | --- |
 | 状态 | v5 实施中：M5 并行 v2 已 live apply，活动与真实发布仍关闭 |
 | 负责人 | 技术负责人 / Codex 工作台 |
-| 版本 | v5.0 |
-| 最后更新 | 2026-08-02 |
+| 版本 | v5.1 |
+| 最后更新 | 2026-08-10 |
 | 更新触发 | 字段、状态、兼容性、权限或完成定义变化 |
 
 ## 1. 契约原则
@@ -173,6 +173,21 @@ A君内建爆款雷达的正式链接评分版本为 `v2`，正式 `boomSignal` 
 - 有任务级有效期或明确回滚引用。
 
 任一条件不满足时状态只能是 `needs_capability`、`pending_validation` 或 `waiting_approval`。未知能力不得被静默下载、安装或加入工具白名单。旧 `CapabilityGrantContract`、自主计划和 checkpoint 模块仅用于读取或迁移历史记录；生产不得实例化本地 CapabilityGrant Store，也不得写 `capability-grants.json`。
+
+### 3.1.4 BusinessWorkflow 与 CapabilityExecution
+
+新任务必须带稳定的 `workflow` 引用：`workflowId`、`workflowType` 和 `step`（`stepId`、`stepKey`、`required`）。父子任务共享 workflowId；兼容旧任务时允许没有该字段，但不得批量改写历史终态。
+
+一次 CapabilityRequest 必须包含 request/workflow/step/task/agent/capability 身份，并声明数据等级、副作用、费用是否已知、最高费用、是否跨设备及是否需要凭据。PolicyDecision 只能是：
+
+- `auto_allow`：Manifest 已登记、公开或同机受控只读、费用已知且预算内；
+- `human_local`：私有、登录态、凭据或跨设备范围；
+- `human_paperclip`：外部写入、扩权、未知费用或超预算；
+- `deny`：Manifest 未登记或策略明确禁止。
+
+自动允许的能力经 CapabilityAdapter 执行。允许恢复的本机能力最多恢复一次、重试一次；成功生成 `agent.army/execution-receipt/v1`，只保留身份、Adapter/Provider、输入输出 SHA-256、次数、费用和时间，不保存原始敏感输入。Workflow Evaluation 只有在 required 步骤终态成功且关键产物门禁均未失败时才标记完成；研究、内容和办公质量产物还要记录人工 `accepted` 或 `revision_required`。
+
+能力展示统一使用 `not_declared → declared → configured → live → verified → human_accepted`，禁止把 Manifest active、进程在线或工具调用成功单独写成业务能力已验证。
 
 ### 3.2 标准状态
 

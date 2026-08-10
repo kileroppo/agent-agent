@@ -321,6 +321,10 @@ export const taskRoleExecutionMethods = {
         roleToolContext
         && roleToolContext.snapshot().length === 0
         && result?.openResearch?.reusedReport !== true
+        && !(
+          result?.openResearch
+          && !String(result.openResearch.decision?.selectedToolId || '').trim()
+        )
       ) {
         throw new M5RoleToolGrantError(
           '受控执行器没有经过岗位工具授权上下文。',

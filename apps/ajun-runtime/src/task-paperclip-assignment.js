@@ -1,7 +1,10 @@
 import path from 'node:path';
 import { usesPaperclipHermesExecution } from './governance-hermes-runtime.js';
 import { resolvePaperclipAssignmentTaskType } from './paperclip-employee-assignment.js';
-import { getM5RoutineExecutionContract } from '@agent-army/m5-kernel/routine-execution-contract';
+import {
+  getM5RoutineExecutionContract,
+  INTEL_RESEARCH_OPEN_TASK_EXECUTION_CONTRACT,
+} from '@agent-army/m5-kernel/routine-execution-contract';
 import { getActiveM5PlanRevision } from './m5-stage-recovery-controller.js';
 import {
   compileM5RoleToolGrant,
@@ -70,6 +73,8 @@ export const taskPaperclipAssignmentMethods = {
       agent,
       identity,
       pipelineCase,
+      requireProjectId:Boolean(m5Contract),
+      requireExecutionWorkspaceId:Boolean(m5Contract) || rolePolicyWritesWorkspace(agent),
     });
     const relatedCaseIds = await m5PipelineCaseChainIds({
       governance:this.governance,
@@ -214,13 +219,20 @@ export const taskPaperclipAssignmentMethods = {
       enumerable:false,
     });
     Object.defineProperty(verified, OPEN_RESEARCH_EXECUTION_POLICY, {
-      value:canonicalOpenResearchExecutionPolicy(identity.issue),
+      value:canonicalOpenResearchExecutionPolicy(identity.issue)
+        || contractedOpenResearchExecutionPolicy(task),
       enumerable:false,
     });
     return verified;
   },
 
-  async compilePaperclipRoleToolGrant({ agent, identity, pipelineCase } = {}) {
+  async compilePaperclipRoleToolGrant({
+    agent,
+    identity,
+    pipelineCase,
+    requireProjectId = true,
+    requireExecutionWorkspaceId = true,
+  } = {}) {
     if (!agent?.toolExecutionPolicy) return null;
     const profile = typeof this.registry?.runtimeProfile === 'function'
       ? await this.registry.runtimeProfile(agent)
@@ -246,8 +258,13 @@ export const taskPaperclipAssignmentMethods = {
         paperclipAgentId:identity?.paperclipAgent?.id,
         projectId,
         executionWorkspaceId,
+        requireProjectId,
+        requireExecutionWorkspaceId,
         availableAdapters:this.roleToolAdapters,
       });
+      if (!executionWorkspaceId) {
+        return Object.freeze({ grant, workspaceRoot:null });
+      }
       if (typeof this.governance?.getExecutionWorkspace !== 'function') {
         throw new M5RoleToolGrantError(
           'Paperclip execution workspace 读取适配器不可用。',
@@ -271,3 +288,19 @@ export const taskPaperclipAssignmentMethods = {
     }
   },
 };
+
+function contractedOpenResearchExecutionPolicy(task) {
+  if (
+    task?.taskType !== INTEL_RESEARCH_OPEN_TASK_EXECUTION_CONTRACT.taskType
+    || task?.input?.context?.openTaskType !== INTEL_RESEARCH_OPEN_TASK_EXECUTION_CONTRACT.taskType
+  ) return null;
+  return Object.freeze({
+    remainingUnits:INTEL_RESEARCH_OPEN_TASK_EXECUTION_CONTRACT.maxSteps,
+    estimatedNextStepUnits:1,
+  });
+}
+
+function rolePolicyWritesWorkspace(agent) {
+  return Object.values(agent?.toolExecutionPolicy?.grants || {})
+    .some((declaration) => declaration?.access === 'write');
+}

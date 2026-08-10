@@ -3,10 +3,11 @@ import test from 'node:test';
 import { AgentArmyClient, AgentArmyClientError } from '../src/agent-army-client.js';
 
 const overview = {
-  capabilities:[{ id:'task-coordination', name:'统一任务协调', status:'ready', detail:'已就绪' }],
+  capabilities:[{ id:'task-coordination', name:'统一任务协调', status:'ready', detail:'已就绪', truth:{ declared:true, configured:true, live:true, verified:true, humanAccepted:false, overall:'verified' } }],
   agents:[{
     agentId:'xiaod', name:'小D', status:'active', role:'整理音视频',
-    responsibilities:['转录'], acceptedTaskTypes:['media.transcribe-and-refine']
+    responsibilities:['转录'], acceptedTaskTypes:['media.transcribe-and-refine'],
+    capabilityTruth:{ declared:true, configured:true, live:true, verified:false, humanAccepted:false, overall:'live' },
   }],
   tasks:[{
     taskId:'11111111-1111-1111-1111-111111111111',
@@ -31,6 +32,8 @@ test('AgentArmyClient exposes factual capability and employee views', async () =
 
   assert.equal(capabilities.employees[0].agentId, 'xiaod');
   assert.deepEqual(capabilities.employees[0].acceptedTaskTypes, ['media.transcribe-and-refine']);
+  assert.equal(capabilities.employees[0].capabilityTruth.overall, 'live');
+  assert.equal(capabilities.capabilities[0].truth.overall, 'verified');
   assert.equal(employee.recentTasks[0].status, 'running');
 });
 

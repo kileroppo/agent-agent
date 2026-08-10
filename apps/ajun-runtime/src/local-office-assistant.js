@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { presentationOutlinePreflight } from './presentation-input-contract.ts';
 
 const TERMINAL = new Set(['succeeded', 'failed', 'cancelled', 'needs_input']);
 
@@ -224,6 +225,8 @@ export class LocalOfficeAssistant {
     if (!title) {
       return needsInput(this.now(), 'presentation_title_required', '请提供演示文稿标题。');
     }
+    const preflight = presentationOutlinePreflight(input);
+    if (!preflight.valid) return needsInput(this.now(), preflight.code, preflight.userMessage);
     const allTasks = await roleToolContext.execute({
       toolId:'army.task.read',
       input:{

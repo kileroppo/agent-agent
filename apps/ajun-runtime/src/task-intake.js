@@ -13,10 +13,9 @@ import {
 import { ValidationError } from './task-service-execution-support.js';
 import { resolveAnalysisIntent } from './analysis-intent.ts';
 import { TaskCreationCoordinator, taskIdempotencyFingerprint } from './task-idempotency.js';
-
+import { createWorkflowLink } from './workflow/contracts.ts';
 const HIGH_RISK_ACTIONS = ['外发', '发布', '删除', '付款', '付费', '扩权', '敏感'];
 const ORGANIZATION_GOVERNANCE_WORDS = /创建.*(?:agent|智能体|岗位)|新建.*(?:agent|智能体|岗位)|扩权|账号|连接|公开发布|对外发布|付款|付费|预算|暂停|终止|跨\s*agent/i;
-
 export class TaskIntake {
   constructor({ registry, store, governance = null, execute }) {
     this.registry = registry;
@@ -25,7 +24,6 @@ export class TaskIntake {
     this.execute = execute;
     this.creation = new TaskCreationCoordinator((input) => this.createOnce(input));
   }
-
   async create(input = {}) {
     return this.creation.run(input);
   }
@@ -192,15 +190,17 @@ function taskRecord(input, requested, route, idempotencyKey) {
     ? resolveAnalysisIntent({ analysisIntent:input.analysisIntent, title, description, focus:input.focus, depth:input.depth })
     : null;
   if (analysis?.error) throw new ValidationError(analysis.error === 'analysis_intent_conflict' ? '检测到多个分析模式，请只选择一种。' : '分析模式无效。');
+  const stableIdempotencyKey = idempotencyKey || `local:${Buffer.from(title).toString('base64url').slice(0, 24)}:${Date.now()}`;
   return {
     taskType,
-    idempotencyKey:idempotencyKey || `local:${Buffer.from(title).toString('base64url').slice(0, 24)}:${Date.now()}`,
+    idempotencyKey:stableIdempotencyKey,
     ...(idempotencyKey ? { idempotencyFingerprint:taskIdempotencyFingerprint(input) } : {}),
     requester:input.requester || { kind:requesterName === 'A君' ? 'local-owner' : 'lan-collaborator', ref:requesterName },
     source:input.source || { channel:'ajun-runtime' },
     assigneeAgentId:agent?.agentId || null,
     parentTaskId:String(input.parentTaskId || '').trim() || null,
     recovery:input.recovery || undefined,
+    workflow:createWorkflowLink({ taskType, idempotencyKey:stableIdempotencyKey, ...input }),
     input:{
       title,
       description,

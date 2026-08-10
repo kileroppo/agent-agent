@@ -34,22 +34,24 @@ agent-agent/
 
 ## 当前状态
 
-### 当前机器事实（2026-08-08）
+### 当前机器事实（2026-08-10）
 
-- A君 `4321` 正常运行，PID `49100`，绑定 clean 不可变 release `869473aa…`、payload `057f082f…` 和源码提交 `d071098…`；核心概览、任务详情及静态资源均可读。
+- A君 `4321` 正常运行，PID `82330`，绑定 clean 不可变 release `2f8309d7…`、payload `da95f8fd…` 和源码提交 `aebb7f0…`；它与当前候选源码 `5b2444f…` 不是同一 Git HEAD。
 - Paperclip `3100`、Hermes `9119` 与小D运行面可达；Publisher `4390` 未运行，Campaign、M5 Cron 和所有真实外写继续关闭。
-- 当前源码与 live 并非同一 Git HEAD：源码含运行切换后的文档收口，live 仍绑定已验证代码提交；运行身份必须以 `npm run runtime:fingerprint` 为准。
+- 当前候选源码已在无后台服务的 `4322` 验证 Workflow、能力真相和历史验证欠账投影；这不等于 `4321` 已切换。运行身份必须以 `npm run runtime:fingerprint` 为准。
 
 ### 当前产品结论
 
 - M0–M3 已完成；M4 本地岗位质量与模型回归已完成，剩余项均为明确的外部或人工验收；M5 仍为 **PARTIAL**。
-- 当前任务账本共 789 条：506 成功、122 取消、74 待测试、67 失败、20 待输入；没有进行中任务，控制台只保留 1 条负责人可操作任务。
+- 候选源码以 Business Workflow 作为新任务主对象，新增 TypeScript Policy、CapabilityAdapter、ExecutionReceipt、Evaluation 和五层能力真相；历史任务只读分类，不改写旧终态。
+- 候选 `4322` 对历史兼容账本分类出 237 条待验证/未解决记录；这是验证欠账，不是 237 项当前待办，也不会自动重试。`4321` live 仍按旧投影显示 798 条任务、0 项进行中。
 - 本周账本的 1284 次模型 API 调用中，1050 次来自运维官；绝大多数发生在 8 月 1–5 日旧模型巡检路径。无模型健康巡检切换后，8 月 7–8 日运维官合计只有 10 次调用。当前问题是历史窗口和任务归因，不是费用失控；详见[产品收口运行账本](./docs/reviews/operations-health/product-closure-2026-08-08.md)。
 
 ### 当前边界与下一步
 
 - M5 活动 `8dd29a3b…` 当前已经 `stopped`，不是旧文档中的 `paused`；旧 Profile lease 已过期。重新运行必须创建新授权草案，不能恢复旧授权。
 - 先维护只读 readiness、任务恢复和审计质量；恢复 Campaign、注入 Provider、启动 Publisher、付费调用或平台写入仍需独立授权。
+- 新任务通过 `Model → Agent Runtime → Skills/Workflow → Policy/Permission → MCP/Tool Gateway → Provider` 执行；Model 不得自批权限。已登记同机只读能力可自动恢复一次并重试一次，仍失败才提示负责人。
 - 仍需负责人参与的真实验收统一见[当前交接](./docs/handoffs/README.md#当前交接)；已经完成或被替代的事项不得继续占用当前状态。
 - 2026-08-08 以前的详细运行快照已移至[历史运行状态](./docs/archive/product-state-history-2026-08-08.md)，不再作为当前 PID、版本或唯一下一步依据。
 
@@ -97,6 +99,7 @@ agent-agent/
 - [ADR-0003：M1 使用传统飞书机器人接入 Hermes](./docs/adr/0003-m1-use-traditional-feishu-bot.md)
 - [ADR-0004：通用账号连接、内容获取与运维观察边界](./docs/adr/0004-common-access-foundation.md)
 - [ADR-0005：飞书手机总管与审批分流边界](./docs/adr/0005-feishu-mobile-command-and-approval-boundary.md)
+- [ADR-0012：以业务工作流为主对象的能力治理与验收架构](./docs/adr/0012-workflow-first-capability-policy-and-evaluation.md)
 - [现成能力复用调研与采用边界](./docs/research/2026-07-agent-army-reuse-landscape.md)
 
 ### 治理与依据

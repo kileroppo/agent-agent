@@ -273,9 +273,9 @@ function render() {
   renderFocus(state.overview.taskFocus);
   renderOverviewStats();
   capabilityList.replaceChildren(...state.overview.capabilities.map((item) => capabilityCard(item)));
-  const readyCapabilities = state.overview.capabilities.filter((item) => ['ready', 'active', 'connected', 'verified'].includes(item.status)).length;
+  const readyCapabilities = state.overview.capabilities.filter((item) => ['verified', 'human_accepted'].includes(item.truth?.overall)).length;
   const limitedCapabilities = state.overview.capabilities.length - readyCapabilities;
-  capabilitySummary.textContent = `${readyCapabilities} 项已就绪${limitedCapabilities ? ` · ${limitedCapabilities} 项受限或待准备` : ''}`;
+  capabilitySummary.textContent = `${readyCapabilities} 项有真实任务证据${limitedCapabilities ? ` · ${limitedCapabilities} 项待验证或受限` : ''}`;
   const directEmployees = state.overview.alwaysOnAgents?.length ? state.overview.alwaysOnAgents : state.overview.agents.filter(isDirectEmployee);
   const supportEmployees = state.overview.onDemandAgents?.length ? state.overview.onDemandAgents : state.overview.agents.filter((agent) => !isDirectEmployee(agent));
   replaceChildrenPreservingDisclosureState(agentList, [
@@ -448,8 +448,8 @@ function renderOverviewStats() {
   const focus = state.overview.taskFocus || {};
   const active = Number.isFinite(focus.inProgress) ? focus.inProgress : 0;
   const ownerActionable = Number.isFinite(focus.ownerActionable) ? focus.ownerActionable : (focus.next ? 1 : 0);
-  const readyAgents = state.overview.agents.filter((agent) => ['active', 'ready', 'external', 'connected', 'verified'].includes(agent.status)).length;
-  const unavailableAgents = Math.max(0, state.overview.agents.length - readyAgents);
+  const verificationBacklog = Number.isFinite(focus.verificationBacklog) ? focus.verificationBacklog : 0;
+  const unavailableAgents = state.overview.agents.filter((agent) => ['not_declared', 'declared', 'unknown'].includes(agent.capabilityTruth?.overall)).length;
   overviewSummary.textContent = ownerActionable
     ? `${ownerActionable} 件事需要你决定。`
     : active
@@ -458,6 +458,7 @@ function renderOverviewStats() {
   const cards = [
     statCard('待处理', ownerActionable, ownerActionable ? '打开上方事项处理' : '目前无需决定', 'target', ownerActionable > 0),
     statCard('运行中', active, active ? '系统会继续推进' : '当前没有执行中的工作', 'clock'),
+    ...(verificationBacklog ? [statCard('待验证', verificationBacklog, '历史记录已分类，不会自动重试', 'records', true)] : []),
     ...(unavailableAgents ? [statCard('接入异常', unavailableAgents, '前往系统页检查员工与连接', 'alert', true)] : []),
   ];
   overviewStats.replaceChildren(...cards);
@@ -554,6 +555,7 @@ function agentCard(agent, support) {
   const types = agent.acceptedTaskTypes.map(taskTypeLabel).join(' · ');
   const summaryTypes = agent.acceptedTaskTypes.slice(0, 2).map(taskTypeLabel).join(' · ') || '职责待核对';
   const independent = independentRuntimeLabel(agent);
+  const truth = capabilityTruthLabel(agent.capabilityTruth);
   node.innerHTML = `
     <details class="agent-disclosure" data-disclosure-key="agent:${escapeHtml(agent.agentId)}">
       <summary>
@@ -562,7 +564,7 @@ function agentCard(agent, support) {
           <strong>${escapeHtml(agent.name)}</strong>
           <small>${escapeHtml(summaryTypes)}</small>
         </span>
-        <span class="status ${escapeHtml(agent.status)}">${escapeHtml(statusLabel(agent.status))}</span>
+        <span class="status ${escapeHtml(agent.status)}">${escapeHtml(truth)}</span>
         <svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg>
       </summary>
       <div class="agent-body">
@@ -579,6 +581,10 @@ function capabilityCard(item) {
   node.className = 'capability-card';
   node.innerHTML = `<span class="capability-icon"><svg aria-hidden="true"><use href="#icon-spark"></use></svg></span><h3>${escapeHtml(item.name)}</h3><p title="${escapeHtml(item.detail)}">${escapeHtml(item.detail)}</p>`;
   return node;
+}
+
+function capabilityTruthLabel(value) {
+  return ({ human_accepted:'已验收', verified:'已验证', live:'在线待验证', configured:'已配置', declared:'仅登记', not_declared:'未接入' })[value?.overall] || '待核对';
 }
 
 function independentRuntimeLabel(agent) {

@@ -47,6 +47,14 @@ test('调用只允许登记能力并保留跨设备显式批准字段', async ()
   assert.equal(bodies[0].request_id, 'one');
 });
 
+test('本机 AI 调用网络失败会标成可自动恢复，且不泄露底层 HTTP 状态', async () => {
+  const client = new LocalAiCapabilityClient({ fetchImpl:async () => { throw new Error('connect ECONNREFUSED 127.0.0.1'); } });
+  await assert.rejects(
+    () => client.invoke({ capability:'vision.analyze', input:{} }),
+    (error) => error.code === 'local_ai_gateway_unavailable' && error.retryable === true && error.httpStatus === 503,
+  );
+});
+
 test('控制面只返回登记服务并拒绝任意服务动作', async () => {
   const requests = [];
   const client = new LocalAiCapabilityClient({

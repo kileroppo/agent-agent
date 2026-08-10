@@ -2774,7 +2774,13 @@ test('概览优先呈现待审批任务，并给出不会自动继续的下一�
   records.approvals.push({ approvalId:'approval-1', taskId:'task-waiting', status:'pending' });
   const overview = await service.overview();
   const waitingAction = { taskId:'task-waiting', title:'发布周报', status:'waiting_approval', action:'请确认任务范围；在你确认前，系统不会继续执行。' };
-  assert.deepEqual(overview.taskFocus, { total:3, completed:1, inProgress:1, backgroundInProgress:0, paused:0, needsInput:0, waitingApproval:1, waitingTest:0, failed:0, ownerActionable:1, reviewBacklog:0, actions:[waitingAction], next:waitingAction });
+  assert.deepEqual(overview.taskFocus, {
+    total:3, completed:1, inProgress:1, backgroundInProgress:0, paused:0,
+    needsInput:0, waitingApproval:1, waitingTest:0, failed:0,
+    ownerActionable:1, reviewBacklog:0, verificationBacklog:0,
+    backlog:{ current:1, superseded:0, expected_acceptance_failure:0, intentionally_disabled:0, needs_human:1, unresolved:0, completed:1 },
+    actions:[waitingAction], next:waitingAction,
+  });
 });
 test('概览把等待 Mac工作间的任务列为进行中并说明自动领取', async () => {
   const { service, records } = setup();
@@ -3560,6 +3566,8 @@ test('只给已结束工作记录结果评价，不会伪造重新执行', async
   assert.equal(recorded.status, 'succeeded');
   assert.equal(recorded.feedback.sentiment, 'needs_improvement');
   assert.equal(recorded.feedback.note, '重点不够清楚');
+  assert.equal(recorded.evaluation.humanAcceptance.status, 'revision_required');
+  assert.equal(recorded.evaluation.humanAcceptance.source, 'feishu_feedback');
   await assert.rejects(() => service.recordFeedback('running-1', { sentiment:'useful' }), /还没有结束/);
   await assert.rejects(() => service.recordFeedback('done-1', { sentiment:'unknown' }), /无效/);
 });

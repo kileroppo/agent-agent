@@ -42,6 +42,9 @@ import { ProposalAcceptanceRunner } from '../proposal-acceptance-runner.js';
 import { WeChatLocalVaultAcceptance } from '../wechat-local-vault-acceptance.js';
 import { LocalWeChatChatRetriever } from '../local-wechat-chat-retriever.js';
 import { taskDetailBaseUrl } from '../task-presentation.js';
+import { CapabilityExecutionEngine } from '../workflow/capability-execution.ts';
+import { createControlledVisionExecution } from '../workflow/controlled-vision.ts';
+import { createLocalAiCapabilityAdapter } from '../adapters/local-ai-capability-adapter.ts';
 
 export async function createRoleExecutionComposition({
   environment,
@@ -141,6 +144,15 @@ export async function createRoleExecutionComposition({
     knowledgeArchive,
   });
   const contentArtifactRoots = [dataDir, xiaodArtifactRoot, contentWorkspaceDir];
+  const videoContentAgent = await registry.get('video-content-analyst');
+  const localAiExecution = new CapabilityExecutionEngine({
+    adapter:createLocalAiCapabilityAdapter(localAi),
+  });
+  const controlledVision = createControlledVisionExecution({
+    engine:localAiExecution,
+    manifestCapabilities:videoContentAgent?.runtimeCapabilities?.localAiCapabilities || [],
+    maxCostUsd:0,
+  });
   const videoContentAdvisor = new HermesContentGrowthAdvisor({
     hermesHome:path.join(hermesProfileRoot, 'video-content-analyst'),
     timeoutMs:720_000,
@@ -154,6 +166,7 @@ export async function createRoleExecutionComposition({
     artifactsDir:path.join(dataDir, 'content-growth-artifacts'),
     allowedArtifactRoots:contentArtifactRoots,
     advisor:videoContentAdvisor,
+    visionExecution:controlledVision,
   });
   const videoScriptPackage = new LocalVideoScriptPackage({
     store,

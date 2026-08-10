@@ -61,12 +61,17 @@ export class LocalAiCapabilityClient {
 
   async invoke({ capability, input = {}, options = {}, requestId, approved = false } = {}) {
     if (!CAPABILITIES.has(capability)) throw clientError('local_ai_capability_not_allowed', '未登记的本机 AI 能力。');
-    const response = await this.fetchImpl(`${this.baseUrl}/v1/invoke`, {
-      method:'POST',
-      headers:{ 'content-type':'application/json' },
-      body:JSON.stringify({ capability, input, options, request_id:requestId, approved }),
-      signal:AbortSignal.timeout(Math.max(1_000, Math.min(Number(options?.timeoutSeconds || 300) * 1_000, 3_600_000))),
-    });
+    let response;
+    try {
+      response = await this.fetchImpl(`${this.baseUrl}/v1/invoke`, {
+        method:'POST',
+        headers:{ 'content-type':'application/json' },
+        body:JSON.stringify({ capability, input, options, request_id:requestId, approved }),
+        signal:AbortSignal.timeout(Math.max(1_000, Math.min(Number(options?.timeoutSeconds || 300) * 1_000, 3_600_000))),
+      });
+    } catch (error) {
+      throw clientError('local_ai_gateway_unavailable', error?.message || '本机 AI 网关不可用。', 503, true);
+    }
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
       const code = String(body?.detail?.code || 'local_ai_failed').slice(0, 80);
@@ -221,9 +226,9 @@ function normalizeLoopbackUrl(value) {
   return parsed.origin;
 }
 
-function clientError(code, message, httpStatus = 422) {
+function clientError(code, message, httpStatus = 422, retryable = false) {
   const normalizedStatus = Number.isInteger(httpStatus) && httpStatus >= 400 && httpStatus <= 599 ? httpStatus : 422;
-  return Object.assign(new Error(message), { code, category:'manual', retryable:false, httpStatus:normalizedStatus });
+  return Object.assign(new Error(message), { code, category:retryable ? 'retryable' : 'manual', retryable, httpStatus:normalizedStatus });
 }
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';

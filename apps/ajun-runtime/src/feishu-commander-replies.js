@@ -445,6 +445,17 @@ export function employeeRole(agent) {
   return roles[agent.agentId] || agent.role || '负责已分配的工作';
 }
 
+export function employeeCapabilityTruth(agent) {
+  return ({
+    human_accepted:'能力已人工验收',
+    verified:'能力已有真实任务证据',
+    live:'运行可达，业务能力待验证',
+    configured:'已配置，运行与业务能力待验证',
+    declared:'岗位已登记，能力尚未验证',
+    not_declared:'能力尚未接入',
+  })[agent?.capabilityTruth?.overall] || '能力状态待核对';
+}
+
 export function formatGithubReply(data) {
   if (data.repo) return [`【小R 已读取公开仓库】`, `${data.repo} · ${data.path}`, '', data.summary || '没有可提炼的文本要点。', '', `来源：${data.source || `https://github.com/${data.repo}`}`].join('\n');
   const lines = (data.results || []).map((item, index) => `${index + 1}. ${item.fullName}（★ ${item.stars}，${item.language || '语言未提供'}）\n   ${item.suitability || item.assessment || ''}${item.suitability && item.assessment ? `\n   元数据判断：${item.assessment}` : ''}\n   ${item.url}`);

@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { resolveAnalysisIntent } from './analysis-intent.ts';
+import { capabilityTruthView, safeWorkflowViews } from './agent-army-read-views.ts';
 import { presentTask, taskDetailBaseUrl } from './task-presentation.js';
 
 const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'waiting_test', 'needs_input', 'paused']);
@@ -38,12 +39,14 @@ export class AgentArmyClient {
     const overview = await this.overview();
     return {
       taskFocus: overview.taskFocus || {},
+      workflows: safeWorkflowViews(overview.workflows),
       usage: overview.usage || {},
       capabilities: (overview.capabilities || []).map(capabilityView),
       employees: (overview.agents || []).map((agent) => ({
         agentId: agent.agentId,
         name: agent.name || agent.agentId,
         status: agent.status,
+        capabilityTruth:capabilityTruthView(agent.capabilityTruth),
         feishuChannel: safeChannel(agent.feishuChannel)
       }))
     };
@@ -63,6 +66,7 @@ export class AgentArmyClient {
       name: agent.name || agent.agentId,
       status: agent.status,
       role: safeText(agent.role, 300),
+      capabilityTruth:capabilityTruthView(agent.capabilityTruth),
       responsibilities: safeStringList(agent.responsibilities, 8, 240),
       acceptedTaskTypes: safeStringList(agent.acceptedTaskTypes, 20, 120),
       recentTasks
@@ -664,6 +668,7 @@ function employeeCapabilityView(agent) {
     agentId:agent.agentId,
     name:agent.name || agent.agentId,
     role:safeText(agent.role, 240),
+    capabilityTruth:capabilityTruthView(agent.capabilityTruth),
     acceptedTaskTypes:safeStringList(agent.acceptedTaskTypes, 20, 120)
   };
 }
@@ -673,7 +678,8 @@ function capabilityView(capability) {
     id:safeText(capability?.id, 100),
     name:safeText(capability?.name, 120),
     status:safeText(capability?.status, 40),
-    detail:safeText(capability?.detail, 500)
+    detail:safeText(capability?.detail, 500),
+    truth:capabilityTruthView(capability?.truth),
   };
 }
 

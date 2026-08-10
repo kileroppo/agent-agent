@@ -8,7 +8,10 @@ import { createAgentArmyMcpServer, scopeFromEnvironment } from '../src/agent-arm
 test('Agent Army MCP exposes factual read and controlled action tools', async (t) => {
   const calls = [];
   const clientApi = {
-    capabilities:async () => ({ employees:[{ agentId:'xiaod', acceptedTaskTypes:['media.transcribe-and-refine'] }] }),
+    capabilities:async () => ({
+      employees:[{ agentId:'xiaod', name:'小D', role:'整理音视频', acceptedTaskTypes:['media.transcribe-and-refine'], capabilityTruth:{ overall:'live' } }],
+      capabilities:[{ id:'task-coordination', name:'统一任务协调', detail:'任务可登记', truth:{ overall:'verified' } }],
+    }),
     armyStatus:async () => ({ taskFocus:{ inProgress:0 } }),
     employeeStatus:async (employee) => ({ agentId:employee }),
     listTasks:async (input) => [{ taskId:'task-1234', ...input }],
@@ -48,6 +51,9 @@ test('Agent Army MCP exposes factual read and controlled action tools', async (t
 
   const capabilities = await client.callTool({ name:'capabilities', arguments:{} });
   assert.equal(capabilities.structuredContent.employees[0].agentId, 'xiaod');
+  assert.match(capabilities.content[0].text, /岗位登记（不等于业务已验证）/);
+  assert.match(capabilities.content[0].text, /小D：运行可达，待业务验证/);
+  assert.doesNotMatch(capabilities.content[0].text, /全部可用|11 名全部可用/);
 
   const created = await client.callTool({
     name:'task_create',

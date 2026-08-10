@@ -104,6 +104,10 @@ export class CrossAgentMissionService {
           missionTaskId:mission.taskId
         },
         parentTaskId:mission.taskId,
+        workflowId:mission.workflow?.workflowId,
+        workflowType:mission.workflow?.workflowType,
+        stepKey:subtask.key,
+        workflowStepRequired:subtask.required !== false,
         idempotencyKey,
         context:{
           ...(subtask.context || {}),

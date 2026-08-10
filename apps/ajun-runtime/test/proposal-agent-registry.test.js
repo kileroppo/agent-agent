@@ -74,3 +74,18 @@ test('总任务候选查询保留 A君 manager，普通岗位列表仍不混入�
   assert.deepEqual((await registry.candidates('army.cross-agent-mission')).map((agent) => agent.agentId), ['ajun']);
   assert.equal(calls.at(-1).includeManagers, true);
 });
+
+test('Paperclip 工具授权沿用正式 Registry 的已核验 Hermes Profile', async () => {
+  const manifest = { agentId:'intel-researcher' };
+  const profile = { profileId:'intel-researcher', status:'verified-local' };
+  const registry = new ProposalAgentRegistry({
+    baseRegistry:{
+      async runtimeProfile(input) {
+        assert.equal(input, manifest);
+        return profile;
+      },
+    },
+  });
+
+  assert.equal(await registry.runtimeProfile(manifest), profile);
+});

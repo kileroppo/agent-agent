@@ -614,12 +614,22 @@ function openResearchStepWorkProduct({
   budget,
   now,
 } = {}) {
+  const idempotencyKey = `open-research-step:${decision.decisionId}`;
   return {
-    type:'OpenResearchStep',
-    schemaVersion:'agent.army/open-research-step/v1',
+    type:'artifact',
+    provider:'agent-army.intel-researcher',
+    externalId:idempotencyKey,
     title:`小R开放研究步骤 ${progress.stepsUsed}`,
-    idempotencyKey:`open-research-step:${decision.decisionId}`,
+    status:'active',
+    reviewState:'none',
+    isPrimary:false,
+    healthStatus:'healthy',
+    summary:'受控公开研究步骤已写回；正文不复制到控制面。',
+    createdByRunId:assignment.runId,
     metadata:{
+      kind:'OpenResearchStep',
+      schemaVersion:'agent.army/open-research-step/v1',
+      idempotencyKey,
       taskId:String(task?.taskId || '').trim() || null,
       issueId:assignment.issueId,
       runId:assignment.runId,

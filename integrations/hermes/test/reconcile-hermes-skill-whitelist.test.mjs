@@ -107,6 +107,23 @@ test('自动发现新增 active Hermes Agent，不依赖第二份岗位名单', 
   }
 });
 
+test('A君本机执行且 Profile 尚未创建的隐私岗位不进入 Hermes 技能白名单检查', async () => {
+  const fixture = multiAgentFixture([
+    ['xiaod', ['paperclip']],
+    ['wechat-chat-retriever', ['yichen-wechat-local-vault']]
+  ], {
+    manifestOverrides:{
+      'wechat-chat-retriever':{ executionOwner:'ajun-local' }
+    }
+  });
+  const policies = await discoverHermesSkillPolicies(fixture);
+  assert.deepEqual(policies.map((item) => item.agentId), ['xiaod']);
+  await assert.rejects(
+    () => discoverHermesSkillPolicies({ ...fixture, agentIds:['wechat-chat-retriever'] }),
+    /不是独立管理的 active Hermes Profile 岗位/
+  );
+});
+
 test('apply 可重复运行：首次收敛，第二次不再写入', async () => {
   let state = skillState({
     visible:['paperclip', 'unknown-skill'],
@@ -165,14 +182,15 @@ function singleAgentFixture(agentId, skills) {
   return multiAgentFixture([[agentId, skills]]);
 }
 
-function multiAgentFixture(definitions) {
+function multiAgentFixture(definitions, { manifestOverrides = {} } = {}) {
   const manifests = new Map(definitions.map(([agentId, skills]) => [
     path.posix.join('/agents', agentId, 'manifest.json'),
     JSON.stringify({
       agentId,
       status:'active',
       interaction:{ runtime:'hermes-profile' },
-      runtimeCapabilities:{ skills }
+      runtimeCapabilities:{ skills },
+      ...(manifestOverrides[agentId] || {})
     })
   ]));
   return {

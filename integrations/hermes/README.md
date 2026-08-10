@@ -26,6 +26,7 @@ node integrations/hermes/scripts/patch-hermes-chinese-busy-notice.mjs
 node integrations/hermes/scripts/patch-hermes-chinese-provider-errors.mjs
 node integrations/hermes/scripts/patch-feishu-agent-proposal-router.mjs
 node integrations/hermes/scripts/patch-hermes-display-setting-scope.mjs
+node integrations/hermes/scripts/patch-hermes-business-error-envelope.mjs
 ```
 
 `patch-hermes-display-setting-scope.mjs` 修复 Hermes Gateway 嵌套执行器中的
@@ -33,6 +34,12 @@ Python 名字作用域回归：平台通知逻辑不得在 `run_sync()` 后半�
 `resolve_display_setting`，否则流式设置会在第一次模型调用前触发
 `UnboundLocalError`。补丁会把该导入固定到 `run_sync()` 入口并可重复执行；
 升级 Hermes 后须先运行对应测试，再重放补丁和重启 Gateway。
+
+`patch-feishu-agent-proposal-router.mjs` 还会保留处理图标的兼容请求体，并把
+飞书拒绝添加或删除图标的结果提升为脱敏警告，只记录错误码和归类，不记录消息、
+用户或授权链接。`patch-hermes-business-error-envelope.mjs` 同时覆盖 Agent 结果层
+和平台最外层异常回执；未知异常只向用户返回中文说明与错误编号，不再暴露 Python
+异常详情或建议清空会话。
 
 治理员工清单不再维护第二份硬编码名单，而是自动发现所有 `active + hermes-profile + paperclip-hermes` Manifest。配置器按 `interaction.directFeishu` 调和生命周期：`required` 才执行 `enable + kickstart`；`disabled` 必须执行 `bootout + disable`，反复运行也不得重新拉起。新增符合契约的员工后可沿用同一配置和真实飞书验收命令。
 

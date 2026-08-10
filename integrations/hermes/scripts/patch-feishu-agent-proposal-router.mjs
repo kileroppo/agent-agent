@@ -23,9 +23,145 @@ export function applyPatch(source) {
 }
 
 function finishFeishuExperiencePatches(source) {
-  return upgradeFeishuImmediateStatusPatch(
-    upgradeFeishuBusyQuickActionsPatch(upgradeFeishuMobileMessagePatch(source))
+  return upgradeFeishuReactionReliabilityPatch(
+    upgradeFeishuImmediateStatusPatch(
+      upgradeFeishuSenderIdentityPatch(
+        upgradeFeishuBusyQuickActionsPatch(upgradeFeishuMobileMessagePatch(source))
+      )
+    )
   );
+}
+
+export function upgradeFeishuSenderIdentityPatch(source) {
+  if (source.includes('AGENT_ARMY_FEISHU_OPEN_ID_AUTH_V1')) return source;
+  const current = `        # Prefer tenant-scoped user_id; fall back to app-scoped open_id.
+        primary_id = user_id or open_id
+        # bot/v3/bots/basic_batch only accepts open_id.`;
+  if (!source.includes(current)) return source;
+  return source.replace(
+    current,
+    `        # AGENT_ARMY_FEISHU_OPEN_ID_AUTH_V1: keep the app-scoped open_id as
+        # Hermes' primary identity. Setup writes this ID to FEISHU_ALLOWED_USERS;
+        # granting broader message permissions may additionally expose user_id and
+        # must not silently invalidate the existing allowlist or session identity.
+        primary_id = open_id or user_id
+        # bot/v3/bots/basic_batch only accepts open_id.`
+  );
+}
+
+export function upgradeFeishuReactionReliabilityPatch(source) {
+  if (source.includes('AGENT_ARMY_FEISHU_REACTION_RELIABILITY_V5')) return source;
+  if (
+    !source.includes('async def _add_reaction(self, message_id: str, emoji_type: str)')
+    || !source.includes('async def _remove_reaction(self, message_id: str, reaction_id: str)')
+  ) return source;
+
+  let result = source;
+  const hasPreviousReliabilityPatch = (
+    result.includes('AGENT_ARMY_FEISHU_REACTION_RELIABILITY_V2')
+    || result.includes('AGENT_ARMY_FEISHU_REACTION_RELIABILITY_V3')
+    || result.includes('AGENT_ARMY_FEISHU_REACTION_RELIABILITY_V4')
+  );
+  if (hasPreviousReliabilityPatch) {
+    result = result
+      .replaceAll(
+        '{99991663, 231002, 231008, 231018, 231021, 231022}',
+        '{99991663, 99991672, 231002, 231008, 231018, 231021, 231022}'
+      )
+      .replaceAll(
+        /AGENT_ARMY_FEISHU_REACTION_RELIABILITY_V[234]/g,
+        'AGENT_ARMY_FEISHU_REACTION_RELIABILITY_V5'
+      );
+    const reliabilityMarker = `            # AGENT_ARMY_FEISHU_REACTION_RELIABILITY_V5: preserve the SDK's
+            # established wire-compatible body and expose only redacted rejection data.`;
+    result = result.replace(`${reliabilityMarker}\n${reliabilityMarker}`, reliabilityMarker);
+  }
+  if (result.includes('AGENT_ARMY_FEISHU_REACTION_RELIABILITY_V1')) {
+    result = result.replace(
+      `            # AGENT_ARMY_FEISHU_REACTION_RELIABILITY_V1: construct the SDK model
+            # explicitly and surface rejected calls without logging message/user data.
+            from lark_oapi.api.im.v1 import (
+                CreateMessageReactionRequest,
+                CreateMessageReactionRequestBody,
+                Emoji,
+            )
+            reaction_type = Emoji.builder().emoji_type(emoji_type).build()
+            body = (
+                CreateMessageReactionRequestBody.builder()
+                .reaction_type(reaction_type)
+                .build()
+            )`,
+      `            # AGENT_ARMY_FEISHU_REACTION_RELIABILITY_V5: preserve the SDK's
+            # established wire-compatible body and expose only redacted rejection data.
+            from lark_oapi.api.im.v1 import (
+                CreateMessageReactionRequest,
+                CreateMessageReactionRequestBody,
+            )
+            body = (
+                CreateMessageReactionRequestBody.builder()
+                .reaction_type({"emoji_type": emoji_type})
+                .build()
+            )`
+    );
+  } else if (!hasPreviousReliabilityPatch) {
+    result = result.replace(
+      '            from lark_oapi.api.im.v1 import (\n                CreateMessageReactionRequest,',
+      `            # AGENT_ARMY_FEISHU_REACTION_RELIABILITY_V5: preserve the SDK's
+            # established wire-compatible body and expose only redacted rejection data.
+            from lark_oapi.api.im.v1 import (
+                CreateMessageReactionRequest,`
+    );
+  }
+  result = result.replace(
+    `            logger.debug(
+                "[Feishu] Add reaction %s on %s rejected: code=%s msg=%s",
+                emoji_type,
+                message_id,
+                getattr(response, "code", None),
+                getattr(response, "msg", None),
+            )`,
+    `            reaction_error_code = getattr(response, "code", None)
+            reaction_error_reason = (
+                "permission_required"
+                if reaction_error_code in {99991663, 99991672, 231002, 231008, 231018, 231021, 231022}
+                else "invalid_emoji"
+                if reaction_error_code == 231001
+                else "provider_rejected"
+            )
+            logger.warning(
+                "[Feishu] Add reaction rejected: emoji=%s code=%s reason=%s",
+                emoji_type,
+                reaction_error_code,
+                reaction_error_reason,
+            )`
+  );
+  for (const indent of ['        ', '            ']) {
+    result = result.replace(
+      `${indent}logger.debug(
+${indent}    "[Feishu] Remove reaction %s on %s rejected: code=%s msg=%s",
+${indent}    reaction_id,
+${indent}    message_id,
+${indent}    getattr(response, "code", None),
+${indent}    getattr(response, "msg", None),
+${indent})`,
+      `${indent}reaction_error_code = getattr(response, "code", None)
+${indent}reaction_error_reason = (
+${indent}    "permission_required"
+${indent}    if reaction_error_code in {99991663, 99991672, 231002, 231008, 231018, 231021, 231022}
+${indent}    else "provider_rejected"
+${indent})
+${indent}logger.warning(
+${indent}    "[Feishu] Remove reaction rejected: code=%s reason=%s",
+${indent}    reaction_error_code,
+${indent}    reaction_error_reason,
+${indent})`
+    );
+  }
+
+  if (!result.includes('AGENT_ARMY_FEISHU_REACTION_RELIABILITY_V5')) {
+    throw new Error('Hermes 飞书处理图标结构不匹配，拒绝猜测修改。');
+  }
+  return result;
 }
 
 function upgradeFeishuMobileMessagePatch(source) {

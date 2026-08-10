@@ -126,6 +126,19 @@ test('只有真实可调用实现才注册动态网页、PDF和Office适配器',
   }
 });
 
+test('公开读取适配器统一返回带算法前缀的内容哈希', async () => {
+  const digest = 'a'.repeat(64);
+  const adapters = createM5RoleToolAdapters({
+    publicWebFetch:{ async acquire() { return { text:'网页', contentHash:digest }; } },
+    publicDynamicWebReader:{ async read() { return { text:'动态页', contentHash:`sha256:${digest}` }; } },
+    publicPdfReader:{ async read() { return { text:'PDF', contentHash:digest }; } },
+  });
+  for (const adapter of ['ajun-public-fetch', 'hermes-public-browser', 'hermes-pdf']) {
+    const result = await adapters[adapter]({ access:{ url:'https://example.com' } });
+    assert.equal(result.contentHash, `sha256:${digest}`);
+  }
+});
+
 test('日报 Work Product 使用当前 Issue/Run、先写工作区并按幂等键复用', async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'm5-office-report-'));
   const workProducts = [];

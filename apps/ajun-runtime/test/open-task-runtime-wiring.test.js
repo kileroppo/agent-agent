@@ -92,7 +92,7 @@ test('Paperclip小R assignment根据真实fetch结果切换PDF Adapter并写Obse
   const identity = {
     issue:{
       id:IDS.issue,
-      projectId:IDS.project,
+      projectId:null,
       title:'开放研究',
       description:'仅使用公开来源。',
       executionPolicy:{
@@ -101,16 +101,14 @@ test('Paperclip小R assignment根据真实fetch结果切换PDF Adapter并写Obse
     },
     run:{
       id:IDS.run,
-      environmentLease:{ executionWorkspaceId:IDS.workspace },
+      environmentLease:{ executionWorkspaceId:null },
     },
     paperclipAgent:{ id:IDS.agent, name:'小R' },
     agentArmyId:'intel-researcher',
   };
   const governance = {
     async verifyHermesAssignment() { return identity; },
-    async getExecutionWorkspace() {
-      return { id:IDS.workspace, cwd:'/tmp/agent-army-open-research-fixture' };
-    },
+    async getExecutionWorkspace() { throw new Error('纯只读公开研究不应读取本地工作区'); },
     async createIssueWorkProduct(issueId, product, { runId } = {}) {
       workProducts.push({ issueId, runId, product });
       return { id:`work-product-${workProducts.length}`, ...product };
@@ -193,8 +191,10 @@ test('Paperclip小R assignment根据真实fetch结果切换PDF Adapter并写Obse
   assert.equal(workProducts.length, 1);
   assert.equal(workProducts[0].issueId, IDS.issue);
   assert.equal(workProducts[0].runId, IDS.run);
-  assert.equal(workProducts[0].product.type, 'OpenResearchStep');
-  assert.match(workProducts[0].product.idempotencyKey, /^open-research-step:/);
+  assert.equal(workProducts[0].product.type, 'artifact');
+  assert.equal(workProducts[0].product.provider, 'agent-army.intel-researcher');
+  assert.equal(workProducts[0].product.metadata.kind, 'OpenResearchStep');
+  assert.match(workProducts[0].product.metadata.idempotencyKey, /^open-research-step:/);
   assert.equal(
     workProducts[0].product.metadata.observation.classification,
     'pdf_detected',
@@ -235,8 +235,9 @@ test('Paperclip小R assignment根据真实fetch结果切换PDF Adapter并写Obse
   assert.equal(workProducts.length, 2);
 });
 
-test('Paperclip开放研究缺少显式预算时在任何Adapter调用前失败关闭', async () => {
+test('A君创建的开放研究使用固定契约预算，任务输入不能扩到999', async () => {
   let adapterCalls = 0;
+  const workProducts = [];
   const manifest = {
     schemaVersion:'agent.army/v1',
     agentId:'intel-researcher',
@@ -246,13 +247,18 @@ test('Paperclip开放研究缺少显式预算时在任何Adapter调用前失败�
     executionOwner:'paperclip-hermes',
     runtimeProfileRef:'integrations/hermes/profiles/intel-researcher.profile.json',
     openTaskPolicy:{ domain:'research' },
-    toolAllowlist:['content.public.fetch'],
+    toolAllowlist:['content.public.fetch', 'content.public.search'],
     toolExecutionPolicy:{
       unknownToolDecision:'deny',
       workspace:{ scope:'paperclip-execution-workspace', pathMode:'relative-only' },
       grants:{
         'content.public.fetch':{
           adapter:'ajun-public-fetch',
+          access:'read',
+          externalSideEffect:'network-read',
+        },
+        'content.public.search':{
+          adapter:'ajun-public-search',
           access:'read',
           externalSideEffect:'network-read',
         },
@@ -288,7 +294,7 @@ test('Paperclip开放研究缺少显式预算时在任何Adapter调用前失败�
         return {
           profileId:'intel-researcher',
           agentManifestRef:'agents/intel-researcher/manifest.json',
-          toolAllowlist:['content.public.fetch'],
+          toolAllowlist:['content.public.fetch', 'content.public.search'],
           localProfile:{ skillsSeeded:false },
         };
       },
@@ -306,15 +312,29 @@ test('Paperclip开放研究缺少显式预算时在任何Adapter调用前失败�
       async getExecutionWorkspace() {
         return { id:IDS.workspace, cwd:'/tmp/agent-army-open-research-fixture' };
       },
-      async createIssueWorkProduct() {
-        throw new Error('预算失败时不应写Work Product');
+      async createIssueWorkProduct(_issueId, product) {
+        workProducts.push(product);
+        return { id:`work-product-${workProducts.length}`, ...product };
       },
-      async getIssueWorkProducts() { return []; },
+      async getIssueWorkProducts() { return workProducts; },
     },
     roleToolAdapters:{
       'ajun-public-fetch':async () => {
         adapterCalls += 1;
-        return {};
+        return {
+          sourceRef:'https://example.com/report',
+          title:'公开来源',
+          text:'公开来源正文',
+          contentHash:`sha256:${'1'.repeat(64)}`,
+          fetchedAt:'2026-07-31T03:00:01.000Z',
+        };
+      },
+      'ajun-public-search':async () => {
+        adapterCalls += 1;
+        return {
+          results:[{ title:'第二来源', url:'https://example.org/source-2' }],
+          searchedAt:'2026-07-31T03:00:02.000Z',
+        };
       },
     },
     executors:{},
@@ -327,18 +347,11 @@ test('Paperclip开放研究缺少显式预算时在任何Adapter调用前失败�
     agentArmyId:'intel-researcher',
   });
 
-  assert.equal(adapterCalls, 0);
-  assert.equal(result.result.recommendedCompletionStatus, 'waiting_test');
-  assert.match(result.result.error.message, /预算/);
+  assert.equal(adapterCalls, 2);
+  assert.equal(result.result.recommendedCompletionStatus, 'running');
+  assert.equal(result.result.openResearch.decision.budget.remainingUnitsAfterDecision, 6);
+  assert.equal(workProducts[0].metadata.budget.remainingUnits, 6);
 
-  const duplicate = await service.executeEmployeeAssignment({
-    issueId:IDS.issue,
-    runId:IDS.run,
-    paperclipAgentId:IDS.agent,
-    agentArmyId:'intel-researcher',
-  });
-  assert.equal(duplicate.duplicate, true);
-  assert.equal(adapterCalls, 0);
 });
 
 test('Paperclip小R只用同Run两个真实来源生成ResearchReport，回读健康Work Product后完成且重启不重复执行', async () => {
@@ -453,7 +466,7 @@ test('Paperclip小R只用同Run两个真实来源生成ResearchReport，回读�
   assert.equal(completed.result.verified, true);
   assert.equal(completed.result.openResearch.decision.action, 'complete');
   assert.equal(completed.result.artifacts.length, 1);
-  const reportProduct = workProducts.find((item) => item.type === 'ResearchReport');
+  const reportProduct = workProducts.find((item) => item.metadata?.kind === 'ResearchReport');
   assert.ok(reportProduct);
   assert.equal(
     reportProduct.metadata.artifactRef,
@@ -499,7 +512,7 @@ test('Paperclip小R只用同Run两个真实来源生成ResearchReport，回读�
   assert.equal(reportExecutions, 1);
   assert.equal(calls.length, 2);
   assert.equal(
-    workProducts.filter((item) => item.type === 'ResearchReport').length,
+    workProducts.filter((item) => item.metadata?.kind === 'ResearchReport').length,
     1,
   );
 });
@@ -559,7 +572,7 @@ test('ResearchReport写回后若当前Run回读不健康，employee_assignment�
       async getIssueWorkProducts() {
         return workProducts.map((item) => ({
           ...structuredClone(item),
-          ...(item.type === 'ResearchReport' && !exposeHealthyReport
+          ...(item.metadata?.kind === 'ResearchReport' && !exposeHealthyReport
             ? { healthStatus:'unhealthy' }
             : {}),
         }));
@@ -601,7 +614,7 @@ test('ResearchReport写回后若当前Run回读不健康，employee_assignment�
   assert.match(result.result.error.message, /当前 Run 回读健康 Work Product/);
   assert.equal(task.artifactRefs.length, 0);
   assert.equal(
-    workProducts.filter((item) => item.type === 'ResearchReport').length,
+    workProducts.filter((item) => item.metadata?.kind === 'ResearchReport').length,
     1,
   );
 
@@ -617,7 +630,7 @@ test('ResearchReport写回后若当前Run回读不健康，employee_assignment�
   assert.equal(recovered.result.openResearch.reusedReport, true);
   assert.equal(calls.length, 2);
   assert.equal(
-    workProducts.filter((item) => item.type === 'ResearchReport').length,
+    workProducts.filter((item) => item.metadata?.kind === 'ResearchReport').length,
     1,
   );
 });
@@ -711,7 +724,7 @@ test('两个来源已核验但Issue预算不含报告步骤时不生成报告，
     0,
   );
   assert.equal(
-    workProducts.find((item) => item.type === 'OpenResearchStep')
+    workProducts.find((item) => item.metadata?.kind === 'OpenResearchStep')
       .metadata.budget.remainingUnits,
     0,
   );
