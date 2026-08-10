@@ -80,6 +80,7 @@ export function createAjunHttpHandler({
     xiaod,
     boomMonitor,
     boomMonitorEnabled,
+    productMaturity,
   } = work;
   const {
     employeeFeishuConnections,
@@ -182,6 +183,20 @@ export function createAjunHttpHandler({
       if (request.method === 'GET' && request.url === '/api/owner-action-session') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'本机动作会话只能由老板在这台设备上获取。' });
         return sendJson(response, 200, ownerActionSession.issue());
+      }
+      if (request.method === 'POST' && request.url === '/api/product-maturity/validation-batches') {
+        const denied = validateOwnerJsonAction(request, ownerActionSession, '产品成熟度验证批次');
+        if (denied) return sendJson(response, denied.status, { error:denied.error });
+        if (!productMaturity) return sendJson(response, 503, { error:'产品成熟度验证服务尚未接入。' });
+        await readJsonBody(request);
+        return sendJson(response, 202, await productMaturity.create());
+      }
+      const maturityDecisionMatch = request.url?.match(/^\/api\/product-maturity\/validation-batches\/(maturity-[0-9a-f-]{36})\/decision$/i);
+      if (request.method === 'POST' && maturityDecisionMatch) {
+        const denied = validateOwnerJsonAction(request, ownerActionSession, '产品成熟度统一验收');
+        if (denied) return sendJson(response, denied.status, { error:denied.error });
+        if (!productMaturity) return sendJson(response, 503, { error:'产品成熟度验证服务尚未接入。' });
+        return sendJson(response, 200, await productMaturity.decide(maturityDecisionMatch[1], await readJsonBody(request)));
       }
       const recoveryRequestMatch = request.url?.match(/^\/api\/tasks\/([0-9a-f-]+)\/recovery-actions\/(use_confirmed_transcript_only|request_safe_recovery|request_read_only_diagnosis)$/i);
       if (request.method === 'POST' && recoveryRequestMatch) {
@@ -575,6 +590,14 @@ function hasSameOrigin(request) {
   if (!origin || !host) return false;
   const scheme = request.socket.encrypted ? 'https' : 'http';
   return origin === `${scheme}://${host}`;
+}
+
+function validateOwnerJsonAction(request, ownerActionSession, label) {
+  if (!isLocalAddress(request.socket.remoteAddress)) return { status:403, error:`${label}只能由老板在本机发起。` };
+  if (!String(request.headers['content-type'] || '').toLowerCase().startsWith('application/json')) return { status:415, error:`${label}请求必须使用 application/json。` };
+  if (!hasSameOrigin(request)) return { status:403, error:`${label}请求必须来自当前 A君 控制台。` };
+  if (!ownerActionSession.authorize(request.headers['x-ajun-owner-action'])) return { status:403, error:'本机动作会话无效或已过期，请刷新后重试。' };
+  return null;
 }
 
 async function readJsonBody(request) {

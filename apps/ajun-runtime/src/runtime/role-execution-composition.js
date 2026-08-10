@@ -57,6 +57,7 @@ export async function createRoleExecutionComposition({
   xiaod,
   localAi,
   port,
+  missionChildPolicy,
 }) {
   const {
     root,
@@ -76,7 +77,7 @@ export async function createRoleExecutionComposition({
   });
   const technicalRepairPromotion = new TechnicalRepairPromotion({
     projectRoot:sourceProjectRoot,
-    allowedWorkspaceRoots:[repairWorktreeParent],
+    allowedWorkspaceRoots:[repairWorktreeParent, path.join(sourceProjectRoot, 'work', 'acceptance-runs')],
     sourceMode:runtimeSource.mode,
     sourceIdentity:runtimeSource.sourceIdentity,
     verifySourceRoot:runtimeSource.verify,
@@ -206,6 +207,7 @@ export async function createRoleExecutionComposition({
     roleToolAdapters,
     officePresentationWorkspaceRoot:path.join(dataDir, 'office-presentation-workspaces'),
     usageLedger:new HermesUsageLedger({ profileRoot:hermesProfileRoot }),
+    missionChildPolicy,
     m5ProviderVision:contentCampaign.executeProviderVision,
     m5WorkProductValidator:async (input) => (
       await contentCampaign.campaigns()

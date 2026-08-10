@@ -36,6 +36,7 @@ export class TaskService {
     localAiCapabilityStatus = null,
     officePresentationWorkspaceRoot = null,
     usageLedger = null,
+    missionChildPolicy = null,
   }) {
     this.registry = registry;
     this.store = store;
@@ -58,6 +59,7 @@ export class TaskService {
     this.skillExecutionRegistry = skillExecutionRegistry;
     this.localAiCapabilityStatus = typeof localAiCapabilityStatus === 'function' ? localAiCapabilityStatus : null;
     this.usageLedger = usageLedger;
+    this.missionChildPolicy = missionChildPolicy;
     this.contentGrowthWaitMs = Math.max(1, Math.min(Number(contentGrowthWaitMs) || 240_000, 240_000));
     this.contentGrowthRuns = new Map();
     this.employeeAssignmentRuns = new Map();
@@ -256,7 +258,7 @@ export class TaskService {
       'media.transcribe-and-refine',
       'research.intel-report',
       'office.briefing-package'
-    ].includes(child.taskType);
+    ].includes(child.taskType) || this.missionChildPolicy?.allowsApprovalInheritance({ child, parent }) === true;
     const trustedParent = parent?.taskType === 'army.cross-agent-mission' && ['running', 'succeeded'].includes(parent.status) && context.missionSafeOnly === true && context.missionTaskId === parent.taskId && context.parentPaperclipIssueId === parent.governance?.paperclipIssueId;
     if (!parentApproved || !safeChildType || !trustedParent) throw new ValidationError('这项子工作没有可继承的组织级批准，未继续执行。');
     for (const approvalId of child.approvalRefs || []) {

@@ -1,13 +1,14 @@
 import { canonicalizeBusinessAssignment } from './business-task-routing.js';
+import { normalizedProductMaturityContext } from './workflow/mission-child-policy.ts';
 
 export class CrossAgentMissionService {
-  constructor({ tasks, store, governance } = {}) { this.tasks = tasks; this.store = store; this.governance = governance; }
+  constructor({ tasks, store, governance, missionChildPolicy = null } = {}) { this.tasks = tasks; this.store = store; this.governance = governance; this.missionChildPolicy = missionChildPolicy; }
 
   async create({ title, requester, source, idempotencyKey }) {
     return this.createMission({ title, requester, source, idempotencyKey });
   }
 
-  async createBusinessMission({ title, items, requester, source, idempotencyKey }) {
+  async createBusinessMission({ title, items, requester, source, idempotencyKey, productMaturityBatchId = null }) {
     const normalized = normalizeBusinessItems(items);
     const missionTitle = clean(title, 500);
     if (!missionTitle) throw new Error('请说明这组工作的总目标。');
@@ -22,7 +23,8 @@ export class CrossAgentMissionService {
       context:{
         businessMissionItems:normalized,
         businessMissionSummary:missionTitle,
-        missionSafeOnly:!containsHighRisk(`${missionTitle}\n${description}`)
+        missionSafeOnly:!containsHighRisk(`${missionTitle}\n${description}`),
+        ...(productMaturityBatchId ? { productMaturityBatchId:String(productMaturityBatchId) } : {})
       }
     });
   }
@@ -75,6 +77,7 @@ export class CrossAgentMissionService {
     }
     const attemptedApprovalResume = new Set();
     const runSubtask = async (subtask) => {
+      this.missionChildPolicy?.assertAuthorized({ mission, subtask });
       const idempotencyKey = `${mission.idempotencyKey || `mission:${mission.taskId}`}:${subtask.key}`;
       const dependencyKeys = dependenciesFor(plan.subtasks, subtask);
       const sourceTaskIds = dependencyKeys
@@ -272,6 +275,8 @@ function normalizeBusinessItems(items) {
 }
 
 function normalizeBusinessContext(value) {
+  const productMaturity = normalizedProductMaturityContext(value);
+  if (productMaturity) return productMaturity;
   const signal = value?.boomSignal;
   if (!signal || typeof signal !== 'object' || Array.isArray(signal)) return undefined;
   const serialized = JSON.stringify(signal);

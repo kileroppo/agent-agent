@@ -290,6 +290,33 @@ test('恢复业务非合资格响应保持可分支状态，静态刷新模块�
   assert.match(staticModule.headers.get('content-type'), /text\/javascript/);
 });
 
+test('产品成熟度批次和统一决定只接受本机同源 JSON 与短期 nonce', async (context) => {
+  const calls = [];
+  const fixture = await startHandler(context, {}, {
+    productMaturity:{
+      async create() { calls.push(['create']); return { batchId:'maturity-11111111-1111-4111-8111-111111111111', status:'running' }; },
+      async decide(batchId, input) { calls.push(['decide', batchId, input]); return { batchId, status:input.decision }; },
+    },
+  });
+  const denied = await fetch(`${fixture.baseUrl}/api/product-maturity/validation-batches`, {
+    method:'POST', headers:{ 'content-type':'application/json' }, body:'{}',
+  });
+  assert.equal(denied.status, 403);
+  const session = await (await fetch(`${fixture.baseUrl}/api/owner-action-session`)).json();
+  const headers = { 'content-type':'application/json', origin:fixture.baseUrl, 'x-ajun-owner-action':session.nonce };
+  const created = await fetch(`${fixture.baseUrl}/api/product-maturity/validation-batches`, { method:'POST', headers, body:'{}' });
+  assert.equal(created.status, 202);
+  const batch = await created.json();
+  const decided = await fetch(`${fixture.baseUrl}/api/product-maturity/validation-batches/${batch.batchId}/decision`, {
+    method:'POST', headers, body:JSON.stringify({ decision:'revision_required', evidenceHash:'hash-1' }),
+  });
+  assert.equal(decided.status, 200);
+  assert.deepEqual(calls, [
+    ['create'],
+    ['decide', batch.batchId, { decision:'revision_required', evidenceHash:'hash-1' }],
+  ]);
+});
+
 async function startHandler(context, paperclipOverrides = {}, workOverrides = {}, feishuOverrides = {}) {
   const handler = createAjunHttpHandler({
     environment:{},

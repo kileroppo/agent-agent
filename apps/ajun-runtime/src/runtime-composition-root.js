@@ -28,6 +28,8 @@ import { createFeishuCommandComposition } from './runtime/feishu-command-composi
 import { createPaperclipSystemControlComposition } from './runtime/paperclip-system-control-composition.js';
 import { createRoleExecutionComposition } from './runtime/role-execution-composition.js';
 import { dispatchBoomSignal } from '@agent-army/boom-monitor';
+import { MissionChildPolicy } from './workflow/mission-child-policy.ts';
+import { CapabilityAcceptanceBundle } from './workflow/capability-acceptance-bundle.ts';
 
 export async function createRuntime({
   environment = process.env,
@@ -81,6 +83,7 @@ const {
   publisherBindings:m5PublisherBindings,
 } = contentCampaign;
 const store = createTaskStore({ dataDir, mode:environment.AGENT_ARMY_TASK_STORE || 'json' });
+const missionChildPolicy = await MissionChildPolicy.open({ keyPath:path.join(privateDir, 'product-maturity-child-policy.key') });
 const interruptedLocalExecutionReconciler = new InterruptedLocalExecutionReconciler({
   store,
   bootedAt,
@@ -138,6 +141,7 @@ const roleExecution = await createRoleExecutionComposition({
   xiaod,
   localAi,
   port,
+  missionChildPolicy,
 });
 const {
   tasks,
@@ -150,7 +154,14 @@ const {
 executeVideoAnalysisFallback = roleExecution.executeVideoAnalysisFallback;
 const macWorker = new MacWorkerTaskBridge({ store, governance, onFailure:(task) => failureRecovery?.handle(task) });
 const approvalExpiryReconciler = new ApprovalExpiryReconciler({ tasks, onResult:(result) => { if (result.status !== 'synced') logger.warn('过期确认暂时无法自动整理，将自动重试。'); } });
-const missions = new CrossAgentMissionService({ tasks, store, governance });
+const missions = new CrossAgentMissionService({ tasks, store, governance, missionChildPolicy });
+const productMaturity = new CapabilityAcceptanceBundle({
+  store,
+  missions,
+  policy:missionChildPolicy,
+  ledgerPath:path.join(dataDir, 'product-maturity-validation-batches.json'),
+  projectRoot:sourceProjectRoot,
+});
 const missionReconciler = new CrossAgentMissionReconciler({ store, missions });
 const boomMonitorEnabled = String(environment.AJUN_BOOM_MONITOR_ENABLED || 'true').trim().toLowerCase() !== 'false';
 const boomMonitor = boomMonitorEnabled ? createBoomMonitorService({
@@ -208,7 +219,7 @@ const handler = createAjunHttpHandler({
   },
   network:{ deploymentMode, lanEnabled, lanAccess },
   paperclip:paperclipSystemControl,
-  work:{ tasks, store, proposals, missions, macWorker, xiaod, boomMonitor, boomMonitorEnabled },
+  work:{ tasks, store, proposals, missions, productMaturity, macWorker, xiaod, boomMonitor, boomMonitorEnabled },
   connections:{
     ...feishuCommand.connections,
     accessConnections,
