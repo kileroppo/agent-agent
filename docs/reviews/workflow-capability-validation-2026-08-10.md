@@ -1,19 +1,26 @@
-# Business Workflow 与能力治理 live 验收记录
+# Business Workflow 与能力治理验收记录
 
 | 层级 | 结论 | 证据 | 未证明部分 |
 | --- | --- | --- | --- |
 | TypeScript | PASS | `npm run check --workspace=ajun-runtime` | 无 |
 | 架构门禁 | PASS | `npm run check:architecture`；Workflow 必须 TS，禁止直连平台、网络和进程 | 无 |
 | 自动化 | PASS | 根目录 `npm test` 全量通过 | 不代表外部平台闭环 |
-| 不可变发布 | PASS | release `08a5db91…`，payload `2b7c8324…`，Git `ea4d3ad…`；冻结校验、启动冒烟和只读恢复冒烟均通过 | 无 |
-| live 身份 | PASS | `runtime:fingerprint`：PID `80387`，`same_git_head`，源码 clean，live HTTP 200 | Publisher 关闭使整体指纹保持 degraded，这是安全边界 |
+| 不可变发布 | PASS | release `9a5ab1c1…`，payload `df15752d…`，Git `334c664…`；PID `11677`，live HTTP 200 | 无 |
+| live 身份 | PASS | `runtime:fingerprint`：源码与 live 为 `same_git_head`，release worktree clean | Publisher 关闭使整体指纹保持 degraded，这是安全边界 |
+| Paperclip / Hermes 岗位同步 | PASS | Paperclip roster 已同步 12 个岗位；小拆与 A君 Hermes Profile 二次 dry-run 均为 `changed=false` | 不代表外部发布或人工内容采用 |
 | 飞书状态验收 | PASS | A君回复按“已登记/在线/已验证/人工验收”分层；处理图标出现，回复后刷新无残留，未创建任务 | 无 |
 | 真实 Workflow | PASS | 任务 `#167203DF`，Workflow `workflow:a5517f230c8b1f465471dcef`，Step `step:health-observation:cb458f79e30b9338`；A君、小D、Paperclip 均 healthy | 健康验收不等于所有业务能力已验证 |
 | 人工评价闭环 | PASS | 原飞书会话调用 `task_feedback`，账本写入 `feedback.sentiment=useful` 和 `humanAcceptance.status=accepted` | 无 |
-| 历史欠账治理 | PASS | 800 条原始任务保持不变；当前只读分类为历史归档 173、有后续成功证据 92、仍需业务复验 10；待复验已从 66 降为 0 | 历史失败仍保留，不因分类变化改写终态 |
-| 验证批次 | PASS | `agent.army/validation-campaign/v1` 将 10 条聚合为小R 1、小拆 2、小创 3、失败恢复 2、隔离修复 2；每组包含自动方法、标准、人工抽查和失败处置 | 新的研究、分析与创作业务任务尚未执行 |
+| 历史欠账治理（live） | PASS | 802 条任务；`ownerActionable=0`、`historicalArchived=184`、`validatedByLaterEvidence=92`、`reviewBacklog=0`、`verificationBacklog=0`、`unresolvedFailures=0`；其中 `expected_boundary_rejection=5` | 历史失败仍保留，不因分类变化改写终态 |
+| 严格后续证据 | PASS | mission 仅在已验证子产物被后续正式交付消费且计划项完整时消债；研究委托要求委托类型和同一来源/主题；恢复链要求同源业务成功晚于原失败及恢复任务创建时间 | 不把无关主题、早于恢复链的成功或部分交付当作后续成功证据 |
+| 验证批次（live） | PASS / CLOSED | `agent.army/validation-campaign/v1` 为 `taskCount=0`、`groupCount=0` | 自动化历史复验已无剩余任务 |
 | 恢复与修复代码层 | PASS | 53 个恢复/修复专项测试通过；A君与小D固定回环健康探针均 HTTP 200 且契约通过 | 代码和当前健康不替代历史业务任务重新成功 |
-| 外部写入 | NOT CHECKED / DISABLED | Publisher 4390 未运行 | Campaign、Cron 和平台写入均不在本轮范围；本次没有触发 Provider 调用 |
+| 真实账本无 Provider 回放 | PASS | 只读任务 `#10E4F814` 的实际确认稿、10 帧、1 故事板生成 13 模块 `deterministic_fallback` 报告；`completeness=partial`、`visualCoverage=unavailable`；临时目录已清理 | 不证明视觉 Provider 可用，也不证明人工内容质量 |
+| M3 本机纵向验收 | PASS / NO PROVIDER | 分析 13 模块、两平台待审草稿和受控知识归档链通过；未启用 Hermes Advisor 或 Provider | 不证明真实视频听审、Paperclip heartbeat、飞书交付或人工内容质量 |
+| 首次真实小拆 | EXPECTED WAITING TEST | `#716FA2E8` 为 `waiting_test`；DeepSeek 1 次，5218 input / 13466 output tokens，估算 0.004501 USD；模式结构未通过；视觉 Provider 未调用 | 未形成可自动接受终态 |
+| 修复后真实小拆 | PASS | `#B5403CD9` 为 `succeeded` / `paperclip_hermes_completed`；模式结构 `false → 单次 deterministic repair → true`；报告 7077 bytes、摘要 194 字；DeepSeek 1 次，3043 input / 8809 output tokens，估算 0.0028986328 USD；视觉 Provider 未调用 | 自动结构通过不等于人工采用内容 |
+| 外部写入 | NOT REPORTED | 两条任务均无独立外写回执；Paperclip 本机 completion sync 只证明本机任务完成同步 | 账本未报告外部写入，不能断言为零；不等于外部发布 |
+| 只读回放副作用 | PASS / ZERO | `#10E4F814` 回放 `databaseWrites=0`、`liveTaskStoreWrites=0`、`providerCalls=0`、`paidCalls=0`、`externalSideEffects=0` | 只适用于该次本机只读回放，不外推到真实 DeepSeek 任务 |
 
 ## 已验证行为
 
@@ -27,11 +34,14 @@
 - 飞书结果评价复用为 Workflow 人工验收：有用=`accepted`，需改进=`revision_required`；
 - MCP、飞书和控制台不再把岗位登记/进程在线格式化为“全部可用”。
 - `不外发或发布` 会整体按并列否定处理，不再把后半句误判为高风险；原误判任务 `#4C4C2921` 已拒绝关闭，未执行。
+- 5 条带可验证拒绝产物、不可重试并符合安全边界的旧失败按 `expected_boundary_rejection` 归档；执行器崩溃、部分 mission 交付或有正式来源的真实失败不会误入该类。
+- 小拆精华模式在模型输出结构不合格时先停在 `waiting_test`；修复后只允许一次确定性结构修复，修复通过才进入成功终态，不额外调用模型。
 - A君 Hermes Profile 已受控新增 `task_feedback`；跨飞书会话写回会被拒绝，聊天中的“存档”不再代替任务账本事实。
 - 人工评价回复后，飞书服务端对该用户消息查询到的 Reaction 数量为 `0`；Chrome 页面刷新后曾短暂统计到 1 个图标节点，但不是服务端仍存在的 `Typing` Reaction，不据此改写任务或处理状态。
 
 ## 最终边界
 
-- 当前业务复验只剩 10 条、5 类能力；`ownerActionable=0`。A君可从 `validationCampaign` 读取怎么测、通过标准、人工抽查和失败处置，不再把全部历史任务当成当前待办。
-- 小R、小拆、小创共 6 条进入预算 Policy 后才可启动；本轮只完成代码、冻结发布和 live 读模型验收，没有把 Provider 或人工内容质量冒充为已验证。
-- Publisher、Campaign、Cron 和真实平台写入继续关闭；本记录不将其声称为已验证。
+- 自动化历史复验已在 live 收敛为 `validationCampaign=0/0`；`#B5403CD9` 证明真实 DeepSeek 小拆可以经过一次确定性结构修复进入成功终态，Paperclip 本机 completion sync 已完成。
+- `#10E4F814` 真实账本回放继续证明无 Provider 时的本地确定性纯文本降级路径；它与真实 DeepSeek 任务是两层不同证据，不互相冒充。
+- Publisher、Campaign、Cron 仍按配置保持关闭；两条真实任务的账本未报告外部写入且无独立回执，因此不能据此断言外部写入为零，也不将 Paperclip 本机 completion sync 当作外部发布。
+- 自动化闭环已完成；唯一剩余边界是人工内容质量未验收。结构门禁通过不等于负责人已采用内容；如需形成最终采用结论，负责人可抽查 `#B5403CD9` 并登记 `accepted` 或 `revision_required`。
