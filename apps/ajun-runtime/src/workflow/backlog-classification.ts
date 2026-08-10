@@ -111,6 +111,7 @@ function isExpectedBoundaryRejection(task: any, allTasks: readonly any[]): boole
 
 function isSuperseded(task: any, allTasks: readonly any[]): boolean {
   if (task?.status === 'cancelled' && task?.recovery?.supersededByTaskId) return true;
+  if (recoveryTargetWasSuperseded(task, allTasks)) return true;
   const sourceUrl = String(task?.input?.sourceUrl || '').trim();
   const taskTime = Date.parse(task?.updatedAt || task?.createdAt || '') || 0;
   if (sourceUrl && allTasks.some((candidate) => candidate?.taskId !== task?.taskId
@@ -145,14 +146,16 @@ function isValidatedByLaterEvidence(
     && candidate?.status === 'succeeded'
     && acceptedTaskTypes.has(candidate?.taskType)
     && candidate?.assigneeAgentId === task?.assigneeAgentId
+    && (candidate?.taskType === task?.taskType
+      || candidate?.taskType === delegatedTaskType
+      || sameDelegatedBusinessIntent(task, candidate))
     && (Date.parse(candidate?.updatedAt || candidate?.createdAt || '') || 0) > taskTime
     && hasVerifiedArtifact(candidate))) return true;
   if (crossAgentMissionHasLaterDelivery(task, allTasks, taskTime)) return true;
-  if (recoveryTargetHasLaterBusinessSuccess(task, allTasks)) return true;
   return activeProposalValidatesLegacyTask(task, context.proposals || [], taskTime);
 }
 
-function recoveryTargetHasLaterBusinessSuccess(task: any, allTasks: readonly any[]): boolean {
+function recoveryTargetWasSuperseded(task: any, allTasks: readonly any[]): boolean {
   if (!['operations.failure-recovery', 'operations.technical-repair'].includes(task?.taskType)) return false;
   const failedTaskId = task?.input?.context?.failedTaskId || task?.parentTaskId;
   const failedTask = allTasks.find((candidate) => candidate?.taskId === failedTaskId);
@@ -160,13 +163,32 @@ function recoveryTargetHasLaterBusinessSuccess(task: any, allTasks: readonly any
   const sourceUrl = String(failedTask?.input?.sourceUrl || task?.input?.context?.sourceUrl || '').trim();
   if (!sourceUrl) return false;
   const failedAt = Date.parse(failedTask?.updatedAt || failedTask?.createdAt || '') || 0;
+  const recoveryStartedAt = Date.parse(task?.createdAt || '') || 0;
+  if (!failedAt || !recoveryStartedAt) return false;
   return allTasks.some((candidate) => candidate?.taskId !== failedTaskId
     && candidate?.status === 'succeeded'
     && candidate?.taskType === failedTask?.taskType
     && candidate?.assigneeAgentId === failedTask?.assigneeAgentId
     && String(candidate?.input?.sourceUrl || '').trim() === sourceUrl
-    && (Date.parse(candidate?.updatedAt || candidate?.createdAt || '') || 0) > failedAt
+    && (Date.parse(candidate?.updatedAt || candidate?.createdAt || '') || 0) > Math.max(failedAt, recoveryStartedAt)
     && hasVerifiedArtifact(candidate));
+}
+
+function sameDelegatedBusinessIntent(task: any, candidate: any): boolean {
+  if (candidate?.input?.context?.delegatedTaskType !== task?.taskType) return false;
+  const originalSourceUrl = String(task?.input?.sourceUrl || '').trim();
+  const candidateSourceUrl = String(candidate?.input?.sourceUrl || '').trim();
+  if (originalSourceUrl && candidateSourceUrl) return originalSourceUrl === candidateSourceUrl;
+  const originalIntent = normalizedLegacyIntent(task?.input?.title);
+  const candidateIntent = normalizedLegacyIntent(candidate?.input?.title);
+  return Boolean(originalIntent && originalIntent === candidateIntent);
+}
+
+function normalizedLegacyIntent(value: unknown): string {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/\bv\d+\b/giu, '')
+    .replace(/[\p{P}\p{S}\s]+/gu, '');
 }
 
 function crossAgentMissionHasLaterDelivery(task: any, allTasks: readonly any[], taskTime: number): boolean {

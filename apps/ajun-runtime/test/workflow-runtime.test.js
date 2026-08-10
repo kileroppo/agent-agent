@@ -199,8 +199,8 @@ test('历史任务拆分为归档取消、待复验和仍失败，并识别后�
 
 test('正式委托任务和已激活岗位草案可作为旧验证任务的后续证据', () => {
   const summary = summarizeBacklog([
-    { taskId:'incident-old', status:'waiting_test', taskType:'operations.incident-response', assigneeAgentId:'operator', updatedAt:'2026-08-01T00:00:00.000Z' },
-    { taskId:'health-new', status:'succeeded', taskType:'operations.health-review', assigneeAgentId:'operator', updatedAt:'2026-08-02T00:00:00.000Z', artifactRefs:[{ validation:{ exists:true, readable:true, nonEmpty:true } }] },
+    { taskId:'incident-old', status:'waiting_test', taskType:'operations.incident-response', assigneeAgentId:'operator', updatedAt:'2026-08-01T00:00:00.000Z', input:{ title:'检查 A君本机健康' } },
+    { taskId:'health-new', status:'succeeded', taskType:'operations.health-review', assigneeAgentId:'operator', updatedAt:'2026-08-02T00:00:00.000Z', input:{ title:'检查 A君本机健康', context:{ delegatedTaskType:'operations.incident-response' } }, artifactRefs:[{ validation:{ exists:true, readable:true, nonEmpty:true } }] },
     { taskId:'proposal-old', status:'failed', taskType:'governance.agent-proposal', assigneeAgentId:'creator', input:{ title:'创建微信聊天取件员岗位草案' }, updatedAt:'2026-08-01T00:00:00.000Z' },
   ], {
     taskTypeDelegates:{ 'operations.incident-response':'operations.health-review' },
@@ -213,18 +213,32 @@ test('正式委托任务和已激活岗位草案可作为旧验证任务的后�
 
 test('开放任务类型可反向验证旧委托任务，恢复链由同源业务后续成功消债', () => {
   const summary = summarizeBacklog([
-    { taskId:'research-old', status:'failed', taskType:'research.intel-report', assigneeAgentId:'researcher', updatedAt:'2026-08-01T00:00:00.000Z' },
-    { taskId:'research-open', status:'succeeded', taskType:'research.open-investigation', assigneeAgentId:'researcher', updatedAt:'2026-08-01T01:00:00.000Z', artifactRefs:[{ validation:{ exists:true, readable:true, nonEmpty:true } }] },
+    { taskId:'research-old', status:'failed', taskType:'research.intel-report', assigneeAgentId:'researcher', updatedAt:'2026-08-01T00:00:00.000Z', input:{ title:'公开研究验收：Node.js 原生测试运行器' } },
+    { taskId:'research-open', status:'succeeded', taskType:'research.open-investigation', assigneeAgentId:'researcher', updatedAt:'2026-08-01T01:00:00.000Z', input:{ title:'公开研究验收 v7：Node.js 原生测试运行器', context:{ delegatedTaskType:'research.intel-report' } }, artifactRefs:[{ validation:{ exists:true, readable:true, nonEmpty:true } }] },
     { taskId:'media-old', status:'failed', taskType:'media.transcribe-and-refine', assigneeAgentId:'xiaod', updatedAt:'2026-08-01T02:00:00.000Z', input:{ sourceUrl:'https://example.com/video' } },
-    { taskId:'recovery-old', status:'failed', taskType:'operations.failure-recovery', parentTaskId:'media-old', updatedAt:'2026-08-01T04:00:00.000Z', input:{ context:{ failedTaskId:'media-old' } } },
-    { taskId:'repair-old', status:'failed', taskType:'operations.technical-repair', parentTaskId:'media-old', updatedAt:'2026-08-01T02:30:00.000Z', input:{ context:{ failedTaskId:'media-old' } } },
+    { taskId:'recovery-old', status:'failed', taskType:'operations.failure-recovery', parentTaskId:'media-old', createdAt:'2026-08-01T02:10:00.000Z', updatedAt:'2026-08-01T04:00:00.000Z', input:{ context:{ failedTaskId:'media-old' } } },
+    { taskId:'repair-old', status:'failed', taskType:'operations.technical-repair', parentTaskId:'media-old', createdAt:'2026-08-01T02:20:00.000Z', updatedAt:'2026-08-01T02:30:00.000Z', input:{ context:{ failedTaskId:'media-old' } } },
     { taskId:'media-new', status:'succeeded', taskType:'media.transcribe-and-refine', assigneeAgentId:'xiaod', updatedAt:'2026-08-01T03:00:00.000Z', input:{ sourceUrl:'https://example.com/video' }, artifactRefs:[{ validation:{ exists:true, readable:true, nonEmpty:true } }] },
   ], {
     taskTypeDelegates:{ 'research.open-investigation':'research.intel-report' },
   });
-  assert.equal(summary.counts.validated_by_later_evidence, 3);
-  assert.equal(summary.counts.superseded, 1);
+  assert.equal(summary.counts.validated_by_later_evidence, 1);
+  assert.equal(summary.counts.superseded, 3);
   assert.equal(summary.reviewBacklog, 0);
+});
+
+test('无关委托主题和恢复任务创建前已有的成功不能消掉当前失败', () => {
+  const summary = summarizeBacklog([
+    { taskId:'topic-a', status:'failed', taskType:'research.intel-report', assigneeAgentId:'researcher', updatedAt:'2026-08-01T00:00:00.000Z', input:{ title:'Topic A' } },
+    { taskId:'topic-b', status:'succeeded', taskType:'research.open-investigation', assigneeAgentId:'researcher', updatedAt:'2026-08-01T01:00:00.000Z', input:{ title:'Topic B', context:{ delegatedTaskType:'research.intel-report' } }, artifactRefs:[{ validation:{ exists:true, readable:true, nonEmpty:true } }] },
+    { taskId:'media-failed', status:'failed', taskType:'media.transcribe-and-refine', assigneeAgentId:'xiaod', updatedAt:'2026-08-01T02:00:00.000Z', input:{ sourceUrl:'https://example.com/another-video' } },
+    { taskId:'media-before-recovery', status:'succeeded', taskType:'media.transcribe-and-refine', assigneeAgentId:'xiaod', updatedAt:'2026-08-01T03:00:00.000Z', input:{ sourceUrl:'https://example.com/another-video' }, artifactRefs:[{ validation:{ exists:true, readable:true, nonEmpty:true } }] },
+    { taskId:'late-recovery-failure', status:'failed', taskType:'operations.failure-recovery', parentTaskId:'media-failed', createdAt:'2026-08-01T04:00:00.000Z', updatedAt:'2026-08-01T05:00:00.000Z', input:{ context:{ failedTaskId:'media-failed' } } },
+  ], {
+    taskTypeDelegates:{ 'research.open-investigation':'research.intel-report' },
+  });
+  assert.equal(summary.counts.validated_by_later_evidence, 0);
+  assert.equal(summary.counts.unresolved_failure, 2);
 });
 
 test('失败军团任务的已验证子产物被后续正式任务消费时视为后来交付', () => {
