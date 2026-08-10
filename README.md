@@ -44,6 +44,8 @@ agent-agent/
 
 - M0–M3 已完成；M4 本地岗位质量与模型回归已完成，剩余项均为明确的外部或人工验收；M5 仍为 **PARTIAL**。
 - Business Workflow 已作为新任务主对象，TypeScript Policy、CapabilityAdapter、ExecutionReceipt、Evaluation 和五层能力真相已在 live 生效；历史任务只读分类，不改写旧终态。
+- 产品成熟度验证已收敛为一个本机固定批次：A君只创建创建官、技术专家隔离夹具和小创本地待审脚本三项子工作，统一形成 10 岗位证据包，再由负责人一次登记 `accepted` 或 `revision_required`；证据变化会使旧决定哈希失效，历史任务终态不会被回写。
+- A君生产源码当前为 41 个 TypeScript、160 个 JavaScript 和 1 个 MJS 文件，TypeScript 比例为 20.30%；版本化比例门禁已接入 Workspace `check`，不得回退到 20% 以下或少于 41 个 TypeScript 生产文件。
 - 任务与待办数量以 live `/api/overview.taskFocus` 为准，README 不再固化会持续变化的计数。真正的 `waiting_acceptance` Workflow 会进入 `ownerActionable`；等待自动验证的 `waiting_test` 或产物门禁未通过会显示为 `waiting_validation`，不再冒充老板待办。历史分类仍只读，不改写旧任务终态。
 - live `agent.army/validation-campaign/v1` 已收敛为 `taskCount=0`、`groupCount=0`。首次真实小拆 `#716FA2E8` 的任务终态仍保留为 `waiting_test`，Workflow 正确呈现为 `waiting_validation` 且不产生负责人动作；修复后的 `#B5403CD9` 以 `paperclip_hermes_completed` 成功，其 Workflow 为 `waiting_acceptance`，结构校验由 `false` 经一次 deterministic repair 变为 `true`，生成 7077 bytes、194 字摘要报告。
 - 两条真实小拆均各调用 DeepSeek 1 次：首次 5218/13466 tokens、估算 0.004501 USD；成功任务 3043/8809 tokens、估算 0.0028986328 USD。两次都未调用视觉 Provider。任务账本未报告外部写入，也没有独立外写回执，因此不能断言外部写入为零；Paperclip 本机 completion sync 不等于外部发布。
@@ -57,6 +59,7 @@ agent-agent/
 - 新任务通过 `Model → Agent Runtime → Skills/Workflow → Policy/Permission → MCP/Tool Gateway → Provider` 执行；Model 不得自批权限。已登记同机只读能力可自动恢复一次并重试一次，仍失败才提示负责人。
 - 当前主线已完成不可变部署、真实 DeepSeek 小拆终态、Workflow/能力证据/用量归因修复和 Paperclip 本机完成同步；自动结构通过只证明产物满足机器门禁，不等于负责人已经采用内容。
 - 历史能力验证批次的自动化闭环已完成，该批次仅保留可选人工内容质量抽查：如需形成最终采用结论，可对 `#B5403CD9` 登记 `accepted` 或 `revision_required`。项目其他外部/人工验收仍以[当前交接](./docs/handoffs/README.md#当前交接)为准，不将某一批次的闭环误说成整个项目只剩一件事。
+- 新的产品成熟度批次只能从 A君 本机同源控制面调用，固定总预算上限为 4 次模型调用和 0.08 USD，且明确禁止 Publisher、Campaign、Cron、登录、发送和外部发布；创建接口本身不是发布授权。
 - 仍需负责人参与的真实验收统一见[当前交接](./docs/handoffs/README.md#当前交接)；已经完成或被替代的事项不得继续占用当前状态。
 - 2026-08-08 以前的详细运行快照已移至[历史运行状态](./docs/archive/product-state-history-2026-08-08.md)，不再作为当前 PID、版本或唯一下一步依据。
 
