@@ -36,7 +36,7 @@ agent-agent/
 
 ### 当前机器事实（2026-08-10）
 
-- A君 `4321` 正常运行，PID `94749`，绑定 clean 不可变 release `afca11e8…`、payload `e2e28df6…` 和源码提交 `781b780…`；`runtime:fingerprint` 确认 live 与 clean 源码为 `same_git_head`。
+- A君 `4321` 正常运行，PID `80387`，绑定 clean 不可变 release `08a5db91…`、payload `2b7c8324…` 和源码提交 `ea4d3ad…`；`runtime:fingerprint` 确认 live 与 clean 源码为 `same_git_head`。
 - Paperclip `3100`、Hermes Gateway 和小D运行面可达；Publisher `4390` 未运行，Campaign、M5 Cron 和所有真实外写继续关闭。
 - Business Workflow、能力真相、并列否定策略和人工评价写回已进入 `4321` live；飞书任务 `#167203DF` 完成一条真实只读 Workflow，并将 `useful` / `accepted` 写回任务账本。
 
@@ -44,13 +44,14 @@ agent-agent/
 
 - M0–M3 已完成；M4 本地岗位质量与模型回归已完成，剩余项均为明确的外部或人工验收；M5 仍为 **PARTIAL**。
 - Business Workflow 已作为新任务主对象，TypeScript Policy、CapabilityAdapter、ExecutionReceipt、Evaluation 和五层能力真相已在 live 生效；历史任务只读分类，不改写旧终态。
-- `4321` 当前显示 800 条任务、0 项进行中、0 项待审批、0 项负责人必须立即处理；旧的 245 条混合欠账已只读重分类为 168 条历史归档、66 条待复验和 41 条仍失败，不删除原始任务，也不会自动重试或冒充当前待办。
+- `4321` 当前显示 800 条任务、0 项进行中、0 项待审批、0 项负责人必须立即处理；历史混合欠账已继续只读收敛为 173 条历史归档、92 条有后续成功证据、10 条仍需业务复验，旧任务终态保持不变。
+- 这 10 条已生成 `agent.army/validation-campaign/v1` 验证账本并聚合为 5 类能力：4 条本机恢复/隔离修复可直接自动检查，6 条研究/视频/创作先过预算 Policy；预算内自动执行，超预算、费用未知或能力不可用时才升级人工。
 - 本周账本的 1284 次模型 API 调用中，1050 次来自运维官；绝大多数发生在 8 月 1–5 日旧模型巡检路径。无模型健康巡检切换后，8 月 7–8 日运维官合计只有 10 次调用。当前问题是历史窗口和任务归因，不是费用失控；详见[产品收口运行账本](./docs/reviews/operations-health/product-closure-2026-08-08.md)。
 
 ### 当前边界与下一步
 
 - M5 活动 `8dd29a3b…` 当前已经 `stopped`，不是旧文档中的 `paused`；旧 Profile lease 已过期。重新运行必须创建新授权草案，不能恢复旧授权。
-- 先维护只读 readiness、任务恢复和审计质量；恢复 Campaign、注入 Provider、启动 Publisher、付费调用或平台写入仍需独立授权。
+- 先维护只读 readiness、任务恢复和审计质量；恢复 Campaign、启动 Publisher 或平台写入仍需独立授权。模型型验证必须先通过现有预算 Policy，本次发布没有触发新的 Provider 调用。
 - 新任务通过 `Model → Agent Runtime → Skills/Workflow → Policy/Permission → MCP/Tool Gateway → Provider` 执行；Model 不得自批权限。已登记同机只读能力可自动恢复一次并重试一次，仍失败才提示负责人。
 - 仍需负责人参与的真实验收统一见[当前交接](./docs/handoffs/README.md#当前交接)；已经完成或被替代的事项不得继续占用当前状态。
 - 2026-08-08 以前的详细运行快照已移至[历史运行状态](./docs/archive/product-state-history-2026-08-08.md)，不再作为当前 PID、版本或唯一下一步依据。
