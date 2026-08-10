@@ -5,11 +5,12 @@
 | TypeScript | PASS | `npm run check --workspace=ajun-runtime` | 无 |
 | 架构门禁 | PASS | `npm run check:architecture`；Workflow 必须 TS，禁止直连平台、网络和进程 | 无 |
 | 自动化 | PASS | 根目录 `npm test` 全量通过 | 不代表外部平台闭环 |
-| 不可变发布 | PASS | release `7adb3f3d…`，payload `e4326d7a…`，Git `b18c3d2…`；冻结校验、启动冒烟和只读恢复冒烟均通过 | 无 |
-| live 身份 | PASS | `runtime:fingerprint`：PID `16240`，`same_git_head`，源码 clean，live HTTP 200 | Publisher 关闭使整体指纹保持 degraded，这是安全边界 |
+| 不可变发布 | PASS | release `afca11e8…`，payload `e2e28df6…`，Git `781b780…`；冻结校验、启动冒烟和只读恢复冒烟均通过 | 无 |
+| live 身份 | PASS | `runtime:fingerprint`：PID `94749`，`same_git_head`，源码 clean，live HTTP 200 | Publisher 关闭使整体指纹保持 degraded，这是安全边界 |
 | 飞书状态验收 | PASS | A君回复按“已登记/在线/已验证/人工验收”分层；处理图标出现，回复后刷新无残留，未创建任务 | 无 |
 | 真实 Workflow | PASS | 任务 `#167203DF`，Workflow `workflow:a5517f230c8b1f465471dcef`，Step `step:health-observation:cb458f79e30b9338`；A君、小D、Paperclip 均 healthy | 健康验收不等于所有业务能力已验证 |
 | 人工评价闭环 | PASS | 原飞书会话调用 `task_feedback`，账本写入 `feedback.sentiment=useful` 和 `humanAcceptance.status=accepted` | 无 |
+| 历史欠账治理 | PASS | 800 条原始任务保持不变；245 条旧混合欠账只读重分类为历史归档 168、待复验 66、仍失败 41，未分类残留为 0 | 未自动执行这 107 条待复验或失败任务 |
 | 外部写入 | NOT CHECKED / DISABLED | Publisher 4390 未运行 | Campaign、Cron、Provider 和平台写入均不在本轮范围 |
 
 ## 已验证行为
@@ -28,5 +29,5 @@
 
 ## 最终边界
 
-- 当前 245 条 unresolved 是历史验证欠账，不是当前需负责人立即处理的 245 件事；`ownerActionable=0`。
+- 当前真正需要后续安排的是 66 条待复验和 41 条仍失败；168 条历史归档不再占用验证欠账。它们都不是当前需负责人立即处理的事项，`ownerActionable=0`。
 - Publisher、Campaign、Cron、付费 Provider 和真实平台写入继续关闭；本记录不将其声称为已验证。
