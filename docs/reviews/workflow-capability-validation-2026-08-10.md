@@ -5,7 +5,7 @@
 | TypeScript | PASS | `npm run check --workspace=ajun-runtime` | 无 |
 | 架构门禁 | PASS | `npm run check:architecture`；Workflow 必须 TS，禁止直连平台、网络和进程 | 无 |
 | 自动化 | PASS | 根目录 `npm test` 全量通过 | 不代表外部平台闭环 |
-| 不可变发布 | PASS | 当前 live 为 release `80c6a818…`、payload `7dd3863d…`、Git `8cf685a…`；发布前全量测试、启动烟测和恢复烟测通过 | 当前精确 release 身份以 manifest 为准 |
+| 不可变发布 | PASS | 当前 live 来自最终主线的 clean immutable release；发布前全量测试、启动烟测和恢复烟测通过，精确 release / payload / Git 身份以 manifest 与只读指纹为准 | 文档不硬编码会被自身提交改变的当前身份 |
 | live 身份 | PASS | `runtime:fingerprint` 必须显示源码与 live 为 `same_git_head`、release worktree clean、HTTP 200；精确 PID 与 release 哈希不在会改变自身 Git 身份的文档中硬编码 | Publisher 关闭使整体指纹保持 degraded，这是安全边界 |
 | Paperclip / Hermes 岗位同步 | PASS | Paperclip roster 已同步 12 个岗位；小拆与 A君 Hermes Profile 二次 dry-run 均为 `changed=false` | 不代表外部发布或人工内容采用 |
 | 飞书状态验收 | PASS | A君回复按“已登记/在线/已验证/人工验收”分层；处理图标出现，回复后刷新无残留，未创建任务 | 无 |
