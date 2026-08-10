@@ -1,3 +1,4 @@
+// @ts-expect-error legacy lifecycle implementation has no declaration yet
 import { interruptedTaskExecutionPatch } from './task-lifecycle.js';
 
 const LOCAL_START_STAGES = new Set([
@@ -6,7 +7,9 @@ const LOCAL_START_STAGES = new Set([
 ]);
 
 export class InterruptedLocalExecutionReconciler {
-  constructor({ store, bootedAt = new Date().toISOString(), onResult = null } = {}) {
+  store: any; bootedAt: string; onResult: ((result: any) => void) | null;
+  running: Promise<any> | null; started: boolean;
+  constructor({ store, bootedAt = new Date().toISOString(), onResult = null }: any = {}) {
     this.store = store;
     this.bootedAt = bootedAt;
     this.onResult = onResult;
@@ -34,8 +37,8 @@ export class InterruptedLocalExecutionReconciler {
   async reconcileOnce() {
     try {
       const tasks = await this.store.list();
-      const interrupted = tasks.filter((task) => interruptedBeforeBoot(task, this.bootedAt));
-      const recovered = [];
+      const interrupted = tasks.filter((task: any) => interruptedBeforeBoot(task, this.bootedAt));
+      const recovered: string[] = [];
       for (const task of interrupted) {
         const result = typeof this.store.recoverInterruptedTaskExecution === 'function'
           ? await this.store.recoverInterruptedTaskExecution(task.taskId, {
@@ -53,7 +56,7 @@ export class InterruptedLocalExecutionReconciler {
   }
 }
 
-function interruptedBeforeBoot(task, bootedAt) {
+function interruptedBeforeBoot(task: any, bootedAt: string) {
   if (task?.status !== 'running' || !LOCAL_START_STAGES.has(task.currentStage)) return false;
   const startedAt = Date.parse(task.execution?.startedAt || '');
   const bootTime = Date.parse(bootedAt || '');

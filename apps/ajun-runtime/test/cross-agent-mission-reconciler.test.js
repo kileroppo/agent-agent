@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { CrossAgentMissionReconciler } from '../src/cross-agent-mission-reconciler.js';
+import { CrossAgentMissionReconciler } from '../src/cross-agent-mission-reconciler.ts';
 
 test('批准后已生成计划的多人工作会自动继续分派', async () => {
   const mission = { taskId:'mission-approved-1', taskType:'army.cross-agent-mission', status:'running', currentStage:'mission_planned', artifactRefs:[{ type:'cross_agent_mission_plan', data:{} }] };

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { InterruptedLocalExecutionReconciler } from '../src/interrupted-local-execution-reconciler.js';
+import { InterruptedLocalExecutionReconciler } from '../src/interrupted-local-execution-reconciler.ts';
 
 test('运行台重启后只收敛旧进程中断在本地启动阶段的任务', async () => {
   const tasks = [

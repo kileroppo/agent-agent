@@ -31,7 +31,7 @@ import { PaperclipRetrospectiveError } from './paperclip-retrospective.js';
 import { PublicWebFetchError } from './public-web-fetch.js';
 import { OfficialFeishuCompletionWatcherError } from './official-feishu-completion-watcher.js';
 import { presentCommanderReply } from './runtime-http-feishu.js';
-import { registerSourceCompletionWatch } from './source-completion-watch.js';
+import { registerSourceCompletionWatch } from './source-completion-watch.ts';
 import { ValidationError } from './task-service.js';
 import { dispatchBoomSignal } from '@agent-army/boom-monitor';
 import { routeBoomMonitorApi } from './boom-monitor/index.js';

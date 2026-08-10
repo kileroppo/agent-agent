@@ -1,5 +1,7 @@
 export class ApprovalExpiryReconciler {
-  constructor({ tasks, intervalMs = 60_000, onResult = null } = {}) {
+  tasks: any; intervalMs: number; onResult: ((result: any) => void) | null;
+  timer: ReturnType<typeof setInterval> | null; running: Promise<any> | null;
+  constructor({ tasks, intervalMs = 60_000, onResult = null }: any = {}) {
     this.tasks = tasks;
     this.intervalMs = intervalMs;
     this.onResult = onResult;
@@ -36,7 +38,7 @@ export class ApprovalExpiryReconciler {
         ? await this.tasks.reconcilePendingPaperclipApprovals()
         : [];
       const expired = await this.tasks.expirePendingApprovals();
-      const pending = decisions.filter((item) => item.status === 'sync_pending');
+      const pending = decisions.filter((item: any) => item.status === 'sync_pending');
       return {
         status:pending.length ? 'sync_pending' : 'synced',
         ...(pending.length ? { reason:'已开始的组织级审批暂时无法完成本地收口。' } : {}),

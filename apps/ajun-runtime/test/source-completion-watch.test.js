@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { registerSourceCompletionWatch } from '../src/source-completion-watch.js';
+import { registerSourceCompletionWatch } from '../src/source-completion-watch.ts';
 
 test('飞书来源任务在 API 返回前由服务端登记终态回告', async () => {
   const calls = [];

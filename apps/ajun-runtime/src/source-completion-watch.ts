@@ -1,4 +1,4 @@
-export async function registerSourceCompletionWatch(result, watcher) {
+export async function registerSourceCompletionWatch(result: any, watcher: any) {
   const task = result?.task || result?.mission || result;
   const taskId = String(task?.taskId || '').trim();
   const channel = String(task?.source?.channel || '').trim();
