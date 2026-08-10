@@ -3,7 +3,6 @@ import { presentTask } from './task-presentation.js';
 import { isRoutineHealthTask } from './task-record-query.js';
 import { privateReadGrantStatus } from './private-read-grant.js';
 import { evaluateHermesCostPolicy } from './hermes-cost-policy.js';
-import { evaluateWorkflowTasks } from './workflow/evaluation.ts';
 import { agentCapabilityTruth } from './workflow/capability-truth.ts';
 import { buildTaskValidationOverview } from './task-validation-overview.ts';
 import { buildCapabilities } from './task-capability-overview.ts';
@@ -93,7 +92,6 @@ export class TaskOverview {
         })),
       } : {}),
       recentTasks:tasks.filter(isRecentConsoleTask).slice(0, 3).map(present),
-      workflows:evaluateWorkflowTasks(tasks),
       skillReadiness,
       ...taskValidation,
       usage:summarizeTaskUsage(tasks, { since:startOfToday() }),

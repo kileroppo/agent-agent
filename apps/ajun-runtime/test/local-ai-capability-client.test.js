@@ -17,7 +17,7 @@ test('健康状态只返回登记能力和脱敏台式机状态', async () => {
           node:'m1-max-primary',
           desktopEnhancement:{ configured:true, healthy:false, baseUrl:'http://secret-node' },
           capabilities:[
-            { capability:'text.generate', configured:true, healthy:true, e2eVerified:true, provider:'local-qwen35', failure:{ message:'private' } },
+            { capability:'text.generate', configured:true, healthy:true, e2eVerified:true, verifiedAt:'2026-08-10T01:00:00.000Z', provider:'local-qwen35', failure:{ message:'private' } },
             { capability:'unknown.debug', configured:true, healthy:true, e2eVerified:true, provider:'debug' },
           ],
         };
@@ -29,6 +29,7 @@ test('健康状态只返回登记能力和脱敏台式机状态', async () => {
   assert.equal(result.readyCount, 1);
   assert.deepEqual(result.desktopEnhancement, { configured:true, healthy:false });
   assert.equal(result.capabilities.some((item) => item.capability === 'unknown.debug'), false);
+  assert.equal(result.capabilities[0].verifiedAt, '2026-08-10T01:00:00.000Z');
   assert.equal(JSON.stringify(result).includes('secret-node'), false);
   assert.equal(JSON.stringify(result).includes('private'), false);
 });

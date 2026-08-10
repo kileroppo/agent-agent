@@ -3,7 +3,7 @@ import test from 'node:test';
 import { AgentArmyClient, AgentArmyClientError } from '../src/agent-army-client.js';
 
 const overview = {
-  capabilities:[{ id:'task-coordination', name:'统一任务协调', status:'ready', detail:'已就绪', truth:{ declared:true, configured:true, live:true, verified:true, humanAccepted:false, overall:'verified' } }],
+  capabilities:[{ id:'task-coordination', name:'统一任务协调', status:'ready', detail:'已就绪', truth:{ declared:true, configured:true, live:true, verified:true, humanAccepted:false, overall:'verified', verifiedAt:'2026-08-10T01:00:00.000Z', evidenceTaskId:'task-evidence', evidenceRef:'task:task-evidence', freshness:'later_than_latest_failure', latestFailureAt:'2026-08-09T01:00:00.000Z', latestFailureTaskId:'task-failure' } }],
   agents:[{
     agentId:'xiaod', name:'小D', status:'active', role:'整理音视频',
     responsibilities:['转录'], acceptedTaskTypes:['media.transcribe-and-refine'],
@@ -35,6 +35,8 @@ test('AgentArmyClient exposes factual capability and employee views', async () =
   assert.deepEqual(capabilities.employees[0].acceptedTaskTypes, ['media.transcribe-and-refine']);
   assert.equal(capabilities.employees[0].capabilityTruth.overall, 'live');
   assert.equal(capabilities.capabilities[0].truth.overall, 'verified');
+  assert.equal(capabilities.capabilities[0].truth.evidenceTaskId, 'task-evidence');
+  assert.equal(capabilities.capabilities[0].truth.freshness, 'later_than_latest_failure');
   assert.equal(employee.recentTasks[0].status, 'running');
   assert.deepEqual((await client.armyStatus()).validationCampaign, { taskCount:2, groupCount:1 });
 });

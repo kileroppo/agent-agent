@@ -58,11 +58,12 @@
 这里只保留仍需要外部条件或负责人验收的事项；完成、关闭或已被替代的交接统一放在
 [`docs/archive/handoffs/`](../archive/handoffs/)，不得继续提供互相竞争的“唯一下一步”。
 
-- [系统产出稳定性对抗审查](./current/output-stability-audit-handoff.md)：等待下一条自然飞书消息验证完整产物链；不补发测试消息。
 - [视频分析四模式飞书验收](./current/video-analysis-modes-feishu-acceptance-handoff.md)：由负责人发送一条指定模式的视频链接，核对原会话结果。
 - [历史能力验证批次业务 E2E](./current/validation-campaign-business-e2e-handoff.md)：`334c664…` 已完成不可变部署与真实小拆成功终态，live `validationCampaign=0/0`；自动化闭环完成，仅保留负责人可选的人工内容质量抽查，机器结构通过不等于人工采用。
 - [Agent 使用说明书问答验收](./current/agent-manual-query-handoff.md)：由负责人复验小D只返回最终说明书，再完成权限边界验收。
 - [小R多路线搜索与证据方法](./current/intel-research-search-method-handoff.md)：完成不可变 release 与一条真实公开研究质量验收。
 - [Agent 人性化体验验收](./current/m2-agent-experience-polish-handoff.md)：在真实飞书原会话验证处理图标、移动端排版和任务链接。
-- [微信本机分析验收](./current/agent-skill-and-private-wechat-capability-handoff.md)：仅在负责人指定会话和范围后验证临时授权、撤销与本机摘要。
 - [M5 高权限内容自治](./current/m5-high-autonomy-content-operations-handoff.md)：Campaign 已停止，旧 Profile lease 已过期，Publisher 保持关闭；先完成新的脱敏 readiness 快照与只读预检，任何恢复、Provider 注入或平台写入仍需独立授权。
+
+已闭环的系统稳定性与微信本机分析验收已移入
+[`docs/archive/handoffs/`](../archive/handoffs/)，它们的历史 PID、release 和一次性授权不再是当前待办。

@@ -6,6 +6,12 @@ export function capabilityTruthView(value: any) {
     verified:value?.verified === true,
     humanAccepted:value?.humanAccepted === true,
     overall:safeText(value?.overall, 40) || 'unknown',
+    verifiedAt:safeText(value?.verifiedAt, 40) || null,
+    evidenceTaskId:safeText(value?.evidenceTaskId, 200) || null,
+    evidenceRef:safeText(value?.evidenceRef, 240) || null,
+    freshness:safeText(value?.freshness, 50) || 'none',
+    latestFailureAt:safeText(value?.latestFailureAt, 40) || null,
+    latestFailureTaskId:safeText(value?.latestFailureTaskId, 200) || null,
   });
 }
 

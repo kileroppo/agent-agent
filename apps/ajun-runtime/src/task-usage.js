@@ -14,7 +14,8 @@ export function recordTaskUsage({ task, result, startedAt, finishedAt = new Date
     },
     tools: normalizeTools(reported.tools),
     model: normalizeModel(reported.model),
-    cost: normalizeCost(reported.cost || reported.model?.cost)
+    cost: normalizeCost(reported.cost || reported.model?.cost),
+    attribution:normalizeTaskAttribution(task),
   };
 }
 
@@ -81,9 +82,10 @@ export function reconcileUsageBilling(tasks, ledger, { since = null } = {}) {
   const claimedLedgerRefs = new Set();
   const entries = (Array.isArray(ledger?.entries) ? ledger.entries : []).map((entry) => {
     const match = closestTaskUsageMatch(taskEntries, entry, claimedLedgerRefs);
-    if (!match) return { ...entry, attribution:{ status:'unattributed' } };
+    if (!match) return { ...entry, attribution:classifyUnmatchedLedgerEntry(entry) };
     claimedLedgerRefs.add(entry.ledgerRef);
-    match.ledgerRef = entry.ledgerRef;
+    match.ledgerRefs.push(entry.ledgerRef);
+    match.ledgerRef ||= entry.ledgerRef;
     return {
       ...entry,
       attribution:{
@@ -91,9 +93,16 @@ export function reconcileUsageBilling(tasks, ledger, { since = null } = {}) {
         taskId:match.taskId,
         taskTitle:match.taskTitle,
         taskRef:shortTaskRef(match.taskId),
+        workflowId:match.workflowId,
+        stepId:match.stepId,
+        sourceChannel:match.sourceChannel,
       },
     };
   });
+  const attributionCounts = Object.fromEntries(['task', 'system', 'agent_session', 'unattributed'].map((status) => [
+    status,
+    entries.filter((entry) => entry.attribution.status === status).length,
+  ]));
   return {
     schemaVersion:'agent.army/usage-billing-view/v1',
     status:String(ledger?.status || 'unavailable'),
@@ -102,10 +111,17 @@ export function reconcileUsageBilling(tasks, ledger, { since = null } = {}) {
     profiles:Array.isArray(ledger?.profiles) ? ledger.profiles : [],
     entries,
     attribution:{
-      attributedEntryCount:entries.filter((entry) => entry.attribution.status === 'task').length,
-      unattributedEntryCount:entries.filter((entry) => entry.attribution.status !== 'task').length,
+      attributedEntryCount:attributionCounts.task,
+      taskEntryCount:attributionCounts.task,
+      systemEntryCount:attributionCounts.system,
+      agentSessionEntryCount:attributionCounts.agent_session,
+      unattributedEntryCount:attributionCounts.unattributed,
+      taskApiCalls:sumApiCalls(entries, 'task'),
+      systemApiCalls:sumApiCalls(entries, 'system'),
+      agentSessionApiCalls:sumApiCalls(entries, 'agent_session'),
+      unattributedApiCalls:sumApiCalls(entries, 'unattributed'),
       taskModelRecordCount:taskEntries.length,
-      unmatchedTaskRecordCount:taskEntries.filter((entry) => !entry.ledgerRef).length,
+      unmatchedTaskRecordCount:taskEntries.filter((entry) => entry.ledgerRefs.length === 0).length,
     },
     taskEntries,
     limitations:Array.isArray(ledger?.limitations) ? ledger.limitations : [],
@@ -128,14 +144,26 @@ function taskBillingEntry(task) {
     inputTokens:Number(usage.model.inputTokens || 0),
     outputTokens:Number(usage.model.outputTokens || 0),
     cost:usage.cost,
+    sessionIds:normalizedSessionIds(usage.model),
+    workflowId:String(task.workflow?.workflowId || usage.attribution?.workflowId || '').trim() || null,
+    stepId:String(task.workflow?.step?.stepId || usage.attribution?.stepId || '').trim() || null,
+    sourceChannel:String(task.source?.channel || usage.attribution?.sourceChannel || '').trim() || null,
     ledgerRef:null,
+    ledgerRefs:[],
   };
 }
 
 function closestTaskUsageMatch(taskEntries, ledgerEntry, claimedLedgerRefs) {
   if (claimedLedgerRefs.has(ledgerEntry.ledgerRef)) return null;
   const occurredAt = Date.parse(ledgerEntry.occurredAt);
-  const candidates = taskEntries.filter((task) => !task.ledgerRef
+  const explicitSessionCandidates = taskEntries.filter((task) => task.sessionIds.includes(String(ledgerEntry.sessionId || ''))
+    && task.agentId === ledgerEntry.agentId
+    && (!task.provider || task.provider === ledgerEntry.provider)
+    && (!task.model || task.model === ledgerEntry.model));
+  if (explicitSessionCandidates.length) {
+    return explicitSessionCandidates.sort((left, right) => Math.abs(Date.parse(left.recordedAt) - occurredAt) - Math.abs(Date.parse(right.recordedAt) - occurredAt))[0];
+  }
+  const candidates = taskEntries.filter((task) => task.ledgerRefs.length === 0
     && task.agentId === ledgerEntry.agentId
     && (!task.provider || task.provider === ledgerEntry.provider)
     && (!task.model || task.model === ledgerEntry.model)
@@ -183,10 +211,49 @@ function normalizeModel(value) {
     status:'reported',
     ...(String(value.provider || '').trim() ? { provider:String(value.provider).trim().slice(0, 80) } : {}),
     ...(String(value.model || '').trim() ? { model:String(value.model).trim().slice(0, 120) } : {}),
+    ...normalizeSessionFields(value),
     ...(inputTokens !== null ? { inputTokens } : {}),
     ...(outputTokens !== null ? { outputTokens } : {}),
     ...(apiCalls !== null ? { apiCalls } : {})
   };
+}
+
+function normalizeTaskAttribution(task) {
+  return {
+    taskId:String(task?.taskId || '').trim() || null,
+    workflowId:String(task?.workflow?.workflowId || '').trim() || null,
+    stepId:String(task?.workflow?.step?.stepId || '').trim() || null,
+    sourceChannel:String(task?.source?.channel || '').trim() || null,
+  };
+}
+
+function normalizeSessionFields(value) {
+  const sessionIds = normalizedSessionIds(value);
+  if (sessionIds.length > 1) return { sessionIds };
+  return sessionIds.length === 1 ? { sessionId:sessionIds[0] } : {};
+}
+
+function normalizedSessionIds(value) {
+  const raw = [value?.sessionId, ...(Array.isArray(value?.sessionIds) ? value.sessionIds : [])];
+  return [...new Set(raw.map((item) => String(item || '').replace(/[^A-Za-z0-9:._-]/g, '').slice(0, 160)).filter(Boolean))];
+}
+
+function classifyUnmatchedLedgerEntry(entry) {
+  const source = String(entry?.source || '').trim().toLowerCase();
+  const usageClass = String(entry?.usageClass || '').trim().toLowerCase();
+  if (['system', 'routine', 'cron', 'health'].includes(source)
+    || ['system', 'routine', 'cron', 'health', 'health_check'].includes(usageClass)) {
+    return { status:'system', systemClass:usageClass || source || 'system' };
+  }
+  const agentId = String(entry?.agentId || '').trim();
+  const sessionId = String(entry?.sessionId || '').trim();
+  if (agentId && sessionId) return { status:'agent_session', agentId, sessionId, source:source || 'unknown' };
+  return { status:'unattributed' };
+}
+
+function sumApiCalls(entries, status) {
+  return entries.filter((entry) => entry.attribution.status === status)
+    .reduce((total, entry) => total + Number(entry.apiCalls || 0), 0);
 }
 
 function normalizeCost(value) {

@@ -1941,7 +1941,7 @@ button:disabled {
 }
 
 .billing-entry-main a,
-.billing-unattributed {
+.billing-attribution-label {
   width: fit-content;
   max-width: 100%;
   overflow: hidden;
@@ -1952,7 +1952,15 @@ button:disabled {
   white-space: nowrap;
 }
 
-.billing-unattributed {
+.billing-attribution-label.agent-session {
+  color: var(--mint-deep);
+}
+
+.billing-attribution-label.system {
+  color: var(--muted);
+}
+
+.billing-attribution-label.unattributed {
   color: var(--amber);
 }
 

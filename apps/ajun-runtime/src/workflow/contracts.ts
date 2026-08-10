@@ -16,6 +16,7 @@ export type WorkflowStatus =
   | 'running'
   | 'recovering'
   | 'waiting_user'
+  | 'waiting_validation'
   | 'waiting_acceptance'
   | 'partial'
   | 'succeeded'

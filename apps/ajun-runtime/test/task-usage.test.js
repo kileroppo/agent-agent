@@ -87,3 +87,35 @@ test('账单把完全一致的 Hermes 会话归到任务，其余调用明确列
   assert.equal(billing.entries[1].attribution.status, 'unattributed');
   assert.equal(billing.taskEntries[0].ledgerRef, 'match');
 });
+
+test('账单优先按 Hermes 会话绑定 Workflow，并区分系统与独立 Agent 会话', () => {
+  const usage = recordTaskUsage({
+    task:{
+      taskId:'task-workflow', assigneeAgentId:'video-content-analyst',
+      workflow:{ workflowId:'workflow:content', step:{ stepId:'step:analysis' } },
+      source:{ channel:'feishu' },
+    },
+    result:{
+      status:'succeeded',
+      usage:{ model:{ provider:'deepseek', model:'deepseek-v4-flash', sessionId:'session-task', inputTokens:10, outputTokens:5, apiCalls:1 } },
+    },
+    finishedAt:new Date('2026-08-10T08:00:00.000Z'),
+  });
+  const billing = reconcileUsageBilling([{ taskId:'task-workflow', assigneeAgentId:'video-content-analyst', workflow:{ workflowId:'workflow:content', step:{ stepId:'step:analysis' } }, source:{ channel:'feishu' }, usage }], {
+    status:'ready', entries:[
+      { ledgerRef:'task-ledger', agentId:'video-content-analyst', sessionId:'session-task', source:'cli', occurredAt:'2026-08-10T08:00:10.000Z', provider:'deepseek', model:'deepseek-v4-flash', apiCalls:2, tokens:{ input:99, output:88 } },
+      { ledgerRef:'system-ledger', agentId:'operator', sessionId:'session-system', source:'routine', usageClass:'health', occurredAt:'2026-08-10T08:01:00.000Z', apiCalls:1, tokens:{} },
+      { ledgerRef:'agent-ledger', agentId:'architect', sessionId:'session-agent', source:'tool', usageClass:'main', occurredAt:'2026-08-10T08:02:00.000Z', apiCalls:3, tokens:{} },
+    ],
+  });
+  assert.deepEqual(billing.entries[0].attribution, {
+    status:'task', taskId:'task-workflow', taskTitle:'未命名任务', taskRef:'#TASKWORK',
+    workflowId:'workflow:content', stepId:'step:analysis', sourceChannel:'feishu',
+  });
+  assert.equal(billing.entries[1].attribution.status, 'system');
+  assert.equal(billing.entries[2].attribution.status, 'agent_session');
+  assert.equal(billing.attribution.taskEntryCount, 1);
+  assert.equal(billing.attribution.systemEntryCount, 1);
+  assert.equal(billing.attribution.agentSessionEntryCount, 1);
+  assert.equal(billing.attribution.unattributedEntryCount, 0);
+});

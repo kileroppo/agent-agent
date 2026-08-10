@@ -17,6 +17,7 @@ test('Hermes 内容执行器使用隔离 Profile、写入用量并在读取后�
       await fs.writeFile(usagePath, JSON.stringify({
         model:'gpt-5.6-terra',
         provider:'openai-codex',
+        session_id:'session-content-analysis',
         api_calls:1,
         input_tokens:123,
         output_tokens:45,
@@ -38,6 +39,7 @@ test('Hermes 内容执行器使用隔离 Profile、写入用量并在读取后�
     model:{
       provider:'openai-codex',
       model:'gpt-5.6-terra',
+      sessionId:'session-content-analysis',
       inputTokens:123,
       outputTokens:45,
       apiCalls:1,

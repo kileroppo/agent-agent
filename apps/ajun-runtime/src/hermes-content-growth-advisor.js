@@ -298,10 +298,12 @@ async function readUsage(usagePath) {
     const outputTokens = nonNegativeInteger(payload.output_tokens);
     const apiCalls = nonNegativeInteger(payload.api_calls);
     const estimatedCost = Number(payload.estimated_cost_usd);
+    const sessionId = clean(payload.session_id || payload.sessionId, 160);
     return {
       model:{
         provider:clean(payload.provider, 80),
         model:clean(payload.model, 120),
+        ...(sessionId ? { sessionId } : {}),
         ...(inputTokens !== null ? { inputTokens } : {}),
         ...(outputTokens !== null ? { outputTokens } : {}),
         ...(apiCalls !== null ? { apiCalls } : {}),
@@ -356,10 +358,17 @@ function mergeUsage(left, right) {
   );
   const costBasis = mergeCostBasis(first?.cost?.basis, second?.cost?.basis);
   const costSource = mergeCostSource(first?.cost?.source, second?.cost?.source);
+  const sessionIds = [...new Set([
+    first?.sessionId,
+    ...(Array.isArray(first?.sessionIds) ? first.sessionIds : []),
+    second?.sessionId,
+    ...(Array.isArray(second?.sessionIds) ? second.sessionIds : []),
+  ].map((item) => clean(item, 160)).filter(Boolean))];
   return {
     model:{
       provider:clean(base?.provider, 80),
       model:clean(base?.model, 120),
+      ...(sessionIds.length === 1 ? { sessionId:sessionIds[0] } : sessionIds.length > 1 ? { sessionIds } : {}),
       ...(inputTokens !== null ? { inputTokens } : {}),
       ...(outputTokens !== null ? { outputTokens } : {}),
       ...(apiCalls !== null ? { apiCalls } : {}),

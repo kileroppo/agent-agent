@@ -1,6 +1,12 @@
 import { summarizeBacklog } from './workflow/backlog-classification.ts';
+import type { WorkflowEvaluation } from './workflow/contracts.ts';
 
-export function buildTaskFocus(tasks: readonly any[], approvals: readonly any[], evidenceContext = {}) {
+export function buildTaskFocus(
+  tasks: readonly any[],
+  approvals: readonly any[],
+  evidenceContext = {},
+  workflows: readonly WorkflowEvaluation[] = [],
+) {
   const backlog = summarizeBacklog(tasks, evidenceContext);
   const counts = Object.fromEntries(
     ['queued', 'running', 'waiting_worker', 'pausing', 'paused', 'waiting_approval', 'waiting_test', 'needs_input', 'succeeded', 'failed']
@@ -11,13 +17,27 @@ export function buildTaskFocus(tasks: readonly any[], approvals: readonly any[],
   const ownerActionableTasks = ownerPriority.flatMap((status) =>
     tasks.filter((task) => task.status === status && isOwnerActionableTask(task, tasks))
   );
+  const ownerActionableTaskIds = new Set(ownerActionableTasks.map((task) => String(task.taskId || '')));
+  const workflowActions = workflows.flatMap((workflow) => {
+    if (workflow.status !== 'waiting_acceptance' || !workflow.ownerAction) return [];
+    const step = workflow.steps.find((item) => item.required && item.verified) || workflow.steps.find((item) => item.verified);
+    if (!step || ownerActionableTaskIds.has(step.taskId)) return [];
+    const task = tasks.find((item) => item.taskId === step.taskId);
+    if (!task) return [];
+    return [{
+      taskId:step.taskId,
+      title:task.input?.title || '未命名任务',
+      status:'waiting_acceptance',
+      action:workflow.ownerAction,
+    }];
+  });
   const businessInProgressTasks = systemPriority.flatMap((status) =>
     tasks.filter((task) => task.status === status && !isBackgroundSystemTask(task))
   );
   const backgroundInProgress = systemPriority.reduce((total, status) =>
     total + tasks.filter((task) => task.status === status && isBackgroundSystemTask(task)).length
   , 0);
-  const current = ownerActionableTasks[0] || businessInProgressTasks[0] || null;
+  const current = ownerActionableTasks[0] || workflowActions[0] || businessInProgressTasks[0] || null;
   const focusItem = (task: any) => {
     const approval = approvals.find((item) =>
       task.approvalRefs?.includes(item.approvalId) && item.status === 'pending');
@@ -28,7 +48,8 @@ export function buildTaskFocus(tasks: readonly any[], approvals: readonly any[],
       action:nextActionFor(task, approval),
     };
   };
-  const actions = ownerActionableTasks.slice(0, 5).map(focusItem);
+  const taskActions = ownerActionableTasks.map(focusItem);
+  const actions = [...taskActions, ...workflowActions].slice(0, 5);
   return {
     total:tasks.length,
     completed:counts.succeeded,
@@ -39,7 +60,7 @@ export function buildTaskFocus(tasks: readonly any[], approvals: readonly any[],
     waitingApproval:counts.waiting_approval,
     waitingTest:counts.waiting_test,
     failed:counts.failed,
-    ownerActionable:ownerActionableTasks.length,
+    ownerActionable:taskActions.length + workflowActions.length,
     reviewBacklog:backlog.reviewBacklog,
     verificationBacklog:backlog.verificationBacklog,
     unresolvedFailures:backlog.unresolvedFailures,
@@ -47,7 +68,7 @@ export function buildTaskFocus(tasks: readonly any[], approvals: readonly any[],
     validatedByLaterEvidence:backlog.validatedByLaterEvidence,
     backlog:backlog.counts,
     actions,
-    next:current ? focusItem(current) : null,
+    next:current ? ('action' in current ? current : focusItem(current)) : null,
   };
 }
 

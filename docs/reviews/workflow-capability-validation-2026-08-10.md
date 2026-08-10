@@ -9,6 +9,9 @@
 | live 身份 | PASS | `runtime:fingerprint` 必须显示源码与 live 为 `same_git_head`、release worktree clean、HTTP 200；精确 PID 与 release 哈希不在会改变自身 Git 身份的文档中硬编码 | Publisher 关闭使整体指纹保持 degraded，这是安全边界 |
 | Paperclip / Hermes 岗位同步 | PASS | Paperclip roster 已同步 12 个岗位；小拆与 A君 Hermes Profile 二次 dry-run 均为 `changed=false` | 不代表外部发布或人工内容采用 |
 | 飞书状态验收 | PASS | A君回复按“已登记/在线/已验证/人工验收”分层；处理图标出现，回复后刷新无残留，未创建任务 | 无 |
+| Workflow 状态一致性候选 | PASS / SOURCE | 已验证且待人工采用才是 `waiting_acceptance`；`waiting_test` 或产物门禁未通过是 `waiting_validation`，不产生 ownerAction；聚焦回归通过 | 待候选不可变 release 切入后读回 live |
+| 能力证据一致性候选 | PASS / SOURCE | `verified` 必须同时带有效时间与证据引用，并返回最近失败与 `freshness`；异常旧数据缺证据/时间时降级为 live/configured | 待候选不可变 release 切入后读回 live |
+| Hermes 用量归因候选 | PASS / READ-ONLY | 用真实 802 条任务和 7 天 169 条 Hermes 账本只读回算：5 条绑定 task，164 条分类为 `agent_session`，真正 `unattributed=0`；新 Hermes oneshot 任务保留原生 `session_id` | 历史任务没有 sessionId，不倒推伪造精确关联 |
 | 真实 Workflow | PASS | 任务 `#167203DF`，Workflow `workflow:a5517f230c8b1f465471dcef`，Step `step:health-observation:cb458f79e30b9338`；A君、小D、Paperclip 均 healthy | 健康验收不等于所有业务能力已验证 |
 | 人工评价闭环 | PASS | 原飞书会话调用 `task_feedback`，账本写入 `feedback.sentiment=useful` 和 `humanAcceptance.status=accepted` | 无 |
 | 历史欠账治理（live） | PASS | 802 条任务；`ownerActionable=0`、`historicalArchived=184`、`validatedByLaterEvidence=92`、`reviewBacklog=0`、`verificationBacklog=0`、`unresolvedFailures=0`；其中 `expected_boundary_rejection=5` | 历史失败仍保留，不因分类变化改写终态 |
@@ -44,4 +47,4 @@
 - 自动化历史复验已在 live 收敛为 `validationCampaign=0/0`；`#B5403CD9` 证明真实 DeepSeek 小拆可以经过一次确定性结构修复进入成功终态，Paperclip 本机 completion sync 已完成。
 - `#10E4F814` 真实账本回放继续证明无 Provider 时的本地确定性纯文本降级路径；它与真实 DeepSeek 任务是两层不同证据，不互相冒充。
 - Publisher、Campaign、Cron 仍按配置保持关闭；两条真实任务的账本未报告外部写入且无独立回执，因此不能据此断言外部写入为零，也不将 Paperclip 本机 completion sync 当作外部发布。
-- 自动化闭环已完成；唯一剩余边界是人工内容质量未验收。结构门禁通过不等于负责人已采用内容；如需形成最终采用结论，负责人可抽查 `#B5403CD9` 并登记 `accepted` 或 `revision_required`。
+- 本历史能力验证批次的自动化闭环已完成；该批次唯一保留边界是人工内容质量未验收。结构门禁通过不等于负责人已采用内容；如需形成最终采用结论，负责人可抽查 `#B5403CD9` 并登记 `accepted` 或 `revision_required`。项目其他验收以当前交接索引为准。

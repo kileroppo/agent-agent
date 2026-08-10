@@ -4,7 +4,7 @@ import { createWorkflowLink } from '../src/workflow/contracts.ts';
 import { decideCapability } from '../src/workflow/capability-policy.ts';
 import { CapabilityExecutionEngine } from '../src/workflow/capability-execution.ts';
 import { evaluateWorkflow, evaluateWorkflowTasks } from '../src/workflow/evaluation.ts';
-import { agentCapabilityTruth } from '../src/workflow/capability-truth.ts';
+import { agentCapabilityTruth, capabilityTruthState } from '../src/workflow/capability-truth.ts';
 import { summarizeBacklog } from '../src/workflow/backlog-classification.ts';
 import { buildValidationCampaign } from '../src/workflow/validation-campaign.ts';
 import { createLocalAiCapabilityAdapter } from '../src/adapters/local-ai-capability-adapter.ts';
@@ -134,7 +134,26 @@ test('研究产物的多路搜索或反证门禁失败时不能冒充 Workflow �
   }]);
   assert.equal(evaluation.requiredStepsComplete, false);
   assert.equal(evaluation.verifiedArtifactCount, 0);
-  assert.equal(evaluation.status, 'waiting_acceptance');
+  assert.equal(evaluation.status, 'waiting_validation');
+  assert.equal(evaluation.ownerAction, null);
+});
+
+test('等待自动测试的必需步骤不会冒充待人工验收', () => {
+  const workflow = createWorkflowLink({ taskType:'content.video-benchmark-analysis', idempotencyKey:'waiting-test' });
+  const evaluation = evaluateWorkflow(workflow.workflowId, [{
+    taskId:'waiting-test',
+    taskType:'content.video-benchmark-analysis',
+    status:'waiting_test',
+    workflow,
+    artifactRefs:[{
+      artifactId:'partial-report',
+      type:'content_analysis_report',
+      validation:{ exists:true, readable:true, nonEmpty:true, modeStructurePassed:false },
+    }],
+  }]);
+  assert.equal(evaluation.requiredStepsComplete, false);
+  assert.equal(evaluation.status, 'waiting_validation');
+  assert.equal(evaluation.ownerAction, null);
 });
 
 test('Agent状态从真实任务证据派生，Manifest active本身不等于已验证', () => {
@@ -156,6 +175,33 @@ test('Agent状态从真实任务证据派生，Manifest active本身不等于已
   }] });
   assert.equal(verified.verified, true);
   assert.equal(verified.evidenceTaskId, 'task-1');
+});
+
+test('能力只有同时带可追溯证据和有效时间才能标记已验证', () => {
+  const malformed = capabilityTruthState({
+    declared:true,
+    configured:true,
+    live:true,
+    verified:true,
+    evidenceTaskId:'task-without-time',
+  });
+  assert.equal(malformed.verified, false);
+  assert.equal(malformed.overall, 'live');
+  assert.equal(malformed.evidenceTaskId, null);
+  assert.equal(malformed.evidenceRef, null);
+  assert.equal(malformed.verifiedAt, null);
+
+  const valid = capabilityTruthState({
+    declared:true,
+    configured:true,
+    live:true,
+    verified:true,
+    evidenceTaskId:'task-with-time',
+    verifiedAt:'2026-08-10T00:00:00.000Z',
+  });
+  assert.equal(valid.verified, true);
+  assert.equal(valid.evidenceRef, 'task:task-with-time');
+  assert.equal(valid.freshness, 'no_failure');
 });
 
 test('历史任务拆分为归档取消、待复验和仍失败，并识别后来成功的同源任务', () => {

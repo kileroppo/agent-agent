@@ -142,7 +142,7 @@ const directEmployeeTaskTypes = [
   'office.presentation-package'
 ];
 const ownerOnlyModules = new Set(['connections', 'campaigns', 'billing', 'boom-monitor', 'tools']);
-const billingViewLabels = { all:'全部', unattributed:'未归属', attributed:'已归属' };
+const billingViewLabels = { all:'全部', task:'任务', agent_session:'Agent 会话', system:'系统', unattributed:'未识别' };
 let boomMonitor;
 let recordWorkbench;
 const billingLedgerState = { query:'', agentId:'', view:'all', visible:BILLING_PAGE_SIZE };
@@ -324,10 +324,12 @@ function renderBilling() {
     statCard('Token', formatCompactNumber(tokens.total), `输入、输出与缓存合计 ${formatNumber(tokens.total)}`, 'records'),
   );
   renderBillingCostHealth(billing.health);
-  const attributed = Number(billing.attribution?.attributedEntryCount || 0);
+  const taskEntries = Number(billing.attribution?.taskEntryCount ?? billing.attribution?.attributedEntryCount ?? 0);
+  const agentSessions = Number(billing.attribution?.agentSessionEntryCount || 0);
+  const systemEntries = Number(billing.attribution?.systemEntryCount || 0);
   const unattributed = Number(billing.attribution?.unattributedEntryCount || 0);
   billingAttribution.classList.toggle('attention', unattributed > 0);
-  billingAttribution.innerHTML = `<strong>${unattributed ? `${unattributed} 条消费尚未归属任务` : '消费均已归属任务'}</strong><span>${attributed} 条已与任务用量精确对上；“未归属”表示缺少稳定任务关联，不代表没有发生消费。</span>`;
+  billingAttribution.innerHTML = `<strong>${unattributed ? `${unattributed} 条消费仍未识别来源` : '账本来源均已识别'}</strong><span>${taskEntries} 条精确关联业务任务，${agentSessions} 条属于独立 Agent 会话，${systemEntries} 条属于系统调用；识别到 Agent 会话不等同于具体业务任务。</span>`;
   const profiles = Array.isArray(billing.profiles) ? billing.profiles : [];
   billingProfileList.replaceChildren(...(profiles.length ? profiles.map(billingProfileRow) : [billingEmpty('最近七天没有岗位模型用量。')]));
   renderBillingEntries(Array.isArray(billing.entries) ? billing.entries : []);
@@ -353,8 +355,11 @@ function renderBillingCostHealth(health) {
 function renderBillingEntries(entries) {
   const filtered = filterBillingEntries(entries, billingLedgerState);
   const visible = filtered.slice(0, billingLedgerState.visible);
-  const attributedCount = entries.filter((entry) => entry.attribution?.status === 'task').length;
-  const viewCounts = { all:entries.length, unattributed:entries.length - attributedCount, attributed:attributedCount };
+  const viewCounts = Object.fromEntries(['task', 'agent_session', 'system', 'unattributed'].map((status) => [
+    status,
+    entries.filter((entry) => entry.attribution?.status === status).length,
+  ]));
+  viewCounts.all = entries.length;
   billingEntryList.replaceChildren(...(visible.length ? visible.map(billingEntryRow) : [billingEmpty('没有匹配的消费流水。')]));
   billingEntryCount.textContent = `${filtered.length} 条流水`;
   billingListContext.textContent = visible.length < filtered.length ? `已显示 ${visible.length} 条` : '按时间排列';
@@ -404,10 +409,17 @@ function billingProfileRow(profile) {
 
 function billingEntryRow(entry) {
   const node = document.createElement('article');
-  node.className = `billing-entry-row ${entry.attribution?.status === 'task' ? 'attributed' : 'unattributed'}`;
-  const attribution = entry.attribution?.status === 'task'
+  const attributionStatus = ['task', 'agent_session', 'system'].includes(entry.attribution?.status)
+    ? entry.attribution.status
+    : 'unattributed';
+  node.className = `billing-entry-row ${attributionStatus}`;
+  const attribution = attributionStatus === 'task'
     ? `<a href="/tasks/${encodeURIComponent(entry.attribution.taskId)}">${escapeHtml(entry.attribution.taskRef)} · ${escapeHtml(entry.attribution.taskTitle)}</a>`
-    : '<span class="billing-unattributed">未归属任务</span>';
+    : attributionStatus === 'agent_session'
+      ? '<span class="billing-attribution-label agent-session">独立 Agent 会话</span>'
+      : attributionStatus === 'system'
+        ? '<span class="billing-attribution-label system">系统调用</span>'
+        : '<span class="billing-attribution-label unattributed">未识别来源</span>';
   const cost = entry.cost?.status === 'actual'
     ? `${formatUsd(entry.cost.amountUsd)} 实际`
     : entry.cost?.status === 'estimated'

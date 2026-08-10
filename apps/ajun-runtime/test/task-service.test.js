@@ -2986,6 +2986,30 @@ test('概览如实区分已能收发飞书与尚未接入的外部账号写入�
   assert.match(authorizedRead.detail, /具体任务验证/);
 });
 
+test('能力验证返回证据任务、时间与相对最近失败的新鲜度', async () => {
+  const { service, records } = setup();
+  records.tasks.push(
+    {
+      taskId:'public-web-success', taskType:'research.intel-report', status:'succeeded',
+      updatedAt:'2026-08-09T08:00:00.000Z', artifactRefs:[{
+        artifactId:'research-report', validation:{ exists:true, readable:true, nonEmpty:true },
+      }],
+    },
+    {
+      taskId:'public-web-failure', taskType:'research.intel-report', status:'failed',
+      updatedAt:'2026-08-10T08:00:00.000Z', artifactRefs:[],
+    },
+  );
+  const overview = await service.overview();
+  const capability = overview.capabilities.find((item) => item.id === 'content-public-web-fetch');
+  assert.equal(capability.truth.overall, 'verified');
+  assert.equal(capability.truth.evidenceTaskId, 'public-web-success');
+  assert.equal(capability.truth.verifiedAt, '2026-08-09T08:00:00.000Z');
+  assert.equal(capability.truth.latestFailureTaskId, 'public-web-failure');
+  assert.equal(capability.truth.latestFailureAt, '2026-08-10T08:00:00.000Z');
+  assert.equal(capability.truth.freshness, 'predates_latest_failure');
+});
+
 test('概览如实显示小办 PPTD 与本地 PPTX 均可用', async () => {
   const skillExecutionRegistry = {
     async overview() {

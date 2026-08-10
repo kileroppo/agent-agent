@@ -1,5 +1,6 @@
 import { buildTaskFocus } from './task-overview-focus.ts';
 import { buildValidationCampaign } from './workflow/validation-campaign.ts';
+import { evaluateWorkflowTasks } from './workflow/evaluation.ts';
 
 export async function buildTaskValidationOverview({
   tasks,
@@ -16,8 +17,10 @@ export async function buildTaskValidationOverview({
     proposals:await store.listProposals?.() || [],
     taskTypeDelegates:capabilityCatalog?.openTaskDelegates?.() || {},
   };
+  const workflows = evaluateWorkflowTasks(tasks);
   return Object.freeze({
-    taskFocus:buildTaskFocus(tasks, approvals, evidenceContext),
+    workflows,
+    taskFocus:buildTaskFocus(tasks, approvals, evidenceContext, workflows),
     validationCampaign:buildValidationCampaign(tasks, evidenceContext),
   });
 }

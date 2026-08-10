@@ -38,6 +38,7 @@ export class LocalAiCapabilityClient {
         configured:item?.configured === true,
         healthy:item?.healthy === true,
         e2eVerified:item?.e2eVerified === true,
+        verifiedAt:validEvidenceTime(item?.verifiedAt),
         provider:String(item?.provider || '').slice(0, 80),
       })).filter((item) => CAPABILITIES.has(item.capability));
       const ready = capabilities.filter((item) => item.healthy && item.e2eVerified);
@@ -149,6 +150,11 @@ export class LocalAiCapabilityClient {
     }
     return body;
   }
+}
+
+function validEvidenceTime(value) {
+  const text = String(value || '').trim();
+  return Number.isFinite(Date.parse(text)) ? text : null;
 }
 
 function sanitizeService(item) {

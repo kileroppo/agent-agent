@@ -31,3 +31,27 @@ test('任务概览返回最多五条老板待办', () => {
   assert.equal(focus.ownerActionable, 7);
   assert.equal(focus.actions.length, 5);
 });
+
+test('任务概览把真正待人工采用的 Workflow 纳入老板待办', () => {
+  const tasks = [{
+    taskId:'quality-result',
+    status:'succeeded',
+    input:{ title:'精华提炼结果' },
+    approvalRefs:[],
+  }];
+  const workflows = [{
+    workflowId:'workflow:quality-result',
+    status:'waiting_acceptance',
+    ownerAction:'验收已经生成的业务产物',
+    steps:[{ taskId:'quality-result', required:true, verified:true }],
+  }];
+  const focus = buildTaskFocus(tasks, [], {}, workflows);
+  assert.equal(focus.ownerActionable, 1);
+  assert.deepEqual(focus.actions, [{
+    taskId:'quality-result',
+    title:'精华提炼结果',
+    status:'waiting_acceptance',
+    action:'验收已经生成的业务产物',
+  }]);
+  assert.equal(focus.next.taskId, 'quality-result');
+});

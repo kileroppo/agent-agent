@@ -72,8 +72,8 @@ function stepStatus(task: any, verified: boolean, humanAccepted: boolean): Workf
   if (task?.status === 'needs_input' || task?.status === 'waiting_approval') return 'waiting_user';
   if (task?.recovery?.coordination?.status === 'pending') return 'recovering';
   if (TERMINAL_FAILURE.has(task?.status)) return task.status === 'cancelled' ? 'cancelled' : 'failed';
-  if (task?.status === 'waiting_test') return 'waiting_acceptance';
-  if (task?.status === 'succeeded') return 'waiting_acceptance';
+  if (task?.status === 'waiting_test') return 'waiting_validation';
+  if (task?.status === 'succeeded') return 'waiting_validation';
   if (task?.status === 'received') return 'received';
   if (task?.status === 'queued') return 'planning';
   return 'running';
@@ -90,7 +90,7 @@ function workflowStatus(
   if (!state.requiredStepsComplete) {
     if (steps.some((step) => step.status === 'running')) return 'running';
     if (steps.some((step) => step.status === 'planning')) return 'planning';
-    return 'waiting_acceptance';
+    return 'waiting_validation';
   }
   if (steps.some((step) => step.status === 'partial')) return 'partial';
   if (state.humanAcceptanceRequired && !state.humanAccepted) return 'waiting_acceptance';
