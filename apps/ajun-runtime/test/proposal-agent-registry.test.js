@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ProposalAgentRegistry } from '../src/proposal-agent-registry.js';
+import { ProposalAgentRegistry } from '../src/proposal-agent-registry.ts';
 
 test('正式 Manifest 是唯一派活名单，历史激活提案不能生成幽灵员工', async () => {
   const formal = [

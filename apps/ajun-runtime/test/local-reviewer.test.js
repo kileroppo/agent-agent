@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { LocalReviewer } from '../src/local-reviewer.js';
+import { LocalReviewer } from '../src/local-reviewer.ts';
 
 test('审核官只给出需要所有者决定的结论，不做最终授权或外部动作', async () => {
   const reviewer = new LocalReviewer({ now: () => new Date('2026-07-20T09:00:00.000Z') });

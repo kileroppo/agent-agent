@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { ProposalAcceptanceRunner } from '../src/proposal-acceptance-runner.js';
+import { ProposalAcceptanceRunner } from '../src/proposal-acceptance-runner.ts';
 
 const instance = { testInstanceId:'test-1' };
 

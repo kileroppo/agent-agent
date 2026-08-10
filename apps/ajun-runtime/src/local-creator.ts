@@ -1,8 +1,9 @@
 export class LocalCreator {
-  constructor({ proposals, now = () => new Date() } = {}) { this.proposals = proposals; this.now = now; }
+  proposals: any; now: () => Date;
+  constructor({ proposals, now = () => new Date() }: any = {}) { this.proposals = proposals; this.now = now; }
 
-  async execute(task, { proposalInput = null } = {}) {
-    const structured = proposalInput && typeof proposalInput === 'object' ? proposalInput : {};
+  async execute(task: any, { proposalInput = null }: any = {}) {
+    const structured: any = proposalInput && typeof proposalInput === 'object' ? proposalInput : {};
     const capabilityDesign = designCapabilities(structured);
     const proposal = await this.proposals.create({
       requestedOutcome: structured.requestedOutcome || task.input.title,
@@ -18,7 +19,7 @@ export class LocalCreator {
       sourceEventRef: task.source?.eventRef || `paperclip:${task.governance?.paperclipIssueId || task.taskId}:agent-proposal`
     }, { source: task.source?.channel || 'ajun-runtime' });
     let submitted = proposal;
-    let reviewSubmission = { status: proposal.status === 'draft' ? 'pending' : 'submitted' };
+    let reviewSubmission: any = { status: proposal.status === 'draft' ? 'pending' : 'submitted' };
     if (proposal.status === 'draft') {
       try {
         submitted = await this.proposals.submit(proposal.proposalId);
@@ -41,13 +42,13 @@ export class LocalCreator {
   }
 }
 
-function designCapabilities(input) {
+function designCapabilities(input: any) {
   const requested = strings(input.requestedCapabilities);
   const catalog = Array.isArray(input.capabilityCatalog) ? input.capabilityCatalog : Array.isArray(input.availableCapabilities) ? input.availableCapabilities : [];
   const reuseEvidence = [];
   const gaps = [];
   for (const capabilityId of requested) {
-    const candidate = catalog.find((item) => String(item?.capabilityId || item?.id || '') === capabilityId);
+    const candidate = catalog.find((item: any) => String(item?.capabilityId || item?.id || '') === capabilityId);
     if (!candidate) {
       gaps.push({ capabilityId, reason:'仓库和已登记能力目录中没有匹配项。', status:'unresolved' });
       continue;
@@ -78,8 +79,8 @@ function designCapabilities(input) {
   };
 }
 
-function minimalSandboxExperiment({ input, requested, unresolvedIds }) {
-  const targetCapabilities = requested.filter((item) => unresolvedIds.has(item));
+function minimalSandboxExperiment({ input, requested, unresolvedIds }: any) {
+  const targetCapabilities = requested.filter((item: any) => unresolvedIds.has(item));
   return {
     experimentId:'candidate-capability-minimum-sandbox',
     status:targetCapabilities.length ? 'proposed' : requested.length ? 'not_required_existing_capability_reusable' : 'not_applicable_no_capability_requested',
@@ -103,16 +104,16 @@ function minimalSandboxExperiment({ input, requested, unresolvedIds }) {
   };
 }
 
-function revisionAdvice({ requested, gaps, input }) {
+function revisionAdvice({ requested, gaps, input }: any) {
   const advice = [];
   if (!String(input.requestedOutcome || '').trim()) advice.push('补充岗位要稳定交付的业务结果。');
   if (!requested.length) advice.push('明确最小工具能力清单；未知能力不得通过岗位草案自动扩权。');
-  if (gaps.length) advice.push(`先验证能力缺口：${gaps.map((item) => item.capabilityId).join('、')}；验证通过前岗位只能保持草案。`);
+  if (gaps.length) advice.push(`先验证能力缺口：${gaps.map((item: any) => item.capabilityId).join('、')}；验证通过前岗位只能保持草案。`);
   if (!strings(input.acceptedTaskTypes).length) advice.push('补充可路由且可验收的任务类型。');
   return advice;
 }
 
-function reviseCapabilityDesign(design, proposal) {
+function reviseCapabilityDesign(design: any, proposal: any) {
   const readiness = proposal?.trialReadiness || {};
   const revisionAdvice = [...design.revisionAdvice];
   if (readiness.status && readiness.status !== 'ready') revisionAdvice.push(readiness.message || 'proposal service 判定当前能力尚不能进入受限试用。');
@@ -122,4 +123,4 @@ function reviseCapabilityDesign(design, proposal) {
     revisionAdvice:[...new Set(revisionAdvice)]
   };
 }
-function strings(value) { return [...new Set((Array.isArray(value) ? value : value ? [value] : []).map((item) => String(item).trim()).filter(Boolean))]; }
+function strings(value: any): string[] { return [...new Set((Array.isArray(value) ? value : value ? [value] : []).map((item: any) => String(item).trim()).filter(Boolean))] as string[]; }

@@ -2,13 +2,14 @@ import { canonicalizeBusinessAssignment } from './business-task-routing.ts';
 import { normalizedProductMaturityContext } from './workflow/mission-child-policy.ts';
 
 export class LocalAjunCoordinator {
-  constructor({ now = () => new Date(), advisor = null, registry = null } = {}) { this.now = now; this.advisor = advisor; this.registry = registry; }
+  now: () => Date; advisor: any; registry: any;
+  constructor({ now = () => new Date(), advisor = null, registry = null }: any = {}) { this.now = now; this.advisor = advisor; this.registry = registry; }
 
-  async execute(task) {
+  async execute(task: any) {
     const completedAt = this.now().toISOString();
     if (task.taskType === 'army.cross-agent-mission') return missionPlan(task, completedAt);
     if (task.taskType === 'content.campaign-topic') return campaignTopicSelection(task, completedAt);
-    const recommendation = await this.recommend(task.input);
+    const recommendation: any = await this.recommend(task.input);
     const record = {
       receivedAt: task.createdAt,
       completedAt,
@@ -28,14 +29,14 @@ export class LocalAjunCoordinator {
     };
   }
 
-  async recommend(input) {
+  async recommend(input: any): Promise<any> {
     const recommendation = recommend(input);
     if (recommendation.taskType || !this.advisor?.advise) return recommendation;
     try {
       const employees = this.registry?.list ? await this.registry.list() : [];
       const advice = await this.advisor.advise({ request:`${input.title || ''}\n${input.description || ''}`.trim(), employees });
       if (!advice) return recommendation;
-      const architect = employees.find((employee) => employee?.agentId === 'architect' && employee?.status === 'active' && Array.isArray(employee?.acceptedTaskTypes) && employee.acceptedTaskTypes.includes('governance.architecture-review'));
+      const architect = employees.find((employee: any) => employee?.agentId === 'architect' && employee?.status === 'active' && Array.isArray(employee?.acceptedTaskTypes) && employee.acceptedTaskTypes.includes('governance.architecture-review'));
       if (architect && safeForCapabilityReview(input)) {
         return {
           taskType:'governance.architecture-review', agentId:'architect', autoContinue:true,
@@ -54,12 +55,12 @@ export class LocalAjunCoordinator {
   }
 }
 
-function campaignTopicSelection(task, completedAt) {
+function campaignTopicSelection(task: any, completedAt: string) {
   const fields = task.input?.context?.pipelineCase?.fields || {};
   const theme = String(fields.theme || '').replace(/\s+/g, ' ').trim().slice(0, 160);
   const scheduledDate = String(fields.scheduledDate || '').trim();
   if (!theme || !/^\d{4}-\d{2}-\d{2}$/.test(scheduledDate)) {
-    const error = new Error('选题 Routine 缺少 Paperclip 日期 Case 中的 theme 或 scheduledDate。');
+    const error: Error & { code?: string; category?: string; retryable?: boolean } = new Error('选题 Routine 缺少 Paperclip 日期 Case 中的 theme 或 scheduledDate。');
     error.code = 'm5_topic_case_context_missing';
     error.category = 'configuration';
     error.retryable = false;
@@ -125,11 +126,11 @@ function campaignTopicSelection(task, completedAt) {
   };
 }
 
-function safeForCapabilityReview(input) {
+function safeForCapabilityReview(input: any) {
   return !/外发|发布|删除|付款|付费|扩权|敏感|账号|登录|连接/.test(`${input?.title || ''} ${input?.description || ''}`);
 }
 
-function missionPlan(task, createdAt) {
+function missionPlan(task: any, createdAt: string) {
   const businessItems = normalizeBusinessMissionItems(task.input?.context?.businessMissionItems);
   if (businessItems.length) {
     const plan = {
@@ -158,7 +159,7 @@ function missionPlan(task, createdAt) {
   return missionPlanResult(task, plan, createdAt);
 }
 
-function missionPlanResult(task, plan, createdAt) {
+function missionPlanResult(task: any, plan: any, createdAt: string) {
   return {
     status:'running', currentStage:'mission_planned',
     execution:{ executor:'ajun', mode:'cross_agent_mission_plan', startedAt:task.execution?.startedAt || createdAt, finishedAt:createdAt, outcome:'subtasks_ready' },
@@ -166,7 +167,7 @@ function missionPlanResult(task, plan, createdAt) {
   };
 }
 
-function normalizeBusinessMissionItems(value) {
+function normalizeBusinessMissionItems(value: any) {
   if (!Array.isArray(value) || value.length < 1 || value.length > 11) return [];
   return value.map((item, index) => canonicalizeBusinessAssignment({
     key:String(item?.key || `work-${index + 1}`).trim().slice(0, 80),
@@ -175,24 +176,24 @@ function normalizeBusinessMissionItems(value) {
     title:String(item?.title || '').trim().slice(0, 500),
     description:String(item?.description || '').trim().slice(0, 2000),
     acceptance:String(item?.acceptance || '交付可验证结果；无法完成时明确说明卡点和下一步。').trim().slice(0, 500),
-    sourceUrls:Array.isArray(item?.sourceUrls) ? item.sourceUrls.map((url) => String(url || '').trim()).filter(Boolean).slice(0, 5) : [],
+    sourceUrls:Array.isArray(item?.sourceUrls) ? item.sourceUrls.map((url: any) => String(url || '').trim()).filter(Boolean).slice(0, 5) : [],
     reviewPolicy:item?.reviewPolicy === 'required' ? 'required' : 'optional',
     evidenceMode:item?.evidenceMode === 'preliminary' ? 'preliminary' : 'formal',
     analysisIntent:['digest', 'deep', 'template', 'style'].includes(item?.analysisIntent) ? item.analysisIntent : undefined,
     depth:item?.depth === 'full' ? 'full' : 'fast',
     visualMode:item?.visualMode === 'off' || item?.visualMode === 'required' ? item.visualMode : 'auto',
     focus:String(item?.focus || '').trim().slice(0, 500),
-    platforms:Array.isArray(item?.platforms) ? item.platforms.map((platform) => String(platform || '').trim()).filter(Boolean).slice(0, 3) : [],
+    platforms:Array.isArray(item?.platforms) ? item.platforms.map((platform: any) => String(platform || '').trim()).filter(Boolean).slice(0, 3) : [],
     contentGoal:String(item?.contentGoal || '').trim().slice(0, 500),
     context:normalizedProductMaturityContext(item?.context),
     dependsOnPrevious:item?.dependsOnPrevious === true || String(item?.agentId || '').trim() === 'office-assistant',
     dependsOn:Array.isArray(item?.dependsOn)
-      ? [...new Set(item.dependsOn.map((key) => String(key || '').trim()).filter(Boolean))].slice(0, 10)
+      ? [...new Set(item.dependsOn.map((key: any) => String(key || '').trim()).filter(Boolean))].slice(0, 10)
       : []
   }, { index })).filter((item) => item.agentId && item.taskType && item.title);
 }
 
-function recommend(input) {
+function recommend(input: any): any {
   const text = `${input.title || ''} ${input.description || ''}`.toLowerCase();
   const hasPublicLink = Boolean(input.sourceUrl);
   if (/创建.*agent|新建.*agent|创建.*智能体|新建.*智能体|创建.*岗位|招.*agent/.test(text)) return { taskType: 'governance.agent-proposal', agentId: 'creator', nextAction: '创建官只生成岗位草案并提交审核；不会直接创建生产 Agent、Skill 或外部连接。' };

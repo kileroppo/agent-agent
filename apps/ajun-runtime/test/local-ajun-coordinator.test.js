@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { LocalAjunCoordinator } from '../src/local-ajun-coordinator.js';
+import { LocalAjunCoordinator } from '../src/local-ajun-coordinator.ts';
 
 test('A君把带公开链接的素材请求建议给小D，且不发起外部动作', async () => {
   const coordinator = new LocalAjunCoordinator({ now: () => new Date('2026-07-20T08:00:00.000Z') });

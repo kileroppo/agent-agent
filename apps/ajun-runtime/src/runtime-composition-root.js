@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AgentRegistry } from './agent-registry.js';
-import { ProposalAgentRegistry } from './proposal-agent-registry.js';
+import { ProposalAgentRegistry } from './proposal-agent-registry.ts';
 import { createTaskStore } from './create-task-store.js';
 import { PaperclipRosterReconciler } from './paperclip-roster-reconciler.js';
 import { ApprovalExpiryReconciler } from './approval-expiry-reconciler.ts';
