@@ -1,7 +1,7 @@
 import { assertNoSensitiveData } from './goal-spec.js';
 import { INTEL_RESEARCH_OPEN_TASK_EXECUTION_CONTRACT } from '@agent-army/m5-kernel/routine-execution-contract';
 import { createM5ObservationDecision } from '@agent-army/m5-kernel/route-execution';
-import { DEFAULT_TASK_CAPABILITY_CATALOG } from './task-capability-catalog.js';
+import { DEFAULT_TASK_CAPABILITY_CATALOG } from './task-capability-catalog.ts';
 import { openTaskResearchState } from './open-task-research-state.js';
 
 const {

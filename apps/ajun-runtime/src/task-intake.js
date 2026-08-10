@@ -1,10 +1,10 @@
-import { canonicalizeBusinessAssignment, githubRepositoryQuery } from './business-task-routing.js';
+import { canonicalizeBusinessAssignment, githubRepositoryQuery } from './business-task-routing.ts';
 import { usesPaperclipHermesExecution } from './governance-hermes-runtime.js';
 import {
   inspectOpenTaskManifestCapabilities,
   routeOpenTaskForExecutor,
   supportsOpenTask,
-} from './open-task-routing.js';
+} from './open-task-routing.ts';
 import {
   WECHAT_CHAT_TASK_TYPE,
   normalizeWechatChatRequest,
@@ -12,7 +12,7 @@ import {
 } from './wechat-chat-defaults.js';
 import { ValidationError } from './task-service-execution-support.js';
 import { resolveAnalysisIntent } from './analysis-intent.ts';
-import { TaskCreationCoordinator, taskIdempotencyFingerprint } from './task-idempotency.js';
+import { TaskCreationCoordinator, taskIdempotencyFingerprint } from './task-idempotency.ts';
 import { createWorkflowLink } from './workflow/contracts.ts';
 const HIGH_RISK_ACTIONS = ['外发', '发布', '删除', '付款', '付费', '扩权', '敏感'];
 const ORGANIZATION_GOVERNANCE_WORDS = /创建.*(?:agent|智能体|岗位)|新建.*(?:agent|智能体|岗位)|扩权|账号|连接|公开发布|对外发布|付款|付费|预算|暂停|终止|跨\s*agent/i;

@@ -1,9 +1,19 @@
+// @ts-expect-error legacy governance adapter has no declaration yet
 import { usesPaperclipHermesExecution } from './governance-hermes-runtime.js';
-import { routeOpenTaskForExecutor } from './open-task-routing.js';
+import { routeOpenTaskForExecutor } from './open-task-routing.ts';
+// @ts-expect-error legacy usage adapter has no declaration yet
 import { recordTaskUsage } from './task-usage.js';
-import { validateTaskCompletion } from './task-completion-contract.js';
+import { validateTaskCompletion } from './task-completion-contract.ts';
 
 export class TaskExecutionCoordinator {
+  store: any;
+  governance: any;
+  capabilityCatalog: any;
+  executorResolver: (agentId: string) => any;
+  fallbackExecutor: any;
+  fallbackExecutorResolver: () => any;
+  markFailureRecoveryPending: (task: any) => Promise<any>;
+  startFailureRecovery: (task: any) => void;
   constructor({
     store,
     governance = null,
@@ -11,20 +21,20 @@ export class TaskExecutionCoordinator {
     executorResolver = null,
     fallbackExecutor = null,
     fallbackExecutorResolver = null,
-    markFailureRecoveryPending = async (task) => task,
+    markFailureRecoveryPending = async (task: any) => task,
     startFailureRecovery = () => {},
-  } = {}) {
+  }: any = {}) {
     this.store = store;
     this.governance = governance;
     this.capabilityCatalog = capabilityCatalog;
-    this.executorResolver = executorResolver || ((agentId) => capabilityCatalog.executor(agentId));
+    this.executorResolver = executorResolver || ((agentId: string) => capabilityCatalog.executor(agentId));
     this.fallbackExecutor = fallbackExecutor;
     this.fallbackExecutorResolver = fallbackExecutorResolver || (() => this.fallbackExecutor);
     this.markFailureRecoveryPending = markFailureRecoveryPending;
     this.startFailureRecovery = startFailureRecovery;
   }
 
-  async execute(task, agent) {
+  async execute(task: any, agent: any) {
     if (usesPaperclipHermesExecution(agent) && task.status !== 'waiting_approval') {
       return this.delegateToPaperclip(task, agent);
     }
@@ -54,7 +64,7 @@ export class TaskExecutionCoordinator {
         usage:recordTaskUsage({ task:updated, result, startedAt:executionStartedAt }),
       });
       if (updated.status === 'running' && typeof executor.observe === 'function') executor.observe(updated);
-    } catch (error) {
+    } catch (error: any) {
       const result = executionFailure(updated, error);
       updated = await this.store.updateTask(updated.taskId, {
         ...result,
@@ -67,7 +77,7 @@ export class TaskExecutionCoordinator {
     return updated;
   }
 
-  delegateToPaperclip(task, agent) {
+  delegateToPaperclip(task: any, agent: any) {
     const projected = Boolean(task.governance?.paperclipIssueId);
     return this.store.updateTask(task.taskId, {
       status:projected ? 'running' : 'needs_input',
@@ -93,13 +103,13 @@ export class TaskExecutionCoordinator {
     });
   }
 
-  async syncGovernance(task) {
+  async syncGovernance(task: any) {
     if (!this.governance || !task.governance?.paperclipIssueId) return task;
     return this.store.updateTask(task.taskId, { governance:await this.governance.update(task) });
   }
 }
 
-function executionFailure(task, error) {
+function executionFailure(task: any, error: any) {
   return {
     status:'failed',
     currentStage:'execution_failed',
@@ -116,7 +126,7 @@ function executionFailure(task, error) {
   };
 }
 
-function enforceCompletionContract(task, result = {}) {
+function enforceCompletionContract(task: any, result: any = {}) {
   if (result?.status !== 'succeeded') return result;
   const artifacts = Array.isArray(result.artifactRefs)
     ? result.artifactRefs

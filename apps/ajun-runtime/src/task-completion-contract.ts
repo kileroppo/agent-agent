@@ -15,11 +15,11 @@ const SPECIALIZED_COMPLETION_TYPES = new Set([
   'media.transcribe-and-refine',
 ]);
 
-export function validateTaskCompletion(task, artifactRefs = task?.artifactRefs || []) {
+export function validateTaskCompletion(task: any, artifactRefs: any[] = task?.artifactRefs || []) {
   const artifacts = Array.isArray(artifactRefs) ? artifactRefs : [];
   const taskType = String(task?.taskType || '').trim();
   let valid = false;
-  let expectedArtifactTypes = [];
+  let expectedArtifactTypes: string[] = [];
 
   switch (taskType) {
     case 'operations.health-review': {
@@ -105,7 +105,7 @@ export function validateTaskCompletion(task, artifactRefs = task?.artifactRefs |
   };
 }
 
-export function isVerifiedVideoAnalysisArtifact(task, artifact) {
+export function isVerifiedVideoAnalysisArtifact(task: any, artifact: any) {
   if (artifact?.type !== 'video_content_analysis_report' || !isReadableArtifact(artifact)) return false;
   const validation = artifact.validation || {};
   const data = artifact.data || {};
@@ -128,12 +128,12 @@ export function isVerifiedVideoAnalysisArtifact(task, artifact) {
   return validation.modeStructurePassed === true;
 }
 
-export function isReadableArtifact(artifact) {
+export function isReadableArtifact(artifact: any) {
   return artifact?.validation?.exists === true
     && artifact.validation.readable === true
     && artifact.validation.nonEmpty === true;
 }
 
-function readableArtifact(artifacts, type) {
+function readableArtifact(artifacts: any[], type: string) {
   return artifacts.find((artifact) => artifact?.type === type && isReadableArtifact(artifact));
 }

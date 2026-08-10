@@ -1,7 +1,7 @@
 const BASE_BACKOFF_MS = 3_000;
 const MAX_BACKOFF_MS = 30_000;
 const MAX_UNAVAILABLE_POLLS = 5;
-import { validateTaskCompletion } from './task-completion-contract.js';
+import { validateTaskCompletion } from './task-completion-contract.ts';
 
 export class XiaodReconciler {
   constructor({

@@ -1,7 +1,7 @@
 import { formatPublicReportReply } from './public-report-presentation.js';
 import { formatOfficeBriefingReply } from './local-office-assistant.js';
 import { ValidationError } from './task-service-execution-support.js';
-import { validateTaskCompletion } from './task-completion-contract.js';
+import { validateTaskCompletion } from './task-completion-contract.ts';
 
 export class TaskNotification {
   constructor({ store, registry, executors = {} }) {

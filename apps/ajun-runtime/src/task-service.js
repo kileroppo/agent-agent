@@ -1,8 +1,8 @@
 import { buildArchitectureGroundTruth } from './architecture-evidence.js';
 import { WECHAT_CHAT_TASK_TYPE } from './wechat-chat-defaults.js';
 import { SkillExecutionRegistry } from './skill-execution-registry.js';
-import { TaskCapabilityCatalog } from './task-capability-catalog.js';
-import { TaskExecutionCoordinator } from './task-execution-coordinator.js';
+import { TaskCapabilityCatalog } from './task-capability-catalog.ts';
+import { TaskExecutionCoordinator } from './task-execution-coordinator.ts';
 import { TaskIntake } from './task-intake.js';
 import { TaskNotification } from './task-notification.js';
 import { TaskRecordService } from './task-record-service.js';

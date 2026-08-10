@@ -1,6 +1,6 @@
 import { recordTaskUsage } from './task-usage.js';
 import { buildExecutionAudit } from './workflow/execution-audit.ts';
-import { executeIntelResearchOpenTaskStep } from './open-task-routing.js';
+import { executeIntelResearchOpenTaskStep } from './open-task-routing.ts';
 import { assertPaperclipEmployeeExecutorAssignment } from './paperclip-employee-assignment.js';
 import { getM5RoutineExecutionContract } from '@agent-army/m5-kernel/routine-execution-contract';
 import { assertChangedM5RecoveryRoute } from '@agent-army/m5-kernel/route-execution';

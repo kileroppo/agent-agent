@@ -36,28 +36,30 @@ const DEFINITIONS = Object.freeze([
 ]);
 
 export class TaskCapabilityCatalog {
-  constructor({ definitions = DEFINITIONS, executors = {} } = {}) {
+  definitions: Map<string, any>;
+  executors: Record<string, any>;
+  constructor({ definitions = DEFINITIONS, executors = {} }: { definitions?: readonly any[]; executors?: Record<string, any> } = {}) {
     this.definitions = new Map(definitions.map((item) => [item.taskType, item]));
     this.executors = executors;
   }
 
-  definition(taskType) {
+  definition(taskType: unknown) {
     return this.definitions.get(String(taskType || '').trim()) || null;
   }
 
-  fixedAgentId(taskType) {
+  fixedAgentId(taskType: unknown) {
     return this.definition(taskType)?.agentId || null;
   }
 
-  openDelegate(taskType) {
+  openDelegate(taskType: unknown) {
     return this.definition(taskType)?.openDelegate || null;
   }
 
-  executor(agentId, executors = this.executors) {
+  executor(agentId: unknown, executors: Record<string, any> = this.executors) {
     return executors[String(agentId || '').trim()] || null;
   }
 
-  contentGrowthContract(taskType, agentId) {
+  contentGrowthContract(taskType: unknown, agentId: unknown) {
     const definition = this.definition(taskType);
     if (!definition?.contentArtifactType || definition.agentId !== agentId) return null;
     return {
@@ -78,6 +80,6 @@ export class TaskCapabilityCatalog {
 
 export const DEFAULT_TASK_CAPABILITY_CATALOG = new TaskCapabilityCatalog();
 
-function capability(taskType, options) {
+function capability(taskType: string, options: Record<string, string>) {
   return Object.freeze({ taskType, ...options });
 }

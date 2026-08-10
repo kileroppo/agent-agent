@@ -56,13 +56,13 @@ const AJUN_MODULE_TESTS = Object.freeze({
     'test/paperclip-task-projector.test.js',
     'test/paperclip-bridge.test.js',
   ]),
-  'src/task-capability-catalog.js': Object.freeze([
+  'src/task-capability-catalog.ts': Object.freeze([
     'test/task-capability-catalog.test.js',
     'test/business-task-routing.test.js',
     'test/open-task-routing.test.js',
     'test/task-service.test.js',
   ]),
-  'src/task-execution-coordinator.js': Object.freeze([
+  'src/task-execution-coordinator.ts': Object.freeze([
     'test/task-execution-coordinator.test.js',
     'test/task-service.test.js',
   ]),

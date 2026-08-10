@@ -7,8 +7,8 @@ import {
 } from './m5-stage-recovery-controller.js';
 import { taskPaperclipAssignmentMethods } from './task-paperclip-assignment.js';
 import { taskRoleExecutionMethods } from './task-role-execution.js';
-import { validateTaskCompletion } from './task-completion-contract.js';
-import { taskIdempotencyFingerprint } from './task-idempotency.js';
+import { validateTaskCompletion } from './task-completion-contract.ts';
+import { taskIdempotencyFingerprint } from './task-idempotency.ts';
 import {
   isPaperclipCompletableTaskStatus,
   paperclipCompletionConfirmed,

@@ -1,4 +1,4 @@
-import { canonicalizeBusinessAssignment } from './business-task-routing.js';
+import { canonicalizeBusinessAssignment } from './business-task-routing.ts';
 import { normalizedProductMaturityContext } from './workflow/mission-child-policy.ts';
 
 export class CrossAgentMissionService {

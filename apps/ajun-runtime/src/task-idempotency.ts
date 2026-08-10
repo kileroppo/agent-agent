@@ -1,7 +1,9 @@
 export class TaskCreationCoordinator {
-  constructor(create) { this.create = create; this.runs = new Map(); }
+  create: (input: any) => any;
+  runs: Map<string, { fingerprint: string; execution: Promise<any> }>;
+  constructor(create: (input: any) => any) { this.create = create; this.runs = new Map(); }
 
-  run(input = {}) {
+  run(input: any = {}) {
     const key = String(input.idempotencyKey || '').trim();
     if (!key) return this.create(input);
     const fingerprint = taskIdempotencyFingerprint(input);
@@ -18,18 +20,18 @@ export class TaskCreationCoordinator {
   }
 }
 
-export function taskIdempotencyFingerprint(input) {
+export function taskIdempotencyFingerprint(input: any) {
   return JSON.stringify(normalize({ ...input, idempotencyKey:undefined }));
 }
 
-function normalize(value) {
+function normalize(value: any): any {
   if (Array.isArray(value)) return value.map(normalize);
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(Object.keys(value).sort().filter((key) => value[key] !== undefined).map((key) => [key, normalize(value[key])]));
 }
 
 function idempotencyConflict() {
-  const error = new Error('同一幂等键正在处理不同的任务内容；已拒绝串用结果。');
+  const error: Error & { code?: string } = new Error('同一幂等键正在处理不同的任务内容；已拒绝串用结果。');
   error.code = 'task_idempotency_conflict';
   return error;
 }

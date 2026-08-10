@@ -3,7 +3,7 @@ import test from 'node:test';
 import {
   DEFAULT_TASK_CAPABILITY_CATALOG,
   TaskCapabilityCatalog,
-} from '../src/task-capability-catalog.js';
+} from '../src/task-capability-catalog.ts';
 
 test('任务能力目录集中固定岗位、开放委派和内容产物契约', () => {
   assert.equal(DEFAULT_TASK_CAPABILITY_CATALOG.fixedAgentId('content.video-script-package'), 'content-creator');

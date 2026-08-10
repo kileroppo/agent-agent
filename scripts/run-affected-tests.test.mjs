@@ -54,7 +54,7 @@ test('A君深层模块变更只选择该模块及 TaskService 接缝测试', () 
   const ajun = graph.get('ajun-runtime');
   assert.deepEqual(
     selectAffectedTestFiles([
-      'apps/ajun-runtime/src/task-execution-coordinator.js',
+      'apps/ajun-runtime/src/task-execution-coordinator.ts',
       'apps/ajun-runtime/test/task-execution-coordinator.test.js',
     ], ajun),
     [

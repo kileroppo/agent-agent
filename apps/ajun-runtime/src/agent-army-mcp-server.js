@@ -3,7 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { AgentArmyClient, AgentArmyClientError } from './agent-army-client.js';
-import { canonicalizeBusinessAssignment } from './business-task-routing.js';
+import { canonicalizeBusinessAssignment } from './business-task-routing.ts';
 import { formatTaskPresentation } from './task-presentation.js';
 import { LocalAiCapabilityClient } from './local-ai-capability-client.js';
 import { AgentRegistry } from './agent-registry.js';

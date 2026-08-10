@@ -1,4 +1,4 @@
-import { DEFAULT_TASK_CAPABILITY_CATALOG } from './task-capability-catalog.js';
+import { DEFAULT_TASK_CAPABILITY_CATALOG } from './task-capability-catalog.ts';
 
 const OFFICE_AGENT_ID = 'office-assistant';
 const OFFICE_TASK_TYPE = 'office.briefing-package';
@@ -7,7 +7,7 @@ const GITHUB_AGENT_ID = 'intel-researcher';
 const GITHUB_TASK_TYPE = 'research.github-search';
 const RESEARCH_TASK_TYPES = new Set(['army.intake', 'report.public-material', 'research.github-search', 'research.intel-report']);
 
-export function canonicalizeBusinessAssignment(input = {}, { index = 0 } = {}) {
+export function canonicalizeBusinessAssignment(input: Record<string, any> = {}, { index = 0 }: { index?: number } = {}) {
   const title = text(input.title);
   const description = text(input.description);
   const acceptance = text(input.acceptance);
@@ -67,7 +67,7 @@ export function canonicalizeBusinessAssignment(input = {}, { index = 0 } = {}) {
   };
 }
 
-export function githubRepositoryQuery(value) {
+export function githubRepositoryQuery(value: unknown) {
   const textValue = text(value);
   const explicit = textValue.match(/(?:关键词|query)\s*[：:]?\s*([A-Za-z][A-Za-z0-9_. -]{1,60})/i)?.[1]?.trim();
   if (explicit) return explicit;
@@ -77,6 +77,6 @@ export function githubRepositoryQuery(value) {
   return textValue;
 }
 
-function text(value) {
+function text(value: unknown) {
   return String(value || '').trim();
 }

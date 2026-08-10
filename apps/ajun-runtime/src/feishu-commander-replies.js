@@ -1,7 +1,7 @@
 import { formatPublicReportReply } from './public-report-presentation.js';
 import { formatOfficeBriefingReply } from './local-office-assistant.js';
 import { resolveAnalysisIntent } from './analysis-intent.ts';
-import { validateTaskCompletion } from './task-completion-contract.js';
+import { validateTaskCompletion } from './task-completion-contract.ts';
 
 export const CREATE_AGENT_RE = /(?:创建|新建|招募|招)\s*(?:一个\s*)?.{0,80}?(?:agent|智能体|岗位|助手)/i;
 export const PROGRESS_RE = /进度|进展|做到哪|处理得怎么样|完成了吗|结果呢|任务状态/;

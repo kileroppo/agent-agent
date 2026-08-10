@@ -43,7 +43,7 @@ const responsibilityLineLimits = new Map([
   ['apps/ajun-runtime/src/local-content-artifacts.js', 450],
   ['apps/ajun-runtime/src/local-content-creation.js', 450],
   ['apps/ajun-runtime/src/local-content-m5-vision.js', 400],
-  ['apps/ajun-runtime/src/open-task-routing.js', 100],
+  ['apps/ajun-runtime/src/open-task-routing.ts', 100],
   ['apps/ajun-runtime/src/open-task-routing-policy.js', 350],
   ['apps/ajun-runtime/src/open-task-research-state.js', 650],
   ['apps/ajun-runtime/src/open-task-research-execution.js', 700],

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { validateTaskCompletion } from '../src/task-completion-contract.js';
+import { validateTaskCompletion } from '../src/task-completion-contract.ts';
 
 const readable = (type, data = {}, extra = {}) => {
   const { validation = {}, ...rest } = extra;
