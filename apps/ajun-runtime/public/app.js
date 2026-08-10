@@ -449,6 +449,8 @@ function renderOverviewStats() {
   const active = Number.isFinite(focus.inProgress) ? focus.inProgress : 0;
   const ownerActionable = Number.isFinite(focus.ownerActionable) ? focus.ownerActionable : (focus.next ? 1 : 0);
   const verificationBacklog = Number.isFinite(focus.verificationBacklog) ? focus.verificationBacklog : 0;
+  const unresolvedFailures = Number.isFinite(focus.unresolvedFailures) ? focus.unresolvedFailures : 0;
+  const historicalArchived = Number.isFinite(focus.historicalArchived) ? focus.historicalArchived : 0;
   const unavailableAgents = state.overview.agents.filter((agent) => ['not_declared', 'declared', 'unknown'].includes(agent.capabilityTruth?.overall)).length;
   overviewSummary.textContent = ownerActionable
     ? `${ownerActionable} 件事需要你决定。`
@@ -458,7 +460,9 @@ function renderOverviewStats() {
   const cards = [
     statCard('待处理', ownerActionable, ownerActionable ? '打开上方事项处理' : '目前无需决定', 'target', ownerActionable > 0),
     statCard('运行中', active, active ? '系统会继续推进' : '当前没有执行中的工作', 'clock'),
-    ...(verificationBacklog ? [statCard('待验证', verificationBacklog, '历史记录已分类，不会自动重试', 'records', true)] : []),
+    ...(verificationBacklog ? [statCard('待复验', verificationBacklog, '需要按业务优先级重新跑验收', 'records', true)] : []),
+    ...(unresolvedFailures ? [statCard('仍失败', unresolvedFailures, '保留错误证据，不会自动重试', 'alert', true)] : []),
+    ...(historicalArchived ? [statCard('历史归档', historicalArchived, '包含取消、验收样例和已被成功结果替代的记录', 'records')] : []),
     ...(unavailableAgents ? [statCard('接入异常', unavailableAgents, '前往系统页检查员工与连接', 'alert', true)] : []),
   ];
   overviewStats.replaceChildren(...cards);
