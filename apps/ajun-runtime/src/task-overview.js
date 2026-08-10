@@ -12,6 +12,7 @@ export class TaskOverview {
     store,
     governance = null,
     executors = {},
+    capabilityCatalog,
     skillExecutionRegistry,
     localAiCapabilityStatus = null,
     usageLedger = null,
@@ -24,6 +25,7 @@ export class TaskOverview {
     this.store = store;
     this.governance = governance;
     this.executors = executors;
+    this.capabilityCatalog = capabilityCatalog;
     this.skillExecutionRegistry = skillExecutionRegistry;
     this.localAiCapabilityStatus = localAiCapabilityStatus;
     this.usageLedger = usageLedger;
@@ -34,11 +36,12 @@ export class TaskOverview {
   }
 
   async read({ includeTasks = true } = {}) {
-    const [agents, manager, tasks, approvals, governance, skillReadiness, localAi] = await Promise.all([
+    const [agents, manager, tasks, approvals, proposals, governance, skillReadiness, localAi] = await Promise.all([
       this.registry.list(),
       this.registry.get('ajun'),
       this.store.list(),
       this.store.listApprovals(),
+      this.store.listProposals?.() || [],
       this.governance?.health() || { status:'planned', version:null },
       this.skillExecutionRegistry.overview(),
       this.localAiCapabilityStatus?.() || null,
@@ -91,7 +94,10 @@ export class TaskOverview {
       recentTasks:tasks.filter(isRecentConsoleTask).slice(0, 3).map(present),
       workflows:evaluateWorkflowTasks(tasks),
       skillReadiness,
-      taskFocus:buildTaskFocus(tasks, approvals),
+      taskFocus:buildTaskFocus(tasks, approvals, {
+        proposals,
+        taskTypeDelegates:this.capabilityCatalog?.openTaskDelegates?.() || {},
+      }),
       usage:summarizeTaskUsage(tasks, { since:startOfToday() }),
       billing:this.billing(tasks, [...agents, ...(manager ? [manager] : [])], startOfRecentDays(7)),
       capabilities,

@@ -11,12 +11,21 @@ export type BacklogClassification =
   | 'unresolved'
   | 'completed';
 
-export function classifyTaskBacklog(task: any, allTasks: readonly any[] = []): BacklogClassification {
+export type BacklogEvidenceContext = Readonly<{
+  proposals?: readonly any[];
+  taskTypeDelegates?: Readonly<Record<string, string>>;
+}>;
+
+export function classifyTaskBacklog(
+  task: any,
+  allTasks: readonly any[] = [],
+  context: BacklogEvidenceContext = {},
+): BacklogClassification {
   if (task?.status === 'succeeded') return 'completed';
   if (isIntentionallyDisabled(task)) return 'intentionally_disabled';
   if (isExpectedAcceptanceFailure(task)) return 'expected_acceptance_failure';
   if (isSuperseded(task, allTasks)) return 'superseded';
-  if (isValidatedByLaterEvidence(task, allTasks)) return 'validated_by_later_evidence';
+  if (isValidatedByLaterEvidence(task, allTasks, context)) return 'validated_by_later_evidence';
   if (task?.status === 'needs_input' || task?.status === 'waiting_approval') return 'needs_human';
   if (['running', 'queued', 'received', 'waiting_worker', 'pausing', 'paused'].includes(task?.status)) return 'current';
   if (task?.status === 'cancelled') return 'archived_cancelled';
@@ -25,7 +34,7 @@ export function classifyTaskBacklog(task: any, allTasks: readonly any[] = []): B
   return 'unresolved';
 }
 
-export function summarizeBacklog(tasks: readonly any[]): Readonly<{
+export function summarizeBacklog(tasks: readonly any[], context: BacklogEvidenceContext = {}): Readonly<{
   counts: Readonly<Record<BacklogClassification, number>>;
   reviewBacklog: number;
   verificationBacklog: number;
@@ -47,7 +56,7 @@ export function summarizeBacklog(tasks: readonly any[]): Readonly<{
     unresolved:0,
     completed:0,
   };
-  for (const task of tasks || []) counts[classifyTaskBacklog(task, tasks)] += 1;
+  for (const task of tasks || []) counts[classifyTaskBacklog(task, tasks, context)] += 1;
   return Object.freeze({
     counts:Object.freeze(counts),
     reviewBacklog:counts.needs_reverification + counts.unresolved_failure + counts.unresolved,
@@ -97,15 +106,33 @@ function isSuperseded(task: any, allTasks: readonly any[]): boolean {
     && candidate?.status === 'succeeded');
 }
 
-function isValidatedByLaterEvidence(task: any, allTasks: readonly any[]): boolean {
+function isValidatedByLaterEvidence(
+  task: any,
+  allTasks: readonly any[],
+  context: BacklogEvidenceContext,
+): boolean {
   if (!['waiting_test', 'failed'].includes(task?.status)) return false;
   const taskTime = Date.parse(task?.updatedAt || task?.createdAt || '') || 0;
-  return allTasks.some((candidate) => candidate?.taskId !== task?.taskId
+  const delegatedTaskType = context.taskTypeDelegates?.[String(task?.taskType || '')];
+  const acceptedTaskTypes = new Set([task?.taskType, delegatedTaskType].filter(Boolean));
+  if (allTasks.some((candidate) => candidate?.taskId !== task?.taskId
     && candidate?.status === 'succeeded'
-    && candidate?.taskType === task?.taskType
+    && acceptedTaskTypes.has(candidate?.taskType)
     && candidate?.assigneeAgentId === task?.assigneeAgentId
     && (Date.parse(candidate?.updatedAt || candidate?.createdAt || '') || 0) > taskTime
-    && hasVerifiedArtifact(candidate));
+    && hasVerifiedArtifact(candidate))) return true;
+  return activeProposalValidatesLegacyTask(task, context.proposals || [], taskTime);
+}
+
+function activeProposalValidatesLegacyTask(task: any, proposals: readonly any[], taskTime: number): boolean {
+  if (task?.taskType !== 'governance.agent-proposal') return false;
+  const title = String(task?.input?.title || '').trim();
+  return proposals.some((proposal) => {
+    if (proposal?.status !== 'active') return false;
+    const name = String(proposal?.candidateManifest?.name || proposal?.name || '').trim();
+    return name && title.includes(name)
+      && (Date.parse(proposal?.updatedAt || proposal?.createdAt || '') || 0) > taskTime;
+  });
 }
 
 function hasVerifiedArtifact(task: any): boolean {

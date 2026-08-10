@@ -191,3 +191,17 @@ test('历史任务拆分为归档取消、待复验和仍失败，并识别后�
   assert.equal(summary.validatedByLaterEvidence, 1);
   assert.equal(summary.ownerActionable, 1);
 });
+
+test('正式委托任务和已激活岗位草案可作为旧验证任务的后续证据', () => {
+  const summary = summarizeBacklog([
+    { taskId:'incident-old', status:'waiting_test', taskType:'operations.incident-response', assigneeAgentId:'operator', updatedAt:'2026-08-01T00:00:00.000Z' },
+    { taskId:'health-new', status:'succeeded', taskType:'operations.health-review', assigneeAgentId:'operator', updatedAt:'2026-08-02T00:00:00.000Z', artifactRefs:[{ validation:{ exists:true, readable:true, nonEmpty:true } }] },
+    { taskId:'proposal-old', status:'failed', taskType:'governance.agent-proposal', assigneeAgentId:'creator', input:{ title:'创建微信聊天取件员岗位草案' }, updatedAt:'2026-08-01T00:00:00.000Z' },
+  ], {
+    taskTypeDelegates:{ 'operations.incident-response':'operations.health-review' },
+    proposals:[{ status:'active', updatedAt:'2026-08-03T00:00:00.000Z', candidateManifest:{ name:'微信聊天取件员' } }],
+  });
+  assert.equal(summary.counts.validated_by_later_evidence, 2);
+  assert.equal(summary.reviewBacklog, 0);
+  assert.equal(summary.validatedByLaterEvidence, 2);
+});

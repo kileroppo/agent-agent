@@ -1,7 +1,7 @@
 import { summarizeBacklog } from './workflow/backlog-classification.ts';
 
-export function buildTaskFocus(tasks, approvals) {
-  const backlog = summarizeBacklog(tasks);
+export function buildTaskFocus(tasks, approvals, evidenceContext = {}) {
+  const backlog = summarizeBacklog(tasks, evidenceContext);
   const counts = Object.fromEntries(
     ['queued', 'running', 'waiting_worker', 'pausing', 'paused', 'waiting_approval', 'waiting_test', 'needs_input', 'succeeded', 'failed']
       .map((status) => [status, tasks.filter((task) => task.status === status).length]),

@@ -103,6 +103,7 @@ export class TaskService {
       store,
       governance,
       executors,
+      capabilityCatalog,
       skillExecutionRegistry,
       localAiCapabilityStatus:this.localAiCapabilityStatus,
       usageLedger,
