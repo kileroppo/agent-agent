@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { resolveAnalysisIntent } from './analysis-intent.ts';
-import { capabilityTruthView, safeWorkflowViews } from './agent-army-read-views.ts';
+import { armyStatusReadView, capabilitiesReadView, capabilityTruthView } from './agent-army-read-views.ts';
 import { presentTask, taskDetailBaseUrl } from './task-presentation.js';
 
 const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'waiting_test', 'needs_input', 'paused']);
@@ -28,29 +28,11 @@ export class AgentArmyClient {
   }
 
   async capabilities() {
-    const overview = await this.overview();
-    return {
-      capabilities: (overview.capabilities || []).map(capabilityView),
-      employees: (overview.agents || []).filter((agent) => agent.status === 'active').map(employeeCapabilityView)
-    };
+    return capabilitiesReadView(await this.overview());
   }
 
   async armyStatus() {
-    const overview = await this.overview();
-    return {
-      taskFocus: overview.taskFocus || {},
-      validationCampaign: overview.validationCampaign || {},
-      workflows: safeWorkflowViews(overview.workflows),
-      usage: overview.usage || {},
-      capabilities: (overview.capabilities || []).map(capabilityView),
-      employees: (overview.agents || []).map((agent) => ({
-        agentId: agent.agentId,
-        name: agent.name || agent.agentId,
-        status: agent.status,
-        capabilityTruth:capabilityTruthView(agent.capabilityTruth),
-        feishuChannel: safeChannel(agent.feishuChannel)
-      }))
-    };
+    return armyStatusReadView(await this.overview());
   }
 
   async employeeStatus(employee) {
@@ -682,26 +664,6 @@ function findEmployee(agents, value) {
     || null;
 }
 
-function employeeCapabilityView(agent) {
-  return {
-    agentId:agent.agentId,
-    name:agent.name || agent.agentId,
-    role:safeText(agent.role, 240),
-    capabilityTruth:capabilityTruthView(agent.capabilityTruth),
-    acceptedTaskTypes:safeStringList(agent.acceptedTaskTypes, 20, 120)
-  };
-}
-
-function capabilityView(capability) {
-  return {
-    id:safeText(capability?.id, 100),
-    name:safeText(capability?.name, 120),
-    status:safeText(capability?.status, 40),
-    detail:safeText(capability?.detail, 500),
-    truth:capabilityTruthView(capability?.truth),
-  };
-}
-
 function taskView(task = {}, approvals = [], detailBaseUrl = '') {
   const taskApprovals = (approvals || []).filter((approval) => (task.approvalRefs || []).includes(approval.approvalId));
   return {
@@ -874,11 +836,6 @@ function approvalView(approval = {}) {
       expiresAt:approval.privateReadGrantStatus.expiresAt || null
     } : null
   };
-}
-
-function safeChannel(channel) {
-  if (!channel) return null;
-  return { status:safeText(channel.status, 40), message:safeText(channel.message, 300), verified:channel.verified === true };
 }
 
 function safeText(value, limit = 500) {

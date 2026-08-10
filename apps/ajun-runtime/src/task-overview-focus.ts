@@ -1,6 +1,6 @@
 import { summarizeBacklog } from './workflow/backlog-classification.ts';
 
-export function buildTaskFocus(tasks, approvals, evidenceContext = {}) {
+export function buildTaskFocus(tasks: readonly any[], approvals: readonly any[], evidenceContext = {}) {
   const backlog = summarizeBacklog(tasks, evidenceContext);
   const counts = Object.fromEntries(
     ['queued', 'running', 'waiting_worker', 'pausing', 'paused', 'waiting_approval', 'waiting_test', 'needs_input', 'succeeded', 'failed']
@@ -18,7 +18,7 @@ export function buildTaskFocus(tasks, approvals, evidenceContext = {}) {
     total + tasks.filter((task) => task.status === status && isBackgroundSystemTask(task)).length
   , 0);
   const current = ownerActionableTasks[0] || businessInProgressTasks[0] || null;
-  const focusItem = (task) => {
+  const focusItem = (task: any) => {
     const approval = approvals.find((item) =>
       task.approvalRefs?.includes(item.approvalId) && item.status === 'pending');
     return {
@@ -51,14 +51,14 @@ export function buildTaskFocus(tasks, approvals, evidenceContext = {}) {
   };
 }
 
-function isBackgroundSystemTask(task) {
+function isBackgroundSystemTask(task: any) {
   if (task?.taskType !== 'operations.health-review' || task?.source?.channel !== 'paperclip') return false;
   const title = String(task.input?.title || '').trim();
   const description = String(task.input?.description || '').trim();
   return title === 'A君定时本机巡检' || description.startsWith('agent-army:operations-health-v1');
 }
 
-export function isOwnerActionableTask(task, tasks) {
+export function isOwnerActionableTask(task: any, tasks: readonly any[]) {
   if (!['needs_input', 'failed', 'waiting_test'].includes(task.status)) return true;
   if (isSupersededBySuccess(task, tasks)) return false;
   const channel = String(task.source?.channel || '').trim();
@@ -71,7 +71,7 @@ export function isOwnerActionableTask(task, tasks) {
     || channel === 'hermes-native';
 }
 
-function isSupersededBySuccess(task, tasks) {
+function isSupersededBySuccess(task: any, tasks: readonly any[]) {
   const sourceUrl = String(task.input?.sourceUrl || '').trim();
   if (!sourceUrl) return false;
   const taskTime = Date.parse(task.updatedAt || task.createdAt || '') || 0;
@@ -84,7 +84,7 @@ function isSupersededBySuccess(task, tasks) {
   );
 }
 
-function hasLaterUserOutcome(task, tasks) {
+function hasLaterUserOutcome(task: any, tasks: readonly any[]) {
   const taskTime = Date.parse(task.updatedAt || task.createdAt || '') || 0;
   return tasks.some((candidate) => {
     if (!['succeeded', 'cancelled'].includes(candidate.status)) return false;
@@ -98,7 +98,7 @@ function hasLaterUserOutcome(task, tasks) {
   });
 }
 
-function nextActionFor(task, approval) {
+function nextActionFor(task: any, approval: any) {
   if (approval) return '请确认任务范围；在你确认前，系统不会继续执行。';
   if (task.status === 'needs_input') return task.error?.userMessage || '请补充目标、范围或必要素材后再继续。';
   if (task.status === 'waiting_test') return task.error?.userMessage || '自动检查没有在本轮完成；已保留为待测试，不影响其他任务继续。';

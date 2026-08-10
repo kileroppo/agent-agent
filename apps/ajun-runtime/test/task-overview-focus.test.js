@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildTaskFocus } from '../src/task-overview-focus.js';
+import { buildTaskFocus } from '../src/task-overview-focus.ts';
 
 test('任务概览只把业务任务计入进行中并保留后台计数', () => {
   const tasks = [
