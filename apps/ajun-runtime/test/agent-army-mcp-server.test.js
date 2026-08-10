@@ -8,7 +8,10 @@ import { createAgentArmyMcpServer, scopeFromEnvironment } from '../src/agent-arm
 test('Agent Army MCP exposes factual read and controlled action tools', async (t) => {
   const calls = [];
   const clientApi = {
-    capabilities:async () => ({ employees:[{ agentId:'xiaod', acceptedTaskTypes:['media.transcribe-and-refine'] }] }),
+    capabilities:async () => ({
+      employees:[{ agentId:'xiaod', name:'小D', role:'整理音视频', acceptedTaskTypes:['media.transcribe-and-refine'], capabilityTruth:{ overall:'live' } }],
+      capabilities:[{ id:'task-coordination', name:'统一任务协调', detail:'任务可登记', truth:{ overall:'verified' } }],
+    }),
     armyStatus:async () => ({ taskFocus:{ inProgress:0 } }),
     employeeStatus:async (employee) => ({ agentId:employee }),
     listTasks:async (input) => [{ taskId:'task-1234', ...input }],
@@ -28,6 +31,7 @@ test('Agent Army MCP exposes factual read and controlled action tools', async (t
     },
     createMission:async (input) => { calls.push(['mission', input]); return { mission:{ taskId:'mission-created' }, children:[] }; },
     controlTask:async (taskId, action) => ({ task:{ taskId }, action }),
+    recordTaskFeedback:async (taskId, input) => { calls.push(['feedback', { taskId, ...input }]); return { taskId, feedback:{ sentiment:input.sentiment } }; },
     listApprovals:async () => [],
     resolveApproval:async () => { throw new Error('not expected'); },
     revokePrivateReadGrant:async (approvalId, input) => { calls.push(['revoke-private-read', { approvalId, ...input }]); return { approval:{ approvalId, status:'approved', privateReadGrantStatus:{ status:'revoked' } } }; }
@@ -38,7 +42,7 @@ test('Agent Army MCP exposes factual read and controlled action tools', async (t
   const tools = await client.listTools();
   assert.deepEqual(
     tools.tools.map((tool) => tool.name).sort(),
-    ['agent_manual', 'agent_proposal_create_execute', 'approval_list', 'approval_resolve', 'capabilities', 'content_performance_review_execute', 'employee_assignment_execute', 'employee_status', 'm5_stage_execute', 'mission_create', 'operations_health_execute', 'paperclip_assignment_complete', 'paperclip_assignment_get', 'platform_content_draft_execute', 'private_read_grant_revoke', 'status', 'task_control', 'task_create', 'task_get', 'task_list', 'technical_repair_execute', 'video_content_analyze_execute', 'video_script_package_execute']
+    ['agent_manual', 'agent_proposal_create_execute', 'approval_list', 'approval_resolve', 'capabilities', 'content_performance_review_execute', 'employee_assignment_execute', 'employee_status', 'm5_stage_execute', 'mission_create', 'operations_health_execute', 'paperclip_assignment_complete', 'paperclip_assignment_get', 'platform_content_draft_execute', 'private_read_grant_revoke', 'status', 'task_control', 'task_create', 'task_feedback', 'task_get', 'task_list', 'technical_repair_execute', 'video_content_analyze_execute', 'video_script_package_execute']
   );
 
   const allManuals = await client.callTool({ name:'agent_manual', arguments:{ agent:'all' } });
@@ -48,6 +52,9 @@ test('Agent Army MCP exposes factual read and controlled action tools', async (t
 
   const capabilities = await client.callTool({ name:'capabilities', arguments:{} });
   assert.equal(capabilities.structuredContent.employees[0].agentId, 'xiaod');
+  assert.match(capabilities.content[0].text, /岗位登记（不等于业务已验证）/);
+  assert.match(capabilities.content[0].text, /小D：运行可达，待业务验证/);
+  assert.doesNotMatch(capabilities.content[0].text, /全部可用|11 名全部可用/);
 
   const created = await client.callTool({
     name:'task_create',
@@ -65,6 +72,23 @@ test('Agent Army MCP exposes factual read and controlled action tools', async (t
   });
   assert.equal(revoked.structuredContent.approval.privateReadGrantStatus.status, 'revoked');
   assert.deepEqual(calls.find((item) => item[0] === 'revoke-private-read')[1], { approvalId:'approval-1234', chatRef:'chat-a' });
+
+  const feedback = await client.callTool({
+    name:'task_feedback',
+    arguments:{
+      task_id:'22222222-2222-2222-2222-222222222222',
+      sentiment:'useful',
+      note:'这次结果有用，验收通过。',
+      chat_ref:'oc_test',
+    },
+  });
+  assert.equal(feedback.structuredContent.feedback.sentiment, 'useful');
+  assert.deepEqual(calls.find((item) => item[0] === 'feedback')[1], {
+    taskId:'22222222-2222-2222-2222-222222222222',
+    sentiment:'useful',
+    note:'这次结果有用，验收通过。',
+    chatRef:'oc_test',
+  });
 
   await client.callTool({
     name:'task_create',

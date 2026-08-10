@@ -4,8 +4,7 @@ export function filterBillingEntries(entries, { query = '', agentId = '', view =
   const term = String(query).trim().toLocaleLowerCase('zh-CN');
   return (Array.isArray(entries) ? entries : []).filter((entry) => {
     if (agentId && entry.agentId !== agentId) return false;
-    if (view === 'attributed' && entry.attribution?.status !== 'task') return false;
-    if (view === 'unattributed' && entry.attribution?.status === 'task') return false;
+    if (view !== 'all' && entry.attribution?.status !== view) return false;
     if (!term) return true;
     return [
       entry.agentId,

@@ -14,7 +14,26 @@ import {
 } from '../src/governance-hermes-runtime.js';
 
 const scriptPath = fileURLToPath(import.meta.url);
-const mcpServerPath = path.resolve(path.dirname(scriptPath), '../src/agent-army-mcp-server.js');
+export function resolveGovernanceMcpServerPath({
+  override = process.env.AGENT_ARMY_MCP_SERVER_PATH,
+  currentScriptPath = scriptPath,
+  repositoryRoot = AGENT_ARMY_REPOSITORY_ROOT,
+} = {}) {
+  const candidate = path.resolve(
+    String(override || '').trim()
+      || path.resolve(path.dirname(currentScriptPath), '../src/agent-army-mcp-server.js'),
+  );
+  const approvedRoot = path.resolve(repositoryRoot);
+  if (
+    path.basename(candidate) !== 'agent-army-mcp-server.js'
+    || !candidate.startsWith(`${approvedRoot}${path.sep}`)
+  ) {
+    throw new Error('AGENT_ARMY_MCP_SERVER_PATH 必须指向仓库内的 agent-army-mcp-server.js。');
+  }
+  return candidate;
+}
+
+const mcpServerPath = resolveGovernanceMcpServerPath();
 const hermesCommand = process.env.AJUN_HERMES_COMMAND || path.join(os.homedir(), '.local/bin/hermes');
 const hermesPythonCommand = process.env.AJUN_HERMES_PYTHON
   || path.join(os.homedir(), '.hermes/hermes-agent/venv/bin/python');

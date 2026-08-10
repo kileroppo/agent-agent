@@ -248,6 +248,20 @@ test('小办演示文稿默认先交付 PPTD，并在 PPTX 依赖缺失时保留
   assert.equal(calls.find((item) => item.toolId === 'office.pptx.export').externalSideEffect, 'none');
 });
 
+test('小办在生成前校验总页数包含封面，提纲冲突时不调用任何工具', async () => {
+  let calls = 0;
+  const worker = new LocalOfficeAssistant({ now, store:{ async list() { return []; } } });
+  const result = await worker.execute({
+    taskId:'presentation-count-preflight',
+    taskType:'office.presentation-package',
+    input:{ title:'四页汇报', slideCount:4, slides:[{ title:'一' }, { title:'二' }, { title:'三' }, { title:'四' }] },
+  }, { roleToolContext:{ async execute() { calls += 1; throw new Error('不应执行'); } } });
+  assert.equal(result.status, 'needs_input');
+  assert.equal(result.error.code, 'presentation_outline_mismatch');
+  assert.match(result.error.userMessage, /封面占 1 页/);
+  assert.equal(calls, 0);
+});
+
 test('小办仍能把遗留外部临时失败写成 waiting_test 并保留脱敏子阶段', async () => {
   const roleToolContext = {
     async execute(input) {

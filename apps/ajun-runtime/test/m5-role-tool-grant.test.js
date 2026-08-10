@@ -190,6 +190,45 @@ test('声明存在但运行时没有实际适配器时失败关闭', async () =>
   );
 });
 
+test('非M5普通岗位任务可没有Project，但伪造Project仍失败关闭', async () => {
+  const manifest = await json('agents/intel-researcher/manifest.json');
+  const input = {
+    manifest,
+    profile:await json(manifest.runtimeProfileRef),
+    paperclipAgentId:ids.paperclipAgent,
+    projectId:null,
+    executionWorkspaceId:ids.workspace,
+    requireProjectId:false,
+    availableAdapters:manifestAdapters(manifest),
+  };
+  const grant = compileM5RoleToolGrant(input);
+  assert.equal(grant.projectId, null);
+  assert.throws(
+    () => compileM5RoleToolGrant({ ...input, projectId:'forged-project' }),
+    { code:'paperclip_scope_invalid' },
+  );
+});
+
+test('非M5纯只读岗位可没有Workspace，但伪造Workspace仍失败关闭', async () => {
+  const manifest = await json('agents/intel-researcher/manifest.json');
+  const input = {
+    manifest,
+    profile:await json(manifest.runtimeProfileRef),
+    paperclipAgentId:ids.paperclipAgent,
+    projectId:null,
+    executionWorkspaceId:null,
+    requireProjectId:false,
+    requireExecutionWorkspaceId:false,
+    availableAdapters:manifestAdapters(manifest),
+  };
+  const grant = compileM5RoleToolGrant(input);
+  assert.equal(grant.executionWorkspaceId, null);
+  assert.throws(
+    () => compileM5RoleToolGrant({ ...input, executionWorkspaceId:'forged-workspace' }),
+    { code:'paperclip_scope_invalid' },
+  );
+});
+
 test('受信执行上下文只通过精确适配器执行并在成功后生成访问回执', async () => {
   const manifest = await json('agents/intel-researcher/manifest.json');
   const calls = [];

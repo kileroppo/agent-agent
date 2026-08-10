@@ -135,9 +135,14 @@ export async function discoverHermesSkillPolicies({
       }
       continue;
     }
-    if (manifest.status !== 'active' || manifest.interaction?.runtime !== 'hermes-profile') {
+    const independentlyManagedHermesProfile = manifest.executionOwner !== 'ajun-local';
+    if (
+      manifest.status !== 'active'
+      || manifest.interaction?.runtime !== 'hermes-profile'
+      || !independentlyManagedHermesProfile
+    ) {
       if (requested?.has(entry.name)) {
-        throw new HermesSkillWhitelistError(`${entry.name} 不是 active Hermes Profile 岗位。`);
+        throw new HermesSkillWhitelistError(`${entry.name} 不是独立管理的 active Hermes Profile 岗位。`);
       }
       continue;
     }

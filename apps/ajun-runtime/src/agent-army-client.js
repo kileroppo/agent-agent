@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { resolveAnalysisIntent } from './analysis-intent.ts';
+import { armyStatusReadView, capabilitiesReadView, capabilityTruthView } from './agent-army-read-views.ts';
 import { presentTask, taskDetailBaseUrl } from './task-presentation.js';
 
 const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'waiting_test', 'needs_input', 'paused']);
@@ -27,26 +28,11 @@ export class AgentArmyClient {
   }
 
   async capabilities() {
-    const overview = await this.overview();
-    return {
-      capabilities: (overview.capabilities || []).map(capabilityView),
-      employees: (overview.agents || []).filter((agent) => agent.status === 'active').map(employeeCapabilityView)
-    };
+    return capabilitiesReadView(await this.overview());
   }
 
   async armyStatus() {
-    const overview = await this.overview();
-    return {
-      taskFocus: overview.taskFocus || {},
-      usage: overview.usage || {},
-      capabilities: (overview.capabilities || []).map(capabilityView),
-      employees: (overview.agents || []).map((agent) => ({
-        agentId: agent.agentId,
-        name: agent.name || agent.agentId,
-        status: agent.status,
-        feishuChannel: safeChannel(agent.feishuChannel)
-      }))
-    };
+    return armyStatusReadView(await this.overview());
   }
 
   async employeeStatus(employee) {
@@ -63,6 +49,7 @@ export class AgentArmyClient {
       name: agent.name || agent.agentId,
       status: agent.status,
       role: safeText(agent.role, 300),
+      capabilityTruth:capabilityTruthView(agent.capabilityTruth),
       responsibilities: safeStringList(agent.responsibilities, 8, 240),
       acceptedTaskTypes: safeStringList(agent.acceptedTaskTypes, 20, 120),
       recentTasks
@@ -302,6 +289,24 @@ export class AgentArmyClient {
       approval:response.approval ? approvalView(response.approval) : null,
       duplicate:response.duplicate === true
     };
+  }
+
+  async recordTaskFeedback(taskId, { sentiment, note = '', chatRef = '' } = {}) {
+    const id = requiredId(taskId, '任务编号无效。');
+    const normalized = String(sentiment || '').trim().toLowerCase();
+    if (!['useful', 'needs_improvement'].includes(normalized)) {
+      throw new AgentArmyClientError('任务评价只支持 useful 或 needs_improvement。');
+    }
+    const response = await this.request(`/api/mcp/tasks/${encodeURIComponent(id)}/feedback`, {
+      method:'POST',
+      body:{
+        sentiment:normalized,
+        note:safeText(note, 1000),
+        chatRef:safeText(chatRef, 240),
+      },
+    });
+    const overview = await this.overview();
+    return taskView(response.task, overview.approvals || [], this.detailBaseUrl);
   }
 
   async listApprovals({ status = 'pending', limit = 10 } = {}) {
@@ -659,24 +664,6 @@ function findEmployee(agents, value) {
     || null;
 }
 
-function employeeCapabilityView(agent) {
-  return {
-    agentId:agent.agentId,
-    name:agent.name || agent.agentId,
-    role:safeText(agent.role, 240),
-    acceptedTaskTypes:safeStringList(agent.acceptedTaskTypes, 20, 120)
-  };
-}
-
-function capabilityView(capability) {
-  return {
-    id:safeText(capability?.id, 100),
-    name:safeText(capability?.name, 120),
-    status:safeText(capability?.status, 40),
-    detail:safeText(capability?.detail, 500)
-  };
-}
-
 function taskView(task = {}, approvals = [], detailBaseUrl = '') {
   const taskApprovals = (approvals || []).filter((approval) => (task.approvalRefs || []).includes(approval.approvalId));
   return {
@@ -849,11 +836,6 @@ function approvalView(approval = {}) {
       expiresAt:approval.privateReadGrantStatus.expiresAt || null
     } : null
   };
-}
-
-function safeChannel(channel) {
-  if (!channel) return null;
-  return { status:safeText(channel.status, 40), message:safeText(channel.message, 300), verified:channel.verified === true };
 }
 
 function safeText(value, limit = 500) {

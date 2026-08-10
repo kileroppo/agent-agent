@@ -339,8 +339,10 @@
           <div class="record-toolbar billing-toolbar">
             <div class="record-view-tabs" aria-label="按归属状态查看消费流水">
               <button type="button" class="record-view-tab is-active" data-billing-view="all" aria-pressed="true">全部</button>
-              <button type="button" class="record-view-tab" data-billing-view="unattributed" aria-pressed="false">未归属</button>
-              <button type="button" class="record-view-tab" data-billing-view="attributed" aria-pressed="false">已归属</button>
+              <button type="button" class="record-view-tab" data-billing-view="task" aria-pressed="false">任务</button>
+              <button type="button" class="record-view-tab" data-billing-view="agent_session" aria-pressed="false">Agent 会话</button>
+              <button type="button" class="record-view-tab" data-billing-view="system" aria-pressed="false">系统</button>
+              <button type="button" class="record-view-tab" data-billing-view="unattributed" aria-pressed="false">未识别</button>
             </div>
             <div class="record-query-tools">
               <label class="task-search"><span class="visually-hidden">搜索消费流水</span><input id="billing-search" type="search" autocomplete="off" placeholder="搜索模型或任务"></label>

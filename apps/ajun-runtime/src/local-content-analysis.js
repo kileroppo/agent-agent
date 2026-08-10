@@ -28,7 +28,9 @@ import {
   validModeReport,
 } from './local-content-analysis-modes.js';
 import { buildMetricLearning } from './local-content-performance-learning.js';
-
+import { evaluateVisualAnalysis } from './local-content-visual-evaluation.ts';
+import { attemptControlledVision } from './workflow/controlled-vision.ts';
+import { evaluateModeStructureWithDigestRecovery } from './workflow/digest-structure-recovery.ts';
 const FULL_ANALYSIS_MODULES = [
   '基本信息',
   '标题诊断',
@@ -49,13 +51,13 @@ export const CONTENT_PERFORMANCE_NEXT_ACTIONS = Object.freeze([
   '保留表现较好的开场和结构变量。',
   '下一版只调整一个主要变量，并继续关联原任务与版本。',
 ]);
-
 export class LocalVideoContentAnalyst {
-  constructor({ store, artifactsDir, allowedArtifactRoots = [], advisor = null, now = () => new Date() } = {}) {
+  constructor({ store, artifactsDir, allowedArtifactRoots = [], advisor = null, visionExecution = null, now = () => new Date() } = {}) {
     this.store = store;
     this.artifactsDir = artifactsDir;
     this.allowedArtifactRoots = allowedArtifactRoots.map((item) => path.resolve(item));
     this.advisor = advisor;
+    this.visionExecution = typeof visionExecution === 'function' ? visionExecution : null;
     this.now = now;
   }
 
@@ -118,14 +120,18 @@ export class LocalVideoContentAnalyst {
     const availableVisualEvidence = visualArtifact && visualMode !== 'off'
       ? await readVisualEvidence(visualArtifact, this.allowedArtifactRoots)
       : null;
-    if (availableVisualEvidence && visualMode === 'required') {
+    const executeVision = typeof providerVision === 'function' ? providerVision : this.visionExecution;
+    const visionAttempt = await attemptControlledVision({ execute:executeVision, task, visualEvidence:availableVisualEvidence });
+    const controlledVision = visionAttempt.result;
+    const visionFailure = visionAttempt.failureCode;
+    if (availableVisualEvidence && visualMode === 'required' && !controlledVision) {
       return needsInput(
         this.now(),
-        'controlled_provider_vision_required',
-        '已有故事板，但普通拆解尚未接入可核验的受控 Provider 视觉观察。Hermes 不会直接读取本机图片；请接入受控视觉回执或将 visualMode 设为 off 后仅做文本拆解。',
+        visionFailure || 'controlled_vision_capability_unavailable',
+        '本次必须分析画面，但本机视觉能力在自动启动和安全恢复后仍不可用。请恢复本机视觉模型，或明确改为自动模式接收文字降级结果。',
       );
     }
-    const visualEvidence = null;
+    const visualEvidence = controlledVision ? availableVisualEvidence : null;
     const effectiveTitle = sourceMetadata.title || clean(task.input?.title, 300) || transcriptArtifact.title || '视频内容';
     const segments = evidenceSegments(transcript);
     const advisorTranscript = segments.map((segment) => (
@@ -149,6 +155,7 @@ export class LocalVideoContentAnalyst {
           sourceMetadata,
           boomSignal,
           visualEvidence,
+          providerVisionObservation:controlledVision?.observation || null,
           priorRuntimeMs:Number(visualEvidence?.selection?.processingDurationMs) || 0,
           validate:(value) => validAdvisedAnalysis(
             normalizeAdvisedAnalysis(value, transcript, visualEvidence),
@@ -181,26 +188,17 @@ export class LocalVideoContentAnalyst {
       }
     }
     const completedAt = this.now().toISOString();
-    const visualCoverage = visualEvidence
-      ? {
-          status:'available',
-          mode:visualMode,
-          selectedFrames:visualEvidence.frames.length,
-          storyboardCount:visualEvidence.storyboards.length,
-          firstFrameAt:visualEvidence.coverage?.firstFrameAt || null,
-          lastFrameAt:visualEvidence.coverage?.lastFrameAt || null
-        }
-      : {
-          status:visualMode === 'off' ? 'disabled' : 'unavailable',
-          mode:visualMode,
-          selectedFrames:0,
-          storyboardCount:0
-        };
-    const visualAnalysisApplied = visualMode === 'off'
-      || (advisorApplied && validVisualFindings(report.visualFindings, visualEvidence, {
-        minFindings:depth === 'full' ? 5 : 3,
-        minCategories:depth === 'full' ? 3 : 2
-      }));
+    const { visualCoverage, visualAnalysisApplied } = evaluateVisualAnalysis({
+      visualMode, visualEvidence, advisorApplied, visualFindings:report.visualFindings,
+      depth, validateFindings:validVisualFindings,
+    });
+    if (visualMode === 'required' && !visualAnalysisApplied) {
+      return needsInput(
+        this.now(),
+        advisorFailure || 'controlled_vision_analysis_incomplete',
+        '本次必须分析画面，但视觉观察没有形成通过证据门禁的画面结论。系统已停止继续尝试，请恢复分析模型后重试或改为自动模式。',
+      );
+    }
     const completeness = visualAnalysisApplied ? 'complete' : 'partial';
     report = {
       ...report,
@@ -210,7 +208,6 @@ export class LocalVideoContentAnalyst {
       visualCoverage,
       visualFindings:Array.isArray(report.visualFindings) ? report.visualFindings : [],
       completeness,
-      boomSignal,
       analysisIntent,
       reportVersion:'video-analysis/v2',
       creationEligible:evidenceMode === 'formal' && transcriptArtifact.type === 'confirmed_transcript',
@@ -220,6 +217,11 @@ export class LocalVideoContentAnalyst {
         sourceTaskIds:[...new Set(sources.map((artifact) => artifact?.taskId).filter(Boolean))],
       },
     };
+    const modeStructure = evaluateModeStructureWithDigestRecovery({
+      report, transcript, analysisIntent, advisorApplied, semanticRepairApplied,
+      validate:(candidate) => validModeReport(candidate, analysisIntent, transcript), measureDigest:digestCharacterCount,
+    });
+    report = modeStructure.report;
     const sourceRefs = [
       transcriptArtifact.artifactId,
       sourceEvidenceArtifact?.artifactId,
@@ -230,7 +232,16 @@ export class LocalVideoContentAnalyst {
       task,
       type:'video_content_analysis_report',
       title:`${effectiveTitle}｜${analysisIntentLabel(analysisIntent)}`,
-      data:{ ...report, generationMode:advisorApplied ? semanticRepairApplied ? 'hermes_advisor_evidence_repaired' : 'hermes_advisor' : 'deterministic_fallback', advisorFailure, semanticRepairApplied, sourceTranscriptArtifactId:transcriptArtifact.artifactId, sourceTranscriptChecksum:transcriptArtifact.checksum || null, generatedAt:completedAt },
+      data:{
+        ...report,
+        ...modeStructure.dataFields,
+        advisorFailure:advisorFailure || visionFailure,
+        semanticRepairApplied,
+        sourceTranscriptArtifactId:transcriptArtifact.artifactId,
+        sourceTranscriptChecksum:transcriptArtifact.checksum || null,
+        visualExecutionReceipt:controlledVision?.receipt || null,
+        generatedAt:completedAt,
+      },
       sourceRefs,
       validation:{
         exists:true,
@@ -245,17 +256,15 @@ export class LocalVideoContentAnalyst {
         moduleCount:report.modules.length,
         advisorApplied,
         semanticValidationPassed:advisorApplied,
-        modeStructurePassed:validModeReport(report, analysisIntent, transcript),
-        ...(analysisIntent === 'digest' ? {
-          digestCharacterCount:digestCharacterCount(report.digest),
-          digestWithinCharacterLimit:digestCharacterCount(report.digest) <= 800,
-        } : {}),
+        ...modeStructure.validationFields,
         boomSignalAttached:Boolean(boomSignal),
         semanticRepairApplied,
         visualMode,
         visualCoverage:visualCoverage.status,
         visualClaimsEvidenceLinked:validVisualFindings(report.visualFindings, visualEvidence),
         visualAnalysisApplied,
+        controlledVisionInvoked:Boolean(controlledVision),
+        visualExecutionReceiptValid:Boolean(controlledVision?.receipt?.receiptId),
         completeness
       },
       completedAt
@@ -721,7 +730,6 @@ function evidenceMatches(transcript, evidence) {
   const timestamp = clean(evidence?.timestamp, 40);
   return Boolean(timestamp && timeline.has(timestamp));
 }
-
 function breakdownEvidence(item) {
   if (item?.evidence?.fragment) return item.evidence;
   const fragment = item?.fragment || item?.original || item?.text;

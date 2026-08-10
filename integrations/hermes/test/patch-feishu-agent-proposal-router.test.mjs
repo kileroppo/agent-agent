@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyPatch } from '../scripts/patch-feishu-agent-proposal-router.mjs';
+import {
+  applyPatch,
+  upgradeFeishuReactionReliabilityPatch,
+  upgradeFeishuSenderIdentityPatch,
+} from '../scripts/patch-feishu-agent-proposal-router.mjs';
 
 const fixture = `_XIAOD_HTTP_URL_RE = re.compile(r"https?://[^\\s<>\\u3002\\uff0c\\uff01\\uff1f]+", re.IGNORECASE)
     def __init__(self):
@@ -160,6 +164,86 @@ test('飞书收到消息后只显示一个即时处理状态，并在快速分�
   assert.match(patched, /await self\.on_processing_complete\(event, ProcessingOutcome\.SUCCESS\)/);
   assert.match(patched, /remove it from the earlier chunk and retain the already-created badge/);
   assert.equal(applyPatch(patched), patched);
+});
+
+test('飞书处理图标保留兼容请求体，失败时留下脱敏可见诊断', () => {
+  const reactionFixture = `
+    async def _add_reaction(self, message_id: str, emoji_type: str) -> Optional[str]:
+        try:
+            from lark_oapi.api.im.v1 import (
+                CreateMessageReactionRequest,
+                CreateMessageReactionRequestBody,
+            )
+            body = (
+                CreateMessageReactionRequestBody.builder()
+                .reaction_type({"emoji_type": emoji_type})
+                .build()
+            )
+            response = await self._run_blocking(self._client.im.v1.message_reaction.create, request)
+            if response and getattr(response, "success", lambda: False)():
+                return "reaction-id"
+            logger.debug(
+                "[Feishu] Add reaction %s on %s rejected: code=%s msg=%s",
+                emoji_type,
+                message_id,
+                getattr(response, "code", None),
+                getattr(response, "msg", None),
+            )
+        except Exception:
+            return None
+
+    async def _remove_reaction(self, message_id: str, reaction_id: str) -> bool:
+        response = await self._run_blocking(self._client.im.v1.message_reaction.delete, request)
+        if response and getattr(response, "success", lambda: False)():
+            return True
+        logger.debug(
+            "[Feishu] Remove reaction %s on %s rejected: code=%s msg=%s",
+            reaction_id,
+            message_id,
+            getattr(response, "code", None),
+            getattr(response, "msg", None),
+        )
+        return False
+`;
+
+  const patched = upgradeFeishuReactionReliabilityPatch(reactionFixture);
+  assert.match(patched, /AGENT_ARMY_FEISHU_REACTION_RELIABILITY_V5/);
+  assert.equal((patched.match(/AGENT_ARMY_FEISHU_REACTION_RELIABILITY_V5/g) || []).length, 1);
+  assert.match(patched, /\.reaction_type\(\{"emoji_type": emoji_type\}\)/);
+  assert.doesNotMatch(patched, /Emoji\.builder/);
+  assert.match(patched, /logger\.warning\(/);
+  assert.match(patched, /code=%s reason=%s/);
+  assert.match(patched, /99991663, 99991672/);
+  assert.match(patched, /Remove reaction rejected: code=%s reason=%s/);
+  assert.doesNotMatch(patched, /on %s rejected/);
+  assert.doesNotMatch(patched, /getattr\(response, "msg", None\)/);
+  assert.equal(upgradeFeishuReactionReliabilityPatch(patched), patched);
+
+  const previousV2 = patched
+    .replaceAll('AGENT_ARMY_FEISHU_REACTION_RELIABILITY_V5', 'AGENT_ARMY_FEISHU_REACTION_RELIABILITY_V2')
+    .replaceAll('99991663, 99991672', '99991663');
+  const upgradedV2 = upgradeFeishuReactionReliabilityPatch(previousV2);
+  assert.match(upgradedV2, /AGENT_ARMY_FEISHU_REACTION_RELIABILITY_V5/);
+  assert.equal((upgradedV2.match(/AGENT_ARMY_FEISHU_REACTION_RELIABILITY_V5/g) || []).length, 1);
+  assert.match(upgradedV2, /99991663, 99991672/);
+  assert.doesNotMatch(upgradedV2, /AGENT_ARMY_FEISHU_REACTION_RELIABILITY_V2/);
+});
+
+test('飞书新增消息权限后仍用 open_id 做授权与会话主身份', () => {
+  const senderFixture = `
+        open_id = getattr(sender_id, "open_id", None) or None
+        user_id = getattr(sender_id, "user_id", None) or None
+        union_id = getattr(sender_id, "union_id", None) or None
+        # Prefer tenant-scoped user_id; fall back to app-scoped open_id.
+        primary_id = user_id or open_id
+        # bot/v3/bots/basic_batch only accepts open_id.
+        name_lookup_id = open_id if is_bot else (primary_id or union_id)
+`;
+  const patched = upgradeFeishuSenderIdentityPatch(senderFixture);
+  assert.match(patched, /AGENT_ARMY_FEISHU_OPEN_ID_AUTH_V1/);
+  assert.match(patched, /primary_id = open_id or user_id/);
+  assert.doesNotMatch(patched, /primary_id = user_id or open_id/);
+  assert.equal(upgradeFeishuSenderIdentityPatch(patched), patched);
 });
 
 test('已安装的旧版小D通知可升级为完整任务跟进', () => {

@@ -17,7 +17,7 @@ test('健康状态只返回登记能力和脱敏台式机状态', async () => {
           node:'m1-max-primary',
           desktopEnhancement:{ configured:true, healthy:false, baseUrl:'http://secret-node' },
           capabilities:[
-            { capability:'text.generate', configured:true, healthy:true, e2eVerified:true, provider:'local-qwen35', failure:{ message:'private' } },
+            { capability:'text.generate', configured:true, healthy:true, e2eVerified:true, verifiedAt:'2026-08-10T01:00:00.000Z', provider:'local-qwen35', failure:{ message:'private' } },
             { capability:'unknown.debug', configured:true, healthy:true, e2eVerified:true, provider:'debug' },
           ],
         };
@@ -29,6 +29,7 @@ test('健康状态只返回登记能力和脱敏台式机状态', async () => {
   assert.equal(result.readyCount, 1);
   assert.deepEqual(result.desktopEnhancement, { configured:true, healthy:false });
   assert.equal(result.capabilities.some((item) => item.capability === 'unknown.debug'), false);
+  assert.equal(result.capabilities[0].verifiedAt, '2026-08-10T01:00:00.000Z');
   assert.equal(JSON.stringify(result).includes('secret-node'), false);
   assert.equal(JSON.stringify(result).includes('private'), false);
 });
@@ -45,6 +46,14 @@ test('调用只允许登记能力并保留跨设备显式批准字段', async ()
   await client.invoke({ capability:'text.generate', input:{ prompt:'hi' }, requestId:'one', approved:true });
   assert.equal(bodies[0].approved, true);
   assert.equal(bodies[0].request_id, 'one');
+});
+
+test('本机 AI 调用网络失败会标成可自动恢复，且不泄露底层 HTTP 状态', async () => {
+  const client = new LocalAiCapabilityClient({ fetchImpl:async () => { throw new Error('connect ECONNREFUSED 127.0.0.1'); } });
+  await assert.rejects(
+    () => client.invoke({ capability:'vision.analyze', input:{} }),
+    (error) => error.code === 'local_ai_gateway_unavailable' && error.retryable === true && error.httpStatus === 503,
+  );
 });
 
 test('控制面只返回登记服务并拒绝任意服务动作', async () => {

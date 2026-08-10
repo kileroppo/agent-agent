@@ -298,14 +298,23 @@ async function readUsage(usagePath) {
     const outputTokens = nonNegativeInteger(payload.output_tokens);
     const apiCalls = nonNegativeInteger(payload.api_calls);
     const estimatedCost = Number(payload.estimated_cost_usd);
+    const sessionId = clean(payload.session_id || payload.sessionId, 160);
     return {
       model:{
         provider:clean(payload.provider, 80),
         model:clean(payload.model, 120),
+        ...(sessionId ? { sessionId } : {}),
         ...(inputTokens !== null ? { inputTokens } : {}),
         ...(outputTokens !== null ? { outputTokens } : {}),
         ...(apiCalls !== null ? { apiCalls } : {}),
-        ...(Number.isFinite(estimatedCost) && estimatedCost >= 0 ? { cost:{ amount:estimatedCost, currency:'USD' } } : {})
+        ...(Number.isFinite(estimatedCost) && estimatedCost >= 0 ? {
+          cost:{
+            amount:estimatedCost,
+            currency:'USD',
+            basis:'estimated',
+            source:'hermes_estimated_cost_usd',
+          },
+        } : {})
       }
     };
   } catch {
@@ -347,16 +356,44 @@ function mergeUsage(left, right) {
     Number.isFinite(firstCost) ? firstCost : null,
     Number.isFinite(secondCost) ? secondCost : null
   );
+  const costBasis = mergeCostBasis(first?.cost?.basis, second?.cost?.basis);
+  const costSource = mergeCostSource(first?.cost?.source, second?.cost?.source);
+  const sessionIds = [...new Set([
+    first?.sessionId,
+    ...(Array.isArray(first?.sessionIds) ? first.sessionIds : []),
+    second?.sessionId,
+    ...(Array.isArray(second?.sessionIds) ? second.sessionIds : []),
+  ].map((item) => clean(item, 160)).filter(Boolean))];
   return {
     model:{
       provider:clean(base?.provider, 80),
       model:clean(base?.model, 120),
+      ...(sessionIds.length === 1 ? { sessionId:sessionIds[0] } : sessionIds.length > 1 ? { sessionIds } : {}),
       ...(inputTokens !== null ? { inputTokens } : {}),
       ...(outputTokens !== null ? { outputTokens } : {}),
       ...(apiCalls !== null ? { apiCalls } : {}),
-      ...(costAmount !== null ? { cost:{ amount:costAmount, currency:'USD' } } : {})
+      ...(costAmount !== null ? {
+        cost:{
+          amount:costAmount,
+          currency:'USD',
+          ...(costBasis ? { basis:costBasis } : {}),
+          ...(costSource ? { source:costSource } : {}),
+        },
+      } : {})
     }
   };
+}
+
+function mergeCostBasis(left, right) {
+  const values = [left, right].map((value) => clean(value, 40)).filter(Boolean);
+  if (!values.length) return '';
+  return values.every((value) => value === values[0]) ? values[0] : 'mixed';
+}
+
+function mergeCostSource(left, right) {
+  const values = [left, right].map((value) => clean(value, 80)).filter(Boolean);
+  if (!values.length) return '';
+  return values.every((value) => value === values[0]) ? values[0] : 'mixed';
 }
 
 function sumDefined(left, right) {

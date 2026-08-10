@@ -160,6 +160,13 @@ for (const sourceRoot of sourceRoots) {
     const relative = path.relative(root, file);
     const source = await fs.readFile(file, 'utf8');
     const portableRelative = relative.split(path.sep).join('/');
+    const workflowModule = portableRelative.startsWith('apps/ajun-runtime/src/workflow/');
+    if (workflowModule && path.extname(portableRelative) !== '.ts') {
+      violations.push(`${portableRelative}: 新的 Workflow 核心 Module 必须使用 TypeScript`);
+    }
+    if (workflowModule && /\b(?:fetch|execFile|exec|spawn)\s*\(/.test(source)) {
+      violations.push(`${portableRelative}: Workflow Module 不得直接访问网络或启动进程，请通过 CapabilityAdapter Interface`);
+    }
     const lineLimit = responsibilityLineLimits.get(portableRelative);
     if (lineLimit && source.split(/\r?\n/).length > lineLimit) {
       violations.push(`${portableRelative}: 责任模块超过 ${lineLimit} 行，请先提取有明确边界的协作者再继续扩展`);
@@ -198,6 +205,9 @@ for (const sourceRoot of sourceRoots) {
       violations.push(`${relative}: 已退役的 M5 转发门面不得回流，请直接使用 m5-kernel 包 exports`);
     }
     for (const match of source.matchAll(/(?:from\s+|import\s*\(\s*|import\s+)["']([^"']+)["']/g)) {
+      if (workflowModule && workflowImplementationImport(match[1])) {
+        violations.push(`${portableRelative}: Workflow Module 不得直接依赖平台或 Adapter Implementation（${match[1]}）`);
+      }
       if (!match[1].startsWith('.')) {
         const target = workspaceManifests.get(packageNameFromSpecifier(match[1]));
         if (productionSource && target && ownerManifest && ownerManifest.name !== target.name) {
@@ -226,6 +236,19 @@ for (const sourceRoot of sourceRoots) {
       violations.push(`${relative}: class ${duplicate.className} 重复声明方法 ${duplicate.methodName}`);
     }
   }
+}
+
+function workflowImplementationImport(specifier) {
+  const normalized = String(specifier || '').toLowerCase();
+  return [
+    '/adapters/',
+    'local-ai-capability',
+    'paperclip',
+    'hermes',
+    'feishu',
+    'public-web',
+    'browser-automation',
+  ].some((fragment) => normalized.includes(fragment));
 }
 
 function assertDeclaredDependency({ ownerManifest, targetManifest, relative, specifier }) {

@@ -55,6 +55,7 @@ import {
   uniqueTasks,
   isVisibleEmployee,
   employeeRole,
+  employeeCapabilityTruth,
   formatGithubReply,
   formatIntelReply,
   employeeWorkState,
@@ -90,10 +91,10 @@ export const feishuCommanderContextMethods = {
     const needOwner = activeTasks.filter((task) => ['waiting_approval', 'needs_input'].includes(task.status));
     const ajunStatus = activeTasks.length ? `正在跟进 ${activeTasks.length} 项没有结束的工作` : '当前没有需要继续跟进的工作';
     const workerLines = frontLineAgents.length
-      ? frontLineAgents.map((agent) => `- ${names[agent.agentId]}：${employeeRole(agent)}；${employeeWorkState(agent, activeTasks)}`)
+      ? frontLineAgents.map((agent) => `- ${names[agent.agentId]}：${employeeRole(agent)}；${employeeWorkState(agent, activeTasks)}；${employeeCapabilityTruth(agent)}`)
       : ['- 目前还没有能直接交付工作的员工。'];
     const supportLines = supportAgents.length
-      ? supportAgents.map((agent) => `- ${names[agent.agentId]}：${employeeRole(agent)}；${employeeWorkState(agent, activeTasks)}`)
+      ? supportAgents.map((agent) => `- ${names[agent.agentId]}：${employeeRole(agent)}；${employeeWorkState(agent, activeTasks)}；${employeeCapabilityTruth(agent)}`)
       : [];
     const ownerLines = needOwner.length
       ? needOwner.map((task) => `- “${shortTitle(task)}”`)
@@ -135,10 +136,10 @@ export const feishuCommanderContextMethods = {
     return {
       kind:'army_capabilities',
       reply: [
-        '【我现在能直接帮你办的事】',
+        '【当前可受理的工作】',
         ...abilities.map((item, index) => `${index + 1}. ${item}`),
         '',
-        '你只要直接说想要的结果。当前没有合适员工时，我会先评估怎么补，不会让你背固定说法。'
+        '你只要直接说想要的结果，不用记固定说法。是否可完成以这次 Workflow 的真实产物为准；当前没有合适员工时，我会先评估怎么补。'
       ].join('\n')
     };
   },

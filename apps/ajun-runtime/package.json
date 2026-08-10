@@ -13,6 +13,8 @@
     "acceptance:m3-paperclip-heartbeat": "node scripts/verify-m3-paperclip-heartbeat.mjs",
     "acceptance:m4-role-quality": "node scripts/verify-m4-role-quality.mjs",
     "verify:office-presentation": "node scripts/verify-office-presentation.mjs",
+    "verify:video-analysis-local-fallback": "NODE_NO_WARNINGS=1 node scripts/verify-video-analysis-local-fallback.mjs",
+    "test:video-analysis-local-fallback": "NODE_NO_WARNINGS=1 node --test test/video-analysis-local-fallback.test.js",
     "release:immutable": "node scripts/manage-immutable-runtime-release.mjs",
     "check": "tsc -p tsconfig.json",
     "pretest": "npm run check",

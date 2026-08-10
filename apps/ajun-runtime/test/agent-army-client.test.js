@@ -3,10 +3,11 @@ import test from 'node:test';
 import { AgentArmyClient, AgentArmyClientError } from '../src/agent-army-client.js';
 
 const overview = {
-  capabilities:[{ id:'task-coordination', name:'统一任务协调', status:'ready', detail:'已就绪' }],
+  capabilities:[{ id:'task-coordination', name:'统一任务协调', status:'ready', detail:'已就绪', truth:{ declared:true, configured:true, live:true, verified:true, humanAccepted:false, overall:'verified', verifiedAt:'2026-08-10T01:00:00.000Z', evidenceTaskId:'task-evidence', evidenceRef:'task:task-evidence', freshness:'later_than_latest_failure', latestFailureAt:'2026-08-09T01:00:00.000Z', latestFailureTaskId:'task-failure' } }],
   agents:[{
     agentId:'xiaod', name:'小D', status:'active', role:'整理音视频',
-    responsibilities:['转录'], acceptedTaskTypes:['media.transcribe-and-refine']
+    responsibilities:['转录'], acceptedTaskTypes:['media.transcribe-and-refine'],
+    capabilityTruth:{ declared:true, configured:true, live:true, verified:false, humanAccepted:false, overall:'live' },
   }],
   tasks:[{
     taskId:'11111111-1111-1111-1111-111111111111',
@@ -21,6 +22,7 @@ const overview = {
   }],
   approvals:[],
   taskFocus:{ inProgress:1 },
+  validationCampaign:{ taskCount:2, groupCount:1 },
   usage:{ taskCount:1 }
 };
 
@@ -31,7 +33,12 @@ test('AgentArmyClient exposes factual capability and employee views', async () =
 
   assert.equal(capabilities.employees[0].agentId, 'xiaod');
   assert.deepEqual(capabilities.employees[0].acceptedTaskTypes, ['media.transcribe-and-refine']);
+  assert.equal(capabilities.employees[0].capabilityTruth.overall, 'live');
+  assert.equal(capabilities.capabilities[0].truth.overall, 'verified');
+  assert.equal(capabilities.capabilities[0].truth.evidenceTaskId, 'task-evidence');
+  assert.equal(capabilities.capabilities[0].truth.freshness, 'later_than_latest_failure');
   assert.equal(employee.recentTasks[0].status, 'running');
+  assert.deepEqual((await client.armyStatus()).validationCampaign, { taskCount:2, groupCount:1 });
 });
 
 test('AgentArmyClient creates an idempotent Hermes task and returns its read model', async () => {
@@ -71,6 +78,38 @@ test('AgentArmyClient creates an idempotent Hermes task and returns its read mod
   assert.match(create.body.idempotencyKey, /^hermes:oc_test:/);
   const watch = requests.find((item) => item.key === 'POST /api/mcp/completion-watches');
   assert.deepEqual(watch.body, { taskId:'22222222-2222-2222-2222-222222222222', chatRef:'oc_test' });
+});
+
+test('AgentArmyClient 只通过原飞书会话写回受控任务评价', async () => {
+  const requests = [];
+  const taskId = '11111111-1111-1111-1111-111111111111';
+  const client = new AgentArmyClient({
+    fetchImpl:async (url, options = {}) => {
+      const key = `${options.method || 'GET'} ${new URL(url).pathname}`;
+      requests.push({ key, body:options.body ? JSON.parse(options.body) : null });
+      if (key === `POST /api/mcp/tasks/${taskId}/feedback`) return response(200, {
+        task:{ ...overview.tasks[0], status:'succeeded', feedback:{ sentiment:'useful' } },
+      });
+      if (key === 'GET /api/overview') return response(200, overview);
+      return response(404, { error:'missing' });
+    },
+  });
+
+  const task = await client.recordTaskFeedback(taskId, {
+    sentiment:'useful',
+    note:'这次结果有用，验收通过。',
+    chatRef:'oc_test',
+  });
+
+  assert.equal(task.status, 'succeeded');
+  assert.deepEqual(requests[0], {
+    key:`POST /api/mcp/tasks/${taskId}/feedback`,
+    body:{ sentiment:'useful', note:'这次结果有用，验收通过。', chatRef:'oc_test' },
+  });
+  await assert.rejects(
+    () => client.recordTaskFeedback(taskId, { sentiment:'unknown', chatRef:'oc_test' }),
+    /useful 或 needs_improvement/,
+  );
 });
 
 test('服务端已登记终态回告时客户端不重复登记', async () => {

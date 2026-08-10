@@ -236,7 +236,7 @@ export class LocalIntelResearcher {
       limitation:'报告只陈述当前受控适配器已核验的公开来源证据，不使用任务正文自报结果。',
     };
     const checksum = `sha256:${createHash('sha256')
-      .update(JSON.stringify(report))
+      .update(canonicalJson(report))
       .digest('hex')}`;
     return {
       artifactId:`intel-research:${task.taskId}:${safeRunId}`,
@@ -403,6 +403,18 @@ export class LocalIntelResearcher {
     try { return await this.researchAdvisor.analyze({ topic, sources }) || fallbackResearch({ topic, sources }); }
     catch { return fallbackResearch({ topic, sources }); }
   }
+}
+
+function canonicalJson(value) {
+  return JSON.stringify(canonicalValue(value));
+}
+
+function canonicalValue(value) {
+  if (Array.isArray(value)) return value.map(canonicalValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.keys(value).sort().map((key) => [key, canonicalValue(value[key])]),
+  );
 }
 
 function shouldUseGrok(task) {

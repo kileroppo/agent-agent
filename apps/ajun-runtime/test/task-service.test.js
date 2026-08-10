@@ -471,6 +471,18 @@ test('并列安全约束里的外发词不会被误判为高风险动作', async
   assert.equal(records.approvals.length, 0);
   assert.equal(task.status, 'succeeded');
 });
+test('不外发或发布的并列否定不会把第二个动作误判为高风险', async () => {
+  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  const { service, records } = setup({ agents:[operator] });
+  service.executors.operator = { async execute(task) { return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[verifiedHealthReport(task)] }; } };
+  const task = await service.create({
+    title:'军团只读健康检查',
+    description:'只生成可核验健康报告；不重启服务、不修改配置、不外发或发布。',
+    taskType:'operations.health-review'
+  });
+  assert.equal(records.approvals.length, 0);
+  assert.equal(task.status, 'succeeded');
+});
 test('只生成草稿或知识笔记的任务不会因描述发布检查而误触外发审批', async () => {
   const office = { agentId:'office-assistant', name:'小办', status:'active', acceptedTaskTypes:['office.knowledge-summary'] };
   const { service } = setup({ agents:[office] });
@@ -2398,7 +2410,12 @@ test('小拆 heartbeat 通过受控执行桥写回真实分析产物且重复调
   const persisted = records.tasks.find((task) => task.taskId === first.task.taskId);
   assert.equal(persisted.usage.model.status, 'reported');
   assert.equal(persisted.usage.model.apiCalls, 1);
-  assert.deepEqual(persisted.usage.cost, { status:'reported', amount:0, currency:'USD' });
+  assert.deepEqual(persisted.usage.cost, {
+    status:'reported',
+    amount:0,
+    currency:'USD',
+    basis:'task_usage_reported',
+  });
 });
 
 test('v2 视频分析缺少模式结构证明时不能被 heartbeat 标成成功', async () => {
@@ -2774,7 +2791,13 @@ test('概览优先呈现待审批任务，并给出不会自动继续的下一�
   records.approvals.push({ approvalId:'approval-1', taskId:'task-waiting', status:'pending' });
   const overview = await service.overview();
   const waitingAction = { taskId:'task-waiting', title:'发布周报', status:'waiting_approval', action:'请确认任务范围；在你确认前，系统不会继续执行。' };
-  assert.deepEqual(overview.taskFocus, { total:3, completed:1, inProgress:1, backgroundInProgress:0, paused:0, needsInput:0, waitingApproval:1, waitingTest:0, failed:0, ownerActionable:1, reviewBacklog:0, actions:[waitingAction], next:waitingAction });
+  assert.deepEqual(overview.taskFocus, {
+    total:3, completed:1, inProgress:1, backgroundInProgress:0, paused:0,
+    needsInput:0, waitingApproval:1, waitingTest:0, failed:0,
+    ownerActionable:1, reviewBacklog:0, verificationBacklog:0, unresolvedFailures:0, historicalArchived:0, validatedByLaterEvidence:0,
+    backlog:{ current:1, superseded:0, validated_by_later_evidence:0, expected_acceptance_failure:0, expected_boundary_rejection:0, intentionally_disabled:0, needs_human:1, archived_cancelled:0, needs_reverification:0, unresolved_failure:0, unresolved:0, completed:1 },
+    actions:[waitingAction], next:waitingAction,
+  });
 });
 test('概览把等待 Mac工作间的任务列为进行中并说明自动领取', async () => {
   const { service, records } = setup();
@@ -2961,6 +2984,30 @@ test('概览如实区分已能收发飞书与尚未接入的外部账号写入�
   const authorizedRead = overview.capabilities.find((item) => item.id === 'authorized-content-read');
   assert.equal(authorizedRead.status, 'partial');
   assert.match(authorizedRead.detail, /具体任务验证/);
+});
+
+test('能力验证返回证据任务、时间与相对最近失败的新鲜度', async () => {
+  const { service, records } = setup();
+  records.tasks.push(
+    {
+      taskId:'public-web-success', taskType:'research.intel-report', status:'succeeded',
+      updatedAt:'2026-08-09T08:00:00.000Z', artifactRefs:[{
+        artifactId:'research-report', validation:{ exists:true, readable:true, nonEmpty:true },
+      }],
+    },
+    {
+      taskId:'public-web-failure', taskType:'research.intel-report', status:'failed',
+      updatedAt:'2026-08-10T08:00:00.000Z', artifactRefs:[],
+    },
+  );
+  const overview = await service.overview();
+  const capability = overview.capabilities.find((item) => item.id === 'content-public-web-fetch');
+  assert.equal(capability.truth.overall, 'verified');
+  assert.equal(capability.truth.evidenceTaskId, 'public-web-success');
+  assert.equal(capability.truth.verifiedAt, '2026-08-09T08:00:00.000Z');
+  assert.equal(capability.truth.latestFailureTaskId, 'public-web-failure');
+  assert.equal(capability.truth.latestFailureAt, '2026-08-10T08:00:00.000Z');
+  assert.equal(capability.truth.freshness, 'predates_latest_failure');
 });
 
 test('概览如实显示小办 PPTD 与本地 PPTX 均可用', async () => {
@@ -3560,6 +3607,8 @@ test('只给已结束工作记录结果评价，不会伪造重新执行', async
   assert.equal(recorded.status, 'succeeded');
   assert.equal(recorded.feedback.sentiment, 'needs_improvement');
   assert.equal(recorded.feedback.note, '重点不够清楚');
+  assert.equal(recorded.evaluation.humanAcceptance.status, 'revision_required');
+  assert.equal(recorded.evaluation.humanAcceptance.source, 'feishu_feedback');
   await assert.rejects(() => service.recordFeedback('running-1', { sentiment:'useful' }), /还没有结束/);
   await assert.rejects(() => service.recordFeedback('done-1', { sentiment:'unknown' }), /无效/);
 });

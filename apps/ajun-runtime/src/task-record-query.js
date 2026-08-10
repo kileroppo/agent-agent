@@ -1,4 +1,4 @@
-import { isOwnerActionableTask } from './task-overview-focus.js';
+import { isOwnerActionableTask } from './task-overview-focus.ts';
 
 const VIEW_STATUSES = Object.freeze({
   needs_action:new Set(['failed', 'needs_input', 'pending_approval', 'waiting_approval', 'waiting_test', 'paused', 'blocked', 'error']),

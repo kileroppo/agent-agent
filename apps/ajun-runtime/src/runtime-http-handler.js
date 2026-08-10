@@ -504,6 +504,18 @@ export function createAjunHttpHandler({
         const [, taskId, action] = mcpTaskControlMatch;
         return sendJson(response, 200, action === 'pause' ? await tasks.requestPause(taskId) : await tasks.requestResume(taskId));
       }
+      const mcpTaskFeedbackMatch = request.url?.match(/^\/api\/mcp\/tasks\/([0-9a-f-]+)\/feedback$/i);
+      if (request.method === 'POST' && mcpTaskFeedbackMatch) {
+        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'Hermes MCP 任务评价只能由本机调用。' });
+        const input = await readJsonBody(request);
+        const task = await store.getTask(mcpTaskFeedbackMatch[1]);
+        if (!task) throw new ValidationError('找不到要评价的工作。');
+        const chatRef = String(input.chatRef || '').trim();
+        if (task.source?.channel !== 'feishu' || !chatRef || task.source?.chatRef !== chatRef) {
+          return sendJson(response, 403, { error:'只能在创建该任务的原飞书会话记录评价。' });
+        }
+        return sendJson(response, 200, { task:await tasks.recordFeedback(task.taskId, input) });
+      }
       const mcpApprovalMatch = request.url?.match(/^\/api\/mcp\/approvals\/([0-9a-f-]+)\/(approve|reject)$/i);
       if (request.method === 'POST' && mcpApprovalMatch) {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'Hermes MCP 审批只能由本机调用。' });

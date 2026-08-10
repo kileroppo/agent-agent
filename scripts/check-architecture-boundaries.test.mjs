@@ -23,6 +23,34 @@ test('架构检查同样审查 TypeScript 生产源码', async (context) => {
   assert.match(result.stderr, /packages 不得反向依赖 apps/);
 });
 
+test('架构检查要求 Workflow 核心 Module 使用 TypeScript', async (context) => {
+  const root = await fixture(context);
+  await write(root, 'apps/ajun-runtime/src/workflow/policy.js', 'export const policy = true;\n');
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Workflow 核心 Module 必须使用 TypeScript/);
+});
+
+test('架构检查拒绝 Workflow 绕过 Interface 直接依赖平台 Adapter', async (context) => {
+  const root = await fixture(context);
+  await write(
+    root,
+    'apps/ajun-runtime/src/workflow/execution.ts',
+    "import '../adapters/local-ai-capability-adapter.ts';\nexport const execution = true;\n",
+  );
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /不得直接依赖平台或 Adapter Implementation/);
+});
+
+test('架构检查拒绝 Workflow 直接访问网络或启动进程', async (context) => {
+  const root = await fixture(context);
+  await write(root, 'apps/ajun-runtime/src/workflow/execution.ts', "export async function run() { return fetch('https://example.com'); }\n");
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /不得直接访问网络或启动进程/);
+});
+
 test('架构检查拒绝生产源码深相对跨 workspace', async (context) => {
   const root = await fixture(context, { appDependencies:{ '@example/contracts':'1.0.0' } });
   await write(root, 'apps/runtime/src/app.js', "import '../../../packages/contracts/src/index.js';\n");

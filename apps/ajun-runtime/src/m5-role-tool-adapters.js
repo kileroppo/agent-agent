@@ -34,13 +34,13 @@ export function createM5RoleToolAdapters({
     ...(typeof publicDynamicWebReader?.read === 'function'
       ? {
           'hermes-public-browser':async ({ access }) =>
-            publicDynamicWebReader.read({ sourceUrl:access.url }),
+            withContentHash(await publicDynamicWebReader.read({ sourceUrl:access.url })),
         }
       : {}),
     ...(typeof publicPdfReader?.read === 'function'
       ? {
           'hermes-pdf':async ({ access }) =>
-            publicPdfReader.read({ sourceUrl:access.url }),
+            withContentHash(await publicPdfReader.read({ sourceUrl:access.url })),
         }
       : {}),
     ...(typeof githubSearch?.search === 'function' && typeof githubSearch?.readRepo === 'function'
@@ -50,7 +50,7 @@ export function createM5RoleToolAdapters({
               return githubSearch.search({ query:input.query, limit:input.limit });
             }
             if (input.operation === 'read') {
-              return githubSearch.readRepo({ repo:input.repo, path:input.path });
+              return withContentHash(await githubSearch.readRepo({ repo:input.repo, path:input.path }));
             }
             throw adapterError('GitHub 受控适配器不支持该操作。', 'role_tool_input_invalid');
           },
@@ -251,12 +251,13 @@ async function writeWorkspaceText({ access, input, workspaceRoot }) {
 
 function withContentHash(value) {
   if (!value || typeof value !== 'object') return value;
+  const digest = String(value.contentHash || '').replace(/^sha256:/i, '') || crypto
+    .createHash('sha256')
+    .update(String(value.text || ''))
+    .digest('hex');
   return Object.freeze({
     ...value,
-    contentHash:String(value.contentHash || '') || crypto
-      .createHash('sha256')
-      .update(String(value.text || ''))
-      .digest('hex'),
+    contentHash:`sha256:${digest}`,
   });
 }
 

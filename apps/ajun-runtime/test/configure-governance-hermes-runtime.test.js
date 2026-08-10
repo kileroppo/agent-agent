@@ -10,6 +10,7 @@ import {
   configureGovernanceHermesRuntime,
   installAuditedSkillDirectory,
   parseProfileSyncArgs,
+  resolveGovernanceMcpServerPath,
   readCurrentProfileState,
   redactHermesCommandError,
   setExactFeishuToolsets,
@@ -920,6 +921,26 @@ test('Profile 最小同步 CLI 强制 only、唯一模式和 apply 确认', () =
   assert.throws(
     () => parseProfileSyncArgs(['--dry-run', '--only', 'unknown-agent']),
     /未知或无效岗位/,
+  );
+});
+
+test('Profile 同步可把 MCP 固定到仓库内的不可变 release，拒绝仓库外路径', () => {
+  const repositoryRoot = '/fixture/agent-agent';
+  const immutableServer = path.join(
+    repositoryRoot,
+    'work/runtime-releases-final/release-1/apps/ajun-runtime/src/agent-army-mcp-server.js',
+  );
+  assert.equal(resolveGovernanceMcpServerPath({
+    override:immutableServer,
+    currentScriptPath:path.join(repositoryRoot, 'apps/ajun-runtime/scripts/configure.mjs'),
+    repositoryRoot,
+  }), immutableServer);
+  assert.throws(
+    () => resolveGovernanceMcpServerPath({
+      override:'/tmp/agent-army-mcp-server.js',
+      repositoryRoot,
+    }),
+    /必须指向仓库内/,
   );
 });
 

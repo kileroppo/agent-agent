@@ -20,8 +20,8 @@ function recoverIntelResearchOpenTaskState({
   const sourceObservations = uniqueVerifiedSourceObservations(
     items.flatMap((item) => {
       if (
-        item?.type !== 'OpenResearchStep'
-        || item?.schemaVersion !== 'agent.army/open-research-step/v1'
+        workProductKind(item) !== 'OpenResearchStep'
+        || workProductSchemaVersion(item) !== 'agent.army/open-research-step/v1'
         || item?.metadata?.issueId !== safeIssueId
         || item?.metadata?.runId !== safeRunId
       ) return [];
@@ -46,8 +46,8 @@ function recoverIntelResearchOpenTaskState({
     const metadata = item?.metadata;
     const observation = metadata?.nextObservation || metadata?.observation;
     if (
-      item?.type !== 'OpenResearchStep'
-      || item?.schemaVersion !== 'agent.army/open-research-step/v1'
+      workProductKind(item) !== 'OpenResearchStep'
+      || workProductSchemaVersion(item) !== 'agent.army/open-research-step/v1'
       || metadata?.issueId !== safeIssueId
       || metadata?.runId !== safeRunId
       || observation?.issueId !== safeIssueId
@@ -164,7 +164,7 @@ function verifiedResearchReportArtifact({
   });
   const sourceIds = verifiedObservations.map((item) => item.observationId);
   const expectedChecksum = `sha256:${createHash('sha256')
-    .update(JSON.stringify(artifact?.data || null))
+    .update(canonicalJson(artifact?.data || null))
     .digest('hex')}`;
   if (
     artifact?.type !== 'intel_research_report'
@@ -288,13 +288,20 @@ function openResearchReportWorkProduct({
     }))
     .digest('hex');
   return {
-    type:'ResearchReport',
-    schemaVersion:'agent.army/intel-research-report/v1',
+    type:'document',
+    provider:'agent-army.intel-researcher',
+    externalId:`open-research-report:${idempotencyHash}`,
     title:artifact.title,
     status:'active',
+    reviewState:'none',
+    isPrimary:true,
     healthStatus:'healthy',
-    idempotencyKey:`open-research-report:${idempotencyHash}`,
+    summary:'小R已生成来源可核验的公开研究报告。',
+    createdByRunId:assignment.runId,
     metadata:{
+      kind:'ResearchReport',
+      schemaVersion:'agent.army/intel-research-report/v1',
+      idempotencyKey:`open-research-report:${idempotencyHash}`,
       taskId:String(task?.taskId || '').trim(),
       issueId:assignment.issueId,
       runId:assignment.runId,
@@ -336,11 +343,11 @@ function healthyResearchReportWorkProduct(value, {
   });
   const expectedObservationIds = verifiedObservations.map((item) => item.observationId);
   const expectedChecksum = `sha256:${createHash('sha256')
-    .update(JSON.stringify(artifact?.data || null))
+    .update(canonicalJson(artifact?.data || null))
     .digest('hex')}`;
   if (
-    value?.type !== 'ResearchReport'
-    || value?.schemaVersion !== 'agent.army/intel-research-report/v1'
+    workProductKind(value) !== 'ResearchReport'
+    || workProductSchemaVersion(value) !== 'agent.army/intel-research-report/v1'
     || value?.healthStatus !== 'healthy'
     || metadata?.issueId !== issueId
     || metadata?.runId !== runId
@@ -373,6 +380,26 @@ function healthyResearchReportWorkProduct(value, {
     progress:normalizedRecoveredProgress(metadata.progress),
     budget:canonicalOpenResearchBudget(metadata.budget),
   };
+}
+
+function workProductKind(value) {
+  return String(value?.metadata?.kind || value?.type || '').trim();
+}
+
+function workProductSchemaVersion(value) {
+  return String(value?.metadata?.schemaVersion || value?.schemaVersion || '').trim();
+}
+
+function canonicalJson(value) {
+  return JSON.stringify(canonicalValue(value));
+}
+
+function canonicalValue(value) {
+  if (Array.isArray(value)) return value.map(canonicalValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.keys(value).sort().map((key) => [key, canonicalValue(value[key])]),
+  );
 }
 
 function normalizedRecoveredProgress(value) {

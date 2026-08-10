@@ -661,7 +661,7 @@ test('高确定性的军团概览问法直接读取真实状态，不调用 plan
   let plannerCalls = 0;
   commander.planner = { async decide() { plannerCalls += 1; return { intent:'clarify' }; } };
   commander.tasks.overview = async () => ({
-    agents:[{ agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] }],
+    agents:[{ agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'], capabilityTruth:{ overall:'live' } }],
     tasks:[{ assigneeAgentId:'xiaod', status:'running', input:{ title:'整理公开视频' } }]
   });
   const result = await commander.handle({ text:'现在大家都在干嘛？', sourceEventRef:'feishu:overview-direct-1', chatRef:'chat-safe-ref' });
@@ -669,6 +669,7 @@ test('高确定性的军团概览问法直接读取真实状态，不调用 plan
   assert.equal(calls.tasks.length, 0);
   assert.equal(result.kind, 'army_overview');
   assert.match(result.reply, /【军团情况】/);
+  assert.match(result.reply, /运行可达，业务能力待验证/);
 });
 
 test('高确定性的使用情况问法直接汇总，不调用 planner', async () => {

@@ -1,4 +1,13 @@
-export function buildTaskFocus(tasks, approvals) {
+import { summarizeBacklog } from './workflow/backlog-classification.ts';
+import type { WorkflowEvaluation } from './workflow/contracts.ts';
+
+export function buildTaskFocus(
+  tasks: readonly any[],
+  approvals: readonly any[],
+  evidenceContext = {},
+  workflows: readonly WorkflowEvaluation[] = [],
+) {
+  const backlog = summarizeBacklog(tasks, evidenceContext);
   const counts = Object.fromEntries(
     ['queued', 'running', 'waiting_worker', 'pausing', 'paused', 'waiting_approval', 'waiting_test', 'needs_input', 'succeeded', 'failed']
       .map((status) => [status, tasks.filter((task) => task.status === status).length]),
@@ -8,14 +17,28 @@ export function buildTaskFocus(tasks, approvals) {
   const ownerActionableTasks = ownerPriority.flatMap((status) =>
     tasks.filter((task) => task.status === status && isOwnerActionableTask(task, tasks))
   );
+  const ownerActionableTaskIds = new Set(ownerActionableTasks.map((task) => String(task.taskId || '')));
+  const workflowActions = workflows.flatMap((workflow) => {
+    if (workflow.status !== 'waiting_acceptance' || !workflow.ownerAction) return [];
+    const step = workflow.steps.find((item) => item.required && item.verified) || workflow.steps.find((item) => item.verified);
+    if (!step || ownerActionableTaskIds.has(step.taskId)) return [];
+    const task = tasks.find((item) => item.taskId === step.taskId);
+    if (!task) return [];
+    return [{
+      taskId:step.taskId,
+      title:task.input?.title || '未命名任务',
+      status:'waiting_acceptance',
+      action:workflow.ownerAction,
+    }];
+  });
   const businessInProgressTasks = systemPriority.flatMap((status) =>
     tasks.filter((task) => task.status === status && !isBackgroundSystemTask(task))
   );
   const backgroundInProgress = systemPriority.reduce((total, status) =>
     total + tasks.filter((task) => task.status === status && isBackgroundSystemTask(task)).length
   , 0);
-  const current = ownerActionableTasks[0] || businessInProgressTasks[0] || null;
-  const focusItem = (task) => {
+  const current = ownerActionableTasks[0] || workflowActions[0] || businessInProgressTasks[0] || null;
+  const focusItem = (task: any) => {
     const approval = approvals.find((item) =>
       task.approvalRefs?.includes(item.approvalId) && item.status === 'pending');
     return {
@@ -25,7 +48,8 @@ export function buildTaskFocus(tasks, approvals) {
       action:nextActionFor(task, approval),
     };
   };
-  const actions = ownerActionableTasks.slice(0, 5).map(focusItem);
+  const taskActions = ownerActionableTasks.map(focusItem);
+  const actions = [...taskActions, ...workflowActions].slice(0, 5);
   return {
     total:tasks.length,
     completed:counts.succeeded,
@@ -36,21 +60,26 @@ export function buildTaskFocus(tasks, approvals) {
     waitingApproval:counts.waiting_approval,
     waitingTest:counts.waiting_test,
     failed:counts.failed,
-    ownerActionable:ownerActionableTasks.length,
-    reviewBacklog:ownerActionableTasks.filter((task) => ['failed', 'waiting_test'].includes(task.status)).length,
+    ownerActionable:taskActions.length + workflowActions.length,
+    reviewBacklog:backlog.reviewBacklog,
+    verificationBacklog:backlog.verificationBacklog,
+    unresolvedFailures:backlog.unresolvedFailures,
+    historicalArchived:backlog.historicalArchived,
+    validatedByLaterEvidence:backlog.validatedByLaterEvidence,
+    backlog:backlog.counts,
     actions,
-    next:current ? focusItem(current) : null,
+    next:current ? ('action' in current ? current : focusItem(current)) : null,
   };
 }
 
-function isBackgroundSystemTask(task) {
+function isBackgroundSystemTask(task: any) {
   if (task?.taskType !== 'operations.health-review' || task?.source?.channel !== 'paperclip') return false;
   const title = String(task.input?.title || '').trim();
   const description = String(task.input?.description || '').trim();
   return title === 'A君定时本机巡检' || description.startsWith('agent-army:operations-health-v1');
 }
 
-export function isOwnerActionableTask(task, tasks) {
+export function isOwnerActionableTask(task: any, tasks: readonly any[]) {
   if (!['needs_input', 'failed', 'waiting_test'].includes(task.status)) return true;
   if (isSupersededBySuccess(task, tasks)) return false;
   const channel = String(task.source?.channel || '').trim();
@@ -63,7 +92,7 @@ export function isOwnerActionableTask(task, tasks) {
     || channel === 'hermes-native';
 }
 
-function isSupersededBySuccess(task, tasks) {
+function isSupersededBySuccess(task: any, tasks: readonly any[]) {
   const sourceUrl = String(task.input?.sourceUrl || '').trim();
   if (!sourceUrl) return false;
   const taskTime = Date.parse(task.updatedAt || task.createdAt || '') || 0;
@@ -76,7 +105,7 @@ function isSupersededBySuccess(task, tasks) {
   );
 }
 
-function hasLaterUserOutcome(task, tasks) {
+function hasLaterUserOutcome(task: any, tasks: readonly any[]) {
   const taskTime = Date.parse(task.updatedAt || task.createdAt || '') || 0;
   return tasks.some((candidate) => {
     if (!['succeeded', 'cancelled'].includes(candidate.status)) return false;
@@ -90,7 +119,7 @@ function hasLaterUserOutcome(task, tasks) {
   });
 }
 
-function nextActionFor(task, approval) {
+function nextActionFor(task: any, approval: any) {
   if (approval) return '请确认任务范围；在你确认前，系统不会继续执行。';
   if (task.status === 'needs_input') return task.error?.userMessage || '请补充目标、范围或必要素材后再继续。';
   if (task.status === 'waiting_test') return task.error?.userMessage || '自动检查没有在本轮完成；已保留为待测试，不影响其他任务继续。';

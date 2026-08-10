@@ -200,4 +200,12 @@ function rosterNeedsRefresh(current, manifest) {
     || (['paused', 'error'].includes(current.status) && usesPaperclipHermesExecution(manifest));
 }
 
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (!value || typeof value !== 'object') return JSON.stringify(value);
+  return `{${Object.keys(value).sort().map((key) => (
+    `${JSON.stringify(key)}:${stableJson(value[key])}`
+  )).join(',')}}`;
+}
+
 function safeError(error) { return String(error?.message || 'Paperclip 暂不可用。').slice(0, 240); }

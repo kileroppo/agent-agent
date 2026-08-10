@@ -4,8 +4,8 @@
 | --- | --- |
 | 状态 | 生效；M5 并行 v2 已 live apply，发布活动仍关闭 |
 | 负责人 | 技术负责人 / Codex 工作台 |
-| 版本 | v1.13 |
-| 最后更新 | 2026-08-07 |
+| 版本 | v1.14 |
+| 最后更新 | 2026-08-10 |
 | 更新触发 | 核心组件、数据真相、部署边界或平台选型变化 |
 
 ## 1. 架构目标
@@ -73,6 +73,14 @@ Implementation 内，不再由 `runtime-composition-root.js` 逐项构造。结�
 乐观并发版本，并把 Paperclip 恢复追加到原 Issue 子任务链；前端详情区块和 15 秒刷新调度保持
 可独立测试。上述仍是候选源码 Implementation，尚未冻结或切换到当前 `4321` live。
 架构门禁限制 `TaskService` 不超过 350 行，并拒绝在外层重新声明已委托方法，避免两套行为真相。
+
+#### 业务工作流与能力执行栈
+
+新增业务执行统一按 `Model → Agent Runtime → Skills / Business Workflow → Policy / Permission → MCP / CapabilityAdapter Gateway → API / SaaS / DB / Browser` 组织，Audit、Trace 和 Evaluation 横切每层。
+
+Business Workflow 是业务主对象，跨岗位子任务共享 `workflowId`，每个步骤拥有稳定 `stepId`。Policy 结合 Manifest、数据等级、副作用、凭据和预算决定自动允许、人工本机授权、Paperclip 批准或拒绝；Model 不能批准自己的能力请求。CapabilityAdapter 是 Workflow 与具体 Provider Implementation 的 Seam；本机无副作用能力允许一次自动恢复和一次重试，成功后生成只保存输入/输出哈希的 ExecutionReceipt。Workflow Evaluation 同时核验任务终态、关键产物门禁和人工验收，不再以聊天回复或单一 status 推断业务完成。
+
+新的 Workflow、Policy、Evaluation 和 Interface 使用 TypeScript；旧 JavaScript 执行器经 Adapter 渐进接入。架构门禁拒绝 Workflow 核心回退成 JavaScript、直接依赖 Paperclip/Hermes/飞书/本机 AI Implementation、直接发网络请求或启动进程。
 
 任务状态由 `task-lifecycle` 统一验证，JSON 与 SQLite Store 使用同一迁移规则。SQLite 使用 Node
 内置 `node:sqlite`、WAL 和版本化 schema；A君 live 已显式设置

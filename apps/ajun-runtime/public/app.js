@@ -142,7 +142,7 @@ const directEmployeeTaskTypes = [
   'office.presentation-package'
 ];
 const ownerOnlyModules = new Set(['connections', 'campaigns', 'billing', 'boom-monitor', 'tools']);
-const billingViewLabels = { all:'全部', unattributed:'未归属', attributed:'已归属' };
+const billingViewLabels = { all:'全部', task:'任务', agent_session:'Agent 会话', system:'系统', unattributed:'未识别' };
 let boomMonitor;
 let recordWorkbench;
 const billingLedgerState = { query:'', agentId:'', view:'all', visible:BILLING_PAGE_SIZE };
@@ -273,9 +273,9 @@ function render() {
   renderFocus(state.overview.taskFocus);
   renderOverviewStats();
   capabilityList.replaceChildren(...state.overview.capabilities.map((item) => capabilityCard(item)));
-  const readyCapabilities = state.overview.capabilities.filter((item) => ['ready', 'active', 'connected', 'verified'].includes(item.status)).length;
+  const readyCapabilities = state.overview.capabilities.filter((item) => ['verified', 'human_accepted'].includes(item.truth?.overall)).length;
   const limitedCapabilities = state.overview.capabilities.length - readyCapabilities;
-  capabilitySummary.textContent = `${readyCapabilities} 项已就绪${limitedCapabilities ? ` · ${limitedCapabilities} 项受限或待准备` : ''}`;
+  capabilitySummary.textContent = `${readyCapabilities} 项有真实任务证据${limitedCapabilities ? ` · ${limitedCapabilities} 项待验证或受限` : ''}`;
   const directEmployees = state.overview.alwaysOnAgents?.length ? state.overview.alwaysOnAgents : state.overview.agents.filter(isDirectEmployee);
   const supportEmployees = state.overview.onDemandAgents?.length ? state.overview.onDemandAgents : state.overview.agents.filter((agent) => !isDirectEmployee(agent));
   replaceChildrenPreservingDisclosureState(agentList, [
@@ -324,10 +324,12 @@ function renderBilling() {
     statCard('Token', formatCompactNumber(tokens.total), `输入、输出与缓存合计 ${formatNumber(tokens.total)}`, 'records'),
   );
   renderBillingCostHealth(billing.health);
-  const attributed = Number(billing.attribution?.attributedEntryCount || 0);
+  const taskEntries = Number(billing.attribution?.taskEntryCount ?? billing.attribution?.attributedEntryCount ?? 0);
+  const agentSessions = Number(billing.attribution?.agentSessionEntryCount || 0);
+  const systemEntries = Number(billing.attribution?.systemEntryCount || 0);
   const unattributed = Number(billing.attribution?.unattributedEntryCount || 0);
   billingAttribution.classList.toggle('attention', unattributed > 0);
-  billingAttribution.innerHTML = `<strong>${unattributed ? `${unattributed} 条消费尚未归属任务` : '消费均已归属任务'}</strong><span>${attributed} 条已与任务用量精确对上；“未归属”表示缺少稳定任务关联，不代表没有发生消费。</span>`;
+  billingAttribution.innerHTML = `<strong>${unattributed ? `${unattributed} 条消费仍未识别来源` : '账本来源均已识别'}</strong><span>${taskEntries} 条精确关联业务任务，${agentSessions} 条属于独立 Agent 会话，${systemEntries} 条属于系统调用；识别到 Agent 会话不等同于具体业务任务。</span>`;
   const profiles = Array.isArray(billing.profiles) ? billing.profiles : [];
   billingProfileList.replaceChildren(...(profiles.length ? profiles.map(billingProfileRow) : [billingEmpty('最近七天没有岗位模型用量。')]));
   renderBillingEntries(Array.isArray(billing.entries) ? billing.entries : []);
@@ -353,8 +355,11 @@ function renderBillingCostHealth(health) {
 function renderBillingEntries(entries) {
   const filtered = filterBillingEntries(entries, billingLedgerState);
   const visible = filtered.slice(0, billingLedgerState.visible);
-  const attributedCount = entries.filter((entry) => entry.attribution?.status === 'task').length;
-  const viewCounts = { all:entries.length, unattributed:entries.length - attributedCount, attributed:attributedCount };
+  const viewCounts = Object.fromEntries(['task', 'agent_session', 'system', 'unattributed'].map((status) => [
+    status,
+    entries.filter((entry) => entry.attribution?.status === status).length,
+  ]));
+  viewCounts.all = entries.length;
   billingEntryList.replaceChildren(...(visible.length ? visible.map(billingEntryRow) : [billingEmpty('没有匹配的消费流水。')]));
   billingEntryCount.textContent = `${filtered.length} 条流水`;
   billingListContext.textContent = visible.length < filtered.length ? `已显示 ${visible.length} 条` : '按时间排列';
@@ -404,10 +409,17 @@ function billingProfileRow(profile) {
 
 function billingEntryRow(entry) {
   const node = document.createElement('article');
-  node.className = `billing-entry-row ${entry.attribution?.status === 'task' ? 'attributed' : 'unattributed'}`;
-  const attribution = entry.attribution?.status === 'task'
+  const attributionStatus = ['task', 'agent_session', 'system'].includes(entry.attribution?.status)
+    ? entry.attribution.status
+    : 'unattributed';
+  node.className = `billing-entry-row ${attributionStatus}`;
+  const attribution = attributionStatus === 'task'
     ? `<a href="/tasks/${encodeURIComponent(entry.attribution.taskId)}">${escapeHtml(entry.attribution.taskRef)} · ${escapeHtml(entry.attribution.taskTitle)}</a>`
-    : '<span class="billing-unattributed">未归属任务</span>';
+    : attributionStatus === 'agent_session'
+      ? '<span class="billing-attribution-label agent-session">独立 Agent 会话</span>'
+      : attributionStatus === 'system'
+        ? '<span class="billing-attribution-label system">系统调用</span>'
+        : '<span class="billing-attribution-label unattributed">未识别来源</span>';
   const cost = entry.cost?.status === 'actual'
     ? `${formatUsd(entry.cost.amountUsd)} 实际`
     : entry.cost?.status === 'estimated'
@@ -448,8 +460,11 @@ function renderOverviewStats() {
   const focus = state.overview.taskFocus || {};
   const active = Number.isFinite(focus.inProgress) ? focus.inProgress : 0;
   const ownerActionable = Number.isFinite(focus.ownerActionable) ? focus.ownerActionable : (focus.next ? 1 : 0);
-  const readyAgents = state.overview.agents.filter((agent) => ['active', 'ready', 'external', 'connected', 'verified'].includes(agent.status)).length;
-  const unavailableAgents = Math.max(0, state.overview.agents.length - readyAgents);
+  const verificationBacklog = Number.isFinite(focus.verificationBacklog) ? focus.verificationBacklog : 0;
+  const unresolvedFailures = Number.isFinite(focus.unresolvedFailures) ? focus.unresolvedFailures : 0;
+  const historicalArchived = Number.isFinite(focus.historicalArchived) ? focus.historicalArchived : 0;
+  const validatedByLaterEvidence = Number.isFinite(focus.validatedByLaterEvidence) ? focus.validatedByLaterEvidence : 0;
+  const unavailableAgents = state.overview.agents.filter((agent) => ['not_declared', 'declared', 'unknown'].includes(agent.capabilityTruth?.overall)).length;
   overviewSummary.textContent = ownerActionable
     ? `${ownerActionable} 件事需要你决定。`
     : active
@@ -458,6 +473,10 @@ function renderOverviewStats() {
   const cards = [
     statCard('待处理', ownerActionable, ownerActionable ? '打开上方事项处理' : '目前无需决定', 'target', ownerActionable > 0),
     statCard('运行中', active, active ? '系统会继续推进' : '当前没有执行中的工作', 'clock'),
+    ...(verificationBacklog ? [statCard('待复验', verificationBacklog, '需要按业务优先级重新跑验收', 'records', true)] : []),
+    ...(unresolvedFailures ? [statCard('仍失败', unresolvedFailures, '保留错误证据，不会自动重试', 'alert', true)] : []),
+    ...(validatedByLaterEvidence ? [statCard('已有新证据', validatedByLaterEvidence, '同岗位同能力的后续成功产物已通过校验', 'target')] : []),
+    ...(historicalArchived ? [statCard('历史归档', historicalArchived, '包含取消、验收样例和已被成功结果替代的记录', 'records')] : []),
     ...(unavailableAgents ? [statCard('接入异常', unavailableAgents, '前往系统页检查员工与连接', 'alert', true)] : []),
   ];
   overviewStats.replaceChildren(...cards);
@@ -554,6 +573,7 @@ function agentCard(agent, support) {
   const types = agent.acceptedTaskTypes.map(taskTypeLabel).join(' · ');
   const summaryTypes = agent.acceptedTaskTypes.slice(0, 2).map(taskTypeLabel).join(' · ') || '职责待核对';
   const independent = independentRuntimeLabel(agent);
+  const truth = capabilityTruthLabel(agent.capabilityTruth);
   node.innerHTML = `
     <details class="agent-disclosure" data-disclosure-key="agent:${escapeHtml(agent.agentId)}">
       <summary>
@@ -562,7 +582,7 @@ function agentCard(agent, support) {
           <strong>${escapeHtml(agent.name)}</strong>
           <small>${escapeHtml(summaryTypes)}</small>
         </span>
-        <span class="status ${escapeHtml(agent.status)}">${escapeHtml(statusLabel(agent.status))}</span>
+        <span class="status ${escapeHtml(agent.status)}">${escapeHtml(truth)}</span>
         <svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg>
       </summary>
       <div class="agent-body">
@@ -579,6 +599,10 @@ function capabilityCard(item) {
   node.className = 'capability-card';
   node.innerHTML = `<span class="capability-icon"><svg aria-hidden="true"><use href="#icon-spark"></use></svg></span><h3>${escapeHtml(item.name)}</h3><p title="${escapeHtml(item.detail)}">${escapeHtml(item.detail)}</p>`;
   return node;
+}
+
+function capabilityTruthLabel(value) {
+  return ({ human_accepted:'已验收', verified:'已验证', live:'在线待验证', configured:'已配置', declared:'仅登记', not_declared:'未接入' })[value?.overall] || '待核对';
 }
 
 function independentRuntimeLabel(agent) {

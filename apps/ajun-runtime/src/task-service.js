@@ -103,6 +103,7 @@ export class TaskService {
       store,
       governance,
       executors,
+      capabilityCatalog,
       skillExecutionRegistry,
       localAiCapabilityStatus:this.localAiCapabilityStatus,
       usageLedger,
@@ -150,6 +151,8 @@ export class TaskService {
       taskType: intake.recommendedTaskType,
       agentId: intake.recommendedAgentId,
       parentTaskId: parent.taskId,
+      workflowId:parent.workflow?.workflowId,
+      workflowType:parent.workflow?.workflowType,
       context: {
         ...(parent.input?.context || {}),
         ...(intake.advisor ? { intakeAdvisor:intake.advisor } : {}),
@@ -280,12 +283,23 @@ export class TaskService {
     }
     const normalizedSentiment = sentiment === 'useful' || sentiment === 'needs_improvement' ? sentiment : null;
     if (!normalizedSentiment) throw new ValidationError('评价类型无效。');
+    const receivedAt = new Date().toISOString();
+    const normalizedNote = String(note || '').replace(/\s+/g, ' ').trim().slice(0, 300);
     return this.store.updateTask(task.taskId, {
       feedback: {
         sentiment: normalizedSentiment,
-        note: String(note || '').replace(/\s+/g, ' ').trim().slice(0, 300),
-        receivedAt: new Date().toISOString()
-      }
+        note:normalizedNote,
+        receivedAt,
+      },
+      evaluation:{
+        ...(task.evaluation || {}),
+        humanAcceptance:{
+          status:normalizedSentiment === 'useful' ? 'accepted' : 'revision_required',
+          note:normalizedNote,
+          source:'feishu_feedback',
+          decidedAt:receivedAt,
+        },
+      },
     });
   }
 

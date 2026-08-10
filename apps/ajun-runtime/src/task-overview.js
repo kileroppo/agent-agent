@@ -1,16 +1,18 @@
 import { reconcileUsageBilling, summarizeTaskUsage } from './task-usage.js';
 import { presentTask } from './task-presentation.js';
 import { isRoutineHealthTask } from './task-record-query.js';
-import { buildTaskFocus } from './task-overview-focus.js';
 import { privateReadGrantStatus } from './private-read-grant.js';
 import { evaluateHermesCostPolicy } from './hermes-cost-policy.js';
-
+import { agentCapabilityTruth } from './workflow/capability-truth.ts';
+import { buildTaskValidationOverview } from './task-validation-overview.ts';
+import { buildCapabilities } from './task-capability-overview.ts';
 export class TaskOverview {
   constructor({
     registry,
     store,
     governance = null,
     executors = {},
+    capabilityCatalog,
     skillExecutionRegistry,
     localAiCapabilityStatus = null,
     usageLedger = null,
@@ -23,6 +25,7 @@ export class TaskOverview {
     this.store = store;
     this.governance = governance;
     this.executors = executors;
+    this.capabilityCatalog = capabilityCatalog;
     this.skillExecutionRegistry = skillExecutionRegistry;
     this.localAiCapabilityStatus = localAiCapabilityStatus;
     this.usageLedger = usageLedger;
@@ -48,6 +51,12 @@ export class TaskOverview {
     const worker = safeWorkerStatus(this.getWorkerStatus(), tasks);
     const visibleAgents = agents.map((agent) => ({
       ...agent,
+      capabilityTruth:agentCapabilityTruth({
+        agent,
+        tasks,
+        runtimeHealth:runtimeHealth[agent.agentId],
+        channel:agentChannels[agent.agentId],
+      }),
       ...(runtimeHealth[agent.agentId] ? { runtimeHealth:runtimeHealth[agent.agentId] } : {}),
       ...(agent.interaction?.directFeishu !== 'disabled' && agentChannels[agent.agentId]
         ? { feishuChannel:withFeishuTaskEvidence(agentChannels[agent.agentId], agent.agentId, tasks) }
@@ -64,7 +73,10 @@ export class TaskOverview {
       localAi,
       skillReadiness,
       runtimeHealth,
+      tasks,
+      approvals,
     });
+    const taskValidation = await buildTaskValidationOverview({ tasks, approvals, store:this.store, capabilityCatalog:this.capabilityCatalog });
     return {
       agents:visibleAgents,
       alwaysOnAgents:[
@@ -81,13 +93,12 @@ export class TaskOverview {
       } : {}),
       recentTasks:tasks.filter(isRecentConsoleTask).slice(0, 3).map(present),
       skillReadiness,
-      taskFocus:buildTaskFocus(tasks, approvals),
+      ...taskValidation,
       usage:summarizeTaskUsage(tasks, { since:startOfToday() }),
       billing:this.billing(tasks, [...agents, ...(manager ? [manager] : [])], startOfRecentDays(7)),
       capabilities,
     };
   }
-
   async usage() {
     const tasks = await this.store.list();
     const since = startOfToday();
@@ -109,52 +120,6 @@ export class TaskOverview {
     return { ...billing, health:evaluateHermesCostPolicy(billing) };
   }
 }
-
-function buildCapabilities({ governance, feishuChannel, worker, localAi, skillReadiness, runtimeHealth }) {
-  const capabilities = [
-    { id:'task-coordination', name:'统一任务协调', status:'ready', detail:'创建、路由和状态真相已就绪。' },
-    { id:'agent-registry', name:'岗位注册表', status:'ready', detail:'岗位职责、任务类型和权限边界从 Manifest 读取。' },
-    { id:'approval-gate', name:'审批闸门', status:'ready', detail:'高风险描述先进入待审批，不自动执行。' },
-    { id:'content-public-web-fetch', name:'公开资料读取', status:'ready', detail:'可读取公开网页、动态页面和 PDF；拒绝内网、登录态与越权内容。' },
-    { id:'authorized-content-read', name:'登录平台只读采集', status:'partial', detail:'小D已接入受控账号和平台专用通道；当前是否可读以“连接”页和具体任务验证为准。' },
-    { id:'governance', name:'Paperclip 治理投影', status:governance.status, detail:governance.status === 'ready' ? `本机 Paperclip 已连接（${governance.version || '未知版本'}）。` : 'Paperclip 未连接；任务仍可登记，后续可补同步。' },
-    { id:'feishu-channel', name:'飞书收发与员工入口', status:feishuChannel.status, detail:feishuChannel.detail },
-    { id:'mac-worker', name:'Mac工作间安全接力', status:worker.status, detail:worker.detail },
-    ...(localAi ? [{
-      id:'local-ai',
-      name:'本机 AI 全能力网关',
-      status:localAi.status === 'healthy' ? 'ready' : localAi.status === 'degraded' ? 'partial' : 'unavailable',
-      detail:String(localAi.safeMessage || '本机 AI 网关状态未知。').slice(0, 300),
-    }] : []),
-    { id:'external-execution', name:'外部发布与写入', status:'planned', detail:'外部发布和其他写入动作尚未接入；登录型只读采集不等于已经开放写入。' },
-  ];
-  const presentationSkill = skillReadiness.find((item) => item.slug === 'open-kimi-ppt');
-  if (presentationSkill) {
-    const composeStatus = presentationSkill.modes?.compose?.status || presentationSkill.status;
-    const exportStatus = presentationSkill.modes?.export?.status || presentationSkill.status;
-    capabilities.push({
-      id:'office-presentation',
-      name:'小办演示文稿',
-      status:composeStatus === 'ready' && exportStatus === 'ready'
-        ? 'ready'
-        : composeStatus === 'ready' ? 'partial' : 'unavailable',
-      detail:[
-        `PPTD ${composeStatus === 'ready' ? '可用' : `不可用（${composeStatus}）`}`,
-        `PPTX ${exportStatus === 'ready' ? '可用' : `暂不可用（${exportStatus}）`}`,
-        presentationSkill.recovery,
-      ].filter(Boolean).join('；').slice(0, 500),
-    });
-  }
-  const wechatHealth = runtimeHealth['wechat-chat-retriever'];
-  if (wechatHealth) capabilities.push({
-    id:'wechat-private-read',
-    name:'微信本机只读',
-    status:wechatHealth.status === 'healthy' ? 'ready' : wechatHealth.status === 'degraded' ? 'partial' : 'unavailable',
-    detail:wechatHealth.safeMessage,
-  });
-  return capabilities;
-}
-
 function isRecentConsoleTask(task) {
   if (isRoutineHealthTask(task)) return false;
   const channels = [task?.source?.channel, task?.source?.originChannel].map((value) => String(value || '').trim());
