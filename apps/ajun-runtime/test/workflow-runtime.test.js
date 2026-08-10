@@ -171,6 +171,8 @@ test('历史任务拆分为归档取消、待复验和仍失败，并识别后�
     { taskId:'h-new', status:'succeeded', taskType:'governance.architecture-review', assigneeAgentId:'architect', updatedAt:'2026-08-02T00:00:00.000Z', artifactRefs:[{ validation:{ exists:true, readable:true, nonEmpty:true } }] },
     { taskId:'i-old', status:'failed', taskType:'report.public-material', assigneeAgentId:'candidate', updatedAt:'2026-08-01T00:00:00.000Z' },
     { taskId:'i-new', status:'succeeded', taskType:'report.public-material', assigneeAgentId:'candidate', updatedAt:'2026-08-02T00:00:00.000Z', artifactRefs:[{ validation:{ exists:true, readable:true, nonEmpty:false } }] },
+    { taskId:'j', status:'failed', taskType:'report.public-material', error:{ code:'controlled_public_report_failure' } },
+    { taskId:'k', status:'waiting_test', taskType:'content.platform-draft', input:{ title:'M5 8分：真实StepFun多模态付费探针' } },
   ]);
   assert.equal(summary.counts.current, 1);
   assert.equal(summary.counts.needs_human, 1);
@@ -179,12 +181,13 @@ test('历史任务拆分为归档取消、待复验和仍失败，并识别后�
   assert.equal(summary.counts.needs_reverification, 1);
   assert.equal(summary.counts.superseded, 1);
   assert.equal(summary.counts.validated_by_later_evidence, 1);
+  assert.equal(summary.counts.expected_acceptance_failure, 2);
   assert.equal(summary.counts.unresolved_failure, 2);
   assert.equal(summary.counts.unresolved, 0);
   assert.equal(summary.reviewBacklog, 3);
   assert.equal(summary.verificationBacklog, 1);
   assert.equal(summary.unresolvedFailures, 2);
-  assert.equal(summary.historicalArchived, 2);
+  assert.equal(summary.historicalArchived, 4);
   assert.equal(summary.validatedByLaterEvidence, 1);
   assert.equal(summary.ownerActionable, 1);
 });

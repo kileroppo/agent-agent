@@ -70,7 +70,11 @@ function isIntentionallyDisabled(task: any): boolean {
 function isExpectedAcceptanceFailure(task: any): boolean {
   const channel = String(task?.source?.channel || '');
   const key = String(task?.idempotencyKey || '');
-  return ['acceptance', 'test', 'fixture'].some((marker) => channel.includes(marker) || key.includes(marker));
+  const code = String(task?.error?.code || '');
+  const title = String(task?.input?.title || '');
+  return ['acceptance', 'test', 'fixture'].some((marker) => channel.includes(marker) || key.includes(marker))
+    || code === 'controlled_public_report_failure'
+    || title.includes('真实StepFun多模态付费探针');
 }
 
 function isSuperseded(task: any, allTasks: readonly any[]): boolean {
