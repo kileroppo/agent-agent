@@ -331,7 +331,7 @@ function hasAffirmativeHighRiskIntent(value) {
 function isExplicitlyNegated(prefix) {
   if (/(?:不|无|禁止|不得|不可|不能|无需|不用|不需要|不允许|不涉及)\s*$/.test(prefix)) return true;
   const clause = String(prefix || '').split(/[，,。；;：:！？!?\n]/).at(-1) || '';
-  return /^\s*(?:请)?(?:不要|不得|禁止|不可|不能|无需|不用|不需要|不允许|不涉及)[^，,。；;：:！？!?\n]{0,80}(?:、|或|和|以及)\s*$/.test(clause);
+  return /^\s*(?:请)?(?:不|不要|不得|禁止|不可|不能|无需|不用|不需要|不允许|不涉及)[^，,。；;：:！？!?\n]{0,80}(?:、|或|和|以及)\s*$/.test(clause);
 }
 
 function shouldProjectToPaperclip(task, approval = null) {

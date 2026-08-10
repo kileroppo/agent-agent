@@ -471,6 +471,18 @@ test('并列安全约束里的外发词不会被误判为高风险动作', async
   assert.equal(records.approvals.length, 0);
   assert.equal(task.status, 'succeeded');
 });
+test('不外发或发布的并列否定不会把第二个动作误判为高风险', async () => {
+  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  const { service, records } = setup({ agents:[operator] });
+  service.executors.operator = { async execute(task) { return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[verifiedHealthReport(task)] }; } };
+  const task = await service.create({
+    title:'军团只读健康检查',
+    description:'只生成可核验健康报告；不重启服务、不修改配置、不外发或发布。',
+    taskType:'operations.health-review'
+  });
+  assert.equal(records.approvals.length, 0);
+  assert.equal(task.status, 'succeeded');
+});
 test('只生成草稿或知识笔记的任务不会因描述发布检查而误触外发审批', async () => {
   const office = { agentId:'office-assistant', name:'小办', status:'active', acceptedTaskTypes:['office.knowledge-summary'] };
   const { service } = setup({ agents:[office] });
