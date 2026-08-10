@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "agent.army/typescript-ratio-baseline/v1",
+  "productionRoot": "src",
+  "extensions": [".ts", ".js", ".mjs"],
+  "minimumTypescriptFiles": 41,
+  "minimumRatio": 0.2,
+  "recordedCounts": {
+    "typescript": 41,
+    "javascript": 160,
+    "moduleJavascript": 1,
+    "total": 202
+  },
+  "recordedRatio": 0.20297029702970298
+}
