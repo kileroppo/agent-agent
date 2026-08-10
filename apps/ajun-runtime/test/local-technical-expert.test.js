@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { LocalTechnicalExpert } from '../src/local-technical-expert.js';
+import { LocalTechnicalExpert } from '../src/local-technical-expert.ts';
 
 test('技术专家接手复杂故障后留下真实修复任务，不冒充已经修好', async () => {
   const expert = new LocalTechnicalExpert({ now: () => new Date('2026-07-21T00:00:00.000Z') });

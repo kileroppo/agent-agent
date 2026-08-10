@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { TechnicalRepairDiagnoser } from '../src/technical-repair-diagnoser.js';
+import { TechnicalRepairDiagnoser } from '../src/technical-repair-diagnoser.ts';
 
 const task = { input:{ title:'修复执行器错误', context:{ failure:{ code:'executor_failed', stage:'execution' } } } };
 

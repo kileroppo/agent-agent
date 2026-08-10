@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { classifyTechnicalFailure } from '../src/technical-failure-classifier.js';
+import { classifyTechnicalFailure } from '../src/technical-failure-classifier.ts';
 
 test('技术故障先区分代码缺陷、输入问题、授权问题和临时外部故障', () => {
   assert.equal(classifyTechnicalFailure({

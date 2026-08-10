@@ -1,5 +1,5 @@
 import { presentTask } from './task-presentation.js';
-import { sanitizeFailureText } from './technical-failure-classifier.js';
+import { sanitizeFailureText } from './technical-failure-classifier.ts';
 
 export class TaskRecordService {
   constructor({ store, taskDetailBaseUrl = '', taskRecovery = null }) {

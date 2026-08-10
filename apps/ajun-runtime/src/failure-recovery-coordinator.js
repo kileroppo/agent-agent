@@ -1,4 +1,4 @@
-import { classifyTechnicalFailure } from './technical-failure-classifier.js';
+import { classifyTechnicalFailure } from './technical-failure-classifier.ts';
 
 const MAX_AUTOMATIC_RETRIES = 1;
 

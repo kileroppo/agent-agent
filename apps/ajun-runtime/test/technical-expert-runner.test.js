@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { TechnicalExpertRunner } from '../src/technical-expert-runner.js';
+import { TechnicalExpertRunner } from '../src/technical-expert-runner.ts';
 
 const task = { input:{ title:'修复登记遗漏', description:'技术修复任务没有记录。', context:{ repairScope:{ files:['apps/ajun-runtime/src/task-service.js'], testCommand:'npm test --prefix apps/ajun-runtime', recoveryCheck:'确认小D业务任务不会被登记。' } } } };
 

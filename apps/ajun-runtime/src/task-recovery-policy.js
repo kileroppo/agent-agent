@@ -1,4 +1,4 @@
-import { classifyTechnicalFailure } from './technical-failure-classifier.js';
+import { classifyTechnicalFailure } from './technical-failure-classifier.ts';
 
 export function view(task, { audience = 'local-owner', relatedTasks = [] } = {}) {
   const coordination = task?.recovery?.coordination || null;

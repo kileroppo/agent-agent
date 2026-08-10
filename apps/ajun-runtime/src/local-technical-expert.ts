@@ -1,7 +1,8 @@
 export class LocalTechnicalExpert {
-  constructor({ now = () => new Date(), workspace = null, runner = null, promotion = null } = {}) { this.now = now; this.workspace = workspace; this.runner = runner; this.promotion = promotion; }
+  now: () => Date; workspace: any; runner: any; promotion: any;
+  constructor({ now = () => new Date(), workspace = null, runner = null, promotion = null }: any = {}) { this.now = now; this.workspace = workspace; this.runner = runner; this.promotion = promotion; }
 
-  async execute(task) {
+  async execute(task: any) {
     const createdAt = this.now().toISOString();
     const context = task.input?.context || {};
     const failure = context.failure || {};
@@ -91,7 +92,7 @@ export class LocalTechnicalExpert {
   }
 }
 
-function verifiedRepairEvidence(task, run, promotion) {
+function verifiedRepairEvidence(task: any, run: any, promotion: any) {
   if (!['promoted', 'candidate_promoted'].includes(promotion?.status)) return null;
   const proof = run?.evidence?.metadata?.agentArmyRepairEvidence || {};
   if (proof.testsPassed !== true || proof.recoveryVerified !== true) return null;
@@ -104,19 +105,19 @@ function verifiedRepairEvidence(task, run, promotion) {
     recoveryVerified:true,
     recoveryCheck:String(task.input?.context?.repairScope?.recoveryCheck || '').slice(0, 1000),
     recoverySummary:String(proof.recoverySummary || '').slice(0, 2000),
-    remainingTests:Array.isArray(proof.remainingTests) ? proof.remainingTests.slice(0, 20).map((item) => String(item || '').slice(0, 500)) : [],
+    remainingTests:Array.isArray(proof.remainingTests) ? proof.remainingTests.slice(0, 20).map((item: any) => String(item || '').slice(0, 500)) : [],
     ...(promotion.status === 'candidate_promoted'
       ? { candidateOnly:true, runningReleaseUpdated:false }
       : {})
   };
 }
 
-function requiresFollowUpTest(run, promotion) {
+function requiresFollowUpTest(run: any, promotion: any) {
   return ['waiting_for_test', 'waiting_for_scope', 'evidence_missing', 'failed'].includes(run?.status)
     || ['rejected', 'conflict', 'recovery_required', 'candidate_promoted'].includes(promotion?.status);
 }
 
-function stageFor(workspace, run, promotion, engineeringAssigned) {
+function stageFor(workspace: any, run: any, promotion: any, engineeringAssigned: boolean) {
   if (promotion?.status === 'promoted') return 'repair_promoted_awaiting_record';
   if (promotion?.status === 'candidate_promoted') return 'repair_candidate_awaiting_release';
   if (promotion?.status === 'recovery_required') return 'repair_promotion_recovery_required';
@@ -131,7 +132,7 @@ function stageFor(workspace, run, promotion, engineeringAssigned) {
   return engineeringAssigned ? 'paperclip_engineering_assigned' : 'technical_repair_case_ready';
 }
 
-function nextActionFor(workspace, run, promotion, engineeringAssigned) {
+function nextActionFor(workspace: any, run: any, promotion: any, engineeringAssigned: boolean) {
   if (promotion?.status === 'promoted') return 'A君 已核对范围、自动检查和恢复检查，并安全带回主工程；等待治理记录完成。';
   if (promotion?.status === 'candidate_promoted') return promotion.nextAction || '候选源码已更新；必须生成并验证新的不可变 release 后才能切换运行版本。';
   if (promotion?.status === 'recovery_required') return `晋升未能完整回滚，需要人工恢复：${promotion.reason}`;
@@ -146,7 +147,7 @@ function nextActionFor(workspace, run, promotion, engineeringAssigned) {
   return engineeringAssigned ? 'Paperclip 已登记技术专家修复工作；等待 A君 建立独立修理副本后再开始修改。' : '需要技术专家接入受控工程执行器后实施修复；当前已保留问题、来源任务和恢复记录。';
 }
 
-function diagnosisFor(failure) {
+function diagnosisFor(failure: any) {
   if (failure.code === 'xiaod_status_unavailable') return '小D状态通道连续不可用，安全重试已用尽，需要检查本机服务、启动配置和状态查询链路。';
   if (failure.code === 'xiaod_job_failed') return '小D业务任务在执行阶段失败，自动重试未能解决，需要按失败阶段检查内容获取或处理链路。';
   if (failure.code === 'executor_failed') return '本机执行器抛出未处理错误，需要定位对应员工执行器并补回归测试。';

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { TechnicalRepairWatchdog } from '../src/technical-repair-watchdog.js';
+import { TechnicalRepairWatchdog } from '../src/technical-repair-watchdog.ts';
 
 function setup(tasks, governance = null) {
   const store = {
