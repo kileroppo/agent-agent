@@ -174,6 +174,9 @@ test('历史任务拆分为归档取消、待复验和仍失败，并识别后�
     { taskId:'i-new', status:'succeeded', taskType:'report.public-material', assigneeAgentId:'candidate', updatedAt:'2026-08-02T00:00:00.000Z', artifactRefs:[{ validation:{ exists:true, readable:true, nonEmpty:false } }] },
     { taskId:'j', status:'failed', taskType:'report.public-material', error:{ code:'controlled_public_report_failure' } },
     { taskId:'k', status:'waiting_test', taskType:'content.platform-draft', input:{ title:'M5 8分：真实StepFun多模态付费探针' } },
+    { taskId:'draft-rejected', status:'failed', taskType:'content.platform-draft', input:{ context:{} }, error:{ code:'paperclip_hermes_reported_failure', retryable:false }, artifactRefs:[{ validation:{ exists:true, readable:true, nonEmpty:true } }] },
+    { taskId:'media-needs-input', status:'failed', taskType:'media.transcribe-and-refine', error:{ category:'needs_input' } },
+    { taskId:'recovery-rejected', status:'failed', taskType:'operations.failure-recovery', parentTaskId:'media-needs-input', input:{ context:{ failedTaskId:'media-needs-input' } }, error:{ code:'paperclip_hermes_reported_failure', retryable:false }, artifactRefs:[{ validation:{ exists:true, readable:true, nonEmpty:true } }] },
   ]);
   assert.equal(summary.counts.current, 1);
   assert.equal(summary.counts.needs_human, 1);
@@ -183,12 +186,13 @@ test('历史任务拆分为归档取消、待复验和仍失败，并识别后�
   assert.equal(summary.counts.superseded, 1);
   assert.equal(summary.counts.validated_by_later_evidence, 1);
   assert.equal(summary.counts.expected_acceptance_failure, 2);
-  assert.equal(summary.counts.unresolved_failure, 2);
+  assert.equal(summary.counts.expected_boundary_rejection, 2);
+  assert.equal(summary.counts.unresolved_failure, 3);
   assert.equal(summary.counts.unresolved, 0);
-  assert.equal(summary.reviewBacklog, 3);
+  assert.equal(summary.reviewBacklog, 4);
   assert.equal(summary.verificationBacklog, 1);
-  assert.equal(summary.unresolvedFailures, 2);
-  assert.equal(summary.historicalArchived, 4);
+  assert.equal(summary.unresolvedFailures, 3);
+  assert.equal(summary.historicalArchived, 6);
   assert.equal(summary.validatedByLaterEvidence, 1);
   assert.equal(summary.ownerActionable, 1);
 });
@@ -207,12 +211,100 @@ test('正式委托任务和已激活岗位草案可作为旧验证任务的后�
   assert.equal(summary.validatedByLaterEvidence, 2);
 });
 
+test('开放任务类型可反向验证旧委托任务，恢复链由同源业务后续成功消债', () => {
+  const summary = summarizeBacklog([
+    { taskId:'research-old', status:'failed', taskType:'research.intel-report', assigneeAgentId:'researcher', updatedAt:'2026-08-01T00:00:00.000Z' },
+    { taskId:'research-open', status:'succeeded', taskType:'research.open-investigation', assigneeAgentId:'researcher', updatedAt:'2026-08-01T01:00:00.000Z', artifactRefs:[{ validation:{ exists:true, readable:true, nonEmpty:true } }] },
+    { taskId:'media-old', status:'failed', taskType:'media.transcribe-and-refine', assigneeAgentId:'xiaod', updatedAt:'2026-08-01T02:00:00.000Z', input:{ sourceUrl:'https://example.com/video' } },
+    { taskId:'recovery-old', status:'failed', taskType:'operations.failure-recovery', parentTaskId:'media-old', updatedAt:'2026-08-01T04:00:00.000Z', input:{ context:{ failedTaskId:'media-old' } } },
+    { taskId:'repair-old', status:'failed', taskType:'operations.technical-repair', parentTaskId:'media-old', updatedAt:'2026-08-01T02:30:00.000Z', input:{ context:{ failedTaskId:'media-old' } } },
+    { taskId:'media-new', status:'succeeded', taskType:'media.transcribe-and-refine', assigneeAgentId:'xiaod', updatedAt:'2026-08-01T03:00:00.000Z', input:{ sourceUrl:'https://example.com/video' }, artifactRefs:[{ validation:{ exists:true, readable:true, nonEmpty:true } }] },
+  ], {
+    taskTypeDelegates:{ 'research.open-investigation':'research.intel-report' },
+  });
+  assert.equal(summary.counts.validated_by_later_evidence, 3);
+  assert.equal(summary.counts.superseded, 1);
+  assert.equal(summary.reviewBacklog, 0);
+});
+
+test('失败军团任务的已验证子产物被后续正式任务消费时视为后来交付', () => {
+  const summary = summarizeBacklog([
+    {
+      taskId:'mission-old', status:'failed', taskType:'army.cross-agent-mission', updatedAt:'2026-08-01T00:02:00.000Z',
+      input:{ context:{ businessMissionItems:[{ taskType:'media.transcribe-and-refine' }, { taskType:'content.video-benchmark-analysis' }] } },
+    },
+    {
+      taskId:'transcript', parentTaskId:'mission-old', status:'succeeded', taskType:'media.transcribe-and-refine', updatedAt:'2026-08-01T00:01:00.000Z',
+      artifactRefs:[{ validation:{ exists:true, readable:true, nonEmpty:true } }],
+    },
+    {
+      taskId:'analysis-new', status:'succeeded', taskType:'content.video-benchmark-analysis', updatedAt:'2026-08-01T00:03:00.000Z',
+      input:{ context:{ sourceTaskIds:['transcript'] } },
+      artifactRefs:[{ validation:{ exists:true, readable:true, nonEmpty:true } }],
+    },
+  ]);
+  assert.equal(summary.counts.validated_by_later_evidence, 1);
+  assert.equal(summary.reviewBacklog, 0);
+});
+
+test('正式来源已提供或后续任务未消费本任务子产物时仍保留真实失败', () => {
+  const tasks = [
+    {
+      taskId:'draft-real-failure', status:'failed', taskType:'content.platform-draft',
+      input:{ context:{ sourceTaskIds:['analysis-source'] } },
+    },
+    {
+      taskId:'mission-real-failure', status:'failed', taskType:'army.cross-agent-mission', updatedAt:'2026-08-01T00:02:00.000Z',
+      input:{ context:{ businessMissionItems:[{ taskType:'content.video-benchmark-analysis' }] } },
+    },
+    {
+      taskId:'mission-child', parentTaskId:'mission-real-failure', status:'succeeded', taskType:'media.transcribe-and-refine',
+      artifactRefs:[{ validation:{ exists:true, readable:true, nonEmpty:true } }],
+    },
+    {
+      taskId:'unrelated-analysis', status:'succeeded', taskType:'content.video-benchmark-analysis', updatedAt:'2026-08-01T00:03:00.000Z',
+      input:{ context:{ sourceTaskIds:['another-source'] } },
+      artifactRefs:[{ validation:{ exists:true, readable:true, nonEmpty:true } }],
+    },
+  ];
+  const summary = summarizeBacklog(tasks);
+  assert.equal(summary.counts.unresolved_failure, 2);
+  assert.equal(summary.counts.validated_by_later_evidence, 0);
+});
+
+test('执行器自身失败、多人草稿和部分交付不能冒充预期拒绝或整单完成', () => {
+  const tasks = [
+    {
+      taskId:'repair-crashed', status:'failed', taskType:'operations.technical-repair',
+      input:{ context:{ failure:{ category:'needs_input' } } },
+      error:{ code:'executor_failed', retryable:false },
+    },
+    {
+      taskId:'mission-draft-failed', parentTaskId:'mission-partial', status:'failed', taskType:'content.platform-draft',
+      error:{ code:'paperclip_hermes_reported_failure', retryable:false },
+      artifactRefs:[{ validation:{ exists:true, readable:true, nonEmpty:true } }],
+    },
+    {
+      taskId:'mission-partial', status:'failed', taskType:'army.cross-agent-mission', updatedAt:'2026-08-01T00:02:00.000Z',
+      input:{ context:{ businessMissionItems:[{ taskType:'media.transcribe-and-refine' }, { taskType:'content.video-benchmark-analysis' }] } },
+    },
+    {
+      taskId:'transcript-only', parentTaskId:'mission-partial', status:'succeeded', taskType:'media.transcribe-and-refine',
+      artifactRefs:[{ validation:{ exists:true, readable:true, nonEmpty:true } }],
+    },
+  ];
+  const summary = summarizeBacklog(tasks);
+  assert.equal(summary.counts.expected_boundary_rejection, 0);
+  assert.equal(summary.counts.validated_by_later_evidence, 0);
+  assert.equal(summary.counts.unresolved_failure, 3);
+});
+
 test('待验证任务按能力链路生成 AI 与人工结合的可执行验证账本', () => {
   const campaign = buildValidationCampaign([
     { taskId:'research', status:'failed', taskType:'research.intel-report' },
     { taskId:'mission', status:'failed', taskType:'army.cross-agent-mission', input:{ title:'公开视频精华拆解' } },
     { taskId:'analysis', status:'failed', taskType:'content.video-benchmark-analysis' },
-    { taskId:'draft', status:'failed', taskType:'content.platform-draft' },
+    { taskId:'draft', status:'failed', taskType:'content.platform-draft', input:{ context:{ sourceTaskIds:['done'] } } },
     { taskId:'recovery', status:'failed', taskType:'operations.failure-recovery' },
     { taskId:'repair', status:'failed', taskType:'operations.technical-repair' },
     { taskId:'done', status:'succeeded', taskType:'content.platform-draft' },

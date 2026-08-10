@@ -3,6 +3,7 @@ export type BacklogClassification =
   | 'superseded'
   | 'validated_by_later_evidence'
   | 'expected_acceptance_failure'
+  | 'expected_boundary_rejection'
   | 'intentionally_disabled'
   | 'needs_human'
   | 'archived_cancelled'
@@ -24,6 +25,7 @@ export function classifyTaskBacklog(
   if (task?.status === 'succeeded') return 'completed';
   if (isIntentionallyDisabled(task)) return 'intentionally_disabled';
   if (isExpectedAcceptanceFailure(task)) return 'expected_acceptance_failure';
+  if (isExpectedBoundaryRejection(task, allTasks)) return 'expected_boundary_rejection';
   if (isSuperseded(task, allTasks)) return 'superseded';
   if (isValidatedByLaterEvidence(task, allTasks, context)) return 'validated_by_later_evidence';
   if (task?.status === 'needs_input' || task?.status === 'waiting_approval') return 'needs_human';
@@ -48,6 +50,7 @@ export function summarizeBacklog(tasks: readonly any[], context: BacklogEvidence
     superseded:0,
     validated_by_later_evidence:0,
     expected_acceptance_failure:0,
+    expected_boundary_rejection:0,
     intentionally_disabled:0,
     needs_human:0,
     archived_cancelled:0,
@@ -62,7 +65,10 @@ export function summarizeBacklog(tasks: readonly any[], context: BacklogEvidence
     reviewBacklog:counts.needs_reverification + counts.unresolved_failure + counts.unresolved,
     verificationBacklog:counts.needs_reverification,
     unresolvedFailures:counts.unresolved_failure + counts.unresolved,
-    historicalArchived:counts.archived_cancelled + counts.superseded + counts.expected_acceptance_failure,
+    historicalArchived:counts.archived_cancelled
+      + counts.superseded
+      + counts.expected_acceptance_failure
+      + counts.expected_boundary_rejection,
     validatedByLaterEvidence:counts.validated_by_later_evidence,
     ownerActionable:counts.needs_human,
   });
@@ -84,6 +90,23 @@ function isExpectedAcceptanceFailure(task: any): boolean {
   return ['acceptance', 'test', 'fixture'].some((marker) => channel.includes(marker) || key.includes(marker))
     || code === 'controlled_public_report_failure'
     || title.includes('真实StepFun多模态付费探针');
+}
+
+function isExpectedBoundaryRejection(task: any, allTasks: readonly any[]): boolean {
+  if (task?.status !== 'failed') return false;
+  const reportedSafeRefusal = task?.error?.code === 'paperclip_hermes_reported_failure'
+    && task?.error?.retryable === false
+    && hasVerifiedArtifact(task);
+  if (!reportedSafeRefusal) return false;
+  if (task?.taskType === 'content.platform-draft') {
+    const sourceTaskIds = task?.input?.context?.sourceTaskIds || task?.input?.sourceTaskIds;
+    return !task?.parentTaskId && (!Array.isArray(sourceTaskIds) || sourceTaskIds.length === 0);
+  }
+  if (!['operations.failure-recovery', 'operations.technical-repair'].includes(task?.taskType)) return false;
+  const failedTaskId = task?.input?.context?.failedTaskId || task?.parentTaskId;
+  const failedTask = allTasks.find((candidate) => candidate?.taskId === failedTaskId);
+  const failureCategory = task?.input?.context?.failure?.category || failedTask?.error?.category;
+  return failureCategory === 'needs_input';
 }
 
 function isSuperseded(task: any, allTasks: readonly any[]): boolean {
@@ -114,14 +137,60 @@ function isValidatedByLaterEvidence(
   if (!['waiting_test', 'failed'].includes(task?.status)) return false;
   const taskTime = Date.parse(task?.updatedAt || task?.createdAt || '') || 0;
   const delegatedTaskType = context.taskTypeDelegates?.[String(task?.taskType || '')];
-  const acceptedTaskTypes = new Set([task?.taskType, delegatedTaskType].filter(Boolean));
+  const openTaskTypes = Object.entries(context.taskTypeDelegates || {})
+    .filter(([, delegate]) => delegate === task?.taskType)
+    .map(([openTaskType]) => openTaskType);
+  const acceptedTaskTypes = new Set([task?.taskType, delegatedTaskType, ...openTaskTypes].filter(Boolean));
   if (allTasks.some((candidate) => candidate?.taskId !== task?.taskId
     && candidate?.status === 'succeeded'
     && acceptedTaskTypes.has(candidate?.taskType)
     && candidate?.assigneeAgentId === task?.assigneeAgentId
     && (Date.parse(candidate?.updatedAt || candidate?.createdAt || '') || 0) > taskTime
     && hasVerifiedArtifact(candidate))) return true;
+  if (crossAgentMissionHasLaterDelivery(task, allTasks, taskTime)) return true;
+  if (recoveryTargetHasLaterBusinessSuccess(task, allTasks)) return true;
   return activeProposalValidatesLegacyTask(task, context.proposals || [], taskTime);
+}
+
+function recoveryTargetHasLaterBusinessSuccess(task: any, allTasks: readonly any[]): boolean {
+  if (!['operations.failure-recovery', 'operations.technical-repair'].includes(task?.taskType)) return false;
+  const failedTaskId = task?.input?.context?.failedTaskId || task?.parentTaskId;
+  const failedTask = allTasks.find((candidate) => candidate?.taskId === failedTaskId);
+  if (!failedTask) return false;
+  const sourceUrl = String(failedTask?.input?.sourceUrl || task?.input?.context?.sourceUrl || '').trim();
+  if (!sourceUrl) return false;
+  const failedAt = Date.parse(failedTask?.updatedAt || failedTask?.createdAt || '') || 0;
+  return allTasks.some((candidate) => candidate?.taskId !== failedTaskId
+    && candidate?.status === 'succeeded'
+    && candidate?.taskType === failedTask?.taskType
+    && candidate?.assigneeAgentId === failedTask?.assigneeAgentId
+    && String(candidate?.input?.sourceUrl || '').trim() === sourceUrl
+    && (Date.parse(candidate?.updatedAt || candidate?.createdAt || '') || 0) > failedAt
+    && hasVerifiedArtifact(candidate));
+}
+
+function crossAgentMissionHasLaterDelivery(task: any, allTasks: readonly any[], taskTime: number): boolean {
+  if (task?.taskType !== 'army.cross-agent-mission') return false;
+  const plannedTaskTypes = new Set((task?.input?.context?.businessMissionItems || [])
+    .map((item: any) => item?.taskType)
+    .filter(Boolean));
+  if (!plannedTaskTypes.size) return false;
+  const verifiedChildren = allTasks.filter((candidate) => candidate?.parentTaskId === task?.taskId
+    && candidate?.status === 'succeeded'
+    && hasVerifiedArtifact(candidate));
+  const verifiedChildIds = new Set(verifiedChildren.map((candidate) => candidate.taskId));
+  if (!verifiedChildIds.size) return false;
+  const deliveredTaskTypes = new Set(verifiedChildren.map((candidate) => candidate?.taskType).filter(Boolean));
+  for (const candidate of allTasks) {
+    if (candidate?.status !== 'succeeded' || !hasVerifiedArtifact(candidate)) continue;
+    if ((Date.parse(candidate?.updatedAt || candidate?.createdAt || '') || 0) <= taskTime) continue;
+    if (!plannedTaskTypes.has(candidate?.taskType)) continue;
+    const sourceTaskIds = candidate?.input?.context?.sourceTaskIds || candidate?.input?.sourceTaskIds || [];
+    if (Array.isArray(sourceTaskIds) && sourceTaskIds.some((taskId: string) => verifiedChildIds.has(taskId))) {
+      deliveredTaskTypes.add(candidate.taskType);
+    }
+  }
+  return [...plannedTaskTypes].every((taskType) => deliveredTaskTypes.has(taskType));
 }
 
 function activeProposalValidatesLegacyTask(task: any, proposals: readonly any[], taskTime: number): boolean {

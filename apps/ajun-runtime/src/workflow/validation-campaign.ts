@@ -6,6 +6,7 @@ import {
 
 type ValidationAuthority = 'none' | 'budget_policy' | 'public_source_and_budget_policy' | 'isolated_local_write';
 type ValidationState = 'ready_for_automation' | 'policy_gated_automation' | 'requires_explicit_authority';
+type EvidenceFreshness = 'later_than_latest_failure' | 'predates_latest_failure' | 'none';
 
 type ValidationSpec = Readonly<{
   id: string;
@@ -103,6 +104,7 @@ export function buildValidationCampaign(
     acceptanceStandard:matched.acceptanceStandard,
     humanCheck:matched.humanCheck,
     failureAction:matched.failureAction,
+    evidence:validationEvidence(matched, matchedTasks, tasks),
   }));
   return Object.freeze({
     schemaVersion:'agent.army/validation-campaign/v1',
@@ -117,6 +119,65 @@ export function buildValidationCampaign(
       .reduce((count, item) => count + item.taskCount, 0),
     groups:Object.freeze(items),
   });
+}
+
+function validationEvidence(
+  matched: ValidationSpec,
+  reviewTasks: readonly any[],
+  allTasks: readonly any[],
+) {
+  const verifiedTasks = (allTasks || []).filter((task) => matched.matches(task) && isVerifiedSuccess(task));
+  const latestVerified = latestTimedTask(verifiedTasks);
+  const latestFailure = latestTimedTask(reviewTasks);
+  let freshness: EvidenceFreshness = 'none';
+  if (latestVerified && latestFailure) {
+    if (latestVerified.timestamp > latestFailure.timestamp) freshness = 'later_than_latest_failure';
+    if (latestVerified.timestamp < latestFailure.timestamp) freshness = 'predates_latest_failure';
+  }
+  return Object.freeze({
+    verifiedSuccessCount:verifiedTasks.length,
+    latestVerifiedTaskId:latestVerified?.task?.taskId ? String(latestVerified.task.taskId) : null,
+    latestVerifiedAt:latestVerified?.at || null,
+    latestFailureTaskId:latestFailure?.task?.taskId ? String(latestFailure.task.taskId) : null,
+    latestFailureAt:latestFailure?.at || null,
+    freshness,
+  });
+}
+
+function isVerifiedSuccess(task: any): boolean {
+  return task?.status === 'succeeded'
+    && !isAutomatedValidationRecord(task)
+    && (task?.artifactRefs || []).some((artifact: any) => (
+      artifact?.validation?.exists === true
+      && artifact?.validation?.readable === true
+      && artifact?.validation?.nonEmpty === true
+    ));
+}
+
+function isAutomatedValidationRecord(task: any): boolean {
+  const channel = String(task?.source?.channel || '').toLowerCase();
+  const idempotencyKey = String(task?.idempotencyKey || '').toLowerCase();
+  return ['acceptance', 'test', 'fixture'].some((marker) => (
+    channel.includes(marker) || idempotencyKey.includes(marker)
+  ));
+}
+
+function latestTimedTask(tasks: readonly any[]) {
+  let latest: { task: any; at: string; timestamp: number } | null = null;
+  for (const task of tasks) {
+    const at = validTaskTime(task);
+    if (!at) continue;
+    const timestamp = Date.parse(at);
+    if (!latest || timestamp > latest.timestamp) latest = { task, at, timestamp };
+  }
+  return latest;
+}
+
+function validTaskTime(task: any): string | null {
+  for (const value of [task?.updatedAt, task?.createdAt]) {
+    if (typeof value === 'string' && value && Number.isFinite(Date.parse(value))) return value;
+  }
+  return null;
 }
 
 function validationState(authority: ValidationAuthority): ValidationState {
@@ -148,7 +209,7 @@ function fallbackSpec(task: any): ValidationSpec {
   return Object.freeze({
     id:`other:${taskType}`,
     name:`其他待验证能力：${taskType}`,
-    matches:() => true,
+    matches:(candidate: any) => String(candidate?.taskType || 'unknown') === taskType,
     authority:'budget_policy',
     automatedMethod:'先识别该任务依赖的 Runtime、Skill、Policy 与 Tool Gateway，再选择不产生外部副作用的最小验证。',
     acceptanceStandard:'必须产生新的成功任务和可验证产物；只有代码或配置存在不能视为通过。',
