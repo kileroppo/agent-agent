@@ -2410,7 +2410,12 @@ test('小拆 heartbeat 通过受控执行桥写回真实分析产物且重复调
   const persisted = records.tasks.find((task) => task.taskId === first.task.taskId);
   assert.equal(persisted.usage.model.status, 'reported');
   assert.equal(persisted.usage.model.apiCalls, 1);
-  assert.deepEqual(persisted.usage.cost, { status:'reported', amount:0, currency:'USD' });
+  assert.deepEqual(persisted.usage.cost, {
+    status:'reported',
+    amount:0,
+    currency:'USD',
+    basis:'task_usage_reported',
+  });
 });
 
 test('v2 视频分析缺少模式结构证明时不能被 heartbeat 标成成功', async () => {

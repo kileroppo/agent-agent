@@ -178,7 +178,7 @@ function normalizeModel(value) {
   const inputTokens = nonNegativeInteger(value.inputTokens);
   const outputTokens = nonNegativeInteger(value.outputTokens);
   const apiCalls = nonNegativeInteger(value.apiCalls);
-  if (inputTokens === null && outputTokens === null) return { status:'not_reported' };
+  if (inputTokens === null && outputTokens === null && apiCalls === null) return { status:'not_reported' };
   return {
     status:'reported',
     ...(String(value.provider || '').trim() ? { provider:String(value.provider).trim().slice(0, 80) } : {}),
@@ -194,7 +194,21 @@ function normalizeCost(value) {
   const amount = Number(value.amount);
   const currency = String(value.currency || '').trim().toUpperCase();
   if (!Number.isFinite(amount) || amount < 0 || !currency || currency.length > 8) return { status:'not_reported' };
-  return { status:'reported', amount, currency };
+  const basis = normalizeCostBasis(value.basis || value.status);
+  const source = String(value.source || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  return {
+    status:'reported',
+    amount,
+    currency,
+    basis,
+    ...(source ? { source } : {}),
+  };
+}
+
+function normalizeCostBasis(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (['estimated', 'actual', 'included', 'mixed'].includes(normalized)) return normalized;
+  return 'task_usage_reported';
 }
 
 function asDate(value) {

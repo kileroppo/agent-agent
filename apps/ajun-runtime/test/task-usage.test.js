@@ -27,6 +27,38 @@ test('只有执行方实际返回的模型和费用数据才允许进入汇总',
   assert.equal(summary.model.inputTokens, 12);
   assert.equal(summary.model.outputTokens, 8);
   assert.deepEqual(summary.cost.totals, [{ currency:'USD', amount:0.02 }]);
+  assert.equal(tracked.cost.basis, 'task_usage_reported');
+});
+
+test('Hermes 估算费用保留估算依据，只有 apiCalls 也不会漏报模型调用', () => {
+  const usage = recordTaskUsage({
+    result:{
+      status:'succeeded',
+      usage:{
+        model:{
+          provider:'deepseek',
+          model:'deepseek-v4-flash',
+          apiCalls:1,
+          cost:{
+            amount:0.004501,
+            currency:'USD',
+            basis:'estimated',
+            source:'hermes_estimated_cost_usd',
+          },
+        },
+      },
+    },
+    startedAt:new Date('2026-08-10T06:21:00.000Z'),
+    finishedAt:new Date('2026-08-10T06:22:00.000Z'),
+  });
+
+  assert.equal(usage.model.status, 'reported');
+  assert.equal(usage.model.provider, 'deepseek');
+  assert.equal(usage.model.apiCalls, 1);
+  assert.equal(usage.cost.status, 'reported');
+  assert.equal(usage.cost.amount, 0.004501);
+  assert.equal(usage.cost.basis, 'estimated');
+  assert.equal(usage.cost.source, 'hermes_estimated_cost_usd');
 });
 
 test('账单把完全一致的 Hermes 会话归到任务，其余调用明确列为未归属', () => {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PaperclipBridge } from '../src/paperclip-bridge.js';
+import { paperclipHermesAdapterConfig } from '../src/governance-hermes-runtime.js';
 
 test('PaperclipBridge 可只读回查单条审批，用于响应丢失后的收口', async () => {
   const bridge = new PaperclipBridge();
@@ -1041,6 +1042,69 @@ test('受管 Hermes 岗位修正模型配置后会从 error 恢复为 idle', asy
   assert.equal(body.status, 'idle');
   assert.equal(body.adapterConfig.provider, 'openai-codex');
   assert.equal(body.adapterConfig.model, 'gpt-5.6-terra');
+});
+
+test('受管 Hermes 岗位仅运行目录漂移时也会刷新到当前代码根', async () => {
+  const requests = [];
+  const manifest = {
+    agentId:'video-content-analyst',
+    name:'小拆·视频内容拆解师',
+    role:'受控拆解',
+    status:'active',
+    promptRef:'agents/video-content-analyst/prompts/system.md',
+    executionOwner:'paperclip-hermes',
+    interaction:{ runtime:'hermes-profile', directFeishu:'disabled' },
+    acceptedTaskTypes:[
+      'content.video-benchmark-analysis',
+      'content.campaign-visual-analysis',
+    ],
+    responsibilities:['拆解视频'],
+    runtimeCapabilities:{
+      modelSelection:{ provider:'deepseek', model:'deepseek-v4-flash' },
+      skills:['paperclip'],
+      paperclipToolsets:['agent-army'],
+      mcpTools:['video_content_analyze_execute'],
+    },
+  };
+  const desired = paperclipHermesAdapterConfig(manifest);
+  const fetchImpl = async (url, options = {}) => {
+    requests.push({ url, options });
+    const pathname = new URL(url).pathname;
+    let payload;
+    if (pathname === '/api/companies') payload = [{ id:'company-1', name:'Agent军团' }];
+    else if (pathname === '/api/companies/company-1/agents') payload = [{
+      id:'video-agent',
+      name:manifest.name,
+      role:'general',
+      title:manifest.role,
+      icon:'bot',
+      capabilities:'拆解视频',
+      adapterType:'hermes_local',
+      adapterConfig:{ ...desired, cwd:'/old/release', instructionsFilePath:'/old/release/system.md' },
+      status:'idle',
+      metadata:{
+        agentArmyId:manifest.agentId,
+        agentArmyRole:manifest.role,
+        agentArmyManagedOnly:true,
+        executionOwner:'paperclip-hermes',
+        hermesProfileId:manifest.agentId,
+      },
+    }];
+    else if (pathname === '/api/agents/video-agent') payload = { id:'video-agent', status:'idle' };
+    else if (pathname === '/api/agents/video-agent/skills/sync') payload = { status:'synced' };
+    else throw new Error(`unexpected request ${pathname}`);
+    return { ok:true, status:200, async json(){ return payload; } };
+  };
+
+  const result = await new PaperclipBridge({ fetchImpl }).syncRoster([manifest]);
+
+  assert.equal(result.status, 'synced');
+  const refresh = requests.find((item) => (
+    new URL(item.url).pathname === '/api/agents/video-agent'
+    && item.options.method === 'PATCH'
+  ));
+  assert.equal(JSON.parse(refresh.options.body).adapterConfig.cwd, desired.cwd);
+  assert.equal(JSON.parse(refresh.options.body).adapterConfig.instructionsFilePath, desired.instructionsFilePath);
 });
 
 test('正式 Manifest 已移除的军团员工会终止，测试实例和历史记录不受影响', async () => {

@@ -30,6 +30,7 @@ import {
 import { buildMetricLearning } from './local-content-performance-learning.js';
 import { evaluateVisualAnalysis } from './local-content-visual-evaluation.ts';
 import { attemptControlledVision } from './workflow/controlled-vision.ts';
+import { evaluateModeStructureWithDigestRecovery } from './workflow/digest-structure-recovery.ts';
 const FULL_ANALYSIS_MODULES = [
   '基本信息',
   '标题诊断',
@@ -207,7 +208,6 @@ export class LocalVideoContentAnalyst {
       visualCoverage,
       visualFindings:Array.isArray(report.visualFindings) ? report.visualFindings : [],
       completeness,
-      boomSignal,
       analysisIntent,
       reportVersion:'video-analysis/v2',
       creationEligible:evidenceMode === 'formal' && transcriptArtifact.type === 'confirmed_transcript',
@@ -217,6 +217,11 @@ export class LocalVideoContentAnalyst {
         sourceTaskIds:[...new Set(sources.map((artifact) => artifact?.taskId).filter(Boolean))],
       },
     };
+    const modeStructure = evaluateModeStructureWithDigestRecovery({
+      report, transcript, analysisIntent, advisorApplied, semanticRepairApplied,
+      validate:(candidate) => validModeReport(candidate, analysisIntent, transcript), measureDigest:digestCharacterCount,
+    });
+    report = modeStructure.report;
     const sourceRefs = [
       transcriptArtifact.artifactId,
       sourceEvidenceArtifact?.artifactId,
@@ -229,7 +234,7 @@ export class LocalVideoContentAnalyst {
       title:`${effectiveTitle}｜${analysisIntentLabel(analysisIntent)}`,
       data:{
         ...report,
-        generationMode:advisorApplied ? semanticRepairApplied ? 'hermes_advisor_evidence_repaired' : 'hermes_advisor' : 'deterministic_fallback',
+        ...modeStructure.dataFields,
         advisorFailure:advisorFailure || visionFailure,
         semanticRepairApplied,
         sourceTranscriptArtifactId:transcriptArtifact.artifactId,
@@ -251,11 +256,7 @@ export class LocalVideoContentAnalyst {
         moduleCount:report.modules.length,
         advisorApplied,
         semanticValidationPassed:advisorApplied,
-        modeStructurePassed:validModeReport(report, analysisIntent, transcript),
-        ...(analysisIntent === 'digest' ? {
-          digestCharacterCount:digestCharacterCount(report.digest),
-          digestWithinCharacterLimit:digestCharacterCount(report.digest) <= 800,
-        } : {}),
+        ...modeStructure.validationFields,
         boomSignalAttached:Boolean(boomSignal),
         semanticRepairApplied,
         visualMode,
@@ -729,7 +730,6 @@ function evidenceMatches(transcript, evidence) {
   const timestamp = clean(evidence?.timestamp, 40);
   return Boolean(timestamp && timeline.has(timestamp));
 }
-
 function breakdownEvidence(item) {
   if (item?.evidence?.fragment) return item.evidence;
   const fragment = item?.fragment || item?.original || item?.text;

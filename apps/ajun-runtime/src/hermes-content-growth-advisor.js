@@ -305,7 +305,14 @@ async function readUsage(usagePath) {
         ...(inputTokens !== null ? { inputTokens } : {}),
         ...(outputTokens !== null ? { outputTokens } : {}),
         ...(apiCalls !== null ? { apiCalls } : {}),
-        ...(Number.isFinite(estimatedCost) && estimatedCost >= 0 ? { cost:{ amount:estimatedCost, currency:'USD' } } : {})
+        ...(Number.isFinite(estimatedCost) && estimatedCost >= 0 ? {
+          cost:{
+            amount:estimatedCost,
+            currency:'USD',
+            basis:'estimated',
+            source:'hermes_estimated_cost_usd',
+          },
+        } : {})
       }
     };
   } catch {
@@ -347,6 +354,8 @@ function mergeUsage(left, right) {
     Number.isFinite(firstCost) ? firstCost : null,
     Number.isFinite(secondCost) ? secondCost : null
   );
+  const costBasis = mergeCostBasis(first?.cost?.basis, second?.cost?.basis);
+  const costSource = mergeCostSource(first?.cost?.source, second?.cost?.source);
   return {
     model:{
       provider:clean(base?.provider, 80),
@@ -354,9 +363,28 @@ function mergeUsage(left, right) {
       ...(inputTokens !== null ? { inputTokens } : {}),
       ...(outputTokens !== null ? { outputTokens } : {}),
       ...(apiCalls !== null ? { apiCalls } : {}),
-      ...(costAmount !== null ? { cost:{ amount:costAmount, currency:'USD' } } : {})
+      ...(costAmount !== null ? {
+        cost:{
+          amount:costAmount,
+          currency:'USD',
+          ...(costBasis ? { basis:costBasis } : {}),
+          ...(costSource ? { source:costSource } : {}),
+        },
+      } : {})
     }
   };
+}
+
+function mergeCostBasis(left, right) {
+  const values = [left, right].map((value) => clean(value, 40)).filter(Boolean);
+  if (!values.length) return '';
+  return values.every((value) => value === values[0]) ? values[0] : 'mixed';
+}
+
+function mergeCostSource(left, right) {
+  const values = [left, right].map((value) => clean(value, 80)).filter(Boolean);
+  if (!values.length) return '';
+  return values.every((value) => value === values[0]) ? values[0] : 'mixed';
 }
 
 function sumDefined(left, right) {

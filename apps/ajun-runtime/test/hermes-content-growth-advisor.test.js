@@ -41,7 +41,12 @@ test('Hermes 内容执行器使用隔离 Profile、写入用量并在读取后�
       inputTokens:123,
       outputTokens:45,
       apiCalls:1,
-      cost:{ amount:0, currency:'USD' }
+      cost:{
+        amount:0,
+        currency:'USD',
+        basis:'estimated',
+        source:'hermes_estimated_cost_usd',
+      }
     }
   });
   await assert.rejects(() => fs.access(usagePath));
@@ -88,6 +93,8 @@ test('快速拆解在五分钟总预算内最多尝试两次并合并失败调�
   assert.equal(result.usage.model.inputTokens, 20);
   assert.equal(result.usage.model.outputTokens, 10);
   assert.equal(result.usage.model.cost.amount, 0.02);
+  assert.equal(result.usage.model.cost.basis, 'estimated');
+  assert.equal(result.usage.model.cost.source, 'hermes_estimated_cost_usd');
 });
 
 test('完整拆解和平台草稿都不会越过各自总预算或尝试上限', async () => {

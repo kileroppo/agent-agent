@@ -1,4 +1,5 @@
 import { recordTaskUsage } from './task-usage.js';
+import { buildExecutionAudit } from './workflow/execution-audit.ts';
 import { executeIntelResearchOpenTaskStep } from './open-task-routing.js';
 import { assertPaperclipEmployeeExecutorAssignment } from './paperclip-employee-assignment.js';
 import { getM5RoutineExecutionContract } from '@agent-army/m5-kernel/routine-execution-contract';
@@ -443,7 +444,8 @@ export const taskRoleExecutionMethods = {
           currentStage:task.currentStage,
           verified,
           recommendedCompletionStatus:verified ? 'succeeded' : 'waiting_test',
-          artifacts:[artifactExecutionView(existing)]
+          artifacts:[artifactExecutionView(existing)],
+          audit:buildExecutionAudit({ usage:task.usage, artifacts:[existing] }),
         },
         task:{ taskId:task.taskId, status:task.status, currentStage:task.currentStage },
         currentStage:task.currentStage,
@@ -576,6 +578,7 @@ export const taskRoleExecutionMethods = {
         : 'waiting_test';
     const latest = (await this.store.list()).find((item) => item.taskId === task.taskId) || task;
     const preserveTerminal = isTerminalTask(latest);
+    const usage = recordTaskUsage({ task, result, startedAt:executionStartedAt });
     const updated = await this.store.updateTask(task.taskId, {
       status:preserveTerminal ? latest.status : 'running',
       currentStage:result.currentStage || 'content_growth_executed',
@@ -592,7 +595,7 @@ export const taskRoleExecutionMethods = {
         },
         ...(routeExecution ? { m5RouteExecution:routeExecution } : {}),
       },
-      usage:recordTaskUsage({ task, result, startedAt:executionStartedAt }),
+      usage,
       ...(result.error ? { error:result.error } : preserveTerminal ? { error:latest.error } : {})
     });
     return {
@@ -603,7 +606,8 @@ export const taskRoleExecutionMethods = {
         verified,
         recommendedCompletionStatus,
         error:result.error || null,
-        artifacts:artifacts.map(artifactExecutionView)
+        artifacts:artifacts.map(artifactExecutionView),
+        audit:buildExecutionAudit({ usage, artifacts }),
       },
       task:{ taskId:updated.taskId, status:updated.status, currentStage:updated.currentStage },
       duplicate:false
