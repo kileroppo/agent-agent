@@ -157,17 +157,28 @@ test('Agent状态从真实任务证据派生，Manifest active本身不等于已
   assert.equal(verified.evidenceTaskId, 'task-1');
 });
 
-test('历史非成功任务按当前、需人工、故意停用和未解决分别统计', () => {
+test('历史任务拆分为归档取消、待复验和仍失败，并识别后来成功的同源任务', () => {
   const summary = summarizeBacklog([
     { taskId:'a', status:'running', taskType:'research.intel-report' },
     { taskId:'b', status:'needs_input', taskType:'office.presentation-package' },
     { taskId:'c', status:'failed', taskType:'content.campaign-visual-analysis' },
     { taskId:'d', status:'failed', taskType:'research.github-search' },
+    { taskId:'e', status:'cancelled', taskType:'governance.architecture-review' },
+    { taskId:'f', status:'waiting_test', taskType:'operations.health-review' },
+    { taskId:'g-old', status:'failed', taskType:'media.transcribe-and-refine', input:{ sourceUrl:'https://example.com/video' }, updatedAt:'2026-08-01T00:00:00.000Z' },
+    { taskId:'g-new', status:'succeeded', taskType:'media.transcribe-and-refine', input:{ sourceUrl:'https://example.com/video' }, updatedAt:'2026-08-02T00:00:00.000Z' },
   ]);
   assert.equal(summary.counts.current, 1);
   assert.equal(summary.counts.needs_human, 1);
   assert.equal(summary.counts.intentionally_disabled, 1);
-  assert.equal(summary.counts.unresolved, 1);
-  assert.equal(summary.reviewBacklog, 1);
+  assert.equal(summary.counts.archived_cancelled, 1);
+  assert.equal(summary.counts.needs_reverification, 1);
+  assert.equal(summary.counts.unresolved_failure, 1);
+  assert.equal(summary.counts.superseded, 1);
+  assert.equal(summary.counts.unresolved, 0);
+  assert.equal(summary.reviewBacklog, 2);
+  assert.equal(summary.verificationBacklog, 1);
+  assert.equal(summary.unresolvedFailures, 1);
+  assert.equal(summary.historicalArchived, 2);
   assert.equal(summary.ownerActionable, 1);
 });
