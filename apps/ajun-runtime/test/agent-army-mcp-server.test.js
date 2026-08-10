@@ -31,6 +31,7 @@ test('Agent Army MCP exposes factual read and controlled action tools', async (t
     },
     createMission:async (input) => { calls.push(['mission', input]); return { mission:{ taskId:'mission-created' }, children:[] }; },
     controlTask:async (taskId, action) => ({ task:{ taskId }, action }),
+    recordTaskFeedback:async (taskId, input) => { calls.push(['feedback', { taskId, ...input }]); return { taskId, feedback:{ sentiment:input.sentiment } }; },
     listApprovals:async () => [],
     resolveApproval:async () => { throw new Error('not expected'); },
     revokePrivateReadGrant:async (approvalId, input) => { calls.push(['revoke-private-read', { approvalId, ...input }]); return { approval:{ approvalId, status:'approved', privateReadGrantStatus:{ status:'revoked' } } }; }
@@ -41,7 +42,7 @@ test('Agent Army MCP exposes factual read and controlled action tools', async (t
   const tools = await client.listTools();
   assert.deepEqual(
     tools.tools.map((tool) => tool.name).sort(),
-    ['agent_manual', 'agent_proposal_create_execute', 'approval_list', 'approval_resolve', 'capabilities', 'content_performance_review_execute', 'employee_assignment_execute', 'employee_status', 'm5_stage_execute', 'mission_create', 'operations_health_execute', 'paperclip_assignment_complete', 'paperclip_assignment_get', 'platform_content_draft_execute', 'private_read_grant_revoke', 'status', 'task_control', 'task_create', 'task_get', 'task_list', 'technical_repair_execute', 'video_content_analyze_execute', 'video_script_package_execute']
+    ['agent_manual', 'agent_proposal_create_execute', 'approval_list', 'approval_resolve', 'capabilities', 'content_performance_review_execute', 'employee_assignment_execute', 'employee_status', 'm5_stage_execute', 'mission_create', 'operations_health_execute', 'paperclip_assignment_complete', 'paperclip_assignment_get', 'platform_content_draft_execute', 'private_read_grant_revoke', 'status', 'task_control', 'task_create', 'task_feedback', 'task_get', 'task_list', 'technical_repair_execute', 'video_content_analyze_execute', 'video_script_package_execute']
   );
 
   const allManuals = await client.callTool({ name:'agent_manual', arguments:{ agent:'all' } });
@@ -71,6 +72,23 @@ test('Agent Army MCP exposes factual read and controlled action tools', async (t
   });
   assert.equal(revoked.structuredContent.approval.privateReadGrantStatus.status, 'revoked');
   assert.deepEqual(calls.find((item) => item[0] === 'revoke-private-read')[1], { approvalId:'approval-1234', chatRef:'chat-a' });
+
+  const feedback = await client.callTool({
+    name:'task_feedback',
+    arguments:{
+      task_id:'22222222-2222-2222-2222-222222222222',
+      sentiment:'useful',
+      note:'这次结果有用，验收通过。',
+      chat_ref:'oc_test',
+    },
+  });
+  assert.equal(feedback.structuredContent.feedback.sentiment, 'useful');
+  assert.deepEqual(calls.find((item) => item[0] === 'feedback')[1], {
+    taskId:'22222222-2222-2222-2222-222222222222',
+    sentiment:'useful',
+    note:'这次结果有用，验收通过。',
+    chatRef:'oc_test',
+  });
 
   await client.callTool({
     name:'task_create',

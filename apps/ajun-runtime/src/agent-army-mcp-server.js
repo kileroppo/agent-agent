@@ -245,6 +245,21 @@ export function createAgentArmyMcpServer({
     })
   }, ({ task_id, action }) => client.controlTask(task_id, action));
 
+  action('task_feedback', {
+    title:'记录任务结果评价',
+    description:'负责人对刚完成的任务明确表示“有用、验收通过”或“需要改进”时必须调用。先用 task_get 核对任务编号；只能在原飞书会话写回评价，不会创建任务或执行外部动作。',
+    inputSchema:z.object({
+      task_id:z.string().min(8).max(100),
+      sentiment:z.enum(['useful', 'needs_improvement']),
+      note:z.string().max(1000).optional(),
+      chat_ref:z.string().min(1).max(240).describe('当前 Hermes 会话可见的原飞书 chat id，必须与任务来源一致'),
+    }),
+  }, ({ task_id, sentiment, note, chat_ref }) => client.recordTaskFeedback(task_id, {
+    sentiment,
+    note,
+    chatRef:chat_ref,
+  }));
+
   if (scope.allowedTools?.includes('local_ai_invoke') && scope.localAiCapabilities?.length) action('local_ai_invoke', {
     title:'调用岗位获准的本机 AI 能力',
     description:'按能力名调用 A君统一管理的本机模型。服务未运行时由控制网关按需唤醒；只能使用当前岗位 Manifest 已授权的能力。不得猜测文件路径，不得自行跨设备或绕过审批。',

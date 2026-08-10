@@ -76,6 +76,38 @@ test('AgentArmyClient creates an idempotent Hermes task and returns its read mod
   assert.deepEqual(watch.body, { taskId:'22222222-2222-2222-2222-222222222222', chatRef:'oc_test' });
 });
 
+test('AgentArmyClient 只通过原飞书会话写回受控任务评价', async () => {
+  const requests = [];
+  const taskId = '11111111-1111-1111-1111-111111111111';
+  const client = new AgentArmyClient({
+    fetchImpl:async (url, options = {}) => {
+      const key = `${options.method || 'GET'} ${new URL(url).pathname}`;
+      requests.push({ key, body:options.body ? JSON.parse(options.body) : null });
+      if (key === `POST /api/mcp/tasks/${taskId}/feedback`) return response(200, {
+        task:{ ...overview.tasks[0], status:'succeeded', feedback:{ sentiment:'useful' } },
+      });
+      if (key === 'GET /api/overview') return response(200, overview);
+      return response(404, { error:'missing' });
+    },
+  });
+
+  const task = await client.recordTaskFeedback(taskId, {
+    sentiment:'useful',
+    note:'这次结果有用，验收通过。',
+    chatRef:'oc_test',
+  });
+
+  assert.equal(task.status, 'succeeded');
+  assert.deepEqual(requests[0], {
+    key:`POST /api/mcp/tasks/${taskId}/feedback`,
+    body:{ sentiment:'useful', note:'这次结果有用，验收通过。', chatRef:'oc_test' },
+  });
+  await assert.rejects(
+    () => client.recordTaskFeedback(taskId, { sentiment:'unknown', chatRef:'oc_test' }),
+    /useful 或 needs_improvement/,
+  );
+});
+
 test('服务端已登记终态回告时客户端不重复登记', async () => {
   const requests = [];
   const missionId = '29292929-2929-2929-2929-292929292929';

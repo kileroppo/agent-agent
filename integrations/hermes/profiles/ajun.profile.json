@@ -40,6 +40,7 @@
       "task_list",
       "task_get",
       "task_create",
+      "task_feedback",
       "mission_create",
       "approval_list",
       "approval_resolve",

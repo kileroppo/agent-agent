@@ -212,6 +212,24 @@ test('隔离 HTTP 夹具完整提供失败、待补充、待验证、待审批�
   assert.equal(Object.hasOwn(overview, 'tasks'), false);
   assert.equal(overview.taskFocus.ownerActionable, 4);
   assert.equal(overview.taskFocus.next.status, 'waiting_approval');
+
+  const succeededSummary = page.items.find((task) => task.status === 'succeeded');
+  const feedbackResponse = await fetch(`${baseUrl}/api/mcp/tasks/${succeededSummary.taskId}/feedback`, {
+    method:'POST',
+    headers:{ 'content-type':'application/json' },
+    body:JSON.stringify({ sentiment:'useful', note:'验收通过。', chatRef:'fixture-chat' }),
+  });
+  assert.equal(feedbackResponse.status, 200);
+  const feedbackPayload = await feedbackResponse.json();
+  assert.equal(feedbackPayload.task.feedback.sentiment, 'useful');
+  assert.equal(feedbackPayload.task.evaluation.humanAcceptance.status, 'accepted');
+
+  const crossChatFeedback = await fetch(`${baseUrl}/api/mcp/tasks/${succeededSummary.taskId}/feedback`, {
+    method:'POST',
+    headers:{ 'content-type':'application/json' },
+    body:JSON.stringify({ sentiment:'useful', chatRef:'other-chat' }),
+  });
+  assert.equal(crossChatFeedback.status, 403);
 });
 
 test('后台服务沿用原启动顺序，cloud 模式不启动本机小D', () => {

@@ -308,6 +308,24 @@ export class AgentArmyClient {
     };
   }
 
+  async recordTaskFeedback(taskId, { sentiment, note = '', chatRef = '' } = {}) {
+    const id = requiredId(taskId, '任务编号无效。');
+    const normalized = String(sentiment || '').trim().toLowerCase();
+    if (!['useful', 'needs_improvement'].includes(normalized)) {
+      throw new AgentArmyClientError('任务评价只支持 useful 或 needs_improvement。');
+    }
+    const response = await this.request(`/api/mcp/tasks/${encodeURIComponent(id)}/feedback`, {
+      method:'POST',
+      body:{
+        sentiment:normalized,
+        note:safeText(note, 1000),
+        chatRef:safeText(chatRef, 240),
+      },
+    });
+    const overview = await this.overview();
+    return taskView(response.task, overview.approvals || [], this.detailBaseUrl);
+  }
+
   async listApprovals({ status = 'pending', limit = 10 } = {}) {
     const overview = await this.overview();
     const normalized = String(status || '').trim();
