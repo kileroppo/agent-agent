@@ -627,13 +627,27 @@ test('产品成熟度 queued 子任务并发恢复只执行一次且 reconcile �
         };
       },
     };
-    const content = maturityContentExecutor();
+    const contentState = { calls:0, failFirst:true, pauseAtCall:0, entered:null, wait:null };
+    const content = maturityContentExecutor(contentState);
+    const localAjun = new LocalAjunCoordinator();
+    let ajunExecutions = 0;
+    const ajunState = { pauseAttempt:0, entered:null, wait:null };
+    const ajun = {
+      async execute(task, options) {
+        ajunExecutions += 1;
+        if (ajunState.pauseAttempt === task.attempt) {
+          ajunState.entered?.();
+          await ajunState.wait;
+        }
+        return localAjun.execute(task, options);
+      },
+    };
     const tasks = new TaskService({
       registry,
       store,
       governance,
       missionChildPolicy:policy,
-      executors:{ ajun:new LocalAjunCoordinator(), creator, 'technical-expert':technical, 'content-creator':content },
+      executors:{ ajun, creator, 'technical-expert':technical, 'content-creator':content },
     });
     const guard = new MaturityExecutionGuard({ store, policy });
     tasks.maturityExecutionGuard = guard;
@@ -710,16 +724,141 @@ test('产品成熟度 queued 子任务并发恢复只执行一次且 reconcile �
     }), /幂等键不一致/);
     assert.equal(technicalExecutions, 1);
 
-    await new CrossAgentMissionReconciler({ store, missions }).reconcile();
+    const reconciler = new CrossAgentMissionReconciler({ store, missions });
+    await reconciler.reconcile();
+    const blockedRecords = await store.list();
+    const blockedMission = blockedRecords.find((task) => task.taskId === created.mission.taskId);
+    const blockedChildren = blockedRecords.filter((task) => task.parentTaskId === blockedMission.taskId);
+    const blockedContent = blockedChildren.find((task) => task.taskType === 'content.video-script-package');
+    assert.equal(blockedMission.status, 'waiting_test');
+    assert.equal(blockedContent.status, 'waiting_test');
+    assert.equal(blockedContent.currentStage, 'maturity_execution_blocked');
+    assert.equal(blockedContent.error.message, 'this.research is not a function');
+    assert.equal(blockedContent.usage, undefined);
+    assert.equal(contentState.calls, 1);
+
+    const originalList = store.list.bind(store);
+    const originalContentCas = store.compareAndSwapLegacyMaturityContentRetry.bind(store);
+    let contentCasCalls = 0;
+    store.compareAndSwapLegacyMaturityContentRetry = async (...args) => {
+      contentCasCalls += 1;
+      return originalContentCas(...args);
+    };
+    for (const terminalStatus of ['succeeded', 'failed', 'cancelled']) {
+      store.list = async () => (await originalList()).map((task) => task.taskId === blockedMission.taskId
+        ? { ...task, status:terminalStatus }
+        : task);
+      const forbidden = await tasks.resumeVerifiedQueuedMissionChild({
+        missionTaskId:blockedMission.taskId,
+        taskId:blockedContent.taskId,
+        idempotencyKey:blockedContent.idempotencyKey,
+      });
+      assert.equal(forbidden.status, 'waiting_test');
+      assert.equal(contentState.calls, 1);
+    }
+    assert.equal(contentCasCalls, 0);
+    store.list = originalList;
+
+    const contentCas = await store.compareAndSwapLegacyMaturityContentRetry(blockedContent.taskId, {
+      expectedTask:blockedContent,
+    });
+    assert.equal(contentCasCalls, 1);
+    assert.equal(contentCas.retried, true);
+    assert.equal(contentCas.task.status, 'queued');
+    assert.equal(contentCas.task.attempt, 2);
+
+    let releaseContent;
+    let markContentEntered;
+    const contentEntered = new Promise((resolve) => { markContentEntered = resolve; });
+    contentState.pauseAtCall = 2;
+    contentState.entered = markContentEntered;
+    contentState.wait = new Promise((resolve) => { releaseContent = resolve; });
+    const resumeMission = tasks.resumeVerifiedMaturityMission.bind(tasks);
+    tasks.resumeVerifiedMaturityMission = async () => {
+      throw new Error('simulated restart before mission retry CAS');
+    };
+    const contentReconcilerA = new CrossAgentMissionReconciler({ store, missions });
+    const contentReconcilerB = new CrossAgentMissionReconciler({ store, missions });
+    const contentRecoveryA = contentReconcilerA.reconcile();
+    await contentEntered;
+    await contentReconcilerB.reconcile();
+    releaseContent();
+    await assert.rejects(contentRecoveryA, /simulated restart before mission retry CAS/);
+    tasks.resumeVerifiedMaturityMission = resumeMission;
+    const afterContentRestart = await store.list();
+    const waitingMission = afterContentRestart.find((task) => task.taskId === blockedMission.taskId);
+    const recoveredContent = afterContentRestart.find((task) => task.taskId === blockedContent.taskId);
+    assert.equal(waitingMission.status, 'waiting_test');
+    assert.equal(recoveredContent.status, 'succeeded');
+    assert.equal(recoveredContent.attempt, 2);
+    assert.equal(contentState.calls, 2);
+
+    const missionCas = await store.compareAndSwapMaturityMissionRetry(waitingMission.taskId, {
+      expectedTask:waitingMission,
+    });
+    assert.equal(missionCas.retried, true);
+    assert.equal(missionCas.task.status, 'queued');
+    assert.equal(missionCas.task.attempt, 2);
+
+    let releaseAjun;
+    let markAjunEntered;
+    const ajunEntered = new Promise((resolve) => { markAjunEntered = resolve; });
+    ajunState.pauseAttempt = 2;
+    ajunState.entered = markAjunEntered;
+    ajunState.wait = new Promise((resolve) => { releaseAjun = resolve; });
+    const missionReconcilerA = new CrossAgentMissionReconciler({ store, missions });
+    const missionReconcilerB = new CrossAgentMissionReconciler({ store, missions });
+    const missionRecoveryA = missionReconcilerA.reconcile();
+    await ajunEntered;
+    await missionReconcilerB.reconcile();
+    releaseAjun();
+    await missionRecoveryA;
+    await Promise.all([missionReconcilerA.reconcile(), missionReconcilerB.reconcile()]);
+
     const records = await store.list();
     const mission = records.find((task) => task.taskId === created.mission.taskId);
     const children = records.filter((task) => task.parentTaskId === mission.taskId);
+    const contentChild = children.find((task) => task.taskType === 'content.video-script-package');
+    assert.equal(mission.taskId, created.mission.taskId);
     assert.equal(mission.status, 'succeeded');
+    assert.equal(mission.attempt, 2);
+    assert.equal(mission.usage.model.apiCalls, 0);
+    assert.equal(mission.usage.cost.amount, 0);
+    assert.equal(mission.governance, undefined);
     assert.equal(children.length, 3);
     assert.equal(new Set(children.map((task) => task.idempotencyKey)).size, 3);
     assert.ok(children.every((task) => task.status === 'succeeded'));
     assert.equal(children.filter((task) => task.idempotencyKey === queued.idempotencyKey).length, 1);
+    assert.equal(contentChild.taskId, blockedContent.taskId);
+    assert.equal(contentChild.attempt, 2);
+    assert.equal(contentChild.usage.model.apiCalls, 0);
+    assert.equal(contentChild.usage.cost.amount, 0);
+    assert.equal(contentChild.governance, undefined);
+    assert.equal(contentState.calls, 2);
+    assert.equal(ajunExecutions, 2);
     assert.equal(governanceCalls, 0);
+
+    const completedContent = await tasks.resumeVerifiedQueuedMissionChild({
+      missionTaskId:mission.taskId,
+      taskId:contentChild.taskId,
+      idempotencyKey:contentChild.idempotencyKey,
+    });
+    assert.equal(completedContent.status, 'succeeded');
+    assert.equal(contentState.calls, 2);
+    const completedMission = await tasks.resumeVerifiedMaturityMission(mission.taskId);
+    assert.equal(completedMission.status, 'succeeded');
+    assert.equal(ajunExecutions, 2);
+
+    const finalList = store.list.bind(store);
+    store.list = async () => (await finalList()).map((task) => task.taskId === mission.taskId
+      ? { ...task, status:'queued', attempt:3, currentStage:'queued_for_execution', execution:undefined, error:undefined }
+      : task);
+    await assert.rejects(
+      tasks.resumeVerifiedMaturityMission(mission.taskId),
+      /不符合允许的重汇总状态合同/,
+    );
+    store.list = finalList;
+    assert.equal(ajunExecutions, 2);
   } finally {
     await fs.rm(root, { recursive:true, force:true });
   }
@@ -748,9 +887,15 @@ async function prepareTechnicalFixture(root) {
   await execFile('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'fixture'], { cwd:root });
 }
 
-function maturityContentExecutor() {
+function maturityContentExecutor(state = { calls:0, failFirst:false }) {
   const scriptPackage = {
     async execute(task) {
+      state.calls += 1;
+      if (state.failFirst && state.calls === 1) throw new TypeError('this.research is not a function');
+      if (state.pauseAtCall === state.calls) {
+        state.entered?.();
+        await state.wait;
+      }
       const sourceTaskIds = task.input.context.requiredSourceTaskIds;
       const sourceRefs = ['artifact-source-transcript', 'artifact-source-analysis'];
       return {

@@ -219,14 +219,25 @@ async function executeLocalDraftOnly(executor: any, task: any, options: any) {
   if (!executor?.execute || !executor?.scriptPackage?.execute) {
     throw new Error('小创缺少已登记的本地脚本包执行器，费用边界未知，已停止。');
   }
+  const original = executor.scriptPackage;
+  const deterministicPackage = Object.assign(
+    Object.create(Object.getPrototypeOf(original)),
+    original,
+    { advisor:null, researcher:null, research:async () => null },
+  );
   const scriptPackage = {
-    execute:(inputTask: any, inputOptions: any) => executor.scriptPackage.execute.call({
-      ...executor.scriptPackage,
-      advisor:null,
-      researcher:null,
-    }, inputTask, { ...inputOptions, allowAdvisor:false }),
+    execute:(inputTask: any, inputOptions: any) => original.execute.call(
+      deterministicPackage,
+      inputTask,
+      { ...inputOptions, allowAdvisor:false },
+    ),
   };
-  return executor.execute.call({ ...executor, advisor:null, scriptPackage }, task, {
+  const deterministicExecutor = Object.assign(
+    Object.create(Object.getPrototypeOf(executor)),
+    executor,
+    { advisor:null, scriptPackage },
+  );
+  return executor.execute.call(deterministicExecutor, task, {
     ...options,
     allowAdvisor:false,
   });

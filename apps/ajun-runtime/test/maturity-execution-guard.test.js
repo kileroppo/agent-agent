@@ -4,6 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { MaturityExecutionGuard } from '../src/maturity-execution-guard.ts';
+import { isExactWaitingMaturityMissionRetry, knownZeroUsage } from '../src/maturity-legacy-content-retry.ts';
+import { LocalVideoScriptPackage } from '../src/local-video-script-package.js';
+import { LocalContentCreator } from '../src/local-content-creation.js';
 
 function fixture(executionMode, taskType) {
   const mission = { taskId:'mission-1', input:{ context:{ productMaturityBatchId:'maturity-1' } } };
@@ -24,6 +27,47 @@ function fixture(executionMode, taskType) {
   };
   return { guard:new MaturityExecutionGuard({ store, policy }), store, task:() => task };
 }
+
+test('成熟度恢复只接受明确上报的数值零用量', () => {
+  const receipt = (apiCalls, amount) => ({
+    model:{ status:'reported', apiCalls },
+    cost:{ status:'reported', amount, currency:'USD' },
+  });
+  assert.equal(knownZeroUsage(receipt(0, 0)), true);
+  for (const unknown of [null, '', ' ', undefined, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.equal(knownZeroUsage(receipt(unknown, 0)), false);
+    assert.equal(knownZeroUsage(receipt(0, unknown)), false);
+  }
+});
+
+test('成熟度总任务恢复只接受本地 A君 的精确旧执行形状', () => {
+  const batchId = 'maturity-77777777-7777-4777-8777-777777777777';
+  const mission = {
+    taskType:'army.cross-agent-mission', assigneeAgentId:'ajun', status:'waiting_test',
+    currentStage:'mission_waiting_test', attempt:1,
+    idempotencyKey:`product-maturity-validation:${batchId}`,
+    source:{ eventRef:batchId }, input:{ context:{ productMaturityBatchId:batchId } },
+    error:null, governance:null,
+    execution:{
+      executor:'ajun', mode:'cross_agent_mission_plan', outcome:'subtasks_ready',
+      startedAt:'2026-08-11T00:00:00.000Z', finishedAt:'2026-08-11T00:00:01.000Z',
+    },
+    usage:{
+      model:{ status:'reported', apiCalls:0 },
+      cost:{ status:'reported', amount:0, currency:'USD' },
+    },
+  };
+  assert.equal(isExactWaitingMaturityMissionRetry(mission), true);
+  assert.equal(isExactWaitingMaturityMissionRetry({
+    ...mission, execution:{ ...mission.execution, owner:'paperclip-hermes' },
+  }), false);
+  assert.equal(isExactWaitingMaturityMissionRetry({
+    ...mission, execution:{ ...mission.execution, mode:'paperclip-hermes' },
+  }), false);
+  assert.equal(isExactWaitingMaturityMissionRetry({
+    ...mission, execution:{ ...mission.execution, extra:true },
+  }), false);
+});
 
 test('创建官成熟度执行只创建 draft，不调用 submit，并登记已知 0 USD', async () => {
   const { guard, task } = fixture('draft_only', 'governance.agent-proposal');
@@ -105,6 +149,28 @@ test('小创缺少可证明的本地脚本执行接缝时在调用前 fail close
   assert.equal(calls, 0);
   assert.equal(task().status, 'waiting_test');
   assert.equal(task().error.code, 'maturity_execution_guard_rejected');
+});
+
+test('小创零研究 shadow 保留 LocalVideoScriptPackage 原型方法并生成确定性待审包', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maturity-content-shadow-'));
+  try {
+    const { guard, store, task } = fixture('local_draft_only', 'content.video-script-package');
+    const scriptPackage = new LocalVideoScriptPackage({ store, artifactsDir:path.join(root, 'artifacts') });
+    const executor = new LocalContentCreator({
+      store, artifactsDir:path.join(root, 'content-artifacts'), scriptPackage,
+    });
+    const result = await guard.execute(task(), executor);
+    assert.equal(result.status, 'succeeded');
+    assert.equal(result.usage.model.apiCalls, 0);
+    assert.equal(result.usage.cost.amount, 0);
+    const artifact = result.artifactRefs.find((item) => item.type === 'video_script_package');
+    assert.equal(artifact.data.generationMode, 'deterministic_fallback');
+    assert.equal(artifact.data.researchStatus, 'not_required');
+    assert.equal(artifact.data.templateLifecycle.approvedForUse, false);
+    assert.equal(artifact.validation.externalSideEffects, 0);
+  } finally {
+    await fs.rm(root, { recursive:true, force:true });
+  }
 });
 
 test('成熟度总任务下的验签失败子任务持久化阻断，不调用执行器', async () => {

@@ -1,5 +1,13 @@
 import { canonicalizeBusinessAssignment } from './business-task-routing.ts';
 import { normalizedProductMaturityContext } from './workflow/mission-child-policy.ts';
+import {
+  isExactLegacyMaturityContentBlock,
+  isExactPlannedMaturityMissionRetry,
+  isExactQueuedMaturityContentRetry,
+  isExactQueuedMaturityMissionRetry,
+  isExactRunningMaturityMissionRetry,
+  isExactWaitingMaturityMissionRetry,
+} from './maturity-legacy-content-retry.ts';
 
 export class CrossAgentMissionService {
   constructor({ tasks, store, governance, missionChildPolicy = null } = {}) { this.tasks = tasks; this.store = store; this.governance = governance; this.missionChildPolicy = missionChildPolicy; }
@@ -61,7 +69,12 @@ export class CrossAgentMissionService {
   }
 
   async dispatch(missionOrId) {
-    let mission = typeof missionOrId === 'string' ? (await this.store.list()).find((item) => item.taskId === missionOrId) : missionOrId;
+    let mission = typeof missionOrId === 'string'
+      ? (await this.store.list()).find((item) => item.taskId === missionOrId)
+      : missionOrId;
+    if (mission?.input?.context?.productMaturityBatchId && typeof this.store?.list === 'function') {
+      mission = (await this.store.list()).find((item) => item.taskId === mission.taskId) || mission;
+    }
     if (!mission) throw new Error('找不到要继续的多人协作任务。');
     const existing = mission.artifactRefs?.find((item) => item.type === 'cross_agent_mission_summary');
     if (mission.status === 'succeeded' || existing?.data?.completed === true) return { mission, children:[], reply:'这项多人工作已经完成汇总，不会重复安排员工。' };
@@ -167,6 +180,37 @@ export class CrossAgentMissionService {
     const children = [...childByKey.values()];
     const state = missionState(children, plan.subtasks.length);
     const artifact = missionSummary(mission, plan, children, state);
+    const maturityMission = Boolean(mission?.input?.context?.productMaturityBatchId);
+    if (maturityMission && mission.status === 'waiting_test' && state.status !== 'succeeded') {
+      return { mission, children, reply:replyFor(mission, plan, children, state) };
+    }
+    if (maturityMission
+      && state.status === 'succeeded'
+      && (isExactWaitingMaturityMissionRetry(mission) || isExactQueuedMaturityMissionRetry(mission))) {
+      if (typeof this.tasks?.resumeVerifiedMaturityMission !== 'function') {
+        throw new Error('产品成熟度总任务缺少受控重汇总接缝，已停止。');
+      }
+      mission = await this.tasks.resumeVerifiedMaturityMission(mission.taskId);
+    }
+    if (maturityMission && state.status === 'succeeded' && mission.attempt === 2) {
+      if (mission.status === 'succeeded') return { mission, children, reply:replyFor(mission, plan, children, state) };
+      if (isExactQueuedMaturityMissionRetry(mission)
+        || (isExactRunningMaturityMissionRetry(mission) && !isExactPlannedMaturityMissionRetry(mission))) {
+        return { mission, children, reply:replyFor(mission, plan, children, state) };
+      }
+      if (!isExactPlannedMaturityMissionRetry(mission)) {
+        throw new Error('产品成熟度总任务没有通过同任务本地计划重试，已停止汇总。');
+      }
+      const latestMission = (await this.store.list()).find((item) => item.taskId === mission.taskId);
+      if (latestMission?.status === 'succeeded') {
+        return { mission:latestMission, children, reply:replyFor(latestMission, plan, children, state) };
+      }
+      if (isExactQueuedMaturityMissionRetry(latestMission)
+        || (isExactRunningMaturityMissionRetry(latestMission) && !isExactPlannedMaturityMissionRetry(latestMission))) {
+        return { mission:latestMission, children, reply:replyFor(latestMission, plan, children, state) };
+      }
+      mission = latestMission || mission;
+    }
     mission = await this.store.updateTask(mission.taskId, {
       status:state.status,
       currentStage:state.stage,
@@ -178,8 +222,13 @@ export class CrossAgentMissionService {
 
   async resumeQueuedMaturityChildren({ mission, plan, childByKey }) {
     if (!mission?.input?.context?.productMaturityBatchId) return;
-    const queued = plan.subtasks.filter((subtask) => childByKey.get(subtask.key)?.status === 'queued');
-    if (!queued.length) return;
+    const recoverable = plan.subtasks.filter((subtask) => {
+      const child = childByKey.get(subtask.key);
+      return child?.status === 'queued'
+        || isExactLegacyMaturityContentBlock(child)
+        || isExactQueuedMaturityContentRetry(child);
+    });
+    if (!recoverable.length) return;
     if (typeof this.tasks?.resumeVerifiedQueuedMissionChild !== 'function') {
       throw new Error('产品成熟度排队任务缺少受控恢复接缝，已停止分派。');
     }
@@ -188,9 +237,11 @@ export class CrossAgentMissionService {
       throw new Error('产品成熟度排队任务缺少子任务验签策略，已停止分派。');
     }
     this.missionChildPolicy.verifyMissionAuthorization(mission);
-    for (const subtask of queued) {
+    for (const subtask of recoverable) {
       const child = childByKey.get(subtask.key);
-      if (child?.status !== 'queued') continue;
+      if (child?.status !== 'queued'
+        && !isExactLegacyMaturityContentBlock(child)
+        && !isExactQueuedMaturityContentRetry(child)) continue;
       if (!dependenciesFor(plan.subtasks, subtask).every((key) => dependencySatisfied(mission, childByKey.get(key)?.status))) continue;
       this.missionChildPolicy.assertAuthorized({ mission, subtask });
       const idempotencyKey = `${mission.idempotencyKey || `mission:${mission.taskId}`}:${subtask.key}`;

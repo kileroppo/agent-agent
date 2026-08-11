@@ -1,3 +1,13 @@
+import {
+  isExactLegacyMaturityContentBlock,
+  isExactQueuedMaturityContentRetry,
+  isExactQueuedMaturityMissionRetry,
+  isExactRunningMaturityMissionRetry,
+  isExactSucceededMaturityMissionRetry,
+  isExactWaitingMaturityMissionRetry,
+  knownZeroUsage,
+} from './maturity-legacy-content-retry.ts';
+
 type RecoveryRequest = Readonly<{
   missionTaskId: string;
   taskId: string;
@@ -29,6 +39,21 @@ export const maturityQueuedChildRecoveryMethods = {
       this.missionChildPolicy.verifyMissionAuthorization(mission);
       task = await migrateLegacyTechnicalSourcePollution.call(this, { mission, task, records });
       authorization = this.missionChildPolicy.verifyTaskAuthorization({ mission, task });
+      task = await retryExactLegacyMaturityContentBlock.call(this, {
+        mission, task, records, authorization,
+      });
+      authorization = this.missionChildPolicy.verifyTaskAuthorization({ mission, task });
+      if (task.taskType === 'content.video-script-package'
+        && task.status === 'queued'
+        && task.attempt !== 1
+        && !isExactQueuedMaturityContentRetry(task)) {
+        throw new Error('产品成熟度内容任务不符合唯一旧错误重试队列合同，已停止恢复。');
+      }
+      if (task.taskType === 'content.video-script-package'
+        && (task.status === 'running' || task.status === 'succeeded')
+        && ![1, 2].includes(task.attempt)) {
+        throw new Error('产品成熟度在途或完成子任务不符合允许的执行次数合同。');
+      }
       if (idempotencyKey !== `${mission.idempotencyKey}:${authorization.stepKey}`) {
         throw new Error('产品成熟度排队任务签名步骤与幂等键不一致。');
       }
@@ -56,6 +81,59 @@ export const maturityQueuedChildRecoveryMethods = {
       throw new Error('产品成熟度排队任务的固定岗位不可用，已停止恢复。');
     }
     return this.executeTask(task, agent);
+  },
+
+  async resumeVerifiedMaturityMission(this: any, taskIdInput: string) {
+    const taskId = requiredIdentity(taskIdInput, '总任务 ID');
+    if (!this.missionChildPolicy?.verifyMissionAuthorization
+      || !this.missionChildPolicy?.verifyTaskAuthorization
+      || !this.maturityExecutionGuard?.verifyOrBlock
+      || typeof this.store?.compareAndSwapMaturityMissionRetry !== 'function') {
+      throw new Error('产品成熟度总任务重汇总策略不可用，已停止。');
+    }
+    const records = await this.store.list();
+    const mission = records.find((item: any) => item.taskId === taskId);
+    if (!mission) throw new Error('找不到要重汇总的产品成熟度总任务。');
+    this.missionChildPolicy.verifyMissionAuthorization(mission);
+    if (isExactSucceededMaturityMissionRetry(mission)) return mission;
+    if (isExactRunningMaturityMissionRetry(mission)) return mission;
+    const waitingForRetry = isExactWaitingMaturityMissionRetry(mission);
+    const queuedForRetry = isExactQueuedMaturityMissionRetry(mission);
+    if (!waitingForRetry && !queuedForRetry) {
+      throw new Error('产品成熟度总任务不符合允许的重汇总状态合同，已停止。');
+    }
+    const children = records.filter((item: any) => item.parentTaskId === mission.taskId);
+    if (children.length !== 3 || new Set(children.map((item: any) => item.idempotencyKey)).size !== 3) {
+      throw new Error('产品成熟度总任务重汇总时不是三个唯一子任务，已停止。');
+    }
+    const authorized = children.map((task: any) => ({
+      task,
+      authorization:this.missionChildPolicy.verifyTaskAuthorization({ mission, task }),
+    }));
+    if (authorized.some(({ task }: any) => task.status !== 'succeeded' || !knownZeroUsage(task.usage))
+      || new Set(authorized.map(({ authorization }: any) => authorization.stepKey)).size !== 3) {
+      throw new Error('产品成熟度总任务重汇总前子任务未全部验签、成功或保持已知零用量。');
+    }
+    if (waitingForRetry) {
+      await this.store.compareAndSwapMaturityMissionRetry(mission.taskId, { expectedTask:mission });
+    }
+    const queued = (await this.store.list()).find((item: any) => item.taskId === mission.taskId);
+    if (!queued) throw new Error('产品成熟度总任务重试后无法重读，已停止。');
+    if (isExactSucceededMaturityMissionRetry(queued) || isExactRunningMaturityMissionRetry(queued)) return queued;
+    if (!isExactQueuedMaturityMissionRetry(queued)) {
+      throw new Error('产品成熟度总任务没有原子进入唯一重试，已停止。');
+    }
+    const guardAuthorization = await this.maturityExecutionGuard.verifyOrBlock(queued);
+    if (!guardAuthorization || guardAuthorization.executionMode !== 'mission_plan') {
+      throw new Error('产品成熟度总任务重试没有通过本地计划门禁，已停止。');
+    }
+    const agent = typeof this.registry.get === 'function'
+      ? await this.registry.get('ajun')
+      : (await this.registry.list()).find((item: any) => item.agentId === 'ajun');
+    if (!agent || agent.status !== 'active' || !agent.acceptedTaskTypes?.includes('army.cross-agent-mission')) {
+      throw new Error('产品成熟度总任务的本地 A君 不可用，已停止重汇总。');
+    }
+    return this.executeTask(queued, agent);
   },
 };
 
@@ -130,7 +208,7 @@ async function migrateLegacyTechnicalSourcePollution(this: any, { mission, task,
 async function blockInvalidQueuedMaturityChild(this: any, taskId: string, error: any) {
   const latest = (await this.store.list()).find((item: any) => item.taskId === taskId);
   if (!latest) throw error;
-  if (latest.status !== 'queued') return latest;
+  if (latest.status !== 'queued') throw error;
   try {
     await this.maturityExecutionGuard.block(latest, error?.message || '产品成熟度排队任务恢复验签失败。');
   } catch (blocked: any) {
@@ -138,6 +216,40 @@ async function blockInvalidQueuedMaturityChild(this: any, taskId: string, error:
     throw blocked;
   }
   throw error;
+}
+
+async function retryExactLegacyMaturityContentBlock(this: any, {
+  mission, task, records, authorization,
+}: any) {
+  if (!isExactLegacyMaturityContentBlock(task)) return task;
+  if (!isExactWaitingMaturityMissionRetry(mission)) return task;
+  if (authorization.executionMode !== 'local_draft_only') return task;
+  const sameKey = records.filter((item: any) => item.parentTaskId === mission.taskId
+    && item.idempotencyKey === task.idempotencyKey);
+  if (sameKey.length !== 1) return task;
+
+  const plan = mission?.artifactRefs?.find((item: any) => item.type === 'cross_agent_mission_plan')?.data;
+  if (!Array.isArray(plan?.subtasks) || plan.subtasks.length !== 3) return task;
+  for (const subtask of plan.subtasks) this.missionChildPolicy.assertAuthorized({ mission, subtask });
+  const contentPlanItem = plan.subtasks.find((item: any) => item.key === authorization.stepKey);
+  const dependsOn = exactStrings(contentPlanItem?.dependsOn);
+  if (dependsOn.length !== 1
+    || !sameStrings(exactStrings(task.input?.context?.dependsOn), dependsOn)) return task;
+  const technicalKey = dependsOn[0];
+  const technicalMatches = records.filter((item: any) => item.parentTaskId === mission.taskId
+    && item.idempotencyKey === `${mission.idempotencyKey}:${technicalKey}`);
+  if (technicalMatches.length !== 1) return task;
+  const technical = technicalMatches[0];
+  const technicalAuthorization = this.missionChildPolicy.verifyTaskAuthorization({ mission, task:technical });
+  if (technical.status !== 'succeeded'
+    || technicalAuthorization.executionMode !== 'deterministic_fixture'
+    || !knownZeroUsage(technical.usage)
+    || !sameStrings(exactStrings(task.input?.context?.dependencyTaskIds), [technical.taskId])) return task;
+  if (typeof this.store.compareAndSwapLegacyMaturityContentRetry !== 'function') return task;
+  await this.store.compareAndSwapLegacyMaturityContentRetry(task.taskId, { expectedTask:task });
+  const refreshed = (await this.store.list()).find((item: any) => item.taskId === task.taskId);
+  if (!refreshed) throw new Error('产品成熟度内容旧错误重试后无法重读任务，已停止恢复。');
+  return refreshed;
 }
 
 function requiredIdentity(value: unknown, label: string) {
