@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import {
   applyPatch,
@@ -129,14 +130,55 @@ _MARKDOWN_HINT_RE = re.compile(
             msg_type, payload = self._build_outbound_payload(content)
 `;
   const patched = applyPatch(adapterFixture);
-  assert.match(patched, /AGENT_ARMY_FEISHU_MOBILE_FORMAT_V3/);
+  assert.match(patched, /AGENT_ARMY_FEISHU_MOBILE_FORMAT_V4/);
   assert.match(patched, /def _agent_army_format_feishu_message/);
   assert.match(patched, /_agent_army_should_stack_table/);
+  assert.match(patched, /_agent_army_expand_inline_numbered_items/);
   assert.match(patched, /_agent_army_breathe_long_lists/);
   assert.match(patched, /_agent_army_breathe_sections/);
   assert.match(patched, /len\(compact\) <= 220/);
   assert.match(patched, /content = _agent_army_format_feishu_message\(content\)/);
   assert.equal(applyPatch(patched), patched);
+});
+
+test('飞书会拆开模型压成一行的长编号列表，并保持短编号列表紧凑', () => {
+  const adapterFixture = `${fixture}
+_MARKDOWN_HINT_RE = re.compile(
+    r"table"
+)
+    async def send(
+        self,
+    ) -> SendResult:
+        formatted = self.format_message(content)
+    async def edit_message(
+        self,
+    ) -> SendResult:
+        content = self.format_message(content)
+        try:
+            msg_type, payload = self._build_outbound_payload(content)
+`;
+  const patched = applyPatch(adapterFixture);
+  const helperStart = patched.indexOf('# AGENT_ARMY_FEISHU_MOBILE_FORMAT_V4:');
+  const helperEnd = patched.indexOf('\n_MARKDOWN_HINT_RE = re.compile(', helperStart);
+  const helpers = patched.slice(helperStart, helperEnd);
+  const dense = '已按任务重新核对。1) **文本模型 Provider：** 已调用 DeepSeek，input 3,043/output 8,809 tokens。2) **受控视觉 Provider：** 未调用，visualMode=off。3) **费用：** 估算 0.0028986328 USD，账本未显示支付记录。4) **外部写入证据：** 无独立外写回执，不能据此断言次数为零。单独说明：本机完成同步不是外部平台发布。';
+  const python = [
+    'import re',
+    'from typing import List',
+    helpers,
+    `dense = ${JSON.stringify(dense)}`,
+    'print(_agent_army_format_feishu_message(dense))',
+    'print("---SHORT---")',
+    'print(_agent_army_format_feishu_message("1) 是 2) 否"))',
+  ].join('\n');
+  const result = spawnSync('python3', ['-c', python], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const [longOutput, shortOutput] = result.stdout.trim().split('\n---SHORT---\n');
+  assert.match(longOutput, /已按任务重新核对。\n\n1\. \*\*文本模型 Provider：\*\*/);
+  assert.match(longOutput, /tokens。\n\n2\. \*\*受控视觉 Provider：\*\*/);
+  assert.match(longOutput, /支付记录。\n\n4\. \*\*外部写入证据：\*\*/);
+  assert.match(longOutput, /次数为零。\n\n\*\*单独说明\*\*\n\n本机完成同步/);
+  assert.equal(shortOutput, '1. 是\n2. 否');
 });
 
 test('飞书收到消息后只显示一个即时处理状态，并在快速分流完成时清除', () => {

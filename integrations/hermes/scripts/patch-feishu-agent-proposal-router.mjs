@@ -165,12 +165,13 @@ ${indent})`
 }
 
 function upgradeFeishuMobileMessagePatch(source) {
-  if (source.includes('AGENT_ARMY_FEISHU_MOBILE_FORMAT_V3')) return source;
+  if (source.includes('AGENT_ARMY_FEISHU_MOBILE_FORMAT_V4')) return source;
   if (
     source.includes('AGENT_ARMY_FEISHU_MOBILE_FORMAT_V2')
     || source.includes('AGENT_ARMY_FEISHU_MOBILE_FORMAT_V1')
+    || source.includes('AGENT_ARMY_FEISHU_MOBILE_FORMAT_V3')
   ) {
-    const helperStart = source.search(/# AGENT_ARMY_FEISHU_MOBILE_FORMAT_V[12]:/);
+    const helperStart = source.search(/# AGENT_ARMY_FEISHU_MOBILE_FORMAT_V[123]:/);
     const helperEnd = source.indexOf('\n_MARKDOWN_HINT_RE = re.compile(', helperStart);
     if (helperStart < 0 || helperEnd < 0) return source;
     return `${source.slice(0, helperStart)}${feishuMobileMessageHelpers}\n${source.slice(helperEnd)}`;
@@ -652,7 +653,7 @@ function insert(source, marker, replacement) {
 }
 
 const proposalPattern = `_AJUN_AGENT_PROPOSAL_RE = re.compile(\n    r"(?:创建|新建|招募|招)\\s*(?:一个\\s*)?(?:agent|智能体|岗位)",\n    re.IGNORECASE,\n)`;
-const feishuMobileMessageHelpers = String.raw`# AGENT_ARMY_FEISHU_MOBILE_FORMAT_V3: adapt spacing to content instead of forcing one reply template.
+const feishuMobileMessageHelpers = String.raw`# AGENT_ARMY_FEISHU_MOBILE_FORMAT_V4: adapt spacing to content instead of forcing one reply template.
 def _agent_army_table_cells(line: str) -> List[str]:
     return [cell.strip() for cell in line.strip().strip("|").split("|")]
 
@@ -723,6 +724,7 @@ def _agent_army_wrap_dense_paragraph(block: str) -> str:
         len(compact) <= 220
         or "\n" in compact
         or compact.startswith(("#", "-", "*", ">", "|"))
+        or re.match(r"^\d+[.)、]\s+\S", compact)
     ):
         return compact
     sentences = [part.strip() for part in re.split(r"(?<=[。！？；])", compact) if part.strip()]
@@ -749,13 +751,59 @@ def _agent_army_is_section_heading(line: str) -> bool:
     )
 
 
+def _agent_army_expand_inline_numbered_items(content: str) -> str:
+    """Split a real 1)/2)/3) sequence that a model compressed onto one line."""
+    marker_re = re.compile(r"(?<![\w.])(\d{1,2})(?:[)）、]\s*|\.\s+)(?=(?:\*\*)?\S)")
+    output: List[str] = []
+    for line in content.splitlines():
+        matches = list(marker_re.finditer(line))
+        numbers = [int(match.group(1)) for match in matches]
+        if len(matches) < 2 or numbers != list(range(numbers[0], numbers[0] + len(numbers))):
+            output.append(line)
+            continue
+
+        prefix = line[:matches[0].start()].rstrip()
+        if prefix:
+            output.append(prefix)
+            output.append("")
+        for item_index, match in enumerate(matches):
+            end = matches[item_index + 1].start() if item_index + 1 < len(matches) else len(line)
+            item = line[match.end():end].strip()
+            output.append(f"{match.group(1)}. {item}")
+    return "\n".join(output)
+
+
+def _agent_army_expand_inline_callouts(content: str) -> str:
+    """Give concluding notes their own small section instead of burying them in an item."""
+    callout_re = re.compile(
+        r"(?<=[。！？；])\s*(?:\*\*)?"
+        r"(单独说明|补充说明|说明|注意|提醒|下一步|结论|风险)"
+        r"[：:](?:\*\*)?\s*"
+    )
+    output: List[str] = []
+    for line in content.splitlines():
+        match = callout_re.search(line)
+        if not match:
+            output.append(line)
+            continue
+        before = line[:match.start()].rstrip()
+        after = line[match.end():].strip()
+        if before:
+            output.append(before)
+            output.append("")
+        output.append(f"**{match.group(1)}**")
+        if after:
+            output.append(after)
+    return "\n".join(output)
+
+
 def _agent_army_breathe_long_lists(content: str) -> str:
     """Space only long list items; concise lists remain visually compact."""
     lines = content.splitlines()
     output: List[str] = []
     index = 0
-    top_level_item = re.compile(r"^(?:[-*]|\d+\.)\s+\S")
-    any_item = re.compile(r"^\s*(?:[-*]|\d+\.)\s+\S")
+    top_level_item = re.compile(r"^(?:[-*]|\d+[.)、])\s+\S")
+    any_item = re.compile(r"^\s*(?:[-*]|\d+[.)、])\s+\S")
     while index < len(lines):
         if not top_level_item.match(lines[index]):
             output.append(lines[index])
@@ -781,10 +829,14 @@ def _agent_army_breathe_long_lists(content: str) -> str:
             max(lengths, default=0) > 42
             or (sum(lengths) / max(len(lengths), 1)) > 30
         )
+        if spacious and output and output[-1] != "":
+            output.append("")
         for item_index, item in enumerate(items):
             if spacious and item_index and output and output[-1] != "":
                 output.append("")
             output.extend(item)
+        if spacious and cursor < len(lines) and lines[cursor].strip():
+            output.append("")
         index = cursor
     return "\n".join(output)
 
@@ -793,7 +845,7 @@ def _agent_army_breathe_sections(content: str) -> str:
     """Separate real sections without changing short conversational replies."""
     lines = content.splitlines()
     heading_count = sum(1 for line in lines if _agent_army_is_section_heading(line))
-    if heading_count < 2 and len(content) < 280:
+    if heading_count == 0 and len(content) < 280:
         return content
     output: List[str] = []
     for line in lines:
@@ -818,7 +870,9 @@ def _agent_army_format_feishu_message(content: str) -> str:
         if index % 2:
             formatted.append(part.rstrip())
             continue
-        mobile = _agent_army_mobileize_tables(part)
+        mobile = _agent_army_expand_inline_callouts(
+            _agent_army_expand_inline_numbered_items(_agent_army_mobileize_tables(part))
+        )
         breathed = _agent_army_breathe_sections(_agent_army_breathe_long_lists(mobile))
         blocks = re.split(r"\n{2,}", breathed)
         formatted.append("\n\n".join(_agent_army_wrap_dense_paragraph(block) for block in blocks if block.strip()))
