@@ -42,8 +42,17 @@ export function validateTaskCompletion(task: any, artifactRefs: any[] = task?.ar
     }
     case 'research.intel-report': {
       expectedArtifactTypes = ['intel_research_report'];
-      const report = readableArtifact(artifacts, 'intel_research_report')?.data;
-      valid = Boolean(report?.conclusion && Array.isArray(report.sources) && report.sources.length);
+      const artifact = readableArtifact(artifacts, 'intel_research_report');
+      const report = artifact?.data;
+      const requiresDeliveryGate = task?.input?.context?.validationPurpose === 'product_maturity_role_freshness'
+        || task?.input?.context?.researchAcceptance !== undefined;
+      const deliveryGateValid = !requiresDeliveryGate || (
+        artifact?.validation?.deliverableAccepted === true
+        && artifact?.validation?.deliverableCoverageSatisfied === true
+        && report?.deliveryGate?.accepted === true
+        && report.deliveryGate?.evidenceCoverageSatisfied === true
+      );
+      valid = Boolean(report?.conclusion && Array.isArray(report.sources) && report.sources.length && deliveryGateValid);
       break;
     }
     case 'office.briefing-package': {

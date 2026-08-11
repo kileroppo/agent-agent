@@ -15,6 +15,78 @@ test('小R 使用给定公开来源产出结构化研究报告', async () => {
   assert.equal(result.artifactRefs[0].validation.structured, true);
 });
 
+test('小R 成熟度新鲜度复验按显式证据词抽取网页后段正文并通过交付门禁', async () => {
+  const text = [
+    '页面开头仅是通用介绍。',
+    'x'.repeat(1500),
+    "Event: 'exit' is emitted when the Node.js process is about to exit.",
+    'Signal events include SIGTERM and SIGINT for process termination.',
+    'Applications can read environment values from process.env.',
+  ].join(' ');
+  const worker = new LocalIntelResearcher({
+    now,
+    publicWebFetch:{ async acquire({ sourceUrl }) {
+      return { sourceRef:sourceUrl, title:'Node.js Process', text, contentHash:'b'.repeat(64), fetchedAt:now().toISOString(), truncated:true };
+    } },
+  });
+  const result = await worker.execute({
+    taskId:'intel-freshness-covered',
+    taskType:'research.intel-report',
+    assigneeAgentId:'intel-researcher',
+    input:{
+      topic:'Node.js 进程退出边界',
+      sourceUrls:['https://nodejs.org/api/process.html'],
+      context:{
+        validationPurpose:'product_maturity_role_freshness',
+        researchAcceptance:{
+          requiredEvidenceTerms:["Event: 'exit'", 'SIGTERM', 'SIGINT', 'process.env'],
+          minimumRecommendations:1,
+        },
+      },
+    },
+  });
+
+  assert.equal(result.status, 'succeeded');
+  assert.equal(result.artifactRefs[0].validation.deliverableAccepted, true);
+  assert.deepEqual(result.artifactRefs[0].data.deliveryGate.missingEvidenceTerms, []);
+  assert.match(result.artifactRefs[0].data.sources[0].summary, /Event: 'exit'/);
+  assert.match(result.artifactRefs[0].data.sources[0].summary, /process\.env/);
+  assert.equal(result.artifactRefs[0].data.sources[0].evidenceFragments.length, 4);
+});
+
+test('小R 成熟度复验缺少验收合同或必需证据时不冒充 succeeded', async (t) => {
+  await t.test('未声明 researchAcceptance 时不发起网络读取', async () => {
+    let fetchCalls = 0;
+    const worker = new LocalIntelResearcher({ now, publicWebFetch:{ async acquire() { fetchCalls += 1; } } });
+    const result = await worker.execute({
+      taskId:'intel-freshness-no-contract',
+      taskType:'research.intel-report',
+      input:{ topic:'复验', sourceUrls:['https://example.com'], context:{ validationPurpose:'product_maturity_role_freshness' } },
+    });
+    assert.equal(result.status, 'needs_input');
+    assert.equal(result.error.code, 'research_acceptance_contract_required');
+    assert.equal(fetchCalls, 0);
+  });
+
+  await t.test('正文缺少任一必需证据词时保留产物但转 waiting_test', async () => {
+    const worker = new LocalIntelResearcher({ now, publicWebFetch:{ async acquire({ sourceUrl }) {
+      return { sourceRef:sourceUrl, title:'公开资料', text:'只找到 SIGTERM，没有另一个验收项。', contentHash:'c'.repeat(64), fetchedAt:now().toISOString(), truncated:false };
+    } } });
+    const result = await worker.execute({
+      taskId:'intel-freshness-missing-term',
+      taskType:'research.intel-report',
+      input:{
+        topic:'复验', sourceUrls:['https://example.com'],
+        context:{ validationPurpose:'product_maturity_role_freshness', researchAcceptance:{ requiredEvidenceTerms:['SIGTERM', 'process.env'], minimumRecommendations:0 } },
+      },
+    });
+    assert.equal(result.status, 'waiting_test');
+    assert.equal(result.error.code, 'research_deliverable_incomplete');
+    assert.deepEqual(result.artifactRefs[0].data.deliveryGate.missingEvidenceTerms, ['process.env']);
+    assert.equal(result.artifactRefs[0].validation.deliverableAccepted, false);
+  });
+});
+
 test('小R 没有来源且读取失败时明确 needs_input，不编造报告', async () => {
   const worker = new LocalIntelResearcher({ now, publicWebFetch:{ async acquire() { throw new Error('无法读取'); } }, publicWebSearch:{ async search() { return { results:[{ url:'https://example.com/a' }] }; } } });
   const result = await worker.execute({ taskId:'intel-fail', input:{ topic:'研究主题' } });

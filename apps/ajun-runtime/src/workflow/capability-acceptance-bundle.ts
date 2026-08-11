@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { MissionChildPolicy, ProductMaturityAuthorization } from './mission-child-policy.ts';
+import { validateTaskCompletion } from '../task-completion-contract.ts';
 
 const ROLE_SPECS = Object.freeze([
   role('ajun', 'A君', ['army.cross-agent-mission']),
@@ -617,7 +618,16 @@ function resolveTaskRef(tasks: any[], shortRef: string, artifactType: string) {
 function role(agentId: string, name: string, taskTypes: readonly string[]) { return Object.freeze({ agentId, name, taskTypes }); }
 function compact(value: unknown) { return String(value || '').replace(/[^0-9a-z]/gi, '').toUpperCase(); }
 function terminal(status: string) { return ['succeeded', 'failed', 'needs_input', 'waiting_test', 'cancelled'].includes(status); }
-function verifiedArtifact(task: any) { return task?.artifactRefs?.some((artifact: any) => artifact.validation?.exists === true && artifact.validation?.readable === true && artifact.validation?.nonEmpty !== false); }
+function verifiedArtifact(task: any) {
+  const readable = task?.artifactRefs?.some((artifact: any) => artifact.validation?.exists === true && artifact.validation?.readable === true && artifact.validation?.nonEmpty !== false);
+  if (!readable) return false;
+  if (
+    task?.assigneeAgentId === 'intel-researcher'
+    && task?.taskType === 'research.intel-report'
+    && task?.input?.context?.validationPurpose === 'product_maturity_role_freshness'
+  ) return validateTaskCompletion(task).valid;
+  return true;
+}
 function taskTime(task: any) { return task?.updatedAt || task?.createdAt || null; }
 function latest(tasks: any[]) { return tasks.reduce((best, task) => !best || Date.parse(taskTime(task) || '') > Date.parse(taskTime(best) || '') ? task : best, null); }
 function reservationExpired(record: any, now: Date) {

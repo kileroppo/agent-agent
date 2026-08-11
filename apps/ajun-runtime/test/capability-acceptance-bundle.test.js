@@ -557,6 +557,38 @@ test('历史岗位证据必须匹配 assignee，且早于最新失败时不得 v
   assert.equal(batch.acceptanceEligible, false);
 });
 
+test('小R 新鲜度任务即使写成 succeeded，没有交付覆盖回执也不得计入成熟度证据', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maturity-intel-delivery-gate-'));
+  const tasks = seedTasks();
+  const intel = tasks.find((task) => task.taskId === 'research-existing');
+  intel.input = { context:{ validationPurpose:'product_maturity_role_freshness' } };
+  intel.artifactRefs = [{
+    artifactId:'intel_research_report:research-existing',
+    type:'intel_research_report',
+    validation:{ exists:true, readable:true, nonEmpty:true },
+    data:{ conclusion:'泛化结论', sources:[{ source:'https://example.com' }] },
+  }];
+  const policy = await MissionChildPolicy.open({ keyPath:path.join(root, 'policy.key') });
+  const missions = { async createBusinessMission(input) {
+    const mission = successTask('mission-intel-gate', 'army.cross-agent-mission', 'ajun');
+    const children = input.items.map((item) => ({ ...successTask(`${item.key}-intel-gate`, item.taskType, item.agentId), parentTaskId:mission.taskId }));
+    bindMissionFixture(input, mission, children);
+    tasks.push(mission, ...children);
+    return { mission, children };
+  } };
+  const service = new CapabilityAcceptanceBundle({
+    store:{ async list() { return tasks; } }, missions, policy,
+    ledgerPath:path.join(root, 'ledger.json'), projectRoot:root,
+    runtimeBoundarySnapshot:safeRuntimeBoundarySnapshot,
+  });
+
+  const batch = await service.create();
+  const row = batch.roles.find((item) => item.agentId === 'intel-researcher');
+  assert.equal(row.verified, false);
+  assert.equal(row.evidenceOrigin, 'none');
+  assert.equal(batch.acceptanceEligible, false);
+});
+
 test('Publisher/Campaign/Cron 边界 active 或 unknown 时 fail closed', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maturity-runtime-boundary-'));
   const tasks = seedTasks();

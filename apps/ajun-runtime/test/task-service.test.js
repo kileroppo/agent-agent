@@ -1455,6 +1455,56 @@ test('Paperclip Hermes 不能用文字岗位回报替代小R专用研究产物',
   assert.equal(completions.length, 1);
 });
 
+test('Paperclip Hermes 不得把缺少交付覆盖回执的小R成熟度任务报为成功', async () => {
+  const researcher = {
+    agentId:'intel-researcher', name:'小R', status:'active',
+    acceptedTaskTypes:['research.intel-report'], executionOwner:'paperclip-hermes',
+    interaction:{ runtime:'hermes-profile' },
+  };
+  const identity = {
+    issue:{ id:'intel-gate-issue', identifier:'AGE-INTEL-GATE', title:'研究退出边界', description:'形成有来源的覆盖报告。' },
+    run:{ id:'intel-gate-run' },
+    paperclipAgent:{ id:'intel-gate-agent', name:'小R' },
+    agentArmyId:'intel-researcher',
+  };
+  const governance = {
+    async project() { return { status:'synced', paperclipIssueId:identity.issue.id, paperclipAssigneeAgentId:identity.paperclipAgent.id }; },
+    async verifyHermesAssignment() { return identity; },
+    async completePaperclipIssue() {},
+  };
+  const { service, records } = setup({ agents:[researcher], governance });
+  const task = await service.create({
+    title:'研究退出边界', taskType:'research.intel-report', agentId:'intel-researcher',
+    context:{
+      validationPurpose:'product_maturity_role_freshness',
+      researchAcceptance:{ requiredEvidenceTerms:['SIGTERM'], minimumRecommendations:1 },
+    },
+  });
+  const report = {
+    conclusion:'SIGTERM 边界已核对。',
+    sources:[{ source:'https://nodejs.org/api/process.html' }],
+    deliveryGate:{ accepted:true, evidenceCoverageSatisfied:true },
+  };
+  records.tasks[0].artifactRefs = [verifiedArtifact(task, 'intel_research_report', report)];
+  const input = {
+    issueId:identity.issue.id, runId:identity.run.id,
+    paperclipAgentId:identity.paperclipAgent.id, agentArmyId:'intel-researcher',
+    status:'succeeded', summary:'研究已完成。',
+  };
+
+  await assert.rejects(
+    () => service.completePaperclipAssignment(input),
+    /intel_research_report.*文字回报不能替代/,
+  );
+  assert.equal(records.tasks[0].status, 'running');
+
+  records.tasks[0].artifactRefs = [verifiedArtifact(task, 'intel_research_report', report, {
+    validation:{ deliverableAccepted:true, deliverableCoverageSatisfied:true },
+  })];
+  const completed = await service.completePaperclipAssignment(input);
+  assert.equal(completed.task.status, 'succeeded');
+});
+
 test('创建官 heartbeat 真实写入一次岗位草案并保持任务等待最终回报', async () => {
   const creator = {
     agentId:'creator',

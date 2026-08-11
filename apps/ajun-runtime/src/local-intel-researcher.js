@@ -1,5 +1,11 @@
 import { createHash } from 'node:crypto';
 import { fallbackResearch } from './hermes-intel-research-advisor.js';
+import {
+  buildResearchDeliveryGate,
+  containsResearchTerm,
+  researchEvidenceFragments,
+  resolveResearchAcceptance,
+} from './local-intel-research-delivery.ts';
 
 const CONTROLLED_SOURCE_MATERIAL = Symbol.for(
   'agent.army.openResearch.controlledSourceMaterial',
@@ -48,6 +54,10 @@ export class LocalIntelResearcher {
       || '',
     ).trim();
     if (!topic) return needsInput(this.now(), 'research_topic_required', '请说明要研究的主题。小R只会读取公开来源，不会猜测研究目标。');
+    const acceptance = resolveResearchAcceptance(task);
+    if (acceptance.error) {
+      return needsInput(this.now(), 'research_acceptance_contract_required', acceptance.error);
+    }
     let sourceUrls = sourceList(task?.input);
     let discovery = null;
     if (sourceUrls.length > MAX_RESEARCH_SOURCES) return needsInput(this.now(), 'research_source_limit_exceeded', '一次最多研究五条公开网页来源；请分批发送，避免遗漏资料。');
@@ -60,6 +70,7 @@ export class LocalIntelResearcher {
       roleToolContext,
       sourceReadModes(task?.input),
       discovery?.candidatesByUrl,
+      acceptance.requiredEvidenceTerms,
     );
     if (!sources.length && discovery?.githubSources?.length) sources.push(...discovery.githubSources);
     if (!sources.length) return needsInput(this.now(), 'research_sources_unavailable', `${failures[0] || discovery?.failures?.[0] || '没有得到可读取的公开来源。'} 请补充公开来源链接或换一个更具体的主题。`);
@@ -97,16 +108,21 @@ export class LocalIntelResearcher {
             }),
           } : {}),
         };
+    const deliveryGate = acceptance.enabled
+      ? buildResearchDeliveryGate(acceptance, preparedSources, report)
+      : null;
+    if (deliveryGate) report.deliveryGate = deliveryGate;
     const tools = [];
     if (discovery?.searched) tools.push({ id:'public-web-search', name:'公开网页搜索', calls:discovery.searchCalls || 1 });
     if (discovery?.githubSearched) tools.push({ id:'github-public-search', name:'公开 GitHub 项目检索', calls:1 });
     if (sourceUrls.length) tools.push({ id:'public-web-fetch', name:'公开网页读取', calls:sources.filter((source) => source.kind === 'public_web').length });
+    const accepted = !deliveryGate || deliveryGate.accepted;
     return {
-      status:'succeeded',
-      currentStage:isCampaignEvidence
+      status:accepted ? 'succeeded' : 'waiting_test',
+      currentStage:accepted ? (isCampaignEvidence
         ? 'campaign_evidence_ready'
-        : isCampaignResearch ? 'campaign_research_ready' : 'intel_research_ready',
-      execution:{ executor:task.assigneeAgentId || 'intel-researcher', mode:discovery ? 'public_discovery_and_research' : 'provided_sources_research', startedAt:task.execution?.startedAt || completedAt, finishedAt:completedAt, outcome:'research_ready' },
+        : isCampaignResearch ? 'campaign_research_ready' : 'intel_research_ready') : 'research_deliverable_incomplete',
+      execution:{ executor:task.assigneeAgentId || 'intel-researcher', mode:discovery ? 'public_discovery_and_research' : 'provided_sources_research', startedAt:task.execution?.startedAt || completedAt, finishedAt:completedAt, outcome:accepted ? 'research_ready' : 'research_deliverable_incomplete' },
       usage:{ tools:tools.filter((tool) => tool.calls > 0) },
       artifactRefs:[{
         artifactId:`${isCampaignEvidence ? 'campaign-evidence' : isCampaignResearch ? 'campaign-research' : 'intel-research'}:${task.taskId}`,
@@ -133,10 +149,26 @@ export class LocalIntelResearcher {
           contentOpportunityPresent:isCampaignResearch
             ? report.contentOpportunity?.schemaVersion === 'agent.army/content-opportunity/v1'
             : undefined,
+          deliverableCoverageSatisfied:deliveryGate?.evidenceCoverageSatisfied,
+          recommendationCountMet:deliveryGate?.recommendationCountMet,
+          deliverableAccepted:deliveryGate?.accepted,
           structured:true,
         },
         data:report
-      }]
+      }],
+      ...(!accepted ? {
+        error:{
+          code:'research_deliverable_incomplete',
+          message:deliveryGate.missingEvidenceTerms.length
+            ? `公开正文未覆盖必需证据词：${deliveryGate.missingEvidenceTerms.join('、')}`
+            : `建议数量不足：要求 ${deliveryGate.minimumRecommendations} 条，实际 ${deliveryGate.recommendationCount} 条。`,
+          userMessage:'本轮已停止：公开来源或交付内容没有完整覆盖预先声明的验收项，不记为研究成功。',
+          category:'manual',
+          stage:'completion_validation',
+          retryable:false,
+          occurredAt:completedAt,
+        },
+      } : {}),
     };
   }
 
@@ -364,7 +396,7 @@ export class LocalIntelResearcher {
     };
   }
 
-  async readSources(urls, roleToolContext = null, readModes = new Map(), candidatesByUrl = new Map()) {
+  async readSources(urls, roleToolContext = null, readModes = new Map(), candidatesByUrl = new Map(), requiredEvidenceTerms = []) {
     const sources = []; const failures = [];
     for (const sourceUrl of urls) {
       try {
@@ -383,11 +415,14 @@ export class LocalIntelResearcher {
               input:{ sourceUrl },
             })
           : await this.publicWebFetch.acquire({ sourceUrl });
+        const focusedFragments = researchEvidenceFragments(page.text, requiredEvidenceTerms);
         sources.push({
           kind:readMode === 'pdf' ? 'public_pdf' : readMode === 'dynamic' ? 'public_dynamic_web' : 'public_web',
           title:page.title || '未提供标题的公开来源',
           source:page.sourceRef,
-          summary:summarize(page.text),
+          summary:summarize(page.text, focusedFragments),
+          focusedFragments,
+          coveredEvidenceTerms:requiredEvidenceTerms.filter((term) => containsResearchTerm(page.text, term)),
           contentHash:page.contentHash || null,
           fetchedAt:page.fetchedAt,
           truncated:Boolean(page.truncated),
@@ -482,7 +517,7 @@ function prepareResearchSources(sources) {
     const url = publicSourceUrl(source?.source);
     const fetchedAt = validTimestamp(source?.fetchedAt);
     const contentHash = validContentHash(source?.contentHash);
-    const summary = String(source?.summary || '').replace(/\s+/g, ' ').trim().slice(0, 900);
+    const summary = String(source?.summary || '').replace(/\s+/g, ' ').trim().slice(0, 1800);
     const metadataOnly = source?.kind === 'github_metadata';
     const evidenceEligible = !metadataOnly && Boolean(url && fetchedAt && contentHash && summary);
     return {
@@ -492,13 +527,21 @@ function prepareResearchSources(sources) {
       fetchedAt:fetchedAt || source?.fetchedAt || null,
       contentHash,
       evidenceEligible,
+      coveredEvidenceTerms:Array.isArray(source?.coveredEvidenceTerms)
+        ? source.coveredEvidenceTerms.map(String).filter(Boolean)
+        : [],
       evidenceExclusionReason:evidenceEligible
         ? null
         : metadataOnly
           ? 'github_metadata_only'
           : 'missing_url_fetched_at_content_hash_or_text',
       evidenceFragments:evidenceEligible
-        ? [{ fragmentId:`${sourceId}-fragment-1`, text:summary }]
+        ? (Array.isArray(source?.focusedFragments) && source.focusedFragments.length
+            ? source.focusedFragments.slice(0, 8).map((fragment, fragmentIndex) => ({
+                fragmentId:`${sourceId}-fragment-${fragmentIndex + 1}`,
+                text:String(fragment || '').replace(/\s+/g, ' ').trim().slice(0, 1000),
+              })).filter((fragment) => fragment.text)
+            : [{ fragmentId:`${sourceId}-fragment-1`, text:summary.slice(0, 1000) }])
         : [],
     };
   });
@@ -850,7 +893,8 @@ function discoveryQuery(topic) {
   return value;
 }
 function needsInput(now, code, userMessage) { return { status:'needs_input', currentStage:code, error:{ code, userMessage, category:'needs_input', stage:'input', occurredAt:now.toISOString() } }; }
-function summarize(text) {
+function summarize(text, focusedFragments = []) {
+  if (focusedFragments.length) return focusedFragments.join(' … ').slice(0, 1800);
   const compact = String(text || '').replace(/\s+/g, ' ').trim();
   const sentences = compact.split(/(?<=[。！？.!?])\s*/).filter(Boolean);
   return (sentences.length ? sentences.slice(0, 3).join(' ') : compact).slice(0, 900) || '公开网页没有可用正文。';

@@ -19,6 +19,26 @@ test('专用任务只接受对应类型且通过语义门禁的完成产物', ()
   assert.equal(validateTaskCompletion(task, [readable('intel_research_report', { conclusion:'结论', sources:[{ source:'https://example.com' }] })]).valid, true);
 });
 
+test('小R 产品成熟度新鲜度任务必须通过显式交付覆盖门禁', () => {
+  const task = {
+    taskType:'research.intel-report',
+    input:{ context:{ validationPurpose:'product_maturity_role_freshness' } },
+  };
+  const data = {
+    conclusion:'结论',
+    sources:[{ source:'https://example.com' }],
+    deliveryGate:{ accepted:true, evidenceCoverageSatisfied:true },
+  };
+  assert.equal(validateTaskCompletion(task, [readable('intel_research_report', data)]).valid, false);
+  assert.equal(validateTaskCompletion(task, [readable('intel_research_report', data, {
+    validation:{ deliverableAccepted:true, deliverableCoverageSatisfied:true },
+  })]).valid, true);
+  assert.equal(validateTaskCompletion(task, [readable('intel_research_report', {
+    ...data,
+    deliveryGate:{ ...data.deliveryGate, accepted:false },
+  }, { validation:{ deliverableAccepted:true, deliverableCoverageSatisfied:true } })]).valid, false);
+});
+
 test('视频分析 v2 必须与请求模式一致并绑定证据', () => {
   const task = { taskType:'content.video-benchmark-analysis', input:{ analysisIntent:'deep', depth:'full', evidenceMode:'formal' } };
   const artifact = readable('video_content_analysis_report', {
