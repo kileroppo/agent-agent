@@ -12,28 +12,17 @@ import {
   uniqueStrings,
   view,
 } from './task-recovery-policy.js';
+import { retryVisualAnalysis, visionCapabilityReadiness } from './task-visual-recovery.js';
+import { cleanActionKey, cleanActor, cleanRequestId, recoveryError } from './task-recovery-input.js';
+export { TaskRecoveryError } from './task-recovery-input.js';
 export { failureClassification, view } from './task-recovery-policy.js';
 
-const ACTION_KEYS = Object.freeze([
-  'use_confirmed_transcript_only',
-  'request_safe_recovery',
-  'request_read_only_diagnosis',
-]);
-
-export class TaskRecoveryError extends Error {
-  constructor(message, { code = 'task_recovery_invalid', httpStatus = 422 } = {}) {
-    super(message);
-    this.name = 'TaskRecoveryError';
-    this.code = code;
-    this.httpStatus = httpStatus;
-  }
-}
-
 export class TaskRecovery {
-  constructor({ store, recover = null, createTask = null, clock = () => new Date() } = {}) {
+  constructor({ store, recover = null, createTask = null, capabilityStatus = null, clock = () => new Date() } = {}) {
     this.store = store;
     this.recover = recover;
     this.createTask = createTask;
+    this.capabilityStatus = capabilityStatus;
     this.clock = clock;
     this.requests = new Map();
   }
@@ -50,7 +39,9 @@ export class TaskRecovery {
   request(taskId, input = {}, actor = {}) {
     const actionKey = cleanActionKey(input.actionKey);
     const requestId = cleanRequestId(input.requestId || input.idempotencyKey);
-    const key = `${String(taskId || '').trim()}:${actionKey}:${requestId}`;
+    const key = actionKey === 'retry_visual_analysis_after_recovery'
+      ? `${String(taskId || '').trim()}:${actionKey}`
+      : `${String(taskId || '').trim()}:${actionKey}:${requestId}`;
     const running = this.requests.get(key);
     if (running) return running;
     const execution = this.#requestOnce(taskId, { ...input, actionKey, requestId }, actor)
@@ -73,6 +64,27 @@ export class TaskRecovery {
     const recoveryView = view(task, { audience:'local-owner', relatedTasks });
     if (!recoveryView.actions.some((item) => item.actionKey === input.actionKey)) {
       return ineligibleResult(task, input.actionKey, recoveryView);
+    }
+    if (input.actionKey === 'retry_visual_analysis_after_recovery') {
+      if (actor?.kind !== 'local-owner') {
+        throw recoveryError('只有本机主人可以显式触发视觉恢复后重跑。', 'task_recovery_local_owner_required', 403);
+      }
+      const capability = await visionCapabilityReadiness(this.capabilityStatus, {
+        failureCode:task.error?.code,
+        failureAt:task.error?.occurredAt,
+      });
+      if (!capability.ready) {
+        return {
+          status:'waiting_capability',
+          taskId:task.taskId,
+          actionKey:input.actionKey,
+          capability,
+          message:capability.requiresBillingRecovery
+            ? '识图余额或额度尚未出现晚于本次失败的新端到端验证；未创建重跑任务，也未消耗重跑次数。'
+            : 'vision.analyze 尚未同时达到已配置、健康和端到端验证；未创建重跑任务，也未消耗重跑次数。',
+          recovery:recoveryView,
+        };
+      }
     }
     const requestedAt = this.clock().toISOString();
     const requestedBy = cleanActor(actor);
@@ -98,6 +110,16 @@ export class TaskRecovery {
         ? await this.#useConfirmedTranscriptOnly(task, relatedTasks, { requestId:input.requestId, requestedBy })
         : input.actionKey === 'request_read_only_diagnosis'
           ? await this.#requestReadOnlyDiagnosis(task, { requestId:input.requestId, requestedBy })
+          : input.actionKey === 'retry_visual_analysis_after_recovery'
+            ? await retryVisualAnalysis({
+              task,
+              requestId:input.requestId,
+              requestedBy,
+              createTask:this.createTask,
+              record:(...args) => this.#record(...args),
+              clock:this.clock,
+              errorFactory:recoveryError,
+            })
           : await this.#runCoordinator(task, { actionKey:input.actionKey, requestId:input.requestId, requestedBy });
       const current = await taskById(this.store, task.taskId);
       return {
@@ -268,29 +290,4 @@ export class TaskRecovery {
       recovery:{ ...(current.recovery || {}), coordination, events:events.slice(-50) },
     });
   }
-}
-
-function cleanActionKey(value) {
-  const normalized = String(value || '').trim();
-  if (!ACTION_KEYS.includes(normalized)) throw recoveryError('恢复动作无效。', 'task_recovery_action_invalid', 422);
-  return normalized;
-}
-
-function cleanRequestId(value) {
-  const normalized = String(value || '').trim();
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9:_-]{7,127}$/.test(normalized)) {
-    throw recoveryError('恢复请求缺少有效幂等键。', 'task_recovery_idempotency_required', 422);
-  }
-  return normalized;
-}
-
-function cleanActor(actor) {
-  return {
-    kind:'local-owner',
-    ref:safeText(actor?.ref || actor?.requestedBy || 'A君', 120) || 'A君',
-  };
-}
-
-function recoveryError(message, code, httpStatus) {
-  return new TaskRecoveryError(message, { code, httpStatus });
 }

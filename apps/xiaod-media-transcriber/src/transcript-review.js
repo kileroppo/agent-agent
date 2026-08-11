@@ -14,7 +14,9 @@ export async function createTranscriptConfirmationFiles({
   confirmerRef,
   confirmedAt = new Date().toISOString(),
   version = 1,
-  correctionApplied = false
+  correctionApplied = false,
+  basedOnVersion = null,
+  correctionSummary = ''
 } = {}) {
   const mode = confirmationMode === 'automatic' ? 'automatic' : 'human';
   const confirmed = confirmedTranscriptDocument({
@@ -24,7 +26,9 @@ export async function createTranscriptConfirmationFiles({
     confirmationMode:mode,
     confirmerRef,
     confirmedAt,
-    version
+    version,
+    correctionApplied,
+    basedOnVersion
   });
   const confirmedTranscriptPath = path.join(requiredPath(directory), `confirmed-transcript-v${version}.md`);
   const attestationPath = path.join(
@@ -43,10 +47,17 @@ export async function createTranscriptConfirmationFiles({
     machineTranscriptChecksum:machineChecksum || null,
     confirmedTranscriptChecksum:confirmed.checksum,
     correctionApplied:Boolean(correctionApplied),
+    basedOnVersion:Number.isSafeInteger(basedOnVersion) && basedOnVersion > 0 ? basedOnVersion : null,
+    correctionSummary:safeSummary(correctionSummary),
     version
   };
   await fs.writeFile(confirmedTranscriptPath, confirmed.markdown, { encoding:'utf8', flag:'wx', mode:0o600 });
-  await fs.writeFile(attestationPath, JSON.stringify(attestation, null, 2), { encoding:'utf8', flag:'wx', mode:0o600 });
+  try {
+    await fs.writeFile(attestationPath, JSON.stringify(attestation, null, 2), { encoding:'utf8', flag:'wx', mode:0o600 });
+  } catch (error) {
+    await fs.rm(confirmedTranscriptPath, { force:true }).catch(() => {});
+    throw error;
+  }
   return {
     confirmationMode:mode,
     confirmedTranscriptPath,
@@ -55,6 +66,113 @@ export async function createTranscriptConfirmationFiles({
     confirmationAttestationPath:attestationPath,
     ...(mode === 'human' ? { humanReviewAttestationPath:attestationPath } : {})
   };
+}
+
+export async function readTranscriptRevision(job) {
+  if (!job) throw new TranscriptReviewError('任务不存在。', 404);
+  const filePath = requiredPath(job.output?.confirmedTranscriptPath);
+  const markdown = await fs.readFile(filePath, 'utf8');
+  return {
+    jobId:job.id,
+    title:job.title,
+    transcript:stripConfirmedTranscriptDocument(markdown),
+    version:positiveVersion(job.output?.confirmedTranscriptVersion),
+    confirmationMode:job.output?.confirmationMode === 'human' ? 'human' : 'automatic',
+    completeListen:job.output?.confirmationMode === 'human',
+    correctionApplied:job.output?.transcriptCorrection?.applied === true,
+    canRevise:['completed', 'awaiting_delivery'].includes(job.status)
+      && job.output?.confirmationMode === 'automatic',
+  };
+}
+
+export async function reviseTranscript({ store, job, input = {}, now = () => new Date() } = {}) {
+  if (!job) throw new TranscriptReviewError('任务不存在。', 404);
+  if (!['completed', 'awaiting_delivery'].includes(job.status) || !job.output?.confirmedTranscriptPath) {
+    throw new TranscriptReviewError('只有已经生成确认稿的完成任务才能补正字幕。', 409);
+  }
+  if (job.output?.confirmationMode !== 'automatic') {
+    throw new TranscriptReviewError('这份字幕已经完成整段人工听审，不能用局部补正覆盖其听审事实；请重新走完整听审。', 409);
+  }
+  const expectedVersion = Number(input.expectedVersion);
+  const currentVersion = positiveVersion(job.output.confirmedTranscriptVersion);
+  if (!Number.isSafeInteger(expectedVersion) || expectedVersion !== currentVersion) {
+    throw new TranscriptReviewError('字幕版本已经变化，请刷新后再保存。', 409);
+  }
+  const correctedTranscript = normalizeCorrection(input.correctedTranscript);
+  if (correctedTranscript.length < 20) throw new TranscriptReviewError('补正后的字幕正文过短，未保存。', 422);
+  const currentMarkdown = await fs.readFile(requiredPath(job.output.confirmedTranscriptPath), 'utf8');
+  if (correctedTranscript === stripConfirmedTranscriptDocument(currentMarkdown)) {
+    throw new TranscriptReviewError('字幕没有变化，无需生成新版本。', 422);
+  }
+  const version = currentVersion + 1;
+  const correctedAt = now().toISOString();
+  const directory = path.dirname(requiredPath(job.output.confirmedTranscriptPath));
+  let confirmation;
+  try {
+    confirmation = await createTranscriptConfirmationFiles({
+      directory,
+      jobId:job.id,
+      title:job.title,
+      transcript:correctedTranscript,
+      machineChecksum:job.output?.transcriptChecksum,
+      confirmationMode:'automatic',
+      confirmerRef:input.editorRef || 'local-owner',
+      confirmedAt:correctedAt,
+      version,
+      correctionApplied:true,
+      basedOnVersion:currentVersion,
+      correctionSummary:input.correctionSummary,
+    });
+  } catch (error) {
+    if (error?.code === 'EEXIST') throw new TranscriptReviewError('字幕版本已经变化，请刷新后再保存。', 409);
+    throw error;
+  }
+  const proofreadPath = path.join(directory, `完整校对文本-v${version}.md`);
+  const guide = await readText(job.output?.guidePath);
+  const markdownPath = path.join(directory, `分享式补正版-v${version}.md`);
+  const revisedMarkdown = guide
+    ? composeDelivery(job.title, guide, correctedTranscript)
+    : `# ${job.title}\n\n## 完整校对文本\n\n${correctedTranscript}\n`;
+  const createdFiles = [
+    confirmation.confirmedTranscriptPath,
+    confirmation.confirmationAttestationPath,
+  ];
+  try {
+    await fs.writeFile(proofreadPath, `${correctedTranscript}\n`, { encoding:'utf8', flag:'wx', mode:0o600 });
+    createdFiles.push(proofreadPath);
+    await fs.writeFile(markdownPath, revisedMarkdown, { encoding:'utf8', flag:'wx', mode:0o600 });
+    createdFiles.push(markdownPath);
+    const previous = transcriptVersionRecord(job.output, currentVersion);
+    const revision = {
+      version,
+      basedOnVersion:currentVersion,
+      correctedAt,
+      correctedBy:safeIdentity(input.editorRef),
+      correctionSummary:safeSummary(input.correctionSummary),
+      confirmationMode:'automatic',
+      completeListen:false,
+      checksum:confirmation.confirmedTranscriptChecksum,
+      path:confirmation.confirmedTranscriptPath,
+    };
+    const updated = await store.update(job.id, {
+      stageMessage:'AI 字幕初稿已人工补正；后续分析可按需使用最新版本',
+      output:{
+        ...(job.output || {}),
+        ...confirmation,
+        proofreadPath,
+        markdownPath,
+        reviewStatus:'auto_confirmed',
+        transcriptCorrection:{ applied:true, ...revision },
+        transcriptVersions:mergeTranscriptVersions(job.output?.transcriptVersions, previous, revision),
+        larkRevisionStatus:job.output?.larkUrl ? 'stale' : 'not_delivered',
+      },
+    }, { stage:job.status, message:`字幕已在 AI 初稿基础上补正为 v${version}，未调用模型、未自动外发` });
+    return { job:updated, revision, duplicate:false };
+  } catch (error) {
+    await Promise.all(createdFiles.map((filePath) => fs.rm(filePath, { force:true }).catch(() => {})));
+    if (error?.code === 'EEXIST') throw new TranscriptReviewError('字幕版本已经变化，请刷新后再保存。', 409);
+    throw error;
+  }
 }
 
 export async function reviewTranscript({ store, job, input = {}, now = () => new Date(), delivery = null } = {}) {
@@ -181,6 +299,45 @@ function requiredPath(value) {
 
 function stripDocumentHeading(value) {
   return String(value || '').replace(/^#\s+[^\n]+\n+/m, '').trim();
+}
+
+function stripConfirmedTranscriptDocument(value) {
+  return stripDocumentHeading(String(value || '').replace(/^---\n[\s\S]*?\n---\n+/m, '')).trim();
+}
+
+function normalizeCorrection(value) {
+  return String(value || '').replace(/\r\n?/g, '\n').trim().slice(0, 1_000_000);
+}
+
+function positiveVersion(value) {
+  const version = Number(value);
+  return Number.isSafeInteger(version) && version > 0 ? version : 1;
+}
+
+function safeSummary(value) {
+  return String(value || '').replace(/[\r\n]+/g, ' ').trim().slice(0, 300);
+}
+
+function transcriptVersionRecord(output = {}, version = 1) {
+  return {
+    version,
+    basedOnVersion:null,
+    correctedAt:null,
+    correctedBy:null,
+    correctionSummary:'',
+    confirmationMode:output.confirmationMode === 'human' ? 'human' : 'automatic',
+    completeListen:output.confirmationMode === 'human',
+    checksum:output.confirmedTranscriptChecksum || null,
+    path:output.confirmedTranscriptPath || null,
+  };
+}
+
+function mergeTranscriptVersions(existing, previous, revision) {
+  const versions = Array.isArray(existing) ? existing.filter((item) => item && Number.isSafeInteger(item.version)) : [];
+  const byVersion = new Map(versions.map((item) => [item.version, item]));
+  byVersion.set(previous.version, previous);
+  byVersion.set(revision.version, revision);
+  return [...byVersion.values()].sort((a, b) => a.version - b.version);
 }
 
 function safeIdentity(value) {

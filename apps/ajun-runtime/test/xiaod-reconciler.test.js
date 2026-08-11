@@ -116,6 +116,46 @@ test('系统自动确认稿进入正式产物链，但不会标记为人工听�
   assert.deepEqual(transcript.sourceRefs, ['raw-transcript:xiaod-1', 'automatic-confirmation:xiaod-1:v1']);
 });
 
+test('AI 初稿人工补正后，A君登记最新版本但不冒充完整人工听审', async () => {
+  const { task, reconciler } = setup({
+    getJob:async () => ({
+      id:'xiaod-1',
+      status:'completed',
+      title:'补正素材',
+      output:{
+        markdownPath:'/tmp/result-v2.md',
+        rawTranscriptPath:'/tmp/raw.txt',
+        qualityReportPath:'/tmp/quality.json',
+        confirmedTranscriptPath:'/tmp/confirmed-v2.md',
+        confirmationAttestationPath:'/tmp/automatic-confirmation-v2.json',
+        confirmedTranscriptChecksum:'checksum-v2',
+        confirmedTranscriptVersion:2,
+        confirmationMode:'automatic',
+        evidenceLevel:'timed_machine_transcript',
+        transcriptCorrection:{ applied:true, basedOnVersion:1 },
+      },
+      quality:{ passed:true },
+    }),
+  });
+  await reconciler.reconcile();
+  const confirmation = task.artifactRefs.find((artifact) => artifact.type === 'automatic_transcript_attestation');
+  const transcript = task.artifactRefs.find((artifact) => artifact.type === 'confirmed_transcript');
+  assert.match(confirmation.title, /人工补正记录/);
+  assert.equal(confirmation.validation.completeListen, false);
+  assert.equal(confirmation.validation.correctionApplied, true);
+  assert.equal(transcript.artifactId, 'confirmed-transcript:xiaod-1:v2');
+  assert.match(transcript.title, /AI 初稿人工补正版/);
+  assert.equal(transcript.validation.humanConfirmed, false);
+  assert.equal(transcript.validation.automaticConfirmed, true);
+  assert.equal(transcript.validation.transcriptVersion, 2);
+  assert.deepEqual(transcript.data, {
+    confirmationMode:'automatic',
+    correctionApplied:true,
+    transcriptVersion:2,
+    basedOnVersion:1,
+  });
+});
+
 test('小D已暂停时，A君保留已暂停状态并停止后续自动查询', async () => {
   const { task, reconciler } = setup({ getJob: async () => ({ id:'xiaod-1', status:'paused', progress:45 }) });
   await reconciler.reconcile();

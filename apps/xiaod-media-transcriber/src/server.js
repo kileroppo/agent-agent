@@ -13,7 +13,7 @@ import { JobPauseController, JobPauseError } from './job-pause-controller.js';
 import { JobStore, JobStoreConflictError } from './store.js';
 import { ConnectionSelectionError, createContentRuntime } from './content-runtime.js';
 import { ConnectionInputError } from 'ajun-common-access/connection-store';
-import { reviewTranscript, TranscriptReviewError } from './transcript-review.js';
+import { readTranscriptRevision, reviseTranscript, reviewTranscript, TranscriptReviewError } from './transcript-review.js';
 import { collectMetricsRequest, MetricsRequestError } from './metrics-api.js';
 
 await fs.mkdir(config.workDir, { recursive: true });
@@ -38,7 +38,7 @@ const pipeline = new MediaPipeline({
 });
 const upload = multer({ dest: uploadsDir, limits: { fileSize: 1024 * 1024 * 1024 } });
 const app = express();
-app.use(express.json({ limit: '64kb' }));
+app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.resolve('public')));
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, capabilities: configuredCapabilities(), commonAccess: contentRuntime.health() }));
@@ -288,6 +288,26 @@ app.post('/api/jobs/:id/transcript-review', async (req, res, next) => {
   try {
     const result = await reviewTranscript({ store, job:store.get(req.params.id), input:req.body || {}, delivery:larkDelivery });
     res.status(result.duplicate ? 200 : 201).json(result);
+  } catch (error) {
+    if (error instanceof TranscriptReviewError) return res.status(error.status).json({ error:error.message });
+    next(error);
+  }
+});
+
+app.get('/api/jobs/:id/transcript-revision', async (req, res, next) => {
+  try {
+    const revision = await readTranscriptRevision(store.get(req.params.id));
+    res.json({ revision });
+  } catch (error) {
+    if (error instanceof TranscriptReviewError) return res.status(error.status).json({ error:error.message });
+    next(error);
+  }
+});
+
+app.post('/api/jobs/:id/transcript-revisions', async (req, res, next) => {
+  try {
+    const result = await reviseTranscript({ store, job:store.get(req.params.id), input:req.body || {} });
+    res.status(201).json(result);
   } catch (error) {
     if (error instanceof TranscriptReviewError) return res.status(error.status).json({ error:error.message });
     next(error);

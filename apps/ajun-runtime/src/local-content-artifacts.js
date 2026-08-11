@@ -166,6 +166,7 @@ function renderArtifactMarkdown({ type, title, data, sourceRefs, completedAt }) 
 }
 
 export function renderVideoAnalysisMarkdown({ title, data, sourceRefs = [], completedAt = '' } = {}) {
+  const visualAnalysisUsed = wasVisualAnalysisUsed(data);
   const generation = data?.generationMode === 'hermes_advisor'
     ? 'Hermes 深度分析'
     : data?.generationMode === 'hermes_advisor_evidence_repaired'
@@ -179,7 +180,7 @@ export function renderVideoAnalysisMarkdown({ title, data, sourceRefs = [], comp
     `- 分析方式：${generation}`,
     `- 证据来源：${markdownText(data?.evidenceLabel || data?.evidenceMode) || '未提供'}`,
     `- 分析深度：${data?.depth === 'full' ? '完整拆解' : '快速拆解'}`,
-    `- 完整程度：${data?.completeness === 'complete' ? '图文分析完整' : '部分完成，画面分析未通过完整门禁'}`,
+    `- 图片分析：${visualAnalysisUsed ? '已使用图片分析' : '未使用图片分析'}`,
     `- 生成时间：${markdownText(completedAt || data?.generatedAt) || '未提供'}`,
     '',
     '## 来源信息',
@@ -193,13 +194,13 @@ export function renderVideoAnalysisMarkdown({ title, data, sourceRefs = [], comp
     '## 画面观察',
     ''
   ];
-  const visualFindings = Array.isArray(data?.visualFindings) ? data.visualFindings : [];
+  const visualFindings = visualAnalysisUsed && Array.isArray(data?.visualFindings) ? data.visualFindings : [];
   if (visualFindings.length) {
     visualFindings.forEach((item) => {
       lines.push(`- [${markdownText(item?.evidence?.timestamp) || '时间点缺失'}｜${markdownText(item?.evidence?.frameRef) || '帧缺失'}] ${markdownText(item?.finding) || '无结论'}`);
     });
   } else {
-    lines.push(data?.visualCoverage?.status === 'disabled' ? '- 本次按要求只分析文字。' : '- 没有通过证据门禁的画面结论；报告按部分完成交付。');
+    lines.push('- 本报告没有使用图片生成画面结论。');
   }
   lines.push(
     '',
@@ -228,6 +229,13 @@ export function renderVideoAnalysisMarkdown({ title, data, sourceRefs = [], comp
     ''
   );
   return lines.join('\n');
+}
+
+export function wasVisualAnalysisUsed(data) {
+  return data?.visualCoverage?.status === 'available'
+    && data?.completeness === 'complete'
+    && Array.isArray(data?.visualFindings)
+    && data.visualFindings.length > 0;
 }
 
 function appendAnalysisModule(lines, module, index) {

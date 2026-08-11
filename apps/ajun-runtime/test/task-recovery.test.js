@@ -148,6 +148,218 @@ test('Paperclip Hermes 失败请求本机安全恢复时只返回 requires_exter
   assert.equal(result.actionKey, 'request_safe_recovery');
 });
 
+test('视觉能力失败会提供由本机主人显式触发的恢复后重跑动作', () => {
+  const tasks = visionFailureTasks();
+  const actions = view(tasks[0], { audience:'local-owner', relatedTasks:tasks }).actions;
+
+  assert.equal(actions.some((item) => item.actionKey === 'retry_visual_analysis_after_recovery'), true);
+  assert.equal(
+    actions.find((item) => item.actionKey === 'retry_visual_analysis_after_recovery').confirmation,
+    '只有本机主人点击后才会先核验 vision.analyze 已配置、健康且通过端到端验证；余额或额度错误还必须有晚于本次失败的新端到端验证。能力未恢复时不创建任务、不消耗重跑次数。恢复后仅创建一次保留原视觉模式的子任务，子任务会调用识图能力，可能产生一次 Provider 费用。',
+  );
+
+  for (const status of ['needs_input', 'waiting_test']) {
+    tasks[0].status = status;
+    assert.equal(
+      view(tasks[0], { audience:'local-owner', relatedTasks:tasks }).actions
+        .some((item) => item.actionKey === 'retry_visual_analysis_after_recovery'),
+      true,
+    );
+  }
+});
+
+test('视觉能力未恢复时不记恢复次数、不写原失败任务、不创建子任务', async () => {
+  const tasks = visionFailureTasks();
+  const store = memoryStore(tasks);
+  let capabilityChecks = 0;
+  let createCalls = 0;
+  const recovery = new TaskRecovery({
+    store,
+    async capabilityStatus() {
+      capabilityChecks += 1;
+      return {
+        capabilities:[{
+          capability:'vision.analyze', configured:true, healthy:false, e2eVerified:false,
+        }],
+      };
+    },
+    async createTask() { createCalls += 1; return { taskId:'must-not-be-created' }; },
+  });
+
+  const result = await recovery.request(tasks[0].taskId, {
+    actionKey:'retry_visual_analysis_after_recovery',
+    requestId:'vision-recovery-waiting-0001',
+    expectedUpdatedAt:tasks[0].updatedAt,
+  }, { kind:'local-owner', ref:'A君' });
+
+  assert.equal(result.status, 'waiting_capability');
+  assert.deepEqual(result.capability, {
+    capability:'vision.analyze', configured:true, healthy:false, e2eVerified:false, ready:false,
+  });
+  assert.equal(capabilityChecks, 1);
+  assert.equal(createCalls, 0);
+  assert.equal((await store.getTask(tasks[0].taskId)).recovery, undefined);
+  assert.equal((await store.getTask(tasks[0].taskId)).status, 'failed');
+});
+
+test('视觉能力恢复后仅创建一次子任务，保留 visualMode、sourceTaskIds 和 Paperclip 审计关联', async () => {
+  const tasks = visionFailureTasks();
+  const store = memoryStore(tasks);
+  const created = [];
+  const recovery = new TaskRecovery({
+    store,
+    capabilityStatus:async () => ({
+      capabilities:[{
+        capability:'vision.analyze', configured:true, healthy:true, e2eVerified:true,
+      }],
+    }),
+    async createTask(input) {
+      created.push(input);
+      return { taskId:'vision-retry-child', ...input };
+    },
+  });
+  const input = {
+    actionKey:'retry_visual_analysis_after_recovery',
+    requestId:'vision-recovery-ready-0001',
+    expectedUpdatedAt:tasks[0].updatedAt,
+  };
+
+  const first = await recovery.request(tasks[0].taskId, input, { kind:'local-owner', ref:'A君' });
+  const duplicate = await recovery.request(tasks[0].taskId, input, { kind:'local-owner', ref:'A君' });
+  const duplicateWithNewTransportKey = await recovery.request(tasks[0].taskId, {
+    ...input,
+    requestId:'vision-recovery-ready-0002',
+  }, { kind:'local-owner', ref:'A君' });
+
+  assert.equal(first.status, 'accepted');
+  assert.equal(duplicate.status, 'existing');
+  assert.equal(duplicateWithNewTransportKey.status, 'existing');
+  assert.equal(created.length, 1);
+  assert.equal(created[0].visualMode, 'auto');
+  assert.deepEqual(created[0].context.sourceTaskIds, ['transcript-task', 'visual-evidence-task']);
+  assert.equal(created[0].context.parentPaperclipIssueId, 'paperclip-issue-original');
+  assert.equal(created[0].context.recoveryFromTaskId, tasks[0].taskId);
+  assert.equal(created[0].parentTaskId, tasks[0].taskId);
+  assert.equal(created[0].idempotencyKey, `recovery-vision-capability:${tasks[0].taskId}`);
+  assert.deepEqual(created[0].recovery, {
+    rootTaskId:tasks[0].taskId,
+    attempt:1,
+    triggeredByTaskId:tasks[0].taskId,
+    mode:'vision_capability_restored',
+    requestId:input.requestId,
+  });
+  const stored = await store.getTask(tasks[0].taskId);
+  assert.equal(stored.status, 'failed');
+  assert.equal(stored.recovery.coordination.status, 'retrying');
+  assert.equal(stored.recovery.coordination.retryTaskId, 'vision-retry-child');
+  assert.deepEqual(stored.recovery.events.map((event) => event.event), ['requested', 'child_created']);
+});
+
+test('余额不足只在失败后的新端到端视觉验证出现后才允许重跑', async () => {
+  const tasks = visionFailureTasks();
+  tasks[0].status = 'needs_input';
+  tasks[0].error = {
+    code:'provider_http_402',
+    stage:'content_growth_input',
+    occurredAt:'2026-08-11T08:00:00.000Z',
+  };
+  const store = memoryStore(tasks);
+  let verifiedAt = '2026-08-11T07:59:00.000Z';
+  const created = [];
+  const recovery = new TaskRecovery({
+    store,
+    capabilityStatus:async () => ({ capabilities:[{
+      capability:'vision.analyze', configured:true, healthy:true, e2eVerified:true, verifiedAt,
+    }] }),
+    createTask:async (input) => {
+      created.push(input);
+      return { taskId:'billing-recovery-child', ...input };
+    },
+  });
+
+  const waiting = await recovery.request(tasks[0].taskId, {
+    actionKey:'retry_visual_analysis_after_recovery',
+    requestId:'vision-billing-waiting-0001',
+    expectedUpdatedAt:tasks[0].updatedAt,
+  }, { kind:'local-owner', ref:'A君' });
+  assert.equal(waiting.status, 'waiting_capability');
+  assert.equal(waiting.capability.requiresBillingRecovery, true);
+  assert.equal(waiting.capability.billingRecoveryVerified, false);
+  assert.match(waiting.message, /余额或额度尚未出现/);
+  assert.equal(created.length, 0);
+
+  verifiedAt = '2026-08-11T08:01:00.000Z';
+  const accepted = await recovery.request(tasks[0].taskId, {
+    actionKey:'retry_visual_analysis_after_recovery',
+    requestId:'vision-billing-ready-0001',
+    expectedUpdatedAt:tasks[0].updatedAt,
+  }, { kind:'local-owner', ref:'A君' });
+  assert.equal(accepted.status, 'accepted');
+  assert.equal(created.length, 1);
+});
+
+test('视觉恢复重跑拒绝非本机主人请求，且不查能力、不创建任务', async () => {
+  const tasks = visionFailureTasks();
+  let capabilityChecks = 0;
+  let createCalls = 0;
+  const recovery = new TaskRecovery({
+    store:memoryStore(tasks),
+    capabilityStatus:async () => {
+      capabilityChecks += 1;
+      return { capabilities:[{ capability:'vision.analyze', configured:true, healthy:true, e2eVerified:true }] };
+    },
+    createTask:async () => { createCalls += 1; return { taskId:'must-not-be-created' }; },
+  });
+
+  await assert.rejects(
+    recovery.request(tasks[0].taskId, {
+      actionKey:'retry_visual_analysis_after_recovery',
+      requestId:'vision-recovery-owner-0001',
+      expectedUpdatedAt:tasks[0].updatedAt,
+    }, { kind:'lan', ref:'browser' }),
+    (error) => error instanceof TaskRecoveryError
+      && error.code === 'task_recovery_local_owner_required'
+      && error.httpStatus === 403,
+  );
+  assert.equal(capabilityChecks, 0);
+  assert.equal(createCalls, 0);
+});
+
+test('非视觉能力失败不提供视觉恢复重跑', () => {
+  const tasks = visionFailureTasks();
+  tasks[0].status = 'needs_input';
+  tasks[0].error = { code:'visual_evidence_required', stage:'content_growth_input', retryable:false };
+
+  assert.equal(
+    view(tasks[0], { audience:'local-owner', relatedTasks:tasks }).actions
+      .some((item) => item.actionKey === 'retry_visual_analysis_after_recovery'),
+    false,
+  );
+
+  tasks[0].status = 'failed';
+  tasks[0].error = { code:'provider_http_402', stage:'unknown', retryable:false };
+  assert.equal(
+    view(tasks[0], { audience:'local-owner', relatedTasks:tasks }).actions
+      .some((item) => item.actionKey === 'retry_visual_analysis_after_recovery'),
+    false,
+  );
+
+  tasks[0].status = 'needs_input';
+  tasks[0].error = { code:'provider_http_402', stage:'content_growth_input', retryable:false };
+  assert.equal(
+    view(tasks[0], { audience:'local-owner', relatedTasks:tasks }).actions
+      .some((item) => item.actionKey === 'retry_visual_analysis_after_recovery'),
+    true,
+  );
+
+  tasks[0].recovery = { attempt:1, mode:'vision_capability_restored' };
+  assert.equal(
+    view(tasks[0], { audience:'local-owner', relatedTasks:tasks }).actions
+      .some((item) => item.actionKey === 'retry_visual_analysis_after_recovery'),
+    false,
+  );
+});
+
 function eligibleTasks() {
   return [
     {
@@ -192,6 +404,25 @@ function localFailureTasks() {
     input:{ title:'整理公开视频', sourceUrl:'https://example.com/video' },
     error:{ code:'xiaod_job_failed', retryable:true },
   }];
+}
+
+function visionFailureTasks() {
+  const tasks = eligibleTasks();
+  tasks[0] = {
+    ...tasks[0],
+    input:{
+      ...tasks[0].input,
+      visualMode:'auto',
+      context:{ sourceTaskIds:['transcript-task', 'visual-evidence-task'] },
+    },
+    error:{
+      code:'controlled_vision_capability_unavailable',
+      category:'provider',
+      stage:'vision.analyze',
+      retryable:false,
+    },
+  };
+  return tasks;
 }
 
 function memoryStore(initial) {

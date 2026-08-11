@@ -8,21 +8,37 @@ export function view(task, { audience = 'local-owner', relatedTasks = [] } = {})
     taskId:verificationTaskId || task.taskId,
     detailPath:`/tasks/${encodeURIComponent(verificationTaskId || task.taskId)}`,
   } : null;
-  if (audience !== 'local-owner' || task?.status !== 'failed' || coordination) return { actions:[], verification };
+  if (audience !== 'local-owner' || coordination) return { actions:[], verification };
   const actions = [];
-  if (confirmedTranscriptOnlyEligible(task, relatedTasks)) actions.push(action(
-    'use_confirmed_transcript_only', '仅用确认稿继续', 'primary',
-    '将关闭视觉分析，只使用已核验确认稿创建原 Paperclip 任务的子任务；不会重新抓取素材或调用视觉 Provider。',
-  ));
-  if (locallyOwnedFailure(task) && recoverableFailure(task)) actions.push(action(
-    'request_safe_recovery', '请求安全恢复', actions.length ? 'secondary' : 'primary',
-    '系统会先核验故障类型、重试上限和组织归属；不满足安全条件时只会升级受控处理，不会强行重跑。',
-  ));
-  if (paperclipDiagnosisEligible(task)) actions.push(action(
-    'request_read_only_diagnosis', '只读诊断', 'secondary',
-    '只在原 Paperclip Issue 下创建诊断子任务；不修改代码、不重跑任务、不扩权。',
+  if (task?.status === 'failed') {
+    if (confirmedTranscriptOnlyEligible(task, relatedTasks)) actions.push(action(
+      'use_confirmed_transcript_only', '仅用确认稿继续', 'primary',
+      '将关闭视觉分析，只使用已核验确认稿创建原 Paperclip 任务的子任务；不会重新抓取素材或调用视觉 Provider。',
+    ));
+    if (locallyOwnedFailure(task) && recoverableFailure(task)) actions.push(action(
+      'request_safe_recovery', '请求安全恢复', actions.length ? 'secondary' : 'primary',
+      '系统会先核验故障类型、重试上限和组织归属；不满足安全条件时只会升级受控处理，不会强行重跑。',
+    ));
+    if (paperclipDiagnosisEligible(task)) actions.push(action(
+      'request_read_only_diagnosis', '只读诊断', 'secondary',
+      '只在原 Paperclip Issue 下创建诊断子任务；不修改代码、不重跑任务、不扩权。',
+    ));
+  }
+  if (visionCapabilityRecoveryEligible(task)) actions.push(action(
+    'retry_visual_analysis_after_recovery', '恢复识图后重跑', actions.length ? 'secondary' : 'primary',
+    '只有本机主人点击后才会先核验 vision.analyze 已配置、健康且通过端到端验证；余额或额度错误还必须有晚于本次失败的新端到端验证。能力未恢复时不创建任务、不消耗重跑次数。恢复后仅创建一次保留原视觉模式的子任务，子任务会调用识图能力，可能产生一次 Provider 费用。',
   ));
   return { actions, verification };
+}
+
+export function visionCapabilityRecoveryEligible(task) {
+  return task?.taskType === 'content.video-benchmark-analysis'
+    && ['failed', 'needs_input', 'waiting_test'].includes(String(task?.status || ''))
+    && ['auto', 'required'].includes(task?.input?.visualMode)
+    && Number(task?.recovery?.attempt || 0) < 1
+    && Boolean(paperclipIssueIdFor(task))
+    && visionCapabilityFailure(task)
+    && !recoveryEvents(task).some((event) => event.actionKey === 'retry_visual_analysis_after_recovery');
 }
 
 export function confirmedTranscriptOnlyEligible(task, tasks) {
@@ -114,6 +130,11 @@ export function failureClassification(task) {
   return classifyTechnicalFailure({ error:task?.error, taskType:task?.taskType, sourceUrl:task?.input?.sourceUrl });
 }
 
+export function paperclipIssueIdFor(task) {
+  return String(task?.governance?.paperclipIssueId || task?.execution?.paperclipIssueId
+    || task?.input?.context?.parentPaperclipIssueId || '').trim();
+}
+
 function action(actionKey, label, emphasis, confirmation) { return { actionKey, label, emphasis, confirmation }; }
 function locallyOwnedFailure(task) {
   const owner = String(task?.execution?.owner || '').trim();
@@ -128,6 +149,20 @@ function paperclipDiagnosisEligible(task) {
   return task?.execution?.owner === 'paperclip-hermes'
     && Boolean(String(task?.governance?.paperclipIssueId || '').trim())
     && !['operations.failure-recovery', 'operations.technical-repair'].includes(task?.taskType);
+}
+function visionCapabilityFailure(task) {
+  const code = String(task?.error?.code || task?.currentStage || '').trim().toLowerCase();
+  if (/^(?:controlled_(?:provider_)?vision_|m5_provider_vision_)/.test(code)) return true;
+  if (!['content_growth_input', 'vision', 'vision.analyze', 'visual_analysis'].includes(String(task?.error?.stage || '').trim().toLowerCase())) {
+    return false;
+  }
+  return [
+    'local_ai_gateway_unavailable',
+    'local_ai_failed',
+    'provider_http_402',
+    'provider_balance_insufficient',
+    'provider_quota_exhausted',
+  ].includes(code);
 }
 function validConfirmedTranscript(artifact, { legacyAttested = false } = {}) {
   const mode = String(artifact?.data?.confirmationMode || '');

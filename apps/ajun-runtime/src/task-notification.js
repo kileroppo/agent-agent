@@ -2,6 +2,7 @@ import { formatPublicReportReply } from './public-report-presentation.js';
 import { formatOfficeBriefingReply } from './local-office-assistant.js';
 import { ValidationError } from './task-service-execution-support.js';
 import { validateTaskCompletion } from './task-completion-contract.js';
+import { wasVisualAnalysisUsed } from './local-content-artifacts.js';
 
 export class TaskNotification {
   constructor({ store, registry, executors = {} }) {
@@ -29,6 +30,12 @@ export class TaskNotification {
       });
     }
     if (current.status === 'succeeded') {
+      const transcriptDelivery = artifact(current, 'xiaod_media_delivery')?.data;
+      if (transcriptDelivery?.currentTranscriptDelivered === false) {
+        const version = Number(transcriptDelivery.transcriptVersion) || null;
+        return status(root, 'revision_pending_delivery', true,
+          `“${shortTaskTitle(root)}”的字幕已补正${version ? `为 v${version}` : ''}，本地分析会使用最新版；原飞书文档仍是旧版，系统不会把它冒充最新交付，也不会自动外发。`);
+      }
       const completion = validateTaskCompletion(current);
       if (!completion.valid) return incompleteDeliveryStatus(root, `${completion.reason} 系统不会把状态当作完整交付。`);
       return this.succeededStatus(root, current, retried);
@@ -207,13 +214,14 @@ function formatHealthReportReply(report) {
 }
 
 function formatVideoAnalysisDelivery(report) {
+  const visualAnalysisUsed = wasVisualAnalysisUsed(report);
   const modules = report.modules.slice(0, 13).map((item, index) => `${index + 1}. ${item.name}：${item.finding}\n   证据：${item.evidence?.timestamp ? `[${item.evidence.timestamp}] ` : ''}${item.evidence?.fragment || '证据缺失'}`).join('\n');
   const actions = Array.isArray(report.actionItems) && report.actionItems.length ? `\n\n行动清单：\n${report.actionItems.slice(0, 5).map((item) => `- ${item}`).join('\n')}` : '';
-  const visual = Array.isArray(report.visualFindings) && report.visualFindings.length ? `\n\n画面观察：\n${report.visualFindings.slice(0, 5).map((item) => `- [${item.evidence?.timestamp || '时间点缺失'}｜${item.evidence?.frameRef || '帧缺失'}] ${item.finding}`).join('\n')}` : '';
-  const completeness = report.completeness === 'complete' ? '图文分析完整' : '部分完成：字幕拆解已交付，画面分析未通过完整门禁';
+  const visual = visualAnalysisUsed && Array.isArray(report.visualFindings) && report.visualFindings.length ? `\n\n画面观察：\n${report.visualFindings.slice(0, 5).map((item) => `- [${item.evidence?.timestamp || '时间点缺失'}｜${item.evidence?.frameRef || '帧缺失'}] ${item.finding}`).join('\n')}` : '';
+  const visualUsage = visualAnalysisUsed ? '已使用图片分析' : '未使用图片分析';
   const source = report.sourceMetadata?.title ? `\n来源：${report.sourceMetadata.title}${report.sourceMetadata.author ? `｜${report.sourceMetadata.author}` : ''}${report.sourceMetadata.platform ? `｜${report.sourceMetadata.platform}` : ''}` : '';
   const generation = report.generationMode === 'hermes_advisor' ? 'Hermes 深度分析' : report.generationMode === 'hermes_advisor_evidence_repaired' ? 'Hermes 深度分析（证据结构已按确认稿修复）' : '本机证据化兜底（模型结果未通过结构校验）';
-  return `【小拆视频内容拆解】\n模式：${generation}\n完整度：${completeness}\n证据：${report.evidenceLabel || report.evidenceMode}${source}\n${report.summary}\n\n${modules}${visual}${actions}`;
+  return `【小拆视频内容拆解】\n模式：${generation}\n图片分析：${visualUsage}\n证据：${report.evidenceLabel || report.evidenceMode}${source}\n${report.summary}\n\n${modules}${visual}${actions}`;
 }
 
 function formatPlatformDraftDelivery(report) {

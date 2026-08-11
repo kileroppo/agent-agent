@@ -51,6 +51,52 @@ export class XiaodDelegate {
     return payload.job;
   }
 
+  async getTranscriptRevision(task) {
+    const jobId = xiaodJobIdFor(task, '读取字幕');
+    const response = await this.fetch(`${this.baseUrl}/api/jobs/${encodeURIComponent(jobId)}/transcript-revision`, {
+      signal:AbortSignal.timeout(5000)
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.revision) throw downstreamError(
+      payload,
+      response,
+      `小D字幕读取失败 ${response.status}`,
+      'xiaod_transcript_revision_read_failed'
+    );
+    if (String(payload.revision.jobId || '') !== jobId) throw new Error('小D返回了不属于当前任务的字幕版本。');
+    return payload.revision;
+  }
+
+  async reviseTranscript(task, {
+    expectedVersion,
+    correctedTranscript,
+    correctionSummary = '',
+    editorRef = 'local-owner',
+  } = {}) {
+    const jobId = xiaodJobIdFor(task, '补正字幕');
+    const response = await this.fetch(`${this.baseUrl}/api/jobs/${encodeURIComponent(jobId)}/transcript-revisions`, {
+      method:'POST',
+      headers:{ 'content-type':'application/json' },
+      body:JSON.stringify({ expectedVersion, correctedTranscript, correctionSummary, editorRef }),
+      signal:AbortSignal.timeout(30_000)
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.job || !payload.revision) throw downstreamError(
+      payload,
+      response,
+      `小D字幕补正失败 ${response.status}`,
+      'xiaod_transcript_revision_failed'
+    );
+    if (String(payload.job.id || '') !== jobId || String(payload.revision.jobId || '') !== jobId) {
+      throw new Error('小D返回了不属于当前任务的字幕版本。');
+    }
+    return {
+      job:payload.job,
+      revision:payload.revision,
+      duplicate:payload.duplicate === true,
+    };
+  }
+
   async collectMetrics({ url, connectionId = null, historyLimit = 20 }) {
     const response = await this.fetch(`${this.baseUrl}/api/metrics/collect`, {
       method:'POST',
@@ -136,6 +182,19 @@ export class XiaodDelegate {
 function shouldDeliverToFeishu(task) {
   const channel = String(task?.source?.originChannel || task?.source?.channel || '').trim();
   return channel === 'feishu' || Boolean(String(task?.source?.chatRef || '').trim());
+}
+
+function xiaodJobIdFor(task, action) {
+  const jobId = String(task?.execution?.xiaodJobId || '').trim();
+  if (!jobId) throw new Error(`这条任务没有可${action}的小D工作。`);
+  return jobId;
+}
+
+function downstreamError(payload, response, fallback, fallbackCode) {
+  const error = new Error(payload.error || fallback);
+  error.code = payload.code || fallbackCode;
+  error.httpStatus = Number(response.status) || 502;
+  return error;
 }
 
 function loopbackUrl(value) {

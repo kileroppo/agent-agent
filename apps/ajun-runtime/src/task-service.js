@@ -14,6 +14,7 @@ export { ValidationError } from './task-service-execution-support.js';
 import { privateReadGrantStatus, revokePrivateReadGrant } from './private-read-grant.js';
 import { taskApprovalCoordinatorMethods } from './task-approval-coordinator.js';
 import { TaskOverview } from './task-overview.js';
+import { taskXiaodTranscriptRevisionMethods } from './task-xiaod-transcript-revision.js';
 
 export class TaskService {
   constructor({
@@ -65,6 +66,7 @@ export class TaskService {
     this.taskControlRuns = new Map();
     this.xiaodDeliveryRequestRuns = new Map();
     this.xiaodDeliveryRuns = new Map();
+    this.xiaodTranscriptRevisionRuns = new Map();
     this.paperclipAssignmentCompletionRuns = new Map();
     this.m5WorkProductObserver = null;
     this.executionCoordinator = new TaskExecutionCoordinator({
@@ -96,6 +98,7 @@ export class TaskService {
       store,
       recover:typeof onTaskFailed === 'function' ? (task, input) => this.onTaskFailed(task, input) : null,
       createTask:(input) => this.create(input),
+      capabilityStatus:this.localAiCapabilityStatus,
     });
     this.taskRecords = new TaskRecordService({ store, taskDetailBaseUrl, taskRecovery:this.taskRecovery });
     this.taskOverview = new TaskOverview({
@@ -329,6 +332,7 @@ export class TaskService {
 
 Object.assign(TaskService.prototype, taskServiceExecutionMethods);
 Object.assign(TaskService.prototype, taskApprovalCoordinatorMethods);
+Object.assign(TaskService.prototype, taskXiaodTranscriptRevisionMethods);
 
 function shouldStartFailureRecovery(task) {
   return task?.status === 'failed'

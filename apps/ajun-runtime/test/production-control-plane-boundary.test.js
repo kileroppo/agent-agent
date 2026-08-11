@@ -47,6 +47,76 @@ test('旧版爆款雷达容器只能用回滚凭据访问兼容入口', () => {
   assert.equal(isBoomLegacyIntegrationPath('/api/overview'), false);
 });
 
+test('任务字幕读取与补正仅走本机 owner 会话并返回同步后的源任务', async (context) => {
+  const taskId = '123e4567-e89b-42d3-a456-426614174001';
+  const calls = [];
+  const revision = {
+    jobId:'xiaod-1', transcript:'AI 初稿', version:1,
+    confirmationMode:'automatic', completeListen:false, correctionApplied:false, canRevise:true,
+  };
+  const fixture = await startHandler(context, {}, {
+    tasks:{
+      async getTranscriptRevision(receivedTaskId) {
+        calls.push(['get', receivedTaskId]);
+        return revision;
+      },
+      async reviseTranscript(receivedTaskId, input) {
+        calls.push(['revise', receivedTaskId, input]);
+        return {
+          task:{ taskId:receivedTaskId, status:'succeeded', artifactRefs:[{ type:'confirmed_transcript' }] },
+          revision:{ ...revision, transcript:input.correctedTranscript, version:2, correctionApplied:true },
+          duplicate:false,
+        };
+      },
+    },
+  });
+
+  const deniedRead = await fetch(`${fixture.baseUrl}/api/tasks/${taskId}/transcript-revision`);
+  assert.equal(deniedRead.status, 403);
+  const readSession = await (await fetch(`${fixture.baseUrl}/api/owner-action-session`)).json();
+  const read = await fetch(`${fixture.baseUrl}/api/tasks/${taskId}/transcript-revision`, {
+    headers:{ origin:fixture.baseUrl, 'x-ajun-owner-action':readSession.nonce },
+  });
+  assert.equal(read.status, 200);
+  assert.deepEqual(await read.json(), { revision });
+
+  const rejected = await fetch(`${fixture.baseUrl}/api/tasks/${taskId}/transcript-revisions`, {
+    method:'POST',
+    headers:{ 'content-type':'application/json', origin:fixture.baseUrl },
+    body:JSON.stringify({ expectedVersion:1, correctedTranscript:'AI 初稿（已补正）' }),
+  });
+  assert.equal(rejected.status, 403);
+
+  const session = await (await fetch(`${fixture.baseUrl}/api/owner-action-session`)).json();
+  const saved = await fetch(`${fixture.baseUrl}/api/tasks/${taskId}/transcript-revisions`, {
+    method:'POST',
+    headers:{
+      'content-type':'application/json',
+      origin:fixture.baseUrl,
+      'x-ajun-owner-action':session.nonce,
+    },
+    body:JSON.stringify({
+      expectedVersion:1,
+      correctedTranscript:'AI 初稿（已补正）',
+      correctionSummary:'局部纠错',
+      editorRef:'A君',
+    }),
+  });
+  assert.equal(saved.status, 200);
+  const payload = await saved.json();
+  assert.equal(payload.task.taskId, taskId);
+  assert.equal(payload.revision.version, 2);
+  assert.deepEqual(calls, [
+    ['get', taskId],
+    ['revise', taskId, {
+      expectedVersion:1,
+      correctedTranscript:'AI 初稿（已补正）',
+      correctionSummary:'局部纠错',
+      editorRef:'A君',
+    }],
+  ]);
+});
+
 test('M5 每日入口通过真实 HTTP 委托确定性处理器', async (context) => {
   const calls = [];
   const fixture = await startHandler(context, {
@@ -260,11 +330,33 @@ test('恢复 POST 要求本机同源 JSON、短期 nonce 和 header 幂等键', 
   });
   assert.equal(accepted.status, 202);
   assert.deepEqual(await accepted.json(), { status:'accepted', taskId, actionKey:'request_safe_recovery' });
-  assert.deepEqual(calls, [{
-    taskId,
-    input:{ actionKey:'request_safe_recovery', expectedUpdatedAt:'2026-08-08T08:00:00.000Z', requestId:'recovery-request-http-1' },
-    actor:{ kind:'local-owner', ref:'A君' },
-  }]);
+  const visionSession = await (await fetch(`${fixture.baseUrl}/api/owner-action-session`)).json();
+  const visionAccepted = await fetch(
+    `${fixture.baseUrl}/api/tasks/${taskId}/recovery-actions/retry_visual_analysis_after_recovery`,
+    {
+      method:'POST',
+      headers:{
+        'content-type':'application/json',
+        origin:fixture.baseUrl,
+        'x-ajun-owner-action':visionSession.nonce,
+        'idempotency-key':'recovery-request-http-vision-1',
+      },
+      body:JSON.stringify({ expectedUpdatedAt:'2026-08-08T08:00:00.000Z' }),
+    },
+  );
+  assert.equal(visionAccepted.status, 202);
+  assert.deepEqual(calls, [
+    {
+      taskId,
+      input:{ actionKey:'request_safe_recovery', expectedUpdatedAt:'2026-08-08T08:00:00.000Z', requestId:'recovery-request-http-1' },
+      actor:{ kind:'local-owner', ref:'A君' },
+    },
+    {
+      taskId,
+      input:{ actionKey:'retry_visual_analysis_after_recovery', expectedUpdatedAt:'2026-08-08T08:00:00.000Z', requestId:'recovery-request-http-vision-1' },
+      actor:{ kind:'local-owner', ref:'A君' },
+    },
+  ]);
 });
 
 test('恢复业务非合资格响应保持可分支状态，静态刷新模块可访问', async (context) => {

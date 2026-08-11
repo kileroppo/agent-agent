@@ -144,7 +144,9 @@ export function confirmedTranscriptDocument({
   confirmedAt,
   reviewerRef,
   reviewedAt,
-  version = 1
+  version = 1,
+  correctionApplied = false,
+  basedOnVersion = null
 } = {}) {
   const body = String(transcript || '').trim();
   const checksum = sha256(body);
@@ -163,9 +165,11 @@ export function confirmedTranscriptDocument({
       `confirmedAt: ${at}`,
       `confirmerRef: ${safeIdentity(confirmer)}`,
       `completeListen: ${completeListen}`,
+      `correctionApplied: ${Boolean(correctionApplied)}`,
+      ...(Number.isSafeInteger(basedOnVersion) && basedOnVersion > 0 ? [`basedOnVersion: ${basedOnVersion}`] : []),
       '---',
       '',
-      `# ${String(title || '未命名素材').trim()}｜${mode === 'human' ? '人工确认稿' : '系统确认稿'}`,
+      `# ${String(title || '未命名素材').trim()}｜${mode === 'human' ? '人工确认稿' : correctionApplied ? 'AI 初稿人工补正版' : '系统确认稿'}`,
       '',
       body,
       ''

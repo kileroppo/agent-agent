@@ -108,6 +108,31 @@
         <details class="job-log"><summary>查看处理记录</summary><ol></ol></details>
       </article>
     </template>
+    <dialog id="transcript-revision-dialog" class="revision-dialog" aria-labelledby="revision-heading">
+      <form id="transcript-revision-form" class="revision-form">
+        <div class="revision-head">
+          <div>
+            <p class="eyebrow">AI 初稿 · 人工辅助</p>
+            <h2 id="revision-heading">修正字幕</h2>
+          </div>
+          <button id="revision-close" class="dialog-close" type="button" aria-label="关闭">×</button>
+        </div>
+        <p class="revision-intro">小D 的 AI 转录是主稿。这里只需修正明显错字、术语或断句，不要求完整听审。</p>
+        <p id="revision-version" class="revision-version"></p>
+        <label for="revision-transcript">最新字幕正文</label>
+        <textarea id="revision-transcript" name="correctedTranscript" minlength="20" required spellcheck="false"></textarea>
+        <div class="revision-fields">
+          <label for="revision-summary">补正说明（可选）<input id="revision-summary" name="correctionSummary" type="text" maxlength="300" placeholder="例如：修正两个专有名词" /></label>
+          <label for="revision-editor">补正人标识<input id="revision-editor" name="editorRef" type="text" maxlength="120" value="local-owner" required /></label>
+        </div>
+        <p class="revision-safety">保存只生成新的字幕版本，不调用模型，也不会自动更新或外发飞书文档。</p>
+        <p id="revision-message" class="revision-message" role="status"></p>
+        <div class="revision-actions">
+          <button id="revision-reload" class="quiet hidden" type="button">载入最新字幕（覆盖当前编辑）</button>
+          <button class="primary" type="submit">保存补正版</button>
+        </div>
+      </form>
+    </dialog>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

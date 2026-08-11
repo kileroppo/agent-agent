@@ -153,7 +153,8 @@ export async function replaySyntheticFallback() {
     ensure(!result.usage?.model, '无 Provider 回放不应产生模型用量。');
     const markdown = await fs.readFile(new URL(report.location), 'utf8');
     ensure(markdown.length > 0, '合成报告为空。');
-    ensure(markdown.includes('没有通过证据门禁的画面结论'), '合成报告没有明确说明画面结论缺失。');
+    ensure(markdown.includes('图片分析：未使用图片分析'), '合成报告没有如实标记未使用图片分析。');
+    ensure(markdown.includes('本报告没有使用图片生成画面结论'), '合成报告没有明确说明未生成画面结论。');
     ensure(Array.isArray(report.data.modules) && report.data.modules.length > 0, '纯文本兜底报告缺少可验证分析模块。');
     summary = Object.freeze({
       taskType:'content.video-benchmark-analysis',
@@ -282,7 +283,8 @@ export async function replayActualSourceFallback(task, {
     temporaryArtifactReads += 1;
     temporaryFileWrites += 1;
     ensure(markdown.length > 0, '实际回放报告为空。');
-    ensure(markdown.includes('没有通过证据门禁的画面结论'), '实际回放报告没有明确视觉降级。');
+    ensure(markdown.includes('图片分析：未使用图片分析'), '实际回放报告没有如实标记未使用图片分析。');
+    ensure(markdown.includes('本报告没有使用图片生成画面结论'), '实际回放报告没有明确说明未生成画面结论。');
     ensure(Array.isArray(report.data.modules) && report.data.modules.length === 13, '实际回放报告没有形成完整的纯文本拆解模块。');
     summary = Object.freeze({
       taskType:'content.video-benchmark-analysis',

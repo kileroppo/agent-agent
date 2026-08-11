@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { LocalContentCreator, LocalVideoContentAnalyst } from '../src/local-content-growth.js';
+import { TaskNotification } from '../src/task-notification.js';
 import {
   defaultM5ProductionTemplateBinding,
   m5ProductionTemplateBindingHash,
@@ -1055,7 +1056,8 @@ test('普通故事板没有受控 Provider 时自动模式降级为部分文字�
   assert.equal(report.completeness, 'partial');
   assert.equal(report.visualCoverage.status, 'unavailable');
   const markdown = await fs.readFile(new URL(result.artifactRefs[0].location), 'utf8');
-  assert.match(markdown, /没有通过证据门禁的画面结论/);
+  assert.match(markdown, /图片分析：未使用图片分析/);
+  assert.match(markdown, /没有使用图片生成画面结论/);
   assert.equal(advisorCalls, 1);
 
   const required = await analyst.execute({
@@ -1153,6 +1155,24 @@ test('普通故事板通过本机受控视觉能力形成完整画面拆解并�
   assert.equal(artifact.data.visualExecutionReceipt.receiptId, 'receipt:local-vision');
   assert.equal(artifact.validation.controlledVisionInvoked, true);
   assert.equal(artifact.validation.visualExecutionReceiptValid, true);
+  const markdown = await fs.readFile(new URL(artifact.location), 'utf8');
+  assert.match(markdown, /图片分析：已使用图片分析/);
+  assert.doesNotMatch(markdown, /图文分析完整/);
+  const completedTask = {
+    taskId:'analysis-controlled-visual',
+    taskType:'content.video-benchmark-analysis',
+    input:{ title:'受控视觉分析', evidenceMode:'formal', depth:'fast', visualMode:'required' },
+    status:'succeeded',
+    artifactRefs:[{ ...artifact, validation:{ ...artifact.validation, modeStructurePassed:true } }],
+    updatedAt:'2026-08-11T00:00:00.000Z',
+  };
+  const notification = new TaskNotification({
+    store:{ list:async () => [completedTask], listApprovals:async () => [] },
+    registry:{ get:async () => null },
+  });
+  const delivered = await notification.status(completedTask.taskId);
+  assert.match(delivered.message, /图片分析：已使用图片分析/);
+  assert.doesNotMatch(delivered.message, /图文分析完整/);
 });
 
 test('visualMode off 明确忽略故事板，只执行无视觉工具的文本拆解', async (t) => {
@@ -1208,7 +1228,30 @@ test('visualMode off 明确忽略故事板，只执行无视觉工具的文本�
   assert.equal(artifact.validation.advisorApplied, true);
   assert.equal(artifact.data.visualFindings.length, 0);
   assert.equal(artifact.data.completeness, 'complete');
-  assert.equal(artifact.validation.visualAnalysisApplied, true);
+  assert.equal(artifact.validation.visualAnalysisApplied, false);
+  const markdown = await fs.readFile(new URL(artifact.location), 'utf8');
+  assert.match(markdown, /图片分析：未使用图片分析/);
+  assert.doesNotMatch(markdown, /图文分析完整/);
+
+  const notificationArtifact = {
+    ...artifact,
+    validation:{ ...artifact.validation, modeStructurePassed:true },
+  };
+  const completedTask = {
+    taskId:'analysis-task-invalid-visual',
+    taskType:'content.video-benchmark-analysis',
+    input:{ title:'关闭视觉', evidenceMode:'formal', depth:'fast', visualMode:'off', context:{ sourceTaskIds:[sourceTask.taskId] } },
+    status:'succeeded',
+    artifactRefs:[notificationArtifact],
+    updatedAt:'2026-08-11T00:00:00.000Z',
+  };
+  const notification = new TaskNotification({
+    store:{ list:async () => [completedTask], listApprovals:async () => [] },
+    registry:{ get:async () => null },
+  });
+  const delivered = await notification.status(completedTask.taskId);
+  assert.match(delivered.message, /图片分析：未使用图片分析/);
+  assert.doesNotMatch(delivered.message, /图文分析完整/);
 });
 
 test('小创要求确认稿和正式分析，且一次最多三个平台', async (t) => {

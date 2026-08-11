@@ -122,6 +122,63 @@ test('小D暂停和继续只调用本机工作接口', async () => {
   assert.deepEqual(calls.map((call) => call.url), ['http://127.0.0.1:4318/api/jobs/xiaod-1/pause', 'http://127.0.0.1:4318/api/jobs/xiaod-1/resume']);
 });
 
+test('A君从原小D任务读取当前字幕版本', async () => {
+  const revision = {
+    jobId:'xiaod-1', title:'公开视频', transcript:'AI 初稿', version:1,
+    confirmationMode:'automatic', completeListen:false, correctionApplied:false, canRevise:true,
+  };
+  const delegate = new XiaodDelegate({ fetchImpl:async (url, options) => {
+    assert.equal(url, 'http://127.0.0.1:4318/api/jobs/xiaod-1/transcript-revision');
+    assert.equal(options.signal instanceof AbortSignal, true);
+    return new Response(JSON.stringify({ revision }), { status:200 });
+  } });
+  assert.deepEqual(await delegate.getTranscriptRevision({ execution:{ xiaodJobId:'xiaod-1' } }), revision);
+});
+
+test('A君补正字幕透传版本条件且不请求分析或投递', async () => {
+  const calls = [];
+  const delegate = new XiaodDelegate({ fetchImpl:async (url, options) => {
+    calls.push({ url, method:options.method, body:JSON.parse(options.body) });
+    return new Response(JSON.stringify({
+      job:{ id:'xiaod-1', status:'completed' },
+      revision:{ jobId:'xiaod-1', transcript:'AI 初稿（已补正）', version:2, correctionApplied:true },
+      duplicate:false,
+    }), { status:201 });
+  } });
+  const result = await delegate.reviseTranscript({ execution:{ xiaodJobId:'xiaod-1' } }, {
+    expectedVersion:1,
+    correctedTranscript:'AI 初稿（已补正）',
+    correctionSummary:'修正一个专有名词',
+    editorRef:'A君',
+  });
+  assert.equal(result.revision.version, 2);
+  assert.equal(result.duplicate, false);
+  assert.deepEqual(calls, [{
+    url:'http://127.0.0.1:4318/api/jobs/xiaod-1/transcript-revisions',
+    method:'POST',
+    body:{
+      expectedVersion:1,
+      correctedTranscript:'AI 初稿（已补正）',
+      correctionSummary:'修正一个专有名词',
+      editorRef:'A君',
+    },
+  }]);
+});
+
+test('字幕版本冲突保留小D的 409 状态', async () => {
+  const delegate = new XiaodDelegate({ fetchImpl:async () => new Response(JSON.stringify({
+    error:'字幕已更新，请先重新读取。',
+    code:'transcript_revision_conflict',
+  }), { status:409 }) });
+  await assert.rejects(
+    () => delegate.reviseTranscript({ execution:{ xiaodJobId:'xiaod-1' } }, {
+      expectedVersion:1,
+      correctedTranscript:'旧版本修改',
+    }),
+    (error) => error.code === 'transcript_revision_conflict' && error.httpStatus === 409
+  );
+});
+
 test('小D确认稿接口必须携带完整听审声明和受控审核人引用', async () => {
   const calls = [];
   const delegate = new XiaodDelegate({

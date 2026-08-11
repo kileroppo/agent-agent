@@ -30,10 +30,10 @@ export function evaluateVisualAnalysis({
         status:visualMode === 'off' ? 'disabled' : 'unavailable', mode:visualMode,
         selectedFrames:0, storyboardCount:0,
       });
-  const visualAnalysisApplied = visualMode === 'off' || (advisorApplied && validateFindings(
+  const visualAnalysisApplied = visualMode !== 'off' && Boolean(visualEvidence) && advisorApplied && validateFindings(
     visualFindings,
     visualEvidence,
     { minFindings:depth === 'full' ? 5 : 3, minCategories:depth === 'full' ? 3 : 2 },
-  ));
+  );
   return Object.freeze({ visualCoverage, visualAnalysisApplied });
 }

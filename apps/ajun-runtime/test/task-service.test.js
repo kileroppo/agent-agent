@@ -21,6 +21,7 @@ function setup({
   executors = {},
   roleToolAdapters = {},
   officePresentationWorkspaceRoot = null,
+  localAiCapabilityStatus = null,
 } = {}) {
   const records = { tasks: [], approvals: [] };
   const store = {
@@ -65,7 +66,7 @@ function setup({
     async assertCaseIssueLink() {},
     ...governance,
   } : governance;
-  return { records, service: new TaskService({ registry: { async list(){return agents}, async get(agentId){return agents.find((agent)=>agent.agentId === agentId) || null}, async candidates(type){return agents.filter((agent)=>agent.acceptedTaskTypes.includes(type))} }, store, governance:testGovernance, executors, roleToolAdapters, officePresentationWorkspaceRoot, onTaskFailed, agentChannelStates, contentGrowthWaitMs, m5ProviderVision, m5WorkProductValidator, ...(skillExecutionRegistry ? { skillExecutionRegistry } : {}) }) };
+  return { records, service: new TaskService({ registry: { async list(){return agents}, async get(agentId){return agents.find((agent)=>agent.agentId === agentId) || null}, async candidates(type){return agents.filter((agent)=>agent.acceptedTaskTypes.includes(type))} }, store, governance:testGovernance, executors, roleToolAdapters, officePresentationWorkspaceRoot, onTaskFailed, agentChannelStates, contentGrowthWaitMs, m5ProviderVision, m5WorkProductValidator, localAiCapabilityStatus, ...(skillExecutionRegistry ? { skillExecutionRegistry } : {}) }) };
 }
 const coordinator = { agentId:'ajun', name:'A君', status:'active', acceptedTaskTypes:['army.intake', 'army.route-task', 'army.cross-agent-mission'] };
 
@@ -126,6 +127,121 @@ test('小D任务保存显式账号绑定并拒绝非法连接标识', async () =
     agentId:'xiaod',
     connectionId:'../wrong'
   }), ValidationError);
+});
+test('A君补正小D字幕后立即替换源任务确认稿且不创建新任务', async () => {
+  const revision = {
+    jobId:'xiaod-job-1', transcript:'AI 初稿（已补正）', version:2,
+    confirmationMode:'automatic', completeListen:false, correctionApplied:true, canRevise:true,
+  };
+  const xiaod = {
+    baseUrl:'http://127.0.0.1:4318',
+    async getTranscriptRevision(task) {
+      assert.equal(task.execution.xiaodJobId, 'xiaod-job-1');
+      return revision;
+    },
+    async reviseTranscript(task, input) {
+      assert.equal(task.taskId, 'task-transcript');
+      assert.deepEqual(input, {
+        expectedVersion:1,
+        correctedTranscript:'AI 初稿（已补正）',
+        correctionSummary:'修正专有名词',
+        editorRef:'A君',
+      });
+      return {
+        duplicate:false,
+        revision,
+        job:{
+          id:'xiaod-job-1', title:'公开视频', status:'completed', quality:{ passed:true },
+          output:{
+            confirmedTranscriptPath:'/tmp/confirmed-transcript-v2.md',
+            confirmedTranscriptVersion:2,
+            confirmedTranscriptChecksum:'sha256:v2',
+            confirmationMode:'automatic',
+            confirmationAttestationPath:'/tmp/automatic-confirmation-v2.json',
+            evidenceLevel:'untimed_machine_transcript',
+            transcriptCorrection:{ applied:true, basedOnVersion:1 },
+            markdownPath:'/tmp/share-v2.md',
+            larkUrl:'https://example.feishu.cn/docx/old-version',
+            larkPermissionGranted:true,
+            larkRevisionStatus:'stale',
+          },
+        },
+      };
+    },
+  };
+  const { service, records } = setup({ executors:{ xiaod } });
+  records.tasks.push({
+    taskId:'task-transcript', taskType:'media.transcribe-and-refine', status:'succeeded',
+    execution:{ executor:'xiaod', xiaodJobId:'xiaod-job-1' },
+    artifactRefs:[
+      { artifactId:'source-1', type:'source_evidence_record' },
+      { artifactId:'xiaod-job:xiaod-job-1', type:'xiaod_media_delivery', validation:{ exists:true, readable:true, nonEmpty:true }, data:{ larkUrl:'https://example.feishu.cn/docx/old-version', larkPermissionGranted:true } },
+      { artifactId:'old-attestation', type:'automatic_transcript_attestation' },
+      { artifactId:'confirmed-transcript:xiaod-job-1:v1', type:'confirmed_transcript' },
+    ],
+  });
+
+  assert.deepEqual(await service.getTranscriptRevision('task-transcript'), revision);
+  const result = await service.reviseTranscript('task-transcript', {
+    expectedVersion:1,
+    correctedTranscript:'AI 初稿（已补正）',
+    correctionSummary:'修正专有名词',
+    editorRef:'A君',
+  });
+  assert.equal(records.tasks.length, 1);
+  assert.equal(result.revision.version, 2);
+  assert.equal(result.task.status, 'succeeded');
+  assert.equal(result.task.artifactRefs.some((artifact) => artifact.artifactId === 'source-1'), true);
+  assert.equal(result.task.artifactRefs.some((artifact) => artifact.artifactId === 'confirmed-transcript:xiaod-job-1:v1'), false);
+  const confirmed = result.task.artifactRefs.find((artifact) => artifact.type === 'confirmed_transcript');
+  assert.equal(confirmed.artifactId, 'confirmed-transcript:xiaod-job-1:v2');
+  assert.equal(confirmed.validation.confirmationMode, 'automatic');
+  assert.equal(confirmed.validation.humanConfirmed, false);
+  assert.equal(confirmed.validation.correctionApplied, true);
+  assert.equal(confirmed.validation.transcriptVersion, 2);
+  const delivery = result.task.artifactRefs.find((artifact) => artifact.type === 'xiaod_media_delivery');
+  assert.equal(delivery.data.currentTranscriptDelivered, false);
+  assert.equal(delivery.data.larkRevisionStatus, 'stale');
+  assert.equal(result.task.execution.transcriptRevision.version, 2);
+  const notification = await service.notificationStatus('task-transcript');
+  assert.equal(notification.status, 'revision_pending_delivery');
+  assert.match(notification.message, /原飞书文档仍是旧版/);
+  assert.doesNotMatch(notification.message, /交付文档：/);
+});
+test('任务服务把只读识图能力状态接入恢复动作', async () => {
+  let capabilityChecks = 0;
+  const { service, records } = setup({
+    localAiCapabilityStatus:async () => {
+      capabilityChecks += 1;
+      return { capabilities:[{
+        capability:'vision.analyze', configured:true, healthy:false, e2eVerified:false,
+      }] };
+    },
+  });
+  records.tasks.push({
+    taskId:'vision-failure',
+    taskType:'content.video-benchmark-analysis',
+    status:'failed',
+    updatedAt:'2026-08-11T08:00:00.000Z',
+    input:{
+      title:'视频拆解',
+      visualMode:'auto',
+      context:{ parentPaperclipIssueId:'paperclip-vision-1', sourceTaskIds:[] },
+    },
+    error:{ code:'controlled_vision_capability_unavailable', stage:'vision.analyze' },
+  });
+
+  const result = await service.requestRecovery('vision-failure', {
+    actionKey:'retry_visual_analysis_after_recovery',
+    expectedUpdatedAt:'2026-08-11T08:00:00.000Z',
+    requestId:'vision-waiting-1',
+  }, { kind:'local-owner', ref:'A君' });
+
+  assert.equal(result.status, 'waiting_capability');
+  assert.equal(result.capability.ready, false);
+  assert.equal(capabilityChecks, 1);
+  assert.equal(records.tasks.length, 1);
+  assert.equal(records.tasks[0].recovery, undefined);
 });
 test('多人总任务标题包含老板汇报时仍保留军团父任务类型', async () => {
   const missionCoordinator = {

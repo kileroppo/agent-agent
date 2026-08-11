@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { automaticConfirmationDecision, buildEvidenceRecords, parseTimedTranscript, sha256, timedTranscriptMarkdown } from '../src/transcript-evidence.js';
-import { createTranscriptConfirmationFiles, reviewTranscript } from '../src/transcript-review.js';
+import { createTranscriptConfirmationFiles, readTranscriptRevision, reviseTranscript, reviewTranscript } from '../src/transcript-review.js';
 import { JobStore } from '../src/store.js';
 import { makeJob } from '../src/domain.js';
 
@@ -183,4 +183,167 @@ test('人工完整听审生成独立确认稿和校验值，重复确认幂等',
   assert.match(await fs.readFile(first.job.output.confirmedTranscriptPath, 'utf8'), /completeListen: true/);
   const second = await reviewTranscript({ store, job:first.job, delivery, input:{ decision:'confirm', completeListen:true, reviewerRef:'owner' } });
   assert.equal(second.duplicate, true);
+});
+
+test('完成后的 AI 确认稿允许人工局部补正并保留不可变版本，不调用模型或外发', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'xiaod-assisted-correction-'));
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const store = new JobStore(root);
+  await store.init();
+  const job = await store.create(makeJob({ sourceType:'upload', originalName:'样片.mp4', deliveryMode:'local_only' }));
+  const jobDir = path.join(root, 'jobs', job.id);
+  await fs.mkdir(jobDir, { recursive:true });
+  const initial = await createTranscriptConfirmationFiles({
+    directory:jobDir,
+    jobId:job.id,
+    title:'AI 初稿样片',
+    transcript:'[00:00] 宇宙套发射那一刻就已经确定好了。',
+    machineChecksum:sha256('机器稿'),
+    confirmationMode:'automatic',
+    confirmerRef:'xiaod-quality-gate',
+    confirmedAt:'2026-08-11T00:00:00.000Z',
+  });
+  const guidePath = path.join(jobDir, 'guide.md');
+  await fs.writeFile(guidePath, '## 概述\n\nAI 已完成主要整理。');
+  const completed = await store.update(job.id, {
+    status:'completed',
+    progress:100,
+    output:{
+      ...initial,
+      transcriptChecksum:sha256('机器稿'),
+      guidePath,
+      reviewStatus:'auto_confirmed',
+      larkUrl:'https://example.feishu.cn/docx/old-version',
+    },
+  });
+
+  const before = await readTranscriptRevision(completed);
+  assert.equal(before.version, 1);
+  assert.match(before.transcript, /宇宙套发射/);
+
+  const result = await reviseTranscript({
+    store,
+    job:completed,
+    now:() => new Date('2026-08-11T01:00:00.000Z'),
+    input:{
+      expectedVersion:1,
+      correctedTranscript:'[00:00] 宇宙大爆炸那一刻就已经确定好了。',
+      correctionSummary:'修正一个明显术语。',
+      editorRef:'owner',
+    },
+  });
+
+  assert.equal(result.job.status, 'completed');
+  assert.equal(result.job.output.confirmedTranscriptVersion, 2);
+  assert.equal(result.job.output.confirmationMode, 'automatic');
+  assert.equal(result.job.output.transcriptCorrection.completeListen, false);
+  assert.equal(result.job.output.larkRevisionStatus, 'stale');
+  assert.deepEqual(result.job.output.transcriptVersions.map((item) => item.version), [1, 2]);
+  assert.match(await fs.readFile(initial.confirmedTranscriptPath, 'utf8'), /宇宙套发射/);
+  const revised = await fs.readFile(result.job.output.confirmedTranscriptPath, 'utf8');
+  assert.match(revised, /AI 初稿人工补正版/);
+  assert.match(revised, /宇宙大爆炸/);
+  assert.match(revised, /completeListen: false/);
+  assert.match(revised, /basedOnVersion: 1/);
+  assert.match(await fs.readFile(result.job.output.markdownPath, 'utf8'), /宇宙大爆炸/);
+  assert.match(result.job.log.at(-1).message, /未调用模型、未自动外发/);
+});
+
+test('字幕补正使用版本条件避免覆盖他人新修改', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'xiaod-correction-conflict-'));
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const store = new JobStore(root);
+  await store.init();
+  const job = await store.create(makeJob({ sourceType:'upload', originalName:'样片.mp4' }));
+  const jobDir = path.join(root, 'jobs', job.id);
+  await fs.mkdir(jobDir, { recursive:true });
+  const initial = await createTranscriptConfirmationFiles({
+    directory:jobDir,
+    jobId:job.id,
+    title:'冲突样片',
+    transcript:'这是已经由 AI 生成并确认的原始字幕正文。',
+    machineChecksum:sha256('机器稿'),
+    confirmationMode:'automatic',
+  });
+  const completed = await store.update(job.id, {
+    status:'completed',
+    output:{ ...initial, transcriptChecksum:sha256('机器稿'), reviewStatus:'auto_confirmed' },
+  });
+  await assert.rejects(
+    reviseTranscript({ store, job:completed, input:{ expectedVersion:2, correctedTranscript:'这是一个来自过期页面的字幕补正内容。' } }),
+    /字幕版本已经变化/,
+  );
+  await assert.rejects(
+    reviseTranscript({ store, job:completed, input:{ expectedVersion:1, correctedTranscript:'这是已经由 AI 生成并确认的原始字幕正文。' } }),
+    /字幕没有变化/,
+  );
+});
+
+test('字幕版本文件发生冲突时只清理本次新文件，不删除既有证明', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'xiaod-correction-file-conflict-'));
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const store = new JobStore(root);
+  await store.init();
+  const job = await store.create(makeJob({ sourceType:'upload', originalName:'样片.mp4' }));
+  const jobDir = path.join(root, 'jobs', job.id);
+  await fs.mkdir(jobDir, { recursive:true });
+  const initial = await createTranscriptConfirmationFiles({
+    directory:jobDir,
+    jobId:job.id,
+    title:'冲突样片',
+    transcript:'这是已经由 AI 生成并确认的原始字幕正文。',
+    machineChecksum:sha256('机器稿'),
+    confirmationMode:'automatic',
+  });
+  const completed = await store.update(job.id, {
+    status:'completed',
+    output:{ ...initial, transcriptChecksum:sha256('机器稿'), reviewStatus:'auto_confirmed' },
+  });
+  const existingAttestation = path.join(jobDir, 'automatic-confirmation-attestation-v2.json');
+  await fs.writeFile(existingAttestation, '{"owner":"other-writer"}');
+
+  await assert.rejects(
+    reviseTranscript({
+      store,
+      job:completed,
+      input:{ expectedVersion:1, correctedTranscript:'这是经过局部人工补正后的新字幕正文，长度足够保存。' },
+    }),
+    /字幕版本已经变化/,
+  );
+  await assert.rejects(fs.access(path.join(jobDir, 'confirmed-transcript-v2.md')), { code:'ENOENT' });
+  assert.equal(await fs.readFile(existingAttestation, 'utf8'), '{"owner":"other-writer"}');
+});
+
+test('局部补正不能覆盖人工完整听审稿的事实', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'xiaod-human-review-correction-'));
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const store = new JobStore(root);
+  await store.init();
+  const job = await store.create(makeJob({ sourceType:'upload', originalName:'听审样片.mp4' }));
+  const jobDir = path.join(root, 'jobs', job.id);
+  await fs.mkdir(jobDir, { recursive:true });
+  const confirmation = await createTranscriptConfirmationFiles({
+    directory:jobDir,
+    jobId:job.id,
+    title:'人工听审样片',
+    transcript:'这是已经逐段完整听审并确认无误的字幕正文。',
+    machineChecksum:sha256('机器稿'),
+    confirmationMode:'human',
+    confirmerRef:'owner',
+  });
+  const completed = await store.update(job.id, {
+    status:'completed',
+    output:{ ...confirmation, transcriptChecksum:sha256('机器稿'), reviewStatus:'confirmed' },
+  });
+
+  assert.equal((await readTranscriptRevision(completed)).canRevise, false);
+  await assert.rejects(
+    reviseTranscript({
+      store,
+      job:completed,
+      input:{ expectedVersion:1, correctedTranscript:'这是一份试图局部修改人工完整听审稿的正文。' },
+    }),
+    /不能用局部补正覆盖其听审事实/,
+  );
+  assert.equal((await store.get(job.id)).output.confirmationMode, 'human');
 });

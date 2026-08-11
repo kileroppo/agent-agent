@@ -42,3 +42,19 @@ test('没有任何可读产物的普通任务也不能被视为完成', () => {
   assert.equal(validateTaskCompletion({ taskType:'governance.approval-review' }, []).valid, false);
   assert.equal(validateTaskCompletion({ taskType:'governance.approval-review' }, [readable('employee_role_report', { summary:'已核对' })]).valid, true);
 });
+
+test('字幕补正后旧飞书文档不能继续充当最新交付', () => {
+  const task = { taskType:'media.transcribe-and-refine' };
+  const current = readable('xiaod_media_delivery', {
+    larkUrl:'https://example.feishu.cn/docx/current',
+    larkPermissionGranted:true,
+    currentTranscriptDelivered:true,
+  });
+  const stale = readable('xiaod_media_delivery', {
+    larkUrl:'https://example.feishu.cn/docx/old',
+    larkPermissionGranted:true,
+    currentTranscriptDelivered:false,
+  });
+  assert.equal(validateTaskCompletion(task, [current]).valid, true);
+  assert.equal(validateTaskCompletion(task, [stale]).valid, false);
+});

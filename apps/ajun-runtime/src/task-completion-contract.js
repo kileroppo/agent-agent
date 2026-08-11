@@ -86,7 +86,9 @@ export function validateTaskCompletion(task, artifactRefs = task?.artifactRefs |
     case 'media.transcribe-and-refine': {
       expectedArtifactTypes = ['xiaod_media_delivery'];
       const delivery = readableArtifact(artifacts, 'xiaod_media_delivery')?.data;
-      valid = Boolean(delivery?.larkUrl && delivery.larkPermissionGranted === true);
+      valid = Boolean(delivery?.larkUrl
+        && delivery.larkPermissionGranted === true
+        && delivery.currentTranscriptDelivered !== false);
       break;
     }
     default:

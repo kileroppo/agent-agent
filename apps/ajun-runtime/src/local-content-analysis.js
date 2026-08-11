@@ -199,7 +199,7 @@ export class LocalVideoContentAnalyst {
         '本次必须分析画面，但视觉观察没有形成通过证据门禁的画面结论。系统已停止继续尝试，请恢复分析模型后重试或改为自动模式。',
       );
     }
-    const completeness = visualAnalysisApplied ? 'complete' : 'partial';
+    const completeness = visualMode === 'off' || visualAnalysisApplied ? 'complete' : 'partial';
     report = {
       ...report,
       title:effectiveTitle,
