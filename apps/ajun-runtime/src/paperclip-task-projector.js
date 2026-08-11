@@ -1,6 +1,7 @@
 import { PaperclipOrganizationClient } from '@agent-army/paperclip-client';
 
 const COMPANY_NAME = 'Agent军团';
+const REVIEW_SUBJECT_MARKER = '[agent-army:review-subject:v1]';
 
 export class PaperclipTaskProjector {
   constructor({ endpoint, clock = () => new Date() } = {}) {
@@ -125,6 +126,10 @@ function describeTask(task) {
   ];
   if (task.input.description) parts.push(`说明：${task.input.description}`);
   const context = task.input?.context;
+  if (task.taskType === 'governance.approval-review') {
+    const reviewSubject = safeReviewSubject(context);
+    if (reviewSubject) parts.push(`${REVIEW_SUBJECT_MARKER}\n${JSON.stringify(reviewSubject)}`);
+  }
   if (context?.failure) {
     parts.push([
       '脱敏故障信息：',
@@ -138,6 +143,103 @@ function describeTask(task) {
     parts.push('工程要求：先复现和定位；只能修改当前项目；必须运行相关测试；没有证据不得宣称修好；禁止读取凭据、登录、外发、付费、扩权或发布。');
   }
   return parts.join('\n\n');
+}
+
+function safeReviewSubject(context) {
+  const root = plainObject(context);
+  const nested = plainObject(root.reviewSubject || root.proposal || root.candidate);
+  const manifest = plainObject(nested.candidateManifest || root.candidateManifest);
+  const source = Object.keys(nested).length ? nested : root;
+  const result = {};
+  const scope = safeScope(source.scope ?? root.scope);
+  const dataScopes = safeDataScopes(source.dataScopes ?? manifest.dataScopes ?? root.dataScopes);
+  const toolAllowlist = safeStrings(source.toolAllowlist ?? manifest.toolAllowlist ?? root.toolAllowlist, 20, 120);
+  const budget = safeBudget(source.budget ?? source.budgetPolicy ?? manifest.budgetPolicy ?? root.budget ?? root.budgetPolicy);
+  const validUntil = safeText(source.validUntil ?? root.validUntil, 80);
+  const externalSideEffects = safeStrings(source.externalSideEffects ?? root.externalSideEffects, 12, 120);
+  const capabilityAudit = safeCapabilityAudit(source.capabilityAudit ?? source.capabilityAudits ?? root.capabilityAudit ?? root.capabilityAudits);
+  const approvalPolicies = safeApprovalPolicies(source.approvalPolicies ?? manifest.approvalPolicies ?? root.approvalPolicies);
+  if (scope) result.scope = scope;
+  if (dataScopes.length) result.dataScopes = dataScopes;
+  if (toolAllowlist.length) result.toolAllowlist = toolAllowlist;
+  if (budget) result.budget = budget;
+  if (validUntil) result.validUntil = validUntil;
+  if (externalSideEffects.length) result.externalSideEffects = externalSideEffects;
+  if (capabilityAudit.length) result.capabilityAudit = capabilityAudit;
+  if (approvalPolicies.length) result.approvalPolicies = approvalPolicies;
+  return Object.keys(result).length ? result : null;
+}
+
+function safeScope(value) {
+  if (typeof value === 'string') return safeText(value, 500) || null;
+  const scope = plainObject(value);
+  const result = {};
+  for (const key of ['goal', 'outcome', 'description', 'boundary', 'deliverable']) {
+    const text = safeText(scope[key], 500);
+    if (text) result[key] = text;
+  }
+  const constraints = safeStrings(scope.constraints, 12, 300);
+  if (constraints.length) result.constraints = constraints;
+  return Object.keys(result).length ? result : null;
+}
+
+function safeDataScopes(value) {
+  return asArray(value).slice(0, 12).flatMap((item) => {
+    const row = plainObject(item);
+    const scope = safeText(row.scope, 120);
+    const access = safeStrings(row.access, 8, 40);
+    const boundary = safeText(row.boundary, 500);
+    return scope && access.length && boundary ? [{ scope, access, boundary }] : [];
+  });
+}
+
+function safeBudget(value) {
+  const source = plainObject(value);
+  const result = {};
+  for (const key of ['maxRuns', 'maxModelCalls', 'maxTokens', 'maxWallClockSeconds', 'maxCostUsd']) {
+    const number = Number(source[key]);
+    if (Number.isFinite(number) && number >= 0) result[key] = number;
+  }
+  if (typeof source.externalSpendAllowed === 'boolean') result.externalSpendAllowed = source.externalSpendAllowed;
+  return Object.keys(result).length ? result : null;
+}
+
+function safeCapabilityAudit(value) {
+  return asArray(value).slice(0, 20).flatMap((item) => {
+    const row = plainObject(item);
+    const capabilityId = safeText(row.capabilityId || row.capability || row.toolId, 120);
+    const status = safeText(row.status || row.result, 40);
+    return capabilityId && status ? [{ capabilityId, status }] : [];
+  });
+}
+
+function safeApprovalPolicies(value) {
+  return asArray(value).slice(0, 12).flatMap((item) => {
+    const row = plainObject(item);
+    const action = safeText(row.action || row.sideEffect, 120);
+    const riskLevel = safeText(row.riskLevel, 40);
+    const decision = safeText(row.decision || row.result, 80);
+    return action && decision ? [{ action, ...(riskLevel ? { riskLevel } : {}), decision }] : [];
+  });
+}
+
+function safeStrings(value, limit, maxLength) {
+  return [...new Set(asArray(value).map((item) => safeText(
+    typeof item === 'string' ? item : item?.id || item?.name,
+    maxLength,
+  )).filter(Boolean))].slice(0, limit);
+}
+
+function safeText(value, maxLength) {
+  return String(value ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+}
+
+function plainObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function asArray(value) {
+  return Array.isArray(value) ? value : value == null ? [] : [value];
 }
 
 function priorityFor(priority) {
