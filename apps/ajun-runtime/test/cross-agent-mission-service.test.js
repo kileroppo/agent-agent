@@ -2,10 +2,19 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { execFile as execFileCallback } from 'node:child_process';
+import { promisify } from 'node:util';
 import test from 'node:test';
 import { CrossAgentMissionService } from '../src/cross-agent-mission-service.js';
+import { CrossAgentMissionReconciler } from '../src/cross-agent-mission-reconciler.ts';
 import { LocalAjunCoordinator } from '../src/local-ajun-coordinator.ts';
+import { LocalCreator } from '../src/local-creator.ts';
+import { MaturityExecutionGuard } from '../src/maturity-execution-guard.ts';
+import { TaskService } from '../src/task-service.js';
+import { TaskStore } from '../src/task-store.js';
 import { MissionChildPolicy } from '../src/workflow/mission-child-policy.ts';
+
+const execFile = promisify(execFileCallback);
 
 test('安全的多人盘点会建立总任务、两项分工和汇总', async () => {
   const created = [];
@@ -75,6 +84,41 @@ test('已经汇总的多人工作不会被重复分派', async () => {
   assert.equal(creates, 0);
   assert.equal(result.children.length, 0);
   assert.match(result.reply, /不会重复安排/);
+});
+
+test('普通多人任务的 queued 子任务不会进入产品成熟度恢复接缝', async () => {
+  const mission = {
+    taskId:'ordinary-mission', taskType:'army.cross-agent-mission', status:'running', idempotencyKey:'ordinary:mission',
+    artifactRefs:[{ type:'cross_agent_mission_plan', data:{ subtasks:[{ key:'ordinary', taskType:'operations.health-review', agentId:'operator', title:'普通检查' }] } }],
+  };
+  const child = { taskId:'ordinary-child', parentTaskId:mission.taskId, idempotencyKey:'ordinary:mission:ordinary', status:'queued' };
+  let recoveryCalls = 0;
+  const service = new CrossAgentMissionService({
+    tasks:{ async resumeVerifiedQueuedMissionChild() { recoveryCalls += 1; } },
+    store:{ async list() { return [mission, child]; }, async updateTask(_id, patch) { return { ...mission, ...patch }; } },
+    governance:{},
+  });
+  const result = await service.dispatch(mission);
+  assert.equal(recoveryCalls, 0);
+  assert.equal(result.children[0].status, 'queued');
+});
+
+test('产品成熟度同一固定幂等键出现重复子任务时 fail closed', async () => {
+  const batchId = 'maturity-33333333-3333-4333-8333-333333333333';
+  const mission = {
+    taskId:'duplicate-maturity-mission', taskType:'army.cross-agent-mission', status:'running',
+    idempotencyKey:`product-maturity-validation:${batchId}`, input:{ context:{ productMaturityBatchId:batchId } },
+    artifactRefs:[{ type:'cross_agent_mission_plan', data:{ subtasks:[{ key:'creator', taskType:'governance.agent-proposal', agentId:'creator', title:'草案' }] } }],
+  };
+  const duplicate = { parentTaskId:mission.taskId, idempotencyKey:`${mission.idempotencyKey}:creator`, status:'queued' };
+  let recoveryCalls = 0;
+  const service = new CrossAgentMissionService({
+    tasks:{ async resumeVerifiedQueuedMissionChild() { recoveryCalls += 1; } },
+    store:{ async list() { return [mission, { ...duplicate, taskId:'duplicate-1' }, { ...duplicate, taskId:'duplicate-2' }]; } },
+    governance:{},
+  });
+  await assert.rejects(() => service.dispatch(mission), /重复幂等任务/);
+  assert.equal(recoveryCalls, 0);
 });
 
 test('父任务已批准时，会恢复此前被重复审批拦住的安全子工作', async () => {
@@ -536,6 +580,199 @@ test('产品成熟度真实 create→A君 plan→dispatch 保留全部签名 gua
   assert.equal(createdChildren[2].approvedForUse, false);
   assert.deepEqual(createdChildren[2].context.modelPolicy, { maxCalls:0, maxCostUsd:0, costKnown:true });
 });
+
+test('产品成熟度 queued 子任务并发恢复只执行一次且 reconcile 后正好三个终态子任务', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maturity-queued-recovery-'));
+  try {
+    const store = new TaskStore(path.join(root, 'runtime.json'));
+    const policy = await MissionChildPolicy.open({ keyPath:path.join(root, 'policy.key') });
+    const batchId = 'maturity-22222222-2222-4222-8222-222222222222';
+    const acceptanceWorkspaceRoot = path.join(root, 'work', 'acceptance-runs');
+    const fixtureRoot = path.join(acceptanceWorkspaceRoot, 'fixture-run');
+    await prepareTechnicalFixture(fixtureRoot);
+    const items = maturityItems(acceptanceWorkspaceRoot);
+    const authorization = policy.issue(batchId, items);
+    const agents = maturityAgents();
+    const registry = {
+      async list() { return agents; },
+      async get(agentId) { return agents.find((agent) => agent.agentId === agentId) || null; },
+      async candidates(taskType) { return agents.filter((agent) => agent.acceptedTaskTypes.includes(taskType)); },
+    };
+    let technicalExecutions = 0;
+    let governanceCalls = 0;
+    const governance = {
+      async project() { governanceCalls += 1; return { paperclipIssueId:'forbidden' }; },
+      async projectChild() { governanceCalls += 1; return { paperclipIssueId:'forbidden' }; },
+      async update() { governanceCalls += 1; return { paperclipIssueId:'forbidden' }; },
+      async assertCaseIssueLink() {},
+    };
+    const creator = new LocalCreator({
+      proposals:{
+        async create() {
+          return { proposalId:'maturity-draft', status:'draft', candidateManifest:{ name:'成熟度待审岗位草案' } };
+        },
+        async submit() { throw new Error('成熟度 draft_only 不应提交'); },
+      },
+    });
+    const technical = {
+      workspace:{ async prepare() { return { workspace:fixtureRoot, reused:false }; } },
+      async execute(task) {
+        technicalExecutions += 1;
+        const prepared = await this.workspace.prepare(task);
+        const run = await this.runner.run(task, prepared.workspace);
+        return {
+          status:'succeeded', currentStage:'acceptance_fixture_verified',
+          execution:{ executor:'technical-expert', outcome:'acceptance_verified_in_isolated_workspace', verification:{ testsPassed:true, recoveryVerified:true, acceptanceOnly:true } },
+          artifactRefs:[{ type:'technical_repair_case', validation:{ exists:true, readable:true, nonEmpty:true }, data:run.evidence }],
+        };
+      },
+    };
+    const content = maturityContentExecutor();
+    const tasks = new TaskService({
+      registry,
+      store,
+      governance,
+      missionChildPolicy:policy,
+      executors:{ ajun:new LocalAjunCoordinator(), creator, 'technical-expert':technical, 'content-creator':content },
+    });
+    const guard = new MaturityExecutionGuard({ store, policy });
+    tasks.maturityExecutionGuard = guard;
+    tasks.executionCoordinator.maturityExecutionGuard = guard;
+    tasks.intake.maturityExecutionGuard = guard;
+
+    const executeTask = tasks.executeTask.bind(tasks);
+    let leaveTechnicalQueued = true;
+    tasks.executeTask = async (task, agent) => {
+      if (leaveTechnicalQueued && task.taskType === 'operations.technical-repair') {
+        leaveTechnicalQueued = false;
+        return task;
+      }
+      return executeTask(task, agent);
+    };
+    const missions = new CrossAgentMissionService({ tasks, store, governance, missionChildPolicy:policy });
+    const created = await missions.createBusinessMission({
+      title:'产品成熟度受控验证',
+      items:items.map((item) => ({ ...item, context:{ ...item.context, productMaturityAuthorization:authorization } })),
+      requester:{ kind:'local-owner', ref:'A君' },
+      source:{ channel:'product-maturity-validation', eventRef:batchId },
+      idempotencyKey:`product-maturity-validation:${batchId}`,
+      productMaturityBatchId:batchId,
+    });
+    const queued = created.children.find((task) => task.taskType === 'operations.technical-repair');
+    const creatorChild = created.children.find((task) => task.taskType === 'governance.agent-proposal');
+    assert.equal(queued.status, 'queued');
+    assert.equal(created.children.length, 2);
+
+    const recover = () => tasks.resumeVerifiedQueuedMissionChild({
+      missionTaskId:created.mission.taskId,
+      taskId:queued.taskId,
+      idempotencyKey:queued.idempotencyKey,
+    });
+    const polluteTechnicalSources = async (sourceTaskIds) => {
+      const current = (await store.list()).find((task) => task.taskId === queued.taskId);
+      return store.updateTask(queued.taskId, {
+        ...(current.status === 'waiting_test' ? {
+          status:'queued', attempt:current.attempt + 1, currentStage:'queued_for_execution',
+          execution:undefined, error:undefined,
+        } : {}),
+        input:{ ...current.input, context:{ ...current.input.context, sourceTaskIds } },
+      });
+    };
+    await polluteTechnicalSources([creatorChild.taskId, 'unexpected-extra-source']);
+    const extraBlocked = await recover();
+    assert.equal(extraBlocked.status, 'waiting_test');
+    assert.equal(extraBlocked.currentStage, 'maturity_execution_blocked');
+    assert.equal(extraBlocked.error.code, 'maturity_execution_guard_rejected');
+    assert.equal(technicalExecutions, 0);
+    assert.deepEqual((await store.list()).find((task) => task.taskId === queued.taskId).input.context.sourceTaskIds, [creatorChild.taskId, 'unexpected-extra-source']);
+    await new CrossAgentMissionReconciler({ store, missions }).reconcile();
+    assert.equal((await store.list()).filter((task) => task.parentTaskId === created.mission.taskId).length, 2);
+
+    await polluteTechnicalSources(['wrong-creator-task-id']);
+    const wrongBlocked = await recover();
+    assert.equal(wrongBlocked.status, 'waiting_test');
+    assert.equal(wrongBlocked.currentStage, 'maturity_execution_blocked');
+    assert.equal(wrongBlocked.error.code, 'maturity_execution_guard_rejected');
+    assert.equal(technicalExecutions, 0);
+    assert.deepEqual((await store.list()).find((task) => task.taskId === queued.taskId).input.context.sourceTaskIds, ['wrong-creator-task-id']);
+
+    await polluteTechnicalSources([creatorChild.taskId]);
+    const recovered = await Promise.all(Array.from({ length:8 }, recover));
+    assert.equal(technicalExecutions, 1);
+    assert.ok(recovered.every((task) => task.taskId === queued.taskId));
+    const migratedTechnical = (await store.list()).find((task) => task.taskId === queued.taskId);
+    assert.equal(migratedTechnical.input.context.sourceTaskIds, undefined);
+    assert.deepEqual(migratedTechnical.input.context.dependencyTaskIds, [creatorChild.taskId]);
+    await assert.rejects(() => tasks.resumeVerifiedQueuedMissionChild({
+      missionTaskId:created.mission.taskId,
+      taskId:queued.taskId,
+      idempotencyKey:`${queued.idempotencyKey}:forged`,
+    }), /幂等键不一致/);
+    assert.equal(technicalExecutions, 1);
+
+    await new CrossAgentMissionReconciler({ store, missions }).reconcile();
+    const records = await store.list();
+    const mission = records.find((task) => task.taskId === created.mission.taskId);
+    const children = records.filter((task) => task.parentTaskId === mission.taskId);
+    assert.equal(mission.status, 'succeeded');
+    assert.equal(children.length, 3);
+    assert.equal(new Set(children.map((task) => task.idempotencyKey)).size, 3);
+    assert.ok(children.every((task) => task.status === 'succeeded'));
+    assert.equal(children.filter((task) => task.idempotencyKey === queued.idempotencyKey).length, 1);
+    assert.equal(governanceCalls, 0);
+  } finally {
+    await fs.rm(root, { recursive:true, force:true });
+  }
+});
+
+function maturityAgents() {
+  return [
+    ['ajun', 'army.cross-agent-mission'],
+    ['creator', 'governance.agent-proposal'],
+    ['technical-expert', 'operations.technical-repair'],
+    ['content-creator', 'content.video-script-package'],
+  ].map(([agentId, taskType]) => ({
+    agentId, name:agentId, status:'active', acceptedTaskTypes:[taskType],
+    interaction:{ runtime:'hermes-profile' }, executionOwner:'paperclip-hermes',
+  }));
+}
+
+async function prepareTechnicalFixture(root) {
+  const dir = path.join(root, 'docs/acceptance-fixtures/technical-repair-sandbox');
+  await fs.mkdir(dir, { recursive:true });
+  await fs.writeFile(path.join(dir, 'calculator.js'), 'export function add(left, right) {\n  return left - right;\n}\n');
+  await fs.writeFile(path.join(dir, 'calculator.test.js'), "import assert from 'node:assert/strict';\nimport test from 'node:test';\nimport { add } from './calculator.js';\ntest('add', () => assert.equal(add(2, 3), 5));\n");
+  await fs.writeFile(path.join(dir, 'package.json'), '{"type":"module"}\n');
+  await execFile('git', ['init', '-q'], { cwd:root });
+  await execFile('git', ['add', '.'], { cwd:root });
+  await execFile('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'fixture'], { cwd:root });
+}
+
+function maturityContentExecutor() {
+  const scriptPackage = {
+    async execute(task) {
+      const sourceTaskIds = task.input.context.requiredSourceTaskIds;
+      const sourceRefs = ['artifact-source-transcript', 'artifact-source-analysis'];
+      return {
+        status:'succeeded', currentStage:'video_script_package_ready',
+        execution:{ executor:'content-creator', outcome:'draft_ready' },
+        artifactRefs:[{
+          type:'video_script_package', sourceRefs,
+          validation:{ exists:true, readable:true, nonEmpty:true, fileCount:5, onePrimaryDraft:true, externalSideEffects:0 },
+          data:{
+            fullScript:'这是只使用固定来源生成的待审脚本。', publishingStatus:'draft_only',
+            generationMode:'deterministic_fallback', researchStatus:'not_required',
+            templateLifecycle:{ approvedForUse:false },
+            productionFiles:['script', 'shots', 'subtitles', 'sources', 'manifest'].map((id) => ({ id })),
+            sourceTaskIds,
+            sourceTaskBindings:sourceTaskIds.map((taskId, index) => ({ taskId, artifactIds:[sourceRefs[index]] })),
+          },
+        }],
+      };
+    },
+  };
+  return { scriptPackage, async execute(task, options) { return this.scriptPackage.execute(task, options); } };
+}
 
 function maturityItems(acceptanceWorkspaceRoot) {
   return [

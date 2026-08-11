@@ -14,6 +14,7 @@ export { ValidationError } from './task-service-execution-support.js';
 import { privateReadGrantStatus, revokePrivateReadGrant } from './private-read-grant.js';
 import { taskApprovalCoordinatorMethods } from './task-approval-coordinator.js';
 import { TaskOverview } from './task-overview.js';
+import { maturityQueuedChildRecoveryMethods } from './maturity-queued-child-recovery.ts';
 
 export class TaskService {
   constructor({
@@ -331,6 +332,7 @@ export class TaskService {
 
 Object.assign(TaskService.prototype, taskServiceExecutionMethods);
 Object.assign(TaskService.prototype, taskApprovalCoordinatorMethods);
+Object.assign(TaskService.prototype, maturityQueuedChildRecoveryMethods);
 
 function shouldStartFailureRecovery(task) {
   return task?.status === 'failed'

@@ -72,9 +72,14 @@ export class CrossAgentMissionService {
     const childByKey = new Map();
     for (const subtask of plan.subtasks) {
       const idempotencyKey = `${mission.idempotencyKey || `mission:${mission.taskId}`}:${subtask.key}`;
-      const child = existingChildren.find((item) => item.idempotencyKey === idempotencyKey);
+      const matches = existingChildren.filter((item) => item.idempotencyKey === idempotencyKey);
+      if (mission?.input?.context?.productMaturityBatchId && matches.length > 1) {
+        throw new Error('产品成熟度固定分工出现重复幂等任务，已停止恢复。');
+      }
+      const child = matches[0];
       if (child) childByKey.set(subtask.key, child);
     }
+    await this.resumeQueuedMaturityChildren({ mission, plan, childByKey });
     const attemptedApprovalResume = new Set();
     const runSubtask = async (subtask) => {
       this.missionChildPolicy?.assertAuthorized({ mission, subtask });
@@ -86,7 +91,10 @@ export class CrossAgentMissionService {
       const dependencyTaskIds = [...new Set(dependencyKeys
         .map((key) => childByKey.get(key)?.taskId)
         .filter(Boolean))];
-      const sourceTaskIds = fixedSourceTaskIds.length ? fixedSourceTaskIds : dependencyTaskIds;
+      const signedMaturityItem = subtask.context?.productMaturityAuthorization?.kind === 'product-maturity-validation';
+      const sourceTaskIds = signedMaturityItem
+        ? fixedSourceTaskIds
+        : fixedSourceTaskIds.length ? fixedSourceTaskIds : dependencyTaskIds;
       let child = existingChildren.find((task) => task.idempotencyKey === idempotencyKey) || null;
       if (!child) child = await this.tasks.create({
         title:subtask.title,
@@ -145,7 +153,7 @@ export class CrossAgentMissionService {
         if (child && (child.status !== 'waiting_approval' || attemptedApprovalResume.has(subtask.key))) return false;
         return dependenciesFor(plan.subtasks, subtask).every((key) => {
           const dependency = childByKey.get(key);
-          return dependency && isTerminal(dependency.status);
+          return dependency && dependencySatisfied(mission, dependency.status);
         });
       });
       if (!ready.length) break;
@@ -166,6 +174,33 @@ export class CrossAgentMissionService {
     });
     if (mission.governance?.paperclipIssueId) mission = await this.store.updateTask(mission.taskId, { governance:await this.governance.update(mission) });
     return { mission, children, reply:replyFor(mission, plan, children, state) };
+  }
+
+  async resumeQueuedMaturityChildren({ mission, plan, childByKey }) {
+    if (!mission?.input?.context?.productMaturityBatchId) return;
+    const queued = plan.subtasks.filter((subtask) => childByKey.get(subtask.key)?.status === 'queued');
+    if (!queued.length) return;
+    if (typeof this.tasks?.resumeVerifiedQueuedMissionChild !== 'function') {
+      throw new Error('产品成熟度排队任务缺少受控恢复接缝，已停止分派。');
+    }
+    if (typeof this.missionChildPolicy?.verifyMissionAuthorization !== 'function'
+      || typeof this.missionChildPolicy?.assertAuthorized !== 'function') {
+      throw new Error('产品成熟度排队任务缺少子任务验签策略，已停止分派。');
+    }
+    this.missionChildPolicy.verifyMissionAuthorization(mission);
+    for (const subtask of queued) {
+      const child = childByKey.get(subtask.key);
+      if (child?.status !== 'queued') continue;
+      if (!dependenciesFor(plan.subtasks, subtask).every((key) => dependencySatisfied(mission, childByKey.get(key)?.status))) continue;
+      this.missionChildPolicy.assertAuthorized({ mission, subtask });
+      const idempotencyKey = `${mission.idempotencyKey || `mission:${mission.taskId}`}:${subtask.key}`;
+      const resumed = await this.tasks.resumeVerifiedQueuedMissionChild({
+        missionTaskId:mission.taskId,
+        taskId:child.taskId,
+        idempotencyKey,
+      });
+      childByKey.set(subtask.key, resumed);
+    }
   }
 }
 
@@ -337,6 +372,12 @@ function isTerminal(status) {
 
 function isActivelyRunning(status) {
   return ['queued', 'running', 'waiting_worker'].includes(status);
+}
+
+function dependencySatisfied(mission, status) {
+  return mission?.input?.context?.productMaturityBatchId
+    ? status === 'succeeded'
+    : isTerminal(status);
 }
 
 function dependenciesFor(subtasks, subtask) {

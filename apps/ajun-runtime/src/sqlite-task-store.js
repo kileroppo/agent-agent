@@ -170,6 +170,21 @@ export class SQLiteTaskStore {
     });
   }
 
+  async compareAndSwapQueuedTaskContext(taskId, { expectedContext, nextContext } = {}) {
+    return this.#transaction(() => {
+      const task = this.#getRecord('tasks', 'task_id', taskId);
+      if (!task) throw new Error('找不到要更新的任务。');
+      if (task.status !== 'queued'
+        || JSON.stringify(task.input?.context || null) !== JSON.stringify(expectedContext || null)) {
+        return { task:cloneRecord(task), updated:false };
+      }
+      task.input = { ...(task.input || {}), context:nextContext };
+      task.updatedAt = new Date().toISOString();
+      this.#updateRecord(COLLECTIONS[0], task);
+      return { task:cloneRecord(task), updated:true };
+    });
+  }
+
   async claimTaskExecution(taskId, patch = {}) {
     return this.#transaction(() => {
       const task = this.#getRecord('tasks', 'task_id', taskId);

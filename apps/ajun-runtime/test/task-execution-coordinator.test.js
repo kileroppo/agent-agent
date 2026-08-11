@@ -59,6 +59,55 @@ test('任务执行协调器在缺少执行器时保持任务不变', async () =>
   assert.equal(await coordinator.execute(task, { agentId:'missing', status:'active' }), task);
 });
 
+test('成熟度信号存在但统一 guard 未装配时 fail closed 且不唤醒 Paperclip Hermes', async () => {
+  let stored = {
+    taskId:'maturity-without-guard', taskType:'operations.technical-repair', status:'queued',
+    source:{ eventRef:'maturity-55555555-5555-4555-8555-555555555555' },
+    input:{ context:{ productMaturityAuthorization:{ kind:'product-maturity-validation', token:'signed' } } },
+  };
+  let localExecutions = 0;
+  const coordinator = new TaskExecutionCoordinator({
+    store:{ async updateTask(_id, patch) { stored = { ...stored, ...patch }; return stored; } },
+    capabilityCatalog:new TaskCapabilityCatalog({ executors:{ 'technical-expert':{ async execute() { localExecutions += 1; } } } }),
+  });
+  const result = await coordinator.execute(stored, {
+    agentId:'technical-expert', status:'active', executionOwner:'paperclip-hermes',
+    interaction:{ runtime:'hermes-profile', directFeishu:'required' },
+  });
+  assert.equal(localExecutions, 0);
+  assert.equal(result.status, 'needs_input');
+  assert.equal(result.currentStage, 'maturity_execution_guard_unavailable');
+  assert.equal(result.error.code, 'maturity_execution_guard_unavailable');
+  assert.equal(result.execution, undefined);
+});
+
+test('子任务自身成熟度信号被剥离但父任务属于成熟度批次时仍 fail closed', async () => {
+  const parent = {
+    taskId:'maturity-parent', taskType:'army.cross-agent-mission',
+    input:{ context:{ productMaturityBatchId:'maturity-66666666-6666-4666-8666-666666666666' } },
+  };
+  let stored = {
+    taskId:'stripped-maturity-child', parentTaskId:parent.taskId,
+    taskType:'operations.technical-repair', status:'queued', input:{ context:{} }, source:{ channel:'army-mission' },
+  };
+  let localExecutions = 0;
+  const coordinator = new TaskExecutionCoordinator({
+    store:{
+      async list() { return [parent, stored]; },
+      async updateTask(_id, patch) { stored = { ...stored, ...patch }; return stored; },
+    },
+    capabilityCatalog:new TaskCapabilityCatalog({ executors:{ 'technical-expert':{ async execute() { localExecutions += 1; } } } }),
+  });
+  const result = await coordinator.execute(stored, {
+    agentId:'technical-expert', status:'active', executionOwner:'paperclip-hermes',
+    interaction:{ runtime:'hermes-profile', directFeishu:'required' },
+  });
+  assert.equal(localExecutions, 0);
+  assert.equal(result.status, 'needs_input');
+  assert.equal(result.error.code, 'maturity_execution_guard_unavailable');
+  assert.equal(result.execution, undefined);
+});
+
 test('任务执行协调器并发恢复同一任务时只调用一次执行器', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-execution-claim-'));
   try {

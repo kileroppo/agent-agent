@@ -82,6 +82,21 @@ export class TaskStore {
     });
   }
 
+  async compareAndSwapQueuedTaskContext(taskId, { expectedContext, nextContext } = {}) {
+    return this.mutate(async () => {
+      const data = await this.read(); const task = data.tasks.find((item) => item.taskId === taskId);
+      if (!task) throw new Error('找不到要更新的任务。');
+      if (task.status !== 'queued'
+        || JSON.stringify(task.input?.context || null) !== JSON.stringify(expectedContext || null)) {
+        return { task, updated:false };
+      }
+      task.input = { ...(task.input || {}), context:nextContext };
+      task.updatedAt = new Date().toISOString();
+      await this.write(data);
+      return { task, updated:true };
+    });
+  }
+
   async claimTaskExecution(taskId, patch = {}) {
     return this.mutate(async () => {
       const data = await this.read(); const task = data.tasks.find((item) => item.taskId === taskId);

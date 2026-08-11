@@ -100,6 +100,10 @@ export class MaturityExecutionGuard {
     return withKnownZeroUsage(result, authorization.executionMode);
   }
 
+  async block(task: any, message: string) {
+    throw await this.#blockedError(task, message || '产品成熟度任务未通过恢复门禁。');
+  }
+
   async #maturityMission(task: any) {
     const taskSignalsMaturity = task?.input?.context?.productMaturityAuthorization?.kind === 'product-maturity-validation'
       || /^maturity-[0-9a-f-]{36}$/i.test(String(task?.source?.eventRef || ''));

@@ -38,6 +38,21 @@ export class TaskExecutionCoordinator {
   }
 
   async execute(task: any, agent: any) {
+    if (!this.maturityExecutionGuard && await signalsProductMaturity(task, this.store)) {
+      return this.store.updateTask(task.taskId, {
+        status:'needs_input',
+        currentStage:'maturity_execution_guard_unavailable',
+        error:{
+          code:'maturity_execution_guard_unavailable',
+          message:'产品成熟度任务执行门禁未装配。',
+          userMessage:'产品成熟度任务缺少统一执行门禁，已停止且没有唤醒岗位或外部治理执行器。',
+          category:'governance',
+          stage:'maturity_execution_guard',
+          retryable:false,
+          occurredAt:new Date().toISOString(),
+        },
+      });
+    }
     let maturityAuthorization = null;
     if (this.maturityExecutionGuard) {
       try {
@@ -149,6 +164,19 @@ function executionFailure(task: any, error: any) {
       occurredAt:new Date().toISOString(),
     },
   };
+}
+
+async function signalsProductMaturity(task: any, store: any) {
+  const directSignal = task?.input?.context?.productMaturityAuthorization?.kind === 'product-maturity-validation'
+    || /^maturity-[0-9a-f-]{36}$/i.test(String(task?.source?.eventRef || ''))
+    || /^maturity-[0-9a-f-]{36}$/i.test(String(task?.input?.context?.productMaturityBatchId || ''));
+  if (directSignal) return true;
+  const parentTaskId = String(task?.parentTaskId || '');
+  if (!parentTaskId || typeof store?.list !== 'function') return false;
+  const parent = (await store.list()).find((item: any) => item.taskId === parentTaskId);
+  return parent?.taskType === 'army.cross-agent-mission'
+    && (/^maturity-[0-9a-f-]{36}$/i.test(String(parent?.input?.context?.productMaturityBatchId || ''))
+      || /^maturity-[0-9a-f-]{36}$/i.test(String(parent?.source?.eventRef || '')));
 }
 
 function enforceCompletionContract(task: any, result: any = {}) {

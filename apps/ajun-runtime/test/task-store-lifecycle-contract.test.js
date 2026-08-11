@@ -129,6 +129,42 @@ for (const backend of [jsonBackend(), sqliteBackend()]) {
     }
   });
 
+  test(`${backend.name} 仅在 queued 且 context 精确匹配时原子替换任务上下文`, async () => {
+    const fixture = await backend.open();
+    const { store } = fixture;
+    try {
+      const expectedContext = { dependencyTaskIds:['creator-1'], sourceTaskIds:['creator-1'] };
+      const nextContext = { dependencyTaskIds:['creator-1'] };
+      const task = await store.createTask({
+        taskType:'operations.technical-repair', status:'queued', input:{ context:expectedContext },
+      });
+      const swaps = await Promise.all(Array.from({ length:8 }, () => store.compareAndSwapQueuedTaskContext(task.taskId, {
+        expectedContext,
+        nextContext,
+      })));
+      assert.equal(swaps.filter((item) => item.updated).length, 1);
+      assert.deepEqual((await store.list())[0].input.context, nextContext);
+
+      const wrongExpected = await store.compareAndSwapQueuedTaskContext(task.taskId, {
+        expectedContext:{ dependencyTaskIds:['wrong'] },
+        nextContext:{ dependencyTaskIds:['forbidden'] },
+      });
+      assert.equal(wrongExpected.updated, false);
+      assert.deepEqual(wrongExpected.task.input.context, nextContext);
+
+      await store.claimTaskExecution(task.taskId, { currentStage:'starting' });
+      const noLongerQueued = await store.compareAndSwapQueuedTaskContext(task.taskId, {
+        expectedContext:nextContext,
+        nextContext:{ dependencyTaskIds:['forbidden'] },
+      });
+      assert.equal(noLongerQueued.updated, false);
+      assert.equal(noLongerQueued.task.status, 'running');
+      assert.deepEqual(noLongerQueued.task.input.context, nextContext);
+    } finally {
+      await fixture.close();
+    }
+  });
+
   test(`${backend.name} 原子提交审批决定与任务状态且失败时整体回滚`, async () => {
     const fixture = await backend.open();
     const { store } = fixture;

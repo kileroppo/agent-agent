@@ -14,7 +14,7 @@
 - root mission 与三个 child 均强制本地确定性执行，已知 `0 model calls / 0 USD`；技术专家仅在 `work/acceptance-runs/` 修复受控夹具且禁止 promotion，小创禁 Advisor/Research，只引用现有确认稿和正式分析。
 - 十岗位统一证据包保存 SHA-256 `evidenceHash`；固定来源真实 artifact ID、内容摘要、输出摘要、运行边界 revision 和授权摘要均进入哈希，证据变化后旧 hash 返回 409。
 - Publisher、Campaign、Cron 的只读状态必须明确为关闭且带稳定 revision；状态缺失、未知或活动中时 `accepted` 失败关闭，不会自动改变这些服务。
-- TypeScript 生产源码现为 `44 TS / 160 JS / 1 MJS`，比例 `44/205 = 21.46%`。
+- TypeScript 生产源码现为 `45 TS / 160 JS / 1 MJS`，比例 `45/206 = 21.84%`。
 - `typescript-ratio-baseline.json` 固定最低 41 个 TypeScript 生产文件和 20% 比例；`npm run check --workspace=ajun-runtime` 同时执行严格 `tsc` 与比例门禁。
 
 ## 自动验证
@@ -23,7 +23,7 @@
 
 ```text
 npm run check
-PASS；architecture boundaries ok；typescript ratio 44/205 (21.46%)
+PASS；architecture boundaries ok；typescript ratio 45/206 (21.84%)
 
 npm test
 PASS；全部 Workspace 与根脚本测试通过
@@ -70,7 +70,7 @@ PASS；迁移模块均可由 Node 22 直接加载
 
 - 没有发布、外发、登录、发飞书测试消息、生成图片/音频/成片，也没有启动 Publisher、Campaign 或 Cron。
 - 小创脚本包仍保持本地待审边界；`sources.md` 中“未使用可独立核验外部事实”只说明没有新增公开 research 来源，不代表允许忽略内部固定来源引用。
-- TypeScript 生产比例为 `44 / 205 = 21.46%`，没有回退。
+- TypeScript 生产比例为 `45 / 206 = 21.84%`，没有回退。
 
 ## 下一步
 

@@ -170,7 +170,7 @@ test('完整状态迁移矩阵只允许契约路径、幂等更新和显式终�
   const allowed = new Map([
     ['received', ['needs_input', 'queued', 'cancelled']],
     ['needs_input', ['queued', 'expired', 'cancelled']],
-    ['queued', ['needs_input', 'running', 'waiting_worker', 'waiting_approval', 'failed', 'cancelled']],
+    ['queued', ['needs_input', 'running', 'waiting_worker', 'waiting_approval', 'waiting_test', 'failed', 'cancelled']],
     ['running', ['needs_input', 'waiting_worker', 'waiting_approval', 'pausing', 'waiting_test', 'succeeded', 'failed', 'cancelled']],
     ['waiting_worker', ['queued', 'running', 'needs_input', 'waiting_approval', 'waiting_test', 'failed', 'cancelled']],
     ['pausing', ['running', 'paused', 'waiting_test', 'failed', 'cancelled']],
@@ -230,6 +230,16 @@ test('running 可以安全收口为 waiting_test，waiting_test 是终态', () =
   assert.equal(isTerminalTaskStatus(updated.status), true);
   assert.equal(original.status, 'running');
   assert.equal(original.currentStage, 'before');
+});
+
+test('queued 可在执行器启动前因确定性门禁失败收口为 waiting_test', () => {
+  const original = task('queued');
+  const updated = applyTaskStatusPatch(original, {
+    status:'waiting_test',
+    currentStage:'maturity_execution_blocked',
+  });
+  assert.equal(updated.status, 'waiting_test');
+  assert.equal(updated.currentStage, 'maturity_execution_blocked');
 });
 
 test('同状态更新是幂等 patch，不要求增加 attempt', () => {
