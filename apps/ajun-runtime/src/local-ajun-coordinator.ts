@@ -185,6 +185,11 @@ function normalizeBusinessMissionItems(value: any) {
     focus:String(item?.focus || '').trim().slice(0, 500),
     platforms:Array.isArray(item?.platforms) ? item.platforms.map((platform: any) => String(platform || '').trim()).filter(Boolean).slice(0, 3) : [],
     contentGoal:String(item?.contentGoal || '').trim().slice(0, 500),
+    researchMode:item?.researchMode === 'off' ? 'off' : 'auto',
+    approvedForUse:item?.approvedForUse === true,
+    proposalOnly:item?.proposalOnly === true,
+    draftOnly:item?.draftOnly === true,
+    deterministicAcceptanceRepair:item?.deterministicAcceptanceRepair === true,
     context:normalizedProductMaturityContext(item?.context),
     dependsOnPrevious:item?.dependsOnPrevious === true || String(item?.agentId || '').trim() === 'office-assistant',
     dependsOn:Array.isArray(item?.dependsOn)

@@ -450,6 +450,10 @@ test('强制来源在模型调用前校验并把受控确认稿与正式分析�
         nonEmpty:true,
         confirmationMode:'automatic',
       },
+    }, {
+      artifactId:'transcript-quality:source:v1',
+      type:'transcript_quality_report',
+      validation:{ exists:true, readable:true, nonEmpty:true },
     }],
   };
   const analysisTask = {
@@ -460,6 +464,7 @@ test('强制来源在模型调用前校验并把受控确认稿与正式分析�
     artifactRefs:[{
       artifactId:'video-analysis:source',
       type:'video_content_analysis_report',
+      checksum:'b'.repeat(64),
       title:'访谈正式分析',
       sourceRefs:['confirmed-transcript:source:v1'],
       validation:{
@@ -482,6 +487,10 @@ test('强制来源在模型调用前校验并把受控确认稿与正式分析�
         sourceTranscriptArtifactId:'confirmed-transcript:source:v1',
         sourceTranscriptChecksum:transcriptChecksum,
       },
+    }, {
+      artifactId:'analysis-support:source',
+      type:'source_evidence_record',
+      validation:{ exists:true, readable:true, nonEmpty:true },
     }],
   };
   let receivedSourceContext = null;

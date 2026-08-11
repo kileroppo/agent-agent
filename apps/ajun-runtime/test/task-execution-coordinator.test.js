@@ -89,3 +89,70 @@ test('任务执行协调器并发恢复同一任务时只调用一次执行器',
     await fs.rm(directory, { recursive:true, force:true });
   }
 });
+
+test('成熟度子任务即使岗位配置为 Paperclip Hermes 也强制走本地确定性执行', async () => {
+  let stored = { taskId:'maturity-child', taskType:'governance.agent-proposal', status:'queued', governance:{ paperclipIssueId:'must-not-wake' } };
+  let localExecutions = 0;
+  let governanceUpdates = 0;
+  const executor = { async execute() { localExecutions += 1; return { status:'needs_input', currentStage:'local-deterministic' }; } };
+  const guard = {
+    async verifyOrBlock() { return { executionMode:'draft_only' }; },
+    async execute(task, selected) { return selected.execute(task); },
+  };
+  const coordinator = new TaskExecutionCoordinator({
+    store:{ async updateTask(_id, patch) { stored = { ...stored, ...patch }; return stored; } },
+    governance:{ async update() { governanceUpdates += 1; return {}; } },
+    capabilityCatalog:new TaskCapabilityCatalog({ executors:{ creator:executor } }),
+    maturityExecutionGuard:guard,
+  });
+  const result = await coordinator.execute(stored, {
+    agentId:'creator', status:'active', executionOwner:'paperclip-hermes',
+    interaction:{ runtime:'hermes-profile', directFeishu:'required' },
+  });
+  assert.equal(localExecutions, 1);
+  assert.equal(governanceUpdates, 0);
+  assert.equal(result.currentStage, 'local-deterministic');
+  assert.notEqual(result.currentStage, 'waiting_paperclip_heartbeat');
+});
+
+test('产品成熟度总任务即使 A君 配置 Paperclip 也只走本地计划且持久化零用量', async () => {
+  let stored = {
+    taskId:'maturity-root', taskType:'army.cross-agent-mission', assigneeAgentId:'ajun', status:'queued',
+    governance:{ paperclipIssueId:'must-not-project-or-wake' },
+  };
+  let localExecutions = 0;
+  let governanceUpdates = 0;
+  const executor = { async execute() {
+    localExecutions += 1;
+    return {
+      status:'running', currentStage:'mission_planned',
+      execution:{ executor:'ajun', outcome:'subtasks_ready' },
+      artifactRefs:[{ type:'cross_agent_mission_plan', validation:{ exists:true, readable:true, nonEmpty:true } }],
+      usage:{
+        model:{ provider:'deterministic-local', model:'mission_plan', inputTokens:0, outputTokens:0, apiCalls:0 },
+        cost:{ amount:0, currency:'USD', basis:'included' },
+      },
+    };
+  } };
+  const guard = {
+    async verifyOrBlock() { return { executionMode:'mission_plan' }; },
+    async execute(task, selected) { return selected.execute(task); },
+  };
+  const coordinator = new TaskExecutionCoordinator({
+    store:{ async updateTask(_id, patch) { stored = { ...stored, ...patch }; return stored; } },
+    governance:{ async update() { governanceUpdates += 1; return {}; } },
+    capabilityCatalog:new TaskCapabilityCatalog({ executors:{ ajun:executor } }),
+    maturityExecutionGuard:guard,
+  });
+  const result = await coordinator.execute(stored, {
+    agentId:'ajun', status:'active', executionOwner:'paperclip-hermes',
+    interaction:{ runtime:'hermes-profile', directFeishu:'required' },
+  });
+  assert.equal(localExecutions, 1);
+  assert.equal(governanceUpdates, 0);
+  assert.equal(result.currentStage, 'mission_planned');
+  assert.equal(result.usage.model.status, 'reported');
+  assert.equal(result.usage.model.apiCalls, 0);
+  assert.equal(result.usage.cost.status, 'reported');
+  assert.equal(result.usage.cost.amount, 0);
+});

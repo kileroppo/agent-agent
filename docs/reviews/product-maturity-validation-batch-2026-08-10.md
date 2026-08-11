@@ -2,27 +2,28 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 首批 live 批次已完成并登记 `revision_required`；代码与本机测试通过，下一步为修复后受控复验 |
+| 状态 | 首批 live 批次已登记 `revision_required`；第二批门禁候选已通过本机全量验证，待冻结、切换后执行受控复验 |
 | 日期 | 2026-08-10 |
 | 范围 | 产品成熟度固定批次、统一验收包、21 个 Workflow 模块迁移、TypeScript 比例门禁 |
 
 ## 已实现
 
 - 本机固定创建与统一决定 API 均要求同源 JSON、短期 owner-action nonce 和 loopback 来源。
-- 三个子任务由服务端固定，使用持久化 HMAC 密钥签名；普通多人任务上下文不能伪造授权，也不能替换岗位、任务类型或 item key。
+- 三个子任务由服务端固定，使用持久化 HMAC 密钥签名；root mission、三个 child、来源、技术夹具范围、零模型合同、幂等键和 reservation 授权摘要必须完全一致，额外第四任务或未知字段失败关闭。
 - 统一决定现以当前批次 `acceptanceEligible` 为硬门禁：只有本批次必需子任务全部 terminal 且 verified 时才允许登记 `accepted`；`revision_required` 保留真实失败边界，不再允许用历史成功静默替代当前批次失败。
-- 技术专家仅在 `work/acceptance-runs/` 独立 worktree 使用受控夹具；小创仅引用现有确认稿和正式分析，不启动 Publisher、Campaign 或 Cron。
-- 十岗位统一证据包保存 SHA-256 `evidenceHash`；证据变化后旧 hash 返回 409。决定只写新批次账本，明确记录 `historicalTaskStatusesChanged=false`。
-- 21 个既有 Workflow / Policy / Reconciler / Role 文件完成真实 `.ts` 迁移，所有生产 import 与对应测试已同步。生产源码从 `18 TS / 181 JS / 1 MJS` 提升为 `41 TS / 160 JS / 1 MJS`，比例 `20.30%`。
+- root mission 与三个 child 均强制本地确定性执行，已知 `0 model calls / 0 USD`；技术专家仅在 `work/acceptance-runs/` 修复受控夹具且禁止 promotion，小创禁 Advisor/Research，只引用现有确认稿和正式分析。
+- 十岗位统一证据包保存 SHA-256 `evidenceHash`；固定来源真实 artifact ID、内容摘要、输出摘要、运行边界 revision 和授权摘要均进入哈希，证据变化后旧 hash 返回 409。
+- Publisher、Campaign、Cron 的只读状态必须明确为关闭且带稳定 revision；状态缺失、未知或活动中时 `accepted` 失败关闭，不会自动改变这些服务。
+- TypeScript 生产源码现为 `44 TS / 160 JS / 1 MJS`，比例 `44/205 = 21.46%`。
 - `typescript-ratio-baseline.json` 固定最低 41 个 TypeScript 生产文件和 20% 比例；`npm run check --workspace=ajun-runtime` 同时执行严格 `tsc` 与比例门禁。
 
 ## 自动验证
 
-2026-08-10 在独立 clean worktree 执行：
+旧 `8950a39…` / `4e1061c0…` 发布包曾被文档误记为根架构检查通过；该包的 `local-video-script-package.js` 实为 1198 行，按仓库 1000 行硬门禁应为 FAIL。当前候选已把来源上下文抽为 TypeScript 模块，主文件降至 933 行，并重新执行：
 
 ```text
 npm run check
-PASS；architecture boundaries ok；typescript ratio 41/202 (20.30%)
+PASS；architecture boundaries ok；typescript ratio 44/205 (21.46%)
 
 npm test
 PASS；全部 Workspace 与根脚本测试通过
@@ -31,7 +32,7 @@ PASS；全部 Workspace 与根脚本测试通过
 PASS；迁移模块均可由 Node 22 直接加载
 ```
 
-这些结果证明源码、类型、架构和本机测试通过；不等于三个真实验证子任务已经完成，也不等于负责人已经登记统一采用结论。
+这些结果只证明当前未发布候选的源码、类型、架构和本机测试通过；不能反推旧发布包通过，也不等于第二批 live 子任务已经完成。
 
 ## 首批 live 结果
 
@@ -69,12 +70,12 @@ PASS；迁移模块均可由 Node 22 直接加载
 
 - 没有发布、外发、登录、发飞书测试消息、生成图片/音频/成片，也没有启动 Publisher、Campaign 或 Cron。
 - 小创脚本包仍保持本地待审边界；`sources.md` 中“未使用可独立核验外部事实”只说明没有新增公开 research 来源，不代表允许忽略内部固定来源引用。
-- TypeScript 生产比例保持 `41 / 202 = 20.30%`，本批次没有回退。
+- TypeScript 生产比例为 `44 / 205 = 21.46%`，没有回退。
 
 ## 下一步
 
-- 唯一下一步是：围绕上述五类缺口执行一次受控 live 复验，重点确认技术验收验签、当前批次优先、`acceptanceEligible` 与脚本来源血缘/校验和门禁已按运行账本生效。
-- 复验前提不变：只允许固定三子任务、最多 4 次模型调用、预算上限 `0.08 USD`、无发布外发、无历史任务改写。
+- 唯一下一步是：把当前 clean commit 冻结为新 immutable release，完成 4321 切换与指纹核对后，再执行第二批受控 live 复验。
+- 复验仍只有固定三子任务；总政策上限保留为 4 次 / `0.08 USD`，本轮签名执行合同进一步收紧为已知 `0` 次 / `0 USD`，并保持无发布外发、无历史任务改写。
 
 ## 运行与外部边界
 

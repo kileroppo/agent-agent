@@ -44,8 +44,8 @@ agent-agent/
 
 - M0–M3 已完成；M4 本地岗位质量与模型回归已完成，剩余项均为明确的外部或人工验收；M5 仍为 **PARTIAL**。
 - Business Workflow 已作为新任务主对象，TypeScript Policy、CapabilityAdapter、ExecutionReceipt、Evaluation 和五层能力真相已在 live 生效；历史任务只读分类，不改写旧终态。
-- 产品成熟度验证已收敛为一个本机固定批次：A君只创建创建官、技术专家隔离夹具和小创本地待审脚本三项子工作，统一形成 10 岗位证据包。2026-08-10 首批 live 批次已登记 `revision_required`，不会回写历史任务终态；后续只有在五类缺口修复后，才按同一费用与权限边界执行受控复验。
-- A君生产源码当前为 41 个 TypeScript、160 个 JavaScript 和 1 个 MJS 文件，共 202 个生产源码文件，TypeScript 比例为 `41/202 = 20.30%`；版本化比例门禁已接入 Workspace `check`，不得回退到 20% 以下或少于 41 个 TypeScript 生产文件。
+- 产品成熟度验证已收敛为一个本机固定批次：A君只创建创建官、技术专家隔离夹具和小创本地待审脚本三项子工作，统一形成 10 岗位证据包。首批 live 批次保留 `revision_required`；第二批候选已补 exact 授权、零模型执行、来源摘要和 Publisher/Campaign/Cron 只读关闭门禁，仍需在新 immutable release 上完成真实复验。
+- A君生产源码当前为 44 个 TypeScript、160 个 JavaScript 和 1 个 MJS 文件，共 205 个生产源码文件，TypeScript 比例为 `44/205 = 21.46%`；版本化比例门禁已接入 Workspace `check`，不得回退到 20% 以下或少于既有 TypeScript 基线。
 - 任务与待办数量以 live `/api/overview.taskFocus` 为准，README 不再固化会持续变化的计数。真正的 `waiting_acceptance` Workflow 会进入 `ownerActionable`；等待自动验证的 `waiting_test` 或产物门禁未通过会显示为 `waiting_validation`，不再冒充老板待办。历史分类仍只读，不改写旧任务终态。
 - live `agent.army/validation-campaign/v1` 已收敛为 `taskCount=0`、`groupCount=0`。首次真实小拆 `#716FA2E8` 的任务终态仍保留为 `waiting_test`，Workflow 正确呈现为 `waiting_validation` 且不产生负责人动作；修复后的 `#B5403CD9` 以 `paperclip_hermes_completed` 成功，其 Workflow 为 `waiting_acceptance`，结构校验由 `false` 经一次 deterministic repair 变为 `true`，生成 7077 bytes、194 字摘要报告。
 - 两条真实小拆均各调用 DeepSeek 1 次：首次 5218/13466 tokens、估算 0.004501 USD；成功任务 3043/8809 tokens、估算 0.0028986328 USD。两次都未调用视觉 Provider。任务账本未报告外部写入，也没有独立外写回执，因此不能断言外部写入为零；Paperclip 本机 completion sync 不等于外部发布。

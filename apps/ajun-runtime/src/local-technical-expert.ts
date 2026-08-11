@@ -11,9 +11,9 @@ export class LocalTechnicalExpert {
     const diagnosis = context.diagnosis || null;
     const classification = context.failureClassification || null;
     const engineeringAssigned = Boolean(task.governance?.paperclipAssigneeAgentId);
+    const taskAuthorization = await verifiedTaskAuthorization(this.missionChildPolicy, this.missionResolver, task);
     const preparedWorkspace = this.workspace ? await this.workspace.prepare(task) : null;
     const run = preparedWorkspace && this.runner ? await this.runner.run(task, preparedWorkspace.workspace) : null;
-    const taskAuthorization = await verifiedTaskAuthorization(this.missionChildPolicy, this.missionResolver, task);
     const acceptanceVerification = verifiedAcceptanceFixtureEvidence(task, preparedWorkspace, run, taskAuthorization);
     const promotion = run?.status === 'evidence_ready' && !acceptanceVerification && this.promotion ? await this.promotion.promote({ ...task, execution:{ ...(task.execution || {}), workspace:{ path:preparedWorkspace.workspace } } }, run.evidence) : null;
     const verification = acceptanceVerification || verifiedRepairEvidence(task, run, promotion);
@@ -98,10 +98,13 @@ export class LocalTechnicalExpert {
 
 async function verifiedTaskAuthorization(policy: any, missionResolver: any, task: any) {
   if (!policy?.verifyTaskAuthorization || typeof missionResolver !== 'function') return null;
-  try {
-    const mission = await missionResolver(task?.parentTaskId);
-    return policy.verifyTaskAuthorization({ mission, task });
-  } catch { return null; }
+  const mission = await missionResolver(task?.parentTaskId);
+  const maturityTask = Boolean(
+    mission?.input?.context?.productMaturityBatchId
+    || task?.input?.context?.productMaturityAuthorization?.kind === 'product-maturity-validation',
+  );
+  if (!maturityTask) return null;
+  return policy.verifyTaskAuthorization({ mission, task });
 }
 
 function verifiedAcceptanceFixtureEvidence(task: any, preparedWorkspace: any, run: any, taskAuthorization: any) {

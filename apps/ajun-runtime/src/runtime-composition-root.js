@@ -27,6 +27,7 @@ import { createContentCampaignComposition } from './runtime/content-campaign-com
 import { createFeishuCommandComposition } from './runtime/feishu-command-composition.js';
 import { createPaperclipSystemControlComposition } from './runtime/paperclip-system-control-composition.js';
 import { createRoleExecutionComposition } from './runtime/role-execution-composition.js';
+import { readProductMaturityRuntimeBoundary } from './runtime/product-maturity-runtime-boundary.ts';
 import { dispatchBoomSignal } from '@agent-army/boom-monitor';
 import { MissionChildPolicy } from './workflow/mission-child-policy.ts';
 import { CapabilityAcceptanceBundle } from './workflow/capability-acceptance-bundle.ts';
@@ -161,6 +162,10 @@ const productMaturity = new CapabilityAcceptanceBundle({
   policy:missionChildPolicy,
   ledgerPath:path.join(dataDir, 'product-maturity-validation-batches.json'),
   projectRoot:sourceProjectRoot,
+  runtimeBoundarySnapshot:() => readProductMaturityRuntimeBoundary({
+    campaigns,
+    publisher:m5PublisherBindings.publisher,
+  }),
 });
 const missionReconciler = new CrossAgentMissionReconciler({ store, missions });
 const boomMonitorEnabled = String(environment.AJUN_BOOM_MONITOR_ENABLED || 'true').trim().toLowerCase() !== 'false';

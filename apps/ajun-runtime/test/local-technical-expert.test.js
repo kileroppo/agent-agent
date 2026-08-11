@@ -7,9 +7,42 @@ import { LocalTechnicalExpert } from '../src/local-technical-expert.ts';
 import { MissionChildPolicy } from '../src/workflow/mission-child-policy.ts';
 
 const maturityItems = [
-  { key:'creator', taskType:'governance.agent-proposal', agentId:'creator' },
-  { key:'technical-expert', taskType:'operations.technical-repair', agentId:'technical-expert' },
-  { key:'content-creator', taskType:'content.video-script-package', agentId:'content-creator' },
+  {
+    key:'creator', taskType:'governance.agent-proposal', agentId:'creator',
+    title:'创建受限岗位草案', description:'只创建草案。', acceptance:'保持待审。',
+    proposalOnly:true, draftOnly:true, context:{ proposalOnly:true, draftOnly:true },
+  },
+  {
+    key:'technical-expert', taskType:'operations.technical-repair', agentId:'technical-expert',
+    title:'修复受控夹具', description:'只修复 calculator 夹具。', acceptance:'测试与恢复均通过。',
+    dependsOn:['creator'], deterministicAcceptanceRepair:true,
+    context:{
+      deterministicAcceptanceRepair:true,
+      acceptanceWorkspaceRoot:'/safe/project/work/acceptance-runs',
+      failure:{ code:'acceptance_fixture_failure', category:'code_defect', stage:'test', retryable:false },
+      repairScope:{
+        files:['docs/acceptance-fixtures/technical-repair-sandbox/calculator.js'],
+        testSupportFiles:[
+          'docs/acceptance-fixtures/technical-repair-sandbox/calculator.test.js',
+          'docs/acceptance-fixtures/technical-repair-sandbox/package.json',
+        ],
+        testCommand:'node --test docs/acceptance-fixtures/technical-repair-sandbox/calculator.test.js',
+        recoveryCheck:'确认 add(2, 3) 返回 5。',
+      },
+    },
+  },
+  {
+    key:'content-creator', taskType:'content.video-script-package', agentId:'content-creator',
+    title:'生成本地脚本包', description:'只生成本地草案。', acceptance:'五文件且零副作用。',
+    dependsOn:['technical-expert'], platforms:['douyin'], contentGoal:'解释现有证据。',
+    researchMode:'off', approvedForUse:false,
+    context:{
+      researchMode:'off', approvedForUse:false,
+      modelPolicy:{ maxCalls:0, maxCostUsd:0, costKnown:true },
+      sourceTaskIds:['source-transcript', 'source-analysis'],
+      requiredSourceTaskIds:['source-transcript', 'source-analysis'],
+    },
+  },
 ];
 
 async function maturityAuthorizationFixture() {
@@ -149,12 +182,27 @@ test('受控产品成熟度夹具在隔离工作区通过测试与恢复检查�
     source:{ eventRef:batchId, missionTaskId:mission.taskId },
     workflow:{ step:{ key:'technical-expert' } },
     governance:{ paperclipAssigneeAgentId:'paperclip-tech-1' },
-    input:{ context:{
+    input:{
+      title:'修复受控夹具',
+      description:'只修复 calculator 夹具。\n来自多人协作分工。验收：测试与恢复均通过。',
+      context:{
       missionTaskId:mission.taskId,
       productMaturityAuthorization:authorization,
+      dependsOn:['creator'],
+      deterministicAcceptanceRepair:true,
       acceptanceWorkspaceRoot:'/safe/project/work/acceptance-runs',
-      repairScope:{ files:[fixtureFile], testCommand:'node --test calculator.test.js', recoveryCheck:'只修改 calculator.js' },
-    } },
+      failure:{ code:'acceptance_fixture_failure', category:'code_defect', stage:'test', retryable:false },
+      repairScope:{
+        files:[fixtureFile],
+        testSupportFiles:[
+          'docs/acceptance-fixtures/technical-repair-sandbox/calculator.test.js',
+          'docs/acceptance-fixtures/technical-repair-sandbox/package.json',
+        ],
+        testCommand:'node --test docs/acceptance-fixtures/technical-repair-sandbox/calculator.test.js',
+        recoveryCheck:'确认 add(2, 3) 返回 5。',
+      },
+      },
+    },
     execution:{},
   });
   assert.equal(promotionCalls, 0);
@@ -165,10 +213,10 @@ test('受控产品成熟度夹具在隔离工作区通过测试与恢复检查�
     verified:true,
     changedFiles:[fixtureFile],
     testsPassed:true,
-    testCommand:'node --test calculator.test.js',
+    testCommand:'node --test docs/acceptance-fixtures/technical-repair-sandbox/calculator.test.js',
     testSummary:'calculator fixture test passed',
     recoveryVerified:true,
-    recoveryCheck:'只修改 calculator.js',
+    recoveryCheck:'确认 add(2, 3) 返回 5。',
     recoverySummary:'only calculator.js changed',
     remainingTests:[],
     acceptanceOnly:true,
@@ -179,11 +227,13 @@ test('受控产品成熟度夹具在隔离工作区通过测试与恢复检查�
   assert.match(result.artifactRefs[0].data.nextAction, /不需要生成新 release/);
 });
 
-test('篡改签名、错岗位、错步骤或错批次都不能绕过普通修复的晋升与 release 门禁', async () => {
+test('篡改签名、错岗位、错步骤或错批次在准备工作区前即失败关闭', async () => {
   const { policy, batchId, authorization, mission } = await maturityAuthorizationFixture();
   const tamperedAuthorization = { ...authorization, token:`${authorization.token.split('.')[0]}.invalid` };
   const fixtureFile = 'docs/acceptance-fixtures/technical-repair-sandbox/calculator.js';
   const evidence = { metadata:{ agentArmyRepairEvidence:{ changedFiles:[fixtureFile], testsPassed:true, recoveryVerified:true } } };
+  let workspaceCalls = 0;
+  let runnerCalls = 0;
   let promotionCalls = 0;
   const baseTask = {
     taskId:'technical-task-123',
@@ -193,12 +243,27 @@ test('篡改签名、错岗位、错步骤或错批次都不能绕过普通修�
     idempotencyKey:`${mission.idempotencyKey}:technical-expert`,
     source:{ eventRef:batchId, missionTaskId:mission.taskId },
     workflow:{ step:{ key:'technical-expert' } },
-    input:{ context:{
+    input:{
+      title:'修复受控夹具',
+      description:'只修复 calculator 夹具。\n来自多人协作分工。验收：测试与恢复均通过。',
+      context:{
       missionTaskId:mission.taskId,
       productMaturityAuthorization:authorization,
+      dependsOn:['creator'],
+      deterministicAcceptanceRepair:true,
       acceptanceWorkspaceRoot:'/safe/project/work/acceptance-runs',
-      repairScope:{ files:[fixtureFile], testCommand:'npm test', recoveryCheck:'检查恢复' },
-    } },
+      failure:{ code:'acceptance_fixture_failure', category:'code_defect', stage:'test', retryable:false },
+      repairScope:{
+        files:[fixtureFile],
+        testSupportFiles:[
+          'docs/acceptance-fixtures/technical-repair-sandbox/calculator.test.js',
+          'docs/acceptance-fixtures/technical-repair-sandbox/package.json',
+        ],
+        testCommand:'node --test docs/acceptance-fixtures/technical-repair-sandbox/calculator.test.js',
+        recoveryCheck:'确认 add(2, 3) 返回 5。',
+      },
+      },
+    },
     execution:{},
   };
   const variants = [
@@ -210,8 +275,8 @@ test('篡改签名、错岗位、错步骤或错批次都不能绕过普通修�
   for (const task of variants) {
     const expert = new LocalTechnicalExpert({
       now:() => new Date('2026-08-11T00:00:00.000Z'),
-      workspace:{ async prepare() { return { workspace:'/safe/project/work/acceptance-runs/technical-task-123', reused:false }; } },
-      runner:{ async run() { return { status:'evidence_ready', evidence }; } },
+      workspace:{ async prepare() { workspaceCalls += 1; return { workspace:'/safe/project/work/acceptance-runs/technical-task-123', reused:false }; } },
+      runner:{ async run() { runnerCalls += 1; return { status:'evidence_ready', evidence }; } },
       promotion:{ async promote() {
         promotionCalls += 1;
         return { status:'candidate_promoted', changedFiles:[fixtureFile], nextAction:'生成并验证新的不可变 release。' };
@@ -219,12 +284,9 @@ test('篡改签名、错岗位、错步骤或错批次都不能绕过普通修�
       missionChildPolicy:policy,
       missionResolver:async () => mission,
     });
-    const result = await expert.execute(task);
-    assert.equal(result.status, 'waiting_test');
-    assert.equal(result.currentStage, 'repair_candidate_awaiting_release');
-    assert.equal(result.execution.verification.acceptanceOnly, undefined);
-    assert.equal(result.execution.verification.candidateOnly, true);
-    assert.match(result.artifactRefs[0].data.nextAction, /不可变 release/);
+    await assert.rejects(() => expert.execute(task), /授权|岗位|步骤|批次|签名/);
   }
-  assert.equal(promotionCalls, variants.length);
+  assert.equal(workspaceCalls, 0);
+  assert.equal(runnerCalls, 0);
+  assert.equal(promotionCalls, 0);
 });

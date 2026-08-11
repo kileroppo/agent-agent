@@ -14,6 +14,7 @@ export class TaskExecutionCoordinator {
   fallbackExecutorResolver: () => any;
   markFailureRecoveryPending: (task: any) => Promise<any>;
   startFailureRecovery: (task: any) => void;
+  maturityExecutionGuard: any;
   constructor({
     store,
     governance = null,
@@ -23,6 +24,7 @@ export class TaskExecutionCoordinator {
     fallbackExecutorResolver = null,
     markFailureRecoveryPending = async (task: any) => task,
     startFailureRecovery = () => {},
+    maturityExecutionGuard = null,
   }: any = {}) {
     this.store = store;
     this.governance = governance;
@@ -32,10 +34,20 @@ export class TaskExecutionCoordinator {
     this.fallbackExecutorResolver = fallbackExecutorResolver || (() => this.fallbackExecutor);
     this.markFailureRecoveryPending = markFailureRecoveryPending;
     this.startFailureRecovery = startFailureRecovery;
+    this.maturityExecutionGuard = maturityExecutionGuard;
   }
 
   async execute(task: any, agent: any) {
-    if (usesPaperclipHermesExecution(agent) && task.status !== 'waiting_approval') {
+    let maturityAuthorization = null;
+    if (this.maturityExecutionGuard) {
+      try {
+        maturityAuthorization = await this.maturityExecutionGuard.verifyOrBlock(task);
+      } catch (error: any) {
+        if (error?.blockedTask) return error.blockedTask;
+        throw error;
+      }
+    }
+    if (!maturityAuthorization && usesPaperclipHermesExecution(agent) && task.status !== 'waiting_approval') {
       return this.delegateToPaperclip(task, agent);
     }
     const fallbackExecutor = this.fallbackExecutorResolver();
@@ -43,7 +55,13 @@ export class TaskExecutionCoordinator {
       ? this.executorResolver(agent.agentId)
         || (fallbackExecutor?.supports(agent) ? fallbackExecutor : null)
       : null;
-    if (!executor || task.status === 'waiting_approval') return task;
+    if (!executor || task.status === 'waiting_approval') {
+      if (maturityAuthorization) {
+        try { await this.maturityExecutionGuard.execute(task, executor); }
+        catch (error: any) { if (error?.blockedTask) return error.blockedTask; throw error; }
+      }
+      return task;
+    }
 
     const executionStartedAt = new Date();
     const startPatch = {
@@ -55,9 +73,12 @@ export class TaskExecutionCoordinator {
       : { claimed:true, task:await this.store.updateTask(task.taskId, { ...startPatch, status:'running' }) };
     if (!claim.claimed) return claim.task;
     let updated = claim.task;
-    updated = await this.syncGovernance(updated);
+    if (!maturityAuthorization) updated = await this.syncGovernance(updated);
     try {
-      const rawResult = await executor.execute(routeOpenTaskForExecutor(updated, agent));
+      const routedTask = routeOpenTaskForExecutor(updated, agent);
+      const rawResult = this.maturityExecutionGuard
+        ? await this.maturityExecutionGuard.execute(routedTask, executor)
+        : await executor.execute(routedTask);
       const result = enforceCompletionContract(updated, rawResult);
       updated = await this.store.updateTask(updated.taskId, {
         ...result,
@@ -65,13 +86,17 @@ export class TaskExecutionCoordinator {
       });
       if (updated.status === 'running' && typeof executor.observe === 'function') executor.observe(updated);
     } catch (error: any) {
-      const result = executionFailure(updated, error);
-      updated = await this.store.updateTask(updated.taskId, {
-        ...result,
-        usage:recordTaskUsage({ task:updated, result, startedAt:executionStartedAt }),
-      });
+      if (error?.blockedTask) {
+        updated = error.blockedTask;
+      } else {
+        const result = executionFailure(updated, error);
+        updated = await this.store.updateTask(updated.taskId, {
+          ...result,
+          usage:recordTaskUsage({ task:updated, result, startedAt:executionStartedAt }),
+        });
+      }
     }
-    updated = await this.syncGovernance(updated);
+    if (!maturityAuthorization) updated = await this.syncGovernance(updated);
     updated = await this.markFailureRecoveryPending(updated);
     this.startFailureRecovery(updated);
     return updated;

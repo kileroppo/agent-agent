@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import { CrossAgentMissionService } from '../src/cross-agent-mission-service.js';
+import { LocalAjunCoordinator } from '../src/local-ajun-coordinator.ts';
+import { MissionChildPolicy } from '../src/workflow/mission-child-policy.ts';
 
 test('安全的多人盘点会建立总任务、两项分工和汇总', async () => {
   const created = [];
@@ -473,3 +478,69 @@ test('依赖任务创建时分离固定内容来源与依赖编号并保留无�
   assert.deepEqual(legacy.context.sourceTaskIds, ['dependency-task-b', 'dependency-task-a']);
   assert.deepEqual(legacy.context.dependencyTaskIds, ['dependency-task-b', 'dependency-task-a']);
 });
+
+test('产品成熟度真实 create→A君 plan→dispatch 保留全部签名 guard 字段', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maturity-plan-dispatch-'));
+  const policy = await MissionChildPolicy.open({ keyPath:path.join(root, 'policy.key') });
+  const batchId = 'maturity-11111111-1111-4111-8111-111111111111';
+  const acceptanceWorkspaceRoot = path.join(root, 'work', 'acceptance-runs');
+  const items = maturityItems(acceptanceWorkspaceRoot);
+  const authorization = policy.issue(batchId, items);
+  const allTasks = [];
+  const createdChildren = [];
+  let mission = null;
+  const tasks = {
+    async create(input) {
+      if (input.taskType === 'army.cross-agent-mission') {
+        mission = {
+          taskId:'mission-maturity-real-plan', taskType:input.taskType, assigneeAgentId:'ajun',
+          idempotencyKey:input.idempotencyKey, requester:input.requester, source:input.source,
+          input:{ title:input.title, description:input.description, context:input.context },
+          status:'running', artifactRefs:[],
+        };
+        const planned = await new LocalAjunCoordinator().execute(mission);
+        mission = { ...mission, ...planned };
+        allTasks.push(mission);
+        return mission;
+      }
+      createdChildren.push(input);
+      const child = {
+        taskId:`child-${input.stepKey}`, taskType:input.taskType, assigneeAgentId:input.agentId,
+        idempotencyKey:input.idempotencyKey, parentTaskId:input.parentTaskId, status:'succeeded',
+        artifactRefs:[{ type:'verified_output', validation:{ exists:true, readable:true, nonEmpty:true } }],
+      };
+      allTasks.push(child);
+      return child;
+    },
+  };
+  const store = {
+    async list() { return allTasks; },
+    async updateTask(_id, patch) { mission = { ...mission, ...patch }; allTasks[0] = mission; return mission; },
+  };
+  const service = new CrossAgentMissionService({ tasks, store, governance:{}, missionChildPolicy:policy });
+  const result = await service.createBusinessMission({
+    title:'产品成熟度受控验证', items:items.map((item) => ({
+      ...item, context:{ ...item.context, productMaturityAuthorization:authorization },
+    })),
+    requester:{ kind:'local-owner', ref:'A君' },
+    source:{ channel:'product-maturity-validation', eventRef:batchId },
+    idempotencyKey:`product-maturity-validation:${batchId}`,
+    productMaturityBatchId:batchId,
+  });
+  assert.equal(result.children.length, 3);
+  assert.equal(createdChildren[0].context.proposalOnly, true);
+  assert.equal(createdChildren[0].context.draftOnly, true);
+  assert.equal(createdChildren[1].context.deterministicAcceptanceRepair, true);
+  assert.equal(createdChildren[1].context.repairScope.testCommand, 'node --test docs/acceptance-fixtures/technical-repair-sandbox/calculator.test.js');
+  assert.equal(createdChildren[2].researchMode, 'off');
+  assert.equal(createdChildren[2].approvedForUse, false);
+  assert.deepEqual(createdChildren[2].context.modelPolicy, { maxCalls:0, maxCostUsd:0, costKnown:true });
+});
+
+function maturityItems(acceptanceWorkspaceRoot) {
+  return [
+    { key:'creator', agentId:'creator', taskType:'governance.agent-proposal', title:'创建草案', description:'只创建草案。', acceptance:'保持 draft_only。', proposalOnly:true, draftOnly:true, context:{ proposalOnly:true, draftOnly:true } },
+    { key:'technical-expert', agentId:'technical-expert', taskType:'operations.technical-repair', title:'修复夹具', description:'只修复夹具。', acceptance:'只修改一个文件。', dependsOn:['creator'], deterministicAcceptanceRepair:true, context:{ deterministicAcceptanceRepair:true, acceptanceWorkspaceRoot, failure:{ code:'acceptance_fixture_failure', category:'code_defect', stage:'test', retryable:false }, repairScope:{ files:['docs/acceptance-fixtures/technical-repair-sandbox/calculator.js'], testSupportFiles:['docs/acceptance-fixtures/technical-repair-sandbox/calculator.test.js', 'docs/acceptance-fixtures/technical-repair-sandbox/package.json'], testCommand:'node --test docs/acceptance-fixtures/technical-repair-sandbox/calculator.test.js', recoveryCheck:'确认 add(2, 3) 返回 5。' } } },
+    { key:'content-creator', agentId:'content-creator', taskType:'content.video-script-package', title:'生成待审脚本', description:'只使用固定来源。', acceptance:'保持 draft_only。', dependsOn:['technical-expert'], platforms:['douyin'], contentGoal:'解释已有观点。', researchMode:'off', approvedForUse:false, context:{ researchMode:'off', approvedForUse:false, modelPolicy:{ maxCalls:0, maxCostUsd:0, costKnown:true }, sourceTaskIds:['source-transcript', 'source-analysis'], requiredSourceTaskIds:['source-transcript', 'source-analysis'] } },
+  ];
+}

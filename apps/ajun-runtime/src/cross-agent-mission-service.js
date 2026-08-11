@@ -103,6 +103,8 @@ export class CrossAgentMissionService {
         focus:subtask.focus,
         platforms:subtask.platforms,
         contentGoal:subtask.contentGoal,
+        researchMode:subtask.researchMode,
+        approvedForUse:subtask.approvedForUse,
         requester:mission.requester,
         source:{
           ...(mission.source || {}),
@@ -266,6 +268,11 @@ function normalizeBusinessItems(items) {
       focus:clean(item?.focus, 500),
       platforms:Array.isArray(item?.platforms) ? [...new Set(item.platforms.map((platform) => clean(platform, 40)).filter(Boolean))].slice(0, 3) : [],
       contentGoal:clean(item?.contentGoal, 500),
+      researchMode:item?.researchMode === 'off' ? 'off' : 'auto',
+      approvedForUse:item?.approvedForUse === true,
+      proposalOnly:item?.proposalOnly === true,
+      draftOnly:item?.draftOnly === true,
+      deterministicAcceptanceRepair:item?.deterministicAcceptanceRepair === true,
       context:normalizeBusinessContext(item?.context),
       dependsOnPrevious:item?.dependsOnPrevious === true || agentId === 'office-assistant',
       dependsOn:Array.isArray(item?.dependsOn)

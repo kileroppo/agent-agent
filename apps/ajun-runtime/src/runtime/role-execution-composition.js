@@ -45,6 +45,7 @@ import { taskDetailBaseUrl } from '../task-presentation.js';
 import { CapabilityExecutionEngine } from '../workflow/capability-execution.ts';
 import { createControlledVisionExecution } from '../workflow/controlled-vision.ts';
 import { createLocalAiCapabilityAdapter } from '../adapters/local-ai-capability-adapter.ts';
+import { MaturityExecutionGuard } from '../maturity-execution-guard.ts';
 
 export async function createRoleExecutionComposition({
   environment,
@@ -245,6 +246,12 @@ export async function createRoleExecutionComposition({
     }),
     localAiCapabilityStatus:() => localAi.health(),
   });
+  const maturityExecutionGuard = missionChildPolicy
+    ? new MaturityExecutionGuard({ store, policy:missionChildPolicy })
+    : null;
+  tasks.maturityExecutionGuard = maturityExecutionGuard;
+  tasks.executionCoordinator.maturityExecutionGuard = maturityExecutionGuard;
+  tasks.intake.maturityExecutionGuard = maturityExecutionGuard;
   failureRecovery = new FailureRecoveryCoordinator({
     tasks,
     store,

@@ -137,8 +137,8 @@ export class TaskIntake {
     }
     return task;
   }
-
   async projectGovernance(task, agent) {
+    if (await this.maturityExecutionGuard?.verifyOrBlock(task)) return task;
     if (!this.governance) return task;
     const approval = task.approvalRefs?.length
       ? (await this.store.listApprovals()).find((item) => item.approvalId === task.approvalRefs[0])
