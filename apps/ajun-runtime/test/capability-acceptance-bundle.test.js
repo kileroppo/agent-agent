@@ -335,6 +335,59 @@ test('当前批次出现额外同批次任务或未知费用时 acceptanceEligib
   assert.equal(batch.batchEvidence.costKnown, false);
 });
 
+test('技术验收只接受本地技术专家 canonical execution verification 形状', async (t) => {
+  const invalidExecutions = [
+    ['nested-only Paperclip verification', () => ({
+      technicalRepair:{ verification:{
+        verified:true, testsPassed:true, recoveryVerified:true, acceptanceOnly:true,
+        sourceProjectRootChanged:false, runningReleaseUpdated:false,
+      } },
+    })],
+    ['错误 executor', (execution) => ({ ...execution, executor:'paperclip-hermes' })],
+    ['错误 mode', (execution) => ({ ...execution, mode:'paperclip_technical_repair' })],
+    ['错误 outcome', (execution) => ({ ...execution, outcome:'repair_completed' })],
+    ['未 verified', (execution) => ({ ...execution, verification:{ ...execution.verification, verified:false } })],
+    ['测试未通过', (execution) => ({ ...execution, verification:{ ...execution.verification, testsPassed:false } })],
+    ['恢复未验证', (execution) => ({ ...execution, verification:{ ...execution.verification, recoveryVerified:false } })],
+    ['不是 acceptance-only', (execution) => ({ ...execution, verification:{ ...execution.verification, acceptanceOnly:false } })],
+    ['改动 source project root', (execution) => ({ ...execution, verification:{ ...execution.verification, sourceProjectRootChanged:true } })],
+    ['改动 running release', (execution) => ({ ...execution, verification:{ ...execution.verification, runningReleaseUpdated:true } })],
+  ];
+
+  for (const [label, invalidExecution] of invalidExecutions) {
+    await t.test(label, async () => {
+      const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maturity-technical-execution-gate-'));
+      try {
+        const tasks = seedTasks();
+        const policy = await MissionChildPolicy.open({ keyPath:path.join(root, 'policy.key') });
+        const missions = { async createBusinessMission(input) {
+          const mission = successTask(`mission-${label}`, 'army.cross-agent-mission', 'ajun');
+          const children = input.items.map((item) => ({
+            ...successTask(`${item.key}-${label}`, item.taskType, item.agentId),
+            parentTaskId:mission.taskId,
+          }));
+          bindMissionFixture(input, mission, children);
+          const technical = children.find((item) => item.assigneeAgentId === 'technical-expert');
+          technical.execution = invalidExecution(canonicalTechnicalExecution());
+          tasks.push(mission, ...children);
+          return { mission, children };
+        } };
+        const service = new CapabilityAcceptanceBundle({
+          store:{ async list() { return tasks; } }, missions, policy,
+          ledgerPath:path.join(root, 'ledger.json'), projectRoot:root,
+          runtimeBoundarySnapshot:safeRuntimeBoundarySnapshot,
+        });
+
+        const batch = await service.create();
+        assert.equal(batch.batchEvidence.technicalAcceptanceOnly, false);
+        assert.equal(batch.acceptanceEligible, false);
+      } finally {
+        await fs.rm(root, { recursive:true, force:true });
+      }
+    });
+  }
+});
+
 test('子任务授权的 step/idempotency/source/mission binding 任一漂移都会阻断 accepted', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'maturity-child-authorization-'));
   const tasks = seedTasks();
@@ -652,7 +705,7 @@ function successTask(taskId, taskType, assigneeAgentId) {
   }
   if (taskType === 'operations.technical-repair') {
     task.artifactRefs = [{ artifactId:`technical_repair_case:${taskId}`, type:'technical_repair_case', checksum:'c'.repeat(64), validation:{ exists:true, readable:true, nonEmpty:true } }];
-    task.execution = { technicalRepair:{ verification:{ acceptanceOnly:true, testsPassed:true, recoveryVerified:true } } };
+    task.execution = canonicalTechnicalExecution();
     task.usage = knownZeroUsage();
   }
   if (taskType === 'content.video-script-package') {
@@ -673,6 +726,22 @@ function successTask(taskId, taskType, assigneeAgentId) {
     task.usage = knownZeroUsage();
   }
   return task;
+}
+
+function canonicalTechnicalExecution() {
+  return {
+    executor:'technical-expert',
+    mode:'isolated_technical_repair',
+    outcome:'acceptance_verified_in_isolated_workspace',
+    verification:{
+      verified:true,
+      testsPassed:true,
+      recoveryVerified:true,
+      acceptanceOnly:true,
+      sourceProjectRootChanged:false,
+      runningReleaseUpdated:false,
+    },
+  };
 }
 
 function bindMissionFixture(input, mission, children) {

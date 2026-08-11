@@ -357,9 +357,16 @@ function maturityBatchEvidence(tasks: any[], record: any, policy: MissionChildPo
   const technicalArtifact = technical?.artifactRefs?.find((artifact: any) => artifact.type === 'technical_repair_case');
   const creatorDraftOnly = creatorArtifact?.data?.status === 'draft'
     && creatorArtifact?.data?.reviewSubmission?.status === 'pending';
-  const technicalAcceptanceOnly = technical?.execution?.technicalRepair?.verification?.acceptanceOnly === true
-    && technical?.execution?.technicalRepair?.verification?.testsPassed === true
-    && technical?.execution?.technicalRepair?.verification?.recoveryVerified === true;
+  const technicalVerification = technical?.execution?.verification;
+  const technicalAcceptanceOnly = technical?.execution?.executor === 'technical-expert'
+    && technical?.execution?.mode === 'isolated_technical_repair'
+    && technical?.execution?.outcome === 'acceptance_verified_in_isolated_workspace'
+    && technicalVerification?.verified === true
+    && technicalVerification?.testsPassed === true
+    && technicalVerification?.recoveryVerified === true
+    && technicalVerification?.acceptanceOnly === true
+    && technicalVerification?.sourceProjectRootChanged === false
+    && technicalVerification?.runningReleaseUpdated === false;
   const contentArtifact = content?.artifactRefs?.find((artifact: any) => artifact.type === 'video_script_package');
   const expectedSourceBindings = sourceEvidence.bindings || [];
   const contentBindings = Array.isArray(contentArtifact?.data?.sourceTaskBindings)
