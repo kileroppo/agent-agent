@@ -34,15 +34,16 @@ agent-agent/
 
 ## 当前状态
 
-### 当前机器事实（2026-08-10）
+### 当前机器事实（2026-08-12）
 
-- A君 `4321` 绑定 clean 不可变 release 正常运行；`runtime:fingerprint` 已从干净主线源确认源码与 live 为 `same_git_head`、HTTP 200。精确 PID、release、payload 与 Git 身份以当前 release manifest 和该只读指纹为准，不在 README 固化易漂移值。
+- A君 `4321` 绑定 clean 不可变 release 正常运行、HTTP 200；当前可见工作树仍有未提交文档/配置，因此 `runtime:fingerprint` 的源码关系为 `different_git_head`，不代表 live release 不干净。精确 PID、release、payload 与 Git 身份以当前 release manifest 和该只读指纹为准，不在 README 固化易漂移值。
 - Paperclip `3100`、Hermes Gateway 和小D运行面可达；Paperclip roster 已同步 12 个岗位，小拆与 A君 Hermes Profile 再次 dry-run 均为 `changed=false`。Publisher `4390` 未运行，Campaign 与 M5 Cron 继续关闭。
 - Business Workflow、能力真相、并列否定策略和人工评价写回已进入 `4321` live；飞书任务 `#167203DF` 完成一条真实只读 Workflow，并将 `useful` / `accepted` 写回任务账本。
 
 ### 当前产品结论
 
 - M0–M3 已完成；M4 本地岗位质量与模型回归已完成，剩余项均为明确的外部或人工验收；M5 仍为 **PARTIAL**。
+- 产品成熟度固定第二批已以 `revision_required` 结束，不得再刷新或重开。审核官新鲜 E2E 已通过；小R显式交付覆盖门禁已经以 release `530d86bf…` 进入 live。新门禁下的真实任务 `2cb79a68…` 正确停在 `waiting_test`：只读到一条来源，缺 `process.env`，建议数为 1/3；调用增量 7、估算费用 0.005862007 USD。门禁有效，但小R业务能力仍未通过。当前停止反复修复/部署/重试，唯一继续口径见[产品成熟度总交接](./docs/handoffs/current/agent-army-product-maturity-handoff.md)。
 - Business Workflow 已作为新任务主对象，TypeScript Policy、CapabilityAdapter、ExecutionReceipt、Evaluation 和五层能力真相已在 live 生效；历史任务只读分类，不改写旧终态。
 - 任务与待办数量以 live `/api/overview.taskFocus` 为准，README 不再固化会持续变化的计数。真正的 `waiting_acceptance` Workflow 会进入 `ownerActionable`；等待自动验证的 `waiting_test` 或产物门禁未通过会显示为 `waiting_validation`，不再冒充老板待办。历史分类仍只读，不改写旧任务终态。
 - live `agent.army/validation-campaign/v1` 已收敛为 `taskCount=0`、`groupCount=0`。首次真实小拆 `#716FA2E8` 的任务终态仍保留为 `waiting_test`，Workflow 正确呈现为 `waiting_validation` 且不产生负责人动作；修复后的 `#B5403CD9` 以 `paperclip_hermes_completed` 成功，其 Workflow 为 `waiting_acceptance`，结构校验由 `false` 经一次 deterministic repair 变为 `true`，生成 7077 bytes、194 字摘要报告。
@@ -56,6 +57,7 @@ agent-agent/
 - 先维护只读 readiness、任务恢复和审计质量；恢复 Campaign、启动 Publisher 或平台写入仍需独立授权。模型型验证必须先通过现有预算 Policy；本轮真实小拆已产生两次有账本的 DeepSeek 调用，未调用视觉 Provider。
 - 新任务通过 `Model → Agent Runtime → Skills/Workflow → Policy/Permission → MCP/Tool Gateway → Provider` 执行；Model 不得自批权限。已登记同机只读能力可自动恢复一次并重试一次，仍失败才提示负责人。
 - 当前主线已完成不可变部署、真实 DeepSeek 小拆终态、Workflow/能力证据/用量归因修复和 Paperclip 本机完成同步；自动结构通过只证明产物满足机器门禁，不等于负责人已经采用内容。
+- 当前不得重复执行审核官，也不得继续创建小R重试。防冒充成功门禁已随 `64d5476… / 530d86bf…` 进入 live，并用一条真实 E2E 证明会如实拒绝不完整交付。后续只可把“两条来源读取 + 三条具体建议”作为独立产品问题重新立项；负责人未明确重开前保持现状。新成熟度批次仍需独立授权。
 - 历史能力验证批次的自动化闭环已完成，该批次仅保留可选人工内容质量抽查：如需形成最终采用结论，可对 `#B5403CD9` 登记 `accepted` 或 `revision_required`。项目其他外部/人工验收仍以[当前交接](./docs/handoffs/README.md#当前交接)为准，不将某一批次的闭环误说成整个项目只剩一件事。
 - 仍需负责人参与的真实验收统一见[当前交接](./docs/handoffs/README.md#当前交接)；已经完成或被替代的事项不得继续占用当前状态。
 - 2026-08-08 以前的详细运行快照已移至[历史运行状态](./docs/archive/product-state-history-2026-08-08.md)，不再作为当前 PID、版本或唯一下一步依据。
