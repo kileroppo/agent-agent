@@ -80,9 +80,13 @@ export class CrossAgentMissionService {
       this.missionChildPolicy?.assertAuthorized({ mission, subtask });
       const idempotencyKey = `${mission.idempotencyKey || `mission:${mission.taskId}`}:${subtask.key}`;
       const dependencyKeys = dependenciesFor(plan.subtasks, subtask);
-      const sourceTaskIds = dependencyKeys
+      const fixedSourceTaskIds = [...new Set(Array.isArray(subtask.context?.sourceTaskIds)
+        ? subtask.context.sourceTaskIds.map((taskId) => clean(taskId, 200)).filter(Boolean)
+        : [])];
+      const dependencyTaskIds = [...new Set(dependencyKeys
         .map((key) => childByKey.get(key)?.taskId)
-        .filter(Boolean);
+        .filter(Boolean))];
+      const sourceTaskIds = fixedSourceTaskIds.length ? fixedSourceTaskIds : dependencyTaskIds;
       let child = existingChildren.find((task) => task.idempotencyKey === idempotencyKey) || null;
       if (!child) child = await this.tasks.create({
         title:subtask.title,
@@ -119,6 +123,7 @@ export class CrossAgentMissionService {
           missionSafeOnly:plan.safeOnly === true,
           dependsOn:dependencyKeys,
           dependsOnPrevious:dependencyKeys.length > 0,
+          ...(dependencyTaskIds.length ? { dependencyTaskIds } : {}),
           ...(sourceTaskIds.length ? { sourceTaskIds } : {}),
         }
       });

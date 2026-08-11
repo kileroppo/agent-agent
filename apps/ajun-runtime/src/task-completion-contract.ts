@@ -75,7 +75,7 @@ export function validateTaskCompletion(task: any, artifactRefs: any[] = task?.ar
     }
     case 'content.video-script-package': {
       expectedArtifactTypes = ['video_script_package'];
-      valid = Boolean(readableArtifact(artifacts, 'video_script_package')?.data?.fullScript);
+      valid = artifacts.some((artifact) => isCompleteVideoScriptPackage(task, artifact));
       break;
     }
     case 'content.performance-review': {
@@ -136,4 +136,43 @@ export function isReadableArtifact(artifact: any) {
 
 function readableArtifact(artifacts: any[], type: string) {
   return artifacts.find((artifact) => artifact?.type === type && isReadableArtifact(artifact));
+}
+
+function isCompleteVideoScriptPackage(task: any, artifact: any) {
+  if (artifact?.type !== 'video_script_package' || !isReadableArtifact(artifact)) return false;
+  const data = artifact.data || {};
+  const validation = artifact.validation || {};
+  if (typeof data.fullScript !== 'string' || !data.fullScript.trim()) return false;
+  if (
+    validation.fileCount !== 5
+    || validation.onePrimaryDraft !== true
+    || validation.externalSideEffects !== 0
+    || data.publishingStatus !== 'draft_only'
+    || !hasExactProductionFiles(data.productionFiles)
+  ) return false;
+
+  const requiredSourceTaskIds = uniqueStrings(task?.input?.context?.requiredSourceTaskIds);
+  if (!requiredSourceTaskIds.length) return true;
+  const sourceTaskIds = new Set(uniqueStrings(data.sourceTaskIds));
+  const sourceRefs = new Set(uniqueStrings(artifact.sourceRefs));
+  const sourceTaskBindings = Array.isArray(data.sourceTaskBindings) ? data.sourceTaskBindings : [];
+  return requiredSourceTaskIds.every((taskId) => sourceTaskIds.has(taskId))
+    && requiredSourceTaskIds.every((taskId) => {
+      const binding = sourceTaskBindings.find((item: any) => String(item?.taskId || '').trim() === taskId);
+      const artifactIds = uniqueStrings(binding?.artifactIds);
+      return artifactIds.length > 0 && artifactIds.every((artifactId) => sourceRefs.has(artifactId));
+    })
+    && sourceRefs.size >= Math.max(2, requiredSourceTaskIds.length);
+}
+
+function hasExactProductionFiles(value: any) {
+  if (!Array.isArray(value) || value.length !== 5) return false;
+  const ids = value.map((file) => String(file?.id || '').trim());
+  const expected = ['script', 'shots', 'subtitles', 'sources', 'manifest'];
+  return new Set(ids).size === expected.length && expected.every((id) => ids.includes(id));
+}
+
+function uniqueStrings(value: any) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((item) => String(item || '').trim()).filter(Boolean))];
 }

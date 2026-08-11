@@ -386,7 +386,7 @@ test('多人任务已持久化但计划仍在异步生成时返回已受理而�
   assert.match(result.reply, /已经登记|计划生成后/);
 });
 
-test('依赖任务创建时显式绑定已完成前置任务编号供证据读取', async () => {
+test('依赖任务创建时分离固定内容来源与依赖编号并保留无固定来源的旧行为', async () => {
   const created = [];
   let mission = null;
   const allTasks = [];
@@ -411,8 +411,13 @@ test('依赖任务创建时显式绑定已完成前置任务编号供证据读�
           allTasks.push(mission);
           return mission;
         }
+        const dependencyTaskIds = {
+          'dependency-b':'dependency-task-b',
+          'dependency-a':'dependency-task-a',
+          'dependency-b-copy':'dependency-task-b',
+        };
         const child = {
-          taskId:input.taskType === 'media.transcribe-and-refine' ? 'media-evidence' : 'analysis-evidence',
+          taskId:dependencyTaskIds[input.stepKey] || `${input.stepKey}-evidence`,
           taskType:input.taskType,
           assigneeAgentId:input.agentId,
           parentTaskId:input.parentTaskId,
@@ -435,12 +440,36 @@ test('依赖任务创建时显式绑定已完成前置任务编号供证据读�
     title:'视频精华提炼',
     idempotencyKey:'mission:evidence',
     items:[
-      { key:'media', title:'获取视频', taskType:'media.transcribe-and-refine', agentId:'xiaod' },
-      { key:'analysis', title:'精华提炼', taskType:'content.video-benchmark-analysis', agentId:'video-content-analyst', dependsOn:['media'] },
+      { key:'dependency-b', title:'获取视频 B', taskType:'media.transcribe-and-refine', agentId:'xiaod' },
+      { key:'dependency-a', title:'研究资料 A', taskType:'research.intel-report', agentId:'intel-researcher' },
+      { key:'dependency-b-copy', title:'复核视频 B', taskType:'media.transcribe-and-refine', agentId:'xiaod' },
+      {
+        key:'analysis-fixed',
+        title:'精华提炼',
+        taskType:'content.video-benchmark-analysis',
+        agentId:'video-content-analyst',
+        dependsOn:['dependency-b', 'dependency-a', 'dependency-b-copy'],
+        context:{
+          productMaturityAuthorization:{ kind:'product-maturity-validation', token:'fixed-test-token' },
+          sourceTaskIds:['formal-source-task', 'confirmed-source-task'],
+        },
+      },
+      {
+        key:'analysis-legacy',
+        title:'兼容旧分析',
+        taskType:'content.video-script-package',
+        agentId:'content-creator',
+        dependsOn:['dependency-b', 'dependency-a', 'dependency-b-copy'],
+      },
     ],
   });
 
-  const analysis = created.find((input) => input.taskType === 'content.video-benchmark-analysis');
-  assert.deepEqual(analysis.context.sourceTaskIds, ['media-evidence']);
-  assert.equal(analysis.context.dependsOnPrevious, true);
+  const fixed = created.find((input) => input.stepKey === 'analysis-fixed');
+  assert.deepEqual(fixed.context.sourceTaskIds, ['formal-source-task', 'confirmed-source-task']);
+  assert.deepEqual(fixed.context.dependencyTaskIds, ['dependency-task-b', 'dependency-task-a']);
+  assert.equal(fixed.context.dependsOnPrevious, true);
+
+  const legacy = created.find((input) => input.stepKey === 'analysis-legacy');
+  assert.deepEqual(legacy.context.sourceTaskIds, ['dependency-task-b', 'dependency-task-a']);
+  assert.deepEqual(legacy.context.dependencyTaskIds, ['dependency-task-b', 'dependency-task-a']);
 });

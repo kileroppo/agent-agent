@@ -73,6 +73,40 @@ export class MissionChildPolicy {
     return payload;
   }
 
+  verifyTaskAuthorization({ mission, task }: { mission: any; task: any }) {
+    const payload = this.#verify(task?.input?.context?.productMaturityAuthorization);
+    const batchId = String(mission?.input?.context?.productMaturityBatchId || '');
+    const missionTaskId = String(mission?.taskId || '');
+    const missionIdempotencyKey = String(mission?.idempotencyKey || '');
+    const stepKey = String(task?.workflow?.step?.key || '');
+    const taskType = String(task?.taskType || '');
+    const agentId = String(task?.assigneeAgentId || '');
+    if (
+      payload.batchId !== batchId
+      || payload.batchId !== String(task?.source?.eventRef || '')
+      || !missionTaskId
+      || !missionIdempotencyKey
+      || String(task?.parentTaskId || '') !== missionTaskId
+      || String(task?.source?.missionTaskId || '') !== missionTaskId
+      || String(task?.input?.context?.missionTaskId || '') !== missionTaskId
+    ) throw new Error('产品成熟度任务授权不属于当前批次或总任务。');
+    const expected = payload.items.find((item) => item.key === stepKey);
+    if (!expected || expected.taskType !== taskType || expected.agentId !== agentId) {
+      throw new Error('产品成熟度任务的步骤、类型或岗位超出固定授权范围。');
+    }
+    if (String(task?.idempotencyKey || '') !== `${missionIdempotencyKey}:${expected.key}`) {
+      throw new Error('产品成熟度任务的唯一分工标识与签名步骤不一致。');
+    }
+    return Object.freeze({
+      batchId:payload.batchId,
+      stepKey:expected.key,
+      taskType:expected.taskType,
+      agentId:expected.agentId,
+      maxModelCalls:payload.maxModelCalls,
+      maxCostUsd:payload.maxCostUsd,
+    });
+  }
+
   allowsApprovalInheritance({ child, parent }: { child: any; parent: any }) {
     try {
       const payload = this.#verify(child?.input?.context?.productMaturityAuthorization);
@@ -109,10 +143,17 @@ export function normalizedProductMaturityContext(value: any) {
     productMaturityAuthorization:{ kind:authorization.kind, token:authorization.token.slice(0, 8192) },
   };
   if (Array.isArray(value?.sourceTaskIds)) result.sourceTaskIds = value.sourceTaskIds.map(String).slice(0, 2);
+  const requiredSourceTaskIds = uniqueTaskIds(value?.requiredSourceTaskIds);
+  if (requiredSourceTaskIds.length) result.requiredSourceTaskIds = requiredSourceTaskIds;
   if (value?.repairScope && typeof value.repairScope === 'object') result.repairScope = value.repairScope;
   if (value?.failure && typeof value.failure === 'object') result.failure = value.failure;
   if (typeof value?.acceptanceWorkspaceRoot === 'string') result.acceptanceWorkspaceRoot = value.acceptanceWorkspaceRoot.slice(0, 1000);
   return result;
+}
+
+function uniqueTaskIds(value: any) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((item) => String(item || '').trim()).filter(Boolean))].slice(0, 2);
 }
 
 function normalizeItem(value: AuthorizedItem): AuthorizedItem {

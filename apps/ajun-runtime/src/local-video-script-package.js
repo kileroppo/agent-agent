@@ -1,15 +1,20 @@
 import crypto from 'node:crypto';
+import { constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   M5ProductionTemplateResolutionError,
   defaultM5ProductionTemplateBinding,
   validM5ProductionTemplateBinding,
   validM5TemplateGuidance,
 } from './m5-production-template-resolver.js';
+import { isVerifiedVideoAnalysisArtifact } from './task-completion-contract.ts';
 
 const FACTUAL_TOPIC_RE = /(?:数据|最新|政策|法律|医学|健康|金融|历史|科学|研究|报告|调查|事实|为什么|是否|会不会|影响|趋势)/i;
 const DEFAULT_PLATFORM = 'douyin';
+const MAX_SOURCE_TRANSCRIPT_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_SOURCE_TRANSCRIPT_CHARS = 12_000;
 
 export class LocalVideoScriptPackage {
   constructor({
@@ -18,6 +23,7 @@ export class LocalVideoScriptPackage {
     advisor = null,
     researcher = null,
     templateResolver = null,
+    allowedSourceArtifactRoots = [],
     now = () => new Date(),
   } = {}) {
     this.store = store;
@@ -25,6 +31,12 @@ export class LocalVideoScriptPackage {
     this.advisor = advisor;
     this.researcher = researcher;
     this.templateResolver = templateResolver;
+    this.allowedSourceArtifactRoots = Array.isArray(allowedSourceArtifactRoots)
+      ? allowedSourceArtifactRoots
+        .map((item) => String(item || '').trim())
+        .filter(Boolean)
+        .map((item) => path.resolve(item))
+      : [];
     this.now = now;
   }
 
@@ -35,7 +47,17 @@ export class LocalVideoScriptPackage {
     const topic = text(task.input?.contentGoal || task.input?.topic || task.input?.title, 500);
     if (!topic) return needsInput(this.now(), 'script_topic_required', '请用一句话说明这条视频要讲什么。');
     const platform = normalizePlatform(task.input?.platforms, `${topic}\n${task.input?.description || ''}`);
+    const requiredSources = await resolveRequiredSourceContext({
+      task,
+      tasks,
+      allowedRoots:this.allowedSourceArtifactRoots,
+    });
+    if (requiredSources.error) {
+      return needsInput(this.now(), requiredSources.error.code, requiredSources.error.userMessage);
+    }
+    const sourceContext = requiredSources.sourceContext;
     const reference = selectReference({ task, tasks, topic, platform });
+    const sourceTaskBindings = explicitSourceTaskBindings(task, tasks);
     const m5Evidence = findM5EvidencePackage(task, tasks);
     const m5VisualAnalysis = findM5VisualAnalysisPackage(task, tasks);
     const isM5Script = task.input?.context?.paperclipRoutineKey === 'm5-script';
@@ -69,7 +91,7 @@ export class LocalVideoScriptPackage {
       );
     }
     const research = await this.research(topic, task);
-    const fallback = fallbackScript({ topic, platform, reference, research });
+    const fallback = fallbackScript({ topic, platform, reference, research, sourceContext });
     let script = fallback;
     let modelUsage = null;
     let advisorApplied = false;
@@ -81,6 +103,7 @@ export class LocalVideoScriptPackage {
           durationSeconds:durationSeconds(task.input?.durationSeconds),
           reference:reference.promptData,
           research:research?.report || null,
+          sourceContext,
           templateBinding,
           validate:(value) => validScript(value)
             && (!guidanceProofRequired
@@ -129,6 +152,7 @@ export class LocalVideoScriptPackage {
           durationSeconds:durationSeconds(task.input?.durationSeconds),
           reference:reference.promptData,
           research:research?.report || null,
+          sourceContext,
           templateBinding:grayTemplateBinding,
           validate:(value) => validScript(value)
             && value?.templateBindingHash === grayTemplateBinding.bindingHash
@@ -197,6 +221,7 @@ export class LocalVideoScriptPackage {
         } : { caseOnly:true, state:null, approvedForUse:false },
         publishingStatus:'draft_only',
         generationMode:advisorApplied ? 'hermes_advisor' : 'deterministic_fallback',
+        sourceContext,
         templateGuidanceHash:advisorApplied
           ? String(script.templateBindingHash || '')
           : null,
@@ -220,7 +245,9 @@ export class LocalVideoScriptPackage {
       sourceRefs:[
         ...reference.sourceRefs,
         ...[m5Evidence?.artifactId, m5VisualAnalysis?.artifactId].filter(Boolean),
+        ...sourceTaskBindings.flatMap((binding) => binding.artifactIds),
       ],
+      sourceTaskBindings,
       completedAt
     });
     return success(task, artifact, completedAt, modelUsage);
@@ -473,6 +500,267 @@ function validEvidenceFragments(claim) {
   return claim.sourceIds.every((sourceId) => fragmentSources.has(String(sourceId)));
 }
 
+async function resolveRequiredSourceContext({ task, tasks, allowedRoots }) {
+  const requiredTaskIds = uniqueTextList(task.input?.context?.requiredSourceTaskIds, 120);
+  if (!requiredTaskIds.length) return { sourceContext:null, error:null };
+  const requiredTasks = requiredTaskIds.map((taskId) =>
+    tasks.find((item) => String(item?.taskId || '') === taskId));
+  if (requiredTasks.some((sourceTask) => !sourceTask || sourceTask.status !== 'succeeded')) {
+    return sourceContextFailure(
+      'script_required_source_task_unavailable',
+      '声明的来源任务不存在或尚未成功，不能生成脚本。',
+    );
+  }
+  if (requiredTasks.some((sourceTask) => !(sourceTask.artifactRefs || []).some(isStrictlyReadableArtifact))) {
+    return sourceContextFailure(
+      'script_required_source_artifact_unreadable',
+      '声明的来源任务缺少通过可读性门禁的产物，不能生成脚本。',
+    );
+  }
+
+  const entries = requiredTasks.flatMap((sourceTask) => (sourceTask.artifactRefs || [])
+    .filter(isStrictlyReadableArtifact)
+    .map((artifact) => ({ task:sourceTask, artifact })));
+  const transcripts = entries.filter(({ artifact }) => artifact.type === 'confirmed_transcript');
+  if (!transcripts.length) {
+    return sourceContextFailure(
+      'script_confirmed_transcript_required',
+      '声明的来源中没有可读确认稿，不能生成脚本。',
+    );
+  }
+  const analyses = entries.filter(({ task:sourceTask, artifact }) =>
+    artifact.type === 'video_content_analysis_report'
+    && (artifact.data?.evidenceMode === 'formal' || artifact.validation?.evidenceMode === 'formal')
+    && artifact.data?.reportVersion === 'video-analysis/v2'
+    && artifact.validation?.reportVersion === 'video-analysis/v2'
+    && text(artifact.data?.summary, 2_000)
+    && isVerifiedVideoAnalysisArtifact(sourceTask, artifact));
+  if (!analyses.length) {
+    return sourceContextFailure(
+      'script_formal_analysis_required',
+      '声明的来源中没有带摘要的正式视频分析，不能生成脚本。',
+    );
+  }
+  const matches = analyses.flatMap((analysis) => transcripts
+    .filter(({ artifact:transcript }) =>
+      String(analysis.artifact.data?.sourceTranscriptArtifactId || '') === String(transcript.artifactId || '')
+      && String(analysis.artifact.data?.sourceTranscriptChecksum || '')
+        === String(transcript.checksum || ''))
+    .map((transcript) => ({ transcript, analysis })))
+    .filter(({ transcript, analysis }) => {
+      const pairTaskIds = new Set([String(transcript.task.taskId), String(analysis.task.taskId)]);
+      return pairTaskIds.size === requiredTaskIds.length
+        && requiredTaskIds.every((taskId) => pairTaskIds.has(taskId));
+    });
+  if (matches.length !== 1) {
+    return sourceContextFailure(
+      'script_source_lineage_mismatch',
+      '确认稿与正式视频分析的产物标识或校验和血缘不一致，不能生成脚本。',
+    );
+  }
+
+  let transcriptExcerpt;
+  try {
+    transcriptExcerpt = await readControlledTranscript(
+      matches[0].transcript.artifact,
+      allowedRoots,
+    );
+  } catch (error) {
+    return sourceContextFailure(
+      error?.code || 'script_source_artifact_unreadable',
+      error?.userMessage || '确认稿无法从受控来源目录读取，不能生成脚本。',
+    );
+  }
+  const { transcript, analysis } = matches[0];
+  return {
+    error:null,
+    sourceContext:Object.freeze({
+      schemaVersion:'agent.army/video-script-source-context/v1',
+      requiredSourceTaskIds:requiredTaskIds,
+      confirmedTranscript:Object.freeze({
+        taskId:transcript.task.taskId,
+        artifactId:transcript.artifact.artifactId,
+        title:text(transcript.artifact.title, 300) || null,
+        checksum:String(transcript.artifact.checksum || ''),
+        confirmationMode:text(transcript.artifact.validation?.confirmationMode, 40) || null,
+        excerpt:transcriptExcerpt,
+      }),
+      formalAnalysis:Object.freeze({
+        taskId:analysis.task.taskId,
+        artifactId:analysis.artifact.artifactId,
+        title:text(analysis.artifact.title, 300) || null,
+        summary:text(analysis.artifact.data.summary, 2_000),
+        analysisIntent:text(analysis.artifact.data?.analysisIntent, 80) || null,
+        reportVersion:text(
+          analysis.artifact.data?.reportVersion || analysis.artifact.validation?.reportVersion,
+          80,
+        ) || null,
+      }),
+      lineage:Object.freeze({
+        sourceTranscriptArtifactId:analysis.artifact.data.sourceTranscriptArtifactId,
+        sourceTranscriptChecksum:analysis.artifact.data.sourceTranscriptChecksum,
+      }),
+    }),
+  };
+}
+
+async function readControlledTranscript(artifact, allowedRoots) {
+  if (!Array.isArray(allowedRoots) || !allowedRoots.length) {
+    throw sourceReadError(
+      'script_source_artifact_roots_unconfigured',
+      '确认稿受控来源目录未配置，不能读取来源。',
+    );
+  }
+  let filePath;
+  try {
+    const location = new URL(String(artifact?.location || ''));
+    if (location.protocol !== 'file:' || (location.hostname && location.hostname !== 'localhost')) throw new Error('invalid file URL');
+    filePath = path.resolve(fileURLToPath(location));
+  } catch {
+    throw sourceReadError(
+      'script_source_artifact_location_invalid',
+      '确认稿必须使用受控 file:// 产物地址。',
+    );
+  }
+  const lexicalRoot = allowedRoots.find((root) => pathInside(root, filePath));
+  if (!lexicalRoot) {
+    throw sourceReadError(
+      'script_source_artifact_path_not_allowed',
+      '确认稿不在允许的来源目录内，已拒绝读取。',
+    );
+  }
+  let realFile;
+  let realRoot;
+  try {
+    [realFile, realRoot] = await Promise.all([fs.realpath(filePath), fs.realpath(lexicalRoot)]);
+  } catch {
+    throw sourceReadError(
+      'script_source_artifact_unreadable',
+      '确认稿文件不存在或不可读取。',
+    );
+  }
+  if (!pathInside(realRoot, realFile)) {
+    throw sourceReadError(
+      'script_source_artifact_path_not_allowed',
+      '确认稿真实路径越出允许的来源目录，已拒绝读取。',
+    );
+  }
+  let handle;
+  try {
+    const beforeOpen = await fs.lstat(filePath);
+    if (beforeOpen.isSymbolicLink()) {
+      throw sourceReadError(
+        'script_source_artifact_symlink_not_allowed',
+        '确认稿最终路径不能是符号链接，已拒绝读取。',
+      );
+    }
+    if (!beforeOpen.isFile()) {
+      throw sourceReadError(
+        'script_source_artifact_size_invalid',
+        '确认稿必须是普通文件。',
+      );
+    }
+    const noFollow = typeof fsConstants.O_NOFOLLOW === 'number' ? fsConstants.O_NOFOLLOW : 0;
+    handle = await fs.open(filePath, fsConstants.O_RDONLY | noFollow);
+    const stat = await handle.stat();
+    if (stat.dev !== beforeOpen.dev || stat.ino !== beforeOpen.ino) {
+      throw sourceReadError(
+        'script_source_artifact_replaced',
+        '确认稿在安全检查后被替换，已停止生成。',
+      );
+    }
+    if (!stat.isFile() || stat.size <= 0 || stat.size > MAX_SOURCE_TRANSCRIPT_FILE_BYTES) {
+      throw sourceReadError(
+        'script_source_artifact_size_invalid',
+        '确认稿必须是非空且不超过 5MB 的普通文件。',
+      );
+    }
+    const buffer = await handle.readFile();
+    const confirmed = parseConfirmedTranscriptDocument(buffer.toString('utf8'));
+    if (!confirmed) {
+      throw sourceReadError(
+        'script_source_artifact_format_invalid',
+        '确认稿不符合小D确认稿文档格式，已停止生成。',
+      );
+    }
+    const expectedChecksum = normalizeSha256(artifact.checksum);
+    const actualChecksum = crypto.createHash('sha256').update(confirmed.body, 'utf8').digest('hex');
+    if (
+      !expectedChecksum
+      || confirmed.embeddedChecksum !== expectedChecksum
+      || actualChecksum !== expectedChecksum
+    ) {
+      throw sourceReadError(
+        'script_source_artifact_checksum_mismatch',
+        '确认稿文件内容与产物校验和不一致，已停止生成。',
+      );
+    }
+    const excerpt = confirmed.body.slice(0, MAX_SOURCE_TRANSCRIPT_CHARS);
+    if (!excerpt) throw new Error('empty transcript');
+    return excerpt;
+  } catch (error) {
+    if (String(error?.code || '').startsWith('script_')) throw error;
+    throw sourceReadError(
+      'script_source_artifact_unreadable',
+      '确认稿文件为空或不可读取。',
+    );
+  } finally {
+    if (handle) await handle.close().catch(() => {});
+  }
+}
+
+function isStrictlyReadableArtifact(artifact) {
+  return artifact?.validation?.exists === true
+    && artifact.validation.readable === true
+    && artifact.validation.nonEmpty === true;
+}
+
+function normalizeSha256(value) {
+  const checksum = String(value || '').trim().replace(/^sha256:/i, '').toLowerCase();
+  return /^[0-9a-f]{64}$/.test(checksum) ? checksum : '';
+}
+
+function parseConfirmedTranscriptDocument(value) {
+  const markdown = String(value || '');
+  if (!markdown.startsWith('---\n')) return null;
+  const frontmatterEnd = markdown.indexOf('\n---\n', 4);
+  if (frontmatterEnd < 0) return null;
+  const frontmatter = markdown.slice(4, frontmatterEnd);
+  if (!/^schemaVersion:\s*agent\.army\/confirmed-transcript\/v1\s*$/m.test(frontmatter)) return null;
+  const checksumMatch = frontmatter.match(/^checksum:\s*([0-9a-f]{64})\s*$/im);
+  if (!checksumMatch) return null;
+  const documentBody = markdown.slice(frontmatterEnd + 5).replace(/^\n+/, '');
+  const headingEnd = documentBody.indexOf('\n');
+  if (headingEnd < 0 || !documentBody.slice(0, headingEnd).startsWith('# ')) return null;
+  const body = documentBody.slice(headingEnd + 1).trim();
+  if (!body) return null;
+  return {
+    body,
+    embeddedChecksum:checksumMatch[1].toLowerCase(),
+  };
+}
+
+function sourceContextFailure(code, userMessage) {
+  return { sourceContext:null, error:{ code, userMessage } };
+}
+
+function sourceReadError(code, userMessage) {
+  const error = new Error(userMessage);
+  error.code = code;
+  error.userMessage = userMessage;
+  return error;
+}
+
+function pathInside(root, candidate) {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+}
+
+function uniqueTextList(value, limit) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((item) => text(item, limit)).filter(Boolean))];
+}
+
 function selectReference({ task, tasks, topic, platform }) {
   const explicitIds = new Set(Array.isArray(task.input?.context?.sourceTaskIds) ? task.input.context.sourceTaskIds.map(String) : []);
   const sameChat = task.source?.chatRef
@@ -518,6 +806,27 @@ function selectReference({ task, tasks, topic, platform }) {
   };
 }
 
+function explicitSourceTaskBindings(task, tasks) {
+  const taskIds = [...new Set(
+    [
+      ...(Array.isArray(task.input?.context?.sourceTaskIds) ? task.input.context.sourceTaskIds : []),
+      ...(Array.isArray(task.input?.context?.requiredSourceTaskIds) ? task.input.context.requiredSourceTaskIds : []),
+    ]
+      .map((item) => text(item, 120))
+      .filter(Boolean)
+  )];
+  return taskIds.map((taskId) => {
+    const sourceTask = tasks.find((item) => String(item?.taskId || '') === taskId);
+    const artifactIds = [...new Set((sourceTask?.artifactRefs || [])
+      .filter((artifact) => artifact?.type !== 'employee_role_report'
+        && artifact?.validation?.exists !== false
+        && artifact?.validation?.readable !== false)
+      .map((artifact) => text(artifact?.artifactId, 240))
+      .filter(Boolean))];
+    return { taskId, artifactIds };
+  });
+}
+
 function referenceResult(artifact, type, score) {
   const data = artifact.data || {};
   const structure = data.modules?.find((item) => item.name === '爆款结构模板')?.structureTemplate
@@ -542,14 +851,21 @@ function referenceResult(artifact, type, score) {
   };
 }
 
-function fallbackScript({ topic, platform, reference, research }) {
+function fallbackScript({ topic, platform, reference, research, sourceContext = null }) {
   const factual = research?.sources?.[0]?.summary;
   const hook = `先别急着给“${topic}”下结论，真正影响结果的是你接下来怎么判断和行动。`;
-  const proof = factual ? `公开资料里有一个值得核对的信号：${text(factual, 220)}` : '这版先讲判断方法，不编造没有来源的数字和事实。';
+  const analysisSummary = text(sourceContext?.formalAnalysis?.summary, 500);
+  const transcriptExcerpt = text(sourceContext?.confirmedTranscript?.excerpt, 500);
+  const proof = analysisSummary
+    ? `正式拆解给出的可用结论是：${analysisSummary}`
+    : factual
+      ? `公开资料里有一个值得核对的信号：${text(factual, 220)}`
+      : '这版先讲判断方法，不编造没有来源的数字和事实。';
   const fullScript = [
     hook,
     `很多人谈到“${topic}”时，会直接站队，但这会漏掉真正重要的前提。`,
     proof,
+    ...(transcriptExcerpt ? [`确认稿里的原始表达是：${transcriptExcerpt}`] : []),
     '更务实的做法是：先确认问题发生在谁身上，再找一个最小可验证动作，最后只根据真实反馈继续调整。',
     '你今天不用把整件事想透，只要先完成那个能得到真实反馈的小动作。'
   ].join('\n\n');
@@ -646,7 +962,7 @@ function normalizeTemplateApplicationEvidence(value) {
   }));
 }
 
-async function writePackage({ artifactsDir, task, data, sources, sourceRefs, completedAt }) {
+async function writePackage({ artifactsDir, task, data, sources, sourceRefs, sourceTaskBindings = [], completedAt }) {
   const directory = path.join(artifactsDir, safeSegment(task.taskId), 'video-script-package');
   await fs.mkdir(directory, { recursive:true, mode:0o700 });
   const scriptPath = path.join(directory, 'script.md');
@@ -656,7 +972,16 @@ async function writePackage({ artifactsDir, task, data, sources, sourceRefs, com
   const manifestPath = path.join(directory, 'manifest.json');
   const subtitles = renderSrt(data.shots);
   const script = renderScript(data);
+  sourceRefs = [...new Set(sourceRefs.map((item) => text(item, 240)).filter(Boolean))];
   const sourceText = renderSources(sources, sourceRefs);
+  const sourceTaskIds = [...new Set(
+    [
+      ...(Array.isArray(task.input?.context?.sourceTaskIds) ? task.input.context.sourceTaskIds : []),
+      ...(Array.isArray(task.input?.context?.requiredSourceTaskIds) ? task.input.context.requiredSourceTaskIds : []),
+    ]
+      .map((item) => text(item, 120))
+      .filter(Boolean)
+  )];
   await Promise.all([
     writePrivate(scriptPath, script),
     writePrivate(shotsPath, `${JSON.stringify(data.shots, null, 2)}\n`),
@@ -678,13 +1003,15 @@ async function writePackage({ artifactsDir, task, data, sources, sourceRefs, com
     durationSeconds:data.durationSeconds,
     publishingStatus:'draft_only',
     externalSideEffects:0,
+    sourceTaskIds,
+    sourceTaskBindings,
     sourceRefs,
     files,
     createdAt:completedAt
   };
   await writePrivate(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   const manifestFile = await fileRecord('manifest', manifestPath);
-  const artifactData = { ...data, sources, productionFiles:[...files, manifestFile] };
+  const artifactData = { ...data, sources, sourceTaskIds, sourceTaskBindings, productionFiles:[...files, manifestFile] };
   return {
     artifactId:`video_script_package:${task.taskId}`,
     taskId:task.taskId,

@@ -172,6 +172,7 @@ export async function createRoleExecutionComposition({
   const videoScriptPackage = new LocalVideoScriptPackage({
     store,
     artifactsDir:path.join(dataDir, 'content-growth-artifacts'),
+    allowedSourceArtifactRoots:contentArtifactRoots,
     advisor:contentCreatorAdvisor,
     researcher:intelResearcher,
     templateResolver:contentCampaign.templateResolver,
@@ -223,6 +224,8 @@ export async function createRoleExecutionComposition({
         workspace:repairWorkspace,
         runner:new TechnicalExpertRunner(),
         promotion:technicalRepairPromotion,
+        missionChildPolicy,
+        missionResolver:async (taskId) => (await store.list()).find((task) => task.taskId === taskId) || null,
       }),
       'intel-researcher':intelResearcher,
       'office-assistant':officeAssistant,

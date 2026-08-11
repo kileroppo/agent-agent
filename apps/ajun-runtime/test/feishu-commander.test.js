@@ -3,6 +3,17 @@ import test from 'node:test';
 import { FeishuCommander, FeishuCommanderValidationError } from '../src/feishu-commander.js';
 
 const readableValidation = { exists:true, readable:true, nonEmpty:true };
+const completeVideoScriptArtifact = (data = {}) => ({
+  type:'video_script_package',
+  sourceRefs:[],
+  data:{
+    fullScript:'已采用脚本',
+    publishingStatus:'draft_only',
+    productionFiles:['script', 'shots', 'subtitles', 'sources', 'manifest'].map((id) => ({ id })),
+    ...data,
+  },
+  validation:{ ...readableValidation, fileCount:5, onePrimaryDraft:true, externalSideEffects:0 },
+});
 
 function setup() {
   const calls = { tasks: [], proposals: [] };
@@ -107,11 +118,7 @@ test('用户回复用这版时只采用最新脚本，不生成成片或发布',
         taskType:input.taskType,
         status:'succeeded',
         input,
-        artifactRefs:[{
-          type:'video_script_package',
-          data:{ fullScript:'已采用脚本', templateLifecycle:{ approvedForUse:true } },
-          validation:readableValidation
-        }]
+        artifactRefs:[completeVideoScriptArtifact({ templateLifecycle:{ approvedForUse:true } })]
       };
     } },
     proposals:{},

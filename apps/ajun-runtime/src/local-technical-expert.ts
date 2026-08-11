@@ -1,6 +1,8 @@
+import path from 'node:path';
+
 export class LocalTechnicalExpert {
-  now: () => Date; workspace: any; runner: any; promotion: any;
-  constructor({ now = () => new Date(), workspace = null, runner = null, promotion = null }: any = {}) { this.now = now; this.workspace = workspace; this.runner = runner; this.promotion = promotion; }
+  now: () => Date; workspace: any; runner: any; promotion: any; missionChildPolicy: any; missionResolver: any;
+  constructor({ now = () => new Date(), workspace = null, runner = null, promotion = null, missionChildPolicy = null, missionResolver = null }: any = {}) { this.now = now; this.workspace = workspace; this.runner = runner; this.promotion = promotion; this.missionChildPolicy = missionChildPolicy; this.missionResolver = missionResolver; }
 
   async execute(task: any) {
     const createdAt = this.now().toISOString();
@@ -11,8 +13,10 @@ export class LocalTechnicalExpert {
     const engineeringAssigned = Boolean(task.governance?.paperclipAssigneeAgentId);
     const preparedWorkspace = this.workspace ? await this.workspace.prepare(task) : null;
     const run = preparedWorkspace && this.runner ? await this.runner.run(task, preparedWorkspace.workspace) : null;
-    const promotion = run?.status === 'evidence_ready' && this.promotion ? await this.promotion.promote({ ...task, execution:{ ...(task.execution || {}), workspace:{ path:preparedWorkspace.workspace } } }, run.evidence) : null;
-    const verification = verifiedRepairEvidence(task, run, promotion);
+    const taskAuthorization = await verifiedTaskAuthorization(this.missionChildPolicy, this.missionResolver, task);
+    const acceptanceVerification = verifiedAcceptanceFixtureEvidence(task, preparedWorkspace, run, taskAuthorization);
+    const promotion = run?.status === 'evidence_ready' && !acceptanceVerification && this.promotion ? await this.promotion.promote({ ...task, execution:{ ...(task.execution || {}), workspace:{ path:preparedWorkspace.workspace } } }, run.evidence) : null;
+    const verification = acceptanceVerification || verifiedRepairEvidence(task, run, promotion);
     const caseRecord = {
       failedTaskId: context.failedTaskId || task.parentTaskId || null,
       failure: {
@@ -32,7 +36,7 @@ export class LocalTechnicalExpert {
       } : classification,
       nextAction: !context.repairScope
         ? diagnosis?.nextAction || diagnosis?.reason || classification?.reason || '补充最小诊断证据后再决定是否进入代码修复。'
-        : nextActionFor(preparedWorkspace, run, promotion, engineeringAssigned),
+        : nextActionFor(preparedWorkspace, run, promotion, engineeringAssigned, acceptanceVerification),
       implementationStarted: ['evidence_ready', 'evidence_missing', 'failed', 'waiting_for_test'].includes(run?.status),
       engineeringAssigned,
       workspacePrepared: Boolean(preparedWorkspace),
@@ -41,14 +45,14 @@ export class LocalTechnicalExpert {
       createdAt
     };
     return {
-      status: !context.repairScope || requiresFollowUpTest(run, promotion) ? 'waiting_test' : preparedWorkspace || engineeringAssigned ? 'running' : 'succeeded',
-      currentStage: !context.repairScope ? 'technical_diagnosis_ready' : stageFor(preparedWorkspace, run, promotion, engineeringAssigned),
+      status: acceptanceVerification ? 'succeeded' : !context.repairScope || requiresFollowUpTest(run, promotion) ? 'waiting_test' : preparedWorkspace || engineeringAssigned ? 'running' : 'succeeded',
+      currentStage: !context.repairScope ? 'technical_diagnosis_ready' : stageFor(preparedWorkspace, run, promotion, engineeringAssigned, acceptanceVerification),
       execution: {
         executor: 'technical-expert',
         mode: run ? 'isolated_technical_repair' : preparedWorkspace ? 'isolated_repair_workspace_prepared' : 'technical_repair_triage',
         startedAt: task.execution?.startedAt || createdAt,
         finishedAt: this.now().toISOString(),
-        outcome: !context.repairScope ? 'diagnosis_only' : promotion?.status || run?.status || (preparedWorkspace ? 'workspace_prepared' : engineeringAssigned ? 'engineering_assigned' : 'repair_required'),
+        outcome: !context.repairScope ? 'diagnosis_only' : acceptanceVerification ? 'acceptance_verified_in_isolated_workspace' : promotion?.status || run?.status || (preparedWorkspace ? 'workspace_prepared' : engineeringAssigned ? 'engineering_assigned' : 'repair_required'),
         ...(verification ? { verification } : {}),
         ...(run?.reason ? { runnerError:run.reason } : {}),
         ...(preparedWorkspace ? { workspace:{ path:preparedWorkspace.workspace, reused:preparedWorkspace.reused } } : {})
@@ -92,6 +96,68 @@ export class LocalTechnicalExpert {
   }
 }
 
+async function verifiedTaskAuthorization(policy: any, missionResolver: any, task: any) {
+  if (!policy?.verifyTaskAuthorization || typeof missionResolver !== 'function') return null;
+  try {
+    const mission = await missionResolver(task?.parentTaskId);
+    return policy.verifyTaskAuthorization({ mission, task });
+  } catch { return null; }
+}
+
+function verifiedAcceptanceFixtureEvidence(task: any, preparedWorkspace: any, run: any, taskAuthorization: any) {
+  const context = task?.input?.context || {};
+  const authorization = context.productMaturityAuthorization;
+  const acceptanceRoot = String(context.acceptanceWorkspaceRoot || '').trim();
+  const workspace = String(preparedWorkspace?.workspace || '').trim();
+  const proof = run?.evidence?.metadata?.agentArmyRepairEvidence || {};
+  const changedFiles = Array.isArray(proof.changedFiles)
+    ? proof.changedFiles.map((item: any) => String(item || '').trim()).filter(Boolean)
+    : [];
+  const fixtureFile = 'docs/acceptance-fixtures/technical-repair-sandbox/calculator.js';
+  const scopedFiles = Array.isArray(context.repairScope?.files)
+    ? context.repairScope.files.map((item: any) => String(item || '').trim()).filter(Boolean)
+    : [];
+  if (
+    task?.taskType !== 'operations.technical-repair'
+    || taskAuthorization?.taskType !== 'operations.technical-repair'
+    || taskAuthorization?.agentId !== 'technical-expert'
+    || taskAuthorization?.stepKey !== 'technical-expert'
+    || taskAuthorization?.batchId !== String(task?.source?.eventRef || '')
+    || authorization?.kind !== 'product-maturity-validation'
+    || !isIsolatedAcceptanceWorkspace(acceptanceRoot, workspace)
+    || scopedFiles.length !== 1
+    || scopedFiles[0] !== fixtureFile
+    || changedFiles.length !== 1
+    || changedFiles[0] !== fixtureFile
+    || run?.status !== 'evidence_ready'
+    || proof.testsPassed !== true
+    || proof.recoveryVerified !== true
+  ) return null;
+  return {
+    verified:true,
+    changedFiles,
+    testsPassed:true,
+    testCommand:String(context.repairScope?.testCommand || '').slice(0, 1000),
+    testSummary:String(proof.testSummary || '').slice(0, 2000),
+    recoveryVerified:true,
+    recoveryCheck:String(context.repairScope?.recoveryCheck || '').slice(0, 1000),
+    recoverySummary:String(proof.recoverySummary || '').slice(0, 2000),
+    remainingTests:Array.isArray(proof.remainingTests) ? proof.remainingTests.slice(0, 20).map((item: any) => String(item || '').slice(0, 500)) : [],
+    acceptanceOnly:true,
+    sourceProjectRootChanged:false,
+    runningReleaseUpdated:false,
+  };
+}
+
+function isIsolatedAcceptanceWorkspace(rootInput: string, workspaceInput: string) {
+  if (!path.isAbsolute(rootInput) || !path.isAbsolute(workspaceInput)) return false;
+  const root = path.resolve(rootInput);
+  const workspace = path.resolve(workspaceInput);
+  if (path.basename(root) !== 'acceptance-runs' || path.basename(path.dirname(root)) !== 'work') return false;
+  const relative = path.relative(root, workspace);
+  return Boolean(relative && !relative.startsWith('..') && !path.isAbsolute(relative) && !relative.includes(path.sep));
+}
+
 function verifiedRepairEvidence(task: any, run: any, promotion: any) {
   if (!['promoted', 'candidate_promoted'].includes(promotion?.status)) return null;
   const proof = run?.evidence?.metadata?.agentArmyRepairEvidence || {};
@@ -117,7 +183,8 @@ function requiresFollowUpTest(run: any, promotion: any) {
     || ['rejected', 'conflict', 'recovery_required', 'candidate_promoted'].includes(promotion?.status);
 }
 
-function stageFor(workspace: any, run: any, promotion: any, engineeringAssigned: boolean) {
+function stageFor(workspace: any, run: any, promotion: any, engineeringAssigned: boolean, acceptanceVerification: any = null) {
+  if (acceptanceVerification) return 'acceptance_fixture_verified';
   if (promotion?.status === 'promoted') return 'repair_promoted_awaiting_record';
   if (promotion?.status === 'candidate_promoted') return 'repair_candidate_awaiting_release';
   if (promotion?.status === 'recovery_required') return 'repair_promotion_recovery_required';
@@ -132,7 +199,8 @@ function stageFor(workspace: any, run: any, promotion: any, engineeringAssigned:
   return engineeringAssigned ? 'paperclip_engineering_assigned' : 'technical_repair_case_ready';
 }
 
-function nextActionFor(workspace: any, run: any, promotion: any, engineeringAssigned: boolean) {
+function nextActionFor(workspace: any, run: any, promotion: any, engineeringAssigned: boolean, acceptanceVerification: any = null) {
+  if (acceptanceVerification) return '产品成熟度夹具已在隔离工作区通过测试与恢复检查；未带回源码根，也不需要生成新 release。';
   if (promotion?.status === 'promoted') return 'A君 已核对范围、自动检查和恢复检查，并安全带回主工程；等待治理记录完成。';
   if (promotion?.status === 'candidate_promoted') return promotion.nextAction || '候选源码已更新；必须生成并验证新的不可变 release 后才能切换运行版本。';
   if (promotion?.status === 'recovery_required') return `晋升未能完整回滚，需要人工恢复：${promotion.reason}`;

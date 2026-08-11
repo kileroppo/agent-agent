@@ -156,6 +156,116 @@ test('等待自动测试的必需步骤不会冒充待人工验收', () => {
   assert.equal(evaluation.ownerAction, null);
 });
 
+test('五文件草稿脚本包在零外部副作用且覆盖声明来源后才通过 Workflow 门禁', () => {
+  const workflow = createWorkflowLink({ taskType:'content.video-script-package', idempotencyKey:'script-package-gate' });
+  const task = {
+    taskId:'script-package-gate',
+    taskType:'content.video-script-package',
+    status:'succeeded',
+    workflow,
+    input:{ context:{ requiredSourceTaskIds:['transcript-task', 'analysis-task'] } },
+  };
+  const artifact = {
+    artifactId:'video_script_package:script-package-gate',
+    type:'video_script_package',
+    sourceRefs:['confirmed_transcript:transcript-task', 'video_content_analysis_report:analysis-task'],
+    validation:{
+      exists:true,
+      readable:true,
+      nonEmpty:true,
+      fileCount:5,
+      externalSideEffects:0,
+      onePrimaryDraft:true,
+    },
+    data:{
+      fullScript:'这是完整口播稿。',
+      publishingStatus:'draft_only',
+      sourceTaskIds:['transcript-task', 'analysis-task'],
+      sourceTaskBindings:[
+        { taskId:'transcript-task', artifactIds:['confirmed_transcript:transcript-task'] },
+        { taskId:'analysis-task', artifactIds:['video_content_analysis_report:analysis-task'] },
+      ],
+      productionFiles:[
+        { id:'script', fileName:'script.md' },
+        { id:'shots', fileName:'shots.json' },
+        { id:'subtitles', fileName:'subtitles.srt' },
+        { id:'sources', fileName:'sources.md' },
+        { id:'manifest', fileName:'manifest.json' },
+      ],
+    },
+  };
+
+  const evaluation = evaluateWorkflow(workflow.workflowId, [{ ...task, artifactRefs:[artifact] }]);
+  assert.equal(evaluation.requiredStepsComplete, true);
+  assert.equal(evaluation.verifiedArtifactCount, 1);
+  assert.equal(evaluation.status, 'waiting_acceptance');
+
+  const invalidArtifacts = [
+    {
+      ...artifact,
+      data:{ ...artifact.data, productionFiles:artifact.data.productionFiles.slice(0, 4) },
+    },
+    { ...artifact, data:{ ...artifact.data, publishingStatus:'published' } },
+    { ...artifact, validation:{ ...artifact.validation, externalSideEffects:1 } },
+    { ...artifact, data:{ ...artifact.data, sourceTaskIds:['transcript-task'] } },
+    { ...artifact, data:{ ...artifact.data, sourceTaskBindings:artifact.data.sourceTaskBindings.slice(0, 1) } },
+    { ...artifact, data:{ ...artifact.data, sourceTaskBindings:[
+      artifact.data.sourceTaskBindings[0],
+      { taskId:'analysis-task', artifactIds:[] },
+    ] } },
+    { ...artifact, data:{ ...artifact.data, sourceTaskBindings:[
+      artifact.data.sourceTaskBindings[0],
+      { taskId:'analysis-task', artifactIds:['unbound-analysis-artifact'] },
+    ] } },
+    { ...artifact, sourceRefs:['confirmed_transcript:transcript-task'] },
+    { ...artifact, validation:{ ...artifact.validation, nonEmpty:undefined } },
+  ];
+  for (const invalidArtifact of invalidArtifacts) {
+    const invalid = evaluateWorkflow(workflow.workflowId, [{ ...task, artifactRefs:[invalidArtifact] }]);
+    assert.equal(invalid.requiredStepsComplete, false);
+    assert.equal(invalid.verifiedArtifactCount, 0);
+    assert.equal(invalid.status, 'waiting_validation');
+  }
+
+  const threeRequiredSources = evaluateWorkflow(workflow.workflowId, [{
+    ...task,
+    input:{ context:{ requiredSourceTaskIds:['transcript-task', 'analysis-task', 'third-task'] } },
+    artifactRefs:[{
+      ...artifact,
+      data:{
+        ...artifact.data,
+        sourceTaskIds:['transcript-task', 'analysis-task', 'third-task'],
+        sourceTaskBindings:[
+          ...artifact.data.sourceTaskBindings,
+          { taskId:'third-task', artifactIds:['confirmed_transcript:transcript-task'] },
+        ],
+      },
+    }],
+  }]);
+  assert.equal(threeRequiredSources.requiredStepsComplete, false);
+  assert.equal(threeRequiredSources.verifiedArtifactCount, 0);
+  assert.equal(threeRequiredSources.status, 'waiting_validation');
+});
+
+test('脚本包专用门禁不影响其他类型的可读产物', () => {
+  const workflow = createWorkflowLink({ taskType:'governance.architecture-review', idempotencyKey:'non-script-artifact' });
+  const evaluation = evaluateWorkflow(workflow.workflowId, [{
+    taskId:'non-script-artifact',
+    taskType:'governance.architecture-review',
+    status:'succeeded',
+    workflow,
+    input:{ context:{ requiredSourceTaskIds:['source-task'] } },
+    artifactRefs:[{
+      artifactId:'architecture-report:non-script-artifact',
+      type:'architecture_report',
+      validation:{ exists:true, readable:true, nonEmpty:true },
+    }],
+  }]);
+  assert.equal(evaluation.requiredStepsComplete, true);
+  assert.equal(evaluation.verifiedArtifactCount, 1);
+  assert.equal(evaluation.status, 'succeeded');
+});
+
 test('Agent状态从真实任务证据派生，Manifest active本身不等于已验证', () => {
   const agent = {
     agentId:'intel-researcher',

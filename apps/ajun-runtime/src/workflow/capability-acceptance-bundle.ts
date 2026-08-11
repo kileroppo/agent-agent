@@ -93,6 +93,9 @@ export class CapabilityAcceptanceBundle {
       await this.#writeLedger(records);
       throw validationError('验收证据已变化，请基于最新 evidenceHash 重新提交统一决定。', 'maturity_evidence_stale', 409);
     }
+    if (decision === 'accepted' && refreshed.acceptanceEligible !== true) {
+      throw validationError('当前批次没有全部通过验证，不能登记 accepted；可以登记 revision_required。', 'maturity_batch_not_acceptance_eligible', 409);
+    }
     const decidedAt = this.#now().toISOString();
     record.status = decision;
     record.updatedAt = decidedAt;
@@ -117,10 +120,12 @@ export class CapabilityAcceptanceBundle {
     const batchTasks = tasks.filter((task: any) => task.taskId === record.missionTaskId || task.parentTaskId === record.missionTaskId);
     const allTerminal = batchTasks.length >= 4 && batchTasks.every((task: any) => terminal(task.status));
     const allVerified = roles.every((row) => row.verified);
+    const acceptanceEligible = allTerminal && allVerified;
     record.childTaskIds = batchTasks.filter((task: any) => task.parentTaskId === record.missionTaskId).map((task: any) => task.taskId);
     record.roles = roles;
     record.evidenceHash = evidenceHash;
-    record.status = record.decision?.status || (allTerminal && allVerified ? 'ready_for_decision' : 'running');
+    record.acceptanceEligible = acceptanceEligible;
+    record.status = record.decision?.status || (allTerminal ? 'ready_for_decision' : 'running');
     record.updatedAt = this.#now().toISOString();
     if (persist) await this.#writeLedger(records);
     return record;
@@ -172,7 +177,10 @@ function fixedItems(transcriptTaskId: string, analysisTaskId: string, projectRoo
       description:'基于现有确认稿和正式视频分析生成本地待审脚本包；不得补抓、登录、发送或发布。',
       acceptance:'生成唯一五文件脚本包，draft_only、externalSideEffects=0，并引用两个来源任务。', dependsOn:['technical-expert'],
       platforms:['douyin'], contentGoal:'用 45 秒解释宿命论访谈中的核心观点，只表达现有证据支持的内容。',
-      context:{ sourceTaskIds:[transcriptTaskId, analysisTaskId] },
+      context:{
+        sourceTaskIds:[transcriptTaskId, analysisTaskId],
+        requiredSourceTaskIds:[transcriptTaskId, analysisTaskId],
+      },
     },
   ] as const;
 }
@@ -184,13 +192,18 @@ function evidenceRow(spec: any, tasks: any[], record: any) {
   const batchEvidence = spec.agentId === 'ajun'
     ? tasks.find((task) => task.taskId === record.missionTaskId)
     : tasks.find((task) => task.parentTaskId === record.missionTaskId && task.assigneeAgentId === spec.agentId);
-  const selected = batchEvidence?.status === 'succeeded' && verifiedArtifact(batchEvidence) ? batchEvidence : success;
+  const batchVerified = Boolean(batchEvidence?.status === 'succeeded' && verifiedArtifact(batchEvidence));
+  const selected = batchEvidence ? (batchVerified ? batchEvidence : null) : success;
+  const evidenceOrigin = batchEvidence ? 'current_batch' : selected ? 'historical' : 'none';
   return Object.freeze({
     agentId:spec.agentId,
     name:spec.name,
     verified:Boolean(selected),
-    evidenceTaskId:selected?.taskId || null,
+    evidenceTaskId:selected?.taskId || batchEvidence?.taskId || null,
     verifiedAt:taskTime(selected),
+    batchStatus:batchEvidence?.status || null,
+    batchVerified,
+    evidenceOrigin,
     latestFailureTaskId:failure?.taskId || null,
     latestFailureAt:taskTime(failure),
     freshness:selected && failure && Date.parse(taskTime(selected) || '') <= Date.parse(taskTime(failure) || '') ? 'predates_latest_failure' : selected ? 'later_than_latest_failure_or_no_failure' : 'none',
