@@ -117,7 +117,39 @@ def _paragraph_blocks(raw: str, start_line: int) -> List[SemanticBlock]:
 def _canonicalize_semantic_boundaries(content: str) -> str:
     """Give strong-only headings structural boundaries before block parsing."""
     output: List[str] = []
+    fence_character = ""
+    fence_length = 0
     for line in content.splitlines():
+        stripped = line.lstrip(" ")
+        indent = len(line) - len(stripped)
+        marker_length = 0
+        if indent <= 3 and stripped and stripped[0] in {"`", "~"}:
+            marker_character = stripped[0]
+            marker_length = len(stripped) - len(stripped.lstrip(marker_character))
+
+        if fence_character:
+            # Fenced code is opaque layout content. Preserve every byte-level
+            # line decision inside it, including blank lines and strong-only
+            # Markdown that would otherwise look like a section heading.
+            output.append(line)
+            if (
+                marker_length >= fence_length
+                and stripped[0] == fence_character
+                and not stripped[marker_length:].strip()
+            ):
+                fence_character = ""
+                fence_length = 0
+            continue
+
+        if marker_length >= 3:
+            marker_character = stripped[0]
+            info = stripped[marker_length:]
+            if marker_character == "~" or "`" not in info:
+                fence_character = marker_character
+                fence_length = marker_length
+                output.append(line)
+                continue
+
         if _paragraph_line_kind(line) == "section_heading":
             if output and output[-1].strip():
                 output.append("")

@@ -64,3 +64,12 @@ test('表格和代码块保持原子块，列表按语义项目拆分', () => {
   assert.match(layout.rows[0][0].text, /\| --- \| --- \|/);
   assert.ok(layout.rows.some((row) => row[0].text.includes('```js')));
 });
+
+test('代码围栏内的标题、空行和列表保持原文，不参与页面语义重排', () => {
+  const code = '~~~md\n**这只是代码内容**\n\n- 原样列表\n~~~';
+  const layout = runLayout(`**说明**\n\n${code}\n\n**下一节**\n正文`);
+
+  assert.deepEqual(layout.kinds, ['document_title', 'code', 'section_heading', 'paragraph']);
+  const codeRow = layout.rows.find((row) => row[0].text.startsWith('~~~md'));
+  assert.equal(codeRow[0].text, code);
+});
