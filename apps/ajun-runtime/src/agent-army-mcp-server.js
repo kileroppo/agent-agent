@@ -122,9 +122,13 @@ export function createAgentArmyMcpServer({
         max_cost_usd:z.number().min(0).max(5).optional()
       }).optional(),
       chat_ref:z.string().max(240).optional().describe('当前 Hermes 会话上下文中可见的原飞书 chat id；用于任务归属和恢复'),
-      request_ref:z.string().max(240).optional().describe('当前消息或稳定请求引用；有则用于严格幂等')
+      request_ref:z.string().max(240).optional().describe('当前消息或稳定请求引用；有则用于严格幂等'),
+      completion_delivery:z.object({
+        mode:z.literal('dynamic_card'),
+        owner:z.literal('hermes_gateway')
+      }).optional().describe('由 Hermes Gateway 唯一管理任务动态卡时声明；未声明时保持原文本回告')
     })
-  }, ({ title, task_type, agent_id, description, source_urls, connection_id, source_task_ids, review_policy, evidence_mode, analysis_intent, depth, visual_mode, focus, platforms, content_goal, duration_seconds, research_mode, approved_for_use, source_script_task_id, metrics, goal, deliverables, constraints, acceptance_criteria, capability_requests, autonomy_budget, chat_ref, request_ref }) => {
+  }, ({ title, task_type, agent_id, description, source_urls, connection_id, source_task_ids, review_policy, evidence_mode, analysis_intent, depth, visual_mode, focus, platforms, content_goal, duration_seconds, research_mode, approved_for_use, source_script_task_id, metrics, goal, deliverables, constraints, acceptance_criteria, capability_requests, autonomy_budget, chat_ref, request_ref, completion_delivery }) => {
     assertSingleTaskRequest({ title, description });
     const assignment = canonicalizeBusinessAssignment({
       title,
@@ -174,7 +178,8 @@ export function createAgentArmyMcpServer({
         } : undefined
       } : undefined,
       chatRef:chat_ref,
-      requestRef:request_ref
+      requestRef:request_ref,
+      completionDelivery:completion_delivery
     });
   });
 
@@ -203,9 +208,13 @@ export function createAgentArmyMcpServer({
         depends_on:z.array(z.string().min(1).max(80)).max(10).optional().describe('当前分工依赖的 item key，可表达非线性的依赖关系')
       })).min(1).max(11),
       chat_ref:z.string().max(240).optional(),
-      request_ref:z.string().max(240).optional()
+      request_ref:z.string().max(240).optional(),
+      completion_delivery:z.object({
+        mode:z.literal('dynamic_card'),
+        owner:z.literal('hermes_gateway')
+      }).optional().describe('由 Hermes Gateway 唯一管理总任务动态卡时声明')
     })
-  }, ({ title, items, chat_ref, request_ref }) => {
+  }, ({ title, items, chat_ref, request_ref, completion_delivery }) => {
     if (!scope.allowMissions) throw new AgentArmyClientError('当前员工身份不能创建多人总任务；请交给 A君。');
     const assignments = items.map((item) => ({
       key:item.key,
@@ -232,6 +241,7 @@ export function createAgentArmyMcpServer({
       items:assignments,
       chatRef:chat_ref,
       requestRef:request_ref,
+      completionDelivery:completion_delivery,
       waitForTerminal:true
     });
   });

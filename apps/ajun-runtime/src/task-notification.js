@@ -34,17 +34,17 @@ export class TaskNotification {
       if (transcriptDelivery?.currentTranscriptDelivered === false) {
         const version = Number(transcriptDelivery.transcriptVersion) || null;
         return status(root, 'revision_pending_delivery', true,
-          `“${shortTaskTitle(root)}”的字幕已补正${version ? `为 v${version}` : ''}，本地分析会使用最新版；原飞书文档仍是旧版，系统不会把它冒充最新交付，也不会自动外发。`);
+          `“${shortTaskTitle(root)}”的字幕已补正${version ? `为 v${version}` : ''}，本地分析会使用最新版；原飞书文档仍是旧版，系统不会把它冒充最新交付，也不会自动外发。`, current);
       }
       const completion = validateTaskCompletion(current);
-      if (!completion.valid) return incompleteDeliveryStatus(root, `${completion.reason} 系统不会把状态当作完整交付。`);
+      if (!completion.valid) return incompleteDeliveryStatus(root, `${completion.reason} 系统不会把状态当作完整交付。`, current);
       return this.succeededStatus(root, current, retried);
     }
     if (['queued', 'running'].includes(current.status)) {
       const worker = await taskWorkerName(this.registry, current);
       return status(root, current.status, false, retried
         ? `“${shortTaskTitle(root)}”第一次处理失败，运维官已自动重试，当前仍在处理中。`
-        : `“${shortTaskTitle(root)}”正在由${worker}处理。`);
+        : `“${shortTaskTitle(root)}”正在由${worker}处理。`, current);
     }
     return unfinishedStatus(root, current);
   }
@@ -55,7 +55,7 @@ export class TaskNotification {
     const roleReport = artifact(current, 'employee_role_report')?.data;
     if (roleReport?.summary) {
       const worker = await taskWorkerName(this.registry, current);
-      return status(root, 'succeeded', true, `${worker}已完成“${shortTaskTitle(root)}”。\n${roleReport.summary}`);
+      return status(root, 'succeeded', true, `${worker}已完成“${shortTaskTitle(root)}”。\n${roleReport.summary}`, current);
     }
     const delivery = artifact(current, 'xiaod_media_delivery');
     const url = delivery?.data?.larkUrl;
@@ -63,7 +63,7 @@ export class TaskNotification {
     const prefix = retried ? '运维官自动恢复后，小D已经完成' : '小D已经完成';
     return status(root, 'succeeded', true, url && verified
       ? `${prefix}“${shortTaskTitle(root)}”。\n交付文档：${url}`
-      : `${prefix}“${shortTaskTitle(root)}”，但飞书文档权限尚未确认；系统不会把它冒充完整交付。`);
+      : `${prefix}“${shortTaskTitle(root)}”，但飞书文档权限尚未确认；系统不会把它冒充完整交付。`, current);
   }
 }
 
@@ -81,17 +81,17 @@ function technicalOrPausedStatus(root, chain) {
   if (technical.status === 'waiting_test') {
     const evidence = artifact(technical, 'technical_repair_evidence')?.data;
     const nextAction = evidence?.nextAction || technical.error?.userMessage || '本轮自动检查没有完成，已保留为待测试。';
-    return status(root, 'waiting_test', true, `“${shortTaskTitle(root)}”本轮暂时无法完成自动验证，已标为待测试。技术专家已保留当前结果：${nextAction} 其他工作会继续推进，不需要你重复提交。`);
+    return status(root, 'waiting_test', true, `“${shortTaskTitle(root)}”本轮暂时无法完成自动验证，已标为待测试。技术专家已保留当前结果：${nextAction} 其他工作会继续推进，不需要你重复提交。`, technical);
   }
   if (technical.status === 'succeeded') {
     const evidence = artifact(technical, 'technical_repair_evidence');
     const verified = evidence?.validation?.testsPassed === true && evidence?.validation?.recoveryVerified === true;
     return status(root, verified ? 'repair_verified' : 'technical_repair', true, verified
       ? `“${shortTaskTitle(root)}”遇到的故障已由技术专家修复，相关测试和恢复检查已经通过；仍待人工验收的项目已保留在记录中。`
-      : `“${shortTaskTitle(root)}”仍未完成。技术专家已经建立修复记录，但目前没有完整的修改、测试和恢复证据，A君不会把它当作已经修好。`);
+      : `“${shortTaskTitle(root)}”仍未完成。技术专家已经建立修复记录，但目前没有完整的修改、测试和恢复证据，A君不会把它当作已经修好。`, technical);
   }
-  if (technical.status === 'failed') return status(root, 'technical_repair_failed', true, `“${shortTaskTitle(root)}”仍未完成。技术专家本轮也没有修复成功，故障记录已经保留，将继续进入下一轮处理。`);
-  return status(root, 'technical_repair', !['queued', 'running'].includes(technical.status), `“${shortTaskTitle(root)}”仍未完成。运维官已经尝试安全恢复，现在已升级给技术专家并建立修复任务；暂时不需要你重复提交。`);
+  if (technical.status === 'failed') return status(root, 'technical_repair_failed', true, `“${shortTaskTitle(root)}”仍未完成。技术专家本轮也没有修复成功，故障记录已经保留，将继续进入下一轮处理。`, technical);
+  return status(root, 'technical_repair', !['queued', 'running'].includes(technical.status), `“${shortTaskTitle(root)}”仍未完成。运维官已经尝试安全恢复，现在已升级给技术专家并建立修复任务；暂时不需要你重复提交。`, technical);
 }
 
 function verifiedDelivery(current, root) {
@@ -143,7 +143,7 @@ function verifiedDelivery(current, root) {
       return report?.metrics ? `【小拆内容表现复盘】\n${report.summary}\n${(report.observations || []).slice(0, 5).map((item) => `- ${item}`).join('\n')}` : null;
     },
   }[current.taskType]?.();
-  return delivery ? status(root, 'succeeded', true, delivery) : null;
+  return delivery ? status(root, 'succeeded', true, delivery, current) : null;
 }
 
 function presentationDelivery(task, title) {
@@ -166,23 +166,33 @@ function knowledgeDelivery(task, title) {
 
 function unfinishedStatus(root, current) {
   const title = shortTaskTitle(root);
-  if (current.status === 'waiting_worker') return status(root, 'waiting_worker', false, `“${title}”需要老板的 Mac工作间处理。云端已安全排队；Mac 上线后会自动领取，不需要你重复提交。`);
-  if (current.status === 'failed' && current.recovery?.coordination?.status === 'start_failed') return status(root, 'recovery_start_failed', true, `“${title}”处理失败，自动诊断也未能启动，故障已经记录。暂时不用重复提交。`);
-  if (current.status === 'failed' && current.recovery?.coordination?.status === 'retrying') return status(root, 'recovery_pending', false, `“${title}”遇到故障，运维官已接手并正在从安全断点恢复；不需要你重复提交。`);
-  if ((current.status === 'failed' && current.recovery?.coordination?.status === 'pending') || (current.status === 'failed' && current.taskType === 'media.transcribe-and-refine' && !current.recovery?.coordination)) return status(root, 'recovery_pending', false, `“${title}”遇到故障，正在交给运维官判断恢复办法。`);
-  if (current.recovery?.coordination?.status === 'pending') return status(root, 'recovery_pending', false, `“${title}”遇到故障，正在等待运维官接手。`);
-  if (current.status === 'waiting_test') return status(root, 'waiting_test', true, `“${title}”本轮自动检查没有完成，已标为待测试。其他工作会继续推进；这项检查恢复后会按记录继续。`);
-  if (current.status === 'needs_input') return status(root, 'needs_input', true, current.error?.userMessage || `“${title}”缺少必要信息，暂时不能继续。`);
-  if (current.status === 'failed') return status(root, 'failed', true, `“${title}”没有完成：${current.error?.userMessage || '处理时遇到问题。'}`);
-  return status(root, current.status || 'unknown', false, `“${title}”已经登记，等待新的进度。`);
+  if (current.status === 'waiting_worker') return status(root, 'waiting_worker', false, `“${title}”需要老板的 Mac工作间处理。云端已安全排队；Mac 上线后会自动领取，不需要你重复提交。`, current);
+  if (current.status === 'failed' && current.recovery?.coordination?.status === 'start_failed') return status(root, 'recovery_start_failed', true, `“${title}”处理失败，自动诊断也未能启动，故障已经记录。暂时不用重复提交。`, current);
+  if (current.status === 'failed' && current.recovery?.coordination?.status === 'retrying') return status(root, 'recovery_pending', false, `“${title}”遇到故障，运维官已接手并正在从安全断点恢复；不需要你重复提交。`, current);
+  if ((current.status === 'failed' && current.recovery?.coordination?.status === 'pending') || (current.status === 'failed' && current.taskType === 'media.transcribe-and-refine' && !current.recovery?.coordination)) return status(root, 'recovery_pending', false, `“${title}”遇到故障，正在交给运维官判断恢复办法。`, current);
+  if (current.recovery?.coordination?.status === 'pending') return status(root, 'recovery_pending', false, `“${title}”遇到故障，正在等待运维官接手。`, current);
+  if (current.status === 'waiting_test') return status(root, 'waiting_test', true, `“${title}”本轮自动检查没有完成，已标为待测试。其他工作会继续推进；这项检查恢复后会按记录继续。`, current);
+  if (current.status === 'needs_input') return status(root, 'needs_input', true, current.error?.userMessage || `“${title}”缺少必要信息，暂时不能继续。`, current);
+  if (current.status === 'failed') return status(root, 'failed', true, `“${title}”没有完成：${current.error?.userMessage || '处理时遇到问题。'}`, current);
+  return status(root, current.status || 'unknown', false, `“${title}”已经登记，等待新的进度。`, current);
 }
 
-function status(root, state, terminal, message) {
-  return { terminal, status:state, taskId:root.taskId, message };
+function status(root, state, terminal, message, sourceTask = root) {
+  const result = { terminal, status:state, taskId:root.taskId, message };
+  if (!sourceTask?.taskId || sourceTask.taskId === root.taskId) return result;
+  return {
+    ...result,
+    projectionTruth:{
+      taskId:String(sourceTask.taskId),
+      status:String(sourceTask.status || ''),
+      updatedAt:String(sourceTask.updatedAt || sourceTask.createdAt || ''),
+      revision:String(sourceTask.presentationRevision ?? sourceTask.revision ?? '0'),
+    },
+  };
 }
 
-function incompleteDeliveryStatus(task, message) {
-  return status(task, 'waiting_test', true, message);
+function incompleteDeliveryStatus(task, message, sourceTask = task) {
+  return status(task, 'waiting_test', true, message, sourceTask);
 }
 
 function artifact(task, type) {

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { resolveAnalysisIntent } from './analysis-intent.ts';
 import { armyStatusReadView, capabilitiesReadView, capabilityTruthView } from './agent-army-read-views.ts';
 import { presentTask, taskDetailBaseUrl } from './task-presentation.js';
+import { dynamicCardAnchorAcknowledged, normalizeCompletionDelivery } from './source-completion-watch.js';
 
 const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'waiting_test', 'needs_input', 'paused']);
 
@@ -102,6 +103,7 @@ export class AgentArmyClient {
     const sourceTaskIds = safeStringList(input.sourceTaskIds, 20, 100);
     const connectionId = optionalConnectionId(input.connectionId);
     const goalSpec = normalizeGoalSpecInput(input.goalSpec);
+    const completionDelivery = completionDeliveryInput(input.completionDelivery);
     const evidenceMode = input.evidenceMode === 'preliminary' ? 'preliminary' : 'formal';
     const analysis = taskType === 'content.video-benchmark-analysis'
       ? resolveAnalysisIntent({
@@ -127,6 +129,7 @@ export class AgentArmyClient {
         title:`${title}｜受控获取与拆解`,
         chatRef,
         requestRef,
+        completionDelivery,
         waitForTerminal:false,
         items:[
           {
@@ -202,11 +205,21 @@ export class AgentArmyClient {
           ...(sourceTaskIds.length ? { sourceTaskIds, dependsOnPrevious:true } : {}),
           ...(goalSpec ? { autonomousOpenTask:true } : {})
         },
+        ...(completionDelivery ? { completionDelivery } : {}),
         idempotencyKey
       }
     });
-    const completionWatch = await this.ensureCompletionWatch(response.completionWatch, response.task?.taskId, chatRef);
-    return { ...(await this.getTask(response.task?.taskId, { chatRef })), completionWatch };
+    const completionWatch = await this.ensureCompletionWatch(
+      response.completionWatch,
+      response.task?.taskId,
+      chatRef,
+      completionDelivery,
+    );
+    return {
+      ...(await this.getTask(response.task?.taskId, { chatRef })),
+      completionWatch,
+      ...(completionDelivery ? { completionDelivery } : {}),
+    };
   }
 
   async createMission(input = {}) {
@@ -216,6 +229,7 @@ export class AgentArmyClient {
     if (!items.length) throw new AgentArmyClientError('多人任务必须包含 1 到 11 项有效员工分工，并且依赖项必须引用同一任务中的 key。');
     const chatRef = safeText(input.chatRef, 240);
     const requestRef = safeText(input.requestRef, 240);
+    const completionDelivery = completionDeliveryInput(input.completionDelivery);
     const idempotencyKey = requestRef
       ? `hermes-mission:${requestRef}`
       : `hermes-mission:${chatRef || 'local'}:${shortHash([title, JSON.stringify(items), Math.floor(this.now() / 30_000)].join('|'))}`;
@@ -229,10 +243,16 @@ export class AgentArmyClient {
         items,
         requester:{ kind:'local-owner', ref:'A君' },
         source,
+        ...(completionDelivery ? { completionDelivery } : {}),
         idempotencyKey
       }
     });
-    const completionWatch = await this.ensureCompletionWatch(response.completionWatch, response.mission?.taskId, chatRef);
+    const completionWatch = await this.ensureCompletionWatch(
+      response.completionWatch,
+      response.mission?.taskId,
+      chatRef,
+      completionDelivery,
+    );
     let overview = await this.overview();
     let missionTask = findMissionTask(overview, response);
     if (input.waitForTerminal === true && missionTask && !TERMINAL_STATUSES.has(missionTask.status)) {
@@ -253,12 +273,24 @@ export class AgentArmyClient {
       mission:missionView,
       children:children.map((task) => taskView(task, overview.approvals || [], this.detailBaseUrl)),
       completionWatch,
+      ...(completionDelivery ? { completionDelivery } : {}),
       userMessage:completionWatchMessage(missionResultMessage(missionView, response.reply), completionWatch)
     };
   }
 
-  async ensureCompletionWatch(serverResult, taskId, chatRef) {
-    if (serverResult?.registered === true || serverResult?.required === false) return serverResult;
+  async ensureCompletionWatch(serverResult, taskId, chatRef, completionDelivery = null) {
+    const delivery = normalizeCompletionDelivery(completionDelivery || serverResult?.completionDelivery);
+    if (delivery && dynamicCardAnchorAcknowledged(serverResult?.completionDelivery)) {
+      return {
+        required:false,
+        registered:false,
+        delegated:true,
+        duplicateWatchSuppressed:serverResult?.registered !== true,
+        taskId:safeText(taskId, 100),
+        completionDelivery:delivery,
+      };
+    }
+    if (serverResult?.registered === true || (serverResult?.required === false && !delivery)) return serverResult;
     return this.registerCompletionWatch(taskId, chatRef);
   }
 
@@ -706,6 +738,15 @@ function completionWatchMessage(message, watch) {
     return `${base}\n\n自动回告暂未登记成功；任务本身已建立，请保留任务编号并主动查询进度。`;
   }
   return base;
+}
+
+function completionDeliveryInput(value) {
+  if (value === undefined || value === null) return null;
+  const normalized = normalizeCompletionDelivery(value);
+  if (!normalized) {
+    throw new AgentArmyClientError('完成投递契约无效；动态卡片只能由 Hermes Gateway 统一持有生命周期。');
+  }
+  return normalized;
 }
 
 function artifactView(artifact = {}) {

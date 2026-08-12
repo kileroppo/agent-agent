@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const defaultAdapter = path.join(process.env.HERMES_HOME || path.join(process.env.HOME || '', '.hermes', 'hermes-agent'), 'plugins/platforms/feishu/adapter.py');
+const taskCardRuntimeSource = fileURLToPath(new URL('../runtime/agent_army_feishu_task_card.py', import.meta.url));
 
 export function applyPatch(source) {
   let result = source;
@@ -23,14 +25,91 @@ export function applyPatch(source) {
 }
 
 function finishFeishuExperiencePatches(source) {
-  return upgradeFeishuReactionReliabilityPatch(
+  return upgradeDynamicTaskCardPatch(upgradeFeishuReactionReliabilityPatch(
     upgradeFeishuImmediateStatusPatch(
       upgradeFeishuSenderIdentityPatch(
         upgradeFeishuBusyQuickActionsPatch(upgradeFeishuMobileMessagePatch(source))
       )
     )
-  );
+  ));
 }
+
+function upgradeDynamicTaskCardPatch(source) {
+  if (source.includes('AGENT_ARMY_FEISHU_DYNAMIC_TASK_CARD_V1')) return source;
+  if (
+    !source.includes('AJUN_FEISHU_COMMANDER_INGRESS_URL')
+    || !source.includes('self._ajun_completion_watches_path = get_hermes_home() / "ajun_completion_watches.json"')
+    || !source.includes('    async def _send_ajun_approval_card(')
+  ) return source;
+
+  let result = source;
+  result = result.replace(
+    '        self._ajun_completion_watches_path = get_hermes_home() / "ajun_completion_watches.json"\n',
+    `        self._ajun_completion_watches_path = get_hermes_home() / "ajun_completion_watches.json"
+        # AGENT_ARMY_FEISHU_DYNAMIC_TASK_CARD_V1: one profile-private anchor ledger and one supervisor.
+        self._ajun_task_cards_path = get_hermes_home() / "ajun_task_cards.json"
+        self._ajun_task_cards_lock = __import__("threading").RLock()
+        self._ajun_task_card_supervisor_task = None
+        self._ajun_task_card_wake = asyncio.Event()
+`
+  );
+  result = result.replace(
+    '            self._restore_ajun_task_completion_notifications()\n',
+    `            if self._ajun_dynamic_task_cards_enabled():
+                self._start_ajun_task_card_supervisor()
+            else:
+                self._restore_ajun_task_completion_notifications()
+`
+  );
+
+  const routeStart = result.indexOf('    async def _route_ajun_commander_event');
+  const routeEnd = result.indexOf('\n    async def _route_ajun_agent_proposal_event', routeStart);
+  if (routeStart < 0 || routeEnd < 0) return source;
+  let route = result.slice(routeStart, routeEnd);
+  route = route.replace(
+    '            reply = body.get("reply") if isinstance(body, dict) else None\n',
+    `            reply = body.get("reply") if isinstance(body, dict) else None
+            task_card = body.get("taskCard") if isinstance(body, dict) else None
+            dynamic_task_card_enabled = self._ajun_dynamic_task_cards_enabled()
+`
+  );
+  route = route.replace(
+    '            if status in {200, 201, 202} and chat_id and isinstance(completion_watch, dict):\n',
+    '            if status in {200, 201, 202} and chat_id and isinstance(completion_watch, dict) and not dynamic_task_card_enabled:\n'
+  );
+  route = route.replace(
+    '            if status in {200, 201, 202} and isinstance(reply, str) and reply:\n',
+    `            if status in {200, 201, 202} and chat_id and dynamic_task_card_enabled and isinstance(task_card, dict):
+                delivered = await self._deliver_ajun_task_card(chat_id=chat_id, projection=task_card, reply_to=event.message_id, completion_watch=completion_watch)
+                if delivered:
+                    return True
+            if status in {200, 201, 202} and isinstance(reply, str) and reply:
+`
+  );
+  result = `${result.slice(0, routeStart)}${route}${result.slice(routeEnd)}`;
+
+  result = insert(
+    result,
+    '    async def _send_ajun_approval_card(self, chat_id: str, approval: Dict[str, Any], *, reply_to: Optional[str] = None) -> SendResult:\n',
+    `${dynamicTaskCardMethods}\n\n    async def _send_ajun_approval_card(self, chat_id: str, approval: Dict[str, Any], *, reply_to: Optional[str] = None) -> SendResult:\n`
+  );
+  result = insert(
+    result,
+    '        ajun_approval_action = action_value.get("ajun_approval_action") if isinstance(action_value, dict) else None\n',
+    `        task_card_action = action_value.get("agent_army_task_card_action") if isinstance(action_value, dict) else None
+        if task_card_action:
+            return self._handle_ajun_task_card_action(event=event, action_value=action_value)
+        ajun_approval_action = action_value.get("ajun_approval_action") if isinstance(action_value, dict) else None
+`
+  );
+  result = insert(
+    result,
+    '    def _handle_ajun_approval_card_action(self, *, event: Any, action_value: Dict[str, Any], loop: Any) -> Any:\n',
+    `${dynamicTaskCardCallback}\n\n    def _handle_ajun_approval_card_action(self, *, event: Any, action_value: Dict[str, Any], loop: Any) -> Any:\n`
+  );
+  return result;
+}
+
 
 export function upgradeFeishuSenderIdentityPatch(source) {
   if (source.includes('AGENT_ARMY_FEISHU_OPEN_ID_AUTH_V1')) return source;
@@ -1268,6 +1347,329 @@ const commanderCompletionPersistenceMethods = `    def _load_ajun_task_completio
             base_url = str(watch.get("base_url", "") or "").strip()
             if chat_id and task_id and base_url.startswith("http://127.0.0.1:"):
                 self._schedule_ajun_task_completion_notification(chat_id=chat_id, task_id=task_id, base_url=base_url)`;
+const dynamicTaskCardMethods = `    def _ajun_dynamic_task_cards_enabled(self) -> bool:
+        if os.getenv("AJUN_FEISHU_DYNAMIC_TASK_CARD", "").strip().lower() != "true":
+            return False
+        try:
+            from .agent_army_task_card import render_task_card, decide_task_card_delivery, poll_interval_seconds
+            return all((render_task_card, decide_task_card_delivery, poll_interval_seconds))
+        except ImportError as exc:
+            logger.warning("[Feishu] Dynamic task card runtime unavailable; using text fallback: %s", exc)
+            return False
+
+    def _load_ajun_task_cards(self) -> Dict[str, Dict[str, Any]]:
+        with self._ajun_task_cards_lock:
+            try:
+                payload = json.loads(self._ajun_task_cards_path.read_text(encoding="utf-8"))
+                if not isinstance(payload, dict):
+                    raise ValueError("dynamic task card ledger must be an object")
+                return payload
+            except FileNotFoundError:
+                return {}
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                raise RuntimeError("dynamic task card ledger is unreadable; refusing duplicate delivery") from exc
+
+    def _save_ajun_task_cards(self, records: Dict[str, Dict[str, Any]]) -> None:
+        with self._ajun_task_cards_lock:
+            temp_path = self._ajun_task_cards_path.with_name(
+                self._ajun_task_cards_path.name + "." + str(__import__("uuid").uuid4()) + ".tmp"
+            )
+            try:
+                with temp_path.open("x", encoding="utf-8") as handle:
+                    handle.write(json.dumps(records, ensure_ascii=False))
+                os.chmod(temp_path, 0o600)
+                temp_path.replace(self._ajun_task_cards_path)
+                os.chmod(self._ajun_task_cards_path, 0o600)
+            except OSError as exc:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                raise RuntimeError("dynamic task card ledger write failed; delivery stopped") from exc
+
+    def _put_ajun_task_card(self, task_id: str, record: Dict[str, Any]) -> None:
+        with self._ajun_task_cards_lock:
+            records = self._load_ajun_task_cards()
+            records[task_id] = record
+            self._save_ajun_task_cards(records)
+
+    def _start_ajun_task_card_supervisor(self) -> None:
+        if not self._ajun_dynamic_task_cards_enabled():
+            return
+        task = self._ajun_task_card_supervisor_task
+        if task is None or task.done():
+            self._ajun_task_card_supervisor_task = asyncio.create_task(self._supervise_ajun_task_cards())
+
+    def _wake_ajun_task_card_supervisor(self) -> None:
+        self._start_ajun_task_card_supervisor()
+        if self._ajun_task_card_supervisor_task is not None:
+            self._ajun_task_card_wake.set()
+
+    async def _deliver_ajun_task_card(
+        self, *, chat_id: str, projection: Dict[str, Any], reply_to: Optional[str] = None,
+        completion_watch: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """Render one authoritative projection into one persistent Feishu message anchor."""
+        try:
+            from .agent_army_task_card import render_task_card, decide_task_card_delivery
+            task_id = str(projection.get("taskId", "") or "")
+            if not task_id:
+                return False
+            try:
+                records = self._load_ajun_task_cards()
+            except RuntimeError as exc:
+                # An existing anchor may still be visible. Treat an unreadable
+                # ledger as handled-uncertain and never add a fallback message.
+                logger.error("[Feishu] Dynamic task card ledger unreadable; fallback suppressed: %s", exc)
+                return True
+            previous = records.get(task_id) if isinstance(records.get(task_id), dict) else None
+            decision = decide_task_card_delivery(previous, projection)
+            operation = str(decision.get("operation", "") or "") if isinstance(decision, dict) else ""
+            if operation == "skip":
+                return True
+            if operation == "anchor_uncertain":
+                # A prior send may already have succeeded. Never create a duplicate anchor blindly.
+                return True
+            card = render_task_card(projection)
+            now = __import__("time").time()
+            source_revision = projection.get("sourceRevision")
+            content_hash = str(projection.get("contentHash", "") or "")
+            base_url = ""
+            if isinstance(completion_watch, dict):
+                base_url = str(completion_watch.get("baseUrl", "") or "").strip()
+            if not base_url and previous:
+                base_url = str(previous.get("base_url", "") or "")
+            if not base_url:
+                ingress_url = os.getenv("AJUN_FEISHU_COMMANDER_INGRESS_URL", "").strip()
+                if ingress_url.startswith("http://127.0.0.1:"):
+                    base_url = ingress_url.split("/api/feishu/commander", 1)[0]
+
+            if operation == "update" and previous:
+                message_id = str(decision.get("messageId", "") or previous.get("message_id", "") or "")
+                if not message_id:
+                    return True
+                updated = await self._update_ajun_task_card(message_id=message_id, card=card)
+                if not updated:
+                    return True
+                record = dict(previous)
+                record.update({"last_source_revision": source_revision, "last_content_hash": content_hash, "last_notified_state": str(projection.get("state", "") or ""), "delivery_state": "sent", "updated_at": now, "terminal": projection.get("terminal") is True})
+                try:
+                    self._put_ajun_task_card(task_id, record)
+                except RuntimeError as exc:
+                    logger.error("[Feishu] Dynamic task card was updated but its ledger could not advance: %s", exc)
+                    return True
+                if not record["terminal"]:
+                    self._wake_ajun_task_card_supervisor()
+                return True
+
+            record = {
+                "task_id": task_id, "chat_id": chat_id, "message_id": "",
+                "delivery_id": str(__import__("uuid").uuid4()), "agent_id": "ajun",
+                "profile_fingerprint": __import__("hashlib").sha256(str(get_hermes_home()).encode("utf-8")).hexdigest()[:24],
+                "last_source_revision": source_revision, "last_content_hash": content_hash,
+                "last_notified_state": str(projection.get("state", "") or ""),
+                "delivery_state": "sending", "attempt_count": int((previous or {}).get("attempt_count", 0) or 0) + 1, "base_url": base_url,
+                "created_at": now, "updated_at": now, "next_poll_at": now,
+                "terminal": projection.get("terminal") is True,
+            }
+            try:
+                self._put_ajun_task_card(task_id, record)
+            except RuntimeError as exc:
+                # No provider call occurred. Text fallback is safe because the
+                # sending intent was not durably recorded.
+                logger.error("[Feishu] Dynamic task card intent was not persisted; send skipped: %s", exc)
+                return False
+            try:
+                response = await self._feishu_send_with_retry(
+                    chat_id=chat_id, msg_type="interactive", payload=json.dumps(card, ensure_ascii=False),
+                    reply_to=reply_to, metadata=None,
+                )
+            except Exception as exc:
+                # The transport may have failed after Feishu accepted the card.
+                # Preserve the sending intent as uncertain and suppress a text
+                # fallback that could become a second visible task message.
+                record.update({"delivery_state": "anchor_uncertain", "updated_at": __import__("time").time()})
+                try:
+                    self._put_ajun_task_card(task_id, record)
+                except RuntimeError as ledger_exc:
+                    logger.error("[Feishu] Dynamic card outcome uncertain and ledger update failed: %s", ledger_exc)
+                logger.warning("[Feishu] Dynamic task card send outcome is uncertain; duplicate fallback suppressed: %s", exc)
+                return True
+            send_result = self._finalize_send_result(response, "send A君 dynamic task card failed")
+            try:
+                records = self._load_ajun_task_cards()
+            except RuntimeError as exc:
+                # The provider call has already happened. The old anchor may
+                # exist even though its ledger cannot be read, so fail closed
+                # and suppress every text/card fallback.
+                logger.error("[Feishu] Dynamic task card provider call completed but ledger became unreadable: %s", exc)
+                return True
+            record = records.get(task_id) if isinstance(records.get(task_id), dict) else record
+            if send_result.success:
+                if send_result.message_id:
+                    record.update({"message_id": send_result.message_id, "delivery_state": "sent", "last_notified_state": str(projection.get("state", "") or ""), "updated_at": __import__("time").time()})
+                else:
+                    record.update({"delivery_state": "anchor_uncertain", "updated_at": __import__("time").time()})
+            else:
+                # A normal API error response proves this attempt did not create
+                # an anchor. One text fallback is safe; the card intent remains
+                # available for at most one explicit not-started retry.
+                record.update({"delivery_state": "not_started", "updated_at": __import__("time").time()})
+            try:
+                self._put_ajun_task_card(task_id, record)
+            except RuntimeError as exc:
+                # The provider call already occurred. Never add a text fallback
+                # or another card when the anchor ledger cannot be advanced.
+                logger.error("[Feishu] Dynamic task card provider call completed but ledger update failed: %s", exc)
+                return True
+            if record.get("delivery_state") == "sent" and not record.get("terminal"):
+                self._wake_ajun_task_card_supervisor()
+            return bool(send_result.success)
+        except Exception as exc:
+            logger.warning("[Feishu] Dynamic task card delivery failed; using text fallback when safe: %s", exc)
+            return False
+
+    async def _update_ajun_task_card(self, *, message_id: str, card: Dict[str, Any]) -> bool:
+        """Use Feishu's card-capable message PATCH, never text-only edit_message."""
+        try:
+            from lark_oapi.api.im.v1 import PatchMessageRequest, PatchMessageRequestBody
+            body = PatchMessageRequestBody.builder().content(json.dumps(card, ensure_ascii=False)).build()
+            request = PatchMessageRequest.builder().message_id(message_id).request_body(body).build()
+            response = await self._run_blocking(self._client.im.v1.message.patch, request)
+            if response and getattr(response, "success", lambda: False)():
+                return True
+            logger.warning("[Feishu] Dynamic task card update rejected: code=%s", getattr(response, "code", None))
+        except Exception as exc:
+            logger.warning("[Feishu] Dynamic task card update failed: %s", exc)
+        return False
+
+    async def _supervise_ajun_task_cards(self) -> None:
+        """One bounded supervisor scans all card watches; no per-task timers or fixed timeout."""
+        semaphore = asyncio.Semaphore(3)
+        while self._ajun_dynamic_task_cards_enabled():
+            now = __import__("time").time()
+            records = self._load_ajun_task_cards()
+            due = [
+                dict(record) for record in records.values()
+                if isinstance(record, dict)
+                and record.get("delivery_state") == "sent"
+                and not record.get("terminal")
+                and str(record.get("base_url", "") or "").startswith("http://127.0.0.1:")
+                and float(record.get("next_poll_at", 0) or 0) <= now
+            ]
+            async def _bounded(record: Dict[str, Any]) -> None:
+                async with semaphore:
+                    await self._poll_one_ajun_task_card(record)
+            if due:
+                await asyncio.gather(*(_bounded(record) for record in due))
+                continue
+            self._ajun_task_card_wake.clear()
+            try:
+                await asyncio.wait_for(self._ajun_task_card_wake.wait(), timeout=2)
+            except asyncio.TimeoutError:
+                pass
+
+    async def _poll_one_ajun_task_card(self, record: Dict[str, Any]) -> None:
+        task_id = str(record.get("task_id", "") or "")
+        chat_id = str(record.get("chat_id", "") or "")
+        base_url = str(record.get("base_url", "") or "").rstrip("/")
+        try:
+            endpoint = f"{base_url}/api/feishu/task-status"
+            payload = json.dumps({"taskId": task_id, "chatRef": chat_id}, ensure_ascii=False).encode("utf-8")
+            def _read_projection() -> dict:
+                request = Request(endpoint, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+                with urlopen(request, timeout=5) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            body = await self._run_blocking(_read_projection)
+            projection = body.get("taskCard") if isinstance(body, dict) else None
+            if isinstance(projection, dict):
+                await self._deliver_ajun_task_card(chat_id=chat_id, projection=projection)
+        except asyncio.CancelledError:
+            raise
+        except (HTTPError, URLError, OSError, ValueError, json.JSONDecodeError) as exc:
+            logger.warning("[Feishu] Dynamic task card projection lookup failed: %s", exc)
+        finally:
+            from .agent_army_task_card import poll_interval_seconds
+            records = self._load_ajun_task_cards()
+            current = records.get(task_id)
+            if isinstance(current, dict) and not current.get("terminal"):
+                now = __import__("time").time()
+                age = max(0, now - float(current.get("created_at", now) or now))
+                current["next_poll_at"] = now + poll_interval_seconds(age_seconds=age)
+                current["updated_at"] = now
+                self._put_ajun_task_card(task_id, current)`;
+const dynamicTaskCardCallback = `    def _handle_ajun_task_card_action(self, *, event: Any, action_value: Dict[str, Any]) -> Any:
+        """Write the authoritative decision first, then replace the clicked card."""
+        action = str(action_value.get("agent_army_task_card_action", "") or "")
+        task_id = str(action_value.get("task_id", "") or "")
+        source_revision = action_value.get("source_revision")
+        content_hash = str(action_value.get("content_hash", "") or "")
+        approval_id = str(action_value.get("approval_id", "") or "")
+        governance_mode = str(action_value.get("governance_mode", "local") or "local")
+        operator = getattr(event, "operator", None)
+        open_id = str(getattr(operator, "open_id", "") or "")
+        context = getattr(event, "context", None)
+        chat_id = str(getattr(context, "open_chat_id", "") or "")
+        # The clicked message from callback context is the only valid anchor.
+        message_id = str(getattr(context, "open_message_id", "") or "")
+        response = P2CardActionTriggerResponse() if P2CardActionTriggerResponse else None
+        def _error_response(content: str) -> Any:
+            if response is not None:
+                from lark_oapi.event.callback.model.p2_card_action_trigger import CallBackToast
+                toast = CallBackToast(); toast.type = "error"; toast.content = content
+                response.toast = toast
+            return response
+        try:
+            records = self._load_ajun_task_cards()
+        except RuntimeError as exc:
+            logger.error("[Feishu] Dynamic task card callback ledger unreadable: %s", exc)
+            return _error_response("卡片记录暂时不可读取，本次操作未生效。")
+        record = records.get(task_id) if isinstance(records.get(task_id), dict) else None
+        valid = (
+            action in {"approve", "reject", "pause", "resume"}
+            and task_id and message_id and record
+            and str(record.get("message_id", "") or "") == message_id
+            and record.get("last_source_revision") == source_revision
+            and str(record.get("last_content_hash", "") or "") == content_hash
+            and self._is_interactive_operator_authorized(open_id)
+        )
+        if not valid:
+            return _error_response("卡片状态已变化，请等待刷新后再操作。")
+        ingress_url = os.getenv("AJUN_FEISHU_COMMANDER_INGRESS_URL", "").strip()
+        if not ingress_url.startswith("http://127.0.0.1:"):
+            return _error_response("任务入口不可用，本次操作未生效。")
+        endpoint = ingress_url.split("/api/feishu/commander", 1)[0] + "/api/feishu/task-card-actions"
+        payload = json.dumps({
+            "taskId": task_id, "action": action, "approvalId": approval_id,
+            "governanceMode": governance_mode, "sourceRevision": source_revision,
+            "contentHash": content_hash, "requesterRef": open_id, "chatRef": chat_id,
+            "messageId": message_id,
+        }, ensure_ascii=False).encode("utf-8")
+        try:
+            request = Request(endpoint, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+            with urlopen(request, timeout=8) as provider_response:
+                status = int(provider_response.status)
+                body = json.loads(provider_response.read().decode("utf-8"))
+            projection = body.get("taskCard") if isinstance(body, dict) else None
+            if status not in {200, 201, 202} or not isinstance(projection, dict):
+                raise ValueError("authoritative decision was not accepted")
+            # The authoritative response wins. A stale callback can never restore old buttons.
+            from .agent_army_task_card import render_task_card
+            decided_card = render_task_card(projection)
+            # Do not claim the callback card was visibly applied before Feishu
+            # acknowledges it. Keep the old revision in the ledger so the
+            # supervisor converges the same message through the PATCH path even
+            # if the synchronous callback response is dropped.
+            record["next_poll_at"] = 0
+            self._put_ajun_task_card(task_id, record)
+            self._wake_ajun_task_card_supervisor()
+            if response is not None and CallBackCard is not None:
+                card = CallBackCard(); card.type = "raw"; card.data = decided_card
+                response.card = card
+            return response
+        except (HTTPError, URLError, OSError, ValueError, json.JSONDecodeError) as exc:
+            logger.warning("[Feishu] Dynamic task card action rejected without changing card: %s", exc)
+            return _error_response("操作未生效，请重试。")`;
 const approvalCardMethods = `    async def _send_ajun_approval_card(self, chat_id: str, approval: Dict[str, Any], *, reply_to: Optional[str] = None) -> SendResult:
         """AJUN_APPROVAL_CARD_V2: send a local or Paperclip-governed approval card."""
         approval_id = str(approval.get("approvalId", "") or "")
@@ -1402,9 +1804,11 @@ async function main() {
   const filePath = process.argv[2] || defaultAdapter;
   const original = await fs.readFile(filePath, 'utf8');
   const patched = applyPatch(original);
-  if (patched === original) return console.log(`Hermes 飞书军团总管路由已存在：${filePath}`);
+  const taskCardRuntimeTarget = path.join(path.dirname(filePath), 'agent_army_task_card.py');
+  await fs.copyFile(taskCardRuntimeSource, taskCardRuntimeTarget);
+  if (patched === original) return console.log(`Hermes 飞书动态任务卡已存在：${filePath}`);
   await fs.writeFile(filePath, patched);
-  console.log(`已安装 Hermes 飞书军团总管路由：${filePath}`);
+  console.log(`已安装 Hermes 飞书动态任务卡与军团总管路由：${filePath}`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => { console.error(error.message); process.exitCode = 1; });

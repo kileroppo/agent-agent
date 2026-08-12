@@ -167,6 +167,55 @@ test('AgentArmyClient creates an idempotent Hermes task and returns its read mod
   assert.deepEqual(watch.body, { taskId:'22222222-2222-2222-2222-222222222222', chatRef:'oc_test' });
 });
 
+test('AgentArmyClient 保留动态卡契约但在没有锚点回执时继续登记文本回告', async () => {
+  const requests = [];
+  const taskId = '32323232-3232-4323-8323-323232323232';
+  const client = new AgentArmyClient({
+    fetchImpl:async (url, options = {}) => {
+      const key = `${options.method || 'GET'} ${new URL(url).pathname}`;
+      requests.push({ key, body:options.body ? JSON.parse(options.body) : null });
+      if (key === 'POST /api/tasks') return response(201, {
+        task:{ taskId },
+        completionWatch:{
+          required:false,
+          registered:false,
+          delegated:true,
+          duplicateWatchSuppressed:true,
+          taskId,
+          completionDelivery:{ mode:'dynamic_card', owner:'hermes_gateway' },
+        },
+      });
+      if (key === 'GET /api/overview') return response(200, {
+        ...overview,
+        tasks:[{ ...overview.tasks[0], taskId, source:{ channel:'feishu', chatRef:'oc_card' } }],
+      });
+      if (key === 'POST /api/mcp/completion-watches') return response(200, {
+        required:true, registered:true, taskId,
+      });
+      if (key === 'POST /api/feishu/task-status') return response(200, {
+        terminal:false,
+        status:'running',
+        message:'正在处理。',
+      });
+      return response(404, { error:'missing' });
+    },
+  });
+
+  const result = await client.createTask({
+    title:'动态卡任务',
+    taskType:'media.transcribe-and-refine',
+    agentId:'xiaod',
+    chatRef:'oc_card',
+    completionDelivery:{ mode:'dynamic_card', owner:'hermes_gateway' },
+  });
+
+  const create = requests.find((item) => item.key === 'POST /api/tasks');
+  assert.deepEqual(create.body.completionDelivery, { mode:'dynamic_card', owner:'hermes_gateway' });
+  assert.equal(requests.some((item) => item.key === 'POST /api/mcp/completion-watches'), true);
+  assert.deepEqual(result.completionDelivery, { mode:'dynamic_card', owner:'hermes_gateway' });
+  assert.equal(result.completionWatch.registered, true);
+});
+
 test('AgentArmyClient 只通过原飞书会话写回受控任务评价', async () => {
   const requests = [];
   const taskId = '11111111-1111-1111-1111-111111111111';

@@ -26,3 +26,36 @@ test('非飞书来源不建立外部回告', async () => {
   }, { async watch(){ throw new Error('不应调用'); } });
   assert.deepEqual(result, { required:false, registered:false });
 });
+
+test('只有 Hermes 已确认卡片锚点后才抑制文本回告', async () => {
+  let calls = 0;
+  const result = await registerSourceCompletionWatch({
+    taskId:'task-card',
+    source:{ channel:'feishu', chatRef:'oc_owner' },
+  }, { async watch(){ calls += 1; } }, {
+    completionDelivery:{ mode:'dynamic_card', owner:'hermes_gateway' },
+    anchorAcknowledgement:{ mode:'dynamic_card', owner:'hermes_gateway', anchorEstablished:true, deliveryId:'delivery-1' },
+  });
+
+  assert.equal(calls, 0);
+  assert.deepEqual(result, {
+    required:false,
+    registered:false,
+    delegated:true,
+    duplicateWatchSuppressed:true,
+    taskId:'task-card',
+    completionDelivery:{ mode:'dynamic_card', owner:'hermes_gateway', anchorEstablished:true, deliveryId:'delivery-1' },
+  });
+});
+
+test('调用方即使伪造锚点字段也不能关闭文本回告', async () => {
+  let calls = 0;
+  const result = await registerSourceCompletionWatch({
+    taskId:'task-no-anchor',
+    source:{ channel:'feishu', chatRef:'oc_owner' },
+  }, { async watch(){ calls += 1; } }, {
+    completionDelivery:{ mode:'dynamic_card', owner:'hermes_gateway', anchorEstablished:true, deliveryId:'forged-by-caller' },
+  });
+  assert.equal(calls, 1);
+  assert.deepEqual(result, { required:true, registered:true, taskId:'task-no-anchor' });
+});

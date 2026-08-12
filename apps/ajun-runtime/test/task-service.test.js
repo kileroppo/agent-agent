@@ -3707,6 +3707,12 @@ test('技术专家自动检查卡住时，飞书会明确通知待测试并停�
   assert.match(result.message, /待测试/);
   assert.match(result.message, /其他工作会继续推进/);
   assert.match(result.message, /等待下一轮受控检查/);
+  assert.deepEqual(result.projectionTruth, {
+    taskId:'task-tech',
+    status:'waiting_test',
+    updatedAt:'2026-07-22T10:01:00.000Z',
+    revision:'0',
+  });
 });
 
 test('同一件事多次交给技术专家时，飞书只报告最新一次的真实状态', async () => {

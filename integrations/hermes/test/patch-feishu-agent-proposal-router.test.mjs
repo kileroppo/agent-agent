@@ -320,6 +320,64 @@ test('总管补丁可升级为 local 与 Paperclip 组织级审批卡', () => {
   assert.equal(applyPatch(upgraded), upgraded);
 });
 
+test('A君动态任务卡默认关闭，开启后只维护一个消息锚点和一个有界 supervisor', () => {
+  const patched = applyPatch(fixture);
+  assert.match(patched, /AGENT_ARMY_FEISHU_DYNAMIC_TASK_CARD_V1/);
+  assert.match(patched, /AJUN_FEISHU_DYNAMIC_TASK_CARD/);
+  assert.match(patched, /\.strip\(\)\.lower\(\) != "true"/);
+  assert.match(patched, /self\._ajun_task_card_supervisor_task/);
+  assert.match(patched, /asyncio\.Semaphore\(3\)/);
+  assert.match(patched, /poll_interval_seconds\(age_seconds=age\)/);
+  assert.match(patched, /if self\._ajun_dynamic_task_cards_enabled\(\):\n\s+self\._start_ajun_task_card_supervisor\(\)\n\s+else:\n\s+self\._restore_ajun_task_completion_notifications\(\)/);
+  const supervisorStart = patched.indexOf('    async def _supervise_ajun_task_cards(');
+  const supervisorEnd = patched.indexOf('\n    async def _send_ajun_approval_card(', supervisorStart);
+  const supervisor = patched.slice(supervisorStart, supervisorEnd);
+  assert.doesNotMatch(supervisor, /range\(900\)|did not reach a final state/);
+  assert.match(patched, /and not dynamic_task_card_enabled/);
+  assert.match(patched, /delivery_state": "sending"/);
+  assert.match(patched, /delivery_state": "anchor_uncertain"/);
+  assert.match(patched, /duplicate fallback suppressed/);
+  assert.match(patched, /delivery_state": "not_started"/);
+  assert.match(patched, /except FileNotFoundError/);
+  assert.match(patched, /ledger is unreadable; refusing duplicate delivery/);
+  assert.match(patched, /ledger unreadable; fallback suppressed/);
+  assert.match(patched, /ledger write failed; delivery stopped/);
+  assert.match(patched, /intent was not persisted; send skipped/);
+  assert.match(patched, /provider call completed but ledger update failed/);
+  assert.match(patched, /provider call completed but ledger became unreadable/);
+  assert.match(patched, /ingress_url\.split\("\/api\/feishu\/commander", 1\)\[0\]/);
+  assert.match(patched, /PatchMessageRequest/);
+  assert.match(patched, /self\._client\.im\.v1\.message\.patch/);
+  const syntaxSource = patched.replace('    def __init__(self):', 'class Adapter:\n    def __init__(self):');
+  const syntax = spawnSync('python3', ['-c', 'import ast,sys; ast.parse(sys.stdin.read())'], { input: syntaxSource, encoding: 'utf8' });
+  assert.equal(syntax.status, 0, syntax.stderr);
+  assert.equal(applyPatch(patched), patched);
+});
+
+test('动态任务卡按钮使用原消息锚点，权威决定成功后才返回决定态卡', () => {
+  const patched = applyPatch(fixture);
+  const start = patched.indexOf('    def _handle_ajun_task_card_action(');
+  const end = patched.indexOf('\n    def _handle_ajun_approval_card_action(', start);
+  const callback = patched.slice(start, end);
+  assert.match(callback, /agent_army_task_card_action/);
+  assert.match(callback, /\{"approve", "reject", "pause", "resume"\}/);
+  assert.match(callback, /getattr\(context, "open_message_id"/);
+  assert.doesNotMatch(callback, /event\.token|getattr\(event, "token"/);
+  assert.match(callback, /api\/feishu\/task-card-actions/);
+  assert.match(callback, /sourceRevision/);
+  assert.match(callback, /contentHash/);
+  assert.match(callback, /CallBackToast/);
+  assert.match(callback, /toast\.type = "error"/);
+  assert.ok(callback.indexOf('with urlopen(request') < callback.indexOf('decided_card = render_task_card(projection)'));
+  assert.ok(callback.indexOf('decided_card = render_task_card(projection)') < callback.indexOf('response.card = card'));
+  assert.doesNotMatch(callback, /last_source_revision": projection\.get/);
+  assert.match(callback, /record\["next_poll_at"\] = 0/);
+  assert.match(callback, /self\._wake_ajun_task_card_supervisor\(\)/);
+  assert.match(callback, /卡片状态已变化，请等待刷新后再操作/);
+  assert.match(callback, /卡片记录暂时不可读取，本次操作未生效/);
+  assert.match(callback, /操作未生效，请重试/);
+});
+
 test('已安装的旧创建官补丁可原地升级为军团总管路由', () => {
   const legacy = `
     async def _handle_message_with_guards(self, event: MessageEvent) -> None:

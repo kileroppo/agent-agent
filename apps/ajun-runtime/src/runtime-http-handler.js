@@ -30,7 +30,7 @@ import { PaperclipPublisherRunContextError } from './paperclip-publisher-run-con
 import { PaperclipRetrospectiveError } from './paperclip-retrospective.js';
 import { PublicWebFetchError } from './public-web-fetch.js';
 import { OfficialFeishuCompletionWatcherError } from './official-feishu-completion-watcher.js';
-import { presentCommanderReply } from './runtime-http-feishu.js';
+import { presentCommanderReply, presentTaskStatus, resolveTaskCardAction } from './runtime-http-feishu.js';
 import { registerSourceCompletionWatch } from './source-completion-watch.js';
 import { ValidationError } from './task-service.js';
 import { dispatchBoomSignal } from '@agent-army/boom-monitor';
@@ -330,7 +330,12 @@ export function createAjunHttpHandler({
       }
       if (request.method === 'POST' && request.url === '/api/feishu/commander') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'飞书军团总管入口只能由本机 Hermes 适配器调用。' });
-        return sendJson(response, 202, presentCommanderReply(await commander.handle(await readJsonBody(request)), detailBaseUrl));
+        const result = await commander.handle(await readJsonBody(request));
+        const task = result?.task || result?.mission || null;
+        const taskCardContext = task?.taskId
+          ? await loadTaskCardContext({ store, tasks }, task)
+          : {};
+        return sendJson(response, 202, presentCommanderReply(result, detailBaseUrl, taskCardContext));
       }
       if (request.method === 'POST' && request.url === '/api/feishu/channel/messages') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'飞书官方收发入口只能由本机适配器调用。' });
@@ -343,7 +348,22 @@ export function createAjunHttpHandler({
       if (request.method === 'POST' && request.url === '/api/feishu/task-status') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'飞书任务状态只能由本机 Hermes 适配器读取。' });
         const input = await readJsonBody(request);
-        return sendJson(response, 200, await tasks.notificationStatus(String(input.taskId || ''), String(input.chatRef || '')));
+        const taskId = String(input.taskId || '');
+        const notification = await tasks.notificationStatus(taskId, String(input.chatRef || ''));
+        const task = (await store.list()).find((item) => item.taskId === taskId);
+        return sendJson(response, 200, presentTaskStatus(
+          notification,
+          task,
+          task ? await loadTaskCardContext({ store, tasks }, task) : {},
+        ));
+      }
+      if (request.method === 'POST' && request.url === '/api/feishu/task-card-actions') {
+        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'飞书任务卡动作只能由本机 Hermes 适配器调用。' });
+        return sendJson(response, 200, await resolveTaskCardAction(await readJsonBody(request), {
+          store,
+          tasks,
+          resolveApproval:resolveFeishuApproval,
+        }));
       }
       if (request.method === 'POST' && request.url === '/api/mcp/completion-watches/resolve') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'飞书投递核对只能由本机执行。' });
@@ -435,7 +455,9 @@ export function createAjunHttpHandler({
         const input = await readJsonBody(request);
         if (!isLocalAddress(request.socket.remoteAddress) && !String(input.requesterName || '').trim()) throw new ValidationError('局域网协作者请先填写自己的称呼。');
         const task = await tasks.create(input);
-        const completionWatch = await registerSourceCompletionWatch(task, hermesNativeCompletionWatcher);
+        const completionWatch = await registerSourceCompletionWatch(task, hermesNativeCompletionWatcher, {
+          completionDelivery:input.completionDelivery,
+        });
         return sendJson(response, 201, { task, completionWatch });
       }
       if (request.method === 'GET' && request.url === '/api/integrations/boom-monitor/health') {
@@ -475,8 +497,11 @@ export function createAjunHttpHandler({
       }
       if (request.method === 'POST' && request.url === '/api/mcp/missions') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'Hermes MCP 多人任务只能由本机调用。' });
-        const result = await missions.createBusinessMission(await readJsonBody(request));
-        const completionWatch = await registerSourceCompletionWatch(result, hermesNativeCompletionWatcher);
+        const input = await readJsonBody(request);
+        const result = await missions.createBusinessMission(input);
+        const completionWatch = await registerSourceCompletionWatch(result, hermesNativeCompletionWatcher, {
+          completionDelivery:input.completionDelivery,
+        });
         return sendJson(response, 201, { ...result, completionWatch });
       }
       const rejectMatch = request.url?.match(/^\/api\/approvals\/([0-9a-f-]+)\/reject$/i);
@@ -568,6 +593,14 @@ export function createAjunHttpHandler({
       return sendJson(response, errorStatus(error), { error:error.message || '运行台暂时不可用。' });
     }
   };
+}
+
+async function loadTaskCardContext({ store, tasks }, task) {
+  const [approvals, recoveryView] = await Promise.all([
+    store.listApprovals(),
+    tasks.recoveryView(task),
+  ]);
+  return { approvals, recoveryView };
 }
 
 export function createOwnerActionSession({ clock = () => Date.now(), ttlMs = OWNER_ACTION_NONCE_TTL_MS } = {}) {

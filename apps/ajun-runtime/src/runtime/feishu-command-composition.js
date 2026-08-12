@@ -37,6 +37,7 @@ export async function createFeishuCommandComposition({
   port,
   logger,
 }) {
+  const dynamicTaskCardEnabled = dynamicTaskCardRolloutEnabled(environment);
   const detailBaseUrl = taskDetailBaseUrl(environment.AJUN_TASK_DETAIL_BASE_URL);
   const resolveApproval = createFeishuApprovalResolver({ proposals, tasks });
   const sender = new HermesFeishuSender();
@@ -102,6 +103,7 @@ export async function createFeishuCommandComposition({
       .toLowerCase() === 'true',
     hermesNativeEmployeeIds,
   });
+  feishuChannelStartup.dynamicTaskCardEnabled = dynamicTaskCardEnabled;
 
   tasks.setFeishuChannelStatus(() => feishuChannelStartup.startLegacyAJun
     ? officialFeishuChannelRunner.snapshot()
@@ -135,6 +137,11 @@ export async function createFeishuCommandComposition({
       agentFeishuChannelFleet,
     }),
   });
+}
+
+export function dynamicTaskCardRolloutEnabled(environment = {}) {
+  return String(environment.AJUN_FEISHU_DYNAMIC_TASK_CARD || '').trim().toLowerCase() === 'true'
+    && String(environment.AJUN_HERMES_NATIVE_FEISHU || '').trim().toLowerCase() === 'true';
 }
 
 async function asyncChannelFactory(options) {

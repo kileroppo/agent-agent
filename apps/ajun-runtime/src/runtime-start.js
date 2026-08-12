@@ -27,6 +27,9 @@ export function startRuntimeBackgroundServices(runtime) {
   services.paperclipHermesTaskReconciler?.start();
   services.missionReconciler?.start();
   services.boomMonitor?.start();
+  // Keep the shared HTTP/MCP completion watcher alive. Dynamic Commander cards
+  // are never registered in this watcher, while callers without a confirmed
+  // card anchor still depend on it for the terminal notification fallback.
   startWithoutBlocking(services.hermesNativeCompletionWatcher, null, runtime.logger);
   services.technicalRepairWatchdog?.start();
   if (runtime.feishuChannelStartup?.startLegacyAJun) {

@@ -19,6 +19,22 @@ M2 当前总管路径见 [ADR-0007](../../docs/adr/0007-hermes-native-feishu-run
 
 所有常驻与按需岗位共用同一套中文交互和飞书移动端排版规则。新消息到达后只在用户原消息上显示一个处理图标，最终回复后移除，不再另发“已收到”气泡。运行中补充要求时，Gateway 用中文说明实际处理方式，并提供“下一步单独处理 / 查看当前设置 / 停止当前任务”快捷按钮；按钮点击会直接执行对应命令。飞书发送前按内容调整密度：多个分区和长条目增加留白，短回答与短列表保持紧凑；手机端容易变形的宽表或长单元格表转为分组列表，短小对比表仍保留。
 
+A君 任务消息还支持灰度的单卡闭环。只有 Hermes 原生 A君 同时启用且 Profile 明确设置
+`AJUN_FEISHU_DYNAMIC_TASK_CARD=true` 时，Commander 才把 `agent.army/task-card/v1`
+投影渲染为一张 interactive card；后续状态使用飞书消息卡片 PATCH 更新同一
+`message_id`，不再补发进度气泡。卡片锚点只在 Profile 私有 `0600` 文件保存元数据，
+初发结果未知会停在 `anchor_uncertain`，不会盲目重发。按钮仅允许批准、拒绝、暂停、
+继续；回调使用 `event.context.open_message_id`，先由 A君 写入审批或控制真相，再同步
+返回最新卡片。单一 supervisor 最大并发 3，按任务年龄使用 2/15/60 秒退避且无固定
+超时。开关默认关闭；卡片运行模块缺失或初次投递明确失败时保留现有中文文本降级。
+卡片账本只把“文件确定不存在”当作空账本；已有账本不可读或 provider 返回后
+无法更新账本时失败关闭，不再补发文本或第二张卡。直接通过 MCP/HTTP 建立且没有
+Hermes 可信卡片锚点回执的任务仍使用终态 watcher；普通请求里自行声明
+`anchorEstablished` 不能关闭该回告。
+当前仅完成源码、测试和安装态只读兼容核验，未安装到活动 Gateway、未重载、未做真实
+飞书点击；正式灰度必须先只给 A君 开启并完成“出现单卡 → 原卡更新 → 点击动作真实
+生效 → 可见决定态”的人工验收，再扩到其他常驻员工。
+
 上述行为由仓库补丁维护，Hermes 升级后须重新执行并验证：
 
 ```bash
@@ -98,6 +114,7 @@ node integrations/hermes/scripts/reconcile-hermes-skill-whitelist.mjs --agent xi
 - 批准必须经过 Hermes 当前会话的 elicitation；明确拒绝直接安全关闭，批准超时或离开会话时失败关闭；
 - 健康报告等结构化产物按白名单脱敏返回，不透传原始日志或未知字段；
 - 每个员工 Profile 仍按自己的 Manifest、Prompt 和最小权限决定可用工具，不因共享 Server 合并岗位。
+- `completion_delivery=dynamic_card` 只表示投递意图，不是卡片已发出的证据；只有服务端收到 Hermes 可信锚点回执后才抑制该任务的文本 watcher，否则必须保留终态回告。
 
 ## Profile 作用域注意事项
 

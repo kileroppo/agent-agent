@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 import { createRuntime } from '../src/runtime-composition-root.js';
 import { startRuntime, startRuntimeBackgroundServices } from '../src/runtime-start.js';
+import { dynamicTaskCardRolloutEnabled } from '../src/runtime/feishu-command-composition.js';
 import { startConsoleRuntimeFixture } from './fixtures/console-runtime-fixture.js';
 
 test('startRuntime 负责监听，并可在隔离冒烟中关闭后台副作用', async (context) => {
@@ -38,6 +39,29 @@ test('startRuntime 负责监听，并可在隔离冒烟中关闭后台副作用'
   assert.deepEqual(calls.map(([kind]) => kind), ['log']);
   const response = await fetch(`http://127.0.0.1:${runtime.port}`);
   assert.deepEqual(await response.json(), { ready:true });
+});
+
+test('动态任务卡启用时仍保留未建立卡片锚点的 HTTP/MCP 完成跟进', () => {
+  const calls = [];
+  startRuntimeBackgroundServices({
+    deploymentMode:'local',
+    feishuChannelStartup:{ dynamicTaskCardEnabled:true, startLegacyAJun:false, skipAgentIds:[] },
+    logger:{ warn:() => undefined },
+    services:{
+      hermesNativeCompletionWatcher:{ start:() => calls.push('legacy-completion-watch') },
+      agentFeishuChannelFleet:{ start:() => calls.push('fleet') },
+    },
+  });
+  assert.deepEqual(calls, ['legacy-completion-watch', 'fleet']);
+});
+
+test('动态任务卡灰度必须同时由 Hermes 原生 A君持有，且默认关闭', () => {
+  assert.equal(dynamicTaskCardRolloutEnabled({}), false);
+  assert.equal(dynamicTaskCardRolloutEnabled({ AJUN_FEISHU_DYNAMIC_TASK_CARD:'true' }), false);
+  assert.equal(dynamicTaskCardRolloutEnabled({
+    AJUN_FEISHU_DYNAMIC_TASK_CARD:'true',
+    AJUN_HERMES_NATIVE_FEISHU:'true',
+  }), true);
 });
 
 test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP Interface', async (context) => {
