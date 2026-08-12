@@ -77,9 +77,18 @@ test('渲染单张 interactive card，并严格过滤动作白名单', () => {
 });
 
 test('终态卡片不渲染任何可执行按钮', () => {
-  const card = render(projection({ terminal: true, state: '已完成', tone: 'success' }));
+  const card = render(projection({
+    terminal: true,
+    state: 'succeeded',
+    owner: 'ajun',
+    tone: 'success',
+    updatedAt: '2026-08-12T03:53:23.815Z',
+  }));
   assert.equal(card.header.template, 'green');
   assert.equal(card.elements.some((element) => element.tag === 'action'), false);
+  assert.match(card.elements[0].content, /\*\*状态\*\*：已完成/);
+  assert.match(card.elements[0].content, /\*\*负责人\*\*：A君/);
+  assert.match(card.elements.at(-1).elements[0].content, /更新于 2026-08-12 11:53$/);
 });
 
 test('无记录发送，有锚点且新 revision 更新，并返回 messageId', () => {

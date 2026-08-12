@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, Mapping, Optional
+from zoneinfo import ZoneInfo
 
 
 TASK_CARD_SCHEMA = "agent.army/task-card/v1"
@@ -32,6 +33,30 @@ _HEADER_TEMPLATES = {
     "violet": "violet",
 }
 _DELIVERY_STATES_WITH_UNCERTAIN_ANCHOR = frozenset({"sending", "anchor_uncertain", "unknown"})
+_STATE_LABELS = {
+    "queued": "排队中",
+    "running": "处理中",
+    "waiting_approval": "等待审批",
+    "needs_input": "等待补充信息",
+    "waiting_test": "等待验收",
+    "paused": "已暂停",
+    "recovery_pending": "等待恢复",
+    "technical_repair": "技术修复中",
+    "succeeded": "已完成",
+    "failed": "处理失败",
+    "cancelled": "已取消",
+}
+_OWNER_LABELS = {
+    "ajun": "A君",
+    "architect": "架构师",
+    "reviewer": "审核官",
+    "operator": "运维官",
+    "technical-expert": "技术专家",
+    "xiaod": "小D",
+    "office-assistant": "小办",
+    "intel-researcher": "小研",
+    "creator": "创建官",
+}
 
 
 def _text(value: Any, limit: int, fallback: str = "") -> str:
@@ -44,6 +69,24 @@ def _field(value: Mapping[str, Any], *names: str) -> Any:
         if name in value:
             return value[name]
     return None
+
+
+def _presentation_label(value: Any, labels: Mapping[str, str], limit: int) -> str:
+    text = _text(value, limit)
+    return labels.get(text.lower(), text)
+
+
+def _display_time(value: Any) -> str:
+    text = _text(value, 80)
+    if not text:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d %H:%M")
+    except (ValueError, TypeError):
+        return text
 
 
 def _normalized_actions(projection: Mapping[str, Any]) -> Iterable[Dict[str, Any]]:
@@ -71,15 +114,15 @@ def render_task_card(projection: Mapping[str, Any]) -> Dict[str, Any]:
         raise ValueError("task-card projection requires taskId")
 
     title = _text(projection.get("title"), 120, "任务进展")
-    state = _text(projection.get("state"), 40, "处理中")
+    state = _presentation_label(projection.get("state"), _STATE_LABELS, 40) or "处理中"
     summary = _text(projection.get("summary"), 1200, "任务状态已更新。")
-    owner = _text(projection.get("owner"), 80)
+    owner = _presentation_label(projection.get("owner"), _OWNER_LABELS, 80)
     next_action = projection.get("nextAction")
     if isinstance(next_action, Mapping):
         next_action = next_action.get("label") or next_action.get("text") or next_action.get("title")
     next_action = _text(next_action, 300)
     task_ref = _text(projection.get("taskRef"), 80, task_id[:8])
-    updated_at = _text(projection.get("updatedAt"), 80)
+    updated_at = _display_time(projection.get("updatedAt"))
     revision = projection.get("sourceRevision")
     content_hash = _text(projection.get("contentHash"), 160)
     tone = str(projection.get("tone") or "").lower()
