@@ -101,20 +101,22 @@ export async function resolveTaskCardAction(input, { store, tasks, resolveApprov
   }
   const context = await taskCardContextFor({ store, tasks }, task);
   const current = presentTaskCard(task, context);
-  if (String(input?.sourceRevision || '') !== current.sourceRevision
-    || String(input?.contentHash || '') !== current.contentHash) {
-    throw new ProposalValidationError('任务卡已更新，请按最新状态操作。');
-  }
+  const projectionChanged = String(input?.sourceRevision || '') !== current.sourceRevision
+    || String(input?.contentHash || '') !== current.contentHash;
 
   if (action === 'pause' || action === 'resume') {
     if (!current.actions.some((item) => item.action === action)) {
-      throw new ProposalValidationError('当前任务状态不允许这项操作。');
+      return refreshedTaskCard(current, projectionChanged ? 'stale_projection' : 'action_unavailable');
     }
+    // Progress polling can advance the projection between rendering and a human
+    // click. Pause/resume remains safe when the authoritative latest card still
+    // exposes the same operation, so do not turn that normal race into an error.
     await (action === 'pause' ? tasks.requestPause(taskId) : tasks.requestResume(taskId));
   } else {
+    if (projectionChanged) return refreshedTaskCard(current, 'stale_projection');
     const approvalId = requiredCardField(input?.approvalId, '审批动作缺少审批编号。');
     const cardAction = current.actions.find((item) => item.action === action && item.approvalId === approvalId);
-    if (!cardAction) throw new ProposalValidationError('这项审批已经变化或不属于当前任务。');
+    if (!cardAction) return refreshedTaskCard(current, 'action_unavailable');
     await resolveApproval({
       approvalId,
       action,
@@ -126,7 +128,26 @@ export async function resolveTaskCardAction(input, { store, tasks, resolveApprov
 
   const latestTask = await findTask(store, taskId);
   const latestContext = await taskCardContextFor({ store, tasks }, latestTask);
-  return { handled:true, taskCard:presentTaskCard(latestTask, latestContext) };
+  return {
+    handled:true,
+    actionApplied:true,
+    message:action === 'pause' ? '已进入暂停确认。'
+      : action === 'resume' ? '已进入继续确认。'
+        : '操作已处理。',
+    taskCard:presentTaskCard(latestTask, latestContext),
+  };
+}
+
+function refreshedTaskCard(taskCard, reason) {
+  return {
+    handled:true,
+    actionApplied:false,
+    reason,
+    message:reason === 'stale_projection'
+      ? '任务刚刚有新进展，已为你刷新到最新状态。'
+      : '任务已经进入下一阶段，原操作不再适用。',
+    taskCard,
+  };
 }
 
 function composeTaskReply(value, taskId, presentation) {

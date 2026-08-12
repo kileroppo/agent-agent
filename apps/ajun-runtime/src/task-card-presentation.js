@@ -3,6 +3,7 @@ import { presentTask } from './task-presentation.js';
 import { sanitizeFailureText } from './technical-failure-classifier.js';
 
 export const TASK_CARD_SCHEMA_VERSION = 'agent.army/task-card/v1';
+const TASK_CARD_RENDER_REVISION = 'card-ux2';
 
 const ACTION_LABELS = Object.freeze({
   approve:'批准',
@@ -21,6 +22,7 @@ export function presentTaskCard(task = {}, { approvals = [], recoveryView = null
   const relevantApprovals = taskApprovals(task, approvals);
   const pendingApproval = relevantApprovals.find((approval) => approval?.status === 'pending') || null;
   const presentation = presentTask(task, { approvals:relevantApprovals, recoveryView });
+  const taskCardCopy = publicTaskCardCopy(task, presentation);
   const state = cardState(task, { pendingApproval, recoveryView });
   const updatedAt = latestTimestamp(task, relevantApprovals, recoveryView);
   const projection = {
@@ -30,9 +32,9 @@ export function presentTaskCard(task = {}, { approvals = [], recoveryView = null
     title:publicText(task.input?.title || task.title, 160) || '未命名任务',
     state,
     tone:cardTone(state, presentation.tone),
-    summary:publicText(presentation.summary, 800) || '任务状态已更新。',
+    summary:taskCardCopy.summary,
     owner:ownerLabel(owner, task),
-    nextAction:publicText(presentation.nextAction, 800) || '等待新的进度；无需重复提交。',
+    nextAction:taskCardCopy.nextAction,
     actions:cardActions({ task, pendingApproval, recoveryView, state }),
     sourceRevision:sourceRevision(task, relevantApprovals, recoveryView, updatedAt),
     terminal:TERMINAL_STATES.has(state),
@@ -41,6 +43,20 @@ export function presentTaskCard(task = {}, { approvals = [], recoveryView = null
   return {
     ...projection,
     contentHash:hashProjection(projection),
+  };
+}
+
+function publicTaskCardCopy(task, presentation) {
+  if (task?.error?.code === 'xiaod_delivery_pending') {
+    const title = publicText(task.input?.title || task.title, 160) || '当前视频任务';
+    return {
+      summary:`${title}：视频处理结果已保存，但报告发送到飞书失败。`,
+      nextAction:'这不是你的操作问题；请联系系统管理员检查小D的飞书应用连接。修复后，在本会话回复“继续飞书交付”。',
+    };
+  }
+  return {
+    summary:publicText(presentation.summary, 800) || '任务状态已更新。',
+    nextAction:publicText(presentation.nextAction, 800) || '等待新的进度；无需重复提交。',
   };
 }
 
@@ -83,8 +99,9 @@ function cardActions({ task, pendingApproval, recoveryView, state }) {
     const approvalId = safeIdentifier(pendingApproval.approvalId);
     const governanceMode = safeIdentifier(pendingApproval.governanceMode);
     if (approvalId) {
-      actions.push(actionView('approve', { approvalId, governanceMode }));
-      actions.push(actionView('reject', { approvalId, governanceMode }));
+      const labels = approvalActionLabels(pendingApproval.action);
+      actions.push(actionView('approve', { approvalId, governanceMode, label:labels.approve }));
+      actions.push(actionView('reject', { approvalId, governanceMode, label:labels.reject }));
     }
   }
 
@@ -110,6 +127,12 @@ function cardActions({ task, pendingApproval, recoveryView, state }) {
   // authorizes it. Terminal tasks never retain stale controls.
   if (TERMINAL_STATES.has(state)) return [];
   return actions.filter((item) => ALLOWED_ACTIONS.has(item.action)).slice(0, 4);
+}
+
+function approvalActionLabels(action) {
+  if (action === 'pause-task') return { approve:'确认暂停', reject:'保持运行' };
+  if (action === 'resume-task') return { approve:'确认继续', reject:'保持暂停' };
+  return { approve:ACTION_LABELS.approve, reject:ACTION_LABELS.reject };
 }
 
 function actionView(action, { approvalId = '', governanceMode = '', label = '' } = {}) {
@@ -150,6 +173,7 @@ function latestTimestamp(task, approvals, recoveryView) {
 
 function sourceRevision(task, approvals, recoveryView, updatedAt) {
   const explicit = [
+    TASK_CARD_RENDER_REVISION,
     task?.presentationRevision,
     task?.revision,
     task?.workflow?.revision,

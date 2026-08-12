@@ -24,7 +24,7 @@ test('输出稳定的 task-card/v1 公共投影', () => {
   assert.match(first.summary, /正在处理中/);
   assert.equal(first.owner, '小办');
   assert.match(first.nextAction, /等待/);
-  assert.equal(first.sourceRevision, '2026-08-12T03:00:00.000Z:0');
+  assert.equal(first.sourceRevision, '2026-08-12T03:00:00.000Z:card-ux2');
   assert.equal(first.updatedAt, '2026-08-12T03:00:00.000Z');
   assert.equal(first.terminal, false);
   assert.deepEqual(first.actions, []);
@@ -63,11 +63,23 @@ test('待审批覆盖任务状态并只生成批准与拒绝动作', () => {
   const card = presentTaskCard(baseTask, { approvals });
 
   assert.equal(card.state, 'waiting_approval');
-  assert.equal(card.sourceRevision, '2026-08-12T03:01:00.000Z:0');
+  assert.equal(card.sourceRevision, '2026-08-12T03:01:00.000Z:card-ux2');
   assert.deepEqual(card.actions, [
     { action:'approve', label:'批准', approvalId:'approval-1', governanceMode:'paperclip' },
     { action:'reject', label:'拒绝', approvalId:'approval-1', governanceMode:'paperclip' },
   ]);
+});
+
+test('暂停与继续审批使用普通用户能理解的确认文案', () => {
+  const pause = presentTaskCard(baseTask, { approvals:[{
+    approvalId:'pause-1', taskId:baseTask.taskId, action:'pause-task', status:'pending', governanceMode:'paperclip',
+  }] });
+  const resume = presentTaskCard(baseTask, { approvals:[{
+    approvalId:'resume-1', taskId:baseTask.taskId, action:'resume-task', status:'pending', governanceMode:'paperclip',
+  }] });
+
+  assert.deepEqual(pause.actions.map((item) => item.label), ['确认暂停', '保持运行']);
+  assert.deepEqual(resume.actions.map((item) => item.label), ['确认继续', '保持暂停']);
 });
 
 test('只接受四种白名单动作并过滤终态的陈旧动作', () => {
@@ -118,6 +130,23 @@ test('公开文本脱敏且 contentHash 不包含原始秘密', () => {
   assert.match(card.nextAction, /\[已脱敏\]/);
   assert.match(card.owner, /\[已脱敏\]/);
   assert.match(card.contentHash, /^[a-f0-9]{64}$/);
+});
+
+test('小D飞书交付失败说明真实影响、责任边界和唯一恢复动作', () => {
+  const card = presentTaskCard({
+    ...baseTask,
+    status:'needs_input',
+    error:{
+      code:'xiaod_delivery_pending',
+      userMessage:'小D已安全保存本地确认稿，但飞书交付尚未开始。请修复飞书配置。',
+    },
+  });
+
+  assert.match(card.summary, /视频处理结果已保存/);
+  assert.match(card.summary, /报告发送到飞书失败/);
+  assert.match(card.nextAction, /不是你的操作问题/);
+  assert.match(card.nextAction, /系统管理员/);
+  assert.match(card.nextAction, /继续飞书交付/);
 });
 
 test('缺少时间戳的旧任务使用稳定的无秘密修订摘要', () => {

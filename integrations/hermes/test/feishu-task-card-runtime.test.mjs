@@ -74,6 +74,28 @@ test('渲染单张 interactive card，并严格过滤动作白名单', () => {
   assert.ok(actionRow.actions.every((button) => button.value.task_id === 'task-123'));
   assert.equal(actionRow.actions[0].value.approval_id, 'approval-1');
   assert.equal(actionRow.actions[0].value.governance_mode, 'paperclip');
+  const refresh = card.elements
+    .filter((element) => element.tag === 'action')
+    .flatMap((element) => element.actions)
+    .find((button) => button.value.agent_army_task_card_action === 'refresh');
+  assert.equal(refresh.text.content, '查看最新状态 · T-123');
+});
+
+test('优先使用权威投影的任务控制文案，并避免重复显示下一步', () => {
+  const card = render(projection({
+    summary:'视频处理结果已保存。请联系管理员检查连接。',
+    nextAction:'请联系管理员检查连接。',
+    actions:[
+      { action:'approve', label:'确认暂停', approvalId:'pause-1', governanceMode:'paperclip' },
+      { action:'reject', label:'保持运行', approvalId:'pause-1', governanceMode:'paperclip' },
+    ],
+  }));
+  const actionButtons = card.elements
+    .filter((element) => element.tag === 'action')
+    .flatMap((element) => element.actions)
+    .filter((button) => ['approve', 'reject'].includes(button.value.agent_army_task_card_action));
+  assert.deepEqual(actionButtons.map((button) => button.text.content), ['确认暂停', '保持运行']);
+  assert.equal(card.elements.some((element) => element.tag === 'markdown' && element.content.startsWith('**下一步**')), false);
 });
 
 test('终态卡片不渲染任何可执行按钮', () => {

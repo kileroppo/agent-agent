@@ -35,7 +35,7 @@ function finishFeishuExperiencePatches(source) {
 }
 
 function upgradeDynamicTaskCardPatch(source) {
-  if (source.includes('AGENT_ARMY_FEISHU_DYNAMIC_TASK_CARD_V1')) return source;
+  if (source.includes('AGENT_ARMY_FEISHU_DYNAMIC_TASK_CARD_V1')) return upgradeDynamicTaskCardRefreshPatch(source);
   if (
     !source.includes('AJUN_FEISHU_COMMANDER_INGRESS_URL')
     || !source.includes('self._ajun_completion_watches_path = get_hermes_home() / "ajun_completion_watches.json"')
@@ -107,7 +107,15 @@ function upgradeDynamicTaskCardPatch(source) {
     '    def _handle_ajun_approval_card_action(self, *, event: Any, action_value: Dict[str, Any], loop: Any) -> Any:\n',
     `${dynamicTaskCardCallback}\n\n    def _handle_ajun_approval_card_action(self, *, event: Any, action_value: Dict[str, Any], loop: Any) -> Any:\n`
   );
-  return result;
+  return upgradeDynamicTaskCardRefreshPatch(result);
+}
+
+function upgradeDynamicTaskCardRefreshPatch(source) {
+  if (source.includes('AGENT_ARMY_FEISHU_DYNAMIC_TASK_CARD_REFRESH_V2')) return source;
+  const start = source.indexOf('    def _handle_ajun_task_card_action(');
+  const end = source.indexOf('\n    def _handle_ajun_approval_card_action(', start);
+  if (start < 0 || end < 0) return source;
+  return `${source.slice(0, start)}${dynamicTaskCardCallback}${source.slice(end)}`;
 }
 
 
@@ -1600,6 +1608,7 @@ const dynamicTaskCardMethods = `    def _ajun_dynamic_task_cards_enabled(self) -
                 self._put_ajun_task_card(task_id, current)`;
 const dynamicTaskCardCallback = `    def _handle_ajun_task_card_action(self, *, event: Any, action_value: Dict[str, Any]) -> Any:
         """Write the authoritative decision first, then replace the clicked card."""
+        # AGENT_ARMY_FEISHU_DYNAMIC_TASK_CARD_REFRESH_V2: stale controls converge to current truth.
         action = str(action_value.get("agent_army_task_card_action", "") or "")
         task_id = str(action_value.get("task_id", "") or "")
         source_revision = action_value.get("source_revision")
@@ -1626,25 +1635,29 @@ const dynamicTaskCardCallback = `    def _handle_ajun_task_card_action(self, *, 
             return _error_response("卡片记录暂时不可读取，本次操作未生效。")
         record = records.get(task_id) if isinstance(records.get(task_id), dict) else None
         valid = (
-            action in {"approve", "reject", "pause", "resume"}
+            action in {"approve", "reject", "pause", "resume", "refresh"}
             and task_id and message_id and record
             and str(record.get("message_id", "") or "") == message_id
-            and record.get("last_source_revision") == source_revision
-            and str(record.get("last_content_hash", "") or "") == content_hash
             and self._is_interactive_operator_authorized(open_id)
         )
         if not valid:
-            return _error_response("卡片状态已变化，请等待刷新后再操作。")
+            return _error_response("无法确认这张卡片的来源，本次操作未生效。")
         ingress_url = os.getenv("AJUN_FEISHU_COMMANDER_INGRESS_URL", "").strip()
         if not ingress_url.startswith("http://127.0.0.1:"):
             return _error_response("任务入口不可用，本次操作未生效。")
-        endpoint = ingress_url.split("/api/feishu/commander", 1)[0] + "/api/feishu/task-card-actions"
-        payload = json.dumps({
-            "taskId": task_id, "action": action, "approvalId": approval_id,
-            "governanceMode": governance_mode, "sourceRevision": source_revision,
-            "contentHash": content_hash, "requesterRef": open_id, "chatRef": chat_id,
-            "messageId": message_id,
-        }, ensure_ascii=False).encode("utf-8")
+        base_url = ingress_url.split("/api/feishu/commander", 1)[0]
+        if action == "refresh":
+            endpoint = base_url + "/api/feishu/task-status"
+            request_body = {"taskId": task_id, "chatRef": chat_id}
+        else:
+            endpoint = base_url + "/api/feishu/task-card-actions"
+            request_body = {
+                "taskId": task_id, "action": action, "approvalId": approval_id,
+                "governanceMode": governance_mode, "sourceRevision": source_revision,
+                "contentHash": content_hash, "requesterRef": open_id, "chatRef": chat_id,
+                "messageId": message_id,
+            }
+        payload = json.dumps(request_body, ensure_ascii=False).encode("utf-8")
         try:
             request = Request(endpoint, data=payload, headers={"Content-Type": "application/json"}, method="POST")
             with urlopen(request, timeout=8) as provider_response:
@@ -1666,6 +1679,10 @@ const dynamicTaskCardCallback = `    def _handle_ajun_task_card_action(self, *, 
             if response is not None and CallBackCard is not None:
                 card = CallBackCard(); card.type = "raw"; card.data = decided_card
                 response.card = card
+                from lark_oapi.event.callback.model.p2_card_action_trigger import CallBackToast
+                toast = CallBackToast(); toast.type = "success"
+                toast.content = str(body.get("message") or ("已刷新到最新状态。" if action == "refresh" else "操作已处理。"))[:120]
+                response.toast = toast
             return response
         except (HTTPError, URLError, OSError, ValueError, json.JSONDecodeError) as exc:
             logger.warning("[Feishu] Dynamic task card action rejected without changing card: %s", exc)

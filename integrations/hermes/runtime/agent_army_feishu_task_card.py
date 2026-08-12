@@ -37,7 +37,7 @@ _STATE_LABELS = {
     "queued": "排队中",
     "running": "处理中",
     "waiting_approval": "等待审批",
-    "needs_input": "等待补充信息",
+    "needs_input": "需要处理",
     "waiting_test": "等待验收",
     "paused": "已暂停",
     "recovery_pending": "等待恢复",
@@ -99,6 +99,7 @@ def _normalized_actions(projection: Mapping[str, Any]) -> Iterable[Dict[str, Any
         if action in ALLOWED_ACTIONS and not any(item["action"] == action for item in normalized):
             normalized.append({
                 "action": action,
+                "label": _text(candidate.get("label"), 80) if isinstance(candidate, Mapping) else "",
                 "approvalId": _text(candidate.get("approvalId"), 240) if isinstance(candidate, Mapping) else "",
                 "governanceMode": _text(candidate.get("governanceMode"), 80) if isinstance(candidate, Mapping) else "",
             })
@@ -139,13 +140,14 @@ def render_task_card(projection: Mapping[str, Any]) -> Dict[str, Any]:
         facts.append(f"**负责人**：{owner}")
     body = f"{'　'.join(facts)}\n\n{summary}"
     elements: list[Dict[str, Any]] = [{"tag": "markdown", "content": body}]
-    if next_action:
+    if next_action and "".join(next_action.split()) not in "".join(summary.split()):
         elements.append({"tag": "markdown", "content": f"**下一步**：{next_action}"})
 
     buttons = []
     for action_view in _normalized_actions(projection):
         action = action_view["action"]
-        label, button_type = _ACTION_PRESENTATION[action]
+        fallback_label, button_type = _ACTION_PRESENTATION[action]
+        label = action_view.get("label") or fallback_label
         buttons.append(
             {
                 "tag": "button",
@@ -163,6 +165,22 @@ def render_task_card(projection: Mapping[str, Any]) -> Dict[str, Any]:
         )
     if buttons:
         elements.append({"tag": "action", "actions": buttons})
+
+    if projection.get("terminal") is not True:
+        elements.append({
+            "tag": "action",
+            "actions": [{
+                "tag": "button",
+                "text": {"tag": "plain_text", "content": f"查看最新状态 · {task_ref}"[:80]},
+                "type": "default",
+                "value": {
+                    "agent_army_task_card_action": "refresh",
+                    "task_id": task_id,
+                    "source_revision": revision,
+                    "content_hash": content_hash,
+                },
+            }],
+        })
 
     note = f"任务 {task_ref}"
     if updated_at:

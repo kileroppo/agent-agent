@@ -217,17 +217,17 @@ test('任务卡审批先写权威决定再返回无旧按钮的最新投影', as
 
   assert.equal(result.taskCard.state, 'running');
   assert.deepEqual(result.taskCard.actions, []);
-  await assert.rejects(
-    resolveTaskCardAction({
+  const stale = await resolveTaskCardAction({
       taskId,
       action:'approve',
       approvalId:'approval-1',
       chatRef:'chat-1',
       sourceRevision:current.sourceRevision,
       contentHash:current.contentHash,
-    }, { store, tasks, resolveApproval:async () => {} }),
-    /任务卡已更新/,
-  );
+    }, { store, tasks, resolveApproval:async () => {} });
+  assert.equal(stale.actionApplied, false);
+  assert.equal(stale.reason, 'stale_projection');
+  assert.equal(stale.taskCard.state, 'running');
 });
 
 test('任务卡仅为真实小D作业开放暂停并返回新审批态', async () => {
@@ -248,7 +248,7 @@ test('任务卡仅为真实小D作业开放暂停并返回新审批态', async (
   const tasks = {
     async recoveryView() { return { actions:[] }; },
     async requestPause() {
-      approvals = [{ approvalId:'pause-1', taskId, status:'pending', governanceMode:'paperclip' }];
+      approvals = [{ approvalId:'pause-1', taskId, action:'pause-task', status:'pending', governanceMode:'paperclip' }];
       task = { ...task, approvalRefs:['pause-1'], updatedAt:'2026-08-12T03:01:00.000Z' };
     },
   };
@@ -263,6 +263,78 @@ test('任务卡仅为真实小D作业开放暂停并返回新审批态', async (
   }, { store, tasks, resolveApproval:async () => {} });
   assert.equal(result.taskCard.state, 'waiting_approval');
   assert.deepEqual(result.taskCard.actions.map((item) => item.action), ['approve', 'reject']);
+  assert.deepEqual(result.taskCard.actions.map((item) => item.label), ['确认暂停', '保持运行']);
+});
+
+test('进度刚更新但仍可暂停时沿用用户意图，不把正常竞态报成失败', async () => {
+  let task = {
+    taskId,
+    status:'running',
+    approvalRefs:[],
+    input:{ title:'整理公开视频' },
+    source:{ channel:'feishu', chatRef:'chat-1' },
+    execution:{ executor:'xiaod', xiaodJobId:'job-1', xiaodProgress:40 },
+    updatedAt:'2026-08-12T03:01:00.000Z',
+  };
+  let approvals = [];
+  let pauseRequests = 0;
+  const store = {
+    async getTask() { return task; },
+    async listApprovals() { return approvals; },
+  };
+  const tasks = {
+    async recoveryView() { return { actions:[] }; },
+    async requestPause() {
+      pauseRequests += 1;
+      approvals = [{ approvalId:'pause-latest', taskId, action:'pause-task', status:'pending', governanceMode:'paperclip' }];
+      task = { ...task, approvalRefs:['pause-latest'], updatedAt:'2026-08-12T03:02:00.000Z' };
+    },
+  };
+
+  const result = await resolveTaskCardAction({
+    taskId,
+    action:'pause',
+    chatRef:'chat-1',
+    sourceRevision:'2026-08-12T03:00:00.000Z:0',
+    contentHash:'stale-card-hash',
+  }, { store, tasks, resolveApproval:async () => {} });
+
+  assert.equal(pauseRequests, 1);
+  assert.equal(result.actionApplied, true);
+  assert.equal(result.taskCard.state, 'waiting_approval');
+  assert.deepEqual(result.taskCard.actions.map((item) => item.label), ['确认暂停', '保持运行']);
+});
+
+test('任务已经进入下一阶段时点击旧暂停按钮会刷新卡片而不报错', async () => {
+  const task = {
+    taskId,
+    status:'needs_input',
+    input:{ title:'整理公开视频' },
+    source:{ channel:'feishu', chatRef:'chat-1' },
+    execution:{ executor:'xiaod', xiaodJobId:'job-1', xiaodProgress:92 },
+    updatedAt:'2026-08-12T03:02:00.000Z',
+  };
+  const store = {
+    async getTask() { return task; },
+    async listApprovals() { return []; },
+  };
+  const tasks = {
+    async recoveryView() { return { actions:[] }; },
+    async requestPause() { assert.fail('阶段变化后不得再申请暂停'); },
+  };
+
+  const result = await resolveTaskCardAction({
+    taskId,
+    action:'pause',
+    chatRef:'chat-1',
+    sourceRevision:'2026-08-12T03:00:00.000Z:0',
+    contentHash:'stale-card-hash',
+  }, { store, tasks, resolveApproval:async () => {} });
+
+  assert.equal(result.actionApplied, false);
+  assert.equal(result.reason, 'stale_projection');
+  assert.equal(result.taskCard.state, 'needs_input');
+  assert.deepEqual(result.taskCard.actions, []);
 });
 
 async function startFeishuHandler(context, { work, feishu }) {

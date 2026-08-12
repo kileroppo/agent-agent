@@ -222,8 +222,8 @@ function deliveryWaitFor(job) {
     code:'xiaod_delivery_pending',
     message:String(delivery.lastError || (documentReady ? '飞书文档权限尚未确认。' : '飞书文档尚未创建。')),
     userMessage:documentReady
-      ? '小D已生成飞书文档，但目标用户权限尚未确认。请修复权限配置后回复“继续飞书交付”。'
-      : '小D已安全保存本地确认稿，但飞书交付尚未开始。请修复飞书配置或连接后回复“继续飞书交付”。',
+      ? '视频处理结果已保存，飞书文档也已生成，但目标用户权限尚未确认。这不是重复提交能解决的问题；请联系系统管理员检查小D的飞书权限，修复后在本会话回复“继续飞书交付”。'
+      : '视频处理结果已保存，但报告发送到飞书失败。这不是你的操作问题；请联系系统管理员检查小D的飞书应用连接，修复后在本会话回复“继续飞书交付”。',
     category:'needs_input',
     retryable:true,
     stage:'awaiting_delivery',

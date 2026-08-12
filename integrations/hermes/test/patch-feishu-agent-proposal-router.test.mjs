@@ -360,10 +360,11 @@ test('动态任务卡按钮使用原消息锚点，权威决定成功后才返�
   const end = patched.indexOf('\n    def _handle_ajun_approval_card_action(', start);
   const callback = patched.slice(start, end);
   assert.match(callback, /agent_army_task_card_action/);
-  assert.match(callback, /\{"approve", "reject", "pause", "resume"\}/);
+  assert.match(callback, /\{"approve", "reject", "pause", "resume", "refresh"\}/);
   assert.match(callback, /getattr\(context, "open_message_id"/);
   assert.doesNotMatch(callback, /event\.token|getattr\(event, "token"/);
   assert.match(callback, /api\/feishu\/task-card-actions/);
+  assert.match(callback, /api\/feishu\/task-status/);
   assert.match(callback, /sourceRevision/);
   assert.match(callback, /contentHash/);
   assert.match(callback, /CallBackToast/);
@@ -373,7 +374,8 @@ test('动态任务卡按钮使用原消息锚点，权威决定成功后才返�
   assert.doesNotMatch(callback, /last_source_revision": projection\.get/);
   assert.match(callback, /record\["next_poll_at"\] = 0/);
   assert.match(callback, /self\._wake_ajun_task_card_supervisor\(\)/);
-  assert.match(callback, /卡片状态已变化，请等待刷新后再操作/);
+  assert.doesNotMatch(callback, /last_source_revision"\) == source_revision/);
+  assert.match(callback, /无法确认这张卡片的来源，本次操作未生效/);
   assert.match(callback, /卡片记录暂时不可读取，本次操作未生效/);
   assert.match(callback, /操作未生效，请重试/);
 });
