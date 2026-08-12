@@ -6,6 +6,7 @@ import { validateTaskCompletion } from './task-completion-contract.js';
 export const CREATE_AGENT_RE = /(?:创建|新建|招募|招)\s*(?:一个\s*)?.{0,80}?(?:agent|智能体|岗位|助手)/i;
 export const PROGRESS_RE = /进度|进展|做到哪|处理得怎么样|完成了吗|结果呢|任务状态/;
 export const EXPLICIT_TASK_CREATION_RE = /(?:创建|新建|发起|安排)\s*(?:一个|一项|个|项)?\s*(?:测试)?任务/i;
+export const TASK_ROUTING_DECISION_SCHEMA_VERSION = 'agent.army/feishu-task-routing-decision/v1';
 export const USAGE_RE = /花了多少|花费|成本|费用|消耗|用量|token|账单|开销|实际使用/i;
 export const FOLLOW_UP_RE = /^(?:需要|处理|继续|好的|好|行|可以|开始)$/;
 export const PAUSE_RE = /(?:暂停|先别做|先停)/;
@@ -40,6 +41,52 @@ export function explicitTaskCreationPlan(text) {
   }
   if (HEALTH_RE.test(value)) return { intent:'health_check' };
   return null;
+}
+
+const TASK_TYPE_BY_INTENT = Object.freeze({
+  health_check:'operations.health-review',
+  media_task:'media.transcribe-and-refine',
+  public_report:'report.public-material',
+  github_search:'research.github-search',
+  intel_research:'research.intel-report',
+  office_presentation:'office.presentation-package',
+  office_briefing:'office.briefing-package',
+  architecture_review:'governance.architecture-review',
+  army_planning:'governance.architecture-review',
+  intake:'army.intake',
+});
+
+export function taskTypeForIntent(intent) {
+  return TASK_TYPE_BY_INTENT[intent] || 'army.intake';
+}
+
+export function taskRoutingDecision(text) {
+  const value = String(text || '').trim();
+  const asksHowToCreate = /(?:如何|怎么|怎样|能否|可以|是否).{0,24}(?:创建|新建|发起|安排).{0,12}任务/i.test(value);
+  if (EXPLICIT_TASK_CREATION_RE.test(value) && !asksHowToCreate) {
+    const plan = explicitTaskCreationPlan(value) || { intent:'intake' };
+    return {
+      schemaVersion:TASK_ROUTING_DECISION_SCHEMA_VERSION,
+      action:'create_task',
+      intent:plan.intent,
+      taskType:taskTypeForIntent(plan.intent),
+      confidence:0.99,
+      referencesExistingTask:false,
+      reason:'explicit_task_creation',
+    };
+  }
+  const query = progressQueryFor(value);
+  if (!query) return null;
+  return {
+    schemaVersion:TASK_ROUTING_DECISION_SCHEMA_VERSION,
+    action:'query_task',
+    intent:'task_progress',
+    taskType:null,
+    confidence:query.taskId ? 1 : 0.9,
+    referencesExistingTask:true,
+    reason:query.taskId ? 'task_id_reference' : 'progress_query',
+    query,
+  };
 }
 
 export function directIntent(text) {

@@ -1,6 +1,7 @@
 import {
   CREATE_AGENT_RE,
-  explicitTaskCreationPlan,
+  taskRoutingDecision,
+  taskTypeForIntent,
   PROGRESS_RE,
   USAGE_RE,
   FOLLOW_UP_RE,
@@ -46,7 +47,6 @@ import {
   progressReply,
   mostRelevantTask,
   mostRecentTask,
-  progressQueryFor,
   isTaskForAgent,
   agentDisplayName,
   progressHeading,
@@ -100,17 +100,16 @@ export const feishuCommanderRoutingMethods = {
     // old direct-Xiaod retry phrase fall through to a generic LLM conversation.
     if (CONTINUE_XIAOD_DELIVERY_RE.test(text)) return this.continueXiaodDelivery(source.chatRef);
     if (RETRY_XIAOD_RE.test(text)) return this.retryXiaodTask(source.chatRef);
-    // “创建一个任务：检查任务状态……”是在交代新工作，不是查询上一张卡。
-    // 这类显式创建意图必须先于“任务状态/进度”关键词，否则用户只会看到
-    // 处理图标闪一下，而旧卡因版本未变化被正确跳过、没有任何可见回复。
-    const explicitCreation = explicitTaskCreationPlan(text);
-    if (explicitCreation) {
-      return this.handlePlannedIntent(explicitCreation, { text, sourceEventRef, source, requester, targetAgentId });
+    // 先用一个结构化决定消解“创建新任务”和“查询旧任务”的冲突；后续路由
+    // 只消费 action，不再靠多个分支各自重复猜测用户是否引用了已有任务。
+    const taskDecision = taskRoutingDecision(text);
+    if (taskDecision?.action === 'create_task') {
+      return this.handlePlannedIntent(
+        { intent:taskDecision.intent, taskType:taskDecision.taskType },
+        { text, sourceEventRef, source, requester, targetAgentId }
+      );
     }
-    // A progress question, a pasted task ID, or "小D 的进度" is a lookup of
-    // facts already in this chat. Never send it to the model for a vague reply.
-    const progressQuery = progressQueryFor(text);
-    if (progressQuery) return this.taskProgress(source.chatRef, progressQuery);
+    if (taskDecision?.action === 'query_task') return this.taskProgress(source.chatRef, taskDecision.query);
     const pendingLinkResult = await this.handlePendingLink(text, { sourceEventRef, source, requester, targetAgentId });
     if (pendingLinkResult) return pendingLinkResult;
     // An explicit question about one named employee is a factual lookup, not
@@ -239,7 +238,7 @@ export const feishuCommanderRoutingMethods = {
     const feedback = feedbackSentiment(text);
     if (feedback) return this.recordFeedback(source.chatRef, text, feedback);
     if (FOLLOW_UP_RE.test(text)) return this.followUp(source.chatRef);
-    const taskType = plan.taskType || (intent === 'health_check' ? 'operations.health-review' : intent === 'media_task' ? 'media.transcribe-and-refine' : intent === 'public_report' ? 'report.public-material' : intent === 'github_search' ? 'research.github-search' : intent === 'intel_research' ? 'research.intel-report' : intent === 'office_presentation' ? 'office.presentation-package' : intent === 'office_briefing' ? 'office.briefing-package' : ['architecture_review', 'army_planning'].includes(intent) ? 'governance.architecture-review' : 'army.intake');
+    const taskType = plan.taskType || taskTypeForIntent(intent);
     const entryAgentId = await this.resolveEntryAgent(targetAgentId, taskType);
     const defaultAgentId = ['report.public-material', 'research.github-search', 'research.intel-report'].includes(taskType)
       ? 'intel-researcher'

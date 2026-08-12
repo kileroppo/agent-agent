@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { FeishuCommander, FeishuCommanderValidationError } from '../src/feishu-commander.js';
+import {
+  TASK_ROUTING_DECISION_SCHEMA_VERSION,
+  taskRoutingDecision,
+} from '../src/feishu-commander-replies.js';
 
 const readableValidation = { exists:true, readable:true, nonEmpty:true };
 
@@ -40,6 +44,58 @@ test('明确创建健康报告任务时不被“任务状态”误判成查询�
   assert.equal(calls.tasks[0].idempotencyKey, 'feishu:feishu:health-report-create-1');
   assert.equal(result.kind, 'architecture_review');
   assert.notEqual(result.task.taskId, 'old-card-task');
+});
+
+test('任务路由决定用结构化字段区分创建新任务和查询已有任务', () => {
+  assert.deepEqual(
+    taskRoutingDecision('请创建一个测试任务：全面检查当前军团的任务状态、岗位能力和运行健康度，输出详细报告。'),
+    {
+      schemaVersion:TASK_ROUTING_DECISION_SCHEMA_VERSION,
+      action:'create_task',
+      intent:'architecture_review',
+      taskType:'governance.architecture-review',
+      confidence:0.99,
+      referencesExistingTask:false,
+      reason:'explicit_task_creation',
+    }
+  );
+  assert.deepEqual(taskRoutingDecision('看看任务 123e4567-e89b-12d3-a456-426614174000 的进度'), {
+    schemaVersion:TASK_ROUTING_DECISION_SCHEMA_VERSION,
+    action:'query_task',
+    intent:'task_progress',
+    taskType:null,
+    confidence:1,
+    referencesExistingTask:true,
+    reason:'task_id_reference',
+    query:{ taskId:'123e4567-e89b-12d3-a456-426614174000' },
+  });
+});
+
+test('通用明确创建请求进入新任务，询问创建方法不误建任务', () => {
+  assert.deepEqual(taskRoutingDecision('请创建一个任务：整理本周公开资料'), {
+    schemaVersion:TASK_ROUTING_DECISION_SCHEMA_VERSION,
+    action:'create_task',
+    intent:'intake',
+    taskType:'army.intake',
+    confidence:0.99,
+    referencesExistingTask:false,
+    reason:'explicit_task_creation',
+  });
+  assert.equal(taskRoutingDecision('我应该怎么创建一个任务？'), null);
+});
+
+test('通用明确创建请求绕过进度查询并实际登记一项新任务', async () => {
+  const { commander, calls } = setup();
+  commander.planner = { async decide() { throw new Error('明确创建请求不应再次交给模型判断 action'); } };
+  const result = await commander.handle({
+    text:'请创建一个任务：整理本周公开资料',
+    sourceEventRef:'feishu:explicit-intake-create-1',
+    chatRef:'chat-explicit-intake',
+  });
+  assert.equal(calls.tasks.length, 1);
+  assert.equal(calls.tasks[0].taskType, 'army.intake');
+  assert.equal(calls.tasks[0].idempotencyKey, 'feishu:feishu:explicit-intake-create-1');
+  assert.equal(result.task.taskId, 'task-1');
 });
 
 test('自然语言要视频脚本时直接交给小创，不误当成小D素材转录', async () => {
