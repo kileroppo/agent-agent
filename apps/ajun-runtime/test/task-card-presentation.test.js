@@ -24,7 +24,7 @@ test('输出稳定的 task-card/v1 公共投影', () => {
   assert.match(first.summary, /正在处理中/);
   assert.equal(first.owner, '小办');
   assert.match(first.nextAction, /等待/);
-  assert.equal(first.sourceRevision, '2026-08-12T03:00:00.000Z:card-ux2');
+  assert.equal(first.sourceRevision, '2026-08-12T03:00:00.000Z:card-ux3');
   assert.equal(first.updatedAt, '2026-08-12T03:00:00.000Z');
   assert.equal(first.terminal, false);
   assert.deepEqual(first.actions, []);
@@ -63,7 +63,7 @@ test('待审批覆盖任务状态并只生成批准与拒绝动作', () => {
   const card = presentTaskCard(baseTask, { approvals });
 
   assert.equal(card.state, 'waiting_approval');
-  assert.equal(card.sourceRevision, '2026-08-12T03:01:00.000Z:card-ux2');
+  assert.equal(card.sourceRevision, '2026-08-12T03:01:00.000Z:card-ux3');
   assert.deepEqual(card.actions, [
     { action:'approve', label:'批准', approvalId:'approval-1', governanceMode:'paperclip' },
     { action:'reject', label:'拒绝', approvalId:'approval-1', governanceMode:'paperclip' },
@@ -147,6 +147,29 @@ test('小D飞书交付失败说明真实影响、责任边界和唯一恢复动�
   assert.match(card.nextAction, /不是你的操作问题/);
   assert.match(card.nextAction, /系统管理员/);
   assert.match(card.nextAction, /继续飞书交付/);
+});
+
+test('小D交付完成且权限确认后只投影可信飞书文档入口', () => {
+  const card = presentTaskCard({
+    taskId:'task-delivered', status:'succeeded', input:{ title:'整理公开视频' },
+    artifactRefs:[{
+      type:'xiaod_media_delivery',
+      data:{ larkUrl:'https://feishu.cn/docx/docx123', larkPermissionGranted:true },
+    }],
+  });
+  assert.deepEqual(card.primaryLink, {
+    label:'打开交付文档',
+    url:'https://feishu.cn/docx/docx123',
+  });
+
+  const unsafe = presentTaskCard({
+    taskId:'task-unsafe-link', status:'succeeded', input:{ title:'整理公开视频' },
+    artifactRefs:[{
+      type:'xiaod_media_delivery',
+      data:{ larkUrl:'https://example.com/docx/docx123', larkPermissionGranted:true },
+    }],
+  });
+  assert.equal(unsafe.primaryLink, null);
 });
 
 test('缺少时间戳的旧任务使用稳定的无秘密修订摘要', () => {

@@ -166,6 +166,21 @@ def render_task_card(projection: Mapping[str, Any]) -> Dict[str, Any]:
     if buttons:
         elements.append({"tag": "action", "actions": buttons})
 
+    primary_link = projection.get("primaryLink")
+    if isinstance(primary_link, Mapping):
+        link_url = _text(primary_link.get("url"), 500)
+        link_label = _text(primary_link.get("label"), 80, "打开交付结果")
+        if link_url.startswith("https://"):
+            elements.append({
+                "tag": "action",
+                "actions": [{
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": link_label},
+                    "type": "primary",
+                    "url": link_url,
+                }],
+            })
+
     if projection.get("terminal") is not True:
         elements.append({
             "tag": "action",

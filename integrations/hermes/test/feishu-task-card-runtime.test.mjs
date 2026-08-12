@@ -113,6 +113,21 @@ test('终态卡片不渲染任何可执行按钮', () => {
   assert.match(card.elements.at(-1).elements[0].content, /更新于 2026-08-12 11:53$/);
 });
 
+test('终态卡片保留只读交付文档入口，不恢复任务操作按钮', () => {
+  const card = render(projection({
+    terminal:true,
+    state:'succeeded',
+    actions:['pause'],
+    primaryLink:{ label:'打开交付文档', url:'https://feishu.cn/docx/docx123' },
+  }));
+  const actionButtons = card.elements
+    .filter((element) => element.tag === 'action')
+    .flatMap((element) => element.actions);
+  assert.deepEqual(actionButtons.map((button) => button.text.content), ['打开交付文档']);
+  assert.equal(actionButtons[0].url, 'https://feishu.cn/docx/docx123');
+  assert.equal(actionButtons[0].value, undefined);
+});
+
 test('无记录发送，有锚点且新 revision 更新，并返回 messageId', () => {
   assert.equal(decide(null, projection()).operation, 'send');
   const result = decide(

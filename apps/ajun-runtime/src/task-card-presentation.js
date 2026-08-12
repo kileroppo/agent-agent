@@ -3,7 +3,7 @@ import { presentTask } from './task-presentation.js';
 import { sanitizeFailureText } from './technical-failure-classifier.js';
 
 export const TASK_CARD_SCHEMA_VERSION = 'agent.army/task-card/v1';
-const TASK_CARD_RENDER_REVISION = 'card-ux2';
+const TASK_CARD_RENDER_REVISION = 'card-ux3';
 
 const ACTION_LABELS = Object.freeze({
   approve:'批准',
@@ -35,6 +35,7 @@ export function presentTaskCard(task = {}, { approvals = [], recoveryView = null
     summary:taskCardCopy.summary,
     owner:ownerLabel(owner, task),
     nextAction:taskCardCopy.nextAction,
+    primaryLink:deliveryLink(task),
     actions:cardActions({ task, pendingApproval, recoveryView, state }),
     sourceRevision:sourceRevision(task, relevantApprovals, recoveryView, updatedAt),
     terminal:TERMINAL_STATES.has(state),
@@ -44,6 +45,21 @@ export function presentTaskCard(task = {}, { approvals = [], recoveryView = null
     ...projection,
     contentHash:hashProjection(projection),
   };
+}
+
+function deliveryLink(task) {
+  const delivery = (Array.isArray(task?.artifactRefs) ? task.artifactRefs : [])
+    .find((artifact) => artifact?.type === 'xiaod_media_delivery');
+  const value = String(delivery?.data?.larkUrl || '').trim();
+  if (!value || delivery?.data?.larkPermissionGranted !== true) return null;
+  try {
+    const url = new URL(value);
+    const trustedHost = url.hostname === 'feishu.cn' || url.hostname.endsWith('.feishu.cn');
+    if (url.protocol !== 'https:' || !trustedHost || !url.pathname.startsWith('/docx/')) return null;
+    return { label:'打开交付文档', url:url.toString() };
+  } catch {
+    return null;
+  }
 }
 
 function publicTaskCardCopy(task, presentation) {
