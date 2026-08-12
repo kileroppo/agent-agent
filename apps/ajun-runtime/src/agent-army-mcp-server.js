@@ -523,6 +523,9 @@ async function toolResult(operation) {
 }
 
 function humanReadableToolText(value) {
+  if (value?.viewKind === 'army_status' && typeof value?.presentation?.summary === 'string') {
+    return value.presentation.summary;
+  }
   const direct = formatTaskPresentation(value);
   if (direct) return direct;
   if (Array.isArray(value)) {

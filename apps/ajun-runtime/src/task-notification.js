@@ -167,6 +167,7 @@ function knowledgeDelivery(task, title) {
 function unfinishedStatus(root, current) {
   const title = shortTaskTitle(root);
   if (current.status === 'waiting_worker') return status(root, 'waiting_worker', false, `“${title}”需要老板的 Mac工作间处理。云端已安全排队；Mac 上线后会自动领取，不需要你重复提交。`);
+  if (current.status === 'failed' && current.recovery?.coordination?.status === 'start_failed') return status(root, 'recovery_start_failed', true, `“${title}”处理失败，自动诊断也未能启动，故障已经记录。暂时不用重复提交。`);
   if (current.status === 'failed' && current.recovery?.coordination?.status === 'retrying') return status(root, 'recovery_pending', false, `“${title}”遇到故障，运维官已接手并正在从安全断点恢复；不需要你重复提交。`);
   if ((current.status === 'failed' && current.recovery?.coordination?.status === 'pending') || (current.status === 'failed' && current.taskType === 'media.transcribe-and-refine' && !current.recovery?.coordination)) return status(root, 'recovery_pending', false, `“${title}”遇到故障，正在交给运维官判断恢复办法。`);
   if (current.recovery?.coordination?.status === 'pending') return status(root, 'recovery_pending', false, `“${title}”遇到故障，正在等待运维官接手。`);

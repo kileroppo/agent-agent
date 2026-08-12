@@ -35,6 +35,8 @@ export function capabilitiesReadView(overview: any) {
 
 export function armyStatusReadView(overview: any) {
   return Object.freeze({
+    viewKind:'army_status',
+    presentation:armyStatusPresentation(overview),
     taskFocus:overview?.taskFocus || {},
     validationCampaign:overview?.validationCampaign || {},
     workflows:safeWorkflowViews(overview?.workflows),
@@ -48,6 +50,73 @@ export function armyStatusReadView(overview: any) {
       feishuChannel:safeChannel(agent?.feishuChannel),
     }))),
   });
+}
+
+function armyStatusPresentation(overview: any) {
+  const tasks = Array.isArray(overview?.tasks) ? overview.tasks : [];
+  const focus = overview?.taskFocus || {};
+  const recovery = tasks
+    .filter((task: any) => activeRecovery(task, tasks))
+    .sort(newestFirst)[0];
+
+  if (recovery) {
+    const title = safeText(recovery?.input?.title, 120) || '当前任务';
+    const employee = employeeName(overview?.agents, recovery?.assigneeAgentId);
+    const context = employee ? `${employee}处理“${title}”时出现异常` : `“${title}”执行时出现异常`;
+    const status = recovery.recovery.coordination.status;
+    const action = status === 'retrying'
+      ? '已自动重试，正在复验'
+      : status === 'escalated'
+        ? '技术专家正在诊断修复'
+        : '运维官正在诊断';
+    return Object.freeze({
+      status:'recovering',
+      userActionRequired:false,
+      summary:`${context}，${action}。暂时不用你处理。`,
+    });
+  }
+
+  const waitingApproval = Math.max(0, Number(focus?.waitingApproval || 0));
+  if (waitingApproval > 0) {
+    const next = focus?.actions?.find((item: any) => item?.status === 'waiting_approval') || focus?.next;
+    const title = safeText(next?.title, 120);
+    const action = safeText(next?.action, 300) || '请确认后我再继续。';
+    return Object.freeze({
+      status:'needs_user_action',
+      userActionRequired:true,
+      summary:`有 ${waitingApproval} 项操作等你确认${title ? `，当前是“${title}”` : ''}。${action}`,
+    });
+  }
+
+  const inProgress = Math.max(0, Number(focus?.inProgress || 0));
+  return Object.freeze({
+    status:'normal',
+    userActionRequired:false,
+    summary:inProgress > 0
+      ? `军团正常，正在处理 ${inProgress} 项工作。暂时不用你处理。`
+      : '军团正常，没有需要你处理的事。',
+  });
+}
+
+function activeRecovery(task: any, tasks: readonly any[]) {
+  const coordination = task?.recovery?.coordination;
+  if (!['pending', 'retrying', 'escalated'].includes(coordination?.status)) return false;
+  const linkedTaskId = coordination?.retryTaskId || coordination?.technicalTaskId;
+  if (!linkedTaskId) return false;
+  const linked = tasks.find((item: any) => item?.taskId === linkedTaskId);
+  return Boolean(linked && ['queued', 'running', 'waiting_worker', 'pausing'].includes(linked.status));
+}
+
+function employeeName(agents: unknown, agentId: unknown) {
+  const id = safeText(agentId, 100);
+  if (!id || !Array.isArray(agents)) return '';
+  const agent = agents.find((item: any) => safeText(item?.agentId, 100) === id);
+  return safeText(agent?.name || agent?.agentId, 120);
+}
+
+function newestFirst(left: any, right: any) {
+  return (Date.parse(right?.updatedAt || right?.createdAt || '') || 0)
+    - (Date.parse(left?.updatedAt || left?.createdAt || '') || 0);
 }
 
 function employeeCapabilityView(agent: any) {

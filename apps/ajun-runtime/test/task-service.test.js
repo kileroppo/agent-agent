@@ -2774,6 +2774,44 @@ test('普通员工执行报错后自动交给恢复链路，原任务不会一�
   assert.equal((await service.notificationStatus(task.taskId)).status, 'recovery_pending');
   assert.deepEqual(failures.map((item) => item.taskId), [task.taskId]);
 });
+test('恢复协调器首次启动失败时会自动再试一次', async () => {
+  const reporter = { agentId:'public-reporter', name:'公开资料报告员', status:'active', acceptedTaskTypes:['report.public-material'], runtime:{ kind:'proposal-public-report' } };
+  let recoveryAttempts = 0;
+  const { service } = setup({ agents:[reporter], onTaskFailed:async () => {
+    recoveryAttempts += 1;
+    if (recoveryAttempts === 1) throw new Error('恢复协调器瞬时启动失败');
+  } });
+  service.fallbackExecutor = { supports(){ return true; }, async execute(){ throw new Error('公开网页暂时无法读取'); } };
+
+  await service.create({ title:'整理公开网页', taskType:'report.public-material', sourceUrl:'https://example.com/article' });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(recoveryAttempts, 2);
+});
+test('恢复协调器连续启动失败时会落账，不会一直冒充诊断中', async () => {
+  const reporter = { agentId:'public-reporter', name:'公开资料报告员', status:'active', acceptedTaskTypes:['report.public-material'], runtime:{ kind:'proposal-public-report' } };
+  let recoveryAttempts = 0;
+  const { service } = setup({ agents:[reporter], onTaskFailed:async () => {
+    recoveryAttempts += 1;
+    const error = new Error('恢复协调器不可用');
+    error.code = 'recovery_coordinator_unavailable';
+    throw error;
+  } });
+  service.fallbackExecutor = { supports(){ return true; }, async execute(){ throw new Error('公开网页暂时无法读取'); } };
+
+  const task = await service.create({ title:'整理公开网页', taskType:'report.public-material', sourceUrl:'https://example.com/article' });
+  await new Promise((resolve) => setImmediate(resolve));
+  const stored = (await service.store.list()).find((item) => item.taskId === task.taskId);
+  const notification = await service.notificationStatus(task.taskId);
+
+  assert.equal(recoveryAttempts, 2);
+  assert.equal(stored.recovery.coordination.status, 'start_failed');
+  assert.equal(stored.recovery.coordination.errorCode, 'recovery_coordinator_unavailable');
+  assert.equal(notification.status, 'recovery_start_failed');
+  assert.equal(notification.terminal, true);
+  assert.match(notification.message, /自动诊断也未能启动/);
+  assert.doesNotMatch(notification.message, /正在诊断|正在交给/);
+});
 test('执行器声明可重试故障时保留错误代码和可重试标记，供运维官安全决策', async () => {
   const reporter = { agentId:'public-reporter', name:'公开资料报告员', status:'active', acceptedTaskTypes:['report.public-material'], runtime:{ kind:'proposal-public-report' } };
   const { service } = setup({ agents:[reporter], onTaskFailed:async () => {} });

@@ -38,7 +38,94 @@ test('AgentArmyClient exposes factual capability and employee views', async () =
   assert.equal(capabilities.capabilities[0].truth.evidenceTaskId, 'task-evidence');
   assert.equal(capabilities.capabilities[0].truth.freshness, 'later_than_latest_failure');
   assert.equal(employee.recentTasks[0].status, 'running');
-  assert.deepEqual((await client.armyStatus()).validationCampaign, { taskCount:2, groupCount:1 });
+  const status = await client.armyStatus();
+  assert.deepEqual(status.validationCampaign, { taskCount:2, groupCount:1 });
+  assert.equal(status.viewKind, 'army_status');
+  assert.equal(status.presentation.userActionRequired, false);
+  assert.match(status.presentation.summary, /军团正常，正在处理 1 项工作/);
+});
+
+test('AgentArmyClient turns an active recovery into a contextual closed-loop status', async () => {
+  const client = new AgentArmyClient({
+    fetchImpl:fakeFetch({
+      'GET /api/overview':{
+        ...overview,
+        taskFocus:{ inProgress:0, waitingApproval:0 },
+        tasks:[
+          {
+            ...overview.tasks[0],
+            status:'failed',
+            input:{ title:'研究竞品资料' },
+            assigneeAgentId:'xiaod',
+            recovery:{ coordination:{ status:'escalated', technicalTaskId:'repair-active' } },
+          },
+          {
+            taskId:'repair-active',
+            taskType:'operations.technical-repair',
+            status:'running',
+            input:{ title:'诊断研究任务故障' },
+            updatedAt:'2026-07-26T02:00:00.000Z',
+          },
+        ],
+      },
+    }),
+  });
+
+  const status = await client.armyStatus();
+  assert.equal(status.presentation.status, 'recovering');
+  assert.equal(status.presentation.userActionRequired, false);
+  assert.match(status.presentation.summary, /小D处理“研究竞品资料”时出现异常/);
+  assert.match(status.presentation.summary, /技术专家正在诊断修复/);
+  assert.match(status.presentation.summary, /暂时不用你处理/);
+});
+
+test('AgentArmyClient does not surface an already completed recovery as a current incident', async () => {
+  const root = {
+    ...overview.tasks[0],
+    status:'failed',
+    recovery:{ coordination:{ status:'escalated', technicalTaskId:'repair-1' } },
+  };
+  const repair = {
+    taskId:'repair-1',
+    parentTaskId:root.taskId,
+    taskType:'operations.technical-repair',
+    status:'succeeded',
+    input:{ title:'修复任务故障' },
+    updatedAt:'2026-07-26T02:00:00.000Z',
+  };
+  const client = new AgentArmyClient({
+    fetchImpl:fakeFetch({
+      'GET /api/overview':{
+        ...overview,
+        taskFocus:{ inProgress:0, waitingApproval:0 },
+        tasks:[root, repair],
+      },
+    }),
+  });
+
+  const status = await client.armyStatus();
+  assert.equal(status.presentation.status, 'normal');
+  assert.doesNotMatch(status.presentation.summary, /异常|技术专家/);
+});
+
+test('AgentArmyClient does not claim diagnosis before a real recovery task exists', async () => {
+  const client = new AgentArmyClient({
+    fetchImpl:fakeFetch({
+      'GET /api/overview':{
+        ...overview,
+        taskFocus:{ inProgress:0, waitingApproval:0 },
+        tasks:[{
+          ...overview.tasks[0],
+          status:'failed',
+          recovery:{ coordination:{ status:'pending' } },
+        }],
+      },
+    }),
+  });
+
+  const status = await client.armyStatus();
+  assert.equal(status.presentation.status, 'normal');
+  assert.doesNotMatch(status.presentation.summary, /正在诊断|正在修复|自动重试/);
 });
 
 test('AgentArmyClient creates an idempotent Hermes task and returns its read model', async () => {

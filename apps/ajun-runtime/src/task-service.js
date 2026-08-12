@@ -168,7 +168,40 @@ export class TaskService {
   startFailureRecovery(task) {
     if (!shouldStartFailureRecovery(task) || typeof this.onTaskFailed !== 'function') return;
     // 恢复链路可能需要受控诊断；原工作已经如实记为失败，不能因此卡住其他工作的返回。
-    void Promise.resolve().then(() => this.onTaskFailed(task)).catch(() => undefined);
+    void this.runFailureRecovery(task);
+  }
+
+  async runFailureRecovery(task) {
+    let lastError = null;
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        await this.onTaskFailed(task);
+        return;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    await this.markFailureRecoveryStartFailed(task, lastError).catch(() => undefined);
+  }
+
+  async markFailureRecoveryStartFailed(task, error) {
+    const current = typeof this.store.getTask === 'function'
+      ? await this.store.getTask(task.taskId)
+      : (await this.store.list()).find((item) => item.taskId === task.taskId);
+    const coordination = current?.recovery?.coordination || task.recovery?.coordination || {};
+    return this.store.updateTask(task.taskId, {
+      recovery:{
+        ...(current?.recovery || task.recovery || {}),
+        coordination:{
+          ...coordination,
+          status:'start_failed',
+          attempts:2,
+          failedAt:new Date().toISOString(),
+          reason:'自动诊断连续两次未能启动，故障已经落账；不会继续显示为诊断中。',
+          errorCode:String(error?.code || 'failure_recovery_start_failed').slice(0, 120),
+        },
+      },
+    });
   }
 
   async markFailureRecoveryPending(task) {
