@@ -1,8 +1,8 @@
 import { buildArchitectureGroundTruth } from './architecture-evidence.js';
-import { WECHAT_CHAT_TASK_TYPE } from './wechat-chat-defaults.js';
 import { SkillExecutionRegistry } from './skill-execution-registry.js';
 import { TaskCapabilityCatalog } from './task-capability-catalog.js';
 import { TaskExecutionCoordinator } from './task-execution-coordinator.js';
+import { TaskFailureRecoveryCoordinator } from './task-failure-recovery-coordinator.js';
 import { TaskIntake } from './task-intake.js';
 import { TaskNotification } from './task-notification.js';
 import { TaskRecordService } from './task-record-service.js';
@@ -44,7 +44,6 @@ export class TaskService {
     this.executors = executors;
     this.capabilityCatalog = capabilityCatalog;
     this.fallbackExecutor = fallbackExecutor;
-    this.onTaskFailed = onTaskFailed;
     this.feishuChannelStatus = feishuChannelStatus;
     this.agentChannelStates = agentChannelStates;
     this.workerStatus = workerStatus;
@@ -69,6 +68,13 @@ export class TaskService {
     this.xiaodTranscriptRevisionRuns = new Map();
     this.paperclipAssignmentCompletionRuns = new Map();
     this.m5WorkProductObserver = null;
+    this.failureRecovery = new TaskFailureRecoveryCoordinator({ store, recover:onTaskFailed });
+    this.taskRecovery = new TaskRecovery({
+      store,
+      recover:typeof onTaskFailed === 'function' ? (task, input) => onTaskFailed(task, input) : null,
+      createTask:(input) => this.create(input),
+      capabilityStatus:this.localAiCapabilityStatus,
+    });
     this.executionCoordinator = new TaskExecutionCoordinator({
       store,
       governance,
@@ -76,8 +82,8 @@ export class TaskService {
       executorResolver:(agentId) => capabilityCatalog.executor(agentId, this.executors),
       fallbackExecutor,
       fallbackExecutorResolver:() => this.fallbackExecutor,
-      markFailureRecoveryPending:(task) => this.markFailureRecoveryPending(task),
-      startFailureRecovery:(task) => this.startFailureRecovery(task),
+      markFailureRecoveryPending:(task) => this.failureRecovery.markPending(task),
+      startFailureRecovery:(task) => this.failureRecovery.start(task),
     });
     this.officePresentationExecution = new OfficePresentationExecution({
       workspaceRoot:officePresentationWorkspaceRoot,
@@ -94,12 +100,6 @@ export class TaskService {
       execute:(task, agent) => this.executeTask(task, agent),
     });
     this.notification = new TaskNotification({ store, registry, executors });
-    this.taskRecovery = new TaskRecovery({
-      store,
-      recover:typeof onTaskFailed === 'function' ? (task, input) => this.onTaskFailed(task, input) : null,
-      createTask:(input) => this.create(input),
-      capabilityStatus:this.localAiCapabilityStatus,
-    });
     this.taskRecords = new TaskRecordService({ store, taskDetailBaseUrl, taskRecovery:this.taskRecovery });
     this.taskOverview = new TaskOverview({
       registry,
@@ -162,55 +162,6 @@ export class TaskService {
         ...(intake.autoContinue === true ? { autoCapabilityAssessment:true } : {})
       },
       idempotencyKey: `intake-continuation:${parent.taskId}:${intake.recommendedTaskType}:${intake.recommendedAgentId}`
-    });
-  }
-
-  startFailureRecovery(task) {
-    if (!shouldStartFailureRecovery(task) || typeof this.onTaskFailed !== 'function') return;
-    // 恢复链路可能需要受控诊断；原工作已经如实记为失败，不能因此卡住其他工作的返回。
-    void this.runFailureRecovery(task);
-  }
-
-  async runFailureRecovery(task) {
-    let lastError = null;
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
-      try {
-        await this.onTaskFailed(task);
-        return;
-      } catch (error) {
-        lastError = error;
-      }
-    }
-    await this.markFailureRecoveryStartFailed(task, lastError).catch(() => undefined);
-  }
-
-  async markFailureRecoveryStartFailed(task, error) {
-    const current = typeof this.store.getTask === 'function'
-      ? await this.store.getTask(task.taskId)
-      : (await this.store.list()).find((item) => item.taskId === task.taskId);
-    const coordination = current?.recovery?.coordination || task.recovery?.coordination || {};
-    return this.store.updateTask(task.taskId, {
-      recovery:{
-        ...(current?.recovery || task.recovery || {}),
-        coordination:{
-          ...coordination,
-          status:'start_failed',
-          attempts:2,
-          failedAt:new Date().toISOString(),
-          reason:'自动诊断连续两次未能启动，故障已经落账；不会继续显示为诊断中。',
-          errorCode:String(error?.code || 'failure_recovery_start_failed').slice(0, 120),
-        },
-      },
-    });
-  }
-
-  async markFailureRecoveryPending(task) {
-    if (!shouldStartFailureRecovery(task) || typeof this.onTaskFailed !== 'function') return task;
-    return this.store.updateTask(task.taskId, {
-      recovery: {
-        ...(task.recovery || {}),
-        coordination: { status:'pending', requestedAt:new Date().toISOString(), reason:'任务执行出错，正在交给运维官判断安全恢复办法。' }
-      }
     });
   }
 
@@ -367,10 +318,6 @@ Object.assign(TaskService.prototype, taskServiceExecutionMethods);
 Object.assign(TaskService.prototype, taskApprovalCoordinatorMethods);
 Object.assign(TaskService.prototype, taskXiaodTranscriptRevisionMethods);
 
-function shouldStartFailureRecovery(task) {
-  return task?.status === 'failed'
-    && !['operations.failure-recovery', 'operations.technical-repair', WECHAT_CHAT_TASK_TYPE].includes(task.taskType);
-}
 function validateApprovalChat(task, chatRef) {
   const expected = String(task.source?.chatRef || '').trim(); const actual = String(chatRef || '').trim();
   if (actual && expected && actual !== expected) throw new ValidationError('审批卡会话与原任务不一致，未执行任务。');
