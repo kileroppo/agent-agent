@@ -1,5 +1,6 @@
 import {
   CREATE_AGENT_RE,
+  explicitTaskCreationPlan,
   PROGRESS_RE,
   USAGE_RE,
   FOLLOW_UP_RE,
@@ -99,6 +100,13 @@ export const feishuCommanderRoutingMethods = {
     // old direct-Xiaod retry phrase fall through to a generic LLM conversation.
     if (CONTINUE_XIAOD_DELIVERY_RE.test(text)) return this.continueXiaodDelivery(source.chatRef);
     if (RETRY_XIAOD_RE.test(text)) return this.retryXiaodTask(source.chatRef);
+    // “创建一个任务：检查任务状态……”是在交代新工作，不是查询上一张卡。
+    // 这类显式创建意图必须先于“任务状态/进度”关键词，否则用户只会看到
+    // 处理图标闪一下，而旧卡因版本未变化被正确跳过、没有任何可见回复。
+    const explicitCreation = explicitTaskCreationPlan(text);
+    if (explicitCreation) {
+      return this.handlePlannedIntent(explicitCreation, { text, sourceEventRef, source, requester, targetAgentId });
+    }
     // A progress question, a pasted task ID, or "小D 的进度" is a lookup of
     // facts already in this chat. Never send it to the model for a vague reply.
     const progressQuery = progressQueryFor(text);

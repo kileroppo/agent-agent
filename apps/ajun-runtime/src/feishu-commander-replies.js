@@ -5,6 +5,7 @@ import { validateTaskCompletion } from './task-completion-contract.js';
 
 export const CREATE_AGENT_RE = /(?:创建|新建|招募|招)\s*(?:一个\s*)?.{0,80}?(?:agent|智能体|岗位|助手)/i;
 export const PROGRESS_RE = /进度|进展|做到哪|处理得怎么样|完成了吗|结果呢|任务状态/;
+export const EXPLICIT_TASK_CREATION_RE = /(?:创建|新建|发起|安排)\s*(?:一个|一项|个|项)?\s*(?:测试)?任务/i;
 export const USAGE_RE = /花了多少|花费|成本|费用|消耗|用量|token|账单|开销|实际使用/i;
 export const FOLLOW_UP_RE = /^(?:需要|处理|继续|好的|好|行|可以|开始)$/;
 export const PAUSE_RE = /(?:暂停|先别做|先停)/;
@@ -28,6 +29,16 @@ export class FeishuCommanderValidationError extends Error {}
 
 export function conversationControlIntent(text) {
   if (FOLLOW_UP_RE.test(text) || PAUSE_RE.test(text) || RESUME_RE.test(text) || feedbackSentiment(text)) return { intent:'known_command' };
+  return null;
+}
+
+export function explicitTaskCreationPlan(text) {
+  const value = String(text || '').trim();
+  if (!EXPLICIT_TASK_CREATION_RE.test(value)) return null;
+  if (/(?:全面|详细报告|岗位能力|能力和运行|任务状态.{0,30}运行健康)/i.test(value)) {
+    return { intent:'architecture_review' };
+  }
+  if (HEALTH_RE.test(value)) return { intent:'health_check' };
   return null;
 }
 

@@ -23,6 +23,25 @@ test('飞书军团总管将系统检查直接路由给运维官，且不创建 P
   assert.match(result.reply, /【运维官检查结果】/);
 });
 
+test('明确创建健康报告任务时不被“任务状态”误判成查询上一张卡', async () => {
+  const { commander, calls } = setup();
+  commander.planner = { async decide() { throw new Error('显式创建任务不应依赖模型消歧'); } };
+  commander.store = { async list() { return [{
+    taskId:'old-card-task', status:'succeeded',
+    source:{ channel:'feishu', chatRef:'chat-health-report' },
+  }]; } };
+  const result = await commander.handle({
+    text:'请创建一个测试任务：全面检查当前军团的任务状态、岗位能力和运行健康度，输出详细报告。只读检查，不修改文件、不外发。',
+    sourceEventRef:'feishu:health-report-create-1',
+    chatRef:'chat-health-report',
+  });
+  assert.equal(calls.tasks.length, 1);
+  assert.equal(calls.tasks[0].taskType, 'governance.architecture-review');
+  assert.equal(calls.tasks[0].idempotencyKey, 'feishu:feishu:health-report-create-1');
+  assert.equal(result.kind, 'architecture_review');
+  assert.notEqual(result.task.taskId, 'old-card-task');
+});
+
 test('自然语言要视频脚本时直接交给小创，不误当成小D素材转录', async () => {
   const { commander, calls } = setup();
   const result = await commander.handle({
