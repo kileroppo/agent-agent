@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const defaultAdapter = path.join(process.env.HERMES_HOME || path.join(process.env.HOME || '', '.hermes', 'hermes-agent'), 'plugins/platforms/feishu/adapter.py');
+const semanticLayoutSource = fileURLToPath(new URL('../runtime/agent_army_feishu_layout.py', import.meta.url));
 const taskCardRuntimeSource = fileURLToPath(new URL('../runtime/agent_army_feishu_task_card.py', import.meta.url));
 
 export function applyPatch(source) {
@@ -28,7 +29,9 @@ function finishFeishuExperiencePatches(source) {
   return upgradeDynamicTaskCardPatch(upgradeFeishuReactionReliabilityPatch(
     upgradeFeishuImmediateStatusPatch(
       upgradeFeishuSenderIdentityPatch(
-        upgradeFeishuBusyQuickActionsPatch(upgradeFeishuMobileMessagePatch(source))
+        upgradeFeishuBusyQuickActionsPatch(
+          upgradeFeishuPostBlockRowsPatch(upgradeFeishuMobileMessagePatch(source))
+        )
       )
     )
   ));
@@ -118,6 +121,60 @@ function upgradeDynamicTaskCardRefreshPatch(source) {
   return `${source.slice(0, start)}${dynamicTaskCardCallback}${source.slice(end)}`;
 }
 
+function upgradeFeishuPostBlockRowsPatch(source) {
+  if (source.includes('AGENT_ARMY_FEISHU_SEMANTIC_LAYOUT_V1')) return source;
+  let result = source;
+  const current = '    if "```" not in content:\n        return [[{"tag": "md", "text": content}]]';
+  const legacyV1 = `    if "\`\`\`" not in content:
+        # AGENT_ARMY_FEISHU_POST_BLOCK_ROWS_V1: Feishu collapses blank lines
+        # inside one md element. Preserve intentional breathing room as real
+        # post rows, with a non-breaking spacer row between semantic blocks.
+        blocks = [block.strip() for block in re.split(r"\\n{2,}", content) if block.strip()]
+        if len(blocks) <= 1:
+            return [[{"tag": "md", "text": content}]]
+        rows: List[List[Dict[str, str]]] = []
+        for block_index, block in enumerate(blocks):
+            if block_index:
+                rows.append([{"tag": "text", "text": "\\u00a0"}])
+            rows.append([{"tag": "md", "text": block}])
+        return rows`;
+  const v2 = `    if "\`\`\`" not in content:
+        # AGENT_ARMY_FEISHU_POST_BLOCK_ROWS_V2: use three stable spacing tiers.
+        # Adjacent semantic lines become adjacent post rows; section breaks get
+        # one spacer row; markdown tables stay together so they still render.
+        blocks = [block.strip() for block in re.split(r"\\n{2,}", content) if block.strip()]
+        table_separator_re = re.compile(r"(?m)^\\s*\\|?\\s*:?-{3,}.*\\|\\s*$")
+        rows: List[List[Dict[str, str]]] = []
+        for block_index, block in enumerate(blocks):
+            if block_index:
+                rows.append([{"tag": "text", "text": "\\u00a0"}])
+            block_lines = [line.rstrip() for line in block.splitlines() if line.strip()]
+            if table_separator_re.search(block):
+                rows.append([{"tag": "md", "text": block}])
+                continue
+            for line in block_lines:
+                rows.append([{"tag": "md", "text": line}])
+        return rows or [[{"tag": "md", "text": content}]]`;
+  if (!result.includes('AGENT_ARMY_FEISHU_POST_BLOCK_ROWS_V2')) {
+    if (result.includes(legacyV1)) result = result.replace(legacyV1, v2);
+    else if (result.includes(current)) result = result.replace(current, v2);
+  }
+  const v2Start = `    if "\`\`\`" not in content:
+        # AGENT_ARMY_FEISHU_POST_BLOCK_ROWS_V2: use three stable spacing tiers.`;
+  if (!result.includes(v2Start)) return result;
+  return result.replace(
+    v2Start,
+    `    # AGENT_ARMY_FEISHU_SEMANTIC_LAYOUT_V1: derive rows from Markdown AST.
+    try:
+        from .agent_army_layout import build_semantic_post_rows
+    except ImportError:
+        build_semantic_post_rows = None
+    if build_semantic_post_rows is not None:
+        return build_semantic_post_rows(content)
+
+${v2Start}`
+  );
+}
 
 export function upgradeFeishuSenderIdentityPatch(source) {
   if (source.includes('AGENT_ARMY_FEISHU_OPEN_ID_AUTH_V1')) return source;
@@ -252,13 +309,18 @@ ${indent})`
 }
 
 function upgradeFeishuMobileMessagePatch(source) {
-  if (source.includes('AGENT_ARMY_FEISHU_MOBILE_FORMAT_V4')) return source;
+  if (source.includes('AGENT_ARMY_FEISHU_MOBILE_FORMAT_V9')) return source;
   if (
     source.includes('AGENT_ARMY_FEISHU_MOBILE_FORMAT_V2')
     || source.includes('AGENT_ARMY_FEISHU_MOBILE_FORMAT_V1')
     || source.includes('AGENT_ARMY_FEISHU_MOBILE_FORMAT_V3')
+    || source.includes('AGENT_ARMY_FEISHU_MOBILE_FORMAT_V4')
+    || source.includes('AGENT_ARMY_FEISHU_MOBILE_FORMAT_V5')
+    || source.includes('AGENT_ARMY_FEISHU_MOBILE_FORMAT_V6')
+    || source.includes('AGENT_ARMY_FEISHU_MOBILE_FORMAT_V7')
+    || source.includes('AGENT_ARMY_FEISHU_MOBILE_FORMAT_V8')
   ) {
-    const helperStart = source.search(/# AGENT_ARMY_FEISHU_MOBILE_FORMAT_V[123]:/);
+    const helperStart = source.search(/# AGENT_ARMY_FEISHU_MOBILE_FORMAT_V[12345678]:/);
     const helperEnd = source.indexOf('\n_MARKDOWN_HINT_RE = re.compile(', helperStart);
     if (helperStart < 0 || helperEnd < 0) return source;
     return `${source.slice(0, helperStart)}${feishuMobileMessageHelpers}\n${source.slice(helperEnd)}`;
@@ -740,7 +802,7 @@ function insert(source, marker, replacement) {
 }
 
 const proposalPattern = `_AJUN_AGENT_PROPOSAL_RE = re.compile(\n    r"(?:创建|新建|招募|招)\\s*(?:一个\\s*)?(?:agent|智能体|岗位)",\n    re.IGNORECASE,\n)`;
-const feishuMobileMessageHelpers = String.raw`# AGENT_ARMY_FEISHU_MOBILE_FORMAT_V4: adapt spacing to content instead of forcing one reply template.
+const feishuMobileMessageHelpers = String.raw`# AGENT_ARMY_FEISHU_MOBILE_FORMAT_V9: normalize spacing and emphasis instead of trusting model whitespace.
 def _agent_army_table_cells(line: str) -> List[str]:
     return [cell.strip() for cell in line.strip().strip("|").split("|")]
 
@@ -884,39 +946,81 @@ def _agent_army_expand_inline_callouts(content: str) -> str:
     return "\n".join(output)
 
 
+def _agent_army_strip_inline_bold(text: str) -> str:
+    return re.sub(r"\*\*([^*\n]+)\*\*", r"\1", text)
+
+
+def _agent_army_normalize_emphasis(content: str) -> str:
+    """Keep bold for headings and leading labels, not arbitrary model emphasis."""
+    list_re = re.compile(r"^(\s*(?:[-*]|\d+[.)、])\s+)(.*)$")
+    label_inside_re = re.compile(r"^\*\*([^*\n]{1,32}[：:])\*\*\s*(.*)$")
+    label_outside_re = re.compile(r"^\*\*([^*\n]{1,32})\*\*\s*([：:])\s*(.*)$")
+    output: List[str] = []
+    for line in content.splitlines():
+        compact = line.strip()
+        if _agent_army_is_section_heading(line) or re.match(r"^#{1,6}\s+\S", compact):
+            output.append(line)
+            continue
+
+        list_match = list_re.match(line)
+        prefix = list_match.group(1) if list_match else ""
+        body = list_match.group(2) if list_match else line
+        inside_match = label_inside_re.match(body)
+        outside_match = label_outside_re.match(body)
+        if inside_match:
+            label = inside_match.group(1)
+            rest = _agent_army_strip_inline_bold(inside_match.group(2)).strip()
+            output.append(f"{prefix}**{label}**" + (f" {rest}" if rest else ""))
+            continue
+        if outside_match:
+            label = f"{outside_match.group(1)}{outside_match.group(2)}"
+            rest = _agent_army_strip_inline_bold(outside_match.group(3)).strip()
+            output.append(f"{prefix}**{label}**" + (f" {rest}" if rest else ""))
+            continue
+        output.append(f"{prefix}{_agent_army_strip_inline_bold(body)}")
+    return "\n".join(output)
+
+
 def _agent_army_breathe_long_lists(content: str) -> str:
-    """Space only long list items; concise lists remain visually compact."""
+    """Space long numbered procedures; keep ordinary bullet lists consistent."""
     lines = content.splitlines()
     output: List[str] = []
     index = 0
-    top_level_item = re.compile(r"^(?:[-*]|\d+[.)、])\s+\S")
+    numbered_item = re.compile(r"^\d+[.)、]\s+\S")
+    bullet_item = re.compile(r"^[-*]\s+\S")
     any_item = re.compile(r"^\s*(?:[-*]|\d+[.)、])\s+\S")
     while index < len(lines):
-        if not top_level_item.match(lines[index]):
+        item_matcher = numbered_item if numbered_item.match(lines[index]) else bullet_item
+        if not item_matcher.match(lines[index]):
             output.append(lines[index])
             index += 1
             continue
 
         items: List[List[str]] = []
         cursor = index
-        while cursor < len(lines) and top_level_item.match(lines[cursor]):
+        while cursor < len(lines) and item_matcher.match(lines[cursor]):
             item = [lines[cursor]]
             cursor += 1
             while (
                 cursor < len(lines)
                 and lines[cursor].strip()
-                and not top_level_item.match(lines[cursor])
+                and not item_matcher.match(lines[cursor])
                 and (lines[cursor].startswith((" ", "\t")) or not any_item.match(lines[cursor]))
             ):
                 item.append(lines[cursor])
                 cursor += 1
             items.append(item)
         lengths = [len(re.sub(r"[*_~\`]", "", " ".join(item))) for item in items]
-        spacious = len(items) >= 3 and (
+        spacious = item_matcher is numbered_item and len(items) >= 3 and (
             max(lengths, default=0) > 42
             or (sum(lengths) / max(len(lengths), 1)) > 30
         )
-        if spacious and output and output[-1] != "":
+        if (
+            spacious
+            and output
+            and output[-1] != ""
+            and not _agent_army_is_section_heading(output[-1])
+        ):
             output.append("")
         for item_index, item in enumerate(items):
             if spacious and item_index and output and output[-1] != "":
@@ -929,7 +1033,7 @@ def _agent_army_breathe_long_lists(content: str) -> str:
 
 
 def _agent_army_breathe_sections(content: str) -> str:
-    """Separate real sections without changing short conversational replies."""
+    """Canonicalize vertical rhythm regardless of whitespace produced by the model."""
     lines = content.splitlines()
     heading_count = sum(1 for line in lines if _agent_army_is_section_heading(line))
     if heading_count == 0 and len(content) < 280:
@@ -937,10 +1041,18 @@ def _agent_army_breathe_sections(content: str) -> str:
     output: List[str] = []
     for line in lines:
         if _agent_army_is_section_heading(line):
-            if output and output[-1].strip():
+            while output and not output[-1].strip():
+                output.pop()
+            previous = output[-1].strip() if output else ""
+            if previous and not _agent_army_is_section_heading(previous):
                 output.append("")
             output.append(line.strip())
-            output.append("")
+            continue
+        if not line.strip():
+            if output and _agent_army_is_section_heading(output[-1]):
+                continue
+            if output and output[-1] != "":
+                output.append("")
             continue
         output.append(line)
     return "\n".join(output)
@@ -958,7 +1070,9 @@ def _agent_army_format_feishu_message(content: str) -> str:
             formatted.append(part.rstrip())
             continue
         mobile = _agent_army_expand_inline_callouts(
-            _agent_army_expand_inline_numbered_items(_agent_army_mobileize_tables(part))
+            _agent_army_normalize_emphasis(
+                _agent_army_expand_inline_numbered_items(_agent_army_mobileize_tables(part))
+            )
         )
         breathed = _agent_army_breathe_sections(_agent_army_breathe_long_lists(mobile))
         blocks = re.split(r"\n{2,}", breathed)
@@ -1821,11 +1935,13 @@ async function main() {
   const filePath = process.argv[2] || defaultAdapter;
   const original = await fs.readFile(filePath, 'utf8');
   const patched = applyPatch(original);
+  const semanticLayoutTarget = path.join(path.dirname(filePath), 'agent_army_layout.py');
   const taskCardRuntimeTarget = path.join(path.dirname(filePath), 'agent_army_task_card.py');
+  await fs.copyFile(semanticLayoutSource, semanticLayoutTarget);
   await fs.copyFile(taskCardRuntimeSource, taskCardRuntimeTarget);
-  if (patched === original) return console.log(`Hermes 飞书动态任务卡已存在：${filePath}`);
+  if (patched === original) return console.log(`Hermes 飞书智能布局与动态任务卡已存在：${filePath}`);
   await fs.writeFile(filePath, patched);
-  console.log(`已安装 Hermes 飞书动态任务卡与军团总管路由：${filePath}`);
+  console.log(`已安装 Hermes 飞书智能布局、动态任务卡与军团总管路由：${filePath}`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => { console.error(error.message); process.exitCode = 1; });

@@ -130,7 +130,7 @@ _MARKDOWN_HINT_RE = re.compile(
             msg_type, payload = self._build_outbound_payload(content)
 `;
   const patched = applyPatch(adapterFixture);
-  assert.match(patched, /AGENT_ARMY_FEISHU_MOBILE_FORMAT_V4/);
+  assert.match(patched, /AGENT_ARMY_FEISHU_MOBILE_FORMAT_V9/);
   assert.match(patched, /def _agent_army_format_feishu_message/);
   assert.match(patched, /_agent_army_should_stack_table/);
   assert.match(patched, /_agent_army_expand_inline_numbered_items/);
@@ -139,6 +139,9 @@ _MARKDOWN_HINT_RE = re.compile(
   assert.match(patched, /len\(compact\) <= 220/);
   assert.match(patched, /content = _agent_army_format_feishu_message\(content\)/);
   assert.equal(applyPatch(patched), patched);
+  const upgradedV8 = applyPatch(patched.replaceAll('AGENT_ARMY_FEISHU_MOBILE_FORMAT_V9', 'AGENT_ARMY_FEISHU_MOBILE_FORMAT_V8'));
+  assert.match(upgradedV8, /AGENT_ARMY_FEISHU_MOBILE_FORMAT_V9/);
+  assert.equal(applyPatch(upgradedV8), upgradedV8);
 });
 
 test('飞书会拆开模型压成一行的长编号列表，并保持短编号列表紧凑', () => {
@@ -158,7 +161,7 @@ _MARKDOWN_HINT_RE = re.compile(
             msg_type, payload = self._build_outbound_payload(content)
 `;
   const patched = applyPatch(adapterFixture);
-  const helperStart = patched.indexOf('# AGENT_ARMY_FEISHU_MOBILE_FORMAT_V4:');
+  const helperStart = patched.indexOf('# AGENT_ARMY_FEISHU_MOBILE_FORMAT_V9:');
   const helperEnd = patched.indexOf('\n_MARKDOWN_HINT_RE = re.compile(', helperStart);
   const helpers = patched.slice(helperStart, helperEnd);
   const dense = '已按任务重新核对。1) **文本模型 Provider：** 已调用 DeepSeek，input 3,043/output 8,809 tokens。2) **受控视觉 Provider：** 未调用，visualMode=off。3) **费用：** 估算 0.0028986328 USD，账本未显示支付记录。4) **外部写入证据：** 无独立外写回执，不能据此断言次数为零。单独说明：本机完成同步不是外部平台发布。';
@@ -170,15 +173,82 @@ _MARKDOWN_HINT_RE = re.compile(
     'print(_agent_army_format_feishu_message(dense))',
     'print("---SHORT---")',
     'print(_agent_army_format_feishu_message("1) 是 2) 否"))',
+    'print("---SECTIONS---")',
+    'print(_agent_army_format_feishu_message("**小办使用说明书**\\n\\n**它是什么**\\n\\n把材料整理成汇报包。\\n\\n**省了什么人工**\\n\\n- 自动整理\\n- 自动检查"))',
+    'print("---EMPHASIS---")',
+    'print(_agent_army_format_feishu_message("**一、输入准备**\\n1. 说明**受众、用途、页数和截止时间**\\n- **只使用已有产物，不补造数据**\\n**五、逐页渲染质检**\\n- **结构校验：** 页数和章节是否**完整**\\n- **图片质检**： 图片是否存在"))',
+    'print("---BULLETS---")',
+    'print(_agent_army_format_feishu_message("**内容与创作**\\n- 把视频拆成可复用结构：精华提炼、深度拆解、模板学习、风格探索\\n- 生成可拍脚本或平台草稿\\n- 整理音视频素材成可核验的转录文档\\n**研究与资料**\\n- 公开网页和 GitHub 项目检索\\n- 公开资料读取和 PDF 解析"))',
+    'print("---NUMBERED-SECTION---")',
+    'print(_agent_army_format_feishu_message("**需要你验收（3 项）**\\n\\n1. 第一项需要负责人完成验收并记录最终结论，同时核对产物来源和使用范围\\n2. 第二项需要负责人完成验收并记录最终结论，同时核对产物来源和使用范围\\n3. 第三项需要负责人完成验收并记录最终结论，同时核对产物来源和使用范围"))',
   ].join('\n');
   const result = spawnSync('python3', ['-c', python], { encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
-  const [longOutput, shortOutput] = result.stdout.trim().split('\n---SHORT---\n');
+  const [longOutput, trailingOutput] = result.stdout.trim().split('\n---SHORT---\n');
+  const [shortOutput, sectionAndEmphasisOutput] = trailingOutput.split('\n---SECTIONS---\n');
+  const [sectionsOutput, emphasisAndBulletsOutput] = sectionAndEmphasisOutput.split('\n---EMPHASIS---\n');
+  const [emphasisOutput, bulletsAndNumberedOutput] = emphasisAndBulletsOutput.split('\n---BULLETS---\n');
+  const [bulletsOutput, numberedSectionOutput] = bulletsAndNumberedOutput.split('\n---NUMBERED-SECTION---\n');
   assert.match(longOutput, /已按任务重新核对。\n\n1\. \*\*文本模型 Provider：\*\*/);
   assert.match(longOutput, /tokens。\n\n2\. \*\*受控视觉 Provider：\*\*/);
   assert.match(longOutput, /支付记录。\n\n4\. \*\*外部写入证据：\*\*/);
-  assert.match(longOutput, /次数为零。\n\n\*\*单独说明\*\*\n\n本机完成同步/);
+  assert.match(longOutput, /次数为零。\n\n\*\*单独说明\*\*\n本机完成同步/);
   assert.equal(shortOutput, '1. 是\n2. 否');
+  assert.equal(
+    sectionsOutput,
+    '**小办使用说明书**\n**它是什么**\n把材料整理成汇报包。\n\n**省了什么人工**\n- 自动整理\n- 自动检查',
+  );
+  assert.equal(
+    emphasisOutput,
+    '**一、输入准备**\n1. 说明受众、用途、页数和截止时间\n- 只使用已有产物，不补造数据\n\n**五、逐页渲染质检**\n- **结构校验：** 页数和章节是否完整\n- **图片质检：** 图片是否存在',
+  );
+  assert.equal(
+    bulletsOutput,
+    '**内容与创作**\n- 把视频拆成可复用结构：精华提炼、深度拆解、模板学习、风格探索\n- 生成可拍脚本或平台草稿\n- 整理音视频素材成可核验的转录文档\n\n**研究与资料**\n- 公开网页和 GitHub 项目检索\n- 公开资料读取和 PDF 解析',
+  );
+  assert.equal(
+    numberedSectionOutput,
+    '**需要你验收（3 项）**\n1. 第一项需要负责人完成验收并记录最终结论，同时核对产物来源和使用范围\n\n2. 第二项需要负责人完成验收并记录最终结论，同时核对产物来源和使用范围\n\n3. 第三项需要负责人完成验收并记录最终结论，同时核对产物来源和使用范围',
+  );
+});
+
+test('飞书把自适应留白转换成真实 post 行，避免客户端压缩空行', () => {
+  const postFixture = `${fixture}
+def _build_markdown_post_rows(content: str) -> List[List[Dict[str, str]]]:
+    if not content:
+        return [[{"tag": "md", "text": ""}]]
+    if "\`\`\`" not in content:
+        return [[{"tag": "md", "text": content}]]
+    return [[{"tag": "md", "text": content}]]
+
+_POST_ROWS_END = True
+`;
+  const patched = applyPatch(postFixture);
+  assert.match(patched, /AGENT_ARMY_FEISHU_POST_BLOCK_ROWS_V2/);
+  assert.match(patched, /AGENT_ARMY_FEISHU_SEMANTIC_LAYOUT_V1/);
+  assert.match(patched, /from \.agent_army_layout import build_semantic_post_rows/);
+  const functionStart = patched.indexOf('def _build_markdown_post_rows(');
+  const functionEnd = patched.indexOf('\n_POST_ROWS_END = True', functionStart);
+  const postRowsFunction = patched.slice(functionStart, functionEnd);
+  const python = [
+    'import json, re',
+    'from typing import Dict, List',
+    postRowsFunction,
+    'long_rows = _build_markdown_post_rows("**军团状态**\\n\\n- 第一条很长的状态说明\\n\\n- 第二条很长的能力说明")',
+    'short_rows = _build_markdown_post_rows("**军团状态**\\n- 在线\\n- 空闲")',
+    'table_rows = _build_markdown_post_rows("| 字段 | 状态 |\\n| --- | --- |\\n| 员工 | 在线 |")',
+    'print(json.dumps({"long": long_rows, "short": short_rows, "table": table_rows}, ensure_ascii=False))',
+  ].join('\n');
+  const result = spawnSync('python3', ['-c', python], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const rows = JSON.parse(result.stdout);
+  assert.deepEqual(rows.long.map((row) => row[0].tag), ['md', 'text', 'md', 'text', 'md']);
+  assert.equal(rows.long[1][0].text, '\u00a0');
+  assert.equal(rows.long[3][0].text, '\u00a0');
+  assert.deepEqual(rows.short.map((row) => row[0].tag), ['md', 'md', 'md']);
+  assert.equal(rows.table.length, 1);
+  assert.match(rows.table[0][0].text, /\| --- \| --- \|/);
+  assert.equal(applyPatch(patched), patched);
 });
 
 test('飞书收到消息后只显示一个即时处理状态，并在快速分流完成时清除', () => {
