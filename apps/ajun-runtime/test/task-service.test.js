@@ -801,8 +801,8 @@ test('继续飞书交付立即返回受理状态，并在后台单飞调用小D�
     service.continueXiaodDelivery('media-delivery-pending', { chatRef:'chat-delivery' }),
     service.continueXiaodDelivery('media-delivery-pending', { chatRef:'chat-delivery' })
   ]);
-  assert.equal(first.status, 'running');
-  assert.equal(second.status, 'running');
+  assert.equal(first.status, 'queued');
+  assert.equal(second.status, 'queued');
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(calls, 1);
   release();

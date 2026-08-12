@@ -121,7 +121,9 @@ async function continueXiaodDeliveryOnce(taskId, { chatRef = '' } = {}) {
   const executor = this.executors.xiaod;
   if (typeof executor?.redeliver !== 'function') throw new ValidationError('小D飞书交付能力当前不可用。');
   const requested = await this.store.updateTask(task.taskId, {
-    status:'running', currentStage:'xiaod_delivery_retry_requested', error:undefined,
+    // needs_input cannot jump directly to running. Re-enter through the queued
+    // state so both JSON and SQLite stores enforce the same lifecycle contract.
+    status:'queued', currentStage:'xiaod_delivery_retry_requested', error:undefined,
     execution:{ ...(task.execution || {}), polling:{ state:'pending', consecutiveFailures:0, nextPollAt:new Date().toISOString() } },
   });
   const run = Promise.resolve().then(() => executor.redeliver(requested)).then(async (job) => {
