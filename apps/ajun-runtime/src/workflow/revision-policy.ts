@@ -1,4 +1,5 @@
 import type { QualityReview } from './quality-review.ts';
+import { taskOutcomePolicy } from '../task-status-policy.js';
 
 export const MAX_DELIVERY_REVISION_ROUNDS = 2 as const;
 export const REVISION_DECISION_SCHEMA_VERSION = 'agent.army/delivery-revision-decision/v1' as const;
@@ -32,7 +33,7 @@ export function decideRevision({
       action:'accept',
       currentRound,
       nextRound:null,
-      workflowStatus:'waiting_acceptance',
+      workflowStatus:revisionWorkflowStatus('waiting_acceptance'),
       failedCriteria:[],
       reason:'质量门已通过，等待负责人采用。',
     });
@@ -42,7 +43,7 @@ export function decideRevision({
       action:'revise',
       currentRound,
       nextRound:currentRound + 1,
-      workflowStatus:'waiting_validation',
+      workflowStatus:revisionWorkflowStatus('waiting_validation'),
       failedCriteria:review.failedCriteria,
       reason:`只修复未通过项，进入第 ${currentRound + 1} 轮内部返工。`,
     });
@@ -52,7 +53,7 @@ export function decideRevision({
       action:'stop',
       currentRound,
       nextRound:null,
-      workflowStatus:hasUsableArtifact ? 'partial' : 'waiting_validation',
+      workflowStatus:stoppedWorkflowStatus(hasUsableArtifact),
       failedCriteria:[],
       reason:'审核要求修改但没有可执行失败项，停止自动返工并等待补充复核意见。',
     });
@@ -62,7 +63,7 @@ export function decideRevision({
       action:'stop',
       currentRound,
       nextRound:null,
-      workflowStatus:hasUsableArtifact ? 'partial' : 'waiting_validation',
+      workflowStatus:stoppedWorkflowStatus(hasUsableArtifact),
       failedCriteria:review.failedCriteria,
       reason:'两轮内部返工已用尽，停止继续调用并保留当前最好版本。',
     });
@@ -71,12 +72,20 @@ export function decideRevision({
     action:'stop',
     currentRound,
     nextRound:null,
-    workflowStatus:hasUsableArtifact ? 'partial' : 'waiting_validation',
+    workflowStatus:stoppedWorkflowStatus(hasUsableArtifact),
     failedCriteria:review.failedCriteria,
     reason:review.status === 'blocked'
       ? '质量复核被阻断，等待缺失证据、权限或输入恢复。'
       : '质量复核尚未完成，不能推进到人工采用。',
   });
+}
+
+function revisionWorkflowStatus(outcome: string): RevisionDecision['workflowStatus'] {
+  return taskOutcomePolicy(outcome).workflowStatus as RevisionDecision['workflowStatus'];
+}
+
+function stoppedWorkflowStatus(hasUsableArtifact: boolean): RevisionDecision['workflowStatus'] {
+  return revisionWorkflowStatus(hasUsableArtifact ? 'partial' : 'waiting_validation');
 }
 
 export function createRevisionDirective({

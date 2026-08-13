@@ -1,5 +1,6 @@
 import { summarizeBacklog } from './workflow/backlog-classification.ts';
 import type { WorkflowEvaluation } from './workflow/contracts.ts';
+import { taskOutcomePolicy } from './task-status-policy.js';
 
 export function buildTaskFocus(
   tasks: readonly any[],
@@ -19,7 +20,8 @@ export function buildTaskFocus(
   );
   const ownerActionableTaskIds = new Set(ownerActionableTasks.map((task) => String(task.taskId || '')));
   const workflowActions = workflows.flatMap((workflow) => {
-    if (workflow.status !== 'waiting_acceptance' || !workflow.ownerAction) return [];
+    const outcome = taskOutcomePolicy(workflow.status);
+    if (!outcome.ownerActionable || !workflow.ownerAction) return [];
     const step = workflow.steps.find((item) => item.required && item.verified) || workflow.steps.find((item) => item.verified);
     if (!step || ownerActionableTaskIds.has(step.taskId)) return [];
     const task = tasks.find((item) => item.taskId === step.taskId);
@@ -27,7 +29,7 @@ export function buildTaskFocus(
     return [{
       taskId:step.taskId,
       title:task.input?.title || '未命名任务',
-      status:'waiting_acceptance',
+      status:outcome.workflowStatus,
       action:workflow.ownerAction,
     }];
   });

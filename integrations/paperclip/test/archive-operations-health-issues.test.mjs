@@ -24,6 +24,8 @@ test('巡检归档计划只选成功记录和已被连续成功取代的旧失�
     supersededFailures:1,
     retainedFailures:1,
   });
+  assert.equal(plan.routine.marker, 'agent-army:operations-health-v1');
+  assert.equal(plan.requiredConfirmation, `ARCHIVE_OPERATIONS_HEALTH:${plan.digest}`);
   assert.equal(fixture.mutations.length, 0);
 });
 

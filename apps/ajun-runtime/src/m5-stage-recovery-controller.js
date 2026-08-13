@@ -8,6 +8,7 @@ export {
   M5_STAGE_RECOVERY_LIMITS,
   M5StageRecoveryController,
   M5StageRecoveryError,
+  M5StageRecoveryLedger,
   consumeM5SystemPlanRevision,
   deriveM5StageRecoveryState,
   getActiveM5PlanRevision,

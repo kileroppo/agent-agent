@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { TaskLifecycleEventRecorder } from '../task-lifecycle-event-recorder.js';
+import { taskOutcomePolicy } from '../task-status-policy.js';
 import { orchestrateDeliveryQuality } from './delivery-quality-orchestrator.ts';
 import { verifiableQualityEvidenceRefs } from './quality-review.ts';
 
@@ -23,14 +24,15 @@ export function prepareDeliveryQualityResult(task: RuntimeTask, result: RuntimeT
   if (quality.action !== 'request_review') {
     return { ...result, deliveryQuality:quality };
   }
+  const outcome = taskOutcomePolicy('delivery_quality_review_pending');
   return {
     ...result,
-    status:'running',
+    status:outcome.taskStatus,
     currentStage:'delivery_quality_review_pending',
     deliveryQuality:quality,
     execution:{
       ...(result.execution || task.execution || {}),
-      outcome:'delivery_quality_review_pending',
+      outcome:outcome.executionOutcome,
       deliveryCompletedAt:result.execution?.finishedAt || new Date().toISOString(),
       finishedAt:undefined,
     },
@@ -69,14 +71,15 @@ export class DeliveryQualityRuntime {
       reviewTask = await this.createTask(request);
     } catch (error: unknown) {
       const now = new Date().toISOString();
+      const outcome = taskOutcomePolicy('delivery_quality_review_start_failed');
       const stopped = await this.store.updateTask(task.taskId, {
-        status:'waiting_test',
+        status:outcome.taskStatus,
         currentStage:'delivery_quality_review_start_failed',
         deliveryQualityRuntime:{
           schemaVersion:'agent.army/delivery-quality-runtime/v1',
           status:'stopped', rootTaskId:qualityRootTaskId(task), updatedAt:now,
         },
-        execution:{ ...(task.execution || {}), outcome:'delivery_quality_review_start_failed', finishedAt:now },
+        execution:{ ...(task.execution || {}), outcome:outcome.executionOutcome, finishedAt:now },
         error:{
           code:'delivery_quality_review_start_failed',
           message:String(error instanceof Error ? error.message : '独立质量复核未能启动。').slice(0, 500),
@@ -129,8 +132,9 @@ export class DeliveryQualityRuntime {
 
   async accept(source: RuntimeTask, reviewTask: RuntimeTask, quality: QualityOutcome) {
     const now = new Date().toISOString();
+    const outcome = taskOutcomePolicy('delivery_quality_passed');
     const patch = {
-      status:'succeeded',
+      status:outcome.taskStatus,
       currentStage:'delivery_quality_passed',
       deliveryQuality:quality,
       deliveryQualityRuntime:{
@@ -139,7 +143,7 @@ export class DeliveryQualityRuntime {
         reviewTaskId:reviewTask.taskId,
         updatedAt:now,
       },
-      execution:{ ...(source.execution || {}), outcome:'succeeded', finishedAt:now },
+      execution:{ ...(source.execution || {}), outcome:outcome.executionOutcome, finishedAt:now },
       error:undefined,
     };
     const updated = await this.sync(await this.store.updateTask(source.taskId, patch));
@@ -189,15 +193,18 @@ export class DeliveryQualityRuntime {
 
   async stop(source: RuntimeTask, reviewTask: RuntimeTask, quality: QualityOutcome) {
     const now = new Date().toISOString();
+    const outcome = taskOutcomePolicy('delivery_quality_stopped', {
+      hasUsableArtifact:quality?.workflowStatus === 'partial',
+    });
     const updated = await this.sync(await this.store.updateTask(source.taskId, {
-      status:'waiting_test',
+      status:outcome.taskStatus,
       currentStage:'delivery_quality_stopped',
       deliveryQuality:quality,
       deliveryQualityRuntime:{
         ...(source.deliveryQualityRuntime || {}),
         status:'stopped', reviewTaskId:reviewTask.taskId, updatedAt:now,
       },
-      execution:{ ...(source.execution || {}), outcome:'delivery_quality_stopped', finishedAt:now },
+      execution:{ ...(source.execution || {}), outcome:outcome.executionOutcome, finishedAt:now },
       error:{
         code:'delivery_quality_stopped',
         message:quality.reason,
@@ -215,14 +222,14 @@ export class DeliveryQualityRuntime {
       const root = await this.get(rootTaskId);
       if (root && root.status === 'running') {
         const stoppedRoot = await this.sync(await this.store.updateTask(root.taskId, {
-          status:'waiting_test',
+          status:outcome.taskStatus,
           currentStage:'delivery_quality_stopped',
           deliveryQuality:quality,
           deliveryQualityRuntime:{
             ...(root.deliveryQualityRuntime || {}),
             status:'stopped', reviewTaskId:reviewTask.taskId, rootTaskId, updatedAt:now,
           },
-          execution:{ ...(root.execution || {}), outcome:'delivery_quality_stopped', finishedAt:now },
+          execution:{ ...(root.execution || {}), outcome:outcome.executionOutcome, finishedAt:now },
           error:{ ...updated.error },
         }));
         this.lifecycleEvents.recordPersisted(stoppedRoot, { previousTask:root });
@@ -239,11 +246,12 @@ export class DeliveryQualityRuntime {
     const root = await this.get(rootTaskId);
     if (!root || root.status !== 'running') return root;
     const artifacts = mergeArtifacts(root.artifactRefs, acceptedRevision.artifactRefs);
+    const outcome = taskOutcomePolicy('delivery_quality_passed');
     const promoted = await this.sync(await this.store.updateTask(root.taskId, {
-      status:'succeeded', currentStage:'delivery_quality_passed', artifactRefs:artifacts,
+      status:outcome.taskStatus, currentStage:'delivery_quality_passed', artifactRefs:artifacts,
       deliveryQuality:quality,
       deliveryQualityRuntime:{ ...(root.deliveryQualityRuntime || {}), status:'passed', acceptedRevisionTaskId:acceptedRevision.taskId, updatedAt:now },
-      execution:{ ...(root.execution || {}), outcome:'succeeded', finishedAt:now }, error:undefined,
+      execution:{ ...(root.execution || {}), outcome:outcome.executionOutcome, finishedAt:now }, error:undefined,
     }));
     this.lifecycleEvents.recordPersisted(promoted, { previousTask:root });
     return promoted;

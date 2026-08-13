@@ -22,6 +22,15 @@ const EXECUTION_CLOSED_STATUS_SET = new Set(['succeeded', 'failed', 'cancelled',
 export const PAPERCLIP_COMPLETION_TASK_STATUSES = Object.freeze(['succeeded', 'failed', 'waiting_test']);
 const PAPERCLIP_COMPLETION_STATUS_SET = new Set(PAPERCLIP_COMPLETION_TASK_STATUSES);
 const TASK_CARD_TERMINAL_STATUS_SET = new Set(['succeeded', 'failed', 'cancelled']);
+const TERMINAL_FAILURE_TASK_STATUS_SET = new Set(['failed', 'cancelled', 'expired']);
+const ACCEPTANCE_OWNER_ACTION = '验收已经生成的业务产物';
+const WORKFLOW_OUTCOME_STATUS_SET = new Set(['received', 'planning', 'running', 'recovering', 'waiting_user', 'waiting_validation', 'waiting_acceptance', 'partial', 'succeeded', 'failed', 'cancelled']);
+const DELIVERY_OUTCOME_PROJECTIONS = Object.freeze({
+  delivery_quality_review_pending:['running', 'running', 'delivery_quality_review_pending'],
+  delivery_quality_review_start_failed:['waiting_test', 'waiting_validation', 'delivery_quality_review_start_failed'],
+  delivery_quality_passed:['succeeded', 'waiting_acceptance', 'succeeded'],
+  delivery_quality_stopped:['waiting_test', 'waiting_validation', 'delivery_quality_stopped'],
+});
 
 const STATUS_DETAILS = Object.freeze({
   received:{ label:'已收到', attentionPriority:8, paperclipIssueStatus:'backlog' },
@@ -78,42 +87,81 @@ export function taskStatusPolicy(status) {
   });
 }
 
-export function isTaskTerminalStatus(status) {
-  return taskStatusPolicy(status).terminal;
+export function taskOutcomePolicy(outcome, { hasUsableArtifact = false } = {}) {
+  const value = String(outcome || '').trim();
+  const projection = DELIVERY_OUTCOME_PROJECTIONS[value] || [null, WORKFLOW_OUTCOME_STATUS_SET.has(value) ? value : 'running', null];
+  const workflowStatus = value === 'delivery_quality_stopped' && hasUsableArtifact ? 'partial' : projection[1];
+  const ownerActionable = workflowStatus === 'waiting_acceptance';
+  return Object.freeze({
+    outcome:value || 'running',
+    taskStatus:projection[0],
+    executionOutcome:projection[2],
+    workflowStatus,
+    ownerAction:ownerActionable ? ACCEPTANCE_OWNER_ACTION : null,
+    ownerActionable,
+  });
 }
 
-export function isTaskBlockedStatus(status) {
-  return taskStatusPolicy(status).blocked;
+export function workflowStatusForTaskOutcome({
+  taskStatus,
+  verified = false,
+  partial = false,
+  requiresAcceptance = false,
+  humanAccepted = false,
+  recoveryPending = false,
+} = {}) {
+  if (verified && requiresAcceptance && !humanAccepted) return 'waiting_acceptance';
+  if (verified) return partial ? 'partial' : 'succeeded';
+  if (taskStatus === 'needs_input' || taskStatus === 'waiting_approval') return 'waiting_user';
+  if (recoveryPending) return 'recovering';
+  if (TERMINAL_FAILURE_TASK_STATUS_SET.has(taskStatus)) return taskStatus === 'cancelled' ? 'cancelled' : 'failed';
+  if (taskStatus === 'waiting_test' || taskStatus === 'succeeded') return 'waiting_validation';
+  if (taskStatus === 'received') return 'received';
+  return taskStatus === 'queued' ? 'planning' : 'running';
 }
 
-export function isTaskNotificationTerminalStatus(status) {
-  return taskStatusPolicy(status).notificationTerminal;
+export function workflowStatusForStepOutcomes(steps, {
+  requiredStepsComplete = false,
+  humanAcceptanceRequired = false,
+  humanAccepted = false,
+} = {}) {
+  const has = (status, required = false) => steps.some((step) => step.status === status && (!required || step.required));
+  if (has('recovering')) return 'recovering';
+  if (has('waiting_user')) return 'waiting_user';
+  if (has('failed', true)) return 'failed';
+  if (has('cancelled', true)) return 'cancelled';
+  if (!requiredStepsComplete) {
+    if (has('running')) return 'running';
+    return has('planning') ? 'planning' : 'waiting_validation';
+  }
+  if (has('partial')) return 'partial';
+  return humanAcceptanceRequired && !humanAccepted ? 'waiting_acceptance' : 'succeeded';
 }
 
-export function isTaskExecutionClosedStatus(status) {
-  return taskStatusPolicy(status).executionClosed;
+export function ownerActionForWorkflowOutcome(steps, status) {
+  const blocked = steps.find((step) => step.status === 'waiting_user');
+  if (blocked) {
+    return blocked.failureCode
+      ? `处理步骤 ${blocked.stepId} 的 ${blocked.failureCode}`
+      : `补充步骤 ${blocked.stepId} 所需信息`;
+  }
+  return taskOutcomePolicy(status).ownerAction;
 }
 
-export function isTaskCardTerminalStatus(status) {
-  return taskStatusPolicy(status).taskCardTerminal;
-}
+export const isTaskTerminalStatus = (status) => taskStatusPolicy(status).terminal;
+export const isTaskBlockedStatus = (status) => taskStatusPolicy(status).blocked;
+export const isTaskNotificationTerminalStatus = (status) => taskStatusPolicy(status).notificationTerminal;
+export const isTaskExecutionClosedStatus = (status) => taskStatusPolicy(status).executionClosed;
+export const isTaskCardTerminalStatus = (status) => taskStatusPolicy(status).taskCardTerminal;
 
 export function taskStatusLabel(status) {
   if (status === 'planned') return '待开始';
   return taskStatusPolicy(status).label;
 }
 
-export function taskStatusPriority(status) {
-  return taskStatusPolicy(status).attentionPriority;
-}
-
-export function paperclipIssueStatusForTaskStatus(status) {
-  return taskStatusPolicy(status).paperclipIssueStatus;
-}
-
-export function isPaperclipCompletionTaskStatus(status) {
-  return taskStatusPolicy(status).paperclipCompletionEligible;
-}
+export const taskStatusPriority = (status) => taskStatusPolicy(status).attentionPriority;
+export const paperclipIssueStatusForTaskStatus = (status) => taskStatusPolicy(status).paperclipIssueStatus;
+export const isPaperclipCompletionTaskStatus = (status) => taskStatusPolicy(status).paperclipCompletionEligible;
 
 export function taskLifecycleEventPolicy(status) {
   const policy = taskStatusPolicy(status);

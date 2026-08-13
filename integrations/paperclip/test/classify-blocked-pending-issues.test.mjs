@@ -146,6 +146,7 @@ test('归档计划必须显式选中 historical_acceptance，且绑定当前快�
   assert.equal(plan.items[0].identifier, 'ARMY-100');
   assert.equal(plan.items[0].expectedUpdatedAt, '2026-07-28T00:00:00.000Z');
   assert.match(plan.requiredConfirmation, /^ARCHIVE:[a-f0-9]{64}$/);
+  assert.equal(plan.requiredConfirmation, `ARCHIVE:${plan.digest}`);
   assert.equal(plan.safety.deletesRecords, false);
   assert.throws(
     () => buildHistoricalAcceptanceArchivePlan(result, { identifiers:['ARMY-101'] }),

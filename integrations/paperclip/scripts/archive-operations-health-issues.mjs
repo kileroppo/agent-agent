@@ -1,20 +1,14 @@
 #!/usr/bin/env node
 
-import { createHash } from 'node:crypto';
-
 import {
-  asPaperclipList,
   createPaperclipLoopbackClient,
   validDate,
 } from './support/paperclip-loopback-client.mjs';
+import { PaperclipOperationsHealthCatalog } from './support/paperclip-operations-health-catalog.mjs';
 
 const DEFAULT_API_BASE = 'http://127.0.0.1:3100';
 const DEFAULT_COMPANY_NAME = 'Agent军团';
-const ROUTINE_TITLE = 'A君定时本机巡检';
-const ROUTINE_MARKER = 'agent-army:operations-health-v1';
-const PAGE_SIZE = 200;
 const MIN_SUCCESSORS = 3;
-const CONFIRM_PREFIX = 'ARCHIVE_OPERATIONS_HEALTH:';
 
 export async function planOperationsHealthArchive({
   apiBase = DEFAULT_API_BASE,
@@ -27,53 +21,15 @@ export async function planOperationsHealthArchive({
     fetchImpl,
     operation:'巡检归档',
   });
-  const companies = asPaperclipList(await client.request('GET', '/api/companies'));
-  const company = companies.find((item) => item.name === companyName);
-  if (!company) throw new Error(`Paperclip 中未找到公司：${companyName}`);
-  const issues = await listIssues(client, company.id);
-  const health = issues
-    .filter(isOperationsHealthIssue)
-    .filter((issue) => !issue.hiddenAt)
-    .sort((left, right) => timestamp(left.createdAt) - timestamp(right.createdAt));
-  const items = health.flatMap((issue, index) => {
-    if (issue.status === 'done') return [archiveItem(issue, 'completed_system_check')];
-    if (issue.status !== 'blocked') return [];
-    const laterSuccesses = health.slice(index + 1).filter((candidate) => candidate.status === 'done').length;
-    return laterSuccesses >= minSuccessors
-      ? [archiveItem(issue, 'superseded_failure', { laterSuccesses })]
-      : [];
+  const catalog = new PaperclipOperationsHealthCatalog({ client, companyName });
+  const company = await catalog.requireCompany();
+  const { items:issues } = await catalog.listIssues({
+    companyId: company.id,
+    statuses: ['done', 'blocked'],
+    sortField: 'updated',
+    sortDir: 'asc',
   });
-  const digest = createHash('sha256').update(JSON.stringify({
-    schemaVersion:1,
-    companyId:company.id,
-    minSuccessors,
-    items,
-  })).digest('hex');
-  return {
-    mode:'plan',
-    readOnly:true,
-    company:{ id:company.id, name:company.name },
-    routine:{ title:ROUTINE_TITLE, marker:ROUTINE_MARKER },
-    minSuccessors,
-    summary:{
-      visibleHealthIssues:health.length,
-      archiveCount:items.length,
-      completedSystemChecks:items.filter((item) => item.reason === 'completed_system_check').length,
-      supersededFailures:items.filter((item) => item.reason === 'superseded_failure').length,
-      retainedFailures:health.filter((item) => item.status === 'blocked').length
-        - items.filter((item) => item.reason === 'superseded_failure').length,
-    },
-    items,
-    digest,
-    requiredConfirmation:`${CONFIRM_PREFIX}${digest}`,
-    safety:{
-      deletesRecords:false,
-      changesIssueStatus:false,
-      resolvesRecoveryActions:false,
-      reversibleWithHiddenAtNull:true,
-      failedOrRecentChecksRemainVisible:true,
-    },
-  };
+  return catalog.buildOperationsHealthArchivePlan({ company, issues, minSuccessors });
 }
 
 export async function applyOperationsHealthArchive({ confirmation, now = new Date(), ...options } = {}) {
@@ -117,40 +73,6 @@ export async function applyOperationsHealthArchive({ confirmation, now = new Dat
       recordsPreserved:true,
     },
   };
-}
-
-async function listIssues(client, companyId) {
-  const items = [];
-  for (let offset = 0; ; offset += PAGE_SIZE) {
-    const page = asPaperclipList(await client.request(
-      'GET',
-      `/api/companies/${encodeURIComponent(companyId)}/issues?status=done%2Cblocked&limit=${PAGE_SIZE}&offset=${offset}&sortField=updated&sortDir=asc`,
-    ));
-    items.push(...page);
-    if (page.length < PAGE_SIZE) return items;
-  }
-}
-
-function archiveItem(issue, reason, extra = {}) {
-  return {
-    issueId:String(issue.id),
-    identifier:String(issue.identifier || ''),
-    status:String(issue.status),
-    expectedUpdatedAt:String(issue.updatedAt || ''),
-    reason,
-    ...extra,
-  };
-}
-
-function isOperationsHealthIssue(issue) {
-  return issue?.title === ROUTINE_TITLE
-    && String(issue.description || '').includes(ROUTINE_MARKER);
-}
-
-function timestamp(value) {
-  const result = validDate(value);
-  if (!result) throw new Error('Paperclip Issue 时间无效');
-  return result.getTime();
 }
 
 function normalizeDate(value) {

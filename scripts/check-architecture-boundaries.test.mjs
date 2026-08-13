@@ -412,13 +412,35 @@ async function fixture(context, { appDependencies = {} } = {}) {
     schemaVersion:'agent.army/ajun-module-policy/v1',
     modules:{
       'src/runtime-composition-root.js':{ lineLimit:220, importLimit:20 },
+      'src/task-service.js':{ lineLimit:250 },
       'src/task-recovery.js':{ lineLimit:300 },
       'public/task-record-detail-view.js':{ importLimit:12 },
     },
+    testGroups:{
+      'task-service-seams':{
+        label:'TaskService 接缝测试',
+        lineLimit:3100,
+        files:{
+          'test/task-service.test.js':{ lineLimit:1800 },
+          'test/task-service-paperclip-execution.test.js':{ lineLimit:1800 },
+          'test/task-service-runtime-presentation.test.js':{ lineLimit:1800 },
+          'test/task-service-m5-recovery.test.js':{ lineLimit:1800 },
+        },
+      },
+    },
   }));
   await write(root, 'apps/ajun-runtime/src/runtime-composition-root.js', 'export const runtime = true;\n');
+  await write(root, 'apps/ajun-runtime/src/task-service.js', 'export const task = true;\n');
   await write(root, 'apps/ajun-runtime/src/task-recovery.js', 'export const recovery = true;\n');
   await write(root, 'apps/ajun-runtime/public/task-record-detail-view.js', 'export const detail = true;\n');
+  for (const name of [
+    'task-service.test.js',
+    'task-service-paperclip-execution.test.js',
+    'task-service-runtime-presentation.test.js',
+    'task-service-m5-recovery.test.js',
+  ]) {
+    await write(root, `apps/ajun-runtime/test/${name}`, 'export const testSeam = true;\n');
+  }
   await write(root, 'packages/contracts/package.json', JSON.stringify({
     name:'@example/contracts',
     version:'1.0.0',

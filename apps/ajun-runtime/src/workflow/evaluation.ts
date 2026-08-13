@@ -1,11 +1,13 @@
 import {
   deriveWorkflowType,
   type WorkflowEvaluation,
-  type WorkflowStatus,
   type WorkflowStepEvaluation,
 } from './contracts.ts';
-
-const TERMINAL_FAILURE = new Set(['failed', 'cancelled', 'expired']);
+import {
+  ownerActionForWorkflowOutcome,
+  workflowStatusForStepOutcomes,
+  workflowStatusForTaskOutcome,
+} from '../task-status-policy.js';
 
 export function evaluateWorkflowTasks(tasks: readonly any[]): WorkflowEvaluation[] {
   const groups = new Map<string, any[]>();
@@ -27,7 +29,11 @@ export function evaluateWorkflow(workflowId: string, tasks: readonly any[]): Wor
   const requiredStepsComplete = required.length > 0 && required.every((step) => step.verified);
   const humanAcceptanceRequired = steps.some((step) => qualityTask(step.taskType));
   const humanAccepted = !humanAcceptanceRequired || steps.filter((step) => qualityTask(step.taskType)).every((step) => step.humanAccepted);
-  const status = workflowStatus(steps, { requiredStepsComplete, humanAcceptanceRequired, humanAccepted });
+  const status = workflowStatusForStepOutcomes(steps, {
+    requiredStepsComplete,
+    humanAcceptanceRequired,
+    humanAccepted,
+  });
   return Object.freeze({
     schemaVersion:'agent.army/workflow-evaluation/v1',
     workflowId,
@@ -38,7 +44,7 @@ export function evaluateWorkflow(workflowId: string, tasks: readonly any[]): Wor
     verifiedArtifactCount:steps.reduce((count, step) => count + step.artifacts.filter((item) => item.verified).length, 0),
     humanAcceptanceRequired,
     humanAccepted,
-    ownerAction:ownerAction(steps, status),
+    ownerAction:ownerActionForWorkflowOutcome(steps, status),
   });
 }
 
@@ -57,51 +63,20 @@ export function evaluateStep(task: any): WorkflowStepEvaluation {
     taskId:String(task?.taskId || ''),
     agentId:String(task?.assigneeAgentId || '').trim() || null,
     taskType:String(task?.taskType || ''),
-    status:stepStatus(task, verified, humanAccepted),
+    status:workflowStatusForTaskOutcome({
+      taskStatus:task?.status,
+      verified,
+      partial:artifactIsPartial(task),
+      requiresAcceptance:qualityTask(task?.taskType),
+      humanAccepted,
+      recoveryPending:task?.recovery?.coordination?.status === 'pending',
+    }),
     required:task?.workflow?.step?.required !== false,
     artifacts,
     verified,
     humanAccepted,
     failureCode:String(task?.error?.code || '').trim() || null,
   });
-}
-
-function stepStatus(task: any, verified: boolean, humanAccepted: boolean): WorkflowStatus {
-  if (verified && qualityTask(task?.taskType) && !humanAccepted) return 'waiting_acceptance';
-  if (verified) return artifactIsPartial(task) ? 'partial' : 'succeeded';
-  if (task?.status === 'needs_input' || task?.status === 'waiting_approval') return 'waiting_user';
-  if (task?.recovery?.coordination?.status === 'pending') return 'recovering';
-  if (TERMINAL_FAILURE.has(task?.status)) return task.status === 'cancelled' ? 'cancelled' : 'failed';
-  if (task?.status === 'waiting_test') return 'waiting_validation';
-  if (task?.status === 'succeeded') return 'waiting_validation';
-  if (task?.status === 'received') return 'received';
-  if (task?.status === 'queued') return 'planning';
-  return 'running';
-}
-
-function workflowStatus(
-  steps: readonly WorkflowStepEvaluation[],
-  state: { requiredStepsComplete: boolean; humanAcceptanceRequired: boolean; humanAccepted: boolean },
-): WorkflowStatus {
-  if (steps.some((step) => step.status === 'recovering')) return 'recovering';
-  if (steps.some((step) => step.status === 'waiting_user')) return 'waiting_user';
-  if (steps.some((step) => step.required && step.status === 'failed')) return 'failed';
-  if (steps.some((step) => step.required && step.status === 'cancelled')) return 'cancelled';
-  if (!state.requiredStepsComplete) {
-    if (steps.some((step) => step.status === 'running')) return 'running';
-    if (steps.some((step) => step.status === 'planning')) return 'planning';
-    return 'waiting_validation';
-  }
-  if (steps.some((step) => step.status === 'partial')) return 'partial';
-  if (state.humanAcceptanceRequired && !state.humanAccepted) return 'waiting_acceptance';
-  return 'succeeded';
-}
-
-function ownerAction(steps: readonly WorkflowStepEvaluation[], status: WorkflowStatus): string | null {
-  const blocked = steps.find((step) => step.status === 'waiting_user');
-  if (blocked) return blocked.failureCode ? `处理步骤 ${blocked.stepId} 的 ${blocked.failureCode}` : `补充步骤 ${blocked.stepId} 所需信息`;
-  if (status === 'waiting_acceptance') return '验收已经生成的业务产物';
-  return null;
 }
 
 function verifiedArtifact(artifact: any): boolean {

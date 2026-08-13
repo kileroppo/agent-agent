@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   deriveM5StageRecoveryState,
+  getActiveM5PlanRevision,
   m5StageWorkProductCandidates,
   M5StageRecoveryController,
+  M5StageRecoveryLedger,
 } from '../src/m5-stage-recovery-controller.js';
 import { getM5RoutineExecutionContract } from '@agent-army/m5-kernel/routine-execution-contract';
 
@@ -12,6 +14,15 @@ const ISSUE_ID = '22222222-2222-4222-8222-222222222222';
 const CONTENT_CASE_ID = '66666666-6666-4666-8666-666666666666';
 const contract = getM5RoutineExecutionContract('m5-voice');
 const renderContract = getM5RoutineExecutionContract('m5-render');
+
+test('M5 阶段恢复账本对调用方只暴露三个业务动作', () => {
+  assert.deepEqual(
+    Object.getOwnPropertyNames(M5StageRecoveryLedger.prototype)
+      .filter((name) => name !== 'constructor')
+      .sort(),
+    ['consumeSystemPlanRevision', 'getActivePlanRevision', 'recordFailure'],
+  );
+});
 
 test('同阶段候选选择器识别stageKey、kind或schema任一声明并忽略无关产物', () => {
   const candidate = (metadata) => ({
@@ -48,6 +59,22 @@ test('M5 单阶段失败安排两次安全重试，第三次转为内容重规�
   assert.equal(storedStageRecovery(governance).stageAttempt, 0);
   assert.equal(storedStageRecovery(governance).replanCount, 1);
   assert.equal(governance.issueUpdates.at(-1).status, 'todo');
+});
+
+test('恢复账本直接返回当前阶段可消费的 PlanRevision', async () => {
+  const governance = new RecoveryFakeGovernance();
+  const controller = recoveryController(governance);
+  await fail(controller, governance, 'run-active-0001');
+  await fail(controller, governance, 'run-active-0002');
+  const replanned = await fail(controller, governance, 'run-active-0003');
+
+  const active = await getActiveM5PlanRevision({
+    governance,
+    pipelineCaseId:CASE_ID,
+    stageKey:contract.stageKey,
+  });
+  assert.equal(active.revisionId, replanned.planRevision.revisionId);
+  assert.equal(active.nextRoute.stageKey, contract.stageKey);
 });
 
 test('M5 内容最多重规划三次，之后 Case blocked 且只写一个恢复动作', async () => {

@@ -175,6 +175,15 @@ test('产品装配 Module 变更选择所属领域和运行组合测试', () => 
   const ajun = graph.get('ajun-runtime');
   assert.deepEqual(
     selectAffectedTestFiles([
+      'apps/ajun-runtime/src/runtime-composition-root.js',
+    ], ajun),
+    [
+      'test/runtime-composition-modules.test.js',
+      'test/runtime-start.test.js',
+    ],
+  );
+  assert.deepEqual(
+    selectAffectedTestFiles([
       'apps/ajun-runtime/src/runtime/content-campaign-composition.js',
       'apps/ajun-runtime/src/runtime/paperclip-system-control-composition.js',
     ], ajun),

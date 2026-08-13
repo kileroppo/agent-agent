@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ensureOperationsHealthRoutine } from '../scripts/ensure-operations-health-routine.mjs';
 
-function response(body, ok = true, status = ok ? 200 : 500) { return { ok, status, async json() { return body; } }; }
+function response(body, ok = true, status = ok ? 200 : 500) {
+  return { ok, status, async text() { return JSON.stringify(body); } };
+}
 
 test('为本机巡检建立无模型 HTTP 控制器和可重复执行的安排', async () => {
   const calls = [];
   const result = await ensureOperationsHealthRoutine({ fetchImpl: async (url, options = {}) => {
-    const path = new URL(url).pathname; const body = options.body ? JSON.parse(options.body) : null; calls.push({ path, method:options.method || 'GET', body });
+    const path = new URL(url).pathname; const body = options.body ? JSON.parse(options.body) : null; calls.push({ path, method:options.method || 'GET', body, redirect:options.redirect });
     if (path === '/api/companies') return response([{ id:'company-1', name:'Agent军团' }]);
     if (path === '/api/companies/company-1/agents' && options.method === 'GET') return response([{ id:'agent-1', name:'运维官', adapterType:'hermes_local', status:'idle', metadata:{ agentArmyId:'operator' } }]);
     if (path === '/api/companies/company-1/agents' && options.method === 'POST') return response({ id:'controller-1', ...body });
@@ -30,12 +32,13 @@ test('为本机巡检建立无模型 HTTP 控制器和可重复执行的安排',
     assigneeAgentId:'controller-1', priority:'low', status:'active', concurrencyPolicy:'skip_if_active', catchUpPolicy:'skip_missed'
   });
   assert.equal(calls.find((item) => item.path === '/api/routines/routine-1/triggers').body.cronExpression, '*/30 * * * *');
+  assert.equal(calls.every((item) => item.redirect === 'error'), true);
 });
 
 test('已有巡检安排和控制器时只校正时间与绑定，不重复创建', async () => {
   const calls = [];
   const result = await ensureOperationsHealthRoutine({ fetchImpl: async (url, options = {}) => {
-    const path = new URL(url).pathname; const body = options.body ? JSON.parse(options.body) : null; calls.push({ path, method:options.method || 'GET', body });
+    const path = new URL(url).pathname; const body = options.body ? JSON.parse(options.body) : null; calls.push({ path, method:options.method || 'GET', body, redirect:options.redirect });
     if (path === '/api/companies') return response([{ id:'company-1', name:'Agent军团' }]);
     if (path === '/api/companies/company-1/agents' && options.method === 'GET') return response([{ id:'controller-1', name:'本机健康确定性控制器', adapterType:'http', status:'idle', adapterConfig:{ url:'http://127.0.0.1:4321/api/paperclip/heartbeat' }, metadata:{ agentArmySystemRole:'operations-health-controller' } }]);
     if (path === '/api/agents/controller-1') return response({ id:'controller-1', ...body });
@@ -50,4 +53,28 @@ test('已有巡检安排和控制器时只校正时间与绑定，不重复创�
   assert.equal(calls.some((item) => item.path === '/api/companies/company-1/agents' && item.method === 'POST'), false);
   assert.equal(calls.some((item) => item.path === '/api/routines/routine-1' && item.method === 'PATCH'), true);
   assert.equal(calls.find((item) => item.path === '/api/routine-triggers/trigger-1').body.cronExpression, '*/30 * * * *');
+});
+
+test('items 信封中存在重复健康控制器时 fail-closed 且零写入', async () => {
+  const calls = [];
+  await assert.rejects(
+    ensureOperationsHealthRoutine({ fetchImpl:async (url, options = {}) => {
+      const path = new URL(url).pathname;
+      calls.push({ path, method:options.method || 'GET' });
+      if (path === '/api/companies') {
+        return response({ items:[{ id:'company-1', name:'Agent军团' }] });
+      }
+      if (path === '/api/companies/company-1/agents') {
+        const controller = (id) => ({
+          id,
+          status:'idle',
+          metadata:{ agentArmySystemRole:'operations-health-controller' },
+        });
+        return response({ items:[controller('controller-1'), controller('controller-2')] });
+      }
+      throw new Error(`unexpected ${options.method || 'GET'} ${path}`);
+    } }),
+    /本机健康控制器必须唯一/,
+  );
+  assert.equal(calls.every((item) => item.method === 'GET'), true);
 });

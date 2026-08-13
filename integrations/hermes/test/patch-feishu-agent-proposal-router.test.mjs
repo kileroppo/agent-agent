@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   applyPatch,
   assertSupportedHermesCompatibility,
+  installFeishuAgentProposalRouterPatch,
   SUPPORTED_HERMES_GIT_COMMIT,
   SUPPORTED_HERMES_VERSION,
   upgradeFeishuReactionReliabilityPatch,
@@ -14,6 +15,10 @@ import {
 } from '../scripts/patch-feishu-agent-proposal-router.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+const patchCli = readFileSync(path.resolve(here, '../scripts/patch-feishu-agent-proposal-router.mjs'), 'utf8');
+const patchPack = readFileSync(path.resolve(here, '../scripts/feishu-agent-proposal-router-patch-pack.mjs'), 'utf8');
+const commanderPatches = readFileSync(path.resolve(here, '../scripts/feishu-commander-router-patches.mjs'), 'utf8');
+const experiencePatches = readFileSync(path.resolve(here, '../scripts/feishu-experience-patches.mjs'), 'utf8');
 const taskCardRuntime = readFileSync(path.resolve(here, '../runtime/agent_army_feishu_task_card.py'), 'utf8');
 const adapterSeamPattern = /\n# AGENT_ARMY_HERMES_FEISHU_ADAPTER_SEAM_V1:[\s\S]*?host_symbols=globals\(\),\n\)\n?$/;
 const withoutAdapterSeam = (source) => source.replace(adapterSeamPattern, '');
@@ -65,6 +70,19 @@ const fixture = `_XIAOD_HTTP_URL_RE = re.compile(r"https?://[^\\s<>\\u3002\\uff0
     ) -> None:
         pass
 `;
+
+test('Hermes 飞书补丁 CLI 只保留安装 Interface，迁移与特性编排集中在 patch pack Module', () => {
+  assert.equal(typeof installFeishuAgentProposalRouterPatch, 'function');
+  assert.ok(patchCli.split('\n').length < 90);
+  assert.match(patchCli, /installFeishuAgentProposalRouterPatch/);
+  assert.doesNotMatch(patchCli, /function upgrade|const proposalRouter|LEGACY_MIGRATION_MATRIX/);
+  assert.match(patchPack, /migrateFeishuCommanderRouter/);
+  assert.match(patchPack, /installFeishuExperiencePatches/);
+  assert.match(commanderPatches, /FEATURE_PATCH_UNITS/);
+  assert.match(commanderPatches, /LEGACY_MIGRATION_MATRIX/);
+  assert.match(experiencePatches, /installTaskCardAdapterSeam/);
+  assert.match(patchCli, /export async function installFeishuAgentProposalRouterPatch/);
+});
 
 test('Hermes 飞书补丁把单一军团总管文本路由到本机 A君入口，且可重复执行', () => {
   const commanderPatched = applyPatch(fixture); const patched = applyPatch(commanderPatched);

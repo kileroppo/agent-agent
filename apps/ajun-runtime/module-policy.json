@@ -1,6 +1,360 @@
 {
   "schemaVersion": "agent.army/ajun-module-policy/v1",
   "modules": {
+    "public/app-access-views.js": {
+      "affectedTests": [
+        "test/console-boundary.test.js",
+        "test/content-campaign-ui.test.js",
+        "test/runtime-start.test.js"
+      ],
+      "lineLimit": 500
+    },
+    "public/app-interactions.js": {
+      "affectedTests": [
+        "test/console-boundary.test.js",
+        "test/content-campaign-ui.test.js",
+        "test/runtime-start.test.js"
+      ],
+      "lineLimit": 450
+    },
+    "public/app.js": {
+      "lineLimit": 750
+    },
+    "public/console-navigation.js": {
+      "affectedTests": [
+        "test/console-navigation.test.js"
+      ]
+    },
+    "public/refresh-scheduler.js": {
+      "affectedTests": [
+        "test/refresh-scheduler.test.js",
+        "test/runtime-start.test.js"
+      ],
+      "lineLimit": 150,
+      "importLimit": 6
+    },
+    "public/task-record-detail-view.js": {
+      "affectedTests": [
+        "test/console-boundary.test.js",
+        "test/console-operator-flow-ui.test.js",
+        "test/task-record-service.test.js"
+      ],
+      "lineLimit": 450,
+      "importLimit": 12
+    },
+    "src/agent-army-client.js": {
+      "lineLimit": 750
+    },
+    "src/agent-army-mcp-server.js": {
+      "lineLimit": 600
+    },
+    "src/analysis-intent.ts": {
+      "affectedTests": [
+        "test/analysis-intent.test.js",
+        "test/agent-army-client.test.js",
+        "test/feishu-commander.test.js",
+        "test/local-content-growth.test.js",
+        "test/task-service.test.js"
+      ]
+    },
+    "src/campaign-delivery-evidence.js": {
+      "lineLimit": 350,
+      "affectedTests": [
+        "test/m5-hermes-stage-execute.test.js",
+        "test/m5-role-tool-execution.test.js",
+        "test/task-service-m5-recovery.test.js",
+        "test/task-service-paperclip-execution.test.js",
+        "test/task-service.test.js"
+      ]
+    },
+    "src/contracts/agent-army-adapter-projection.js": {
+      "affectedTests": [
+        "test/agent-army-adapter-contract.test.js",
+        "test/agent-army-mcp-server.test.js",
+        "test/runtime-http-feishu.test.js"
+      ],
+      "lineLimit": 200
+    },
+    "src/contracts/agent-army-http-input.js": {
+      "affectedTests": [
+        "test/agent-army-adapter-contract.test.js"
+      ]
+    },
+    "src/contracts/agent-army-task-input.js": {
+      "affectedTests": [
+        "test/agent-army-adapter-contract.test.js",
+        "test/agent-army-client.test.js",
+        "test/agent-army-mcp-server.test.js"
+      ],
+      "lineLimit": 600
+    },
+    "src/feishu-commander-context.js": {
+      "affectedTests": [
+        "test/feishu-commander.test.js"
+      ],
+      "lineLimit": 400
+    },
+    "src/feishu-commander-followup.js": {
+      "affectedTests": [
+        "test/feishu-commander.test.js"
+      ],
+      "lineLimit": 300
+    },
+    "src/feishu-commander-replies.js": {
+      "affectedTests": [
+        "test/feishu-commander.test.js"
+      ],
+      "lineLimit": 600
+    },
+    "src/feishu-commander-routing.js": {
+      "affectedTests": [
+        "test/feishu-commander.test.js"
+      ],
+      "lineLimit": 400
+    },
+    "src/feishu-commander.js": {
+      "lineLimit": 100
+    },
+    "src/local-content-analysis.js": {
+      "affectedTests": [
+        "test/local-content-growth.test.js"
+      ],
+      "lineLimit": 750
+    },
+    "src/local-content-artifacts.js": {
+      "affectedTests": [
+        "test/local-content-growth.test.js"
+      ],
+      "lineLimit": 450
+    },
+    "src/local-content-creation.js": {
+      "affectedTests": [
+        "test/local-content-growth.test.js"
+      ],
+      "lineLimit": 450
+    },
+    "src/local-content-growth.js": {
+      "lineLimit": 100
+    },
+    "src/local-content-m5-vision.js": {
+      "affectedTests": [
+        "test/local-content-growth.test.js"
+      ],
+      "lineLimit": 400
+    },
+    "src/local-intel-researcher.js": {
+      "lineLimit": 550,
+      "affectedTests": [
+        "test/local-intel-researcher.test.js",
+        "test/open-task-runtime-wiring.test.js"
+      ]
+    },
+    "src/local-office-assistant.js": {
+      "lineLimit": 500,
+      "affectedTests": [
+        "test/knowledge-archive-writer.test.js",
+        "test/local-office-assistant.test.js"
+      ]
+    },
+    "src/local-pptx-adapter.js": {
+      "lineLimit": 350,
+      "affectedTests": [
+        "test/local-office-assistant.test.js",
+        "test/local-pptx-adapter.test.js"
+      ]
+    },
+    "src/local-video-script-package.js": {
+      "lineLimit": 750,
+      "affectedTests": [
+        "test/content-campaign-service.test.js",
+        "test/local-video-script-package.test.js",
+        "test/m5-hermes-stage-execute.test.js"
+      ]
+    },
+    "src/local-video-script-production-package.js": {
+      "lineLimit": 200,
+      "affectedTests": [
+        "test/content-campaign-service.test.js",
+        "test/local-video-script-package.test.js",
+        "test/m5-hermes-stage-execute.test.js"
+      ]
+    },
+    "src/m5-local-chaos-acceptance.js": {
+      "lineLimit": 450
+    },
+    "src/m5-local-chaos-adapters.js": {
+      "affectedTests": [
+        "test/m5-local-chaos-acceptance.test.js"
+      ],
+      "lineLimit": 350
+    },
+    "src/m5-local-chaos-fixtures.js": {
+      "affectedTests": [
+        "test/m5-local-chaos-acceptance.test.js"
+      ],
+      "lineLimit": 250
+    },
+    "src/m5-local-chaos-journey.js": {
+      "affectedTests": [
+        "test/m5-local-chaos-acceptance.test.js"
+      ],
+      "lineLimit": 400
+    },
+    "src/m5-local-chaos-ledger.js": {
+      "affectedTests": [
+        "test/m5-local-chaos-acceptance.test.js"
+      ],
+      "lineLimit": 250
+    },
+    "src/m5-publisher-bindings.js": {
+      "lineLimit": 450,
+      "affectedTests": [
+        "test/m5-publisher-bindings.test.js"
+      ]
+    },
+    "src/m5-publisher-runtime-lease.js": {
+      "lineLimit": 500,
+      "affectedTests": [
+        "test/m5-publisher-bindings.test.js"
+      ]
+    },
+    "src/metric-checkpoint-execution.js": {
+      "lineLimit": 630,
+      "affectedTests": [
+        "test/paperclip-metric-monitor.test.js"
+      ]
+    },
+    "src/mission-approval-inheritance.js": {
+      "affectedTests": [
+        "test/mission-approval-inheritance.test.js"
+      ]
+    },
+    "src/office-presentation-production.js": {
+      "lineLimit": 400,
+      "affectedTests": [
+        "test/local-office-assistant.test.js"
+      ]
+    },
+    "src/open-kimi-ppt-adapter.js": {
+      "lineLimit": 800,
+      "affectedTests": [
+        "test/local-office-assistant.test.js",
+        "test/open-kimi-ppt-adapter.test.js"
+      ]
+    },
+    "src/open-research-source-acquisition.js": {
+      "lineLimit": 500,
+      "affectedTests": [
+        "test/local-intel-researcher.test.js",
+        "test/open-task-runtime-wiring.test.js"
+      ]
+    },
+    "src/open-task-research-execution.js": {
+      "affectedTests": [
+        "test/open-task-routing.test.js",
+        "test/open-task-runtime-wiring.test.js",
+        "test/task-service.test.js"
+      ],
+      "lineLimit": 700
+    },
+    "src/open-task-research-state.js": {
+      "affectedTests": [
+        "test/open-task-routing.test.js",
+        "test/open-task-runtime-wiring.test.js",
+        "test/task-service.test.js"
+      ],
+      "lineLimit": 650
+    },
+    "src/open-task-routing-policy.js": {
+      "affectedTests": [
+        "test/open-task-routing.test.js",
+        "test/business-task-routing.test.js",
+        "test/task-service.test.js"
+      ],
+      "lineLimit": 350
+    },
+    "src/open-task-routing.js": {
+      "lineLimit": 100
+    },
+    "src/paperclip-bridge.js": {
+      "lineLimit": 100
+    },
+    "src/paperclip-content-execution-context.js": {
+      "lineLimit": 350,
+      "affectedTests": [
+        "test/content-campaign-service.test.js",
+        "test/paperclip-content-tool-executor.test.js"
+      ]
+    },
+    "src/paperclip-content-tool-executor.js": {
+      "lineLimit": 600,
+      "affectedTests": [
+        "test/content-campaign-service.test.js",
+        "test/paperclip-content-tool-executor.test.js"
+      ]
+    },
+    "src/paperclip-issue-operations.js": {
+      "affectedTests": [
+        "test/paperclip-bridge.test.js"
+      ],
+      "lineLimit": 250
+    },
+    "src/paperclip-m5-case-operations.js": {
+      "affectedTests": [
+        "test/paperclip-bridge.test.js",
+        "test/m5-role-tool-execution.test.js"
+      ],
+      "lineLimit": 350
+    },
+    "src/paperclip-metric-monitor.js": {
+      "lineLimit": 220,
+      "affectedTests": [
+        "test/paperclip-metric-monitor.test.js"
+      ]
+    },
+    "src/paperclip-organization.js": {
+      "affectedTests": [
+        "test/paperclip-bridge.test.js",
+        "test/paperclip-task-projector.test.js"
+      ],
+      "lineLimit": 250
+    },
+    "src/paperclip-publisher-contract.js": {
+      "affectedTests": [
+        "test/paperclip-bridge.test.js",
+        "test/m5-publisher-bindings.test.js"
+      ],
+      "lineLimit": 400
+    },
+    "src/paperclip-publisher.js": {
+      "affectedTests": [
+        "test/paperclip-bridge.test.js",
+        "test/m5-publisher-bindings.test.js"
+      ],
+      "lineLimit": 650
+    },
+    "src/paperclip-task-projector.js": {
+      "affectedTests": [
+        "test/paperclip-task-projector.test.js",
+        "test/paperclip-bridge.test.js"
+      ]
+    },
+    "src/presentation-adapter-protocol.js": {
+      "lineLimit": 280,
+      "affectedTests": [
+        "test/local-office-assistant.test.js",
+        "test/local-pptx-adapter.test.js",
+        "test/open-kimi-ppt-adapter.test.js"
+      ]
+    },
+    "src/runtime-composition-root.js": {
+      "lineLimit": 220,
+      "importLimit": 20,
+      "affectedTests": [
+        "test/runtime-composition-modules.test.js",
+        "test/runtime-start.test.js"
+      ]
+    },
     "src/runtime-http-handler.js": {
       "lineLimit": 700,
       "affectedTests": [
@@ -17,9 +371,13 @@
         "test/runtime-start.test.js"
       ]
     },
-    "src/runtime-composition-root.js": {
-      "lineLimit": 220,
-      "importLimit": 20
+    "src/runtime/background-lifecycle-composition.js": {
+      "lineLimit": 150,
+      "affectedTests": [
+        "test/cross-agent-mission-service.test.js",
+        "test/runtime-composition-modules.test.js",
+        "test/runtime-start.test.js"
+      ]
     },
     "src/runtime/content-campaign-composition.js": {
       "lineLimit": 120,
@@ -42,6 +400,13 @@
         "test/runtime-start.test.js"
       ]
     },
+    "src/runtime/local-execution-composition.js": {
+      "lineLimit": 80,
+      "affectedTests": [
+        "test/runtime-composition-modules.test.js",
+        "test/runtime-start.test.js"
+      ]
+    },
     "src/runtime/paperclip-system-control-composition.js": {
       "lineLimit": 100,
       "affectedTests": [
@@ -51,6 +416,18 @@
         "test/paperclip-publisher-controller.test.js",
         "test/paperclip-publisher-run-context.test.js",
         "test/paperclip-retrospective.test.js",
+        "test/runtime-start.test.js"
+      ]
+    },
+    "src/runtime/role-content-execution-composition.js": {
+      "lineLimit": 140,
+      "affectedTests": [
+        "test/agent-proposal-service.test.js",
+        "test/local-content-growth.test.js",
+        "test/local-office-assistant.test.js",
+        "test/m5-role-tool-execution.test.js",
+        "test/open-task-runtime-wiring.test.js",
+        "test/role-execution-composition.test.js",
         "test/runtime-start.test.js"
       ]
     },
@@ -77,18 +454,6 @@
       "affectedTests": [
         "test/agent-proposal-service.test.js",
         "test/local-intel-researcher.test.js",
-        "test/open-task-runtime-wiring.test.js",
-        "test/role-execution-composition.test.js",
-        "test/runtime-start.test.js"
-      ]
-    },
-    "src/runtime/role-content-execution-composition.js": {
-      "lineLimit": 140,
-      "affectedTests": [
-        "test/agent-proposal-service.test.js",
-        "test/local-content-growth.test.js",
-        "test/local-office-assistant.test.js",
-        "test/m5-role-tool-execution.test.js",
         "test/open-task-runtime-wiring.test.js",
         "test/role-execution-composition.test.js",
         "test/runtime-start.test.js"
@@ -121,44 +486,165 @@
         "test/task-run-event-store.test.js"
       ]
     },
-    "src/runtime/local-execution-composition.js": {
-      "lineLimit": 80,
+    "src/task-approval-coordinator.js": {
       "affectedTests": [
-        "test/runtime-composition-modules.test.js",
-        "test/runtime-start.test.js"
+        "test/task-service.test.js"
+      ],
+      "lineLimit": 300
+    },
+    "src/task-approval-lifecycle.js": {
+      "affectedTests": [
+        "test/task-approval-lifecycle.test.js"
       ]
     },
-    "src/runtime/background-lifecycle-composition.js": {
-      "lineLimit": 150,
+    "src/task-attention-presentation.js": {
       "affectedTests": [
-        "test/cross-agent-mission-service.test.js",
-        "test/runtime-composition-modules.test.js",
+        "test/task-presentation.test.js",
+        "test/task-service.test.js"
+      ],
+      "lineLimit": 250,
+      "importLimit": 8
+    },
+    "src/task-capability-catalog.js": {
+      "affectedTests": [
+        "test/task-capability-catalog.test.js",
+        "test/business-task-routing.test.js",
+        "test/open-task-routing.test.js",
+        "test/task-service.test.js"
+      ]
+    },
+    "src/task-definition-registry.js": {
+      "affectedTests": [
+        "test/business-task-routing.test.js",
+        "test/feishu-commander.test.js",
+        "test/task-capability-catalog.test.js",
+        "test/task-card-presentation.test.js",
+        "test/task-definition-registry.test.js",
+        "test/task-service.test.js"
+      ],
+      "lineLimit": 275
+    },
+    "src/task-definitions.js": {
+      "affectedTests": [
+        "test/business-task-routing.test.js",
+        "test/feishu-commander.test.js",
+        "test/task-capability-catalog.test.js",
+        "test/task-card-presentation.test.js",
+        "test/task-definition-registry.test.js"
+      ],
+      "lineLimit": 200
+    },
+    "src/task-execution-coordinator.js": {
+      "affectedTests": [
+        "test/task-execution-coordinator.test.js",
+        "test/task-service.test.js"
+      ]
+    },
+    "src/task-feedback.js": {
+      "affectedTests": [
+        "test/task-feedback.test.js"
+      ]
+    },
+    "src/task-intake-continuation.js": {
+      "affectedTests": [
+        "test/task-intake-continuation.test.js"
+      ]
+    },
+    "src/task-intake.js": {
+      "affectedTests": [
+        "test/task-service.test.js",
+        "test/task-intake-interface.test.js",
+        "test/open-task-runtime-wiring.test.js"
+      ],
+      "lineLimit": 350
+    },
+    "src/task-lifecycle-event-recorder.js": {
+      "affectedTests": [
+        "test/delivery-quality-runtime.test.js",
+        "test/task-lifecycle-event-recorder.test.js"
+      ]
+    },
+    "src/task-notification-projection.js": {
+      "lineLimit": 160,
+      "importLimit": 4,
+      "affectedTests": [
+        "test/feishu-commander.test.js",
+        "test/runtime-http-feishu.test.js",
+        "test/task-card-presentation.test.js"
+      ]
+    },
+    "src/task-notification.js": {
+      "affectedTests": [
+        "test/task-service.test.js",
+        "test/task-service-runtime-presentation.test.js",
+        "test/cross-agent-mission-service.test.js"
+      ],
+      "lineLimit": 350
+    },
+    "src/task-overview.js": {
+      "affectedTests": [
+        "test/task-overview-focus.test.js",
+        "test/task-service-runtime-presentation.test.js",
         "test/runtime-start.test.js"
+      ],
+      "lineLimit": 275
+    },
+    "src/task-paperclip-assignment.js": {
+      "affectedTests": [
+        "test/task-service-paperclip-execution.test.js",
+        "test/m5-role-tool-execution.test.js",
+        "test/paperclip-employee-assignment.test.js"
+      ],
+      "lineLimit": 350
+    },
+    "src/task-presentation.js": {
+      "affectedTests": [
+        "test/task-presentation.test.js"
+      ]
+    },
+    "src/task-record-service.js": {
+      "affectedTests": [
+        "test/task-record-service.test.js"
+      ]
+    },
+    "src/task-recovery-policy.js": {
+      "affectedTests": [
+        "test/task-recovery.test.js",
+        "test/task-service.test.js"
+      ]
+    },
+    "src/task-recovery.js": {
+      "affectedTests": [
+        "test/failure-recovery-coordinator.test.js",
+        "test/feishu-commander.test.js",
+        "test/production-control-plane-boundary.test.js",
+        "test/task-recovery.test.js",
+        "test/task-service.test.js"
+      ],
+      "lineLimit": 300,
+      "importLimit": 10
+    },
+    "src/task-role-execution.js": {
+      "affectedTests": [
+        "test/task-service-paperclip-execution.test.js",
+        "test/m5-role-tool-execution.test.js",
+        "test/local-content-growth.test.js"
+      ],
+      "lineLimit": 750
+    },
+    "src/task-service-execution-support.js": {
+      "lineLimit": 650,
+      "affectedTests": [
+        "test/m5-role-tool-execution.test.js",
+        "test/task-service-m5-recovery.test.js",
+        "test/task-service-paperclip-execution.test.js",
+        "test/task-service.test.js"
       ]
     },
     "src/task-service-execution.js": {
       "lineLimit": 450,
       "affectedTests": [
         "test/m5-hermes-stage-execute.test.js",
-        "test/m5-role-tool-execution.test.js",
-        "test/task-service-m5-recovery.test.js",
-        "test/task-service-paperclip-execution.test.js",
-        "test/task-service.test.js"
-      ]
-    },
-    "src/campaign-delivery-evidence.js": {
-      "lineLimit": 350,
-      "affectedTests": [
-        "test/m5-hermes-stage-execute.test.js",
-        "test/m5-role-tool-execution.test.js",
-        "test/task-service-m5-recovery.test.js",
-        "test/task-service-paperclip-execution.test.js",
-        "test/task-service.test.js"
-      ]
-    },
-    "src/task-service-execution-support.js": {
-      "lineLimit": 650,
-      "affectedTests": [
         "test/m5-role-tool-execution.test.js",
         "test/task-service-m5-recovery.test.js",
         "test/task-service-paperclip-execution.test.js",
@@ -173,108 +659,48 @@
         "test/task-service.test.js"
       ]
     },
-    "src/local-intel-researcher.js": {
-      "lineLimit": 550,
-      "affectedTests": [
-        "test/local-intel-researcher.test.js",
-        "test/open-task-runtime-wiring.test.js"
-      ]
+    "src/task-service.js": {
+      "lineLimit": 250
     },
-    "src/open-research-source-acquisition.js": {
-      "lineLimit": 500,
+    "src/task-status-policy.js": {
       "affectedTests": [
-        "test/local-intel-researcher.test.js",
-        "test/open-task-runtime-wiring.test.js"
-      ]
+        "test/agent-army-client.test.js",
+        "test/agent-army-mcp-server.test.js",
+        "test/cross-agent-mission-service.test.js",
+        "test/feishu-commander.test.js",
+        "test/paperclip-bridge.test.js",
+        "test/task-card-presentation.test.js",
+        "test/task-feedback.test.js",
+        "test/task-lifecycle-event-recorder.test.js",
+        "test/task-status-policy.test.js"
+      ],
+      "lineLimit": 180
     },
-    "src/local-video-script-package.js": {
-      "lineLimit": 750,
+    "src/workflow/delivery-quality-runtime.ts": {
       "affectedTests": [
-        "test/content-campaign-service.test.js",
-        "test/local-video-script-package.test.js",
-        "test/m5-hermes-stage-execute.test.js"
+        "test/delivery-quality-runtime.test.js",
+        "test/task-lifecycle-event-recorder.test.js"
       ]
-    },
-    "src/local-video-script-production-package.js": {
-      "lineLimit": 200,
-      "affectedTests": [
-        "test/content-campaign-service.test.js",
-        "test/local-video-script-package.test.js",
-        "test/m5-hermes-stage-execute.test.js"
-      ]
-    },
-    "src/paperclip-content-tool-executor.js": {
-      "lineLimit": 600,
-      "affectedTests": [
-        "test/content-campaign-service.test.js",
-        "test/paperclip-content-tool-executor.test.js"
-      ]
-    },
-    "src/paperclip-content-execution-context.js": {
-      "lineLimit": 350,
-      "affectedTests": [
-        "test/content-campaign-service.test.js",
-        "test/paperclip-content-tool-executor.test.js"
-      ]
-    },
-    "src/local-office-assistant.js": {
-      "lineLimit": 500,
-      "affectedTests": [
-        "test/knowledge-archive-writer.test.js",
-        "test/local-office-assistant.test.js"
-      ]
-    },
-    "src/office-presentation-production.js": {
-      "lineLimit": 400,
-      "affectedTests": [
-        "test/local-office-assistant.test.js"
-      ]
-    },
-    "src/m5-publisher-bindings.js": {
-      "lineLimit": 450,
-      "affectedTests": [
-        "test/m5-publisher-bindings.test.js"
-      ]
-    },
-    "src/m5-publisher-runtime-lease.js": {
-      "lineLimit": 500,
-      "affectedTests": [
-        "test/m5-publisher-bindings.test.js"
-      ]
-    },
-    "src/paperclip-metric-monitor.js": {
-      "lineLimit": 220,
-      "affectedTests": [
-        "test/paperclip-metric-monitor.test.js"
-      ]
-    },
-    "src/metric-checkpoint-execution.js": {
-      "lineLimit": 630,
-      "affectedTests": [
-        "test/paperclip-metric-monitor.test.js"
-      ]
-    },
-    "src/open-kimi-ppt-adapter.js": {
-      "lineLimit": 800,
-      "affectedTests": [
-        "test/local-office-assistant.test.js",
-        "test/open-kimi-ppt-adapter.test.js"
-      ]
-    },
-    "src/local-pptx-adapter.js": {
-      "lineLimit": 350,
-      "affectedTests": [
-        "test/local-office-assistant.test.js",
-        "test/local-pptx-adapter.test.js"
-      ]
-    },
-    "src/presentation-adapter-protocol.js": {
-      "lineLimit": 280,
-      "affectedTests": [
-        "test/local-office-assistant.test.js",
-        "test/local-pptx-adapter.test.js",
-        "test/open-kimi-ppt-adapter.test.js"
-      ]
+    }
+  },
+  "testGroups": {
+    "task-service-seams": {
+      "label": "TaskService 接缝测试",
+      "lineLimit": 3100,
+      "files": {
+        "test/task-service.test.js": {
+          "lineLimit": 1800
+        },
+        "test/task-service-paperclip-execution.test.js": {
+          "lineLimit": 1800
+        },
+        "test/task-service-runtime-presentation.test.js": {
+          "lineLimit": 1800
+        },
+        "test/task-service-m5-recovery.test.js": {
+          "lineLimit": 1800
+        }
+      }
     }
   }
 }

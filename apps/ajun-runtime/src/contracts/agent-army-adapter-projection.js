@@ -1,10 +1,7 @@
 import { registerSourceCompletionWatch } from '../source-completion-watch.js';
 import { presentTaskCard } from '../task-card-presentation.js';
-import {
-  formatTaskPresentation,
-  presentTask,
-  shortTaskRef,
-} from '../task-presentation.js';
+import { projectTaskNotification } from '../task-notification-projection.js';
+import { formatTaskPresentation } from '../task-presentation.js';
 
 export async function createTaskHttpResult(input, { tasks, completionWatcher }) {
   const task = await tasks.create(input);
@@ -26,38 +23,25 @@ export function presentCommanderReply(payload, detailBaseUrl, taskCardContext = 
   if (!payload || typeof payload !== 'object') return payload;
   const task = payload.task || payload.mission || null;
   if (!task?.taskId) return payload;
-  const presentation = presentTask(task, { detailBaseUrl });
-  const reply = composeTaskReply(payload.reply, task.taskId, presentation);
+  const projection = projectTaskNotification(task, { detailBaseUrl, reply:payload.reply });
   return {
     ...payload,
-    reply,
-    presentation,
-    taskCard:presentTaskCard(task, taskCardContext),
+    reply:projection.reply,
+    presentation:projection.presentation,
+    taskCard:presentTaskCard(projection.task, taskCardContext),
   };
 }
 
 export function presentTaskStatus(notification, task, taskCardContext = {}) {
   if (!task?.taskId) return notification;
   const { projectionTruth = null, ...publicNotification } = notification || {};
-  const projectedTask = notification?.status
-    ? {
-        ...task,
-        status:notification.status,
-        ...(projectionTruth ? {
-          updatedAt:latestCardTruthTimestamp(task.updatedAt, projectionTruth.updatedAt),
-          presentationRevision:[
-            task.presentationRevision ?? task.revision ?? '0',
-            projectionTruth.taskId,
-            projectionTruth.revision ?? '0',
-            projectionTruth.status,
-            notification.status,
-          ].map((value) => String(value || '')).join(':'),
-        } : {}),
-      }
-    : task;
+  const projection = projectTaskNotification(task, {
+    status:notification?.status,
+    projectionTruth,
+  });
   return {
     ...publicNotification,
-    taskCard:presentTaskCard(projectedTask, taskCardContext),
+    taskCard:presentTaskCard(projection.task, taskCardContext),
   };
 }
 
@@ -66,36 +50,6 @@ export function projectMcpToolValue(value) {
     content:[{ type:'text', text:humanReadableToolText(value) }],
     structuredContent:jsonObject(value),
   };
-}
-
-function latestCardTruthTimestamp(...values) {
-  const timestamps = values
-    .map((value) => String(value || '').trim())
-    .filter((value) => value && Number.isFinite(Date.parse(value)))
-    .map((value) => new Date(value).toISOString())
-    .sort();
-  return timestamps.at(-1) || null;
-}
-
-function composeTaskReply(value, taskId, presentation) {
-  const link = presentation.detailUrl
-    ? `[查看任务 ${shortTaskRef(taskId)}](${presentation.detailUrl})`
-    : `任务 ${shortTaskRef(taskId)}`;
-  const nextAction = String(presentation.nextAction || '').trim();
-  let reply = String(value || '').trim() || String(presentation.summary || '').trim();
-  if (reply.includes(taskId)) reply = reply.replaceAll(taskId, link);
-  const hasTaskReference = reply.includes(presentation.detailUrl || '\0')
-    || reply.includes(shortTaskRef(taskId));
-  const hasExplicitNextAction = /(?:^|\n)(?:下一步|你现在要做)\s*[：:]/m.test(reply);
-  const alreadyStatesNextAction = nextAction && normalizeReplyText(reply).includes(normalizeReplyText(nextAction));
-  const footer = [];
-  if (nextAction && !hasExplicitNextAction && !alreadyStatesNextAction) footer.push(`下一步：${nextAction}`);
-  if (!hasTaskReference) footer.push(link);
-  return footer.length ? `${reply}\n\n${footer.join('\n')}` : reply;
-}
-
-function normalizeReplyText(value) {
-  return String(value || '').replace(/\s+/g, '').replace(/[。；;，,！!？?]/g, '');
 }
 
 function humanReadableToolText(value) {

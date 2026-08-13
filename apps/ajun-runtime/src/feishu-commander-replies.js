@@ -4,6 +4,7 @@ import { resolveAnalysisIntent } from './analysis-intent.ts';
 import { validateTaskCompletion } from './task-completion-contract.js';
 import { DEFAULT_TASK_DEFINITION_REGISTRY } from './task-definition-registry.js';
 import { taskStatusLabel as canonicalTaskStatusLabel, taskStatusPriority } from './task-status-policy.js';
+import { projectTaskNotification } from './task-notification-projection.js';
 
 export { safeAgentId, safeLoopbackBaseUrl, safeRef } from './feishu-commander-input.js';
 export { employeeCapabilityTruth, employeeRole } from './feishu-employee-status-presentation.js';
@@ -216,6 +217,8 @@ export function formatVideoScriptReply(report) {
 }
 
 export function replyFor(task, taskType) {
+  const notification = projectTaskNotification(task);
+  const artifacts = notification.artifacts;
   if (task.status === 'succeeded' && !validateTaskCompletion(task).valid) {
     return {
       kind:'completion_waiting_test',
@@ -224,10 +227,10 @@ export function replyFor(task, taskType) {
     };
   }
   if (['waiting_test', 'failed', 'cancelled'].includes(task.status)) {
-    return { kind:'task_status', task, reply:progressReply(task) };
+    return { kind:'task_status', task, reply:notification.statusReply };
   }
   if (taskType === 'operations.health-review') {
-    const report = task.artifactRefs?.find((item) => item.type === 'health_report')?.data;
+    const report = artifacts.health_report?.data;
     return { kind: 'health_review', task, reply: report ? healthReviewReply(task, report) : `运维官已接手检查，任务号：${task.taskId}。` };
   }
   if (taskType === 'media.transcribe-and-refine') {
@@ -242,7 +245,7 @@ export function replyFor(task, taskType) {
     return { kind: 'media_task', task, reply: `已交给小D处理公开素材，任务号：${task.taskId}。完成后会回到当前飞书会话。` };
   }
   if (taskType === 'report.public-material') {
-    const report = task.artifactRefs?.find((item) => item.type === 'public_web_report')?.data;
+    const report = artifacts.public_web_report?.data;
     if (report) return { kind: 'public_report', task, reply: formatPublicReportReply(report, { taskTitle:task.input?.title }) };
     if (task.status === 'needs_input') return { kind: 'public_report', task, reply: task.error?.userMessage || '这次公开网页整理还缺少必要信息，暂时没有开始读取。' };
     if (!task.input?.sourceUrl) return { kind: 'public_report', task, reply: `已收到公开网页整理请求。请再发送一条能直接打开的网页链接；未开始读取。任务号：${task.taskId}。` };
@@ -255,20 +258,20 @@ export function replyFor(task, taskType) {
     return { kind:'github_search', task, reply:`已交给小R检索公开 GitHub 信息，任务号：${task.taskId}。完成后会回到当前飞书会话。` };
   }
   if (taskType === 'research.intel-report') {
-    const report = task.artifactRefs?.find((item) => item.type === 'intel_research_report')?.data;
+    const report = artifacts.intel_research_report?.data;
     if (report) return { kind:'intel_research', task, reply:formatIntelReply(report) };
     if (task.status === 'needs_input') return { kind:'intel_research', task, reply:task.currentStage === 'waiting_for_agent_activation' ? '小R目前还是草案，尚未通过审核和受限测试，不能开始研究。' : task.error?.userMessage || '小R还缺少研究条件，暂未开始。' };
     return { kind:'intel_research', task, reply:`已交给小R研究，任务号：${task.taskId}。完成后会回到当前飞书会话。` };
   }
   if (taskType === 'office.briefing-package') {
-    const report = task.artifactRefs?.find((item) => item.type === 'office_briefing_package')?.data;
+    const report = artifacts.office_briefing_package?.data;
     if (report) return { kind:'office_briefing', task, reply:formatOfficeBriefingReply(report) };
     if (task.status === 'needs_input') return { kind:'office_briefing', task, reply:task.error?.userMessage || '办公执行助理还缺少需要整理的材料。' };
     return { kind:'office_briefing', task, reply:`已交给办公执行助理整理，任务号：${task.taskId}。完成后会回到当前飞书会话。` };
   }
   if (taskType === 'office.presentation-package') {
-    const source = task.artifactRefs?.find((item) => item.type === 'office_presentation_source');
-    const pptx = task.artifactRefs?.find((item) => item.type === 'office_pptx_document');
+    const source = artifacts.office_presentation_source;
+    const pptx = artifacts.office_pptx_document;
     if (source?.validation?.structuralQaPassed) {
       return {
         kind:'office_presentation',
@@ -285,7 +288,7 @@ export function replyFor(task, taskType) {
     return { kind:'office_presentation', task, reply:`已交给小办制作演示文稿，任务号：${task.taskId}。PPTD、PPTX 和视觉质检会分别报告。` };
   }
   if (taskType === 'office.knowledge-summary') {
-    const note = task.artifactRefs?.find((item) => item.type === 'knowledge_summary_note');
+    const note = artifacts.knowledge_summary_note;
     if (note?.validation?.readable) return { kind:'knowledge_summary', task, reply:`小办已完成知识归档：${note.title}\n受控文件：${note.location}` };
     if (task.status === 'needs_input') return { kind:'knowledge_summary', task, reply:task.error?.userMessage || '小办还缺少需要归档的任务或材料。' };
     return { kind:'knowledge_summary', task, reply:`已交给小办总结并归档，任务号：${task.taskId}。` };
@@ -299,13 +302,13 @@ export function replyFor(task, taskType) {
     return { kind:'content_draft', task, reply:`已交给小创生成可审核草稿，任务号：${task.taskId}。不会自动发布。` };
   }
   if (taskType === 'content.video-script-package') {
-    const script = task.artifactRefs?.find((item) => item.type === 'video_script_package')?.data;
+    const script = artifacts.video_script_package?.data;
     if (script?.fullScript) return { kind:'content_script', task, reply:formatVideoScriptReply(script) };
     if (task.status === 'needs_input') return { kind:'content_script', task, reply:task.error?.userMessage || '小创还缺少视频主题。' };
     return { kind:'content_script', task, reply:'已交给小创生成一版可拍脚本。完成后会回到当前飞书会话。' };
   }
   if (taskType === 'governance.architecture-review') {
-    const report = task.artifactRefs?.find((item) => item.type === 'architecture_review')?.data;
+    const report = artifacts.architecture_review?.data;
     const patterns = report?.workEvidence?.frequentPatterns || [];
     const opportunities = report?.roleOpportunities || [];
     const nextAction = report?.nextAction || '这些建议不会自动上线；先用一条真实验收任务确认后再继续。';
@@ -323,7 +326,7 @@ export function replyFor(task, taskType) {
     if (opportunities.length) return { kind:'architecture_review', task, reply:`我已让架构师复盘真实工作：发现 ${patterns.length} 类重复事项，并形成 ${opportunities.length} 个新岗位草案建议；建议：${nextAction}` };
     return { kind:'architecture_review', task, reply:patterns.length ? `我已让架构师复盘真实工作：发现 ${patterns.length} 类重复事项。建议：${nextAction}` : `我已让架构师复盘真实工作。建议：${nextAction}` };
   }
-  const intake = task.artifactRefs?.find((item) => item.type === 'task_intake_record')?.data;
+  const intake = artifacts.task_intake_record?.data;
   return { kind: 'intake', task, reply: intake?.nextAction || `已收到任务，任务号：${task.taskId}。请补充具体交付物或发送“检查系统状态”“整理视频 + 链接”“创建一个 Agent”。` };
 }
 
@@ -402,24 +405,7 @@ export function healthReviewReply(task, report) {
   ].join('\n');
 }
 
-export function progressReply(task) {
-  const worker = workerName(task);
-  const title = `“${shortTitle(task)}”`;
-  const report = task.artifactRefs?.find((item) => item.type === 'public_web_report')?.data;
-  if (task.status === 'running' || task.status === 'queued') return `${title}正在由${worker}处理。完成后会回到当前飞书会话。`;
-  if (task.status === 'succeeded' && report?.summary) return formatPublicReportReply(report, { taskTitle:shortTitle(task) });
-  if (task.status === 'succeeded') return `${title}已经完成，结果已发回当前飞书会话。`;
-  if (task.status === 'failed' && task.error?.code === 'executor_failed' && !task.execution?.xiaodJobId) {
-    return '这条任务当时没能交到小D处理，现在已经恢复。请重新发送同一个视频链接，我会重新处理。';
-  }
-  if (task.status === 'failed') return `${title}暂时没有完成：${task.error?.userMessage || `${worker}处理时遇到问题`}。我已保留原因并继续跟进。`;
-  if (task.status === 'waiting_test') return `${title}现在是待测试，测试项已记录；其他工作会继续推进。`;
-  if (task.status === 'needs_input') return task.error?.userMessage || `${title}还缺少必要信息，暂时不能继续。`;
-  if (task.status === 'waiting_approval') return `${title}正在等你确认范围；确认前不会继续。`;
-  if (task.status === 'pausing') return `${title}正在暂停，会在当前步骤结束后的安全位置停下。`;
-  if (task.status === 'paused') return `${title}已经暂停，确认继续前不会开始新的处理步骤。`;
-  return `${title}已收到，正在等待开始处理。`;
-}
+export function progressReply(task) { return projectTaskNotification(task).statusReply; }
 
 export function mostRelevantTask(tasks) {
   return [...tasks].sort((left, right) => {

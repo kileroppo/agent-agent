@@ -1,6 +1,7 @@
 import { stageRecoveryState } from './stage-recovery-state.js';
 import { stageRecoveryPlanRevision } from './stage-recovery-plan-revision.js';
 import { stageRecoveryExecution } from './stage-recovery-execution.js';
+import { stageRecoveryLedger } from './stage-recovery-ledger.js';
 
 export const {
   limits:M5_STAGE_RECOVERY_LIMITS,
@@ -21,3 +22,7 @@ export const {
 export const {
   Controller:M5StageRecoveryController,
 } = stageRecoveryExecution;
+
+export const {
+  Ledger:M5StageRecoveryLedger,
+} = stageRecoveryLedger;

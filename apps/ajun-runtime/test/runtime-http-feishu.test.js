@@ -3,6 +3,7 @@ import http from 'node:http';
 import test from 'node:test';
 import { presentCommanderReply, presentTaskStatus, resolveTaskCardAction } from '../src/runtime-http-feishu.js';
 import { createAjunHttpHandler } from '../src/runtime-http-handler.js';
+import { projectTaskNotification } from '../src/task-notification-projection.js';
 
 const taskId = '7df3c85a-1111-2222-3333-444444444444';
 
@@ -21,10 +22,28 @@ test('飞书任务回执把业务内容、唯一下一步和短任务入口组�
   assert.match(result.reply, /下一步：无需重复提交；开始处理后会更新进度。/);
   assert.equal(result.reply.match(/查看任务 #7DF3C85A/g)?.length, 1);
   assert.equal(result.reply.match(/下一步：/g)?.length, 1);
+  assert.ok(result.reply.indexOf('已交给小D处理公开素材') < result.reply.indexOf('下一步：'));
+  assert.ok(result.reply.indexOf('查看任务 #7DF3C85A') < result.reply.indexOf('下一步：'));
   assert.equal(result.presentation.taskRef, '#7DF3C85A');
   assert.equal(result.taskCard.schemaVersion, 'agent.army/task-card/v1');
   assert.equal(result.taskCard.taskId, taskId);
   assert.equal(result.taskCard.state, 'queued');
+});
+
+test('任务通知投影保持第一条同型产物的既有优先级', () => {
+  const projection = projectTaskNotification({
+    taskId,
+    status:'succeeded',
+    input:{ title:'整理公开资料' },
+    artifactRefs:[
+      { type:'public_web_report', data:{ summary:'第一条可信摘要' } },
+      { type:'public_web_report', data:{ summary:'后到摘要' } },
+    ],
+  });
+
+  assert.equal(projection.artifacts.public_web_report.data.summary, '第一条可信摘要');
+  assert.match(projection.statusReply, /第一条可信摘要/);
+  assert.doesNotMatch(projection.statusReply, /后到摘要/);
 });
 
 test('已有明确下一步的业务回复不会再追加第二个动作', () => {
@@ -275,8 +294,11 @@ test('恢复子任务推进时卡片 revision 随链上权威时间变化', () =
 
   assert.equal(running.projectionTruth, undefined);
   assert.equal(waitingTest.projectionTruth, undefined);
+  assert.equal(root.status, 'failed');
   assert.equal(running.taskCard.state, 'technical_repair');
+  assert.equal(running.taskCard.updatedAt, '2026-08-12T03:01:00.000Z');
   assert.equal(waitingTest.taskCard.state, 'waiting_test');
+  assert.equal(waitingTest.taskCard.updatedAt, '2026-08-12T03:02:00.000Z');
   assert.notEqual(waitingTest.taskCard.sourceRevision, running.taskCard.sourceRevision);
   assert.notEqual(waitingTest.taskCard.contentHash, running.taskCard.contentHash);
 });
