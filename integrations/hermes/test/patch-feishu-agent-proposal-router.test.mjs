@@ -13,11 +13,13 @@ import {
   upgradeFeishuReactionReliabilityPatch,
   upgradeFeishuSenderIdentityPatch,
 } from '../scripts/patch-feishu-agent-proposal-router.mjs';
+import { migrateFeishuCommanderRouter } from '../scripts/feishu-commander-router-patches.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const patchCli = readFileSync(path.resolve(here, '../scripts/patch-feishu-agent-proposal-router.mjs'), 'utf8');
 const patchPack = readFileSync(path.resolve(here, '../scripts/feishu-agent-proposal-router-patch-pack.mjs'), 'utf8');
 const commanderPatches = readFileSync(path.resolve(here, '../scripts/feishu-commander-router-patches.mjs'), 'utf8');
+const commanderIngressProtocol = readFileSync(path.resolve(here, '../scripts/feishu-commander-ingress-protocol.mjs'), 'utf8');
 const experiencePatches = readFileSync(path.resolve(here, '../scripts/feishu-experience-patches.mjs'), 'utf8');
 const mobilePresentationPatches = readFileSync(path.resolve(here, '../scripts/feishu-mobile-presentation-patches.mjs'), 'utf8');
 const taskCardRuntime = readFileSync(path.resolve(here, '../runtime/agent_army_feishu_task_card.py'), 'utf8');
@@ -81,6 +83,15 @@ test('Hermes 飞书补丁 CLI 只保留安装 Interface，迁移与特性编排�
   assert.match(patchPack, /installFeishuExperiencePatches/);
   assert.match(commanderPatches, /FEATURE_PATCH_UNITS/);
   assert.match(commanderPatches, /LEGACY_MIGRATION_MATRIX/);
+  assert.ok(commanderPatches.split('\n').length < 500);
+  assert.match(commanderPatches, /upgradeFeishuCommanderIngressProtocol/);
+  assert.doesNotMatch(commanderPatches, /const commanderRouter|function transformPythonMethod|function upgradeCommanderIngressTimeout/);
+  assert.match(commanderIngressProtocol, /export function installFeishuCommanderIngress/);
+  assert.match(commanderIngressProtocol, /export function upgradeFeishuCommanderIngressProtocol/);
+  assert.match(commanderIngressProtocol, /AGENT_ARMY_FEISHU_COMMANDER_PROFILE_GUARD_V1/);
+  assert.match(commanderIngressProtocol, /AGENT_ARMY_FEISHU_COMMANDER_DIRECT_REPLY_V1/);
+  assert.match(commanderIngressProtocol, /AJUN_COMMANDER_INGRESS_TIMEOUT_V1/);
+  assert.match(commanderIngressProtocol, /AJUN_COMMANDER_INGRESS_PRECEDENCE_V1/);
   assert.match(experiencePatches, /installTaskCardAdapterSeam/);
   assert.ok(experiencePatches.split('\n').length < 750);
   assert.match(experiencePatches, /upgradeFeishuMobilePresentationPatch/);
@@ -137,6 +148,22 @@ test('Hermes 飞书补丁把单一军团总管文本路由到本机 A君入口�
     () => applyPatch(patched.replace('host_symbols=globals(),', 'host_symbols=None,')),
     /Adapter Seam 不完整/,
   );
+});
+
+test('总管迁移矩阵保持 terminal、precedence、V4、V3、baseline 的优先级', () => {
+  const installed = applyPatch(fixture);
+  const cases = [
+    [`${installed}\nAJUN_COMMANDER_TASK_NOTIFY_V3`, 'installed-adapter-seam-v1', true],
+    ['AJUN_COMMANDER_INGRESS_PRECEDENCE_V1\nAJUN_COMMANDER_TASK_NOTIFY_V4', 'commander-ingress-precedence-v1', false],
+    ['AJUN_COMMANDER_TASK_NOTIFY_V4', 'commander-task-notify-v4', false],
+    ['AJUN_COMMANDER_TASK_NOTIFY_V3', 'commander-task-notify-v3', false],
+    [fixture, 'legacy-or-unpatched', false],
+  ];
+  for (const [source, expectedMigration, expectedTerminal] of cases) {
+    const migration = migrateFeishuCommanderRouter(source);
+    assert.equal(migration.migration, expectedMigration);
+    assert.equal(migration.terminal, expectedTerminal);
+  }
 });
 
 test('旧版运行中按钮补丁会升级，且命令参数不再被按钮 JSON 污染', () => {

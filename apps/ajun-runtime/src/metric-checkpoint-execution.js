@@ -1,21 +1,21 @@
 import {
-  M5_PLATFORM_IDS,
-  M5_PLATFORMS,
   M5_SCHEMA_IDS,
 } from '@agent-army/m5-contracts';
 import { markM5SystemControllerFailure } from './m5-system-controller-recovery.js';
+import {
+  assertMetricSnapshotLineage,
+  assertPublishReceiptIdentity,
+  trustedMetricSnapshotProducts,
+  trustedPublishReceiptProducts,
+} from './trusted-publish-lineage.js';
 
-const PUBLISH_RECEIPT_SCHEMA = M5_SCHEMA_IDS.PUBLISH_RECEIPT;
 const METRIC_SNAPSHOT_SCHEMA = M5_SCHEMA_IDS.METRIC_SNAPSHOT;
 const PUBLISHER_PROVIDER = 'agent-army.publisher-gateway';
 const HOUR_MS = 3_600_000;
 const RECOVERY_DELAY_MS = 15 * 60_000;
 const STALE_METRIC_INVOCATION_MS = 10 * 60_000;
 const METRIC_RECONCILE_ACTION = 'publisher.reconcile_stale_attempt';
-const MAX_METRIC_OBSERVATION_AGE_MS = 5 * 60_000;
 const TRUSTED_REFERENCE = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,255}$/;
-const CONNECTOR_MODE = /^(?:fake|real:[a-z0-9][a-z0-9_-]{0,127})$/;
-const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const CHECKPOINTS = Object.freeze([
   Object.freeze({ label:'2h', offsetMs:2 * HOUR_MS }),
   Object.freeze({ label:'24h', offsetMs:24 * HOUR_MS }),
@@ -371,59 +371,30 @@ export class PaperclipMetricMonitorError extends Error {
 }
 
 export function trustedPublishReceipt(outputs) {
-  const items = outputItems(outputs).filter((item) =>
-    item.kind === 'work_product'
-    && item.type === 'artifact'
-    && item.provider === PUBLISHER_PROVIDER
-    && item.sourceTrust == null
-    && ['active', 'approved'].includes(item.status)
-    && item.healthStatus === 'healthy'
-    && item.metadata?.schemaVersion === PUBLISH_RECEIPT_SCHEMA
-    && item.metadata?.kind === 'PublishReceipt',
-  );
+  const items = trustedPublishReceiptProducts(outputs);
   if (items.length !== 1) {
     throw new PaperclipMetricMonitorError(
       `当前 Case 必须且只能有一个标准信任的 PublishReceipt，实际为 ${items.length} 个。`,
       'metric_publish_receipt_ambiguous',
     );
   }
-  const receipt = items[0].metadata.receipt;
-  if (
-    !receipt
-    || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(String(receipt.receiptId || ''))
-    || !TRUSTED_REFERENCE.test(String(receipt.campaignId || ''))
-    || !M5_PLATFORMS.includes(receipt.platform)
-    || !TRUSTED_REFERENCE.test(String(receipt.accountRef || ''))
-    || !CONNECTOR_MODE.test(String(receipt.connectorMode || ''))
-    || !String(receipt.contentVersionId || '').trim()
-    || !String(receipt.externalContentId || '').trim()
-    || !String(receipt.evidence || '').trim()
-    || !Number.isFinite(Date.parse(receipt.publishedAt))
-  ) {
-    throw new PaperclipMetricMonitorError(
+  return assertPublishReceiptIdentity(items[0].metadata.receipt, {
+    requireMetricIdentity:true,
+    invalid:() => new PaperclipMetricMonitorError(
       'PublishReceipt 结构无效，拒绝派生指标检查点。',
       'metric_publish_receipt_identity_invalid',
-    );
-  }
-  return structuredClone(receipt);
+    ),
+  });
 }
 
 export function completedCheckpointLabels(outputs, receipt) {
   const completed = new Set();
-  for (const item of outputItems(outputs)) {
+  for (const item of trustedMetricSnapshotProducts(outputs)) {
     const checkpoint = CHECKPOINTS.find(
       (candidate) => candidate.label === item?.metadata?.checkpoint,
     );
     if (
       !checkpoint
-      || item.kind !== 'work_product'
-      || item.type !== 'artifact'
-      || item.provider !== PUBLISHER_PROVIDER
-      || item.sourceTrust != null
-      || item.status !== 'active'
-      || item.healthStatus !== 'healthy'
-      || item.metadata?.schemaVersion !== METRIC_SNAPSHOT_SCHEMA
-      || item.metadata?.kind !== 'MetricSnapshot'
       || item.metadata?.receiptId !== receipt.receiptId
     ) {
       continue;
@@ -452,10 +423,6 @@ export function completedCheckpointLabels(outputs, receipt) {
   return completed;
 }
 
-function outputItems(outputs) {
-  return Array.isArray(outputs) ? outputs : Array.isArray(outputs?.items) ? outputs.items : [];
-}
-
 function withMonitor(executionPolicy, monitor) {
   return {
     ...(executionPolicy && typeof executionPolicy === 'object' ? executionPolicy : {}),
@@ -482,103 +449,16 @@ function assertMetricSnapshotMatches({
   expectedCollectionKey,
   dueAt,
 }) {
-  if (
-    !snapshot
-    || typeof snapshot !== 'object'
-    || Array.isArray(snapshot)
-    || !String(snapshot.snapshotId || '').trim()
-    || snapshot.receiptId !== receipt.receiptId
-    || snapshot.collectionKey !== expectedCollectionKey
-    || snapshot.platform !== receipt.platform
-    || snapshot.contentVersionId !== receipt.contentVersionId
-    || !optionalIdentityMatches(snapshot, receipt)
-    || !Number.isFinite(Date.parse(snapshot.collectedAt))
-    || Date.parse(snapshot.collectedAt) < dueAt.getTime()
-    || !validMetricValues(snapshot.metrics)
-    || (
-      receipt.platform === M5_PLATFORM_IDS.XIAOHONGSHU
-      && !validXhsMetricEvidence(snapshot, receipt)
-    )
-  ) {
-    throw new PaperclipMetricMonitorError(
+  return assertMetricSnapshotLineage({
+    snapshot,
+    receipt,
+    expectedCollectionKey,
+    dueAt,
+    invalid:() => new PaperclipMetricMonitorError(
       'Publisher 返回的 MetricSnapshot 与当前回执、检查点或采集时间不一致。',
       'metric_snapshot_identity_invalid',
-    );
-  }
-  return structuredClone(snapshot);
-}
-
-function optionalIdentityMatches(snapshot, receipt) {
-  return ['campaignId', 'accountRef', 'connectorMode', 'externalContentId']
-    .every((field) => (
-      !Object.hasOwn(snapshot, field)
-      || snapshot[field] === receipt[field]
-    ));
-}
-
-function validMetricValues(metrics) {
-  return Boolean(metrics)
-    && typeof metrics === 'object'
-    && !Array.isArray(metrics)
-    && Object.keys(metrics).length > 0
-    && Object.values(metrics).every(
-      (value) => Number.isSafeInteger(value) && value >= 0,
-    );
-}
-
-function validXhsMetricEvidence(snapshot, receipt) {
-  const source = snapshot.source;
-  const expectedSourceKeys = [
-    'approvalRef',
-    'capturedAt',
-    'kind',
-    'origin',
-    'pageKind',
-    'rawMetrics',
-    'selectorBundleVersion',
-    'selectorChecksum',
-  ].sort();
-  const expectedMetricKeys = ['comments', 'likes', 'saves', 'views'];
-  const capturedAt = Date.parse(source?.capturedAt);
-  const observationAgeMs = Date.parse(snapshot.collectedAt) - capturedAt;
-  return snapshot.accountRef === receipt.accountRef
-    && snapshot.externalContentId === receipt.externalContentId
-    && Object.keys(snapshot.metrics).sort().join('\n')
-      === expectedMetricKeys.join('\n')
-    && source
-    && typeof source === 'object'
-    && !Array.isArray(source)
-    && Object.keys(source).sort().join('\n') === expectedSourceKeys.join('\n')
-    && source.kind === 'official_creator_ui'
-    && ['https://creator.xiaohongshu.com', 'https://pro.xiaohongshu.com']
-      .includes(source.origin)
-    && source.pageKind === 'own_note_detail'
-    && /^[1-9]\d*\.\d+\.\d+$/.test(String(source.selectorBundleVersion || ''))
-    && SHA256.test(String(source.selectorChecksum || ''))
-    && String(source.approvalRef || '').startsWith('paperclip:')
-    && Number.isFinite(capturedAt)
-    && observationAgeMs >= 0
-    && observationAgeMs <= MAX_METRIC_OBSERVATION_AGE_MS
-    && source.rawMetrics
-    && typeof source.rawMetrics === 'object'
-    && !Array.isArray(source.rawMetrics)
-    && Object.keys(source.rawMetrics).sort().join('\n')
-      === expectedMetricKeys.join('\n')
-    && expectedMetricKeys.every((key) => exactRawMetricValue(source.rawMetrics[key]));
-}
-
-function exactRawMetricValue(value) {
-  if (Number.isSafeInteger(value) && value >= 0) return true;
-  if (typeof value !== 'string') return false;
-  const text = value.trim();
-  if (
-    !/^(?:0|[1-9]\d*)$/.test(text)
-    && !/^(?:[1-9]\d{0,2})(?:,\d{3})+$/.test(text)
-  ) {
-    return false;
-  }
-  const parsed = Number(text.replaceAll(',', ''));
-  return Number.isSafeInteger(parsed) && parsed >= 0;
+    ),
+  });
 }
 
 function sanitizedMetricFailure(error) {

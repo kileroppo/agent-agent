@@ -163,8 +163,17 @@
         "test/local-pptx-adapter.test.js"
       ]
     },
-    "src/local-video-script-package.js": {
+    "src/local-video-script-content-protocol.js": {
       "lineLimit": 750,
+      "importLimit": 2,
+      "affectedTests": [
+        "test/content-campaign-service.test.js",
+        "test/local-video-script-package.test.js",
+        "test/m5-hermes-stage-execute.test.js"
+      ]
+    },
+    "src/local-video-script-package.js": {
+      "lineLimit": 250,
       "affectedTests": [
         "test/content-campaign-service.test.js",
         "test/local-video-script-package.test.js",
@@ -178,6 +187,21 @@
         "test/local-video-script-package.test.js",
         "test/m5-hermes-stage-execute.test.js"
       ]
+    },
+    "src/m5-learning-evidence.js": {
+      "affectedTests": [
+        "test/m5-learning-lifecycle.test.js"
+      ],
+      "lineLimit": 300,
+      "importLimit": 8
+    },
+    "src/m5-learning-lifecycle.js": {
+      "affectedTests": [
+        "test/m5-learning-lifecycle.test.js",
+        "test/paperclip-learning-lifecycle.test.js"
+      ],
+      "lineLimit": 500,
+      "importLimit": 8
     },
     "src/m5-local-chaos-acceptance.js": {
       "lineLimit": 450
@@ -332,6 +356,12 @@
         "test/m5-publisher-bindings.test.js"
       ],
       "lineLimit": 400
+    },
+    "src/paperclip-publisher-controller.js": {
+      "affectedTests": [
+        "test/paperclip-publisher-controller.test.js"
+      ],
+      "lineLimit": 470
     },
     "src/paperclip-publisher.js": {
       "affectedTests": [
@@ -498,7 +528,33 @@
         "test/task-service.test.js",
         "test/xiaod-delivery-resume.test.js"
       ],
-      "lineLimit": 300
+      "lineLimit": 100
+    },
+    "src/paperclip-approval-resolution.js": {
+      "affectedTests": [
+        "test/paperclip-approval-resolution.test.js",
+        "test/task-service.test.js",
+        "test/task-service-paperclip-execution.test.js"
+      ],
+      "lineLimit": 300,
+      "importLimit": 4
+    },
+    "src/paperclip-assignment-completion.js": {
+      "affectedTests": [
+        "test/paperclip-assignment-completion.test.js",
+        "test/paperclip-hermes-task-reconciler.test.js",
+        "test/task-service-paperclip-execution.test.js"
+      ],
+      "lineLimit": 220,
+      "importLimit": 4
+    },
+    "src/paperclip-hermes-task-reconciler.js": {
+      "affectedTests": [
+        "test/paperclip-assignment-completion.test.js",
+        "test/paperclip-hermes-task-reconciler.test.js"
+      ],
+      "lineLimit": 260,
+      "importLimit": 4
     },
     "src/task-approval-lifecycle.js": {
       "affectedTests": [
@@ -653,6 +709,7 @@
       "lineLimit": 450,
       "affectedTests": [
         "test/m5-hermes-stage-execute.test.js",
+        "test/paperclip-assignment-completion.test.js",
         "test/m5-role-tool-execution.test.js",
         "test/task-service-m5-recovery.test.js",
         "test/task-service-paperclip-execution.test.js",
@@ -683,6 +740,14 @@
         "test/task-status-policy.test.js"
       ],
       "lineLimit": 180
+    },
+    "src/trusted-publish-lineage.js": {
+      "affectedTests": [
+        "test/paperclip-metric-monitor.test.js",
+        "test/paperclip-publisher-controller.test.js",
+        "test/trusted-publish-lineage.test.js"
+      ],
+      "lineLimit": 220
     },
     "src/xiaod-delivery-resume.js": {
       "lineLimit": 100,

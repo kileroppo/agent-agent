@@ -6,6 +6,10 @@ import {
   M5LearningLifecycleError,
   buildOfflineReplay,
 } from '../src/m5-learning-lifecycle.js';
+import {
+  M5LearningEvidence,
+  M5LearningLifecycleError as EvidenceLifecycleError,
+} from '../src/m5-learning-evidence.js';
 import { m5GrayProductionTemplateBinding } from '../src/m5-production-template-resolver.js';
 
 const IDS = Object.freeze({
@@ -315,6 +319,34 @@ test('离线回放缺历史审核或安全控制漂移时不生成提案', () =>
     () => buildOfflineReplay(retrospective, forged72h),
     /无法回读全部历史 MetricSnapshot/,
   );
+});
+
+test('学习证据 Module 通过一个 Interface 收口历史样本和审核链', () => {
+  const governance = new FakeLearningGovernance();
+  const evidence = new M5LearningEvidence();
+  const { samples, reviews } = evidence.collectOfflineReplay({
+    outputs:governance.pipelineOutputs,
+    snapshotRefs:new Set(['snapshot-1', 'snapshot-2', 'snapshot-3', 'snapshot-4', 'snapshot-5']),
+  });
+
+  assert.deepEqual(samples.map((item) => item.snapshot.snapshotId).sort(), [
+    'snapshot-1',
+    'snapshot-2',
+    'snapshot-3',
+    'snapshot-4',
+    'snapshot-5',
+  ]);
+  assert.deepEqual(reviews.map((item) => item.id).sort(), [
+    'review-content-1',
+    'review-content-2',
+    'review-content-3',
+    'review-content-4',
+    'review-content-5',
+  ]);
+});
+
+test('生命周期入口继续导出学习证据使用的同一个错误类型', () => {
+  assert.equal(M5LearningLifecycleError, EvidenceLifecycleError);
 });
 
 test('学习入口拒绝空、重复或占位的模板改进建议', () => {

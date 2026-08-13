@@ -7,10 +7,8 @@ import { taskRoleExecutionMethods } from './task-role-execution.js';
 import { validateTaskCompletion } from './task-completion-contract.js';
 import { taskIdempotencyFingerprint } from './task-idempotency.js';
 import {
+  PaperclipAssignmentCompletion,
   isPaperclipCompletableTaskStatus,
-  paperclipCompletionConfirmed,
-  paperclipCompletionSync,
-  paperclipIssueStatusForTask,
 } from './paperclip-assignment-completion.js';
 import {
   ValidationError,
@@ -38,6 +36,16 @@ function campaignDeliveryEvidence(service) {
     campaignDeliveryEvidenceModules.set(service, module);
   }
   return module;
+}
+
+function paperclipAssignmentCompletion(service, { usePublicConfirm = false } = {}) {
+  return new PaperclipAssignmentCompletion({
+    store:service.store,
+    governance:service.governance,
+    ...(usePublicConfirm ? {
+      confirmTask:(task, assignment) => service.confirmPaperclipAssignmentCompletion(task, assignment),
+    } : {}),
+  });
 }
 
 export const taskServiceExecutionMethods = {
@@ -223,7 +231,13 @@ export const taskServiceExecutionMethods = {
       },
       governance:{
         ...(task.governance || {}),
-        completionSync:paperclipCompletionSync({ status:'pending', taskStatus:requestedStatus, issueId:assignment.issueId, runId:assignment.runId, now:completedAt }),
+        completionSync:paperclipAssignmentCompletion(this).sync({
+          status:'pending',
+          taskStatus:requestedStatus,
+          issueId:assignment.issueId,
+          runId:assignment.runId,
+          now:completedAt,
+        }),
       },
       ...(requestedStatus === 'failed' ? {
         error:reportedFailureError(task.error, summary, completedAt)
@@ -246,23 +260,14 @@ export const taskServiceExecutionMethods = {
   async ensurePaperclipAssignmentCompletion({ task, assignment, paperclipAgentId, apiKey } = {}) {
     if (!isPaperclipCompletableTaskStatus(task?.status)) return task;
     if (task.status === 'succeeded') await this.syncM5StageWorkProducts({ task, assignment, apiKey });
-    if (paperclipCompletionConfirmed(task, assignment)) return task;
-    const expected = paperclipIssueStatusForTask(task.status);
-    if (typeof this.governance?.getPaperclipIssue === 'function') {
-      try {
-        const issue = await this.governance.getPaperclipIssue(assignment.issueId);
-        if (String(issue?.status || '').trim() === expected) return this.confirmPaperclipAssignmentCompletion(task, assignment);
-      } catch {}
-    }
-    await this.governance.completePaperclipIssue(assignment.issueId, { runId:assignment.runId, agentId:paperclipAgentId, apiKey, result:task });
-    return this.confirmPaperclipAssignmentCompletion(task, assignment);
+    return paperclipAssignmentCompletion(this, { usePublicConfirm:true }).ensure(task, assignment, {
+      paperclipAgentId,
+      apiKey,
+    });
   },
 
   async confirmPaperclipAssignmentCompletion(task, assignment) {
-    const confirmedAt = new Date().toISOString();
-    return this.store.updateTask(task.taskId, {
-      governance:{ ...(task.governance || {}), status:'synced', syncedAt:confirmedAt, completionSync:paperclipCompletionSync({ status:'confirmed', taskStatus:task.status, issueId:assignment.issueId, runId:assignment.runId, now:confirmedAt }) },
-    });
+    return paperclipAssignmentCompletion(this).confirm(task, assignment);
   },
 
   async handleM5ReportedFailure({

@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   selectAffectedTestFiles,
   selectAffectedWorkspaces,
+  selectRepositoryTestFiles,
 } from './run-affected-tests.mjs';
 
 function workspace(name, directory, dependencies = []) {
@@ -33,6 +34,22 @@ test('普通应用变更只选择所属 workspace', () => {
     selectAffectedWorkspaces(['apps/ajun-runtime/src/task.js'], graph),
     ['ajun-runtime'],
   );
+});
+
+test('Hermes-only 变更选择仓库级 patch 测试，不再依赖 workspace 归属', () => {
+  const changed = ['integrations/hermes/scripts/feishu-commander-ingress-protocol.mjs'];
+  assert.deepEqual(selectAffectedWorkspaces(changed, graph), []);
+  const selected = selectRepositoryTestFiles(changed);
+  assert.equal(
+    selected.includes('integrations/hermes/test/patch-feishu-agent-proposal-router.test.mjs'),
+    true,
+  );
+  assert.equal(selected.length > 1, true);
+  assert.equal(
+    selected.every((file) => /^integrations\/hermes\/test\/patch-.*\.test\.mjs$/.test(file)),
+    true,
+  );
+  assert.deepEqual(selectRepositoryTestFiles(['apps/ajun-runtime/src/task.js']), []);
 });
 
 test('根脚本和仓库目录清单变更选择全部 workspace，docs/contracts 只触发 A君', () => {

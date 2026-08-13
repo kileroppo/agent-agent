@@ -8,6 +8,11 @@ import { loadAjunModulePolicy } from './ajun-module-policy.mjs';
 const DEFAULT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ROOT_WIDE_PREFIXES = Object.freeze(['scripts/']);
 const AJUN_SHARED_PREFIXES = Object.freeze(['agents/', 'docs/contracts/']);
+const REPOSITORY_TEST_ROUTES = Object.freeze([Object.freeze({
+  changedPrefix:'integrations/hermes/',
+  testDirectory:'integrations/hermes/test',
+  testPattern:/^patch-.*\.test\.mjs$/,
+})]);
 const AJUN_POLICY = loadAjunModulePolicy(DEFAULT_ROOT);
 
 export function discoverWorkspaces(root = DEFAULT_ROOT) {
@@ -91,6 +96,24 @@ export function selectAffectedTestFiles(changedFiles, workspace) {
   return AJUN_POLICY.selectAffectedTests(owned);
 }
 
+export function selectRepositoryTestFiles(changedFiles, root = DEFAULT_ROOT) {
+  const changed = [...new Set(changedFiles.map(toPosix).filter(Boolean))];
+  const selected = new Set();
+  for (const route of REPOSITORY_TEST_ROUTES) {
+    if (!changed.some((file) => file.startsWith(route.changedPrefix))) continue;
+    const directory = path.join(root, route.testDirectory);
+    let routeMatches = 0;
+    for (const entry of fs.readdirSync(directory, { withFileTypes:true })) {
+      if (entry.isFile() && route.testPattern.test(entry.name)) {
+        selected.add(`${route.testDirectory}/${entry.name}`);
+        routeMatches += 1;
+      }
+    }
+    if (!routeMatches) throw new Error(`${route.changedPrefix} 没有可运行的仓库级测试`);
+  }
+  return [...selected].sort();
+}
+
 function expandWorkspacePatterns(root, patterns) {
   const directories = new Set();
   for (const pattern of patterns) {
@@ -170,11 +193,16 @@ async function main() {
   const workspaces = discoverWorkspaces(DEFAULT_ROOT);
   const changed = explicit.length ? explicit : changedFilesFromGit(DEFAULT_ROOT);
   const selected = selectAffectedWorkspaces(changed, workspaces);
-  if (!selected.length) {
+  const repositoryTests = selectRepositoryTestFiles(changed, DEFAULT_ROOT);
+  if (!selected.length && !repositoryTests.length) {
     console.log('affected tests: no workspace affected');
     return;
   }
-  console.log(`affected tests: ${selected.join(', ')}`);
+  console.log(`affected tests: ${[...selected, ...(repositoryTests.length ? ['repository'] : [])].join(', ')}`);
+  if (repositoryTests.length) {
+    console.log(`\n[repository] node --test ${repositoryTests.join(' ')}`);
+    if (!listOnly) run('node', ['--test', ...repositoryTests], DEFAULT_ROOT);
+  }
   if (listOnly) return;
   for (const name of selected) {
     const workspace = workspaces.get(name);

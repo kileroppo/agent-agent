@@ -18,7 +18,7 @@ const LEGACY_AJUN_LINE_LIMITS = Object.freeze({
   'src/contracts/agent-army-adapter-projection.js':200,
   'src/agent-army-mcp-server.js':600,
   'src/agent-army-client.js':750,
-  'src/task-approval-coordinator.js':300,
+  'src/task-approval-coordinator.js':100,
   'src/task-intake.js':350,
   'src/task-notification.js':350,
   'src/task-overview.js':275,

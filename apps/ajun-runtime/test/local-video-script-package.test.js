@@ -6,6 +6,198 @@ import test from 'node:test';
 import { LocalVideoScriptPackage } from '../src/local-video-script-package.js';
 import { m5ProductionTemplateBindingHash } from '../src/m5-production-template-resolver.js';
 
+test('缺少脚本主题时在模板解析和生产写入前停止', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'video-script-topic-required-'));
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  let resolverCalls = 0;
+  const artifactsDir = path.join(root, 'artifacts');
+  const executor = new LocalVideoScriptPackage({
+    store:{ list:async () => [] },
+    artifactsDir,
+    templateResolver:{ async resolve() { resolverCalls += 1; } },
+  });
+  const result = await executor.execute({
+    taskId:'m5-script-without-topic',
+    input:{ context:{ paperclipRoutineKey:'m5-script' } },
+  });
+  assert.equal(result.status, 'needs_input');
+  assert.equal(result.error.code, 'script_topic_required');
+  assert.equal(resolverCalls, 0);
+  await assert.rejects(fs.access(artifactsDir), (error) => error?.code === 'ENOENT');
+});
+
+test('执行时读取最新 Adapter，并在研究和脚本校验完成后才写生产包', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'video-script-adapter-order-'));
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const artifactsDir = path.join(root, 'artifacts');
+  const events = [];
+  const candidate = {
+    headline:'动态 Adapter 脚本',
+    platform:'douyin',
+    durationSeconds:99,
+    aspectRatio:'9:16',
+    audience:'维护者',
+    hook:'先检查执行时的真实 Adapter。',
+    fullScript:'先检查执行时的真实 Adapter，再确认研究来源已经完成有界收集。脚本内容和质量审查全部通过以后，系统才允许创建生产目录并写入五件受控文件，任何前置失败都不能留下半成品。',
+    shootingNotes:['按顺序展示研究、脚本和产物。'],
+    shots:[{ startSeconds:0, endSeconds:99, narration:'完整口播', visual:'执行顺序' }],
+    qualityReview:{ factuality:'来源有界', imitation:'不复制', shootability:'可拍', unresolved:[] },
+  };
+  const executor = new LocalVideoScriptPackage({
+    store:{ async list() { events.push('list'); return []; } },
+    artifactsDir,
+    advisor:{ async scriptPackage() { throw new Error('旧 advisor 不应再调用'); } },
+    researcher:{ async execute() { throw new Error('旧 researcher 不应再调用'); } },
+    now:() => new Date('2000-01-01T00:00:00.000Z'),
+  });
+  executor.now = () => new Date('2026-08-13T09:08:07.000Z');
+  executor.researcher = {
+    async execute({ input }) {
+      events.push('research');
+      assert.equal(await pathExists(artifactsDir), false);
+      assert.deepEqual(input.sourceUrls, [
+        'https://example.com/a',
+        'https://example.com/b',
+        'https://example.com/c',
+      ]);
+      return {
+        artifactRefs:[{
+          type:'intel_research_report',
+          data:{
+            sources:Array.from({ length:5 }, (_, index) => ({
+              title:`来源 ${index + 1}`,
+              source:`https://example.com/report-${index + 1}`,
+              summary:`研究摘要 ${index + 1}`,
+            })),
+          },
+        }],
+      };
+    },
+  };
+  executor.advisor = {
+    async scriptPackage({ durationSeconds, validate }) {
+      events.push('advisor');
+      assert.equal(await pathExists(artifactsDir), false);
+      assert.equal(durationSeconds, 600);
+      assert.equal(validate(candidate), true);
+      return { data:candidate, usage:{ model:'advisor-test' } };
+    },
+  };
+
+  const result = await executor.execute({
+    taskId:'dynamic-adapter-script',
+    assigneeAgentId:'content-creator',
+    input:{
+      title:'最新研究会不会影响视频脚本',
+      durationSeconds:999,
+      sourceUrls:[
+        'https://example.com/a',
+        'https://example.com/b',
+        'https://example.com/c',
+        'https://example.com/d',
+      ],
+    },
+  });
+  assert.equal(result.status, 'succeeded');
+  assert.deepEqual(events, ['list', 'research', 'advisor']);
+  const data = result.artifactRefs[0].data;
+  assert.equal(data.generatedAt, '2026-08-13T09:08:07.000Z');
+  assert.equal(data.generationMode, 'hermes_advisor');
+  assert.equal(data.sources.length, 3);
+  assert.equal(result.usage.model, 'advisor-test');
+  assert.notEqual(data, candidate);
+  assert.notEqual(data.shots, candidate.shots);
+  assert.equal(candidate.topic, undefined);
+});
+
+test('研究或 Advisor 失败时保持旧的有界兜底语义', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'video-script-fallback-'));
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const events = [];
+  const executor = new LocalVideoScriptPackage({
+    store:{ list:async () => [] },
+    artifactsDir:path.join(root, 'artifacts'),
+    researcher:{ async execute() { events.push('research'); throw new Error('offline'); } },
+    advisor:{ async scriptPackage() { events.push('advisor'); throw new Error('offline'); } },
+  });
+  const result = await executor.execute({
+    taskId:'fallback-script',
+    input:{ title:'最新研究会不会改变工作方式' },
+  });
+  assert.equal(result.status, 'succeeded');
+  assert.deepEqual(events, ['research', 'advisor']);
+  assert.equal(result.artifactRefs[0].data.researchStatus, 'unavailable');
+  assert.equal(result.artifactRefs[0].data.generationMode, 'deterministic_fallback');
+  assert.match(result.artifactRefs[0].data.fullScript, /不编造没有来源的数字和事实/);
+});
+
+test('执行路径继续经过公开 research 覆写方法', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'video-script-research-override-'));
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const executor = new LocalVideoScriptPackage({
+    store:{ list:async () => [] },
+    artifactsDir:path.join(root, 'artifacts'),
+  });
+  let calls = 0;
+  executor.research = async () => {
+    calls += 1;
+    return {
+      status:'public_sources_used',
+      report:{ sources:[{ summary:'覆写研究结论' }] },
+      sources:[{ summary:'覆写研究结论' }],
+    };
+  };
+
+  const result = await executor.execute({
+    taskId:'research-override-script',
+    input:{ title:'最新趋势为什么变化' },
+  }, { allowAdvisor:false });
+
+  assert.equal(calls, 1);
+  assert.equal(result.artifactRefs[0].data.researchStatus, 'public_sources_used');
+  assert.match(result.artifactRefs[0].data.fullScript, /覆写研究结论/);
+});
+
+test('来源读取和模板解析同时会失败时保留来源错误优先级', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'video-script-error-order-'));
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const events = [];
+  const sourceError = new Error('来源产物读取失败');
+  const templateError = Object.assign(new Error('模板解析失败'), {
+    code:'m5_production_template_blocked',
+  });
+  const executor = new LocalVideoScriptPackage({
+    store:{ async list() {
+      events.push('list');
+      return [{
+        taskId:'broken-source',
+        get artifactRefs() {
+          events.push('source');
+          throw sourceError;
+        },
+      }];
+    } },
+    artifactsDir:path.join(root, 'artifacts'),
+    templateResolver:{ async resolve() {
+      events.push('template');
+      throw templateError;
+    } },
+  });
+
+  await assert.rejects(
+    executor.execute({
+      taskId:'error-order-script',
+      input:{
+        title:'错误顺序',
+        context:{ paperclipRoutineKey:'m5-script' },
+      },
+    }),
+    (error) => error === sourceError,
+  );
+  assert.deepEqual(events, ['list', 'source']);
+  await assert.rejects(fs.access(path.join(root, 'artifacts')), (error) => error?.code === 'ENOENT');
+});
+
 test('M5 脚本把同一 Case 的证据结论逐字绑定到至少两个来源', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'm5-script-evidence-'));
   t.after(() => fs.rm(root, { recursive:true, force:true }));
@@ -179,6 +371,11 @@ test('M5 脚本把同一 Case 的证据结论逐字绑定到至少两个来源',
   assert.equal(failedResult.status, 'needs_input');
   assert.equal(failedResult.error.code, 'm5_template_guidance_not_applied');
   assert.equal(failedResult.artifactRefs, undefined);
+  await assert.rejects(
+    fs.access(path.join(root, 'failed-out')),
+    (error) => error?.code === 'ENOENT',
+    '模板证据拒绝路径不得创建任何生产目录',
+  );
 
   const unlocatableEvidence = new LocalVideoScriptPackage({
     store:{ list:async () => [evidenceTask, visualTask] },
@@ -251,9 +448,12 @@ test('M5 脚本把同一 Case 的证据结论逐字绑定到至少两个来源',
     bindingHash:m5ProductionTemplateBindingHash(placeholderValue),
   };
   let placeholderAdvisorCalls = 0;
+  let placeholderResearchCalls = 0;
+  const placeholderArtifactsDir = path.join(root, 'placeholder-guidance-out');
   const placeholderGuidance = new LocalVideoScriptPackage({
     store:{ list:async () => [evidenceTask, visualTask] },
-    artifactsDir:path.join(root, 'placeholder-guidance-out'),
+    artifactsDir:placeholderArtifactsDir,
+    researcher:{ async execute() { placeholderResearchCalls += 1; } },
     advisor:{
       async scriptPackage() {
         placeholderAdvisorCalls += 1;
@@ -277,6 +477,11 @@ test('M5 脚本把同一 Case 的证据结论逐字绑定到至少两个来源',
   assert.equal(placeholderResult.status, 'needs_input');
   assert.equal(placeholderResult.error.code, 'm5_template_binding_invalid');
   assert.equal(placeholderAdvisorCalls, 0);
+  assert.equal(placeholderResearchCalls, 0);
+  await assert.rejects(
+    fs.access(placeholderArtifactsDir),
+    (error) => error?.code === 'ENOENT',
+  );
 
   const unchanged = new LocalVideoScriptPackage({
     store:{ list:async () => [evidenceTask, visualTask] },
@@ -445,12 +650,22 @@ test('只给主题时自动复用同会话参考案例并生成五件受控生�
   const creator = new LocalVideoScriptPackage({
     store:{ async list() { return [analysisTask]; } },
     artifactsDir:path.join(root, 'artifacts'),
-    researcher:{ async execute() {
+    researcher:{ async execute({ input }) {
+      assert.deepEqual(input.sourceUrls, [
+        'https://example.com/1',
+        'https://example.com/2',
+        'https://example.com/3',
+      ]);
       return {
         status:'succeeded',
         artifactRefs:[{
           type:'intel_research_report',
-          data:{ sources:[{ title:'公开资料', source:'https://example.com/report', summary:'自动化会改变任务结构。', fetchedAt:'2026-07-28T00:00:00.000Z' }] }
+          data:{ sources:Array.from({ length:6 }, (_, index) => ({
+            title:`公开资料 ${index + 1}`,
+            source:`https://example.com/report-${index + 1}`,
+            summary:index === 0 ? '自动化会改变任务结构。' : `补充资料 ${index + 1}`,
+            fetchedAt:'2026-07-28T00:00:00.000Z',
+          })) }
         }]
       };
     } }
@@ -460,7 +675,15 @@ test('只给主题时自动复用同会话参考案例并生成五件受控生�
     taskType:'content.video-script-package',
     assigneeAgentId:'content-creator',
     source:{ channel:'feishu', chatRef:'chat-1' },
-    input:{ title:'写一个 AI 会不会让人失业的视频脚本' }
+    input:{
+      title:'写一个 AI 会不会让人失业的视频脚本',
+      sourceUrls:[
+        'https://example.com/1',
+        'https://example.com/2',
+        'https://example.com/3',
+        'https://example.com/4',
+      ],
+    }
   }, { allowAdvisor:false });
 
   assert.equal(result.status, 'succeeded');
@@ -470,6 +693,8 @@ test('只给主题时自动复用同会话参考案例并生成五件受控生�
   assert.equal(artifact.data.platform, 'douyin');
   assert.equal(artifact.validation.fileCount, 5);
   assert.equal(artifact.validation.externalSideEffects, 0);
+  assert.equal(artifact.validation.factualSourcesBounded, true);
+  assert.equal(artifact.data.sources.length, 3);
   assert.deepEqual(artifact.data.productionFiles.map((item) => item.fileName).sort(), [
     'manifest.json', 'script.md', 'shots.json', 'sources.md', 'subtitles.srt'
   ]);
@@ -604,4 +829,14 @@ function unchangedScript(binding) {
       scriptFragment:'系统必须在写入灰度产物前比较完整口播并停止假灰度',
     })),
   };
+}
+
+async function pathExists(target) {
+  try {
+    await fs.access(target);
+    return true;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return false;
+    throw error;
+  }
 }

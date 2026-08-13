@@ -1,6 +1,6 @@
 import { validateTaskCompletion } from './task-completion-contract.js';
 import {
-  paperclipCompletionSync,
+  PaperclipAssignmentCompletion,
   pendingPaperclipCompletion,
 } from './paperclip-assignment-completion.js';
 
@@ -42,30 +42,8 @@ export class PaperclipHermesTaskReconciler {
   }
 
   async reconcilePendingCompletion(task) {
-    const pending = pendingPaperclipCompletion(task);
-    if (!pending) return;
-    let issue;
-    try {
-      issue = await this.governance.getPaperclipIssue(pending.issueId);
-    } catch {
-      return;
-    }
-    if (String(issue?.status || '').trim() !== pending.expectedIssueStatus) return;
-    const confirmedAt = new Date(this.now()).toISOString();
-    await this.store.updateTask(task.taskId, {
-      governance:{
-        ...(task.governance || {}),
-        status:'synced',
-        syncedAt:confirmedAt,
-        completionSync:paperclipCompletionSync({
-          status:'confirmed',
-          taskStatus:task.status,
-          issueId:pending.issueId,
-          runId:pending.runId,
-          now:confirmedAt,
-        }),
-      },
-    });
+    if (!pendingPaperclipCompletion(task)) return;
+    await this.assignmentCompletion().reconcilePending(task);
   }
 
   async reconcileTask(task) {
@@ -187,6 +165,14 @@ export class PaperclipHermesTaskReconciler {
       currentStage,
       execution:{ ...(task.execution || {}), finishedAt, outcome },
       error
+    });
+  }
+
+  assignmentCompletion() {
+    return new PaperclipAssignmentCompletion({
+      store:this.store,
+      governance:this.governance,
+      now:() => new Date(this.now()).toISOString(),
     });
   }
 }

@@ -1,7 +1,4 @@
-import {
-  M5_PLATFORMS,
-  M5_SCHEMA_IDS,
-} from '@agent-army/m5-contracts';
+import { M5_PLATFORMS, M5_SCHEMA_IDS } from '@agent-army/m5-contracts';
 import {
   consumeM5SystemControllerPlanRevision,
   isRecoverableM5SystemControllerFailure,
@@ -12,15 +9,18 @@ import {
   IMMEDIATE_PUBLISH_RECOVERY_ACTION,
   calendarDateInShanghai,
 } from '@agent-army/m5-publisher-gateway/policy';
+import {
+  assertContentVersionIdentity,
+  assertPublishReceiptIdentity,
+  trustedContentVersionProducts,
+  trustedMachineReviewProducts,
+  trustedPublishReceiptProducts,
+} from './trusted-publish-lineage.js';
 
 const SYSTEM_ROLE = 'm5-publisher-controller';
 const ROUTINE_MARKER = '[agent-army:m5:routine:m5-publish]';
-const CONTENT_PROVIDER = 'agent-army.content-autonomy';
 const PUBLISHER_PROVIDER = 'agent-army.publisher-gateway';
-const CONTENT_VERSION_SCHEMA = M5_SCHEMA_IDS.CONTENT_VERSION;
-const MACHINE_REVIEW_SCHEMA = M5_SCHEMA_IDS.MACHINE_REVIEW;
 const PUBLISH_RECEIPT_SCHEMA = M5_SCHEMA_IDS.PUBLISH_RECEIPT;
-const PLATFORMS = new Set(M5_PLATFORMS);
 const REQUIRED_REVIEW_CHECKS = Object.freeze([
   'facts',
   'privacy',
@@ -259,19 +259,19 @@ export function trustedPublishInputs({
   grant,
   executionTime,
 }) {
-  const contentItems = trustedArtifacts(outputs, CONTENT_PROVIDER, CONTENT_VERSION_SCHEMA, 'ContentVersion');
-  const reviewItems = trustedArtifacts(outputs, CONTENT_PROVIDER, MACHINE_REVIEW_SCHEMA, 'MachineReview');
+  const contentItems = trustedContentVersionProducts(outputs);
+  const reviewItems = trustedMachineReviewProducts(outputs);
   if (contentItems.length !== 1 || reviewItems.length !== 1) {
     throw new PaperclipPublisherControllerError(
       `当前 Case 必须各有一个可信 ContentVersion 和 MachineReview，实际为 ${contentItems.length}/${reviewItems.length}。`,
     );
   }
-  const contentVersion = contentItems[0].metadata.contentVersion;
+  const contentVersionCandidate = contentItems[0].metadata.contentVersion;
   const reviewReport = reviewItems[0].metadata.reviewReport;
   const platform = String(targetCase.fields?.platform || '').trim();
   const scheduledDate = String(targetCase.fields?.scheduledDate || '').trim();
   if (
-    !PLATFORMS.has(platform)
+    !M5_PLATFORMS.includes(platform)
     || !validCalendarDate(scheduledDate)
   ) {
     throw new PaperclipPublisherControllerError('发布 Case 缺少可信平台或发布日期。');
@@ -280,15 +280,13 @@ export function trustedPublishInputs({
   if (scheduledDate !== executionDate) {
     throw immediatePublishDateMismatch(scheduledDate, executionDate);
   }
+  const contentVersion = assertContentVersionIdentity(contentVersionCandidate, {
+    invalid:() => new PaperclipPublisherControllerError(
+      'ContentVersion 与当前平台 Case 不一致或缺少发布产物。',
+    ),
+  });
   if (
-    !contentVersion
-    || contentVersion.platform !== platform
-    || !validOpaqueId(contentVersion.contentVersionId)
-    || !/^sha256:[0-9a-f]{64}$/i.test(String(contentVersion.checksum || ''))
-    || !validRelativePath(contentVersion.mediaPath)
-    || !String(contentVersion.title || '').trim()
-    || !String(contentVersion.body || '').trim()
-    || !Array.isArray(contentVersion.tags)
+    contentVersion.platform !== platform
   ) {
     throw new PaperclipPublisherControllerError('ContentVersion 与当前平台 Case 不一致或缺少发布产物。');
   }
@@ -328,31 +326,9 @@ export function trustedPublishInputs({
 }
 
 export function trustedPublishReceipts(outputs) {
-  return outputItems(outputs)
-    .filter((item) =>
-      item.kind === 'work_product'
-      && item.type === 'artifact'
-      && item.provider === PUBLISHER_PROVIDER
-      && item.sourceTrust == null
-      && ['active', 'approved'].includes(item.status)
-      && item.healthStatus === 'healthy'
-      && item.metadata?.schemaVersion === PUBLISH_RECEIPT_SCHEMA
-      && item.metadata?.kind === 'PublishReceipt',
-    )
-    .map((item) => validReceiptStructure(item.metadata.receipt));
-}
-
-function trustedArtifacts(outputs, provider, schemaVersion, kind) {
-  return outputItems(outputs).filter((item) =>
-    item.kind === 'work_product'
-    && item.type === 'artifact'
-    && item.provider === provider
-    && item.sourceTrust == null
-    && ['active', 'approved'].includes(item.status)
-    && item.healthStatus === 'healthy'
-    && item.metadata?.schemaVersion === schemaVersion
-    && item.metadata?.kind === kind,
-  );
+  return trustedPublishReceiptProducts(outputs).map((item) => validReceiptStructure(
+    item.metadata.receipt,
+  ));
 }
 
 function activeCampaignGrant(campaignCase, nowValue) {
@@ -380,16 +356,11 @@ function validPublisherReceipt(receipt, derived) {
 }
 
 function validReceiptStructure(receipt) {
-  if (
-    !receipt
-    || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(String(receipt.receiptId || ''))
-    || !String(receipt.externalContentId || '').trim()
-    || !String(receipt.evidence || '').trim()
-    || !Number.isFinite(Date.parse(receipt.publishedAt))
-  ) {
-    throw new PaperclipPublisherControllerError('Publisher Gateway 没有返回结构完整的 PublishReceipt。');
-  }
-  return structuredClone(receipt);
+  return assertPublishReceiptIdentity(receipt, {
+    invalid:() => new PaperclipPublisherControllerError(
+      'Publisher Gateway 没有返回结构完整的 PublishReceipt。',
+    ),
+  });
 }
 
 function assertReceiptMatches(receipt, derived) {
@@ -426,17 +397,6 @@ function issueCaseId(issue) {
   return value;
 }
 
-function outputItems(outputs) {
-  return Array.isArray(outputs) ? outputs : Array.isArray(outputs?.items) ? outputs.items : [];
-}
-
-function validRelativePath(value) {
-  const text = String(value || '').trim().replaceAll('\\', '/');
-  return Boolean(text)
-    && !text.startsWith('/')
-    && text.split('/').every((part) => part && part !== '.' && part !== '..');
-}
-
 function validCalendarDate(value) {
   const text = String(value || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
@@ -457,10 +417,6 @@ function immediatePublishDateMismatch(scheduledDate, executionDate) {
     timeZone:'Asia/Shanghai',
   });
   return error;
-}
-
-function validOpaqueId(value) {
-  return /^[a-z0-9][a-z0-9_.:-]{2,127}$/i.test(String(value || ''));
 }
 
 function validUuid(value) {
