@@ -5,7 +5,12 @@ import path from 'node:path';
 import test from 'node:test';
 import { TaskService, ValidationError } from '../src/task-service.js';
 import {
+  agentFixture,
   coordinator,
+  hermesAgentFixture,
+  openResearchAgentFixture,
+  paperclipGovernanceFixture,
+  paperclipIdentityFixture,
   setupTaskService as setup,
   verifiedHealthReport,
 } from './support/task-service-fixture.js';
@@ -94,7 +99,7 @@ test('A君补正小D字幕后立即替换源任务确认稿且不创建新任务
 test('结构化 PPT 由 A君受控本地执行并把三类引用写回 Paperclip', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-presentation-task-'));
   t.after(() => fs.rm(root, { recursive:true, force:true }));
-  const office = { agentId:'office-assistant', name:'小办', status:'active', acceptedTaskTypes:['office.presentation-package'], executionOwner:'paperclip-hermes', interaction:{ runtime:'hermes-profile' } };
+  const office = hermesAgentFixture('office-assistant', '小办', ['office.presentation-package']);
   const workProducts = [];
   const toolCalls = [];
   const governance = {
@@ -169,7 +174,7 @@ test('结构化 PPT 由 A君受控本地执行并把三类引用写回 Paperclip
 test('本地 PPT 特殊通道并发恢复同一任务时只执行一次', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-presentation-claim-'));
   t.after(() => fs.rm(root, { recursive:true, force:true }));
-  const office = { agentId:'office-assistant', name:'小办', status:'active', acceptedTaskTypes:['office.presentation-package'] };
+  const office = agentFixture('office-assistant', '小办', ['office.presentation-package']);
   let executions = 0;
   const { service, records } = setup({
     agents:[office],
@@ -204,16 +209,7 @@ test('本地 PPT 特殊通道并发恢复同一任务时只执行一次', async 
   assert.equal(task.status, 'needs_input');
 });
 test('开放复杂任务直接复用岗位专有执行器且不生成DAG或能力授权产物', async () => {
-  const intel = {
-    agentId:'intel-researcher',
-    name:'小R',
-    status:'active',
-    manifestVersion:'0.6.0',
-    acceptedTaskTypes:['research.intel-report', 'research.open-investigation'],
-    toolAllowlist:['content.public.fetch'],
-    runtimeCapabilities:{ mcpTools:[], skills:[] },
-    openTaskPolicy:{ domain:'research', qualityGateMode:'manifest-required' }
-  };
+  const intel = openResearchAgentFixture({ manifestVersion:'0.6.0' });
   const { service } = setup({ agents:[intel] });
   service.executors['intel-researcher'] = {
     async execute(task) {
@@ -255,15 +251,7 @@ test('开放复杂任务直接复用岗位专有执行器且不生成DAG或能�
   assert.equal(task.artifactRefs.some((item) => item.type === 'capability_discovery_report'), false);
 });
 test('开放任务请求Manifest外能力时直接闭锁且不产生临时授权产物', async () => {
-  const intel = {
-    agentId:'intel-researcher',
-    name:'小R',
-    status:'active',
-    acceptedTaskTypes:['research.intel-report', 'research.open-investigation'],
-    toolAllowlist:['content.public.fetch'],
-    runtimeCapabilities:{ mcpTools:[], skills:[] },
-    openTaskPolicy:{ domain:'research', qualityGateMode:'manifest-required' }
-  };
+  const intel = openResearchAgentFixture();
   const { service } = setup({ agents:[intel] });
 
   const task = await service.create({
@@ -284,17 +272,10 @@ test('开放任务请求Manifest外能力时直接闭锁且不产生临时授权
   assert.deepEqual(task.artifactRefs || [], []);
 });
 test('Paperclip投影收到开放任务的无状态岗位委托而不是本地DAG', async () => {
-  const intel = {
-    agentId:'intel-researcher',
-    name:'小R',
-    status:'active',
-    acceptedTaskTypes:['research.intel-report', 'research.open-investigation'],
-    toolAllowlist:['content.public.fetch'],
-    runtimeCapabilities:{ mcpTools:[], skills:[] },
-    openTaskPolicy:{ domain:'research', qualityGateMode:'manifest-required' },
+  const intel = openResearchAgentFixture({
     interaction:{ runtime:'hermes-profile' },
-    executionOwner:'paperclip-hermes'
-  };
+    executionOwner:'paperclip-hermes',
+  });
   let projectedTask = null;
   const governance = {
     async project(task) {
@@ -325,7 +306,7 @@ test('Paperclip投影收到开放任务的无状态岗位委托而不是本地DA
   assert.equal(task.currentStage, 'waiting_paperclip_heartbeat');
 });
 test('一次性外发审批留在 A君，批准后只恢复原任务一次', async () => {
-  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  const operator = agentFixture('operator', '运维官', ['operations.health-review']);
   let executed = 0; let projected = 0;
   const governance = { async project() { projected += 1; return { status:'synced' }; }, async health() { return { status:'ready' }; } };
   const { service, records } = setup({ agents:[operator], governance });
@@ -360,7 +341,7 @@ test('运行总览展示微信 Vault 真实健康状态而不是只看岗位 act
   assert.match(capability.detail, /缺少消息库/);
 });
 test('小D听审确认只生成确认稿并交回状态跟踪，不把审批点击冒充任务完成', async () => {
-  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const xiaod = agentFixture('xiaod', '小D', ['media.transcribe-and-refine']);
   const { service, records } = setup({ agents:[xiaod] });
   records.tasks.push({
     taskId:'media-review-1',
@@ -394,7 +375,7 @@ test('小D听审确认只生成确认稿并交回状态跟踪，不把审批点�
 });
 
 test('小D听审确认失败时审批保持待处理，允许安全重试幂等确认', async () => {
-  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const xiaod = agentFixture('xiaod', '小D', ['media.transcribe-and-refine']);
   const { service, records } = setup({ agents:[xiaod] });
   records.tasks.push({
     taskId:'media-review-failure', taskType:'media.transcribe-and-refine', status:'waiting_approval',
@@ -414,7 +395,7 @@ test('小D听审确认失败时审批保持待处理，允许安全重试幂等�
 });
 
 test('继续飞书交付立即返回受理状态，并在后台单飞调用小D后恢复跟踪', async () => {
-  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const xiaod = agentFixture('xiaod', '小D', ['media.transcribe-and-refine']);
   const { service, records } = setup({ agents:[xiaod] });
   records.tasks.push({
     taskId:'media-delivery-pending', taskType:'media.transcribe-and-refine', status:'needs_input',
@@ -446,7 +427,7 @@ test('继续飞书交付立即返回受理状态，并在后台单飞调用小D�
 });
 
 test('飞书交付结果不确定时继续口令也不能绕过人工仲裁', async () => {
-  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const xiaod = agentFixture('xiaod', '小D', ['media.transcribe-and-refine']);
   const { service, records } = setup({ agents:[xiaod] });
   records.tasks.push({
     taskId:'media-delivery-uncertain', taskType:'media.transcribe-and-refine', status:'needs_input',
@@ -465,7 +446,7 @@ test('飞书交付结果不确定时继续口令也不能绕过人工仲裁', as
 });
 
 test('小D听审确认被并发重复点击时只调用一次下游确认', async () => {
-  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const xiaod = agentFixture('xiaod', '小D', ['media.transcribe-and-refine']);
   const { service, records } = setup({ agents:[xiaod] });
   records.tasks.push({
     taskId:'media-review-race',
@@ -505,7 +486,7 @@ test('小D听审确认被并发重复点击时只调用一次下游确认', asyn
 });
 
 test('同一审批正在批准时拒绝并发拒绝决定，不覆盖下游动作', async () => {
-  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const xiaod = agentFixture('xiaod', '小D', ['media.transcribe-and-refine']);
   const { service, records } = setup({ agents:[xiaod] });
   records.tasks.push({
     taskId:'media-review-conflict',
@@ -544,7 +525,7 @@ test('同一审批正在批准时拒绝并发拒绝决定，不覆盖下游动�
 });
 
 test('小D听审拒绝会通知小D并关闭正式下游链路', async () => {
-  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const xiaod = agentFixture('xiaod', '小D', ['media.transcribe-and-refine']);
   const { service, records } = setup({ agents:[xiaod] });
   records.tasks.push({
     taskId:'media-review-2',
@@ -578,7 +559,7 @@ test('小D听审拒绝会通知小D并关闭正式下游链路', async () => {
   assert.equal(updated.status, 'cancelled');
 });
 test('公开发布等组织级审批投影 Paperclip，不能由本机直接放行', async () => {
-  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  const operator = agentFixture('operator', '运维官', ['operations.health-review']);
   let projected = 0;
   const governance = { async project() { projected += 1; return { status:'synced', paperclipIssueId:'issue-1' }; }, async health() { return { status:'ready' }; } };
   const { service, records } = setup({ agents:[operator], governance });
@@ -589,7 +570,7 @@ test('公开发布等组织级审批投影 Paperclip，不能由本机直接放�
   assert.equal(records.approvals[0].status, 'pending');
 });
 test('组织级飞书决定必须先回写 Paperclip，批准后才恢复原任务', async () => {
-  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  const operator = agentFixture('operator', '运维官', ['operations.health-review']);
   let resolved = 0; let executed = 0;
   const governance = {
     async project() { return { status:'synced', paperclipIssueId:'issue-1', paperclipApprovalId:'paperclip-approval-1' }; },
@@ -606,7 +587,7 @@ test('组织级飞书决定必须先回写 Paperclip，批准后才恢复原任�
   assert.equal(resolved, 1); assert.equal(executed, 1); assert.equal(records.approvals[0].status, 'approved'); assert.equal(results[0].status, 'succeeded'); assert.equal(results[0], results[1]);
 });
 test('Paperclip 已落决定但响应丢失时通过只读回查收口，不重复决定或执行', async () => {
-  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  const operator = agentFixture('operator', '运维官', ['operations.health-review']);
   let paperclipStatus = 'pending'; let resolved = 0; let executed = 0;
   const governance = {
     async project() { return { status:'synced', paperclipIssueId:'issue-lost', paperclipApprovalId:'approval-lost' }; },
@@ -625,7 +606,7 @@ test('Paperclip 已落决定但响应丢失时通过只读回查收口，不重�
   assert.equal(records.approvals[0].status, 'approved');
 });
 test('旧飞书卡的相反点击不能覆盖 Paperclip 已决事实，本地按权威决定收口', async () => {
-  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  const operator = agentFixture('operator', '运维官', ['operations.health-review']);
   let resolved = 0; let executed = 0;
   const governance = {
     async project() { return { status:'synced', paperclipIssueId:'issue-authority', paperclipApprovalId:'approval-authority' }; },
@@ -646,7 +627,7 @@ test('旧飞书卡的相反点击不能覆盖 Paperclip 已决事实，本地按
   assert.equal(records.approvals[0].externalDecision.decision, 'approve');
 });
 test('重启整理器会续接已开始的 Paperclip 决定，不等待再次点击审批卡', async () => {
-  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  const operator = agentFixture('operator', '运维官', ['operations.health-review']);
   let resolved = 0; let executed = 0;
   const governance = {
     async getApproval() { return { status:'approved' }; },
@@ -672,7 +653,7 @@ test('重启整理器会续接已开始的 Paperclip 决定，不等待再次点
   assert.equal(records.tasks[0].status, 'succeeded');
 });
 test('组织级拒绝先回写 Paperclip，关闭任务且不执行', async () => {
-  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  const operator = agentFixture('operator', '运维官', ['operations.health-review']);
   let resolved = 0;
   const governance = { async project() { return { status:'synced', paperclipIssueId:'issue-1', paperclipApprovalId:'paperclip-approval-1' }; }, async resolveApproval(_id, decision) { resolved += 1; assert.equal(decision, 'reject'); return { status:'rejected' }; }, async update(task) { return task.governance; }, async health() { return { status:'ready' }; } };
   const { service, records } = setup({ agents:[operator], governance });
@@ -682,7 +663,7 @@ test('组织级拒绝先回写 Paperclip，关闭任务且不执行', async () =
   assert.equal(resolved, 1); assert.equal(records.approvals[0].status, 'rejected'); assert.equal(result.status, 'cancelled'); assert.equal(result.currentStage, 'governance_rejected');
 });
 test('暂停小D任务必须先走 Paperclip 确认，确认前不伪装成已经暂停', async () => {
-  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const xiaod = agentFixture('xiaod', '小D', ['media.transcribe-and-refine']);
   let projected = 0; let resolved = 0; let paused = 0;
   const governance = {
     async project() { projected += 1; await new Promise((resolve) => setTimeout(resolve, 20)); return { status:'synced', paperclipIssueId:'pause-issue-1', paperclipApprovalId:'pause-approval-1' }; },
@@ -707,7 +688,7 @@ test('暂停小D任务必须先走 Paperclip 确认，确认前不伪装成已�
   assert.equal(resolved, 1); assert.equal(paused, 1); assert.equal(updated.status, 'pausing');
 });
 test('小D暂停已生效但本地原子提交失败时可安全续接，不重复暂停或 Paperclip 决定', async () => {
-  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const xiaod = agentFixture('xiaod', '小D', ['media.transcribe-and-refine']);
   let paperclipStatus = 'pending'; let resolved = 0; let paused = 0; let jobStatus = 'transcribing';
   const governance = {
     async project() { return { status:'synced', paperclipIssueId:'pause-issue-retry', paperclipApprovalId:'pause-approval-retry' }; },
@@ -743,7 +724,7 @@ test('小D暂停已生效但本地原子提交失败时可安全续接，不重�
 });
 
 test('拒绝暂停小D任务不会关闭或打断原任务', async () => {
-  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const xiaod = agentFixture('xiaod', '小D', ['media.transcribe-and-refine']);
   const governance = {
     async project() { return { status:'synced', paperclipIssueId:'pause-issue-1', paperclipApprovalId:'pause-approval-1' }; },
     async resolveApproval(_id, decision) { assert.equal(decision, 'reject'); return { status:'rejected' }; },
@@ -758,7 +739,7 @@ test('拒绝暂停小D任务不会关闭或打断原任务', async () => {
   assert.equal(updated.execution.control.status, 'rejected');
 });
 test('继续小D任务经确认后会重新进入总管跟进，不会只改显示状态', async () => {
-  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const xiaod = agentFixture('xiaod', '小D', ['media.transcribe-and-refine']);
   const governance = {
     async project() { return { status:'synced', paperclipIssueId:'resume-issue-1', paperclipApprovalId:'resume-approval-1' }; },
     async resolveApproval(_id, decision) { assert.equal(decision, 'approve'); return { status:'approved' }; },
@@ -774,7 +755,7 @@ test('继续小D任务经确认后会重新进入总管跟进，不会只改显�
   assert.deepEqual(observed.map((task) => task.taskId), ['media-1']);
 });
 test('飞书审批卡不能跨会话批准原任务', async () => {
-  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  const operator = agentFixture('operator', '运维官', ['operations.health-review']);
   const { service, records } = setup({ agents:[operator] });
   const task = await service.create({ title:'外发本次健康摘要', taskType:'operations.health-review', source:{ channel:'feishu', chatRef:'chat-a' } });
   await assert.rejects(() => service.approveApproval(records.approvals[0].approvalId, { chatRef:'chat-b' }), /会话与原任务不一致/);
@@ -791,7 +772,7 @@ test('缺少标题拒绝创建', async () => {
 
 test('交付简报缺少必需素材时只追问一次且不启动执行器', async () => {
   let calls = 0;
-  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const xiaod = agentFixture('xiaod', '小D', ['media.transcribe-and-refine']);
   const { service } = setup({ agents:[xiaod], executors:{ xiaod:{ async execute() { calls += 1; } } } });
   const task = await service.create({ title:'整理这段素材', taskType:'media.transcribe-and-refine', agentId:'xiaod' });
   assert.equal(task.status, 'needs_input');
@@ -805,7 +786,7 @@ test('治理台不可用不阻断任务登记，留下待同步记录', async ()
   assert.equal(task.governance.status, 'sync_pending');
 });
 test('简单小D业务任务不重复投影到 Paperclip，治理任务才进入组织总控', async () => {
-  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const xiaod = agentFixture('xiaod', '小D', ['media.transcribe-and-refine']);
   let projected = 0;
   const governance = { async project() { projected += 1; return { status:'synced' }; }, async health() { return { status:'ready' }; } };
   const { service } = setup({ agents:[xiaod], governance });
@@ -823,14 +804,9 @@ test('技术修复任务自动登记到 Paperclip', async () => {
 });
 
 test('Paperclip Hermes 员工只等待同一张 heartbeat 任务，不再调用 A君本地执行器', async () => {
-  const architect = {
-    agentId:'architect',
-    name:'架构师',
-    status:'active',
-    acceptedTaskTypes:['governance.architecture-review'],
-    interaction:{ runtime:'hermes-profile', directFeishu:'required' },
-    executionOwner:'paperclip-hermes'
-  };
+  const architect = hermesAgentFixture('architect', '架构师', ['governance.architecture-review'], {
+    interaction:{ directFeishu:'required' },
+  });
   let localExecutions = 0;
   const governance = {
     async project() {
@@ -857,28 +833,16 @@ test('Paperclip Hermes 员工只等待同一张 heartbeat 任务，不再调用 
 });
 
 test('Paperclip Hermes heartbeat 会关联原 A君任务并幂等回写同一终态', async () => {
-  const architect = {
-    agentId:'architect',
-    name:'架构师',
-    status:'active',
-    acceptedTaskTypes:['governance.architecture-review'],
-    interaction:{ runtime:'hermes-profile', directFeishu:'required' },
-    executionOwner:'paperclip-hermes'
-  };
+  const architect = hermesAgentFixture('architect', '架构师', ['governance.architecture-review'], {
+    interaction:{ directFeishu:'required' },
+  });
   const completions = [];
-  const identity = {
-    issue:{ id:'paperclip-issue-1', identifier:'AGE-101', title:'评估架构', description:'检查复用边界。' },
-    run:{ id:'paperclip-run-1' },
-    paperclipAgent:{ id:'paperclip-agent-1', name:'架构师' },
-    agentArmyId:'architect'
-  };
-  const governance = {
-    async project() {
-      return { status:'synced', paperclipIssueId:'paperclip-issue-1', paperclipAssigneeAgentId:'paperclip-agent-1' };
-    },
-    async verifyHermesAssignment() { return identity; },
+  const identity = paperclipIdentityFixture('architecture', 'architect', '架构师', {
+    title:'评估架构', description:'检查复用边界。',
+  });
+  const governance = paperclipGovernanceFixture(identity, {
     async completePaperclipIssue(issueId, input) { completions.push({ issueId, input }); }
-  };
+  });
   const { service } = setup({ agents:[architect], governance });
   const original = await service.create({
     title:'评估架构',
@@ -886,9 +850,9 @@ test('Paperclip Hermes heartbeat 会关联原 A君任务并幂等回写同一终
     agentId:'architect'
   });
   const input = {
-    issueId:'paperclip-issue-1',
-    runId:'paperclip-run-1',
-    paperclipAgentId:'paperclip-agent-1',
+    issueId:identity.issue.id,
+    runId:identity.run.id,
+    paperclipAgentId:identity.paperclipAgent.id,
     agentArmyId:'architect',
     status:'succeeded',
     summary:'复用 Hermes Profile Distribution 与 Paperclip hermes_local。',

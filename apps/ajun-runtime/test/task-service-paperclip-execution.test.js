@@ -1,23 +1,21 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  hermesAgentFixture,
+  paperclipAssignmentGovernanceFixture,
+  paperclipGovernanceFixture,
+  paperclipIdentityFixture,
   setupTaskService as setup,
   verifiedArtifact,
 } from './support/task-service-fixture.js';
 
 test('Paperclip 本机 AI 事件核验任务、身份和岗位能力后只写脱敏白名单', async () => {
-  const xiaod = {
-    agentId:'xiaod', name:'小D', status:'active',
-    acceptedTaskTypes:['media.transcribe-and-refine'],
-    interaction:{ runtime:'hermes-profile' }, executionOwner:'paperclip-hermes',
+  const xiaod = hermesAgentFixture('xiaod', '小D', ['media.transcribe-and-refine'], {
     runtimeCapabilities:{ localAiCapabilities:['audio.transcribe'] },
-  };
-  const identity = {
-    issue:{ id:'paperclip-local-ai-issue', identifier:'AGE-AI', title:'转录素材', description:'受控转录。' },
-    run:{ id:'paperclip-local-ai-run' },
-    paperclipAgent:{ id:'paperclip-xiaod', name:'小D' },
-    agentArmyId:'xiaod',
-  };
+  });
+  const identity = paperclipIdentityFixture('local-ai', 'xiaod', '小D', {
+    title:'转录素材', description:'受控转录。',
+  });
   const saved = [];
   const taskRunEvents = {
     appendTaskRunEvent(event) {
@@ -28,7 +26,7 @@ test('Paperclip 本机 AI 事件核验任务、身份和岗位能力后只写脱
   const { service } = setup({
     agents:[xiaod],
     taskRunEvents,
-    governance:{ async verifyHermesAssignment() { return identity; } },
+    governance:paperclipAssignmentGovernanceFixture(identity),
   });
   const verified = await service.getPaperclipAssignment(identity);
   const input = {
@@ -68,29 +66,20 @@ test('Paperclip 终态同步明确失败后可重放，failed 与 waiting_test �
     { label:'waiting_test', reportedStatus:'waiting_test', preciseError:false },
   ]) {
     await t.test(label, async () => {
-      const reviewer = {
-        agentId:'reviewer', name:'审核官', status:'active',
-        acceptedTaskTypes:['governance.approval-review'],
-        interaction:{ runtime:'hermes-profile' }, executionOwner:'paperclip-hermes'
-      };
-      const identity = {
-        issue:{ id:`issue-${label}`, identifier:`AGE-${label}`, title:'审查任务', description:'只读审查。' },
-        run:{ id:`run-${label}` },
-        paperclipAgent:{ id:'paperclip-reviewer', name:'审核官' },
-        agentArmyId:'reviewer'
-      };
+      const reviewer = hermesAgentFixture('reviewer', '审核官', ['governance.approval-review']);
+      const identity = paperclipIdentityFixture(label, 'reviewer', '审核官', {
+        title:'审查任务', description:'只读审查。',
+      });
       let issueStatus = 'in_progress';
       let completionAttempts = 0;
-      const governance = {
-        async project() { return { status:'synced', paperclipIssueId:identity.issue.id, paperclipAssigneeAgentId:identity.paperclipAgent.id }; },
-        async verifyHermesAssignment() { return identity; },
+      const governance = paperclipGovernanceFixture(identity, {
         async getPaperclipIssue() { return { ...identity.issue, status:issueStatus }; },
         async completePaperclipIssue() {
           completionAttempts += 1;
           if (completionAttempts === 1) throw new Error('definite connection failure');
           issueStatus = 'blocked';
         }
-      };
+      });
       const { service, records } = setup({ agents:[reviewer], governance });
       await service.create({ title:'审查任务', taskType:'governance.approval-review', agentId:'reviewer' });
       if (preciseError) {
@@ -153,27 +142,20 @@ test('Paperclip 终态同步明确失败后可重放，failed 与 waiting_test �
 });
 
 test('Paperclip 终态响应丢失时先读回外部状态，不重复追加完成动作', async () => {
-  const reviewer = {
-    agentId:'reviewer', name:'审核官', status:'active',
-    acceptedTaskTypes:['governance.approval-review'],
-    interaction:{ runtime:'hermes-profile' }, executionOwner:'paperclip-hermes'
-  };
-  const identity = {
-    issue:{ id:'issue-response-lost', identifier:'AGE-LOST', title:'审查任务', description:'只读审查。' },
-    run:{ id:'run-response-lost' }, paperclipAgent:{ id:'paperclip-reviewer', name:'审核官' }, agentArmyId:'reviewer'
-  };
+  const reviewer = hermesAgentFixture('reviewer', '审核官', ['governance.approval-review']);
+  const identity = paperclipIdentityFixture('response-lost', 'reviewer', '审核官', {
+    title:'审查任务', description:'只读审查。',
+  });
   let issueStatus = 'in_progress';
   let completionAttempts = 0;
-  const governance = {
-    async project() { return { status:'synced', paperclipIssueId:identity.issue.id, paperclipAssigneeAgentId:identity.paperclipAgent.id }; },
-    async verifyHermesAssignment() { return identity; },
+  const governance = paperclipGovernanceFixture(identity, {
     async getPaperclipIssue() { return { ...identity.issue, status:issueStatus }; },
     async completePaperclipIssue() {
       completionAttempts += 1;
       issueStatus = 'blocked';
       throw new Error('response lost after apply');
     }
-  };
+  });
   const { service, records } = setup({ agents:[reviewer], governance });
   await service.create({ title:'审查任务', taskType:'governance.approval-review', agentId:'reviewer' });
   const input = {
@@ -190,23 +172,16 @@ test('Paperclip 终态响应丢失时先读回外部状态，不重复追加完�
 });
 
 test('同一 Paperclip Run 的并发完成回报单飞，冲突终态不会覆盖已开始的结果', async () => {
-  const reviewer = {
-    agentId:'reviewer', name:'审核官', status:'active',
-    acceptedTaskTypes:['governance.approval-review'],
-    interaction:{ runtime:'hermes-profile' }, executionOwner:'paperclip-hermes'
-  };
-  const identity = {
-    issue:{ id:'issue-concurrent-complete', identifier:'AGE-CONCURRENT', title:'审查任务', description:'只读审查。' },
-    run:{ id:'run-concurrent-complete' }, paperclipAgent:{ id:'paperclip-reviewer', name:'审核官' }, agentArmyId:'reviewer'
-  };
+  const reviewer = hermesAgentFixture('reviewer', '审核官', ['governance.approval-review']);
+  const identity = paperclipIdentityFixture('concurrent-complete', 'reviewer', '审核官', {
+    title:'审查任务', description:'只读审查。',
+  });
   let releaseCompletion;
   const blocked = new Promise((resolve) => { releaseCompletion = resolve; });
   let completionAttempts = 0;
-  const governance = {
-    async project() { return { status:'synced', paperclipIssueId:identity.issue.id, paperclipAssigneeAgentId:identity.paperclipAgent.id }; },
-    async verifyHermesAssignment() { return identity; },
+  const governance = paperclipGovernanceFixture(identity, {
     async completePaperclipIssue() { completionAttempts += 1; await blocked; }
-  };
+  });
   const { service, records } = setup({ agents:[reviewer], governance });
   await service.create({ title:'审查任务', taskType:'governance.approval-review', agentId:'reviewer' });
   const input = {
@@ -231,28 +206,14 @@ test('同一 Paperclip Run 的并发完成回报单飞，冲突终态不会覆�
 });
 
 test('Paperclip Hermes 不能用文字岗位回报替代小R专用研究产物', async () => {
-  const researcher = {
-    agentId:'intel-researcher',
-    name:'小R',
-    status:'active',
-    acceptedTaskTypes:['research.intel-report'],
-    executionOwner:'paperclip-hermes',
-    interaction:{ runtime:'hermes-profile' },
-  };
-  const identity = {
-    issue:{ id:'intel-issue-1', identifier:'AGE-INTEL-1', title:'研究 Agent 稳定性', description:'形成有来源的研究报告。' },
-    run:{ id:'intel-run-1' },
-    paperclipAgent:{ id:'intel-paperclip-agent-1', name:'小R' },
-    agentArmyId:'intel-researcher',
-  };
+  const researcher = hermesAgentFixture('intel-researcher', '小R', ['research.intel-report']);
+  const identity = paperclipIdentityFixture('intel', 'intel-researcher', '小R', {
+    title:'研究 Agent 稳定性', description:'形成有来源的研究报告。',
+  });
   const completions = [];
-  const governance = {
-    async project() {
-      return { status:'synced', paperclipIssueId:identity.issue.id, paperclipAssigneeAgentId:identity.paperclipAgent.id };
-    },
-    async verifyHermesAssignment() { return identity; },
+  const governance = paperclipGovernanceFixture(identity, {
     async completePaperclipIssue(issueId) { completions.push(issueId); },
-  };
+  });
   const { service, records } = setup({ agents:[researcher], governance });
   const task = await service.create({
     title:'研究 Agent 稳定性',
@@ -287,26 +248,13 @@ test('Paperclip Hermes 不能用文字岗位回报替代小R专用研究产物',
 });
 
 test('创建官 heartbeat 真实写入一次岗位草案并保持任务等待最终回报', async () => {
-  const creator = {
-    agentId:'creator',
-    name:'创建官',
-    status:'active',
-    acceptedTaskTypes:['governance.agent-proposal'],
-    interaction:{ runtime:'hermes-profile', directFeishu:'disabled' },
-    executionOwner:'paperclip-hermes'
-  };
-  const identity = {
-    issue:{ id:'paperclip-issue-creator', identifier:'AGE-CREATE', title:'创建微信聊天取件员', description:'复用本机 yichen skill。' },
-    run:{ id:'paperclip-run-creator' },
-    paperclipAgent:{ id:'paperclip-agent-creator', name:'创建官' },
-    agentArmyId:'creator'
-  };
-  const governance = {
-    async project() {
-      return { status:'synced', paperclipIssueId:identity.issue.id, paperclipAssigneeAgentId:identity.paperclipAgent.id };
-    },
-    async verifyHermesAssignment() { return identity; }
-  };
+  const creator = hermesAgentFixture('creator', '创建官', ['governance.agent-proposal'], {
+    interaction:{ directFeishu:'disabled' },
+  });
+  const identity = paperclipIdentityFixture('creator', 'creator', '创建官', {
+    title:'创建微信聊天取件员', description:'复用本机 yichen skill。',
+  });
+  const governance = paperclipGovernanceFixture(identity);
   const { service } = setup({ agents:[creator], governance });
   let executions = 0;
   service.executors.creator = {
@@ -361,26 +309,13 @@ test('创建官 heartbeat 真实写入一次岗位草案并保持任务等待最
 });
 
 test('技术专家 heartbeat 把 A君已验证并带回的修复明确建议为 succeeded', async () => {
-  const technicalExpert = {
-    agentId:'technical-expert',
-    name:'技术专家',
-    status:'active',
-    acceptedTaskTypes:['operations.technical-repair'],
-    interaction:{ runtime:'hermes-profile', directFeishu:'required' },
-    executionOwner:'paperclip-hermes'
-  };
-  const identity = {
-    issue:{ id:'paperclip-issue-tech', identifier:'AGE-TECH', title:'修复受控故障', description:'只修改允许文件。' },
-    run:{ id:'paperclip-run-tech' },
-    paperclipAgent:{ id:'paperclip-agent-tech', name:'技术专家' },
-    agentArmyId:'technical-expert'
-  };
-  const governance = {
-    async project() {
-      return { status:'synced', paperclipIssueId:identity.issue.id, paperclipAssigneeAgentId:identity.paperclipAgent.id };
-    },
-    async verifyHermesAssignment() { return identity; }
-  };
+  const technicalExpert = hermesAgentFixture('technical-expert', '技术专家', ['operations.technical-repair'], {
+    interaction:{ directFeishu:'required' },
+  });
+  const identity = paperclipIdentityFixture('tech', 'technical-expert', '技术专家', {
+    title:'修复受控故障', description:'只修改允许文件。',
+  });
+  const governance = paperclipGovernanceFixture(identity);
   const { service } = setup({ agents:[technicalExpert], governance });
   let executions = 0;
   service.executors['technical-expert'] = {
@@ -427,30 +362,13 @@ test('技术专家 heartbeat 把 A君已验证并带回的修复明确建议为 
 });
 
 test('技术专家 heartbeat 不把外置源码候选误报为当前 release 已修复', async () => {
-  const technicalExpert = {
-    agentId:'technical-expert',
-    name:'技术专家',
-    status:'active',
-    acceptedTaskTypes:['operations.technical-repair'],
-    interaction:{ runtime:'hermes-profile', directFeishu:'required' },
-    executionOwner:'paperclip-hermes',
-  };
-  const identity = {
-    issue:{ id:'paperclip-issue-candidate', identifier:'AGE-CANDIDATE', title:'修复候选源码', description:'只修改允许文件。' },
-    run:{ id:'paperclip-run-candidate' },
-    paperclipAgent:{ id:'paperclip-agent-tech', name:'技术专家' },
-    agentArmyId:'technical-expert',
-  };
-  const governance = {
-    async project() {
-      return {
-        status:'synced',
-        paperclipIssueId:identity.issue.id,
-        paperclipAssigneeAgentId:identity.paperclipAgent.id,
-      };
-    },
-    async verifyHermesAssignment() { return identity; },
-  };
+  const technicalExpert = hermesAgentFixture('technical-expert', '技术专家', ['operations.technical-repair'], {
+    interaction:{ directFeishu:'required' },
+  });
+  const identity = paperclipIdentityFixture('candidate', 'technical-expert', '技术专家', {
+    title:'修复候选源码', description:'只修改允许文件。',
+  });
+  const governance = paperclipGovernanceFixture(identity);
   const { service } = setup({ agents:[technicalExpert], governance });
   service.executors['technical-expert'] = {
     async execute() {
@@ -493,26 +411,13 @@ test('技术专家 heartbeat 不把外置源码候选误报为当前 release 已
 });
 
 test('运维官 heartbeat 只执行一次确定性健康检查并复用已验证报告', async () => {
-  const operator = {
-    agentId:'operator',
-    name:'运维官',
-    status:'active',
-    acceptedTaskTypes:['operations.health-review'],
-    interaction:{ runtime:'hermes-profile', directFeishu:'required' },
-    executionOwner:'paperclip-hermes'
-  };
-  const identity = {
-    issue:{ id:'paperclip-issue-health', identifier:'AGE-HEALTH', title:'A君定时本机巡检', description:'只检查登记服务。' },
-    run:{ id:'paperclip-run-health' },
-    paperclipAgent:{ id:'paperclip-agent-health', name:'运维官' },
-    agentArmyId:'operator'
-  };
-  const governance = {
-    async project() {
-      return { status:'synced', paperclipIssueId:identity.issue.id, paperclipAssigneeAgentId:identity.paperclipAgent.id };
-    },
-    async verifyHermesAssignment() { return identity; }
-  };
+  const operator = hermesAgentFixture('operator', '运维官', ['operations.health-review'], {
+    interaction:{ directFeishu:'required' },
+  });
+  const identity = paperclipIdentityFixture('health', 'operator', '运维官', {
+    title:'A君定时本机巡检', description:'只检查登记服务。',
+  });
+  const governance = paperclipGovernanceFixture(identity);
   const { service } = setup({ agents:[operator], governance });
   let executions = 0;
   service.executors.operator = {
@@ -556,21 +461,13 @@ test('运维官 heartbeat 只执行一次确定性健康检查并复用已验证
 });
 
 test('后台员工任务在同一次工具调用内等待终态，避免反复唤醒模型轮询', async () => {
-  const xiaod = {
-    agentId:'xiaod',
-    name:'小D',
-    status:'active',
-    acceptedTaskTypes:['media.transcribe-and-refine'],
-    interaction:{ runtime:'hermes-profile', directFeishu:'required' },
-    executionOwner:'paperclip-hermes',
-  };
-  const identity = {
-    issue:{ id:'paperclip-issue-server-wait', identifier:'AGE-SERVER-WAIT', title:'整理公开视频', description:'等待后台处理。' },
-    run:{ id:'paperclip-run-server-wait' },
-    paperclipAgent:{ id:'paperclip-agent-server-wait', name:'小D' },
-    agentArmyId:'xiaod',
-  };
-  const governance = { async verifyHermesAssignment() { return identity; } };
+  const xiaod = hermesAgentFixture('xiaod', '小D', ['media.transcribe-and-refine'], {
+    interaction:{ directFeishu:'required' },
+  });
+  const identity = paperclipIdentityFixture('server-wait', 'xiaod', '小D', {
+    title:'整理公开视频', description:'等待后台处理。',
+  });
+  const governance = paperclipAssignmentGovernanceFixture(identity);
   const { service } = setup({ agents:[xiaod], governance, employeeAssignmentWaitMs:80 });
   service.executors.xiaod = {
     async execute() {
@@ -610,27 +507,7 @@ test('后台员工任务在同一次工具调用内等待终态，避免反复�
 });
 
 test('小拆 heartbeat 通过受控执行桥写回真实分析产物且重复调用幂等', async () => {
-  const analyst = {
-    agentId:'video-content-analyst',
-    name:'小拆',
-    status:'active',
-    acceptedTaskTypes:['content.video-benchmark-analysis'],
-    interaction:{ runtime:'hermes-profile', directFeishu:'disabled' },
-    executionOwner:'paperclip-hermes'
-  };
-  const identity = {
-    issue:{ id:'paperclip-issue-content', identifier:'AGE-CONTENT', title:'正式拆解', description:'引用确认稿。' },
-    run:{ id:'paperclip-run-content' },
-    paperclipAgent:{ id:'paperclip-agent-content', name:'小拆' },
-    agentArmyId:'video-content-analyst'
-  };
-  const governance = {
-    async project() {
-      return { status:'synced', paperclipIssueId:identity.issue.id, paperclipAssigneeAgentId:identity.paperclipAgent.id };
-    },
-    async verifyHermesAssignment() { return identity; }
-  };
-  const { service, records } = setup({ agents:[analyst], governance });
+  const { service, records, identity } = setupContentGrowthAssignment('content', '正式拆解');
   let executions = 0;
   service.executors['video-content-analyst'] = {
     async execute(task) {
@@ -679,27 +556,7 @@ test('小拆 heartbeat 通过受控执行桥写回真实分析产物且重复调
 });
 
 test('v2 视频分析缺少模式结构证明时不能被 heartbeat 标成成功', async () => {
-  const analyst = {
-    agentId:'video-content-analyst',
-    name:'小拆',
-    status:'active',
-    acceptedTaskTypes:['content.video-benchmark-analysis'],
-    interaction:{ runtime:'hermes-profile', directFeishu:'disabled' },
-    executionOwner:'paperclip-hermes'
-  };
-  const identity = {
-    issue:{ id:'paperclip-issue-v2-unverified', identifier:'AGE-V2-UNVERIFIED', title:'精华提炼', description:'引用确认稿。' },
-    run:{ id:'paperclip-run-v2-unverified' },
-    paperclipAgent:{ id:'paperclip-agent-v2-unverified', name:'小拆' },
-    agentArmyId:'video-content-analyst'
-  };
-  const governance = {
-    async project() {
-      return { status:'synced', paperclipIssueId:identity.issue.id, paperclipAssigneeAgentId:identity.paperclipAgent.id };
-    },
-    async verifyHermesAssignment() { return identity; }
-  };
-  const { service, records } = setup({ agents:[analyst], governance });
+  const { service, records, identity } = setupContentGrowthAssignment('v2-unverified', '精华提炼');
   service.executors['video-content-analyst'] = {
     async execute(task) {
       return {
@@ -742,27 +599,11 @@ test('v2 视频分析缺少模式结构证明时不能被 heartbeat 标成成功
 });
 
 test('长视频拆解按 240 秒以内分段等待并复用同一个后台执行', async () => {
-  const analyst = {
-    agentId:'video-content-analyst',
-    name:'小拆',
-    status:'active',
-    acceptedTaskTypes:['content.video-benchmark-analysis'],
-    interaction:{ runtime:'hermes-profile', directFeishu:'disabled' },
-    executionOwner:'paperclip-hermes'
-  };
-  const identity = {
-    issue:{ id:'paperclip-issue-async-content', identifier:'AGE-ASYNC-CONTENT', title:'长视频正式拆解', description:'引用确认稿。' },
-    run:{ id:'paperclip-run-async-content' },
-    paperclipAgent:{ id:'paperclip-agent-async-content', name:'小拆' },
-    agentArmyId:'video-content-analyst'
-  };
-  const governance = {
-    async project() {
-      return { status:'synced', paperclipIssueId:identity.issue.id, paperclipAssigneeAgentId:identity.paperclipAgent.id };
-    },
-    async verifyHermesAssignment() { return identity; }
-  };
-  const { service, records } = setup({ agents:[analyst], governance, contentGrowthWaitMs:5 });
+  const { service, records, identity } = setupContentGrowthAssignment(
+    'async-content',
+    '长视频正式拆解',
+    { contentGrowthWaitMs:5 },
+  );
   let executions = 0;
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
@@ -810,27 +651,7 @@ test('长视频拆解按 240 秒以内分段等待并复用同一个后台执行
 });
 
 test('正式完整拆解的语义兜底不能冒充成功，迟到产物不能覆盖 Hermes 终态', async () => {
-  const analyst = {
-    agentId:'video-content-analyst',
-    name:'小拆',
-    status:'active',
-    acceptedTaskTypes:['content.video-benchmark-analysis'],
-    interaction:{ runtime:'hermes-profile', directFeishu:'disabled' },
-    executionOwner:'paperclip-hermes'
-  };
-  const identity = {
-    issue:{ id:'paperclip-issue-late-content', identifier:'AGE-LATE-CONTENT', title:'正式拆解', description:'引用确认稿。' },
-    run:{ id:'paperclip-run-late-content' },
-    paperclipAgent:{ id:'paperclip-agent-late-content', name:'小拆' },
-    agentArmyId:'video-content-analyst'
-  };
-  const governance = {
-    async project() {
-      return { status:'synced', paperclipIssueId:identity.issue.id, paperclipAssigneeAgentId:identity.paperclipAgent.id };
-    },
-    async verifyHermesAssignment() { return identity; }
-  };
-  const { service, records } = setup({ agents:[analyst], governance });
+  const { service, records, identity } = setupContentGrowthAssignment('late-content', '正式拆解');
   service.executors['video-content-analyst'] = {
     async execute(task) {
       const live = records.tasks.find((item) => item.taskId === task.taskId);
@@ -868,6 +689,24 @@ test('正式完整拆解的语义兜底不能冒充成功，迟到产物不能�
   assert.equal(persisted.error.code, 'paperclip_hermes_reported_failure');
   assert.equal(persisted.artifactRefs[0].validation.semanticValidationPassed, false);
 });
+
+function setupContentGrowthAssignment(slug, title, options = {}) {
+  const analyst = hermesAgentFixture(
+    'video-content-analyst',
+    '小拆',
+    ['content.video-benchmark-analysis'],
+    { interaction:{ directFeishu:'disabled' } },
+  );
+  const identity = paperclipIdentityFixture(slug, 'video-content-analyst', '小拆', {
+    title,
+    description:'引用确认稿。',
+  });
+  return {
+    ...setup({ agents:[analyst], governance:paperclipGovernanceFixture(identity), ...options }),
+    identity,
+  };
+}
+
 function m5VisualArtifactFixture(projectId, overrides = {}) {
   const actionId = '12345678-abcd-4abc-8abc-1234567890ab:vision:aaaaaaaaaaaaaaaa';
   const receipt = {
@@ -940,20 +779,12 @@ async function m5VisualCompletionFixture({ projectId, artifact }) {
   const caseId = '12345678-abcd-4abc-8abc-1234567890ab';
   const outputs = [];
   const completions = [];
-  const identity = {
-    issue:{
-      id:'paperclip-issue-m5-visual',
-      identifier:'AGE-M5-VISUAL',
-      title:'M5 / 画面分析',
-      description:`[agent-army:m5:routine:m5-visual-analysis] 处理画面分析阶段；当前 Case 为 ${caseId}，版本为 1。`,
-      projectId,
-    },
-    run:{ id:'paperclip-run-m5-visual' },
-    paperclipAgent:{ id:'paperclip-agent-m5-visual', name:'小拆' },
-    agentArmyId:'video-content-analyst',
-  };
-  const governance = {
-    async verifyHermesAssignment() { return identity; },
+  const identity = paperclipIdentityFixture('m5-visual', 'video-content-analyst', '小拆', {
+    title:'M5 / 画面分析',
+    description:`[agent-army:m5:routine:m5-visual-analysis] 处理画面分析阶段；当前 Case 为 ${caseId}，版本为 1。`,
+    projectId,
+  });
+  const governance = paperclipAssignmentGovernanceFixture(identity, {
     async getPipelineCase() {
       return {
         id:caseId,
@@ -970,15 +801,13 @@ async function m5VisualCompletionFixture({ projectId, artifact }) {
     async completePaperclipIssue(issueId, input) {
       completions.push({ issueId, input });
     },
-  };
-  const agent = {
-    agentId:'video-content-analyst',
-    name:'小拆',
-    status:'active',
-    acceptedTaskTypes:['content.campaign-visual-analysis'],
-    interaction:{ runtime:'hermes-profile', directFeishu:'background' },
-    executionOwner:'paperclip-hermes',
-  };
+  });
+  const agent = hermesAgentFixture(
+    'video-content-analyst',
+    '小拆',
+    ['content.campaign-visual-analysis'],
+    { interaction:{ directFeishu:'background' } },
+  );
   const fixture = setup({ agents:[agent], governance });
   const input = {
     issueId:identity.issue.id,

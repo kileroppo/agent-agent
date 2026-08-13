@@ -1,25 +1,22 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { setupTaskService as setup } from './support/task-service-fixture.js';
+import {
+  hermesAgentFixture,
+  paperclipAssignmentGovernanceFixture,
+  paperclipIdentityFixture,
+  setupTaskService as setup,
+} from './support/task-service-fixture.js';
 
 test('M5 Hermes 阶段必须把专用产物写回同一 Case 后才能完成 Issue', async () => {
   const caseId = '12345678-abcd-4abc-8abc-1234567890ab';
   const outputs = [];
   const completions = [];
   let workProductValidations = 0;
-  const identity = {
-    issue:{
-      id:'paperclip-issue-m5-topic',
-      identifier:'AGE-M5-TOPIC',
-      title:'M5 / 选题',
-      description:`[agent-army:m5:routine:m5-topic] 处理选题阶段；当前 Case 为 ${caseId}，版本为 1。`,
-    },
-    run:{ id:'paperclip-run-m5-topic' },
-    paperclipAgent:{ id:'paperclip-agent-m5-ajun', name:'A君' },
-    agentArmyId:'ajun',
-  };
-  const governance = {
-    async verifyHermesAssignment() { return identity; },
+  const identity = paperclipIdentityFixture('m5-topic', 'ajun', 'A君', {
+    title:'M5 / 选题',
+    description:`[agent-army:m5:routine:m5-topic] 处理选题阶段；当前 Case 为 ${caseId}，版本为 1。`,
+  }, { paperclipAgentId:'paperclip-agent-m5-ajun' });
+  const governance = paperclipAssignmentGovernanceFixture(identity, {
     async getPipelineCase() {
       return {
         id:caseId,
@@ -36,15 +33,10 @@ test('M5 Hermes 阶段必须把专用产物写回同一 Case 后才能完成 Iss
     async completePaperclipIssue(issueId, input) {
       completions.push({ issueId, input });
     },
-  };
-  const agent = {
-    agentId:'ajun',
-    name:'A君',
-    status:'active',
-    acceptedTaskTypes:['content.campaign-topic'],
-    interaction:{ runtime:'hermes-profile', directFeishu:'required' },
-    executionOwner:'paperclip-hermes',
-  };
+  });
+  const agent = hermesAgentFixture('ajun', 'A君', ['content.campaign-topic'], {
+    interaction:{ directFeishu:'required' },
+  });
   const { service } = setup({
     agents:[agent],
     governance,

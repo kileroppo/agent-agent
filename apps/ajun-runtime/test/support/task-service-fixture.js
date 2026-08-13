@@ -51,6 +51,66 @@ export const coordinator = {
   acceptedTaskTypes:['army.intake', 'army.route-task', 'army.cross-agent-mission'],
 };
 
+export function agentFixture(agentId, name, acceptedTaskTypes, extra = {}) {
+  return { agentId, name, status:'active', acceptedTaskTypes, ...extra };
+}
+
+export function hermesAgentFixture(agentId, name, acceptedTaskTypes, extra = {}) {
+  const { interaction = {}, ...rest } = extra;
+  return agentFixture(agentId, name, acceptedTaskTypes, {
+    executionOwner:'paperclip-hermes',
+    ...rest,
+    interaction:{ runtime:'hermes-profile', ...interaction },
+  });
+}
+
+export function openResearchAgentFixture(extra = {}) {
+  return agentFixture('intel-researcher', '小R', [
+    'research.intel-report',
+    'research.open-investigation',
+  ], {
+    toolAllowlist:['content.public.fetch'],
+    runtimeCapabilities:{ mcpTools:[], skills:[] },
+    openTaskPolicy:{ domain:'research', qualityGateMode:'manifest-required' },
+    ...extra,
+  });
+}
+
+export function paperclipIdentityFixture(slug, agentArmyId, agentName, issue = {}, refs = {}) {
+  return {
+    issue:{
+      id:`paperclip-issue-${slug}`,
+      identifier:`AGE-${slug.toUpperCase()}`,
+      title:'测试任务',
+      description:'受控执行。',
+      ...issue,
+    },
+    run:{ id:refs.runId || `paperclip-run-${slug}` },
+    paperclipAgent:{ id:refs.paperclipAgentId || `paperclip-agent-${slug}`, name:agentName },
+    agentArmyId,
+  };
+}
+
+export function paperclipGovernanceFixture(identity, overrides = {}) {
+  return {
+    async project() {
+      return {
+        status:'synced',
+        paperclipIssueId:identity.issue.id,
+        paperclipAssigneeAgentId:identity.paperclipAgent.id,
+      };
+    },
+    ...paperclipAssignmentGovernanceFixture(identity, overrides),
+  };
+}
+
+export function paperclipAssignmentGovernanceFixture(identity, overrides = {}) {
+  return {
+    async verifyHermesAssignment() { return identity; },
+    ...overrides,
+  };
+}
+
 export function verifiedArtifact(task, type, data = {}, extra = {}) {
   return {
     taskId:task.taskId,

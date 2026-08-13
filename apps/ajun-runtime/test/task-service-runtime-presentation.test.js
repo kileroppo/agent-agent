@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { TaskService } from '../src/task-service.js';
 import {
+  agentFixture,
   setupTaskService as setup,
   verifiedHealthReport,
   verifiedIntakeRecord,
 } from './support/task-service-fixture.js';
 
 test('相同飞书幂等键并发到达时共享同一次执行结果，不会二次执行 Agent', async () => {
-  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  const operator = agentFixture('operator', '运维官', ['operations.health-review']);
   let executed = 0;
   const { service, records } = setup({ agents:[operator] });
   service.executors.operator = { async execute(task) {
@@ -25,7 +25,7 @@ test('相同飞书幂等键并发到达时共享同一次执行结果，不会�
   assert.equal(executed, 1);
 });
 test('相同幂等键携带不同任务内容时明确拒绝，不返回旧任务冒充本次结果', async () => {
-  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  const operator = agentFixture('operator', '运维官', ['operations.health-review']);
   const { service } = setup({ agents:[operator] });
   service.executors.operator = { async execute(task) {
     return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[verifiedHealthReport(task)] };
@@ -37,7 +37,7 @@ test('相同幂等键携带不同任务内容时明确拒绝，不返回旧任�
   );
 });
 test('小D登记完成后才启动状态跟踪，缺少链接不会调用下游', async () => {
-  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const xiaod = agentFixture('xiaod', '小D', ['media.transcribe-and-refine']);
   let executes = 0; let observed;
   const executor = { async execute() { executes += 1; return { status:'needs_input', currentStage:'source_url_required' }; }, observe(task) { observed = task; } };
   const { service } = setup({ agents:[xiaod] }); service.executors.xiaod = executor;
@@ -58,7 +58,9 @@ test('默认接收入口会保留用户粘贴在描述中的公开链接', async
   assert.equal(task.input.sourceUrl, 'https://www.youtube.com/watch?v=example');
 });
 test('任务登记会保留同一请求中的多条公开链接，供公开资料报告员逐条处理', async () => {
-  const reporter = { agentId:'public-reporter', name:'公开资料报告员', status:'active', acceptedTaskTypes:['report.public-material'], runtime:{ kind:'proposal-public-report' } };
+  const reporter = agentFixture('public-reporter', '公开资料报告员', ['report.public-material'], {
+    runtime:{ kind:'proposal-public-report' },
+  });
   const { service } = setup({ agents:[reporter] });
   service.fallbackExecutor = { supports(){ return true; }, async execute(){ return { status:'succeeded', currentStage:'done', artifactRefs:[] }; } };
   const task = await service.create({ title:'对比 https://example.com/a 和 https://example.com/b', taskType:'report.public-material' });
@@ -317,38 +319,25 @@ test('概览如实显示小办 PPTD 与本地 PPTX 均可用', async () => {
   assert.match(presentation.detail, /PPTX 可用/);
 });
 
-test('概览会如实显示官方飞书入口已经连接，不把等待状态冒充成已连接', async () => {
-  const { service } = setup();
-  service.setFeishuChannelStatus(() => ({ status:'connected', message:'已连接' }));
-  const overview = await service.overview();
-  const feishu = overview.capabilities.find((item) => item.id === 'feishu-channel');
-  assert.equal(feishu.status, 'ready');
-  assert.match(feishu.detail, /已连接/);
-});
-
-test('概览把 Hermes 原生飞书入口显示为已就绪', async () => {
-  const { service } = setup();
-  service.setFeishuChannelStatus(() => ({ status:'external', message:'A君飞书入口已交由 Hermes 原生 Gateway。' }));
-  const overview = await service.overview();
-  const feishu = overview.capabilities.find((item) => item.id === 'feishu-channel');
-  assert.equal(feishu.status, 'ready');
-  assert.match(feishu.detail, /Hermes 原生 Gateway/);
-});
-
-test('概览不会把飞书投递结果不确定显示成入口完全正常', async () => {
-  const { service } = setup();
-  service.setFeishuChannelStatus(() => ({ status:'delivery_uncertain', message:'有 1 条飞书完成跟进的投递结果不确定。' }));
-  const overview = await service.overview();
-  const feishu = overview.capabilities.find((item) => item.id === 'feishu-channel');
-  assert.equal(feishu.status, 'partial');
-  assert.match(feishu.detail, /投递结果不确定/);
-});
+for (const [name, channelStatus, expectedStatus, expectedDetail] of [
+  ['概览会如实显示官方飞书入口已经连接，不把等待状态冒充成已连接', { status:'connected', message:'已连接' }, 'ready', /已连接/],
+  ['概览把 Hermes 原生飞书入口显示为已就绪', { status:'external', message:'A君飞书入口已交由 Hermes 原生 Gateway。' }, 'ready', /Hermes 原生 Gateway/],
+  ['概览不会把飞书投递结果不确定显示成入口完全正常', { status:'delivery_uncertain', message:'有 1 条飞书完成跟进的投递结果不确定。' }, 'partial', /投递结果不确定/],
+]) {
+  test(name, async () => {
+    const { service } = setup();
+    service.setFeishuChannelStatus(() => channelStatus);
+    const overview = await service.overview();
+    const feishu = overview.capabilities.find((item) => item.id === 'feishu-channel');
+    assert.equal(feishu.status, expectedStatus);
+    assert.match(feishu.detail, expectedDetail);
+  });
+}
 
 test('概览优先显示独立飞书应用的实时连接状态，不把静态 Profile 当成入口真相', async () => {
-  const operator = {
-    agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'],
-    independentRuntime:{ state:'channel_pending' }
-  };
+  const operator = agentFixture('operator', '运维官', ['operations.health-review'], {
+    independentRuntime:{ state:'channel_pending' },
+  });
   const { service } = setup({
     agents:[operator],
     agentChannelStates:() => ({ operator:{ agentId:'operator', status:'connected', message:'运维官飞书智能体应用已连接。' } })
@@ -361,13 +350,9 @@ test('概览优先显示独立飞书应用的实时连接状态，不把静态 P
 });
 
 test('后台按需岗位即使残留外部 Gateway 状态也不显示独立飞书入口', async () => {
-  const architect = {
-    agentId:'architect',
-    name:'架构师',
-    status:'active',
-    acceptedTaskTypes:['governance.architecture-review'],
-    interaction:{ directFeishu:'disabled', visibility:'on-demand' }
-  };
+  const architect = agentFixture('architect', '架构师', ['governance.architecture-review'], {
+    interaction:{ directFeishu:'disabled', visibility:'on-demand' },
+  });
   const { service } = setup({
     agents:[architect],
     agentChannelStates:() => ({
@@ -380,7 +365,7 @@ test('后台按需岗位即使残留外部 Gateway 状态也不显示独立飞�
 });
 
 test('概览只在独立飞书入口已有终态任务证据时标记为已验证', async () => {
-  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  const operator = agentFixture('operator', '运维官', ['operations.health-review']);
   const { service, records } = setup({
     agents:[operator],
     agentChannelStates:() => ({ operator:{ status:'connected', message:'运维官飞书智能体应用已连接。' } })
@@ -391,7 +376,7 @@ test('概览只在独立飞书入口已有终态任务证据时标记为已验�
 });
 
 test('Hermes 接管的独立员工已有飞书终态任务时也标记为已验证', async () => {
-  const employee = { agentId:'intel-researcher', name:'小R', status:'active', acceptedTaskTypes:['research.intel-report'] };
+  const employee = agentFixture('intel-researcher', '小R', ['research.intel-report']);
   const { service, records } = setup({
     agents:[employee],
     agentChannelStates:() => ({ 'intel-researcher':{ status:'external', message:'已由独立 Hermes Profile Gateway 接管。' } })
@@ -869,11 +854,10 @@ test('普通任务被标为待测试时，飞书不会无限轮询或误报完�
 });
 
 test('技术专家有完整修复证据后，飞书跟进如实返回已经验证', async () => {
-  const registry = { async list(){ return []; } };
   const root = { taskId:'root-repair-ok', taskType:'media.transcribe-and-refine', status:'failed', input:{ title:'整理视频' }, source:{ chatRef:'chat-1' }, createdAt:'2026-07-21T10:00:00.000Z', updatedAt:'2026-07-21T10:00:00.000Z' };
   const repair = { taskId:'repair-ok', parentTaskId:'root-repair-ok', taskType:'operations.technical-repair', status:'succeeded', artifactRefs:[{ type:'technical_repair_evidence', validation:{ testsPassed:true, recoveryVerified:true } }], createdAt:'2026-07-21T10:01:00.000Z', updatedAt:'2026-07-21T10:02:00.000Z' };
-  const store = { async list(){ return [repair, root]; }, async listApprovals(){ return []; } };
-  const service = new TaskService({ registry, store, executors:{} });
+  const { service, records } = setup();
+  records.tasks.push(repair, root);
   const result = await service.notificationStatus('root-repair-ok', 'chat-1');
   assert.equal(result.terminal, true);
   assert.equal(result.status, 'repair_verified');
@@ -888,7 +872,7 @@ test('飞书跟进拒绝其他会话读取任务', async () => {
 });
 
 test('任务执行会保存实际报告的使用记录，概览只汇总当天已记录部分', async () => {
-  const operator = { agentId:'operator', name:'运维官', status:'active', acceptedTaskTypes:['operations.health-review'] };
+  const operator = agentFixture('operator', '运维官', ['operations.health-review']);
   const { service } = setup({ agents:[operator] });
   service.executors.operator = { async execute() { return { status:'succeeded', currentStage:'done', execution:{ executor:'operator', outcome:'done' }, usage:{ tools:[{ id:'local-check', name:'本机检查', calls:1 }] }, artifactRefs:[] }; } };
   const task = await service.create({ title:'检查本机状态', taskType:'operations.health-review' });
