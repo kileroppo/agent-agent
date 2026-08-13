@@ -1140,6 +1140,82 @@ test('费用确认必须匹配原始运行、提交租约和Paperclip费用事�
   );
 });
 
+test('付费动作适配层在构造后仍读取当前依赖并保留可覆写状态转换与产物校验', async () => {
+  const initialState = stateStore();
+  const replacementState = stateStore();
+  const initialContext = { state:initialState };
+  const initialBudgetChecker = async () => {
+    throw new Error('不应使用构造时预算检查器');
+  };
+  const tools = new StepFunContentTools({
+    ctx:initialContext,
+    paidBudgetChecker:initialBudgetChecker,
+  });
+  assert.equal(tools.ctx, initialContext);
+  assert.equal(tools.paidBudgetChecker, initialBudgetChecker);
+  assert.ok(tools.inflight instanceof Map);
+  assert.ok(tools.legacyRateLimitActions);
+
+  let budgetChecks = 0;
+  let transitions = 0;
+  let confirmedOutputChecks = 0;
+  tools.ctx = { state:replacementState };
+  tools.paidBudgetChecker = allowPaidBudget(() => { budgetChecks += 1; });
+  const defaultTransition = tools.withCostTransition.bind(tools);
+  tools.withCostTransition = async (...args) => {
+    transitions += 1;
+    return defaultTransition(...args);
+  };
+  tools.assertConfirmedOutput = async () => {
+    confirmedOutputChecks += 1;
+  };
+
+  const actionId = 'action:dynamic:dependencies';
+  await tools.paidAction(
+    { actionId },
+    run,
+    'fixture_operation',
+    1,
+    async () => ({
+      content:'fixture',
+      data:{
+        nextStageAllowed:false,
+        costCommit:{
+          status:'pending_core_cost_event',
+          costEvent:callRecord({
+            run,
+            actionId,
+            model:'fixture-model',
+            operation:'fixture_operation',
+            prompt:'fixture',
+            costCents:1,
+          }).costEvent,
+        },
+      },
+    }),
+  );
+  assert.equal(budgetChecks, 1);
+  assert.equal(initialState.snapshot().length, 0);
+  assert.equal(replacementState.snapshot().length, 1);
+
+  const claim = await tools.claimCostEvent({ actionId }, run);
+  await tools.confirmCostEvent({
+    actionId,
+    submissionId:claim.data.costCommit.submissionId,
+    costEventId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  }, run);
+  const replay = await tools.paidAction(
+    { actionId },
+    { ...run, runId:'77777777-7777-4777-8777-777777777777', status:'running' },
+    'fixture_operation',
+    1,
+    async () => assert.fail('已确认 action 不应再次执行 Provider'),
+  );
+  assert.equal(replay.data.replayed, true);
+  assert.equal(transitions, 2);
+  assert.equal(confirmedOutputChecks, 1);
+});
+
 test('confirmed付费action允许同岗位新Run校验产物后只读复用', async (context) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'm5-confirmed-cross-run-'));
   context.after(() => fs.rm(root, { recursive:true, force:true }));
