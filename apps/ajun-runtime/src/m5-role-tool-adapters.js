@@ -2,6 +2,10 @@ import fs from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import crypto from 'node:crypto';
 import { prepareWorkspaceFile } from './workspace-path-guard.js';
+import {
+  externalCapabilityEvidence,
+  runExternalCapabilityWithEvents,
+} from './adapters/external-capability-run-event-bridge.ts';
 
 export function createM5RoleToolAdapters({
   publicWebSearch,
@@ -14,46 +18,67 @@ export function createM5RoleToolAdapters({
   governance,
   store,
   knowledgeArchive,
+  onRunEvent = null,
+  now = () => new Date(),
 } = {}) {
   return Object.freeze({
     ...(typeof publicWebSearch?.search === 'function'
       ? {
-          'ajun-public-search':async ({ input }) =>
-            publicWebSearch.search({
-              query:input.query,
-              limit:input.limit,
-            }),
+          'ajun-public-search':async ({ input, trustedScope }) => runRoleCapability({
+            onRunEvent, now, trustedScope,
+            capabilityId:'content.public.search', routeId:'public-web-search', provider:'public-search',
+            execute:() => publicWebSearch.search({ query:input.query, limit:input.limit }),
+          }),
         }
       : {}),
     ...(typeof publicWebFetch?.acquire === 'function'
       ? {
-          'ajun-public-fetch':async ({ access }) =>
-            withContentHash(await publicWebFetch.acquire({ sourceUrl:access.url })),
+          'ajun-public-fetch':async ({ access, trustedScope }) =>
+            withContentHash(await publicWebFetch.acquire({
+              sourceUrl:access.url,
+              task:trustedScope?.currentTaskId ? {
+                taskId:trustedScope.currentTaskId,
+                assigneeAgentId:trustedScope.currentAgentId,
+                currentStage:trustedScope.currentStepId,
+                workflow:{ workflowId:trustedScope.currentWorkflowId, step:{ stepId:trustedScope.currentStepId } },
+              } : null,
+            })),
         }
       : {}),
     ...(typeof publicDynamicWebReader?.read === 'function'
       ? {
-          'hermes-public-browser':async ({ access }) =>
-            withContentHash(await publicDynamicWebReader.read({ sourceUrl:access.url })),
+          'hermes-public-browser':async ({ access, trustedScope }) => runRoleCapability({
+            onRunEvent, now, trustedScope,
+            capabilityId:'content.public.dynamic.read', routeId:'public-web-controlled-browser', provider:'controlled-chromium',
+            execute:async () => withContentHash(await publicDynamicWebReader.read({ sourceUrl:access.url })),
+          }),
         }
       : {}),
     ...(typeof publicPdfReader?.read === 'function'
       ? {
-          'hermes-pdf':async ({ access }) =>
-            withContentHash(await publicPdfReader.read({ sourceUrl:access.url })),
+          'hermes-pdf':async ({ access, trustedScope }) => runRoleCapability({
+            onRunEvent, now, trustedScope,
+            capabilityId:'content.public.pdf.read', routeId:'public-pdf-reader', provider:'public-http-pdftotext',
+            execute:async () => withContentHash(await publicPdfReader.read({ sourceUrl:access.url })),
+          }),
         }
       : {}),
     ...(typeof githubSearch?.search === 'function' && typeof githubSearch?.readRepo === 'function'
       ? {
-          'github-public':async ({ input }) => {
-            if (input.operation === 'search') {
-              return githubSearch.search({ query:input.query, limit:input.limit });
-            }
-            if (input.operation === 'read') {
-              return withContentHash(await githubSearch.readRepo({ repo:input.repo, path:input.path }));
-            }
-            throw adapterError('GitHub 受控适配器不支持该操作。', 'role_tool_input_invalid');
-          },
+          'github-public':async ({ input, trustedScope }) => runRoleCapability({
+            onRunEvent, now, trustedScope,
+            capabilityId:input.operation === 'read' ? 'github.public.read' : 'github.public.search',
+            routeId:'github-public-api', provider:'github',
+            execute:async () => {
+              if (input.operation === 'search') {
+                return githubSearch.search({ query:input.query, limit:input.limit });
+              }
+              if (input.operation === 'read') {
+                return withContentHash(await githubSearch.readRepo({ repo:input.repo, path:input.path }));
+              }
+              throw adapterError('GitHub 受控适配器不支持该操作。', 'role_tool_input_invalid');
+            },
+          }),
         }
       : {}),
     ...(typeof store?.list === 'function'
@@ -118,6 +143,27 @@ export function createM5RoleToolAdapters({
           },
         }
       : {}),
+  });
+}
+
+function runRoleCapability({
+  onRunEvent, now, trustedScope, capabilityId, routeId, provider, execute,
+}) {
+  return runExternalCapabilityWithEvents({
+    onRunEvent,
+    now,
+    context:{
+      taskId:String(trustedScope?.currentTaskId || ''),
+      workflowId:String(trustedScope?.currentWorkflowId || ''),
+      stepId:String(trustedScope?.currentStepId || ''),
+      agentId:String(trustedScope?.currentAgentId || ''),
+      capabilityId,
+      routeId,
+      provider,
+    },
+    execute,
+    evidence:externalCapabilityEvidence,
+    hasRegisteredFallback:false,
   });
 }
 

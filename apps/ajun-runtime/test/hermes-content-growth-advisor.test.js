@@ -75,7 +75,7 @@ test('快速拆解在五分钟总预算内最多尝试两次并合并失败调�
         estimated_cost_usd:0.01
       }));
       now += 120_000;
-      if (calls === 1) throw new Error('temporary failure');
+      if (calls === 1) throw Object.assign(new Error('temporary failure'), { retryable:true });
       return JSON.stringify({ summary:'第二次成功', modules:[] });
     }
   });
@@ -110,7 +110,7 @@ test('完整拆解和平台草稿都不会越过各自总预算或尝试上限',
       timeoutMs:720_000,
       run:async () => {
         calls += 1;
-        throw new Error('persistent failure');
+        throw Object.assign(new Error('persistent failure'), { retryable:true });
       }
     });
     const action = scenario.kind === 'analysis'
@@ -129,6 +129,27 @@ test('完整拆解和平台草稿都不会越过各自总预算或尝试上限',
       scenario.expectedTimeout
     );
   }
+});
+
+test('Hermes 未分类或结果未知的失败不会盲目重试', async () => {
+  let calls = 0;
+  const advisor = new HermesContentGrowthAdvisor({
+    hermesHome:'/tmp/hermes/profiles/video-content-analyst',
+    run:async () => {
+      calls += 1;
+      throw new Error('unknown provider result');
+    }
+  });
+  await assert.rejects(
+    () => advisor.draft({ transcript:'[00:00] 测试。', platforms:['douyin'], analysis:{} }),
+    (error) => {
+      assert.equal(error.executionBudget.attempts, 1);
+      assert.equal(error.outcome, 'ambiguous');
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+  assert.equal(calls, 1);
 });
 
 test('完整拆解第一次语义结构不合格时在同一预算内安全重试并聚合用量', async () => {

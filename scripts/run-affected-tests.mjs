@@ -45,6 +45,24 @@ const AJUN_MODULE_TESTS = Object.freeze({
     'test/technical-repair-promotion.test.js',
     'test/technical-repair-watchdog.test.js',
   ]),
+  'src/runtime/runtime-configuration.js': Object.freeze([
+    'test/runtime-composition-modules.test.js',
+    'test/runtime-start.test.js',
+  ]),
+  'src/runtime/runtime-state-composition.js': Object.freeze([
+    'test/runtime-composition-modules.test.js',
+    'test/task-run-event-store.test.js',
+    'test/runtime-start.test.js',
+  ]),
+  'src/runtime/local-execution-composition.js': Object.freeze([
+    'test/runtime-composition-modules.test.js',
+    'test/runtime-start.test.js',
+  ]),
+  'src/runtime/background-lifecycle-composition.js': Object.freeze([
+    'test/runtime-composition-modules.test.js',
+    'test/cross-agent-mission-service.test.js',
+    'test/runtime-start.test.js',
+  ]),
   'src/analysis-intent.ts': Object.freeze([
     'test/analysis-intent.test.js',
     'test/agent-army-client.test.js',
@@ -62,16 +80,77 @@ const AJUN_MODULE_TESTS = Object.freeze({
     'test/open-task-routing.test.js',
     'test/task-service.test.js',
   ]),
+  'src/task-definition-registry.js': Object.freeze([
+    'test/business-task-routing.test.js',
+    'test/feishu-commander.test.js',
+    'test/task-capability-catalog.test.js',
+    'test/task-card-presentation.test.js',
+    'test/task-definition-registry.test.js',
+    'test/task-service.test.js',
+  ]),
+  'src/task-definitions.js': Object.freeze([
+    'test/business-task-routing.test.js',
+    'test/feishu-commander.test.js',
+    'test/task-capability-catalog.test.js',
+    'test/task-card-presentation.test.js',
+    'test/task-definition-registry.test.js',
+  ]),
+  'src/task-status-policy.js': Object.freeze([
+    'test/agent-army-client.test.js',
+    'test/agent-army-mcp-server.test.js',
+    'test/cross-agent-mission-service.test.js',
+    'test/feishu-commander.test.js',
+    'test/paperclip-bridge.test.js',
+    'test/task-card-presentation.test.js',
+    'test/task-feedback.test.js',
+    'test/task-lifecycle-event-recorder.test.js',
+    'test/task-status-policy.test.js',
+  ]),
+  'src/mission-approval-inheritance.js': Object.freeze([
+    'test/mission-approval-inheritance.test.js',
+  ]),
+  'src/task-approval-lifecycle.js': Object.freeze([
+    'test/task-approval-lifecycle.test.js',
+  ]),
+  'src/task-feedback.js': Object.freeze([
+    'test/task-feedback.test.js',
+  ]),
+  'src/task-intake-continuation.js': Object.freeze([
+    'test/task-intake-continuation.test.js',
+  ]),
+  'src/contracts/agent-army-task-input.js': Object.freeze([
+    'test/agent-army-adapter-contract.test.js',
+    'test/agent-army-client.test.js',
+    'test/agent-army-mcp-server.test.js',
+  ]),
+  'src/contracts/agent-army-http-input.js': Object.freeze([
+    'test/agent-army-adapter-contract.test.js',
+  ]),
+  'src/contracts/agent-army-adapter-projection.js': Object.freeze([
+    'test/agent-army-adapter-contract.test.js',
+    'test/agent-army-mcp-server.test.js',
+    'test/runtime-http-feishu.test.js',
+  ]),
+  'src/workflow/delivery-quality-runtime.ts': Object.freeze([
+    'test/delivery-quality-runtime.test.js',
+    'test/task-lifecycle-event-recorder.test.js',
+  ]),
+  'src/task-lifecycle-event-recorder.js': Object.freeze([
+    'test/delivery-quality-runtime.test.js',
+    'test/task-lifecycle-event-recorder.test.js',
+  ]),
   'src/task-execution-coordinator.js': Object.freeze([
     'test/task-execution-coordinator.test.js',
     'test/task-service.test.js',
   ]),
   'src/task-intake.js': Object.freeze([
     'test/task-service.test.js',
+    'test/task-intake-interface.test.js',
     'test/open-task-runtime-wiring.test.js',
   ]),
   'src/task-notification.js': Object.freeze([
     'test/task-service.test.js',
+    'test/task-service-runtime-presentation.test.js',
     'test/cross-agent-mission-service.test.js',
   ]),
   'src/task-presentation.js': Object.freeze([
@@ -100,16 +179,16 @@ const AJUN_MODULE_TESTS = Object.freeze({
   ]),
   'src/task-overview.js': Object.freeze([
     'test/task-overview-focus.test.js',
-    'test/task-service.test.js',
+    'test/task-service-runtime-presentation.test.js',
     'test/runtime-start.test.js',
   ]),
   'src/task-paperclip-assignment.js': Object.freeze([
-    'test/task-service.test.js',
+    'test/task-service-paperclip-execution.test.js',
     'test/m5-role-tool-execution.test.js',
     'test/paperclip-employee-assignment.test.js',
   ]),
   'src/task-role-execution.js': Object.freeze([
-    'test/task-service.test.js',
+    'test/task-service-paperclip-execution.test.js',
     'test/m5-role-tool-execution.test.js',
     'test/local-content-growth.test.js',
   ]),

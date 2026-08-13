@@ -63,7 +63,7 @@ test('受控能力执行只做一次恢复和一次重试，并生成不含原�
   let calls = 0;
   let recoveries = 0;
   const engine = new CapabilityExecutionEngine({
-    adapter:{
+    routes:[{ routeId:'local-ai', maxCostUsd:0, adapter:{
       adapterId:'local-ai',
       async invoke() {
         calls += 1;
@@ -74,7 +74,8 @@ test('受控能力执行只做一次恢复和一次重试，并生成不含原�
         recoveries += 1;
         return 'recovered';
       },
-    },
+    } }],
+    plan:{ primaryRouteId:'local-ai', fallbackRouteIds:[], maxRoutes:1 },
     now:() => new Date('2026-08-10T00:00:00.000Z'),
   });
   const result = await engine.invoke({
@@ -93,15 +94,23 @@ test('受控能力执行只做一次恢复和一次重试，并生成不含原�
 test('本机 AI Adapter 固定同机、禁止桌面回退且不伪造人工批准', async () => {
   const invokes = [];
   const controls = [];
+  const events = [];
   const adapter = createLocalAiCapabilityAdapter({
     async invoke(input) { invokes.push(input); return { provider:'local-qwen', result:{ text:'ok' } }; },
     async controlService(serviceId, action) { controls.push([serviceId, action]); return {}; },
+  }, {
+    onRunEvent:(event) => events.push(event),
   });
   await adapter.invoke({ request:capabilityRequest({ capabilityId:'vision.analyze' }), payload:{ imagePaths:['/private/frame.jpg'] }, options:{}, attempt:1 });
   assert.equal(invokes[0].approved, false);
   assert.deepEqual(invokes[0].options, { preferredNode:'mac', allowDesktopFallback:false });
   assert.equal(await adapter.recover({ request:capabilityRequest({ capabilityId:'vision.analyze' }), errorCode:'local_ai_gateway_unavailable' }), 'recovered');
   assert.deepEqual(controls, [['gateway', 'start'], ['qwen35', 'restart']]);
+  assert.deepEqual(events.map((event) => event.eventType), [
+    'capability_call_started', 'capability_call_succeeded',
+    'route_recovery_started', 'route_recovery_succeeded',
+  ]);
+  assert.equal(events.some((event) => event.eventType === 'route_fallback_started'), false);
 });
 
 test('Workflow成功必须同时有可验证产物，质量任务随后等待人工验收', () => {

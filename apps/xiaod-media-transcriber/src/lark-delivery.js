@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { config } from './config.js';
+import { createTaskRunEventBridge } from './task-run-event-bridge.js';
 
 const UNCERTAIN_STATES = new Set([
   'creating_document',
@@ -10,10 +11,15 @@ const UNCERTAIN_STATES = new Set([
 ]);
 
 export class LarkDeliveryCoordinator {
-  constructor({ store, transport = deliverToLark } = {}) {
+  constructor({ store, transport = deliverToLark, onRunEvent = null, runEventBridge = null } = {}) {
     this.store = store;
     this.transport = transport;
+    this.runEvents = runEventBridge || createTaskRunEventBridge({ onRunEvent });
     this.inflight = new Map();
+  }
+
+  attachRunEventBridge(runEventBridge) {
+    if (runEventBridge?.recordLarkDelivery) this.runEvents = runEventBridge;
   }
 
   async deliver({ jobId, title, markdown }) {
@@ -56,6 +62,7 @@ export class LarkDeliveryCoordinator {
         updatedAt:new Date().toISOString()
       };
       await this.#persist(jobId, resolved);
+      await this.#recordResult(jobId, resolved);
       return deliveryResult(resolved);
     }
 
@@ -74,6 +81,7 @@ export class LarkDeliveryCoordinator {
         updatedAt:new Date().toISOString()
       };
       await this.#persist(jobId, resolved);
+      await this.#recordResult(jobId, resolved);
       return deliveryResult(resolved);
     }
     throw resolutionError('人工仲裁只支持 confirmed_delivered 或 confirmed_not_created。', 422);
@@ -84,6 +92,7 @@ export class LarkDeliveryCoordinator {
     if (!job) throw new Error('飞书交付对应的任务不存在。');
     const existing = job.output?.larkDelivery || null;
     if (existing && isLarkDeliveryUncertain(existing)) {
+      await this.#recordResult(jobId, existing);
       throw deliveryConflict('上一次飞书交付结果不确定；为避免重复创建文档，已停止自动重试。请先人工核对飞书与任务编号。', existing);
     }
     if (existing?.checksum === checksum && existing.state === 'delivered') return deliveryResult(existing);
@@ -137,6 +146,7 @@ export class LarkDeliveryCoordinator {
         updatedAt: new Date().toISOString()
       };
       await this.#persist(jobId, final);
+      await this.#recordResult(jobId, final);
       return deliveryResult(final);
     } catch (error) {
       const current = this.store.get(jobId)?.output?.larkDelivery || prepared;
@@ -156,6 +166,7 @@ export class LarkDeliveryCoordinator {
         // The durable pre-send/progress marker is intentionally left in place.
         // Restart recovery treats any side-effecting marker as uncertain.
       }
+      await this.#recordResult(jobId, failed);
       if (state === 'uncertain') throw deliveryConflict('飞书可能已接收本次交付；为避免重复创建文档，已停止自动重试。请按任务编号人工核对。', failed, error);
       throw error;
     }
@@ -173,6 +184,10 @@ export class LarkDeliveryCoordinator {
         ...(history.length ? { larkDeliveryHistory: history } : {})
       }
     }, { stage: 'delivering', message: deliveryLogMessage(delivery.state) });
+  }
+
+  async #recordResult(jobId, delivery) {
+    await this.runEvents.recordLarkDelivery({ job:this.store.get(jobId) || { id:jobId }, delivery });
   }
 }
 

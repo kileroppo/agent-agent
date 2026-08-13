@@ -1,6 +1,10 @@
 import { ProposalValidationError } from './agent-proposal-service.js';
 import { presentTaskCard } from './task-card-presentation.js';
-import { presentTask, shortTaskRef } from './task-presentation.js';
+
+export {
+  presentCommanderReply,
+  presentTaskStatus,
+} from './contracts/agent-army-adapter-projection.js';
 
 export function createFeishuApprovalResolver({ proposals, tasks }) {
   if (!proposals || !tasks) throw new TypeError('proposals 和 tasks 必填。');
@@ -40,67 +44,17 @@ export function createFeishuApprovalResolver({ proposals, tasks }) {
   };
 }
 
-export function presentCommanderReply(payload, detailBaseUrl, taskCardContext = {}) {
-  if (!payload || typeof payload !== 'object') return payload;
-  const task = payload.task || payload.mission || null;
-  if (!task?.taskId) return payload;
-  const presentation = presentTask(task, { detailBaseUrl });
-  const reply = composeTaskReply(payload.reply, task.taskId, presentation);
-  return {
-    ...payload,
-    reply,
-    presentation,
-    taskCard:presentTaskCard(task, taskCardContext),
-  };
-}
-
-export function presentTaskStatus(notification, task, taskCardContext = {}) {
-  if (!task?.taskId) return notification;
-  const { projectionTruth = null, ...publicNotification } = notification || {};
-  const projectedTask = notification?.status
-    ? {
-        ...task,
-        status:notification.status,
-        ...(projectionTruth ? {
-          updatedAt:latestCardTruthTimestamp(task.updatedAt, projectionTruth.updatedAt),
-          presentationRevision:[
-            task.presentationRevision ?? task.revision ?? '0',
-            projectionTruth.taskId,
-            projectionTruth.revision ?? '0',
-            projectionTruth.status,
-            notification.status,
-          ].map((value) => String(value || '')).join(':'),
-        } : {}),
-      }
-    : task;
-  return {
-    ...publicNotification,
-    taskCard:presentTaskCard(projectedTask, taskCardContext),
-  };
-}
-
-function latestCardTruthTimestamp(...values) {
-  const timestamps = values
-    .map((value) => String(value || '').trim())
-    .filter((value) => value && Number.isFinite(Date.parse(value)))
-    .map((value) => new Date(value).toISOString())
-    .sort();
-  return timestamps.at(-1) || null;
-}
-
 export async function resolveTaskCardAction(input, { store, tasks, resolveApproval }) {
   const taskId = requiredCardField(input?.taskId, '任务卡动作缺少任务编号。');
   const action = requiredCardField(input?.action, '任务卡动作缺少操作。');
   if (!['approve', 'reject', 'pause', 'resume'].includes(action)) {
     throw new ProposalValidationError('任务卡动作不受支持。');
   }
-  const chatRef = requiredCardField(input?.chatRef, '任务卡动作缺少原飞书会话。');
+  const chatRef = requiredCardField(input?.chatId || input?.chatRef, '任务卡动作缺少原飞书会话。');
   const task = await findTask(store, taskId);
-  if (!task || task.source?.channel !== 'feishu' || String(task.source?.chatRef || '') !== chatRef) {
-    throw new ProposalValidationError('只能在创建该任务的原飞书会话操作任务卡。');
-  }
+  const cardIdentity = assertTaskCardOwnership(task, { ...input, chatRef });
   const context = await taskCardContextFor({ store, tasks }, task);
-  const current = presentTaskCard(task, context);
+  const current = presentTaskCard(task, { ...context, ...cardIdentity });
   const projectionChanged = String(input?.sourceRevision || '') !== current.sourceRevision
     || String(input?.contentHash || '') !== current.contentHash;
 
@@ -127,6 +81,7 @@ export async function resolveTaskCardAction(input, { store, tasks, resolveApprov
   }
 
   const latestTask = await findTask(store, taskId);
+  assertTaskCardOwnership(latestTask, { ...input, chatRef });
   const latestContext = await taskCardContextFor({ store, tasks }, latestTask);
   return {
     handled:true,
@@ -134,7 +89,57 @@ export async function resolveTaskCardAction(input, { store, tasks, resolveApprov
     message:action === 'pause' ? '已进入暂停确认。'
       : action === 'resume' ? '已进入继续确认。'
         : '操作已处理。',
-    taskCard:presentTaskCard(latestTask, latestContext),
+    taskCard:presentTaskCard(latestTask, { ...latestContext, ...cardIdentity }),
+  };
+}
+
+/**
+ * Bind a card read/action to the Feishu chat and Hermes identity that created
+ * the task. Old A君 tasks predate explicit identity fields, so only A君/default
+ * callers may use that narrow compatibility path. Other agents must have an
+ * explicit source binding; assigneeAgentId alone never grants card ownership.
+ */
+export function assertTaskCardOwnership(task, input = {}) {
+  if (!task || task.source?.channel !== 'feishu') {
+    throw new ProposalValidationError('只能读取或操作由飞书创建的任务卡。');
+  }
+  const chatId = requiredCardField(input.chatId || input.chatRef, '任务卡缺少原飞书会话。');
+  const expectedChatId = String(task.source?.chatRef || '').trim();
+  if (!expectedChatId || expectedChatId !== chatId) {
+    throw new ProposalValidationError('只能在创建该任务的原飞书会话读取或操作任务卡。');
+  }
+
+  const requestedAgentId = optionalCardField(input.agentId);
+  const requestedProfileId = optionalCardField(input.profileId);
+  const expectedAgentId = optionalCardField(task.source?.targetAgentId);
+  const expectedProfileId = optionalCardField(task.source?.profileId);
+  const ajunCompatibility = (!expectedAgentId || expectedAgentId === 'ajun')
+    && (!expectedProfileId || expectedProfileId === 'ajun');
+
+  if (expectedAgentId) {
+    if ((!requestedAgentId && !ajunCompatibility) || (requestedAgentId && requestedAgentId !== expectedAgentId)) {
+      throw new ProposalValidationError('任务卡与当前 Agent 身份不匹配。');
+    }
+  } else if (requestedAgentId && requestedAgentId !== 'ajun') {
+    throw new ProposalValidationError('旧任务卡只允许 A君兼容读取。');
+  }
+
+  if (expectedProfileId) {
+    if ((!requestedProfileId && !ajunCompatibility) || (requestedProfileId && requestedProfileId !== expectedProfileId)) {
+      throw new ProposalValidationError('任务卡与当前 Hermes Profile 不匹配。');
+    }
+  } else if (requestedProfileId && requestedProfileId !== 'ajun') {
+    throw new ProposalValidationError('旧任务卡只允许 A君 Profile 兼容读取。');
+  }
+
+  return {
+    agentId:expectedAgentId || requestedAgentId || null,
+    profileId:expectedProfileId || requestedProfileId || null,
+    // Preserve the visible shape of pre-identity A君 cards so their hash does
+    // not become stale solely because the server gained ownership validation.
+    chatId:expectedAgentId || expectedProfileId || requestedAgentId || requestedProfileId
+      ? expectedChatId
+      : null,
   };
 }
 
@@ -148,29 +153,6 @@ function refreshedTaskCard(taskCard, reason) {
       : '任务已经进入下一阶段，原操作不再适用。',
     taskCard,
   };
-}
-
-function composeTaskReply(value, taskId, presentation) {
-  const link = presentation.detailUrl
-    ? `[查看任务 ${shortTaskRef(taskId)}](${presentation.detailUrl})`
-    : `任务 ${shortTaskRef(taskId)}`;
-  const nextAction = String(presentation.nextAction || '').trim();
-  let reply = String(value || '').trim() || String(presentation.summary || '').trim();
-
-  if (reply.includes(taskId)) reply = reply.replaceAll(taskId, link);
-
-  const hasTaskReference = reply.includes(presentation.detailUrl || '\0')
-    || reply.includes(shortTaskRef(taskId));
-  const hasExplicitNextAction = /(?:^|\n)(?:下一步|你现在要做)\s*[：:]/m.test(reply);
-  const alreadyStatesNextAction = nextAction && normalizeReplyText(reply).includes(normalizeReplyText(nextAction));
-  const footer = [];
-  if (nextAction && !hasExplicitNextAction && !alreadyStatesNextAction) footer.push(`下一步：${nextAction}`);
-  if (!hasTaskReference) footer.push(link);
-  return footer.length ? `${reply}\n\n${footer.join('\n')}` : reply;
-}
-
-function normalizeReplyText(value) {
-  return String(value || '').replace(/\s+/g, '').replace(/[。；;，,！!？?]/g, '');
 }
 
 async function taskCardContextFor({ store, tasks }, task) {
@@ -190,4 +172,8 @@ function requiredCardField(value, message) {
   const text = String(value || '').trim();
   if (!text) throw new ProposalValidationError(message);
   return text;
+}
+
+function optionalCardField(value) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 80);
 }

@@ -97,11 +97,11 @@ test('架构检查拒绝核心责任模块重新长回巨型文件', async (cont
   await write(
     root,
     'apps/ajun-runtime/src/task-service.js',
-    `${Array.from({ length:351 }, (_, index) => `// ${index}`).join('\n')}\n`,
+    `${Array.from({ length:251 }, (_, index) => `// ${index}`).join('\n')}\n`,
   );
   const result = run(root);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /责任模块超过 350 行/);
+  assert.match(result.stderr, /责任模块超过 250 行/);
 });
 
 test('架构检查拒绝 TaskService 重新声明已委托方法', async (context) => {
@@ -116,16 +116,88 @@ test('架构检查拒绝 TaskService 重新声明已委托方法', async (contex
   assert.match(result.stderr, /approveApproval 已委托给深层 Module/);
 });
 
+test('架构检查拒绝任务定义消费者重新维护影子映射', async (context) => {
+  const root = await fixture(context);
+  await write(
+    root,
+    'apps/ajun-runtime/src/feishu-commander-replies.js',
+    "const TASK_TYPE_BY_INTENT = { office: 'office.presentation-package' };\n",
+  );
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /任务意图映射必须从 TaskDefinitionRegistry 读取/);
+});
+
+test('架构检查拒绝岗位声明未登记的任务类型', async (context) => {
+  const root = await fixture(context);
+  await write(root, 'apps/ajun-runtime/src/task-definitions.js', "taskDefinition('known.task');\n");
+  await write(root, 'agents/operator/manifest.json', JSON.stringify({ acceptedTaskTypes:['unknown.task'] }));
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /unknown\.task 未登记到 TaskDefinitionRegistry/);
+});
+
+test('架构检查拒绝任务状态消费者重新维护影子终态', async (context) => {
+  const root = await fixture(context);
+  await write(
+    root,
+    'apps/ajun-runtime/src/agent-army-client.js',
+    "const TERMINAL_STATUSES = new Set(['succeeded', 'failed']);\n",
+  );
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /通知停止状态必须从 TaskStatusPolicy 读取/);
+});
+
+test('架构检查拒绝 Hermes 任务卡业务逻辑回流到字符串补丁', async (context) => {
+  const root = await fixture(context);
+  await write(
+    root,
+    'integrations/hermes/scripts/patch-feishu-agent-proposal-router.mjs',
+    "const dynamicTaskCardMethods = `def handle(): pass`;\n",
+  );
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /不得把任务卡业务逻辑重新内嵌为字符串补丁/);
+});
+
+test('架构检查拒绝 TaskService 接缝测试重新长回巨型文件', async (context) => {
+  const root = await fixture(context);
+  await write(
+    root,
+    'apps/ajun-runtime/test/task-service.test.js',
+    `${Array.from({ length:1801 }, (_, index) => `// ${index}`).join('\n')}\n`,
+  );
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /接缝测试超过 1800 行/);
+});
+
+test('架构检查限制 TaskService 接缝测试总负担', async (context) => {
+  const root = await fixture(context);
+  for (const name of [
+    'task-service.test.js',
+    'task-service-paperclip-execution.test.js',
+    'task-service-runtime-presentation.test.js',
+    'task-service-m5-recovery.test.js',
+  ]) {
+    await write(root, `apps/ajun-runtime/test/${name}`, `${'// seam\n'.repeat(776)}`);
+  }
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /TaskService 接缝测试总计 .*超过 3100 行/);
+});
+
 test('架构检查拒绝产品装配职责重新回流到根入口', async (context) => {
   const root = await fixture(context);
   await write(
     root,
     'apps/ajun-runtime/src/runtime-composition-root.js',
-    `${Array.from({ length:301 }, (_, index) => `// ${index}`).join('\n')}\n`,
+    `${Array.from({ length:221 }, (_, index) => `// ${index}`).join('\n')}\n`,
   );
   const result = run(root);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /runtime-composition-root\.js: 责任模块超过 300 行/);
+  assert.match(result.stderr, /runtime-composition-root\.js: 责任模块超过 220 行/);
 });
 
 test('架构检查拒绝产品装配根重新直接认识过多实现', async (context) => {
@@ -133,11 +205,11 @@ test('架构检查拒绝产品装配根重新直接认识过多实现', async (c
   await write(
     root,
     'apps/ajun-runtime/src/runtime-composition-root.js',
-    `${Array.from({ length:36 }, (_, index) => `import './module-${index}.js';`).join('\n')}\n`,
+    `${Array.from({ length:21 }, (_, index) => `import './module-${index}.js';`).join('\n')}\n`,
   );
   const result = run(root);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /产品装配根超过 35 个直接 import/);
+  assert.match(result.stderr, /产品装配根超过 20 个直接 import/);
 });
 
 test('架构检查为候选任务恢复与展示 Module 预留行数门禁', async (context) => {

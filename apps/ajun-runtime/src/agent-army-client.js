@@ -1,10 +1,16 @@
-import crypto from 'node:crypto';
-import { resolveAnalysisIntent } from './analysis-intent.ts';
+import {
+  agentArmyApprovalView as approvalView,
+  agentArmyTaskView as taskView,
+} from './agent-army-client-task-view.js';
 import { armyStatusReadView, capabilitiesReadView, capabilityTruthView } from './agent-army-read-views.ts';
-import { presentTask, taskDetailBaseUrl } from './task-presentation.js';
+import {
+  AgentArmyTaskInputError,
+  prepareMissionCreateRequest,
+  prepareTaskCreateRequest,
+} from './contracts/agent-army-task-input.js';
+import { taskDetailBaseUrl } from './task-presentation.js';
 import { dynamicCardAnchorAcknowledged, normalizeCompletionDelivery } from './source-completion-watch.js';
-
-const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'waiting_test', 'needs_input', 'paused']);
+import { isTaskNotificationTerminalStatus } from './task-status-policy.js';
 
 export class AgentArmyClient {
   constructor({
@@ -70,7 +76,7 @@ export class AgentArmyClient {
       .map((task) => taskView(task, overview.approvals || [], this.detailBaseUrl));
   }
 
-  async getTask(taskId, { chatRef = '' } = {}) {
+  async getTask(taskId, { chatRef = '', agentId = '', profileId = '' } = {}) {
     const id = requiredId(taskId, '任务编号无效。');
     const overview = await this.overview();
     const task = (overview.tasks || []).find((item) => item.taskId === id);
@@ -79,185 +85,71 @@ export class AgentArmyClient {
     try {
       notification = await this.request('/api/feishu/task-status', {
         method: 'POST',
-        body: { taskId:id, chatRef:safeText(chatRef, 240) }
+        body: {
+          taskId:id,
+          chatId:safeText(chatRef, 240),
+          agentId:safeText(agentId, 80),
+          profileId:safeText(profileId, 80),
+        }
       });
     } catch (error) {
-      if (chatRef || !String(error?.message || '').includes('当前会话不能读取')) throw error;
+      const message = String(error?.message || '');
+      const unavailableWithoutFeishuContext = [
+        '当前会话不能读取',
+        '只能读取或操作由飞书创建的任务卡',
+        '任务卡缺少原飞书会话',
+      ].some((fragment) => message.includes(fragment));
+      if (chatRef || !unavailableWithoutFeishuContext) throw error;
     }
     return {
       ...taskView(task, overview.approvals || [], this.detailBaseUrl),
-      terminal: notification?.terminal ?? TERMINAL_STATUSES.has(task.status),
-      userMessage: safeText(notification?.message || task.error?.userMessage || '', 2000)
+      terminal: notification?.terminal ?? isTaskNotificationTerminalStatus(task.status),
+      userMessage: safeText(notification?.message || task.error?.userMessage || '', 2000),
+      ...(notification?.taskCard ? { taskCard:notification.taskCard } : {}),
     };
   }
 
   async createTask(input = {}) {
-    const title = safeText(input.title, 500);
-    const taskType = safeText(input.taskType, 120);
-    if (!title) throw new AgentArmyClientError('请说明要完成什么。');
-    if (!taskType) throw new AgentArmyClientError('请提供任务类型；不确定时先调用 capabilities。');
-    const description = safeText(input.description, 2000);
-    const chatRef = safeText(input.chatRef, 240);
-    const requestRef = safeText(input.requestRef, 240);
-    const sourceUrls = safeStringList(input.sourceUrls, 5, 2000);
-    const sourceTaskIds = safeStringList(input.sourceTaskIds, 20, 100);
-    const connectionId = optionalConnectionId(input.connectionId);
-    const goalSpec = normalizeGoalSpecInput(input.goalSpec);
-    const completionDelivery = completionDeliveryInput(input.completionDelivery);
-    const evidenceMode = input.evidenceMode === 'preliminary' ? 'preliminary' : 'formal';
-    const analysis = taskType === 'content.video-benchmark-analysis'
-      ? resolveAnalysisIntent({
-          analysisIntent:input.analysisIntent,
-          title,
-          description,
-          focus:input.focus,
-          depth:input.depth,
-        })
-      : { error:null, analysisIntent:undefined, depth:input.depth === 'full' ? 'full' : 'fast' };
-    if (analysis.error === 'invalid_analysis_intent') {
-      throw new AgentArmyClientError('分析模式无效；请选择精华提炼、深度拆解、模板学习或风格探索。');
-    }
-    if (analysis.error === 'analysis_intent_conflict') {
-      throw new AgentArmyClientError('检测到多个分析模式，请只选择一种：精华提炼、深度拆解、模板学习或风格探索。');
-    }
-    const { analysisIntent, depth } = analysis;
-    const visualMode = input.visualMode === undefined
-      ? taskType === 'content.video-benchmark-analysis' ? 'auto' : 'off'
-      : normalizeVisualMode(input.visualMode);
-    if (taskType === 'content.video-benchmark-analysis' && sourceUrls.length && !sourceTaskIds.length) {
-      return this.createMission({
-        title:`${title}｜受控获取与拆解`,
-        chatRef,
-        requestRef,
-        completionDelivery,
-        waitForTerminal:false,
-        items:[
-          {
-            key:'acquire-transcript',
-            title:`获取并整理：${title}`,
-            taskType:'media.transcribe-and-refine',
-            agentId:'xiaod',
-            description:'只能通过内容获取中心获取公开或已授权素材；优先复用字幕，必要时才转录。',
-            acceptance:evidenceMode === 'formal'
-              ? input.reviewPolicy === 'required'
-                ? '生成来源证据、质量报告和机器稿，并按用户要求等待真人完整听审确认。'
-                : '生成来源证据和质量报告；质量门禁通过时自动生成系统确认稿，异常时才等待人工听审。'
-              : '生成来源证据、质量报告和可供初步分析使用的机器稿。',
-            sourceUrls,
-            connectionId,
-            reviewPolicy:input.reviewPolicy === 'required' ? 'required' : 'optional',
-            visualMode,
-            depth,
-            analysisIntent
-          },
-          {
-            key:'analyze-video',
-            title,
-            taskType,
-            agentId:'video-content-analyst',
-            description,
-            acceptance:evidenceMode === 'formal'
-              ? '只在系统质量确认稿或人工确认稿存在后生成带证据的正式拆解。'
-              : '基于机器稿生成明确降级的初步拆解。',
-            dependsOnPrevious:true,
-            evidenceMode,
-            depth,
-            analysisIntent,
-            visualMode,
-            focus:safeText(input.focus, 500)
-          }
-        ]
-      });
-    }
-    const idempotencyKey = requestRef
-      ? `hermes:${requestRef}`
-      : `hermes:${chatRef || 'local'}:${shortHash([title, taskType, input.agentId || '', Math.floor(this.now() / 30_000)].join('|'))}`;
-    const source = chatRef
-      ? { channel:'feishu', chatRef, messageRef:requestRef || undefined }
-      : { channel:'hermes-native' };
+    const prepared = taskInputContract(() => prepareTaskCreateRequest(input, { now:this.now }));
+    if (prepared.kind === 'mission') return this.createMission(prepared.missionInput);
     const response = await this.request('/api/tasks', {
       method:'POST',
-      body:{
-        title,
-        description,
-        taskType,
-        agentId:safeText(input.agentId, 80) || undefined,
-        sourceUrls,
-        connectionId,
-        reviewPolicy:input.reviewPolicy === 'required' ? 'required' : 'optional',
-        evidenceMode,
-        depth,
-        analysisIntent,
-        visualMode,
-        focus:safeText(input.focus, 500) || undefined,
-        platforms:safeStringList(input.platforms, 10, 40),
-        contentGoal:safeText(input.contentGoal, 500) || undefined,
-        durationSeconds:Number.isFinite(Number(input.durationSeconds)) ? Number(input.durationSeconds) : undefined,
-        researchMode:input.researchMode === 'off' ? 'off' : 'auto',
-        approvedForUse:input.approvedForUse === true,
-        sourceScriptTaskId:safeText(input.sourceScriptTaskId, 100) || undefined,
-        metrics:safeMetrics(input.metrics),
-        requester:{ kind:'local-owner', ref:'A君' },
-        requesterName:'A君',
-        source,
-        goalSpec:goalSpec || undefined,
-        context:{
-          ...(sourceTaskIds.length ? { sourceTaskIds, dependsOnPrevious:true } : {}),
-          ...(goalSpec ? { autonomousOpenTask:true } : {})
-        },
-        ...(completionDelivery ? { completionDelivery } : {}),
-        idempotencyKey
-      }
+      body:prepared.body,
     });
     const completionWatch = await this.ensureCompletionWatch(
       response.completionWatch,
       response.task?.taskId,
-      chatRef,
-      completionDelivery,
+      prepared.chatRef,
+      prepared.completionDelivery,
     );
     return {
-      ...(await this.getTask(response.task?.taskId, { chatRef })),
+      ...(await this.getTask(response.task?.taskId, {
+        chatRef:prepared.chatRef,
+        agentId:prepared.sourceAgentId,
+        profileId:prepared.sourceProfileId,
+      })),
       completionWatch,
-      ...(completionDelivery ? { completionDelivery } : {}),
+      ...(prepared.completionDelivery ? { completionDelivery:prepared.completionDelivery } : {}),
     };
   }
 
   async createMission(input = {}) {
-    const title = safeText(input.title, 500);
-    const items = normalizeMissionItems(input.items);
-    if (!title) throw new AgentArmyClientError('请说明这组工作的总目标。');
-    if (!items.length) throw new AgentArmyClientError('多人任务必须包含 1 到 11 项有效员工分工，并且依赖项必须引用同一任务中的 key。');
-    const chatRef = safeText(input.chatRef, 240);
-    const requestRef = safeText(input.requestRef, 240);
-    const completionDelivery = completionDeliveryInput(input.completionDelivery);
-    const idempotencyKey = requestRef
-      ? `hermes-mission:${requestRef}`
-      : `hermes-mission:${chatRef || 'local'}:${shortHash([title, JSON.stringify(items), Math.floor(this.now() / 30_000)].join('|'))}`;
-    const source = chatRef
-      ? { channel:'feishu', chatRef, messageRef:requestRef || undefined }
-      : { channel:'hermes-native' };
+    const prepared = taskInputContract(() => prepareMissionCreateRequest(input, { now:this.now }));
     const response = await this.request('/api/mcp/missions', {
       method:'POST',
-      body:{
-        title,
-        items,
-        requester:{ kind:'local-owner', ref:'A君' },
-        source,
-        ...(completionDelivery ? { completionDelivery } : {}),
-        idempotencyKey
-      }
+      body:prepared.body,
     });
     const completionWatch = await this.ensureCompletionWatch(
       response.completionWatch,
       response.mission?.taskId,
-      chatRef,
-      completionDelivery,
+      prepared.chatRef,
+      prepared.completionDelivery,
     );
     let overview = await this.overview();
     let missionTask = findMissionTask(overview, response);
-    if (input.waitForTerminal === true && missionTask && !TERMINAL_STATUSES.has(missionTask.status)) {
+    if (input.waitForTerminal === true && missionTask && !isTaskNotificationTerminalStatus(missionTask.status)) {
       const maxPolls = Math.ceil(this.missionWaitMs / this.missionPollMs);
-      for (let poll = 0; poll < maxPolls && !TERMINAL_STATUSES.has(missionTask.status); poll += 1) {
+      for (let poll = 0; poll < maxPolls && !isTaskNotificationTerminalStatus(missionTask.status); poll += 1) {
         await this.sleep(this.missionPollMs);
         overview = await this.overview();
         missionTask = findMissionTask(overview, response);
@@ -273,7 +165,7 @@ export class AgentArmyClient {
       mission:missionView,
       children:children.map((task) => taskView(task, overview.approvals || [], this.detailBaseUrl)),
       completionWatch,
-      ...(completionDelivery ? { completionDelivery } : {}),
+      ...(prepared.completionDelivery ? { completionDelivery:prepared.completionDelivery } : {}),
       userMessage:completionWatchMessage(missionResultMessage(missionView, response.reply), completionWatch)
     };
   }
@@ -388,6 +280,9 @@ export class AgentArmyClient {
         description:safeText(response.assignment?.description, 4000),
         agentId:safeText(response.assignment?.agentId, 80),
         runId:safeText(response.assignment?.runId, 128),
+        ...(response.assignment?.contextCapsule
+          ? { contextCapsule:taskContextCapsuleView(response.assignment.contextCapsule) }
+          : {}),
         ...(response.assignment?.agentId === 'architect'
           ? { groundTruth:architectureGroundTruthView(response.assignment?.groundTruth) }
           : {})
@@ -410,6 +305,34 @@ export class AgentArmyClient {
     };
   }
 
+  async recordPaperclipLocalAiRunEvent(input = {}) {
+    const event = input.event && typeof input.event === 'object' && !Array.isArray(input.event)
+      ? input.event
+      : {};
+    return this.request('/api/mcp/local-ai-run-event', {
+      method:'POST',
+      body:{
+        ...paperclipAssignmentIdentity(input),
+        taskId:safeText(input.taskId, 128),
+        event:Object.fromEntries(Object.entries({
+          eventType:safeText(event.eventType, 120),
+          capabilityId:safeText(event.capabilityId, 160),
+          provider:safeText(event.provider, 120),
+          status:safeText(event.status, 80),
+          startedAt:safeText(event.startedAt, 80),
+          finishedAt:safeText(event.finishedAt, 80),
+          durationMs:Number.isSafeInteger(event.durationMs) && event.durationMs >= 0
+            ? event.durationMs
+            : undefined,
+          receiptId:safeText(event.receiptId, 160),
+          spanId:safeText(event.spanId, 120),
+          errorCode:safeText(event.errorCode, 120),
+        }).filter(([, value]) => value !== undefined && value !== '')),
+      },
+      paperclipApiKey:process.env.PAPERCLIP_API_KEY,
+    });
+  }
+
   async completePaperclipAssignment(input = {}) {
     return this.request('/api/mcp/paperclip-assignment/complete', {
       method:'POST',
@@ -419,6 +342,7 @@ export class AgentArmyClient {
         summary:safeText(input.summary, 4000),
         evidence:safeText(input.evidence, 4000),
         remainingRisks:safeText(input.remainingRisks, 2000),
+        qualityReview:qualityReviewView(input.qualityReview),
         evidenceRefs:architectureEvidenceRefsView(input.evidenceRefs),
         unverifiedClaims:safeStringList(input.unverifiedClaims, 20, 1000),
         factClaims:architectureFactClaimsView(input.factClaims),
@@ -524,11 +448,39 @@ export class AgentArmyClient {
   }
 }
 
-function normalizeVisualMode(value) {
-  return value === 'off' || value === 'required' ? value : 'auto';
+function taskContextCapsuleView(value = {}) {
+  return {
+    schemaVersion:'agent.army/task-context-capsule/v1',
+    taskId:safeText(value.taskId, 128),
+    taskType:safeText(value.taskType, 120),
+    status:safeText(value.status, 60),
+    goal:safeText(value.goal, 300),
+    result:safeText(value.result, 500),
+    adoptedArtifactRefs:(Array.isArray(value.adoptedArtifactRefs) ? value.adoptedArtifactRefs : []).slice(0, 10).map((item) => ({
+      artifactId:safeText(item?.artifactId, 160) || null,
+      type:safeText(item?.type, 120) || null,
+      title:safeText(item?.title, 200) || null,
+      checksum:safeText(item?.checksum, 160) || null,
+      location:safeText(item?.location, 500) || null,
+    })),
+    keyDecisions:safeStringList(value.keyDecisions, 5, 300),
+    unfinishedItems:safeStringList(value.unfinishedItems, 5, 300),
+    nextAction:safeText(value.nextAction, 300),
+    evidenceRefs:safeStringList(value.evidenceRefs, 10, 240),
+    updatedAt:safeText(value.updatedAt, 80) || null,
+  };
 }
 
 export class AgentArmyClientError extends Error {}
+
+function taskInputContract(operation) {
+  try {
+    return operation();
+  } catch (error) {
+    if (error instanceof AgentArmyTaskInputError) throw new AgentArmyClientError(error.message);
+    throw error;
+  }
+}
 
 function loopbackBaseUrl(value) {
   let url;
@@ -629,10 +581,10 @@ function architectureGroundTruthView(value = {}) {
       name:safeText(item?.name, 120),
       status:safeText(item?.status, 40),
       acceptedTaskTypes:safeStringList(item?.acceptedTaskTypes, 20, 120),
-      toolAllowlist:safeStringList(item?.toolAllowlist, 30, 160),
+      toolAllowlist:safeStringList(item?.toolAllowlist, 20, 160),
       repositoryRefs:safeStringList(item?.repositoryRefs, 6, 500)
     })),
-    taskTypes:(Array.isArray(value?.taskTypes) ? value.taskTypes : []).slice(0, 100).map((item) => ({
+    taskTypes:(Array.isArray(value?.taskTypes) ? value.taskTypes : []).slice(0, 50).map((item) => ({
       ref:safeText(item?.ref, 180),
       taskType:safeText(item?.taskType, 120),
       agentIds:safeStringList(item?.agentIds, 20, 80),
@@ -643,7 +595,7 @@ function architectureGroundTruthView(value = {}) {
       byStatus:safeMetrics(value?.taskSummary?.byStatus),
       byTaskType:safeMetrics(value?.taskSummary?.byTaskType)
     },
-    taskEvidence:(Array.isArray(value?.taskEvidence) ? value.taskEvidence : []).slice(0, 60).map((item) => ({
+    taskEvidence:(Array.isArray(value?.taskEvidence) ? value.taskEvidence : []).slice(0, 24).map((item) => ({
       ref:safeText(item?.ref, 160),
       taskId:safeText(item?.taskId, 128),
       taskType:safeText(item?.taskType, 120),
@@ -661,6 +613,18 @@ function architectureEvidenceRefsView(value) {
     ref:safeText(item?.ref, 500),
     claim:safeText(item?.claim, 1000)
   })).filter((item) => item.ref && item.claim);
+}
+
+function qualityReviewView(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const status = safeText(value.status, 40);
+  if (!['passed', 'revise', 'blocked'].includes(status)) return undefined;
+  return {
+    status,
+    failedCriteria:safeStringList(value.failedCriteria, 100, 100),
+    evidenceRefs:safeStringList(value.evidenceRefs, 100, 240),
+    safeSummary:safeText(value.safeSummary, 1000) || null,
+  };
 }
 
 function architectureFactClaimsView(value) {
@@ -696,36 +660,12 @@ function findEmployee(agents, value) {
     || null;
 }
 
-function taskView(task = {}, approvals = [], detailBaseUrl = '') {
-  const taskApprovals = (approvals || []).filter((approval) => (task.approvalRefs || []).includes(approval.approvalId));
-  return {
-    taskId:task.taskId,
-    title:safeText(task.input?.title, 500),
-    taskType:safeText(task.taskType, 120),
-    agentId:safeText(task.assigneeAgentId || task.routing?.requestedAgentId, 80) || null,
-    status:safeText(task.status, 60),
-    currentStage:safeText(task.currentStage, 120),
-    updatedAt:task.updatedAt || null,
-    progress:task.execution?.xiaodProgress ?? null,
-    requiresApproval:taskApprovals.some((approval) => approval.status === 'pending'),
-    approvals:taskApprovals.map(approvalView),
-    error:task.error ? {
-      code:safeText(task.error.code, 120),
-      category:safeText(task.error.category, 80),
-      retryable:task.error.retryable === true,
-      userMessage:safeText(task.error.userMessage, 1000)
-    } : null,
-    artifacts:(task.artifactRefs || []).map(artifactView),
-    presentation:presentTask(task, { approvals:taskApprovals, detailBaseUrl })
-  };
-}
-
 function findMissionTask(overview, response) {
   return (overview.tasks || []).find((task) => task.taskId === response.mission?.taskId) || response.mission;
 }
 
 function missionResultMessage(mission, fallback) {
-  if (!TERMINAL_STATUSES.has(mission?.status)) return safeText(fallback, 2000);
+  if (!isTaskNotificationTerminalStatus(mission?.status)) return safeText(fallback, 2000);
   const summary = (mission.artifacts || []).find((artifact) => artifact.type === 'cross_agent_mission_summary')?.report;
   if (!summary) return safeText(fallback, 2000);
   const done = (summary.statuses || []).filter((item) => item.status === 'succeeded').length;
@@ -738,145 +678,6 @@ function completionWatchMessage(message, watch) {
     return `${base}\n\n自动回告暂未登记成功；任务本身已建立，请保留任务编号并主动查询进度。`;
   }
   return base;
-}
-
-function completionDeliveryInput(value) {
-  if (value === undefined || value === null) return null;
-  const normalized = normalizeCompletionDelivery(value);
-  if (!normalized) {
-    throw new AgentArmyClientError('完成投递契约无效；动态卡片只能由 Hermes Gateway 统一持有生命周期。');
-  }
-  return normalized;
-}
-
-function artifactView(artifact = {}) {
-  const validation = artifact.validation || {};
-  const view = {
-    type:safeText(artifact.type, 120),
-    ref:safeText(artifact.ref || artifact.url || artifact.location || artifact.data?.larkUrl, 1000) || null,
-    verified:artifact.data?.larkPermissionGranted === true
-      || artifact.verified === true
-      || (validation.exists === true && validation.readable === true && validation.nonEmpty === true)
-  };
-  if (artifact.type === 'health_report' && artifact.data) {
-    view.report = {
-      checkedAt:artifact.data.checkedAt || null,
-      overall:safeText(artifact.data.overall, 40),
-      components:(Array.isArray(artifact.data.components) ? artifact.data.components : []).slice(0, 12).map((item) => ({
-        id:safeText(item?.id, 80),
-        name:safeText(item?.name, 120),
-        status:safeText(item?.status, 40),
-        detail:safeText(item?.detail, 500)
-      })),
-      recommendedAction:safeText(artifact.data.recommendedAction, 500)
-    };
-  }
-  if (artifact.type === 'intel_research_report' && artifact.data) {
-    view.report = {
-      topic:safeText(artifact.data.topic, 500),
-      background:safeText(artifact.data.background, 1200),
-      findings:safeStringList(artifact.data.findings, 8, 800),
-      conclusion:safeText(artifact.data.conclusion, 1200),
-      recommendations:safeStringList(artifact.data.recommendations, 8, 800),
-      openQuestions:safeStringList(artifact.data.openQuestions, 8, 800),
-      sources:(Array.isArray(artifact.data.sources) ? artifact.data.sources : []).slice(0, 5).map((item) => ({
-        title:safeText(item?.title, 300),
-        source:safeText(item?.source, 1000),
-        summary:safeText(item?.summary, 900)
-      }))
-    };
-  }
-  if (artifact.type === 'office_briefing_package' && artifact.data) {
-    view.report = {
-      title:safeText(artifact.data.title, 500),
-      summary:safeText(artifact.data.summary, 1200),
-      sourceTasks:(Array.isArray(artifact.data.sourceTasks) ? artifact.data.sourceTasks : []).slice(0, 10).map((item) => ({
-        taskId:safeText(item?.taskId, 100),
-        title:safeText(item?.title, 500),
-        employeeId:safeText(item?.employeeId, 80) || null,
-        status:safeText(item?.status, 60)
-      })),
-      openItems:safeStringList(artifact.data.openItems, 8, 600),
-      nextAction:safeText(artifact.data.nextAction, 800)
-    };
-  }
-  if (artifact.type === 'autonomous_work_plan' && artifact.data?.plan) {
-    const plan = artifact.data.plan;
-    view.report = {
-      status:safeText(plan.status, 60),
-      version:Number.isSafeInteger(plan.version) ? plan.version : null,
-      steps:(Array.isArray(plan.steps) ? plan.steps : []).slice(0, 20).map((step) => ({
-        stepId:safeText(step?.stepId, 128),
-        objective:safeText(step?.objective, 500),
-        status:safeText(step?.status, 60),
-        dependsOn:safeStringList(step?.dependsOn, 20, 128)
-      })),
-      budget:{
-        maxDurationMs:Number(plan.budget?.hardLimits?.maxDurationMs) || null,
-        maxModelCalls:Number(plan.budget?.hardLimits?.maxModelCalls) || null,
-        maxConcurrency:Number(plan.budget?.hardLimits?.maxConcurrency) || null,
-        maxDelegationDepth:Number(plan.budget?.hardLimits?.maxDelegationDepth) || null,
-        approvalThresholdUsd:Number(plan.budget?.approvalThresholdUsd) || 0
-      }
-    };
-  }
-  if (artifact.type === 'capability_discovery_report' && artifact.data) {
-    view.report = {
-      requestedCount:Number(artifact.data.requestedCount) || 0,
-      activeCount:Number(artifact.data.activeCount) || 0,
-      results:(Array.isArray(artifact.data.results) ? artifact.data.results : []).slice(0, 20).map((item) => ({
-        capabilityId:safeText(item?.capabilityId, 120),
-        status:safeText(item?.status, 60),
-        reason:safeText(item?.reason, 500)
-      }))
-    };
-  }
-  if (artifact.type === 'cross_agent_mission_summary' && artifact.data) {
-    view.report = {
-      kind:safeText(artifact.data.kind, 60),
-      summary:safeText(artifact.data.summary, 1000),
-      completed:artifact.data.completed === true,
-      terminal:artifact.data.terminal === true,
-      statuses:(Array.isArray(artifact.data.statuses) ? artifact.data.statuses : []).slice(0, 11).map((item) => ({
-        title:safeText(item?.title, 500),
-        employeeId:safeText(item?.employeeId, 80) || null,
-        taskId:safeText(item?.taskId, 100) || null,
-        status:safeText(item?.status, 60),
-        artifactTypes:safeStringList(item?.artifactTypes, 10, 120)
-      })),
-      outcome:safeText(artifact.data.decision?.outcome, 60),
-      briefing:artifact.data.decision?.briefing ? {
-        title:safeText(artifact.data.decision.briefing.title, 500),
-        summary:safeText(artifact.data.decision.briefing.summary, 1000),
-        openItems:safeStringList(artifact.data.decision.briefing.openItems, 5, 500),
-        nextAction:safeText(artifact.data.decision.briefing.nextAction, 500)
-      } : null
-    };
-  }
-  return view;
-}
-
-function approvalView(approval = {}) {
-  return {
-    approvalId:approval.approvalId,
-    taskId:approval.taskId || null,
-    status:safeText(approval.status, 40),
-    governanceMode:safeText(approval.governanceMode, 40),
-    action:safeText(approval.action, 100),
-    riskLevel:safeText(approval.riskLevel, 40),
-    reason:safeText(approval.reason, 700),
-    requestedScope:approval.requestedScope ? {
-      title:safeText(approval.requestedScope.title, 500),
-      taskType:safeText(approval.requestedScope.taskType, 120),
-      assigneeAgentId:safeText(approval.requestedScope.assigneeAgentId, 80) || null
-    } : null,
-    validUntil:approval.validUntil || null,
-    privateReadGrantStatus:approval.privateReadGrantStatus ? {
-      status:safeText(approval.privateReadGrantStatus.status, 40),
-      remainingUses:Number(approval.privateReadGrantStatus.remainingUses) || 0,
-      expiresAt:approval.privateReadGrantStatus.expiresAt || null
-    } : null
-  };
 }
 
 function safeText(value, limit = 500) {
@@ -899,100 +700,6 @@ function requiredId(value, message) {
   return id;
 }
 
-function optionalConnectionId(value) {
-  const id = safeText(value, 100);
-  if (!id) return undefined;
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
-    throw new AgentArmyClientError('账号连接标识格式不正确。');
-  }
-  return id;
-}
-
-function shortHash(value) { return crypto.createHash('sha256').update(value).digest('hex').slice(0, 24); }
 function boundedLimit(value) { const parsed = Number(value); return Number.isFinite(parsed) ? Math.max(1, Math.min(50, Math.floor(parsed))) : 10; }
 function boundedDuration(value, min, max, fallback) { const parsed = Number(value); return Number.isFinite(parsed) ? Math.max(min, Math.min(max, Math.floor(parsed))) : fallback; }
 function newestFirst(left, right) { return String(right.updatedAt || right.createdAt || '').localeCompare(String(left.updatedAt || left.createdAt || '')); }
-
-function normalizeMissionItems(value) {
-  if (!Array.isArray(value) || value.length < 1 || value.length > 11) return [];
-  const items = value.map((item, index) => ({
-    key:safeText(item?.key, 80) || `work-${index + 1}`,
-    title:safeText(item?.title, 500),
-    taskType:safeText(item?.taskType, 120),
-    agentId:safeText(item?.agentId, 80),
-    description:safeText(item?.description, 2000),
-    acceptance:safeText(item?.acceptance, 500),
-    sourceUrls:safeStringList(item?.sourceUrls, 5, 2000),
-    connectionId:optionalConnectionId(item?.connectionId),
-    reviewPolicy:item?.reviewPolicy === 'required' ? 'required' : 'optional',
-    evidenceMode:item?.evidenceMode === 'preliminary' ? 'preliminary' : 'formal',
-    analysisIntent:resolveMissionAnalysisIntent(item).analysisIntent,
-    depth:resolveMissionAnalysisIntent(item).depth,
-    visualMode:normalizeVisualMode(item?.visualMode),
-    focus:safeText(item?.focus, 500),
-    platforms:safeStringList(item?.platforms, 3, 40),
-    contentGoal:safeText(item?.contentGoal, 500),
-    dependsOnPrevious:item?.dependsOnPrevious === true,
-    dependsOn:safeStringList(item?.dependsOn, 10, 80)
-  }));
-  const keys = new Set(items.map((item) => item.key));
-  const valid = items.every((item, index) => (
-    item.title
-    && item.taskType
-    && item.agentId
-    && item.dependsOn.every((key) => keys.has(key) && key !== item.key)
-  ));
-  return valid ? items : [];
-}
-
-function resolveMissionAnalysisIntent(item) {
-  if (item?.taskType !== 'content.video-benchmark-analysis') {
-    return {
-      error:null,
-      analysisIntent:['digest', 'deep', 'template', 'style'].includes(item?.analysisIntent) ? item.analysisIntent : undefined,
-      depth:item?.depth === 'full' ? 'full' : 'fast',
-    };
-  }
-  const analysis = resolveAnalysisIntent({
-    analysisIntent:item?.analysisIntent,
-    title:item?.title,
-    description:item?.description,
-    focus:item?.focus,
-    depth:item?.depth,
-  });
-  if (analysis.error) {
-    throw new AgentArmyClientError(analysis.error === 'analysis_intent_conflict'
-      ? '多人任务中的视频分析分工命中了多个分析模式，请只保留一种。'
-      : '多人任务中的视频分析模式无效。');
-  }
-  return analysis;
-}
-
-function normalizeGoalSpecInput(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const outcome = safeText(value.outcome || value.goal, 1000);
-  if (!outcome) return null;
-  const budget = value.budget && typeof value.budget === 'object' && !Array.isArray(value.budget)
-    ? {
-        maxDurationMinutes:boundedDuration(value.budget.maxDurationMinutes, 1, 60, 60),
-        maxModelCalls:boundedDuration(value.budget.maxModelCalls, 1, 20, 20),
-        maxConcurrentSubtasks:boundedDuration(value.budget.maxConcurrentSubtasks, 1, 4, 4),
-        maxDependencyDepth:boundedDuration(value.budget.maxDependencyDepth, 1, 2, 2),
-        maxCostUsd:Number.isFinite(Number(value.budget.maxCostUsd))
-          ? Math.max(0, Math.min(5, Number(value.budget.maxCostUsd)))
-          : 5
-      }
-    : undefined;
-  return {
-    outcome,
-    deliverables:safeStringList(value.deliverables, 12, 500),
-    constraints:safeStringList(value.constraints, 20, 500),
-    acceptanceCriteria:safeStringList(value.acceptanceCriteria, 20, 500),
-    capabilityRequests:(Array.isArray(value.capabilityRequests) ? value.capabilityRequests : []).slice(0, 12).map((request) => ({
-      capabilityId:safeText(request?.capabilityId, 120),
-      purpose:safeText(request?.purpose, 500),
-      source:safeText(request?.source, 500) || 'registered-catalog'
-    })).filter((request) => request.capabilityId && request.purpose),
-    ...(budget ? { budget } : {})
-  };
-}

@@ -265,6 +265,7 @@ test('后台服务沿用原启动顺序，cloud 模式不启动本机小D', () =
     logger:{ warn:() => undefined },
     services:{
       interruptedLocalExecutionReconciler:service('interrupted-local-execution'),
+      deliveryQualityReconciler:service('delivery-quality'),
       paperclipRosterReconciler:service('roster'),
       approvalExpiryReconciler:service('approval-expiry'),
       xiaodReconciler:service('xiaod'),
@@ -281,6 +282,7 @@ test('后台服务沿用原启动顺序，cloud 模式不启动本机小D', () =
 
   assert.deepEqual(calls.map(([name]) => name), [
     'interrupted-local-execution',
+    'delivery-quality',
     'roster',
     'approval-expiry',
     'repair',

@@ -60,6 +60,7 @@ export class LocalIntelResearcher {
       roleToolContext,
       sourceReadModes(task?.input),
       discovery?.candidatesByUrl,
+      task,
     );
     if (!sources.length && discovery?.githubSources?.length) sources.push(...discovery.githubSources);
     if (!sources.length) return needsInput(this.now(), 'research_sources_unavailable', `${failures[0] || discovery?.failures?.[0] || '没有得到可读取的公开来源。'} 请补充公开来源链接或换一个更具体的主题。`);
@@ -364,7 +365,7 @@ export class LocalIntelResearcher {
     };
   }
 
-  async readSources(urls, roleToolContext = null, readModes = new Map(), candidatesByUrl = new Map()) {
+  async readSources(urls, roleToolContext = null, readModes = new Map(), candidatesByUrl = new Map(), task = null) {
     const sources = []; const failures = [];
     for (const sourceUrl of urls) {
       try {
@@ -382,7 +383,7 @@ export class LocalIntelResearcher {
               url:sourceUrl,
               input:{ sourceUrl },
             })
-          : await this.publicWebFetch.acquire({ sourceUrl });
+          : await this.publicWebFetch.acquire({ sourceUrl, task });
         sources.push({
           kind:readMode === 'pdf' ? 'public_pdf' : readMode === 'dynamic' ? 'public_dynamic_web' : 'public_web',
           title:page.title || '未提供标题的公开来源',

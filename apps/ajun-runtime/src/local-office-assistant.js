@@ -2,7 +2,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { presentationOutlinePreflight } from './presentation-input-contract.ts';
 
-const TERMINAL = new Set(['succeeded', 'failed', 'cancelled', 'needs_input']);
+import {
+  isTaskNotificationTerminalStatus,
+  taskStatusLabel,
+} from './task-status-policy.js';
 
 export class LocalOfficeAssistant {
   constructor({ store, artifactsDir, knowledgeArchive = null, now = () => new Date() } = {}) {
@@ -638,7 +641,7 @@ function sourceTaskSummary(task) {
     employeeId:task.assigneeAgentId || null,
     status:task.status,
     stage:task.currentStage || null,
-    terminal:TERMINAL.has(task.status),
+    terminal:isTaskNotificationTerminalStatus(task.status),
     artifacts:artifacts.map((artifact) => ({
       type:artifact.type,
       title:clean(artifact.title) || '未命名产物',
@@ -743,7 +746,7 @@ function hasUsefulInput(title, description, sources) {
   return description.length >= 6 || sources.length > 0 || title.length >= 12;
 }
 function statusLabel(status) {
-  return ({ succeeded:'已完成', failed:'失败', cancelled:'已关闭', needs_input:'等待材料', running:'进行中', queued:'已排队', waiting_approval:'等待批准', waiting_worker:'等待 Mac工作间上线', paused:'已暂停' })[status] || String(status || '未知');
+  return taskStatusLabel(status);
 }
 function safeArtifactLocation(value) {
   const location = String(value || '').trim();

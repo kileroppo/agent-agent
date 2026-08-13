@@ -9,10 +9,18 @@ export class ContentAcquisitionCenter {
   }
 
   async fetch({ requestId = crypto.randomUUID(), taskId, source, requestedCapabilities, connectionId = null, requestingAgentId, workspace, runtimeRequirement = null, onProgress = null }) {
+    const startedAt = new Date().toISOString();
     const requested = normalizeCapabilities(requestedCapabilities);
     const candidates = this.findCandidates(source, requested, runtimeRequirement);
-    if (candidates.length === 0) return failure('capability_not_available', '当前没有可用通道提供所需内容能力。', 'manual_review');
+    if (candidates.length === 0) {
+      const result = failure('capability_not_available', '当前没有可用通道提供所需内容能力。', 'manual_review');
+      return withAcquisitionReceipt(result, acquisitionReceipt({
+        requestId, taskId, requestingAgentId, source, requested,
+        runtimeRequirement, routeAttempts:[], failureCode:result.code, startedAt,
+      }));
+    }
     let lastFailure = null;
+    const routeAttempts = [];
     for (let index = 0; index < candidates.length; index += 1) {
       const adapter = candidates[index];
       let connectionUse = null;
@@ -29,8 +37,15 @@ export class ContentAcquisitionCenter {
           } else {
             await this.operations.record({ subjectType: 'connection', subjectRef: connectionId || adapter.providerFor(source), eventType: access.code, severity: 'warning', safeMessage: access.safeMessage, recommendedAction: access.recommendedAction, taskRefs: taskId ? [taskId] : [] });
             lastFailure = { code: access.code, safeMessage: access.safeMessage, recommendedAction: access.recommendedAction };
+            routeAttempts.push(acquisitionAttempt(adapter, 'confirmed_failure', access.code, 0));
             if (index < candidates.length - 1) continue;
-            return failure(access.code, access.safeMessage, access.recommendedAction);
+            return withAcquisitionReceipt(
+              failure(access.code, access.safeMessage, access.recommendedAction),
+              acquisitionReceipt({
+                requestId, taskId, requestingAgentId, source, requested,
+                runtimeRequirement, routeAttempts, failureCode:access.code, startedAt,
+              }),
+            );
           }
         } else {
           connectionUse = access.connectionUse;
@@ -47,8 +62,9 @@ export class ContentAcquisitionCenter {
             capabilities:providedCapabilities
           });
         }
+        routeAttempts.push(acquisitionAttempt(adapter, 'success'));
         if (index > 0) await this.operations.record({ subjectType: 'adapter', subjectRef: adapter.id, eventType: 'fallback_used', severity: 'info', safeMessage: '已切换到允许的通用内容获取通道。', recommendedAction: 'none', taskRefs: taskId ? [taskId] : [] });
-        return {
+        const result = {
           ok: true,
           contentPackage: {
             schemaVersion: '3.0', packageId: crypto.randomUUID(), requestId, taskId, provider: adapter.providerFor(source), sourceRef: safeSourceRef(source),
@@ -60,8 +76,13 @@ export class ContentAcquisitionCenter {
           },
           runtime: acquired.runtime || {}
         };
+        return withAcquisitionReceipt(result, acquisitionReceipt({
+          requestId, taskId, requestingAgentId, source, requested,
+          runtimeRequirement, routeAttempts, result, startedAt,
+        }));
       } catch (error) {
         lastFailure = safeAdapterFailure(error);
+        routeAttempts.push(acquisitionAttempt(adapter, 'confirmed_failure', lastFailure.code));
         if (connectionUse) {
           await this.connectionBroker.connectionStore.recordVerification(connectionUse.connectionId, {
             status:'failed',
@@ -73,7 +94,11 @@ export class ContentAcquisitionCenter {
         await this.operations.record({ subjectType: 'adapter', subjectRef: adapter.id, eventType: lastFailure.code, severity: 'warning', safeMessage: lastFailure.safeMessage, recommendedAction: lastFailure.recommendedAction, taskRefs: taskId ? [taskId] : [] });
       }
     }
-    return failure(lastFailure?.code || 'adapter_unavailable', lastFailure?.safeMessage || '内容获取通道当前不可用。', lastFailure?.recommendedAction || 'retry');
+    const result = failure(lastFailure?.code || 'adapter_unavailable', lastFailure?.safeMessage || '内容获取通道当前不可用。', lastFailure?.recommendedAction || 'retry');
+    return withAcquisitionReceipt(result, acquisitionReceipt({
+      requestId, taskId, requestingAgentId, source, requested,
+      runtimeRequirement, routeAttempts, failureCode:result.code, startedAt,
+    }));
   }
 
   async collectMetrics({ taskId = null, source, connectionId = null, requestingAgentId, historyLimit = 20 }) {
@@ -190,4 +215,87 @@ function safeAdapterFailure(error) {
   if (/private|login|sign in|cookies|403|401|authorization/i.test(raw)) return { code: 'authorization_required', safeMessage: '素材需要登录或额外授权；请在 A君中重新授权，或改用本地文件。', recommendedAction: 'reauthorize' };
   if (error?.code === 'capability_not_available') return { code: error.code, safeMessage: '当前通道不能提供所需内容能力。', recommendedAction: 'manual_review' };
   return { code: 'adapter_unavailable', safeMessage: '内容获取通道当前不可用，请稍后重试或改用本地文件。', recommendedAction: 'retry' };
+}
+
+function acquisitionAttempt(adapter, outcome, failureCode = null, attempts = 1) {
+  return Object.freeze({
+    routeId:String(adapter?.id || 'content-acquisition-route').slice(0, 160),
+    adapterId:String(adapter?.id || 'content-acquisition-adapter').slice(0, 120),
+    attempts,
+    recovered:false,
+    outcome,
+    failureCode:failureCode ? String(failureCode).slice(0, 120) : null,
+  });
+}
+
+function acquisitionReceipt({
+  requestId, taskId, requestingAgentId, source, requested, runtimeRequirement,
+  routeAttempts, result = null, failureCode = null, startedAt,
+}) {
+  const completedAt = new Date().toISOString();
+  const finalAttempt = routeAttempts.at(-1) || acquisitionAttempt(null, 'confirmed_failure', failureCode, 0);
+  const successful = result?.ok === true && finalAttempt.outcome === 'success';
+  const inputHash = digest({ source:safeSourceRef(source), requested, runtimeRequirement });
+  const outputHash = successful ? digest({
+    provider:result.contentPackage?.provider,
+    acquisitionPath:result.contentPackage?.acquisitionPath,
+    providedCapabilities:result.contentPackage?.providedCapabilities,
+    adapterRef:result.contentPackage?.adapterRef,
+    runtimeKind:result.runtime?.kind,
+  }) : null;
+  const receiptId = `receipt:content-acquisition:${digest({ requestId, taskId, inputHash, outputHash, completedAt }).slice(0, 32)}`;
+  return Object.freeze({
+    schemaVersion:'agent.army/execution-receipt/v2',
+    receiptId,
+    requestId:String(requestId || ''),
+    workflowId:`workflow:xiaod-media:${String(taskId || 'unknown-task')}`,
+    stepId:`step:content.acquire:${String(taskId || 'unknown-task')}`,
+    taskId:String(taskId || 'unknown-task'),
+    agentId:String(requestingAgentId || 'xiaod'),
+    capabilityId:'content.acquire',
+    policyDecisionId:`policy:content-acquisition:${digest({ requestId, requested, runtimeRequirement }).slice(0, 32)}`,
+    routeId:finalAttempt.routeId,
+    adapterId:finalAttempt.adapterId,
+    provider:successful ? String(result.contentPackage?.provider || finalAttempt.adapterId).slice(0, 120) : providerFromAdapter(finalAttempt.adapterId),
+    model:null,
+    inputHash:`sha256:${inputHash}`,
+    outputHash:outputHash ? `sha256:${outputHash}` : null,
+    outcome:successful ? 'success' : 'confirmed_failure',
+    fallbackFrom:routeAttempts.length > 1 ? routeAttempts.at(-2).routeId : null,
+    routeAttempts:Object.freeze([...routeAttempts]),
+    attempts:routeAttempts.reduce((total, attempt) => total + Number(attempt.attempts || 0), 0),
+    totalAttempts:routeAttempts.reduce((total, attempt) => total + Number(attempt.attempts || 0), 0),
+    recovered:false,
+    failureCode:successful ? null : String(failureCode || finalAttempt.failureCode || 'capability_not_available').slice(0, 120),
+    costUsd:0,
+    startedAt,
+    completedAt,
+  });
+}
+
+function withAcquisitionReceipt(result, receipt) {
+  return Object.freeze({ ...result, acquisitionReceipt:receipt });
+}
+
+function providerFromAdapter(adapterId) {
+  if (adapterId === 'mediacrawlerpro-specialized-content') return 'mediacrawlerpro';
+  if (adapterId === 'yt-dlp-general-media') return 'yt-dlp';
+  if (adapterId === 'bilibili-native-subtitles') return 'bilibili';
+  return String(adapterId || 'content-acquisition').slice(0, 120);
+}
+
+function digest(value) {
+  return crypto.createHash('sha256').update(canonicalJson(value)).digest('hex');
+}
+
+function canonicalJson(value) {
+  return JSON.stringify(canonicalValue(value));
+}
+
+function canonicalValue(value) {
+  if (Array.isArray(value)) return value.map(canonicalValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.keys(value).sort().map((key) => [key, canonicalValue(value[key])]),
+  );
 }

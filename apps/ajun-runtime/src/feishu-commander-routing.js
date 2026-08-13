@@ -23,6 +23,7 @@ import {
   FeishuCommanderValidationError,
   conversationControlIntent,
   directIntent,
+  isDirectReplyWithoutTask,
   isSafePublicResearchRequest,
   isGithubRequest,
   isIntelResearchRequest,
@@ -79,6 +80,7 @@ import {
   safeLoopbackBaseUrl,
 } from './feishu-commander-replies.js';
 import { resolveAnalysisIntent } from './analysis-intent.ts';
+import { DEFAULT_TASK_DEFINITION_REGISTRY } from './task-definition-registry.js';
 
 export const feishuCommanderRoutingMethods = {
   async handle(input) {
@@ -87,8 +89,23 @@ export const feishuCommanderRoutingMethods = {
     if (!text) throw new FeishuCommanderValidationError('飞书消息不能为空。');
     if (!sourceEventRef) throw new FeishuCommanderValidationError('飞书消息缺少稳定事件引用，未创建任务。');
     const targetAgentId = safeAgentId(input?.targetAgentId);
-    const source = { channel: 'feishu', eventRef: sourceEventRef, chatRef: safeRef(input?.chatRef), ...(targetAgentId ? { targetAgentId } : {}) };
+    const profileId = safeAgentId(input?.profileId) || targetAgentId || 'ajun';
+    const taskCardPolicy = safeTaskCardPolicy(input?.taskCardPolicy);
+    const source = {
+      channel:'feishu',
+      eventRef:sourceEventRef,
+      chatRef:safeRef(input?.chatRef),
+      ...(targetAgentId ? { targetAgentId } : {}),
+      profileId,
+      ...(taskCardPolicy ? { taskCardPolicy } : {}),
+    };
     const requester = { kind: 'feishu-user', ref: safeRef(input?.requesterRef) || 'feishu-requester' };
+    // An explicit "reply here, do not create a task/use tools" instruction is
+    // a normal Hermes conversation. Bypass Commander deterministically so a
+    // negated phrase such as "不要创建任务" cannot be matched as task creation.
+    if (isDirectReplyWithoutTask(text)) {
+      return { handled:false, reason:'explicit_direct_reply_without_task' };
+    }
     const direct = await this.handleDirectAgent(targetAgentId, { text, sourceEventRef, source, requester });
     if (direct) return direct;
     if (USE_THIS_VERSION_RE.test(text)) return this.approveLatestVideoScript({ sourceEventRef, source, requester });
@@ -142,18 +159,14 @@ export const feishuCommanderRoutingMethods = {
         ? this.technicalTriage(taskId)
         : this.clarify('我是技术专家。请发故障任务号和现象；我会先限定排查范围，不会直接改动生产环境。');
     }
-    const directTaskTypes = {
-      operator:'operations.health-review',
-      architect:'governance.architecture-review',
-      xiaod:'media.transcribe-and-refine',
-      'intel-researcher':'research.intel-report',
-      'office-assistant':/(?:pptx?|幻灯片|演示文稿)/i.test(text) ? 'office.presentation-package' : 'office.briefing-package'
-    };
-    const taskType = directPlan?.intent === 'route_task' && directPlan.agentId === agentId ? directPlan.taskType : directTaskTypes[agentId];
+    const directTaskType = agentId === 'office-assistant' && /(?:pptx?|幻灯片|演示文稿)/i.test(text)
+      ? 'office.presentation-package'
+      : DEFAULT_TASK_DEFINITION_REGISTRY.directTaskType(agentId);
+    const taskType = directPlan?.intent === 'route_task' && directPlan.agentId === agentId ? directPlan.taskType : directTaskType;
     if (!taskType) return null;
     const task = await this.tasks.create({
       title:text,
-      description:['office.briefing-package', 'office.presentation-package', 'office.knowledge-summary'].includes(taskType) ? text : '',
+      description:DEFAULT_TASK_DEFINITION_REGISTRY.belongsToCategory(taskType, 'office-task') ? text : '',
       taskType,
       requester,
       source,
@@ -240,15 +253,7 @@ export const feishuCommanderRoutingMethods = {
     if (FOLLOW_UP_RE.test(text)) return this.followUp(source.chatRef);
     const taskType = plan.taskType || taskTypeForIntent(intent);
     const entryAgentId = await this.resolveEntryAgent(targetAgentId, taskType);
-    const defaultAgentId = ['report.public-material', 'research.github-search', 'research.intel-report'].includes(taskType)
-      ? 'intel-researcher'
-      : ['office.briefing-package', 'office.presentation-package', 'office.knowledge-summary'].includes(taskType)
-        ? 'office-assistant'
-        : ['content.video-benchmark-analysis', 'content.performance-review'].includes(taskType)
-          ? 'video-content-analyst'
-          : ['content.platform-draft', 'content.video-script-package'].includes(taskType)
-            ? 'content-creator'
-            : undefined;
+    const defaultAgentId = DEFAULT_TASK_DEFINITION_REGISTRY.entryDefaultAgentId(taskType) || undefined;
     const researchInput = taskType === 'research.github-search' ? githubTaskInput(text) : taskType === 'research.intel-report' ? { topic:text } : {};
     const analysisUrl = taskType === 'content.video-benchmark-analysis' ? publicUrl(text) : null;
     if (analysisUrl && typeof this.missions?.createBusinessMission === 'function') {
@@ -277,7 +282,7 @@ export const feishuCommanderRoutingMethods = {
       });
     }
     const task = await this.tasks.create({
-      title: text, description:['office.briefing-package', 'office.presentation-package'].includes(taskType) ? text : '', taskType, requester, source,
+      title: text, description:DEFAULT_TASK_DEFINITION_REGISTRY.belongsToCategory(taskType, 'office-task') ? text : '', taskType, requester, source,
       agentId: entryAgentId || plan.agentId || defaultAgentId, ...researchInput, idempotencyKey: `feishu:${sourceEventRef}`
     });
     const intake = task.artifactRefs?.find((item) => item.type === 'task_intake_record')?.data;
@@ -363,3 +368,8 @@ export const feishuCommanderRoutingMethods = {
   }
 
 };
+
+function safeTaskCardPolicy(value) {
+  const policy = String(value || '').trim();
+  return ['disabled', 'routed-task', 'durable-task', 'incident-only'].includes(policy) ? policy : '';
+}

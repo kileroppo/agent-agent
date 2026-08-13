@@ -92,6 +92,44 @@ test('A君从Paperclip活动子Case派生真实运行并完成费用pending到co
   ), true);
 });
 
+test('StepFun生图确认回执写入统一脱敏事件且不会伪造备用Provider', async () => {
+  const adapter = new ContentToolFakeAdapter();
+  const events = [];
+  const executor = new PaperclipContentToolExecutor({
+    adapter,
+    budgetTicketAuthority,
+    onRunEvent:(event) => events.push(event),
+  });
+  await executor.execute(executionInput());
+  assert.deepEqual(events.map((event) => event.eventType), [
+    'capability_call_started', 'capability_call_succeeded',
+  ]);
+  assert.equal(events[0].taskId, ids.contentCase);
+  assert.equal(events[0].workflowId, ids.campaign);
+  assert.equal(events[0].capabilityId, 'image.generate');
+  assert.equal(events[1].provider, 'stepfun');
+  assert.equal(events[1].checkpointRef, `cost-event:${ids.costEvent}`);
+  assert.equal(events[1].costAmount, 0.03);
+  assert.equal(events.some((event) => event.eventType === 'route_fallback_started'), false);
+  assert.doesNotMatch(JSON.stringify(events), /fixture-ticket|"prompt"/);
+});
+
+test('StepFun预算前失败记录无备用Provider安全停止且日志失败不影响原错误', async () => {
+  const adapter = new ContentToolFakeAdapter();
+  const events = [];
+  const executor = new PaperclipContentToolExecutor({
+    adapter,
+    onRunEvent:(event) => events.push(event),
+  });
+  await assert.rejects(
+    executor.execute(executionInput()),
+    (error) => error.code === 'paperclip_budget_ticket_unavailable',
+  );
+  assert.equal(adapter.providerCalls, 0);
+  assert.equal(events.at(-1).eventType, 'capability_call_failed');
+  assert.match(events.at(-1).safeSummary, /未登记安全备用 Provider，已停止/);
+});
+
 test('A君缺少预算票据私钥时在Provider前失败关闭', async () => {
   const adapter = new ContentToolFakeAdapter();
   const executor = new PaperclipContentToolExecutor({ adapter });
@@ -324,12 +362,20 @@ test('费用草稿与可信runContext不一致时不提交Paperclip费用', asyn
 
 test('Paperclip费用提交结果不确定时占住租约，重试不再调用模型或重复记账', async () => {
   const adapter = new ContentToolFakeAdapter();
+  const events = [];
   adapter.failCostPost = true;
-  const executor = contentExecutor(adapter);
+  const executor = new PaperclipContentToolExecutor({
+    adapter,
+    budgetTicketAuthority,
+    onRunEvent:(event) => events.push(event),
+  });
   await assert.rejects(executor.execute(executionInput()), /提交租约保持占用且不会自动重试/);
   await assert.rejects(executor.execute(executionInput()), /预算门闩.*关闭|禁止自动重试/);
   assert.equal(adapter.providerCalls, 1);
   assert.equal(adapter.costPosts, 1);
+  assert.deepEqual(events.filter((event) => event.status === 'ambiguous').map((event) => event.eventType), [
+    'capability_result_ambiguous', 'capability_result_ambiguous',
+  ]);
 });
 
 test('Paperclip项目预算不足时在调用Provider前拒绝', async () => {

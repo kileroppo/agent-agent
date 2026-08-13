@@ -60,10 +60,10 @@ HTTP 控制台和进程内小D/军团任务回调，不再保留 Docker/Caddy/�
 它只保存指标、冻结评分基线和派发引用，不成为组织级任务真相。共享包不得反向依赖 `apps/`
 或 `integrations/`。
 
-产品装配根只组合四类深层运行 Module：活动生命周期、岗位执行、飞书指挥和 Paperclip 系统控制。
+产品装配根只组合配置、运行状态、本机执行、后台生命周期、活动生命周期、岗位执行、飞书指挥和 Paperclip 系统控制等深层 Module。
 具体研究、办公、内容、修复、飞书 Channel、Publisher 与 Controller Adapter 留在所属 Module 的
 Implementation 内，不再由 `runtime-composition-root.js` 逐项构造。结构门禁限制该根入口不超过
-300 行和 35 个直接 import；各装配 Module 的 Interface 与真实消费者测试共同构成回归 Seam。
+220 行和 20 个直接 import；各装配 Module 的 Interface 与真实消费者测试共同构成回归 Seam。
 
 任务核心继续通过稳定 `TaskService` Interface 对外，但任务受理、执行协调、审批控制、运行总览和
 通知分别由深层 Module 隐藏 Implementation。`TaskOverview` 集中控制台展示、能力健康、用量和账单
@@ -72,7 +72,11 @@ Implementation 内，不再由 `runtime-composition-root.js` 逐项构造。结�
 版本化安全关注契约与按访问者分级的任务投影；恢复端只接受登记动作、短期主人 nonce、幂等键和
 乐观并发版本，并把 Paperclip 恢复追加到原 Issue 子任务链；前端详情区块和 15 秒刷新调度保持
 可独立测试。上述仍是候选源码 Implementation，尚未冻结或切换到当前 `4321` live。
-架构门禁限制 `TaskService` 不超过 350 行，并拒绝在外层重新声明已委托方法，避免两套行为真相。
+任务类型、默认/固定岗位、入口意图、展示名、开放委派和安全批准继承统一由
+`TaskDefinitionRegistry` 提供；状态标签、终态/阻塞/通知停止语义、Paperclip 映射与生命周期事件策略
+统一由 `TaskStatusPolicy` 提供。MCP、HTTP 与 Client 共用任务输入及 Adapter 投影契约，消费者不得维护
+影子映射。架构门禁限制 `TaskService` 不超过 250 行，拒绝外层重新声明已委托方法，并校验岗位 Manifest
+中的任务类型均已登记；TaskService 接缝测试按责任拆分且单文件不得超过 1800 行。
 
 #### 业务工作流与能力执行栈
 

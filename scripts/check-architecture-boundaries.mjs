@@ -17,14 +17,25 @@ const retiredAjunM5Facades = new Set([
   'm5-work-product-integrity',
 ]);
 const responsibilityLineLimits = new Map([
-  ['apps/ajun-runtime/src/runtime-composition-root.js', 300],
+  ['apps/ajun-runtime/src/runtime-composition-root.js', 220],
   ['apps/ajun-runtime/src/runtime/content-campaign-composition.js', 120],
   ['apps/ajun-runtime/src/runtime/feishu-command-composition.js', 180],
   ['apps/ajun-runtime/src/runtime/paperclip-system-control-composition.js', 100],
   ['apps/ajun-runtime/src/runtime/role-execution-composition.js', 300],
+  ['apps/ajun-runtime/src/runtime/runtime-configuration.js', 120],
+  ['apps/ajun-runtime/src/runtime/runtime-state-composition.js', 100],
+  ['apps/ajun-runtime/src/runtime/local-execution-composition.js', 80],
+  ['apps/ajun-runtime/src/runtime/background-lifecycle-composition.js', 150],
   ['apps/ajun-runtime/src/task-attention-presentation.js', 250],
   ['apps/ajun-runtime/src/task-recovery.js', 300],
-  ['apps/ajun-runtime/src/task-service.js', 350],
+  ['apps/ajun-runtime/src/task-service.js', 250],
+  ['apps/ajun-runtime/src/task-definition-registry.js', 275],
+  ['apps/ajun-runtime/src/task-definitions.js', 200],
+  ['apps/ajun-runtime/src/task-status-policy.js', 180],
+  ['apps/ajun-runtime/src/contracts/agent-army-task-input.js', 600],
+  ['apps/ajun-runtime/src/contracts/agent-army-adapter-projection.js', 200],
+  ['apps/ajun-runtime/src/agent-army-mcp-server.js', 600],
+  ['apps/ajun-runtime/src/agent-army-client.js', 750],
   ['apps/ajun-runtime/src/task-approval-coordinator.js', 300],
   ['apps/ajun-runtime/src/task-intake.js', 350],
   ['apps/ajun-runtime/src/task-notification.js', 350],
@@ -97,12 +108,23 @@ const responsibilityLineLimits = new Map([
   ['integrations/publishing/m5-publisher-gateway/src/cua-semantic-snapshot.js', 450],
 ]);
 const responsibilityImportLimits = new Map([
-  ['apps/ajun-runtime/src/runtime-composition-root.js', 35],
+  ['apps/ajun-runtime/src/runtime-composition-root.js', 20],
   ['apps/ajun-runtime/src/task-attention-presentation.js', 8],
   ['apps/ajun-runtime/src/task-recovery.js', 10],
   ['apps/ajun-runtime/public/task-record-detail-view.js', 12],
   ['apps/ajun-runtime/public/refresh-scheduler.js', 6],
 ]);
+const responsibilityTestLineLimits = new Map([
+  ['apps/ajun-runtime/test/task-service.test.js', 1800],
+  ['apps/ajun-runtime/test/task-service-paperclip-execution.test.js', 1800],
+  ['apps/ajun-runtime/test/task-service-runtime-presentation.test.js', 1800],
+  ['apps/ajun-runtime/test/task-service-m5-recovery.test.js', 1800],
+]);
+const responsibilityTestGroupLineLimits = [{
+  name:'TaskService 接缝测试',
+  lineLimit:3100,
+  paths:[...responsibilityTestLineLimits.keys()],
+}];
 const repositoryClassifications = new Set([
   'business-agent',
   'compatibility-adapter',
@@ -136,6 +158,27 @@ const delegatedTaskServiceMethods = new Set([
   'resolvePaperclipApproval',
   'runApprovalResolution',
   'syncM5StageWorkProducts',
+]);
+const semanticShadowRules = new Map([
+  ['apps/ajun-runtime/src/feishu-commander-replies.js', [
+    [/\b(?:const|let|var)\s+TASK_TYPE_BY_INTENT\b/, '任务意图映射必须从 TaskDefinitionRegistry 读取'],
+  ]],
+  ['apps/ajun-runtime/src/feishu-commander-routing.js', [
+    [/\bdirectTaskTypes\b/, '直达岗位映射必须从 TaskDefinitionRegistry 读取'],
+  ]],
+  ['apps/ajun-runtime/src/task-card-presentation.js', [
+    [/\b(?:const|let|var)\s+TASK_TYPE_LABELS\b/, '任务类型展示名必须从 TaskDefinitionRegistry 读取'],
+  ]],
+  ['apps/ajun-runtime/src/agent-army-client.js', [
+    [/\b(?:const|let|var)\s+TERMINAL_STATUSES\b/, '通知停止状态必须从 TaskStatusPolicy 读取'],
+  ]],
+  ['apps/ajun-runtime/src/paperclip-assignment-completion.js', [
+    [/\bCOMPLETABLE_TASK_STATUSES\b/, 'Paperclip 完成状态必须从 TaskStatusPolicy 读取'],
+  ]],
+  ['apps/ajun-runtime/src/workflow/delivery-quality-runtime.ts', [
+    [/\bcreateLifecycleRecorder\b/, '生命周期事件记录必须复用 TaskLifecycleEventRecorder'],
+    [/\bBLOCKED_STATUSES\b/, '阻塞状态必须从 TaskStatusPolicy 读取'],
+  ]],
 ]);
 const violations = [];
 const manifestCache = new Map();
@@ -182,6 +225,9 @@ for (const sourceRoot of sourceRoots) {
           violations.push(`${portableRelative}: ${methodName} 已委托给深层 Module，不得在 TaskService 保留影子实现`);
         }
       }
+    }
+    for (const [pattern, message] of semanticShadowRules.get(portableRelative) || []) {
+      if (pattern.test(source)) violations.push(`${portableRelative}: ${message}`);
     }
     const ownerManifest = await owningPackageManifest(file);
     const productionSource = !relative.split(path.sep).some((segment) => ['test', 'tests', 'scripts'].includes(segment));
@@ -237,6 +283,27 @@ for (const sourceRoot of sourceRoots) {
     }
   }
 }
+for (const [relative, lineLimit] of responsibilityTestLineLimits) {
+  const file = path.join(root, relative);
+  if (!await pathExists(file)) continue;
+  const source = await fs.readFile(file, 'utf8');
+  if (source.split(/\r?\n/).length > lineLimit) {
+    violations.push(`${relative}: 接缝测试超过 ${lineLimit} 行，请按 Module Interface 拆分并删除重复入口断言`);
+  }
+}
+for (const group of responsibilityTestGroupLineLimits) {
+  let totalLines = 0;
+  for (const relative of group.paths) {
+    const file = path.join(root, relative);
+    if (!await pathExists(file)) continue;
+    totalLines += (await fs.readFile(file, 'utf8')).split(/\r?\n/).length;
+  }
+  if (totalLines > group.lineLimit) {
+    violations.push(`${group.name}总计 ${totalLines} 行，超过 ${group.lineLimit} 行，请删除重复入口断言`);
+  }
+}
+await validateHermesTaskCardPatch();
+await validateTaskDefinitionCoverage();
 
 function workflowImplementationImport(specifier) {
   const normalized = String(specifier || '').toLowerCase();
@@ -249,6 +316,42 @@ function workflowImplementationImport(specifier) {
     'public-web',
     'browser-automation',
   ].some((fragment) => normalized.includes(fragment));
+}
+
+async function validateHermesTaskCardPatch() {
+  const relative = 'integrations/hermes/scripts/patch-feishu-agent-proposal-router.mjs';
+  const file = path.join(root, relative);
+  if (!await pathExists(file)) return;
+  const source = await fs.readFile(file, 'utf8');
+  if (/\bdynamicTaskCard(?:Methods|Callback)\b/.test(source)) {
+    violations.push(`${relative}: 不得把任务卡业务逻辑重新内嵌为字符串补丁`);
+  }
+  const runtimeRelative = 'integrations/hermes/runtime/agent_army_feishu_task_card.py';
+  if (!source.includes('taskCardRuntimeSource') || !await pathExists(path.join(root, runtimeRelative))) {
+    violations.push(`${relative}: 任务卡安装必须引用受版本约束的独立 Runtime Module`);
+  }
+}
+
+async function validateTaskDefinitionCoverage() {
+  const definitionsPath = path.join(root, 'apps/ajun-runtime/src/task-definitions.js');
+  const agentsPath = path.join(root, 'agents');
+  if (!await pathExists(definitionsPath) || !await pathExists(agentsPath)) return;
+  const definitionsSource = await fs.readFile(definitionsPath, 'utf8');
+  const definedTaskTypes = new Set(
+    [...definitionsSource.matchAll(/taskDefinition\(['"]([^'"]+)['"]/g)].map((match) => match[1]),
+  );
+  const defaultTaskType = definitionsSource.match(/DEFAULT_TASK_TYPE\s*=\s*['"]([^'"]+)['"]/)?.[1];
+  if (defaultTaskType) definedTaskTypes.add(defaultTaskType);
+  for (const entry of await fs.readdir(agentsPath, { withFileTypes:true })) {
+    if (!entry.isDirectory()) continue;
+    const manifestPath = path.join(agentsPath, entry.name, 'manifest.json');
+    const manifest = await readJsonFile(manifestPath);
+    for (const taskType of manifest?.acceptedTaskTypes || []) {
+      if (!definedTaskTypes.has(taskType)) {
+        violations.push(`agents/${entry.name}/manifest.json: acceptedTaskType ${taskType} 未登记到 TaskDefinitionRegistry`);
+      }
+    }
+  }
 }
 
 function assertDeclaredDependency({ ownerManifest, targetManifest, relative, specifier }) {

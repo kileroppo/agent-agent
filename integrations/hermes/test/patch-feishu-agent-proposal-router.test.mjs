@@ -1,11 +1,22 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import {
   applyPatch,
+  assertSupportedHermesCompatibility,
+  SUPPORTED_HERMES_GIT_COMMIT,
+  SUPPORTED_HERMES_VERSION,
   upgradeFeishuReactionReliabilityPatch,
   upgradeFeishuSenderIdentityPatch,
 } from '../scripts/patch-feishu-agent-proposal-router.mjs';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const taskCardRuntime = readFileSync(path.resolve(here, '../runtime/agent_army_feishu_task_card.py'), 'utf8');
+const adapterSeamPattern = /\n# AGENT_ARMY_HERMES_FEISHU_ADAPTER_SEAM_V1:[\s\S]*?host_symbols=globals\(\),\n\)\n?$/;
+const withoutAdapterSeam = (source) => source.replace(adapterSeamPattern, '');
 
 const fixture = `_XIAOD_HTTP_URL_RE = re.compile(r"https?://[^\\s<>\\u3002\\uff0c\\uff01\\uff1f]+", re.IGNORECASE)
     def __init__(self):
@@ -61,6 +72,10 @@ test('Hermes 飞书补丁把单一军团总管文本路由到本机 A君入口�
   assert.match(patched, /def _route_ajun_commander_event/);
   assert.match(patched, /AJUN_FEISHU_COMMANDER_INGRESS_URL/);
   assert.match(patched, /AJUN_FEISHU_ENTRY_AGENT_ID/);
+  assert.match(patched, /AGENT_ARMY_FEISHU_COMMANDER_PROFILE_GUARD_V1/);
+  assert.match(patched, /AGENT_ARMY_FEISHU_COMMANDER_DIRECT_REPLY_V1/);
+  assert.match(patched, /body\.get\("handled"\) is False[\s\S]{0,320}return False/);
+  assert.match(patched, /if entry_agent_id != "ajun":[\s\S]{0,180}return False/);
   assert.match(patched, /reply_to=event.message_id/);
   assert.match(patched, /def _route_ajun_agent_proposal_event/);
   assert.match(patched, /sourceEventRef/);
@@ -93,10 +108,14 @@ test('Hermes 飞书补丁把单一军团总管文本路由到本机 A君入口�
   assert.match(patched, /已选择：/);
   assert.ok(patched.includes('synthetic_text = "/stop"'));
   assert.equal(applyPatch(patched), patched);
+  assert.throws(
+    () => applyPatch(patched.replace('host_symbols=globals(),', 'host_symbols=None,')),
+    /Adapter Seam 不完整/,
+  );
 });
 
 test('旧版运行中按钮补丁会升级，且命令参数不再被按钮 JSON 污染', () => {
-  const current = applyPatch(fixture);
+  const current = withoutAdapterSeam(applyPatch(fixture));
   const callbackStart = current.indexOf('    def _handle_agent_army_busy_card_action(');
   const approvalStart = current.indexOf('    def _handle_approval_card_action', callbackStart);
   const withoutCallback = `${current.slice(0, callbackStart)}${current.slice(approvalStart)}`;
@@ -139,7 +158,7 @@ _MARKDOWN_HINT_RE = re.compile(
   assert.match(patched, /len\(compact\) <= 220/);
   assert.match(patched, /content = _agent_army_format_feishu_message\(content\)/);
   assert.equal(applyPatch(patched), patched);
-  const upgradedV8 = applyPatch(patched.replaceAll('AGENT_ARMY_FEISHU_MOBILE_FORMAT_V9', 'AGENT_ARMY_FEISHU_MOBILE_FORMAT_V8'));
+  const upgradedV8 = applyPatch(withoutAdapterSeam(patched).replaceAll('AGENT_ARMY_FEISHU_MOBILE_FORMAT_V9', 'AGENT_ARMY_FEISHU_MOBILE_FORMAT_V8'));
   assert.match(upgradedV8, /AGENT_ARMY_FEISHU_MOBILE_FORMAT_V9/);
   assert.equal(applyPatch(upgradedV8), upgradedV8);
 });
@@ -359,7 +378,7 @@ test('飞书新增消息权限后仍用 open_id 做授权与会话主身份', ()
 });
 
 test('已安装的旧版小D通知可升级为完整任务跟进', () => {
-  const current = applyPatch(fixture);
+  const current = withoutAdapterSeam(applyPatch(fixture));
   const legacy = current.replace(/        # AJUN_COMMANDER_TASK_NOTIFY_V3:[\s\S]*?        self\._ajun_completion_watches_path = get_hermes_home\(\) \/ "ajun_completion_watches\.json"\n/, '').replace('            self._restore_ajun_task_completion_notifications()\n', '').replace(/    def _load_ajun_task_completion_notifications\([\s\S]*?    def _schedule_ajun_task_completion_notification/, '    def _schedule_ajun_task_completion_notification').replace('        self._remember_ajun_task_completion_notification(chat_id=chat_id, task_id=task_id, base_url=base_url)\n', '').replace('                        self._forget_ajun_task_completion_notification(task_id)\n', '').replace(/            completion_watch = body\.get\("completionWatch"\)[\s\S]*?                    self\._schedule_ajun_task_completion_notification\(chat_id=chat_id, task_id=watch_task_id, base_url=watch_base_url\)\n/, `            completion_watch = body.get("completionWatch") if isinstance(body, dict) else None
             # AJUN_COMMANDER_XIAOD_NOTIFY_V1: reuse the existing Xiaod terminal notifier.
             if status in {200, 201, 202} and chat_id and isinstance(completion_watch, dict):
@@ -390,48 +409,96 @@ test('总管补丁可升级为 local 与 Paperclip 组织级审批卡', () => {
   assert.equal(applyPatch(upgraded), upgraded);
 });
 
-test('A君动态任务卡默认关闭，开启后只维护一个消息锚点和一个有界 supervisor', () => {
+test('任务卡业务收敛到版本锁定的正式 Adapter Seam', () => {
   const patched = applyPatch(fixture);
-  assert.match(patched, /AGENT_ARMY_FEISHU_DYNAMIC_TASK_CARD_V1/);
-  assert.match(patched, /AJUN_FEISHU_DYNAMIC_TASK_CARD/);
-  assert.match(patched, /\.strip\(\)\.lower\(\) != "true"/);
-  assert.match(patched, /self\._ajun_task_card_supervisor_task/);
-  assert.match(patched, /asyncio\.Semaphore\(3\)/);
-  assert.match(patched, /poll_interval_seconds\(age_seconds=age\)/);
-  assert.match(patched, /if self\._ajun_dynamic_task_cards_enabled\(\):\n\s+self\._start_ajun_task_card_supervisor\(\)\n\s+else:\n\s+self\._restore_ajun_task_completion_notifications\(\)/);
-  const supervisorStart = patched.indexOf('    async def _supervise_ajun_task_cards(');
-  const supervisorEnd = patched.indexOf('\n    async def _send_ajun_approval_card(', supervisorStart);
-  const supervisor = patched.slice(supervisorStart, supervisorEnd);
-  assert.doesNotMatch(supervisor, /range\(900\)|did not reach a final state/);
+  assert.match(patched, /AGENT_ARMY_HERMES_FEISHU_ADAPTER_SEAM_V1/);
+  assert.match(patched, /install_agent_army_feishu_task_card_adapter/);
+  assert.match(patched, /hermes_version="0\.19\.0"/);
+  assert.match(patched, /hermes_git_commit="fd39696ccfbb1221ac9fdb6119f629f9821e195d"/);
+  assert.doesNotMatch(patched, /def _supervise_agent_army_task_cards|def _handle_agent_army_task_card_action/);
   assert.match(patched, /and not dynamic_task_card_enabled/);
-  assert.match(patched, /delivery_state": "sending"/);
-  assert.match(patched, /delivery_state": "anchor_uncertain"/);
-  assert.match(patched, /duplicate fallback suppressed/);
-  assert.match(patched, /delivery_state": "not_started"/);
-  assert.match(patched, /except FileNotFoundError/);
-  assert.match(patched, /ledger is unreadable; refusing duplicate delivery/);
-  assert.match(patched, /ledger unreadable; fallback suppressed/);
-  assert.match(patched, /ledger write failed; delivery stopped/);
-  assert.match(patched, /intent was not persisted; send skipped/);
-  assert.match(patched, /provider call completed but ledger update failed/);
-  assert.match(patched, /provider call completed but ledger became unreadable/);
-  assert.match(patched, /ingress_url\.split\("\/api\/feishu\/commander", 1\)\[0\]/);
-  assert.match(patched, /PatchMessageRequest/);
-  assert.match(patched, /self\._client\.im\.v1\.message\.patch/);
+  assert.match(patched, /reply = debounce\["message"\]/);
+  assert.match(taskCardRuntime, /class AgentArmyFeishuTaskCardAdapter/);
+  assert.match(taskCardRuntime, /TASK_CARD_ADAPTER_SEAM/);
+  assert.match(taskCardRuntime, /agent_army_task_cards\.json/);
+  assert.match(taskCardRuntime, /asyncio\.Semaphore\(SUPERVISOR_MAX_CONCURRENCY\)/);
+  assert.match(taskCardRuntime, /details_expanded=bool\(previous and previous\.get\("details_expanded"\)\)/);
+  assert.match(taskCardRuntime, /handle_trusted_task_result/);
+  assert.match(taskCardRuntime, /ledger is unreadable; refusing duplicate delivery/);
   const syntaxSource = patched.replace('    def __init__(self):', 'class Adapter:\n    def __init__(self):');
   const syntax = spawnSync('python3', ['-c', 'import ast,sys; ast.parse(sys.stdin.read())'], { input: syntaxSource, encoding: 'utf8' });
   assert.equal(syntax.status, 0, syntax.stderr);
   assert.equal(applyPatch(patched), patched);
 });
 
+test('旧 V3 通用任务卡方法迁移后不与正式 Adapter Seam 并存', () => {
+  const legacyV3 = fixture
+    .replace(
+      '    async def _send_ajun_approval_card(',
+      `    # AGENT_ARMY_FEISHU_DYNAMIC_TASK_CARD_V3
+    def _agent_army_dynamic_task_cards_enabled(self):
+        return True
+
+    def _supervise_agent_army_task_cards(self):
+        return None
+
+    async def _send_ajun_approval_card(`,
+    );
+  const migrated = applyPatch(legacyV3);
+  assert.doesNotMatch(migrated, /def _agent_army_dynamic_task_cards_enabled|def _supervise_agent_army_task_cards/);
+  assert.match(migrated, /AGENT_ARMY_HERMES_FEISHU_ADAPTER_SEAM_V1/);
+  assert.equal(applyPatch(migrated), migrated);
+});
+
+test('动态任务卡成功后只抑制同一会话的一次模型最终通知', () => {
+  const adapterFixture = `${fixture}
+    async def send(
+        self,
+        chat_id: str,
+        content: str,
+        reply_to: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> SendResult:
+        """Send a Feishu message."""
+        return SendResult(success=True)
+  `;
+  const patched = applyPatch(adapterFixture);
+  assert.doesNotMatch(patched, /AGENT_ARMY_FEISHU_TASK_CARD_FINAL_SUPPRESS_V1/);
+  assert.match(taskCardRuntime, /metadata\.get\("notify"\) is True/);
+  assert.match(taskCardRuntime, /consume_final_suppression\(chat_id\)/);
+  assert.match(taskCardRuntime, /_suppress_final_by_chat\.pop\(chat_id, 0\)/);
+  assert.equal(applyPatch(patched), patched);
+});
+
+test('Hermes 版本和 Git 身份必须同时命中锁定基线', () => {
+  assert.match(taskCardRuntime, new RegExp(`SUPPORTED_HERMES_VERSION = "${SUPPORTED_HERMES_VERSION}"`));
+  assert.match(taskCardRuntime, new RegExp(`SUPPORTED_HERMES_GIT_COMMIT = "${SUPPORTED_HERMES_GIT_COMMIT}"`));
+  assert.doesNotThrow(() => assertSupportedHermesCompatibility({
+    version: SUPPORTED_HERMES_VERSION,
+    gitCommit: SUPPORTED_HERMES_GIT_COMMIT,
+  }));
+  assert.throws(
+    () => assertSupportedHermesCompatibility({ version:'0.19.1', gitCommit:SUPPORTED_HERMES_GIT_COMMIT }),
+    /拒绝猜测补丁/,
+  );
+  assert.throws(
+    () => assertSupportedHermesCompatibility({ version:SUPPORTED_HERMES_VERSION, gitCommit:'different' }),
+    /拒绝猜测补丁/,
+  );
+});
+
 test('动态任务卡按钮使用原消息锚点，权威决定成功后才返回决定态卡', () => {
   const patched = applyPatch(fixture);
-  const start = patched.indexOf('    def _handle_ajun_task_card_action(');
-  const end = patched.indexOf('\n    def _handle_ajun_approval_card_action(', start);
-  const callback = patched.slice(start, end);
+  const start = taskCardRuntime.indexOf('    def handle_action(');
+  const end = taskCardRuntime.indexOf('\n\ndef install_agent_army_feishu_task_card_adapter(', start);
+  const callback = taskCardRuntime.slice(start, end);
+  assert.doesNotMatch(patched, /def _handle_agent_army_task_card_action/);
   assert.match(callback, /agent_army_task_card_action/);
-  assert.match(callback, /\{"approve", "reject", "pause", "resume", "refresh"\}/);
+  assert.match(callback, /\{"approve", "reject", "pause", "resume", "refresh", "details", "collapse_details"\}/);
   assert.match(callback, /getattr\(context, "open_message_id"/);
+  assert.match(callback, /action_agent_id/);
+  assert.match(callback, /action_profile_id/);
+  assert.match(callback, /action_chat_id == chat_id/);
   assert.doesNotMatch(callback, /event\.token|getattr\(event, "token"/);
   assert.match(callback, /api\/feishu\/task-card-actions/);
   assert.match(callback, /api\/feishu\/task-status/);
@@ -439,11 +506,14 @@ test('动态任务卡按钮使用原消息锚点，权威决定成功后才返�
   assert.match(callback, /contentHash/);
   assert.match(callback, /CallBackToast/);
   assert.match(callback, /toast\.type = "error"/);
-  assert.ok(callback.indexOf('with urlopen(request') < callback.indexOf('decided_card = render_task_card(projection)'));
-  assert.ok(callback.indexOf('decided_card = render_task_card(projection)') < callback.indexOf('response.card = card'));
+  assert.ok(callback.indexOf('with urlopen(request') < callback.indexOf('decided_card = render_task_card('));
+  assert.ok(callback.indexOf('decided_card = render_task_card(') < callback.indexOf('response.card = card'));
   assert.doesNotMatch(callback, /last_source_revision": projection\.get/);
   assert.match(callback, /record\["next_poll_at"\] = 0/);
-  assert.match(callback, /self\._wake_ajun_task_card_supervisor\(\)/);
+  assert.match(callback, /record\["details_expanded"\] = details_expanded/);
+  assert.match(callback, /已展开任务详情/);
+  assert.match(callback, /已收起任务详情/);
+  assert.match(callback, /self\.wake\(\)/);
   assert.doesNotMatch(callback, /last_source_revision"\) == source_revision/);
   assert.match(callback, /无法确认这张卡片的来源，本次操作未生效/);
   assert.match(callback, /卡片记录暂时不可读取，本次操作未生效/);
@@ -492,14 +562,14 @@ test('旧补丁留下重复总管入口时，实际生效的后一个入口也�
             await self.send(chat_id, "军团总管暂时无法登记这条命令；未启动任何外部动作，请稍后重试。", reply_to=event.message_id)
         return True
 `;
-  const upgraded = applyPatch(`${applyPatch(fixture)}${duplicateOldRoute}`);
+  const upgraded = applyPatch(`${withoutAdapterSeam(applyPatch(fixture))}${duplicateOldRoute}`);
   assert.doesNotMatch(upgraded, /_route_ajun_commander_event[\s\S]{0,1200}timeout=8/);
   assert.match(upgraded, /我这次没能及时理解完这句话/);
   assert.equal(applyPatch(upgraded), upgraded);
 });
 
 test('已安装 V4 补丁时，文本链接先进入 A君任务链，避免直连小D与总管重复通知', () => {
-  const v4 = `${applyPatch(fixture)}\n    async def _dispatch_inbound_event(self, event: MessageEvent) -> None:\n        if await self._route_xiaod_url_event(event):\n            return\n        if await self._route_xiaod_status_query(event):\n            return\n        if await self._route_xiaod_retry_query(event):\n            return\n        if await self._route_ajun_commander_event(event):\n            return\n`;
+  const v4 = `${withoutAdapterSeam(applyPatch(fixture))}\n    async def _dispatch_inbound_event(self, event: MessageEvent) -> None:\n        if await self._route_xiaod_url_event(event):\n            return\n        if await self._route_xiaod_status_query(event):\n            return\n        if await self._route_xiaod_retry_query(event):\n            return\n        if await self._route_ajun_commander_event(event):\n            return\n`;
   const upgraded = applyPatch(v4);
   assert.match(upgraded, /AJUN_COMMANDER_INGRESS_PRECEDENCE_V1/);
   assert.match(upgraded, /AJUN_COMMANDER_INGRESS_PRECEDENCE_V1:[\s\S]*?_route_ajun_commander_event[\s\S]*?_route_xiaod_url_event/);

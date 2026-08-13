@@ -54,6 +54,16 @@ test('GitHub 中文编排请求归一成公开仓库可检索关键词', () => {
   assert.equal(githubRepositoryQuery('请以关键词 agent governance 搜索并返回 3 个仓库'), 'agent governance');
 });
 
+test('研究入口分类由任务定义注册中心驱动 GitHub 路由', () => {
+  const assignment = canonicalizeBusinessAssignment({
+    title:'在 GitHub 查找公开项目',
+    taskType:'report.public-material',
+    agentId:'public-reporter',
+  });
+  assert.equal(assignment.taskType, 'research.github-search');
+  assert.equal(assignment.agentId, 'intel-researcher');
+});
+
 test('内容增长任务只能路由给小拆、小创和小办的对应能力', () => {
   assert.equal(canonicalizeBusinessAssignment({ title:'拆解视频', taskType:'content.video-benchmark-analysis', agentId:'xiaod' }).agentId, 'video-content-analyst');
   assert.equal(canonicalizeBusinessAssignment({ title:'生成抖音草稿', taskType:'content.platform-draft', agentId:'video-content-analyst' }).agentId, 'content-creator');

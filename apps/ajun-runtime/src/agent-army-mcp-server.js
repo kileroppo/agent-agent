@@ -3,13 +3,20 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { AgentArmyClient, AgentArmyClientError } from './agent-army-client.js';
-import { canonicalizeBusinessAssignment } from './business-task-routing.js';
-import { formatTaskPresentation } from './task-presentation.js';
 import { LocalAiCapabilityClient } from './local-ai-capability-client.js';
 import { AgentRegistry } from './agent-registry.js';
 import { AgentManualService } from './agent-manual-service.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
+import {
+  missionClientInputFromTool,
+  missionCreateToolInputSchema,
+  taskClientInputFromTool,
+  taskCreateToolInputSchema,
+} from './contracts/agent-army-task-input.js';
+import { projectMcpToolValue } from './contracts/agent-army-adapter-projection.js';
+import { PAPERCLIP_COMPLETION_TASK_STATUSES } from './task-status-policy.js';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -84,167 +91,14 @@ export function createAgentArmyMcpServer({
   action('task_create', {
     title:'创建军团任务',
     description:'把用户明确要求执行的工作交给已上岗员工。状态查询、能力询问、闲聊和仅讨论方案时禁止调用。先用 capabilities 确认 task_type 和员工；高风险工作只会进入审批，不会绕过审批执行。',
-    inputSchema:z.object({
-      title:z.string().min(1).max(500).describe('用户要得到的可验证结果'),
-      task_type:z.string().min(1).max(120).describe('必须来自 capabilities 返回的 acceptedTaskTypes'),
-      agent_id:z.string().max(80).optional().describe('仅在需要点名且 capabilities 已确认支持时提供'),
-      description:z.string().max(2000).optional(),
-      source_urls:z.array(z.string().url()).max(5).optional(),
-      connection_id:z.string().uuid().optional().describe('可选；仅在需要覆盖平台默认账号时传入 A君 返回的连接编号'),
-      source_task_ids:z.array(z.string().min(8).max(100)).max(20).optional().describe('需要引用的既有任务编号；可拍脚本未提供时会自动匹配参考案例'),
-      review_policy:z.enum(['optional', 'required']).optional().describe('默认 optional：质量合格时系统自动确认，异常时转人工；只有用户明确要求完整听审时使用 required'),
-      evidence_mode:z.enum(['preliminary', 'formal']).optional(),
-      analysis_intent:z.enum(['digest', 'deep', 'template', 'style']).optional().describe('视频分析模式：精华提炼、深度拆解、模板学习或风格探索'),
-      depth:z.enum(['fast', 'full']).optional(),
-      visual_mode:z.enum(['auto', 'off', 'required']).optional().describe('默认 auto：快速模式最多 12 帧，完整模式最多 48 帧；off 只分析文字；required 缺少画面时要求补充素材'),
-      focus:z.string().max(500).optional(),
-      platforms:z.array(z.string().min(1).max(40)).max(10).optional(),
-      content_goal:z.string().max(500).optional(),
-      duration_seconds:z.number().min(15).max(600).optional(),
-      research_mode:z.enum(['auto', 'off']).optional(),
-      approved_for_use:z.boolean().optional().describe('仅当用户明确回复“用这版”时为 true'),
-      source_script_task_id:z.string().min(8).max(100).optional(),
-      metrics:z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
-      goal:z.string().min(1).max(1000).optional().describe('开放型或复杂任务的最终结果；提供后系统会建立可审计的自主工作计划'),
-      deliverables:z.array(z.string().min(1).max(500)).max(12).optional(),
-      constraints:z.array(z.string().min(1).max(500)).max(20).optional(),
-      acceptance_criteria:z.array(z.string().min(1).max(500)).max(20).optional(),
-      capability_requests:z.array(z.object({
-        capability_id:z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)*$/).max(120),
-        purpose:z.string().min(1).max(500),
-        source:z.string().max(500).optional()
-      })).max(12).optional().describe('只申请完成目标必需的能力；凭据、外发、扩权和高成本能力仍会停在审批'),
-      autonomy_budget:z.object({
-        max_duration_minutes:z.number().int().min(1).max(60).optional(),
-        max_model_calls:z.number().int().min(1).max(20).optional(),
-        max_concurrent_subtasks:z.number().int().min(1).max(4).optional(),
-        max_dependency_depth:z.number().int().min(1).max(2).optional(),
-        max_cost_usd:z.number().min(0).max(5).optional()
-      }).optional(),
-      chat_ref:z.string().max(240).optional().describe('当前 Hermes 会话上下文中可见的原飞书 chat id；用于任务归属和恢复'),
-      request_ref:z.string().max(240).optional().describe('当前消息或稳定请求引用；有则用于严格幂等'),
-      completion_delivery:z.object({
-        mode:z.literal('dynamic_card'),
-        owner:z.literal('hermes_gateway')
-      }).optional().describe('由 Hermes Gateway 唯一管理任务动态卡时声明；未声明时保持原文本回告')
-    })
-  }, ({ title, task_type, agent_id, description, source_urls, connection_id, source_task_ids, review_policy, evidence_mode, analysis_intent, depth, visual_mode, focus, platforms, content_goal, duration_seconds, research_mode, approved_for_use, source_script_task_id, metrics, goal, deliverables, constraints, acceptance_criteria, capability_requests, autonomy_budget, chat_ref, request_ref, completion_delivery }) => {
-    assertSingleTaskRequest({ title, description });
-    const assignment = canonicalizeBusinessAssignment({
-      title,
-      taskType:task_type,
-      agentId:agent_id,
-      description,
-      dependsOnPrevious:Array.isArray(source_task_ids) && source_task_ids.length > 0
-    });
-    assertTaskScope(assignment, scope);
-    return client.createTask({
-      title:assignment.title,
-      taskType:assignment.taskType,
-      agentId:assignment.agentId || onlyValue(scope.agentIds),
-      description:assignment.description,
-      sourceUrls:source_urls,
-      connectionId:connection_id,
-      sourceTaskIds:source_task_ids,
-      reviewPolicy:review_policy,
-      evidenceMode:evidence_mode,
-      analysisIntent:analysis_intent,
-      depth,
-      visualMode:visual_mode,
-      focus,
-      platforms,
-      contentGoal:content_goal,
-      durationSeconds:duration_seconds,
-      researchMode:research_mode,
-      approvedForUse:approved_for_use,
-      sourceScriptTaskId:source_script_task_id,
-      metrics,
-      goalSpec:goal ? {
-        outcome:goal,
-        deliverables,
-        constraints,
-        acceptanceCriteria:acceptance_criteria,
-        capabilityRequests:(capability_requests || []).map((request) => ({
-          capabilityId:request.capability_id,
-          purpose:request.purpose,
-          source:request.source
-        })),
-        budget:autonomy_budget ? {
-          maxDurationMinutes:autonomy_budget.max_duration_minutes,
-          maxModelCalls:autonomy_budget.max_model_calls,
-          maxConcurrentSubtasks:autonomy_budget.max_concurrent_subtasks,
-          maxDependencyDepth:autonomy_budget.max_dependency_depth,
-          maxCostUsd:autonomy_budget.max_cost_usd
-        } : undefined
-      } : undefined,
-      chatRef:chat_ref,
-      requestRef:request_ref,
-      completionDelivery:completion_delivery
-    });
-  });
+    inputSchema:taskCreateToolInputSchema,
+  }, (input) => client.createTask(taskClientInputFromTool(input, scope)));
 
   action('mission_create', {
     title:'创建老板多人任务',
     description:'当用户一次明确交办多项可并行或存在依赖的工作时，建立一个总任务并分派给最多 11 名已上岗员工。系统按显式依赖图推进且同时运行不超过 4 项；单项工作仍用 task_create。',
-    inputSchema:z.object({
-      title:z.string().min(1).max(500).describe('整组工作的总目标'),
-      items:z.array(z.object({
-        key:z.string().min(1).max(80).optional(),
-        title:z.string().min(1).max(500),
-        task_type:z.string().min(1).max(120).describe('必须来自 capabilities'),
-        agent_id:z.string().min(1).max(80).describe('必须是支持该 task_type 的已上岗员工'),
-        description:z.string().max(2000).optional(),
-        acceptance:z.string().max(500).optional(),
-        source_urls:z.array(z.string().url()).max(5).optional(),
-        review_policy:z.enum(['optional', 'required']).optional().describe('默认自动质量确认；用户明确要求人工完整听审时传 required'),
-        evidence_mode:z.enum(['preliminary', 'formal']).optional(),
-        analysis_intent:z.enum(['digest', 'deep', 'template', 'style']).optional(),
-        depth:z.enum(['fast', 'full']).optional(),
-        visual_mode:z.enum(['auto', 'off', 'required']).optional(),
-        focus:z.string().max(500).optional(),
-        platforms:z.array(z.string().min(1).max(40)).max(3).optional(),
-        content_goal:z.string().max(500).optional(),
-        depends_on_previous:z.boolean().optional().describe('兼容字段：等待列表中所有前置分工结束或明确卡点'),
-        depends_on:z.array(z.string().min(1).max(80)).max(10).optional().describe('当前分工依赖的 item key，可表达非线性的依赖关系')
-      })).min(1).max(11),
-      chat_ref:z.string().max(240).optional(),
-      request_ref:z.string().max(240).optional(),
-      completion_delivery:z.object({
-        mode:z.literal('dynamic_card'),
-        owner:z.literal('hermes_gateway')
-      }).optional().describe('由 Hermes Gateway 唯一管理总任务动态卡时声明')
-    })
-  }, ({ title, items, chat_ref, request_ref, completion_delivery }) => {
-    if (!scope.allowMissions) throw new AgentArmyClientError('当前员工身份不能创建多人总任务；请交给 A君。');
-    const assignments = items.map((item) => ({
-      key:item.key,
-      title:item.title,
-      taskType:item.task_type,
-      agentId:item.agent_id,
-      description:item.description,
-        acceptance:item.acceptance,
-        sourceUrls:item.source_urls,
-        reviewPolicy:item.review_policy,
-        evidenceMode:item.evidence_mode,
-        analysisIntent:item.analysis_intent,
-        depth:item.depth,
-        visualMode:item.visual_mode,
-        focus:item.focus,
-        platforms:item.platforms,
-        contentGoal:item.content_goal,
-        dependsOnPrevious:item.depends_on_previous === true,
-        dependsOn:item.depends_on
-    })).map((item, index) => canonicalizeBusinessAssignment(item, { index }));
-    for (const item of assignments) assertTaskScope(item, scope);
-    return client.createMission({
-      title,
-      items:assignments,
-      chatRef:chat_ref,
-      requestRef:request_ref,
-      completionDelivery:completion_delivery,
-      waitForTerminal:true
-    });
-  });
+    inputSchema:missionCreateToolInputSchema,
+  }, (input) => client.createMission(missionClientInputFromTool(input, scope)));
 
   action('task_control', {
     title:'暂停或继续任务',
@@ -279,19 +133,59 @@ export function createAgentArmyMcpServer({
       options:z.record(z.unknown()).optional().default({}),
       request_id:z.string().regex(/^[A-Za-z0-9._-]{1,80}$/).optional(),
     }),
-  }, ({ capability, input, options, request_id }) => {
+  }, async ({ capability, input, options, request_id }) => {
     if (!scope.localAiCapabilities.includes(capability)) {
       throw new AgentArmyClientError(`当前岗位没有本机 AI 能力 ${capability}。`);
     }
+    const identity = paperclipIdentityFromEnvironment();
+    const verified = await client.getPaperclipAssignment(identity);
+    const taskId = String(verified?.task?.taskId || '').trim();
+    if (!taskId) throw new AgentArmyClientError('当前 Paperclip 指派没有关联真实 A君任务，拒绝调用本机 AI。');
     const safeOptions = { ...options, preferredNode:'mac' };
     delete safeOptions.allowDesktopFallback;
-    return localAi.invoke({
-      capability,
-      input,
-      options:safeOptions,
-      requestId:request_id,
-      approved:false,
+    const spanId = crypto.randomUUID();
+    const startedAt = new Date().toISOString();
+    const record = (event) => client.recordPaperclipLocalAiRunEvent({
+      ...identity,
+      taskId,
+      event:{ capabilityId:capability, spanId, startedAt, ...event },
+    }).catch(() => null);
+    await record({
+      eventType:'capability_call_started',
+      provider:'local-ai',
+      status:'running',
     });
+    try {
+      const result = await localAi.invoke({
+        capability,
+        input,
+        options:safeOptions,
+        requestId:request_id,
+        approved:false,
+      });
+      const finishedAt = new Date().toISOString();
+      await record({
+        eventType:'capability_call_succeeded',
+        provider:String(result?.provider || 'local-ai').slice(0, 120),
+        status:'success',
+        finishedAt,
+        durationMs:Math.max(0, Date.parse(finishedAt) - Date.parse(startedAt)),
+        receiptId:String(result?.requestId || '').slice(0, 160),
+      });
+      return result;
+    } catch (error) {
+      const finishedAt = new Date().toISOString();
+      const ambiguous = error?.code === 'local_ai_gateway_unavailable';
+      await record({
+        eventType:ambiguous ? 'capability_result_ambiguous' : 'capability_call_failed',
+        provider:'local-ai',
+        status:ambiguous ? 'ambiguous' : 'failed',
+        finishedAt,
+        durationMs:Math.max(0, Date.parse(finishedAt) - Date.parse(startedAt)),
+        errorCode:String(error?.code || 'local_ai_failed').slice(0, 120),
+      });
+      throw error;
+    }
   });
 
   read('approval_list', {
@@ -394,10 +288,16 @@ export function createAgentArmyMcpServer({
     title:'回报当前 Paperclip 指派结果',
     description:'仅在 Paperclip heartbeat 中把当前指派的真实结果回写到同一张 Paperclip 任务和 A君任务信封。不得用它关闭别人的任务；失败或待测试必须如实选择对应状态。M5 恢复时只回显受控执行器实际消费的 consumed_revision_id，路线是否改变由执行器回执决定，不能由模型声明。架构师使用 fact_claims、architecture_judgments、candidate_proposals 分开回报事实、推理和未来方案；只有当前事实与判断所引用的 basis_refs 必须来自 groundTruth，候选方案可以提出当前不存在的能力，但必须附验证计划。',
     inputSchema:z.object({
-      status:z.enum(['succeeded', 'failed', 'waiting_test']).default('succeeded'),
+      status:z.enum(PAPERCLIP_COMPLETION_TASK_STATUSES).default('succeeded'),
       summary:z.string().min(1).max(4000),
       evidence:z.string().max(4000).optional(),
       remaining_risks:z.string().max(2000).optional(),
+      quality_review:z.object({
+        status:z.enum(['passed', 'revise', 'blocked']),
+        failed_criteria:z.array(z.string().min(1).max(100)).max(100).optional(),
+        evidence_refs:z.array(z.string().min(1).max(240)).max(100).optional(),
+        safe_summary:z.string().max(1000).optional(),
+      }).optional(),
       evidence_refs:z.array(z.object({
         ref:z.string().min(1).max(500),
         claim:z.string().min(1).max(1000)
@@ -426,13 +326,19 @@ export function createAgentArmyMcpServer({
   }, ({
     status, summary, evidence, remaining_risks, evidence_refs, unverified_claims,
     fact_claims, architecture_judgments, candidate_proposals, current_state_unknowns,
-    consumed_revision_id
+    consumed_revision_id, quality_review
   }) => client.completePaperclipAssignment({
     ...paperclipIdentityFromEnvironment(),
     status,
     summary,
     evidence,
     remainingRisks:remaining_risks,
+    qualityReview:quality_review ? {
+      status:quality_review.status,
+      failedCriteria:quality_review.failed_criteria || [],
+      evidenceRefs:quality_review.evidence_refs || [],
+      safeSummary:quality_review.safe_summary || null,
+    } : undefined,
     evidenceRefs:evidence_refs,
     unverifiedClaims:unverified_claims,
     factClaims:fact_claims,
@@ -520,61 +426,13 @@ function actionTool(server, name, config, handler) {
 async function toolResult(operation) {
   try {
     const value = await operation();
-    return {
-      content:[{ type:'text', text:humanReadableToolText(value) }],
-      structuredContent:jsonObject(value)
-    };
+    return projectMcpToolValue(value);
   } catch (error) {
     return {
       content:[{ type:'text', text:String(error?.message || 'Agent Army MCP 调用失败。').slice(0, 1000) }],
       isError:true
     };
   }
-}
-
-function humanReadableToolText(value) {
-  if (value?.viewKind === 'army_status' && typeof value?.presentation?.summary === 'string') {
-    return value.presentation.summary;
-  }
-  const direct = formatTaskPresentation(value);
-  if (direct) return direct;
-  if (Array.isArray(value)) {
-    const tasks = value.map(formatTaskPresentation).filter(Boolean);
-    if (tasks.length === value.length && tasks.length) return tasks.join('\n\n');
-    if (!value.length) return '当前没有符合条件的任务。';
-  }
-  if (value?.mission) {
-    const mission = formatTaskPresentation(value.mission);
-    const children = (value.children || []).map(formatTaskPresentation).filter(Boolean);
-    if (mission || children.length) return [mission, ...children].filter(Boolean).join('\n\n');
-  }
-  if (value?.task) {
-    const task = formatTaskPresentation(value.task);
-    if (task) return task;
-  }
-  if (typeof value?.manualText === 'string') return value.manualText;
-  if (Array.isArray(value?.employees) && Array.isArray(value?.capabilities)) {
-    const employees = value.employees.map((item) => `${item.name || item.agentId}：${truthText(item.capabilityTruth)}；${item.role || '岗位职责已登记'}`).join('\n');
-    const capabilities = value.capabilities.map((item) => `${item.name || item.id}：${truthText(item.truth)}；${item.detail || item.status || '状态待核对'}`).join('\n');
-    return [`岗位登记（不等于业务已验证）：\n${employees || '暂无岗位登记。'}`, `能力实证：\n${capabilities || '暂无能力记录。'}`].join('\n\n');
-  }
-  return JSON.stringify(value, null, 2);
-}
-
-function truthText(value) {
-  return ({
-    human_accepted:'人工已验收',
-    verified:'真实任务已验证',
-    live:'运行可达，待业务验证',
-    configured:'已配置，待运行验证',
-    declared:'仅已声明',
-    not_declared:'尚未接入',
-  })[value?.overall] || '状态待核对';
-}
-
-function jsonObject(value) {
-  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
-  return { items:Array.isArray(value) ? value : [value] };
 }
 
 export function scopeFromEnvironment() {
@@ -610,6 +468,8 @@ export function scopeFromEnvironment() {
   }
   return {
     agentIds,
+    profileId:String(process.env.AGENT_ARMY_PROFILE_ID || onlyValue(agentIds) || '').trim(),
+    taskCardPolicy:taskCardPolicyFromEnvironment(),
     taskTypes,
     enforceToolAllowlist:paperclipHeartbeat,
     allowedTools,
@@ -646,6 +506,11 @@ function environmentList(name) {
   return [...new Set(String(process.env[name] || '').split(',').map((item) => item.trim()).filter(Boolean))];
 }
 
+function taskCardPolicyFromEnvironment() {
+  const value = String(process.env.AGENT_ARMY_TASK_CARD_POLICY || '').trim();
+  return ['disabled', 'routed-task', 'durable-task', 'incident-only'].includes(value) ? value : '';
+}
+
 function scopedCapabilities(value, scope) {
   if (!scope.agentIds.length && !scope.taskTypes.length) return value;
   return {
@@ -665,29 +530,6 @@ function scopedTaskFilter(input, scope) {
 function assertReadableTask(task, scope) {
   if (scope.agentIds.length && !scope.agentIds.includes(task?.agentId)) {
     throw new AgentArmyClientError('当前员工身份不能读取不属于自己的任务。');
-  }
-}
-
-function assertTaskScope({ taskType, agentId }, scope) {
-  const targetAgent = String(agentId || onlyValue(scope.agentIds) || '').trim();
-  if (scope.agentIds.length && (!targetAgent || !scope.agentIds.includes(targetAgent))) {
-    throw new AgentArmyClientError('当前员工身份不能把任务交给其他岗位。');
-  }
-  if (scope.taskTypes.length && !scope.taskTypes.includes(String(taskType || '').trim())) {
-    throw new AgentArmyClientError('当前员工身份不能创建这种任务。');
-  }
-}
-
-function assertSingleTaskRequest({ title, description }) {
-  const text = `${String(title || '')}\n${String(description || '')}`;
-  const numberedItems = [...text.matchAll(/(?:^|\n)\s*([1-3])[.、)]\s+\S/g)]
-    .map((match) => match[1]);
-  const distinctItems = new Set(numberedItems);
-  const explicitlyGrouped = /(总任务|多人任务|[两二三3]\s*项工作|前两项|统一汇报)/.test(text);
-  if (distinctItems.has('1') && distinctItems.has('2') && explicitlyGrouped) {
-    throw new AgentArmyClientError(
-      '检测到负责人一次交办多项工作，禁止压成单员工任务。请改用 mission_create，并把每项工作分别映射到已上岗员工。'
-    );
   }
 }
 

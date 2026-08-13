@@ -70,6 +70,8 @@ test('A君深层模块变更只选择该模块及 TaskService 接缝测试', () 
     [
       'test/cross-agent-mission-service.test.js',
       'test/open-task-runtime-wiring.test.js',
+      'test/task-intake-interface.test.js',
+      'test/task-service-runtime-presentation.test.js',
       'test/task-service.test.js',
     ],
   );
@@ -81,6 +83,7 @@ test('A君深层模块变更只选择该模块及 TaskService 接缝测试', () 
     [
       'test/runtime-start.test.js',
       'test/task-overview-focus.test.js',
+      'test/task-service-runtime-presentation.test.js',
       'test/task-service.test.js',
     ],
   );
@@ -108,7 +111,7 @@ test('A君深层模块变更只选择该模块及 TaskService 接缝测试', () 
       'test/local-content-growth.test.js',
       'test/m5-role-tool-execution.test.js',
       'test/paperclip-employee-assignment.test.js',
-      'test/task-service.test.js',
+      'test/task-service-paperclip-execution.test.js',
     ],
   );
   assert.deepEqual(
@@ -204,6 +207,53 @@ test('产品装配 Module 变更选择所属领域和运行组合测试', () => 
       'test/technical-repair-diagnoser.test.js',
       'test/technical-repair-promotion.test.js',
       'test/technical-repair-watchdog.test.js',
+    ],
+  );
+});
+
+test('任务定义与状态真相变更选择所有真实消费者接缝', () => {
+  const ajun = graph.get('ajun-runtime');
+  assert.deepEqual(
+    selectAffectedTestFiles([
+      'apps/ajun-runtime/src/task-definition-registry.js',
+      'apps/ajun-runtime/src/task-status-policy.js',
+    ], ajun),
+    [
+      'test/agent-army-client.test.js',
+      'test/agent-army-mcp-server.test.js',
+      'test/business-task-routing.test.js',
+      'test/cross-agent-mission-service.test.js',
+      'test/feishu-commander.test.js',
+      'test/paperclip-bridge.test.js',
+      'test/task-capability-catalog.test.js',
+      'test/task-card-presentation.test.js',
+      'test/task-definition-registry.test.js',
+      'test/task-feedback.test.js',
+      'test/task-lifecycle-event-recorder.test.js',
+      'test/task-service.test.js',
+      'test/task-status-policy.test.js',
+    ],
+  );
+});
+
+test('新深层 Module 与共享 Adapter 契约变更只跑必要接缝', () => {
+  const ajun = graph.get('ajun-runtime');
+  assert.deepEqual(
+    selectAffectedTestFiles([
+      'apps/ajun-runtime/src/mission-approval-inheritance.js',
+      'apps/ajun-runtime/src/task-feedback.js',
+      'apps/ajun-runtime/src/contracts/agent-army-task-input.js',
+      'apps/ajun-runtime/src/contracts/agent-army-http-input.js',
+      'apps/ajun-runtime/src/workflow/delivery-quality-runtime.ts',
+    ], ajun),
+    [
+      'test/agent-army-adapter-contract.test.js',
+      'test/agent-army-client.test.js',
+      'test/agent-army-mcp-server.test.js',
+      'test/delivery-quality-runtime.test.js',
+      'test/mission-approval-inheritance.test.js',
+      'test/task-feedback.test.js',
+      'test/task-lifecycle-event-recorder.test.js',
     ],
   );
 });

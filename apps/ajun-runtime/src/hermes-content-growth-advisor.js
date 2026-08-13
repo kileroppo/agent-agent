@@ -149,6 +149,10 @@ export class HermesContentGrowthAdvisor {
           lastInvalidData = error.data;
         }
         lastError = error;
+        if (!safeHermesRetry(error)) {
+          markUnknownHermesOutcome(error);
+          break;
+        }
       }
     }
     const failure = lastError instanceof Error ? lastError : new Error('Hermes 内容执行预算已耗尽。');
@@ -185,6 +189,22 @@ export class HermesContentGrowthAdvisor {
       await fs.rm(usageDirectory, { recursive:true, force:true });
     }
   }
+}
+
+function safeHermesRetry(error) {
+  return error?.retryable === true
+    || error?.code === 'content_analysis_semantic_validation_failed';
+}
+
+function markUnknownHermesOutcome(error) {
+  if (!error || typeof error !== 'object') return;
+  error.retryable = false;
+  if (['ENOENT', 'EACCES'].includes(error.code)) {
+    error.outcome = 'confirmed_failure';
+    return;
+  }
+  error.outcome = 'ambiguous';
+  error.ambiguous = true;
 }
 
 function analysisPrompt({

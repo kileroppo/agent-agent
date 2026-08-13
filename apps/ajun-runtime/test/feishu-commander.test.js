@@ -84,6 +84,20 @@ test('通用明确创建请求进入新任务，询问创建方法不误建任�
   assert.equal(taskRoutingDecision('我应该怎么创建一个任务？'), null);
 });
 
+test('明确要求直接回复且不要创建任务时绕过 Commander，不登记任务', async () => {
+  const text = '请直接回复一份 Agent 军团日常使用指南，不要创建任务、不要调用工具、不要修改文件、不要外发。';
+  assert.equal(taskRoutingDecision(text), null);
+  const { commander, calls } = setup();
+  commander.planner = { async decide() { throw new Error('显式无任务请求不应进入任务规划'); } };
+  const result = await commander.handle({
+    text,
+    sourceEventRef:'feishu:direct-reply-no-task-1',
+    chatRef:'chat-direct-reply',
+  });
+  assert.deepEqual(result, { handled:false, reason:'explicit_direct_reply_without_task' });
+  assert.equal(calls.tasks.length, 0);
+});
+
 test('通用明确创建请求绕过进度查询并实际登记一项新任务', async () => {
   const { commander, calls } = setup();
   commander.planner = { async decide() { throw new Error('明确创建请求不应再次交给模型判断 action'); } };

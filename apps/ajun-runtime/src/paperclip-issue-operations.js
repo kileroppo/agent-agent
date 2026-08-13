@@ -1,3 +1,5 @@
+import { paperclipIssueStatusForTaskStatus } from './task-status-policy.js';
+
 export const paperclipIssueMethods = {
   async update(task) {
     const projection = task.governance;
@@ -7,7 +9,7 @@ export const paperclipIssueMethods = {
     }
     try {
       await this.request(`/api/issues/${projection.paperclipIssueId}`, {
-        method: 'PATCH', body: { status: issueStatusFor(task.status), comment: `A君状态更新：${task.status}${task.currentStage ? ` / ${task.currentStage}` : ''}` }
+        method: 'PATCH', body: { status: paperclipIssueStatusForTaskStatus(task.status), comment: `A君状态更新：${task.status}${task.currentStage ? ` / ${task.currentStage}` : ''}` }
       });
       return { ...projection, status: 'synced', syncedAt: new Date().toISOString() };
     } catch (error) {
@@ -180,5 +182,4 @@ export const paperclipIssueMethods = {
   }
 };
 
-function issueStatusFor(status) { return ({ running: 'backlog', pausing:'backlog', paused:'blocked', succeeded: 'done', failed: 'blocked', cancelled:'blocked', waiting_approval: 'blocked', waiting_test:'blocked', needs_input:'blocked', expired:'blocked' })[status] || 'backlog'; }
 function safeError(error) { return String(error?.message || 'Paperclip 暂不可用。').slice(0, 240); }

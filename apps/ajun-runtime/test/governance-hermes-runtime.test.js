@@ -6,6 +6,7 @@ import {
   assertM5HermesExecutionManifest,
   assertM5HermesExecutionPrompt,
   discoverGovernanceHermesAgentIds,
+  hermesRuntimePolicyForManifest,
   paperclipHermesAdapterConfig
 } from '../src/governance-hermes-runtime.js';
 
@@ -23,6 +24,27 @@ test('Paperclip Hermes 员工清单从 Manifest 自动发现，不维护第二�
     'video-content-analyst',
     'xiaod'
   ]);
+});
+
+test('Manifest 预算生成有界 Hermes 运行、压缩、记忆和会话策略', () => {
+  const policy = hermesRuntimePolicyForManifest({
+    autonomyBudgetPolicy:{
+      maxModelCalls:8,
+      maxTurns:8,
+      reasoningEffort:'none',
+      apiMaxRetries:1,
+      toolLoopHardStop:true,
+    },
+  });
+  assert.deepEqual(policy.agent, { maxTurns:8, reasoningEffort:'none', apiMaxRetries:1 });
+  assert.equal(policy.toolLoopGuardrails.hardStopEnabled, true);
+  assert.equal(policy.compression.protectLastN, 8);
+  assert.deepEqual(policy.memory, { writeApproval:true, nudgeInterval:0 });
+  assert.deepEqual(policy.sessions, { autoPrune:true, retentionDays:30 });
+  assert.deepEqual(policy.sessionReset, { mode:'idle', idleMinutes:1440, notify:true });
+  assert.throws(() => hermesRuntimePolicyForManifest({ autonomyBudgetPolicy:{
+    maxModelCalls:8, maxTurns:9, reasoningEffort:'high', apiMaxRetries:5, toolLoopHardStop:false,
+  } }), /最大轮次|推理强度|重试次数|硬停止|模型调用预算/);
 });
 
 test('自动发现只纳入 active + hermes-profile + paperclip-hermes 员工', () => {
@@ -58,6 +80,28 @@ test('Paperclip Hermes 适配器显式携带受控模型，避免 ChatGPT 授权
   });
   assert.equal(config.provider, 'openai-codex');
   assert.equal(config.model, 'gpt-5.6-terra');
+  assert.equal(config.env.AGENT_ARMY_PROFILE_ID, 'video-content-analyst');
+  assert.equal(config.env.AGENT_ARMY_TASK_CARD_POLICY, 'disabled');
+});
+
+test('Paperclip Hermes 适配器从 Manifest 传播任务卡策略且未配置默认关闭', () => {
+  const ajun = readJson(new URL('../../../agents/ajun/manifest.json', import.meta.url));
+  const contentCreator = readJson(new URL('../../../agents/content-creator/manifest.json', import.meta.url));
+  assert.equal(
+    paperclipHermesAdapterConfig(ajun).env.AGENT_ARMY_TASK_CARD_POLICY,
+    'routed-task',
+  );
+  assert.equal(
+    paperclipHermesAdapterConfig(contentCreator).env.AGENT_ARMY_TASK_CARD_POLICY,
+    'disabled',
+  );
+  assert.throws(
+    () => paperclipHermesAdapterConfig({
+      ...contentCreator,
+      interaction:{ ...contentCreator.interaction, taskCardPolicy:'all-tasks' },
+    }),
+    /任务卡策略不在受控白名单/,
+  );
 });
 
 test('Paperclip Hermes 员工统一选择 DeepSeek 固定模型且不配置 StepFun 回退', () => {

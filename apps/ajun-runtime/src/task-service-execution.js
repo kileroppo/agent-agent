@@ -15,7 +15,6 @@ import {
   paperclipCompletionSync,
   paperclipIssueStatusForTask,
 } from './paperclip-assignment-completion.js';
-
 import {
   ValidationError,
   isTerminalTask,
@@ -30,6 +29,9 @@ import {
   contentGrowthArtifactVerified,
   normalizeArchitectureLayers,
 } from './task-service-execution-support.js';
+import { prepareDeliveryQualityResult } from './workflow/delivery-quality-runtime.ts';
+import { deliveryQualityReviewInput } from './workflow/delivery-quality-review-input.ts';
+import { isPaperclipCompletionTaskStatus } from './task-status-policy.js';
 
 export const taskServiceExecutionMethods = {
   ...taskPaperclipAssignmentMethods,
@@ -164,16 +166,27 @@ export const taskServiceExecutionMethods = {
   async completePaperclipAssignmentOnce(input = {}) {
     const { task, assignment } = await this.getPaperclipAssignment(input);
     if (isTerminalTask(task)) {
+      const duplicateContract = getM5RoutineExecutionContract(assignment.routineKey);
+      if (input.status === 'succeeded' && duplicateContract?.executionMode === 'hermes') {
+        await this.syncM5StageWorkProducts({ task:{ ...task, status:'succeeded' }, assignment, apiKey:input.paperclipApiKey });
+      }
       const synchronized = await this.ensurePaperclipAssignmentCompletion({ task, assignment, paperclipAgentId:input.paperclipAgentId, apiKey:input.paperclipApiKey });
-      return { task:synchronized, assignment, duplicate:true };
+      const existingReview = task.taskType === 'governance.assurance-review'
+        ? (task.artifactRefs || []).find((item) => item?.type === 'employee_role_report')?.data?.qualityReview
+        : null;
+      const qualitySourceTask = existingReview
+        ? await this.deliveryQuality.resolveReview(synchronized, existingReview)
+        : null;
+      return { task:synchronized, assignment, duplicate:true, ...(qualitySourceTask ? { qualitySourceTask } : {}) };
     }
     const requestedStatus = String(input.status || 'succeeded').trim();
-    if (!['succeeded', 'failed', 'waiting_test'].includes(requestedStatus)) {
+    if (!isPaperclipCompletionTaskStatus(requestedStatus)) {
       throw new ValidationError('员工回报状态无效。');
     }
     const completedAt = new Date().toISOString();
     const summary = String(input.summary || '').replace(/\s+/g, ' ').trim().slice(0, 4000);
     if (!summary) throw new ValidationError('员工必须提供可核对的结果摘要。');
+    const qualityReview = deliveryQualityReviewInput(task, input, ValidationError);
     const m5Contract = getM5RoutineExecutionContract(assignment.routineKey);
     const m5PlanRevisionReceipt = m5Contract?.executionMode === 'hermes'
       ? assertM5PlanRevisionConsumed({
@@ -257,6 +270,7 @@ export const taskServiceExecutionMethods = {
         summary,
         evidence:String(input.evidence || '').replace(/\s+/g, ' ').trim().slice(0, 4000),
         remainingRisks:String(input.remainingRisks || '').replace(/\s+/g, ' ').trim().slice(0, 2000),
+        ...(qualityReview ? { qualityReview } : {}),
         ...(architectureEvidence ? {
           evidenceRefs:architectureEvidence.refs,
           evidenceValidation:{
@@ -283,8 +297,15 @@ export const taskServiceExecutionMethods = {
     if (requestedStatus === 'succeeded') {
       const completion = validateTaskCompletion(task, completionArtifacts);
       if (!completion.valid) throw new ValidationError(`${completion.reason} Paperclip/Hermes 的文字回报不能替代专用业务产物。`);
+      if (m5Contract?.executionMode === 'hermes') {
+        await this.syncM5StageWorkProducts({
+          task:{ ...task, status:'succeeded', artifactRefs:completionArtifacts },
+          assignment,
+          apiKey:input.paperclipApiKey,
+        });
+      }
     }
-    let updated = await this.store.updateTask(task.taskId, {
+    const completedResult = prepareDeliveryQualityResult(task, {
       status:requestedStatus,
       currentStage:requestedStatus === 'succeeded' ? 'paperclip_hermes_completed' : requestedStatus === 'waiting_test' ? 'paperclip_hermes_waiting_test' : 'paperclip_hermes_failed',
       artifactRefs:completionArtifacts,
@@ -305,8 +326,18 @@ export const taskServiceExecutionMethods = {
         error:reportedFailureError(task.error, summary, completedAt)
       } : { error:undefined })
     });
+    let updated = await this.store.updateTask(task.taskId, completedResult);
+    this.taskLifecycleEvents?.recordPersisted(updated, { previousTask:task });
     updated = await this.ensurePaperclipAssignmentCompletion({ task:updated, assignment, paperclipAgentId:input.paperclipAgentId, apiKey:input.paperclipApiKey });
-    return { task:updated, assignment, duplicate:false };
+    if (updated.status === 'running' && updated.currentStage === 'delivery_quality_review_pending') {
+      const beforeQuality = structuredClone(updated);
+      updated = await this.deliveryQuality.continue(updated);
+      this.taskLifecycleEvents?.recordPersisted(updated, { previousTask:beforeQuality });
+    }
+    const qualitySourceTask = qualityReview
+      ? await this.deliveryQuality.resolveReview(updated, qualityReview)
+      : null;
+    return { task:updated, assignment, duplicate:false, ...(qualitySourceTask ? { qualitySourceTask } : {}) };
   },
 
   async ensurePaperclipAssignmentCompletion({ task, assignment, paperclipAgentId, apiKey } = {}) {

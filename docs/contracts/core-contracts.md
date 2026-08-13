@@ -4,8 +4,8 @@
 | --- | --- |
 | 状态 | v5 实施中：M5 并行 v2 已 live apply，活动与真实发布仍关闭 |
 | 负责人 | 技术负责人 / Codex 工作台 |
-| 版本 | v5.1 |
-| 最后更新 | 2026-08-10 |
+| 版本 | v5.2 |
+| 最后更新 | 2026-08-13 |
 | 更新触发 | 字段、状态、兼容性、权限或完成定义变化 |
 
 ## 1. 契约原则
@@ -188,6 +188,14 @@ A君内建爆款雷达的正式链接评分版本为 `v2`，正式 `boomSignal` 
 自动允许的能力经 CapabilityAdapter 执行。允许恢复的本机能力最多恢复一次、重试一次；成功生成 `agent.army/execution-receipt/v1`，只保留身份、Adapter/Provider、输入输出 SHA-256、次数、费用和时间，不保存原始敏感输入。Workflow Evaluation 只有在 required 步骤终态成功且关键产物门禁均未失败时才标记完成；研究、内容和办公质量产物还要记录人工 `accepted` 或 `revision_required`。
 
 能力展示统一使用 `not_declared → declared → configured → live → verified → human_accepted`，禁止把 Manifest active、进程在线或工具调用成功单独写成业务能力已验证。
+
+### 3.1.5 TaskContextCapsule
+
+`agent.army/task-context-capsule/v1` 是从 TaskContract 生成的最小只读上下文，不是独立任务存储。它只包含 `taskId`、`taskType`、`status`、目标、结果摘要、已采纳产物引用、关键决定、未完成项、唯一下一步、证据引用和更新时间。
+
+已采纳产物必须通过存在性与非空验证；胶囊最多保留 10 个产物、5 条关键决定、5 条未完成项和 10 个证据引用。它不得包含聊天原文、Prompt、产物正文、完整日志、进程输出、Cookie、Token 或凭据。Agent 需要历史时优先读取胶囊和产物引用，不得默认拼接全部任务过程或其他 Agent 的原始成果。
+
+运行事件的 `retentionClass` 只能是 `transient`、`detail`、`audit` 或 `permanent`，默认期限依次为 7 天、30 天、365 天和永久。历史删除必须先 dry-run；故障事件删除前必须固化脱敏事故摘要。
 
 ### 3.2 标准状态
 

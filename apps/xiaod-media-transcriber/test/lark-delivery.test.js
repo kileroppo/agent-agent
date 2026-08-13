@@ -15,7 +15,8 @@ test('同一交付成功落账后即使进程重建也只创建一个飞书文�
   await withStore(async ({ store, job }) => {
     const fake = fakeLarkFetch();
     const transport = transportWith(fake.fetch);
-    const first = new LarkDeliveryCoordinator({ store, transport });
+    const runEvents = [];
+    const first = new LarkDeliveryCoordinator({ store, transport, onRunEvent:(event) => runEvents.push(event) });
     const result = await first.deliver({ jobId:job.id, title:TITLE, markdown:MARKDOWN });
     assert.equal(result.permissionGranted, true);
     assert.equal(fake.createRequests, 1);
@@ -25,6 +26,8 @@ test('同一交付成功落账后即使进程重建也只创建一个飞书文�
     assert.equal(duplicate.url, result.url);
     assert.equal(fake.createRequests, 1);
     assert.equal(store.get(job.id).output.larkDelivery.state, 'delivered');
+    assert.deepEqual(runEvents.map((event) => [event.eventType, event.status]), [['capability_call_succeeded', 'success']]);
+    assert.doesNotMatch(JSON.stringify(runEvents), /稳定性交付测试|正文内容/);
   });
 });
 
@@ -45,7 +48,8 @@ test('创建文档请求发出后响应丢失会落成不确定状态，并禁�
   await withStore(async ({ store, job }) => {
     const fake = fakeLarkFetch({ loseCreateResponse:true });
     const transport = transportWith(fake.fetch);
-    const delivery = new LarkDeliveryCoordinator({ store, transport });
+    const runEvents = [];
+    const delivery = new LarkDeliveryCoordinator({ store, transport, onRunEvent:(event) => runEvents.push(event) });
     await assert.rejects(
       delivery.deliver({ jobId:job.id, title:TITLE, markdown:MARKDOWN }),
       (error) => error.code === 'lark_delivery_uncertain'
@@ -53,6 +57,8 @@ test('创建文档请求发出后响应丢失会落成不确定状态，并禁�
     assert.equal(fake.createRequests, 1);
     assert.equal(store.get(job.id).output.larkDelivery.state, 'uncertain');
     assert.equal(store.get(job.id).output.larkDelivery.safeToRetry, false);
+    assert.equal(runEvents.at(-1).eventType, 'capability_result_ambiguous');
+    assert.equal(runEvents.at(-1).status, 'ambiguous');
 
     const afterRestart = new LarkDeliveryCoordinator({ store, transport });
     await assert.rejects(

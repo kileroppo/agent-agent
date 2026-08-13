@@ -31,8 +31,10 @@ test('MCP 单任务和多人任务都保留 Hermes Gateway 动态卡投递契约
       },
     },
     scope:{
-      agentIds:[],
-      taskTypes:[],
+      agentIds:['xiaod'],
+      profileId:'xiaod',
+      taskCardPolicy:'durable-task',
+      taskTypes:['media.transcribe-and-refine'],
       enforceToolAllowlist:false,
       allowedTools:['task_create', 'mission_create'],
       localAiCapabilities:[],
@@ -63,6 +65,9 @@ test('MCP 单任务和多人任务都保留 Hermes Gateway 动态卡投递契约
     mode:'dynamic_card',
     owner:'hermes_gateway',
   });
+  assert.equal(calls[0][1].sourceAgentId, 'xiaod');
+  assert.equal(calls[0][1].sourceProfileId, 'xiaod');
+  assert.equal(calls[0][1].taskCardPolicy, 'durable-task');
   assert.deepEqual(result.structuredContent.completionDelivery, {
     mode:'dynamic_card',
     owner:'hermes_gateway',
@@ -91,4 +96,7 @@ test('MCP 单任务和多人任务都保留 Hermes Gateway 动态卡投递契约
     mode:'dynamic_card',
     owner:'hermes_gateway',
   });
+  assert.equal(calls[1][1].sourceAgentId, 'xiaod');
+  assert.equal(calls[1][1].sourceProfileId, 'xiaod');
+  assert.equal(calls[1][1].taskCardPolicy, 'durable-task');
 });

@@ -1,11 +1,14 @@
-const COMPLETABLE_TASK_STATUSES = new Set(['succeeded', 'failed', 'waiting_test']);
+import {
+  isPaperclipCompletionTaskStatus,
+  paperclipIssueStatusForTaskStatus,
+} from './task-status-policy.js';
 
 export function isPaperclipCompletableTaskStatus(status) {
-  return COMPLETABLE_TASK_STATUSES.has(String(status || ''));
+  return isPaperclipCompletionTaskStatus(status);
 }
 
 export function paperclipIssueStatusForTask(taskStatus) {
-  return taskStatus === 'succeeded' ? 'done' : 'blocked';
+  return paperclipIssueStatusForTaskStatus(taskStatus);
 }
 
 export function paperclipCompletionSync({ status, taskStatus, issueId, runId, now }) {

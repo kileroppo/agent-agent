@@ -1,20 +1,41 @@
 """Deterministic Feishu task-card rendering and delivery decisions.
 
 This module deliberately owns no task queue, persistence, or network client.
-The AJun runtime remains the authority for ``agent.army/task-card/v1`` and the
-Hermes adapter only uses these helpers to render and advance one card anchor.
+The Agent Army task service remains the authority for
+``agent.army/task-card/v1`` and the Hermes adapter only uses these helpers to
+render and advance one profile-scoped card anchor.
 """
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
+import logging
+import os
+import threading
+import time
+import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, Mapping, Optional
+from pathlib import Path
+from typing import Any, Callable, Dict, Iterable, Mapping, Optional
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 
 TASK_CARD_SCHEMA = "agent.army/task-card/v1"
+TASK_CARD_ADAPTER_SEAM = "agent.army/hermes-feishu-task-card-adapter/v1"
+SUPPORTED_HERMES_VERSION = "0.19.0"
+SUPPORTED_HERMES_GIT_COMMIT = "fd39696ccfbb1221ac9fdb6119f629f9821e195d"
+TRUSTED_TASK_CARD_TOOL_NAMES = frozenset({
+    "mcp__agent_army__task_create",
+    "mcp__agent_army__task_get",
+})
 ALLOWED_ACTIONS = frozenset({"approve", "reject", "pause", "resume"})
 SUPERVISOR_MAX_CONCURRENCY = 3
+TASK_CARD_POLICIES = frozenset({"routed-task", "durable-task", "incident-only", "disabled"})
 
 _ACTION_PRESENTATION = {
     "approve": ("批准", "primary"),
@@ -33,6 +54,18 @@ _HEADER_TEMPLATES = {
     "violet": "violet",
 }
 _DELIVERY_STATES_WITH_UNCERTAIN_ANCHOR = frozenset({"sending", "anchor_uncertain", "unknown"})
+_INCIDENT_TASK_KINDS = frozenset({
+    "incident",
+    "recovery",
+    "approval",
+    "operations.incident",
+    "operations.incident-response",
+    "operations.recovery",
+    "operations.failure-recovery",
+    "governance.approval",
+})
+_ROUTINE_HEALTH_TASK_KINDS = frozenset({"operations.health-review"})
+_TRUSTED_FEISHU_LINK_HOSTS = frozenset({"feishu.cn", "feishu.com", "larksuite.com"})
 _STATE_LABELS = {
     "queued": "排队中",
     "running": "处理中",
@@ -54,9 +87,13 @@ _OWNER_LABELS = {
     "technical-expert": "技术专家",
     "xiaod": "小D",
     "office-assistant": "小办",
-    "intel-researcher": "小研",
+    "intel-researcher": "小R",
     "creator": "创建官",
 }
+
+
+class HermesTaskCardCompatibilityError(RuntimeError):
+    """Raised when Hermes does not satisfy the pinned Adapter seam."""
 
 
 def _text(value: Any, limit: int, fallback: str = "") -> str:
@@ -89,6 +126,86 @@ def _display_time(value: Any) -> str:
         return text
 
 
+def _identity(value: Mapping[str, Any], name: str) -> str:
+    aliases = {
+        "agentId": ("agentId", "agent_id"),
+        "profileId": ("profileId", "profile_id"),
+        "chatId": ("chatId", "chat_id"),
+    }
+    return _text(_field(value, *aliases[name]), 240)
+
+
+def _trusted_delivery_url(value: Any) -> str:
+    raw_url = str(value or "").strip()
+    if any(character.isspace() for character in raw_url):
+        return ""
+    url = raw_url[:500]
+    if not url:
+        return ""
+    try:
+        parsed = urlsplit(url)
+        hostname = (parsed.hostname or "").lower().rstrip(".")
+        trusted_host = any(
+            hostname == suffix or hostname.endswith(f".{suffix}")
+            for suffix in _TRUSTED_FEISHU_LINK_HOSTS
+        )
+        if parsed.scheme != "https" or not trusted_host or parsed.username or parsed.password:
+            return ""
+        return url
+    except (TypeError, ValueError):
+        return ""
+
+
+def _markdown_link_label(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+
+
+def task_card_policy_decision(
+    projection: Mapping[str, Any], task_card_policy: Any = None
+) -> Dict[str, Any]:
+    """Return a fail-closed delivery decision for an explicit card policy.
+
+    Missing policy preserves the original v1 AJun contract.  ``incident-only``
+    accepts only a structured taskKind/category marker; presentation copy is
+    never inspected to infer incident intent.
+    """
+    policy = _text(
+        task_card_policy if task_card_policy is not None else projection.get("taskCardPolicy"),
+        40,
+    ).lower()
+    if not policy:
+        return {"allowed": True, "policy": "legacy", "reason": "legacy_v1"}
+    if policy not in TASK_CARD_POLICIES:
+        return {"allowed": False, "policy": policy, "reason": "policy_unsupported"}
+    if policy == "disabled":
+        return {"allowed": False, "policy": policy, "reason": "policy_disabled"}
+    if policy != "incident-only":
+        return {"allowed": True, "policy": policy, "reason": "policy_allows_task"}
+    task_kind = _text(_field(projection, "taskKind", "category", "taskType"), 120).lower()
+    if task_kind in _ROUTINE_HEALTH_TASK_KINDS:
+        return {"allowed": False, "policy": policy, "reason": "routine_health_excluded"}
+    if task_kind in _INCIDENT_TASK_KINDS:
+        return {"allowed": True, "policy": policy, "reason": "incident_kind_allowed"}
+    state = _text(projection.get("state"), 80).lower()
+    structured_actions = {
+        str(candidate.get("id") or candidate.get("action") or "").strip().lower()
+        if isinstance(candidate, Mapping) else str(candidate or "").strip().lower()
+        for candidate in projection.get("actions") or []
+    }
+    if state == "waiting_approval" or structured_actions.intersection({"approve", "reject"}):
+        return {"allowed": True, "policy": policy, "reason": "approval_state_allowed"}
+    return {"allowed": False, "policy": policy, "reason": "incident_kind_required"}
+
+
+def _action_identity(projection: Mapping[str, Any], task_id: str) -> Dict[str, str]:
+    identity = {"taskId": task_id, "task_id": task_id}
+    for name in ("agentId", "profileId", "chatId"):
+        value = _identity(projection, name)
+        if value:
+            identity[name] = value
+    return identity
+
+
 def _normalized_actions(projection: Mapping[str, Any]) -> Iterable[Dict[str, Any]]:
     if projection.get("terminal") is True:
         return []
@@ -106,7 +223,9 @@ def _normalized_actions(projection: Mapping[str, Any]) -> Iterable[Dict[str, Any
     return normalized
 
 
-def render_task_card(projection: Mapping[str, Any]) -> Dict[str, Any]:
+def render_task_card(
+    projection: Mapping[str, Any], *, details_expanded: bool = False
+) -> Dict[str, Any]:
     """Render one authoritative task projection as a Feishu interactive card."""
     if not isinstance(projection, Mapping) or projection.get("schemaVersion") != TASK_CARD_SCHEMA:
         raise ValueError(f"expected {TASK_CARD_SCHEMA} projection")
@@ -134,6 +253,7 @@ def render_task_card(projection: Mapping[str, Any]) -> Dict[str, Any]:
         "danger": "red",
         "muted": "grey",
     }.get(tone, _HEADER_TEMPLATES.get(tone, "blue"))
+    action_identity = _action_identity(projection, task_id)
 
     facts = [f"**状态**：{state}"]
     if owner:
@@ -142,6 +262,22 @@ def render_task_card(projection: Mapping[str, Any]) -> Dict[str, Any]:
     elements: list[Dict[str, Any]] = [{"tag": "markdown", "content": body}]
     if next_action and "".join(next_action.split()) not in "".join(summary.split()):
         elements.append({"tag": "markdown", "content": f"**下一步**：{next_action}"})
+
+    show_details = details_expanded or projection.get("terminal") is True
+    if show_details:
+        details = projection.get("details") if isinstance(projection.get("details"), Mapping) else {}
+        task_type = _text(details.get("taskType"), 80, "军团任务")
+        created_at = _display_time(details.get("createdAt"))
+        detail_lines = [
+            "**任务详情**",
+            f"**任务编号**：{task_ref}",
+            f"**任务类型**：{task_type}",
+        ]
+        if created_at:
+            detail_lines.append(f"**创建时间**：{created_at}")
+        if updated_at:
+            detail_lines.append(f"**最近更新**：{updated_at}")
+        elements.append({"tag": "markdown", "content": "\n".join(detail_lines)})
 
     buttons = []
     for action_view in _normalized_actions(projection):
@@ -155,7 +291,7 @@ def render_task_card(projection: Mapping[str, Any]) -> Dict[str, Any]:
                 "type": button_type,
                 "value": {
                     "agent_army_task_card_action": action,
-                    "task_id": task_id,
+                    **action_identity,
                     "source_revision": revision,
                     "content_hash": content_hash,
                     "approval_id": action_view["approvalId"],
@@ -168,33 +304,54 @@ def render_task_card(projection: Mapping[str, Any]) -> Dict[str, Any]:
 
     primary_link = projection.get("primaryLink")
     if isinstance(primary_link, Mapping):
-        link_url = _text(primary_link.get("url"), 500)
+        link_url = _trusted_delivery_url(primary_link.get("url"))
         link_label = _text(primary_link.get("label"), 80, "打开交付结果")
-        if link_url.startswith("https://"):
-            elements.append({
-                "tag": "action",
-                "actions": [{
-                    "tag": "button",
-                    "text": {"tag": "plain_text", "content": link_label},
-                    "type": "primary",
-                    "url": link_url,
-                }],
-            })
+        if link_url:
+            if projection.get("terminal") is True:
+                markdown_label = _markdown_link_label(link_label)
+                markdown_url = link_url.replace("(", "%28").replace(")", "%29")
+                elements.append({"tag": "markdown", "content": f"[{markdown_label}]({markdown_url})"})
+            else:
+                elements.append({
+                    "tag": "action",
+                    "actions": [{
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": link_label},
+                        "type": "primary",
+                        "url": link_url,
+                    }],
+                })
 
     if projection.get("terminal") is not True:
         elements.append({
             "tag": "action",
-            "actions": [{
-                "tag": "button",
-                "text": {"tag": "plain_text", "content": f"查看最新状态 · {task_ref}"[:80]},
-                "type": "default",
-                "value": {
-                    "agent_army_task_card_action": "refresh",
-                    "task_id": task_id,
-                    "source_revision": revision,
-                    "content_hash": content_hash,
+            "actions": [
+                {
+                    "tag": "button",
+                    "text": {
+                        "tag": "plain_text",
+                        "content": "收起任务详情" if details_expanded else "查看任务详情",
+                    },
+                    "type": "default",
+                    "value": {
+                        "agent_army_task_card_action": "collapse_details" if details_expanded else "details",
+                        **action_identity,
+                        "source_revision": revision,
+                        "content_hash": content_hash,
+                    },
                 },
-            }],
+                {
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "刷新任务状态"},
+                    "type": "default",
+                    "value": {
+                        "agent_army_task_card_action": "refresh",
+                        **action_identity,
+                        "source_revision": revision,
+                        "content_hash": content_hash,
+                    },
+                },
+            ],
         })
 
     note = f"任务 {task_ref}"
@@ -237,7 +394,7 @@ def _compare_revision(current: Any, incoming: Any) -> Optional[int]:
 
 
 def decide_task_card_delivery(
-    record: Optional[Mapping[str, Any]], projection: Mapping[str, Any]
+    record: Optional[Mapping[str, Any]], projection: Mapping[str, Any], *, task_card_policy: Any = None
 ) -> Dict[str, Any]:
     """Choose send/update/skip without guessing whether an anchor was created.
 
@@ -253,12 +410,36 @@ def decide_task_card_delivery(
     revision = projection.get("sourceRevision")
     content_hash = _text(projection.get("contentHash"), 160)
     common = {"taskId": task_id, "sourceRevision": revision, "contentHash": content_hash}
+    for name in ("agentId", "profileId", "chatId"):
+        value = _identity(projection, name)
+        if value:
+            common[name] = value
+
+    policy_decision = task_card_policy_decision(projection, task_card_policy)
+    if not policy_decision["allowed"]:
+        return {
+            "operation": "skip",
+            "reason": policy_decision["reason"],
+            "taskCardPolicy": policy_decision["policy"],
+            **common,
+        }
 
     if not record:
         return {"operation": "send", "reason": "anchor_missing", **common}
     recorded_task_id = _text(_field(record, "taskId", "task_id"), 160)
     if recorded_task_id and recorded_task_id != task_id:
         return {"operation": "skip", "reason": "task_mismatch", **common}
+    for name, reason in (
+        ("agentId", "agent_mismatch"),
+        ("profileId", "profile_mismatch"),
+        ("chatId", "chat_mismatch"),
+    ):
+        recorded_identity = _identity(record, name)
+        projection_identity = _identity(projection, name)
+        if recorded_identity and not projection_identity:
+            return {"operation": "skip", "reason": f"{name[:-2].lower()}_missing", **common}
+        if recorded_identity and projection_identity and recorded_identity != projection_identity:
+            return {"operation": "skip", "reason": reason, **common}
 
     message_id = _text(_field(record, "messageId", "message_id"), 240)
     delivery_state = _text(_field(record, "deliveryState", "delivery_state"), 40).lower()
@@ -308,3 +489,865 @@ def poll_interval_seconds(
     if age_seconds <= 30 * 60:
         return 15
     return 60
+
+
+def is_trusted_task_card_event(event_type: Any, tool_name: Any) -> bool:
+    """Accept only structured results from the two task-card-producing MCP tools."""
+    return (
+        event_type == "tool.completed"
+        and isinstance(tool_name, str)
+        and tool_name in TRUSTED_TASK_CARD_TOOL_NAMES
+    )
+
+
+def trusted_task_card_handler(adapter: Any, source: Any, *, feishu_platform: Any) -> Optional[Callable[..., Any]]:
+    """Resolve the formal task-card event interface for one Feishu Adapter.
+
+    The Gateway imports this helper from the installed plugin module.  It never
+    parses model prose or knows task-card schemas; a non-Feishu source and an
+    Adapter without the installed seam both fail closed.
+    """
+    if getattr(source, "platform", None) != feishu_platform:
+        return None
+    handler = getattr(adapter, "handle_agent_army_task_result", None)
+    return handler if callable(handler) else None
+
+
+class AgentArmyFeishuTaskCardAdapter:
+    """Formal Adapter for Hermes' Feishu host at the task-card Seam.
+
+    Hermes owns transport and Session lifecycle.  This Adapter owns the
+    profile-private anchor ledger, authoritative projection polling, callback
+    validation and card rendering.  The host interface is deliberately small
+    and validated once when the seam is installed.
+    """
+
+    REQUIRED_HOST_INTERFACE = (
+        "_feishu_send_with_retry",
+        "_finalize_send_result",
+        "_is_interactive_operator_authorized",
+        "_run_blocking",
+    )
+
+    def __init__(self, host: Any, host_symbols: Mapping[str, Any]):
+        self.host = host
+        self._symbols = dict(host_symbols)
+        self._logger = self._symbols.get("logger") or logging.getLogger(__name__)
+        get_home = self._symbols.get("get_hermes_home")
+        if not callable(get_home):
+            raise HermesTaskCardCompatibilityError("Hermes host is missing get_hermes_home")
+        self._home = Path(get_home())
+        self._path = self._home / "agent_army_task_cards.json"
+        self._legacy_path = self._home / "ajun_task_cards.json"
+        self._lock = threading.RLock()
+        self._supervisor_task: Optional[asyncio.Task[Any]] = None
+        self._wake = asyncio.Event()
+        self._suppress_final_by_chat: Dict[str, float] = {}
+
+    def policy(self) -> str:
+        policy = (
+            os.getenv("AGENT_ARMY_TASK_CARD_POLICY", "")
+            or os.getenv("AGENT_ARMY_FEISHU_TASK_CARD_POLICY", "")
+        ).strip().lower()
+        if not policy and os.getenv("AJUN_FEISHU_DYNAMIC_TASK_CARD", "").strip().lower() == "true":
+            policy = "routed-task"
+        return policy if policy in TASK_CARD_POLICIES - {"disabled"} else "disabled"
+
+    def identity(
+        self, *, chat_id: str = "", projection: Optional[Mapping[str, Any]] = None
+    ) -> Dict[str, str]:
+        projection = projection if isinstance(projection, Mapping) else {}
+        agent_id = str(
+            projection.get("agentId")
+            or os.getenv("AGENT_ARMY_FEISHU_AGENT_ID", "")
+            or os.getenv("AJUN_FEISHU_ENTRY_AGENT_ID", "")
+            or "ajun"
+        ).strip()
+        profile_id = str(
+            projection.get("profileId")
+            or os.getenv("AGENT_ARMY_PROFILE_ID", "")
+            or os.getenv("AGENT_ARMY_FEISHU_PROFILE_ID", "")
+            or os.getenv("HERMES_PROFILE", "")
+            or self._home.name
+        ).strip()
+        if profile_id == ".hermes":
+            profile_id = "ajun"
+        return {
+            "agentId": agent_id,
+            "profileId": profile_id,
+            "chatId": str(projection.get("chatId") or chat_id or "").strip(),
+        }
+
+    @staticmethod
+    def key(*, task_id: str, chat_id: str, agent_id: str, profile_id: str) -> str:
+        raw = "\x1f".join((profile_id, agent_id, chat_id, task_id))
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def base_url() -> str:
+        base_url = os.getenv("AGENT_ARMY_TASK_CARD_BASE_URL", "").strip().rstrip("/")
+        return base_url if base_url.startswith("http://127.0.0.1:") else ""
+
+    def enabled(self) -> bool:
+        return self.policy() != "disabled"
+
+    def _save(self, records: Mapping[str, Mapping[str, Any]]) -> None:
+        with self._lock:
+            temporary = self._path.with_name(f"{self._path.name}.{uuid.uuid4()}.tmp")
+            try:
+                with temporary.open("x", encoding="utf-8") as handle:
+                    handle.write(json.dumps(records, ensure_ascii=False))
+                os.chmod(temporary, 0o600)
+                temporary.replace(self._path)
+                os.chmod(self._path, 0o600)
+            except OSError as exc:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                raise RuntimeError("dynamic task card ledger write failed; delivery stopped") from exc
+
+    def _load(self) -> Dict[str, Dict[str, Any]]:
+        with self._lock:
+            try:
+                if not self._path.exists() and self._legacy_path.exists():
+                    legacy = json.loads(self._legacy_path.read_text(encoding="utf-8"))
+                    migrated: Dict[str, Dict[str, Any]] = {}
+                    if isinstance(legacy, dict):
+                        for legacy_task_id, legacy_record in legacy.items():
+                            if not isinstance(legacy_record, dict):
+                                continue
+                            identity = self.identity(chat_id=str(legacy_record.get("chat_id") or ""))
+                            record = dict(legacy_record)
+                            record.update({
+                                "task_id": str(record.get("task_id") or legacy_task_id),
+                                "agent_id": identity["agentId"],
+                                "profile_id": identity["profileId"],
+                            })
+                            record_key = self.key(
+                                task_id=record["task_id"],
+                                chat_id=str(record.get("chat_id") or ""),
+                                agent_id=record["agent_id"],
+                                profile_id=record["profile_id"],
+                            )
+                            migrated[record_key] = record
+                    self._save(migrated)
+                payload = json.loads(self._path.read_text(encoding="utf-8"))
+                if not isinstance(payload, dict):
+                    raise ValueError("dynamic task card ledger must be an object")
+                return payload
+            except FileNotFoundError:
+                return {}
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                raise RuntimeError(
+                    "dynamic task card ledger is unreadable; refusing duplicate delivery"
+                ) from exc
+
+    def _put(self, record: Mapping[str, Any]) -> None:
+        record_key = self.key(
+            task_id=str(record.get("task_id") or ""),
+            chat_id=str(record.get("chat_id") or ""),
+            agent_id=str(record.get("agent_id") or ""),
+            profile_id=str(record.get("profile_id") or ""),
+        )
+        with self._lock:
+            records = self._load()
+            records[record_key] = dict(record)
+            self._save(records)
+
+    def start(self) -> None:
+        if not self.enabled():
+            return
+        if self._supervisor_task is None or self._supervisor_task.done():
+            self._supervisor_task = asyncio.create_task(self._supervise())
+
+    def wake(self) -> None:
+        self.start()
+        if self._supervisor_task is not None:
+            self._wake.set()
+
+    def mark_final_suppression(self, chat_id: str) -> None:
+        if chat_id:
+            self._suppress_final_by_chat[chat_id] = time.time() + 120
+
+    def consume_final_suppression(self, chat_id: str) -> bool:
+        return float(self._suppress_final_by_chat.pop(chat_id, 0) or 0) >= time.time()
+
+    async def debounce(
+        self,
+        *,
+        chat_id: str,
+        projection: Dict[str, Any],
+        completion_watch: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Wait five seconds before the first anchor; fast terminal tasks stay text-only."""
+        del completion_watch
+        task_id = str(projection.get("taskId") or "")
+        identity = self.identity(chat_id=chat_id, projection=projection)
+        record_key = self.key(
+            task_id=task_id,
+            chat_id=identity["chatId"],
+            agent_id=identity["agentId"],
+            profile_id=identity["profileId"],
+        )
+        if isinstance(self._load().get(record_key), dict):
+            return {"projection": projection}
+        if projection.get("terminal") is True:
+            return {"projection": None}
+        await asyncio.sleep(5)
+        base_url = self.base_url()
+        if not base_url:
+            return {"projection": None}
+        payload = json.dumps({
+            "taskId": task_id,
+            "agentId": identity["agentId"],
+            "profileId": identity["profileId"],
+            "chatId": identity["chatId"],
+            "chatRef": identity["chatId"],
+        }, ensure_ascii=False).encode("utf-8")
+
+        def read_projection() -> dict:
+            request = Request(
+                f"{base_url}/api/feishu/task-status",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(request, timeout=5) as response:
+                return json.loads(response.read().decode("utf-8"))
+
+        try:
+            body = await self.host._run_blocking(read_projection)
+            latest = body.get("taskCard") if isinstance(body, dict) else None
+            message = str(body.get("message") or "") if isinstance(body, dict) else ""
+            if not isinstance(latest, dict) or latest.get("terminal") is True:
+                return {"projection": None, "message": message}
+            latest.update(identity)
+            latest["taskCardPolicy"] = self.policy()
+            return {"projection": latest}
+        except (HTTPError, URLError, OSError, ValueError, json.JSONDecodeError) as exc:
+            self._logger.warning(
+                "[Feishu] Dynamic task card debounce lookup failed; using text fallback: %s", exc
+            )
+            return {"projection": None}
+
+    @staticmethod
+    def _structured_result(result: Any) -> Optional[Dict[str, Any]]:
+        wrapper = json.loads(result) if isinstance(result, str) else result
+        if not isinstance(wrapper, dict):
+            return None
+        nested = wrapper.get("result")
+        if isinstance(nested, str):
+            try:
+                nested = json.loads(nested)
+            except (ValueError, json.JSONDecodeError):
+                nested = None
+        structured = wrapper.get("structuredContent")
+        if not isinstance(structured, dict) and isinstance(nested, dict):
+            structured = nested.get("structuredContent")
+            if not isinstance(structured, dict):
+                structured = nested
+        return structured if isinstance(structured, dict) else None
+
+    async def handle_trusted_task_result(self, source: Any, result: Any) -> bool:
+        """Consume only structured MCP results; model prose never creates a card."""
+        if not self.enabled():
+            return False
+        chat_id = str(getattr(source, "chat_id", "") or "")
+        if not chat_id:
+            return False
+        try:
+            structured = self._structured_result(result)
+            if not isinstance(structured, dict):
+                return False
+            task_card = structured.get("taskCard")
+            task_card = task_card if isinstance(task_card, dict) else None
+            completion_watch = structured.get("completionWatch")
+            completion_watch = completion_watch if isinstance(completion_watch, dict) else None
+            task_id = str(
+                (task_card or {}).get("taskId")
+                or structured.get("taskId")
+                or (completion_watch or {}).get("taskId")
+                or ""
+            ).strip()
+            if not task_id:
+                return False
+            identity = self.identity(chat_id=chat_id, projection=task_card)
+            record_key = self.key(
+                task_id=task_id,
+                chat_id=chat_id,
+                agent_id=identity["agentId"],
+                profile_id=identity["profileId"],
+            )
+            existing = self._load().get(record_key)
+            if task_card is None and completion_watch is None and not isinstance(existing, dict):
+                return False
+            if task_card is None:
+                task_card = {"schemaVersion": TASK_CARD_SCHEMA, "taskId": task_id, **identity}
+            debounced = (
+                {"projection": task_card}
+                if isinstance(existing, dict)
+                else await self.debounce(
+                    chat_id=chat_id,
+                    projection=task_card,
+                    completion_watch=completion_watch,
+                )
+            )
+            latest = debounced.get("projection") if isinstance(debounced, dict) else None
+            if not isinstance(latest, dict):
+                return False
+            latest.update(identity)
+            latest["taskCardPolicy"] = self.policy()
+            if not task_card_policy_decision(latest, latest["taskCardPolicy"])["allowed"]:
+                return False
+            delivered = await self.deliver(
+                chat_id=chat_id,
+                projection=latest,
+                reply_to=str(getattr(source, "message_id", "") or "") or None,
+                completion_watch=completion_watch,
+            )
+            if delivered and latest.get("terminal") is not True:
+                self.mark_final_suppression(chat_id)
+            return delivered
+        except (RuntimeError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            self._logger.warning(
+                "[Feishu] Structured task result ignored; text delivery continues: %s", exc
+            )
+            return False
+
+    async def deliver(
+        self,
+        *,
+        chat_id: str,
+        projection: Dict[str, Any],
+        reply_to: Optional[str] = None,
+        completion_watch: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        del completion_watch
+        try:
+            task_id = str(projection.get("taskId") or "")
+            if not task_id:
+                return False
+            identity = self.identity(chat_id=chat_id, projection=projection)
+            projection.update(identity)
+            projection["taskCardPolicy"] = self.policy()
+            record_key = self.key(
+                task_id=task_id,
+                chat_id=identity["chatId"],
+                agent_id=identity["agentId"],
+                profile_id=identity["profileId"],
+            )
+            try:
+                records = self._load()
+            except RuntimeError as exc:
+                self._logger.error(
+                    "[Feishu] Dynamic task card ledger unreadable; fallback suppressed: %s", exc
+                )
+                return True
+            previous = records.get(record_key) if isinstance(records.get(record_key), dict) else None
+            decision = decide_task_card_delivery(previous, projection)
+            operation = str(decision.get("operation") or "")
+            if operation in {"skip", "anchor_uncertain"}:
+                return True
+            card = render_task_card(
+                projection,
+                details_expanded=bool(previous and previous.get("details_expanded")),
+            )
+            now = time.time()
+            source_revision = projection.get("sourceRevision")
+            content_hash = str(projection.get("contentHash") or "")
+            base_url = self.base_url() or str((previous or {}).get("base_url") or "")
+
+            if operation == "update" and previous:
+                message_id = str(decision.get("messageId") or previous.get("message_id") or "")
+                if not message_id or not await self._update(message_id=message_id, card=card):
+                    return True
+                record = dict(previous)
+                record.update({
+                    "last_source_revision": source_revision,
+                    "last_content_hash": content_hash,
+                    "last_notified_state": str(projection.get("state") or ""),
+                    "delivery_state": "sent",
+                    "updated_at": now,
+                    "terminal": projection.get("terminal") is True,
+                })
+                try:
+                    self._put(record)
+                except RuntimeError as exc:
+                    self._logger.error(
+                        "[Feishu] Dynamic task card was updated but its ledger could not advance: %s",
+                        exc,
+                    )
+                    return True
+                if not record["terminal"]:
+                    self.wake()
+                return True
+
+            record = {
+                "task_id": task_id,
+                "chat_id": chat_id,
+                "message_id": "",
+                "delivery_id": str(uuid.uuid4()),
+                "agent_id": identity["agentId"],
+                "profile_id": identity["profileId"],
+                "profile_fingerprint": hashlib.sha256(str(self._home).encode("utf-8")).hexdigest()[:24],
+                "last_source_revision": source_revision,
+                "last_content_hash": content_hash,
+                "last_notified_state": str(projection.get("state") or ""),
+                "delivery_state": "sending",
+                "attempt_count": int((previous or {}).get("attempt_count", 0) or 0) + 1,
+                "base_url": base_url,
+                "created_at": now,
+                "updated_at": now,
+                "next_poll_at": now,
+                "terminal": projection.get("terminal") is True,
+            }
+            try:
+                self._put(record)
+            except RuntimeError as exc:
+                self._logger.error(
+                    "[Feishu] Dynamic task card intent was not persisted; send skipped: %s", exc
+                )
+                return False
+            try:
+                provider_response = await self.host._feishu_send_with_retry(
+                    chat_id=chat_id,
+                    msg_type="interactive",
+                    payload=json.dumps(card, ensure_ascii=False),
+                    reply_to=reply_to,
+                    metadata=None,
+                )
+            except Exception as exc:
+                record.update({"delivery_state": "anchor_uncertain", "updated_at": time.time()})
+                try:
+                    self._put(record)
+                except RuntimeError as ledger_exc:
+                    self._logger.error(
+                        "[Feishu] Dynamic card outcome uncertain and ledger update failed: %s",
+                        ledger_exc,
+                    )
+                self._logger.warning(
+                    "[Feishu] Dynamic task card send outcome is uncertain; duplicate fallback suppressed: %s",
+                    exc,
+                )
+                return True
+            send_result = self.host._finalize_send_result(
+                provider_response, "send Agent Army dynamic task card failed"
+            )
+            try:
+                current = self._load().get(record_key)
+            except RuntimeError as exc:
+                self._logger.error(
+                    "[Feishu] Dynamic task card provider call completed but ledger became unreadable: %s",
+                    exc,
+                )
+                return True
+            record = current if isinstance(current, dict) else record
+            if send_result.success and send_result.message_id:
+                record.update({
+                    "message_id": send_result.message_id,
+                    "delivery_state": "sent",
+                    "last_notified_state": str(projection.get("state") or ""),
+                    "updated_at": time.time(),
+                })
+            elif send_result.success:
+                record.update({"delivery_state": "anchor_uncertain", "updated_at": time.time()})
+            else:
+                record.update({"delivery_state": "not_started", "updated_at": time.time()})
+            try:
+                self._put(record)
+            except RuntimeError as exc:
+                self._logger.error(
+                    "[Feishu] Dynamic task card provider call completed but ledger update failed: %s", exc
+                )
+                return True
+            if record.get("delivery_state") == "sent" and not record.get("terminal"):
+                self.wake()
+            return bool(send_result.success)
+        except Exception as exc:
+            self._logger.warning(
+                "[Feishu] Dynamic task card delivery failed; using text fallback when safe: %s", exc
+            )
+            return False
+
+    async def _update(self, *, message_id: str, card: Dict[str, Any]) -> bool:
+        try:
+            from lark_oapi.api.im.v1 import PatchMessageRequest, PatchMessageRequestBody
+
+            body = PatchMessageRequestBody.builder().content(
+                json.dumps(card, ensure_ascii=False)
+            ).build()
+            request = PatchMessageRequest.builder().message_id(message_id).request_body(body).build()
+            response = await self.host._run_blocking(
+                self.host._client.im.v1.message.patch, request
+            )
+            if response and getattr(response, "success", lambda: False)():
+                return True
+            self._logger.warning(
+                "[Feishu] Dynamic task card update rejected: code=%s",
+                getattr(response, "code", None),
+            )
+        except Exception as exc:
+            self._logger.warning("[Feishu] Dynamic task card update failed: %s", exc)
+        return False
+
+    async def _supervise(self) -> None:
+        semaphore = asyncio.Semaphore(SUPERVISOR_MAX_CONCURRENCY)
+        while self.enabled():
+            now = time.time()
+            records = self._load()
+            due = [
+                dict(record)
+                for record in records.values()
+                if isinstance(record, dict)
+                and record.get("delivery_state") == "sent"
+                and not record.get("terminal")
+                and str(record.get("base_url") or "").startswith("http://127.0.0.1:")
+                and float(record.get("next_poll_at", 0) or 0) <= now
+            ]
+
+            async def bounded(record: Dict[str, Any]) -> None:
+                async with semaphore:
+                    await self._poll_one(record)
+
+            if due:
+                await asyncio.gather(*(bounded(record) for record in due))
+                continue
+            self._wake.clear()
+            try:
+                await asyncio.wait_for(self._wake.wait(), timeout=2)
+            except asyncio.TimeoutError:
+                pass
+
+    async def _poll_one(self, record: Dict[str, Any]) -> None:
+        task_id = str(record.get("task_id") or "")
+        chat_id = str(record.get("chat_id") or "")
+        base_url = str(record.get("base_url") or "").rstrip("/")
+        try:
+            payload = json.dumps({
+                "taskId": task_id,
+                "agentId": str(record.get("agent_id") or ""),
+                "profileId": str(record.get("profile_id") or ""),
+                "chatId": chat_id,
+                "chatRef": chat_id,
+            }, ensure_ascii=False).encode("utf-8")
+
+            def read_projection() -> dict:
+                request = Request(
+                    f"{base_url}/api/feishu/task-status",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(request, timeout=5) as response:
+                    return json.loads(response.read().decode("utf-8"))
+
+            body = await self.host._run_blocking(read_projection)
+            projection = body.get("taskCard") if isinstance(body, dict) else None
+            if isinstance(projection, dict):
+                await self.deliver(chat_id=chat_id, projection=projection)
+        except asyncio.CancelledError:
+            raise
+        except (HTTPError, URLError, OSError, ValueError, json.JSONDecodeError) as exc:
+            self._logger.warning("[Feishu] Dynamic task card projection lookup failed: %s", exc)
+        finally:
+            records = self._load()
+            record_key = self.key(
+                task_id=task_id,
+                chat_id=chat_id,
+                agent_id=str(record.get("agent_id") or ""),
+                profile_id=str(record.get("profile_id") or ""),
+            )
+            current = records.get(record_key)
+            if isinstance(current, dict) and not current.get("terminal"):
+                now = time.time()
+                age = max(0, now - float(current.get("created_at", now) or now))
+                current["next_poll_at"] = now + poll_interval_seconds(age_seconds=age)
+                current["updated_at"] = now
+                self._put(current)
+
+    def handle_action(self, *, event: Any, action_value: Mapping[str, Any]) -> Any:
+        action = str(action_value.get("agent_army_task_card_action") or "")
+        task_id = str(action_value.get("task_id") or action_value.get("taskId") or "")
+        source_revision = action_value.get("source_revision")
+        content_hash = str(action_value.get("content_hash") or "")
+        approval_id = str(action_value.get("approval_id") or "")
+        governance_mode = str(action_value.get("governance_mode") or "local")
+        operator = getattr(event, "operator", None)
+        open_id = str(getattr(operator, "open_id", "") or "")
+        context = getattr(event, "context", None)
+        chat_id = str(getattr(context, "open_chat_id", "") or "")
+        message_id = str(getattr(context, "open_message_id", "") or "")
+        response_type = self._symbols.get("P2CardActionTriggerResponse")
+        response = response_type() if response_type else None
+
+        def error_response(content: str) -> Any:
+            if response is not None:
+                try:
+                    from lark_oapi.event.callback.model.p2_card_action_trigger import CallBackToast
+
+                    toast = CallBackToast()
+                    toast.type = "error"
+                    toast.content = content
+                    response.toast = toast
+                except ImportError:
+                    pass
+            return response
+
+        try:
+            records = self._load()
+        except RuntimeError as exc:
+            self._logger.error("[Feishu] Dynamic task card callback ledger unreadable: %s", exc)
+            return error_response("卡片记录暂时不可读取，本次操作未生效。")
+        identity = self.identity(chat_id=chat_id)
+        action_agent_id = str(action_value.get("agentId") or "")
+        action_profile_id = str(action_value.get("profileId") or "")
+        action_chat_id = str(action_value.get("chatId") or "")
+        record_key = self.key(
+            task_id=task_id,
+            chat_id=chat_id,
+            agent_id=identity["agentId"],
+            profile_id=identity["profileId"],
+        )
+        record = records.get(record_key) if isinstance(records.get(record_key), dict) else None
+        valid = (
+            action in {"approve", "reject", "pause", "resume", "refresh", "details", "collapse_details"}
+            and task_id
+            and message_id
+            and record
+            and str(record.get("message_id") or "") == message_id
+            and str(record.get("chat_id") or "") == chat_id
+            and str(record.get("agent_id") or "") == identity["agentId"] == action_agent_id
+            and str(record.get("profile_id") or "") == identity["profileId"] == action_profile_id
+            and action_chat_id == chat_id
+            and self.host._is_interactive_operator_authorized(open_id)
+        )
+        if not valid:
+            return error_response("无法确认这张卡片的来源，本次操作未生效。")
+        base_url = self.base_url()
+        if not base_url:
+            return error_response("任务入口不可用，本次操作未生效。")
+        if action in {"refresh", "details", "collapse_details"}:
+            endpoint = f"{base_url}/api/feishu/task-status"
+            request_body = {
+                "taskId": task_id,
+                "agentId": identity["agentId"],
+                "profileId": identity["profileId"],
+                "chatId": chat_id,
+                "chatRef": chat_id,
+            }
+        else:
+            endpoint = f"{base_url}/api/feishu/task-card-actions"
+            request_body = {
+                "taskId": task_id,
+                "action": action,
+                "approvalId": approval_id,
+                "governanceMode": governance_mode,
+                "sourceRevision": source_revision,
+                "contentHash": content_hash,
+                "requesterRef": open_id,
+                "chatRef": chat_id,
+                "chatId": chat_id,
+                "agentId": identity["agentId"],
+                "profileId": identity["profileId"],
+                "messageId": message_id,
+            }
+        try:
+            request = Request(
+                endpoint,
+                data=json.dumps(request_body, ensure_ascii=False).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(request, timeout=8) as provider_response:
+                status = int(provider_response.status)
+                body = json.loads(provider_response.read().decode("utf-8"))
+            projection = body.get("taskCard") if isinstance(body, dict) else None
+            if status not in {200, 201, 202} or not isinstance(projection, dict):
+                raise ValueError("authoritative decision was not accepted")
+            projection.update(identity)
+            projection["taskCardPolicy"] = self.policy()
+            details_expanded = action == "details" or (
+                action not in {"details", "collapse_details"}
+                and bool(record.get("details_expanded"))
+            )
+            decided_card = render_task_card(projection, details_expanded=details_expanded)
+            record["details_expanded"] = details_expanded
+            record["next_poll_at"] = 0
+            self._put(record)
+            self.wake()
+            callback_card_type = self._symbols.get("CallBackCard")
+            if response is not None and callback_card_type is not None:
+                card = callback_card_type()
+                card.type = "raw"
+                card.data = decided_card
+                response.card = card
+                try:
+                    from lark_oapi.event.callback.model.p2_card_action_trigger import CallBackToast
+
+                    toast = CallBackToast()
+                    toast.type = "success"
+                    toast.content = str(
+                        "已展开任务详情。"
+                        if action == "details"
+                        else "已收起任务详情。"
+                        if action == "collapse_details"
+                        else body.get("message")
+                        or ("已刷新到最新状态。" if action == "refresh" else "操作已处理。")
+                    )[:120]
+                    response.toast = toast
+                except ImportError:
+                    pass
+            return response
+        except (HTTPError, URLError, OSError, ValueError, json.JSONDecodeError) as exc:
+            self._logger.warning(
+                "[Feishu] Dynamic task card action rejected without changing card: %s", exc
+            )
+            return error_response("操作未生效，请重试。")
+
+
+def install_agent_army_feishu_task_card_adapter(
+    host_class: type,
+    *,
+    hermes_version: str,
+    hermes_git_commit: str,
+    host_symbols: Mapping[str, Any],
+) -> type:
+    """Install the pinned Adapter at an explicit Hermes plugin Seam.
+
+    Installation is idempotent.  Unsupported versions or missing host methods
+    raise before an Adapter instance is created, so Hermes upgrades fail closed
+    instead of receiving guessed source edits.
+    """
+    if hermes_version != SUPPORTED_HERMES_VERSION:
+        raise HermesTaskCardCompatibilityError(
+            f"unsupported Hermes version {hermes_version!r}; expected {SUPPORTED_HERMES_VERSION!r}"
+        )
+    if hermes_git_commit != SUPPORTED_HERMES_GIT_COMMIT:
+        raise HermesTaskCardCompatibilityError(
+            "unsupported Hermes Git identity; Adapter seam is pinned to "
+            f"{SUPPORTED_HERMES_GIT_COMMIT}"
+        )
+    required_symbols = (
+        "CallBackCard",
+        "P2CardActionTriggerResponse",
+        "SendResult",
+        "get_hermes_home",
+    )
+    missing_symbols = [
+        symbol_name
+        for symbol_name in required_symbols
+        if not callable(host_symbols.get(symbol_name))
+    ]
+    if missing_symbols:
+        raise HermesTaskCardCompatibilityError(
+            "Hermes Feishu Adapter interface changed; missing: "
+            + ", ".join(sorted(missing_symbols))
+        )
+    if getattr(host_class, "__agent_army_task_card_seam__", None) == TASK_CARD_ADAPTER_SEAM:
+        return host_class
+    missing = [
+        name
+        for name in AgentArmyFeishuTaskCardAdapter.REQUIRED_HOST_INTERFACE
+        if not callable(getattr(host_class, name, None))
+    ]
+    for lifecycle_method in ("__init__", "connect", "send", "_on_card_action_trigger"):
+        if not callable(getattr(host_class, lifecycle_method, None)):
+            missing.append(lifecycle_method)
+    if missing:
+        raise HermesTaskCardCompatibilityError(
+            "Hermes Feishu Adapter interface changed; missing: " + ", ".join(sorted(set(missing)))
+        )
+
+    original_init = host_class.__init__
+    original_connect = host_class.connect
+    original_send = host_class.send
+    original_card_action = host_class._on_card_action_trigger
+
+    def adapter_for(instance: Any) -> AgentArmyFeishuTaskCardAdapter:
+        adapter = getattr(instance, "_agent_army_task_card_adapter", None)
+        if not isinstance(adapter, AgentArmyFeishuTaskCardAdapter):
+            adapter = AgentArmyFeishuTaskCardAdapter(instance, host_symbols)
+            instance._agent_army_task_card_adapter = adapter
+        return adapter
+
+    def patched_init(instance: Any, *args: Any, **kwargs: Any) -> None:
+        original_init(instance, *args, **kwargs)
+        patch_message = getattr(
+            getattr(
+                getattr(
+                    getattr(instance, "_client", None),
+                    "im",
+                    None,
+                ),
+                "v1",
+                None,
+            ),
+            "message",
+            None,
+        )
+        if not callable(getattr(patch_message, "patch", None)):
+            raise HermesTaskCardCompatibilityError(
+                "Hermes Feishu Adapter interface changed; missing: _client.im.v1.message.patch"
+            )
+        adapter_for(instance)
+
+    async def patched_connect(instance: Any, *args: Any, **kwargs: Any) -> Any:
+        result = await original_connect(instance, *args, **kwargs)
+        if result:
+            adapter = adapter_for(instance)
+            if adapter.enabled():
+                adapter.start()
+            else:
+                restore = getattr(instance, "_restore_ajun_task_completion_notifications", None)
+                if callable(restore):
+                    restore()
+        return result
+
+    async def patched_send(instance: Any, chat_id: str, content: str, *args: Any, **kwargs: Any) -> Any:
+        metadata = kwargs.get("metadata")
+        if isinstance(metadata, dict) and metadata.get("notify") is True:
+            if adapter_for(instance).consume_final_suppression(chat_id):
+                result_type = host_symbols.get("SendResult")
+                if result_type is None:
+                    raise HermesTaskCardCompatibilityError("Hermes host is missing SendResult")
+                return result_type(success=True)
+        return await original_send(instance, chat_id, content, *args, **kwargs)
+
+    def patched_card_action(instance: Any, data: Any) -> Any:
+        event = getattr(data, "event", None)
+        action = getattr(event, "action", None)
+        action_value = getattr(action, "value", {}) or {}
+        if isinstance(action_value, dict) and action_value.get("agent_army_task_card_action"):
+            return adapter_for(instance).handle_action(event=event, action_value=action_value)
+        return original_card_action(instance, data)
+
+    delegates = {
+        "_agent_army_task_card_policy": lambda self: adapter_for(self).policy(),
+        "_agent_army_task_card_identity": lambda self, **kwargs: adapter_for(self).identity(**kwargs),
+        "_agent_army_task_card_base_url": lambda self: adapter_for(self).base_url(),
+        "_agent_army_task_card_key": lambda self, **kwargs: adapter_for(self).key(**kwargs),
+        "_agent_army_dynamic_task_cards_enabled": lambda self: adapter_for(self).enabled(),
+        "_load_agent_army_task_cards": lambda self: adapter_for(self)._load(),
+        "_save_agent_army_task_cards": lambda self, records: adapter_for(self)._save(records),
+        "_put_agent_army_task_card": lambda self, record: adapter_for(self)._put(record),
+        "_start_agent_army_task_card_supervisor": lambda self: adapter_for(self).start(),
+        "_wake_agent_army_task_card_supervisor": lambda self: adapter_for(self).wake(),
+        "_mark_agent_army_final_suppression": lambda self, chat_id: adapter_for(self).mark_final_suppression(chat_id),
+        "_consume_agent_army_final_suppression": lambda self, chat_id: adapter_for(self).consume_final_suppression(chat_id),
+        "_debounce_agent_army_task_card": lambda self, **kwargs: adapter_for(self).debounce(**kwargs),
+        "handle_agent_army_task_result": lambda self, source, result: adapter_for(self).handle_trusted_task_result(source, result),
+        "_deliver_agent_army_task_card": lambda self, **kwargs: adapter_for(self).deliver(**kwargs),
+        "_handle_agent_army_task_card_action": lambda self, **kwargs: adapter_for(self).handle_action(**kwargs),
+    }
+    host_class.__init__ = patched_init
+    host_class.connect = patched_connect
+    host_class.send = patched_send
+    host_class._on_card_action_trigger = patched_card_action
+    for name, implementation in delegates.items():
+        setattr(host_class, name, implementation)
+    host_class.__agent_army_task_card_seam__ = TASK_CARD_ADAPTER_SEAM
+    host_class.__agent_army_task_card_hermes_version__ = hermes_version
+    host_class.__agent_army_task_card_hermes_git_commit__ = hermes_git_commit
+    host_class.__agent_army_task_card_host_methods__ = tuple(sorted(delegates))
+    return host_class

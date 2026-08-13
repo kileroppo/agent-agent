@@ -69,6 +69,55 @@ test('content center prefers specialized, records safe fallback, and returns a n
   assert.equal(result.contentPackage.acquisitionPath, 'general');
   assert.equal(result.contentPackage.sourceRef, 'https://example.com/watch');
   assert.equal(operations.list().some((event) => event.eventType === 'fallback_used'), true);
+  assert.equal(result.acquisitionReceipt.schemaVersion, 'agent.army/execution-receipt/v2');
+  assert.deepEqual(result.acquisitionReceipt.routeAttempts.map(({ routeId, outcome }) => ({ routeId, outcome })), [
+    { routeId:'deep-source', outcome:'confirmed_failure' },
+    { routeId:'general-source', outcome:'success' },
+  ]);
+  assert.equal(result.acquisitionReceipt.fallbackFrom, 'deep-source');
+  assert.match(result.acquisitionReceipt.inputHash, /^sha256:[a-f0-9]{64}$/);
+  assert.match(result.acquisitionReceipt.outputHash, /^sha256:[a-f0-9]{64}$/);
+  assert.doesNotMatch(JSON.stringify(result.acquisitionReceipt), /private=ignored|service unavailable/);
+});
+
+test('MediaCrawlerPro失败切yt-dlp形成完整脱敏acquisition receipt', async (t) => {
+  const { broker, operations } = await sandbox(t);
+  const specialized = {
+    id:'mediacrawlerpro-specialized-content', versionRef:'fixture', capabilities:['media'],
+    accessMode:'public', priorityClass:'specialized', healthStatus:'healthy',
+    runtimeRequirements:['media_transcription'], matches:() => true, providerFor:() => 'xhs',
+    acquire:async () => { throw new Error('service unavailable'); },
+  };
+  const general = {
+    id:'yt-dlp-general-media', versionRef:'fixture', capabilities:['media'],
+    accessMode:'public', priorityClass:'general', healthStatus:'healthy',
+    runtimeRequirements:['media_transcription'], matches:() => true, providerFor:() => 'public_media',
+    acquire:async () => ({
+      providedCapabilities:['media'], contentItems:{ media:[{ localRef:'audio.wav' }] },
+      runtime:{ kind:'audio', path:'/controlled/audio.wav' },
+    }),
+  };
+  const center = new ContentAcquisitionCenter({
+    adapters:[general, specialized], connectionBroker:broker, operations,
+  });
+  const result = await center.fetch({
+    requestId:'request-acquisition-route', taskId:'task-acquisition-route',
+    source:'https://example.com/watch?token=private-value',
+    requestedCapabilities:['media'], requestingAgentId:'xiaod',
+    runtimeRequirement:'media_transcription',
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.acquisitionReceipt.routeId, 'yt-dlp-general-media');
+  assert.equal(result.acquisitionReceipt.provider, 'public_media');
+  assert.equal(result.acquisitionReceipt.totalAttempts, 2);
+  assert.deepEqual(result.acquisitionReceipt.routeAttempts.map((attempt) => [
+    attempt.routeId, attempt.outcome, attempt.failureCode,
+  ]), [
+    ['mediacrawlerpro-specialized-content', 'confirmed_failure', 'adapter_unavailable'],
+    ['yt-dlp-general-media', 'success', null],
+  ]);
+  assert.equal(operations.list().some((event) => event.eventType === 'fallback_used'), true);
+  assert.doesNotMatch(JSON.stringify(result.acquisitionReceipt), /private-value|example\.com/);
 });
 
 test('公开视频站临时限流时，任务会说明真实原因而不是泛泛说通道不可用', async (t) => {
@@ -84,6 +133,9 @@ test('公开视频站临时限流时，任务会说明真实原因而不是泛�
   assert.match(result.safeMessage, /临时限制/);
   assert.equal(result.recommendedAction, 'retry');
   assert.equal(result.category, 'retryable');
+  assert.equal(result.acquisitionReceipt.outcome, 'confirmed_failure');
+  assert.equal(result.acquisitionReceipt.failureCode, 'source_rate_limited');
+  assert.equal(result.acquisitionReceipt.routeAttempts[0].routeId, 'limited-video-source');
 });
 
 test('content center refuses a missing required connection without calling the adapter', async (t) => {

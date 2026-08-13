@@ -139,6 +139,45 @@ test('公开读取适配器统一返回带算法前缀的内容哈希', async ()
   }
 });
 
+test('搜索、动态网页、PDF和GitHub适配器按任务信封输出统一事件且失败不伪造fallback', async () => {
+  const events = [];
+  const digest = 'c'.repeat(64);
+  const adapters = createM5RoleToolAdapters({
+    publicWebSearch:{ async search() { return { results:[{ title:'候选' }] }; } },
+    publicDynamicWebReader:{ async read() { return { text:'动态正文', contentHash:digest }; } },
+    publicPdfReader:{ async read() { throw Object.assign(new Error('private token=value'), { code:'pdf_unavailable' }); } },
+    githubSearch:{
+      async search() { return { results:[{ fullName:'example/repo' }] }; },
+      async readRepo() { return { text:'README', contentHash:digest }; },
+    },
+    onRunEvent:(event) => events.push(event),
+  });
+  const trustedScope = {
+    currentTaskId:'task-role-tools', currentWorkflowId:'workflow-role-tools',
+    currentStepId:'research', currentAgentId:'intel-researcher',
+  };
+  await adapters['ajun-public-search']({ input:{ query:'agent', limit:2 }, trustedScope });
+  await adapters['hermes-public-browser']({ access:{ url:'https://example.com' }, trustedScope });
+  await adapters['github-public']({ input:{ operation:'read', repo:'example/repo', path:'README' }, trustedScope });
+  await assert.rejects(
+    adapters['hermes-pdf']({ access:{ url:'https://example.com/report.pdf' }, trustedScope }),
+    { code:'pdf_unavailable' },
+  );
+  const finals = events.filter((event) => event.eventType !== 'capability_call_started');
+  assert.deepEqual(finals.map((event) => event.capabilityId), [
+    'content.public.search', 'content.public.dynamic.read', 'github.public.read', 'content.public.pdf.read',
+  ]);
+  assert.deepEqual(finals.map((event) => event.eventType), [
+    'capability_call_succeeded', 'capability_call_succeeded',
+    'capability_call_succeeded', 'capability_call_failed',
+  ]);
+  assert.equal(finals[1].outputHash, `sha256:${digest}`);
+  assert.equal(finals[2].outputHash, `sha256:${digest}`);
+  assert.match(finals[3].safeSummary, /未登记安全备用 Provider，已停止/);
+  assert.equal(events.some((event) => event.eventType === 'route_fallback_started'), false);
+  assert.doesNotMatch(JSON.stringify(events), /private token|https:\/\/example\.com/);
+});
+
 test('日报 Work Product 使用当前 Issue/Run、先写工作区并按幂等键复用', async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'm5-office-report-'));
   const workProducts = [];

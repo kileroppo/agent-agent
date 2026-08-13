@@ -916,6 +916,35 @@ test('AgentArmyClient returns a compact Paperclip assignment without the full ta
   assert.equal(JSON.stringify(assignment).includes('large internal task envelope'), false);
 });
 
+test('AgentArmyClient 只通过受保护端点发送本机 AI 事件白名单', async () => {
+  let request = null;
+  const client = new AgentArmyClient({
+    fetchImpl:async (url, options) => {
+      request = { url, headers:options.headers, body:JSON.parse(options.body) };
+      return response(200, { recorded:true, eventId:'event-local-ai' });
+    },
+  });
+  const result = await client.recordPaperclipLocalAiRunEvent({
+    issueId:'11111111-1111-4111-8111-111111111111',
+    runId:'22222222-2222-4222-8222-222222222222',
+    paperclipAgentId:'33333333-3333-4333-8333-333333333333',
+    agentArmyId:'xiaod',
+    taskId:'44444444-4444-4444-8444-444444444444',
+    event:{
+      eventType:'capability_call_started', capabilityId:'audio.transcribe',
+      provider:'local-whisper', status:'running', startedAt:'2026-08-13T01:00:00.000Z',
+      input:{ prompt:'不得发送' }, path:'/private/source.wav', rawResponse:'不得发送',
+    },
+  });
+  assert.equal(result.recorded, true);
+  assert.match(request.url, /\/api\/mcp\/local-ai-run-event$/);
+  assert.deepEqual(Object.keys(request.body.event).sort(), [
+    'capabilityId', 'eventType', 'provider', 'startedAt', 'status',
+  ]);
+  assert.equal(JSON.stringify(request.body).includes('不得发送'), false);
+  assert.equal(JSON.stringify(request.body).includes('/private/source.wav'), false);
+});
+
 test('AgentArmyClient 只把结构化岗位草案和 Paperclip 身份交给创建官执行端点', async () => {
   const requests = [];
   const client = new AgentArmyClient({ fetchImpl:fakeFetch({

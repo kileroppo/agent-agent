@@ -6,30 +6,18 @@ import {
   type CapabilityRequest,
   type PolicyDecision,
 } from './capability-policy.ts';
+import { classifyCapabilityFailure, type CapabilityFailure } from './capability-failure.ts';
+import {
+  resolveCapabilityRoutes,
+  type CapabilityRoute,
+  type CapabilityRoutePlan,
+  type ResolvedCapabilityRoute,
+} from './capability-routing.ts';
+import type { CapabilityAdapter, CapabilityAdapterResult } from './capability-adapter.ts';
 
-export const EXECUTION_RECEIPT_VERSION = 'agent.army/execution-receipt/v1' as const;
+export type { CapabilityAdapter, CapabilityAdapterResult } from './capability-adapter.ts';
 
-export type CapabilityAdapterResult = Readonly<{
-  output: unknown;
-  provider: string;
-  model?: string | null;
-  usage?: unknown;
-  costUsd?: number | null;
-}>;
-
-export type CapabilityAdapter = Readonly<{
-  adapterId: string;
-  invoke(input: Readonly<{
-    request: CapabilityRequest;
-    payload: unknown;
-    options: Readonly<Record<string, unknown>>;
-    attempt: number;
-  }>): Promise<CapabilityAdapterResult>;
-  recover?(input: Readonly<{
-    request: CapabilityRequest;
-    errorCode: string;
-  }>): Promise<'recovered' | 'unavailable'>;
-}>;
+export const EXECUTION_RECEIPT_VERSION = 'agent.army/execution-receipt/v2' as const;
 
 export type ExecutionReceipt = Readonly<{
   schemaVersion: typeof EXECUTION_RECEIPT_VERSION;
@@ -41,15 +29,32 @@ export type ExecutionReceipt = Readonly<{
   agentId: string;
   capabilityId: string;
   policyDecisionId: string;
+  routeId: string;
   adapterId: string;
   provider: string;
   model: string | null;
   inputHash: string;
-  outputHash: string;
+  outputHash: string | null;
+  outcome: 'success' | 'confirmed_failure' | 'ambiguous';
+  fallbackFrom: string | null;
+  routeAttempts: readonly RouteAttemptReceipt[];
+  attempts: number;
+  totalAttempts: number;
+  recovered: boolean;
+  failureCode: string | null;
+  costUsd: number | null;
+  startedAt: string;
+  completedAt: string;
+}>;
+
+export type RouteAttemptReceipt = Readonly<{
+  routeId: string;
+  adapterId: string;
   attempts: number;
   recovered: boolean;
-  costUsd: number | null;
-  completedAt: string;
+  outcome: 'success' | 'confirmed_failure' | 'ambiguous';
+  failureCode: string | null;
+  failureCodes: readonly string[];
 }>;
 
 export type CapabilityExecutionResult = Readonly<{
@@ -61,11 +66,29 @@ export type CapabilityExecutionResult = Readonly<{
 
 export class CapabilityExecutionEngine {
   readonly adapter: CapabilityAdapter;
+  readonly routes: readonly CapabilityRoute[];
+  readonly plan?: CapabilityRoutePlan;
   readonly now: () => Date;
+  readonly onReceipt?: (receipt: ExecutionReceipt) => void | Promise<void>;
 
-  constructor({ adapter, now = () => new Date() }: { adapter: CapabilityAdapter; now?: () => Date }) {
-    this.adapter = adapter;
+  constructor({ adapter, routes, plan, now = () => new Date(), onReceipt }: {
+    adapter?: CapabilityAdapter;
+    routes?: readonly CapabilityRoute[];
+    plan?: CapabilityRoutePlan;
+    now?: () => Date;
+    onReceipt?: (receipt: ExecutionReceipt) => void | Promise<void>;
+  }) {
+    const normalizedRoutes = routes?.length
+      ? routes
+      : adapter
+        ? [Object.freeze({ routeId:clean(adapter.adapterId, 120), adapter })]
+        : [];
+    if (!normalizedRoutes.length) throw new TypeError('能力执行引擎至少需要一个 Adapter 或 Route。');
+    this.routes = Object.freeze([...normalizedRoutes]);
+    this.adapter = adapter || normalizedRoutes[0].adapter;
+    this.plan = plan;
     this.now = now;
+    this.onReceipt = onReceipt;
   }
 
   async invoke({
@@ -73,85 +96,225 @@ export class CapabilityExecutionEngine {
     policy,
     payload,
     options = {},
+    routePlan,
   }: {
     request: CapabilityRequest;
     policy: CapabilityPolicyContext;
     payload: unknown;
     options?: Readonly<Record<string, unknown>>;
+    routePlan?: CapabilityRoutePlan;
   }): Promise<CapabilityExecutionResult> {
+    const startedAt = this.now().toISOString();
     const decision = decideCapability(request, policy, { now:this.now });
     assertAutoAllowed(decision);
-    let attempts = 0;
-    let recovered = false;
-    let result: CapabilityAdapterResult;
-    try {
-      attempts += 1;
-      result = await this.adapter.invoke({ request:decision.request, payload, options, attempt:attempts });
-    } catch (error) {
-      const errorCode = clean((error as { code?: unknown })?.code, 120) || 'capability_execution_failed';
-      if (!this.adapter.recover || !isRecoverable(errorCode, error)) throw normalizeExecutionError(error, decision);
-      const recovery = await this.adapter.recover({ request:decision.request, errorCode });
-      if (recovery !== 'recovered') throw normalizeExecutionError(error, decision);
-      recovered = true;
-      attempts += 1;
-      try {
-        result = await this.adapter.invoke({ request:decision.request, payload, options, attempt:attempts });
-      } catch (retryError) {
-        throw normalizeExecutionError(retryError, decision);
-      }
-    }
-    const completedAt = this.now().toISOString();
     const inputHash = hash(payload);
-    const outputHash = hash(result.output);
-    const receipt: ExecutionReceipt = Object.freeze({
-      schemaVersion:EXECUTION_RECEIPT_VERSION,
-      receiptId:`receipt:${hash({ requestId:decision.request.requestId, inputHash, outputHash, completedAt }).slice(0, 32)}`,
-      requestId:decision.request.requestId,
-      workflowId:decision.request.workflowId,
-      stepId:decision.request.stepId,
-      taskId:decision.request.taskId,
-      agentId:decision.request.agentId,
-      capabilityId:decision.request.capabilityId,
-      policyDecisionId:decision.decisionId,
-      adapterId:clean(this.adapter.adapterId, 120),
-      provider:clean(result.provider, 120),
-      model:clean(result.model, 160) || null,
-      inputHash:`sha256:${inputHash}`,
-      outputHash:`sha256:${outputHash}`,
-      attempts,
-      recovered,
-      costUsd:finiteCost(result.costUsd),
-      completedAt,
+    const candidates = resolveCapabilityRoutes({
+      routes:this.routes,
+      plan:routePlan || this.plan,
+      request:decision.request,
+      decision,
     });
-    return Object.freeze({ output:result.output, usage:result.usage || null, decision, receipt });
+    const routeAttempts: RouteAttemptReceipt[] = [];
+    let totalAttempts = 0;
+    let fallbackFrom: string | null = null;
+    let accumulatedCost = 0;
+    let hasKnownCost = false;
+
+    for (let index = 0; index < candidates.length; index += 1) {
+      const route = candidates[index];
+      const execution = await invokeRoute(route, decision.request, payload, options);
+      totalAttempts += execution.attempts;
+      const errorCost = finiteCost((execution.error as { costUsd?: unknown })?.costUsd);
+      if (errorCost !== null) { accumulatedCost += errorCost; hasKnownCost = true; }
+      routeAttempts.push(Object.freeze({
+        routeId:route.routeId,
+        adapterId:clean(route.adapter.adapterId, 120),
+        attempts:execution.attempts,
+        recovered:execution.recovered,
+        outcome:execution.failure?.outcome || 'success',
+        failureCode:execution.failure?.code || null,
+        failureCodes:Object.freeze([...execution.failureCodes]),
+      }));
+      if (execution.result) {
+        const resultCost = finiteCost(execution.result.costUsd);
+        if (resultCost !== null) { accumulatedCost += resultCost; hasKnownCost = true; }
+        const receipt = createReceipt({
+          decision, route, result:execution.result, inputHash, startedAt,
+          routeAttempts, totalAttempts, fallbackFrom,
+          costUsd:hasKnownCost ? accumulatedCost : null,
+          completedAt:this.now().toISOString(),
+        });
+        await safelyRecord(this.onReceipt, receipt);
+        return Object.freeze({ output:execution.result.output, usage:execution.result.usage || null, decision, receipt });
+      }
+      const failure = execution.failure as CapabilityFailure;
+      const canFallback = failure.allowFallback && index < candidates.length - 1;
+      if (canFallback) {
+        fallbackFrom = route.routeId;
+        continue;
+      }
+      const receipt = createReceipt({
+        decision, route, error:execution.error, failure, inputHash, startedAt,
+        routeAttempts, totalAttempts, fallbackFrom,
+        costUsd:hasKnownCost ? accumulatedCost : null,
+        completedAt:this.now().toISOString(),
+      });
+      await safelyRecord(this.onReceipt, receipt);
+      throw normalizeExecutionError(execution.error, decision, receipt, failure);
+    }
+    throw new Error('能力路线执行异常终止。');
   }
 }
 
-function isRecoverable(code: string, error: unknown): boolean {
-  if ((error as { retryable?: unknown })?.retryable === true) return true;
-  return [
-    'local_ai_control_unavailable',
-    'local_ai_gateway_unavailable',
-    'local_ai_failed',
-    'local_model_failed',
-    'local_model_timeout',
-    'service_disabled',
-    'service_start_timeout',
-    'qwen_server_unavailable',
-  ].includes(code);
+async function safelyRecord(
+  recorder: ((receipt: ExecutionReceipt) => void | Promise<void>) | undefined,
+  receipt: ExecutionReceipt,
+) {
+  if (!recorder) return;
+  try { await recorder(receipt); } catch { /* Observability must not change task outcome. */ }
 }
 
-function normalizeExecutionError(error: unknown, decision: PolicyDecision): Error {
+async function invokeRoute(
+  route: ResolvedCapabilityRoute,
+  request: CapabilityRequest,
+  payload: unknown,
+  options: Readonly<Record<string, unknown>>,
+): Promise<Readonly<{
+  result?: CapabilityAdapterResult;
+  error?: unknown;
+  failure?: CapabilityFailure;
+  attempts: number;
+  recovered: boolean;
+  failureCodes: readonly string[];
+}>> {
+  let attempts = 1;
+  const failureCodes: string[] = [];
+  try {
+    const result = await invokeAdapter(route, request, payload, options, attempts);
+    return { result, attempts, recovered:false, failureCodes:Object.freeze(failureCodes) };
+  } catch (error) {
+    let failure = classifyCapabilityFailure(error);
+    failureCodes.push(failure.code);
+    if (!failure.recoverCurrentRoute || !route.adapter.recover) {
+      return { error, failure, attempts, recovered:false, failureCodes:Object.freeze(failureCodes) };
+    }
+    let recovery: 'recovered' | 'unavailable' = 'unavailable';
+    try { recovery = await route.adapter.recover({ request, errorCode:failure.code }); } catch { recovery = 'unavailable'; }
+    if (recovery !== 'recovered') {
+      return { error, failure, attempts, recovered:false, failureCodes:Object.freeze(failureCodes) };
+    }
+    attempts += 1;
+    try {
+      const result = await invokeAdapter(route, request, payload, options, attempts);
+      return { result, attempts, recovered:true, failureCodes:Object.freeze(failureCodes) };
+    } catch (retryError) {
+      failure = classifyCapabilityFailure(retryError);
+      failureCodes.push(failure.code);
+      return { error:retryError, failure, attempts, recovered:true, failureCodes:Object.freeze(failureCodes) };
+    }
+  }
+}
+
+async function invokeAdapter(
+  route: ResolvedCapabilityRoute,
+  request: CapabilityRequest,
+  payload: unknown,
+  options: Readonly<Record<string, unknown>>,
+  attempt: number,
+): Promise<CapabilityAdapterResult> {
+  const result = await route.adapter.invoke({ request, payload, options, attempt });
+  const qualityResult = adapterQualityResult(result);
+  if (!qualityResult || qualityResult.passed === true) return result;
+  throw qualityResultError(result, qualityResult);
+}
+
+type AdapterQualityResult = Readonly<{
+  passed?: unknown;
+  status?: unknown;
+  gateId?: unknown;
+}>;
+
+function adapterQualityResult(result: CapabilityAdapterResult): AdapterQualityResult | null {
+  const candidate = (result as CapabilityAdapterResult & { qualityResult?: unknown }).qualityResult
+    ?? (result.output as { qualityResult?: unknown } | null)?.qualityResult;
+  return candidate && typeof candidate === 'object' ? candidate as AdapterQualityResult : null;
+}
+
+function qualityResultError(result: CapabilityAdapterResult, quality: AdapterQualityResult): Error {
+  const status = clean(quality.status, 80).toLowerCase();
+  const confirmed = ['failed', 'rejected', 'blocked'].includes(status);
+  const error = Object.assign(new Error('能力输出未通过质量门。'), {
+    code:confirmed ? 'capability_quality_failed' : 'capability_quality_ambiguous',
+    failureKind:confirmed ? 'quality_failed' : 'ambiguous_result',
+    ambiguous:!confirmed,
+    retryable:false,
+    provider:clean(result.provider, 120),
+    model:clean(result.model, 160) || null,
+    costUsd:finiteCost(result.costUsd),
+    qualityGateId:clean(quality.gateId, 160) || null,
+  });
+  return error;
+}
+
+function createReceipt(input: Readonly<{
+  decision: PolicyDecision;
+  route: ResolvedCapabilityRoute;
+  result?: CapabilityAdapterResult;
+  error?: unknown;
+  failure?: CapabilityFailure;
+  inputHash: string;
+  startedAt: string;
+  routeAttempts: readonly RouteAttemptReceipt[];
+  totalAttempts: number;
+  fallbackFrom: string | null;
+  costUsd: number | null;
+  completedAt: string;
+}>): ExecutionReceipt {
+  const outputHash = input.result ? hash(input.result.output) : null;
+  const outcome = input.failure?.outcome || 'success';
+  return Object.freeze({
+    schemaVersion:EXECUTION_RECEIPT_VERSION,
+    receiptId:`receipt:${hash({ requestId:input.decision.request.requestId, inputHash:input.inputHash, outputHash, outcome, completedAt:input.completedAt }).slice(0, 32)}`,
+    requestId:input.decision.request.requestId,
+    workflowId:input.decision.request.workflowId,
+    stepId:input.decision.request.stepId,
+    taskId:input.decision.request.taskId,
+    agentId:input.decision.request.agentId,
+    capabilityId:input.decision.request.capabilityId,
+    policyDecisionId:input.decision.decisionId,
+    routeId:input.route.routeId,
+    adapterId:clean(input.route.adapter.adapterId, 120),
+    provider:clean(input.result?.provider || (input.error as { provider?: unknown })?.provider || input.route.adapter.adapterId, 120),
+    model:clean(input.result?.model || (input.error as { model?: unknown })?.model, 160) || null,
+    inputHash:`sha256:${input.inputHash}`,
+    outputHash:outputHash ? `sha256:${outputHash}` : null,
+    outcome,
+    fallbackFrom:input.fallbackFrom,
+    routeAttempts:Object.freeze([...input.routeAttempts]),
+    attempts:input.totalAttempts,
+    totalAttempts:input.totalAttempts,
+    recovered:input.routeAttempts.some((attempt) => attempt.recovered),
+    failureCode:input.failure?.code || null,
+    costUsd:input.costUsd,
+    startedAt:input.startedAt,
+    completedAt:input.completedAt,
+  });
+}
+
+function normalizeExecutionError(error: unknown, decision: PolicyDecision, receipt: ExecutionReceipt, failure: CapabilityFailure): Error {
   const original = error instanceof Error ? error : new Error('能力执行失败。');
-  const code = clean((error as { code?: unknown })?.code, 120) || 'capability_execution_failed';
   return Object.assign(original, {
-    code,
-    category:code.includes('auth') || code.includes('credential') ? 'authorization' : 'capability_unavailable',
+    code:failure.code,
+    failureKind:failure.kind,
+    category:['authentication_failed', 'permission_denied'].includes(failure.kind) ? 'authorization' : 'capability_unavailable',
     retryable:false,
     policyDecision:decision,
-    userMessage:code.includes('auth') || code.includes('credential')
+    executionReceipt:receipt,
+    userMessage:['authentication_failed', 'permission_denied'].includes(failure.kind)
       ? '当前能力缺少有效授权。'
-      : '这项能力在自动恢复后仍不可用。',
+      : failure.outcome === 'ambiguous'
+        ? '这项能力的外部结果暂时无法确认，已停止重复提交。'
+        : '这项能力在有界恢复和备用路线后仍不可用。',
   });
 }
 

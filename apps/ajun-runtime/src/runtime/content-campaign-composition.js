@@ -17,6 +17,8 @@ export async function createContentCampaignComposition({
   environment,
   dataDir,
   contentWorkspaceDir,
+  taskRunEvents = null,
+  resolveTaskIdForPaperclipCase = null,
 }) {
   const budgetTicketAuthority = await LocalBudgetTicketAuthority.open(
     path.join(dataDir, 'm5-budget-ticket-ed25519.pem'),
@@ -57,7 +59,19 @@ export async function createContentCampaignComposition({
       publisher:publisherBindings.publisher,
       toolExecutor:new M5ToolExecutorRouter({
         publisherExecutor:publisherBindings.toolExecutor,
-        contentExecutor:new PaperclipContentToolExecutor({ adapter, budgetTicketAuthority }),
+        contentExecutor:new PaperclipContentToolExecutor({
+          adapter,
+          budgetTicketAuthority,
+          onRunEvent:async (event) => {
+            if (!taskRunEvents) return;
+            const resolvedTaskId = typeof resolveTaskIdForPaperclipCase === 'function'
+              ? await resolveTaskIdForPaperclipCase(event.taskId)
+              : null;
+            taskRunEvents.appendTaskRunEvent(resolvedTaskId
+              ? { ...event, taskId:resolvedTaskId, workflowId:event.taskId || event.workflowId }
+              : event);
+          },
+        }),
       }),
     });
     return campaignService;

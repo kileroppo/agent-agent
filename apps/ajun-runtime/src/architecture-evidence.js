@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-const MAX_TASK_EVIDENCE = 60;
+const MAX_TASK_EVIDENCE = 24;
 
 export function buildArchitectureGroundTruth({ agents = [], tasks = [], generatedAt = new Date().toISOString() } = {}) {
   const agentEvidence = agents

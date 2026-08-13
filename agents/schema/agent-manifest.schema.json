@@ -137,7 +137,12 @@
         "runtime": { "enum": ["hermes-profile"] },
         "directFeishu": { "enum": ["required", "disabled"] },
         "visibility": { "enum": ["on-demand", "always-visible"] },
-        "groupPolicy": { "enum": ["mention-only", "disabled"] }
+        "groupPolicy": { "enum": ["mention-only", "disabled"] },
+        "taskCardPolicy": {
+          "enum": ["disabled", "routed-task", "durable-task", "incident-only"],
+          "default": "disabled",
+          "description": "飞书任务卡触发策略；未配置时必须按 disabled 处理"
+        }
       },
       "additionalProperties": false
     },
@@ -262,10 +267,14 @@
     },
     "autonomyBudgetPolicy": {
       "type": "object",
-      "required": ["maxRuntimeMinutes", "maxModelCalls", "maxConcurrentSubtasks", "maxDelegationDepth", "paidApprovalThresholdUsd"],
+      "required": ["maxRuntimeMinutes", "maxModelCalls", "maxTurns", "reasoningEffort", "apiMaxRetries", "toolLoopHardStop", "maxConcurrentSubtasks", "maxDelegationDepth", "paidApprovalThresholdUsd"],
       "properties": {
         "maxRuntimeMinutes": { "type": "integer", "minimum": 1, "maximum": 60 },
         "maxModelCalls": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "maxTurns": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "reasoningEffort": { "enum": ["none", "low", "medium"] },
+        "apiMaxRetries": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "toolLoopHardStop": { "const": true },
         "maxConcurrentSubtasks": { "type": "integer", "minimum": 1, "maximum": 4 },
         "maxDelegationDepth": { "type": "integer", "minimum": 0, "maximum": 2 },
         "paidApprovalThresholdUsd": { "type": "number", "minimum": 0, "maximum": 5 }

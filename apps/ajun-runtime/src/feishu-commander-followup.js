@@ -76,6 +76,7 @@ import {
   safeAgentId,
   safeLoopbackBaseUrl,
 } from './feishu-commander-replies.js';
+import { isTaskExecutionClosedStatus } from './task-status-policy.js';
 
 export const feishuCommanderFollowupMethods = {
   async taskProgress(chatRef, { taskId = null, agentId = null } = {}) {
@@ -179,7 +180,7 @@ export const feishuCommanderFollowupMethods = {
     }
     const tasks = await this.store.list();
     const task = [...tasks]
-      .filter((item) => item.source?.channel === 'feishu' && item.source?.chatRef === chatRef && !item.parentTaskId && ['succeeded', 'failed', 'waiting_test', 'cancelled'].includes(item.status))
+      .filter((item) => item.source?.channel === 'feishu' && item.source?.chatRef === chatRef && !item.parentTaskId && isTaskExecutionClosedStatus(item.status))
       .sort((left, right) => taskTime(right) - taskTime(left))[0] || null;
     if (!task) return { kind:'task_feedback', reply:'这条会话里暂时没有刚完成的工作可以评价，我没有新建任何任务。' };
     const updated = await this.tasks.recordFeedback(task.taskId, { sentiment, note:text });

@@ -2,12 +2,15 @@ const BASE_BACKOFF_MS = 3_000;
 const MAX_BACKOFF_MS = 30_000;
 const MAX_UNAVAILABLE_POLLS = 5;
 import { validateTaskCompletion } from './task-completion-contract.js';
+import { prepareDeliveryQualityResult } from './workflow/delivery-quality-runtime.ts';
 
 export class XiaodReconciler {
   constructor({
     store,
     xiaod,
     governance = null,
+    deliveryQuality = null,
+    lifecycleEvents = null,
     onFailure = null,
     contentWorkspaceDir = null,
     now = () => Date.now(),
@@ -16,6 +19,8 @@ export class XiaodReconciler {
     this.store = store;
     this.xiaod = xiaod;
     this.governance = governance;
+    this.deliveryQuality = deliveryQuality;
+    this.lifecycleEvents = lifecycleEvents;
     this.onFailure = onFailure;
     this.contentWorkspaceDir = contentWorkspaceDir ? path.resolve(contentWorkspaceDir) : null;
     this.now = now;
@@ -76,7 +81,7 @@ export class XiaodReconciler {
         updatedAt: new Date(this.now()).toISOString(),
         polling: { state: ['running', 'pausing'].includes(status) ? 'watching' : 'settled', consecutiveFailures: 0, nextPollAt: ['running', 'pausing'].includes(status) ? new Date(this.now() + this.intervalMs).toISOString() : null }
       };
-      const patch = { status, currentStage: `xiaod_${job.status}`, execution };
+      let patch = { status, currentStage: `xiaod_${job.status}`, execution };
       if (job.status === 'awaiting_review') {
         const approvals = await this.store.listApprovals();
         let approval = approvals.find((item) => item.taskId === task.taskId && item.action === 'confirm-transcript-after-complete-listen' && item.status === 'pending');
@@ -127,10 +132,19 @@ export class XiaodReconciler {
             occurredAt:new Date(this.now()).toISOString(),
           };
         }
+        if (patch.status === 'succeeded' && this.deliveryQuality) {
+          patch = prepareDeliveryQualityResult(task, patch);
+          status = patch.status;
+        }
       }
       if (job.status === 'awaiting_delivery') patch.error = deliveryWaitFor(job);
       else if (status === 'failed' || status === 'needs_input') patch.error = failureFor(job);
-      const updated = await this.persist(task.taskId, patch);
+      let updated = await this.persist(task.taskId, patch);
+      if (this.deliveryQuality) {
+        const beforeQuality = structuredClone(updated);
+        updated = await this.deliveryQuality.continue(updated);
+        this.lifecycleEvents?.recordPersisted(updated, { previousTask:beforeQuality });
+      }
       if (status === 'failed') await this.coordinateFailure(updated);
     } catch (error) {
       if (String(error?.code || '').startsWith('m5_asset_')) {
@@ -180,11 +194,20 @@ export class XiaodReconciler {
   }
 
   async persist(taskId, patch) {
+    const previous = await this.getPersistedTask(taskId);
     let updated = await this.store.updateTask(taskId, patch);
     if (this.governance && updated.governance?.paperclipIssueId) {
       updated = await this.store.updateTask(taskId, { governance: await this.governance.update(updated) });
     }
+    this.lifecycleEvents?.recordPersisted(updated, { previousTask:previous });
     return updated;
+  }
+
+  async getPersistedTask(taskId) {
+    const task = typeof this.store.getTask === 'function'
+      ? await this.store.getTask(taskId)
+      : (await this.store.list()).find((item) => item.taskId === taskId) || null;
+    return task ? structuredClone(task) : null;
   }
 
   async coordinateFailure(task) {

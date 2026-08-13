@@ -6,6 +6,7 @@ import { evaluateHermesCostPolicy } from './hermes-cost-policy.js';
 import { agentCapabilityTruth } from './workflow/capability-truth.ts';
 import { buildTaskValidationOverview } from './task-validation-overview.ts';
 import { buildCapabilities } from './task-capability-overview.ts';
+import { isTaskExecutionClosedStatus } from './task-status-policy.js';
 export class TaskOverview {
   constructor({
     registry,
@@ -151,7 +152,7 @@ function safeWorkerStatus(source, tasks) {
 function withFeishuTaskEvidence(channel, agentId, tasks) {
   const verified = ['connected', 'external'].includes(channel.status) && (tasks || []).some((task) => task.source?.channel === 'feishu'
     && task.source?.targetAgentId === agentId
-    && ['succeeded', 'failed', 'waiting_test', 'cancelled'].includes(task.status));
+    && isTaskExecutionClosedStatus(task.status));
   return verified ? { ...channel, verified:true } : channel;
 }
 

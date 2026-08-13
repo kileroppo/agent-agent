@@ -13,6 +13,7 @@ export class TaskExecutionCoordinator {
     fallbackExecutorResolver = null,
     markFailureRecoveryPending = async (task) => task,
     startFailureRecovery = () => {},
+    prepareCompletion = (_task, result) => result,
   } = {}) {
     this.store = store;
     this.governance = governance;
@@ -22,6 +23,7 @@ export class TaskExecutionCoordinator {
     this.fallbackExecutorResolver = fallbackExecutorResolver || (() => this.fallbackExecutor);
     this.markFailureRecoveryPending = markFailureRecoveryPending;
     this.startFailureRecovery = startFailureRecovery;
+    this.prepareCompletion = prepareCompletion;
   }
 
   async execute(task, agent) {
@@ -48,7 +50,7 @@ export class TaskExecutionCoordinator {
     updated = await this.syncGovernance(updated);
     try {
       const rawResult = await executor.execute(routeOpenTaskForExecutor(updated, agent));
-      const result = enforceCompletionContract(updated, rawResult);
+      const result = await this.prepareCompletion(updated, enforceCompletionContract(updated, rawResult));
       updated = await this.store.updateTask(updated.taskId, {
         ...result,
         usage:recordTaskUsage({ task:updated, result, startedAt:executionStartedAt }),

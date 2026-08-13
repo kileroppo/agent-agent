@@ -3,6 +3,10 @@ import { formatOfficeBriefingReply } from './local-office-assistant.js';
 import { ValidationError } from './task-service-execution-support.js';
 import { validateTaskCompletion } from './task-completion-contract.js';
 import { wasVisualAnalysisUsed } from './local-content-artifacts.js';
+import {
+  isTaskNotificationTerminalStatus,
+  taskStatusLabel,
+} from './task-status-policy.js';
 
 export class TaskNotification {
   constructor({ store, registry, executors = {} }) {
@@ -74,8 +78,8 @@ function assertSameChat(task, chatRef) {
 }
 
 function technicalOrPausedStatus(root, chain) {
-  if (root.status === 'paused') return status(root, 'paused', true, `“${shortTaskTitle(root)}”已经暂停。你确认继续前，小D不会开始新的处理步骤。`);
-  if (root.status === 'pausing') return status(root, 'pausing', false, `“${shortTaskTitle(root)}”正在暂停。小D会先完成当前一步，再在安全位置停下；不会再开始新的步骤。`);
+  if (root.status === 'paused') return status(root, 'paused', isTaskNotificationTerminalStatus(root.status), `“${shortTaskTitle(root)}”已经暂停。你确认继续前，小D不会开始新的处理步骤。`);
+  if (root.status === 'pausing') return status(root, 'pausing', isTaskNotificationTerminalStatus(root.status), `“${shortTaskTitle(root)}”正在暂停。小D会先完成当前一步，再在安全位置停下；不会再开始新的步骤。`);
   const technical = latestTask(chain.filter((task) => task.taskType === 'operations.technical-repair'));
   if (!technical) return null;
   if (technical.status === 'waiting_test') {
@@ -174,7 +178,7 @@ function unfinishedStatus(root, current) {
   if (current.status === 'waiting_test') return status(root, 'waiting_test', true, `“${title}”本轮自动检查没有完成，已标为待测试。其他工作会继续推进；这项检查恢复后会按记录继续。`, current);
   if (current.status === 'needs_input') return status(root, 'needs_input', true, current.error?.userMessage || `“${title}”缺少必要信息，暂时不能继续。`, current);
   if (current.status === 'failed') return status(root, 'failed', true, `“${title}”没有完成：${current.error?.userMessage || '处理时遇到问题。'}`, current);
-  return status(root, current.status || 'unknown', false, `“${title}”已经登记，等待新的进度。`, current);
+  return status(root, current.status || 'unknown', isTaskNotificationTerminalStatus(current.status), `“${title}”已经登记，等待新的进度。`, current);
 }
 
 function status(root, state, terminal, message, sourceTask = root) {
@@ -251,7 +255,7 @@ async function missionNotification(task, { chain = [], approvals = [], xiaod = n
   const statuses = Array.isArray(report?.statuses) ? report.statuses.slice(0, 3) : [];
   const names = { xiaod:'小D', 'intel-researcher':'小R', 'office-assistant':'办公执行助理', 'video-content-analyst':'小拆', 'content-creator':'小创', operator:'运维官', architect:'架构师' };
   const lines = statuses.map((item) => `- ${names[item.employeeId] || item.employeeId || '待定员工'}：${missionStatusLabel(item.status)}｜${String(item.title || '未命名分工').replace(/\s+/g, ' ').slice(0, 120)}`);
-  const terminal = ['succeeded', 'failed', 'cancelled', 'needs_input', 'waiting_test'].includes(task.status);
+  const terminal = isTaskNotificationTerminalStatus(task.status);
   if (!report || !statuses.length) return status(task, task.status, terminal, `总任务“${shortTaskTitle(task)}”${terminal ? '已经停止推进，但统一汇总不可读；系统不会把它当作完整交付。' : '正在建立和分派员工工作。'}`);
   const briefing = report.decision?.briefing;
   const completed = statuses.filter((item) => item.status === 'succeeded').length;
@@ -293,7 +297,7 @@ async function missionNotification(task, { chain = [], approvals = [], xiaod = n
 }
 
 function missionStatusLabel(value) {
-  return ({ succeeded:'已完成', failed:'失败', needs_input:'等待补充信息', cancelled:'已取消', waiting_test:'等待验证', waiting_approval:'等待批准', running:'处理中', queued:'排队中', planned:'待开始' })[value] || String(value || '未知');
+  return taskStatusLabel(value);
 }
 
 function taskChain(tasks, rootTaskId) {

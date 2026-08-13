@@ -9,7 +9,9 @@ import { fileURLToPath } from 'node:url';
 import {
   AGENT_ARMY_REPOSITORY_ROOT,
   GOVERNANCE_HERMES_AGENT_IDS,
+  hermesRuntimePolicyForManifest,
   hermesProfileHome,
+  taskCardPolicyForManifest,
   usesPaperclipHermesExecution
 } from '../src/governance-hermes-runtime.js';
 
@@ -424,13 +426,16 @@ function mcpEnvironmentEntries(manifest) {
   const localAiCapabilities = Array.isArray(manifest.runtimeCapabilities?.localAiCapabilities)
     ? manifest.runtimeCapabilities.localAiCapabilities
     : [];
+  const taskCardPolicy = taskCardPolicyForManifest(manifest);
   return [
     `AGENT_ARMY_AGENT_ID=${agentId}`,
+    `AGENT_ARMY_PROFILE_ID=${agentId}`,
     `AGENT_ARMY_ALLOWED_AGENT_IDS=${agentId}`,
     `AGENT_ARMY_ALLOWED_TASK_TYPES=${manifest.acceptedTaskTypes.join(',')}`,
     `AGENT_ARMY_ALLOWED_MCP_TOOLS=${mcpTools.join(',')}`,
     `AGENT_ARMY_ALLOWED_LOCAL_AI_CAPABILITIES=${localAiCapabilities.join(',')}`,
     `AGENT_ARMY_ALLOW_MISSIONS=${mcpTools.includes('mission_create') ? 'true' : 'false'}`,
+    `AGENT_ARMY_TASK_CARD_POLICY=${taskCardPolicy}`,
     'PAPERCLIP_TASK_ID=${PAPERCLIP_TASK_ID}',
     'PAPERCLIP_RUN_ID=${PAPERCLIP_RUN_ID}',
     'PAPERCLIP_AGENT_ID=${PAPERCLIP_AGENT_ID}',
@@ -539,6 +544,8 @@ function profileSyncPlan({
   const currentMcp = normalizeMcpState(currentState?.mcp);
   const targetToolsets = sortedStrings(manifest.runtimeCapabilities?.feishuToolsets);
   const currentToolsets = sortedStrings(currentState?.feishuToolsets);
+  const targetRuntimePolicy = hermesRuntimePolicyForManifest(manifest);
+  const currentRuntimePolicy = normalizeRuntimePolicy(currentState?.runtimePolicy);
   const soul = {
     changed:currentSoul !== targetSoul,
     currentSha256:sha256Text(currentSoul),
@@ -546,6 +553,7 @@ function profileSyncPlan({
   };
   const mcp = mcpStateDiff(currentMcp, targetMcp);
   const toolsets = listDiff(currentToolsets, targetToolsets);
+  const runtimePolicy = runtimePolicyDiff(currentRuntimePolicy, targetRuntimePolicy);
   const currentFingerprint = profileSyncFingerprint({
     currentSoul,
     currentState,
@@ -554,6 +562,7 @@ function profileSyncPlan({
     ...(soul.changed ? ['SOUL'] : []),
     ...(mcp.changed ? ['MCP'] : []),
     ...(toolsets.changed ? ['toolset'] : []),
+    ...(runtimePolicy.changed ? ['runtime-policy'] : []),
   ];
   return {
     agentId,
@@ -566,10 +575,12 @@ function profileSyncPlan({
     targetMcp,
     currentToolsets,
     targetToolsets,
+    targetRuntimePolicy,
     currentFingerprint,
     soul,
     mcp,
     toolsets,
+    runtimePolicy,
     changedSections,
     changed:changedSections.length > 0,
   };
@@ -635,6 +646,7 @@ function profileSyncFingerprint({ currentSoul, currentState }) {
     soulSha256:sha256Text(currentSoul),
     mcp:normalizeMcpState(currentState?.mcp),
     feishuToolsets:sortedStrings(currentState?.feishuToolsets),
+    runtimePolicy:normalizeRuntimePolicy(currentState?.runtimePolicy),
   }));
 }
 
@@ -670,11 +682,17 @@ function normalizeMcpState(value) {
     timeout:Number(value?.timeout || 0),
     scope:{
       agentId:String(env.AGENT_ARMY_AGENT_ID || ''),
+      profileId:String(env.AGENT_ARMY_PROFILE_ID || ''),
+      profileIdPresent:typeof env.AGENT_ARMY_PROFILE_ID === 'string'
+        && env.AGENT_ARMY_PROFILE_ID.length > 0,
       allowedAgentIds:splitCsv(env.AGENT_ARMY_ALLOWED_AGENT_IDS),
       taskTypes:splitCsv(env.AGENT_ARMY_ALLOWED_TASK_TYPES),
       mcpTools:splitCsv(env.AGENT_ARMY_ALLOWED_MCP_TOOLS),
       localAiCapabilities:splitCsv(env.AGENT_ARMY_ALLOWED_LOCAL_AI_CAPABILITIES),
       allowMissions:String(env.AGENT_ARMY_ALLOW_MISSIONS || 'false') === 'true',
+      taskCardPolicy:String(env.AGENT_ARMY_TASK_CARD_POLICY || 'disabled'),
+      taskCardPolicyPresent:typeof env.AGENT_ARMY_TASK_CARD_POLICY === 'string'
+        && env.AGENT_ARMY_TASK_CARD_POLICY.length > 0,
     },
     paperclipContextPlaceholdersPresent:[
       'PAPERCLIP_TASK_ID',
@@ -688,6 +706,11 @@ function normalizeMcpState(value) {
 function mcpStateDiff(current, target) {
   const scope = {
     agentId:{ current:current.scope.agentId, target:target.scope.agentId },
+    profileId:{
+      current:current.scope.profileId,
+      target:target.scope.profileId,
+      present:current.scope.profileIdPresent,
+    },
     allowedAgentIds:listDiff(current.scope.allowedAgentIds, target.scope.allowedAgentIds),
     taskTypes:listDiff(current.scope.taskTypes, target.scope.taskTypes),
     mcpTools:listDiff(current.scope.mcpTools, target.scope.mcpTools),
@@ -696,17 +719,26 @@ function mcpStateDiff(current, target) {
       current:current.scope.allowMissions,
       target:target.scope.allowMissions,
     },
+    taskCardPolicy:{
+      current:current.scope.taskCardPolicy,
+      target:target.scope.taskCardPolicy,
+      present:current.scope.taskCardPolicyPresent,
+    },
   };
   const changed = current.enabled !== target.enabled
     || current.commandSha256 !== target.commandSha256
     || current.argsSha256 !== target.argsSha256
     || current.timeout !== target.timeout
     || current.scope.agentId !== target.scope.agentId
+    || current.scope.profileId !== target.scope.profileId
+    || !current.scope.profileIdPresent
     || scope.allowedAgentIds.changed
     || scope.taskTypes.changed
     || scope.mcpTools.changed
     || scope.localAiCapabilities.changed
     || current.scope.allowMissions !== target.scope.allowMissions
+    || current.scope.taskCardPolicy !== target.scope.taskCardPolicy
+    || !current.scope.taskCardPolicyPresent
     || !current.paperclipContextPlaceholdersPresent;
   return {
     changed,
@@ -743,6 +775,7 @@ function publicProfileSyncPlan(plan, mode) {
     soul:{ ...plan.soul },
     mcp:plan.mcp,
     toolsets:plan.toolsets,
+    runtimePolicy:plan.runtimePolicy,
     writesPerformed:mode === 'apply' && plan.changed,
     gatewayActions:0,
   };
@@ -922,6 +955,40 @@ async function applyProfileSyncPlan({ plan, run, fileSystem }) {
       run,
     });
   }
+  if (plan.runtimePolicy.changed) {
+    await applyRuntimePolicy({
+      profileHome:plan.profileHome,
+      target:plan.targetRuntimePolicy,
+      run,
+    });
+  }
+}
+
+async function applyRuntimePolicy({ profileHome, target, run }) {
+  const settings = [
+    ['agent.max_turns', target.agent.maxTurns],
+    ['agent.reasoning_effort', target.agent.reasoningEffort],
+    ['agent.api_max_retries', target.agent.apiMaxRetries],
+    ['tool_loop_guardrails.hard_stop_enabled', target.toolLoopGuardrails.hardStopEnabled],
+    ['compression.enabled', target.compression.enabled],
+    ['compression.threshold', target.compression.threshold],
+    ['compression.target_ratio', target.compression.targetRatio],
+    ['compression.protect_first_n', target.compression.protectFirstN],
+    ['compression.protect_last_n', target.compression.protectLastN],
+    ['memory.write_approval', target.memory.writeApproval],
+    ['memory.nudge_interval', target.memory.nudgeInterval],
+    ['sessions.auto_prune', target.sessions.autoPrune],
+    ['sessions.retention_days', target.sessions.retentionDays],
+    ['session_reset.mode', target.sessionReset.mode],
+    ['session_reset.idle_minutes', target.sessionReset.idleMinutes],
+    ['session_reset.notify', target.sessionReset.notify],
+  ];
+  for (const [key, value] of settings) {
+    await run(hermesCommand, ['config', 'set', '--force', key, String(value)], {
+      env:{ HERMES_HOME:profileHome },
+      input:'\n',
+    });
+  }
 }
 
 export async function setExactFeishuToolsets({
@@ -1054,7 +1121,57 @@ export async function readCurrentProfileState(profileHome, {
   return {
     mcp:state.mcp,
     feishuToolsets,
+    runtimePolicy:normalizeRuntimePolicy(state.runtimePolicy),
   };
+}
+
+function normalizeRuntimePolicy(value = {}) {
+  return {
+    agent:{
+      maxTurns:Number(value?.agent?.maxTurns || 500),
+      reasoningEffort:String(value?.agent?.reasoningEffort || 'medium'),
+      apiMaxRetries:Number(value?.agent?.apiMaxRetries ?? 3),
+    },
+    toolLoopGuardrails:{ hardStopEnabled:value?.toolLoopGuardrails?.hardStopEnabled === true },
+    compression:{
+      enabled:value?.compression?.enabled !== false,
+      threshold:Number(value?.compression?.threshold ?? 0.5),
+      targetRatio:Number(value?.compression?.targetRatio ?? 0.2),
+      protectFirstN:Number(value?.compression?.protectFirstN ?? 3),
+      protectLastN:Number(value?.compression?.protectLastN ?? 20),
+    },
+    memory:{
+      writeApproval:value?.memory?.writeApproval !== false,
+      nudgeInterval:Number(value?.memory?.nudgeInterval ?? 0),
+    },
+    sessions:{
+      autoPrune:value?.sessions?.autoPrune === true,
+      retentionDays:Number(value?.sessions?.retentionDays ?? 90),
+    },
+    sessionReset:{
+      mode:String(value?.sessionReset?.mode || 'none'),
+      idleMinutes:Number(value?.sessionReset?.idleMinutes ?? 1440),
+      notify:value?.sessionReset?.notify !== false,
+    },
+  };
+}
+
+function runtimePolicyDiff(current, target) {
+  const paths = [
+    'agent.maxTurns', 'agent.reasoningEffort', 'agent.apiMaxRetries',
+    'toolLoopGuardrails.hardStopEnabled',
+    'compression.enabled', 'compression.threshold', 'compression.targetRatio',
+    'compression.protectFirstN', 'compression.protectLastN',
+    'memory.writeApproval', 'memory.nudgeInterval',
+    'sessions.autoPrune', 'sessions.retentionDays',
+    'sessionReset.mode', 'sessionReset.idleMinutes', 'sessionReset.notify',
+  ];
+  const differences = paths.filter((item) => valueAtPath(current, item) !== valueAtPath(target, item));
+  return { changed:differences.length > 0, differences, current, target };
+}
+
+function valueAtPath(value, dottedPath) {
+  return dottedPath.split('.').reduce((current, key) => current?.[key], value);
 }
 
 function splitCsv(value) {

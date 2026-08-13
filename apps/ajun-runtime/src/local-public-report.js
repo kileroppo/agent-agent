@@ -51,7 +51,7 @@ export class LocalPublicReport {
               url:sourceUrl,
               input:{ sourceUrl },
             })
-          : await this.publicWebFetch.acquire({ sourceUrl }));
+          : await this.publicWebFetch.acquire({ sourceUrl, task }));
       } catch (error) {
         unavailableSources.push({
           source: publicSourceRef(sourceUrl),

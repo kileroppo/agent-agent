@@ -1,11 +1,10 @@
-import { DEFAULT_TASK_CAPABILITY_CATALOG } from './task-capability-catalog.js';
+import { DEFAULT_TASK_DEFINITION_REGISTRY } from './task-definition-registry.js';
 
 const OFFICE_AGENT_ID = 'office-assistant';
 const OFFICE_TASK_TYPE = 'office.briefing-package';
 const OFFICE_PRESENTATION_TASK_TYPE = 'office.presentation-package';
-const GITHUB_AGENT_ID = 'intel-researcher';
 const GITHUB_TASK_TYPE = 'research.github-search';
-const RESEARCH_TASK_TYPES = new Set(['army.intake', 'report.public-material', 'research.github-search', 'research.intel-report']);
+const RESEARCH_TASK_TYPES = new Set(DEFAULT_TASK_DEFINITION_REGISTRY.taskTypesForCategory('research-entry'));
 
 export function canonicalizeBusinessAssignment(input = {}, { index = 0 } = {}) {
   const title = text(input.title);
@@ -30,7 +29,7 @@ export function canonicalizeBusinessAssignment(input = {}, { index = 0 } = {}) {
     || (officeDeliverable && (dependsOnPrevious || index > 0 || referencesPriorWork));
   const explicitGithubResearch = RESEARCH_TASK_TYPES.has(requestedTaskType)
     && /(?:github|git\s*hub|开源项目|开源仓库)/i.test(combined);
-  const fixedAgentId = DEFAULT_TASK_CAPABILITY_CATALOG.fixedAgentId(normalizedTaskType);
+  const fixedAgentId = DEFAULT_TASK_DEFINITION_REGISTRY.fixedAgentId(normalizedTaskType);
 
   if (fixedAgentId) {
     return {
@@ -51,7 +50,7 @@ export function canonicalizeBusinessAssignment(input = {}, { index = 0 } = {}) {
       description,
       acceptance,
       taskType:explicitGithubResearch ? GITHUB_TASK_TYPE : requestedTaskType,
-      agentId:explicitGithubResearch ? GITHUB_AGENT_ID : requestedAgentId,
+      agentId:explicitGithubResearch ? DEFAULT_TASK_DEFINITION_REGISTRY.defaultAgentId(GITHUB_TASK_TYPE) : requestedAgentId,
       dependsOnPrevious
     };
   }

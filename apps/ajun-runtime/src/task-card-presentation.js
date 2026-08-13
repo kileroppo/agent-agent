@@ -1,9 +1,11 @@
 import crypto from 'node:crypto';
 import { presentTask } from './task-presentation.js';
 import { sanitizeFailureText } from './technical-failure-classifier.js';
+import { DEFAULT_TASK_DEFINITION_REGISTRY } from './task-definition-registry.js';
+import { isTaskCardTerminalStatus } from './task-status-policy.js';
 
 export const TASK_CARD_SCHEMA_VERSION = 'agent.army/task-card/v1';
-const TASK_CARD_RENDER_REVISION = 'card-ux3';
+const TASK_CARD_RENDER_REVISION = 'card-ux4';
 
 const ACTION_LABELS = Object.freeze({
   approve:'批准',
@@ -12,13 +14,21 @@ const ACTION_LABELS = Object.freeze({
   resume:'继续任务',
 });
 const ALLOWED_ACTIONS = new Set(Object.keys(ACTION_LABELS));
-const TERMINAL_STATES = new Set(['succeeded', 'failed', 'cancelled', 'rejected']);
+const TERMINAL_STATES = new Set(['rejected']);
 
 /**
  * Build the public, deterministic task-card projection. This function is pure:
  * callers provide approval and recovery views instead of granting it store access.
  */
-export function presentTaskCard(task = {}, { approvals = [], recoveryView = null, owner = null } = {}) {
+export function presentTaskCard(task = {}, {
+  approvals = [],
+  recoveryView = null,
+  owner = null,
+  agentId = null,
+  profileId = null,
+  chatId = null,
+  taskCardPolicy = null,
+} = {}) {
   const relevantApprovals = taskApprovals(task, approvals);
   const pendingApproval = relevantApprovals.find((approval) => approval?.status === 'pending') || null;
   const presentation = presentTask(task, { approvals:relevantApprovals, recoveryView });
@@ -28,6 +38,11 @@ export function presentTaskCard(task = {}, { approvals = [], recoveryView = null
   const projection = {
     schemaVersion:TASK_CARD_SCHEMA_VERSION,
     taskId:safeIdentifier(task.taskId) || null,
+    agentId:cardAgentId(task, agentId),
+    profileId:cardProfileId(task, profileId),
+    chatId:cardChatId(task, chatId),
+    taskCardPolicy:cardPolicy(taskCardPolicy || task?.source?.taskCardPolicy),
+    taskKind:safeIdentifier(task?.input?.taskType || task?.taskType) || null,
     taskRef:presentation.taskRef,
     title:publicText(task.input?.title || task.title, 160) || '未命名任务',
     state,
@@ -35,16 +50,42 @@ export function presentTaskCard(task = {}, { approvals = [], recoveryView = null
     summary:taskCardCopy.summary,
     owner:ownerLabel(owner, task),
     nextAction:taskCardCopy.nextAction,
+    details:taskDetails(task),
     primaryLink:deliveryLink(task),
     actions:cardActions({ task, pendingApproval, recoveryView, state }),
     sourceRevision:sourceRevision(task, relevantApprovals, recoveryView, updatedAt),
-    terminal:TERMINAL_STATES.has(state),
+    terminal:TERMINAL_STATES.has(state) || isTaskCardTerminalStatus(state),
     updatedAt,
   };
   return {
     ...projection,
     contentHash:hashProjection(projection),
   };
+}
+
+function taskDetails(task) {
+  const taskType = safeIdentifier(task?.input?.taskType || task?.taskType);
+  return {
+    taskType:DEFAULT_TASK_DEFINITION_REGISTRY.taskLabel(taskType) || '军团任务',
+    createdAt:validTimestamp(task?.createdAt) || null,
+  };
+}
+
+function cardAgentId(task, value) {
+  return safeIdentifier(value || task?.source?.targetAgentId) || null;
+}
+
+function cardProfileId(task, value) {
+  return safeIdentifier(value || task?.source?.profileId) || null;
+}
+
+function cardChatId(task, value) {
+  return safeIdentifier(value || task?.source?.chatRef) || null;
+}
+
+function cardPolicy(value) {
+  const policy = safeIdentifier(value);
+  return ['disabled', 'routed-task', 'durable-task', 'incident-only'].includes(policy) ? policy : null;
 }
 
 function deliveryLink(task) {
@@ -141,7 +182,7 @@ function cardActions({ task, pendingApproval, recoveryView, state }) {
 
   // A paused task can expose resume only when the supplied recovery view explicitly
   // authorizes it. Terminal tasks never retain stale controls.
-  if (TERMINAL_STATES.has(state)) return [];
+  if (TERMINAL_STATES.has(state) || isTaskCardTerminalStatus(state)) return [];
   return actions.filter((item) => ALLOWED_ACTIONS.has(item.action)).slice(0, 4);
 }
 

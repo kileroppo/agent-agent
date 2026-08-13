@@ -1,5 +1,9 @@
 import { assertContentAutonomyApprovalSnapshot } from './content-autonomy-plugin-snapshot.js';
 import { assertM5BudgetCoverage } from './m5-budget-cost-contract.js';
+import {
+  externalCapabilityEvidence,
+  runExternalCapabilityWithEvents,
+} from './adapters/external-capability-run-event-bridge.ts';
 
 const CONTENT_PLUGIN_ID = 'agent-army.content-autonomy';
 const CONTENT_TOOL_PREFIX = `${CONTENT_PLUGIN_ID}:`;
@@ -78,12 +82,14 @@ const FORBIDDEN_TOP_LEVEL_AUTHORIZATION = new Set([
 ]);
 
 export class PaperclipContentToolExecutor {
-  constructor({ adapter, budgetTicketAuthority = null } = {}) {
+  constructor({ adapter, budgetTicketAuthority = null, onRunEvent = null, now = () => new Date() } = {}) {
     if (!adapter?.companyId || typeof adapter.request !== 'function') {
       throw new PaperclipContentToolExecutorError('内容插件执行器缺少 Paperclip 适配器。');
     }
     this.adapter = adapter;
     this.budgetTicketAuthority = budgetTicketAuthority;
+    this.onRunEvent = typeof onRunEvent === 'function' ? onRunEvent : null;
+    this.now = now;
   }
 
   async execute(input = {}, authentication = {}) {
@@ -103,33 +109,48 @@ export class PaperclipContentToolExecutor {
       });
     };
     if (!PAID_CONTENT_TOOLS.has(toolId)) return executeTool();
-    return this.withBudgetGate(context.runContext, async () => {
-      const maximumCostCents = await this.maximumPaidCallCost(toolId, parameters);
-      const scopes = await this.assertPaperclipBudget(context.runContext, maximumCostCents);
-      if (!this.budgetTicketAuthority?.sign) {
-        throw new PaperclipContentToolExecutorError(
-          'A君预算票据签发器不可用，Provider 未调用。',
-          'paperclip_budget_ticket_unavailable',
+    return runExternalCapabilityWithEvents({
+      onRunEvent:this.onRunEvent,
+      now:this.now,
+      context:{
+        taskId:context.targetCaseId,
+        workflowId:context.campaignCaseId,
+        stepId:String(context.targetCase?.stageKey || toolId.slice(CONTENT_TOOL_PREFIX.length)),
+        agentId:context.runContext.agentId,
+        capabilityId:paidCapabilityId(toolId),
+        routeId:'paperclip-content-plugin-stepfun',
+        provider:'stepfun',
+      },
+      execute:() => this.withBudgetGate(context.runContext, async () => {
+        const maximumCostCents = await this.maximumPaidCallCost(toolId, parameters);
+        const scopes = await this.assertPaperclipBudget(context.runContext, maximumCostCents);
+        if (!this.budgetTicketAuthority?.sign) {
+          throw new PaperclipContentToolExecutorError(
+            'A君预算票据签发器不可用，Provider 未调用。',
+            'paperclip_budget_ticket_unavailable',
+          );
+        }
+        const budgetTicket = this.budgetTicketAuthority.sign({
+          run:context.runContext,
+          actionId:parameters.actionId,
+          operation:paidOperation(toolId),
+          maximumCostCents,
+          parameters,
+          scopes,
+        });
+        const routed = await this.dispatch(
+          toolId,
+          { ...parameters, budgetTicket },
+          context.runContext,
         );
-      }
-      const budgetTicket = this.budgetTicketAuthority.sign({
-        run:context.runContext,
-        actionId:parameters.actionId,
-        operation:paidOperation(toolId),
-        maximumCostCents,
-        parameters,
-        scopes,
-      });
-      const routed = await this.dispatch(
-        toolId,
-        { ...parameters, budgetTicket },
-        context.runContext,
-      );
-      return this.resolveExecutionResult({
-        toolId,
-        routed,
-        runContext:context.runContext,
-      });
+        return this.resolveExecutionResult({
+          toolId,
+          routed,
+          runContext:context.runContext,
+        });
+      }),
+      evidence:externalCapabilityEvidence,
+      hasRegisteredFallback:false,
     });
   }
 
@@ -144,10 +165,10 @@ export class PaperclipContentToolExecutor {
     const blocked = this.budgetGateBlocks?.get(key);
     if (blocked) {
       release();
-      throw new PaperclipContentToolExecutorError(
+      throw markAmbiguousPaidCall(new PaperclipContentToolExecutorError(
         `Paperclip 预算门闩因上一笔付费调用状态不确定而关闭（${blocked}）；核对费用账本后再恢复。`,
         'paperclip_budget_gate_blocked',
-      );
+      ));
     }
     try {
       return await operation();
@@ -155,6 +176,7 @@ export class PaperclipContentToolExecutor {
       if (ambiguousPaidCall(error)) {
         if (!this.budgetGateBlocks) this.budgetGateBlocks = new Map();
         this.budgetGateBlocks.set(key, String(error.code || 'paid_call_ambiguous'));
+        markAmbiguousPaidCall(error);
       }
       throw error;
     } finally {
@@ -430,7 +452,14 @@ export class PaperclipContentToolExecutor {
         'cost_event_confirmation_ambiguous',
       );
     }
-    return executionView(toolId, CONTENT_PLUGIN_ID, confirmed);
+    const view = executionView(toolId, CONTENT_PLUGIN_ID, confirmed);
+    return {
+      ...view,
+      costCommit:{
+        ...view.costCommit,
+        costEvent:{ provider:costEvent.provider, costCents:costEvent.costCents },
+      },
+    };
   }
 
   async performCostAction(action, params) {
@@ -549,6 +578,14 @@ function paidOperation(toolId) {
   if (toolId.endsWith(':stepfun-image-generate')) return 'image_generate';
   if (toolId.endsWith(':stepfun-image-edit')) return 'image_edit';
   if (toolId.endsWith(':stepfun-tts')) return 'tts';
+  throw new PaperclipContentToolExecutorError('该工具不是受支持的StepFun付费工具。');
+}
+
+function paidCapabilityId(toolId) {
+  if (toolId.endsWith(':stepfun-vision')) return 'vision.analyze';
+  if (toolId.endsWith(':stepfun-image-generate')) return 'image.generate';
+  if (toolId.endsWith(':stepfun-image-edit')) return 'image.edit';
+  if (toolId.endsWith(':stepfun-tts')) return 'tts.synthesize';
   throw new PaperclipContentToolExecutorError('该工具不是受支持的StepFun付费工具。');
 }
 
@@ -813,6 +850,15 @@ function ambiguousPaidCall(error) {
     'cost_event_confirmation_ambiguous',
     'cost_event_receipt_mismatch',
   ]).has(error?.code);
+}
+
+function markAmbiguousPaidCall(error) {
+  if (error && typeof error === 'object') {
+    error.outcome = 'ambiguous';
+    error.ambiguous = true;
+    error.failureKind = 'ambiguous_result';
+  }
+  return error;
 }
 
 function safeText(value, maxLength) {

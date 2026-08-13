@@ -2,10 +2,16 @@ import { formatPublicReportReply } from './public-report-presentation.js';
 import { formatOfficeBriefingReply } from './local-office-assistant.js';
 import { resolveAnalysisIntent } from './analysis-intent.ts';
 import { validateTaskCompletion } from './task-completion-contract.js';
+import { DEFAULT_TASK_DEFINITION_REGISTRY } from './task-definition-registry.js';
+import { taskStatusLabel as canonicalTaskStatusLabel, taskStatusPriority } from './task-status-policy.js';
+
+export { safeAgentId, safeLoopbackBaseUrl, safeRef } from './feishu-commander-input.js';
+export { employeeCapabilityTruth, employeeRole } from './feishu-employee-status-presentation.js';
 
 export const CREATE_AGENT_RE = /(?:创建|新建|招募|招)\s*(?:一个\s*)?.{0,80}?(?:agent|智能体|岗位|助手)/i;
 export const PROGRESS_RE = /进度|进展|做到哪|处理得怎么样|完成了吗|结果呢|任务状态/;
 export const EXPLICIT_TASK_CREATION_RE = /(?:创建|新建|发起|安排)\s*(?:一个|一项|个|项)?\s*(?:测试)?任务/i;
+export const EXPLICIT_NO_TASK_RE = /(?:不要|不用|无需|不需要|禁止|别)\s*(?:创建|新建|发起|安排)\s*(?:一个|一项|个|项)?\s*(?:测试)?任务/i;
 export const TASK_ROUTING_DECISION_SCHEMA_VERSION = 'agent.army/feishu-task-routing-decision/v1';
 export const USAGE_RE = /花了多少|花费|成本|费用|消耗|用量|token|账单|开销|实际使用/i;
 export const FOLLOW_UP_RE = /^(?:需要|处理|继续|好的|好|行|可以|开始)$/;
@@ -43,25 +49,13 @@ export function explicitTaskCreationPlan(text) {
   return null;
 }
 
-const TASK_TYPE_BY_INTENT = Object.freeze({
-  health_check:'operations.health-review',
-  media_task:'media.transcribe-and-refine',
-  public_report:'report.public-material',
-  github_search:'research.github-search',
-  intel_research:'research.intel-report',
-  office_presentation:'office.presentation-package',
-  office_briefing:'office.briefing-package',
-  architecture_review:'governance.architecture-review',
-  army_planning:'governance.architecture-review',
-  intake:'army.intake',
-});
-
 export function taskTypeForIntent(intent) {
-  return TASK_TYPE_BY_INTENT[intent] || 'army.intake';
+  return DEFAULT_TASK_DEFINITION_REGISTRY.taskTypeForIntent(intent);
 }
 
 export function taskRoutingDecision(text) {
   const value = String(text || '').trim();
+  if (isDirectReplyWithoutTask(value)) return null;
   const asksHowToCreate = /(?:如何|怎么|怎样|能否|可以|是否).{0,24}(?:创建|新建|发起|安排).{0,12}任务/i.test(value);
   if (EXPLICIT_TASK_CREATION_RE.test(value) && !asksHowToCreate) {
     const plan = explicitTaskCreationPlan(value) || { intent:'intake' };
@@ -87,6 +81,12 @@ export function taskRoutingDecision(text) {
     reason:query.taskId ? 'task_id_reference' : 'progress_query',
     query,
   };
+}
+
+export function isDirectReplyWithoutTask(text) {
+  const value = String(text || '').trim();
+  if (!EXPLICIT_NO_TASK_RE.test(value)) return false;
+  return /(?:直接|只(?:需|要)?)(?:在(?:当前|本)?会话)?回复|(?:不要|不用|无需|不需要|禁止|别)\s*(?:调用|使用)\s*(?:任何)?工具/i.test(value);
 }
 
 export function directIntent(text) {
@@ -464,55 +464,13 @@ export function feedbackSentiment(text) {
 
 export function taskTime(task) { return Date.parse(task.updatedAt || task.createdAt || 0) || 0; }
 export function workerName(task) {
-  if (task.taskType === 'report.public-material') return '公开资料报告员';
-  if (task.taskType === 'research.github-search') return '小R';
-  if (task.taskType === 'research.intel-report') return '小R';
-  if (task.taskType === 'office.briefing-package') return '办公执行助理';
-  if (task.taskType === 'office.presentation-package') return '小办';
-  if (task.taskType === 'office.knowledge-summary') return '小办';
-  if (['content.video-benchmark-analysis', 'content.performance-review'].includes(task.taskType)) return '小拆';
-  if (task.taskType === 'content.platform-draft') return '小创';
-  if (task.taskType === 'content.video-script-package') return '小创';
-  if (task.taskType === 'media.transcribe-and-refine') return '小D';
-  if (task.taskType === 'operations.health-review') return '运维官';
-  if (task.taskType === 'governance.architecture-review') return '架构师';
-  if (task.taskType === 'governance.approval-review') return '审核官';
-  if (task.assigneeAgentId === 'technical-expert') return '技术专家';
-  return '负责的员工';
+  return DEFAULT_TASK_DEFINITION_REGISTRY.workerName(task) || '负责的员工';
 }
 
 export function shortTitle(task) { return String(task.input?.title || '未命名任务').replace(/\s+/g, ' ').slice(0, 48); }
 export function uniqueTasks(tasks) { return [...new Map(tasks.map((task) => [shortTitle(task), task])).values()]; }
 
 export function isVisibleEmployee(agent) { return agent.agentId !== 'creator'; }
-
-export function employeeRole(agent) {
-  const roles = {
-    xiaod: '负责整理公开视频和音频',
-    'public-reporter': '负责读取公开网页并写中文报告',
-    'intel-researcher': '负责围绕主题综合公开资料并给行动建议',
-    'office-assistant': '负责把材料和员工结果整理成办公汇报包',
-    'video-content-analyst': '负责基于确认稿拆解视频内容和复盘表现',
-    'content-creator': '负责根据正式分析生成可审核平台草稿',
-    operator: '负责检查运行情况和恢复异常',
-    reviewer: '负责把关需要你确认的事项',
-    architect: '负责评估能力缺口和下一步',
-    'technical-expert': '负责排查和修复技术问题',
-    creator: '负责准备新员工草案'
-  };
-  return roles[agent.agentId] || agent.role || '负责已分配的工作';
-}
-
-export function employeeCapabilityTruth(agent) {
-  return ({
-    human_accepted:'能力已人工验收',
-    verified:'能力已有真实任务证据',
-    live:'运行可达，业务能力待验证',
-    configured:'已配置，运行与业务能力待验证',
-    declared:'岗位已登记，能力尚未验证',
-    not_declared:'能力尚未接入',
-  })[agent?.capabilityTruth?.overall] || '能力状态待核对';
-}
 
 export function formatGithubReply(data) {
   if (data.repo) return [`【小R 已读取公开仓库】`, `${data.repo} · ${data.path}`, '', data.summary || '没有可提炼的文本要点。', '', `来源：${data.source || `https://github.com/${data.repo}`}`].join('\n');
@@ -573,10 +531,10 @@ export function shouldShowInReport(task, byId) {
   return parent?.taskType !== 'army.cross-agent-mission';
 }
 
-export function taskPriority(status) { return ({ waiting_approval:0, needs_input:1, failed:2, waiting_test:3, pausing:4, paused:5, running:6, queued:7 })[status] ?? 8; }
+export function taskPriority(status) { return taskStatusPriority(status); }
 
 export function taskStatusLabel(status) {
-  return ({ succeeded:'已完成', running:'处理中', queued:'等待开始', waiting_approval:'等你确认', needs_input:'缺少信息', waiting_test:'待测试', failed:'未完成', paused:'已暂停', pausing:'正在暂停', cancelled:'已关闭' })[status] || '状态待更新';
+  return canonicalTaskStatusLabel(status) || '状态待更新';
 }
 export function taskUsageTime(task) {
   const value = task.usage?.recordedAt || task.updatedAt || task.createdAt;
@@ -612,17 +570,4 @@ export function capabilityMenuIntent(text, context) {
 
 export function publicUrl(text) {
   return String(text).match(/https?:\/\/[^\s<>"'，。；：！？、【】（）《》“”‘’]+/i)?.[0]?.replace(/[)\]},.;]+$/, '') || null;
-}
-export function safeRef(value) { return String(value || '').trim().slice(0, 240) || null; }
-export function safeAgentId(value) {
-  const agentId = String(value || '').trim();
-  return /^[a-z0-9][a-z0-9-]{0,63}$/i.test(agentId) ? agentId : null;
-}
-export function safeLoopbackBaseUrl(value) {
-  if (!value) return null;
-  try {
-    const parsed = new URL(value);
-    if (!['127.0.0.1', 'localhost', '::1'].includes(parsed.hostname)) return null;
-    return parsed.toString().replace(/\/$/, '');
-  } catch { return null; }
 }

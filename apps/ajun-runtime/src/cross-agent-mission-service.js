@@ -1,4 +1,8 @@
 import { canonicalizeBusinessAssignment } from './business-task-routing.js';
+import {
+  isTaskNotificationTerminalStatus,
+  taskStatusLabel,
+} from './task-status-policy.js';
 
 export class CrossAgentMissionService {
   constructor({ tasks, store, governance } = {}) { this.tasks = tasks; this.store = store; this.governance = governance; }
@@ -112,6 +116,7 @@ export class CrossAgentMissionService {
         context:{
           ...(subtask.context || {}),
           missionTaskId:mission.taskId,
+          parentApprovalId:mission.approvalRefs?.[0] || null,
           parentPaperclipIssueId:parentIssueId,
           missionSafeOnly:plan.safeOnly === true,
           dependsOn:dependencyKeys,
@@ -135,7 +140,7 @@ export class CrossAgentMissionService {
         if (child && (child.status !== 'waiting_approval' || attemptedApprovalResume.has(subtask.key))) return false;
         return dependenciesFor(plan.subtasks, subtask).every((key) => {
           const dependency = childByKey.get(key);
-          return dependency && isTerminal(dependency.status);
+          return dependency && isTaskNotificationTerminalStatus(dependency.status);
         });
       });
       if (!ready.length) break;
@@ -282,7 +287,7 @@ function normalizeBusinessContext(value) {
 function missionState(children, plannedCount) {
   const allCreated = children.length === plannedCount;
   const allDone = allCreated && children.every((item) => item.status === 'succeeded');
-  const allTerminal = allCreated && children.every((item) => isTerminal(item.status));
+  const allTerminal = allCreated && children.every((item) => isTaskNotificationTerminalStatus(item.status));
   if (allDone) return { status:'succeeded', stage:'mission_delivered', allDone, allTerminal:true };
   if (!allTerminal) {
     const waitingApproval = children.some((item) => item.status === 'waiting_approval');
@@ -312,10 +317,6 @@ function businessDecision(statuses, children, state) {
       nextAction:clean(office.nextAction, 500)
     } : null
   };
-}
-
-function isTerminal(status) {
-  return ['succeeded', 'failed', 'cancelled', 'needs_input', 'waiting_test', 'paused'].includes(status);
 }
 
 function isActivelyRunning(status) {
@@ -359,7 +360,7 @@ function containsHighRisk(value) {
 }
 
 function statusLabel(status) {
-  return ({ succeeded:'已完成', failed:'失败', needs_input:'等待补充信息', cancelled:'已取消', waiting_test:'等待验证', waiting_approval:'等待批准', waiting_worker:'等待 Mac工作间上线', running:'处理中', queued:'排队中', planned:'待开始' })[status] || status;
+  return taskStatusLabel(status);
 }
 
 function clean(value, limit) {

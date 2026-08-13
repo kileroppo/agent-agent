@@ -147,7 +147,8 @@
     "runtime": "hermes-profile",
     "directFeishu": "required",
     "visibility": "always-on",
-    "groupPolicy": "mention-only"
+    "groupPolicy": "mention-only",
+    "taskCardPolicy": "durable-task"
   },
   "executionOwner": "paperclip-hermes",
   "openTaskPolicy": {
@@ -162,7 +163,11 @@
   },
   "autonomyBudgetPolicy": {
     "maxRuntimeMinutes": 60,
-    "maxModelCalls": 20,
+    "maxModelCalls": 12,
+    "maxTurns": 12,
+    "reasoningEffort": "low",
+    "apiMaxRetries": 1,
+    "toolLoopHardStop": true,
     "maxConcurrentSubtasks": 4,
     "maxDelegationDepth": 2,
     "paidApprovalThresholdUsd": 5

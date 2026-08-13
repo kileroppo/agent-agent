@@ -10,10 +10,15 @@ import {
   M5_STEPFUN_MODELS,
   normalizeM5Sha256,
 } from '@agent-army/m5-contracts';
-export class ValidationError extends Error {}
+import {
+  isPaperclipCompletionTaskStatus,
+  isTaskExecutionClosedStatus,
+} from './task-status-policy.js';
+export { ValidationError } from './task-validation-error.js';
+import { ValidationError } from './task-validation-error.js';
 
 export function isTerminalTask(task) {
-  return ['succeeded', 'failed', 'cancelled', 'waiting_test'].includes(task?.status);
+  return isTaskExecutionClosedStatus(task?.status);
 }
 
 export function validatedM5StagePluginData(stageKey, expectedArtifactKind, result) {
@@ -499,6 +504,10 @@ export function trustedRoleToolScope({
     ),
   ).map((candidate) => candidate.taskId);
   return Object.freeze({
+    currentTaskId:currentTaskId || null,
+    currentAgentId:String(task?.assigneeAgentId || '').trim() || null,
+    currentWorkflowId:String(task?.workflow?.workflowId || '').trim() || null,
+    currentStepId:String(task?.workflow?.step?.stepId || task?.currentStage || '').trim() || null,
     allowedTaskIds:Object.freeze(allowedTaskIds),
     paperclipIssueId:String(paperclipIssueId || '').trim() || null,
     paperclipRunId:String(paperclipRunId || '').trim() || null,
@@ -724,8 +733,8 @@ export function storedPaperclipEmployeeResult(task) {
       verified:false,
       recommendedCompletionStatus:'running',
       continuePolling:true,
-      pollAfterSeconds:3,
-      message:'当前岗位的本机工作仍在执行；请再次调用 employee_assignment_execute 获取真实状态。',
+      pollAfterSeconds:30,
+      message:'当前岗位的本机工作仍在执行；服务端会先等待结果，超时后再查询即可。',
       artifacts:[],
     };
   }
@@ -734,7 +743,7 @@ export function storedPaperclipEmployeeResult(task) {
       status:String(execution.status || execution.recommendedCompletionStatus || 'waiting_test'),
       currentStage:task.currentStage,
       verified:execution.verified === true,
-      recommendedCompletionStatus:['succeeded', 'failed', 'waiting_test'].includes(execution.recommendedCompletionStatus)
+      recommendedCompletionStatus:isPaperclipCompletionTaskStatus(execution.recommendedCompletionStatus)
         ? execution.recommendedCompletionStatus
         : 'waiting_test',
       error:task.error || null,
@@ -805,7 +814,7 @@ export function contentGrowthArtifactVerified(task, artifact, { expectedProjectI
 export function storedContentGrowthResult(task) {
   const execution = task?.execution?.contentGrowth;
   if (execution?.state !== 'settled') return null;
-  const recommendedCompletionStatus = ['succeeded', 'failed', 'waiting_test'].includes(execution.recommendedCompletionStatus)
+  const recommendedCompletionStatus = isPaperclipCompletionTaskStatus(execution.recommendedCompletionStatus)
     ? execution.recommendedCompletionStatus
     : 'waiting_test';
   return {

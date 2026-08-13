@@ -289,11 +289,13 @@ def _safe_mcp_state(config: dict) -> dict | None:
 
     scope_keys = {
         "AGENT_ARMY_AGENT_ID",
+        "AGENT_ARMY_PROFILE_ID",
         "AGENT_ARMY_ALLOWED_AGENT_IDS",
         "AGENT_ARMY_ALLOWED_TASK_TYPES",
         "AGENT_ARMY_ALLOWED_MCP_TOOLS",
         "AGENT_ARMY_ALLOWED_LOCAL_AI_CAPABILITIES",
         "AGENT_ARMY_ALLOW_MISSIONS",
+        "AGENT_ARMY_TASK_CARD_POLICY",
     }
     context_keys = {
         "PAPERCLIP_TASK_ID",
@@ -307,11 +309,14 @@ def _safe_mcp_state(config: dict) -> dict | None:
         if not isinstance(raw_value, (str, int, float, bool)):
             continue
         value = str(raw_value)
-        if key == "AGENT_ARMY_AGENT_ID":
+        if key in {"AGENT_ARMY_AGENT_ID", "AGENT_ARMY_PROFILE_ID"}:
             if re.fullmatch(r"[a-z][a-z0-9-]{0,63}", value):
                 safe_env[key] = value
         elif key == "AGENT_ARMY_ALLOW_MISSIONS":
             if value in {"true", "false"}:
+                safe_env[key] = value
+        elif key == "AGENT_ARMY_TASK_CARD_POLICY":
+            if value in {"disabled", "routed-task", "durable-task", "incident-only"}:
                 safe_env[key] = value
         else:
             names = [item.strip() for item in value.split(",") if item.strip()]
@@ -332,6 +337,47 @@ def _safe_mcp_state(config: dict) -> dict | None:
     }
 
 
+def _safe_runtime_policy(config: dict) -> dict:
+    agent = config.get("agent") if isinstance(config.get("agent"), dict) else {}
+    guardrails = config.get("tool_loop_guardrails") if isinstance(config.get("tool_loop_guardrails"), dict) else {}
+    compression = config.get("compression") if isinstance(config.get("compression"), dict) else {}
+    memory = config.get("memory") if isinstance(config.get("memory"), dict) else {}
+    sessions = config.get("sessions") if isinstance(config.get("sessions"), dict) else {}
+    session_reset = config.get("session_reset") if isinstance(config.get("session_reset"), dict) else {}
+    raw_effort = agent.get("reasoning_effort", "")
+    reasoning_effort = "none" if raw_effort is False else str(raw_effort or "medium")
+    return {
+        "agent": {
+            "maxTurns": int(agent.get("max_turns", 500)),
+            "reasoningEffort": reasoning_effort,
+            "apiMaxRetries": int(agent.get("api_max_retries", 3)),
+        },
+        "toolLoopGuardrails": {
+            "hardStopEnabled": guardrails.get("hard_stop_enabled") is True,
+        },
+        "compression": {
+            "enabled": compression.get("enabled") is not False,
+            "threshold": float(compression.get("threshold", 0.5)),
+            "targetRatio": float(compression.get("target_ratio", 0.2)),
+            "protectFirstN": int(compression.get("protect_first_n", 3)),
+            "protectLastN": int(compression.get("protect_last_n", 20)),
+        },
+        "memory": {
+            "writeApproval": memory.get("write_approval") is not False,
+            "nudgeInterval": int(memory.get("nudge_interval", 0)),
+        },
+        "sessions": {
+            "autoPrune": sessions.get("auto_prune") is True,
+            "retentionDays": int(sessions.get("retention_days", 90)),
+        },
+        "sessionReset": {
+            "mode": str(session_reset.get("mode") or "none"),
+            "idleMinutes": int(session_reset.get("idle_minutes", 1440)),
+            "notify": session_reset.get("notify") is not False,
+        },
+    }
+
+
 def _inspect() -> None:
     try:
         config = _load_without_output()
@@ -341,6 +387,7 @@ def _inspect() -> None:
             state={
                 "mcp": _safe_mcp_state(config),
                 "feishuToolsets": _current_feishu_toolsets(config),
+                "runtimePolicy": _safe_runtime_policy(config),
             },
         )
     except SystemExit:

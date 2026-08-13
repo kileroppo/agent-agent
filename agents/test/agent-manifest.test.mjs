@@ -188,7 +188,8 @@ test("治理岗位保留独立 Hermes 身份，只有运维官常驻飞书入口
       runtime:"hermes-profile",
       directFeishu:alwaysOnGovernanceAgentIds.includes(agentId) ? "required" : "disabled",
       visibility:"on-demand",
-      groupPolicy:"mention-only"
+      groupPolicy:"mention-only",
+      ...(agentId === "operator" ? { taskCardPolicy:"incident-only" } : {})
     });
     assert.equal(manifest.executionOwner, "paperclip-hermes");
     assert.ok(manifest.runtimeCapabilities.skills.includes("paperclip"));
@@ -224,6 +225,37 @@ test("治理岗位保留独立 Hermes 身份，只有运维官常驻飞书入口
     assert.ok(profile.mcp.tools.includes("paperclip_assignment_complete"));
     assert.deepEqual(profile.toolAllowlist, manifest.toolAllowlist);
     assert.equal(profile.secrets.valuesStoredHere, false);
+  }
+});
+
+test("飞书任务卡策略由 Manifest 声明，未配置岗位默认关闭", async () => {
+  const schema = await readJson(path.join(repositoryRoot, "agents/schema/agent-manifest.schema.json"));
+  const policySchema = schema.properties.interaction.properties.taskCardPolicy;
+  assert.deepEqual(policySchema.enum, ["disabled", "routed-task", "durable-task", "incident-only"]);
+  assert.equal(policySchema.default, "disabled");
+  assert.ok(!schema.properties.interaction.required.includes("taskCardPolicy"));
+
+  const expectedPolicies = new Map([
+    ["ajun", "routed-task"],
+    ["xiaod", "durable-task"],
+    ["intel-researcher", "durable-task"],
+    ["office-assistant", "durable-task"],
+    ["operator", "incident-only"]
+  ]);
+  const entries = await readdir(path.join(repositoryRoot, "agents"), { withFileTypes:true });
+  for (const entry of entries.filter((item) => item.isDirectory())) {
+    const filePath = path.join(repositoryRoot, "agents", entry.name, "manifest.json");
+    try {
+      const manifest = await readJson(filePath);
+      const expected = expectedPolicies.get(manifest.agentId) ?? "disabled";
+      assert.equal(
+        manifest.interaction?.taskCardPolicy ?? policySchema.default,
+        expected,
+        `${manifest.agentId} 飞书任务卡策略不符合约定`
+      );
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
   }
 });
 
@@ -486,13 +518,21 @@ test("11 个自主岗位统一明确 DeepSeek 模型，私密只读岗位仅开�
         "paid-action",
         "permission-expansion"
       ]);
-      assert.deepEqual(manifest.autonomyBudgetPolicy, {
-        maxRuntimeMinutes:60,
-        maxModelCalls:20,
-        maxConcurrentSubtasks:4,
-        maxDelegationDepth:2,
-        paidApprovalThresholdUsd:5
-      });
+      const expectedRuntime = {
+        ajun:[20, "low"],
+        operator:[8, "none"],
+        xiaod:[12, "low"],
+        "office-assistant":[12, "low"]
+      }[manifest.agentId] || [16, "medium"];
+      assert.equal(manifest.autonomyBudgetPolicy.maxModelCalls, expectedRuntime[0]);
+      assert.equal(manifest.autonomyBudgetPolicy.maxTurns, expectedRuntime[0]);
+      assert.equal(manifest.autonomyBudgetPolicy.reasoningEffort, expectedRuntime[1]);
+      assert.equal(manifest.autonomyBudgetPolicy.apiMaxRetries, 1);
+      assert.equal(manifest.autonomyBudgetPolicy.toolLoopHardStop, true);
+      assert.equal(manifest.autonomyBudgetPolicy.maxRuntimeMinutes, 60);
+      assert.equal(manifest.autonomyBudgetPolicy.maxConcurrentSubtasks, 4);
+      assert.equal(manifest.autonomyBudgetPolicy.maxDelegationDepth, 2);
+      assert.equal(manifest.autonomyBudgetPolicy.paidApprovalThresholdUsd, 5);
       assert.ok(
         manifest.acceptedTaskTypes.some((taskType) => taskType.endsWith("-program")
           || taskType.endsWith("-production")

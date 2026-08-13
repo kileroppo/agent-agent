@@ -30,9 +30,17 @@ import { PaperclipPublisherRunContextError } from './paperclip-publisher-run-con
 import { PaperclipRetrospectiveError } from './paperclip-retrospective.js';
 import { PublicWebFetchError } from './public-web-fetch.js';
 import { OfficialFeishuCompletionWatcherError } from './official-feishu-completion-watcher.js';
-import { presentCommanderReply, presentTaskStatus, resolveTaskCardAction } from './runtime-http-feishu.js';
-import { registerSourceCompletionWatch } from './source-completion-watch.js';
+import { assertTaskCardOwnership, presentCommanderReply, presentTaskStatus, resolveTaskCardAction } from './runtime-http-feishu.js';
+import {
+  createMissionHttpResult,
+  createTaskHttpResult,
+} from './contracts/agent-army-adapter-projection.js';
 import { ValidationError } from './task-service.js';
+import { AgentArmyTaskInputError } from './contracts/agent-army-task-input.js';
+import {
+  normalizeMissionHttpInput,
+  normalizeTaskHttpInput,
+} from './contracts/agent-army-http-input.js';
 import { dispatchBoomSignal } from '@agent-army/boom-monitor';
 import { routeBoomMonitorApi } from './boom-monitor/index.js';
 
@@ -80,6 +88,7 @@ export function createAjunHttpHandler({
     xiaod,
     boomMonitor,
     boomMonitorEnabled,
+    taskTimeline,
   } = work;
   const {
     employeeFeishuConnections,
@@ -223,6 +232,21 @@ export function createAjunHttpHandler({
         const audience = isLocalAddress(request.socket.remoteAddress) ? 'local-owner' : 'lan';
         return sendJson(response, 200, await tasks.listTaskRecords(Object.fromEntries(taskRecordUrl.searchParams.entries()), { audience }));
       }
+      const taskTimelineUrl = request.method === 'GET' && request.url?.startsWith('/api/tasks/')
+        ? new URL(request.url, 'http://127.0.0.1')
+        : null;
+      const taskTimelineMatch = taskTimelineUrl?.pathname.match(/^\/api\/tasks\/([0-9a-f-]{36})\/timeline$/i);
+      if (taskTimelineMatch) {
+        const task = await store.getTask(taskTimelineMatch[1]);
+        if (!task) return sendJson(response, 404, { error:'没有找到这条任务。' });
+        const audience = isLocalAddress(request.socket.remoteAddress) ? 'local-owner' : 'lan';
+        return sendJson(response, 200, await taskTimeline.read(task.taskId, {
+          audience,
+          cursor:taskTimelineUrl.searchParams.get('cursor'),
+          limit:taskTimelineUrl.searchParams.get('limit'),
+          filters:taskTimelineUrl.searchParams.getAll('filter'),
+        }));
+      }
       if (request.method === 'GET' && request.url === '/api/local-ai/control') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'AI 能力控制只能由老板在本机查看。' });
         if (!localAi) return sendJson(response, 503, { error:'本机 AI 控制入口尚未接入。' });
@@ -348,13 +372,15 @@ export function createAjunHttpHandler({
       if (request.method === 'POST' && request.url === '/api/feishu/task-status') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'飞书任务状态只能由本机 Hermes 适配器读取。' });
         const input = await readJsonBody(request);
-        const taskId = String(input.taskId || '');
-        const notification = await tasks.notificationStatus(taskId, String(input.chatRef || ''));
+        const taskId = String(input.taskId || '').trim();
         const task = (await store.list()).find((item) => item.taskId === taskId);
+        const cardIdentity = assertTaskCardOwnership(task, input);
+        const chatRef = String(input.chatId || input.chatRef || '').trim();
+        const notification = await tasks.notificationStatus(taskId, chatRef);
         return sendJson(response, 200, presentTaskStatus(
           notification,
           task,
-          task ? await loadTaskCardContext({ store, tasks }, task) : {},
+          { ...(await loadTaskCardContext({ store, tasks }, task)), ...cardIdentity },
         ));
       }
       if (request.method === 'POST' && request.url === '/api/feishu/task-card-actions') {
@@ -393,6 +419,7 @@ export function createAjunHttpHandler({
 
       const assignmentRoutes = new Map([
         ['/api/mcp/paperclip-assignment', ['getPaperclipAssignment', 'Paperclip 指派只能由本机 Hermes MCP 读取。']],
+        ['/api/mcp/local-ai-run-event', ['recordPaperclipLocalAiRunEvent', '本机 AI 运行事件只能由本机 Hermes MCP 写入。']],
         ['/api/mcp/paperclip-assignment/complete', ['completePaperclipAssignment', 'Paperclip 指派结果只能由本机 Hermes MCP 回报。']],
         ['/api/mcp/agent-proposal-execute', ['executeAgentProposalAssignment', '岗位草案只能由本机创建官 Hermes MCP 创建。']],
         ['/api/mcp/technical-repair-execute', ['executeTechnicalRepairAssignment', '受控技术修复只能由本机技术专家 Hermes MCP 调用。']],
@@ -454,11 +481,10 @@ export function createAjunHttpHandler({
       if (request.method === 'POST' && request.url === '/api/tasks') {
         const input = await readJsonBody(request);
         if (!isLocalAddress(request.socket.remoteAddress) && !String(input.requesterName || '').trim()) throw new ValidationError('局域网协作者请先填写自己的称呼。');
-        const task = await tasks.create(input);
-        const completionWatch = await registerSourceCompletionWatch(task, hermesNativeCompletionWatcher, {
-          completionDelivery:input.completionDelivery,
-        });
-        return sendJson(response, 201, { task, completionWatch });
+        return sendJson(response, 201, await createTaskHttpResult(normalizeTaskHttpInput(input), {
+          tasks,
+          completionWatcher:hermesNativeCompletionWatcher,
+        }));
       }
       if (request.method === 'GET' && request.url === '/api/integrations/boom-monitor/health') {
         if (boomMonitorEnabled !== false) return sendJson(response, 503, { error:'旧版爆款雷达回滚桥仅在 native writer 已关闭时开放。' });
@@ -498,11 +524,10 @@ export function createAjunHttpHandler({
       if (request.method === 'POST' && request.url === '/api/mcp/missions') {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'Hermes MCP 多人任务只能由本机调用。' });
         const input = await readJsonBody(request);
-        const result = await missions.createBusinessMission(input);
-        const completionWatch = await registerSourceCompletionWatch(result, hermesNativeCompletionWatcher, {
-          completionDelivery:input.completionDelivery,
-        });
-        return sendJson(response, 201, { ...result, completionWatch });
+        return sendJson(response, 201, await createMissionHttpResult(normalizeMissionHttpInput(input), {
+          missions,
+          completionWatcher:hermesNativeCompletionWatcher,
+        }));
       }
       const rejectMatch = request.url?.match(/^\/api\/approvals\/([0-9a-f-]+)\/reject$/i);
       if (request.method === 'POST' && rejectMatch) {
@@ -587,6 +612,7 @@ export function createAjunHttpHandler({
       if (request.method === 'GET' && publicPath === '/task-record-filter.js') return sendFile(response, publicDir, 'task-record-filter.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && publicPath === '/task-record-detail-view.js') return sendFile(response, publicDir, 'task-record-detail-view.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && publicPath === '/task-record-workbench.js') return sendFile(response, publicDir, 'task-record-workbench.js', 'text/javascript; charset=utf-8');
+      if (request.method === 'GET' && publicPath === '/task-timeline-view.js') return sendFile(response, publicDir, 'task-timeline-view.js', 'text/javascript; charset=utf-8');
       if (request.method === 'GET' && publicPath === '/styles.css') return sendFile(response, publicDir, 'styles.css', 'text/css; charset=utf-8');
       return sendJson(response, 404, { error:'未找到该入口。' });
     } catch (error) {
@@ -600,7 +626,14 @@ async function loadTaskCardContext({ store, tasks }, task) {
     store.listApprovals(),
     tasks.recoveryView(task),
   ]);
-  return { approvals, recoveryView };
+  return {
+    approvals,
+    recoveryView,
+    agentId:String(task?.source?.targetAgentId || '').trim() || null,
+    profileId:String(task?.source?.profileId || '').trim() || null,
+    chatId:String(task?.source?.chatRef || '').trim() || null,
+    taskCardPolicy:String(task?.source?.taskCardPolicy || '').trim() || null,
+  };
 }
 
 export function createOwnerActionSession({ clock = () => Date.now(), ttlMs = OWNER_ACTION_NONCE_TTL_MS } = {}) {
@@ -703,6 +736,7 @@ function errorStatus(error) {
     || error instanceof MacWorkerBridgeError
     || error instanceof EmployeeFeishuConnectionError
     || error instanceof HermesModelSetupError
+    || error instanceof AgentArmyTaskInputError
     || error instanceof AccessConnectionError
     || error instanceof ContentCampaignError
     || error instanceof M5PublisherBindingError
