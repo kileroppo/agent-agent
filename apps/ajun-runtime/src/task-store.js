@@ -14,6 +14,7 @@ import {
   interruptedTaskExecutionPatch,
   isWorkerTaskClaimable,
 } from './task-lifecycle.js';
+import { isExactLegacyMaturityContentBlock, isExactWaitingMaturityMissionRetry } from './maturity-legacy-content-retry.ts';
 
 export class TaskStore {
   constructor(filePath) { this.filePath = filePath; this.pendingMutation = Promise.resolve(); }
@@ -79,6 +80,54 @@ export class TaskStore {
       if (!task) throw new Error('找不到要更新的任务。');
       Object.assign(task, applyTaskStatusPatch(task, patch, { approvals:data.approvals }), { updatedAt: new Date().toISOString() });
       await this.write(data); return task;
+    });
+  }
+
+  async compareAndSwapQueuedTaskContext(taskId, { expectedContext, nextContext } = {}) {
+    return this.mutate(async () => {
+      const data = await this.read(); const task = data.tasks.find((item) => item.taskId === taskId);
+      if (!task) throw new Error('找不到要更新的任务。');
+      if (task.status !== 'queued'
+        || JSON.stringify(task.input?.context || null) !== JSON.stringify(expectedContext || null)) {
+        return { task, updated:false };
+      }
+      task.input = { ...(task.input || {}), context:nextContext };
+      task.updatedAt = new Date().toISOString();
+      await this.write(data);
+      return { task, updated:true };
+    });
+  }
+
+  async compareAndSwapLegacyMaturityContentRetry(taskId, { expectedTask } = {}) {
+    return this.mutate(async () => {
+      const data = await this.read(); const task = data.tasks.find((item) => item.taskId === taskId);
+      if (!task) throw new Error('找不到要重试的任务。');
+      if (!isExactLegacyMaturityContentBlock(task)
+        || JSON.stringify(task) !== JSON.stringify(expectedTask)) {
+        return { task, retried:false };
+      }
+      Object.assign(task, applyTaskStatusPatch(task, {
+        status:'queued', attempt:task.attempt + 1, currentStage:'queued_for_execution',
+        execution:undefined, error:undefined,
+      }, { approvals:data.approvals }), { updatedAt:new Date().toISOString() });
+      await this.write(data);
+      return { task, retried:true };
+    });
+  }
+
+  async compareAndSwapMaturityMissionRetry(taskId, { expectedTask } = {}) {
+    return this.mutate(async () => {
+      const data = await this.read(); const task = data.tasks.find((item) => item.taskId === taskId);
+      if (!task) throw new Error('找不到要重试的总任务。');
+      if (!isExactWaitingMaturityMissionRetry(task)
+        || JSON.stringify(task) !== JSON.stringify(expectedTask)) {
+        return { task, retried:false };
+      }
+      Object.assign(task, applyTaskStatusPatch(task, {
+        status:'queued', attempt:2, currentStage:'queued_for_execution', execution:undefined,
+      }, { approvals:data.approvals }), { updatedAt:new Date().toISOString() });
+      await this.write(data);
+      return { task, retried:true };
     });
   }
 

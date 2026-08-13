@@ -5,7 +5,7 @@ import {
   inspectOpenTaskManifestCapabilities,
   recoverIntelResearchOpenTaskState,
   routeOpenTaskForExecutor
-} from '../src/open-task-routing.js';
+} from '../src/open-task-routing.ts';
 
 test('开放复杂任务无状态路由到岗位专用执行器且不生成第二控制面标记', () => {
   const agent = {

@@ -20,11 +20,13 @@ export class PublicWebFetch {
     if (!contentType.includes('text/html') && !contentType.startsWith('text/plain')) throw new PublicWebFetchError('unsupported_content_type', '当前公开网页能力只读取 HTML 或纯文本。');
     const raw = await limitedText(response);
     const title = contentType.includes('html') ? decode((raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '')).trim() : null;
-    const text = contentType.includes('html') ? htmlToText(raw) : raw.trim();
+    const text = contentType.includes('html')
+      ? htmlToText(raw, { fragment:new URL(source.url).hash.slice(1) })
+      : raw.trim();
     if (!text) throw new PublicWebFetchError('empty_content', '公开页面没有可用正文。');
     return {
       schemaVersion: 'agent.army/public-web-content/v1', sourceRef: safeSourceRef(source.url),
-      title: title?.slice(0, 500) || null, text: text.slice(0, 30000), truncated: raw.length >= MAX_BYTES,
+      title: title?.slice(0, 500) || null, text: text.slice(0, 30000), truncated: raw.length >= MAX_BYTES || text.length > 30000,
       contentHash: crypto.createHash('sha256').update(raw).digest('hex'),
       fetchedAt: new Date().toISOString(), validation: { exists: true, readable: true, accessScope: 'public_read' }
     };
@@ -88,9 +90,11 @@ async function limitedText(response) {
   return new TextDecoder().decode(concat(chunks));
 }
 function concat(chunks) { const size = chunks.reduce((sum, item) => sum + item.byteLength, 0); const out = new Uint8Array(size); let offset = 0; for (const item of chunks) { out.set(item, offset); offset += item.byteLength; } return out; }
-export function htmlToText(html) {
-  const body = String(html || '')
-    .replace(/<(script|style|noscript|svg|template)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+export function htmlToText(html, { fragment = '' } = {}) {
+  const sanitized = String(html || '')
+    .replace(/<(head|script|style|noscript|svg|template)[^>]*>[\s\S]*?<\/\1>/gi, ' ');
+  const body = primaryContent(sanitized, fragment)
+    .replace(/<(header|nav|aside|footer)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
     .replace(/<(br|\/p|\/div|\/section|\/article|\/main|\/li|\/h[1-6]|\/blockquote)[^>]*>/gi, '\n')
     .replace(/<li[^>]*>/gi, '\n- ')
     .replace(/<[^>]+>/g, ' ');
@@ -99,6 +103,22 @@ export function htmlToText(html) {
     .map((line) => line.replace(/\s+/g, ' ').trim())
     .filter(Boolean)
     .join('\n');
+}
+function primaryContent(html, fragment) {
+  const fragmentIndex = elementWithIdIndex(html, fragment);
+  if (fragmentIndex >= 0) {
+    const sectionIndex = html.toLowerCase().lastIndexOf('<section', fragmentIndex);
+    return html.slice(sectionIndex >= 0 ? sectionIndex : fragmentIndex);
+  }
+  const main = /<(?:main|article)\b[^>]*>|<[^>]+\brole\s*=\s*(?:"main"|'main'|main)(?=[\s>])[^>]*>/i.exec(html);
+  return main ? html.slice(main.index) : html;
+}
+function elementWithIdIndex(html, fragment) {
+  const id = String(fragment || '').trim();
+  if (!id || id.length > 300) return -1;
+  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = new RegExp(`<[^>]+\\bid\\s*=\\s*(?:"${escaped}"|'${escaped}'|${escaped})(?=[\\s>])[^>]*>`, 'i').exec(html);
+  return match?.index ?? -1;
 }
 function decode(value) { return value.replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&quot;/gi, '"').replace(/&#39;/gi, "'"); }
 function safeSourceRef(value) { const parsed = new URL(value); return `${parsed.protocol}//${parsed.host}${parsed.pathname}`; }

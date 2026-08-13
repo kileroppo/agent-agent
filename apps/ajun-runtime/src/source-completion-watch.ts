@@ -3,22 +3,22 @@ export const HERMES_DYNAMIC_CARD_DELIVERY = Object.freeze({
   owner:'hermes_gateway',
 });
 
-export function normalizeCompletionDelivery(value) {
+export function normalizeCompletionDelivery(value: any) {
   if (value?.mode !== HERMES_DYNAMIC_CARD_DELIVERY.mode
     || value?.owner !== HERMES_DYNAMIC_CARD_DELIVERY.owner) return null;
   return HERMES_DYNAMIC_CARD_DELIVERY;
 }
 
-export function dynamicCardAnchorAcknowledged(value) {
+export function dynamicCardAnchorAcknowledged(value: any) {
   return Boolean(normalizeCompletionDelivery(value)
     && value?.anchorEstablished === true
     && String(value?.deliveryId || value?.messageId || '').trim());
 }
 
-export async function registerSourceCompletionWatch(result, watcher, {
+export async function registerSourceCompletionWatch(result: any, watcher: any, {
   completionDelivery,
   anchorAcknowledgement = null,
-} = {}) {
+}: any = {}) {
   const task = result?.task || result?.mission || result;
   const taskId = String(task?.taskId || '').trim();
   const channel = String(task?.source?.channel || '').trim();

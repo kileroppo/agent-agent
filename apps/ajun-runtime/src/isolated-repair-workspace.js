@@ -30,23 +30,24 @@ export class IsolatedRepairWorkspace {
     const taskKey = safeTaskKey(task?.taskId);
     if (!taskKey) throw new Error('修复任务缺少安全编号，未建立修理副本。');
     const scope = validateRepairScope(task);
-    const workspace = path.join(this.parentDir, taskKey);
-    assertInside(workspace, this.parentDir);
-    await this.fs.mkdir(this.parentDir, { recursive:true });
+    const parentDir = acceptanceParent(task, this.projectRoot) || this.parentDir;
+    const workspace = path.join(parentDir, taskKey);
+    assertInside(workspace, parentDir);
+    await this.fs.mkdir(parentDir, { recursive:true });
     if (await exists(this.fs, workspace)) {
-      await this.assertReusableWorkspace(taskKey, scope, workspace);
+      await this.assertReusableWorkspace(taskKey, scope, workspace, parentDir);
       return { workspace, reused:true };
     }
     await this.execFile('git', ['worktree', 'add', '--detach', workspace, 'HEAD'], { cwd:this.projectRoot });
-    await this.assertWorkspaceGitIdentity(workspace);
+    await this.assertWorkspaceGitIdentity(workspace, parentDir);
     await this.overlayScopedFiles(scope, workspace, taskKey);
     if (this.verifySourceRoot) await this.verifySourceRoot();
     return { workspace, reused:false };
   }
 
-  async assertReusableWorkspace(taskKey, scope, workspace) {
-    await assertCanonicalDirectory(this.fs, workspace, this.parentDir);
-    await this.assertWorkspaceGitIdentity(workspace);
+  async assertReusableWorkspace(taskKey, scope, workspace, parentDir = this.parentDir) {
+    await assertCanonicalDirectory(this.fs, workspace, parentDir);
+    await this.assertWorkspaceGitIdentity(workspace, parentDir);
     const snapshotPath = path.join(workspace, '.agent-army-repair-snapshot.json');
     await assertSafeRegularFile(this.fs, workspace, snapshotPath);
     let snapshot;
@@ -65,8 +66,8 @@ export class IsolatedRepairWorkspace {
     }
   }
 
-  async assertWorkspaceGitIdentity(workspace) {
-    await assertCanonicalDirectory(this.fs, workspace, this.parentDir);
+  async assertWorkspaceGitIdentity(workspace, parentDir = this.parentDir) {
+    await assertCanonicalDirectory(this.fs, workspace, parentDir);
     const marker = path.join(workspace, '.git');
     await assertSafeRegularFile(this.fs, workspace, marker, { allowDirectory:true });
     const topLevel = await this.execFile(
@@ -116,6 +117,14 @@ export class IsolatedRepairWorkspace {
     }
     await this.fs.writeFile(path.join(workspace, '.agent-army-repair-snapshot.json'), `${JSON.stringify(snapshot)}\n`);
   }
+}
+
+function acceptanceParent(task, projectRoot) {
+  const requested = String(task?.input?.context?.acceptanceWorkspaceRoot || '').trim();
+  if (!requested) return null;
+  const expected = path.join(projectRoot, 'work', 'acceptance-runs');
+  if (path.resolve(requested) !== expected) throw new Error('验收修理副本目录不在固定 work/acceptance-runs 范围内。');
+  return expected;
 }
 
 function safeTaskKey(taskId) {

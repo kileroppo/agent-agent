@@ -1,4 +1,4 @@
-import { registerSourceCompletionWatch } from '../source-completion-watch.js';
+import { registerSourceCompletionWatch } from '../source-completion-watch.ts';
 import { presentTaskCard } from '../task-card-presentation.js';
 import { projectTaskNotification } from '../task-notification-projection.js';
 import { formatTaskPresentation } from '../task-presentation.js';

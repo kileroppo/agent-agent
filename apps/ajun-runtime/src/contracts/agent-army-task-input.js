@@ -2,8 +2,8 @@ import crypto from 'node:crypto';
 import { z } from 'zod';
 
 import { resolveAnalysisIntent } from '../analysis-intent.ts';
-import { canonicalizeBusinessAssignment } from '../business-task-routing.js';
-import { normalizeCompletionDelivery } from '../source-completion-watch.js';
+import { canonicalizeBusinessAssignment } from '../business-task-routing.ts';
+import { normalizeCompletionDelivery } from '../source-completion-watch.ts';
 import { DEFAULT_TASK_DEFINITION_REGISTRY } from '../task-definition-registry.js';
 
 const analysisIntentSchema = z.enum(['digest', 'deep', 'template', 'style']);

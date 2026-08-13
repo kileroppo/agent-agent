@@ -510,7 +510,7 @@ export function artifactExecutionView(item) {
     data:item.data
   };
 }
-import { isVerifiedVideoAnalysisArtifact } from './task-completion-contract.js';
+import { isVerifiedVideoAnalysisArtifact } from './task-completion-contract.ts';
 
 export function contentGrowthArtifactVerified(task, artifact, { expectedProjectId = null } = {}) {
   const readable = artifact?.validation?.exists === true

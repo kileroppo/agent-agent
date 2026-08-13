@@ -1,4 +1,5 @@
 import http from 'node:http';
+import path from 'node:path';
 import { loadLanShareKey } from './lan-access.js';
 import { createAjunHttpHandler } from './runtime-http-handler.js';
 import { resolveRuntimeSourceRoot } from './runtime-source-root.js';
@@ -8,9 +9,11 @@ import { createFeishuCommandComposition } from './runtime/feishu-command-composi
 import { createLocalExecutionComposition } from './runtime/local-execution-composition.js';
 import { createPaperclipSystemControlComposition } from './runtime/paperclip-system-control-composition.js';
 import { createRoleExecutionComposition } from './runtime/role-execution-composition.js';
+import { readProductMaturityRuntimeBoundary } from './runtime/product-maturity-runtime-boundary.ts';
 import { createRuntimeConfiguration } from './runtime/runtime-configuration.js';
 import { createRuntimeStateComposition } from './runtime/runtime-state-composition.js';
-
+import { CapabilityAcceptanceBundle } from './workflow/capability-acceptance-bundle.ts';
+import { MissionChildPolicy } from './workflow/mission-child-policy.ts';
 export async function createRuntime({
   environment = process.env,
   logger = console,
@@ -50,6 +53,9 @@ export async function createRuntime({
       paperclipCurrentRunScope,
       publisherBindings:m5PublisherBindings,
     } = contentCampaign;
+    const missionChildPolicy = await MissionChildPolicy.open({
+      keyPath:path.join(paths.privateDir, 'product-maturity-child-policy.key'),
+    });
     const localExecution = createLocalExecutionComposition({
       configuration,
       store:runtimeState.store,
@@ -75,6 +81,7 @@ export async function createRuntime({
       localAi:localExecution.localAi,
       taskRunEvents:runtimeState.taskRunEvents,
       port:network.port,
+      missionChildPolicy,
     });
     const {
       tasks,
@@ -90,7 +97,19 @@ export async function createRuntime({
       localExecution,
       tasks,
       roleExecution,
+      missionChildPolicy,
       logger,
+    });
+    const productMaturity = new CapabilityAcceptanceBundle({
+      store:runtimeState.store,
+      missions:backgroundLifecycle.missions,
+      policy:missionChildPolicy,
+      ledgerPath:path.join(paths.dataDir, 'product-maturity-validation-batches.json'),
+      projectRoot:sourceProjectRoot,
+      runtimeBoundarySnapshot:() => readProductMaturityRuntimeBoundary({
+        campaigns,
+        publisher:m5PublisherBindings.publisher,
+      }),
     });
     const feishuCommand = await createFeishuCommandComposition({
       environment,
@@ -150,6 +169,7 @@ export async function createRuntime({
         boomMonitor:backgroundLifecycle.boomMonitor,
         boomMonitorEnabled:features.boomMonitorEnabled,
         taskTimeline:runtimeState.taskTimeline,
+        productMaturity,
       },
       connections:{
         ...feishuCommand.connections,

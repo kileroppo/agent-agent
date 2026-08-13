@@ -9,28 +9,29 @@ const SAFE_TEST_COMMAND = /^(?:node --test [A-Za-z0-9_./ -]+|npm test --prefix a
 const SENSITIVE_PATH = /(?:^|\/)(?:\.env(?:\.|$)|credentials?|secrets?|tokens?|cookies?)(?:\/|$)/i;
 
 export class TechnicalRepairDiagnoser {
-  constructor({ command = process.env.AJUN_CODEX_COMMAND || path.join(os.homedir(), '.local', 'bin', 'codex'), execFileImpl = execFile, fsImpl = fs, maxRunMs = 60_000 } = {}) {
+  command: string; execFile: any; fs: any; maxRunMs: number;
+  constructor({ command = process.env.AJUN_CODEX_COMMAND || path.join(os.homedir(), '.local', 'bin', 'codex'), execFileImpl = execFile, fsImpl = fs, maxRunMs = 60_000 }: any = {}) {
     this.command = command;
     this.execFile = execFileImpl;
     this.fs = fsImpl;
     this.maxRunMs = maxRunMs;
   }
 
-  async diagnose(task, projectRoot) {
+  async diagnose(task: any, projectRoot: string) {
     const prompt = buildPrompt(task);
     try {
       const command = this.execFile(this.command, ['exec', '--ephemeral', '--ignore-user-config', '--sandbox', 'read-only', '-c', 'approval_policy="never"', '-C', projectRoot, prompt], { cwd:projectRoot, timeout:this.maxRunMs, maxBuffer:200_000, stdio:['ignore', 'pipe', 'pipe'] });
       command?.child?.stdin?.end();
       const output = await command;
       return await parseDecision(output?.stdout ?? output, { projectRoot, fsImpl:this.fs });
-    } catch (error) {
+    } catch (error: any) {
       if (error?.killed || error?.signal === 'SIGTERM') return { status:'waiting_for_test', reason:'技术诊断超过本轮时限，已保留故障记录。' };
       return { status:'waiting_for_test', reason:'技术诊断暂时无法完成，已保留故障记录。' };
     }
   }
 }
 
-function buildPrompt(task) {
+function buildPrompt(task: any) {
   const failure = task.input?.context?.failure || {};
   const classification = task.input?.context?.failureClassification || {};
   return [
@@ -44,13 +45,13 @@ function buildPrompt(task) {
   ].join('\n');
 }
 
-async function parseDecision(raw, { projectRoot, fsImpl }) {
+async function parseDecision(raw: any, { projectRoot, fsImpl }: any) {
   try {
     const parsed = JSON.parse(String(raw || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
     const detail = {
       failureClass:String(parsed?.failureClass || 'unknown').slice(0, 120),
       summary:String(parsed?.summary || '当前资料不足，无法安全确定修复范围。').slice(0, 500),
-      evidence:(Array.isArray(parsed?.evidence) ? parsed.evidence : []).map((item) => String(item || '').replace(/\s+/g, ' ').trim().slice(0, 500)).filter(Boolean).slice(0, 8),
+      evidence:(Array.isArray(parsed?.evidence) ? parsed.evidence : []).map((item: any) => String(item || '').replace(/\s+/g, ' ').trim().slice(0, 500)).filter(Boolean).slice(0, 8),
       nextAction:String(parsed?.nextAction || '补充最小诊断证据后再判断。').slice(0, 500)
     };
     if (parsed?.decision !== 'repair') return { status:'waiting_for_test', reason:detail.summary, ...detail };
@@ -71,11 +72,11 @@ async function parseDecision(raw, { projectRoot, fsImpl }) {
   }
 }
 
-async function missingScopePaths(scope, projectRoot, fsImpl) {
+async function missingScopePaths(scope: any, projectRoot: string, fsImpl: any) {
   const candidates = [...scope.files];
   const testPath = scope.testCommand.startsWith('node --test ') ? scope.testCommand.slice('node --test '.length).trim() : '';
   if (testPath) candidates.push(testPath);
-  const missing = [];
+  const missing: string[] = [];
   for (const candidate of candidates) {
     try {
       const resolved = path.resolve(projectRoot, candidate);
@@ -88,14 +89,14 @@ async function missingScopePaths(scope, projectRoot, fsImpl) {
   return [...new Set(missing)];
 }
 
-function normalizeScope(scope) {
-  const files = Array.isArray(scope?.files) ? scope.files.map((item) => String(item || '').trim()).filter(safePath) : [];
+function normalizeScope(scope: any) {
+  const files = Array.isArray(scope?.files) ? scope.files.map((item: any) => String(item || '').trim()).filter(safePath) : [];
   const testCommand = String(scope?.testCommand || '').trim();
   const recoveryCheck = String(scope?.recoveryCheck || '').trim();
   if (!files.length || files.length > 4 || !SAFE_TEST_COMMAND.test(testCommand) || !recoveryCheck) return null;
   return { files, testCommand, recoveryCheck:recoveryCheck.slice(0, 500) };
 }
 
-function safePath(value) {
+function safePath(value: string) {
   return value.length > 0 && !path.isAbsolute(value) && !value.split('/').includes('..') && !SENSITIVE_PATH.test(value) && !value.startsWith('.git/') && !value.startsWith('node_modules/');
 }

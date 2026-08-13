@@ -4,9 +4,10 @@ const RISK_CATEGORIES = [
 const HIGH_RISK_SIDE_EFFECTS = new Set(['external_send', 'publish', 'delete', 'payment', 'paid_action', 'permission_expansion', 'sensitive_data']);
 
 export class LocalReviewer {
-  constructor({ now = () => new Date() } = {}) { this.now = now; }
+  now: () => Date;
+  constructor({ now = () => new Date() }: any = {}) { this.now = now; }
 
-  async execute(task) {
+  async execute(task: any) {
     const completedAt = this.now().toISOString();
     const text = `${task.input.title || ''} ${task.input.description || ''}`;
     const context = task.input?.context || {};
@@ -57,8 +58,8 @@ export class LocalReviewer {
   }
 }
 
-function structuredFindings({ subject, riskCategories, now }) {
-  const findings = [];
+function structuredFindings({ subject, riskCategories, now }: any) {
+  const findings: any[] = [];
   const scope = subject.scope;
   const dataScopes = array(subject.dataScopes);
   const toolAllowlist = strings(subject.toolAllowlist);
@@ -102,12 +103,12 @@ function structuredFindings({ subject, riskCategories, now }) {
     !validUntil ? '缺少 validUntil。' : !Number.isFinite(expiry) ? 'validUntil 不是有效时间。' : expiry <= now.getTime() ? 'validUntil 已过期。' : '有效期尚未过期。',
     'task.input.context.validUntil'));
 
-  const undeclaredRisks = riskCategories.filter((item) => HIGH_RISK_SIDE_EFFECTS.has(item) && !sideEffects.includes(item));
+  const undeclaredRisks = riskCategories.filter((item: string) => HIGH_RISK_SIDE_EFFECTS.has(item) && !sideEffects.includes(item));
   findings.push(finding('side_effects.declared', 'external_side_effect',
     undeclaredRisks.length ? 'fail' : 'pass',
     undeclaredRisks.length ? `文本出现高风险动作但 externalSideEffects 未声明：${undeclaredRisks.join('、')}。` : '高风险外部副作用已显式声明或未发现。',
     'task.input.context.externalSideEffects'));
-  const sideEffectsWithoutApproval = sideEffects.filter((effect) => HIGH_RISK_SIDE_EFFECTS.has(effect) && !hasApprovalFor(effect, approvalPolicies));
+  const sideEffectsWithoutApproval = sideEffects.filter((effect: string | null) => effect && HIGH_RISK_SIDE_EFFECTS.has(effect) && !hasApprovalFor(effect, approvalPolicies));
   findings.push(finding('side_effects.approval_gate', 'approval',
     sideEffectsWithoutApproval.length ? 'fail' : 'pass',
     sideEffectsWithoutApproval.length ? `以下外部副作用缺少人工审批门禁：${sideEffectsWithoutApproval.join('、')}。` : '已声明的高风险副作用均有人工审批门禁或不存在高风险副作用。',
@@ -115,7 +116,7 @@ function structuredFindings({ subject, riskCategories, now }) {
   return findings;
 }
 
-function reviewSubject(context) {
+function reviewSubject(context: any) {
   const nested = object(context.reviewSubject || context.proposal || context.candidate);
   const manifest = object(nested.candidateManifest || context.candidateManifest);
   return {
@@ -130,35 +131,35 @@ function reviewSubject(context) {
   };
 }
 
-function hasStructuredReviewSubject(context) {
+function hasStructuredReviewSubject(context: any) {
   return ['reviewSubject', 'proposal', 'candidateManifest', 'scope', 'dataScopes', 'toolAllowlist', 'budget', 'budgetPolicy', 'validUntil', 'externalSideEffects', 'capabilityAudit', 'capabilityAudits']
     .some((key) => Object.prototype.hasOwnProperty.call(context || {}, key));
 }
 
-function finding(findingId, category, status, message, field) {
+function finding(findingId: string, category: string, status: string, message: string, field: string) {
   return { findingId, category, severity: status === 'pass' ? 'info' : status === 'fail' ? 'blocker' : 'warning', status, field, message };
 }
-function auditPassed(item) { return ['passed', 'approved', 'verified', 'safe'].includes(String(item?.status || item?.result || '').toLowerCase()); }
-function hasApprovalFor(effect, policies) {
-  return policies.some((item) => {
+function auditPassed(item: any) { return ['passed', 'approved', 'verified', 'safe'].includes(String(item?.status || item?.result || '').toLowerCase()); }
+function hasApprovalFor(effect: string, policies: any[]) {
+  return policies.some((item: any) => {
     const action = String(item?.action || item?.sideEffect || '').trim();
     const decision = String(item?.decision || item?.result || '').toLowerCase();
     return (action === effect || action === 'external-or-sensitive-action' || action === '*')
       && (decision.includes('approval') || decision.includes('owner') || decision.includes('human'));
   });
 }
-function hasDeclaredScope(value) {
+function hasDeclaredScope(value: any) {
   if (typeof value === 'string') return value.trim().length > 0;
   if (!value || typeof value !== 'object') return false;
   return Boolean(String(value.goal || value.outcome || value.description || '').trim())
     && Boolean(String(value.boundary || value.constraints || value.deliverable || '').trim() || array(value.constraints).length);
 }
-function normalizeSideEffect(value) {
+function normalizeSideEffect(value: any): string | null {
   const text = String(value || '').trim();
   const match = RISK_CATEGORIES.find(([word, category]) => text === category || text.includes(word));
   return match?.[1] || text || null;
 }
-function positiveNumber(value) { return Number.isFinite(Number(value)) && Number(value) > 0; }
-function strings(value) { return [...new Set(array(value).map((item) => typeof item === 'string' ? item.trim() : String(item?.id || item?.name || '').trim()).filter(Boolean))]; }
-function array(value) { return Array.isArray(value) ? value : value == null ? [] : [value]; }
-function object(value) { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }
+function positiveNumber(value: any) { return Number.isFinite(Number(value)) && Number(value) > 0; }
+function strings(value: any): string[] { return [...new Set(array(value).map((item: any) => typeof item === 'string' ? item.trim() : String(item?.id || item?.name || '').trim()).filter(Boolean))] as string[]; }
+function array(value: any): any[] { return Array.isArray(value) ? value : value == null ? [] : [value]; }
+function object(value: any): any { return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; }

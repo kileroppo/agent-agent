@@ -304,7 +304,7 @@
       ],
       "lineLimit": 350
     },
-    "src/open-task-routing.js": {
+    "src/open-task-routing.ts": {
       "lineLimit": 100
     },
     "src/paperclip-bridge.js": {
@@ -587,7 +587,7 @@
       "lineLimit": 250,
       "importLimit": 8
     },
-    "src/task-capability-catalog.js": {
+    "src/task-capability-catalog.ts": {
       "affectedTests": [
         "test/task-capability-catalog.test.js",
         "test/business-task-routing.test.js",
@@ -616,7 +616,7 @@
       ],
       "lineLimit": 200
     },
-    "src/task-execution-coordinator.js": {
+    "src/task-execution-coordinator.ts": {
       "affectedTests": [
         "test/task-execution-coordinator.test.js",
         "test/task-service.test.js"

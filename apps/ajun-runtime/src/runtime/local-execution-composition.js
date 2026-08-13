@@ -3,7 +3,7 @@ import { AccessConnectionService } from '../access-connection-service.js';
 import { AgentRegistry } from '../agent-registry.js';
 import { CloudXiaodExecutor } from '../cloud-xiaod-executor.js';
 import { LocalAiCapabilityClient } from '../local-ai-capability-client.js';
-import { ProposalAgentRegistry } from '../proposal-agent-registry.js';
+import { ProposalAgentRegistry } from '../proposal-agent-registry.ts';
 import { XiaodDelegate } from '../xiaod-delegate.js';
 
 export function createLocalExecutionComposition({ configuration, store } = {}) {

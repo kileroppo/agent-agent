@@ -4,17 +4,18 @@ import { AgentProposalService } from '../agent-proposal-service.js';
 import { FailureRecoveryCoordinator } from '../failure-recovery-coordinator.js';
 import { HermesTaskAdvisor } from '../hermes-task-advisor.js';
 import { HermesUsageLedger } from '../hermes-usage-ledger.js';
-import { LocalAjunCoordinator } from '../local-ajun-coordinator.js';
+import { LocalAjunCoordinator } from '../local-ajun-coordinator.ts';
 import { LocalArchitect } from '../local-architect.js';
-import { LocalCreator } from '../local-creator.js';
+import { LocalCreator } from '../local-creator.ts';
 import { LocalHealthOperator } from '../local-health-operator.js';
-import { LocalReviewer } from '../local-reviewer.js';
+import { LocalReviewer } from '../local-reviewer.ts';
 import { LocalWeChatChatRetriever } from '../local-wechat-chat-retriever.js';
-import { ProposalAcceptanceRunner } from '../proposal-acceptance-runner.js';
+import { ProposalAcceptanceRunner } from '../proposal-acceptance-runner.ts';
 import { SkillExecutionRegistry } from '../skill-execution-registry.js';
 import { taskDetailBaseUrl } from '../task-presentation.js';
 import { TaskService } from '../task-service.js';
 import { WeChatLocalVaultAcceptance } from '../wechat-local-vault-acceptance.js';
+import { MaturityExecutionGuard } from '../maturity-execution-guard.ts';
 import { createRoleContentExecutionComposition } from './role-content-execution-composition.js';
 import { createRoleResearchExecutionComposition } from './role-research-execution-composition.js';
 import {
@@ -34,6 +35,7 @@ export async function createRoleExecutionComposition({
   localAi,
   taskRunEvents,
   port,
+  missionChildPolicy = null,
 }) {
   const technical = createRoleTechnicalExecutionComposition({ paths, runtimeSource });
   const research = createRoleResearchExecutionComposition({
@@ -106,7 +108,14 @@ export async function createRoleExecutionComposition({
     }),
     localAiCapabilityStatus:() => localAi.health(),
     taskRunEvents,
+    missionChildPolicy,
   });
+  const maturityExecutionGuard = missionChildPolicy
+    ? new MaturityExecutionGuard({ store, policy:missionChildPolicy })
+    : null;
+  tasks.maturityExecutionGuard = maturityExecutionGuard;
+  tasks.executionCoordinator.maturityExecutionGuard = maturityExecutionGuard;
+  tasks.intake.maturityExecutionGuard = maturityExecutionGuard;
   failureRecovery = new FailureRecoveryCoordinator({
     tasks,
     store,

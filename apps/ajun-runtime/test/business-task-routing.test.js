@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { canonicalizeBusinessAssignment, githubRepositoryQuery } from '../src/business-task-routing.js';
+import { canonicalizeBusinessAssignment, githubRepositoryQuery } from '../src/business-task-routing.ts';
 
 test('基于前置工作生成老板汇报时强制交给办公执行助理', () => {
   const assignment = canonicalizeBusinessAssignment({

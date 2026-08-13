@@ -1,4 +1,4 @@
-import { validateTaskCompletion } from './task-completion-contract.js';
+import { validateTaskCompletion } from './task-completion-contract.ts';
 import {
   PaperclipAssignmentCompletion,
   pendingPaperclipCompletion,

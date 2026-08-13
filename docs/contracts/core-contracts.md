@@ -549,6 +549,16 @@ A君只对当前事实和判断引用的现状依据执行硬证据校验；不�
 
 正式员工 Manifest 的 `runtimeCapabilities` 是 Profile 配置输入：`skills`、`mcpTools`、`feishuToolsets` 与 `paperclipToolsets` 必须显式列出。配置器只能从该白名单生成独立 Profile 和 Adapter；新员工不得继承另一个员工的会话、记忆或扩大后的工具集合。
 
+### 10.3 产品成熟度统一验证批次
+
+`POST /api/product-maturity/validation-batches` 与 `POST /api/product-maturity/validation-batches/:id/decision` 只接受本机、同源、`application/json` 和有效短期 owner-action nonce。它们不属于 Hermes MCP，也不能由局域网共享口令、飞书消息或任务上下文字段直接调用。
+
+- 一个账本只创建一个批次；已经创建或关闭的批次重复请求返回原记录，不重跑付费或隔离任务。
+- 批次固定包含创建官 `governance.agent-proposal`、技术专家 `operations.technical-repair` 和小创 `content.video-script-package` 三项子工作。服务端签名授权同时绑定批次、item key、岗位和任务类型；请求体不能增删或替换子工作。
+- 技术修复仅使用 `work/acceptance-runs/` 下的独立 Git worktree 和仓库内受控 calculator 夹具；小创只引用 `#10E4F814` 与 `#B5403CD9`，保持 `draft_only`，不产生 PublishReceipt。
+- 批次授权总上限为 4 次模型调用和 0.08 USD；Publisher、Campaign、Cron、登录、发送、外部发布、扩权和历史终态改写均为禁止动作。
+- 统一验收包覆盖除已闭环运维官外的 10 个岗位。决定只接受 `accepted` 或 `revision_required`，必须携带当前 `evidenceHash`；任何证据变化都会返回 `maturity_evidence_stale`，不得静默套用旧决定。
+
 ## 11. 跨系统映射要求
 
 - 每个适配器必须有契约测试样例；

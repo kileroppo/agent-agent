@@ -34,7 +34,7 @@ const LEGACY_AJUN_LINE_LIMITS = Object.freeze({
   'src/local-content-artifacts.js':450,
   'src/local-content-creation.js':450,
   'src/local-content-m5-vision.js':400,
-  'src/open-task-routing.js':100,
+  'src/open-task-routing.ts':100,
   'src/open-task-routing-policy.js':350,
   'src/open-task-research-state.js':650,
   'src/open-task-research-execution.js':700,

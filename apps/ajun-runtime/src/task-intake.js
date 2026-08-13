@@ -1,14 +1,14 @@
-import { canonicalizeBusinessAssignment, githubRepositoryQuery } from './business-task-routing.js';
+import { canonicalizeBusinessAssignment, githubRepositoryQuery } from './business-task-routing.ts';
 import { usesPaperclipHermesExecution } from './governance-hermes-runtime.js';
 import {
   inspectOpenTaskManifestCapabilities,
   routeOpenTaskForExecutor,
   supportsOpenTask,
-} from './open-task-routing.js';
+} from './open-task-routing.ts';
 import { WECHAT_CHAT_TASK_TYPE, normalizeWechatChatRequest, wechatApprovalScope } from './wechat-chat-defaults.js';
 import { ValidationError } from './task-service-execution-support.js';
 import { resolveAnalysisIntent } from './analysis-intent.ts';
-import { TaskCreationCoordinator, taskIdempotencyFingerprint } from './task-idempotency.js';
+import { TaskCreationCoordinator, taskIdempotencyFingerprint } from './task-idempotency.ts';
 import { createWorkflowLink } from './workflow/contracts.ts';
 import { attachDeliveryQualityContracts, deliveryBriefGuardPatch } from './workflow/delivery-quality-intake.ts';
 const HIGH_RISK_ACTIONS = ['外发', '发布', '删除', '付款', '付费', '扩权', '敏感'];
@@ -137,6 +137,7 @@ export class TaskIntake {
   }
 
   async projectGovernance(task, agent) {
+    if (await this.maturityExecutionGuard?.verifyOrBlock(task)) return task;
     if (!this.governance) return task;
     const approval = task.approvalRefs?.length
       ? (await this.store.listApprovals()).find((item) => item.approvalId === task.approvalRefs[0])

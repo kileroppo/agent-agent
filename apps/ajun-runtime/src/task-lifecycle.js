@@ -72,6 +72,7 @@ const TRANSITIONS = new Map([
     'running',
     'waiting_worker',
     'waiting_approval',
+    'waiting_test',
     'failed',
     'cancelled',
   ])],

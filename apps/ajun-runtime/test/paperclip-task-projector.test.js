@@ -63,3 +63,45 @@ test('结构化 PPT 投影为留痕 Issue 但不唤醒模型执行', async () =>
   assert.equal(issueCall.body.status, 'backlog');
   assert.equal(issueCall.body.assigneeAgentId, undefined);
 });
+
+test('审核任务只把结构化范围白名单投影给 Paperclip，不泄露未知上下文', async () => {
+  const calls = [];
+  const endpoint = {
+    async request(method, path, { body } = {}) {
+      calls.push({ method, path, body });
+      if (path === '/api/companies') return [{ id:'company-1', name:'Agent军团' }];
+      if (path.endsWith('/agents')) return [{ id:'reviewer-1', name:'审核官', status:'active', metadata:{ agentArmyId:'reviewer' } }];
+      if (path.endsWith('/issues')) return { id:'issue-1', identifier:'AGE-1' };
+      throw new Error(`unexpected ${method} ${path}`);
+    },
+  };
+  const projector = new PaperclipTaskProjector({ endpoint });
+  await projector.project({
+    taskId:'review-task-1', taskType:'governance.approval-review', status:'queued', priority:'normal',
+    assigneeAgentId:'reviewer',
+    input:{
+      title:'审核公开研究边界',
+      description:'只审核，不执行目标动作。',
+      context:{
+        scope:{ goal:'核对公开研究范围', boundary:'只读两个明确 URL', deliverable:'结构化审查报告' },
+        dataScopes:[{ scope:'public-docs', access:['read'], boundary:'无需账号的公开正文' }],
+        toolAllowlist:['content.public.fetch'],
+        budget:{ maxRuns:1, maxModelCalls:6, maxCostUsd:0.012, externalSpendAllowed:false },
+        validUntil:'2026-08-12T05:18:00.000Z',
+        externalSideEffects:['network-read'],
+        capabilityAudit:[{ capabilityId:'content.public.fetch', status:'verified', evidenceRef:'secret-path' }],
+        approvalPolicies:[{ action:'external-or-sensitive-action', riskLevel:'high', decision:'human-owner-required' }],
+        cookie:'must-not-project',
+        token:'must-not-project',
+        nestedUnknown:{ privateText:'must-not-project' },
+      },
+    },
+  });
+  const description = calls.find((call) => call.path.endsWith('/issues')).body.description;
+  assert.match(description, /\[agent-army:review-subject:v1\]/);
+  assert.match(description, /"goal":"核对公开研究范围"/);
+  assert.match(description, /"toolAllowlist":\["content.public.fetch"\]/);
+  assert.match(description, /"maxCostUsd":0\.012/);
+  assert.match(description, /"capabilityId":"content.public.fetch","status":"verified"/);
+  assert.doesNotMatch(description, /must-not-project|secret-path|cookie|token|nestedUnknown|privateText/);
+});

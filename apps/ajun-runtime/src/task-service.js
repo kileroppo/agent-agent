@@ -1,7 +1,7 @@
 import { buildArchitectureGroundTruth } from './architecture-evidence.js';
 import { SkillExecutionRegistry } from './skill-execution-registry.js';
-import { TaskCapabilityCatalog } from './task-capability-catalog.js';
-import { TaskExecutionCoordinator } from './task-execution-coordinator.js';
+import { TaskCapabilityCatalog } from './task-capability-catalog.ts';
+import { TaskExecutionCoordinator } from './task-execution-coordinator.ts';
 import { TaskFailureRecoveryCoordinator } from './task-failure-recovery-coordinator.js';
 import { TaskIntake } from './task-intake.js';
 import { TaskNotification } from './task-notification.js';
@@ -20,6 +20,7 @@ import { TaskIntakeContinuation } from './task-intake-continuation.js';
 import { TaskApprovalLifecycle } from './task-approval-lifecycle.js';
 import { MissionApprovalInheritance } from './mission-approval-inheritance.js';
 import { TaskFeedback } from './task-feedback.js';
+import { maturityQueuedChildRecoveryMethods } from './maturity-queued-child-recovery.ts';
 
 export class TaskService {
   constructor({
@@ -44,6 +45,7 @@ export class TaskService {
     officePresentationWorkspaceRoot = null,
     usageLedger = null,
     taskRunEvents = null,
+    missionChildPolicy = null,
   }) {
     this.registry = registry;
     this.taskDefinitionRegistry = capabilityCatalog.registry;
@@ -68,6 +70,7 @@ export class TaskService {
       ? localAiCapabilityStatus
       : null;
     this.usageLedger = usageLedger;
+    this.missionChildPolicy = missionChildPolicy;
     this.taskLifecycleEvents = new TaskLifecycleEventRecorder({ eventStore:taskRunEvents });
     this.localAiRunEvents = new TaskLocalAiRunEventRecorder({
       eventStore:taskRunEvents,
@@ -237,3 +240,4 @@ export class TaskService {
 Object.assign(TaskService.prototype, taskServiceExecutionMethods);
 Object.assign(TaskService.prototype, taskApprovalCoordinatorMethods);
 Object.assign(TaskService.prototype, taskXiaodTranscriptRevisionMethods);
+Object.assign(TaskService.prototype, maturityQueuedChildRecoveryMethods);

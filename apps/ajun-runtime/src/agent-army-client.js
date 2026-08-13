@@ -9,7 +9,7 @@ import {
   prepareTaskCreateRequest,
 } from './contracts/agent-army-task-input.js';
 import { taskDetailBaseUrl } from './task-presentation.js';
-import { dynamicCardAnchorAcknowledged, normalizeCompletionDelivery } from './source-completion-watch.js';
+import { dynamicCardAnchorAcknowledged, normalizeCompletionDelivery } from './source-completion-watch.ts';
 import { isTaskNotificationTerminalStatus } from './task-status-policy.js';
 
 export class AgentArmyClient {

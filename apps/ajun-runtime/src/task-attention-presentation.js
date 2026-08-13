@@ -1,4 +1,4 @@
-import { sanitizeFailureText } from './technical-failure-classifier.js';
+import { sanitizeFailureText } from './technical-failure-classifier.ts';
 
 const ATTENTION_SCHEMA_VERSION = 'agent.army/task-attention-presentation/v1';
 const EMPLOYEE_REPORT_TYPE = 'employee_role_report';

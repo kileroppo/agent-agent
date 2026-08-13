@@ -1,13 +1,13 @@
 import path from 'node:path';
 import { dispatchBoomSignal } from '@agent-army/boom-monitor';
-import { ApprovalExpiryReconciler } from '../approval-expiry-reconciler.js';
+import { ApprovalExpiryReconciler } from '../approval-expiry-reconciler.ts';
 import { createBoomMonitorService } from '../boom-monitor/index.js';
-import { CrossAgentMissionReconciler } from '../cross-agent-mission-reconciler.js';
+import { CrossAgentMissionReconciler } from '../cross-agent-mission-reconciler.ts';
 import { CrossAgentMissionService } from '../cross-agent-mission-service.js';
-import { InterruptedLocalExecutionReconciler } from '../interrupted-local-execution-reconciler.js';
+import { InterruptedLocalExecutionReconciler } from '../interrupted-local-execution-reconciler.ts';
 import { MacWorkerTaskBridge } from '../mac-worker-task-bridge.js';
 import { PaperclipHermesTaskReconciler } from '../paperclip-hermes-task-reconciler.js';
-import { PaperclipRepairReconciler } from '../paperclip-repair-reconciler.js';
+import { PaperclipRepairReconciler } from '../paperclip-repair-reconciler.ts';
 import { PaperclipRosterReconciler } from '../paperclip-roster-reconciler.js';
 import { TechnicalRepairEvidenceRelay } from '../technical-repair-evidence-relay.js';
 import { XiaodReconciler } from '../xiaod-reconciler.js';
@@ -21,6 +21,7 @@ export function createBackgroundLifecycleComposition({
   localExecution,
   tasks,
   roleExecution,
+  missionChildPolicy = null,
   logger = console,
 } = {}) {
   const { paths, bootedAt, features } = configuration;
@@ -86,7 +87,7 @@ export function createBackgroundLifecycleComposition({
       if (result.status !== 'synced') logger.warn('过期确认暂时无法自动整理，将自动重试。');
     },
   });
-  const missions = new CrossAgentMissionService({ tasks, store, governance });
+  const missions = new CrossAgentMissionService({ tasks, store, governance, missionChildPolicy });
   const missionReconciler = new CrossAgentMissionReconciler({ store, missions });
   const boomMonitor = features.boomMonitorEnabled ? createBoomMonitorService({
     dbPath:path.join(paths.dataDir, 'boom-monitor.sqlite'),

@@ -129,6 +129,119 @@ for (const backend of [jsonBackend(), sqliteBackend()]) {
     }
   });
 
+  test(`${backend.name} 仅在 queued 且 context 精确匹配时原子替换任务上下文`, async () => {
+    const fixture = await backend.open();
+    const { store } = fixture;
+    try {
+      const expectedContext = { dependencyTaskIds:['creator-1'], sourceTaskIds:['creator-1'] };
+      const nextContext = { dependencyTaskIds:['creator-1'] };
+      const task = await store.createTask({
+        taskType:'operations.technical-repair', status:'queued', input:{ context:expectedContext },
+      });
+      const swaps = await Promise.all(Array.from({ length:8 }, () => store.compareAndSwapQueuedTaskContext(task.taskId, {
+        expectedContext,
+        nextContext,
+      })));
+      assert.equal(swaps.filter((item) => item.updated).length, 1);
+      assert.deepEqual((await store.list())[0].input.context, nextContext);
+
+      const wrongExpected = await store.compareAndSwapQueuedTaskContext(task.taskId, {
+        expectedContext:{ dependencyTaskIds:['wrong'] },
+        nextContext:{ dependencyTaskIds:['forbidden'] },
+      });
+      assert.equal(wrongExpected.updated, false);
+      assert.deepEqual(wrongExpected.task.input.context, nextContext);
+
+      await store.claimTaskExecution(task.taskId, { currentStage:'starting' });
+      const noLongerQueued = await store.compareAndSwapQueuedTaskContext(task.taskId, {
+        expectedContext:nextContext,
+        nextContext:{ dependencyTaskIds:['forbidden'] },
+      });
+      assert.equal(noLongerQueued.updated, false);
+      assert.equal(noLongerQueued.task.status, 'running');
+      assert.deepEqual(noLongerQueued.task.input.context, nextContext);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  test(`${backend.name} 仅原子重试一次精确旧版 maturity content 原型错误`, async () => {
+    const fixture = await backend.open();
+    const { store } = fixture;
+    try {
+      const task = await store.createTask({ taskType:'content.video-script-package', status:'queued' });
+      await store.claimTaskExecution(task.taskId, {
+        currentStage:'starting',
+        execution:{ executor:'content-creator', startedAt:'2026-08-11T04:22:39.776Z' },
+      });
+      const blocked = await store.updateTask(task.taskId, {
+        status:'waiting_test', currentStage:'maturity_execution_blocked',
+        execution:{
+          executor:'content-creator', startedAt:'2026-08-11T04:22:39.776Z',
+          outcome:'maturity_execution_blocked', finishedAt:'2026-08-11T04:22:39.837Z',
+        },
+        error:{
+          code:'maturity_execution_guard_rejected', message:'this.research is not a function',
+          userMessage:'产品成熟度任务的用量、费用或副作用无法按零模型调用契约确认，已停止。',
+          category:'governance', stage:'maturity_execution_guard', retryable:false,
+          occurredAt:'2026-08-11T04:22:39.837Z',
+        },
+      });
+      const retries = await Promise.all(Array.from({ length:8 }, () => (
+        store.compareAndSwapLegacyMaturityContentRetry(task.taskId, { expectedTask:blocked })
+      )));
+      assert.equal(retries.filter((item) => item.retried).length, 1);
+      const retried = (await store.list())[0];
+      assert.equal(retried.status, 'queued');
+      assert.equal(retried.attempt, 2);
+      assert.equal(retried.error, undefined);
+      assert.equal(retried.execution, undefined);
+      assert.equal((await store.compareAndSwapLegacyMaturityContentRetry(task.taskId, {
+        expectedTask:retried,
+      })).retried, false);
+    } finally {
+      await fixture.close();
+    }
+  });
+
+  test(`${backend.name} 仅原子重试一次已满足三子任务的 maturity 总任务`, async () => {
+    const fixture = await backend.open();
+    const { store } = fixture;
+    try {
+      const batchId = 'maturity-77777777-7777-4777-8777-777777777777';
+      const task = await store.createTask({
+        taskType:'army.cross-agent-mission', assigneeAgentId:'ajun', status:'queued',
+        idempotencyKey:`product-maturity-validation:${batchId}`,
+        source:{ eventRef:batchId }, input:{ context:{ productMaturityBatchId:batchId } },
+        usage:{
+          model:{ status:'reported', apiCalls:0 },
+          cost:{ status:'reported', amount:0, currency:'USD' },
+        },
+      });
+      await store.claimTaskExecution(task.taskId, { currentStage:'starting' });
+      const waiting = await store.updateTask(task.taskId, {
+        status:'waiting_test', currentStage:'mission_waiting_test',
+        execution:{
+          executor:'ajun', mode:'cross_agent_mission_plan', outcome:'subtasks_ready',
+          startedAt:'2026-08-11T00:00:00.000Z', finishedAt:'2026-08-11T00:00:01.000Z',
+        },
+      });
+      const retries = await Promise.all(Array.from({ length:8 }, () => (
+        store.compareAndSwapMaturityMissionRetry(task.taskId, { expectedTask:waiting })
+      )));
+      assert.equal(retries.filter((item) => item.retried).length, 1);
+      const retried = (await store.list())[0];
+      assert.equal(retried.status, 'queued');
+      assert.equal(retried.attempt, 2);
+      assert.equal(retried.execution, undefined);
+      assert.equal((await store.compareAndSwapMaturityMissionRetry(task.taskId, {
+        expectedTask:retried,
+      })).retried, false);
+    } finally {
+      await fixture.close();
+    }
+  });
+
   test(`${backend.name} 原子提交审批决定与任务状态且失败时整体回滚`, async () => {
     const fixture = await backend.open();
     const { store } = fixture;

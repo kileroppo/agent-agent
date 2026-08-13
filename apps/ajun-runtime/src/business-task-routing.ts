@@ -1,3 +1,4 @@
+// @ts-expect-error legacy task definition registry has no declaration yet
 import { DEFAULT_TASK_DEFINITION_REGISTRY } from './task-definition-registry.js';
 
 const OFFICE_AGENT_ID = 'office-assistant';
@@ -6,7 +7,7 @@ const OFFICE_PRESENTATION_TASK_TYPE = 'office.presentation-package';
 const GITHUB_TASK_TYPE = 'research.github-search';
 const RESEARCH_TASK_TYPES = new Set(DEFAULT_TASK_DEFINITION_REGISTRY.taskTypesForCategory('research-entry'));
 
-export function canonicalizeBusinessAssignment(input = {}, { index = 0 } = {}) {
+export function canonicalizeBusinessAssignment(input: Record<string, any> = {}, { index = 0 }: { index?: number } = {}) {
   const title = text(input.title);
   const description = text(input.description);
   const acceptance = text(input.acceptance);
@@ -66,7 +67,7 @@ export function canonicalizeBusinessAssignment(input = {}, { index = 0 } = {}) {
   };
 }
 
-export function githubRepositoryQuery(value) {
+export function githubRepositoryQuery(value: unknown) {
   const textValue = text(value);
   const explicit = textValue.match(/(?:关键词|query)\s*[：:]?\s*([A-Za-z][A-Za-z0-9_. -]{1,60})/i)?.[1]?.trim();
   if (explicit) return explicit;
@@ -76,6 +77,6 @@ export function githubRepositoryQuery(value) {
   return textValue;
 }
 
-function text(value) {
+function text(value: unknown) {
   return String(value || '').trim();
 }

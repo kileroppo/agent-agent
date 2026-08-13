@@ -6,7 +6,9 @@ const STALLED_STAGES = new Set([
 ]);
 
 export class TechnicalRepairWatchdog {
-  constructor({ store, governance = null, now = () => Date.now(), intervalMs = 10_000, staleAfterMs = 90_000 } = {}) {
+  store: any; governance: any; now: () => number; intervalMs: number; staleAfterMs: number;
+  timer: ReturnType<typeof setInterval> | null; running: Promise<any> | null;
+  constructor({ store, governance = null, now = () => Date.now(), intervalMs = 10_000, staleAfterMs = 90_000 }: any = {}) {
     this.store = store;
     this.governance = governance;
     this.now = now;
@@ -33,11 +35,11 @@ export class TechnicalRepairWatchdog {
 
   async reconcileOnce() {
     const tasks = await this.store.list();
-    await Promise.all(tasks.filter((task) => needsWaitingTest(task, this.now(), this.staleAfterMs)).map((task) => this.markWaitingTest(task)));
-    await Promise.all(tasks.filter(needsPaperclipWaitingTestSync).map((task) => this.syncWaitingTest(task)));
+    await Promise.all(tasks.filter((task: any) => needsWaitingTest(task, this.now(), this.staleAfterMs)).map((task: any) => this.markWaitingTest(task)));
+    await Promise.all(tasks.filter(needsPaperclipWaitingTestSync).map((task: any) => this.syncWaitingTest(task)));
   }
 
-  async markWaitingTest(task) {
+  async markWaitingTest(task: any) {
     const checkedAt = new Date(this.now()).toISOString();
     const reason = '本机技术修理已超过等待时间，仍没有完整的修改、测试和恢复证据。已标为待测试，不会继续占用处理中；其他工作可以继续推进。';
     let updated = await this.store.updateTask(task.taskId, {
@@ -48,7 +50,7 @@ export class TechnicalRepairWatchdog {
     await this.syncWaitingTest(updated);
   }
 
-  async syncWaitingTest(task) {
+  async syncWaitingTest(task: any) {
     if (!this.governance || !task.governance?.paperclipIssueId) return task;
     try {
       const governance = await this.governance.update(task);
@@ -57,14 +59,14 @@ export class TechnicalRepairWatchdog {
   }
 }
 
-function needsWaitingTest(task, now, staleAfterMs) {
+function needsWaitingTest(task: any, now: number, staleAfterMs: number) {
   if (task.taskType !== 'operations.technical-repair' || task.status !== 'running') return false;
   if (!STALLED_STAGES.has(task.currentStage)) return false;
   const updatedAt = Date.parse(task.updatedAt || task.createdAt || '');
   return Number.isFinite(updatedAt) && updatedAt <= now - staleAfterMs;
 }
 
-function needsPaperclipWaitingTestSync(task) {
+function needsPaperclipWaitingTestSync(task: any) {
   return task.taskType === 'operations.technical-repair' && task.status === 'waiting_test'
     && Boolean(task.governance?.paperclipIssueId) && !task.execution?.paperclipWaitingTestSyncedAt;
 }

@@ -4,8 +4,10 @@ import {
   validM5ProductionTemplateBinding,
 } from './m5-production-template-resolver.js';
 import { LocalVideoScriptContentProtocol } from './local-video-script-content-protocol.js';
+import { approveLocalVideoScriptPackage } from './local-video-script-approval.js';
+import { createLocalVideoScriptFallback } from './local-video-script-fallback.ts';
 import { writeLocalVideoScriptProductionPackage } from './local-video-script-production-package.js';
-
+import { resolveRequiredSourceContext } from './local-video-script-source-context.ts';
 export class LocalVideoScriptPackage {
   constructor({
     store,
@@ -13,6 +15,7 @@ export class LocalVideoScriptPackage {
     advisor = null,
     researcher = null,
     templateResolver = null,
+    allowedSourceArtifactRoots = [],
     now = () => new Date(),
   } = {}) {
     this.store = store;
@@ -20,10 +23,13 @@ export class LocalVideoScriptPackage {
     this.advisor = advisor;
     this.researcher = researcher;
     this.templateResolver = templateResolver;
+    this.allowedSourceArtifactRoots = Array.isArray(allowedSourceArtifactRoots)
+      ? allowedSourceArtifactRoots.map((item) => String(item || '').trim()).filter(Boolean)
+      : [];
     this.now = now;
   }
 
-  async execute(task, { allowAdvisor = true } = {}) {
+  async execute(task, { allowAdvisor = true, allowResearch = true } = {}) {
     const tasks = typeof this.store?.list === 'function' ? await this.store.list() : [];
     if (task.input?.approvedForUse === true) return this.approve(task, tasks);
     const topic = text(task.input?.contentGoal || task.input?.topic || task.input?.title, 500);
@@ -35,7 +41,18 @@ export class LocalVideoScriptPackage {
       );
     }
 
-    const contentProtocol = this.#contentProtocol();
+    const requiredSources = await resolveRequiredSourceContext({
+      task,
+      tasks,
+      allowedRoots:this.allowedSourceArtifactRoots,
+    });
+    if (requiredSources.error) {
+      return needsInput(this.now(), requiredSources.error.code, requiredSources.error.userMessage);
+    }
+    const sourceContext = requiredSources.sourceContext;
+    const sourceTaskBindings = explicitSourceTaskBindings(task, tasks);
+
+    const contentProtocol = this.#contentProtocol({ allowResearch });
     const prepared = contentProtocol.prepare({ task, tasks, topic });
     const isM5Script = prepared.isM5Script;
     const pipelineCaseId = task.input?.context?.pipelineCaseId;
@@ -66,6 +83,7 @@ export class LocalVideoScriptPackage {
       templateBinding,
       grayTemplateBinding,
       prepared,
+      sourceContext,
     });
     if (draft.status === 'needs_input') {
       return needsInput(this.now(), draft.code, draft.userMessage);
@@ -88,6 +106,7 @@ export class LocalVideoScriptPackage {
         } : { caseOnly:true, state:null, approvedForUse:false },
         publishingStatus:'draft_only',
         generationMode:draft.advisorApplied ? 'hermes_advisor' : 'deterministic_fallback',
+        sourceContext,
         templateGuidanceHash:draft.advisorApplied
           ? String(draft.script.templateBindingHash || '')
           : null,
@@ -95,74 +114,62 @@ export class LocalVideoScriptPackage {
         generatedAt:completedAt,
       },
       sources:draft.sources,
-      sourceRefs:draft.sourceRefs,
+      sourceRefs:[
+        ...new Set([
+          ...draft.sourceRefs,
+          ...sourceTaskBindings.flatMap((binding) => binding.artifactIds),
+        ]),
+      ],
+      sourceTaskBindings,
       completedAt,
     });
     return success(task, artifact, completedAt, draft.modelUsage);
   }
 
   async approve(task, tasks) {
-    const sourceTaskIds = new Set([
-      text(task.input?.sourceScriptTaskId, 120),
-      ...(Array.isArray(task.input?.context?.sourceTaskIds)
-        ? task.input.context.sourceTaskIds.map((item) => text(item, 120))
-        : []),
-    ].filter(Boolean));
-    const source = [...tasks]
-      .filter((item) =>
-        sourceTaskIds.has(item.taskId)
-        || (
-          !sourceTaskIds.size
-          && item.source?.chatRef
-          && item.source.chatRef === task.source?.chatRef
-        )
-      )
-      .sort((left, right) => taskTime(right) - taskTime(left))
-      .flatMap((item) => item.artifactRefs || [])
-      .find((item) =>
-        item.type === 'video_script_package'
-        && item.data?.templateLifecycle?.approvedForUse !== true
-      );
-    if (!source) {
-      return needsInput(
-        this.now(),
-        'script_package_required',
-        '当前会话里没有可采用的脚本，请先让我生成一版脚本。',
-      );
-    }
-    const completedAt = this.now().toISOString();
-    const artifact = await writeLocalVideoScriptProductionPackage({
-      artifactsDir:this.artifactsDir,
-      task,
-      data:{
-        ...source.data,
-        templateLifecycle:{
-          caseOnly:false,
-          state:'trial',
-          approvedForUse:true,
-          approvedAt:completedAt,
-          sourceScriptArtifactId:source.artifactId,
-        },
-        generatedAt:completedAt,
-      },
-      sources:Array.isArray(source.data?.sources) ? source.data.sources : [],
-      sourceRefs:[source.artifactId, ...(source.sourceRefs || [])],
-      completedAt,
+    const result = await approveLocalVideoScriptPackage({
+      task, tasks, artifactsDir:this.artifactsDir, now:this.now,
     });
-    return success(task, artifact, completedAt, null, 'video_script_package_approved');
+    if (result.error) return needsInput(this.now(), result.error.code, result.error.userMessage);
+    return success(task, result.artifact, result.completedAt, null, 'video_script_package_approved');
   }
-
   async research(topic, task) {
     return this.#contentProtocol().research(topic, task);
   }
 
-  #contentProtocol() {
+  #contentProtocol({ allowResearch = true } = {}) {
     return new LocalVideoScriptContentProtocol({
       advisor:this.advisor,
       researcher:this.researcher,
-      research:(topic, task) => this.research(topic, task),
+      research:allowResearch ? (topic, task) => this.research(topic, task) : async () => null,
+      fallback:createLocalVideoScriptFallback,
     });
   }
+}
+
+function explicitSourceTaskBindings(task, tasks) {
+  const requiredTaskIds = new Set(
+    (Array.isArray(task.input?.context?.requiredSourceTaskIds)
+      ? task.input.context.requiredSourceTaskIds : [])
+      .map((item) => text(item, 120))
+      .filter(Boolean),
+  );
+  const taskIds = [...new Set([
+    ...(Array.isArray(task.input?.context?.sourceTaskIds) ? task.input.context.sourceTaskIds : []),
+    ...(Array.isArray(task.input?.context?.requiredSourceTaskIds) ? task.input.context.requiredSourceTaskIds : []),
+  ].map((item) => text(item, 120)).filter(Boolean))];
+  return taskIds.map((taskId) => {
+    const sourceTask = tasks.find((item) => String(item?.taskId || '') === taskId);
+    const artifactIds = [...new Set((sourceTask?.artifactRefs || [])
+      .filter((artifact) => artifact?.type !== 'employee_role_report'
+        && (!requiredTaskIds.has(taskId)
+          || ['confirmed_transcript', 'video_content_analysis_report'].includes(artifact?.type))
+        && artifact?.validation?.exists !== false
+        && artifact?.validation?.readable !== false)
+      .map((artifact) => text(artifact?.artifactId, 240))
+      .filter(Boolean))];
+    return { taskId, artifactIds };
+  });
 }
 
 async function resolveTemplateBinding(resolver, pipelineCaseId) {
@@ -201,10 +208,6 @@ function validGrayTemplateBinding(binding, pipelineCaseId) {
     && binding.grayTargetDayCaseId === pipelineCaseId
     && binding.grayTargetPlatform === 'douyin'
   );
-}
-
-function taskTime(task) {
-  return Date.parse(task?.updatedAt || task?.createdAt || 0) || 0;
 }
 
 function text(value, limit) {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { LocalCreator } from '../src/local-creator.js';
+import { LocalCreator } from '../src/local-creator.ts';
 
 const task = {
   taskId: 'task-creator-1',

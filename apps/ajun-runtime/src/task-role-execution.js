@@ -1,6 +1,6 @@
 import { recordTaskUsage } from './task-usage.js';
 import { buildExecutionAudit } from './workflow/execution-audit.ts';
-import { executeIntelResearchOpenTaskStep } from './open-task-routing.js';
+import { executeIntelResearchOpenTaskStep } from './open-task-routing.ts';
 import { assertPaperclipEmployeeExecutorAssignment } from './paperclip-employee-assignment.js';
 import { getM5RoutineExecutionContract } from '@agent-army/m5-kernel/routine-execution-contract';
 import { assertChangedM5RecoveryRoute } from '@agent-army/m5-kernel/route-execution';
@@ -31,6 +31,7 @@ export const taskRoleExecutionMethods = {
     if (assignment.agentId !== 'creator' || task.taskType !== 'governance.agent-proposal') {
       throw new ValidationError('当前指派不是创建官岗位草案任务。');
     }
+    if (this.maturityExecutionGuard) await this.maturityExecutionGuard.verifyOrBlock(task);
     const existing = (task.artifactRefs || []).find((item) =>
       item.type === 'agent_proposal'
       && item.validation?.exists === true
@@ -51,18 +52,24 @@ export const taskRoleExecutionMethods = {
     }
     const executor = this.executors.creator;
     if (!executor?.execute) throw new ValidationError('创建官草案执行器不可用。');
-    const result = await executor.execute(task, {
+    const executionStartedAt = new Date();
+    const proposalInput = {
+      requestedOutcome:String(input.requestedOutcome || assignment.title || '').trim(),
+      candidateName:String(input.candidateName || '').trim(),
+      agentId:String(input.agentId || '').trim(),
+      department:String(input.department || '').trim(),
+      responsibilities:input.responsibilities,
+      nonResponsibilities:input.nonResponsibilities,
+      acceptedTaskTypes:input.acceptedTaskTypes,
+      desiredSkills:input.desiredSkills,
+      requestedCapabilities:input.requestedCapabilities,
+      acceptanceTitle:String(input.acceptanceTitle || '').trim()
+    };
+    const result = this.maturityExecutionGuard
+      ? await this.maturityExecutionGuard.execute(task, executor, { proposalInput })
+      : await executor.execute(task, {
       proposalInput:{
-        requestedOutcome:String(input.requestedOutcome || assignment.title || '').trim(),
-        candidateName:String(input.candidateName || '').trim(),
-        agentId:String(input.agentId || '').trim(),
-        department:String(input.department || '').trim(),
-        responsibilities:input.responsibilities,
-        nonResponsibilities:input.nonResponsibilities,
-        acceptedTaskTypes:input.acceptedTaskTypes,
-        desiredSkills:input.desiredSkills,
-        requestedCapabilities:input.requestedCapabilities,
-        acceptanceTitle:String(input.acceptanceTitle || '').trim()
+        ...proposalInput,
       }
     });
     const artifact = (result.artifactRefs || []).find((item) =>
@@ -86,7 +93,8 @@ export const taskRoleExecutionMethods = {
           status:artifact.data?.status || null,
           recordedAt:new Date().toISOString()
         }
-      }
+      },
+      usage:recordTaskUsage({ task, result, startedAt:executionStartedAt }),
     });
     return {
       assignment,
@@ -106,6 +114,7 @@ export const taskRoleExecutionMethods = {
     if (assignment.agentId !== 'technical-expert' || task.taskType !== 'operations.technical-repair') {
       throw new ValidationError('当前指派不是技术专家受控修复任务。');
     }
+    if (this.maturityExecutionGuard) await this.maturityExecutionGuard.verifyOrBlock(task);
     const existing = (task.artifactRefs || []).find((item) => item.type === 'technical_repair_case');
     if (existing) {
       return {
@@ -117,8 +126,11 @@ export const taskRoleExecutionMethods = {
     }
     const executor = this.executors['technical-expert'];
     if (!executor?.execute) throw new ValidationError('技术专家隔离修复执行器不可用。');
-    const result = await executor.execute(task);
-    const verified = result.execution?.outcome === 'promoted'
+    const executionStartedAt = new Date();
+    const result = this.maturityExecutionGuard
+      ? await this.maturityExecutionGuard.execute(task, executor)
+      : await executor.execute(task);
+    const verified = ['promoted', 'acceptance_verified_in_isolated_workspace'].includes(result.execution?.outcome)
       && result.execution?.verification?.testsPassed === true
       && result.execution?.verification?.recoveryVerified === true;
     const updated = await this.store.updateTask(task.taskId, {
@@ -128,7 +140,8 @@ export const taskRoleExecutionMethods = {
       execution:{
         ...(task.execution || {}),
         technicalRepair:result.execution || null
-      }
+      },
+      usage:recordTaskUsage({ task, result, startedAt:executionStartedAt }),
     });
     return {
       assignment,
@@ -450,6 +463,7 @@ export const taskRoleExecutionMethods = {
 
   async executeContentGrowthAssignment(input = {}) {
     const { task, assignment } = await this.getPaperclipAssignment(input);
+    if (this.maturityExecutionGuard) await this.maturityExecutionGuard.verifyOrBlock(task);
     const capability = this.capabilityCatalog.contentGrowthContract(task.taskType, assignment.agentId);
     if (!capability) throw new ValidationError('当前指派不是受控内容增长任务。');
     const expectedType = capability.artifactType;
@@ -564,14 +578,15 @@ export const taskRoleExecutionMethods = {
       if (prepared.recovery) {
         assertChangedM5RecoveryRoute(routeExecution, prepared.recovery);
       }
-      result = await executor.execute(
-        prepared.task,
-        {
-          ...(prepared.recovery ? { m5Recovery:prepared.recovery } : {}),
-          ...(providerVision ? { providerVision } : {}),
-        },
-      );
+      const executorOptions = {
+        ...(prepared.recovery ? { m5Recovery:prepared.recovery } : {}),
+        ...(providerVision ? { providerVision } : {}),
+      };
+      result = this.maturityExecutionGuard
+        ? await this.maturityExecutionGuard.execute(prepared.task, executor, executorOptions)
+        : await executor.execute(prepared.task, executorOptions);
     } catch (error) {
+      if (error?.blockedTask) throw error;
       const completedAt = new Date().toISOString();
       result = {
         status:'waiting_test',

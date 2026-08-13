@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ApprovalExpiryReconciler } from '../src/approval-expiry-reconciler.js';
+import { ApprovalExpiryReconciler } from '../src/approval-expiry-reconciler.ts';
 
 test('过期确认整理器会交给任务服务自动关闭旧确认', async () => {
   let calls = 0;

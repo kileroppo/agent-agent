@@ -3,7 +3,7 @@ const TRANSIENT_RE = /(?:timeout|timed out|temporar|rate.?limit|unavailable|conn
 const CODE_RE = /(?:assert|typeerror|referenceerror|syntaxerror|test.?fail|coverage_below|checksum|schema|invalid state|完整性检查|校验失败)/i;
 const INPUT_RE = /(?:needs_input|missing input|unsupported media|重新上传|补充|无法识别为可转录|缺少.*(?:输入|材料|文件))/i;
 
-export function classifyTechnicalFailure({ error = {}, taskType = '', sourceUrl = '' } = {}) {
+export function classifyTechnicalFailure({ error = {}, taskType = '', sourceUrl = '' }: any = {}) {
   const code = String(error.code || 'unknown_failure');
   const category = String(error.category || 'manual');
   const stage = String(error.stage || 'unknown');
@@ -45,7 +45,7 @@ export function classifyTechnicalFailure({ error = {}, taskType = '', sourceUrl 
   };
 }
 
-export function sanitizeFailureText(value) {
+export function sanitizeFailureText(value: unknown) {
   return String(value || '')
     .replace(/https?:\/\/\S+/gi, '[链接已脱敏]')
     .replace(/\b(?:authorization|token|cookie|secret|password|key)\s*[:=]\s*[^\s,;]+/gi, '$1=[已脱敏]')
@@ -55,7 +55,7 @@ export function sanitizeFailureText(value) {
     .slice(0, 800);
 }
 
-function sourcePlatform(value) {
+function sourcePlatform(value: unknown) {
   try {
     const host = new URL(String(value || '')).hostname.toLowerCase();
     if (host.includes('bilibili.com') || host === 'b23.tv') return 'bilibili';

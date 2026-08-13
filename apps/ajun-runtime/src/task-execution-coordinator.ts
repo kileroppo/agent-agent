@@ -1,9 +1,22 @@
+// @ts-expect-error legacy governance adapter has no declaration yet
 import { usesPaperclipHermesExecution } from './governance-hermes-runtime.js';
-import { routeOpenTaskForExecutor } from './open-task-routing.js';
+import { routeOpenTaskForExecutor } from './open-task-routing.ts';
+// @ts-expect-error legacy usage adapter has no declaration yet
 import { recordTaskUsage } from './task-usage.js';
-import { validateTaskCompletion } from './task-completion-contract.js';
+import { validateTaskCompletion } from './task-completion-contract.ts';
 
 export class TaskExecutionCoordinator {
+  store: any;
+  governance: any;
+  capabilityCatalog: any;
+  executorResolver: (agentId: string) => any;
+  fallbackExecutor: any;
+  fallbackExecutorResolver: () => any;
+  markFailureRecoveryPending: (task: any) => Promise<any>;
+  startFailureRecovery: (task: any) => void;
+  prepareCompletion: (task: any, result: any) => any;
+  maturityExecutionGuard: any;
+
   constructor({
     store,
     governance = null,
@@ -11,23 +24,49 @@ export class TaskExecutionCoordinator {
     executorResolver = null,
     fallbackExecutor = null,
     fallbackExecutorResolver = null,
-    markFailureRecoveryPending = async (task) => task,
+    markFailureRecoveryPending = async (task: any) => task,
     startFailureRecovery = () => {},
-    prepareCompletion = (_task, result) => result,
-  } = {}) {
+    prepareCompletion = (_task: any, result: any) => result,
+    maturityExecutionGuard = null,
+  }: any = {}) {
     this.store = store;
     this.governance = governance;
     this.capabilityCatalog = capabilityCatalog;
-    this.executorResolver = executorResolver || ((agentId) => capabilityCatalog.executor(agentId));
+    this.executorResolver = executorResolver || ((agentId: string) => capabilityCatalog.executor(agentId));
     this.fallbackExecutor = fallbackExecutor;
     this.fallbackExecutorResolver = fallbackExecutorResolver || (() => this.fallbackExecutor);
     this.markFailureRecoveryPending = markFailureRecoveryPending;
     this.startFailureRecovery = startFailureRecovery;
     this.prepareCompletion = prepareCompletion;
+    this.maturityExecutionGuard = maturityExecutionGuard;
   }
 
-  async execute(task, agent) {
-    if (usesPaperclipHermesExecution(agent) && task.status !== 'waiting_approval') {
+  async execute(task: any, agent: any) {
+    if (!this.maturityExecutionGuard && await signalsProductMaturity(task, this.store)) {
+      return this.store.updateTask(task.taskId, {
+        status:'needs_input',
+        currentStage:'maturity_execution_guard_unavailable',
+        error:{
+          code:'maturity_execution_guard_unavailable',
+          message:'产品成熟度任务执行门禁未装配。',
+          userMessage:'产品成熟度任务缺少统一执行门禁，已停止且没有唤醒岗位或外部治理执行器。',
+          category:'governance',
+          stage:'maturity_execution_guard',
+          retryable:false,
+          occurredAt:new Date().toISOString(),
+        },
+      });
+    }
+    let maturityAuthorization = null;
+    if (this.maturityExecutionGuard) {
+      try {
+        maturityAuthorization = await this.maturityExecutionGuard.verifyOrBlock(task);
+      } catch (error: any) {
+        if (error?.blockedTask) return error.blockedTask;
+        throw error;
+      }
+    }
+    if (!maturityAuthorization && usesPaperclipHermesExecution(agent) && task.status !== 'waiting_approval') {
       return this.delegateToPaperclip(task, agent);
     }
     const fallbackExecutor = this.fallbackExecutorResolver();
@@ -35,7 +74,17 @@ export class TaskExecutionCoordinator {
       ? this.executorResolver(agent.agentId)
         || (fallbackExecutor?.supports(agent) ? fallbackExecutor : null)
       : null;
-    if (!executor || task.status === 'waiting_approval') return task;
+    if (!executor || task.status === 'waiting_approval') {
+      if (maturityAuthorization) {
+        try {
+          await this.maturityExecutionGuard.execute(task, executor);
+        } catch (error: any) {
+          if (error?.blockedTask) return error.blockedTask;
+          throw error;
+        }
+      }
+      return task;
+    }
 
     const executionStartedAt = new Date();
     const startPatch = {
@@ -47,29 +96,36 @@ export class TaskExecutionCoordinator {
       : { claimed:true, task:await this.store.updateTask(task.taskId, { ...startPatch, status:'running' }) };
     if (!claim.claimed) return claim.task;
     let updated = claim.task;
-    updated = await this.syncGovernance(updated);
+    if (!maturityAuthorization) updated = await this.syncGovernance(updated);
     try {
-      const rawResult = await executor.execute(routeOpenTaskForExecutor(updated, agent));
+      const routedTask = routeOpenTaskForExecutor(updated, agent);
+      const rawResult = this.maturityExecutionGuard
+        ? await this.maturityExecutionGuard.execute(routedTask, executor)
+        : await executor.execute(routedTask);
       const result = await this.prepareCompletion(updated, enforceCompletionContract(updated, rawResult));
       updated = await this.store.updateTask(updated.taskId, {
         ...result,
         usage:recordTaskUsage({ task:updated, result, startedAt:executionStartedAt }),
       });
       if (updated.status === 'running' && typeof executor.observe === 'function') executor.observe(updated);
-    } catch (error) {
-      const result = executionFailure(updated, error);
-      updated = await this.store.updateTask(updated.taskId, {
-        ...result,
-        usage:recordTaskUsage({ task:updated, result, startedAt:executionStartedAt }),
-      });
+    } catch (error: any) {
+      if (error?.blockedTask) {
+        updated = error.blockedTask;
+      } else {
+        const result = executionFailure(updated, error);
+        updated = await this.store.updateTask(updated.taskId, {
+          ...result,
+          usage:recordTaskUsage({ task:updated, result, startedAt:executionStartedAt }),
+        });
+      }
     }
-    updated = await this.syncGovernance(updated);
+    if (!maturityAuthorization) updated = await this.syncGovernance(updated);
     updated = await this.markFailureRecoveryPending(updated);
     this.startFailureRecovery(updated);
     return updated;
   }
 
-  delegateToPaperclip(task, agent) {
+  delegateToPaperclip(task: any, agent: any) {
     const projected = Boolean(task.governance?.paperclipIssueId);
     return this.store.updateTask(task.taskId, {
       status:projected ? 'running' : 'needs_input',
@@ -95,13 +151,26 @@ export class TaskExecutionCoordinator {
     });
   }
 
-  async syncGovernance(task) {
+  async syncGovernance(task: any) {
     if (!this.governance || !task.governance?.paperclipIssueId) return task;
     return this.store.updateTask(task.taskId, { governance:await this.governance.update(task) });
   }
 }
 
-function executionFailure(task, error) {
+async function signalsProductMaturity(task: any, store: any) {
+  const directSignal = task?.input?.context?.productMaturityAuthorization?.kind === 'product-maturity-validation'
+    || /^maturity-[0-9a-f-]{36}$/i.test(String(task?.source?.eventRef || ''))
+    || /^maturity-[0-9a-f-]{36}$/i.test(String(task?.input?.context?.productMaturityBatchId || ''));
+  if (directSignal) return true;
+  const parentTaskId = String(task?.parentTaskId || '');
+  if (!parentTaskId || typeof store?.list !== 'function') return false;
+  const parent = (await store.list()).find((item: any) => item.taskId === parentTaskId);
+  return parent?.taskType === 'army.cross-agent-mission'
+    && (/^maturity-[0-9a-f-]{36}$/i.test(String(parent?.input?.context?.productMaturityBatchId || ''))
+      || /^maturity-[0-9a-f-]{36}$/i.test(String(parent?.source?.eventRef || '')));
+}
+
+function executionFailure(task: any, error: any) {
   return {
     status:'failed',
     currentStage:'execution_failed',
@@ -118,7 +187,7 @@ function executionFailure(task, error) {
   };
 }
 
-function enforceCompletionContract(task, result = {}) {
+function enforceCompletionContract(task: any, result: any = {}) {
   if (result?.status !== 'succeeded') return result;
   const artifacts = Array.isArray(result.artifactRefs)
     ? result.artifactRefs

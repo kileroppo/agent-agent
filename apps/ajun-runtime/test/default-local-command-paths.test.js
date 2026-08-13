@@ -10,8 +10,8 @@ import { HermesModelSetupService } from '../src/hermes-model-setup-service.js';
 import { HermesPublicComparisonAdvisor } from '../src/hermes-public-comparison-advisor.js';
 import { HermesPublicSummaryAdvisor } from '../src/hermes-public-summary-advisor.js';
 import { HermesTaskAdvisor } from '../src/hermes-task-advisor.js';
-import { TechnicalExpertRunner } from '../src/technical-expert-runner.js';
-import { TechnicalRepairDiagnoser } from '../src/technical-repair-diagnoser.js';
+import { TechnicalExpertRunner } from '../src/technical-expert-runner.ts';
+import { TechnicalRepairDiagnoser } from '../src/technical-repair-diagnoser.ts';
 
 test('Hermes 与 Codex 默认命令由当前 home 组合，不固化开发机用户名', () => {
   const previousHermes = process.env.AJUN_HERMES_COMMAND;

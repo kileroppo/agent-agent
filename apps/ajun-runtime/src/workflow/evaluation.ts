@@ -52,7 +52,7 @@ export function evaluateStep(task: any): WorkflowStepEvaluation {
   const artifacts = (Array.isArray(task?.artifactRefs) ? task.artifactRefs : []).map((artifact: any) => Object.freeze({
     artifactId:String(artifact?.artifactId || ''),
     type:String(artifact?.type || ''),
-    verified:verifiedArtifact(artifact),
+    verified:verifiedArtifact(task, artifact),
     humanAccepted:humanAcceptedArtifact(artifact),
   }));
   const verified = task?.status === 'succeeded' && artifacts.some((artifact: any) => artifact.verified);
@@ -79,11 +79,62 @@ export function evaluateStep(task: any): WorkflowStepEvaluation {
   });
 }
 
-function verifiedArtifact(artifact: any): boolean {
-  return artifact?.validation?.exists === true
+function verifiedArtifact(task: any, artifact: any): boolean {
+  const generallyVerified = artifact?.validation?.exists === true
     && artifact?.validation?.readable === true
     && artifact?.validation?.nonEmpty !== false
     && criticalValidationPassed(artifact?.validation);
+  if (!generallyVerified) return false;
+  return artifact?.type !== 'video_script_package'
+    || verifiedVideoScriptPackage(task, artifact);
+}
+
+const VIDEO_SCRIPT_PACKAGE_FILES = Object.freeze([
+  'script',
+  'shots',
+  'subtitles',
+  'sources',
+  'manifest',
+]);
+
+function verifiedVideoScriptPackage(task: any, artifact: any): boolean {
+  if (artifact?.validation?.nonEmpty !== true) return false;
+  const files = Array.isArray(artifact?.data?.productionFiles)
+    ? artifact.data.productionFiles
+    : [];
+  const fileIds = new Set(files
+    .map((file: any) => String(file?.id || '').trim())
+    .filter(Boolean));
+  if (
+    artifact?.validation?.fileCount !== VIDEO_SCRIPT_PACKAGE_FILES.length
+    || artifact?.validation?.onePrimaryDraft !== true
+    || files.length !== VIDEO_SCRIPT_PACKAGE_FILES.length
+    || fileIds.size !== VIDEO_SCRIPT_PACKAGE_FILES.length
+    || !VIDEO_SCRIPT_PACKAGE_FILES.every((fileId) => fileIds.has(fileId))
+  ) return false;
+  if (typeof artifact?.data?.fullScript !== 'string' || !artifact.data.fullScript.trim()) return false;
+  if (artifact?.data?.publishingStatus !== 'draft_only') return false;
+  if (artifact?.validation?.externalSideEffects !== 0) return false;
+
+  const requiredSourceTaskIds = normalizedIds(task?.input?.context?.requiredSourceTaskIds);
+  if (!requiredSourceTaskIds.length) return true;
+  const sourceTaskIds = new Set(normalizedIds(artifact?.data?.sourceTaskIds));
+  if (!requiredSourceTaskIds.every((taskId) => sourceTaskIds.has(taskId))) return false;
+  const sourceRefs = new Set(normalizedIds(artifact?.sourceRefs));
+  if (sourceRefs.size < Math.max(2, requiredSourceTaskIds.length)) return false;
+  const bindings = Array.isArray(artifact?.data?.sourceTaskBindings)
+    ? artifact.data.sourceTaskBindings
+    : [];
+  return requiredSourceTaskIds.every((taskId) => bindings.some((binding: any) => {
+    if (String(binding?.taskId || '').trim() !== taskId) return false;
+    const artifactIds = normalizedIds(binding?.artifactIds);
+    return artifactIds.length > 0 && artifactIds.every((artifactId) => sourceRefs.has(artifactId));
+  }));
+}
+
+function normalizedIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((item) => String(item || '').trim()).filter(Boolean))];
 }
 
 function criticalValidationPassed(validation: any): boolean {

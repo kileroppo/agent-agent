@@ -1,11 +1,11 @@
 import path from 'node:path';
 
 import { IsolatedRepairWorkspace } from '../isolated-repair-workspace.js';
-import { LocalTechnicalExpert } from '../local-technical-expert.js';
-import { TechnicalExpertRunner } from '../technical-expert-runner.js';
-import { TechnicalRepairDiagnoser } from '../technical-repair-diagnoser.js';
+import { LocalTechnicalExpert } from '../local-technical-expert.ts';
+import { TechnicalExpertRunner } from '../technical-expert-runner.ts';
+import { TechnicalRepairDiagnoser } from '../technical-repair-diagnoser.ts';
 import { TechnicalRepairPromotion } from '../technical-repair-promotion.js';
-import { TechnicalRepairWatchdog } from '../technical-repair-watchdog.js';
+import { TechnicalRepairWatchdog } from '../technical-repair-watchdog.ts';
 
 export function createRoleTechnicalExecutionComposition({ paths, runtimeSource }) {
   const repairWorkspace = new IsolatedRepairWorkspace({

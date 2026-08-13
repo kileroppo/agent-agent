@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { LocalAjunCoordinator } from '../src/local-ajun-coordinator.js';
+import { LocalAjunCoordinator } from '../src/local-ajun-coordinator.ts';
 
 test('A君把带公开链接的素材请求建议给小D，且不发起外部动作', async () => {
   const coordinator = new LocalAjunCoordinator({ now: () => new Date('2026-07-20T08:00:00.000Z') });
@@ -52,6 +52,42 @@ test('A君内容总任务会保留听审、证据模式和分析深度契约', a
   assert.equal(plan.subtasks[1].evidenceMode, 'formal');
   assert.equal(plan.subtasks[1].depth, 'full');
   assert.equal(plan.subtasks[1].focus, '开场钩子');
+});
+
+test('A君产品成熟度计划保留内容来源契约且不把运行依赖当作内容来源', async () => {
+  const coordinator = new LocalAjunCoordinator({ now:() => new Date('2026-08-11T01:00:00.000Z') });
+  const result = await coordinator.execute({
+    taskId:'mission-product-maturity-context',
+    taskType:'army.cross-agent-mission',
+    input:{
+      title:'产品成熟度受控验证',
+      context:{
+        missionSafeOnly:true,
+        businessMissionItems:[{
+          key:'content-draft',
+          title:'生成受控内容草案',
+          taskType:'content.video-script-package',
+          agentId:'content-creator',
+          context:{
+            productMaturityAuthorization:{ kind:'product-maturity-validation', token:'signed-test-token' },
+            sourceTaskIds:['confirmed-transcript', 'formal-analysis'],
+            requiredSourceTaskIds:['confirmed-transcript', 'formal-analysis', 'confirmed-transcript'],
+            dependencyTaskIds:['workflow-dependency-child'],
+          },
+        }],
+      },
+    },
+    execution:{},
+  });
+
+  const context = result.artifactRefs[0].data.subtasks[0].context;
+  assert.deepEqual(context.sourceTaskIds, ['confirmed-transcript', 'formal-analysis']);
+  assert.deepEqual(context.requiredSourceTaskIds, ['confirmed-transcript', 'formal-analysis']);
+  assert.equal('dependencyTaskIds' in context, false);
+  assert.deepEqual(context.productMaturityAuthorization, {
+    kind:'product-maturity-validation',
+    token:'signed-test-token',
+  });
 });
 
 test('A君不会把未知请求伪装成已路由', async () => {

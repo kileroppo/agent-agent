@@ -7,14 +7,15 @@ import path from 'node:path';
 const execFile = promisify(execFileCallback);
 
 export class TechnicalExpertRunner {
-  constructor({ command = process.env.AJUN_CODEX_COMMAND || path.join(os.homedir(), '.local', 'bin', 'codex'), execFileImpl = execFile, fsImpl = fs, maxRunMs = 150_000 } = {}) {
+  command: string; execFile: any; fs: any; maxRunMs: number;
+  constructor({ command = process.env.AJUN_CODEX_COMMAND || path.join(os.homedir(), '.local', 'bin', 'codex'), execFileImpl = execFile, fsImpl = fs, maxRunMs = 150_000 }: any = {}) {
     this.command = command;
     this.execFile = execFileImpl;
     this.fs = fsImpl;
     this.maxRunMs = maxRunMs;
   }
 
-  async run(task, workspace) {
+  async run(task: any, workspace: string) {
     const scope = repairScope(task);
     if (!scope) return { status:'waiting_for_scope' };
     const prompt = buildPrompt(task, scope);
@@ -22,7 +23,7 @@ export class TechnicalExpertRunner {
       const command = this.execFile(this.command, ['exec', '--ephemeral', '--ignore-user-config', '--sandbox', 'workspace-write', '-c', 'approval_policy="never"', '-C', workspace, prompt], { cwd:workspace, timeout:this.maxRunMs, maxBuffer:2_000_000, stdio:['ignore', 'pipe', 'pipe'] });
       command?.child?.stdin?.end();
       await command;
-    } catch (error) {
+    } catch (error: any) {
       if (error?.killed || error?.signal === 'SIGTERM') return { status:'waiting_for_test', reason:'自动修复检查超过本轮时限，已停止等待并保留独立副本。' };
       return { status:'failed', reason:String(error?.message || '技术专家未能完成本轮修复。').slice(0, 500) };
     }
@@ -30,24 +31,24 @@ export class TechnicalExpertRunner {
     try {
       const evidence = JSON.parse(await this.fs.readFile(evidencePath, 'utf8'));
       return { status:'evidence_ready', evidencePath, evidence };
-    } catch (error) {
+    } catch (error: any) {
       return error?.code === 'ENOENT' ? { status:'evidence_missing' } : { status:'failed', reason:'技术专家留下的结果无法读取。' };
     }
   }
 }
 
-function repairScope(task) {
+function repairScope(task: any) {
   const scope = task.input?.context?.repairScope;
-  const files = Array.isArray(scope?.files) ? scope.files.map((item) => String(item || '').trim()).filter(validRelativePath) : [];
+  const files = Array.isArray(scope?.files) ? scope.files.map((item: any) => String(item || '').trim()).filter(validRelativePath) : [];
   const testCommand = String(scope?.testCommand || '').trim();
   const recoveryCheck = String(scope?.recoveryCheck || '').trim();
   if (!files.length || !testCommand || !recoveryCheck) return null;
   return { files, testCommand, recoveryCheck };
 }
 
-function validRelativePath(value) { return value.length > 0 && !path.isAbsolute(value) && !value.split('/').includes('..'); }
+function validRelativePath(value: string) { return value.length > 0 && !path.isAbsolute(value) && !value.split('/').includes('..'); }
 
-function buildPrompt(task, scope) {
+function buildPrompt(task: any, scope: any) {
   return [
     '你是 Agent军团的技术专家，正在一个独立修理副本中处理受控修复。',
     `问题：${String(task.input?.title || '未命名技术问题').slice(0, 200)}`,

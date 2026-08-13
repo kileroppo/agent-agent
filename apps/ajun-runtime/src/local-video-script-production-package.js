@@ -8,6 +8,7 @@ export async function writeLocalVideoScriptProductionPackage({
   data,
   sources,
   sourceRefs,
+  sourceTaskBindings = [],
   completedAt,
 }) {
   const directory = path.join(
@@ -41,6 +42,9 @@ export async function writeLocalVideoScriptProductionPackage({
     fileRecord('subtitles', paths.subtitles),
     fileRecord('sources', paths.sources),
   ]);
+  const sourceTaskIds = [...new Set(sourceTaskBindings
+    .map((binding) => String(binding?.taskId || '').trim())
+    .filter(Boolean))];
   const manifest = {
     schemaVersion:'agent.army/video-script-package/v1',
     taskId:task.taskId,
@@ -50,6 +54,8 @@ export async function writeLocalVideoScriptProductionPackage({
     durationSeconds:data.durationSeconds,
     publishingStatus:'draft_only',
     externalSideEffects:0,
+    sourceTaskIds,
+    sourceTaskBindings,
     sourceRefs,
     files,
     createdAt:completedAt,
@@ -82,6 +88,8 @@ export async function writeLocalVideoScriptProductionPackage({
     data:{
       ...data,
       sources,
+      sourceTaskIds,
+      sourceTaskBindings,
       productionFiles:[...files, manifestFile],
     },
   };

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PaperclipRepairReconciler } from '../src/paperclip-repair-reconciler.js';
+import { PaperclipRepairReconciler } from '../src/paperclip-repair-reconciler.ts';
 
 function setup({ issue, products = [], issueError = null }) {
   let task = { taskId:'repair-1', taskType:'operations.technical-repair', status:'running', currentStage:'paperclip_engineering_assigned', execution:{ executor:'technical-expert' }, artifactRefs:[], governance:{ paperclipIssueId:'issue-1', paperclipIssueIdentifier:'AGE-1', paperclipAssigneeAgentId:'agent-1' } };

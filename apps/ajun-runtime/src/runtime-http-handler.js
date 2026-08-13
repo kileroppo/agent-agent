@@ -35,6 +35,7 @@ import {
 import { dispatchBoomSignal } from '@agent-army/boom-monitor';
 import { routeBoomMonitorApi } from './boom-monitor/index.js';
 import { isPaperclipHttpError, routePaperclipHttp } from './runtime-http-paperclip.js';
+import { routeProductMaturityApi } from './runtime-http-product-maturity.ts';
 
 const MAX_JSON_BODY_BYTES = 1024 * 1024;
 const OWNER_ACTION_NONCE_TTL_MS = 10 * 60 * 1000;
@@ -68,6 +69,7 @@ export function createAjunHttpHandler({
     boomMonitor,
     boomMonitorEnabled,
     taskTimeline,
+    productMaturity,
   } = work;
   const {
     employeeFeishuConnections,
@@ -130,6 +132,13 @@ export function createAjunHttpHandler({
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'本机动作会话只能由老板在这台设备上获取。' });
         return sendJson(response, 200, ownerActionSession.issue());
       }
+      const productMaturityResult = await routeProductMaturityApi({
+        request, service:productMaturity, local:isLocalAddress(request.socket.remoteAddress),
+        sameOrigin:hasSameOrigin(request),
+        authorize:ownerActionSession.authorize(request.headers['x-ajun-owner-action']),
+        readBody:() => readJsonBody(request),
+      });
+      if (productMaturityResult) return sendJson(response, productMaturityResult.status, productMaturityResult.payload);
       const recoveryRequestMatch = request.url?.match(/^\/api\/tasks\/([0-9a-f-]+)\/recovery-actions\/(use_confirmed_transcript_only|request_safe_recovery|request_read_only_diagnosis|retry_visual_analysis_after_recovery)$/i);
       if (request.method === 'POST' && recoveryRequestMatch) {
         if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'任务恢复只能由老板在本机发起。' });

@@ -4,7 +4,9 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export class ProposalAcceptanceRunner {
-  constructor({ publicReport, intelResearcher = null, videoContentAnalyst = null, contentCreator = null, wechatLocalVault = null, artifactsDir = null, now = () => new Date() } = {}) {
+  publicReport: any; intelResearcher: any; videoContentAnalyst: any; contentCreator: any;
+  wechatLocalVault: any; artifactsDir: string | null; now: () => Date;
+  constructor({ publicReport, intelResearcher = null, videoContentAnalyst = null, contentCreator = null, wechatLocalVault = null, artifactsDir = null, now = () => new Date() }: any = {}) {
     this.publicReport = publicReport;
     this.intelResearcher = intelResearcher;
     this.videoContentAnalyst = videoContentAnalyst;
@@ -30,7 +32,7 @@ export class ProposalAcceptanceRunner {
     contentGoal = null,
     metrics = null,
     acceptanceTranscript = null
-  }) {
+  }: any) {
     const agentId = proposal?.candidateManifest?.agentId;
     const task = {
       taskId: `proposal-test:${testInstance.testInstanceId}`,
@@ -83,7 +85,7 @@ export class ProposalAcceptanceRunner {
           input:{ ...task.input, depth:'full', evidenceMode:'formal' }
         };
         const analysis = await this.videoContentAnalyst.execute(analysisTask, { sourceArtifacts:[transcriptArtifact], allowAdvisor:false });
-        const analysisArtifact = analysis?.artifactRefs?.find((item) => item.type === 'video_content_analysis_report');
+        const analysisArtifact = analysis?.artifactRefs?.find((item: any) => item.type === 'video_content_analysis_report');
         if (analysis?.status !== 'succeeded' || !analysisArtifact) throw new Error('小创受限测试未能生成正式拆解前置产物。');
         return this.contentCreator.execute(task, { sourceArtifacts:[transcriptArtifact, analysisArtifact], allowAdvisor:false });
       }
@@ -97,7 +99,7 @@ export class ProposalAcceptanceRunner {
     throw new Error('当前草案没有可自动验证的受限试用范围。');
   }
 
-  async writeAcceptanceTranscript({ proposal, testInstance, text }) {
+  async writeAcceptanceTranscript({ proposal, testInstance, text }: any) {
     if (!this.artifactsDir) throw new Error('受限验收产物目录未配置。');
     const content = String(text || '').trim();
     if (content.length < 40 || content.length > 80_000) throw new Error('受控验收稿长度必须在 40 到 80000 字符之间。');
@@ -142,11 +144,11 @@ export class ProposalAcceptanceRunner {
   }
 }
 
-function exactCapabilities(proposal, expected) {
+function exactCapabilities(proposal: any, expected: string[]) {
   const capabilities = proposal?.requestedCapabilities || [];
-  return capabilities.length === expected.length && expected.every((item) => capabilities.includes(item));
+  return capabilities.length === expected.length && expected.every((item: string) => capabilities.includes(item));
 }
 
-function safeSegment(value) {
+function safeSegment(value: any) {
   return String(value || 'test').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120) || 'test';
 }
