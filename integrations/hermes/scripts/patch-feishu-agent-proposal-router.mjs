@@ -1,66 +1,30 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import {
+  atomicWriteFile,
+  assertSupportedHermesCompatibility,
+  defaultHermesTarget,
+  replaceRequired,
+  SUPPORTED_HERMES_GIT_COMMIT,
+  SUPPORTED_HERMES_VERSION,
+  verifyHermesTarget,
+} from './patch-support.mjs';
 
-const defaultAdapter = path.join(process.env.HERMES_HOME || path.join(process.env.HOME || '', '.hermes', 'hermes-agent'), 'plugins/platforms/feishu/adapter.py');
+export {
+  atomicWriteFile,
+  assertSupportedHermesCompatibility,
+  SUPPORTED_HERMES_GIT_COMMIT,
+  SUPPORTED_HERMES_VERSION,
+  verifyHermesTarget,
+} from './patch-support.mjs';
+
+const adapterRelativePath = path.join('plugins', 'platforms', 'feishu', 'adapter.py');
+const defaultAdapter = defaultHermesTarget(adapterRelativePath);
 const semanticLayoutSource = fileURLToPath(new URL('../runtime/agent_army_feishu_layout.py', import.meta.url));
 const taskCardRuntimeSource = fileURLToPath(new URL('../runtime/agent_army_feishu_task_card.py', import.meta.url));
-export const SUPPORTED_HERMES_VERSION = '0.19.0';
-export const SUPPORTED_HERMES_GIT_COMMIT = 'fd39696ccfbb1221ac9fdb6119f629f9821e195d';
-const adapterRelativePath = path.join('plugins', 'platforms', 'feishu', 'adapter.py');
 const adapterSeamMarker = 'AGENT_ARMY_HERMES_FEISHU_ADAPTER_SEAM_V1';
-
-export function assertSupportedHermesCompatibility({ version, gitCommit }) {
-  if (version !== SUPPORTED_HERMES_VERSION || gitCommit !== SUPPORTED_HERMES_GIT_COMMIT) {
-    throw new Error(
-      `Hermes 版本未通过锁定校验：需要 ${SUPPORTED_HERMES_VERSION}@${SUPPORTED_HERMES_GIT_COMMIT.slice(0, 12)}，`
-      + `实际为 ${version || 'unknown'}@${String(gitCommit || 'unknown').slice(0, 12)}；拒绝猜测补丁。`,
-    );
-  }
-}
-
-export async function verifyHermesTarget(filePath, expectedRelativePath) {
-  const root = path.resolve(
-    path.dirname(filePath),
-    ...Array(expectedRelativePath.split(path.sep).length - 1).fill('..'),
-  );
-  const actualRelativePath = path.relative(root, path.resolve(filePath));
-  if (actualRelativePath !== expectedRelativePath) {
-    throw new Error(`Hermes 补丁目标路径不匹配：${actualRelativePath}`);
-  }
-  const pyproject = await fs.readFile(path.join(root, 'pyproject.toml'), 'utf8');
-  const version = pyproject.match(/^version\s*=\s*["']([^"']+)["']/m)?.[1];
-  let gitCommit = '';
-  try {
-    gitCommit = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding:'utf8' }).trim();
-  } catch {
-    throw new Error('Hermes 安装缺少可验证 Git 身份；拒绝修改。');
-  }
-  assertSupportedHermesCompatibility({ version, gitCommit });
-  return { root, version, gitCommit };
-}
-
-export async function atomicWriteFile(filePath, content) {
-  const temporary = path.join(
-    path.dirname(filePath),
-    `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`,
-  );
-  let mode = 0o644;
-  try {
-    mode = (await fs.stat(filePath)).mode & 0o777;
-  } catch (error) {
-    if (error?.code !== 'ENOENT') throw error;
-  }
-  try {
-    await fs.writeFile(temporary, content, { mode });
-    await fs.rename(temporary, filePath);
-  } catch (error) {
-    await fs.rm(temporary, { force:true }).catch(() => {});
-    throw error;
-  }
-}
 
 export function applyPatch(source) {
   if (source.includes(adapterSeamMarker)) {
@@ -931,8 +895,12 @@ function upgradeLegacyProposalPatch(source) {
 }
 
 function insert(source, marker, replacement) {
-  if (!source.includes(marker)) throw new Error(`Hermes 当前 Feishu 适配器结构不匹配，找不到补丁锚点：${marker.slice(0, 72)}`);
-  return source.replace(marker, replacement);
+  return replaceRequired(
+    source,
+    marker,
+    replacement,
+    `Hermes 当前 Feishu 适配器结构不匹配，找不到补丁锚点：${marker.slice(0, 72)}`,
+  );
 }
 
 const proposalPattern = `_AJUN_AGENT_PROPOSAL_RE = re.compile(\n    r"(?:创建|新建|招募|招)\\s*(?:一个\\s*)?(?:agent|智能体|岗位)",\n    re.IGNORECASE,\n)`;

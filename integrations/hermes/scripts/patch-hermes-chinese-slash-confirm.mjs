@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {
+  atomicWriteFile,
+  defaultHermesTarget,
+  replaceRequired as replacePatchAnchor,
+} from './patch-support.mjs';
 
-const defaultGateway = path.join(
-  process.env.HERMES_HOME || path.join(process.env.HOME || '', '.hermes', 'hermes-agent'),
-  'gateway/run.py'
-);
+const defaultGateway = defaultHermesTarget(path.join('gateway', 'run.py'));
 
 export function applyPatch(source) {
   if (source.includes('AGENT_ARMY_CHINESE_SLASH_CONFIRM_V1')) return source;
@@ -67,8 +69,12 @@ export function applyPatch(source) {
 }
 
 function replaceRequired(source, marker, replacement) {
-  if (!source.includes(marker)) throw new Error(`Hermes Gateway 结构不匹配，找不到补丁锚点：${marker.slice(0, 72)}`);
-  return source.replace(marker, replacement);
+  return replacePatchAnchor(
+    source,
+    marker,
+    replacement,
+    `Hermes Gateway 结构不匹配，找不到补丁锚点：${marker.slice(0, 72)}`,
+  );
 }
 
 async function main() {
@@ -76,7 +82,7 @@ async function main() {
   const original = await fs.readFile(filePath, 'utf8');
   const patched = applyPatch(original);
   if (patched === original) return console.log(`Hermes 中文命令确认已存在：${filePath}`);
-  await fs.writeFile(filePath, patched);
+  await atomicWriteFile(filePath, patched);
   console.log(`已安装 Hermes 中文命令确认：${filePath}`);
 }
 

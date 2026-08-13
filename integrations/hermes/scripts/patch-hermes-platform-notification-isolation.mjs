@@ -1,11 +1,9 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { atomicWriteFile, defaultHermesTarget } from './patch-support.mjs';
 
-const defaultGateway = path.join(
-  process.env.HERMES_HOME || path.join(process.env.HOME || '', '.hermes', 'hermes-agent'),
-  'gateway/run.py',
-);
+const defaultGateway = defaultHermesTarget(path.join('gateway', 'run.py'));
 
 export function applyPatch(source) {
   const legacy = `            _mem_notif = user_config.get("display", {}).get("memory_notifications")
@@ -50,7 +48,7 @@ async function main() {
   const original = await fs.readFile(filePath, 'utf8');
   const patched = applyPatch(original);
   if (patched === original) return console.log(`Hermes 平台通知隔离已存在：${filePath}`);
-  await fs.writeFile(filePath, patched);
+  await atomicWriteFile(filePath, patched);
   console.log(`已安装 Hermes 平台通知隔离：${filePath}`);
 }
 

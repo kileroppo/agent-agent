@@ -1,23 +1,25 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { atomicWriteFile, verifyHermesTarget } from './patch-feishu-agent-proposal-router.mjs';
-
-const defaultGateway = path.join(
-  process.env.HERMES_HOME || path.join(process.env.HOME || '', '.hermes', 'hermes-agent'),
-  'gateway/run.py',
-);
+import {
+  atomicWriteFile,
+  defaultHermesTarget,
+  replaceExactlyOnce,
+  verifyHermesTarget,
+} from './patch-support.mjs';
 
 const patchMarker = 'AGENT_ARMY_TRUSTED_TASK_CARD_EVENTS_V2';
 const legacyPatchMarker = 'AGENT_ARMY_TRUSTED_TASK_CARD_EVENTS_V1';
 const gatewayRelativePath = path.join('gateway', 'run.py');
+const defaultGateway = defaultHermesTarget(gatewayRelativePath);
 
-function replaceExactlyOnce(source, anchor, replacement, label) {
-  const first = source.indexOf(anchor);
-  if (first < 0 || source.indexOf(anchor, first + anchor.length) >= 0) {
-    throw new Error(`Hermes Gateway 的${label}结构已变化，拒绝猜测补丁。`);
-  }
-  return source.replace(anchor, replacement);
+function replaceGatewayAnchor(source, anchor, replacement, label) {
+  return replaceExactlyOnce(
+    source,
+    anchor,
+    replacement,
+    `Hermes Gateway 的${label}结构已变化，拒绝猜测补丁。`,
+  );
 }
 
 export function applyPatch(source) {
@@ -34,20 +36,20 @@ export function applyPatch(source) {
     return source;
   }
   if (source.includes(legacyPatchMarker)) {
-    let upgraded = replaceExactlyOnce(source, legacyPatchMarker, patchMarker, '旧任务卡事件标记');
-    upgraded = replaceExactlyOnce(
+    let upgraded = replaceGatewayAnchor(source, legacyPatchMarker, patchMarker, '旧任务卡事件标记');
+    upgraded = replaceGatewayAnchor(
       upgraded,
       `        _agent_army_task_card_adapter = (\n`,
       `        from plugins.platforms.feishu.agent_army_task_card import (\n            is_trusted_task_card_event,\n            trusted_task_card_handler,\n        )\n        _agent_army_task_card_adapter = (\n`,
       '旧任务卡事件 Module 接线',
     );
-    upgraded = replaceExactlyOnce(
+    upgraded = replaceGatewayAnchor(
       upgraded,
       `        _agent_army_task_card_handler = getattr(\n            _agent_army_task_card_adapter,\n            "handle_agent_army_task_result",\n            None,\n        )\n        if not callable(_agent_army_task_card_handler):\n            _agent_army_task_card_handler = None\n`,
       `        _agent_army_task_card_handler = trusted_task_card_handler(\n            _agent_army_task_card_adapter,\n            source,\n            feishu_platform=Platform.FEISHU,\n        )\n`,
       '旧任务卡事件 Handler 接线',
     );
-    upgraded = replaceExactlyOnce(
+    upgraded = replaceGatewayAnchor(
       upgraded,
       `                and event_type == "tool.completed"\n                and tool_name in {\n                    "mcp__agent_army__task_create",\n                    "mcp__agent_army__task_get",\n                }\n`,
       `                and is_trusted_task_card_event(event_type, tool_name)\n`,
@@ -116,13 +118,13 @@ export function applyPatch(source) {
             )
 `;
 
-  let patched = replaceExactlyOnce(
+  let patched = replaceGatewayAnchor(
     source,
     callbackAnchor,
     callbackReplacement,
     '工具进度回调',
   );
-  patched = replaceExactlyOnce(
+  patched = replaceGatewayAnchor(
     patched,
     assignmentAnchor,
     assignmentReplacement,

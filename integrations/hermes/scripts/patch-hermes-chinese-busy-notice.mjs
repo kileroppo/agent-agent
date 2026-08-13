@@ -1,9 +1,14 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {
+  atomicWriteFile,
+  defaultHermesRoot,
+  replaceRequired as replacePatchAnchor,
+  resolveHermesTarget,
+} from './patch-support.mjs';
 
-const defaultHermesRoot = process.env.HERMES_HOME
-  || path.join(process.env.HOME || '', '.hermes', 'hermes-agent');
+const hermesRootDefault = defaultHermesRoot();
 
 export function applyGatewayPatch(source) {
   if (source.includes('AGENT_ARMY_CHINESE_BUSY_NOTICE_V1')) return source;
@@ -218,16 +223,20 @@ def busy_input_hint_gateway(mode: str) -> str:
     )`;
 
 function replaceRequired(source, marker, replacement) {
-  if (!source.includes(marker)) {
-    throw new Error(`Hermes 结构不匹配，找不到补丁锚点：${marker.slice(0, 72)}`);
-  }
-  return source.replace(marker, replacement);
+  return replacePatchAnchor(
+    source,
+    marker,
+    replacement,
+    `Hermes 结构不匹配，找不到补丁锚点：${marker.slice(0, 72)}`,
+  );
 }
 
 async function main() {
-  const root = process.argv[2] || defaultHermesRoot;
-  const gatewayPath = root.endsWith('.py') ? root : path.join(root, 'gateway/run.py');
-  const hermesRoot = root.endsWith('.py') ? path.dirname(path.dirname(gatewayPath)) : root;
+  const root = process.argv[2] || hermesRootDefault;
+  const { root: hermesRoot, filePath: gatewayPath } = resolveHermesTarget(
+    root,
+    path.join('gateway', 'run.py'),
+  );
   const onboardingPath = path.join(hermesRoot, 'agent/onboarding.py');
 
   const gatewayOriginal = await fs.readFile(gatewayPath, 'utf8');
@@ -235,8 +244,8 @@ async function main() {
   const gatewayPatched = applyGatewayPatch(gatewayOriginal);
   const onboardingPatched = applyOnboardingPatch(onboardingOriginal);
 
-  if (gatewayPatched !== gatewayOriginal) await fs.writeFile(gatewayPath, gatewayPatched);
-  if (onboardingPatched !== onboardingOriginal) await fs.writeFile(onboardingPath, onboardingPatched);
+  if (gatewayPatched !== gatewayOriginal) await atomicWriteFile(gatewayPath, gatewayPatched);
+  if (onboardingPatched !== onboardingOriginal) await atomicWriteFile(onboardingPath, onboardingPatched);
   console.log(`已安装 Hermes 中文运行提示：${hermesRoot}`);
 }
 

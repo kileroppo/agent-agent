@@ -1,14 +1,12 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { atomicWriteFile, defaultHermesTarget } from './patch-support.mjs';
 
 const PATCH_MARKER = 'AGENT_ARMY_DISPLAY_SETTING_SCOPE_V1';
 const NOTIFICATION_MARKER = 'AGENT_ARMY_PLATFORM_NOTIFICATION_ISOLATION_V1';
 const IMPORT_LINE = '            from gateway.display_config import resolve_display_setting\n';
-const defaultGateway = path.join(
-  process.env.HERMES_HOME || path.join(process.env.HOME || '', '.hermes', 'hermes-agent'),
-  'gateway/run.py'
-);
+const defaultGateway = defaultHermesTarget(path.join('gateway', 'run.py'));
 
 export function applyPatch(source) {
   if (source.includes(PATCH_MARKER)) return source;
@@ -57,10 +55,7 @@ async function main() {
     console.log(`Hermes display 作用域补丁已存在：${filePath}`);
     return;
   }
-  const stat = await fs.stat(filePath);
-  const temporary = `${filePath}.display-scope.tmp-${process.pid}`;
-  await fs.writeFile(temporary, patched, { mode:stat.mode });
-  await fs.rename(temporary, filePath);
+  await atomicWriteFile(filePath, patched);
   console.log(`已安装 Hermes display 作用域补丁：${filePath}`);
 }
 

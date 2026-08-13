@@ -1,9 +1,14 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {
+  atomicWriteFile,
+  defaultHermesRoot,
+  replaceRequired as replacePatchAnchor,
+  resolveHermesTarget,
+} from './patch-support.mjs';
 
-const defaultHermesRoot = process.env.HERMES_AGENT_ROOT
-  || path.join(process.env.HOME || '', '.hermes', 'hermes-agent');
+const hermesRootDefault = defaultHermesRoot('HERMES_AGENT_ROOT');
 
 const billingRegex = `_GATEWAY_BILLING_ERROR_RE = re.compile(
     r"("
@@ -82,18 +87,20 @@ ${billingRegex}`
 }
 
 function replaceRequired(source, marker, replacement) {
-  if (!source.includes(marker)) {
-    throw new Error(`Hermes 结构不匹配，找不到补丁锚点：${marker.slice(0, 72)}`);
-  }
-  return source.replace(marker, replacement);
+  return replacePatchAnchor(
+    source,
+    marker,
+    replacement,
+    `Hermes 结构不匹配，找不到补丁锚点：${marker.slice(0, 72)}`,
+  );
 }
 
 async function main() {
-  const root = process.argv[2] || defaultHermesRoot;
-  const gatewayPath = root.endsWith('.py') ? root : path.join(root, 'gateway/run.py');
+  const root = process.argv[2] || hermesRootDefault;
+  const { filePath: gatewayPath } = resolveHermesTarget(root, path.join('gateway', 'run.py'));
   const original = await fs.readFile(gatewayPath, 'utf8');
   const patched = applyProviderErrorPatch(original);
-  if (patched !== original) await fs.writeFile(gatewayPath, patched);
+  if (patched !== original) await atomicWriteFile(gatewayPath, patched);
   console.log(`已安装 Hermes 中文 Provider 错误提示：${gatewayPath}`);
 }
 

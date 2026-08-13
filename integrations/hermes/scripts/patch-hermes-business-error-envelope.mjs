@@ -1,11 +1,9 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { atomicWriteFile, defaultHermesTarget } from './patch-support.mjs';
 
-const defaultGateway = path.join(
-  process.env.HERMES_HOME || path.join(process.env.HOME || '', '.hermes', 'hermes-agent'),
-  'gateway/run.py',
-);
+const defaultGateway = defaultHermesTarget(path.join('gateway', 'run.py'));
 const defaultPlatformBase = path.join(path.dirname(defaultGateway), 'platforms/base.py');
 
 export function applyPatch(source) {
@@ -83,12 +81,12 @@ async function main() {
   const filePath = process.argv[2] || defaultGateway;
   const original = await fs.readFile(filePath, 'utf8');
   const patched = applyPatch(original);
-  if (patched !== original) await fs.writeFile(filePath, patched);
+  if (patched !== original) await atomicWriteFile(filePath, patched);
 
   const platformBasePath = process.argv[3] || defaultPlatformBase;
   const platformOriginal = await fs.readFile(platformBasePath, 'utf8');
   const platformPatched = applyPlatformBasePatch(platformOriginal);
-  if (platformPatched !== platformOriginal) await fs.writeFile(platformBasePath, platformPatched);
+  if (platformPatched !== platformOriginal) await atomicWriteFile(platformBasePath, platformPatched);
 
   if (patched === original && platformPatched === platformOriginal) {
     console.log(`Hermes 中文错误回执已存在：${filePath}、${platformBasePath}`);
