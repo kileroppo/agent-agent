@@ -19,15 +19,6 @@ import { MacWorkerBridgeError } from './mac-worker-task-bridge.js';
 import { routeM5CampaignApi } from './m5-campaign-api.js';
 import { M5PublisherBindingError } from './m5-publisher-bindings.js';
 import { routeM5PublisherApi } from './m5-publisher-api.js';
-import {
-  M5LearningLifecycleError,
-  PaperclipLearningLifecycleError,
-} from './paperclip-learning-lifecycle.js';
-import { PaperclipHeartbeatError } from './paperclip-heartbeat.js';
-import { PaperclipMetricMonitorError } from './paperclip-metric-monitor.js';
-import { PaperclipPublisherControllerError } from './paperclip-publisher-controller.js';
-import { PaperclipPublisherRunContextError } from './paperclip-publisher-run-context.js';
-import { PaperclipRetrospectiveError } from './paperclip-retrospective.js';
 import { PublicWebFetchError } from './public-web-fetch.js';
 import { OfficialFeishuCompletionWatcherError } from './official-feishu-completion-watcher.js';
 import { assertTaskCardOwnership, presentCommanderReply, presentTaskStatus, resolveTaskCardAction } from './runtime-http-feishu.js';
@@ -43,6 +34,7 @@ import {
 } from './contracts/agent-army-http-input.js';
 import { dispatchBoomSignal } from '@agent-army/boom-monitor';
 import { routeBoomMonitorApi } from './boom-monitor/index.js';
+import { isPaperclipHttpError, routePaperclipHttp } from './runtime-http-paperclip.js';
 
 const MAX_JSON_BODY_BYTES = 1024 * 1024;
 const OWNER_ACTION_NONCE_TTL_MS = 10 * 60 * 1000;
@@ -66,19 +58,6 @@ export function createAjunHttpHandler({
     lanEnabled,
     lanAccess,
   } = network;
-  const {
-    paperclipHeartbeat,
-    paperclipCampaignDaily,
-    paperclipParallelWork,
-    paperclipMetricRunContext,
-    paperclipMetricMonitor,
-    paperclipCurrentRunScope,
-    paperclipPublisherRunContext,
-    paperclipPublisherController,
-    paperclipRetrospective,
-    paperclipLearningLifecycle,
-    canonicalPaperclipHeartbeat,
-  } = paperclip;
   const {
     tasks,
     store,
@@ -115,54 +94,13 @@ export function createAjunHttpHandler({
           revision:development.hotReload.revision,
         });
       }
-      if (request.method === 'POST' && request.url === '/api/paperclip/heartbeat') {
-        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'Paperclip heartbeat 只能由本机服务调用。' });
-        return sendJson(response, 202, await paperclipHeartbeat.handle(await readJsonBody(request)));
-      }
-      if (request.method === 'POST' && request.url === '/api/paperclip/m5-daily-heartbeat') {
-        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'M5 每日 heartbeat 只能由本机 Paperclip 调用。' });
-        return sendJson(response, 202, await paperclipCampaignDaily.handle(await readJsonBody(request)));
-      }
-      if (request.method === 'POST' && request.url === '/api/paperclip/m5-parallel-heartbeat') {
-        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'M5 并行 heartbeat 只能由本机 Paperclip 调用。' });
-        return sendJson(response, 202, await paperclipParallelWork.handle(await readJsonBody(request)));
-      }
-      if (request.method === 'POST' && request.url === '/api/paperclip/m5-metrics-heartbeat') {
-        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'M5 指标 heartbeat 只能由本机 Paperclip 调用。' });
-        const heartbeat = await readJsonBody(request);
-        const runJwt = bearerToken(request.headers.authorization);
-        const canonical = await paperclipMetricRunContext.resolve({ heartbeat, bearerToken:runJwt });
-        const approvalId = String(heartbeat?.context?.approvalId || '').trim();
-        return sendJson(response, 202, await paperclipCurrentRunScope.run({
-          apiKey:runJwt,
-          runId:canonical.runId,
-          issueId:canonical.issueId,
-          agentId:canonical.agentId,
-          companyId:canonical.companyId,
-          ...(approvalId ? { approvalId } : {}),
-        }, () => paperclipMetricMonitor.handle(canonicalPaperclipHeartbeat(heartbeat, canonical))));
-      }
-      if (request.method === 'POST' && request.url === '/api/paperclip/m5-publisher-heartbeat') {
-        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'M5 发布 heartbeat 只能由本机 Paperclip 调用。' });
-        const heartbeat = await readJsonBody(request);
-        const runJwt = bearerToken(request.headers.authorization);
-        const canonical = await paperclipPublisherRunContext.resolve({ heartbeat, bearerToken:runJwt });
-        return sendJson(response, 202, await paperclipCurrentRunScope.run({
-          apiKey:runJwt,
-          runId:canonical.runId,
-          issueId:canonical.issueId,
-          agentId:canonical.agentId,
-          companyId:canonical.companyId,
-        }, () => paperclipPublisherController.handle(canonicalPaperclipHeartbeat(heartbeat, canonical))));
-      }
-      if (request.method === 'POST' && request.url === '/api/paperclip/m5-retrospective-heartbeat') {
-        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'M5 复盘 heartbeat 只能由本机 Paperclip 调用。' });
-        return sendJson(response, 202, await paperclipRetrospective.handle(await readJsonBody(request)));
-      }
-      if (request.method === 'POST' && request.url === '/api/paperclip/m5-learning-heartbeat') {
-        if (!isLocalAddress(request.socket.remoteAddress)) return sendJson(response, 403, { error:'M5 学习 heartbeat 只能由本机 Paperclip 调用。' });
-        return sendJson(response, 202, await paperclipLearningLifecycle.handle(await readJsonBody(request)));
-      }
+      const paperclipResult = await routePaperclipHttp({
+        request,
+        paperclip,
+        local:isLocalAddress(request.socket.remoteAddress),
+        readBody:() => readJsonBody(request),
+      });
+      if (paperclipResult) return sendJson(response, paperclipResult.status, paperclipResult.payload);
 
       if (request.url?.startsWith('/api/worker/')) {
         if (deploymentMode !== 'cloud') return sendJson(response, 404, { error:'当前运行台不是云端办公室。' });
@@ -740,13 +678,7 @@ function errorStatus(error) {
     || error instanceof AccessConnectionError
     || error instanceof ContentCampaignError
     || error instanceof M5PublisherBindingError
-    || error instanceof PaperclipHeartbeatError
-    || error instanceof PaperclipMetricMonitorError
-    || error instanceof PaperclipPublisherControllerError
-    || error instanceof PaperclipPublisherRunContextError
-    || error instanceof PaperclipRetrospectiveError
-    || error instanceof PaperclipLearningLifecycleError
-    || error instanceof M5LearningLifecycleError
+    || isPaperclipHttpError(error)
     || error?.isPublisherError === true
     || error?.isM5ToolExecutionError === true
     || error?.code === 'worker_lease_mismatch'

@@ -1,52 +1,26 @@
 import path from 'node:path';
-import { TaskService } from '../task-service.js';
-import { SkillExecutionRegistry } from '../skill-execution-registry.js';
-import { LocalHealthOperator } from '../local-health-operator.js';
-import { LocalAjunCoordinator } from '../local-ajun-coordinator.js';
-import { LocalReviewer } from '../local-reviewer.js';
-import { LocalArchitect } from '../local-architect.js';
-import { HermesTaskAdvisor } from '../hermes-task-advisor.js';
-import { HermesPublicComparisonAdvisor } from '../hermes-public-comparison-advisor.js';
-import { HermesPublicSummaryAdvisor } from '../hermes-public-summary-advisor.js';
-import { HermesIntelResearchAdvisor } from '../hermes-intel-research-advisor.js';
-import { LocalTechnicalExpert } from '../local-technical-expert.js';
-import { IsolatedRepairWorkspace } from '../isolated-repair-workspace.js';
-import { TechnicalExpertRunner } from '../technical-expert-runner.js';
-import { TechnicalRepairPromotion } from '../technical-repair-promotion.js';
-import { TechnicalRepairWatchdog } from '../technical-repair-watchdog.js';
-import { TechnicalRepairDiagnoser } from '../technical-repair-diagnoser.js';
-import { FailureRecoveryCoordinator } from '../failure-recovery-coordinator.js';
+
 import { AgentProposalService } from '../agent-proposal-service.js';
-import { LocalCreator } from '../local-creator.js';
-import { PublicWebFetch } from '../public-web-fetch.js';
-import { PublicWebSearch } from '../public-web-search.js';
-import { PublicWebTransport } from '../public-web-transport.js';
-import { PublicDynamicWebReader } from '../public-dynamic-web-reader.js';
-import { PublicPdfReader } from '../public-pdf-reader.js';
-import { LocalPublicReport } from '../local-public-report.js';
-import { GithubSearch } from '../github-search.js';
-import { LocalGithubResearch } from '../local-github-research.js';
-import { LocalIntelResearcher } from '../local-intel-researcher.js';
-import { GrokConsultMcpAdapter } from '../grok-consult-mcp-adapter.js';
-import { LocalOfficeAssistant } from '../local-office-assistant.js';
-import { createM5RoleToolAdapters } from '../m5-role-tool-adapters.js';
-import { OfficeDocumentAdapter, officeBinariesAvailable } from '../office-document-adapter.js';
-import { OpenKimiPptAdapter } from '../open-kimi-ppt-adapter.js';
-import { LocalPptxAdapter, OfficePresentationAdapter } from '../local-pptx-adapter.js';
-import { KnowledgeArchiveWriter } from '../knowledge-archive-writer.js';
-import { LocalContentCreator, LocalVideoContentAnalyst } from '../local-content-growth.js';
-import { LocalVideoScriptPackage } from '../local-video-script-package.js';
-import { HermesContentGrowthAdvisor } from '../hermes-content-growth-advisor.js';
+import { FailureRecoveryCoordinator } from '../failure-recovery-coordinator.js';
+import { HermesTaskAdvisor } from '../hermes-task-advisor.js';
 import { HermesUsageLedger } from '../hermes-usage-ledger.js';
-import { ProposalAcceptanceRunner } from '../proposal-acceptance-runner.js';
-import { WeChatLocalVaultAcceptance } from '../wechat-local-vault-acceptance.js';
+import { LocalAjunCoordinator } from '../local-ajun-coordinator.js';
+import { LocalArchitect } from '../local-architect.js';
+import { LocalCreator } from '../local-creator.js';
+import { LocalHealthOperator } from '../local-health-operator.js';
+import { LocalReviewer } from '../local-reviewer.js';
 import { LocalWeChatChatRetriever } from '../local-wechat-chat-retriever.js';
+import { ProposalAcceptanceRunner } from '../proposal-acceptance-runner.js';
+import { SkillExecutionRegistry } from '../skill-execution-registry.js';
 import { taskDetailBaseUrl } from '../task-presentation.js';
-import { CapabilityExecutionEngine } from '../workflow/capability-execution.ts';
-import { createControlledVisionExecution } from '../workflow/controlled-vision.ts';
-import { createLocalAiCapabilityAdapter } from '../adapters/local-ai-capability-adapter.ts';
-import { createCapabilityEventRecorder } from '../workflow/capability-event-recorder.ts';
-import { RoutedPublicWebReader } from '../adapters/routed-public-web-reader.ts';
+import { TaskService } from '../task-service.js';
+import { WeChatLocalVaultAcceptance } from '../wechat-local-vault-acceptance.js';
+import { createRoleContentExecutionComposition } from './role-content-execution-composition.js';
+import { createRoleResearchExecutionComposition } from './role-research-execution-composition.js';
+import {
+  createRoleTechnicalExecutionComposition,
+  createTechnicalRepairWatchdog,
+} from './role-technical-execution-composition.js';
 
 export async function createRoleExecutionComposition({
   environment,
@@ -61,152 +35,35 @@ export async function createRoleExecutionComposition({
   taskRunEvents,
   port,
 }) {
-  const {
-    root,
-    dataDir,
-    sourceProjectRoot,
-    repairWorktreeParent,
-    hermesProfileRoot,
-    autoWorkRoot,
-    xiaodArtifactRoot,
-    contentWorkspaceDir,
-  } = paths;
-  const repairWorkspace = new IsolatedRepairWorkspace({
-    projectRoot:sourceProjectRoot,
-    parentDir:path.join(repairWorktreeParent, 'ajun-repairs'),
-    sourceIdentity:runtimeSource.sourceIdentity,
-    verifySourceRoot:runtimeSource.verify,
+  const technical = createRoleTechnicalExecutionComposition({ paths, runtimeSource });
+  const research = createRoleResearchExecutionComposition({
+    environment,
+    hermesProfileRoot:paths.hermesProfileRoot,
+    taskRunEvents,
   });
-  const technicalRepairPromotion = new TechnicalRepairPromotion({
-    projectRoot:sourceProjectRoot,
-    allowedWorkspaceRoots:[repairWorktreeParent],
-    sourceMode:runtimeSource.mode,
-    sourceIdentity:runtimeSource.sourceIdentity,
-    verifySourceRoot:runtimeSource.verify,
-  });
-  const unguardedTechnicalRepairDiagnoser = new TechnicalRepairDiagnoser();
-  const technicalRepairDiagnoser = {
-    async diagnose(...args) {
-      await runtimeSource.verify();
-      return unguardedTechnicalRepairDiagnoser.diagnose(...args);
-    },
-  };
-  const publicWebTransport = new PublicWebTransport();
-  const publicWebStaticFetch = new PublicWebFetch({
-    fetchImpl:(...args) => publicWebTransport.fetch(...args),
-  });
-  const publicWebSearch = new PublicWebSearch({
-    fetchImpl:(...args) => publicWebTransport.fetch(...args),
-  });
-  const publicDynamicWebReader = new PublicDynamicWebReader();
-  const publicWebFetch = new RoutedPublicWebReader({
-    primary:publicWebStaticFetch,
-    fallback:publicDynamicWebReader,
-    eventStore:taskRunEvents,
-  });
-  const publicPdfReader = new PublicPdfReader({ transport:publicWebTransport });
-  const githubSearch = new GithubSearch({
-    fetchImpl:(...args) => publicWebTransport.fetch(...args),
-  });
-  const publicReport = new LocalPublicReport({
-    publicWebFetch,
-    publicWebSearch,
-    comparisonAdvisor:new HermesPublicComparisonAdvisor(),
-    refineAdvisor:new HermesPublicSummaryAdvisor(),
-  });
-  const githubResearch = new LocalGithubResearch({ githubSearch });
-  const intelResearcher = new LocalIntelResearcher({
-    publicWebFetch,
-    publicWebSearch,
-    githubSearch,
-    publicReport,
-    githubResearch,
-    researchAdvisor:new HermesIntelResearchAdvisor({
-      hermesHome:path.join(hermesProfileRoot, 'intel-researcher'),
-    }),
-    grokConsult:new GrokConsultMcpAdapter({ accessMode:environment.AGENT_ARMY_GROK_ACCESS }),
-  });
-  const knowledgeArchive = new KnowledgeArchiveWriter({ autoWorkRoot });
-  const officeAssistant = new LocalOfficeAssistant({
+  const content = await createRoleContentExecutionComposition({
+    paths,
     store,
-    artifactsDir:path.join(dataDir, 'office-artifacts'),
-    knowledgeArchive,
-  });
-  const officeDocuments = await officeBinariesAvailable()
-    ? new OfficeDocumentAdapter()
-    : null;
-  const officePresentations = new OfficePresentationAdapter({
-    pptdAdapter:new OpenKimiPptAdapter(),
-    pptxAdapter:new LocalPptxAdapter(),
-  });
-  const roleToolAdapters = createM5RoleToolAdapters({
-    publicWebSearch,
-    publicWebFetch,
-    publicDynamicWebReader,
-    publicPdfReader,
-    githubSearch,
-    officeDocuments,
-    officePresentations,
     governance,
-    store,
-    knowledgeArchive,
-    onRunEvent:(event) => taskRunEvents?.appendTaskRunEvent(event),
-  });
-  const contentArtifactRoots = [dataDir, xiaodArtifactRoot, contentWorkspaceDir];
-  const videoContentAgent = await registry.get('video-content-analyst');
-  const localAiAdapter = createLocalAiCapabilityAdapter(localAi);
-  const localAiExecution = new CapabilityExecutionEngine({
-    routes:[{ routeId:'local-ai', adapter:localAiAdapter, maxCostUsd:0 }],
-    plan:{ primaryRouteId:'local-ai', fallbackRouteIds:[], maxRoutes:1 },
-    onReceipt:createCapabilityEventRecorder(taskRunEvents),
-  });
-  const controlledVision = createControlledVisionExecution({
-    engine:localAiExecution,
-    manifestCapabilities:videoContentAgent?.runtimeCapabilities?.localAiCapabilities || [],
-    maxCostUsd:0,
-  });
-  const videoContentAdvisor = new HermesContentGrowthAdvisor({
-    hermesHome:path.join(hermesProfileRoot, 'video-content-analyst'),
-    timeoutMs:720_000,
-  });
-  const contentCreatorAdvisor = new HermesContentGrowthAdvisor({
-    hermesHome:path.join(hermesProfileRoot, 'content-creator'),
-    timeoutMs:300_000,
-  });
-  const videoContentAnalyst = new LocalVideoContentAnalyst({
-    store,
-    artifactsDir:path.join(dataDir, 'content-growth-artifacts'),
-    allowedArtifactRoots:contentArtifactRoots,
-    advisor:videoContentAdvisor,
-    visionExecution:controlledVision,
-  });
-  const videoScriptPackage = new LocalVideoScriptPackage({
-    store,
-    artifactsDir:path.join(dataDir, 'content-growth-artifacts'),
-    advisor:contentCreatorAdvisor,
-    researcher:intelResearcher,
-    templateResolver:contentCampaign.templateResolver,
-  });
-  const contentCreator = new LocalContentCreator({
-    store,
-    artifactsDir:path.join(dataDir, 'content-growth-artifacts'),
-    allowedArtifactRoots:contentArtifactRoots,
-    advisor:contentCreatorAdvisor,
-    scriptPackage:videoScriptPackage,
+    registry,
+    localAi,
+    taskRunEvents,
+    contentCampaign,
+    research,
   });
   const proposals = new AgentProposalService({
     store,
     registry,
     governance,
     restrictedAcceptanceRunner:new ProposalAcceptanceRunner({
-      publicReport,
-      intelResearcher,
-      videoContentAnalyst,
-      contentCreator,
+      publicReport:research.publicReport,
+      intelResearcher:research.intelResearcher,
+      videoContentAnalyst:content.videoContentAnalyst,
+      contentCreator:content.contentCreator,
       wechatLocalVault:new WeChatLocalVaultAcceptance({
-        artifactsDir:path.join(dataDir, 'proposal-acceptance-artifacts'),
+        artifactsDir:path.join(paths.dataDir, 'proposal-acceptance-artifacts'),
       }),
-      artifactsDir:path.join(dataDir, 'proposal-acceptance-artifacts'),
+      artifactsDir:path.join(paths.dataDir, 'proposal-acceptance-artifacts'),
     }),
   });
   const operator = new LocalHealthOperator({ governance });
@@ -215,10 +72,10 @@ export async function createRoleExecutionComposition({
     registry,
     store,
     governance,
-    roleToolAdapters,
+    roleToolAdapters:content.roleToolAdapters,
     employeeAssignmentWaitMs:environment.AGENT_ARMY_EMPLOYEE_ASSIGNMENT_WAIT_MS || 240_000,
-    officePresentationWorkspaceRoot:path.join(dataDir, 'office-presentation-workspaces'),
-    usageLedger:new HermesUsageLedger({ profileRoot:hermesProfileRoot }),
+    officePresentationWorkspaceRoot:path.join(paths.dataDir, 'office-presentation-workspaces'),
+    usageLedger:new HermesUsageLedger({ profileRoot:paths.hermesProfileRoot }),
     m5ProviderVision:contentCampaign.executeProviderVision,
     m5WorkProductValidator:async (input) => (
       await contentCampaign.campaigns()
@@ -230,26 +87,22 @@ export async function createRoleExecutionComposition({
       creator:new LocalCreator({ proposals }),
       reviewer:new LocalReviewer(),
       architect:new LocalArchitect({ registry, store }),
-      'technical-expert':new LocalTechnicalExpert({
-        workspace:repairWorkspace,
-        runner:new TechnicalExpertRunner(),
-        promotion:technicalRepairPromotion,
-      }),
-      'intel-researcher':intelResearcher,
-      'office-assistant':officeAssistant,
-      'video-content-analyst':videoContentAnalyst,
-      'content-creator':contentCreator,
+      'technical-expert':technical.technicalExpert,
+      'intel-researcher':research.intelResearcher,
+      'office-assistant':content.officeAssistant,
+      'video-content-analyst':content.videoContentAnalyst,
+      'content-creator':content.contentCreator,
       'wechat-chat-retriever':new LocalWeChatChatRetriever({
         store,
         ensureAnalysisReady:() => localAi.controlService('qwen35', 'start'),
       }),
     },
-    fallbackExecutor:publicReport,
+    fallbackExecutor:research.publicReport,
     onTaskFailed:(task, options) => failureRecovery?.handle(task, options),
     taskDetailBaseUrl:taskDetailBaseUrl('', `http://127.0.0.1:${port}`),
     skillExecutionRegistry:new SkillExecutionRegistry({
       grokAccessMode:environment.AGENT_ARMY_GROK_ACCESS,
-      readinessProbes:{ 'open-kimi-ppt':() => officePresentations.readiness() },
+      readinessProbes:{ 'open-kimi-ppt':() => content.officePresentations.readiness() },
     }),
     localAiCapabilityStatus:() => localAi.health(),
     taskRunEvents,
@@ -257,8 +110,8 @@ export async function createRoleExecutionComposition({
   failureRecovery = new FailureRecoveryCoordinator({
     tasks,
     store,
-    diagnoser:technicalRepairDiagnoser,
-    projectRoot:sourceProjectRoot,
+    diagnoser:technical.technicalRepairDiagnoser,
+    projectRoot:paths.sourceProjectRoot,
   });
   proposals.taskService = tasks;
 
@@ -267,11 +120,11 @@ export async function createRoleExecutionComposition({
     proposals,
     operator,
     failureRecovery,
-    publicWebFetch,
-    executeVideoAnalysisFallback:async (task) => videoContentAnalyst.execute(
+    publicWebFetch:research.publicWebFetch,
+    executeVideoAnalysisFallback:async (task) => content.videoContentAnalyst.execute(
       task,
       { allowAdvisor:false },
     ),
-    technicalRepairWatchdog:new TechnicalRepairWatchdog({ store, governance }),
+    technicalRepairWatchdog:createTechnicalRepairWatchdog({ store, governance }),
   });
 }

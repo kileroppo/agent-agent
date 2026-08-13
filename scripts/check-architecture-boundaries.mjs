@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import { loadAjunModulePolicy } from './ajun-module-policy.mjs';
 
 const root = path.resolve(
   process.env.AGENT_ARMY_ARCHITECTURE_ROOT
@@ -17,15 +18,6 @@ const retiredAjunM5Facades = new Set([
   'm5-work-product-integrity',
 ]);
 const responsibilityLineLimits = new Map([
-  ['apps/ajun-runtime/src/runtime-composition-root.js', 220],
-  ['apps/ajun-runtime/src/runtime/content-campaign-composition.js', 120],
-  ['apps/ajun-runtime/src/runtime/feishu-command-composition.js', 180],
-  ['apps/ajun-runtime/src/runtime/paperclip-system-control-composition.js', 100],
-  ['apps/ajun-runtime/src/runtime/role-execution-composition.js', 300],
-  ['apps/ajun-runtime/src/runtime/runtime-configuration.js', 120],
-  ['apps/ajun-runtime/src/runtime/runtime-state-composition.js', 100],
-  ['apps/ajun-runtime/src/runtime/local-execution-composition.js', 80],
-  ['apps/ajun-runtime/src/runtime/background-lifecycle-composition.js', 150],
   ['apps/ajun-runtime/src/task-attention-presentation.js', 250],
   ['apps/ajun-runtime/src/task-recovery.js', 300],
   ['apps/ajun-runtime/src/task-service.js', 250],
@@ -40,10 +32,8 @@ const responsibilityLineLimits = new Map([
   ['apps/ajun-runtime/src/task-intake.js', 350],
   ['apps/ajun-runtime/src/task-notification.js', 350],
   ['apps/ajun-runtime/src/task-overview.js', 275],
-  ['apps/ajun-runtime/src/task-service-execution.js', 700],
   ['apps/ajun-runtime/src/task-paperclip-assignment.js', 350],
   ['apps/ajun-runtime/src/task-role-execution.js', 750],
-  ['apps/ajun-runtime/src/task-service-execution-support.js', 950],
   ['apps/ajun-runtime/src/feishu-commander.js', 100],
   ['apps/ajun-runtime/src/feishu-commander-routing.js', 400],
   ['apps/ajun-runtime/src/feishu-commander-followup.js', 300],
@@ -108,7 +98,6 @@ const responsibilityLineLimits = new Map([
   ['integrations/publishing/m5-publisher-gateway/src/cua-semantic-snapshot.js', 450],
 ]);
 const responsibilityImportLimits = new Map([
-  ['apps/ajun-runtime/src/runtime-composition-root.js', 20],
   ['apps/ajun-runtime/src/task-attention-presentation.js', 8],
   ['apps/ajun-runtime/src/task-recovery.js', 10],
   ['apps/ajun-runtime/public/task-record-detail-view.js', 12],
@@ -181,6 +170,14 @@ const semanticShadowRules = new Map([
   ]],
 ]);
 const violations = [];
+let ajunModulePolicy;
+try {
+  ajunModulePolicy = loadAjunModulePolicy(root);
+} catch (error) {
+  violations.push(error.message);
+  ajunModulePolicy = { modules:new Map() };
+}
+await validateAjunModulePolicyCoverage();
 const manifestCache = new Map();
 const workspaceManifests = await discoverWorkspaceManifests();
 await validateRepositoryCatalog();
@@ -210,11 +207,15 @@ for (const sourceRoot of sourceRoots) {
     if (workflowModule && /\b(?:fetch|execFile|exec|spawn)\s*\(/.test(source)) {
       violations.push(`${portableRelative}: Workflow Module 不得直接访问网络或启动进程，请通过 CapabilityAdapter Interface`);
     }
-    const lineLimit = responsibilityLineLimits.get(portableRelative);
+    const ajunRelative = portableRelative.startsWith('apps/ajun-runtime/')
+      ? portableRelative.slice('apps/ajun-runtime/'.length)
+      : null;
+    const localPolicy = ajunRelative ? ajunModulePolicy.modules.get(ajunRelative) : null;
+    const lineLimit = localPolicy?.lineLimit || responsibilityLineLimits.get(portableRelative);
     if (lineLimit && source.split(/\r?\n/).length > lineLimit) {
       violations.push(`${portableRelative}: 责任模块超过 ${lineLimit} 行，请先提取有明确边界的协作者再继续扩展`);
     }
-    const importLimit = responsibilityImportLimits.get(portableRelative);
+    const importLimit = localPolicy?.importLimit || responsibilityImportLimits.get(portableRelative);
     const importCount = [...source.matchAll(/^\s*import\b/gm)].length;
     if (importLimit && importCount > importLimit) {
       violations.push(`${portableRelative}: 产品装配根超过 ${importLimit} 个直接 import，请将领域装配知识下沉到深层 Module`);
@@ -304,6 +305,31 @@ for (const group of responsibilityTestGroupLineLimits) {
 }
 await validateHermesTaskCardPatch();
 await validateTaskDefinitionCoverage();
+
+async function validateAjunModulePolicyCoverage() {
+  const runtimeDirectory = path.join(root, 'apps/ajun-runtime/src/runtime');
+  const requiredModules = ['src/runtime-composition-root.js'];
+  for (const entry of await fs.readdir(runtimeDirectory, { withFileTypes:true }).catch(() => [])) {
+    if (entry.isFile() && entry.name.endsWith('-composition.js')) {
+      requiredModules.push(`src/runtime/${entry.name}`);
+    }
+  }
+  for (const relative of requiredModules) {
+    if (!ajunModulePolicy.modules.has(relative)) {
+      violations.push(`apps/ajun-runtime/${relative}: 装配 Module 必须登记到 module-policy.json`);
+    }
+  }
+  for (const [relative, rule] of ajunModulePolicy.modules) {
+    if (!await pathExists(path.join(root, 'apps/ajun-runtime', relative))) {
+      violations.push(`apps/ajun-runtime/${relative}: Module 策略指向的文件不存在`);
+    }
+    for (const testFile of rule.affectedTests || []) {
+      if (!await pathExists(path.join(root, 'apps/ajun-runtime', testFile))) {
+        violations.push(`apps/ajun-runtime/${relative}: affectedTests 指向的测试不存在（${testFile}）`);
+      }
+    }
+  }
+}
 
 function workflowImplementationImport(specifier) {
   const normalized = String(specifier || '').toLowerCase();

@@ -20,8 +20,6 @@ import {
   isTerminalTask,
   validatedM5StagePluginData,
   paperclipUuid,
-  assertM5PlanRevisionConsumed,
-  assertM5ExecutorRouteReceipt,
   m5WorkProductMetadata,
   m5WorkProductProvider,
   outputItems,
@@ -29,6 +27,7 @@ import {
   contentGrowthArtifactVerified,
   normalizeArchitectureLayers,
 } from './task-service-execution-support.js';
+import { assertM5ExecutorRouteReceipt, assertM5PlanRevisionConsumed } from './task-service-m5-execution-context-support.js';
 import { prepareDeliveryQualityResult } from './workflow/delivery-quality-runtime.ts';
 import { deliveryQualityReviewInput } from './workflow/delivery-quality-review-input.ts';
 import { isPaperclipCompletionTaskStatus } from './task-status-policy.js';

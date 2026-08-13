@@ -212,6 +212,57 @@ test('架构检查拒绝产品装配根重新直接认识过多实现', async (c
   assert.match(result.stderr, /产品装配根超过 20 个直接 import/);
 });
 
+test('A君 Module 策略损坏时架构检查失败关闭', async (context) => {
+  const root = await fixture(context);
+  await write(root, 'apps/ajun-runtime/module-policy.json', '{broken-json');
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /A君 Module 策略无法读取/);
+});
+
+test('A君 Module 策略拒绝拼错字段和越界路径', async (context) => {
+  const root = await fixture(context);
+  await write(root, 'apps/ajun-runtime/module-policy.json', JSON.stringify({
+    schemaVersion:'agent.army/ajun-module-policy/v1',
+    modules:{
+      'src/../../outside.js':{ lineLimt:100 },
+    },
+  }));
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /非法路径|未知字段/);
+});
+
+test('架构检查要求装配 Module 双向登记且策略目标存在', async (context) => {
+  const missingRegistrationRoot = await fixture(context);
+  await write(
+    missingRegistrationRoot,
+    'apps/ajun-runtime/src/runtime/new-capability-composition.js',
+    'export const capability = true;\n',
+  );
+  const missingRegistration = run(missingRegistrationRoot);
+  assert.notEqual(missingRegistration.status, 0);
+  assert.match(missingRegistration.stderr, /装配 Module 必须登记/);
+
+  const missingTargetRoot = await fixture(context);
+  const policyPath = path.join(missingTargetRoot, 'apps/ajun-runtime/module-policy.json');
+  const policy = JSON.parse(await fs.readFile(policyPath, 'utf8'));
+  policy.modules['src/missing-module.js'] = { lineLimit:100 };
+  await fs.writeFile(policyPath, JSON.stringify(policy));
+  const missingTarget = run(missingTargetRoot);
+  assert.notEqual(missingTarget.status, 0);
+  assert.match(missingTarget.stderr, /Module 策略指向的文件不存在/);
+
+  const missingTestRoot = await fixture(context);
+  const missingTestPolicyPath = path.join(missingTestRoot, 'apps/ajun-runtime/module-policy.json');
+  const missingTestPolicy = JSON.parse(await fs.readFile(missingTestPolicyPath, 'utf8'));
+  missingTestPolicy.modules['src/task-recovery.js'].affectedTests = ['test/missing.test.js'];
+  await fs.writeFile(missingTestPolicyPath, JSON.stringify(missingTestPolicy));
+  const missingTest = run(missingTestRoot);
+  assert.notEqual(missingTest.status, 0);
+  assert.match(missingTest.stderr, /affectedTests 指向的测试不存在/);
+});
+
 test('架构检查为候选任务恢复与展示 Module 预留行数门禁', async (context) => {
   const root = await fixture(context);
   await write(
@@ -357,6 +408,17 @@ async function fixture(context, { appDependencies = {} } = {}) {
     dependencies:appDependencies,
   }));
   await write(root, 'apps/runtime/src/app.js', 'export const app = true;\n');
+  await write(root, 'apps/ajun-runtime/module-policy.json', JSON.stringify({
+    schemaVersion:'agent.army/ajun-module-policy/v1',
+    modules:{
+      'src/runtime-composition-root.js':{ lineLimit:220, importLimit:20 },
+      'src/task-recovery.js':{ lineLimit:300 },
+      'public/task-record-detail-view.js':{ importLimit:12 },
+    },
+  }));
+  await write(root, 'apps/ajun-runtime/src/runtime-composition-root.js', 'export const runtime = true;\n');
+  await write(root, 'apps/ajun-runtime/src/task-recovery.js', 'export const recovery = true;\n');
+  await write(root, 'apps/ajun-runtime/public/task-record-detail-view.js', 'export const detail = true;\n');
   await write(root, 'packages/contracts/package.json', JSON.stringify({
     name:'@example/contracts',
     version:'1.0.0',

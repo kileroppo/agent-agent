@@ -13,7 +13,6 @@ import {
   isTerminalTask,
   safeM5VisionRelativePath,
   taskExecutionView,
-  prepareM5ExecutorTask,
   verifiedAssignmentArtifact,
   storedPaperclipEmployeeResult,
   artifactExecutionView,
@@ -21,6 +20,7 @@ import {
   storedContentGrowthResult,
   settleWithin,
 } from './task-service-execution-support.js';
+import { prepareM5ExecutorTask } from './task-service-m5-execution-context-support.js';
 
 export const ROLE_TOOL_GRANT = Symbol('m5RoleToolGrant');
 export const OPEN_RESEARCH_EXECUTION_POLICY = Symbol('openResearchExecutionPolicy');

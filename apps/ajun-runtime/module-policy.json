@@ -1,0 +1,166 @@
+{
+  "schemaVersion": "agent.army/ajun-module-policy/v1",
+  "modules": {
+    "src/runtime-http-handler.js": {
+      "lineLimit": 700,
+      "affectedTests": [
+        "test/production-control-plane-boundary.test.js",
+        "test/runtime-http-feishu.test.js",
+        "test/runtime-http-paperclip.test.js",
+        "test/runtime-start.test.js"
+      ]
+    },
+    "src/runtime-http-paperclip.js": {
+      "lineLimit": 150,
+      "affectedTests": [
+        "test/runtime-http-paperclip.test.js",
+        "test/runtime-start.test.js"
+      ]
+    },
+    "src/runtime-composition-root.js": {
+      "lineLimit": 220,
+      "importLimit": 20
+    },
+    "src/runtime/content-campaign-composition.js": {
+      "lineLimit": 120,
+      "affectedTests": [
+        "test/content-campaign-service.test.js",
+        "test/m5-role-tool-execution.test.js",
+        "test/m5-server-publisher-composition.test.js",
+        "test/runtime-start.test.js"
+      ]
+    },
+    "src/runtime/feishu-command-composition.js": {
+      "lineLimit": 180,
+      "affectedTests": [
+        "test/agent-feishu-channel-fleet.test.js",
+        "test/employee-feishu-connection-service.test.js",
+        "test/feishu-channel-bridge.test.js",
+        "test/feishu-commander.test.js",
+        "test/official-feishu-channel-runner.test.js",
+        "test/official-feishu-completion-watcher.test.js",
+        "test/runtime-start.test.js"
+      ]
+    },
+    "src/runtime/paperclip-system-control-composition.js": {
+      "lineLimit": 100,
+      "affectedTests": [
+        "test/paperclip-heartbeat.test.js",
+        "test/paperclip-learning-lifecycle.test.js",
+        "test/paperclip-metric-monitor.test.js",
+        "test/paperclip-publisher-controller.test.js",
+        "test/paperclip-publisher-run-context.test.js",
+        "test/paperclip-retrospective.test.js",
+        "test/runtime-start.test.js"
+      ]
+    },
+    "src/runtime/role-execution-composition.js": {
+      "lineLimit": 160,
+      "importLimit": 24,
+      "affectedTests": [
+        "test/agent-proposal-service.test.js",
+        "test/local-content-growth.test.js",
+        "test/local-intel-researcher.test.js",
+        "test/local-office-assistant.test.js",
+        "test/local-technical-expert.test.js",
+        "test/open-task-runtime-wiring.test.js",
+        "test/role-execution-composition.test.js",
+        "test/runtime-start.test.js",
+        "test/task-service.test.js",
+        "test/technical-repair-diagnoser.test.js",
+        "test/technical-repair-promotion.test.js",
+        "test/technical-repair-watchdog.test.js"
+      ]
+    },
+    "src/runtime/role-research-execution-composition.js": {
+      "lineLimit": 100,
+      "affectedTests": [
+        "test/agent-proposal-service.test.js",
+        "test/local-intel-researcher.test.js",
+        "test/open-task-runtime-wiring.test.js",
+        "test/role-execution-composition.test.js",
+        "test/runtime-start.test.js"
+      ]
+    },
+    "src/runtime/role-content-execution-composition.js": {
+      "lineLimit": 140,
+      "affectedTests": [
+        "test/agent-proposal-service.test.js",
+        "test/local-content-growth.test.js",
+        "test/local-office-assistant.test.js",
+        "test/m5-role-tool-execution.test.js",
+        "test/open-task-runtime-wiring.test.js",
+        "test/role-execution-composition.test.js",
+        "test/runtime-start.test.js"
+      ]
+    },
+    "src/runtime/role-technical-execution-composition.js": {
+      "lineLimit": 80,
+      "affectedTests": [
+        "test/local-technical-expert.test.js",
+        "test/role-execution-composition.test.js",
+        "test/runtime-start.test.js",
+        "test/task-service.test.js",
+        "test/technical-repair-diagnoser.test.js",
+        "test/technical-repair-promotion.test.js",
+        "test/technical-repair-watchdog.test.js"
+      ]
+    },
+    "src/runtime/runtime-configuration.js": {
+      "lineLimit": 120,
+      "affectedTests": [
+        "test/runtime-composition-modules.test.js",
+        "test/runtime-start.test.js"
+      ]
+    },
+    "src/runtime/runtime-state-composition.js": {
+      "lineLimit": 100,
+      "affectedTests": [
+        "test/runtime-composition-modules.test.js",
+        "test/runtime-start.test.js",
+        "test/task-run-event-store.test.js"
+      ]
+    },
+    "src/runtime/local-execution-composition.js": {
+      "lineLimit": 80,
+      "affectedTests": [
+        "test/runtime-composition-modules.test.js",
+        "test/runtime-start.test.js"
+      ]
+    },
+    "src/runtime/background-lifecycle-composition.js": {
+      "lineLimit": 150,
+      "affectedTests": [
+        "test/cross-agent-mission-service.test.js",
+        "test/runtime-composition-modules.test.js",
+        "test/runtime-start.test.js"
+      ]
+    },
+    "src/task-service-execution.js": {
+      "lineLimit": 700,
+      "affectedTests": [
+        "test/m5-role-tool-execution.test.js",
+        "test/task-service-m5-recovery.test.js",
+        "test/task-service-paperclip-execution.test.js",
+        "test/task-service.test.js"
+      ]
+    },
+    "src/task-service-execution-support.js": {
+      "lineLimit": 650,
+      "affectedTests": [
+        "test/m5-role-tool-execution.test.js",
+        "test/task-service-m5-recovery.test.js",
+        "test/task-service-paperclip-execution.test.js",
+        "test/task-service.test.js"
+      ]
+    },
+    "src/task-service-m5-execution-context-support.js": {
+      "lineLimit": 320,
+      "affectedTests": [
+        "test/m5-role-tool-execution.test.js",
+        "test/task-service-paperclip-execution.test.js",
+        "test/task-service.test.js"
+      ]
+    }
+  }
+}

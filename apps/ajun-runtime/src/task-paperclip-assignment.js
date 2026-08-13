@@ -17,13 +17,15 @@ import {
 import {
   ValidationError,
   isTerminalTask,
+  canonicalOpenResearchExecutionPolicy,
+} from './task-service-execution-support.js';
+import {
   paperclipCaseContextFields,
   m5PlanRevisionExecutionContext,
   trustedRoleToolScope,
   m5PipelineCaseChainIds,
   m5RelatedTaskContext,
-  canonicalOpenResearchExecutionPolicy,
-} from './task-service-execution-support.js';
+} from './task-service-m5-execution-context-support.js';
 import { buildTaskContextCapsule } from './task-context-capsule.js';
 
 export const taskPaperclipAssignmentMethods = {

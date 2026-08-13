@@ -3,66 +3,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { loadAjunModulePolicy } from './ajun-module-policy.mjs';
 
 const DEFAULT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ROOT_WIDE_PREFIXES = Object.freeze(['scripts/']);
 const AJUN_SHARED_PREFIXES = Object.freeze(['agents/', 'docs/contracts/']);
+const AJUN_LOCAL_MODULE_TESTS = new Map(
+  [...loadAjunModulePolicy(DEFAULT_ROOT).modules]
+    .filter(([, rule]) => rule.affectedTests)
+    .map(([modulePath, rule]) => [modulePath, rule.affectedTests]),
+);
 const AJUN_MODULE_TESTS = Object.freeze({
-  'src/runtime/content-campaign-composition.js': Object.freeze([
-    'test/content-campaign-service.test.js',
-    'test/m5-role-tool-execution.test.js',
-    'test/m5-server-publisher-composition.test.js',
-    'test/runtime-start.test.js',
-  ]),
-  'src/runtime/feishu-command-composition.js': Object.freeze([
-    'test/agent-feishu-channel-fleet.test.js',
-    'test/employee-feishu-connection-service.test.js',
-    'test/feishu-channel-bridge.test.js',
-    'test/feishu-commander.test.js',
-    'test/official-feishu-channel-runner.test.js',
-    'test/official-feishu-completion-watcher.test.js',
-    'test/runtime-start.test.js',
-  ]),
-  'src/runtime/paperclip-system-control-composition.js': Object.freeze([
-    'test/paperclip-heartbeat.test.js',
-    'test/paperclip-learning-lifecycle.test.js',
-    'test/paperclip-metric-monitor.test.js',
-    'test/paperclip-publisher-controller.test.js',
-    'test/paperclip-publisher-run-context.test.js',
-    'test/paperclip-retrospective.test.js',
-    'test/runtime-start.test.js',
-  ]),
-  'src/runtime/role-execution-composition.js': Object.freeze([
-    'test/agent-proposal-service.test.js',
-    'test/local-content-growth.test.js',
-    'test/local-intel-researcher.test.js',
-    'test/local-office-assistant.test.js',
-    'test/local-technical-expert.test.js',
-    'test/open-task-runtime-wiring.test.js',
-    'test/runtime-start.test.js',
-    'test/task-service.test.js',
-    'test/technical-repair-diagnoser.test.js',
-    'test/technical-repair-promotion.test.js',
-    'test/technical-repair-watchdog.test.js',
-  ]),
-  'src/runtime/runtime-configuration.js': Object.freeze([
-    'test/runtime-composition-modules.test.js',
-    'test/runtime-start.test.js',
-  ]),
-  'src/runtime/runtime-state-composition.js': Object.freeze([
-    'test/runtime-composition-modules.test.js',
-    'test/task-run-event-store.test.js',
-    'test/runtime-start.test.js',
-  ]),
-  'src/runtime/local-execution-composition.js': Object.freeze([
-    'test/runtime-composition-modules.test.js',
-    'test/runtime-start.test.js',
-  ]),
-  'src/runtime/background-lifecycle-composition.js': Object.freeze([
-    'test/runtime-composition-modules.test.js',
-    'test/cross-agent-mission-service.test.js',
-    'test/runtime-start.test.js',
-  ]),
   'src/analysis-intent.ts': Object.freeze([
     'test/analysis-intent.test.js',
     'test/agent-army-client.test.js',
@@ -342,10 +293,14 @@ export function selectAffectedTestFiles(changedFiles, workspace) {
     .map((file) => file.slice(workspacePrefix.length));
   if (!owned.length) return null;
 
-  const mappedTests = new Set(Object.values(AJUN_MODULE_TESTS).flat());
+  const allModuleTests = new Map([
+    ...Object.entries(AJUN_MODULE_TESTS),
+    ...AJUN_LOCAL_MODULE_TESTS,
+  ]);
+  const mappedTests = new Set([...allModuleTests.values()].flat());
   const selected = new Set();
   for (const file of owned) {
-    const tests = AJUN_MODULE_TESTS[file];
+    const tests = allModuleTests.get(file);
     if (tests) {
       for (const testFile of tests) selected.add(testFile);
       continue;

@@ -61,9 +61,12 @@ HTTP 控制台和进程内小D/军团任务回调，不再保留 Docker/Caddy/�
 或 `integrations/`。
 
 产品装配根只组合配置、运行状态、本机执行、后台生命周期、活动生命周期、岗位执行、飞书指挥和 Paperclip 系统控制等深层 Module。
-具体研究、办公、内容、修复、飞书 Channel、Publisher 与 Controller Adapter 留在所属 Module 的
-Implementation 内，不再由 `runtime-composition-root.js` 逐项构造。结构门禁限制该根入口不超过
+具体研究、办公、内容、技术修复、飞书 Channel、Publisher 与 Controller Adapter 留在所属 Module 的
+Implementation 内；岗位总装也只组合研究、内容和技术三个能力装配，不再直接依赖几十个实现。
+结构门禁限制产品根入口不超过
 220 行和 20 个直接 import；各装配 Module 的 Interface 与真实消费者测试共同构成回归 Seam。
+这些 Module 的责任上限与受影响测试由 `apps/ajun-runtime/module-policy.json` 单点声明，结构门禁和
+聚焦测试选择器共同读取，新增或拆分装配 Module 不再同步修改两套脚本硬编码。
 
 任务核心继续通过稳定 `TaskService` Interface 对外，但任务受理、执行协调、审批控制、运行总览和
 通知分别由深层 Module 隐藏 Implementation。`TaskOverview` 集中控制台展示、能力健康、用量和账单
