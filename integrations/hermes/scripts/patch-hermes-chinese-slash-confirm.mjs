@@ -1,9 +1,8 @@
 #!/usr/bin/env node
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
-  atomicWriteFile,
   defaultHermesTarget,
+  patchHermesTextFile,
   replaceRequired as replacePatchAnchor,
 } from './patch-support.mjs';
 
@@ -78,12 +77,13 @@ function replaceRequired(source, marker, replacement) {
 }
 
 async function main() {
-  const filePath = process.argv[2] || defaultGateway;
-  const original = await fs.readFile(filePath, 'utf8');
-  const patched = applyPatch(original);
-  if (patched === original) return console.log(`Hermes 中文命令确认已存在：${filePath}`);
-  await atomicWriteFile(filePath, patched);
-  console.log(`已安装 Hermes 中文命令确认：${filePath}`);
+  const result = await patchHermesTextFile({
+    input: process.argv[2] || defaultGateway,
+    relativePath: path.join('gateway', 'run.py'),
+    transform: applyPatch,
+  });
+  if (!result.changed) return console.log(`Hermes 中文命令确认已存在：${result.filePath}`);
+  console.log(`已安装 Hermes 中文命令确认：${result.filePath}`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => {

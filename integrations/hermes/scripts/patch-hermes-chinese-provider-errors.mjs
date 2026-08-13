@@ -1,11 +1,9 @@
 #!/usr/bin/env node
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
-  atomicWriteFile,
   defaultHermesRoot,
+  patchHermesTextFile,
   replaceRequired as replacePatchAnchor,
-  resolveHermesTarget,
 } from './patch-support.mjs';
 
 const hermesRootDefault = defaultHermesRoot('HERMES_AGENT_ROOT');
@@ -96,12 +94,12 @@ function replaceRequired(source, marker, replacement) {
 }
 
 async function main() {
-  const root = process.argv[2] || hermesRootDefault;
-  const { filePath: gatewayPath } = resolveHermesTarget(root, path.join('gateway', 'run.py'));
-  const original = await fs.readFile(gatewayPath, 'utf8');
-  const patched = applyProviderErrorPatch(original);
-  if (patched !== original) await atomicWriteFile(gatewayPath, patched);
-  console.log(`已安装 Hermes 中文 Provider 错误提示：${gatewayPath}`);
+  const result = await patchHermesTextFile({
+    input: process.argv[2] || hermesRootDefault,
+    relativePath: path.join('gateway', 'run.py'),
+    transform: applyProviderErrorPatch,
+  });
+  console.log(`已安装 Hermes 中文 Provider 错误提示：${result.filePath}`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => {

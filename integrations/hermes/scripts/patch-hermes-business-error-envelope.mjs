@@ -1,10 +1,15 @@
 #!/usr/bin/env node
-import fs from 'node:fs/promises';
 import path from 'node:path';
-import { atomicWriteFile, defaultHermesTarget } from './patch-support.mjs';
+import {
+  defaultHermesTarget,
+  patchHermesTextFiles,
+  resolveAndVerifyHermesTarget,
+} from './patch-support.mjs';
 
-const defaultGateway = defaultHermesTarget(path.join('gateway', 'run.py'));
-const defaultPlatformBase = path.join(path.dirname(defaultGateway), 'platforms/base.py');
+const gatewayRelativePath = path.join('gateway', 'run.py');
+const platformBaseRelativePath = path.join('gateway', 'platforms', 'base.py');
+const defaultGateway = defaultHermesTarget(gatewayRelativePath);
+const defaultPlatformBase = defaultHermesTarget(platformBaseRelativePath);
 
 export function applyPatch(source) {
   if (source.includes('AGENT_ARMY_BUSINESS_ERROR_ENVELOPE_V1')) return source;
@@ -77,22 +82,24 @@ export function applyPlatformBasePatch(source) {
   return source.replace(legacy, replacement);
 }
 
+export function defaultPlatformInput(gatewayRoot, explicitInput) {
+  return explicitInput || gatewayRoot;
+}
+
 async function main() {
-  const filePath = process.argv[2] || defaultGateway;
-  const original = await fs.readFile(filePath, 'utf8');
-  const patched = applyPatch(original);
-  if (patched !== original) await atomicWriteFile(filePath, patched);
+  const gatewayInput = process.argv[2] || defaultGateway;
+  const gatewayTarget = await resolveAndVerifyHermesTarget(gatewayInput, gatewayRelativePath);
+  const platformInput = defaultPlatformInput(gatewayTarget.root, process.argv[3]);
+  const [gateway, platform] = await patchHermesTextFiles([
+    { input: gatewayInput, relativePath: gatewayRelativePath, transform: applyPatch },
+    { input: platformInput, relativePath: platformBaseRelativePath, transform: applyPlatformBasePatch },
+  ]);
 
-  const platformBasePath = process.argv[3] || defaultPlatformBase;
-  const platformOriginal = await fs.readFile(platformBasePath, 'utf8');
-  const platformPatched = applyPlatformBasePatch(platformOriginal);
-  if (platformPatched !== platformOriginal) await atomicWriteFile(platformBasePath, platformPatched);
-
-  if (patched === original && platformPatched === platformOriginal) {
-    console.log(`Hermes 中文错误回执已存在：${filePath}、${platformBasePath}`);
+  if (!gateway.changed && !platform.changed) {
+    console.log(`Hermes 中文错误回执已存在：${gateway.filePath}、${platform.filePath}`);
     return;
   }
-  console.log(`已安装 Hermes 中文错误回执：${filePath}、${platformBasePath}`);
+  console.log(`已安装 Hermes 中文错误回执：${gateway.filePath}、${platform.filePath}`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

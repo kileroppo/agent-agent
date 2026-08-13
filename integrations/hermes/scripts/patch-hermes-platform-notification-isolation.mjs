@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-import fs from 'node:fs/promises';
 import path from 'node:path';
-import { atomicWriteFile, defaultHermesTarget } from './patch-support.mjs';
+import { defaultHermesTarget, patchHermesTextFile } from './patch-support.mjs';
 
 const defaultGateway = defaultHermesTarget(path.join('gateway', 'run.py'));
 
@@ -44,12 +43,13 @@ export function applyPatch(source) {
 }
 
 async function main() {
-  const filePath = process.argv[2] || defaultGateway;
-  const original = await fs.readFile(filePath, 'utf8');
-  const patched = applyPatch(original);
-  if (patched === original) return console.log(`Hermes 平台通知隔离已存在：${filePath}`);
-  await atomicWriteFile(filePath, patched);
-  console.log(`已安装 Hermes 平台通知隔离：${filePath}`);
+  const result = await patchHermesTextFile({
+    input: process.argv[2] || defaultGateway,
+    relativePath: path.join('gateway', 'run.py'),
+    transform: applyPatch,
+  });
+  if (!result.changed) return console.log(`Hermes 平台通知隔离已存在：${result.filePath}`);
+  console.log(`已安装 Hermes 平台通知隔离：${result.filePath}`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

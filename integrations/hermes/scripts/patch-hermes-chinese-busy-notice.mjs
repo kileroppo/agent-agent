@@ -1,11 +1,10 @@
 #!/usr/bin/env node
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
-  atomicWriteFile,
   defaultHermesRoot,
+  patchHermesTextFiles,
   replaceRequired as replacePatchAnchor,
-  resolveHermesTarget,
+  resolveAndVerifyHermesTarget,
 } from './patch-support.mjs';
 
 const hermesRootDefault = defaultHermesRoot();
@@ -232,21 +231,13 @@ function replaceRequired(source, marker, replacement) {
 }
 
 async function main() {
-  const root = process.argv[2] || hermesRootDefault;
-  const { root: hermesRoot, filePath: gatewayPath } = resolveHermesTarget(
-    root,
-    path.join('gateway', 'run.py'),
-  );
-  const onboardingPath = path.join(hermesRoot, 'agent/onboarding.py');
-
-  const gatewayOriginal = await fs.readFile(gatewayPath, 'utf8');
-  const onboardingOriginal = await fs.readFile(onboardingPath, 'utf8');
-  const gatewayPatched = applyGatewayPatch(gatewayOriginal);
-  const onboardingPatched = applyOnboardingPatch(onboardingOriginal);
-
-  if (gatewayPatched !== gatewayOriginal) await atomicWriteFile(gatewayPath, gatewayPatched);
-  if (onboardingPatched !== onboardingOriginal) await atomicWriteFile(onboardingPath, onboardingPatched);
-  console.log(`已安装 Hermes 中文运行提示：${hermesRoot}`);
+  const input = process.argv[2] || hermesRootDefault;
+  const gatewayTarget = await resolveAndVerifyHermesTarget(input, path.join('gateway', 'run.py'));
+  const [gateway] = await patchHermesTextFiles([
+    { input, relativePath: path.join('gateway', 'run.py'), transform: applyGatewayPatch },
+    { input: gatewayTarget.root, relativePath: path.join('agent', 'onboarding.py'), transform: applyOnboardingPatch },
+  ]);
+  console.log(`已安装 Hermes 中文运行提示：${gateway.root}`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => {

@@ -7,6 +7,7 @@ import {
   assertSupportedHermesCompatibility,
   defaultHermesTarget,
   replaceRequired,
+  resolveAndVerifyHermesTarget,
   SUPPORTED_HERMES_GIT_COMMIT,
   SUPPORTED_HERMES_VERSION,
   verifyHermesTarget,
@@ -1716,8 +1717,8 @@ const proposalRouter = `    async def _route_ajun_agent_proposal_event(self, eve
         return True`;
 
 async function main() {
-  const filePath = process.argv[2] || defaultAdapter;
-  await verifyHermesTarget(filePath, adapterRelativePath);
+  const input = process.argv[2] || defaultAdapter;
+  const { filePath } = await resolveAndVerifyHermesTarget(input, adapterRelativePath);
   const original = await fs.readFile(filePath, 'utf8');
   const patched = applyPatch(original);
   const semanticLayoutTarget = path.join(path.dirname(filePath), 'agent_army_layout.py');
@@ -1726,10 +1727,12 @@ async function main() {
     fs.readFile(semanticLayoutSource),
     fs.readFile(taskCardRuntimeSource),
   ]);
-  await atomicWriteFile(semanticLayoutTarget, semanticLayout);
-  await atomicWriteFile(taskCardRuntimeTarget, taskCardRuntime);
-  if (patched === original) return console.log(`Hermes 飞书智能布局与动态任务卡已存在：${filePath}`);
-  await atomicWriteFile(filePath, patched);
+  const semanticLayoutChanged = await atomicWriteFile(semanticLayoutTarget, semanticLayout);
+  const taskCardRuntimeChanged = await atomicWriteFile(taskCardRuntimeTarget, taskCardRuntime);
+  const adapterChanged = await atomicWriteFile(filePath, patched);
+  if (!semanticLayoutChanged && !taskCardRuntimeChanged && !adapterChanged) {
+    return console.log(`Hermes 飞书智能布局与动态任务卡已存在：${filePath}`);
+  }
   console.log(`已安装 Hermes 飞书智能布局、动态任务卡与军团总管路由：${filePath}`);
 }
 

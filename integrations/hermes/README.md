@@ -97,15 +97,18 @@ node integrations/hermes/scripts/patch-hermes-chinese-busy-notice.mjs
 node integrations/hermes/scripts/patch-hermes-chinese-provider-errors.mjs
 node integrations/hermes/scripts/patch-feishu-agent-proposal-router.mjs
 node integrations/hermes/scripts/patch-hermes-agent-army-task-card-events.mjs
+node integrations/hermes/scripts/patch-hermes-platform-notification-isolation.mjs
 node integrations/hermes/scripts/patch-hermes-display-setting-scope.mjs
+node integrations/hermes/scripts/patch-hermes-chinese-slash-confirm.mjs
 node integrations/hermes/scripts/patch-hermes-business-error-envelope.mjs
 ```
 
-任务卡接线当前锁定 Hermes `0.19.0` 与 Git
-`fd39696ccfbb1221ac9fdb6119f629f9821e195d`。两个任务卡补丁在写文件前都会同时校验
+全部 8 个可执行补丁当前锁定 Hermes `0.19.0` 与 Git
+`fd39696ccfbb1221ac9fdb6119f629f9821e195d`。每个补丁在写文件前都会同时校验
 目标相对路径、`pyproject.toml` 版本和 Hermes Git 身份；任一不匹配就失败关闭，不对新版
 源码猜锚点。升级 Hermes 时必须先在仓库更新锁定基线、Host Interface 测试和真实源码
-夹具，不能通过跳过校验继续安装。
+夹具，不能通过跳过校验继续安装。这些维护 CLI 只支持单写者执行；不得并行对同一 Hermes
+安装运行多个补丁命令。
 
 `runtime/agent_army_feishu_task_card.py` 是正式的任务卡 Adapter Module：它集中持有
 Profile 私有锚点账本、投影轮询、可信 MCP 结果解析、卡片回调校验、渲染与最终通知抑制。

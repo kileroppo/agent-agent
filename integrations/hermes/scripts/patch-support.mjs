@@ -57,7 +57,10 @@ export async function verifyHermesTarget(filePath, expectedRelativePath) {
   const version = pyproject.match(/^version\s*=\s*["']([^"']+)["']/m)?.[1];
   let gitCommit = '';
   try {
-    gitCommit = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding:'utf8' }).trim();
+    gitCommit = execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], {
+      encoding:'utf8',
+      stdio:['ignore', 'pipe', 'ignore'],
+    }).trim();
   } catch {
     throw new Error('Hermes 安装缺少可验证 Git 身份；拒绝修改。');
   }
@@ -65,7 +68,53 @@ export async function verifyHermesTarget(filePath, expectedRelativePath) {
   return { root, version, gitCommit };
 }
 
+export async function resolveAndVerifyHermesTarget(input, expectedRelativePath) {
+  const { filePath } = resolveHermesTarget(input, expectedRelativePath);
+  const compatibility = await verifyHermesTarget(filePath, expectedRelativePath);
+  return { ...compatibility, filePath };
+}
+
+export async function patchHermesTextFile({ input, relativePath, transform }) {
+  const [result] = await patchHermesTextFiles([{ input, relativePath, transform }]);
+  return result;
+}
+
+export async function patchHermesTextFiles(specifications) {
+  const verified = [];
+  for (const specification of specifications) {
+    const target = await resolveAndVerifyHermesTarget(
+      specification.input,
+      specification.relativePath,
+    );
+    verified.push({ ...target, transform: specification.transform });
+  }
+  return transformAndWriteTextFiles(verified);
+}
+
+export async function transformAndWriteTextFiles(targets) {
+  const prepared = [];
+  for (const target of targets) {
+    const original = await fs.readFile(target.filePath, 'utf8');
+    const patched = target.transform(original);
+    prepared.push({ ...target, patched });
+  }
+  const results = [];
+  for (const target of prepared) {
+    const changed = await atomicWriteFile(target.filePath, target.patched);
+    const { patched: _patched, transform: _transform, ...result } = target;
+    results.push({ ...result, changed });
+  }
+  return results;
+}
+
 export async function atomicWriteFile(filePath, content) {
+  const nextContent = Buffer.isBuffer(content) ? content : Buffer.from(content);
+  try {
+    const currentContent = await fs.readFile(filePath);
+    if (currentContent.equals(nextContent)) return false;
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
   const temporary = path.join(
     path.dirname(filePath),
     `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`,
@@ -79,6 +128,7 @@ export async function atomicWriteFile(filePath, content) {
   try {
     await fs.writeFile(temporary, content, { mode });
     await fs.rename(temporary, filePath);
+    return true;
   } catch (error) {
     await fs.rm(temporary, { force:true }).catch(() => {});
     throw error;

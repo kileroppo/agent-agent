@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-import fs from 'node:fs/promises';
 import path from 'node:path';
-import { atomicWriteFile, defaultHermesTarget } from './patch-support.mjs';
+import { defaultHermesTarget, patchHermesTextFile } from './patch-support.mjs';
 
 const PATCH_MARKER = 'AGENT_ARMY_DISPLAY_SETTING_SCOPE_V1';
 const NOTIFICATION_MARKER = 'AGENT_ARMY_PLATFORM_NOTIFICATION_ISOLATION_V1';
@@ -48,15 +47,16 @@ export function applyPatch(source) {
 }
 
 async function main() {
-  const filePath = process.argv[2] || defaultGateway;
-  const original = await fs.readFile(filePath, 'utf8');
-  const patched = applyPatch(original);
-  if (patched === original) {
-    console.log(`Hermes display 作用域补丁已存在：${filePath}`);
+  const result = await patchHermesTextFile({
+    input: process.argv[2] || defaultGateway,
+    relativePath: path.join('gateway', 'run.py'),
+    transform: applyPatch,
+  });
+  if (!result.changed) {
+    console.log(`Hermes display 作用域补丁已存在：${result.filePath}`);
     return;
   }
-  await atomicWriteFile(filePath, patched);
-  console.log(`已安装 Hermes display 作用域补丁：${filePath}`);
+  console.log(`已安装 Hermes display 作用域补丁：${result.filePath}`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main().catch((error) => {

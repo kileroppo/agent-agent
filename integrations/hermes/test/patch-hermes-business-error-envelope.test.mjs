@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   applyPatch,
   applyPlatformBasePatch,
+  defaultPlatformInput,
 } from '../scripts/patch-hermes-business-error-envelope.mjs';
 
 const fixture = `
@@ -53,4 +54,9 @@ test('消息处理最外层异常只返回中文错误编号，不暴露异常�
   assert.doesNotMatch(patched, /error_detail/);
   assert.doesNotMatch(patched, /\/reset/);
   assert.equal(applyPlatformBasePatch(patched), patched);
+});
+
+test('省略平台目标时与已解析 Gateway 使用同一 Hermes root', () => {
+  assert.equal(defaultPlatformInput('/opt/hermes-a'), '/opt/hermes-a');
+  assert.equal(defaultPlatformInput('/opt/hermes-a', '/opt/hermes-b/gateway/platforms/base.py'), '/opt/hermes-b/gateway/platforms/base.py');
 });
