@@ -17,6 +17,9 @@ npm run dev
 - `src/runtime-composition-root.js`：跨领域产品壳，只组合深层 Module；
 - [`src/runtime/`](./src/runtime/README.md)：活动生命周期、岗位执行、飞书指挥和 Paperclip 系统控制装配；
 - `src/task-service.js`：稳定任务 Interface，只负责装配与少量跨模块协调；
+- `src/campaign-delivery-evidence.js`：M5 阶段回执、失败留痕与 Work Product 写回协议；
+- `src/open-research-source-acquisition.js`：开放研究来源发现、读取预算与证据资格；
+- `src/paperclip-content-execution-context.js`：内容岗位的 Case、Run、JWT 与活动授权可信上下文；
 - `src/task-overview.js`：运行总览、能力状态和用量账单 Module；
 - `src/task-approval-coordinator.js`：本机/Paperclip 审批、任务控制和幂等恢复 Module；
 - `src/boom-monitor/`：A君进程内的爆款雷达业务 Module；
@@ -27,6 +30,8 @@ npm run dev
 Module，并补充该 Seam 的 affected-test 映射。
 `TaskService` 已委托给执行、审批或总览 Module 的方法不得重新保留影子实现；架构检查会阻止
 同名实现回流，并将该 Interface 限制在 350 行内。
+视频脚本五件套的私有落盘、权限、manifest 与校验和由独立生产包 Module 负责，调用方不得复制
+这套文件协议。上述责任上限和 affected tests 均由 `module-policy.json` fail-closed 管理。
 
 默认地址为 `http://127.0.0.1:4321`。页面应收口为连接授权、组件健康、恢复操作与脱敏诊断；现有本地任务视图只作迁移期调试/应急用途，不能成为与飞书或 Paperclip 并列的日常控制台。`POST /api/paperclip/heartbeat` 只接受本机 Paperclip 的 HTTP Adapter 回调；首个切片仅执行低风险本机健康检查并将结果回报同一张 Paperclip 任务单。不会调用飞书、浏览器或外部账号。
 

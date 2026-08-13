@@ -137,8 +137,19 @@
       ]
     },
     "src/task-service-execution.js": {
-      "lineLimit": 700,
+      "lineLimit": 450,
       "affectedTests": [
+        "test/m5-hermes-stage-execute.test.js",
+        "test/m5-role-tool-execution.test.js",
+        "test/task-service-m5-recovery.test.js",
+        "test/task-service-paperclip-execution.test.js",
+        "test/task-service.test.js"
+      ]
+    },
+    "src/campaign-delivery-evidence.js": {
+      "lineLimit": 350,
+      "affectedTests": [
+        "test/m5-hermes-stage-execute.test.js",
         "test/m5-role-tool-execution.test.js",
         "test/task-service-m5-recovery.test.js",
         "test/task-service-paperclip-execution.test.js",
@@ -160,6 +171,50 @@
         "test/m5-role-tool-execution.test.js",
         "test/task-service-paperclip-execution.test.js",
         "test/task-service.test.js"
+      ]
+    },
+    "src/local-intel-researcher.js": {
+      "lineLimit": 550,
+      "affectedTests": [
+        "test/local-intel-researcher.test.js",
+        "test/open-task-runtime-wiring.test.js"
+      ]
+    },
+    "src/open-research-source-acquisition.js": {
+      "lineLimit": 500,
+      "affectedTests": [
+        "test/local-intel-researcher.test.js",
+        "test/open-task-runtime-wiring.test.js"
+      ]
+    },
+    "src/local-video-script-package.js": {
+      "lineLimit": 750,
+      "affectedTests": [
+        "test/content-campaign-service.test.js",
+        "test/local-video-script-package.test.js",
+        "test/m5-hermes-stage-execute.test.js"
+      ]
+    },
+    "src/local-video-script-production-package.js": {
+      "lineLimit": 200,
+      "affectedTests": [
+        "test/content-campaign-service.test.js",
+        "test/local-video-script-package.test.js",
+        "test/m5-hermes-stage-execute.test.js"
+      ]
+    },
+    "src/paperclip-content-tool-executor.js": {
+      "lineLimit": 600,
+      "affectedTests": [
+        "test/content-campaign-service.test.js",
+        "test/paperclip-content-tool-executor.test.js"
+      ]
+    },
+    "src/paperclip-content-execution-context.js": {
+      "lineLimit": 350,
+      "affectedTests": [
+        "test/content-campaign-service.test.js",
+        "test/paperclip-content-tool-executor.test.js"
       ]
     }
   }

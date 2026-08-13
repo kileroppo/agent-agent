@@ -1,12 +1,11 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import {
   M5ProductionTemplateResolutionError,
   defaultM5ProductionTemplateBinding,
   validM5ProductionTemplateBinding,
   validM5TemplateGuidance,
 } from './m5-production-template-resolver.js';
+import { writeLocalVideoScriptProductionPackage } from './local-video-script-production-package.js';
 
 const FACTUAL_TOPIC_RE = /(?:数据|最新|政策|法律|医学|健康|金融|历史|科学|研究|报告|调查|事实|为什么|是否|会不会|影响|趋势)/i;
 const DEFAULT_PLATFORM = 'douyin';
@@ -181,7 +180,7 @@ export class LocalVideoScriptPackage {
     }
 
     const completedAt = this.now().toISOString();
-    const artifact = await writePackage({
+    const artifact = await writeLocalVideoScriptProductionPackage({
       artifactsDir:this.artifactsDir,
       task,
       data:{
@@ -238,7 +237,7 @@ export class LocalVideoScriptPackage {
       .find((item) => item.type === 'video_script_package' && item.data?.templateLifecycle?.approvedForUse !== true);
     if (!source) return needsInput(this.now(), 'script_package_required', '当前会话里没有可采用的脚本，请先让我生成一版脚本。');
     const completedAt = this.now().toISOString();
-    const artifact = await writePackage({
+    const artifact = await writeLocalVideoScriptProductionPackage({
       artifactsDir:this.artifactsDir,
       task,
       data:{
@@ -646,115 +645,6 @@ function normalizeTemplateApplicationEvidence(value) {
   }));
 }
 
-async function writePackage({ artifactsDir, task, data, sources, sourceRefs, completedAt }) {
-  const directory = path.join(artifactsDir, safeSegment(task.taskId), 'video-script-package');
-  await fs.mkdir(directory, { recursive:true, mode:0o700 });
-  const scriptPath = path.join(directory, 'script.md');
-  const shotsPath = path.join(directory, 'shots.json');
-  const subtitlesPath = path.join(directory, 'subtitles.srt');
-  const sourcesPath = path.join(directory, 'sources.md');
-  const manifestPath = path.join(directory, 'manifest.json');
-  const subtitles = renderSrt(data.shots);
-  const script = renderScript(data);
-  const sourceText = renderSources(sources, sourceRefs);
-  await Promise.all([
-    writePrivate(scriptPath, script),
-    writePrivate(shotsPath, `${JSON.stringify(data.shots, null, 2)}\n`),
-    writePrivate(subtitlesPath, subtitles),
-    writePrivate(sourcesPath, sourceText)
-  ]);
-  const files = await Promise.all([
-    fileRecord('script', scriptPath),
-    fileRecord('shots', shotsPath),
-    fileRecord('subtitles', subtitlesPath),
-    fileRecord('sources', sourcesPath)
-  ]);
-  const manifest = {
-    schemaVersion:'agent.army/video-script-package/v1',
-    taskId:task.taskId,
-    title:data.headline,
-    platform:data.platform,
-    aspectRatio:data.aspectRatio,
-    durationSeconds:data.durationSeconds,
-    publishingStatus:'draft_only',
-    externalSideEffects:0,
-    sourceRefs,
-    files,
-    createdAt:completedAt
-  };
-  await writePrivate(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-  const manifestFile = await fileRecord('manifest', manifestPath);
-  const artifactData = { ...data, sources, productionFiles:[...files, manifestFile] };
-  return {
-    artifactId:`video_script_package:${task.taskId}`,
-    taskId:task.taskId,
-    type:'video_script_package',
-    title:`${data.headline}｜可拍脚本`,
-    sourceRefs,
-    location:`file://${scriptPath}`,
-    mimeType:'text/markdown',
-    checksum:files.find((item) => item.id === 'script').checksum,
-    accessScope:'local-owner',
-    validation:{
-      exists:true,
-      readable:true,
-      nonEmpty:true,
-      fileCount:5,
-      externalSideEffects:0,
-      onePrimaryDraft:true,
-      factualSourcesBounded:sources.length <= 5,
-      approvedForUse:data.templateLifecycle?.approvedForUse === true
-    },
-    createdAt:completedAt,
-    data:artifactData
-  };
-}
-
-function renderScript(data) {
-  return [
-    `# ${data.headline}`,
-    '',
-    `平台：${data.platform}　预计时长：${data.durationSeconds} 秒　画幅：${data.aspectRatio}`,
-    '',
-    '## 开场',
-    '',
-    data.hook,
-    '',
-    '## 完整口播稿',
-    '',
-    data.fullScript,
-    '',
-    '## 拍摄提示',
-    '',
-    ...data.shootingNotes.map((item) => `- ${item}`),
-    '',
-    '## 发布前检查',
-    '',
-    `- 事实：${data.qualityReview.factuality}`,
-    `- 模仿边界：${data.qualityReview.imitation}`,
-    `- 可拍性：${data.qualityReview.shootability}`,
-    ''
-  ].join('\n');
-}
-
-function renderSources(sources, sourceRefs) {
-  const lines = ['# 来源', ''];
-  if (sources.length) {
-    sources.forEach((source, index) => {
-      lines.push(
-        `${index + 1}. ${text(source.title, 300) || '公开来源'}`,
-        `   ${text(source.url || source.source, 1_000)}`,
-        `   读取时间：${text(source.fetchedAt, 120) || '未提供'}`,
-        `   内容哈希：${text(source.contentHash, 80) || '未提供'}`,
-      );
-    });
-  } else {
-    lines.push('本稿未使用可独立核验的外部事实；不得自行补写数字、身份或因果结论。');
-  }
-  if (sourceRefs.length) lines.push('', `内部参考产物：${sourceRefs.join('、')}`);
-  return `${lines.join('\n')}\n`;
-}
-
 function buildShots(script, duration) {
   const paragraphs = String(script).split(/\n+/).map((item) => item.trim()).filter(Boolean);
   const step = Math.max(3, duration / Math.max(paragraphs.length, 1));
@@ -779,39 +669,6 @@ function normalizeShots(value, script, duration) {
   return shots.length && shots.every((item) => item.startSeconds !== null && item.endSeconds > item.startSeconds)
     ? shots
     : buildShots(script, duration);
-}
-
-function renderSrt(shots) {
-  return `${shots.map((shot, index) => [
-    index + 1,
-    `${srtTime(shot.startSeconds)} --> ${srtTime(shot.endSeconds)}`,
-    shot.narration
-  ].join('\n')).join('\n\n')}\n`;
-}
-
-function srtTime(value) {
-  const totalMs = Math.max(0, Math.round(Number(value || 0) * 1000));
-  const hours = Math.floor(totalMs / 3_600_000);
-  const minutes = Math.floor((totalMs % 3_600_000) / 60_000);
-  const seconds = Math.floor((totalMs % 60_000) / 1000);
-  const milliseconds = totalMs % 1000;
-  return `${pad(hours)}:${pad(minutes)}:${pad(seconds)},${String(milliseconds).padStart(3, '0')}`;
-}
-
-async function writePrivate(filePath, content) {
-  await fs.writeFile(filePath, content, { encoding:'utf8', mode:0o600 });
-  await fs.chmod(filePath, 0o600);
-}
-
-async function fileRecord(id, filePath) {
-  const content = await fs.readFile(filePath);
-  return {
-    id,
-    fileName:path.basename(filePath),
-    location:`file://${filePath}`,
-    checksum:crypto.createHash('sha256').update(content).digest('hex'),
-    bytes:content.byteLength
-  };
 }
 
 function referenceScore(topic, data) {
@@ -851,8 +708,6 @@ function templateRank(artifact) { return artifact.data?.templateLifecycle?.state
 function stringList(value, count, limit) { return (Array.isArray(value) ? value : []).map((item) => text(item, limit)).filter(Boolean).slice(0, count); }
 function taskTime(task) { return Date.parse(task?.updatedAt || task?.createdAt || 0) || 0; }
 function text(value, limit) { return String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit); }
-function safeSegment(value) { return String(value || 'task').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120) || 'task'; }
-function pad(value) { return String(value).padStart(2, '0'); }
 function needsInput(now, code, userMessage) {
   const current = typeof now === 'function' ? now() : now;
   return { status:'needs_input', currentStage:code, error:{ code, userMessage, category:'needs_input', stage:'video_script_input', occurredAt:current.toISOString() } };

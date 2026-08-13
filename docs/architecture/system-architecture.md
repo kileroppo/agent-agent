@@ -67,6 +67,9 @@ Implementation 内；岗位总装也只组合研究、内容和技术三个能�
 220 行和 20 个直接 import；各装配 Module 的 Interface 与真实消费者测试共同构成回归 Seam。
 这些 Module 的责任上限与受影响测试由 `apps/ajun-runtime/module-policy.json` 单点声明，结构门禁和
 聚焦测试选择器共同读取，新增或拆分装配 Module 不再同步修改两套脚本硬编码。
+同一策略也约束开放研究来源获取、Paperclip 内容执行上下文、视频脚本生产包和 Campaign Delivery
+Evidence：外层保持稳定 Interface，来源资格、可信身份、私有文件协议和 Work Product 漂移规则分别
+留在所属深层 Module 的 Implementation 内，不得回流调用方形成影子规则。
 
 任务核心继续通过稳定 `TaskService` Interface 对外，但任务受理、执行协调、审批控制、运行总览和
 通知分别由深层 Module 隐藏 Implementation。`TaskOverview` 集中控制台展示、能力健康、用量和账单

@@ -15,6 +15,54 @@ test('小R 使用给定公开来源产出结构化研究报告', async () => {
   assert.equal(result.artifactRefs[0].validation.structured, true);
 });
 
+test('小R 拆分来源 Module 后仍保留可覆写发现、读取和运行时 Adapter 接缝', async () => {
+  const calls = [];
+  const worker = new LocalIntelResearcher({ now });
+  worker.discover = async () => {
+    calls.push('discover');
+    return { urls:['https://example.com/runtime'], searched:true, searchCalls:1 };
+  };
+  worker.readSources = async () => {
+    calls.push('read');
+    return {
+      sources:[{
+        kind:'public_web',
+        title:'运行时接缝',
+        source:'https://example.com/runtime',
+        summary:'来源 Module 仍通过公开扩展点读取。',
+        contentHash:'a'.repeat(64),
+        fetchedAt:now().toISOString(),
+      }],
+      failures:[],
+    };
+  };
+
+  const result = await worker.execute({ taskId:'intel-runtime-seam', input:{ topic:'运行时接缝' } });
+  assert.equal(result.status, 'succeeded');
+  assert.deepEqual(calls, ['discover', 'read']);
+
+  const replacementCalls = [];
+  const replacementWorker = new LocalIntelResearcher({ now });
+  replacementWorker.publicWebFetch = {
+    async acquire({ sourceUrl }) {
+      replacementCalls.push(sourceUrl);
+      return {
+        sourceRef:sourceUrl,
+        title:'替换后 Adapter',
+        text:'实例创建后替换的 Adapter 仍然生效。',
+        contentHash:'b'.repeat(64),
+        fetchedAt:now().toISOString(),
+      };
+    },
+  };
+  const replacement = await replacementWorker.execute({
+    taskId:'intel-runtime-adapter',
+    input:{ topic:'Adapter 替换', sourceUrl:'https://example.com/replacement' },
+  });
+  assert.equal(replacement.status, 'succeeded');
+  assert.deepEqual(replacementCalls, ['https://example.com/replacement']);
+});
+
 test('小R 没有来源且读取失败时明确 needs_input，不编造报告', async () => {
   const worker = new LocalIntelResearcher({ now, publicWebFetch:{ async acquire() { throw new Error('无法读取'); } }, publicWebSearch:{ async search() { return { results:[{ url:'https://example.com/a' }] }; } } });
   const result = await worker.execute({ taskId:'intel-fail', input:{ topic:'研究主题' } });
