@@ -1,0 +1,468 @@
+import crypto from 'node:crypto';
+import { M5_PLATFORMS } from '@agent-army/m5-contracts';
+import {
+  PUBLISHER_ACCOUNT_IDENTITY_VERIFIER_SCHEMA,
+  PUBLISHER_APPROVAL_SNAPSHOT_SCHEMA,
+  PUBLISHER_COST_REPORTER_SCHEMA,
+  createProductionPublisherComposition,
+} from '@agent-army/m5-publisher-gateway';
+
+export class PublisherRuntimeLease {
+  #getDependencies;
+  #authorizeRequest;
+  #runtimeProvider;
+  #synchronizeState;
+  #runtime = null;
+  #runtimePromise = null;
+  #approvalPolicy = null;
+
+  constructor({
+    paperclipAccess,
+    connectorDependencies,
+    workspaceRoot,
+    ledgerPath,
+    paperclipControl,
+    clock = () => new Date(),
+    getDependencies,
+    authorizeRequest,
+    runtimeProvider,
+    synchronizeState,
+  } = {}) {
+    this.#getDependencies = typeof getDependencies === 'function'
+      ? getDependencies
+      : () => ({
+        paperclipAccess,
+        connectorDependencies,
+        workspaceRoot,
+        ledgerPath,
+        paperclipControl,
+        clock,
+      });
+    this.#authorizeRequest = typeof authorizeRequest === 'function'
+      ? authorizeRequest
+      : (input) => this.authorize(
+        input.action,
+        input.campaignId,
+        input.context,
+        { allowExactReplay:input.allowExactReplay },
+      );
+    this.#runtimeProvider = typeof runtimeProvider === 'function'
+      ? runtimeProvider
+      : (authorization) => this.getRuntime(authorization);
+    this.#synchronizeState = typeof synchronizeState === 'function'
+      ? synchronizeState
+      : () => {};
+    const dependencies = this.#dependencies();
+    assertProductionDependencies(
+      dependencies.paperclipAccess,
+      dependencies.connectorDependencies,
+    );
+  }
+
+  async acquire({
+    action,
+    campaignId,
+    context,
+    allowExactReplay = false,
+  } = {}) {
+    const authorization = await this.#authorizeRequest({
+      action,
+      campaignId,
+      context,
+      allowExactReplay,
+    });
+    const runtime = await this.#runtimeProvider(authorization);
+    return { runtime, authorization };
+  }
+
+  async authorize(action, campaignId, context, {
+    allowExactReplay = false,
+  } = {}) {
+    return authorizeOnce({
+      paperclipAccess:this.#dependencies().paperclipAccess,
+      action,
+      campaignId,
+      context,
+      allowExactReplay,
+    });
+  }
+
+  async getRuntime(authorization) {
+    const snapshot = await this.#dependencies()
+      .paperclipAccess
+      .getPublisherConnectorApprovalSnapshot(
+        structuredClone(authorization),
+      );
+    let approvalPolicy;
+    try {
+      approvalPolicy = normalizePublisherApprovalSnapshot(
+        snapshot,
+        this.#dependencies().clock(),
+      );
+    } catch (error) {
+      if (this.#runtimePromise) this.#runtimePromise.invalidated = true;
+      throw error;
+    }
+    if (this.#runtime) {
+      assertSameApprovalPolicy(
+        this.#approvalPolicy,
+        approvalPolicy,
+        this.#dependencies().clock(),
+      );
+      return this.#runtime;
+    }
+    if (this.#runtimePromise) {
+      try {
+        assertSameApprovalPolicy(
+          this.#runtimePromise.approvalPolicy,
+          approvalPolicy,
+          this.#dependencies().clock(),
+        );
+      } catch (error) {
+        this.#runtimePromise.invalidated = true;
+        throw error;
+      }
+      return this.#runtimePromise.promise;
+    }
+    const pending = {
+      approvalPolicy,
+      invalidated:false,
+      promise:null,
+    };
+    pending.promise = Promise.resolve().then(() => {
+      if (pending.invalidated) throw approvalSnapshotChanged();
+      const dependencies = this.#dependencies();
+      const composition = createProductionPublisherComposition({
+        enabled:true,
+        approvalSnapshot:snapshot,
+        connectorDependencies:this.productionConnectorDependencies(),
+        workspaceRoot:dependencies.workspaceRoot,
+        ledgerPath:dependencies.ledgerPath,
+        paperclipControl:dependencies.paperclipControl,
+        costReporter:this.paperclipCostReporter(),
+        accountIdentityVerifier:this.paperclipAccountIdentityVerifier(),
+        clock:dependencies.clock,
+      });
+      const runtime = composition.createRuntime();
+      assertSameApprovalPolicy(
+        approvalPolicy,
+        approvalPolicy,
+        this.#dependencies().clock(),
+      );
+      if (
+        pending.invalidated
+        || composition.approvalSnapshotId !== approvalPolicy.snapshotId
+      ) {
+        throw approvalSnapshotChanged();
+      }
+      this.#runtime = runtime;
+      this.#approvalPolicy = approvalPolicy;
+      this.#synchronizeState({
+        runtime,
+        approvalSnapshotId:approvalPolicy.snapshotId,
+        approvalSnapshotFingerprint:approvalPolicy.fingerprint,
+        approvalSnapshotValidUntil:approvalPolicy.validUntil,
+      });
+      return runtime;
+    }).finally(() => {
+      if (this.#runtimePromise === pending) {
+        this.#runtimePromise = null;
+        this.#synchronizeState({ runtimePromise:null });
+      }
+    });
+    this.#runtimePromise = pending;
+    this.#synchronizeState({ runtimePromise:pending });
+    return pending.promise;
+  }
+
+  productionConnectorDependencies() {
+    const connectorDependencies = this.#dependencies().connectorDependencies;
+    const douyin = connectorDependencies.douyinOfficialApi;
+    return {
+      ...(douyin
+        ? {
+          douyinOfficialApi:{
+            httpRequest:douyin.httpRequest,
+            credentialResolver:(input) => (
+              this.#dependencies().paperclipAccess
+                .resolvePublisherCredentialReference(input)
+            ),
+            ...(douyin.maxUploadBytes === undefined
+              ? {}
+              : { maxUploadBytes:douyin.maxUploadBytes }),
+          },
+        }
+        : {}),
+      ...(connectorDependencies.cuaRunners
+        ? { cuaRunners:connectorDependencies.cuaRunners }
+        : {}),
+      ...(connectorDependencies.xhsOwnMetricsCua
+        ? { xhsOwnMetricsCua:connectorDependencies.xhsOwnMetricsCua }
+        : {}),
+    };
+  }
+
+  paperclipCostReporter() {
+    return Object.freeze({
+      contract:Object.freeze({
+        schemaVersion:PUBLISHER_COST_REPORTER_SCHEMA,
+        deterministic:true,
+        source:'paperclip',
+      }),
+      assertCampaignBudget:(input) => (
+        this.#dependencies().paperclipAccess.assertPublisherCampaignBudget(input)
+      ),
+      recordConnectorAttempt:(input) => (
+        this.#dependencies().paperclipAccess.recordPublisherConnectorAttempt(input)
+      ),
+    });
+  }
+
+  paperclipAccountIdentityVerifier() {
+    return Object.freeze({
+      contract:Object.freeze({
+        schemaVersion:PUBLISHER_ACCOUNT_IDENTITY_VERIFIER_SCHEMA,
+        deterministic:true,
+        source:'paperclip',
+      }),
+      verify:(input) => (
+        this.#dependencies().paperclipAccess.verifyPublisherAccountIdentity(input)
+      ),
+    });
+  }
+
+  #dependencies() {
+    return this.#getDependencies();
+  }
+}
+
+export class M5PublisherBindingError extends Error {
+  constructor(message, code = 'm5_publisher_binding_failed') {
+    super(message);
+    this.code = code;
+  }
+}
+
+function assertProductionDependencies(paperclipAccess, connectorDependencies) {
+  const required = [
+    'authorizePublisherRequest',
+    'getPublisherConnectorApprovalSnapshot',
+    'resolvePublisherCredentialReference',
+    'verifyPublisherAccountIdentity',
+    'assertPublisherCampaignBudget',
+    'recordPublisherConnectorAttempt',
+    'assertPublisherMetricRecoveryAllowed',
+  ];
+  if (required.some((method) => typeof paperclipAccess?.[method] !== 'function')) {
+    throw new M5PublisherBindingError(
+      'A君真实 Publisher 必须注入 Paperclip 授权、connector 批准快照、Secret 引用解析、账号身份核验和费用适配器。',
+      'paperclip_publisher_access_required',
+    );
+  }
+  if (
+    !connectorDependencies
+    || typeof connectorDependencies !== 'object'
+    || Array.isArray(connectorDependencies)
+  ) {
+    throw new M5PublisherBindingError(
+      'A君真实 Publisher 必须显式注入已审核 transport 或 CUA runner。',
+      'publisher_connector_dependencies_required',
+    );
+  }
+}
+
+async function authorizeOnce({
+  paperclipAccess,
+  action,
+  campaignId,
+  context,
+  allowExactReplay,
+}) {
+  const presented = {
+    action:String(context?.action || ''),
+    runId:String(context?.runId || ''),
+    issueId:String(context?.issueId || ''),
+    campaignId:String(context?.campaignId || ''),
+    agentId:String(context?.agentId || ''),
+    authorizationId:String(context?.authorizationId || ''),
+  };
+  if (
+    presented.action !== action
+    || presented.campaignId !== String(campaignId || '')
+    || Object.entries(presented)
+      .filter(([field]) => field !== 'action')
+      .some(([, value]) => !validAuthorizationReference(value))
+  ) {
+    throw new M5PublisherBindingError(
+      'A君 Publisher 缺少与 action、Run、Issue、Campaign 和控制器一致的可信授权上下文。',
+      'publisher_authorization_scope_mismatch',
+    );
+  }
+  let result;
+  try {
+    result = await paperclipAccess.authorizePublisherRequest(
+      structuredClone(presented),
+    );
+  } catch {
+    throw new M5PublisherBindingError(
+      'Paperclip Publisher Run 授权核验失败。',
+      'publisher_request_unauthorized',
+    );
+  }
+  if (
+    result?.authorized !== true
+    || Object.entries(presented).some(([field, value]) => result[field] !== value)
+  ) {
+    throw new M5PublisherBindingError(
+      'Paperclip Publisher 授权范围与 action、Run、Issue 或 Campaign 不一致。',
+      'publisher_authorization_scope_mismatch',
+    );
+  }
+  if (result?.replayed === true) {
+    if (allowExactReplay === true) return { ...presented, replayed:true };
+    throw new M5PublisherBindingError(
+      'Paperclip Publisher 一次性授权已经使用，拒绝重放。',
+      'publisher_authorization_replayed',
+    );
+  }
+  return presented;
+}
+
+function normalizePublisherApprovalSnapshot(snapshot, nowValue) {
+  const now = validClock(nowValue);
+  const capturedAt = Date.parse(snapshot?.capturedAt);
+  if (
+    !snapshot
+    || typeof snapshot !== 'object'
+    || Array.isArray(snapshot)
+    || snapshot.schemaVersion !== PUBLISHER_APPROVAL_SNAPSHOT_SCHEMA
+    || snapshot.source !== 'paperclip'
+    || typeof snapshot.snapshotId !== 'string'
+    || !snapshot.snapshotId.startsWith('paperclip:')
+    || !Number.isFinite(capturedAt)
+    || capturedAt > now.getTime()
+    || !Array.isArray(snapshot.approvals)
+    || snapshot.approvals.length === 0
+  ) {
+    throw approvalSnapshotInvalid();
+  }
+  const approvals = [];
+  const identities = new Set();
+  for (const raw of snapshot.approvals) {
+    const capability = raw?.capability || 'publish';
+    const expiresAt = Date.parse(raw?.expiresAt);
+    const identity = `${String(raw?.platform || '')}:${String(capability || '')}`;
+    if (
+      !M5_PLATFORMS.includes(raw?.platform)
+      || !['publish', 'read_own_metrics'].includes(capability)
+      || !['douyin_official_api', 'cua', 'xhs_own_metrics_cua']
+        .includes(raw?.connectorKind)
+      || (capability === 'publish' && raw?.connectorKind === 'xhs_own_metrics_cua')
+      || (
+        capability === 'read_own_metrics'
+        && !['douyin_official_api', 'xhs_own_metrics_cua'].includes(raw?.connectorKind)
+      )
+      || raw?.status !== 'approved'
+      || typeof raw?.approvalRef !== 'string'
+      || !raw.approvalRef.startsWith('paperclip:')
+      || !Number.isFinite(expiresAt)
+      || identities.has(identity)
+    ) {
+      throw approvalSnapshotInvalid();
+    }
+    if (expiresAt <= now.getTime()) throw approvalSnapshotExpired();
+    identities.add(identity);
+    approvals.push({
+      platform:raw.platform,
+      capability,
+      connectorKind:raw.connectorKind,
+      status:raw.status,
+      approvalRef:raw.approvalRef,
+      expiresAt:new Date(expiresAt).toISOString(),
+    });
+  }
+  approvals.sort((left, right) => (
+    `${left.platform}:${left.capability}`.localeCompare(
+      `${right.platform}:${right.capability}`,
+    )
+  ));
+  const validUntil = Math.min(
+    ...approvals.map((approval) => Date.parse(approval.expiresAt)),
+  );
+  const fingerprint = `sha256:${crypto.createHash('sha256')
+    .update(stableJson({
+      schemaVersion:snapshot.schemaVersion,
+      source:snapshot.source,
+      snapshotId:snapshot.snapshotId,
+      approvals,
+    }))
+    .digest('hex')}`;
+  return Object.freeze({
+    snapshotId:snapshot.snapshotId,
+    fingerprint,
+    validUntil,
+  });
+}
+
+function assertSameApprovalPolicy(expected, current, nowValue) {
+  const now = validClock(nowValue);
+  if (
+    !Number.isFinite(expected?.validUntil)
+    || expected.validUntil <= now.getTime()
+    || !Number.isFinite(current?.validUntil)
+    || current.validUntil <= now.getTime()
+  ) {
+    throw approvalSnapshotExpired();
+  }
+  if (
+    expected?.snapshotId !== current?.snapshotId
+    || expected?.fingerprint !== current?.fingerprint
+    || expected?.validUntil !== current?.validUntil
+  ) {
+    throw approvalSnapshotChanged();
+  }
+}
+
+function approvalSnapshotInvalid() {
+  return new M5PublisherBindingError(
+    'Paperclip connector 批准快照结构、状态或能力范围无效，拒绝复用真实 Runtime。',
+    'publisher_approval_snapshot_invalid',
+  );
+}
+
+function approvalSnapshotExpired() {
+  return new M5PublisherBindingError(
+    'Paperclip connector 批准快照已经到期；旧 Runtime 保持停止，必须重新批准并显式重建。',
+    'publisher_approval_snapshot_expired',
+  );
+}
+
+function approvalSnapshotChanged() {
+  return new M5PublisherBindingError(
+    'Paperclip connector 批准快照已经变化；旧 Runtime 保持停止，必须显式重建。',
+    'publisher_approval_snapshot_changed',
+  );
+}
+
+function validClock(value) {
+  const timestamp = value instanceof Date ? value.getTime() : Number.NaN;
+  if (!Number.isFinite(timestamp)) {
+    throw new M5PublisherBindingError(
+      'A君 Publisher 时钟无效，拒绝核验 connector 批准。',
+      'publisher_clock_invalid',
+    );
+  }
+  return new Date(timestamp);
+}
+
+function stableJson(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  return `{${Object.keys(value).sort().map((key) => (
+    `${JSON.stringify(key)}:${stableJson(value[key])}`
+  )).join(',')}}`;
+}
+
+function validAuthorizationReference(value) {
+  return /^[A-Za-z0-9][A-Za-z0-9:._-]{7,199}$/.test(String(value || ''));
+}

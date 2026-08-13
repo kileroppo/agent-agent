@@ -277,6 +277,27 @@ test('结构和权限类导出错误不重试', async () => {
   assert.equal(calls, 1);
 });
 
+test('显式空 run 失败关闭，构造后覆写仍由 Adapter 身份动态调用', async () => {
+  const disabled = new OpenKimiPptAdapter({ runImpl:null, chromeBinary:'/bin/sh' });
+  const disabledReadiness = await disabled.readiness();
+  assert.equal(disabledReadiness.dependencies.ready, false);
+  assert.match(disabledReadiness.dependencies.issues.join('\n'), /隔离 Node 24\+ 未配置/);
+
+  const adapter = new OpenKimiPptAdapter({ runImpl:async () => { throw new Error('旧实现'); }, chromeBinary:'/bin/sh' });
+  const receivers = [];
+  adapter.run = async function (command, args) {
+    receivers.push(this);
+    if (args[0] === '--version' && command === 'node') return 'v24.1.0';
+    if (args[0] === '--version' && command === 'python3') return 'Python 3.14.0';
+    if (args[0] === '-c') return 'ok';
+    if (args[0] === '--version' && command === 'agent-browser') return '0.33.2';
+    throw new Error('unexpected probe');
+  };
+  await adapter.readiness();
+  assert.equal(receivers.length, 4);
+  assert.equal(receivers.every((receiver) => receiver === adapter), true);
+});
+
 function adapterWithReadiness(readiness) {
   return new OpenKimiPptAdapter({ readinessProbeImpl:async () => readiness });
 }

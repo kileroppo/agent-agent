@@ -144,6 +144,23 @@ test('组合适配器保持 PPTD 来源并把本地 visualQa/export 标为无外
   assert.equal(readiness.recovery, null);
 });
 
+test('显式非函数 run 失败关闭，构造后覆写仍由 Adapter 身份动态调用', async () => {
+  const disabled = new LocalPptxAdapter({ runImpl:null });
+  const disabledReadiness = await disabled.readiness();
+  assert.equal(disabledReadiness.dependencies.ready, false);
+  assert.match(disabledReadiness.dependencies.issues.join('\n'), /隔离 Node 不可用/);
+
+  const adapter = new LocalPptxAdapter({ runImpl:'disabled' });
+  const receivers = [];
+  adapter.run = async function () {
+    receivers.push(this);
+    return 'v24.14.0';
+  };
+  await adapter.readiness();
+  assert.equal(receivers.length, 1);
+  assert.equal(receivers[0], adapter);
+});
+
 async function fixtureWorkspace(prefix) {
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   await fs.mkdir(path.join(workspace, 'deck'), { recursive:true });

@@ -20,6 +20,10 @@ npm run dev
 - `src/campaign-delivery-evidence.js`：M5 阶段回执、失败留痕与 Work Product 写回协议；
 - `src/open-research-source-acquisition.js`：开放研究来源发现、读取预算与证据资格；
 - `src/paperclip-content-execution-context.js`：内容岗位的 Case、Run、JWT 与活动授权可信上下文；
+- `src/office-presentation-production.js`：演示文稿生成、导出、QA 与阻塞产物协议；
+- `src/m5-publisher-runtime-lease.js`：Publisher 一次性授权、快照与运行时租约；
+- `src/metric-checkpoint-execution.js`：2h/24h/72h 指标证据推进状态机；
+- `src/presentation-adapter-protocol.js`：两个本地演示 Adapter 共用的安全工作区与命令协议；
 - `src/task-overview.js`：运行总览、能力状态和用量账单 Module；
 - `src/task-approval-coordinator.js`：本机/Paperclip 审批、任务控制和幂等恢复 Module；
 - `src/boom-monitor/`：A君进程内的爆款雷达业务 Module；

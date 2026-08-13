@@ -20,7 +20,7 @@ const AGENT_ID = '44444444-4444-4444-8444-444444444444';
 
 test('A君指标直连把可信授权 Campaign 注入 Gateway 并覆盖调用方自报值', async () => {
   const calls = [];
-  const publisher = Object.create(LazyProductionPublisher.prototype);
+  const publisher = overridablePublisher();
   publisher.authorize = async () => ({ campaignId:CAMPAIGN_ID });
   publisher.getRuntime = async () => ({
     async collectMetricSnapshot(input) {
@@ -50,12 +50,11 @@ test('A君只在恢复授权 exact/replay 核验后委托 Runtime，并暴露只
     attempts:[],
   };
   let replayed = false;
-  const publisher = Object.create(LazyProductionPublisher.prototype);
-  publisher.paperclipAccess = {
-    async authorizePublisherRequest(input) {
-      calls.authorize.push(structuredClone(input));
-      return { ...input, authorized:true, replayed };
-    },
+  const publisher = overridablePublisher();
+  publisher.authorize = async (...args) => {
+    const context = args[2];
+    calls.authorize.push(structuredClone(context));
+    return { ...structuredClone(context), replayed };
   };
   publisher.runtime = {
     gateway:{
@@ -65,10 +64,9 @@ test('A君只在恢复授权 exact/replay 核验后委托 Runtime，并暴露只
       },
     },
   };
-  publisher.getRuntime = async (authorization) => ({
+  publisher.getRuntime = async () => ({
     async reconcileMetricInvocation(input) {
       calls.runtime.push({
-        authorization:structuredClone(authorization),
         input:structuredClone(input),
       });
       return { replayed:false, recovery:{ state:'failed' } };
@@ -117,7 +115,8 @@ test('A君只在恢复授权 exact/replay 核验后委托 Runtime，并暴露只
   assert.deepEqual(calls.attempts, [`metric:${input.collectionKey}`]);
 });
 
-test('A君只把 trusted replayed 恢复授权映射到完全一致的既有 Gateway 结果', async () => {
+test('A君真实 exact replay 保持 authorize→runtime→replay lookup 顺序', async () => {
+  const order = [];
   const authorization = {
     action:'publisher.reconcile_stale_attempt',
     runId:RUN_ID,
@@ -155,6 +154,7 @@ test('A君只把 trusted replayed 恢复授权映射到完全一致的既有 Gat
   const runtime = {
     gateway:{
       getAttempt:async () => {
+        order.push('replay_lookup');
         const existing = structuredClone(attempt);
         attempt.state = 'invoking';
         delete attempt.metricRecovery;
@@ -166,15 +166,16 @@ test('A君只把 trusted replayed 恢复授权映射到完全一致的既有 Gat
       throw new Error('trusted exact replay 绝不能进入可写 reconcile');
     },
   };
-  const publisher = Object.create(LazyProductionPublisher.prototype);
-  publisher.paperclipAccess = {
-    authorizePublisherRequest:async (actual) => ({
-      ...actual,
-      authorized:true,
-      replayed:true,
-    }),
+  const publisher = overridablePublisher({
+    authorizePublisherRequest:async (actual) => {
+      order.push('authorize');
+      return { ...actual, authorized:true, replayed:true };
+    },
+  });
+  publisher.getRuntime = async (actual) => {
+    order.push(`runtime:${actual.replayed}`);
+    return runtime;
   };
-  publisher.getRuntime = async () => runtime;
 
   const replay = await publisher.reconcileMetricInvocation(input, authorization);
   assert.deepEqual(replay, {
@@ -191,6 +192,7 @@ test('A君只把 trusted replayed 恢复授权映射到完全一致的既有 Gat
     },
   });
   assert.equal(reconcileCalls, 0);
+  assert.deepEqual(order, ['authorize', 'runtime:true', 'replay_lookup']);
 
   attempt.state = 'failed';
   attempt.metricRecovery = {
@@ -239,6 +241,101 @@ test('A君 Publisher 接线默认关闭并拒绝真实模式或相对路径', ()
     env:{ AJUN_M5_PUBLISHER_MODE:'fake' },
     dataDir:'/tmp/ajun-m5-test',
   }), M5PublisherBindingError);
+});
+
+test('A君保留旧 Publisher public shape且构造后依赖替换立即生效', async () => {
+  const publisher = overridablePublisher();
+  for (const property of [
+    'mode',
+    'paperclipAccess',
+    'connectorDependencies',
+    'workspaceRoot',
+    'ledgerPath',
+    'paperclipControl',
+    'clock',
+    'runtime',
+    'runtimePromise',
+    'approvalSnapshotId',
+    'approvalSnapshotFingerprint',
+    'approvalSnapshotValidUntil',
+  ]) {
+    assert.equal(Object.hasOwn(publisher, property), true, property);
+  }
+  for (const method of [
+    'authorize',
+    'getRuntime',
+    'productionConnectorDependencies',
+    'paperclipCostReporter',
+    'paperclipAccountIdentityVerifier',
+  ]) {
+    assert.equal(typeof publisher[method], 'function', method);
+  }
+
+  publisher.connectorDependencies = {
+    douyinOfficialApi:{ httpRequest:async () => ({ status:500 }) },
+  };
+  const connector = publisher.productionConnectorDependencies().douyinOfficialApi;
+  const costReporter = publisher.paperclipCostReporter();
+  const accountVerifier = publisher.paperclipAccountIdentityVerifier();
+  const calls = [];
+  publisher.paperclipAccess = {
+    ...publisher.paperclipAccess,
+    authorizePublisherRequest:async (input) => {
+      calls.push('authorize');
+      return { ...input, authorized:true, replayed:false };
+    },
+    getPublisherConnectorApprovalSnapshot:async () => {
+      calls.push('snapshot');
+      return approvalSnapshot();
+    },
+    resolvePublisherCredentialReference:async () => {
+      calls.push('secret');
+      return { accessToken:'replacement' };
+    },
+    assertPublisherCampaignBudget:async () => {
+      calls.push('budget');
+      return { allowed:true };
+    },
+    recordPublisherConnectorAttempt:async () => {
+      calls.push('cost');
+      return { reportRef:'paperclip:replacement' };
+    },
+    verifyPublisherAccountIdentity:async () => {
+      calls.push('identity');
+      return { verified:true };
+    },
+  };
+
+  const authorization = authorizationContext(
+    'paperclip:authorization:replacement-dependencies',
+  );
+  await publisher.authorize(
+    authorization.action,
+    authorization.campaignId,
+    authorization,
+  );
+  await publisher.getRuntime(authorization);
+  await connector.credentialResolver({ platform:'douyin' });
+  await costReporter.assertCampaignBudget({ campaignId:CAMPAIGN_ID });
+  await costReporter.recordConnectorAttempt({ campaignId:CAMPAIGN_ID });
+  await accountVerifier.verify({ platform:'douyin' });
+
+  assert.deepEqual(calls, [
+    'authorize',
+    'snapshot',
+    'secret',
+    'budget',
+    'cost',
+    'identity',
+  ]);
+  assert.equal(publisher.runtime?.mode, 'real');
+  assert.equal(publisher.runtimePromise, null);
+  assert.equal(publisher.approvalSnapshotId, approvalSnapshot().snapshotId);
+  assert.match(publisher.approvalSnapshotFingerprint, /^sha256:[0-9a-f]{64}$/);
+  assert.equal(
+    publisher.approvalSnapshotValidUntil,
+    Date.parse('2026-08-06T00:00:00.000Z'),
+  );
 });
 
 test('A君显式 production 依赖在启动时不读取批准、Secret或构造real Runtime', async (context) => {
@@ -498,7 +595,7 @@ test('A君并发初始化把runtimePromise绑定批准指纹，不同快照双�
   });
   const snapshots = [firstSnapshot, secondSnapshot];
   const fixture = await lazyPublisherFixture(context, {
-    getSnapshot:() => structuredClone(snapshots.shift()),
+    getSnapshot:() => structuredClone(snapshots.shift() || firstSnapshot),
   });
 
   const results = await Promise.allSettled([
@@ -518,8 +615,16 @@ test('A君并发初始化把runtimePromise绑定批准指纹，不同快照双�
     assert.equal(result.reason.code, 'publisher_approval_snapshot_changed');
   }
   assert.equal(fixture.publisher.runtime, null);
+  assert.equal(fixture.publisher.runtimePromise, null);
   assert.equal(fixture.calls.snapshot, 2);
   assertNoExternalPublisherCalls(fixture.calls);
+
+  const retried = await fixture.publisher.getRuntime(
+    authorizationContext('paperclip:authorization:concurrent-retry'),
+  );
+  assert.strictEqual(fixture.publisher.runtime, retried);
+  assert.equal(fixture.publisher.runtimePromise, null);
+  assert.equal(fixture.calls.snapshot, 3);
 });
 
 test('A君 production 授权错误或重放不会读取批准、Secret或触碰connector', async () => {
@@ -953,6 +1058,41 @@ function approvalSnapshot(overrides = {}) {
     ...structuredClone(overrides),
     approvals:structuredClone(overrides.approvals || snapshot.approvals),
   };
+}
+
+function overridablePublisher({
+  authorizePublisherRequest = async (input) => ({
+    ...input,
+    authorized:true,
+    replayed:false,
+  }),
+} = {}) {
+  return new LazyProductionPublisher({
+    workspaceRoot:'/tmp/ajun-overridable-publisher-workspace',
+    ledgerPath:'/tmp/ajun-overridable-publisher-ledger.json',
+    clock:() => new Date(NOW),
+    paperclipAccess:{
+      authorizePublisherRequest,
+      getPublisherConnectorApprovalSnapshot:async () => approvalSnapshot(),
+      resolvePublisherCredentialReference:async () => ({}),
+      verifyPublisherAccountIdentity:async () => ({ verified:true }),
+      assertPublisherCampaignBudget:async () => ({ allowed:true }),
+      recordPublisherConnectorAttempt:async () => ({ reportRef:'paperclip:test' }),
+      assertPublisherMetricRecoveryAllowed:async (input) => ({
+        ...input,
+        authorized:true,
+      }),
+    },
+    connectorDependencies:{},
+    paperclipControl:{
+      assertPublishAllowed:async () => ({ grantStatus:'active' }),
+      pauseCampaignAndDisableCron:async () => ({ grantStatus:'paused' }),
+      assertMetricRecoveryAllowed:async (input) => ({
+        ...input,
+        authorized:true,
+      }),
+    },
+  });
 }
 
 async function lazyPublisherFixture(context, {

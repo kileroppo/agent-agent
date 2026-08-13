@@ -216,6 +216,65 @@
         "test/content-campaign-service.test.js",
         "test/paperclip-content-tool-executor.test.js"
       ]
+    },
+    "src/local-office-assistant.js": {
+      "lineLimit": 500,
+      "affectedTests": [
+        "test/knowledge-archive-writer.test.js",
+        "test/local-office-assistant.test.js"
+      ]
+    },
+    "src/office-presentation-production.js": {
+      "lineLimit": 400,
+      "affectedTests": [
+        "test/local-office-assistant.test.js"
+      ]
+    },
+    "src/m5-publisher-bindings.js": {
+      "lineLimit": 450,
+      "affectedTests": [
+        "test/m5-publisher-bindings.test.js"
+      ]
+    },
+    "src/m5-publisher-runtime-lease.js": {
+      "lineLimit": 500,
+      "affectedTests": [
+        "test/m5-publisher-bindings.test.js"
+      ]
+    },
+    "src/paperclip-metric-monitor.js": {
+      "lineLimit": 220,
+      "affectedTests": [
+        "test/paperclip-metric-monitor.test.js"
+      ]
+    },
+    "src/metric-checkpoint-execution.js": {
+      "lineLimit": 630,
+      "affectedTests": [
+        "test/paperclip-metric-monitor.test.js"
+      ]
+    },
+    "src/open-kimi-ppt-adapter.js": {
+      "lineLimit": 800,
+      "affectedTests": [
+        "test/local-office-assistant.test.js",
+        "test/open-kimi-ppt-adapter.test.js"
+      ]
+    },
+    "src/local-pptx-adapter.js": {
+      "lineLimit": 350,
+      "affectedTests": [
+        "test/local-office-assistant.test.js",
+        "test/local-pptx-adapter.test.js"
+      ]
+    },
+    "src/presentation-adapter-protocol.js": {
+      "lineLimit": 280,
+      "affectedTests": [
+        "test/local-office-assistant.test.js",
+        "test/local-pptx-adapter.test.js",
+        "test/open-kimi-ppt-adapter.test.js"
+      ]
     }
   }
 }

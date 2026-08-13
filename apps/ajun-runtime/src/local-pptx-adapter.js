@@ -1,10 +1,15 @@
-import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { prepareWorkspaceFile } from './workspace-path-guard.js';
+import {
+  PresentationCommandRunner,
+  PresentationWorkspace,
+  DEFAULT_PRESENTATION_RUN,
+  freezePresentationReadiness as freezeReadiness,
+  presentationError as pptError,
+} from './presentation-adapter-protocol.js';
 
 const LOCAL_EXPORTER = fileURLToPath(new URL('./local-pptx-export.mjs', import.meta.url));
 const DEFAULT_RUNTIME_ROOT = path.join(os.homedir(), '.cache/codex-runtimes/codex-primary-runtime/dependencies');
@@ -44,7 +49,7 @@ export class LocalPptxAdapter {
     expectedSetupHash = EXPECTED_SETUP_HASH,
     expectedExporterHash = EXPECTED_EXPORTER_HASH,
     readinessProbeImpl = null,
-    runImpl = runCommand,
+    runImpl = DEFAULT_PRESENTATION_RUN,
     now = () => new Date(),
   } = {}) {
     this.nodeBinary = path.resolve(nodeBinary);
@@ -62,7 +67,10 @@ export class LocalPptxAdapter {
     this.expectedSetupHash = normalizedHash(expectedSetupHash);
     this.expectedExporterHash = normalizedHash(expectedExporterHash);
     this.readinessProbeImpl = readinessProbeImpl;
-    this.run = runImpl;
+    this.commands = new PresentationCommandRunner({ profile:'local' });
+    this.run = runImpl === DEFAULT_PRESENTATION_RUN
+      ? this.commands.defaultRun.bind(this.commands)
+      : runImpl;
     this.now = now;
   }
 
@@ -71,7 +79,7 @@ export class LocalPptxAdapter {
     const issues = [];
     const versions = {};
     const sourceHashes = {};
-    const node = await probeVersion(this.run, this.nodeBinary, ['--version']);
+    const node = await this.commands.probeVersion(this.run, this, this.nodeBinary, ['--version']);
     versions.node = normalizedVersion(node.version);
     if (!node.ok) issues.push('隔离 Node 不可用');
     else if (this.expectedNodeVersion && versions.node !== this.expectedNodeVersion) {
@@ -145,18 +153,23 @@ export class LocalPptxAdapter {
       error.readiness = readiness;
       throw error;
     }
-    const manifest = await existingWorkspaceFile(workspaceRoot, input?.manifestRelativePath, '.pptd');
-    const output = await newWorkspaceTarget(workspaceRoot, access?.relativePath, '.pptx');
+    const workspace = new PresentationWorkspace(workspaceRoot);
+    const manifest = await workspace.existingFile(input?.manifestRelativePath, '.pptd');
+    const output = await workspace.newTarget(access?.relativePath, '.pptx');
     const projectRoot = path.dirname(manifest.target);
     const qaDirectory = path.join(projectRoot, 'qa', 'local-pptx');
     const runtimeRoot = path.join(projectRoot, `.local-pptx-runtime-${crypto.randomUUID()}`);
-    await Promise.all([assertPathMissing(qaDirectory), assertPathMissing(runtimeRoot)]);
+    await Promise.all([workspace.assertPathMissing(qaDirectory), workspace.assertPathMissing(runtimeRoot)]);
     const startedAt = this.now();
     let summary;
     try {
       await fs.mkdir(runtimeRoot, { recursive:true, mode:0o700 });
-      await this.run(this.nodeBinary, [this.setupScript, '--workspace', runtimeRoot], commandOptions(30_000));
-      const outputText = await this.run(this.nodeBinary, [
+      await Reflect.apply(this.run, this, [
+        this.nodeBinary,
+        [this.setupScript, '--workspace', runtimeRoot],
+        this.commands.options(30_000),
+      ]);
+      const outputText = await Reflect.apply(this.run, this, [this.nodeBinary, [
         LOCAL_EXPORTER,
         '--manifest', manifest.target,
         '--output', output.target,
@@ -164,8 +177,8 @@ export class LocalPptxAdapter {
         '--artifact-entry', path.join(this.artifactRoot, 'dist/artifact_tool.mjs'),
         '--jszip-entry', path.join(this.jszipRoot, 'lib/index.js'),
         '--sharp-entry', path.join(this.sharpRoot, 'lib/index.js'),
-      ], commandOptions(180_000, safeExecutionEnvironment()));
-      summary = parseExportSummary(outputText);
+      ], this.commands.options(180_000, safeExecutionEnvironment())]);
+      summary = workspace.parseExportSummary(outputText, 'local');
     } catch (error) {
       await Promise.all([
         fs.rm(output.target, { force:true }),
@@ -175,27 +188,13 @@ export class LocalPptxAdapter {
     } finally {
       await fs.rm(runtimeRoot, { recursive:true, force:true });
     }
-    const expectedPages = await pptdPageCount(manifest.target);
-    if (
-      summary.slides !== expectedPages
-      || summary.renderedSlides !== expectedPages
-      || summary.fadeTransitions !== expectedPages
-      || summary.transitionPatchedSlides !== expectedPages
-      || summary.zipIntegrityValid !== true
-      || summary.transitionXmlOrderValid !== true
-      || summary.fontCompatibilityVerified !== true
-    ) {
-      throw pptError('本地 PPTX 页数、渲染或 fade 转场校验不一致。', 'presentation_export_validation_failed');
-    }
-    const pptx = await fs.readFile(output.target);
-    if (pptx.length < 16 || pptx.subarray(0, 2).toString() !== 'PK') {
-      throw pptError('本地 PPTX 文件签名无效。', 'presentation_export_invalid');
-    }
-    const overview = path.join(qaDirectory, 'overview.jpg');
-    const overviewStat = await fs.stat(overview).catch(() => null);
-    if (!overviewStat?.isFile() || overviewStat.size < 1) {
-      throw pptError('本地 PPTX 页面预览缺失。', 'presentation_visual_qa_missing');
-    }
+    const { pptx, overview } = await workspace.verifyPptxExport({
+      profile:'local',
+      manifestPath:manifest.target,
+      outputPath:output.target,
+      qaDirectory,
+      summary,
+    });
     return Object.freeze({
       filePath:output.target,
       relativePath:access.relativePath,
@@ -303,68 +302,6 @@ async function regularFileHash(filePath) {
   }
 }
 
-async function existingWorkspaceFile(workspaceRoot, relativePath, extension) {
-  const relative = String(relativePath || '').trim().replaceAll('\\', '/');
-  if (path.posix.extname(relative).toLowerCase() !== extension) throw pptError(`输入必须使用 ${extension} 扩展名。`, 'presentation_path_invalid');
-  const { root, target } = await prepareWorkspaceFile(workspaceRoot, relative);
-  const stat = await fs.lstat(target).catch(() => null);
-  if (!stat?.isFile() || stat.isSymbolicLink()) throw pptError('输入文件不存在或不是普通文件。', 'presentation_source_invalid');
-  const real = await fs.realpath(target);
-  if (!real.startsWith(`${root}${path.sep}`)) throw pptError('输入文件越出工作区。', 'workspace_path_denied');
-  return { root, target:real };
-}
-
-async function newWorkspaceTarget(workspaceRoot, relativePath, extension) {
-  const relative = String(relativePath || '').trim().replaceAll('\\', '/');
-  if (path.posix.extname(relative).toLowerCase() !== extension) throw pptError(`目标必须使用 ${extension} 扩展名。`, 'presentation_path_invalid');
-  const target = await prepareWorkspaceFile(workspaceRoot, relative);
-  await assertPathMissing(target.target);
-  return target;
-}
-
-async function assertPathMissing(target) {
-  const stat = await fs.lstat(target).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
-  if (stat) throw pptError('演示文稿目标已存在；请使用新的版本路径，禁止静默覆盖。', 'workspace_file_exists');
-}
-
-async function pptdPageCount(manifestPath) {
-  try {
-    const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
-    if (!Array.isArray(manifest.pages) || manifest.pages.length < 1) throw new Error('missing pages');
-    return manifest.pages.length;
-  } catch {
-    throw pptError('受控适配器只能导出自己生成的 JSON 兼容 PPTD 清单。', 'presentation_source_invalid');
-  }
-}
-
-function parseExportSummary(output) {
-  const lines = String(output || '').trim().split('\n').map((line) => line.trim()).filter(Boolean);
-  let summary = null;
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    try {
-      const candidate = JSON.parse(lines[index]);
-      if (candidate?.schemaVersion === 'agent.army/local-pptx-export/v1') {
-        summary = candidate;
-        break;
-      }
-    } catch {}
-  }
-  if (
-    summary?.status !== 'passed'
-    || !Number.isInteger(summary.slides)
-    || !Number.isInteger(summary.renderedSlides)
-    || !Number.isInteger(summary.fadeTransitions)
-    || !Number.isInteger(summary.transitionPatchedSlides)
-    || !Number.isInteger(summary.fontParts)
-    || !Array.isArray(summary.referencedFonts)
-    || typeof summary.fontCompatibilityTypeface !== 'string'
-    || summary.fontCompatibilityVerified !== true
-  ) {
-    throw pptError('本地 PPTX 导出器没有返回可验证摘要。', 'presentation_export_validation_failed');
-  }
-  return summary;
-}
-
 function safeExecutionEnvironment() {
   return Object.freeze({
     PATH:'/usr/bin:/bin',
@@ -384,15 +321,6 @@ function classifyLocalExportFailure(error) {
   return pptError('本地 PPTX 导出失败；未写入不完整产物。', 'presentation_export_failed');
 }
 
-async function probeVersion(run, command, args) {
-  try {
-    const output = await run(command, args, commandOptions(10_000));
-    return { ok:true, version:String(output || '').trim().split('\n')[0] };
-  } catch (error) {
-    return { ok:false, version:null, code:error?.code || 'command_failed' };
-  }
-}
-
 function normalizedVersion(value) {
   const match = String(value || '').match(/(\d+\.\d+\.\d+(?:\.\d+)?)/);
   return match?.[1] || null;
@@ -401,50 +329,4 @@ function normalizedVersion(value) {
 function normalizedHash(value) {
   const text = String(value || '').trim().toLowerCase();
   return /^[a-f0-9]{64}$/.test(text) ? text : null;
-}
-
-function commandOptions(timeoutMs, env = null) {
-  return { timeoutMs, maxBuffer:2 * 1024 * 1024, ...(env ? { env } : {}) };
-}
-
-function runCommand(command, args, { timeoutMs = 30_000, maxBuffer = 1024 * 1024, env = {} } = {}) {
-  const childEnvironment = { ...process.env };
-  for (const [name, value] of Object.entries(env)) {
-    if (value == null) delete childEnvironment[name];
-    else childEnvironment[name] = String(value);
-  }
-  return new Promise((resolve, reject) => execFile(command, args, {
-    timeout:timeoutMs,
-    maxBuffer,
-    encoding:'utf8',
-    env:childEnvironment,
-  }, (error, stdout, stderr) => error ? reject(classifyCommandError(error, stderr)) : resolve(stdout)));
-}
-
-function classifyCommandError(error, stderr) {
-  if (error?.killed || error?.signal === 'SIGTERM' || error?.code === 'ETIMEDOUT') {
-    return Object.assign(new Error('本地 PPTX 子进程超时。'), { code:'ETIMEDOUT' });
-  }
-  let code = null;
-  for (const line of String(stderr || '').trim().split('\n').reverse()) {
-    try {
-      const candidate = JSON.parse(line);
-      if (/^[a-z0-9_]{1,80}$/i.test(String(candidate?.code || ''))) {
-        code = candidate.code;
-        break;
-      }
-    } catch {}
-  }
-  return Object.assign(new Error('本地 PPTX 子进程执行失败。'), { code:code || 'local_pptx_command_failed' });
-}
-
-function freezeReadiness(value = {}) {
-  return Object.freeze({
-    ...value,
-    modes:Object.freeze(Object.fromEntries(Object.entries(value.modes || {}).map(([key, item]) => [key, Object.freeze({ ...item })]))),
-  });
-}
-
-function pptError(message, code) {
-  return Object.assign(new Error(message), { code, category:'manual', retryable:false });
 }

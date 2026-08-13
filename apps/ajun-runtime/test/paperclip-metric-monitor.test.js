@@ -4,6 +4,7 @@ import {
   PaperclipMetricMonitorHandler,
   trustedPublishReceipt,
 } from '../src/paperclip-metric-monitor.js';
+import { MetricCheckpointExecution } from '../src/metric-checkpoint-execution.js';
 
 const CASE_ID = '11111111-1111-4111-8111-111111111111';
 const ISSUE_ID = '22222222-2222-4222-8222-222222222222';
@@ -154,6 +155,51 @@ function payload(overrides = {}) {
     ...overrides,
   };
 }
+
+test('指标检查点执行 Module 通过 advance 集中采集、写回再延期', async () => {
+  const governance = new FakeMetricGovernance();
+  const publisher = new FakeMetricPublisher();
+  const execution = new MetricCheckpointExecution({
+    governance,
+    publisher,
+    now:() => new Date(Date.parse(PUBLISHED_AT) + 2 * HOUR_MS),
+  });
+
+  const result = await execution.advance({
+    issue:structuredClone(governance.issue),
+    caseId:CASE_ID,
+    runId:'66666666-6666-4666-8666-666666666666',
+    agentId:AGENT_ID,
+  });
+
+  assert.equal(result.checkpoint, '2h');
+  assert.deepEqual(
+    governance.calls.map((call) => call.kind),
+    ['work-product', 'monitor'],
+  );
+  assert.equal(publisher.authorizationContexts[0].agentId, AGENT_ID);
+});
+
+test('Handler 保留旧实例依赖与可调用方法 surface', () => {
+  const governance = new FakeMetricGovernance();
+  const publisher = new FakeMetricPublisher();
+  const now = () => new Date(PUBLISHED_AT);
+  const handler = new PaperclipMetricMonitorHandler({ governance, publisher, now });
+
+  assert.equal(handler.publisher, publisher);
+  assert.equal(handler.now, now);
+  for (const method of [
+    'assertDependencies',
+    'schedule',
+    'scheduleRecovery',
+    'scheduleStaleInvocationReview',
+    'scheduleReceiptRecovery',
+    'persistSnapshot',
+  ]) {
+    assert.equal(typeof handler[method], 'function', method);
+  }
+  handler.assertDependencies();
+});
 
 test('指标控制器用 Paperclip Monitor 完成 2h/24h/72h，重启和重复唤醒不重复采集', async () => {
   const governance = new FakeMetricGovernance();
@@ -331,6 +377,13 @@ test('stale invoking 只读核对 attempt 后转 human_review，后续唤醒绝�
     governance.issue.executionPolicy.monitor.notes,
     /禁止自动重试 connector/,
   );
+
+  governance.assertCaseIssueLink = async () => {
+    throw new Error('human_review 重复唤醒不应重新核验 Case link');
+  };
+  governance.getPipelineCase = async () => {
+    throw new Error('human_review 重复唤醒不应消费 PlanRevision');
+  };
 
   const repeated = await handler.handle(payload({
     runId:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',

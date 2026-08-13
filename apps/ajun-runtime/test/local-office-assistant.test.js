@@ -248,6 +248,62 @@ test('小办演示文稿默认先交付 PPTD，并在 PPTX 依赖缺失时保留
   assert.equal(calls.find((item) => item.toolId === 'office.pptx.export').externalSideEffect, 'none');
 });
 
+test('小办演示文稿保留公开委托方法并允许调用方覆写', async () => {
+  const worker = new LocalOfficeAssistant({ now, store:{ async list() { return []; } } });
+  const roleToolContext = { async execute() { throw new Error('不应执行'); } };
+  let delegated = null;
+  worker.executePresentationPackage = async (task, context) => {
+    delegated = { task, context };
+    return { status:'succeeded', currentStage:'presentation_override' };
+  };
+  const task = { taskId:'presentation-override', taskType:'office.presentation-package', input:{} };
+
+  const result = await worker.execute(task, { roleToolContext });
+
+  assert.equal(result.currentStage, 'presentation_override');
+  assert.equal(delegated.task, task);
+  assert.equal(delegated.context, roleToolContext);
+});
+
+test('小办演示文稿在来源读取后、PPTD 写入前取完成时间，读取失败不调用时钟', async () => {
+  const events = [];
+  const worker = new LocalOfficeAssistant({
+    now() {
+      events.push('now');
+      return new Date('2026-07-26T12:00:00.000Z');
+    },
+    store:{ async list() { return []; } },
+  });
+  const task = {
+    taskId:'presentation-clock-order',
+    taskType:'office.presentation-package',
+    input:{ title:'时钟顺序', outputs:['pptd'] },
+  };
+  await worker.execute(task, { roleToolContext:{ async execute(input) {
+    events.push(input.toolId);
+    if (input.toolId === 'army.task.read') return [];
+    return {
+      manifestRelativePath:input.relativePath,
+      projectRelativePath:'work-products/presentation-clock-order/presentation',
+      qaRelativePath:'work-products/presentation-clock-order/presentation/qa/structural-validation.json',
+      mimeType:'application/vnd.open-kimi.pptd+yaml',
+      checksum:'c'.repeat(64),
+      validation:{ pageCount:1, structuralQaPassed:true, selfContained:true },
+    };
+  } } });
+  assert.deepEqual(events, ['army.task.read', 'now', 'office.pptd.write']);
+
+  events.length = 0;
+  await assert.rejects(
+    worker.execute(task, { roleToolContext:{ async execute(input) {
+      events.push(input.toolId);
+      throw new Error('来源读取失败');
+    } } }),
+    /来源读取失败/,
+  );
+  assert.deepEqual(events, ['army.task.read']);
+});
+
 test('小办在生成前校验总页数包含封面，提纲冲突时不调用任何工具', async () => {
   let calls = 0;
   const worker = new LocalOfficeAssistant({ now, store:{ async list() { return []; } } });

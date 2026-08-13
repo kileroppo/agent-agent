@@ -1,10 +1,15 @@
-import { execFile } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { prepareWorkspaceFile } from './workspace-path-guard.js';
+import {
+  PresentationCommandRunner,
+  PresentationWorkspace,
+  DEFAULT_PRESENTATION_RUN,
+  freezePresentationReadiness as freezeReadiness,
+  presentationError as pptError,
+} from './presentation-adapter-protocol.js';
 
 const SKILL_RELATIVE_ROOT = 'open-kimi-ppt-skill';
 const SKILL_ENTRY = 'skills/open-kimi-ppt/SKILL.md';
@@ -37,7 +42,7 @@ export class OpenKimiPptAdapter {
     expectedPackageVersion = EXPECTED_PACKAGE_VERSION,
     expectedSourceHash = EXPECTED_SOURCE_HASH,
     readinessProbeImpl = null,
-    runImpl = runCommand,
+    runImpl = DEFAULT_PRESENTATION_RUN,
     prepareExecutionEnvironmentImpl = prepareNoInstallEnvironment,
     now = () => new Date(),
   } = {}) {
@@ -50,7 +55,10 @@ export class OpenKimiPptAdapter {
     this.expectedPackageVersion = expectedPackageVersion;
     this.expectedSourceHash = expectedSourceHash;
     this.readinessProbeImpl = readinessProbeImpl;
-    this.run = runImpl;
+    this.commands = new PresentationCommandRunner({ profile:'open-kimi' });
+    this.run = runImpl === DEFAULT_PRESENTATION_RUN
+      ? this.commands.defaultRun.bind(this.commands)
+      : runImpl;
     this.prepareExecutionEnvironment = prepareExecutionEnvironmentImpl;
     this.now = now;
   }
@@ -87,7 +95,8 @@ export class OpenKimiPptAdapter {
     if (readiness.modes?.compose?.status !== 'ready') {
       throw pptError(readiness.recovery || 'OpenKimi PPTD 能力当前不可用。', 'presentation_compose_needs_capability');
     }
-    const manifestTarget = await newWorkspaceTarget(workspaceRoot, access?.relativePath, '.pptd');
+    const workspace = new PresentationWorkspace(workspaceRoot);
+    const manifestTarget = await workspace.newTarget(access?.relativePath, '.pptd');
     const project = normalizePresentation(input);
     const projectRoot = manifestTarget.parent;
     const manifestName = path.basename(manifestTarget.target);
@@ -128,7 +137,7 @@ export class OpenKimiPptAdapter {
       },
       { relativePath:manifestName, target:manifestTarget.target, contents:jsonDocument(manifest) },
     ];
-    await assertTargetsNew(projectRoot, targets);
+    await workspace.assertTargetsNew(projectRoot, targets);
     for (const item of targets) {
       await fs.mkdir(path.dirname(item.target), { recursive:true, mode:0o700 });
       const contents = item.bytes || Buffer.from(item.contents, 'utf8');
@@ -173,11 +182,12 @@ export class OpenKimiPptAdapter {
       error.readiness = readiness;
       throw error;
     }
-    const manifest = await existingWorkspaceFile(workspaceRoot, input?.manifestRelativePath, '.pptd');
-    const output = await newWorkspaceTarget(workspaceRoot, access?.relativePath, '.pptx');
+    const workspace = new PresentationWorkspace(workspaceRoot);
+    const manifest = await workspace.existingFile(input?.manifestRelativePath, '.pptd');
+    const output = await workspace.newTarget(access?.relativePath, '.pptx');
     const projectRoot = path.dirname(manifest.target);
     const qaDirectory = path.join(projectRoot, '.qa-images');
-    await assertPathMissing(qaDirectory);
+    await workspace.assertPathMissing(qaDirectory);
     const startedAt = this.now();
     const executionEnvironment = await this.prepareExecutionEnvironment({
       projectRoot,
@@ -191,16 +201,16 @@ export class OpenKimiPptAdapter {
       while (attempts < 2) {
         attempts += 1;
         try {
-          await this.run(
+          await Reflect.apply(this.run, this, [
             executionEnvironment.pythonBinary,
             [path.join(this.skillRoot, EXPORT_IMAGES), manifest.target, '--output', qaDirectory],
-            commandOptions(180_000, executionEnvironment.env),
-          );
-          exportOutput = await this.run(
+            this.commands.options(180_000, executionEnvironment.env),
+          ]);
+          exportOutput = await Reflect.apply(this.run, this, [
             executionEnvironment.pythonBinary,
             [path.join(this.skillRoot, EXPORT_PPTX), manifest.target, '--output', output.target],
-            commandOptions(240_000, executionEnvironment.env),
-          );
+            this.commands.options(240_000, executionEnvironment.env),
+          ]);
           break;
         } catch (error) {
           if (attempts >= 2 || !isRetryableExportError(error)) throw error;
@@ -213,24 +223,14 @@ export class OpenKimiPptAdapter {
     } finally {
       await executionEnvironment.cleanup();
     }
-    const exportSummary = parseExportSummary(exportOutput);
-    const expectedPageCount = await pptdPageCount(manifest.target);
-    if (
-      exportSummary.slides !== expectedPageCount
-      || exportSummary.fadeTransitions !== expectedPageCount
-      || exportSummary.transitionPatchedSlides !== expectedPageCount
-    ) {
-      throw pptError('PPTX 页数或每页唯一 fade 转场校验不一致。', 'presentation_export_validation_failed');
-    }
-    const pptx = await fs.readFile(output.target);
-    if (pptx.length < 16 || pptx.subarray(0, 2).toString() !== 'PK') {
-      throw pptError('PPTX 导出文件签名无效。', 'presentation_export_invalid');
-    }
-    const overview = path.join(qaDirectory, 'overview.jpg');
-    const overviewStat = await fs.stat(overview).catch(() => null);
-    if (!overviewStat?.isFile() || overviewStat.size < 1) {
-      throw pptError('PPTX 导出前的页面图片质检产物缺失。', 'presentation_visual_qa_missing');
-    }
+    const exportSummary = workspace.parseExportSummary(exportOutput, 'open-kimi');
+    const { pptx, overview } = await workspace.verifyPptxExport({
+      profile:'open-kimi',
+      manifestPath:manifest.target,
+      outputPath:output.target,
+      qaDirectory,
+      summary:exportSummary,
+    });
     return Object.freeze({
       filePath:output.target,
       relativePath:access.relativePath,
@@ -313,17 +313,17 @@ export class OpenKimiPptAdapter {
   async #dependencyReadiness() {
     const issues = [];
     const versions = {};
-    const node = await probeVersion(this.run, this.nodeBinary, ['--version']);
+    const node = await this.commands.probeVersion(this.run, this, this.nodeBinary, ['--version']);
     versions.node=node.version;
     if (!node.ok || majorVersion(node.version) < 24) issues.push('隔离 Node 24+ 未配置');
-    const python = await probeVersion(this.run, this.pythonBinary, ['--version']);
+    const python = await this.commands.probeVersion(this.run, this, this.pythonBinary, ['--version']);
     versions.python=python.version;
     if (!python.ok) issues.push('Python 3 不可用');
     if (python.ok) {
-      const modules = await probeVersion(this.run, this.pythonBinary, ['-c', 'import yaml, PIL, websocket; print("ok")']);
+      const modules = await this.commands.probeVersion(this.run, this, this.pythonBinary, ['-c', 'import yaml, PIL, websocket; print("ok")']);
       if (!modules.ok) issues.push('PyYAML、Pillow 或 websocket-client 未预装');
     }
-    const browser = await probeVersion(this.run, this.agentBrowserBinary, ['--version']);
+    const browser = await this.commands.probeVersion(this.run, this, this.agentBrowserBinary, ['--version']);
     versions.agentBrowser=browser.version;
     if (!browser.ok || compareVersions(parseVersion(browser.version), MIN_AGENT_BROWSER_VERSION) < 0) {
       issues.push(`agent-browser ${versionText(browser.version)} 低于 0.33.2 或未安装`);
@@ -639,39 +639,6 @@ function assertExternalProcessing(input) {
   }
 }
 
-async function newWorkspaceTarget(workspaceRoot, relativePath, extension) {
-  const relative = String(relativePath || '').trim().replaceAll('\\', '/');
-  if (path.posix.extname(relative).toLowerCase() !== extension) throw pptError(`目标必须使用 ${extension} 扩展名。`, 'presentation_path_invalid');
-  const target = await prepareWorkspaceFile(workspaceRoot, relative);
-  await assertPathMissing(target.target);
-  return target;
-}
-
-async function existingWorkspaceFile(workspaceRoot, relativePath, extension) {
-  const relative = String(relativePath || '').trim().replaceAll('\\', '/');
-  if (path.posix.extname(relative).toLowerCase() !== extension) throw pptError(`输入必须使用 ${extension} 扩展名。`, 'presentation_path_invalid');
-  const { root, target } = await prepareWorkspaceFile(workspaceRoot, relative);
-  const stat = await fs.lstat(target).catch(() => null);
-  if (!stat?.isFile() || stat.isSymbolicLink()) throw pptError('输入文件不存在或不是普通文件。', 'presentation_source_invalid');
-  const real = await fs.realpath(target);
-  if (!real.startsWith(`${root}${path.sep}`)) throw pptError('输入文件越出工作区。', 'workspace_path_denied');
-  return { root, target:real };
-}
-
-async function assertTargetsNew(projectRoot, targets) {
-  const root = await fs.realpath(projectRoot);
-  for (const item of targets) {
-    const target = path.resolve(item.target);
-    if (!target.startsWith(`${root}${path.sep}`) && target !== root) throw pptError('演示文稿产物越出项目目录。', 'workspace_path_denied');
-    await assertPathMissing(target);
-  }
-}
-
-async function assertPathMissing(target) {
-  const stat = await fs.lstat(target).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
-  if (stat) throw pptError('演示文稿目标已存在；请使用新的版本路径，禁止静默覆盖。', 'workspace_file_exists');
-}
-
 function cleanMediaName(value) {
   const name = String(value || '').trim();
   if (!name) return null;
@@ -714,22 +681,6 @@ function plainObject(value) {
   return value != null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function freezeReadiness(value = {}) {
-  return Object.freeze({
-    ...value,
-    modes:Object.freeze(Object.fromEntries(Object.entries(value.modes || {}).map(([key, item]) => [key, Object.freeze({ ...item })]))),
-  });
-}
-
-async function probeVersion(run, command, args) {
-  try {
-    const output = await run(command, args, { timeoutMs:10_000, maxBuffer:256 * 1024 });
-    return { ok:true, version:String(output || '').trim().split('\n')[0] };
-  } catch (error) {
-    return { ok:false, version:null, code:error?.code || 'command_failed' };
-  }
-}
-
 function parseVersion(value) {
   const match = String(value || '').match(/(\d+)\.(\d+)\.(\d+)/);
   return match ? match.slice(1).map(Number) : [0, 0, 0];
@@ -751,13 +702,10 @@ function versionText(value) {
   return String(value || '未安装').replace(/^v/, '');
 }
 
-function commandOptions(timeoutMs = 180_000, env = null) {
-  return { timeoutMs, maxBuffer:2 * 1024 * 1024, ...(env ? { env } : {}) };
-}
-
 async function prepareNoInstallEnvironment({ projectRoot, pythonBinary, nodeBinary, agentBrowserBinary }) {
   const runtimeRoot = path.join(projectRoot, `.qa-runtime-${crypto.randomUUID()}`);
-  await assertPathMissing(runtimeRoot);
+  const workspace = new PresentationWorkspace(projectRoot);
+  await workspace.assertPathMissing(runtimeRoot);
   await fs.mkdir(path.join(runtimeRoot, 'bin'), { recursive:true, mode:0o700 });
   try {
     const [pythonPath, nodePath, browserPath] = await Promise.all([
@@ -817,54 +765,10 @@ async function executableFromPath(command, searchPath) {
   return null;
 }
 
-function parseExportSummary(output) {
-  let summary;
-  try {
-    summary = JSON.parse(String(output || '').trim());
-  } catch {
-    throw pptError('PPTX 导出器没有返回可验证的结构摘要。', 'presentation_export_validation_failed');
-  }
-  for (const field of ['slides', 'fadeTransitions', 'transitionPatchedSlides', 'fontParts']) {
-    if (!Number.isInteger(summary?.[field]) || summary[field] < 0) {
-      throw pptError(`PPTX 导出器缺少有效的 ${field} 校验结果。`, 'presentation_export_validation_failed');
-    }
-  }
-  if (summary.slides < 1) {
-    throw pptError('PPTX 导出结果不包含页面。', 'presentation_export_validation_failed');
-  }
-  return summary;
-}
-
-async function pptdPageCount(manifestPath) {
-  let manifest;
-  try {
-    manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
-  } catch {
-    throw pptError('受控适配器只能导出自己生成的 JSON 兼容 PPTD 清单。', 'presentation_source_invalid');
-  }
-  if (!Array.isArray(manifest.pages) || manifest.pages.length < 1) {
-    throw pptError('PPTD 清单没有有效页面引用。', 'presentation_source_invalid');
-  }
-  return manifest.pages.length;
-}
-
-function runCommand(command, args, { timeoutMs = 30_000, maxBuffer = 1024 * 1024, env = {} } = {}) {
-  return new Promise((resolve, reject) => execFile(command, args, {
-    timeout:timeoutMs,
-    maxBuffer,
-    encoding:'utf8',
-    env:{ ...process.env, ...env },
-  }, (error, stdout) => error ? reject(error) : resolve(stdout)));
-}
-
 function isRetryableExportError(error) {
   const code = String(error?.code || '').toUpperCase();
   if (['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'EAI_AGAIN', 'ENETUNREACH'].includes(code)) return true;
   const message = String(error?.message || error || '').toLowerCase();
   return /\b(?:browser|network|socket|websocket|connection)\b/.test(message)
     && /\b(?:temporar|timeout|timed out|reset|refused|closed|unavailable|disconnected)\b/.test(message);
-}
-
-function pptError(message, code) {
-  return Object.assign(new Error(message), { code, category:'manual', retryable:false });
 }
