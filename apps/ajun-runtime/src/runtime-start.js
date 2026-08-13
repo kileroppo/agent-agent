@@ -20,6 +20,7 @@ export async function startRuntime({
 export function startRuntimeBackgroundServices(runtime) {
   const services = runtime.services || {};
   services.interruptedLocalExecutionReconciler?.start();
+  services.deliveryQualityReconciler?.start();
   services.paperclipRosterReconciler?.start();
   services.approvalExpiryReconciler?.start();
   if (runtime.deploymentMode !== 'cloud') services.xiaodReconciler?.start();

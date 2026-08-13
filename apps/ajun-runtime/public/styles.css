@@ -3529,6 +3529,50 @@ textarea:focus {
   color: var(--ink-soft);
 }
 
+.task-timeline-heading,
+.task-timeline-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.task-timeline-filter,
+.task-timeline-title time {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.task-timeline-list {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-timeline-item {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 9px;
+}
+
+.task-timeline-dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: var(--blue);
+}
+
+.task-timeline-item.success .task-timeline-dot { background: var(--mint-deep); }
+.task-timeline-item.warning .task-timeline-dot { background: var(--amber); }
+.task-timeline-item.danger .task-timeline-dot { background: var(--rose); }
+.task-timeline-title strong { color: var(--ink); font-size: 11px; }
+.task-timeline-item p { margin-top: 3px; }
+.task-timeline-technical { margin-top: 8px; }
+.task-timeline-more { margin-top: 12px; }
+
 /* Responsive */
 
 @media (max-width: 1080px) {

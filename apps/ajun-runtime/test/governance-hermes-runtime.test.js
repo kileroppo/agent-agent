@@ -58,6 +58,28 @@ test('Paperclip Hermes 适配器显式携带受控模型，避免 ChatGPT 授权
   });
   assert.equal(config.provider, 'openai-codex');
   assert.equal(config.model, 'gpt-5.6-terra');
+  assert.equal(config.env.AGENT_ARMY_PROFILE_ID, 'video-content-analyst');
+  assert.equal(config.env.AGENT_ARMY_TASK_CARD_POLICY, 'disabled');
+});
+
+test('Paperclip Hermes 适配器从 Manifest 传播任务卡策略且未配置默认关闭', () => {
+  const ajun = readJson(new URL('../../../agents/ajun/manifest.json', import.meta.url));
+  const contentCreator = readJson(new URL('../../../agents/content-creator/manifest.json', import.meta.url));
+  assert.equal(
+    paperclipHermesAdapterConfig(ajun).env.AGENT_ARMY_TASK_CARD_POLICY,
+    'routed-task',
+  );
+  assert.equal(
+    paperclipHermesAdapterConfig(contentCreator).env.AGENT_ARMY_TASK_CARD_POLICY,
+    'disabled',
+  );
+  assert.throws(
+    () => paperclipHermesAdapterConfig({
+      ...contentCreator,
+      interaction:{ ...contentCreator.interaction, taskCardPolicy:'all-tasks' },
+    }),
+    /任务卡策略不在受控白名单/,
+  );
 });
 
 test('Paperclip Hermes 员工统一选择 DeepSeek 固定模型且不配置 StepFun 回退', () => {

@@ -3,7 +3,7 @@ import { presentTask } from './task-presentation.js';
 import { sanitizeFailureText } from './technical-failure-classifier.js';
 
 export const TASK_CARD_SCHEMA_VERSION = 'agent.army/task-card/v1';
-const TASK_CARD_RENDER_REVISION = 'card-ux3';
+const TASK_CARD_RENDER_REVISION = 'card-ux4';
 
 const ACTION_LABELS = Object.freeze({
   approve:'批准',
@@ -13,12 +13,35 @@ const ACTION_LABELS = Object.freeze({
 });
 const ALLOWED_ACTIONS = new Set(Object.keys(ACTION_LABELS));
 const TERMINAL_STATES = new Set(['succeeded', 'failed', 'cancelled', 'rejected']);
+const TASK_TYPE_LABELS = Object.freeze({
+  'army.intake':'军团接件',
+  'army.route-task':'岗位派发',
+  'army.cross-agent-mission':'多人协作',
+  'media.transcribe-and-refine':'媒体整理',
+  'report.public-material':'公开资料整理',
+  'research.github-search':'GitHub 公开检索',
+  'research.intel-report':'公开情报调研',
+  'office.briefing-package':'办公汇报整理',
+  'office.presentation-package':'演示文稿制作',
+  'operations.health-review':'运行健康检查',
+  'operations.incident-response':'故障处理',
+  'operations.failure-recovery':'故障恢复',
+  'governance.architecture-review':'军团架构评估',
+});
 
 /**
  * Build the public, deterministic task-card projection. This function is pure:
  * callers provide approval and recovery views instead of granting it store access.
  */
-export function presentTaskCard(task = {}, { approvals = [], recoveryView = null, owner = null } = {}) {
+export function presentTaskCard(task = {}, {
+  approvals = [],
+  recoveryView = null,
+  owner = null,
+  agentId = null,
+  profileId = null,
+  chatId = null,
+  taskCardPolicy = null,
+} = {}) {
   const relevantApprovals = taskApprovals(task, approvals);
   const pendingApproval = relevantApprovals.find((approval) => approval?.status === 'pending') || null;
   const presentation = presentTask(task, { approvals:relevantApprovals, recoveryView });
@@ -28,6 +51,11 @@ export function presentTaskCard(task = {}, { approvals = [], recoveryView = null
   const projection = {
     schemaVersion:TASK_CARD_SCHEMA_VERSION,
     taskId:safeIdentifier(task.taskId) || null,
+    agentId:cardAgentId(task, agentId),
+    profileId:cardProfileId(task, profileId),
+    chatId:cardChatId(task, chatId),
+    taskCardPolicy:cardPolicy(taskCardPolicy || task?.source?.taskCardPolicy),
+    taskKind:safeIdentifier(task?.input?.taskType || task?.taskType) || null,
     taskRef:presentation.taskRef,
     title:publicText(task.input?.title || task.title, 160) || '未命名任务',
     state,
@@ -35,6 +63,7 @@ export function presentTaskCard(task = {}, { approvals = [], recoveryView = null
     summary:taskCardCopy.summary,
     owner:ownerLabel(owner, task),
     nextAction:taskCardCopy.nextAction,
+    details:taskDetails(task),
     primaryLink:deliveryLink(task),
     actions:cardActions({ task, pendingApproval, recoveryView, state }),
     sourceRevision:sourceRevision(task, relevantApprovals, recoveryView, updatedAt),
@@ -45,6 +74,31 @@ export function presentTaskCard(task = {}, { approvals = [], recoveryView = null
     ...projection,
     contentHash:hashProjection(projection),
   };
+}
+
+function taskDetails(task) {
+  const taskType = safeIdentifier(task?.input?.taskType || task?.taskType);
+  return {
+    taskType:TASK_TYPE_LABELS[taskType] || '军团任务',
+    createdAt:validTimestamp(task?.createdAt) || null,
+  };
+}
+
+function cardAgentId(task, value) {
+  return safeIdentifier(value || task?.source?.targetAgentId) || null;
+}
+
+function cardProfileId(task, value) {
+  return safeIdentifier(value || task?.source?.profileId) || null;
+}
+
+function cardChatId(task, value) {
+  return safeIdentifier(value || task?.source?.chatRef) || null;
+}
+
+function cardPolicy(value) {
+  const policy = safeIdentifier(value);
+  return ['disabled', 'routed-task', 'durable-task', 'incident-only'].includes(policy) ? policy : null;
 }
 
 function deliveryLink(task) {

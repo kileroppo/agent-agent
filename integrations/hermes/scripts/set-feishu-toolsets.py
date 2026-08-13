@@ -289,11 +289,13 @@ def _safe_mcp_state(config: dict) -> dict | None:
 
     scope_keys = {
         "AGENT_ARMY_AGENT_ID",
+        "AGENT_ARMY_PROFILE_ID",
         "AGENT_ARMY_ALLOWED_AGENT_IDS",
         "AGENT_ARMY_ALLOWED_TASK_TYPES",
         "AGENT_ARMY_ALLOWED_MCP_TOOLS",
         "AGENT_ARMY_ALLOWED_LOCAL_AI_CAPABILITIES",
         "AGENT_ARMY_ALLOW_MISSIONS",
+        "AGENT_ARMY_TASK_CARD_POLICY",
     }
     context_keys = {
         "PAPERCLIP_TASK_ID",
@@ -307,11 +309,14 @@ def _safe_mcp_state(config: dict) -> dict | None:
         if not isinstance(raw_value, (str, int, float, bool)):
             continue
         value = str(raw_value)
-        if key == "AGENT_ARMY_AGENT_ID":
+        if key in {"AGENT_ARMY_AGENT_ID", "AGENT_ARMY_PROFILE_ID"}:
             if re.fullmatch(r"[a-z][a-z0-9-]{0,63}", value):
                 safe_env[key] = value
         elif key == "AGENT_ARMY_ALLOW_MISSIONS":
             if value in {"true", "false"}:
+                safe_env[key] = value
+        elif key == "AGENT_ARMY_TASK_CARD_POLICY":
+            if value in {"disabled", "routed-task", "durable-task", "incident-only"}:
                 safe_env[key] = value
         else:
             names = [item.strip() for item in value.split(",") if item.strip()]

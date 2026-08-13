@@ -1,7 +1,7 @@
 import path from 'node:path';
 import os from 'node:os';
 import net from 'node:net';
-import { existsSync } from 'node:fs';
+import { existsSync, promises as fs } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -23,6 +23,7 @@ export const config = {
   port: Number(process.env.PORT || 4318),
   host: requireLoopbackHost(process.env.HOST || '127.0.0.1'),
   workDir: path.resolve(process.env.WORK_DIR || './data'),
+  taskRunEventDb:resolveTaskRunEventDb(process.env),
   inboundMedia: {
     maxBytes: Number(process.env.INBOUND_MEDIA_MAX_BYTES || 1024 * 1024 * 1024),
     allowedRoots: (process.env.INBOUND_MEDIA_ALLOWED_ROOTS || (process.env.HERMES_HOME ? path.join(process.env.HERMES_HOME, 'cache') : ''))
@@ -65,6 +66,42 @@ export const config = {
   }
 };
 
+export function resolveTaskRunEventDb(environment = process.env) {
+  const explicit = String(environment.AGENT_ARMY_TASK_RUN_EVENT_DB || '').trim();
+  if (explicit) return path.resolve(explicit);
+  const sharedDataDir = String(environment.AGENT_ARMY_DATA_DIR || '').trim();
+  if (sharedDataDir) return path.resolve(sharedDataDir, 'task-run-events.sqlite');
+  return path.join(appRoot, '../ajun-runtime/data/task-run-events.sqlite');
+}
+
+export async function prepareTaskRunEventDatabasePath(value, { fileSystem = fs } = {}) {
+  const databasePath = path.resolve(String(value || '').trim());
+  const parent = path.dirname(databasePath);
+  if (!String(value || '').trim() || parent === path.parse(parent).root) {
+    throw codedPathError('task_run_event_path_unsafe', '小D运行事件库必须位于独立数据目录。');
+  }
+  await fileSystem.mkdir(parent, { recursive:true, mode:0o700 });
+  const parentStatus = await fileSystem.lstat(parent);
+  if (parentStatus.isSymbolicLink() || !parentStatus.isDirectory()) {
+    throw codedPathError('task_run_event_parent_unsafe', '小D运行事件库父路径必须是非符号链接目录。');
+  }
+  await fileSystem.chmod(parent, 0o700);
+  const securedParent = await fileSystem.stat(parent);
+  if ((securedParent.mode & 0o077) !== 0) {
+    throw codedPathError('task_run_event_parent_permissions', '小D运行事件库父目录权限必须为0700。');
+  }
+  try {
+    const databaseStatus = await fileSystem.lstat(databasePath);
+    if (databaseStatus.isSymbolicLink() || !databaseStatus.isFile()) {
+      throw codedPathError('task_run_event_file_unsafe', '小D运行事件库必须是非符号链接普通文件。');
+    }
+    await fileSystem.chmod(databasePath, 0o600);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+  return databasePath;
+}
+
 export function requireLoopbackHost(value) {
   const host = String(value || '').trim().toLowerCase();
   if (host === 'localhost' || host === '::1') return host;
@@ -84,3 +121,7 @@ export const configuredCapabilities = () => ({
   mediaCrawlerDeep: Boolean(config.mediaCrawler.cookieBridgeUrl && config.mediaCrawler.downloadServerUrl),
   testFailpointArmed: Boolean(config.testFailOnceAt)
 });
+
+function codedPathError(code, message) {
+  return Object.assign(new Error(message), { code });
+}

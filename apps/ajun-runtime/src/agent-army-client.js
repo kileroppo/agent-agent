@@ -1,7 +1,11 @@
 import crypto from 'node:crypto';
 import { resolveAnalysisIntent } from './analysis-intent.ts';
+import {
+  agentArmyApprovalView as approvalView,
+  agentArmyTaskView as taskView,
+} from './agent-army-client-task-view.js';
 import { armyStatusReadView, capabilitiesReadView, capabilityTruthView } from './agent-army-read-views.ts';
-import { presentTask, taskDetailBaseUrl } from './task-presentation.js';
+import { taskDetailBaseUrl } from './task-presentation.js';
 import { dynamicCardAnchorAcknowledged, normalizeCompletionDelivery } from './source-completion-watch.js';
 
 const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled', 'waiting_test', 'needs_input', 'paused']);
@@ -70,7 +74,7 @@ export class AgentArmyClient {
       .map((task) => taskView(task, overview.approvals || [], this.detailBaseUrl));
   }
 
-  async getTask(taskId, { chatRef = '' } = {}) {
+  async getTask(taskId, { chatRef = '', agentId = '', profileId = '' } = {}) {
     const id = requiredId(taskId, '任务编号无效。');
     const overview = await this.overview();
     const task = (overview.tasks || []).find((item) => item.taskId === id);
@@ -79,15 +83,27 @@ export class AgentArmyClient {
     try {
       notification = await this.request('/api/feishu/task-status', {
         method: 'POST',
-        body: { taskId:id, chatRef:safeText(chatRef, 240) }
+        body: {
+          taskId:id,
+          chatId:safeText(chatRef, 240),
+          agentId:safeText(agentId, 80),
+          profileId:safeText(profileId, 80),
+        }
       });
     } catch (error) {
-      if (chatRef || !String(error?.message || '').includes('当前会话不能读取')) throw error;
+      const message = String(error?.message || '');
+      const unavailableWithoutFeishuContext = [
+        '当前会话不能读取',
+        '只能读取或操作由飞书创建的任务卡',
+        '任务卡缺少原飞书会话',
+      ].some((fragment) => message.includes(fragment));
+      if (chatRef || !unavailableWithoutFeishuContext) throw error;
     }
     return {
       ...taskView(task, overview.approvals || [], this.detailBaseUrl),
       terminal: notification?.terminal ?? TERMINAL_STATUSES.has(task.status),
-      userMessage: safeText(notification?.message || task.error?.userMessage || '', 2000)
+      userMessage: safeText(notification?.message || task.error?.userMessage || '', 2000),
+      ...(notification?.taskCard ? { taskCard:notification.taskCard } : {}),
     };
   }
 
@@ -99,6 +115,9 @@ export class AgentArmyClient {
     const description = safeText(input.description, 2000);
     const chatRef = safeText(input.chatRef, 240);
     const requestRef = safeText(input.requestRef, 240);
+    const sourceAgentId = safeText(input.sourceAgentId, 80);
+    const sourceProfileId = safeText(input.sourceProfileId, 80);
+    const taskCardPolicy = safeText(input.taskCardPolicy, 40);
     const sourceUrls = safeStringList(input.sourceUrls, 5, 2000);
     const sourceTaskIds = safeStringList(input.sourceTaskIds, 20, 100);
     const connectionId = optionalConnectionId(input.connectionId);
@@ -173,7 +192,14 @@ export class AgentArmyClient {
       ? `hermes:${requestRef}`
       : `hermes:${chatRef || 'local'}:${shortHash([title, taskType, input.agentId || '', Math.floor(this.now() / 30_000)].join('|'))}`;
     const source = chatRef
-      ? { channel:'feishu', chatRef, messageRef:requestRef || undefined }
+      ? {
+          channel:'feishu',
+          chatRef,
+          messageRef:requestRef || undefined,
+          ...(sourceAgentId ? { targetAgentId:sourceAgentId } : {}),
+          ...(sourceProfileId ? { profileId:sourceProfileId } : {}),
+          ...(taskCardPolicy ? { taskCardPolicy } : {}),
+        }
       : { channel:'hermes-native' };
     const response = await this.request('/api/tasks', {
       method:'POST',
@@ -216,7 +242,11 @@ export class AgentArmyClient {
       completionDelivery,
     );
     return {
-      ...(await this.getTask(response.task?.taskId, { chatRef })),
+      ...(await this.getTask(response.task?.taskId, {
+        chatRef,
+        agentId:sourceAgentId,
+        profileId:sourceProfileId,
+      })),
       completionWatch,
       ...(completionDelivery ? { completionDelivery } : {}),
     };
@@ -229,12 +259,22 @@ export class AgentArmyClient {
     if (!items.length) throw new AgentArmyClientError('多人任务必须包含 1 到 11 项有效员工分工，并且依赖项必须引用同一任务中的 key。');
     const chatRef = safeText(input.chatRef, 240);
     const requestRef = safeText(input.requestRef, 240);
+    const sourceAgentId = safeText(input.sourceAgentId, 80);
+    const sourceProfileId = safeText(input.sourceProfileId, 80);
+    const taskCardPolicy = safeText(input.taskCardPolicy, 40);
     const completionDelivery = completionDeliveryInput(input.completionDelivery);
     const idempotencyKey = requestRef
       ? `hermes-mission:${requestRef}`
       : `hermes-mission:${chatRef || 'local'}:${shortHash([title, JSON.stringify(items), Math.floor(this.now() / 30_000)].join('|'))}`;
     const source = chatRef
-      ? { channel:'feishu', chatRef, messageRef:requestRef || undefined }
+      ? {
+          channel:'feishu',
+          chatRef,
+          messageRef:requestRef || undefined,
+          ...(sourceAgentId ? { targetAgentId:sourceAgentId } : {}),
+          ...(sourceProfileId ? { profileId:sourceProfileId } : {}),
+          ...(taskCardPolicy ? { taskCardPolicy } : {}),
+        }
       : { channel:'hermes-native' };
     const response = await this.request('/api/mcp/missions', {
       method:'POST',
@@ -410,6 +450,34 @@ export class AgentArmyClient {
     };
   }
 
+  async recordPaperclipLocalAiRunEvent(input = {}) {
+    const event = input.event && typeof input.event === 'object' && !Array.isArray(input.event)
+      ? input.event
+      : {};
+    return this.request('/api/mcp/local-ai-run-event', {
+      method:'POST',
+      body:{
+        ...paperclipAssignmentIdentity(input),
+        taskId:safeText(input.taskId, 128),
+        event:Object.fromEntries(Object.entries({
+          eventType:safeText(event.eventType, 120),
+          capabilityId:safeText(event.capabilityId, 160),
+          provider:safeText(event.provider, 120),
+          status:safeText(event.status, 80),
+          startedAt:safeText(event.startedAt, 80),
+          finishedAt:safeText(event.finishedAt, 80),
+          durationMs:Number.isSafeInteger(event.durationMs) && event.durationMs >= 0
+            ? event.durationMs
+            : undefined,
+          receiptId:safeText(event.receiptId, 160),
+          spanId:safeText(event.spanId, 120),
+          errorCode:safeText(event.errorCode, 120),
+        }).filter(([, value]) => value !== undefined && value !== '')),
+      },
+      paperclipApiKey:process.env.PAPERCLIP_API_KEY,
+    });
+  }
+
   async completePaperclipAssignment(input = {}) {
     return this.request('/api/mcp/paperclip-assignment/complete', {
       method:'POST',
@@ -419,6 +487,7 @@ export class AgentArmyClient {
         summary:safeText(input.summary, 4000),
         evidence:safeText(input.evidence, 4000),
         remainingRisks:safeText(input.remainingRisks, 2000),
+        qualityReview:qualityReviewView(input.qualityReview),
         evidenceRefs:architectureEvidenceRefsView(input.evidenceRefs),
         unverifiedClaims:safeStringList(input.unverifiedClaims, 20, 1000),
         factClaims:architectureFactClaimsView(input.factClaims),
@@ -663,6 +732,18 @@ function architectureEvidenceRefsView(value) {
   })).filter((item) => item.ref && item.claim);
 }
 
+function qualityReviewView(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const status = safeText(value.status, 40);
+  if (!['passed', 'revise', 'blocked'].includes(status)) return undefined;
+  return {
+    status,
+    failedCriteria:safeStringList(value.failedCriteria, 100, 100),
+    evidenceRefs:safeStringList(value.evidenceRefs, 100, 240),
+    safeSummary:safeText(value.safeSummary, 1000) || null,
+  };
+}
+
 function architectureFactClaimsView(value) {
   return (Array.isArray(value) ? value : []).slice(0, 20).map((item) => ({
     claim:safeText(item?.claim, 1000),
@@ -696,30 +777,6 @@ function findEmployee(agents, value) {
     || null;
 }
 
-function taskView(task = {}, approvals = [], detailBaseUrl = '') {
-  const taskApprovals = (approvals || []).filter((approval) => (task.approvalRefs || []).includes(approval.approvalId));
-  return {
-    taskId:task.taskId,
-    title:safeText(task.input?.title, 500),
-    taskType:safeText(task.taskType, 120),
-    agentId:safeText(task.assigneeAgentId || task.routing?.requestedAgentId, 80) || null,
-    status:safeText(task.status, 60),
-    currentStage:safeText(task.currentStage, 120),
-    updatedAt:task.updatedAt || null,
-    progress:task.execution?.xiaodProgress ?? null,
-    requiresApproval:taskApprovals.some((approval) => approval.status === 'pending'),
-    approvals:taskApprovals.map(approvalView),
-    error:task.error ? {
-      code:safeText(task.error.code, 120),
-      category:safeText(task.error.category, 80),
-      retryable:task.error.retryable === true,
-      userMessage:safeText(task.error.userMessage, 1000)
-    } : null,
-    artifacts:(task.artifactRefs || []).map(artifactView),
-    presentation:presentTask(task, { approvals:taskApprovals, detailBaseUrl })
-  };
-}
-
 function findMissionTask(overview, response) {
   return (overview.tasks || []).find((task) => task.taskId === response.mission?.taskId) || response.mission;
 }
@@ -747,136 +804,6 @@ function completionDeliveryInput(value) {
     throw new AgentArmyClientError('完成投递契约无效；动态卡片只能由 Hermes Gateway 统一持有生命周期。');
   }
   return normalized;
-}
-
-function artifactView(artifact = {}) {
-  const validation = artifact.validation || {};
-  const view = {
-    type:safeText(artifact.type, 120),
-    ref:safeText(artifact.ref || artifact.url || artifact.location || artifact.data?.larkUrl, 1000) || null,
-    verified:artifact.data?.larkPermissionGranted === true
-      || artifact.verified === true
-      || (validation.exists === true && validation.readable === true && validation.nonEmpty === true)
-  };
-  if (artifact.type === 'health_report' && artifact.data) {
-    view.report = {
-      checkedAt:artifact.data.checkedAt || null,
-      overall:safeText(artifact.data.overall, 40),
-      components:(Array.isArray(artifact.data.components) ? artifact.data.components : []).slice(0, 12).map((item) => ({
-        id:safeText(item?.id, 80),
-        name:safeText(item?.name, 120),
-        status:safeText(item?.status, 40),
-        detail:safeText(item?.detail, 500)
-      })),
-      recommendedAction:safeText(artifact.data.recommendedAction, 500)
-    };
-  }
-  if (artifact.type === 'intel_research_report' && artifact.data) {
-    view.report = {
-      topic:safeText(artifact.data.topic, 500),
-      background:safeText(artifact.data.background, 1200),
-      findings:safeStringList(artifact.data.findings, 8, 800),
-      conclusion:safeText(artifact.data.conclusion, 1200),
-      recommendations:safeStringList(artifact.data.recommendations, 8, 800),
-      openQuestions:safeStringList(artifact.data.openQuestions, 8, 800),
-      sources:(Array.isArray(artifact.data.sources) ? artifact.data.sources : []).slice(0, 5).map((item) => ({
-        title:safeText(item?.title, 300),
-        source:safeText(item?.source, 1000),
-        summary:safeText(item?.summary, 900)
-      }))
-    };
-  }
-  if (artifact.type === 'office_briefing_package' && artifact.data) {
-    view.report = {
-      title:safeText(artifact.data.title, 500),
-      summary:safeText(artifact.data.summary, 1200),
-      sourceTasks:(Array.isArray(artifact.data.sourceTasks) ? artifact.data.sourceTasks : []).slice(0, 10).map((item) => ({
-        taskId:safeText(item?.taskId, 100),
-        title:safeText(item?.title, 500),
-        employeeId:safeText(item?.employeeId, 80) || null,
-        status:safeText(item?.status, 60)
-      })),
-      openItems:safeStringList(artifact.data.openItems, 8, 600),
-      nextAction:safeText(artifact.data.nextAction, 800)
-    };
-  }
-  if (artifact.type === 'autonomous_work_plan' && artifact.data?.plan) {
-    const plan = artifact.data.plan;
-    view.report = {
-      status:safeText(plan.status, 60),
-      version:Number.isSafeInteger(plan.version) ? plan.version : null,
-      steps:(Array.isArray(plan.steps) ? plan.steps : []).slice(0, 20).map((step) => ({
-        stepId:safeText(step?.stepId, 128),
-        objective:safeText(step?.objective, 500),
-        status:safeText(step?.status, 60),
-        dependsOn:safeStringList(step?.dependsOn, 20, 128)
-      })),
-      budget:{
-        maxDurationMs:Number(plan.budget?.hardLimits?.maxDurationMs) || null,
-        maxModelCalls:Number(plan.budget?.hardLimits?.maxModelCalls) || null,
-        maxConcurrency:Number(plan.budget?.hardLimits?.maxConcurrency) || null,
-        maxDelegationDepth:Number(plan.budget?.hardLimits?.maxDelegationDepth) || null,
-        approvalThresholdUsd:Number(plan.budget?.approvalThresholdUsd) || 0
-      }
-    };
-  }
-  if (artifact.type === 'capability_discovery_report' && artifact.data) {
-    view.report = {
-      requestedCount:Number(artifact.data.requestedCount) || 0,
-      activeCount:Number(artifact.data.activeCount) || 0,
-      results:(Array.isArray(artifact.data.results) ? artifact.data.results : []).slice(0, 20).map((item) => ({
-        capabilityId:safeText(item?.capabilityId, 120),
-        status:safeText(item?.status, 60),
-        reason:safeText(item?.reason, 500)
-      }))
-    };
-  }
-  if (artifact.type === 'cross_agent_mission_summary' && artifact.data) {
-    view.report = {
-      kind:safeText(artifact.data.kind, 60),
-      summary:safeText(artifact.data.summary, 1000),
-      completed:artifact.data.completed === true,
-      terminal:artifact.data.terminal === true,
-      statuses:(Array.isArray(artifact.data.statuses) ? artifact.data.statuses : []).slice(0, 11).map((item) => ({
-        title:safeText(item?.title, 500),
-        employeeId:safeText(item?.employeeId, 80) || null,
-        taskId:safeText(item?.taskId, 100) || null,
-        status:safeText(item?.status, 60),
-        artifactTypes:safeStringList(item?.artifactTypes, 10, 120)
-      })),
-      outcome:safeText(artifact.data.decision?.outcome, 60),
-      briefing:artifact.data.decision?.briefing ? {
-        title:safeText(artifact.data.decision.briefing.title, 500),
-        summary:safeText(artifact.data.decision.briefing.summary, 1000),
-        openItems:safeStringList(artifact.data.decision.briefing.openItems, 5, 500),
-        nextAction:safeText(artifact.data.decision.briefing.nextAction, 500)
-      } : null
-    };
-  }
-  return view;
-}
-
-function approvalView(approval = {}) {
-  return {
-    approvalId:approval.approvalId,
-    taskId:approval.taskId || null,
-    status:safeText(approval.status, 40),
-    governanceMode:safeText(approval.governanceMode, 40),
-    action:safeText(approval.action, 100),
-    riskLevel:safeText(approval.riskLevel, 40),
-    reason:safeText(approval.reason, 700),
-    requestedScope:approval.requestedScope ? {
-      title:safeText(approval.requestedScope.title, 500),
-      taskType:safeText(approval.requestedScope.taskType, 120),
-      assigneeAgentId:safeText(approval.requestedScope.assigneeAgentId, 80) || null
-    } : null,
-    validUntil:approval.validUntil || null,
-    privateReadGrantStatus:approval.privateReadGrantStatus ? {
-      status:safeText(approval.privateReadGrantStatus.status, 40),
-      remainingUses:Number(approval.privateReadGrantStatus.remainingUses) || 0,
-      expiresAt:approval.privateReadGrantStatus.expiresAt || null
-    } : null
-  };
 }
 
 function safeText(value, limit = 500) {

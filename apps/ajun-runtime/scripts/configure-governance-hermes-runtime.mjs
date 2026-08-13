@@ -10,6 +10,7 @@ import {
   AGENT_ARMY_REPOSITORY_ROOT,
   GOVERNANCE_HERMES_AGENT_IDS,
   hermesProfileHome,
+  taskCardPolicyForManifest,
   usesPaperclipHermesExecution
 } from '../src/governance-hermes-runtime.js';
 
@@ -424,13 +425,16 @@ function mcpEnvironmentEntries(manifest) {
   const localAiCapabilities = Array.isArray(manifest.runtimeCapabilities?.localAiCapabilities)
     ? manifest.runtimeCapabilities.localAiCapabilities
     : [];
+  const taskCardPolicy = taskCardPolicyForManifest(manifest);
   return [
     `AGENT_ARMY_AGENT_ID=${agentId}`,
+    `AGENT_ARMY_PROFILE_ID=${agentId}`,
     `AGENT_ARMY_ALLOWED_AGENT_IDS=${agentId}`,
     `AGENT_ARMY_ALLOWED_TASK_TYPES=${manifest.acceptedTaskTypes.join(',')}`,
     `AGENT_ARMY_ALLOWED_MCP_TOOLS=${mcpTools.join(',')}`,
     `AGENT_ARMY_ALLOWED_LOCAL_AI_CAPABILITIES=${localAiCapabilities.join(',')}`,
     `AGENT_ARMY_ALLOW_MISSIONS=${mcpTools.includes('mission_create') ? 'true' : 'false'}`,
+    `AGENT_ARMY_TASK_CARD_POLICY=${taskCardPolicy}`,
     'PAPERCLIP_TASK_ID=${PAPERCLIP_TASK_ID}',
     'PAPERCLIP_RUN_ID=${PAPERCLIP_RUN_ID}',
     'PAPERCLIP_AGENT_ID=${PAPERCLIP_AGENT_ID}',
@@ -670,11 +674,17 @@ function normalizeMcpState(value) {
     timeout:Number(value?.timeout || 0),
     scope:{
       agentId:String(env.AGENT_ARMY_AGENT_ID || ''),
+      profileId:String(env.AGENT_ARMY_PROFILE_ID || ''),
+      profileIdPresent:typeof env.AGENT_ARMY_PROFILE_ID === 'string'
+        && env.AGENT_ARMY_PROFILE_ID.length > 0,
       allowedAgentIds:splitCsv(env.AGENT_ARMY_ALLOWED_AGENT_IDS),
       taskTypes:splitCsv(env.AGENT_ARMY_ALLOWED_TASK_TYPES),
       mcpTools:splitCsv(env.AGENT_ARMY_ALLOWED_MCP_TOOLS),
       localAiCapabilities:splitCsv(env.AGENT_ARMY_ALLOWED_LOCAL_AI_CAPABILITIES),
       allowMissions:String(env.AGENT_ARMY_ALLOW_MISSIONS || 'false') === 'true',
+      taskCardPolicy:String(env.AGENT_ARMY_TASK_CARD_POLICY || 'disabled'),
+      taskCardPolicyPresent:typeof env.AGENT_ARMY_TASK_CARD_POLICY === 'string'
+        && env.AGENT_ARMY_TASK_CARD_POLICY.length > 0,
     },
     paperclipContextPlaceholdersPresent:[
       'PAPERCLIP_TASK_ID',
@@ -688,6 +698,11 @@ function normalizeMcpState(value) {
 function mcpStateDiff(current, target) {
   const scope = {
     agentId:{ current:current.scope.agentId, target:target.scope.agentId },
+    profileId:{
+      current:current.scope.profileId,
+      target:target.scope.profileId,
+      present:current.scope.profileIdPresent,
+    },
     allowedAgentIds:listDiff(current.scope.allowedAgentIds, target.scope.allowedAgentIds),
     taskTypes:listDiff(current.scope.taskTypes, target.scope.taskTypes),
     mcpTools:listDiff(current.scope.mcpTools, target.scope.mcpTools),
@@ -696,17 +711,26 @@ function mcpStateDiff(current, target) {
       current:current.scope.allowMissions,
       target:target.scope.allowMissions,
     },
+    taskCardPolicy:{
+      current:current.scope.taskCardPolicy,
+      target:target.scope.taskCardPolicy,
+      present:current.scope.taskCardPolicyPresent,
+    },
   };
   const changed = current.enabled !== target.enabled
     || current.commandSha256 !== target.commandSha256
     || current.argsSha256 !== target.argsSha256
     || current.timeout !== target.timeout
     || current.scope.agentId !== target.scope.agentId
+    || current.scope.profileId !== target.scope.profileId
+    || !current.scope.profileIdPresent
     || scope.allowedAgentIds.changed
     || scope.taskTypes.changed
     || scope.mcpTools.changed
     || scope.localAiCapabilities.changed
     || current.scope.allowMissions !== target.scope.allowMissions
+    || current.scope.taskCardPolicy !== target.scope.taskCardPolicy
+    || !current.scope.taskCardPolicyPresent
     || !current.paperclipContextPlaceholdersPresent;
   return {
     changed,

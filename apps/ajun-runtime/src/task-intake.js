@@ -5,15 +5,12 @@ import {
   routeOpenTaskForExecutor,
   supportsOpenTask,
 } from './open-task-routing.js';
-import {
-  WECHAT_CHAT_TASK_TYPE,
-  normalizeWechatChatRequest,
-  wechatApprovalScope,
-} from './wechat-chat-defaults.js';
+import { WECHAT_CHAT_TASK_TYPE, normalizeWechatChatRequest, wechatApprovalScope } from './wechat-chat-defaults.js';
 import { ValidationError } from './task-service-execution-support.js';
 import { resolveAnalysisIntent } from './analysis-intent.ts';
 import { TaskCreationCoordinator, taskIdempotencyFingerprint } from './task-idempotency.js';
 import { createWorkflowLink } from './workflow/contracts.ts';
+import { attachDeliveryQualityContracts, deliveryBriefGuardPatch } from './workflow/delivery-quality-intake.ts';
 const HIGH_RISK_ACTIONS = ['外发', '发布', '删除', '付款', '付费', '扩权', '敏感'];
 const ORGANIZATION_GOVERNANCE_WORDS = /创建.*(?:agent|智能体|岗位)|新建.*(?:agent|智能体|岗位)|扩权|账号|连接|公开发布|对外发布|付款|付费|预算|暂停|终止|跨\s*agent/i;
 export class TaskIntake {
@@ -27,7 +24,6 @@ export class TaskIntake {
   async create(input = {}) {
     return this.creation.run(input);
   }
-
   async createOnce(input = {}) {
     const requested = normalizeAssignment(input);
     const { title, taskType } = requested;
@@ -49,6 +45,8 @@ export class TaskIntake {
 
     const route = await this.resolveRoute(requested);
     let task = await this.store.createTask(taskRecord(input, requested, route, idempotencyKey));
+    const briefGuard = deliveryBriefGuardPatch(task);
+    if (briefGuard) return this.store.updateTask(task.taskId, briefGuard);
     task = await this.applyOpenTaskGuard(task, route.agent);
     if (task.status === 'needs_input' && task.currentStage === 'manifest_capability_required') return task;
     task = await this.createRequiredApproval(task, route.agent);
@@ -191,7 +189,7 @@ function taskRecord(input, requested, route, idempotencyKey) {
     : null;
   if (analysis?.error) throw new ValidationError(analysis.error === 'analysis_intent_conflict' ? '检测到多个分析模式，请只选择一种。' : '分析模式无效。');
   const stableIdempotencyKey = idempotencyKey || `local:${Buffer.from(title).toString('base64url').slice(0, 24)}:${Date.now()}`;
-  return {
+  return attachDeliveryQualityContracts({
     taskType,
     idempotencyKey:stableIdempotencyKey,
     ...(idempotencyKey ? { idempotencyFingerprint:taskIdempotencyFingerprint(input) } : {}),
@@ -251,7 +249,7 @@ function taskRecord(input, requested, route, idempotencyKey) {
         occurredAt:new Date().toISOString(),
       },
     } : {}),
-  };
+  });
 }
 
 function optionalInput(value) {

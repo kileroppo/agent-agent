@@ -45,6 +45,8 @@ import { taskDetailBaseUrl } from '../task-presentation.js';
 import { CapabilityExecutionEngine } from '../workflow/capability-execution.ts';
 import { createControlledVisionExecution } from '../workflow/controlled-vision.ts';
 import { createLocalAiCapabilityAdapter } from '../adapters/local-ai-capability-adapter.ts';
+import { createCapabilityEventRecorder } from '../workflow/capability-event-recorder.ts';
+import { RoutedPublicWebReader } from '../adapters/routed-public-web-reader.ts';
 
 export async function createRoleExecutionComposition({
   environment,
@@ -56,6 +58,7 @@ export async function createRoleExecutionComposition({
   contentCampaign,
   xiaod,
   localAi,
+  taskRunEvents,
   port,
 }) {
   const {
@@ -89,13 +92,18 @@ export async function createRoleExecutionComposition({
     },
   };
   const publicWebTransport = new PublicWebTransport();
-  const publicWebFetch = new PublicWebFetch({
+  const publicWebStaticFetch = new PublicWebFetch({
     fetchImpl:(...args) => publicWebTransport.fetch(...args),
   });
   const publicWebSearch = new PublicWebSearch({
     fetchImpl:(...args) => publicWebTransport.fetch(...args),
   });
   const publicDynamicWebReader = new PublicDynamicWebReader();
+  const publicWebFetch = new RoutedPublicWebReader({
+    primary:publicWebStaticFetch,
+    fallback:publicDynamicWebReader,
+    eventStore:taskRunEvents,
+  });
   const publicPdfReader = new PublicPdfReader({ transport:publicWebTransport });
   const githubSearch = new GithubSearch({
     fetchImpl:(...args) => publicWebTransport.fetch(...args),
@@ -142,11 +150,15 @@ export async function createRoleExecutionComposition({
     governance,
     store,
     knowledgeArchive,
+    onRunEvent:(event) => taskRunEvents?.appendTaskRunEvent(event),
   });
   const contentArtifactRoots = [dataDir, xiaodArtifactRoot, contentWorkspaceDir];
   const videoContentAgent = await registry.get('video-content-analyst');
+  const localAiAdapter = createLocalAiCapabilityAdapter(localAi);
   const localAiExecution = new CapabilityExecutionEngine({
-    adapter:createLocalAiCapabilityAdapter(localAi),
+    routes:[{ routeId:'local-ai', adapter:localAiAdapter, maxCostUsd:0 }],
+    plan:{ primaryRouteId:'local-ai', fallbackRouteIds:[], maxRoutes:1 },
+    onReceipt:createCapabilityEventRecorder(taskRunEvents),
   });
   const controlledVision = createControlledVisionExecution({
     engine:localAiExecution,
@@ -239,6 +251,7 @@ export async function createRoleExecutionComposition({
       readinessProbes:{ 'open-kimi-ppt':() => officePresentations.readiness() },
     }),
     localAiCapabilityStatus:() => localAi.health(),
+    taskRunEvents,
   });
   failureRecovery = new FailureRecoveryCoordinator({
     tasks,

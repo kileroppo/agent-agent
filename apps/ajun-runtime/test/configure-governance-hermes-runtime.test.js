@@ -151,6 +151,16 @@ test('Profile 最小同步 dry-run 对指定岗位零写入、零 MCP 和零 Gat
     results[0].mcp.scope.mcpTools.added,
     ['agent_manual', 'local_ai_invoke', 'm5_stage_execute'],
   );
+  assert.deepEqual(results[0].mcp.scope.taskCardPolicy, {
+    current:'disabled',
+    target:'disabled',
+    present:false,
+  });
+  assert.deepEqual(results[0].mcp.scope.profileId, {
+    current:'',
+    target:'content-creator',
+    present:false,
+  });
   assert.deepEqual(
     results[0].mcp.scope.taskTypes.added,
     [
@@ -184,6 +194,27 @@ test('Profile 最小同步 dry-run 对指定岗位零写入、零 MCP 和零 Gat
       false,
     );
   }
+});
+
+test('Profile MCP 环境从 Manifest 传播任务卡策略且不维护岗位名单', async (t) => {
+  const root = await profileSyncFixture(['xiaod', 'content-creator']);
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const results = await syncGovernanceHermesProfiles({
+    agentIds:['xiaod', 'content-creator'],
+    mode:'dry-run',
+    profileHomeFor:(agentId) => path.join(root, agentId),
+    profileRootFor:() => root,
+    readProfileState:async (profileHome) => legacyProfileState(path.basename(profileHome)),
+  });
+  const policies = Object.fromEntries(results.map((result) => [
+    result.agentId,
+    result.mcp.scope.taskCardPolicy.target,
+  ]));
+  assert.deepEqual(policies, {
+    xiaod:'durable-task',
+    'content-creator':'disabled',
+  });
+  assert.equal(results.every((result) => result.gatewayActions === 0), true);
 });
 
 test('Profile 最小同步拒绝批准根或父链通过符号链接逃逸', async (t) => {
@@ -388,6 +419,10 @@ test('Profile 最小同步 apply 必须显式确认并在写入前备份非 secr
     true,
   );
   assert.ok(commands.some((args) => args[0] === 'mcp' && args[1] === 'add'));
+  assert.ok(commands.some((args) =>
+    args.includes('AGENT_ARMY_TASK_CARD_POLICY=disabled')));
+  assert.ok(commands.some((args) =>
+    args.includes('AGENT_ARMY_PROFILE_ID=content-creator')));
   assert.ok(commands.some((args) => args.includes('agent-army:m5_stage_execute')));
   assert.ok(commands.some(
     (args) => String(args[0] || '').endsWith('set-feishu-toolsets.py')
@@ -555,6 +590,8 @@ test('Hermes helper 只在临时 Profile 精确写 Feishu 白名单并阻止 TOC
       '    timeout: 290',
       '    env:',
       '      AGENT_ARMY_AGENT_ID: content-creator',
+      '      AGENT_ARMY_PROFILE_ID: content-creator',
+      '      AGENT_ARMY_TASK_CARD_POLICY: disabled',
       `      PAPERCLIP_API_KEY: ${sensitiveMarker}`,
       '',
     ].join('\n'),
@@ -572,6 +609,14 @@ test('Hermes helper 只在临时 Profile 精确写 Feishu 白名单并阻止 TOC
     'clarify',
     'legacy-toolset',
   ]);
+  assert.equal(
+    JSON.parse(inspected.stdout).state.mcp.env.AGENT_ARMY_PROFILE_ID,
+    'content-creator',
+  );
+  assert.equal(
+    JSON.parse(inspected.stdout).state.mcp.env.AGENT_ARMY_TASK_CARD_POLICY,
+    'disabled',
+  );
 
   const target = ['clarify', 'memory', 'session_search', 'skills'];
   const applied = await runFixtureProcess(

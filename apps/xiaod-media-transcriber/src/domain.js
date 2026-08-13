@@ -16,7 +16,7 @@ export const STAGES = [
 
 export const ACTIVE_STATUSES = new Set(STAGES.map(([status]) => status).filter((status) => !['awaiting_review', 'awaiting_delivery', 'completed'].includes(status)).concat('pausing'));
 
-export function makeJob({ sourceType, sourceUrl = null, originalName = null, sourcePath = null, ingress = null, connectionId = null, connectionBinding = null, reviewPolicy = 'optional', visualMode = 'off', analysisDepth = 'fast', deliveryMode = 'feishu' }) {
+export function makeJob({ sourceType, sourceUrl = null, originalName = null, sourcePath = null, ingress = null, agentArmyTaskId = null, connectionId = null, connectionBinding = null, reviewPolicy = 'optional', visualMode = 'off', analysisDepth = 'fast', deliveryMode = 'feishu' }) {
   const now = new Date().toISOString();
   return {
     id: crypto.randomUUID(),
@@ -25,6 +25,7 @@ export function makeJob({ sourceType, sourceUrl = null, originalName = null, sou
     originalName,
     sourcePath,
     ingress,
+    agentArmyTaskId:normalizeAgentArmyTaskId(agentArmyTaskId),
     connectionId,
     connectionBinding,
     reviewPolicy: reviewPolicy === 'required' ? 'required' : 'optional',
@@ -46,6 +47,11 @@ export function makeJob({ sourceType, sourceUrl = null, originalName = null, sou
     output: null,
     log: [{ at: now, stage: 'queued', message: '任务已创建' }]
   };
+}
+
+function normalizeAgentArmyTaskId(value) {
+  const id = String(value || '').trim();
+  return /^[A-Za-z0-9][A-Za-z0-9:._-]{7,159}$/.test(id) ? id : null;
 }
 
 export function makeIngressKey({ platform, messageId, attachmentIndex = 0 }) {

@@ -61,6 +61,10 @@ test('Hermes 飞书补丁把单一军团总管文本路由到本机 A君入口�
   assert.match(patched, /def _route_ajun_commander_event/);
   assert.match(patched, /AJUN_FEISHU_COMMANDER_INGRESS_URL/);
   assert.match(patched, /AJUN_FEISHU_ENTRY_AGENT_ID/);
+  assert.match(patched, /AGENT_ARMY_FEISHU_COMMANDER_PROFILE_GUARD_V1/);
+  assert.match(patched, /AGENT_ARMY_FEISHU_COMMANDER_DIRECT_REPLY_V1/);
+  assert.match(patched, /body\.get\("handled"\) is False[\s\S]{0,320}return False/);
+  assert.match(patched, /if entry_agent_id != "ajun":[\s\S]{0,180}return False/);
   assert.match(patched, /reply_to=event.message_id/);
   assert.match(patched, /def _route_ajun_agent_proposal_event/);
   assert.match(patched, /sourceEventRef/);
@@ -390,16 +394,20 @@ test('总管补丁可升级为 local 与 Paperclip 组织级审批卡', () => {
   assert.equal(applyPatch(upgraded), upgraded);
 });
 
-test('A君动态任务卡默认关闭，开启后只维护一个消息锚点和一个有界 supervisor', () => {
+test('Profile 动态任务卡默认关闭，兼容 A君旧开关并只维护一个消息锚点和一个有界 supervisor', () => {
   const patched = applyPatch(fixture);
-  assert.match(patched, /AGENT_ARMY_FEISHU_DYNAMIC_TASK_CARD_V1/);
+  assert.match(patched, /AGENT_ARMY_FEISHU_DYNAMIC_TASK_CARD_V3/);
+  assert.match(patched, /AGENT_ARMY_FEISHU_TASK_CARD_POLICY/);
   assert.match(patched, /AJUN_FEISHU_DYNAMIC_TASK_CARD/);
-  assert.match(patched, /\.strip\(\)\.lower\(\) != "true"/);
-  assert.match(patched, /self\._ajun_task_card_supervisor_task/);
+  assert.match(patched, /policy = "routed-task"/);
+  assert.match(patched, /self\._agent_army_task_card_supervisor_task/);
+  assert.match(patched, /agent_army_task_cards\.json/);
+  assert.match(patched, /ajun_task_cards\.json/);
+  assert.match(patched, /os\.chmod\(self\._agent_army_task_cards_path, 0o600\)/);
   assert.match(patched, /asyncio\.Semaphore\(3\)/);
   assert.match(patched, /poll_interval_seconds\(age_seconds=age\)/);
-  assert.match(patched, /if self\._ajun_dynamic_task_cards_enabled\(\):\n\s+self\._start_ajun_task_card_supervisor\(\)\n\s+else:\n\s+self\._restore_ajun_task_completion_notifications\(\)/);
-  const supervisorStart = patched.indexOf('    async def _supervise_ajun_task_cards(');
+  assert.match(patched, /if self\._agent_army_dynamic_task_cards_enabled\(\):\n\s+self\._start_agent_army_task_card_supervisor\(\)\n\s+else:\n\s+self\._restore_ajun_task_completion_notifications\(\)/);
+  const supervisorStart = patched.indexOf('    async def _supervise_agent_army_task_cards(');
   const supervisorEnd = patched.indexOf('\n    async def _send_ajun_approval_card(', supervisorStart);
   const supervisor = patched.slice(supervisorStart, supervisorEnd);
   assert.doesNotMatch(supervisor, /range\(900\)|did not reach a final state/);
@@ -415,23 +423,74 @@ test('A君动态任务卡默认关闭，开启后只维护一个消息锚点和�
   assert.match(patched, /intent was not persisted; send skipped/);
   assert.match(patched, /provider call completed but ledger update failed/);
   assert.match(patched, /provider call completed but ledger became unreadable/);
-  assert.match(patched, /ingress_url\.split\("\/api\/feishu\/commander", 1\)\[0\]/);
+  assert.match(patched, /AGENT_ARMY_TASK_CARD_BASE_URL/);
+  assert.match(patched, /def _agent_army_task_card_base_url/);
+  assert.match(patched, /os\.getenv\("AGENT_ARMY_FEISHU_AGENT_ID"/);
+  assert.match(patched, /if profile_id == "\.hermes":\n\s+profile_id = "ajun"/);
   assert.match(patched, /PatchMessageRequest/);
   assert.match(patched, /self\._client\.im\.v1\.message\.patch/);
+  assert.match(patched, /await asyncio\.sleep\(5\)/);
+  assert.match(patched, /latest\.get\("terminal"\) is True/);
+  assert.match(patched, /reply = debounce\["message"\]/);
+  assert.match(patched, /AGENT_ARMY_FEISHU_DYNAMIC_TASK_CARD_DETAILS_V1/);
+  assert.match(patched, /details_expanded=bool\(previous and previous\.get\("details_expanded"\)\)/);
+  assert.match(patched, /handle_agent_army_task_result/);
   const syntaxSource = patched.replace('    def __init__(self):', 'class Adapter:\n    def __init__(self):');
   const syntax = spawnSync('python3', ['-c', 'import ast,sys; ast.parse(sys.stdin.read())'], { input: syntaxSource, encoding: 'utf8' });
   assert.equal(syntax.status, 0, syntax.stderr);
   assert.equal(applyPatch(patched), patched);
 });
 
+test('动态任务卡成功后只抑制同一会话的一次模型最终通知', () => {
+  const adapterFixture = `${fixture}
+    async def send(
+        self,
+        chat_id: str,
+        content: str,
+        reply_to: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> SendResult:
+        """Send a Feishu message."""
+        return SendResult(success=True)
+`;
+  const patched = applyPatch(adapterFixture);
+  assert.match(patched, /AGENT_ARMY_FEISHU_TASK_CARD_FINAL_SUPPRESS_V1/);
+  assert.match(patched, /metadata\.get\("notify"\) is True/);
+  assert.match(patched, /_consume_agent_army_final_suppression\(chat_id\)/);
+  assert.match(patched, /self\._agent_army_suppress_final_by_chat\.pop\(chat_id, 0\)/);
+  assert.match(patched, /self\._agent_army_suppress_final_by_chat = \{\}/);
+  assert.match(patched, /expires_at >= __import__\("time"\)\.time\(\)/);
+  assert.equal(applyPatch(patched), patched);
+});
+
+test('已安装 V2 动态卡补丁会升级为独立卡片 API 与标准 Profile 身份', () => {
+  const current = applyPatch(fixture);
+  const legacyV2 = current
+    .replaceAll('AGENT_ARMY_FEISHU_DYNAMIC_TASK_CARD_V3', 'AGENT_ARMY_FEISHU_DYNAMIC_TASK_CARD_V2')
+    .replace(
+      '        agent_id = str(projection.get("agentId") or os.getenv("AGENT_ARMY_FEISHU_AGENT_ID", "") or os.getenv("AJUN_FEISHU_ENTRY_AGENT_ID", "") or "ajun").strip()\n',
+      '        agent_id = str(projection.get("agentId") or os.getenv("AJUN_FEISHU_ENTRY_AGENT_ID", "") or "ajun").strip()\n',
+    )
+    .replace(/    def _agent_army_task_card_base_url\(self\)[\s\S]*?\n\n    def _agent_army_task_card_key/, '    def _agent_army_task_card_key');
+  const upgraded = applyPatch(legacyV2);
+  assert.match(upgraded, /AGENT_ARMY_FEISHU_DYNAMIC_TASK_CARD_V3/);
+  assert.match(upgraded, /AGENT_ARMY_TASK_CARD_BASE_URL/);
+  assert.match(upgraded, /AGENT_ARMY_FEISHU_AGENT_ID/);
+  assert.match(upgraded, /profile_id = "ajun"/);
+  assert.equal(applyPatch(upgraded), upgraded);
+});
+
 test('动态任务卡按钮使用原消息锚点，权威决定成功后才返回决定态卡', () => {
   const patched = applyPatch(fixture);
-  const start = patched.indexOf('    def _handle_ajun_task_card_action(');
+  const start = patched.indexOf('    def _handle_agent_army_task_card_action(');
   const end = patched.indexOf('\n    def _handle_ajun_approval_card_action(', start);
   const callback = patched.slice(start, end);
   assert.match(callback, /agent_army_task_card_action/);
-  assert.match(callback, /\{"approve", "reject", "pause", "resume", "refresh"\}/);
+  assert.match(callback, /\{"approve", "reject", "pause", "resume", "refresh", "details", "collapse_details"\}/);
   assert.match(callback, /getattr\(context, "open_message_id"/);
+  assert.match(callback, /action_agent_id/);
+  assert.match(callback, /action_profile_id/);
+  assert.match(callback, /action_chat_id == chat_id/);
   assert.doesNotMatch(callback, /event\.token|getattr\(event, "token"/);
   assert.match(callback, /api\/feishu\/task-card-actions/);
   assert.match(callback, /api\/feishu\/task-status/);
@@ -439,11 +498,14 @@ test('动态任务卡按钮使用原消息锚点，权威决定成功后才返�
   assert.match(callback, /contentHash/);
   assert.match(callback, /CallBackToast/);
   assert.match(callback, /toast\.type = "error"/);
-  assert.ok(callback.indexOf('with urlopen(request') < callback.indexOf('decided_card = render_task_card(projection)'));
-  assert.ok(callback.indexOf('decided_card = render_task_card(projection)') < callback.indexOf('response.card = card'));
+  assert.ok(callback.indexOf('with urlopen(request') < callback.indexOf('decided_card = render_task_card('));
+  assert.ok(callback.indexOf('decided_card = render_task_card(') < callback.indexOf('response.card = card'));
   assert.doesNotMatch(callback, /last_source_revision": projection\.get/);
   assert.match(callback, /record\["next_poll_at"\] = 0/);
-  assert.match(callback, /self\._wake_ajun_task_card_supervisor\(\)/);
+  assert.match(callback, /record\["details_expanded"\] = details_expanded/);
+  assert.match(callback, /已展开任务详情/);
+  assert.match(callback, /已收起任务详情/);
+  assert.match(callback, /self\._wake_agent_army_task_card_supervisor\(\)/);
   assert.doesNotMatch(callback, /last_source_revision"\) == source_revision/);
   assert.match(callback, /无法确认这张卡片的来源，本次操作未生效/);
   assert.match(callback, /卡片记录暂时不可读取，本次操作未生效/);

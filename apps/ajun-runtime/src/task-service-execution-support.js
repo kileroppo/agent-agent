@@ -499,6 +499,10 @@ export function trustedRoleToolScope({
     ),
   ).map((candidate) => candidate.taskId);
   return Object.freeze({
+    currentTaskId:currentTaskId || null,
+    currentAgentId:String(task?.assigneeAgentId || '').trim() || null,
+    currentWorkflowId:String(task?.workflow?.workflowId || '').trim() || null,
+    currentStepId:String(task?.workflow?.step?.stepId || task?.currentStage || '').trim() || null,
     allowedTaskIds:Object.freeze(allowedTaskIds),
     paperclipIssueId:String(paperclipIssueId || '').trim() || null,
     paperclipRunId:String(paperclipRunId || '').trim() || null,

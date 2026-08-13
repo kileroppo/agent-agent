@@ -45,7 +45,8 @@
     "runtime": "hermes-profile",
     "directFeishu": "required",
     "visibility": "on-demand",
-    "groupPolicy": "mention-only"
+    "groupPolicy": "mention-only",
+    "taskCardPolicy": "incident-only"
   },
   "executionOwner": "paperclip-hermes",
   "userManual": {

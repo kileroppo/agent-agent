@@ -22,6 +22,7 @@ function setup({
   roleToolAdapters = {},
   officePresentationWorkspaceRoot = null,
   localAiCapabilityStatus = null,
+  taskRunEvents = null,
 } = {}) {
   const records = { tasks: [], approvals: [] };
   const store = {
@@ -66,7 +67,7 @@ function setup({
     async assertCaseIssueLink() {},
     ...governance,
   } : governance;
-  return { records, service: new TaskService({ registry: { async list(){return agents}, async get(agentId){return agents.find((agent)=>agent.agentId === agentId) || null}, async candidates(type){return agents.filter((agent)=>agent.acceptedTaskTypes.includes(type))} }, store, governance:testGovernance, executors, roleToolAdapters, officePresentationWorkspaceRoot, onTaskFailed, agentChannelStates, contentGrowthWaitMs, m5ProviderVision, m5WorkProductValidator, localAiCapabilityStatus, ...(skillExecutionRegistry ? { skillExecutionRegistry } : {}) }) };
+  return { records, service: new TaskService({ registry: { async list(){return agents}, async get(agentId){return agents.find((agent)=>agent.agentId === agentId) || null}, async candidates(type){return agents.filter((agent)=>agent.acceptedTaskTypes.includes(type))} }, store, governance:testGovernance, executors, roleToolAdapters, officePresentationWorkspaceRoot, onTaskFailed, agentChannelStates, contentGrowthWaitMs, m5ProviderVision, m5WorkProductValidator, localAiCapabilityStatus, taskRunEvents, ...(skillExecutionRegistry ? { skillExecutionRegistry } : {}) }) };
 }
 const coordinator = { agentId:'ajun', name:'A君', status:'active', acceptedTaskTypes:['army.intake', 'army.route-task', 'army.cross-agent-mission'] };
 
@@ -370,7 +371,8 @@ test('结构化 PPT 由 A君受控本地执行并把三类引用写回 Paperclip
     outputs:['pptd', 'pptx'],
     dataClassification:'public',
   });
-  assert.equal(task.status, 'succeeded', JSON.stringify(task.error));
+  assert.equal(task.status, 'running', JSON.stringify(task.error));
+  assert.equal(task.currentStage, 'delivery_quality_review_pending');
   assert.equal(task.execution.owner, 'ajun-controlled-local');
   assert.equal(task.execution.toolAccesses.length, 3);
   assert.equal(toolCalls.length, 2);
@@ -464,7 +466,8 @@ test('开放复杂任务直接复用岗位专有执行器且不生成DAG或能�
     }
   });
 
-  assert.equal(task.status, 'succeeded');
+  assert.equal(task.status, 'running');
+  assert.equal(task.currentStage, 'delivery_quality_review_pending');
   assert.deepEqual(task.artifactRefs.map((item) => item.type), ['intel_research_report']);
   assert.equal(task.artifactRefs.some((item) => item.type === 'autonomous_work_plan'), false);
   assert.equal(task.artifactRefs.some((item) => item.type === 'capability_discovery_report'), false);
@@ -1196,6 +1199,17 @@ test('过期的暂停或继续确认不会关闭原来的小D工作', async () =
 test('缺少标题拒绝创建', async () => {
   const { service } = setup({ agents:[coordinator] }); await assert.rejects(() => service.create({ taskType:'army.route-task' }), ValidationError);
 });
+
+test('交付简报缺少必需素材时只追问一次且不启动执行器', async () => {
+  let calls = 0;
+  const xiaod = { agentId:'xiaod', name:'小D', status:'active', acceptedTaskTypes:['media.transcribe-and-refine'] };
+  const { service } = setup({ agents:[xiaod], executors:{ xiaod:{ async execute() { calls += 1; } } } });
+  const task = await service.create({ title:'整理这段素材', taskType:'media.transcribe-and-refine', agentId:'xiaod' });
+  assert.equal(task.status, 'needs_input');
+  assert.equal(task.currentStage, 'delivery_brief_needs_clarification');
+  assert.match(task.error.userMessage, /素材|文件|来源链接/);
+  assert.equal(calls, 0);
+});
 test('治理台不可用不阻断任务登记，留下待同步记录', async () => {
   const governance = { async project() { return { status: 'sync_pending', reason: 'Paperclip 暂不可用。' }; }, async health() { return { status: 'offline' }; } };
   const { service } = setup({ agents:[coordinator], governance }); const task = await service.create({ title:'登记治理任务', taskType:'army.route-task' });
@@ -1337,6 +1351,7 @@ test('Paperclip Hermes heartbeat 会关联原 A君任务并幂等回写同一终
 
   assert.equal(completed.task.taskId, original.taskId);
   assert.equal(completed.task.status, 'succeeded');
+  assert.equal(completed.task.currentStage, 'paperclip_hermes_completed');
   assert.equal(completed.task.artifactRefs[0].type, 'employee_role_report');
   assert.equal(completed.task.artifactRefs[0].data.evidenceValidation.valid, true);
   assert.equal(completed.task.artifactRefs[0].data.factClaims[0].evidenceRefs[0], 'agent:architect');
@@ -1345,6 +1360,62 @@ test('Paperclip Hermes heartbeat 会关联原 A君任务并幂等回写同一终
   assert.deepEqual(completed.task.artifactRefs[0].data.currentStateUnknowns, ['飞书真人回归待完成。']);
   assert.equal(completions.length, 1);
   assert.equal(duplicate.duplicate, true);
+});
+
+test('Paperclip 本机 AI 事件核验任务、身份和岗位能力后只写脱敏白名单', async () => {
+  const xiaod = {
+    agentId:'xiaod', name:'小D', status:'active',
+    acceptedTaskTypes:['media.transcribe-and-refine'],
+    interaction:{ runtime:'hermes-profile' }, executionOwner:'paperclip-hermes',
+    runtimeCapabilities:{ localAiCapabilities:['audio.transcribe'] },
+  };
+  const identity = {
+    issue:{ id:'paperclip-local-ai-issue', identifier:'AGE-AI', title:'转录素材', description:'受控转录。' },
+    run:{ id:'paperclip-local-ai-run' },
+    paperclipAgent:{ id:'paperclip-xiaod', name:'小D' },
+    agentArmyId:'xiaod',
+  };
+  const saved = [];
+  const taskRunEvents = {
+    appendTaskRunEvent(event) {
+      saved.push(event);
+      return { eventId:`event-${saved.length}`, ...event };
+    },
+  };
+  const { service } = setup({
+    agents:[xiaod],
+    taskRunEvents,
+    governance:{ async verifyHermesAssignment() { return identity; } },
+  });
+  const verified = await service.getPaperclipAssignment(identity);
+  const input = {
+    ...identity,
+    taskId:verified.task.taskId,
+    event:{
+      eventType:'capability_call_started', capabilityId:'audio.transcribe',
+      provider:'local-whisper', status:'running', startedAt:'2026-08-13T01:00:00.000Z',
+      input:{ prompt:'不得落库' }, path:'/private/source.wav',
+    },
+  };
+  const result = await service.recordPaperclipLocalAiRunEvent(input);
+  assert.equal(result.recorded, true);
+  assert.equal(saved[0].taskId, verified.task.taskId);
+  assert.equal(saved[0].agentId, 'xiaod');
+  assert.equal(saved[0].routeId, 'local-ai-gateway');
+  assert.equal(JSON.stringify(saved[0]).includes('不得落库'), false);
+  assert.equal(JSON.stringify(saved[0]).includes('/private/source.wav'), false);
+  await assert.rejects(
+    service.recordPaperclipLocalAiRunEvent({ ...input, taskId:'task-not-current' }),
+    /没有绑定当前真实指派任务/,
+  );
+  await assert.rejects(
+    service.recordPaperclipLocalAiRunEvent({
+      ...input,
+      event:{ ...input.event, capabilityId:'image.generate' },
+    }),
+    /没有这项本机 AI 能力/,
+  );
+  assert.equal(saved.length, 1);
 });
 
 test('Paperclip 终态同步明确失败后可重放，failed 与 waiting_test 不会永久卡在两套真相', async (t) => {
@@ -1566,9 +1637,10 @@ test('Paperclip Hermes 不能用文字岗位回报替代小R专用研究产物',
     sources:[{ source:'https://example.com/stability' }],
   })];
   const completed = await service.completePaperclipAssignment(input);
-  assert.equal(completed.task.status, 'succeeded');
+  assert.equal(completed.task.status, 'running');
+  assert.equal(completed.task.currentStage, 'delivery_quality_review_pending');
   assert.equal(completed.task.artifactRefs.some((item) => item.type === 'intel_research_report'), true);
-  assert.equal(completions.length, 1);
+  assert.equal(completions.length, 0);
 });
 
 test('创建官 heartbeat 真实写入一次岗位草案并保持任务等待最终回报', async () => {
@@ -2301,10 +2373,11 @@ test('M5 画面分析有效confirmed包按当前Project写入唯一Work Product'
     status:'succeeded',
     summary:'已完成受控画面分析。',
   });
-  assert.equal(completed.task.status, 'succeeded');
+  assert.equal(completed.task.status, 'waiting_test');
+  assert.equal(completed.task.currentStage, 'delivery_quality_review_start_failed');
   assert.equal(fixture.outputs.length, 1);
   assert.equal(fixture.outputs[0].metadata.kind, 'VisualAnalysisPackage');
-  assert.equal(fixture.completions.length, 1);
+  assert.equal(fixture.completions.length, 0);
 });
 
 test('M5 画面分析已有坏Work Product不能直接replay或创建覆盖', async () => {
@@ -2328,7 +2401,7 @@ test('M5 画面分析已有坏Work Product不能直接replay或创建覆盖', as
     /Work Product.*漂移/,
   );
   assert.equal(fixture.outputs.length, 1);
-  assert.equal(fixture.completions.length, 1);
+  assert.equal(fixture.completions.length, 0);
 });
 
 test('M5 插件回执拒绝伪造文件哈希，机器审核拒绝单一 media-validate 冒充七项审核', async () => {
@@ -2857,7 +2930,7 @@ test('小D登记完成后才启动状态跟踪，缺少链接不会调用下游'
   const executor = { async execute() { executes += 1; return { status:'needs_input', currentStage:'source_url_required' }; }, observe(task) { observed = task; } };
   const { service } = setup({ agents:[xiaod] }); service.executors.xiaod = executor;
   const task = await service.create({ title:'整理视频', taskType:'media.transcribe-and-refine' });
-  assert.equal(task.status, 'needs_input'); assert.equal(executes, 1); assert.equal(observed, undefined);
+  assert.equal(task.status, 'needs_input'); assert.equal(executes, 0); assert.equal(observed, undefined);
 });
 test('A君会留下任务接收记录', async () => {
   const coordinator = { agentId:'ajun', name:'A君', status:'active', acceptedTaskTypes:['army.intake'] };
@@ -3872,14 +3945,15 @@ test('M5 Hermes 阶段必须把专用产物写回同一 Case 后才能完成 Iss
     summary:'已选择当日主题并声明证据门禁。',
   });
 
-  assert.equal(completed.task.status, 'succeeded');
+  assert.equal(completed.task.status, 'waiting_test');
+  assert.equal(completed.task.currentStage, 'delivery_quality_review_start_failed');
   assert.equal(outputs.length, 1);
   assert.equal(outputs[0].provider, 'agent-army.ajun-runtime');
   assert.equal(outputs[0].metadata.schemaVersion, 'agent.army/topic-selection/v1');
   assert.equal(outputs[0].metadata.kind, 'TopicSelection');
   assert.equal(outputs[0].metadata.artifact.theme, 'AI Agent 真实失败恢复');
   assert.match(outputs[0].metadata.artifactHash, /^sha256:[0-9a-f]{64}$/);
-  assert.equal(completions.length, 1);
+  assert.equal(completions.length, 0);
 
   const duplicate = await service.completePaperclipAssignment({
     ...input,

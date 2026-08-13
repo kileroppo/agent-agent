@@ -35,7 +35,9 @@ test('质量模型失败时普通任务可降级 faster-whisper，但路由强�
   await fs.writeFile(path.join(modelRoot, 'model.bin'), 'fixture');
   const script = path.join(root, 'fast.py');
   await fs.writeFile(script, '# fixture');
+  const runEvents = [];
   const runtime = new AdaptiveAsrRuntime({
+    onRunEvent:(event) => runEvents.push(event),
     settings:{
       ...config,
       adaptiveAsr:{
@@ -60,13 +62,24 @@ test('质量模型失败时普通任务可降级 faster-whisper，但路由强�
   assert.equal(result.routing.requiresHumanReview, true);
   assert.equal(result.routing.fastCandidate.accepted, true);
   assert.equal(typeof result.routing.fastCandidate.accepted, 'boolean');
+  assert.equal(result.routing.executionReceipt.schemaVersion, 'agent.army/execution-receipt/v2');
+  assert.equal(result.routing.executionReceipt.routeId, 'audio.transcribe.faster-whisper');
+  assert.equal(result.routing.executionReceipt.fallbackFrom, 'audio.transcribe.mlx-whisper');
+  assert.equal(result.routing.executionReceipt.totalAttempts, 2);
+  assert.equal(result.routing.qualityResult.status, 'review_required');
+  assert.deepEqual(runEvents.filter((event) => event.eventType.startsWith('capability_call_')).map((event) => [event.attempt, event.status]), [
+    [1, 'confirmed_failure'],
+    [2, 'success']
+  ]);
+  assert.equal(runEvents.at(-1).eventType, 'quality_check_completed');
   assert.match(await fs.readFile(path.join(root, 'transcript.txt'), 'utf8'), /应急转录正文/);
 });
 
 test('正式任务的质量模型失败时不允许用小模型冒充完成', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'xiaod-asr-no-formal-fallback-'));
   t.after(() => fs.rm(root, { recursive:true, force:true }));
-  const runtime = new AdaptiveAsrRuntime();
+  const runEvents = [];
+  const runtime = new AdaptiveAsrRuntime({ onRunEvent:(event) => runEvents.push(event) });
   runtime.transcribeQuality = async () => { throw new Error('quality unavailable'); };
   runtime.transcribeFast = async () => confidentPayload;
   await assert.rejects(
@@ -74,6 +87,14 @@ test('正式任务的质量模型失败时不允许用小模型冒充完成', as
       job:{ reviewPolicy:'required', analysisDepth:'full', visualMode:'required' },
       durationSeconds:90
     }),
-    /quality unavailable/
+    (error) => {
+      assert.match(error.message, /quality unavailable/);
+      assert.equal(error.executionReceipt.schemaVersion, 'agent.army/execution-receipt/v2');
+      assert.equal(error.executionReceipt.routeAttempts.length, 1);
+      assert.equal(error.executionReceipt.routeAttempts[0].routeId, 'audio.transcribe.mlx-whisper');
+      assert.equal(error.executionReceipt.outcome, 'confirmed_failure');
+      return true;
+    }
   );
+  assert.equal(runEvents.find((event) => event.eventType === 'capability_call_failed')?.status, 'confirmed_failure');
 });

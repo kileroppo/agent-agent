@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { configuredCapabilities, requireLoopbackHost } from '../src/config.js';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {
+  configuredCapabilities,
+  prepareTaskRunEventDatabasePath,
+  requireLoopbackHost,
+  resolveTaskRunEventDb,
+} from '../src/config.js';
 import { buildRefinerRequest, extractRefinerMarkdown, fallbackGuide, requestRefinement } from '../src/pipeline.js';
 
 test('configuration reports only complete optional integrations', () => {
@@ -18,6 +26,41 @@ test('小D运行台只允许回环监听，拒绝环境变量把无鉴权入口�
   assert.equal(requireLoopbackHost('::1'), '::1');
   assert.throws(() => requireLoopbackHost('0.0.0.0'), /只允许监听本机回环地址/);
   assert.throws(() => requireLoopbackHost('192.168.1.20'), /只允许监听本机回环地址/);
+});
+
+test('运行事件库优先使用显式路径，其次复用A君数据目录', () => {
+  assert.equal(
+    resolveTaskRunEventDb({
+      AGENT_ARMY_TASK_RUN_EVENT_DB:'./explicit/events.sqlite',
+      AGENT_ARMY_DATA_DIR:'./shared-data',
+    }),
+    path.resolve('./explicit/events.sqlite'),
+  );
+  assert.equal(
+    resolveTaskRunEventDb({ AGENT_ARMY_DATA_DIR:'./shared-data' }),
+    path.resolve('./shared-data/task-run-events.sqlite'),
+  );
+  assert.match(resolveTaskRunEventDb({}), /apps\/ajun-runtime\/data\/task-run-events\.sqlite$/);
+});
+
+test('启动前创建0700事件目录、收紧已有数据库为0600并拒绝符号链接父目录', async (context) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'xiaod-task-events-'));
+  context.after(() => fs.rm(root, { recursive:true, force:true }));
+  const databasePath = path.join(root, 'shared-events', 'task-run-events.sqlite');
+  assert.equal(await prepareTaskRunEventDatabasePath(databasePath), databasePath);
+  assert.equal((await fs.stat(path.dirname(databasePath))).mode & 0o777, 0o700);
+  await fs.writeFile(databasePath, '', { mode:0o644 });
+  await prepareTaskRunEventDatabasePath(databasePath);
+  assert.equal((await fs.stat(databasePath)).mode & 0o777, 0o600);
+
+  const target = path.join(root, 'real-events');
+  const linked = path.join(root, 'linked-events');
+  await fs.mkdir(target, { mode:0o700 });
+  await fs.symlink(target, linked);
+  await assert.rejects(
+    prepareTaskRunEventDatabasePath(path.join(linked, 'events.sqlite')),
+    { code:'task_run_event_parent_unsafe' },
+  );
 });
 
 test('StepFun uses Messages API and corrects a Step Plan base for step-3.7', () => {

@@ -4,6 +4,7 @@ import {
   renderAttentionDetail,
   taskAttentionView,
 } from './task-record-detail-view.js';
+import { createTaskTimelineLoader } from './task-timeline-view.js';
 export { taskAttentionView } from './task-record-detail-view.js';
 
 const VIEW_LABELS = Object.freeze({
@@ -22,6 +23,7 @@ export function createTaskRecordWorkbench({
   initialTaskId = '',
 }) {
   const elements = recordElements();
+  const timeline = createTaskTimelineLoader({ api, escapeHtml });
   const urlState = readUrlState();
   const state = {
     active:false,
@@ -43,6 +45,7 @@ export function createTaskRecordWorkbench({
     selectedDetailLoaded:false,
     autoExpanded:false,
     actionState:new Map(),
+    timelineHtml:'',
   };
   let searchTimer;
 
@@ -208,6 +211,7 @@ export function createTaskRecordWorkbench({
       if (quiet && state.selectedDetailLoaded && payload.task.updatedAt === state.selectedTask?.updatedAt && payload.task.status === state.selectedTask?.status) return;
       const detailScrollTop = quiet ? elements.detail.scrollTop : 0;
       state.selectedTask = payload.task;
+      state.timelineHtml = await loadTimeline(payload.task.taskId);
       state.selectedDetailLoaded = true;
       if (!payload.task?.presentation?.attention || payload.task.presentation.attention.verification) {
         state.actionState.delete(payload.task.taskId);
@@ -224,12 +228,17 @@ export function createTaskRecordWorkbench({
   async function selectTask(task, { updateUrl, revealDetail }) {
     state.selectedTaskId = task.taskId;
     state.selectedTask = task;
+    state.timelineHtml = '';
     state.selectedDetailLoaded = task.recordSummary !== true;
     renderList();
     renderDetail();
     if (updateUrl) history.replaceState(null, '', `/tasks/${encodeURIComponent(task.taskId)}`);
     if (revealDetail) elements.workbench.classList.add('is-detail-open');
     if (!state.selectedDetailLoaded) await loadSelectedDetail({ revealDetail, quiet:true });
+    else {
+      state.timelineHtml = await loadTimeline(task.taskId);
+      renderDetail();
+    }
   }
 
   function renderWorkbench(routineSummary) {
@@ -331,6 +340,7 @@ export function createTaskRecordWorkbench({
           ${result ? `<section class="record-detail-section"><h3>${escapeHtml(result.label)}</h3><p>${escapeHtml(result.text)}</p></section>` : ''}
           ${task.pendingApproval?.reason ? `<section class="record-detail-section"><h3>等待确认的原因</h3><p>${escapeHtml(task.pendingApproval.reason)}</p></section>` : ''}`}
       ${artifacts.length ? `<section class="record-detail-section"><h3>交付与证据</h3><ul class="record-artifact-list">${artifacts.map(renderArtifact).join('')}</ul></section>` : ''}
+      ${state.timelineHtml}
       <div class="record-detail-actions"><button class="secondary-action record-copy-id" type="button">复制任务编号</button></div>
       ${renderTechnicalDetails(task, presentation, attention, escapeHtml)}`;
     elements.detail.querySelector('.record-detail-back')?.addEventListener('click', () => {
@@ -347,6 +357,18 @@ export function createTaskRecordWorkbench({
     });
     for (const button of elements.detail.querySelectorAll('[data-attention-action]')) {
       button.addEventListener('click', () => executeAttentionAction(task, button.dataset.attentionAction));
+    }
+    elements.detail.querySelector('[data-task-timeline-more]')?.addEventListener('click', async () => {
+      try { state.timelineHtml = await timeline.loadMore(); }
+      catch { /* Keep the already loaded timeline page visible. */ }
+      renderDetail();
+    });
+  }
+
+  async function loadTimeline(taskId) {
+    try { return await timeline.load(taskId); }
+    catch {
+      return '<section class="record-detail-section task-timeline"><h3>运行过程</h3><p>运行记录暂时无法读取，不影响任务结果。</p></section>';
     }
   }
 

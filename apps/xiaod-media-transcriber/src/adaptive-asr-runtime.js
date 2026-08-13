@@ -1,4 +1,6 @@
 import fs from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { config } from './config.js';
@@ -10,13 +12,22 @@ import {
   selectInitialAsrRoute,
   summarizeAsrQuality
 } from './asr-router.js';
+import {
+  asrRouteAttempt,
+  attachAsrCapabilityResult,
+  attachAsrFailureReceipt
+} from './asr-capability-adapter.js';
+import { createTaskRunEventBridge } from './task-run-event-bridge.js';
 
 export class AdaptiveAsrRuntime {
-  constructor({ settings = config } = {}) {
+  constructor({ settings = config, onRunEvent = null, runEventBridge = null } = {}) {
     this.settings = settings;
+    this.runEvents = runEventBridge || createTaskRunEventBridge({ onRunEvent });
   }
 
   async transcribe(audioPath, jobDir, { job = {}, durationSeconds = null } = {}) {
+    const startedAt = new Date().toISOString();
+    const audioSha256 = await fileSha256OrNull(audioPath);
     const adaptive = this.settings.adaptiveAsr;
     const fastRuntime = adaptive.enabled ? await resolveFastRuntime(adaptive) : null;
     const initial = selectInitialAsrRoute({
@@ -30,6 +41,8 @@ export class AdaptiveAsrRuntime {
     let fastEvaluation = null;
     let fastVerification = null;
     let fastFailure = null;
+    let fallbackAttempted = false;
+    let fallbackFailureCode = null;
     if (initial.route === 'fast_candidate' && fastRuntime) {
       try {
         const fastPayload = await this.transcribeFast(audioPath, jobDir, fastRuntime);
@@ -44,7 +57,7 @@ export class AdaptiveAsrRuntime {
           fastVerification = compareTranscriptProbe({ fastSegments:fastPayload.segments, probeText:qualityProbe.text, intervals });
           if (fastVerification.accepted) {
             await writeTranscriptArtifacts(jobDir, fastPayload);
-            return transcriptionResult(fastPayload, adaptiveRoutingRecord({
+            return this.#complete(fastPayload, adaptiveRoutingRecord({
               job,
               durationSeconds,
               initial,
@@ -53,7 +66,7 @@ export class AdaptiveAsrRuntime {
               fastEvaluation,
               fastVerification,
               escalated:false
-            }));
+            }), { job, startedAt, input:{ audioSha256 } });
           }
         }
       } catch (error) {
@@ -63,7 +76,7 @@ export class AdaptiveAsrRuntime {
 
     try {
       const qualityPayload = await this.transcribeQuality(audioPath, jobDir);
-      return transcriptionResult(qualityPayload, adaptiveRoutingRecord({
+      return this.#complete(qualityPayload, adaptiveRoutingRecord({
         job,
         durationSeconds,
         initial,
@@ -73,7 +86,7 @@ export class AdaptiveAsrRuntime {
         fastVerification,
         fastFailure,
         escalated:initial.route === 'fast_candidate'
-      }));
+      }), { job, startedAt, input:{ audioSha256 } });
     } catch (qualityError) {
       if (initial.route === 'quality_direct' && allowsFastFallback({
         job,
@@ -81,12 +94,13 @@ export class AdaptiveAsrRuntime {
         fastRuntimeAvailable:Boolean(fastRuntime),
         fastMaxDurationSeconds:adaptive.fastMaxDurationSeconds
       })) {
+        fallbackAttempted = true;
         try {
           const fallbackPayload = await this.transcribeFast(audioPath, jobDir, fastRuntime);
           const fallbackEvaluation = evaluateFastTranscript(fallbackPayload);
           if (fallbackEvaluation.accepted) {
             await writeTranscriptArtifacts(jobDir, fallbackPayload);
-            return transcriptionResult(fallbackPayload, adaptiveRoutingRecord({
+            return this.#complete(fallbackPayload, adaptiveRoutingRecord({
               job,
               durationSeconds,
               initial,
@@ -94,16 +108,50 @@ export class AdaptiveAsrRuntime {
               selectedModel:adaptive.fastModelId,
               fastEvaluation:fallbackEvaluation,
               fallbackFrom:'mlx-whisper',
+              primaryFailureCode:failureCode(qualityError),
               requiresHumanReview:true,
               escalated:false
-            }));
+            }), { job, startedAt, input:{ audioSha256 } });
           }
-        } catch {
+        } catch (fallbackError) {
+          fallbackFailureCode = failureCode(fallbackError);
           // Preserve the primary quality-provider failure below.
         }
       }
-      throw qualityError;
+      const attempts = [asrRouteAttempt({
+        provider:'mlx-whisper',
+        outcome:'confirmed_failure',
+        failureCode:failureCode(qualityError)
+      })];
+      if (fallbackAttempted) {
+        attempts.push(asrRouteAttempt({
+          provider:'faster-whisper',
+          outcome:'confirmed_failure',
+          failureCode:fallbackFailureCode || 'quality_failed'
+        }));
+      }
+      const failure = attachAsrFailureReceipt(qualityError, {
+        job,
+        input:{ audioSha256 },
+        startedAt,
+        routing:{
+          selectedProvider:'mlx-whisper',
+          selectedModel:this.settings.asrModel,
+          durationSeconds:Number.isFinite(durationSeconds) ? durationSeconds : null
+        },
+        routeAttempts:attempts
+      });
+      await this.runEvents.recordExecutionReceipt(failure.executionReceipt);
+      throw failure;
     }
+  }
+
+  async #complete(payload, routing, context) {
+    const result = transcriptionResult(payload, routing, context);
+    await this.runEvents.recordExecutionReceipt(result.routing.executionReceipt, {
+      qualityResult:result.routing.qualityResult
+    });
+    return result;
   }
 
   async transcribeFast(audioPath, jobDir, fastRuntime) {
@@ -235,7 +283,7 @@ async function writeTranscriptArtifacts(jobDir, payload) {
   ]);
 }
 
-function transcriptionResult(payload, routing) {
+function transcriptionResult(payload, routing, { job, startedAt, input = null } = {}) {
   const segments = Array.isArray(payload?.segments) ? payload.segments : [];
   const qualitySignals = payload?.qualitySignals || summarizeAsrQuality(segments);
   const hasSignals = [
@@ -248,8 +296,29 @@ function transcriptionResult(payload, routing) {
     text:String(payload?.text || ''),
     timed:payload?.timed || jsonTranscriptToVtt({ segments }),
     qualitySignals:hasSignals ? qualitySignals : null,
-    routing
+    routing:attachAsrCapabilityResult({
+      job,
+      routing,
+      input,
+      payload:{ ...payload, qualitySignals:hasSignals ? qualitySignals : null },
+      startedAt
+    })
   };
+}
+
+async function fileSha256OrNull(filePath) {
+  try {
+    const hash = createHash('sha256');
+    await new Promise((resolve, reject) => {
+      const stream = createReadStream(filePath);
+      stream.on('data', (chunk) => hash.update(chunk));
+      stream.on('error', reject);
+      stream.on('end', resolve);
+    });
+    return `sha256:${hash.digest('hex')}`;
+  } catch {
+    return null;
+  }
 }
 
 function adaptiveRoutingRecord({
@@ -262,6 +331,7 @@ function adaptiveRoutingRecord({
   fastVerification = null,
   fastFailure = null,
   fallbackFrom = null,
+  primaryFailureCode = null,
   requiresHumanReview = false,
   escalated = false
 }) {
@@ -278,6 +348,7 @@ function adaptiveRoutingRecord({
     selectedProvider,
     selectedModel,
     fallbackFrom,
+    primaryFailureCode,
     requiresHumanReview,
     escalated,
     reasons:[...new Set(reasons)],
@@ -298,6 +369,10 @@ function adaptiveRoutingRecord({
     },
     createdAt:new Date().toISOString()
   };
+}
+
+function failureCode(error) {
+  return String(error?.code || '').trim() || 'provider_unavailable';
 }
 
 function taskSignals(job) {

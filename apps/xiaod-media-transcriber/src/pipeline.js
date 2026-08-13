@@ -9,9 +9,12 @@ import { JobPausedError } from './job-pause-controller.js';
 import { ContentAcquisitionError } from 'ajun-common-access/content-acquisition-center';
 import { automaticConfirmationDecision, buildEvidenceRecords, parseTimedTranscript, sha256, timedTranscriptMarkdown } from './transcript-evidence.js';
 import { createTranscriptConfirmationFiles } from './transcript-review.js';
-import { createVisualEvidencePackage, VisualEvidenceError } from './visual-evidence.js';
+import { VisualEvidenceError } from './visual-evidence.js';
 import { AdaptiveAsrRuntime, compactAsrRouting, createSubtitleRoutingRecord } from './adaptive-asr-runtime.js';
+import { attachAsrCapabilityResult } from './asr-capability-adapter.js';
 import { LarkDeliveryCoordinator } from './lark-delivery.js';
+import { createLocalVisualEvidenceAdapter } from './visual-capability-adapter.js';
+import { createTaskRunEventBridge } from './task-run-event-bridge.js';
 
 export { deliverToLark, markdownToBlocks } from './lark-delivery.js';
 
@@ -41,14 +44,17 @@ const REFINER_PROMPT = `你是中文音视频内容编辑。你只负责写“�
 如果原文确实没有足够证据，不要硬造“逻辑分析”“框架与心智模型”等章节。`;
 
 export class MediaPipeline {
-  constructor({ store, workDir, contentCenter = null, pauseController = null, asrRuntime = new AdaptiveAsrRuntime(), failpoint = createOneShotFailpoint(config.testFailOnceAt), delivery = new LarkDeliveryCoordinator({ store }) }) {
+  constructor({ store, workDir, contentCenter = null, pauseController = null, asrRuntime = null, visualAdapter = null, failpoint = createOneShotFailpoint(config.testFailOnceAt), delivery = null, onRunEvent = null, runEventBridge = null }) {
     this.store = store;
     this.workDir = workDir;
     this.contentCenter = contentCenter;
     this.pauseController = pauseController;
-    this.asrRuntime = asrRuntime;
+    this.runEvents = runEventBridge || createTaskRunEventBridge({ onRunEvent });
+    this.asrRuntime = asrRuntime || new AdaptiveAsrRuntime({ runEventBridge:this.runEvents });
+    this.visualAdapter = visualAdapter || createLocalVisualEvidenceAdapter();
     this.failpoint = failpoint;
-    this.delivery = delivery;
+    this.delivery = delivery || new LarkDeliveryCoordinator({ store, runEventBridge:this.runEvents });
+    this.delivery.attachRunEventBridge?.(this.runEvents);
   }
 
   async run(jobId) {
@@ -70,13 +76,24 @@ export class MediaPipeline {
       // exercises retry without creating any external delivery side effect.
       await this.failpoint('transcribing');
       const audioDurationSeconds = acquired.kind === 'audio' ? await probeDuration(acquired.path) : null;
+      const subtitleText = acquired.kind === 'subtitle' ? await fs.readFile(acquired.path, 'utf8') : null;
       const transcription = acquired.kind === 'subtitle'
         ? {
-            text:await fs.readFile(acquired.path, 'utf8'),
+            text:subtitleText,
             timed:null,
-            routing:createSubtitleRoutingRecord(currentJob)
+            routing:attachAsrCapabilityResult({
+              job:currentJob,
+              routing:createSubtitleRoutingRecord(currentJob),
+              input:{ subtitleText },
+              payload:{ text:subtitleText, timed:null }
+            })
           }
         : await this.transcribe(acquired.path, jobDir, { job:currentJob, durationSeconds:audioDurationSeconds });
+      if (acquired.kind === 'subtitle') {
+        await this.runEvents.recordExecutionReceipt(transcription.routing.executionReceipt, {
+          qualityResult:transcription.routing.qualityResult
+        });
+      }
       const rawTranscript = transcription.text;
       await this.checkpoint(job.id, '转录完成');
       const transcript = cleanTranscript(rawTranscript);
@@ -175,6 +192,7 @@ export class MediaPipeline {
         asrEscalated:transcription.routing.escalated === true,
         visualEvidencePath:visual.manifestPath || null,
         visualCoverage:visual.coverage,
+        visualQualityResult:visual.qualityResult || null,
         visualFailureCode:visual.failureCode || null,
         transcriptChecksum:sha256(transcript), evidenceLevel:evidence.qualityReport.evidenceLevel,
         reviewStatus:reviewRequired ? 'awaiting_review' : 'auto_confirmed',
@@ -273,7 +291,7 @@ export class MediaPipeline {
     }
     if (this.contentCenter) {
       const acquired = await this.contentCenter.fetch({
-        taskId: job.id,
+        taskId: job.agentArmyTaskId || job.taskId || job.id,
         source: job.sourceUrl,
         requestedCapabilities: ['basic_content', 'subtitles', 'media'],
         connectionId: job.connectionId,
@@ -282,6 +300,7 @@ export class MediaPipeline {
         runtimeRequirement: 'media_transcription',
         onProgress: ({ stage, progress, message }) => this.stage(job.id, stage, progress, message)
       });
+      await this.runEvents.recordExecutionReceipt(acquired.acquisitionReceipt);
       if (!acquired.ok) throw new ContentAcquisitionError(acquired);
       if (acquired.runtime?.kind === 'video' && acquired.runtime.path) {
         await this.stage(job.id, 'acquiring', 35, '正在将已授权媒体转为本地转录音频');
@@ -346,6 +365,7 @@ export class MediaPipeline {
       failureCode:null,
       warning:null
     };
+    const startedAt = new Date().toISOString();
     try {
       await this.stage(job.id, 'analyzing_visual', 62, '正在提取受控关键帧并建立画面证据');
       let videoPath = acquired.visualSourcePath || null;
@@ -354,7 +374,7 @@ export class MediaPipeline {
         const visualWorkspace = path.join(jobDir, 'visual-source');
         await fs.mkdir(visualWorkspace, { recursive:true, mode:0o700 });
         const visualSource = await this.contentCenter.fetch({
-          taskId:job.id,
+          taskId:job.agentArmyTaskId || job.taskId || job.id,
           source:job.sourceUrl,
           requestedCapabilities:['media'],
           connectionId:job.connectionId,
@@ -362,6 +382,7 @@ export class MediaPipeline {
           workspace:visualWorkspace,
           runtimeRequirement:'visual_analysis'
         });
+        await this.runEvents.recordExecutionReceipt(visualSource.acquisitionReceipt);
         if (!visualSource.ok) throw new ContentAcquisitionError(visualSource);
         if (visualSource.runtime?.kind !== 'video' || !visualSource.runtime.path) {
           throw new VisualEvidenceError('visual_video_stream_required', '内容通道只返回了音频，无法建立画面证据。');
@@ -369,13 +390,17 @@ export class MediaPipeline {
         videoPath = visualSource.runtime.path;
       }
       if (!videoPath) throw new VisualEvidenceError('visual_video_stream_required', '没有取得可用于画面分析的视频。');
-      const created = await createVisualEvidencePackage({
-        videoPath,
-        outputDir:path.join(jobDir, 'visual-evidence'),
-        depth:job.analysisDepth,
-        transcriptSegments:segments,
-        sourceMetadata
+      const result = await this.visualAdapter.invoke({
+        payload:{
+          videoPath,
+          outputDir:path.join(jobDir, 'visual-evidence'),
+          depth:job.analysisDepth,
+          transcriptSegments:segments,
+          sourceMetadata
+        }
       });
+      const created = result.output;
+      await this.runEvents.recordVisualResult({ job, result, startedAt, completedAt:new Date().toISOString() });
       return {
         manifestPath:created.manifestPath,
         coverage:{
@@ -385,10 +410,12 @@ export class MediaPipeline {
           maxFrames:created.payload.selection.maxFrames,
           storyboardCount:created.payload.storyboards.length
         },
+        qualityResult:created.qualityResult,
         failureCode:null,
         warning:null
       };
     } catch (error) {
+      await this.runEvents.recordVisualResult({ job, startedAt, completedAt:new Date().toISOString(), error });
       if (visualMode === 'required') {
         const failure = new VisualEvidenceError('visual_evidence_required', error?.message || '没有生成必须的画面证据。');
         failure.cause = error;

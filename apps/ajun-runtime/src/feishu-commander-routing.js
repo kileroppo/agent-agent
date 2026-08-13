@@ -23,6 +23,7 @@ import {
   FeishuCommanderValidationError,
   conversationControlIntent,
   directIntent,
+  isDirectReplyWithoutTask,
   isSafePublicResearchRequest,
   isGithubRequest,
   isIntelResearchRequest,
@@ -87,8 +88,23 @@ export const feishuCommanderRoutingMethods = {
     if (!text) throw new FeishuCommanderValidationError('飞书消息不能为空。');
     if (!sourceEventRef) throw new FeishuCommanderValidationError('飞书消息缺少稳定事件引用，未创建任务。');
     const targetAgentId = safeAgentId(input?.targetAgentId);
-    const source = { channel: 'feishu', eventRef: sourceEventRef, chatRef: safeRef(input?.chatRef), ...(targetAgentId ? { targetAgentId } : {}) };
+    const profileId = safeAgentId(input?.profileId) || targetAgentId || 'ajun';
+    const taskCardPolicy = safeTaskCardPolicy(input?.taskCardPolicy);
+    const source = {
+      channel:'feishu',
+      eventRef:sourceEventRef,
+      chatRef:safeRef(input?.chatRef),
+      ...(targetAgentId ? { targetAgentId } : {}),
+      profileId,
+      ...(taskCardPolicy ? { taskCardPolicy } : {}),
+    };
     const requester = { kind: 'feishu-user', ref: safeRef(input?.requesterRef) || 'feishu-requester' };
+    // An explicit "reply here, do not create a task/use tools" instruction is
+    // a normal Hermes conversation. Bypass Commander deterministically so a
+    // negated phrase such as "不要创建任务" cannot be matched as task creation.
+    if (isDirectReplyWithoutTask(text)) {
+      return { handled:false, reason:'explicit_direct_reply_without_task' };
+    }
     const direct = await this.handleDirectAgent(targetAgentId, { text, sourceEventRef, source, requester });
     if (direct) return direct;
     if (USE_THIS_VERSION_RE.test(text)) return this.approveLatestVideoScript({ sourceEventRef, source, requester });
@@ -363,3 +379,8 @@ export const feishuCommanderRoutingMethods = {
   }
 
 };
+
+function safeTaskCardPolicy(value) {
+  const policy = String(value || '').trim();
+  return ['disabled', 'routed-task', 'durable-task', 'incident-only'].includes(policy) ? policy : '';
+}

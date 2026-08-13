@@ -10,6 +10,7 @@ import { AgentRegistry } from './agent-registry.js';
 import { AgentManualService } from './agent-manual-service.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
@@ -179,6 +180,9 @@ export function createAgentArmyMcpServer({
       } : undefined,
       chatRef:chat_ref,
       requestRef:request_ref,
+      sourceAgentId:onlyValue(scope.agentIds) || undefined,
+      sourceProfileId:scope.profileId || onlyValue(scope.agentIds) || undefined,
+      taskCardPolicy:scope.taskCardPolicy || undefined,
       completionDelivery:completion_delivery
     });
   });
@@ -241,6 +245,9 @@ export function createAgentArmyMcpServer({
       items:assignments,
       chatRef:chat_ref,
       requestRef:request_ref,
+      sourceAgentId:onlyValue(scope.agentIds) || undefined,
+      sourceProfileId:scope.profileId || onlyValue(scope.agentIds) || undefined,
+      taskCardPolicy:scope.taskCardPolicy || undefined,
       completionDelivery:completion_delivery,
       waitForTerminal:true
     });
@@ -279,19 +286,59 @@ export function createAgentArmyMcpServer({
       options:z.record(z.unknown()).optional().default({}),
       request_id:z.string().regex(/^[A-Za-z0-9._-]{1,80}$/).optional(),
     }),
-  }, ({ capability, input, options, request_id }) => {
+  }, async ({ capability, input, options, request_id }) => {
     if (!scope.localAiCapabilities.includes(capability)) {
       throw new AgentArmyClientError(`当前岗位没有本机 AI 能力 ${capability}。`);
     }
+    const identity = paperclipIdentityFromEnvironment();
+    const verified = await client.getPaperclipAssignment(identity);
+    const taskId = String(verified?.task?.taskId || '').trim();
+    if (!taskId) throw new AgentArmyClientError('当前 Paperclip 指派没有关联真实 A君任务，拒绝调用本机 AI。');
     const safeOptions = { ...options, preferredNode:'mac' };
     delete safeOptions.allowDesktopFallback;
-    return localAi.invoke({
-      capability,
-      input,
-      options:safeOptions,
-      requestId:request_id,
-      approved:false,
+    const spanId = crypto.randomUUID();
+    const startedAt = new Date().toISOString();
+    const record = (event) => client.recordPaperclipLocalAiRunEvent({
+      ...identity,
+      taskId,
+      event:{ capabilityId:capability, spanId, startedAt, ...event },
+    }).catch(() => null);
+    await record({
+      eventType:'capability_call_started',
+      provider:'local-ai',
+      status:'running',
     });
+    try {
+      const result = await localAi.invoke({
+        capability,
+        input,
+        options:safeOptions,
+        requestId:request_id,
+        approved:false,
+      });
+      const finishedAt = new Date().toISOString();
+      await record({
+        eventType:'capability_call_succeeded',
+        provider:String(result?.provider || 'local-ai').slice(0, 120),
+        status:'success',
+        finishedAt,
+        durationMs:Math.max(0, Date.parse(finishedAt) - Date.parse(startedAt)),
+        receiptId:String(result?.requestId || '').slice(0, 160),
+      });
+      return result;
+    } catch (error) {
+      const finishedAt = new Date().toISOString();
+      const ambiguous = error?.code === 'local_ai_gateway_unavailable';
+      await record({
+        eventType:ambiguous ? 'capability_result_ambiguous' : 'capability_call_failed',
+        provider:'local-ai',
+        status:ambiguous ? 'ambiguous' : 'failed',
+        finishedAt,
+        durationMs:Math.max(0, Date.parse(finishedAt) - Date.parse(startedAt)),
+        errorCode:String(error?.code || 'local_ai_failed').slice(0, 120),
+      });
+      throw error;
+    }
   });
 
   read('approval_list', {
@@ -398,6 +445,12 @@ export function createAgentArmyMcpServer({
       summary:z.string().min(1).max(4000),
       evidence:z.string().max(4000).optional(),
       remaining_risks:z.string().max(2000).optional(),
+      quality_review:z.object({
+        status:z.enum(['passed', 'revise', 'blocked']),
+        failed_criteria:z.array(z.string().min(1).max(100)).max(100).optional(),
+        evidence_refs:z.array(z.string().min(1).max(240)).max(100).optional(),
+        safe_summary:z.string().max(1000).optional(),
+      }).optional(),
       evidence_refs:z.array(z.object({
         ref:z.string().min(1).max(500),
         claim:z.string().min(1).max(1000)
@@ -426,13 +479,19 @@ export function createAgentArmyMcpServer({
   }, ({
     status, summary, evidence, remaining_risks, evidence_refs, unverified_claims,
     fact_claims, architecture_judgments, candidate_proposals, current_state_unknowns,
-    consumed_revision_id
+    consumed_revision_id, quality_review
   }) => client.completePaperclipAssignment({
     ...paperclipIdentityFromEnvironment(),
     status,
     summary,
     evidence,
     remainingRisks:remaining_risks,
+    qualityReview:quality_review ? {
+      status:quality_review.status,
+      failedCriteria:quality_review.failed_criteria || [],
+      evidenceRefs:quality_review.evidence_refs || [],
+      safeSummary:quality_review.safe_summary || null,
+    } : undefined,
     evidenceRefs:evidence_refs,
     unverifiedClaims:unverified_claims,
     factClaims:fact_claims,
@@ -610,6 +669,8 @@ export function scopeFromEnvironment() {
   }
   return {
     agentIds,
+    profileId:String(process.env.AGENT_ARMY_PROFILE_ID || onlyValue(agentIds) || '').trim(),
+    taskCardPolicy:taskCardPolicyFromEnvironment(),
     taskTypes,
     enforceToolAllowlist:paperclipHeartbeat,
     allowedTools,
@@ -644,6 +705,11 @@ function isUuid(value) {
 
 function environmentList(name) {
   return [...new Set(String(process.env[name] || '').split(',').map((item) => item.trim()).filter(Boolean))];
+}
+
+function taskCardPolicyFromEnvironment() {
+  const value = String(process.env.AGENT_ARMY_TASK_CARD_POLICY || '').trim();
+  return ['disabled', 'routed-task', 'durable-task', 'incident-only'].includes(value) ? value : '';
 }
 
 function scopedCapabilities(value, scope) {

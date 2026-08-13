@@ -17,6 +17,7 @@ export class OfficePresentationExecution {
     capabilityCatalog,
     executorResolver,
     roleToolAdapters = {},
+    prepareCompletion = (_task, result) => result,
   }) {
     this.workspaceRoot = safeWorkspaceRoot(workspaceRoot);
     this.store = store;
@@ -24,6 +25,7 @@ export class OfficePresentationExecution {
     this.capabilityCatalog = capabilityCatalog;
     this.executorResolver = executorResolver;
     this.roleToolAdapters = roleToolAdapters;
+    this.prepareCompletion = prepareCompletion;
     this.runs = new Map();
   }
 
@@ -72,7 +74,7 @@ export class OfficePresentationExecution {
         adapters:this.roleToolAdapters,
         workspaceRoot,
       });
-      const result = await executor.execute(updated, { roleToolContext });
+      const result = await this.prepareCompletion(updated, await executor.execute(updated, { roleToolContext }));
       updated = await this.store.updateTask(updated.taskId, {
         ...result,
         execution:{
@@ -85,7 +87,7 @@ export class OfficePresentationExecution {
         },
         usage:recordTaskUsage({ task:updated, result, startedAt }),
       });
-      if (updated.status === 'succeeded') await this.syncWorkProducts(updated);
+      if (['succeeded', 'running'].includes(updated.status)) await this.syncWorkProducts(updated);
     } catch (error) {
       updated = await this.store.updateTask(updated.taskId, {
         status:'waiting_test',

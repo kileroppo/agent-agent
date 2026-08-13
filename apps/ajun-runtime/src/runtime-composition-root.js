@@ -28,6 +28,10 @@ import { createFeishuCommandComposition } from './runtime/feishu-command-composi
 import { createPaperclipSystemControlComposition } from './runtime/paperclip-system-control-composition.js';
 import { createRoleExecutionComposition } from './runtime/role-execution-composition.js';
 import { dispatchBoomSignal } from '@agent-army/boom-monitor';
+import { TaskRunEventStore } from './task-run-event-store.js';
+import { TaskRunEventRetention } from './task-run-event-retention.js';
+import { TaskTimelineService } from './task-timeline-service.js';
+import { DeliveryQualityReconciler } from './workflow/delivery-quality-reconciler.ts';
 
 export async function createRuntime({
   environment = process.env,
@@ -69,10 +73,18 @@ const runtimeSource = await resolveRuntimeSourceRoot({
   },
 });
 const sourceProjectRoot = runtimeSource.sourceProjectRoot;
+const taskRunEvents = new TaskRunEventStore(path.join(dataDir, 'task-run-events.sqlite'));
+const store = createTaskStore({ dataDir, mode:environment.AGENT_ARMY_TASK_STORE || 'json' });
 const contentCampaign = await createContentCampaignComposition({
   environment,
   dataDir,
   contentWorkspaceDir:m5ContentWorkspaceDir,
+  taskRunEvents,
+  resolveTaskIdForPaperclipCase:async (caseId) => {
+    const task = (await store.list()).find((item) =>
+      String(item?.input?.context?.pipelineCaseId || '').trim() === String(caseId || '').trim());
+    return task?.taskId || null;
+  },
 });
 const {
   governance,
@@ -80,7 +92,15 @@ const {
   paperclipCurrentRunScope,
   publisherBindings:m5PublisherBindings,
 } = contentCampaign;
-const store = createTaskStore({ dataDir, mode:environment.AGENT_ARMY_TASK_STORE || 'json' });
+const taskRunEventRetention = new TaskRunEventRetention({ eventStore:taskRunEvents });
+try { taskRunEventRetention.runOnce(); }
+catch { logger.warn('任务运行明细启动清理未完成，服务会先继续运行并在下个周期重试。'); }
+const taskRunEventRetentionTimer = setInterval(() => {
+  try { taskRunEventRetention.runOnce(); }
+  catch { logger.warn('任务运行明细保留策略本轮未完成，将在下个周期继续。'); }
+}, 24 * 60 * 60 * 1000);
+taskRunEventRetentionTimer.unref();
+const taskTimeline = new TaskTimelineService({ eventStore:taskRunEvents });
 const interruptedLocalExecutionReconciler = new InterruptedLocalExecutionReconciler({
   store,
   bootedAt,
@@ -137,6 +157,7 @@ const roleExecution = await createRoleExecutionComposition({
   contentCampaign,
   xiaod,
   localAi,
+  taskRunEvents,
   port,
 });
 const {
@@ -148,6 +169,15 @@ const {
   technicalRepairWatchdog,
 } = roleExecution;
 executeVideoAnalysisFallback = roleExecution.executeVideoAnalysisFallback;
+xiaodReconciler.deliveryQuality = tasks.deliveryQuality;
+xiaodReconciler.lifecycleEvents = tasks.taskLifecycleEvents;
+const deliveryQualityReconciler = new DeliveryQualityReconciler({
+  store,
+  deliveryQuality:tasks.deliveryQuality,
+  onResult:(result) => {
+    if (result.status !== 'reconciled') logger.warn('待启动的交付质量复核暂未全部恢复，将在下个周期继续。');
+  },
+});
 const macWorker = new MacWorkerTaskBridge({ store, governance, onFailure:(task) => failureRecovery?.handle(task) });
 const approvalExpiryReconciler = new ApprovalExpiryReconciler({ tasks, onResult:(result) => { if (result.status !== 'synced') logger.warn('过期确认暂时无法自动整理，将自动重试。'); } });
 const missions = new CrossAgentMissionService({ tasks, store, governance });
@@ -208,7 +238,7 @@ const handler = createAjunHttpHandler({
   },
   network:{ deploymentMode, lanEnabled, lanAccess },
   paperclip:paperclipSystemControl,
-  work:{ tasks, store, proposals, missions, macWorker, xiaod, boomMonitor, boomMonitorEnabled },
+  work:{ tasks, store, proposals, missions, macWorker, xiaod, boomMonitor, boomMonitorEnabled, taskTimeline },
   connections:{
     ...feishuCommand.connections,
     accessConnections,
@@ -219,7 +249,11 @@ const handler = createAjunHttpHandler({
   m5:{ campaigns },
 });
 const server = http.createServer(handler);
-server.once('close', () => boomMonitor?.close());
+server.once('close', () => {
+  clearInterval(taskRunEventRetentionTimer);
+  boomMonitor?.close();
+  taskRunEvents.close();
+});
 
 return Object.freeze({
   server,
@@ -236,12 +270,14 @@ return Object.freeze({
   }),
   services:Object.freeze({
     interruptedLocalExecutionReconciler,
+    deliveryQualityReconciler,
     paperclipRosterReconciler,
     approvalExpiryReconciler,
     xiaodReconciler,
     paperclipRepairReconciler,
     paperclipHermesTaskReconciler,
     missionReconciler,
+    taskRunEventRetention,
     boomMonitor:boomMonitorEnabled ? boomMonitor : null,
     technicalRepairWatchdog,
     ...feishuCommand.services,

@@ -21,21 +21,74 @@ M2 当前总管路径见 [ADR-0007](../../docs/adr/0007-hermes-native-feishu-run
 
 布局主链不再通过原文空行或逐条文本正则决定间距。`runtime/agent_army_feishu_layout.py` 复用 Hermes 已安装的 `markdown-it-py`，先把 Markdown 解析为文档标题、章节标题、正文、圆点项、编号项、表格、代码块和引用等语义块，再按块关系生成飞书原生行；同一语义内容无论 Agent 多写、少写空行，行结构都相同。文本修复层只保留编号压行、异常粗体和移动端宽表等输入兼容，不参与章节间距决策；该路径不增加模型调用、延迟或 token 费用。
 
-A君 任务消息还支持灰度的单卡闭环。只有 Hermes 原生 A君 同时启用且 Profile 明确设置
-`AJUN_FEISHU_DYNAMIC_TASK_CARD=true` 时，Commander 才把 `agent.army/task-card/v1`
-投影渲染为一张 interactive card；后续状态使用飞书消息卡片 PATCH 更新同一
-`message_id`，不再补发进度气泡。卡片锚点只在 Profile 私有 `0600` 文件保存元数据，
-初发结果未知会停在 `anchor_uncertain`，不会盲目重发。按钮仅允许批准、拒绝、暂停、
-继续；回调使用 `event.context.open_message_id`，先由 A君 写入审批或控制真相，再同步
-返回最新卡片。单一 supervisor 最大并发 3，按任务年龄使用 2/15/60 秒退避且无固定
-超时。开关默认关闭；卡片运行模块缺失或初次投递明确失败时保留现有中文文本降级。
-卡片账本只把“文件确定不存在”当作空账本；已有账本不可读或 provider 返回后
-无法更新账本时失败关闭，不再补发文本或第二张卡。直接通过 MCP/HTTP 建立且没有
-Hermes 可信卡片锚点回执的任务仍使用终态 watcher；普通请求里自行声明
-`anchorEstablished` 不能关闭该回告。
-当前仅完成源码、测试和安装态只读兼容核验，未安装到活动 Gateway、未重载、未做真实
-飞书点击；正式灰度必须先只给 A君 开启并完成“出现单卡 → 原卡更新 → 点击动作真实
-生效 → 可见决定态”的人工验收，再扩到其他常驻员工。
+飞书任务卡只服务于三类需要持续承载的业务信息：有生命周期的任务进度、后端真实支持
+的审批/暂停/继续，以及经校验的最终交付入口。普通问答、身份或能力说明、秒级查询、
+常规健康检查继续回复简洁文字；任务建立后先等待 5 秒，若已进入终态就只发最终文字，
+仍在执行、等待审批或确有交付入口时才建立卡片。不得为“让更多 Agent 看起来一致”而
+发卡，不得从模型回复文字猜测任务号、故障类型或按钮能力。
+
+卡片策略以 AgentManifest 的 `interaction.taskCardPolicy` 为唯一声明，缺失必须按
+`disabled` 处理：
+
+| 策略 | 岗位 | 使用边界 |
+| --- | --- | --- |
+| `routed-task` | A君 | 正式派发且 5 秒后仍未完成的任务；岗位转派只更新原会话卡片，不在下游重复发卡 |
+| `durable-task` | 小D、小R、小办 | 转写/媒体、持续调研、PPT/文档等有任务真相的持续工作；普通问答和快速结果不用卡片 |
+| `incident-only` | 运维官 | 仅结构化标记的故障、恢复或审批任务；正常巡检和健康摘要保持文字 |
+| `disabled` | 其他岗位 | 不建立独立卡片；作为执行人时显示在 A君或原始发起会话已有卡片中 |
+
+所有启用岗位复用同一 `agent.army/task-card/v1` 渲染与 A君 任务真相，不新增队列、
+会话库或审批系统。同一 `agentId + profileId + chatId + taskId` 只允许一个可信
+`message_id` 锚点，后续状态使用飞书消息卡片 PATCH 原地更新；身份不匹配、旧 revision、
+未知策略和过期按钮都失败关闭。运行中的卡片把“查看任务详情”和“刷新任务状态”分成两个
+明确动作：详情直接在当前飞书卡片内展开/收起，不依赖手机无法访问的本机回环链接；刷新只
+拉取最新权威状态。终态卡片直接展示只读详情并移除全部按钮；业务动作仍只从当前任务投影
+的真实可用动作生成，交付链接只接受经校验的飞书 HTTPS 地址。回调使用
+`event.context.open_message_id`，先写入 A君/Paperclip 权威真相，再返回最新卡片。
+
+卡片元数据保存在各 `HERMES_HOME` 的 Profile 私有 `0600` 账本中；A君、小D、小R、
+小办和运维官之间不得共享锚点。初发结果未知停在 `anchor_uncertain`，不会盲目重发；
+已有账本不可读或 provider 返回后无法更新账本时失败关闭，不补发第二张卡。单一
+supervisor 最大并发 3，按任务年龄使用 2/15/60 秒退避且无固定超时。未收到 Hermes
+可信锚点回执的 MCP/HTTP 任务继续保留终态 watcher，调用方声明
+`anchorEstablished` 不能自行关闭回告。
+
+### 卡片灰度与回滚
+
+活动 Gateway 共用 `~/.hermes/hermes-agent/plugins/platforms/feishu/adapter.py`，但使用
+独立 `HERMES_HOME`、launchd 环境和卡片账本。升级源码先运行聚焦测试，再对共享安装执行
+一次 `patch-feishu-agent-proposal-router.mjs`；启用和回滚必须按 Profile 分开，不复制五份
+adapter。当前运行标签与 Home 为：
+
+| 岗位 | launchd 标签 | `HERMES_HOME` |
+| --- | --- | --- |
+| A君 | `ai.hermes.gateway` | `~/.hermes` |
+| 小D | `com.xiaod.hermes.gateway.retryfix` | `~/.hermes/profiles/xiaod` |
+| 小R | `ai.hermes.gateway-intel-researcher` | `~/.hermes/profiles/intel-researcher` |
+| 小办 | `ai.hermes.gateway-office-assistant` | `~/.hermes/profiles/office-assistant` |
+| 运维官 | `ai.hermes.gateway-operator` | `~/.hermes/profiles/operator` |
+
+Gateway 与岗位 MCP 统一使用 `AGENT_ARMY_TASK_CARD_POLICY`；旧
+`AGENT_ARMY_FEISHU_TASK_CARD_POLICY` 只保留为 Gateway 兼容别名。Profile 同步从 Manifest
+把该策略写入 MCP 环境，launchd 必须写入同值，避免“任务投影允许、Gateway 仍关闭”或反向
+漂移。A君旧 `AJUN_FEISHU_DYNAMIC_TASK_CARD=true` 只作为 `routed-task` 兼容入口，其他岗位不得
+复用这个 A君专用变量。Agent 使用 `AGENT_ARMY_FEISHU_AGENT_ID`（A君旧安装兼容
+`AJUN_FEISHU_ENTRY_AGENT_ID`），Profile 使用 `AGENT_ARMY_PROFILE_ID`；卡片状态与动作
+只访问独立的回环 `AGENT_ARMY_TASK_CARD_BASE_URL`。会话 ID 由结构化接线传递，不能从
+卡片文案推断；非 A君 Profile 即使误留 Commander URL，也必须拒绝进入 A君文本路由。
+删除或设为 `disabled` 后重载目标 Gateway 即为单 Profile 回滚；不要删除账本，因为其中可能
+已经保存飞书可见锚点。
+
+A君当前仍是历史根 Home `~/.hermes`，而 Manifest Profile 同步器的 `ajun` 目标是
+`~/.hermes/profiles/ajun`。在二者完成正式迁移前，不得用 `--only ajun` 的 apply 结果声称
+活动 A君 已同步；A君继续走已通过真实验收的 Commander 与旧开关兼容路径。其他四个活动
+Gateway 才与同步器的 Profile 目录一一对应。
+
+灰度顺序固定为 A君回归 → 小D → 小R → 小办 → 运维官；上一个 Profile 完成“连接恢复、
+单卡出现、原卡刷新、终态收起按钮、账本 `0600`”后才启用下一个。任一 Profile 异常时
+只关闭该 Profile 的卡片开关并重载对应 Gateway，文字回复和其他四个 Gateway 保持运行；
+不要用停掉共享 adapter 或全部 Gateway 作为常规回滚。实际结果登记在
+[飞书任务卡分岗位灰度验收](../../docs/reviews/m2-real-small-army/feishu-task-card-rollout-acceptance.md)。
 
 上述行为由仓库补丁维护，Hermes 升级后须重新执行并验证：
 

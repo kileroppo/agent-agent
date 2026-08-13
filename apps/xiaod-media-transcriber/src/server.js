@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import express from 'express';
 import multer from 'multer';
-import { config, configuredCapabilities } from './config.js';
+import { config, configuredCapabilities, prepareTaskRunEventDatabasePath } from './config.js';
 import { makeJob, normalizeIdempotencyKey, validatePublicHttpUrl } from './domain.js';
 import { canRetryJob, knownLarkDeliveryRecoveryPatch, retryPatch } from './recovery.js';
 import { createPersistentOneShotFailpoint, resetPersistentOneShotFailpoint } from './test-failpoint.js';
@@ -15,6 +15,7 @@ import { ConnectionSelectionError, createContentRuntime } from './content-runtim
 import { ConnectionInputError } from 'ajun-common-access/connection-store';
 import { readTranscriptRevision, reviseTranscript, reviewTranscript, TranscriptReviewError } from './transcript-review.js';
 import { collectMetricsRequest, MetricsRequestError } from './metrics-api.js';
+import { TaskRunEventStore } from 'ajun-runtime/task-run-event-store';
 
 await fs.mkdir(config.workDir, { recursive: true });
 await fs.chmod(config.workDir, 0o700);
@@ -23,9 +24,12 @@ await fs.mkdir(uploadsDir, { recursive: true });
 await fs.chmod(uploadsDir, 0o700);
 const store = new JobStore(config.workDir);
 await store.init();
+const taskRunEventDb = await prepareTaskRunEventDatabasePath(config.taskRunEventDb);
+const taskRunEvents = new TaskRunEventStore(taskRunEventDb);
+const onRunEvent = (event) => taskRunEvents.appendTaskRunEvent(event);
 const contentRuntime = await createContentRuntime(config.workDir);
 const pauseController = new JobPauseController({ store });
-const larkDelivery = new LarkDeliveryCoordinator({ store });
+const larkDelivery = new LarkDeliveryCoordinator({ store, onRunEvent });
 const failpointMarkerPath = path.join(config.workDir, '.acceptance-test-failpoint-consumed');
 if (!config.testFailOnceAt) await resetPersistentOneShotFailpoint(failpointMarkerPath);
 const pipeline = new MediaPipeline({
@@ -34,6 +38,7 @@ const pipeline = new MediaPipeline({
   contentCenter: contentRuntime.contentCenter,
   pauseController,
   delivery:larkDelivery,
+  onRunEvent,
   failpoint: createPersistentOneShotFailpoint(config.testFailOnceAt, failpointMarkerPath)
 });
 const upload = multer({ dest: uploadsDir, limits: { fileSize: 1024 * 1024 * 1024 } });
@@ -107,6 +112,7 @@ app.post('/api/jobs', async (req, res, next) => {
       visualMode:req.body?.visualMode,
       analysisDepth:req.body?.analysisDepth,
       deliveryMode:req.body?.deliveryMode,
+      agentArmyTaskId:idempotencyKey?.startsWith('agent-army:') ? idempotencyKey.slice('agent-army:'.length) : null,
       ingress:idempotencyKey ? { platform:'agent-army-mac-worker', idempotencyKey } : null
     });
     const result = idempotencyKey
@@ -336,7 +342,8 @@ app.use((error, _req, res, _next) => {
   res.status(500).json({ error: '服务发生异常，请查看终端日志。' });
 });
 
-app.listen(config.port, config.host, () => console.log(`媒体转录 Agent 已启动：http://${config.host}:${config.port}`));
+const server = app.listen(config.port, config.host, () => console.log(`媒体转录 Agent 已启动：http://${config.host}:${config.port}`));
+server.once('close', () => taskRunEvents.close());
 
 function localCookieBridgeAccountsEndpoint(value) {
   try {

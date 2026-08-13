@@ -188,7 +188,8 @@ test("治理岗位保留独立 Hermes 身份，只有运维官常驻飞书入口
       runtime:"hermes-profile",
       directFeishu:alwaysOnGovernanceAgentIds.includes(agentId) ? "required" : "disabled",
       visibility:"on-demand",
-      groupPolicy:"mention-only"
+      groupPolicy:"mention-only",
+      ...(agentId === "operator" ? { taskCardPolicy:"incident-only" } : {})
     });
     assert.equal(manifest.executionOwner, "paperclip-hermes");
     assert.ok(manifest.runtimeCapabilities.skills.includes("paperclip"));
@@ -224,6 +225,37 @@ test("治理岗位保留独立 Hermes 身份，只有运维官常驻飞书入口
     assert.ok(profile.mcp.tools.includes("paperclip_assignment_complete"));
     assert.deepEqual(profile.toolAllowlist, manifest.toolAllowlist);
     assert.equal(profile.secrets.valuesStoredHere, false);
+  }
+});
+
+test("飞书任务卡策略由 Manifest 声明，未配置岗位默认关闭", async () => {
+  const schema = await readJson(path.join(repositoryRoot, "agents/schema/agent-manifest.schema.json"));
+  const policySchema = schema.properties.interaction.properties.taskCardPolicy;
+  assert.deepEqual(policySchema.enum, ["disabled", "routed-task", "durable-task", "incident-only"]);
+  assert.equal(policySchema.default, "disabled");
+  assert.ok(!schema.properties.interaction.required.includes("taskCardPolicy"));
+
+  const expectedPolicies = new Map([
+    ["ajun", "routed-task"],
+    ["xiaod", "durable-task"],
+    ["intel-researcher", "durable-task"],
+    ["office-assistant", "durable-task"],
+    ["operator", "incident-only"]
+  ]);
+  const entries = await readdir(path.join(repositoryRoot, "agents"), { withFileTypes:true });
+  for (const entry of entries.filter((item) => item.isDirectory())) {
+    const filePath = path.join(repositoryRoot, "agents", entry.name, "manifest.json");
+    try {
+      const manifest = await readJson(filePath);
+      const expected = expectedPolicies.get(manifest.agentId) ?? "disabled";
+      assert.equal(
+        manifest.interaction?.taskCardPolicy ?? policySchema.default,
+        expected,
+        `${manifest.agentId} 飞书任务卡策略不符合约定`
+      );
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
   }
 });
 

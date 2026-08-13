@@ -67,7 +67,8 @@
     "runtime": "hermes-profile",
     "directFeishu": "required",
     "visibility": "always-on",
-    "groupPolicy": "mention-only"
+    "groupPolicy": "mention-only",
+    "taskCardPolicy": "routed-task"
   },
   "executionOwner": "paperclip-hermes",
   "openTaskPolicy": {

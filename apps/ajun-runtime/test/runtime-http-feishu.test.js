@@ -146,6 +146,107 @@ test('Commander 与任务状态 HTTP API 返回相同版本的权威卡片投影
   assert.equal(status.body.message, '正在整理公开资料。');
 });
 
+test('非 A君任务卡状态严格绑定 Agent Profile 和原飞书会话', async (context) => {
+  const task = {
+    taskId,
+    taskType:'research.intel-report',
+    status:'running',
+    assigneeAgentId:'intel-researcher',
+    input:{ title:'研究公开资料' },
+    source:{
+      channel:'feishu',
+      chatRef:'chat-research',
+      targetAgentId:'intel-researcher',
+      profileId:'intel-researcher',
+      taskCardPolicy:'durable-task',
+    },
+    updatedAt:'2026-08-12T03:00:00.000Z',
+  };
+  const fixture = await startFeishuHandler(context, {
+    work:{
+      store:{
+        async list() { return [task]; },
+        async listApprovals() { return []; },
+      },
+      tasks:{
+        async recoveryView() { return { actions:[] }; },
+        async notificationStatus() {
+          return { taskId, status:'running', terminal:false, message:'正在研究。' };
+        },
+      },
+    },
+    feishu:{ commander:{ async handle() { return { reply:'ok' }; } } },
+  });
+
+  const valid = await postJson(`${fixture.baseUrl}/api/feishu/task-status`, {
+    taskId,
+    agentId:'intel-researcher',
+    profileId:'intel-researcher',
+    chatId:'chat-research',
+  });
+  assert.equal(valid.response.status, 200);
+  assert.equal(valid.body.taskCard.agentId, 'intel-researcher');
+  assert.equal(valid.body.taskCard.profileId, 'intel-researcher');
+  assert.equal(valid.body.taskCard.chatId, 'chat-research');
+  assert.equal(valid.body.taskCard.taskCardPolicy, 'durable-task');
+  assert.equal(valid.body.taskCard.taskKind, 'research.intel-report');
+
+  for (const mismatch of [
+    { agentId:'office-assistant', profileId:'intel-researcher', chatId:'chat-research' },
+    { agentId:'intel-researcher', profileId:'office-assistant', chatId:'chat-research' },
+    { agentId:'intel-researcher', profileId:'intel-researcher', chatId:'other-chat' },
+  ]) {
+    const result = await postJson(`${fixture.baseUrl}/api/feishu/task-status`, { taskId, ...mismatch });
+    assert.equal(result.response.status, 422);
+  }
+});
+
+test('非 A君任务卡动作不能跨 Profile 或跨会话使用', async () => {
+  const task = {
+    taskId,
+    status:'running',
+    input:{ title:'整理公开视频' },
+    source:{
+      channel:'feishu',
+      chatRef:'chat-xiaod',
+      targetAgentId:'xiaod',
+      profileId:'xiaod',
+    },
+    execution:{ executor:'xiaod', xiaodJobId:'job-1' },
+  };
+  const store = {
+    async getTask() { return task; },
+    async listApprovals() { return []; },
+  };
+  let pauseRequests = 0;
+  const tasks = {
+    async recoveryView() { return { actions:[] }; },
+    async requestPause() { pauseRequests += 1; },
+  };
+
+  const current = presentCommanderReply({ task, reply:'正在处理。' }).taskCard;
+  const applied = await resolveTaskCardAction({
+    taskId,
+    action:'pause',
+    agentId:'xiaod',
+    profileId:'xiaod',
+    chatId:'chat-xiaod',
+    sourceRevision:current.sourceRevision,
+    contentHash:current.contentHash,
+  }, { store, tasks, resolveApproval:async () => {} });
+  assert.equal(applied.actionApplied, true);
+  assert.equal(pauseRequests, 1);
+
+  await assert.rejects(() => resolveTaskCardAction({
+    taskId,
+    action:'pause',
+    agentId:'xiaod',
+    profileId:'intel-researcher',
+    chatId:'chat-xiaod',
+  }, { store, tasks, resolveApproval:async () => {} }), /Profile/);
+  assert.equal(pauseRequests, 1);
+});
+
 test('恢复子任务推进时卡片 revision 随链上权威时间变化', () => {
   const root = {
     taskId,

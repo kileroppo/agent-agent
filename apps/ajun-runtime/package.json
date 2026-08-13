@@ -4,6 +4,9 @@
   "private": true,
   "description": "Agent Army local capability gateway, execution adapter, diagnostics, and recovery runtime",
   "type": "module",
+  "exports": {
+    "./task-run-event-store": "./src/task-run-event-store.js"
+  },
   "scripts": {
     "dev": "AJUN_HOST=127.0.0.1 AJUN_DEV_HOT_RELOAD=true AJUN_DISABLE_BACKGROUND_SERVICES=true PORT=${PORT:-4322} node --watch-preserve-output --watch-path=src --watch-path=public --watch-path=../../agents --watch-path=../../integrations --watch-path=../../packages src/server.js",
     "start": "node src/server.js",

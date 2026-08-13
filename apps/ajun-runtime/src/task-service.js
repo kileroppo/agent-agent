@@ -15,6 +15,9 @@ import { privateReadGrantStatus, revokePrivateReadGrant } from './private-read-g
 import { taskApprovalCoordinatorMethods } from './task-approval-coordinator.js';
 import { TaskOverview } from './task-overview.js';
 import { taskXiaodTranscriptRevisionMethods } from './task-xiaod-transcript-revision.js';
+import { TaskLifecycleEventRecorder } from './task-lifecycle-event-recorder.js';
+import { DeliveryQualityRuntime, prepareDeliveryQualityResult } from './workflow/delivery-quality-runtime.ts';
+import { TaskLocalAiRunEventRecorder } from './task-local-ai-run-event-recorder.js';
 
 export class TaskService {
   constructor({
@@ -37,6 +40,7 @@ export class TaskService {
     localAiCapabilityStatus = null,
     officePresentationWorkspaceRoot = null,
     usageLedger = null,
+    taskRunEvents = null,
   }) {
     this.registry = registry;
     this.store = store;
@@ -58,6 +62,9 @@ export class TaskService {
     this.skillExecutionRegistry = skillExecutionRegistry;
     this.localAiCapabilityStatus = typeof localAiCapabilityStatus === 'function' ? localAiCapabilityStatus : null;
     this.usageLedger = usageLedger;
+    this.taskLifecycleEvents = new TaskLifecycleEventRecorder({ eventStore:taskRunEvents });
+    this.localAiRunEvents = new TaskLocalAiRunEventRecorder({ eventStore:taskRunEvents, registry,
+      resolveAssignment:(input) => this.getPaperclipAssignment(input) });
     this.contentGrowthWaitMs = Math.max(1, Math.min(Number(contentGrowthWaitMs) || 240_000, 240_000));
     this.contentGrowthRuns = new Map();
     this.employeeAssignmentRuns = new Map();
@@ -84,6 +91,7 @@ export class TaskService {
       fallbackExecutorResolver:() => this.fallbackExecutor,
       markFailureRecoveryPending:(task) => this.failureRecovery.markPending(task),
       startFailureRecovery:(task) => this.failureRecovery.start(task),
+      prepareCompletion:prepareDeliveryQualityResult,
     });
     this.officePresentationExecution = new OfficePresentationExecution({
       workspaceRoot:officePresentationWorkspaceRoot,
@@ -92,6 +100,7 @@ export class TaskService {
       capabilityCatalog,
       executorResolver:(agentId) => capabilityCatalog.executor(agentId, this.executors),
       roleToolAdapters,
+      prepareCompletion:prepareDeliveryQualityResult,
     });
     this.intake = new TaskIntake({
       registry,
@@ -115,12 +124,20 @@ export class TaskService {
       getAgentChannelStates:() => this.agentChannelStates,
       getWorkerStatus:() => this.workerStatus,
     });
+    this.deliveryQuality = new DeliveryQualityRuntime({
+      store,
+      createTask:(input) => this.create(input),
+      taskRunEvents,
+      syncTask:async (task) => this.store.updateTask(task.taskId, { governance:await this.governance.update(task) }),
+    });
   }
 
   setFeishuChannelStatus(status) { this.feishuChannelStatus = status; }
   setAgentChannelStates(status) { this.agentChannelStates = status; }
   setWorkerStatus(status) { this.workerStatus = status; }
   setM5WorkProductObserver(observer) { this.m5WorkProductObserver = observer; }
+
+  recordPaperclipLocalAiRunEvent(input = {}) { return this.localAiRunEvents.record(input); }
 
   async architectureGroundTruth() {
     return buildArchitectureGroundTruth({
@@ -130,7 +147,11 @@ export class TaskService {
   }
 
   async create(input) {
-    return this.intake.create(input);
+    const startedAt = new Date().toISOString();
+    let task = await this.intake.create(input);
+    task = await this.deliveryQuality.continue(task);
+    this.taskLifecycleEvents.recordCreated(task, startedAt);
+    return task;
   }
 
   async continueFromRecommendation(taskId) {

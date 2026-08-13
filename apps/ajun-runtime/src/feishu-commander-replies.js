@@ -3,9 +3,13 @@ import { formatOfficeBriefingReply } from './local-office-assistant.js';
 import { resolveAnalysisIntent } from './analysis-intent.ts';
 import { validateTaskCompletion } from './task-completion-contract.js';
 
+export { safeAgentId, safeLoopbackBaseUrl, safeRef } from './feishu-commander-input.js';
+export { employeeCapabilityTruth, employeeRole } from './feishu-employee-status-presentation.js';
+
 export const CREATE_AGENT_RE = /(?:创建|新建|招募|招)\s*(?:一个\s*)?.{0,80}?(?:agent|智能体|岗位|助手)/i;
 export const PROGRESS_RE = /进度|进展|做到哪|处理得怎么样|完成了吗|结果呢|任务状态/;
 export const EXPLICIT_TASK_CREATION_RE = /(?:创建|新建|发起|安排)\s*(?:一个|一项|个|项)?\s*(?:测试)?任务/i;
+export const EXPLICIT_NO_TASK_RE = /(?:不要|不用|无需|不需要|禁止|别)\s*(?:创建|新建|发起|安排)\s*(?:一个|一项|个|项)?\s*(?:测试)?任务/i;
 export const TASK_ROUTING_DECISION_SCHEMA_VERSION = 'agent.army/feishu-task-routing-decision/v1';
 export const USAGE_RE = /花了多少|花费|成本|费用|消耗|用量|token|账单|开销|实际使用/i;
 export const FOLLOW_UP_RE = /^(?:需要|处理|继续|好的|好|行|可以|开始)$/;
@@ -62,6 +66,7 @@ export function taskTypeForIntent(intent) {
 
 export function taskRoutingDecision(text) {
   const value = String(text || '').trim();
+  if (isDirectReplyWithoutTask(value)) return null;
   const asksHowToCreate = /(?:如何|怎么|怎样|能否|可以|是否).{0,24}(?:创建|新建|发起|安排).{0,12}任务/i.test(value);
   if (EXPLICIT_TASK_CREATION_RE.test(value) && !asksHowToCreate) {
     const plan = explicitTaskCreationPlan(value) || { intent:'intake' };
@@ -87,6 +92,12 @@ export function taskRoutingDecision(text) {
     reason:query.taskId ? 'task_id_reference' : 'progress_query',
     query,
   };
+}
+
+export function isDirectReplyWithoutTask(text) {
+  const value = String(text || '').trim();
+  if (!EXPLICIT_NO_TASK_RE.test(value)) return false;
+  return /(?:直接|只(?:需|要)?)(?:在(?:当前|本)?会话)?回复|(?:不要|不用|无需|不需要|禁止|别)\s*(?:调用|使用)\s*(?:任何)?工具/i.test(value);
 }
 
 export function directIntent(text) {
@@ -486,34 +497,6 @@ export function uniqueTasks(tasks) { return [...new Map(tasks.map((task) => [sho
 
 export function isVisibleEmployee(agent) { return agent.agentId !== 'creator'; }
 
-export function employeeRole(agent) {
-  const roles = {
-    xiaod: '负责整理公开视频和音频',
-    'public-reporter': '负责读取公开网页并写中文报告',
-    'intel-researcher': '负责围绕主题综合公开资料并给行动建议',
-    'office-assistant': '负责把材料和员工结果整理成办公汇报包',
-    'video-content-analyst': '负责基于确认稿拆解视频内容和复盘表现',
-    'content-creator': '负责根据正式分析生成可审核平台草稿',
-    operator: '负责检查运行情况和恢复异常',
-    reviewer: '负责把关需要你确认的事项',
-    architect: '负责评估能力缺口和下一步',
-    'technical-expert': '负责排查和修复技术问题',
-    creator: '负责准备新员工草案'
-  };
-  return roles[agent.agentId] || agent.role || '负责已分配的工作';
-}
-
-export function employeeCapabilityTruth(agent) {
-  return ({
-    human_accepted:'能力已人工验收',
-    verified:'能力已有真实任务证据',
-    live:'运行可达，业务能力待验证',
-    configured:'已配置，运行与业务能力待验证',
-    declared:'岗位已登记，能力尚未验证',
-    not_declared:'能力尚未接入',
-  })[agent?.capabilityTruth?.overall] || '能力状态待核对';
-}
-
 export function formatGithubReply(data) {
   if (data.repo) return [`【小R 已读取公开仓库】`, `${data.repo} · ${data.path}`, '', data.summary || '没有可提炼的文本要点。', '', `来源：${data.source || `https://github.com/${data.repo}`}`].join('\n');
   const lines = (data.results || []).map((item, index) => `${index + 1}. ${item.fullName}（★ ${item.stars}，${item.language || '语言未提供'}）\n   ${item.suitability || item.assessment || ''}${item.suitability && item.assessment ? `\n   元数据判断：${item.assessment}` : ''}\n   ${item.url}`);
@@ -612,17 +595,4 @@ export function capabilityMenuIntent(text, context) {
 
 export function publicUrl(text) {
   return String(text).match(/https?:\/\/[^\s<>"'，。；：！？、【】（）《》“”‘’]+/i)?.[0]?.replace(/[)\]},.;]+$/, '') || null;
-}
-export function safeRef(value) { return String(value || '').trim().slice(0, 240) || null; }
-export function safeAgentId(value) {
-  const agentId = String(value || '').trim();
-  return /^[a-z0-9][a-z0-9-]{0,63}$/i.test(agentId) ? agentId : null;
-}
-export function safeLoopbackBaseUrl(value) {
-  if (!value) return null;
-  try {
-    const parsed = new URL(value);
-    if (!['127.0.0.1', 'localhost', '::1'].includes(parsed.hostname)) return null;
-    return parsed.toString().replace(/\/$/, '');
-  } catch { return null; }
 }

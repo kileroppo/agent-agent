@@ -68,6 +68,7 @@
 - [Agent 使用说明书问答验收](./current/agent-manual-query-handoff.md)：由负责人复验小D只返回最终说明书，再完成权限边界验收。
 - [小R多路线搜索与证据方法](./current/intel-research-search-method-handoff.md)：完成不可变 release 与一条真实公开研究质量验收。
 - [Agent 人性化体验验收](./current/m2-agent-experience-polish-handoff.md)：在真实飞书原会话验证处理图标、移动端排版和任务链接。
+- [能力 Plan B 与运行事件](./current/capability-plan-b-and-run-events-handoff.md)：全仓回归、质量闭环和外部能力事件接线已收口，正在形成干净不可变候选并切换正式 A君/小D。
 - [M5 高权限内容自治](./current/m5-high-autonomy-content-operations-handoff.md)：Campaign 已停止，旧 Profile lease 已过期，Publisher 保持关闭；先完成新的脱敏 readiness 快照与只读预检，任何恢复、Provider 注入或平台写入仍需独立授权。
 
 已闭环的系统稳定性与微信本机分析验收已移入

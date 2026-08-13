@@ -1,20 +1,23 @@
 """Deterministic Feishu task-card rendering and delivery decisions.
 
 This module deliberately owns no task queue, persistence, or network client.
-The AJun runtime remains the authority for ``agent.army/task-card/v1`` and the
-Hermes adapter only uses these helpers to render and advance one card anchor.
+The Agent Army task service remains the authority for
+``agent.army/task-card/v1`` and the Hermes adapter only uses these helpers to
+render and advance one profile-scoped card anchor.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, Mapping, Optional
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 
 TASK_CARD_SCHEMA = "agent.army/task-card/v1"
 ALLOWED_ACTIONS = frozenset({"approve", "reject", "pause", "resume"})
 SUPERVISOR_MAX_CONCURRENCY = 3
+TASK_CARD_POLICIES = frozenset({"routed-task", "durable-task", "incident-only", "disabled"})
 
 _ACTION_PRESENTATION = {
     "approve": ("批准", "primary"),
@@ -33,6 +36,18 @@ _HEADER_TEMPLATES = {
     "violet": "violet",
 }
 _DELIVERY_STATES_WITH_UNCERTAIN_ANCHOR = frozenset({"sending", "anchor_uncertain", "unknown"})
+_INCIDENT_TASK_KINDS = frozenset({
+    "incident",
+    "recovery",
+    "approval",
+    "operations.incident",
+    "operations.incident-response",
+    "operations.recovery",
+    "operations.failure-recovery",
+    "governance.approval",
+})
+_ROUTINE_HEALTH_TASK_KINDS = frozenset({"operations.health-review"})
+_TRUSTED_FEISHU_LINK_HOSTS = frozenset({"feishu.cn", "feishu.com", "larksuite.com"})
 _STATE_LABELS = {
     "queued": "排队中",
     "running": "处理中",
@@ -54,7 +69,7 @@ _OWNER_LABELS = {
     "technical-expert": "技术专家",
     "xiaod": "小D",
     "office-assistant": "小办",
-    "intel-researcher": "小研",
+    "intel-researcher": "小R",
     "creator": "创建官",
 }
 
@@ -89,6 +104,86 @@ def _display_time(value: Any) -> str:
         return text
 
 
+def _identity(value: Mapping[str, Any], name: str) -> str:
+    aliases = {
+        "agentId": ("agentId", "agent_id"),
+        "profileId": ("profileId", "profile_id"),
+        "chatId": ("chatId", "chat_id"),
+    }
+    return _text(_field(value, *aliases[name]), 240)
+
+
+def _trusted_delivery_url(value: Any) -> str:
+    raw_url = str(value or "").strip()
+    if any(character.isspace() for character in raw_url):
+        return ""
+    url = raw_url[:500]
+    if not url:
+        return ""
+    try:
+        parsed = urlsplit(url)
+        hostname = (parsed.hostname or "").lower().rstrip(".")
+        trusted_host = any(
+            hostname == suffix or hostname.endswith(f".{suffix}")
+            for suffix in _TRUSTED_FEISHU_LINK_HOSTS
+        )
+        if parsed.scheme != "https" or not trusted_host or parsed.username or parsed.password:
+            return ""
+        return url
+    except (TypeError, ValueError):
+        return ""
+
+
+def _markdown_link_label(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+
+
+def task_card_policy_decision(
+    projection: Mapping[str, Any], task_card_policy: Any = None
+) -> Dict[str, Any]:
+    """Return a fail-closed delivery decision for an explicit card policy.
+
+    Missing policy preserves the original v1 AJun contract.  ``incident-only``
+    accepts only a structured taskKind/category marker; presentation copy is
+    never inspected to infer incident intent.
+    """
+    policy = _text(
+        task_card_policy if task_card_policy is not None else projection.get("taskCardPolicy"),
+        40,
+    ).lower()
+    if not policy:
+        return {"allowed": True, "policy": "legacy", "reason": "legacy_v1"}
+    if policy not in TASK_CARD_POLICIES:
+        return {"allowed": False, "policy": policy, "reason": "policy_unsupported"}
+    if policy == "disabled":
+        return {"allowed": False, "policy": policy, "reason": "policy_disabled"}
+    if policy != "incident-only":
+        return {"allowed": True, "policy": policy, "reason": "policy_allows_task"}
+    task_kind = _text(_field(projection, "taskKind", "category", "taskType"), 120).lower()
+    if task_kind in _ROUTINE_HEALTH_TASK_KINDS:
+        return {"allowed": False, "policy": policy, "reason": "routine_health_excluded"}
+    if task_kind in _INCIDENT_TASK_KINDS:
+        return {"allowed": True, "policy": policy, "reason": "incident_kind_allowed"}
+    state = _text(projection.get("state"), 80).lower()
+    structured_actions = {
+        str(candidate.get("id") or candidate.get("action") or "").strip().lower()
+        if isinstance(candidate, Mapping) else str(candidate or "").strip().lower()
+        for candidate in projection.get("actions") or []
+    }
+    if state == "waiting_approval" or structured_actions.intersection({"approve", "reject"}):
+        return {"allowed": True, "policy": policy, "reason": "approval_state_allowed"}
+    return {"allowed": False, "policy": policy, "reason": "incident_kind_required"}
+
+
+def _action_identity(projection: Mapping[str, Any], task_id: str) -> Dict[str, str]:
+    identity = {"taskId": task_id, "task_id": task_id}
+    for name in ("agentId", "profileId", "chatId"):
+        value = _identity(projection, name)
+        if value:
+            identity[name] = value
+    return identity
+
+
 def _normalized_actions(projection: Mapping[str, Any]) -> Iterable[Dict[str, Any]]:
     if projection.get("terminal") is True:
         return []
@@ -106,7 +201,9 @@ def _normalized_actions(projection: Mapping[str, Any]) -> Iterable[Dict[str, Any
     return normalized
 
 
-def render_task_card(projection: Mapping[str, Any]) -> Dict[str, Any]:
+def render_task_card(
+    projection: Mapping[str, Any], *, details_expanded: bool = False
+) -> Dict[str, Any]:
     """Render one authoritative task projection as a Feishu interactive card."""
     if not isinstance(projection, Mapping) or projection.get("schemaVersion") != TASK_CARD_SCHEMA:
         raise ValueError(f"expected {TASK_CARD_SCHEMA} projection")
@@ -134,6 +231,7 @@ def render_task_card(projection: Mapping[str, Any]) -> Dict[str, Any]:
         "danger": "red",
         "muted": "grey",
     }.get(tone, _HEADER_TEMPLATES.get(tone, "blue"))
+    action_identity = _action_identity(projection, task_id)
 
     facts = [f"**状态**：{state}"]
     if owner:
@@ -142,6 +240,22 @@ def render_task_card(projection: Mapping[str, Any]) -> Dict[str, Any]:
     elements: list[Dict[str, Any]] = [{"tag": "markdown", "content": body}]
     if next_action and "".join(next_action.split()) not in "".join(summary.split()):
         elements.append({"tag": "markdown", "content": f"**下一步**：{next_action}"})
+
+    show_details = details_expanded or projection.get("terminal") is True
+    if show_details:
+        details = projection.get("details") if isinstance(projection.get("details"), Mapping) else {}
+        task_type = _text(details.get("taskType"), 80, "军团任务")
+        created_at = _display_time(details.get("createdAt"))
+        detail_lines = [
+            "**任务详情**",
+            f"**任务编号**：{task_ref}",
+            f"**任务类型**：{task_type}",
+        ]
+        if created_at:
+            detail_lines.append(f"**创建时间**：{created_at}")
+        if updated_at:
+            detail_lines.append(f"**最近更新**：{updated_at}")
+        elements.append({"tag": "markdown", "content": "\n".join(detail_lines)})
 
     buttons = []
     for action_view in _normalized_actions(projection):
@@ -155,7 +269,7 @@ def render_task_card(projection: Mapping[str, Any]) -> Dict[str, Any]:
                 "type": button_type,
                 "value": {
                     "agent_army_task_card_action": action,
-                    "task_id": task_id,
+                    **action_identity,
                     "source_revision": revision,
                     "content_hash": content_hash,
                     "approval_id": action_view["approvalId"],
@@ -168,33 +282,54 @@ def render_task_card(projection: Mapping[str, Any]) -> Dict[str, Any]:
 
     primary_link = projection.get("primaryLink")
     if isinstance(primary_link, Mapping):
-        link_url = _text(primary_link.get("url"), 500)
+        link_url = _trusted_delivery_url(primary_link.get("url"))
         link_label = _text(primary_link.get("label"), 80, "打开交付结果")
-        if link_url.startswith("https://"):
-            elements.append({
-                "tag": "action",
-                "actions": [{
-                    "tag": "button",
-                    "text": {"tag": "plain_text", "content": link_label},
-                    "type": "primary",
-                    "url": link_url,
-                }],
-            })
+        if link_url:
+            if projection.get("terminal") is True:
+                markdown_label = _markdown_link_label(link_label)
+                markdown_url = link_url.replace("(", "%28").replace(")", "%29")
+                elements.append({"tag": "markdown", "content": f"[{markdown_label}]({markdown_url})"})
+            else:
+                elements.append({
+                    "tag": "action",
+                    "actions": [{
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": link_label},
+                        "type": "primary",
+                        "url": link_url,
+                    }],
+                })
 
     if projection.get("terminal") is not True:
         elements.append({
             "tag": "action",
-            "actions": [{
-                "tag": "button",
-                "text": {"tag": "plain_text", "content": f"查看最新状态 · {task_ref}"[:80]},
-                "type": "default",
-                "value": {
-                    "agent_army_task_card_action": "refresh",
-                    "task_id": task_id,
-                    "source_revision": revision,
-                    "content_hash": content_hash,
+            "actions": [
+                {
+                    "tag": "button",
+                    "text": {
+                        "tag": "plain_text",
+                        "content": "收起任务详情" if details_expanded else "查看任务详情",
+                    },
+                    "type": "default",
+                    "value": {
+                        "agent_army_task_card_action": "collapse_details" if details_expanded else "details",
+                        **action_identity,
+                        "source_revision": revision,
+                        "content_hash": content_hash,
+                    },
                 },
-            }],
+                {
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "刷新任务状态"},
+                    "type": "default",
+                    "value": {
+                        "agent_army_task_card_action": "refresh",
+                        **action_identity,
+                        "source_revision": revision,
+                        "content_hash": content_hash,
+                    },
+                },
+            ],
         })
 
     note = f"任务 {task_ref}"
@@ -237,7 +372,7 @@ def _compare_revision(current: Any, incoming: Any) -> Optional[int]:
 
 
 def decide_task_card_delivery(
-    record: Optional[Mapping[str, Any]], projection: Mapping[str, Any]
+    record: Optional[Mapping[str, Any]], projection: Mapping[str, Any], *, task_card_policy: Any = None
 ) -> Dict[str, Any]:
     """Choose send/update/skip without guessing whether an anchor was created.
 
@@ -253,12 +388,36 @@ def decide_task_card_delivery(
     revision = projection.get("sourceRevision")
     content_hash = _text(projection.get("contentHash"), 160)
     common = {"taskId": task_id, "sourceRevision": revision, "contentHash": content_hash}
+    for name in ("agentId", "profileId", "chatId"):
+        value = _identity(projection, name)
+        if value:
+            common[name] = value
+
+    policy_decision = task_card_policy_decision(projection, task_card_policy)
+    if not policy_decision["allowed"]:
+        return {
+            "operation": "skip",
+            "reason": policy_decision["reason"],
+            "taskCardPolicy": policy_decision["policy"],
+            **common,
+        }
 
     if not record:
         return {"operation": "send", "reason": "anchor_missing", **common}
     recorded_task_id = _text(_field(record, "taskId", "task_id"), 160)
     if recorded_task_id and recorded_task_id != task_id:
         return {"operation": "skip", "reason": "task_mismatch", **common}
+    for name, reason in (
+        ("agentId", "agent_mismatch"),
+        ("profileId", "profile_mismatch"),
+        ("chatId", "chat_mismatch"),
+    ):
+        recorded_identity = _identity(record, name)
+        projection_identity = _identity(projection, name)
+        if recorded_identity and not projection_identity:
+            return {"operation": "skip", "reason": f"{name[:-2].lower()}_missing", **common}
+        if recorded_identity and projection_identity and recorded_identity != projection_identity:
+            return {"operation": "skip", "reason": reason, **common}
 
     message_id = _text(_field(record, "messageId", "message_id"), 240)
     delivery_state = _text(_field(record, "deliveryState", "delivery_state"), 40).lower()

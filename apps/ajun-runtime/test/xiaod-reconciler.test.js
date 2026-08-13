@@ -4,8 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { XiaodReconciler } from '../src/xiaod-reconciler.js';
+import { TaskLifecycleEventRecorder } from '../src/task-lifecycle-event-recorder.js';
 
-function setup({ taskPatch = {}, getJob, onFailure = null, contentWorkspaceDir = null } = {}) {
+function setup({ taskPatch = {}, getJob, onFailure = null, contentWorkspaceDir = null, deliveryQuality = null, lifecycleEvents = null } = {}) {
   const task = {
     taskId: 'task-1', taskType:'media.transcribe-and-refine', status: 'running', currentStage: 'delegated_to_xiaod', artifactRefs: [],
     execution: { executor: 'xiaod', xiaodJobId: 'xiaod-1', polling: { state: 'pending', consecutiveFailures: 0, nextPollAt: null } },
@@ -23,6 +24,8 @@ function setup({ taskPatch = {}, getJob, onFailure = null, contentWorkspaceDir =
       xiaod:{ baseUrl:'http://127.0.0.1:4318', getJob },
       onFailure,
       contentWorkspaceDir,
+      deliveryQuality,
+      lifecycleEvents,
       now,
     }),
   };
@@ -36,6 +39,73 @@ test('central reconciler settles a persisted running task after restart', async 
   const delivery = task.artifactRefs.find((artifact) => artifact.type === 'xiaod_media_delivery');
   assert.equal(delivery.artifactId, 'xiaod-job:xiaod-1');
   assert.equal(delivery.data.larkPermissionGranted, true);
+});
+
+test('小D异步成功先扣留为质量复核并交给 DeliveryQualityRuntime 创建复核', async () => {
+  const continued = [];
+  const deliveryQuality = {
+    async continue(task) {
+      continued.push(structuredClone(task));
+      task.deliveryQualityRuntime = {
+        status:'review_pending',
+        reviewTaskId:'review-task-1',
+      };
+      return task;
+    },
+  };
+  const { task, reconciler } = setup({
+    taskPatch:{
+      qualityTier:'important',
+      input:{ title:'团队正式素材整理', usageScenario:'发给团队直接使用', sourceUrl:'https://example.com/video', qualityTier:'important' },
+      deliveryBrief:{
+        readiness:'ready', purpose:'整理正式素材', audience:'团队', usageScenario:'正式使用',
+        deliverables:['完整整理稿'], acceptanceCriteria:['内容完整且可读'], constraints:[],
+      },
+    },
+    deliveryQuality,
+    getJob:async () => ({
+      id:'xiaod-1', status:'completed', title:'正式素材',
+      output:{ markdownPath:'/tmp/result.md', larkUrl:'https://example.feishu.cn/docx/result', larkPermissionGranted:true },
+      quality:{ passed:true },
+    }),
+  });
+
+  await reconciler.reconcile();
+
+  assert.equal(continued.length, 1);
+  assert.equal(continued[0].status, 'running');
+  assert.equal(continued[0].currentStage, 'delivery_quality_review_pending');
+  assert.equal(continued[0].deliveryQuality.action, 'request_review');
+  assert.equal(continued[0].deliveryQuality.reviewTaskRequest.taskType, 'governance.assurance-review');
+  assert.equal(task.status, 'running');
+  assert.equal(task.deliveryQualityRuntime.reviewTaskId, 'review-task-1');
+});
+
+test('小D异步结果持久化后写统一工作流事件且重复轮询不重复', async () => {
+  const events = new Map();
+  const lifecycleEvents = new TaskLifecycleEventRecorder({ eventStore:{
+    appendTaskRunEvent(event) {
+      if (events.has(event.eventId)) {
+        throw Object.assign(new Error('duplicate'), { code:'task_run_event_exists' });
+      }
+      events.set(event.eventId, structuredClone(event));
+    },
+  } });
+  const { reconciler } = setup({
+    lifecycleEvents,
+    getJob:async () => ({
+      id:'xiaod-1', status:'completed', title:'素材',
+      output:{ markdownPath:'/tmp/result.md', larkUrl:'https://example.feishu.cn/docx/result', larkPermissionGranted:true },
+      quality:{ passed:true },
+    }),
+  });
+
+  await reconciler.reconcile();
+  await reconciler.reconcile();
+
+  const recorded = [...events.values()];
+  assert.equal(recorded.filter((event) => event.eventType === 'workflow_completed').length, 1);
+  assert.equal(recorded.filter((event) => event.eventType === 'artifact_committed').length, 1);
 });
 
 test('小D下游标记完成但飞书交付权限未确认时转为待测试', async () => {

@@ -47,6 +47,31 @@ test('旧版爆款雷达容器只能用回滚凭据访问兼容入口', () => {
   assert.equal(isBoomLegacyIntegrationPath('/api/overview'), false);
 });
 
+test('本机 AI 运行事件只通过本机 Paperclip 受保护路由写入', async (context) => {
+  const calls = [];
+  const fixture = await startHandler(context, {}, {
+    tasks:{
+      async recordPaperclipLocalAiRunEvent(input) {
+        calls.push(input);
+        return { recorded:true, eventId:'event-local-ai' };
+      },
+    },
+  });
+  const response = await fetch(`${fixture.baseUrl}/api/mcp/local-ai-run-event`, {
+    method:'POST',
+    headers:{ 'content-type':'application/json', authorization:'Bearer paperclip-test-key' },
+    body:JSON.stringify({
+      issueId:'issue-1', runId:'run-1', paperclipAgentId:'agent-1', agentArmyId:'xiaod',
+      taskId:'task-1',
+      event:{ eventType:'capability_call_started', capabilityId:'audio.transcribe', status:'running' },
+    }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).recorded, true);
+  assert.equal(calls[0].paperclipApiKey, 'paperclip-test-key');
+  assert.equal(calls[0].taskId, 'task-1');
+});
+
 test('任务字幕读取与补正仅走本机 owner 会话并返回同步后的源任务', async (context) => {
   const taskId = '123e4567-e89b-42d3-a456-426614174001';
   const calls = [];

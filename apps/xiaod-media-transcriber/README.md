@@ -25,6 +25,14 @@ Mac Apple Silicon 推荐把 `ASR_MODEL` 改为本机可访问的 `mlx-community`
 
 见 [`.env.example`](.env.example)。凭据只放在本应用目录的本机 `.env`，不要提交、发到聊天或写进交付文档。
 
+小D与A君共用任务运行事件库时，路径按以下顺序解析：
+
+1. `AGENT_ARMY_TASK_RUN_EVENT_DB`：显式指定同一个 SQLite 文件；
+2. `AGENT_ARMY_DATA_DIR/task-run-events.sqlite`：复用A君数据目录；
+3. 未配置时使用源码开发目录下的 `apps/ajun-runtime/data/task-run-events.sqlite`。
+
+launchd 环境应优先设置与A君一致的 `AGENT_ARMY_DATA_DIR`；只有需要单独覆盖数据库文件时才设置 `AGENT_ARMY_TASK_RUN_EVENT_DB`。启动时小D会创建事件库父目录并收紧为 `0700`，已有数据库收紧为 `0600`；符号链接父目录或数据库会被拒绝。正式 LaunchAgent plist 由受控发布流程维护，不应手工直接修改。
+
 ## 验证
 
 ```bash

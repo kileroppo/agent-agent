@@ -468,9 +468,36 @@ test('治理员工 MCP 只注册 Manifest 明确允许的工具', async (t) => {
   assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), ['capabilities', 'paperclip_assignment_get']);
 });
 
-test('岗位只能调用 Manifest 分配的本机 AI 能力且不能自行跨机批准', async (t) => {
+test('岗位本机 AI 调用先绑定真实指派并尽力写入脱敏事件，未知结果不重试', { concurrency:false }, async (t) => {
+  const keys = ['AGENT_ARMY_AGENT_ID', 'PAPERCLIP_TASK_ID', 'PAPERCLIP_RUN_ID', 'PAPERCLIP_AGENT_ID'];
+  const before = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  process.env.AGENT_ARMY_AGENT_ID = 'xiaod';
+  process.env.PAPERCLIP_TASK_ID = 'b3357f8c-1d3a-4a80-8bac-2eb44468e320';
+  process.env.PAPERCLIP_RUN_ID = '4f968d26-9bd9-4e86-b4fd-8ef68ae82ea2';
+  process.env.PAPERCLIP_AGENT_ID = '5afa80b6-dbc6-491d-9019-a234850b235b';
+  t.after(() => {
+    for (const key of keys) {
+      if (before[key] === undefined) delete process.env[key];
+      else process.env[key] = before[key];
+    }
+  });
   const calls = [];
-  const { client, server } = await connect({}, {
+  const events = [];
+  const assignmentReads = [];
+  const clientApi = {
+    async getPaperclipAssignment(input) {
+      assignmentReads.push(input);
+      return {
+        assignment:{ issueId:input.issueId, runId:input.runId, agentId:'xiaod' },
+        task:{ taskId:'11111111-1111-4111-8111-111111111111', status:'running' },
+      };
+    },
+    async recordPaperclipLocalAiRunEvent(input) {
+      events.push(input);
+      throw new Error('telemetry unavailable');
+    },
+  };
+  const { client, server } = await connect(clientApi, {
     scope:{
       agentIds:['xiaod'],
       taskTypes:['media.transcribe-and-refine'],
@@ -481,6 +508,9 @@ test('岗位只能调用 Manifest 分配的本机 AI 能力且不能自行跨机
     localAi:{
       async invoke(input) {
         calls.push(input);
+        if (input.requestId === 'confirmed-failure') {
+          throw Object.assign(new Error('definite provider rejection'), { code:'local_ai_input_invalid' });
+        }
         return { requestId:'local-one', provider:'local-whisper', result:{ text:'ok' } };
       },
     },
@@ -499,6 +529,30 @@ test('岗位只能调用 Manifest 分配的本机 AI 能力且不能自行跨机
   assert.equal(calls[0].approved, false);
   assert.equal(calls[0].options.preferredNode, 'mac');
   assert.equal('allowDesktopFallback' in calls[0].options, false);
+  assert.equal(assignmentReads.length, 1);
+  assert.deepEqual(events.map((item) => item.event.eventType), [
+    'capability_call_started',
+    'capability_call_succeeded',
+  ]);
+  assert.equal(events.every((item) => item.taskId === '11111111-1111-4111-8111-111111111111'), true);
+  assert.equal(events.every((item) => !JSON.stringify(item.event).includes('/tmp/current-assignment.wav')), true);
+  assert.equal(events.every((item) => !Object.hasOwn(item.event, 'input')), true);
+
+  const confirmedFailure = await client.callTool({
+    name:'local_ai_invoke',
+    arguments:{
+      capability:'audio.transcribe',
+      input:{ audioPath:'/private/rejected.wav' },
+      request_id:'confirmed-failure',
+    },
+  });
+  assert.equal(confirmedFailure.isError, true);
+  assert.equal(calls.length, 2);
+  assert.deepEqual(events.slice(-2).map((item) => item.event.eventType), [
+    'capability_call_started',
+    'capability_call_failed',
+  ]);
+  assert.equal(events.at(-1).event.errorCode, 'local_ai_input_invalid');
 
   const denied = await client.callTool({
     name:'local_ai_invoke',
@@ -506,6 +560,39 @@ test('岗位只能调用 Manifest 分配的本机 AI 能力且不能自行跨机
   });
   assert.equal(denied.isError, true);
   assert.match(denied.content[0].text, /没有本机 AI 能力/);
+
+  let ambiguousInvocations = 0;
+  const ambiguousEvents = [];
+  const ambiguousConnection = await connect({
+    ...clientApi,
+    async recordPaperclipLocalAiRunEvent(input) { ambiguousEvents.push(input.event); },
+  }, {
+    scope:{
+      agentIds:['xiaod'], taskTypes:['media.transcribe-and-refine'],
+      allowedTools:['local_ai_invoke'], localAiCapabilities:['audio.transcribe'], allowMissions:false,
+    },
+    localAi:{
+      async invoke() {
+        ambiguousInvocations += 1;
+        throw Object.assign(new Error('unknown outcome'), { code:'local_ai_gateway_unavailable' });
+      },
+    },
+  });
+  t.after(async () => {
+    await ambiguousConnection.client.close();
+    await ambiguousConnection.server.close();
+  });
+  const ambiguous = await ambiguousConnection.client.callTool({
+    name:'local_ai_invoke',
+    arguments:{ capability:'audio.transcribe', input:{ audioPath:'/private/input.wav' } },
+  });
+  assert.equal(ambiguous.isError, true);
+  assert.equal(ambiguousInvocations, 1);
+  assert.deepEqual(ambiguousEvents.map((event) => event.eventType), [
+    'capability_call_started',
+    'capability_result_ambiguous',
+  ]);
+  assert.equal(JSON.stringify(ambiguousEvents).includes('/private/input.wav'), false);
 });
 
 test('Paperclip heartbeat 只暴露当前岗位的受控执行与指派工具', { concurrency:false }, async () => {

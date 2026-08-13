@@ -17,6 +17,11 @@ test('输出稳定的 task-card/v1 公共投影', () => {
 
   assert.equal(first.schemaVersion, TASK_CARD_SCHEMA_VERSION);
   assert.equal(first.taskId, baseTask.taskId);
+  assert.equal(first.agentId, null);
+  assert.equal(first.profileId, null);
+  assert.equal(first.chatId, null);
+  assert.equal(first.taskCardPolicy, null);
+  assert.equal(first.taskKind, null);
   assert.equal(first.taskRef, '#7DF3C85A');
   assert.equal(first.title, '整理员工资料');
   assert.equal(first.state, 'running');
@@ -24,12 +29,34 @@ test('输出稳定的 task-card/v1 公共投影', () => {
   assert.match(first.summary, /正在处理中/);
   assert.equal(first.owner, '小办');
   assert.match(first.nextAction, /等待/);
-  assert.equal(first.sourceRevision, '2026-08-12T03:00:00.000Z:card-ux3');
+  assert.equal(first.sourceRevision, '2026-08-12T03:00:00.000Z:card-ux4');
   assert.equal(first.updatedAt, '2026-08-12T03:00:00.000Z');
+  assert.deepEqual(first.details, { taskType:'军团任务', createdAt:null });
   assert.equal(first.terminal, false);
   assert.deepEqual(first.actions, []);
   assert.match(first.contentHash, /^[a-f0-9]{64}$/);
   assert.deepEqual(second, first);
+});
+
+test('任务卡投影保留可校验的 Agent Profile 和会话上下文', () => {
+  const card = presentTaskCard({
+    ...baseTask,
+    taskType:'research.intel-report',
+    source:{
+      channel:'feishu',
+      chatRef:'oc_research',
+      targetAgentId:'intel-researcher',
+      profileId:'intel-researcher',
+      taskCardPolicy:'durable-task',
+    },
+  });
+
+  assert.equal(card.agentId, 'intel-researcher');
+  assert.equal(card.profileId, 'intel-researcher');
+  assert.equal(card.chatId, 'oc_research');
+  assert.equal(card.taskCardPolicy, 'durable-task');
+  assert.equal(card.taskKind, 'research.intel-report');
+  assert.equal(card.details.taskType, '公开情报调研');
 });
 
 test('主要任务状态映射状态、语气和终态', () => {
@@ -63,7 +90,7 @@ test('待审批覆盖任务状态并只生成批准与拒绝动作', () => {
   const card = presentTaskCard(baseTask, { approvals });
 
   assert.equal(card.state, 'waiting_approval');
-  assert.equal(card.sourceRevision, '2026-08-12T03:01:00.000Z:card-ux3');
+  assert.equal(card.sourceRevision, '2026-08-12T03:01:00.000Z:card-ux4');
   assert.deepEqual(card.actions, [
     { action:'approve', label:'批准', approvalId:'approval-1', governanceMode:'paperclip' },
     { action:'reject', label:'拒绝', approvalId:'approval-1', governanceMode:'paperclip' },
