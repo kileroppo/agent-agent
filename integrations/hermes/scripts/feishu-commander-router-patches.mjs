@@ -44,8 +44,6 @@ export function migrateFeishuCommanderRouter(source) {
     upgradeCommanderProfileGuardPatch,
     upgradeCommanderDirectReplyBypassPatch,
     upgradeDynamicTaskCardPatch,
-    upgradeDynamicTaskCardSendSuppressionPatch,
-    upgradeDynamicTaskCardDetailsPatch,
   ].reduce((current, patchUnit) => patchUnit(current), result);
   return { source: result, terminal: false, migration: migration.name };
 }
@@ -111,10 +109,6 @@ function upgradeCommanderDirectReplyBypassPatch(source) {
   ));
 }
 
-function upgradeDynamicTaskCardDetailsPatch(source) {
-  return source;
-}
-
 function upgradeCommanderProfileGuardPatch(source) {
   if (source.includes('AGENT_ARMY_FEISHU_COMMANDER_PROFILE_GUARD_V1')) return source;
   return transformPythonMethod(source, '_route_ajun_commander_event', (body) => {
@@ -134,10 +128,6 @@ function upgradeCommanderProfileGuardPatch(source) {
     );
     return upgraded;
   });
-}
-
-function upgradeDynamicTaskCardSendSuppressionPatch(source) {
-  return source;
 }
 
 function upgradeDynamicTaskCardPatch(source) {
@@ -205,10 +195,6 @@ function upgradeDynamicTaskCardGeneralizationPatch(source) {
 `
   );
   return result;
-}
-
-function upgradeDynamicTaskCardRefreshPatch(source) {
-  return source;
 }
 
 function upgradeCommanderIngressPrecedencePatch(source) {

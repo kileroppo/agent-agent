@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { TASK_STATUSES, TERMINAL_TASK_STATUSES } from '../src/task-lifecycle.js';
+import * as taskStatusPolicyModule from '../src/task-status-policy.js';
 import {
   TASK_BLOCKED_STATUSES,
   PAPERCLIP_COMPLETION_TASK_STATUSES,
@@ -21,6 +23,14 @@ import {
   workflowStatusForStepOutcomes,
   workflowStatusForTaskOutcome,
 } from '../src/task-status-policy.js';
+
+test('TypeScript声明完整覆盖运行时状态策略Interface', () => {
+  const declaration = readFileSync(new URL('../src/task-status-policy.d.ts', import.meta.url), 'utf8');
+  const declaredValues = [...declaration.matchAll(/^export (?:const|function) ([A-Za-z_][A-Za-z0-9_]*)/gm)]
+    .map((match) => match[1])
+    .sort();
+  assert.deepEqual(declaredValues, Object.keys(taskStatusPolicyModule).sort());
+});
 
 test('状态策略完整覆盖生命周期状态且终态只复用生命周期真相', () => {
   assert.deepEqual(Object.keys(TASK_STATUS_POLICIES), TASK_STATUSES);

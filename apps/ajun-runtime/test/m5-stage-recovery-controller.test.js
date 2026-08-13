@@ -1,12 +1,23 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  consumeM5SystemPlanRevision,
   deriveM5StageRecoveryState,
   getActiveM5PlanRevision,
   m5StageWorkProductCandidates,
   M5StageRecoveryController,
+  M5StageRecoveryError,
   M5StageRecoveryLedger,
+  planM5StageFailureRecovery,
 } from '../src/m5-stage-recovery-controller.js';
+import {
+  consumeM5SystemPlanRevision as kernelConsumeM5SystemPlanRevision,
+  deriveM5StageRecoveryState as kernelDeriveM5StageRecoveryState,
+  getActiveM5PlanRevision as kernelGetActiveM5PlanRevision,
+  M5StageRecoveryController as KernelM5StageRecoveryController,
+  M5StageRecoveryError as KernelM5StageRecoveryError,
+  planM5StageFailureRecovery as kernelPlanM5StageFailureRecovery,
+} from '@agent-army/m5-kernel/stage-recovery-controller';
 import { getM5RoutineExecutionContract } from '@agent-army/m5-kernel/routine-execution-contract';
 
 const CASE_ID = '11111111-1111-4111-8111-111111111111';
@@ -21,6 +32,19 @@ test('M5 阶段恢复账本对调用方只暴露三个业务动作', () => {
       .filter((name) => name !== 'constructor')
       .sort(),
     ['consumeSystemPlanRevision', 'getActivePlanRevision', 'recordFailure'],
+  );
+});
+
+test('A君恢复门面保留 Kernel 旧函数与错误类 identity', () => {
+  assert.equal(consumeM5SystemPlanRevision, kernelConsumeM5SystemPlanRevision);
+  assert.equal(deriveM5StageRecoveryState, kernelDeriveM5StageRecoveryState);
+  assert.equal(getActiveM5PlanRevision, kernelGetActiveM5PlanRevision);
+  assert.equal(M5StageRecoveryController, KernelM5StageRecoveryController);
+  assert.equal(M5StageRecoveryError, KernelM5StageRecoveryError);
+  assert.equal(planM5StageFailureRecovery, kernelPlanM5StageFailureRecovery);
+  assert.throws(
+    () => new M5StageRecoveryController({ maxStageRetries:0 }),
+    (error) => error instanceof M5StageRecoveryError,
   );
 });
 
@@ -75,6 +99,77 @@ test('恢复账本直接返回当前阶段可消费的 PlanRevision', async () =
   });
   assert.equal(active.revisionId, replanned.planRevision.revisionId);
   assert.equal(active.nextRoute.stageKey, contract.stageKey);
+});
+
+test('控制器构造后替换 Governance、上限和时钟仍在下次恢复生效', async () => {
+  const original = new RecoveryFakeGovernance();
+  const replacement = new RecoveryFakeGovernance();
+  const controller = recoveryController(original);
+  controller.governance = replacement;
+  controller.maxStageRetries = 1;
+  controller.now = () => new Date('2026-08-13T08:09:10.000Z');
+
+  await fail(controller, replacement, 'run-override-0001');
+  const replanned = await fail(controller, replacement, 'run-override-0002');
+
+  assert.equal(replanned.action, 'replan');
+  assert.equal(replanned.occurredAt, '2026-08-13T08:09:10.000Z');
+  assert.equal(original.casePatches, 0);
+  assert.equal(replacement.casePatches, 2);
+});
+
+test('CAS 冲突会重读完整快照，且只在 patch 成功后更新 Issue', async () => {
+  const governance = new ConflictOnceRecoveryGovernance();
+  const controller = recoveryController(governance);
+
+  const result = await fail(controller, governance, 'run-conflict-0001');
+
+  assert.equal(result.action, 'retry');
+  assert.deepEqual(governance.operationLog, [
+    'get-case', 'get-issue', 'get-runs', 'get-events', 'get-outputs', 'patch-conflict',
+    'get-case', 'get-issue', 'get-runs', 'get-events', 'get-outputs', 'patch-success',
+    'reopen-issue',
+  ]);
+  assert.equal(governance.casePatches, 1);
+});
+
+test('PlanRevision 读取可复用已读 Case，消费 CAS 冲突只重读 Case 再写回执', async () => {
+  const systemContract = getM5RoutineExecutionContract('m5-publish');
+  const governance = new ConflictOnceRecoveryGovernance({ conflictCount:0 });
+  const controller = recoveryController(governance);
+  await failWithContract(controller, governance, systemContract, 'run-plan-0001');
+  await failWithContract(controller, governance, systemContract, 'run-plan-0002');
+  const replanned = await failWithContract(
+    controller,
+    governance,
+    systemContract,
+    'run-plan-0003',
+  );
+  governance.operationLog = [];
+
+  const active = await getActiveM5PlanRevision({
+    governance,
+    pipelineCaseId:CASE_ID,
+    stageKey:systemContract.stageKey,
+    pipelineCase:structuredClone(governance.caseItem),
+  });
+  assert.equal(active.revisionId, replanned.planRevision.revisionId);
+  assert.deepEqual(governance.operationLog, []);
+
+  governance.conflictCount = 1;
+  const receipt = await consumeM5SystemPlanRevision({
+    governance,
+    pipelineCaseId:CASE_ID,
+    stageKey:systemContract.stageKey,
+    runId:'run-plan-consume-0004',
+    routeSummary:'系统控制器已重新从当前 Case 派生本次执行输入。',
+    now:() => new Date('2026-08-13T09:10:11.000Z'),
+  });
+  assert.equal(receipt.revisionId, replanned.planRevision.revisionId);
+  assert.deepEqual(governance.operationLog, [
+    'get-case', 'patch-conflict',
+    'get-case', 'patch-success',
+  ]);
 });
 
 test('M5 内容最多重规划三次，之后 Case blocked 且只写一个恢复动作', async () => {
@@ -521,6 +616,56 @@ class RecoveryFakeGovernance {
   async completeM5RecoveredStageIssue(_issueId, { comment }) {
     this.issue.status = 'done';
     this.issueUpdates.push({ status:'done', comment });
+  }
+}
+
+class ConflictOnceRecoveryGovernance extends RecoveryFakeGovernance {
+  constructor({ conflictCount = 1 } = {}) {
+    super();
+    this.conflictCount = conflictCount;
+    this.operationLog = [];
+  }
+
+  async getPipelineCase(...args) {
+    this.operationLog.push('get-case');
+    return super.getPipelineCase(...args);
+  }
+
+  async getPaperclipIssue(...args) {
+    this.operationLog.push('get-issue');
+    return super.getPaperclipIssue(...args);
+  }
+
+  async getPaperclipIssueRuns(...args) {
+    this.operationLog.push('get-runs');
+    return super.getPaperclipIssueRuns(...args);
+  }
+
+  async getPipelineCaseEvents(...args) {
+    this.operationLog.push('get-events');
+    return super.getPipelineCaseEvents(...args);
+  }
+
+  async getPipelineCaseOutputs(...args) {
+    this.operationLog.push('get-outputs');
+    return super.getPipelineCaseOutputs(...args);
+  }
+
+  async patchPipelineCaseFields(...args) {
+    if (this.conflictCount > 0) {
+      this.conflictCount -= 1;
+      this.operationLog.push('patch-conflict');
+      const error = new Error('version conflict');
+      error.status = 409;
+      throw error;
+    }
+    this.operationLog.push('patch-success');
+    return super.patchPipelineCaseFields(...args);
+  }
+
+  async reopenM5StageIssue(...args) {
+    this.operationLog.push('reopen-issue');
+    return super.reopenM5StageIssue(...args);
   }
 }
 
