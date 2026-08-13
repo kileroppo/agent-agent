@@ -10,7 +10,7 @@ export const TASK_RUN_EVENT_FIELDS = Object.freeze([
   'retentionClass',
 ]);
 
-const RETENTION_CLASSES = new Set(['detail', 'permanent']);
+const RETENTION_CLASSES = new Set(['transient', 'detail', 'audit', 'permanent']);
 const MAX_LENGTH = Object.freeze({
   eventId:120, traceId:120, spanId:120, parentSpanId:120, taskId:160, workflowId:160,
   stepId:160, agentId:120, eventType:120, capabilityId:160, routeId:160, provider:120,
@@ -42,10 +42,18 @@ export function normalizeTaskRunEvent(input, { now = new Date().toISOString() } 
     else if (field === 'costAmount') event.costAmount = normalizeCost(input?.costAmount);
     else if (field === 'artifactRefs') event.artifactRefs = normalizeArtifactRefs(input?.artifactRefs);
     else if (field === 'safeSummary') event.safeSummary = redactTaskRunSummary(input?.safeSummary);
-    else if (field === 'retentionClass') event.retentionClass = RETENTION_CLASSES.has(input?.retentionClass) ? input.retentionClass : 'detail';
+    else if (field === 'retentionClass') event.retentionClass = RETENTION_CLASSES.has(input?.retentionClass)
+      ? input.retentionClass
+      : defaultRetentionClass(eventType);
     else event[field] = cleanIdentifier(input?.[field], MAX_LENGTH[field]) || null;
   }
   return Object.freeze({ schemaVersion:TASK_RUN_EVENT_SCHEMA_VERSION, ...event });
+}
+
+function defaultRetentionClass(eventType) {
+  if (/^(?:capability_call_started|workflow_state_changed|poll_|progress_)/.test(eventType)) return 'transient';
+  if (/(?:approval|receipt|cost|artifact_committed|workflow_completed|review_completed)/.test(eventType)) return 'audit';
+  return 'detail';
 }
 
 export function normalizeTaskRunEventQuery(input = {}) {

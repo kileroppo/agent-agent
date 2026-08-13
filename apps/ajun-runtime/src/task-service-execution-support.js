@@ -728,8 +728,8 @@ export function storedPaperclipEmployeeResult(task) {
       verified:false,
       recommendedCompletionStatus:'running',
       continuePolling:true,
-      pollAfterSeconds:3,
-      message:'当前岗位的本机工作仍在执行；请再次调用 employee_assignment_execute 获取真实状态。',
+      pollAfterSeconds:30,
+      message:'当前岗位的本机工作仍在执行；服务端会先等待结果，超时后再查询即可。',
       artifacts:[],
     };
   }

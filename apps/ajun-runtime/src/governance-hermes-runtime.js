@@ -101,6 +101,42 @@ export function paperclipHermesAdapterConfig(manifest) {
   };
 }
 
+export function hermesRuntimePolicyForManifest(manifest) {
+  const budget = manifest?.autonomyBudgetPolicy || {};
+  const maxTurns = Number(budget.maxTurns);
+  const apiMaxRetries = Number(budget.apiMaxRetries);
+  const reasoningEffort = String(budget.reasoningEffort || '').trim();
+  if (!Number.isSafeInteger(maxTurns) || maxTurns < 1 || maxTurns > 20) {
+    throw new Error('Hermes 最大轮次必须在 1 到 20 之间。');
+  }
+  if (!['none', 'low', 'medium'].includes(reasoningEffort)) {
+    throw new Error('Hermes 推理强度必须是 none、low 或 medium。');
+  }
+  if (!Number.isSafeInteger(apiMaxRetries) || apiMaxRetries < 0 || apiMaxRetries > 3) {
+    throw new Error('Hermes API 重试次数必须在 0 到 3 之间。');
+  }
+  if (budget.toolLoopHardStop !== true) {
+    throw new Error('Hermes 无人值守岗位必须开启工具循环硬停止。');
+  }
+  if (Number(budget.maxModelCalls) < maxTurns) {
+    throw new Error('模型调用预算不能小于 Hermes 最大轮次。');
+  }
+  return Object.freeze({
+    agent:Object.freeze({ maxTurns, reasoningEffort, apiMaxRetries }),
+    toolLoopGuardrails:Object.freeze({ hardStopEnabled:true }),
+    compression:Object.freeze({
+      enabled:true,
+      threshold:0.5,
+      targetRatio:0.2,
+      protectFirstN:3,
+      protectLastN:8,
+    }),
+    memory:Object.freeze({ writeApproval:true, nudgeInterval:0 }),
+    sessions:Object.freeze({ autoPrune:true, retentionDays:30 }),
+    sessionReset:Object.freeze({ mode:'idle', idleMinutes:1440, notify:true }),
+  });
+}
+
 export function taskCardPolicyForManifest(manifest) {
   const value = String(manifest?.interaction?.taskCardPolicy || 'disabled').trim();
   if (!TASK_CARD_POLICIES.has(value)) {

@@ -119,3 +119,34 @@ test('账单优先按 Hermes 会话绑定 Workflow，并区分系统与独立 Ag
   assert.equal(billing.attribution.agentSessionEntryCount, 1);
   assert.equal(billing.attribution.unattributedEntryCount, 0);
 });
+
+test('账单同时统计输入上下文归属、记忆写入、历史检索和预算硬停', () => {
+  const billing = reconcileUsageBilling([{
+    taskId:'task-efficiency',
+    error:{ code:'max_turn_hard_stop' },
+    usage:{
+      schemaVersion:'agent.army/task-usage/v1',
+      recordedAt:'2026-08-13T08:00:00.000Z',
+      execution:{ executor:'ajun' },
+      model:{ status:'not_reported' },
+      tools:[{ id:'memory', calls:2 }, { id:'session_search', calls:3 }],
+    },
+  }], {
+    status:'ready',
+    entries:[
+      { ledgerRef:'system', source:'routine', occurredAt:'2026-08-13T08:00:00.000Z', tokens:{ input:40 } },
+      { ledgerRef:'unattributed', occurredAt:'2026-08-13T08:00:01.000Z', tokens:{ input:60 } },
+    ],
+  });
+
+  assert.deepEqual(billing.efficiency.inputTokensByAttribution, {
+    task:0,
+    system:40,
+    agent_session:0,
+    unattributed:60,
+  });
+  assert.equal(billing.efficiency.memoryWriteCount, 2);
+  assert.equal(billing.efficiency.sessionSearchCount, 3);
+  assert.equal(billing.efficiency.budgetStopCount, 1);
+  assert.equal(billing.efficiency.toolCountCoverage, 'task_usage_only');
+});

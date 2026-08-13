@@ -94,6 +94,7 @@ agent-agent/
 ### 技术与工程
 
 - [系统架构](./docs/architecture/system-architecture.md)
+- [上下文、记忆与成本治理](./docs/architecture/context-memory-and-cost-governance.md)
 - [能力 Plan B 与运行事件架构](./docs/architecture/capability-routing-and-run-events.md)
 - [M1 平台兼容性验证](./docs/architecture/m1-platform-compatibility-validation.md)
 - [核心契约](./docs/contracts/core-contracts.md)

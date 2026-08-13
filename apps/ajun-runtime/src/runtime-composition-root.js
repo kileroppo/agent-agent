@@ -92,7 +92,10 @@ const {
   paperclipCurrentRunScope,
   publisherBindings:m5PublisherBindings,
 } = contentCampaign;
-const taskRunEventRetention = new TaskRunEventRetention({ eventStore:taskRunEvents });
+const taskRunEventRetention = new TaskRunEventRetention({
+  eventStore:taskRunEvents,
+  mode:environment.AGENT_ARMY_EVENT_RETENTION_MODE === 'apply' ? 'apply' : 'dry-run',
+});
 try { taskRunEventRetention.runOnce(); }
 catch { logger.warn('任务运行明细启动清理未完成，服务会先继续运行并在下个周期重试。'); }
 const taskRunEventRetentionTimer = setInterval(() => {

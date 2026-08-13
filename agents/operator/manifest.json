@@ -100,7 +100,11 @@
   },
   "autonomyBudgetPolicy": {
     "maxRuntimeMinutes": 60,
-    "maxModelCalls": 20,
+    "maxModelCalls": 8,
+    "maxTurns": 8,
+    "reasoningEffort": "none",
+    "apiMaxRetries": 1,
+    "toolLoopHardStop": true,
     "maxConcurrentSubtasks": 4,
     "maxDelegationDepth": 2,
     "paidApprovalThresholdUsd": 5

@@ -261,7 +261,7 @@ function createLifecycleRecorder(eventStore: RuntimeEventStore | null) {
           startedAt:task.updatedAt || task.execution?.updatedAt || new Date().toISOString(),
           errorCode:task.error?.code || null,
           safeSummary:task.currentStage,
-          retentionClass:blocked ? 'permanent' : 'detail',
+          retentionClass:blocked ? 'audit' : 'detail',
         });
       } catch { /* 可观测性失败不能改变业务结果。 */ }
     },

@@ -228,7 +228,13 @@ export const taskRoleExecutionMethods = {
     const stored = hasM5Recovery || observationDrivenResearchActive
       ? null
       : storedPaperclipEmployeeResult(task);
-    if (stored) return { assignment, result:stored, task:taskExecutionView(task), duplicate:true };
+    if (stored) {
+      const settled = stored.continuePolling === true
+        ? await this.waitForEmployeeAssignmentSettlement(task.taskId)
+        : null;
+      if (settled) return { assignment, ...settled, duplicate:true };
+      return { assignment, result:stored, task:taskExecutionView(task), duplicate:true };
+    }
 
     let run = this.employeeAssignmentRuns.get(task.taskId);
     const joined = Boolean(run);
@@ -252,7 +258,27 @@ export const taskRoleExecutionMethods = {
       }).catch(() => {});
     }
     const completed = await run.promise;
+    if (completed.result?.continuePolling === true && !observationDrivenResearch) {
+      const settled = await this.waitForEmployeeAssignmentSettlement(task.taskId);
+      if (settled) return { assignment, ...settled, duplicate:joined };
+    }
     return joined ? { ...completed, duplicate:true } : completed;
+  },
+
+  async waitForEmployeeAssignmentSettlement(taskId) {
+    const waitMs = Number(this.employeeAssignmentWaitMs) || 0;
+    if (waitMs <= 0) return null;
+    const deadline = Date.now() + waitMs;
+    while (Date.now() < deadline) {
+      await delay(Math.min(1_000, Math.max(1, deadline - Date.now())));
+      const latest = (await this.store.list()).find((item) => item.taskId === taskId);
+      if (!latest) return null;
+      const result = storedPaperclipEmployeeResult(latest);
+      if (result && result.continuePolling !== true) {
+        return { result, task:taskExecutionView(latest) };
+      }
+    }
+    return null;
   },
 
   async runEmployeeAssignment({
@@ -397,8 +423,8 @@ export const taskRoleExecutionMethods = {
         ...(recommendedCompletionStatus === 'running'
           ? {
               continuePolling:true,
-              pollAfterSeconds:3,
-              message:'当前岗位的本机工作仍在执行；请再次调用 employee_assignment_execute 获取真实状态。',
+              pollAfterSeconds:30,
+              message:'当前岗位的本机工作仍在执行；服务端会先等待结果，超时后再查询即可。',
             }
           : {}),
         error:result?.error || null,
@@ -496,8 +522,8 @@ export const taskRoleExecutionMethods = {
         verified:false,
         recommendedCompletionStatus:'running',
         continuePolling:true,
-        pollAfterSeconds:2,
-        message:'同一项内容分析仍在 A君后台执行；请再次调用当前受控执行工具继续等待，不要回报任务完成。'
+        pollAfterSeconds:30,
+        message:'同一项内容分析仍在 A君后台执行；30 秒后再查询，不要回报任务完成。'
       },
       task:{ taskId:latest.taskId, status:latest.status, currentStage:latest.currentStage },
       duplicate:joined
@@ -659,3 +685,7 @@ export const taskRoleExecutionMethods = {
     };
   }
 };
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

@@ -6,6 +6,7 @@ import {
   assertM5HermesExecutionManifest,
   assertM5HermesExecutionPrompt,
   discoverGovernanceHermesAgentIds,
+  hermesRuntimePolicyForManifest,
   paperclipHermesAdapterConfig
 } from '../src/governance-hermes-runtime.js';
 
@@ -23,6 +24,27 @@ test('Paperclip Hermes 员工清单从 Manifest 自动发现，不维护第二�
     'video-content-analyst',
     'xiaod'
   ]);
+});
+
+test('Manifest 预算生成有界 Hermes 运行、压缩、记忆和会话策略', () => {
+  const policy = hermesRuntimePolicyForManifest({
+    autonomyBudgetPolicy:{
+      maxModelCalls:8,
+      maxTurns:8,
+      reasoningEffort:'none',
+      apiMaxRetries:1,
+      toolLoopHardStop:true,
+    },
+  });
+  assert.deepEqual(policy.agent, { maxTurns:8, reasoningEffort:'none', apiMaxRetries:1 });
+  assert.equal(policy.toolLoopGuardrails.hardStopEnabled, true);
+  assert.equal(policy.compression.protectLastN, 8);
+  assert.deepEqual(policy.memory, { writeApproval:true, nudgeInterval:0 });
+  assert.deepEqual(policy.sessions, { autoPrune:true, retentionDays:30 });
+  assert.deepEqual(policy.sessionReset, { mode:'idle', idleMinutes:1440, notify:true });
+  assert.throws(() => hermesRuntimePolicyForManifest({ autonomyBudgetPolicy:{
+    maxModelCalls:8, maxTurns:9, reasoningEffort:'high', apiMaxRetries:5, toolLoopHardStop:false,
+  } }), /最大轮次|推理强度|重试次数|硬停止|模型调用预算/);
 });
 
 test('自动发现只纳入 active + hermes-profile + paperclip-hermes 员工', () => {

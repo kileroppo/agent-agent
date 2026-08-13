@@ -18,6 +18,8 @@ const EVENT_COLUMNS = Object.freeze({
   errorCode:'error_code', safeSummary:'safe_summary', costAmount:'cost_amount', costCurrency:'cost_currency',
   retentionClass:'retention_class',
 });
+const RETENTION_CLASSES_WITH_EXPIRY = Object.freeze(['transient', 'detail', 'audit']);
+const DEFAULT_RETENTION_DAYS = Object.freeze({ transient:7, detail:30, audit:365 });
 
 export class TaskRunEventStore {
   constructor(input, { clock = () => new Date().toISOString() } = {}) {
@@ -109,30 +111,63 @@ export class TaskRunEventStore {
     return rows.map((row) => JSON.parse(row.data_json));
   }
 
-  cleanupExpiredDetails({ now = this.clock(), retentionDays = 90 } = {}) {
+  previewExpiredEvents({ now = this.clock(), retentionDays, retentionDaysByClass } = {}) {
     const normalizedNow = new Date(now).toISOString();
-    const days = Math.max(1, Math.min(Number.parseInt(retentionDays, 10) || 90, 3650));
-    const cutoff = new Date(Date.parse(normalizedNow) - days * 86_400_000).toISOString();
+    const cutoffs = retentionCutoffs(normalizedNow, { retentionDays, retentionDaysByClass });
+    const counts = {};
+    for (const retentionClass of RETENTION_CLASSES_WITH_EXPIRY) {
+      counts[retentionClass] = Number(this.database.prepare(`
+        SELECT COUNT(*) AS count FROM task_run_events
+        WHERE retention_class = ? AND started_at < ?
+      `).get(retentionClass, cutoffs[retentionClass])?.count || 0);
+    }
+    return {
+      mode:'dry-run',
+      cutoffs,
+      expiringByClass:counts,
+      expiringEvents:Object.values(counts).reduce((sum, count) => sum + count, 0),
+      deletedEvents:0,
+      incidentSummariesCreated:0,
+    };
+  }
+
+  cleanupExpiredDetails({ now = this.clock(), retentionDays, retentionDaysByClass } = {}) {
+    const normalizedNow = new Date(now).toISOString();
+    const cutoffs = retentionCutoffs(normalizedNow, { retentionDays, retentionDaysByClass });
     return this.#transaction(() => {
+      const expiringClause = retentionExpiryClause(cutoffs);
       const incidentTasks = this.database.prepare(`
         SELECT DISTINCT task_id FROM task_run_events
-        WHERE retention_class = 'detail' AND started_at < ?
+        WHERE (${expiringClause.sql})
           AND (event_type IN ('capability_call_failed', 'capability_result_ambiguous', 'workflow_blocked')
             OR status IN ('failed', 'ambiguous', 'blocked', 'error') OR error_code IS NOT NULL)
-      `).all(cutoff).map((row) => row.task_id);
+      `).all(...expiringClause.params).map((row) => row.task_id);
       let summariesCreated = 0;
       for (const taskId of incidentTasks) {
-        const expiringEvents = this.#expiringTaskEvents(taskId, cutoff);
+        const expiringEvents = this.#expiringTaskEvents(taskId, cutoffs);
         if (this.createIncidentSummary(taskId, {
           generatedAt:normalizedNow,
           events:expiringEvents,
           mergeExisting:true,
         })) summariesCreated += 1;
       }
-      const result = this.database.prepare(`
-        DELETE FROM task_run_events WHERE retention_class = 'detail' AND started_at < ?
-      `).run(cutoff);
-      return { cutoff, deletedEvents:Number(result.changes || 0), incidentSummariesCreated:summariesCreated };
+      const deletedByClass = {};
+      let deletedEvents = 0;
+      for (const retentionClass of RETENTION_CLASSES_WITH_EXPIRY) {
+        const result = this.database.prepare(`
+          DELETE FROM task_run_events WHERE retention_class = ? AND started_at < ?
+        `).run(retentionClass, cutoffs[retentionClass]);
+        deletedByClass[retentionClass] = Number(result.changes || 0);
+        deletedEvents += deletedByClass[retentionClass];
+      }
+      return {
+        mode:'apply',
+        cutoffs,
+        cutoff:cutoffs.detail,
+        deletedByClass,
+        deletedEvents,
+        incidentSummariesCreated:summariesCreated,
+      };
     });
   }
 
@@ -146,12 +181,13 @@ export class TaskRunEventStore {
     `).all(String(taskId || '')).map(parseEventRow);
   }
 
-  #expiringTaskEvents(taskId, cutoff) {
+  #expiringTaskEvents(taskId, cutoffs) {
+    const clause = retentionExpiryClause(cutoffs);
     return this.database.prepare(`
       SELECT ${selectColumns()} FROM task_run_events
-      WHERE task_id = ? AND retention_class = 'detail' AND started_at < ?
+      WHERE task_id = ? AND (${clause.sql})
       ORDER BY started_at ASC, event_id ASC
-    `).all(String(taskId || ''), cutoff).map(parseEventRow);
+    `).all(String(taskId || ''), ...clause.params).map(parseEventRow);
   }
 
   #incidentSummary(taskId) {
@@ -164,18 +200,23 @@ export class TaskRunEventStore {
   }
 
   #migrateSchema() {
+    this.database.exec(eventTableSql());
+    const currentSql = String(this.database.prepare(`
+      SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'task_run_events'
+    `).get()?.sql || '');
+    if (!currentSql.includes("'transient'") || !currentSql.includes("'audit'")) {
+      this.#transaction(() => {
+        this.database.exec('ALTER TABLE task_run_events RENAME TO task_run_events_legacy_retention;');
+        this.database.exec(eventTableSql());
+        const columns = TASK_RUN_EVENT_FIELDS.map((field) => EVENT_COLUMNS[field]).join(', ');
+        this.database.exec(`
+          INSERT INTO task_run_events (${columns})
+          SELECT ${columns} FROM task_run_events_legacy_retention;
+          DROP TABLE task_run_events_legacy_retention;
+        `);
+      });
+    }
     this.database.exec(`
-      CREATE TABLE IF NOT EXISTS task_run_events (
-        event_id TEXT PRIMARY KEY,
-        trace_id TEXT, span_id TEXT, parent_span_id TEXT,
-        task_id TEXT NOT NULL, workflow_id TEXT, step_id TEXT, agent_id TEXT,
-        event_type TEXT NOT NULL, capability_id TEXT, route_id TEXT, provider TEXT, model TEXT,
-        attempt INTEGER, status TEXT, started_at TEXT NOT NULL, finished_at TEXT, duration_ms INTEGER,
-        policy_decision_id TEXT, receipt_id TEXT, checkpoint_ref TEXT, input_hash TEXT, output_hash TEXT,
-        artifact_refs_json TEXT NOT NULL DEFAULT '[]', error_code TEXT, safe_summary TEXT,
-        cost_amount REAL, cost_currency TEXT, retention_class TEXT NOT NULL DEFAULT 'detail'
-          CHECK (retention_class IN ('detail', 'permanent'))
-      );
       CREATE INDEX IF NOT EXISTS task_run_events_task_time_idx
         ON task_run_events(task_id, started_at, event_id);
       CREATE INDEX IF NOT EXISTS task_run_events_retention_idx
@@ -229,6 +270,52 @@ function mergeIncidentSummaries(previous, current) {
     eventCount:nonNegativeInteger(previous.eventCount) + nonNegativeInteger(current.eventCount),
     incidentEventCount:nonNegativeInteger(previous.incidentEventCount) + nonNegativeInteger(current.incidentEventCount),
   });
+}
+
+function eventTableSql() {
+  return `
+    CREATE TABLE IF NOT EXISTS task_run_events (
+      event_id TEXT PRIMARY KEY,
+      trace_id TEXT, span_id TEXT, parent_span_id TEXT,
+      task_id TEXT NOT NULL, workflow_id TEXT, step_id TEXT, agent_id TEXT,
+      event_type TEXT NOT NULL, capability_id TEXT, route_id TEXT, provider TEXT, model TEXT,
+      attempt INTEGER, status TEXT, started_at TEXT NOT NULL, finished_at TEXT, duration_ms INTEGER,
+      policy_decision_id TEXT, receipt_id TEXT, checkpoint_ref TEXT, input_hash TEXT, output_hash TEXT,
+      artifact_refs_json TEXT NOT NULL DEFAULT '[]', error_code TEXT, safe_summary TEXT,
+      cost_amount REAL, cost_currency TEXT, retention_class TEXT NOT NULL DEFAULT 'detail'
+        CHECK (retention_class IN ('transient', 'detail', 'audit', 'permanent'))
+    );
+  `;
+}
+
+function retentionCutoffs(now, { retentionDays, retentionDaysByClass } = {}) {
+  const legacyDays = Number.isFinite(Number(retentionDays))
+    ? boundedRetentionDays(retentionDays, 90)
+    : null;
+  const configured = retentionDaysByClass && typeof retentionDaysByClass === 'object'
+    ? retentionDaysByClass
+    : DEFAULT_RETENTION_DAYS;
+  return Object.fromEntries(RETENTION_CLASSES_WITH_EXPIRY.map((retentionClass) => {
+    const days = legacyDays ?? boundedRetentionDays(
+      configured[retentionClass],
+      DEFAULT_RETENTION_DAYS[retentionClass],
+    );
+    return [retentionClass, new Date(Date.parse(now) - days * 86_400_000).toISOString()];
+  }));
+}
+
+function boundedRetentionDays(value, fallback) {
+  return Math.max(1, Math.min(Number.parseInt(value, 10) || fallback, 3650));
+}
+
+function retentionExpiryClause(cutoffs) {
+  const clauses = [];
+  const params = [];
+  for (const retentionClass of RETENTION_CLASSES_WITH_EXPIRY) {
+    clauses.push('(retention_class = ? AND started_at < ?)');
+    params.push(retentionClass, cutoffs[retentionClass]);
+  }
+  return { sql:clauses.join(' OR '), params };
 }
 
 function unique(values) {

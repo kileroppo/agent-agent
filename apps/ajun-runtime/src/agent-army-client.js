@@ -428,6 +428,9 @@ export class AgentArmyClient {
         description:safeText(response.assignment?.description, 4000),
         agentId:safeText(response.assignment?.agentId, 80),
         runId:safeText(response.assignment?.runId, 128),
+        ...(response.assignment?.contextCapsule
+          ? { contextCapsule:taskContextCapsuleView(response.assignment.contextCapsule) }
+          : {}),
         ...(response.assignment?.agentId === 'architect'
           ? { groundTruth:architectureGroundTruthView(response.assignment?.groundTruth) }
           : {})
@@ -593,6 +596,29 @@ export class AgentArmyClient {
   }
 }
 
+function taskContextCapsuleView(value = {}) {
+  return {
+    schemaVersion:'agent.army/task-context-capsule/v1',
+    taskId:safeText(value.taskId, 128),
+    taskType:safeText(value.taskType, 120),
+    status:safeText(value.status, 60),
+    goal:safeText(value.goal, 300),
+    result:safeText(value.result, 500),
+    adoptedArtifactRefs:(Array.isArray(value.adoptedArtifactRefs) ? value.adoptedArtifactRefs : []).slice(0, 10).map((item) => ({
+      artifactId:safeText(item?.artifactId, 160) || null,
+      type:safeText(item?.type, 120) || null,
+      title:safeText(item?.title, 200) || null,
+      checksum:safeText(item?.checksum, 160) || null,
+      location:safeText(item?.location, 500) || null,
+    })),
+    keyDecisions:safeStringList(value.keyDecisions, 5, 300),
+    unfinishedItems:safeStringList(value.unfinishedItems, 5, 300),
+    nextAction:safeText(value.nextAction, 300),
+    evidenceRefs:safeStringList(value.evidenceRefs, 10, 240),
+    updatedAt:safeText(value.updatedAt, 80) || null,
+  };
+}
+
 function normalizeVisualMode(value) {
   return value === 'off' || value === 'required' ? value : 'auto';
 }
@@ -698,10 +724,10 @@ function architectureGroundTruthView(value = {}) {
       name:safeText(item?.name, 120),
       status:safeText(item?.status, 40),
       acceptedTaskTypes:safeStringList(item?.acceptedTaskTypes, 20, 120),
-      toolAllowlist:safeStringList(item?.toolAllowlist, 30, 160),
+      toolAllowlist:safeStringList(item?.toolAllowlist, 20, 160),
       repositoryRefs:safeStringList(item?.repositoryRefs, 6, 500)
     })),
-    taskTypes:(Array.isArray(value?.taskTypes) ? value.taskTypes : []).slice(0, 100).map((item) => ({
+    taskTypes:(Array.isArray(value?.taskTypes) ? value.taskTypes : []).slice(0, 50).map((item) => ({
       ref:safeText(item?.ref, 180),
       taskType:safeText(item?.taskType, 120),
       agentIds:safeStringList(item?.agentIds, 20, 80),
@@ -712,7 +738,7 @@ function architectureGroundTruthView(value = {}) {
       byStatus:safeMetrics(value?.taskSummary?.byStatus),
       byTaskType:safeMetrics(value?.taskSummary?.byTaskType)
     },
-    taskEvidence:(Array.isArray(value?.taskEvidence) ? value.taskEvidence : []).slice(0, 60).map((item) => ({
+    taskEvidence:(Array.isArray(value?.taskEvidence) ? value.taskEvidence : []).slice(0, 24).map((item) => ({
       ref:safeText(item?.ref, 160),
       taskId:safeText(item?.taskId, 128),
       taskType:safeText(item?.taskType, 120),

@@ -30,7 +30,7 @@ export class TaskService {
     feishuChannelStatus = null,
     agentChannelStates = null,
     workerStatus = null,
-    contentGrowthWaitMs = 240_000,
+    contentGrowthWaitMs = 240_000, employeeAssignmentWaitMs = 0,
     taskDetailBaseUrl = '',
     roleToolAdapters = {},
     m5ProviderVision = null,
@@ -65,7 +65,7 @@ export class TaskService {
     this.taskLifecycleEvents = new TaskLifecycleEventRecorder({ eventStore:taskRunEvents });
     this.localAiRunEvents = new TaskLocalAiRunEventRecorder({ eventStore:taskRunEvents, registry,
       resolveAssignment:(input) => this.getPaperclipAssignment(input) });
-    this.contentGrowthWaitMs = Math.max(1, Math.min(Number(contentGrowthWaitMs) || 240_000, 240_000));
+    this.contentGrowthWaitMs = Math.max(1, Math.min(Number(contentGrowthWaitMs) || 240_000, 240_000)); this.employeeAssignmentWaitMs = Math.max(0, Math.min(Number(employeeAssignmentWaitMs) || 0, 240_000));
     this.contentGrowthRuns = new Map();
     this.employeeAssignmentRuns = new Map();
     this.approvalResolutionRuns = new Map();

@@ -24,6 +24,7 @@ import {
   m5RelatedTaskContext,
   canonicalOpenResearchExecutionPolicy,
 } from './task-service-execution-support.js';
+import { buildTaskContextCapsule } from './task-context-capsule.js';
 
 export const taskPaperclipAssignmentMethods = {
   async getPaperclipAssignment(input = {}) {
@@ -208,6 +209,7 @@ export const taskPaperclipAssignmentMethods = {
         routineKey:assignmentTask.routineKey || null,
         pipelineCaseId:assignmentTask.pipelineCaseId || null,
         projectId:assignmentProjectId,
+        contextCapsule:buildTaskContextCapsule(task),
         ...(activePlanRevision ? {
           m5Recovery:m5PlanRevisionExecutionContext(activePlanRevision),
         } : {}),

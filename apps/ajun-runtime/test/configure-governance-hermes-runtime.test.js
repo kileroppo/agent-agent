@@ -524,6 +524,7 @@ test('Profile 检查器把缺失 MCP 和 Feishu toolsets 安全归一为空状�
   assert.deepEqual(state, {
     mcp:null,
     feishuToolsets:[],
+    runtimePolicy:defaultRuntimePolicy(),
   });
 });
 
@@ -573,6 +574,10 @@ test('Hermes helper 只在临时 Profile 精确写 Feishu 白名单并阻止 TOC
   assert.deepEqual(JSON.parse(missingState.stdout).state, {
     feishuToolsets:[],
     mcp:null,
+    runtimePolicy:{
+      ...defaultRuntimePolicy(),
+      memory:{ nudgeInterval:0, writeApproval:false },
+    },
   });
 
   await fs.writeFile(
@@ -1059,6 +1064,18 @@ function legacyProfileState(agentId) {
       'session_search',
       'skills',
     ],
+    runtimePolicy:defaultRuntimePolicy(),
+  };
+}
+
+function defaultRuntimePolicy() {
+  return {
+    agent:{ maxTurns:500, reasoningEffort:'medium', apiMaxRetries:3 },
+    toolLoopGuardrails:{ hardStopEnabled:false },
+    compression:{ enabled:true, threshold:0.5, targetRatio:0.2, protectFirstN:3, protectLastN:20 },
+    memory:{ writeApproval:true, nudgeInterval:0 },
+    sessions:{ autoPrune:false, retentionDays:90 },
+    sessionReset:{ mode:'none', idleMinutes:1440, notify:true },
   };
 }
 
@@ -1105,6 +1122,9 @@ function applyFakeHermesConfig(state, args, options = {}) {
   if (args[0] === 'config' && args.includes('mcp_servers.agent-army.timeout')) {
     state.mcp.timeout = Number(args.at(-1));
   }
+  if (args[0] === 'config' && args[1] === 'set' && !args.includes('mcp_servers.agent-army.timeout')) {
+    applyFakeRuntimeSetting(state, args.at(-2), args.at(-1));
+  }
   if (args[0] === 'tools' && args[1] === 'disable') {
     state.feishuToolsets = [];
   }
@@ -1114,6 +1134,35 @@ function applyFakeHermesConfig(state, args, options = {}) {
     if (values.length) state.feishuToolsets = values;
   }
   return { code:0, stdout:'' };
+}
+
+function applyFakeRuntimeSetting(state, key, rawValue) {
+  const paths = {
+    'agent.max_turns':['agent', 'maxTurns', Number],
+    'agent.reasoning_effort':['agent', 'reasoningEffort', String],
+    'agent.api_max_retries':['agent', 'apiMaxRetries', Number],
+    'tool_loop_guardrails.hard_stop_enabled':['toolLoopGuardrails', 'hardStopEnabled', booleanValue],
+    'compression.enabled':['compression', 'enabled', booleanValue],
+    'compression.threshold':['compression', 'threshold', Number],
+    'compression.target_ratio':['compression', 'targetRatio', Number],
+    'compression.protect_first_n':['compression', 'protectFirstN', Number],
+    'compression.protect_last_n':['compression', 'protectLastN', Number],
+    'memory.write_approval':['memory', 'writeApproval', booleanValue],
+    'memory.nudge_interval':['memory', 'nudgeInterval', Number],
+    'sessions.auto_prune':['sessions', 'autoPrune', booleanValue],
+    'sessions.retention_days':['sessions', 'retentionDays', Number],
+    'session_reset.mode':['sessionReset', 'mode', String],
+    'session_reset.idle_minutes':['sessionReset', 'idleMinutes', Number],
+    'session_reset.notify':['sessionReset', 'notify', booleanValue],
+  };
+  const mapping = paths[key];
+  if (!mapping) return;
+  state.runtimePolicy ||= defaultRuntimePolicy();
+  state.runtimePolicy[mapping[0]][mapping[1]] = mapping[2](rawValue);
+}
+
+function booleanValue(value) {
+  return String(value) === 'true';
 }
 
 function fakeConfigAuditResult(args) {

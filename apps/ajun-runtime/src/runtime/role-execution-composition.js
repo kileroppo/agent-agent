@@ -216,6 +216,7 @@ export async function createRoleExecutionComposition({
     store,
     governance,
     roleToolAdapters,
+    employeeAssignmentWaitMs:environment.AGENT_ARMY_EMPLOYEE_ASSIGNMENT_WAIT_MS || 240_000,
     officePresentationWorkspaceRoot:path.join(dataDir, 'office-presentation-workspaces'),
     usageLedger:new HermesUsageLedger({ profileRoot:hermesProfileRoot }),
     m5ProviderVision:contentCampaign.executeProviderVision,

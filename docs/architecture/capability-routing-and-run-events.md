@@ -22,7 +22,7 @@
 | `workflow/capability-routing.ts` | 路线、数据、副作用和预算选择 |
 | `workflow/capability-execution.ts` | 有界恢复、Plan B 和 ExecutionReceipt v2 |
 | `workflow/capability-event-recorder.ts` | 把执行回执投影为任务运行事件 |
-| `task-run-event-*` | SQLite 追加写、脱敏、分页、90 天保留和永久事故摘要 |
+| `task-run-event-*` | SQLite 追加写、脱敏、分页、7/30/365 天分级留存和永久事故摘要 |
 | `task-timeline-*` | 面向局域网和本机负责人的不同脱敏投影 |
 | `workflow/delivery-*` / `quality-*` / `revision-*` | 交付简报、质量等级、独立复核请求和最多两轮返工契约 |
 
@@ -37,7 +37,7 @@
 
 ## 运行事件与任务详情
 
-事件只保存白名单元数据、哈希、脱敏摘要、费用、回执和产物引用，不保存 Prompt、正文、Cookie、Token 或凭据。明细默认保留 90 天；清理故障明细前先固化永久脱敏事故摘要。
+事件只保存白名单元数据、哈希、脱敏摘要、费用、回执和产物引用，不保存 Prompt、正文、Cookie、Token 或凭据。进度类事件默认保留 7 天、常规明细 30 天、审批/费用/回执等审计事件 365 天；清理故障事件前先固化永久脱敏事故摘要。历史清理默认只预览，必须显式切到 `apply` 才会删除。
 
 任务详情复用现有记录工作台展示“运行过程”。局域网只看业务阶段；本机负责人可展开 Provider、模型、路线、尝试次数、费用、错误代码和回执引用。查询支持故障、切换、费用和质量筛选以及游标续页。
 

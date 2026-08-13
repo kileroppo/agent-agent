@@ -15,6 +15,7 @@ function setup({
   onTaskFailed = null,
   agentChannelStates = null,
   contentGrowthWaitMs = undefined,
+  employeeAssignmentWaitMs = undefined,
   m5ProviderVision = null,
   m5WorkProductValidator = async () => true,
   skillExecutionRegistry = undefined,
@@ -67,7 +68,7 @@ function setup({
     async assertCaseIssueLink() {},
     ...governance,
   } : governance;
-  return { records, service: new TaskService({ registry: { async list(){return agents}, async get(agentId){return agents.find((agent)=>agent.agentId === agentId) || null}, async candidates(type){return agents.filter((agent)=>agent.acceptedTaskTypes.includes(type))} }, store, governance:testGovernance, executors, roleToolAdapters, officePresentationWorkspaceRoot, onTaskFailed, agentChannelStates, contentGrowthWaitMs, m5ProviderVision, m5WorkProductValidator, localAiCapabilityStatus, taskRunEvents, ...(skillExecutionRegistry ? { skillExecutionRegistry } : {}) }) };
+  return { records, service: new TaskService({ registry: { async list(){return agents}, async get(agentId){return agents.find((agent)=>agent.agentId === agentId) || null}, async candidates(type){return agents.filter((agent)=>agent.acceptedTaskTypes.includes(type))} }, store, governance:testGovernance, executors, roleToolAdapters, officePresentationWorkspaceRoot, onTaskFailed, agentChannelStates, contentGrowthWaitMs, employeeAssignmentWaitMs, m5ProviderVision, m5WorkProductValidator, localAiCapabilityStatus, taskRunEvents, ...(skillExecutionRegistry ? { skillExecutionRegistry } : {}) }) };
 }
 const coordinator = { agentId:'ajun', name:'A君', status:'active', acceptedTaskTypes:['army.intake', 'army.route-task', 'army.cross-agent-mission'] };
 
@@ -1975,6 +1976,60 @@ test('Hermes 员工阶段按 M5 Routine 映射调用各自既有受控执行器'
     assert.equal(executions, 1);
     assert.equal(records.tasks.length, 1);
   }
+});
+
+test('后台员工任务在同一次工具调用内等待终态，避免反复唤醒模型轮询', async () => {
+  const xiaod = {
+    agentId:'xiaod',
+    name:'小D',
+    status:'active',
+    acceptedTaskTypes:['media.transcribe-and-refine'],
+    interaction:{ runtime:'hermes-profile', directFeishu:'required' },
+    executionOwner:'paperclip-hermes',
+  };
+  const identity = {
+    issue:{ id:'paperclip-issue-server-wait', identifier:'AGE-SERVER-WAIT', title:'整理公开视频', description:'等待后台处理。' },
+    run:{ id:'paperclip-run-server-wait' },
+    paperclipAgent:{ id:'paperclip-agent-server-wait', name:'小D' },
+    agentArmyId:'xiaod',
+  };
+  const governance = { async verifyHermesAssignment() { return identity; } };
+  const { service } = setup({ agents:[xiaod], governance, employeeAssignmentWaitMs:80 });
+  service.executors.xiaod = {
+    async execute() {
+      return { status:'running', currentStage:'transcription_running', artifactRefs:[] };
+    },
+    observe(task) {
+      setTimeout(() => {
+        void service.store.updateTask(task.taskId, {
+          status:'succeeded',
+          currentStage:'transcript_ready',
+          artifactRefs:[verifiedArtifact(task, 'transcript')],
+          execution:{
+            ...(task.execution || {}),
+            paperclipEmployee:{
+              ...(task.execution?.paperclipEmployee || {}),
+              state:'settled',
+              status:'succeeded',
+              verified:true,
+              recommendedCompletionStatus:'succeeded',
+            },
+          },
+        });
+      }, 5);
+    },
+  };
+
+  const result = await service.executeEmployeeAssignment({
+    issueId:identity.issue.id,
+    runId:identity.run.id,
+    paperclipAgentId:identity.paperclipAgent.id,
+    agentArmyId:'xiaod',
+  });
+
+  assert.equal(result.result.status, 'succeeded');
+  assert.equal(result.result.continuePolling, undefined);
+  assert.equal(result.result.verified, true);
 });
 
 test('M5 员工阶段执行异常明确回报 failed，交给有上限的 Paperclip 恢复循环', async () => {

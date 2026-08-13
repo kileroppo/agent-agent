@@ -62,7 +62,7 @@ test('90天清理先为故障任务固化永久脱敏事故摘要，永久事件
     store.appendTaskRunEvent({ eventId:'permanent', taskId:'task-old', eventType:'workflow_blocked', status:'blocked', retentionClass:'permanent', startedAt:'2026-01-01T00:02:00Z' });
     store.appendTaskRunEvent({ eventId:'recent', taskId:'task-recent', eventType:'workflow_completed', status:'succeeded', startedAt:'2026-04-30T00:00:00Z' });
 
-    const retention = new TaskRunEventRetention({ eventStore:store, retentionDays:90, clock:() => '2026-05-02T00:00:00Z' });
+    const retention = new TaskRunEventRetention({ eventStore:store, retentionDays:90, mode:'apply', clock:() => '2026-05-02T00:00:00Z' });
     const result = retention.runOnce();
     assert.equal(result.deletedEvents, 2);
     assert.equal(result.incidentSummariesCreated, 1);
@@ -74,6 +74,55 @@ test('90天清理先为故障任务固化永久脱敏事故摘要，永久事件
     assert.equal(JSON.stringify(summary).includes('hidden'), false);
     assert.equal(summary.routePath[0].routeId, 'vision-local');
   });
+});
+
+test('四级留存默认只预览，明确 apply 后按 7/30/365 天删除且永久记录保留', async () => {
+  await withStore(async ({ store }) => {
+    for (const [eventId, retentionClass, startedAt] of [
+      ['transient-old', 'transient', '2026-04-01T00:00:00Z'],
+      ['detail-old', 'detail', '2026-03-01T00:00:00Z'],
+      ['audit-old', 'audit', '2025-01-01T00:00:00Z'],
+      ['permanent-old', 'permanent', '2020-01-01T00:00:00Z'],
+      ['transient-recent', 'transient', '2026-04-29T00:00:00Z'],
+    ]) store.appendTaskRunEvent({ eventId, taskId:'task-retention', eventType:'workflow_state_changed', status:'running', retentionClass, startedAt });
+
+    const preview = new TaskRunEventRetention({ eventStore:store, clock:() => '2026-05-02T00:00:00Z' }).runOnce();
+    assert.equal(preview.mode, 'dry-run');
+    assert.deepEqual(preview.expiringByClass, { transient:1, detail:1, audit:1 });
+    assert.equal(preview.deletedEvents, 0);
+    assert.equal(store.queryTaskRunEvents({ taskId:'task-retention' }).items.length, 5);
+
+    const applied = new TaskRunEventRetention({ eventStore:store, mode:'apply', clock:() => '2026-05-02T00:00:00Z' }).runOnce();
+    assert.equal(applied.deletedEvents, 3);
+    assert.deepEqual(applied.deletedByClass, { transient:1, detail:1, audit:1 });
+    assert.deepEqual(
+      store.queryTaskRunEvents({ taskId:'task-retention' }).items.map((event) => event.eventId),
+      ['permanent-old', 'transient-recent'],
+    );
+  });
+});
+
+test('旧 detail/permanent 数据库自动迁移到四级留存约束且保留原记录', () => {
+  const database = new DatabaseSync(':memory:');
+  database.exec(`
+    CREATE TABLE task_run_events (
+      event_id TEXT PRIMARY KEY, trace_id TEXT, span_id TEXT, parent_span_id TEXT,
+      task_id TEXT NOT NULL, workflow_id TEXT, step_id TEXT, agent_id TEXT,
+      event_type TEXT NOT NULL, capability_id TEXT, route_id TEXT, provider TEXT, model TEXT,
+      attempt INTEGER, status TEXT, started_at TEXT NOT NULL, finished_at TEXT, duration_ms INTEGER,
+      policy_decision_id TEXT, receipt_id TEXT, checkpoint_ref TEXT, input_hash TEXT, output_hash TEXT,
+      artifact_refs_json TEXT NOT NULL DEFAULT '[]', error_code TEXT, safe_summary TEXT,
+      cost_amount REAL, cost_currency TEXT, retention_class TEXT NOT NULL DEFAULT 'detail'
+        CHECK (retention_class IN ('detail', 'permanent'))
+    );
+    INSERT INTO task_run_events (event_id, task_id, event_type, started_at, retention_class)
+    VALUES ('legacy-event', 'legacy-task', 'task_received', '2026-01-01T00:00:00Z', 'detail');
+  `);
+  const store = new TaskRunEventStore(database);
+  assert.equal(store.queryTaskRunEvents({ taskId:'legacy-task' }).items[0].eventId, 'legacy-event');
+  assert.equal(store.appendTaskRunEvent({ taskId:'legacy-task', eventType:'workflow_completed', retentionClass:'audit' }).retentionClass, 'audit');
+  store.close();
+  database.close();
 });
 
 test('跨保留周期合并永久事故摘要且不丢历史错误、路线和计数', async () => {

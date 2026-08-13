@@ -267,10 +267,14 @@
     },
     "autonomyBudgetPolicy": {
       "type": "object",
-      "required": ["maxRuntimeMinutes", "maxModelCalls", "maxConcurrentSubtasks", "maxDelegationDepth", "paidApprovalThresholdUsd"],
+      "required": ["maxRuntimeMinutes", "maxModelCalls", "maxTurns", "reasoningEffort", "apiMaxRetries", "toolLoopHardStop", "maxConcurrentSubtasks", "maxDelegationDepth", "paidApprovalThresholdUsd"],
       "properties": {
         "maxRuntimeMinutes": { "type": "integer", "minimum": 1, "maximum": 60 },
         "maxModelCalls": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "maxTurns": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "reasoningEffort": { "enum": ["none", "low", "medium"] },
+        "apiMaxRetries": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "toolLoopHardStop": { "const": true },
         "maxConcurrentSubtasks": { "type": "integer", "minimum": 1, "maximum": 4 },
         "maxDelegationDepth": { "type": "integer", "minimum": 0, "maximum": 2 },
         "paidApprovalThresholdUsd": { "type": "number", "minimum": 0, "maximum": 5 }

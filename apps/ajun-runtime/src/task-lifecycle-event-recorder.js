@@ -40,6 +40,7 @@ export class TaskLifecycleEventRecorder {
         status:'recorded',
         startedAt:occurredAt,
         artifactRefs,
+        retentionClass:'audit',
       });
     }
 
@@ -52,7 +53,9 @@ export class TaskLifecycleEventRecorder {
       startedAt:offset(occurredAt, artifactRefs.length ? 1 : 0),
       errorCode:task.error?.code || null,
       safeSummary:task.currentStage,
-      retentionClass:BLOCKED_STATUSES.has(task.status) ? 'permanent' : 'detail',
+      retentionClass:task.status === 'succeeded' || BLOCKED_STATUSES.has(task.status)
+        ? 'audit'
+        : 'transient',
     });
   }
 

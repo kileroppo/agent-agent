@@ -123,6 +123,20 @@ export function reconcileUsageBilling(tasks, ledger, { since = null } = {}) {
       taskModelRecordCount:taskEntries.length,
       unmatchedTaskRecordCount:taskEntries.filter((entry) => entry.ledgerRefs.length === 0).length,
     },
+    efficiency:{
+      inputTokensByAttribution:Object.fromEntries(
+        ['task', 'system', 'agent_session', 'unattributed'].map((status) => [
+          status,
+          sumTokens(entries, status, 'input'),
+        ]),
+      ),
+      memoryWriteCount:sumRecordedToolCalls(tasks, 'memory'),
+      sessionSearchCount:sumRecordedToolCalls(tasks, 'session_search'),
+      budgetStopCount:(Array.isArray(tasks) ? tasks : []).filter((task) =>
+        /(?:budget|limit|hard_stop|max_turn)/i.test(String(task?.error?.code || '')),
+      ).length,
+      toolCountCoverage:'task_usage_only',
+    },
     taskEntries,
     limitations:Array.isArray(ledger?.limitations) ? ledger.limitations : [],
     unavailableProfiles:Array.isArray(ledger?.unavailableProfiles) ? ledger.unavailableProfiles : [],
@@ -254,6 +268,18 @@ function classifyUnmatchedLedgerEntry(entry) {
 function sumApiCalls(entries, status) {
   return entries.filter((entry) => entry.attribution.status === status)
     .reduce((total, entry) => total + Number(entry.apiCalls || 0), 0);
+}
+
+function sumTokens(entries, status, field) {
+  return entries.filter((entry) => entry.attribution.status === status)
+    .reduce((total, entry) => total + Number(entry.tokens?.[field] || 0), 0);
+}
+
+function sumRecordedToolCalls(tasks, toolId) {
+  return (Array.isArray(tasks) ? tasks : []).reduce((total, task) => total
+    + (Array.isArray(task?.usage?.tools) ? task.usage.tools : [])
+      .filter((tool) => tool?.id === toolId)
+      .reduce((count, tool) => count + Number(tool.calls || 0), 0), 0);
 }
 
 function normalizeCost(value) {

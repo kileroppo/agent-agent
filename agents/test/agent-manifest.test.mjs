@@ -518,13 +518,21 @@ test("11 个自主岗位统一明确 DeepSeek 模型，私密只读岗位仅开�
         "paid-action",
         "permission-expansion"
       ]);
-      assert.deepEqual(manifest.autonomyBudgetPolicy, {
-        maxRuntimeMinutes:60,
-        maxModelCalls:20,
-        maxConcurrentSubtasks:4,
-        maxDelegationDepth:2,
-        paidApprovalThresholdUsd:5
-      });
+      const expectedRuntime = {
+        ajun:[20, "low"],
+        operator:[8, "none"],
+        xiaod:[12, "low"],
+        "office-assistant":[12, "low"]
+      }[manifest.agentId] || [16, "medium"];
+      assert.equal(manifest.autonomyBudgetPolicy.maxModelCalls, expectedRuntime[0]);
+      assert.equal(manifest.autonomyBudgetPolicy.maxTurns, expectedRuntime[0]);
+      assert.equal(manifest.autonomyBudgetPolicy.reasoningEffort, expectedRuntime[1]);
+      assert.equal(manifest.autonomyBudgetPolicy.apiMaxRetries, 1);
+      assert.equal(manifest.autonomyBudgetPolicy.toolLoopHardStop, true);
+      assert.equal(manifest.autonomyBudgetPolicy.maxRuntimeMinutes, 60);
+      assert.equal(manifest.autonomyBudgetPolicy.maxConcurrentSubtasks, 4);
+      assert.equal(manifest.autonomyBudgetPolicy.maxDelegationDepth, 2);
+      assert.equal(manifest.autonomyBudgetPolicy.paidApprovalThresholdUsd, 5);
       assert.ok(
         manifest.acceptedTaskTypes.some((taskType) => taskType.endsWith("-program")
           || taskType.endsWith("-production")
