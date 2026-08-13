@@ -218,6 +218,13 @@
         "test/m5-publisher-bindings.test.js"
       ]
     },
+    "src/m5-work-product-trust.js": {
+      "lineLimit": 100,
+      "affectedTests": [
+        "test/m5-learning-lifecycle.test.js",
+        "test/paperclip-retrospective.test.js"
+      ]
+    },
     "src/metric-checkpoint-execution.js": {
       "lineLimit": 630,
       "affectedTests": [
@@ -488,7 +495,8 @@
     },
     "src/task-approval-coordinator.js": {
       "affectedTests": [
-        "test/task-service.test.js"
+        "test/task-service.test.js",
+        "test/xiaod-delivery-resume.test.js"
       ],
       "lineLimit": 300
     },
@@ -675,6 +683,19 @@
         "test/task-status-policy.test.js"
       ],
       "lineLimit": 180
+    },
+    "src/xiaod-delivery-resume.js": {
+      "lineLimit": 100,
+      "affectedTests": [
+        "test/task-service.test.js",
+        "test/xiaod-delivery-resume.test.js"
+      ]
+    },
+    "src/xiaod-task-control.js": {
+      "lineLimit": 250,
+      "affectedTests": [
+        "test/task-service.test.js"
+      ]
     },
     "src/workflow/delivery-quality-runtime.ts": {
       "affectedTests": [

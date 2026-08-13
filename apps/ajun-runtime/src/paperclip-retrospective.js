@@ -14,6 +14,11 @@ import {
   CONTENT_PERFORMANCE_NEXT_ACTIONS,
   metricObservations,
 } from './local-content-growth.js';
+import {
+  isValidM5WorkProductDate,
+  trustedM5WorkProducts,
+  uniqueTrustedM5WorkProduct,
+} from './m5-work-product-trust.js';
 
 const SYSTEM_ROLE = 'm5-retrospective-controller';
 const ROUTINE_MARKER = '[agent-army:m5:routine:m5-retrospective]';
@@ -208,25 +213,21 @@ export class PaperclipRetrospectiveError extends Error {}
 
 export function trustedMetricSamples(outputs, platform) {
   const byContentVersion = new Map();
-  for (const item of outputItems(outputs)) {
-    if (
-      item?.kind !== 'work_product'
-      || item?.type !== 'artifact'
-      || item?.provider !== PUBLISHER_PROVIDER
-      || item?.sourceTrust != null
-      || item?.status !== 'active'
-      || item?.healthStatus !== 'healthy'
-      || item?.metadata?.schemaVersion !== METRIC_SCHEMA
-      || item?.metadata?.kind !== 'MetricSnapshot'
-      || item?.metadata?.checkpoint !== '72h'
-    ) continue;
+  for (const item of trustedM5WorkProducts(outputs, {
+    type:'artifact',
+    provider:PUBLISHER_PROVIDER,
+    schemaVersion:METRIC_SCHEMA,
+    kind:'MetricSnapshot',
+    statuses:['active'],
+  })) {
+    if (item?.metadata?.checkpoint !== '72h') continue;
     const snapshot = item.metadata.snapshot;
     if (
       !snapshot
       || snapshot.platform !== platform
       || !String(snapshot.snapshotId || '').trim()
       || !String(snapshot.contentVersionId || '').trim()
-      || !Number.isFinite(Date.parse(snapshot.collectedAt))
+      || !isValidM5WorkProductDate(snapshot.collectedAt)
       || !snapshot.metrics
       || typeof snapshot.metrics !== 'object'
       || Array.isArray(snapshot.metrics)
@@ -337,29 +338,22 @@ function normalizeCase(value) {
   };
 }
 
-function outputItems(value) {
-  return Array.isArray(value) ? value : Array.isArray(value?.items) ? value.items : [];
-}
-
 function trustedRetrospectiveProduct(outputs, caseId, caseVersion) {
-  const matches = outputItems(outputs).filter((item) =>
-    item?.kind === 'work_product'
-    && item?.type === 'document'
-    && item?.provider === RETROSPECTIVE_PROVIDER
-    && item?.sourceTrust == null
-    && item?.status === 'active'
-    && item?.healthStatus === 'healthy'
-    && item?.metadata?.schemaVersion === RETROSPECTIVE_SCHEMA
-    && item?.metadata?.kind === 'Retrospective'
-    && item?.metadata?.version === 1
-    && item?.metadata?.caseId === caseId
-    && item?.metadata?.sourceCaseVersion === caseVersion
-    && ['insufficient_sample', 'proposal_ready'].includes(item?.metadata?.report?.status),
-  );
-  if (matches.length > 1) {
-    throw new PaperclipRetrospectiveError('当前 Case 存在多个同版本复盘 Work Product，拒绝猜测。');
-  }
-  return matches[0] || null;
+  return uniqueTrustedM5WorkProduct(outputs, {
+    type:'document',
+    provider:RETROSPECTIVE_PROVIDER,
+    schemaVersion:RETROSPECTIVE_SCHEMA,
+    kind:'Retrospective',
+    statuses:['active'],
+  }, {
+    matches:(item) => item?.metadata?.version === 1
+      && item?.metadata?.caseId === caseId
+      && item?.metadata?.sourceCaseVersion === caseVersion
+      && ['insufficient_sample', 'proposal_ready'].includes(item?.metadata?.report?.status),
+    duplicateError:() => new PaperclipRetrospectiveError(
+      '当前 Case 存在多个同版本复盘 Work Product，拒绝猜测。',
+    ),
+  });
 }
 
 function retrospectiveExternalId(caseId, version) {

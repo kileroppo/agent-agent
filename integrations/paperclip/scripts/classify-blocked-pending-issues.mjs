@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import {
+  asPaperclipList,
   createPaperclipLoopbackClient,
   validDate,
 } from './support/paperclip-loopback-client.mjs';
@@ -42,7 +43,7 @@ export async function classifyBlockedPendingIssues({
     }),
   ]);
   const agentsById = new Map(
-    catalog.list(agentsPayload, CLASSIFIER_LIST_ENVELOPES)
+    asPaperclipList(agentsPayload, CLASSIFIER_LIST_ENVELOPES)
       .map((agent) => [agent.id, agent]),
   );
   const nowDate = normalizeDate(now, 'now');

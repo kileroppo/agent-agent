@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PaperclipRetrospectiveHandler } from '../src/paperclip-retrospective.js';
+import {
+  PaperclipRetrospectiveError,
+  PaperclipRetrospectiveHandler,
+  trustedMetricSamples,
+} from '../src/paperclip-retrospective.js';
+import {
+  isValidM5WorkProductDate,
+  trustedM5WorkProducts,
+} from '../src/m5-work-product-trust.js';
 
 const IDS = Object.freeze({
   case:'11111111-1111-4111-8111-111111111111',
@@ -131,9 +139,9 @@ test('提案Work Product已写入且Case已到learning时只完成Issue，不重
   assert.equal(governance.completed, 1);
 });
 
-test('样本只接受标准信任72h快照，并按contentVersion去重', async () => {
+test('样本只接受标准信任且日期有效的72h快照，并按contentVersion保留最新候选', async () => {
   const valid = Array.from({ length:4 }, (_, index) => metricSnapshot(index + 1));
-  const governance = new FakeRetrospectiveGovernance([
+  const outputs = [
     ...valid,
     metricSnapshot(1, {
       id:'duplicate-content',
@@ -159,10 +167,74 @@ test('样本只接受标准信任72h快照，并按contentVersion去重', async 
         snapshot:{ ...metricSnapshot(7).metadata.snapshot, platform:'xiaohongshu' },
       },
     }),
+    metricSnapshot(8, {
+      metadata:{
+        ...metricSnapshot(8).metadata,
+        snapshot:{ ...metricSnapshot(8).metadata.snapshot, collectedAt:'not-a-date' },
+      },
+    }),
+    metricSnapshot(9, { healthStatus:'degraded' }),
+  ];
+  const samples = trustedMetricSamples({ items:outputs }, 'douyin');
+  assert.equal(samples.length, 4);
+  assert.deepEqual(samples.map((item) => item.snapshotId), [
+    'snapshot-2',
+    'snapshot-3',
+    'snapshot-4',
+    'snapshot-duplicate',
   ]);
+
+  const governance = new FakeRetrospectiveGovernance(outputs);
   const result = await new PaperclipRetrospectiveHandler({ governance }).handle(payload());
   assert.equal(result.sampleCount, 4);
   assert.equal(result.status, 'insufficient_sample');
+});
+
+test('可信Work Product Module保持空信任、默认状态、信封和日期强制转换语义', () => {
+  const withoutSourceTrust = metricSnapshot(1);
+  delete withoutSourceTrust.sourceTrust;
+  const quarantined = metricSnapshot(2, { sourceTrust:{ disposition:'quarantined' } });
+  const mutableStatuses = ['active'];
+  const contract = {
+    type:'artifact',
+    provider:'agent-army.publisher-gateway',
+    schemaVersion:'agent.army/metric-snapshot/v1',
+    kind:'MetricSnapshot',
+  };
+
+  assert.deepEqual(
+    trustedM5WorkProducts({ items:[withoutSourceTrust, quarantined] }, contract)
+      .map((item) => item.id),
+    ['metric-1'],
+  );
+  assert.equal(trustedM5WorkProducts([withoutSourceTrust], {
+    ...contract,
+    statuses:undefined,
+  }).length, 1);
+  assert.equal(trustedM5WorkProducts([withoutSourceTrust], {
+    ...contract,
+    statuses:mutableStatuses,
+  }).length, 1);
+  assert.deepEqual(mutableStatuses, ['active']);
+  assert.equal(isValidM5WorkProductDate(undefined), false);
+  assert.equal(isValidM5WorkProductDate(0), Number.isFinite(Date.parse(0)));
+});
+
+test('同版本复盘Work Product不唯一时保持原错误语义并失败关闭', async () => {
+  const governance = new FakeRetrospectiveGovernance([]);
+  governance.caseOutputs = [
+    retrospectiveWorkProduct('retrospective-first'),
+    retrospectiveWorkProduct('retrospective-second'),
+  ];
+  const handler = new PaperclipRetrospectiveHandler({ governance });
+
+  await assert.rejects(
+    () => handler.handle(payload()),
+    (error) => error instanceof PaperclipRetrospectiveError
+      && error.message === '当前 Case 存在多个同版本复盘 Work Product，拒绝猜测。',
+  );
+  assert.equal(governance.transitions.length, 0);
+  assert.equal(governance.completed, 0);
 });
 
 test('调用方不能指定Case、平台、样本或Proposal，拒绝发生在Paperclip身份核验前', async () => {
@@ -217,6 +289,26 @@ function metricSnapshot(index, overrides = {}) {
       },
     },
     ...overrides,
+  };
+}
+
+function retrospectiveWorkProduct(id) {
+  return {
+    id,
+    kind:'work_product',
+    type:'document',
+    provider:'agent-army.m5-retrospective',
+    sourceTrust:null,
+    status:'active',
+    healthStatus:'healthy',
+    metadata:{
+      schemaVersion:'agent.army/m5-retrospective/v1',
+      kind:'Retrospective',
+      version:1,
+      caseId:IDS.case,
+      sourceCaseVersion:7,
+      report:{ status:'proposal_ready', sampleCount:5 },
+    },
   };
 }
 

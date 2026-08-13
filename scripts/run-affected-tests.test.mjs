@@ -85,6 +85,7 @@ test('A君深层模块变更只选择该模块及 TaskService 接缝测试', () 
       'test/task-overview-focus.test.js',
       'test/task-service-runtime-presentation.test.js',
       'test/task-service.test.js',
+      'test/xiaod-delivery-resume.test.js',
     ],
   );
   assert.deepEqual(

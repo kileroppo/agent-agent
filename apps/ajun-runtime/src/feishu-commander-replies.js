@@ -9,10 +9,10 @@ import { projectTaskNotification } from './task-notification-projection.js';
 export { safeAgentId, safeLoopbackBaseUrl, safeRef } from './feishu-commander-input.js';
 export { employeeCapabilityTruth, employeeRole } from './feishu-employee-status-presentation.js';
 
-export const CREATE_AGENT_RE = /(?:创建|新建|招募|招)\s*(?:一个\s*)?.{0,80}?(?:agent|智能体|岗位|助手)/i;
-export const PROGRESS_RE = /进度|进展|做到哪|处理得怎么样|完成了吗|结果呢|任务状态/;
-export const EXPLICIT_TASK_CREATION_RE = /(?:创建|新建|发起|安排)\s*(?:一个|一项|个|项)?\s*(?:测试)?任务/i;
-export const EXPLICIT_NO_TASK_RE = /(?:不要|不用|无需|不需要|禁止|别)\s*(?:创建|新建|发起|安排)\s*(?:一个|一项|个|项)?\s*(?:测试)?任务/i;
+const CREATE_AGENT_RE = /(?:创建|新建|招募|招)\s*(?:一个\s*)?.{0,80}?(?:agent|智能体|岗位|助手)/i;
+const PROGRESS_RE = /进度|进展|做到哪|处理得怎么样|完成了吗|结果呢|任务状态/;
+const EXPLICIT_TASK_CREATION_RE = /(?:创建|新建|发起|安排)\s*(?:一个|一项|个|项)?\s*(?:测试)?任务/i;
+const EXPLICIT_NO_TASK_RE = /(?:不要|不用|无需|不需要|禁止|别)\s*(?:创建|新建|发起|安排)\s*(?:一个|一项|个|项)?\s*(?:测试)?任务/i;
 export const TASK_ROUTING_DECISION_SCHEMA_VERSION = 'agent.army/feishu-task-routing-decision/v1';
 export const USAGE_RE = /花了多少|花费|成本|费用|消耗|用量|token|账单|开销|实际使用/i;
 export const FOLLOW_UP_RE = /^(?:需要|处理|继续|好的|好|行|可以|开始)$/;
@@ -20,17 +20,17 @@ export const PAUSE_RE = /(?:暂停|先别做|先停)/;
 export const RESUME_RE = /(?:恢复|继续).*(?:任务|处理|执行)|^(?:继续|恢复)$/;
 export const RETRY_XIAOD_RE = /^\s*重试\s*小\s*D\s*任务(?:\s+[0-9a-f-]{8,})?\s*$/i;
 export const CONTINUE_XIAOD_DELIVERY_RE = /^\s*(?:继续|重试)\s*飞书交付(?:\s+[0-9a-f-]{8,})?\s*$/i;
-export const POSITIVE_FEEDBACK_RE = /(?:不错|满意|有用|很好|挺好|做得好|谢谢|辛苦了)/;
-export const NEGATIVE_FEEDBACK_RE = /(?:不行|不对|有问题|重做|重新做|改一下|需要改进|没用|不好)/;
-export const HEALTH_RE = /健康|状态|服务|运行|paperclip|检查系统/i;
+const POSITIVE_FEEDBACK_RE = /(?:不错|满意|有用|很好|挺好|做得好|谢谢|辛苦了)/;
+const NEGATIVE_FEEDBACK_RE = /(?:不行|不对|有问题|重做|重新做|改一下|需要改进|没用|不好)/;
+const HEALTH_RE = /健康|状态|服务|运行|paperclip|检查系统/i;
 export const CAPABILITIES_RE = /(?:你|军团|现在).*(?:能干什么|能做什么|可以做什么|能帮我什么|有什么能力)|(?:能干什么|能做什么|可以做什么|能帮我什么|有什么能力).*(?:你|军团|现在)?/i;
-export const OPERATIONS_TRIAGE_RE = /(?:怀疑|担心|看看|查(?:一下|下)?|检查|判断).{0,48}(?:异常|故障|出问题|卡住|卡死)|(?:异常|故障|出问题|卡住|卡死).{0,80}(?:安全(?:处理|恢复)|谁(?:来|该)接手|怎么处理|需要我做什么)/i;
-export const MEDIA_RE = /视频|音频|转录|字幕|整理素材|youtube|bilibili|抖音|快手|transcri/i;
+const OPERATIONS_TRIAGE_RE = /(?:怀疑|担心|看看|查(?:一下|下)?|检查|判断).{0,48}(?:异常|故障|出问题|卡住|卡死)|(?:异常|故障|出问题|卡住|卡死).{0,80}(?:安全(?:处理|恢复)|谁(?:来|该)接手|怎么处理|需要我做什么)/i;
+const MEDIA_RE = /视频|音频|转录|字幕|整理素材|youtube|bilibili|抖音|快手|transcri/i;
 export const VIDEO_SCRIPT_RE = /(?:写|生成|做|出).{0,20}(?:视频)?(?:脚本|口播稿|拍摄稿)|按.{0,40}(?:套路|结构|视频|案例).{0,40}(?:写|生成|做|出)|(?:脚本|口播稿).{0,40}(?:主题|关于)/i;
-export const VIDEO_ANALYSIS_MODE_RE = /总结|提炼|精华|快速看懂|重点是什么|深度拆解|完整分析|完整拆解|为什么有效|学习方法|13\s*模块|模板学习|提取模板|学习模板|复用结构|开头套路|填空模板|换种风格|风格探索|专业版|幽默版|故事版|数据版/iu;
+const VIDEO_ANALYSIS_MODE_RE = /总结|提炼|精华|快速看懂|重点是什么|深度拆解|完整分析|完整拆解|为什么有效|学习方法|13\s*模块|模板学习|提取模板|学习模板|复用结构|开头套路|填空模板|换种风格|风格探索|专业版|幽默版|故事版|数据版/iu;
 export const USE_THIS_VERSION_RE = /^\s*(?:用这版|就这版|采用这版|按这版做|这版可以)\s*[。！!]?\s*$/;
 export const SCRIPT_REVISION_RE = /(?:更像我|更口语|更自然|节奏快|节奏慢|短一点|长一点|改(?:一下|成)|重写|开头.{0,12}(?:换|改)|语气.{0,12}(?:换|改))/i;
-export const OFFICE_RE = /办公汇报|汇报包|整理成(?:文档|表格|清单)|任务清单|会议材料|会议纪要|把.{0,40}(?:结果|材料).{0,20}整理/i;
+const OFFICE_RE = /办公汇报|汇报包|整理成(?:文档|表格|清单)|任务清单|会议材料|会议纪要|把.{0,40}(?:结果|材料).{0,20}整理/i;
 export const TASK_ID_RE = /\b[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\b/i;
 
 export class FeishuCommanderValidationError extends Error {}
@@ -40,7 +40,7 @@ export function conversationControlIntent(text) {
   return null;
 }
 
-export function explicitTaskCreationPlan(text) {
+function explicitTaskCreationPlan(text) {
   const value = String(text || '').trim();
   if (!EXPLICIT_TASK_CREATION_RE.test(value)) return null;
   if (/(?:全面|详细报告|岗位能力|能力和运行|任务状态.{0,30}运行健康)/i.test(value)) {
@@ -150,7 +150,7 @@ export function githubTaskInput(text) {
   return { repo, ...(explicitPath ? { path:explicitPath } : {}) };
 }
 
-export function githubSearchQuery(value) {
+function githubSearchQuery(value) {
   // GitHub repository search does not reliably match a full Chinese request.
   // Keep the original request as the task title, but pass a precise public
   // repository query to the API for the common governance vocabulary.
@@ -178,7 +178,7 @@ export function namedEmployeeStatusTarget(text, employees) {
   return matches.length === 1 ? matches[0].agentId : null;
 }
 
-export function compactMention(value) {
+function compactMention(value) {
   return String(value || '').toLocaleLowerCase('zh-CN').replace(/\s+/g, '');
 }
 
@@ -195,7 +195,7 @@ export function linkClarificationPlan(text, reply = '') {
   };
 }
 
-export function formatVideoScriptReply(report) {
+function formatVideoScriptReply(report) {
   if (report.templateLifecycle?.approvedForUse === true) {
     return '已采用这版。可拍脚本和制作包已经准备好；没有生成成片，也没有发布。';
   }
@@ -383,7 +383,7 @@ export function registeredDraftReviewReply(proposal) {
 
 export function stringList(value) { return (Array.isArray(value) ? value : value ? [value] : []).map((item) => String(item).trim()).filter(Boolean); }
 
-export function healthReviewReply(task, report) {
+function healthReviewReply(task, report) {
   const components = Array.isArray(report?.components) ? report.components : [];
   const abnormal = components.filter((component) => component?.status && component.status !== 'healthy');
   const evidence = components.length
@@ -419,7 +419,7 @@ export function mostRecentTask(tasks) {
   return [...tasks].sort((left, right) => taskTime(right) - taskTime(left))[0] || null;
 }
 
-export function progressQueryFor(text) {
+function progressQueryFor(text) {
   const value = String(text || '').trim();
   const taskId = value.match(TASK_ID_RE)?.[0] || null;
   if (taskId) return { taskId };
@@ -458,12 +458,12 @@ export function uniqueTasks(tasks) { return [...new Map(tasks.map((task) => [sho
 
 export function isVisibleEmployee(agent) { return agent.agentId !== 'creator'; }
 
-export function formatGithubReply(data) {
+function formatGithubReply(data) {
   if (data.repo) return [`【小R 已读取公开仓库】`, `${data.repo} · ${data.path}`, '', data.summary || '没有可提炼的文本要点。', '', `来源：${data.source || `https://github.com/${data.repo}`}`].join('\n');
   const lines = (data.results || []).map((item, index) => `${index + 1}. ${item.fullName}（★ ${item.stars}，${item.language || '语言未提供'}）\n   ${item.suitability || item.assessment || ''}${item.suitability && item.assessment ? `\n   元数据判断：${item.assessment}` : ''}\n   ${item.url}`);
   return ['【小R 公开 GitHub 检索】', `关键词：${data.query || '未提供'}`, '', ...lines, '', data.conclusion || '仅根据本次读取的公开 GitHub 元数据整理。'].join('\n');
 }
-export function formatIntelReply(report) {
+function formatIntelReply(report) {
   return ['【小R 研究报告】', `主题：${report.topic || '未提供'}`, '', `背景：${report.background || '仅根据已读取来源整理。'}`, `关键发现：${(report.findings || []).map((item) => `- ${item}`).join('\n') || '- 暂无可确认发现。'}`, `结论：${report.conclusion || '无法仅根据已读取来源确认更多结论。'}`, `行动建议：${(report.recommendations || []).map((item) => `- ${item}`).join('\n') || '- 先补充可公开读取的来源。'}`, `未决问题：${(report.openQuestions || []).map((item) => `- ${item}`).join('\n') || '- 暂无。'}`, '', `来源：${(report.sources || []).map((item) => item.source).filter(Boolean).join('；') || '无'}`].join('\n');
 }
 
@@ -482,11 +482,6 @@ export function employeeWorkState(agent, tasks) {
   if (task.status === 'needs_input') return `${title}缺少必要信息`;
   if (task.status === 'failed') return `${title}没有完成，故障记录已保留`;
   return `正在跟进${title}`;
-}
-
-export function employeeStatusText(agent, tasks) {
-  const name = agent.name || agent.agentId;
-  return `${name}：${employeeWorkState(agent, tasks)}`;
 }
 
 export function isToday(task) {
@@ -517,7 +512,7 @@ export function shouldShowInReport(task, byId) {
   return parent?.taskType !== 'army.cross-agent-mission';
 }
 
-export function taskPriority(status) { return taskStatusPriority(status); }
+function taskPriority(status) { return taskStatusPriority(status); }
 
 export function taskStatusLabel(status) {
   return canonicalTaskStatusLabel(status) || '状态待更新';

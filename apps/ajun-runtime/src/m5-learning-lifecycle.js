@@ -8,6 +8,12 @@ import {
   m5GrayProductionTemplateBinding,
   validM5TemplateGuidance,
 } from './m5-production-template-resolver.js';
+import {
+  isValidM5WorkProductDate,
+  m5WorkProductItems,
+  trustedM5WorkProducts,
+  uniqueTrustedM5WorkProduct,
+} from './m5-work-product-trust.js';
 
 const PROVIDER = 'agent-army.m5-learning';
 const RETROSPECTIVE_PROVIDER = 'agent-army.m5-retrospective';
@@ -44,7 +50,6 @@ const PRIMARY_METRIC_PRIORITY = Object.freeze([
   'likes',
 ]);
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
-
 /**
  * Deterministic M5 learning lifecycle.
  *
@@ -69,17 +74,18 @@ export class M5LearningLifecycle {
       this.governance.getPipelineCaseOutputs(context.caseId),
       this.governance.getRetrospectiveMetricOutputs(context.caseId),
     ]);
-    const caseOutputs = outputItems(casePayload);
-    const pipelineOutputs = mergeOutputs(caseOutputs, outputItems(pipelinePayload));
-    const retrospective = uniqueProduct(
-      caseOutputs,
-      (item) => trustedProduct(item, {
-        provider:RETROSPECTIVE_PROVIDER,
-        schemaVersion:SCHEMAS.retrospective,
-        kind:'Retrospective',
-      }) && item.metadata?.report?.status === 'proposal_ready',
-      '可信 Retrospective',
-    );
+    const caseOutputs = m5WorkProductItems(casePayload);
+    const pipelineOutputs = mergeOutputs(caseOutputs, m5WorkProductItems(pipelinePayload));
+    const retrospective = uniqueTrustedM5WorkProduct(caseOutputs, {
+      provider:RETROSPECTIVE_PROVIDER,
+      schemaVersion:SCHEMAS.retrospective,
+      kind:'Retrospective',
+    }, {
+      matches:(item) => item.metadata?.report?.status === 'proposal_ready',
+      duplicateError:() => new M5LearningLifecycleError(
+        '当前 Case 存在多个 可信 Retrospective Work Product。',
+      ),
+    });
     if (!retrospective) {
       throw new M5LearningLifecycleError('当前 Case 没有达到五条真实样本门槛的 Retrospective。');
     }
@@ -493,12 +499,11 @@ function trustedGrayContentVersions(outputs, templateVersion, templateWorkProduc
     templateWorkProductId,
   });
   const byContentVersion = new Map();
-  for (const item of outputItems(outputs)) {
-    if (!trustedProduct(item, {
-      provider:CONTENT_PROVIDER,
-      schemaVersion:SCHEMAS.contentVersion,
-      kind:'ContentVersion',
-    })) continue;
+  for (const item of trustedM5WorkProducts(outputs, {
+    provider:CONTENT_PROVIDER,
+    schemaVersion:SCHEMAS.contentVersion,
+    kind:'ContentVersion',
+  })) {
     const version = item.metadata?.contentVersion;
     const application = version?.templateApplication;
     if (
@@ -530,21 +535,20 @@ function uniqueMachineReview(outputs, contentVersionOrId) {
     ? contentVersionOrId
     : null;
   const contentVersionId = contentVersion?.contentVersionId || contentVersionOrId;
-  const matches = outputItems(outputs).filter((item) =>
-    trustedProduct(item, {
-      provider:CONTENT_PROVIDER,
-      schemaVersion:SCHEMAS.machineReview,
-      kind:'MachineReview',
-    })
-    && item.metadata?.reviewReport?.contentVersionId === contentVersionId
-    && (!contentVersion || machineReviewMatchesContentVersion(
-      item.metadata.reviewReport,
-      contentVersion,
-    )));
-  if (matches.length > 1) {
-    throw new M5LearningLifecycleError(`内容 ${contentVersionId} 存在多个可信 MachineReview。`);
-  }
-  return matches[0] || null;
+  return uniqueTrustedM5WorkProduct(outputs, {
+    provider:CONTENT_PROVIDER,
+    schemaVersion:SCHEMAS.machineReview,
+    kind:'MachineReview',
+  }, {
+    matches:(item) => item.metadata?.reviewReport?.contentVersionId === contentVersionId
+      && (!contentVersion || machineReviewMatchesContentVersion(
+        item.metadata.reviewReport,
+        contentVersion,
+      )),
+    duplicateError:() => new M5LearningLifecycleError(
+      `内容 ${contentVersionId} 存在多个可信 MachineReview。`,
+    ),
+  });
 }
 
 function uniqueGrayMetric(outputs, contentVersion) {
@@ -562,12 +566,12 @@ function uniqueGrayMetric(outputs, contentVersion) {
 function trusted72hSnapshots(outputs) {
   const receipts = trustedPublishReceipts(outputs);
   const byContentVersion = new Map();
-  for (const item of outputItems(outputs)) {
-    if (!trustedProduct(item, {
-      provider:METRIC_PROVIDER,
-      schemaVersion:SCHEMAS.metric,
-      kind:'MetricSnapshot',
-    }) || item.metadata?.checkpoint !== '72h') continue;
+  for (const item of trustedM5WorkProducts(outputs, {
+    provider:METRIC_PROVIDER,
+    schemaVersion:SCHEMAS.metric,
+    kind:'MetricSnapshot',
+  })) {
+    if (item.metadata?.checkpoint !== '72h') continue;
     const snapshot = item.metadata?.snapshot;
     const receipt = receipts.get(String(item.metadata?.receiptId || ''));
     const expectedCollectionKey = receipt ? `${receipt.receiptId}:72h` : null;
@@ -585,7 +589,7 @@ function trusted72hSnapshots(outputs) {
       || snapshot.collectionKey !== expectedCollectionKey
       || item.metadata?.collectionKey !== expectedCollectionKey
       || item.metadata?.dueAt !== expectedDueAt
-      || !Number.isFinite(Date.parse(snapshot.collectedAt))
+      || !isValidM5WorkProductDate(snapshot.collectedAt)
       || Date.parse(snapshot.collectedAt) < Date.parse(expectedDueAt)
       || !snapshot.metrics
       || typeof snapshot.metrics !== 'object'
@@ -605,19 +609,18 @@ function trusted72hSnapshots(outputs) {
 
 function trustedPublishReceipts(outputs) {
   const byReceiptId = new Map();
-  for (const item of outputItems(outputs)) {
-    if (!trustedProduct(item, {
-      provider:METRIC_PROVIDER,
-      schemaVersion:SCHEMAS.publishReceipt,
-      kind:'PublishReceipt',
-    })) continue;
+  for (const item of trustedM5WorkProducts(outputs, {
+    provider:METRIC_PROVIDER,
+    schemaVersion:SCHEMAS.publishReceipt,
+    kind:'PublishReceipt',
+  })) {
     const receipt = item.metadata?.receipt;
     if (
       !receipt
       || !String(receipt.receiptId || '').trim()
       || !String(receipt.contentVersionId || '').trim()
       || !M5_PLATFORMS.includes(receipt.platform)
-      || !Number.isFinite(Date.parse(receipt.publishedAt))
+      || !isValidM5WorkProductDate(receipt.publishedAt)
       || !sha256(receipt.contentChecksum)
       || !/^\d{4}-\d{2}-\d{2}$/.test(String(receipt.scheduledDate || ''))
     ) continue;
@@ -664,29 +667,15 @@ function aggregateNumericMetrics(metricsList) {
 }
 
 function lifecycleProduct(outputs, schemaVersion, kind) {
-  return uniqueProduct(
-    outputs,
-    (item) => trustedProduct(item, { provider:PROVIDER, schemaVersion, kind }),
+  return uniqueTrustedM5WorkProduct(outputs, {
+    provider:PROVIDER,
+    schemaVersion,
     kind,
-  );
-}
-
-function uniqueProduct(outputs, predicate, label) {
-  const matches = outputItems(outputs).filter(predicate);
-  if (matches.length > 1) {
-    throw new M5LearningLifecycleError(`当前 Case 存在多个 ${label} Work Product。`);
-  }
-  return matches[0] || null;
-}
-
-function trustedProduct(item, { provider, schemaVersion, kind }) {
-  return item?.kind === 'work_product'
-    && item?.provider === provider
-    && item?.sourceTrust == null
-    && ['active', 'approved', 'ready_for_review', 'changes_requested'].includes(item?.status)
-    && item?.healthStatus === 'healthy'
-    && item?.metadata?.schemaVersion === schemaVersion
-    && item?.metadata?.kind === kind;
+  }, {
+    duplicateError:() => new M5LearningLifecycleError(
+      `当前 Case 存在多个 ${kind} Work Product。`,
+    ),
+  });
 }
 
 function mergeOutputs(left, right) {
@@ -696,10 +685,6 @@ function mergeOutputs(left, right) {
     if (!rows.has(key)) rows.set(key, item);
   }
   return [...rows.values()];
-}
-
-function outputItems(value) {
-  return Array.isArray(value) ? value : Array.isArray(value?.items) ? value.items : [];
 }
 
 function safeProductionControls(value) {

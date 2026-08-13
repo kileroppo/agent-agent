@@ -19,6 +19,7 @@ const patchCli = readFileSync(path.resolve(here, '../scripts/patch-feishu-agent-
 const patchPack = readFileSync(path.resolve(here, '../scripts/feishu-agent-proposal-router-patch-pack.mjs'), 'utf8');
 const commanderPatches = readFileSync(path.resolve(here, '../scripts/feishu-commander-router-patches.mjs'), 'utf8');
 const experiencePatches = readFileSync(path.resolve(here, '../scripts/feishu-experience-patches.mjs'), 'utf8');
+const mobilePresentationPatches = readFileSync(path.resolve(here, '../scripts/feishu-mobile-presentation-patches.mjs'), 'utf8');
 const taskCardRuntime = readFileSync(path.resolve(here, '../runtime/agent_army_feishu_task_card.py'), 'utf8');
 const adapterSeamPattern = /\n# AGENT_ARMY_HERMES_FEISHU_ADAPTER_SEAM_V1:[\s\S]*?host_symbols=globals\(\),\n\)\n?$/;
 const withoutAdapterSeam = (source) => source.replace(adapterSeamPattern, '');
@@ -81,6 +82,12 @@ test('Hermes 飞书补丁 CLI 只保留安装 Interface，迁移与特性编排�
   assert.match(commanderPatches, /FEATURE_PATCH_UNITS/);
   assert.match(commanderPatches, /LEGACY_MIGRATION_MATRIX/);
   assert.match(experiencePatches, /installTaskCardAdapterSeam/);
+  assert.ok(experiencePatches.split('\n').length < 750);
+  assert.match(experiencePatches, /upgradeFeishuMobilePresentationPatch/);
+  assert.doesNotMatch(experiencePatches, /const feishuMobileMessageHelpers|function upgradeFeishuPostBlockRowsPatch/);
+  assert.match(mobilePresentationPatches, /export function upgradeFeishuMobilePresentationPatch/);
+  assert.match(mobilePresentationPatches, /AGENT_ARMY_FEISHU_MOBILE_FORMAT_V9/);
+  assert.match(mobilePresentationPatches, /AGENT_ARMY_FEISHU_SEMANTIC_LAYOUT_V1/);
   assert.match(patchCli, /export async function installFeishuAgentProposalRouterPatch/);
 });
 

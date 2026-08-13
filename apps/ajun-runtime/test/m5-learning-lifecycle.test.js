@@ -250,6 +250,21 @@ test('灰度学习拒绝错误文件哈希或日期的发布回执', async () =>
   assert.equal(product(fixture.governance, 'TemplateDecision'), null);
 });
 
+test('灰度学习拒绝同一回执标识对应多个可信PublishReceipt', async () => {
+  const fixture = await grayReadyFixture();
+  const first = publishReceipt(6, { contentVersionId:'content-gray-1' });
+  const duplicate = structuredClone(first);
+  duplicate.id = 'publish-receipt-duplicate';
+  fixture.governance.pipelineOutputs.push(first, duplicate);
+
+  await assert.rejects(
+    () => advance(fixture.lifecycle),
+    (error) => error instanceof M5LearningLifecycleError
+      && error.message === `发布回执 ${metricReceiptId(6)} 不唯一。`,
+  );
+  assert.equal(product(fixture.governance, 'TemplateDecision'), null);
+});
+
 test('灰度学习拒绝与 ContentVersion 不同脚本或成片血缘的机器审核', async () => {
   const fixture = await grayReadyFixture();
   fixture.governance.pipelineOutputs.push(

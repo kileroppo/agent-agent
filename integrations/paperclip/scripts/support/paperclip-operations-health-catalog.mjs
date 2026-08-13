@@ -38,29 +38,11 @@ export class PaperclipOperationsHealthCatalog {
     this.pageSize = pageSize;
   }
 
-  get routine() {
-    return {
-      title: ROUTINE_TITLE,
-      marker: ROUTINE_MARKER,
-      archiveMarker: ARCHIVE_ROUTINE_MARKER,
-      contractMarker: ROUTINE_CONTRACT_MARKER,
-    };
-  }
-
-  get pendingStatuses() {
-    return [...PENDING_STATUSES];
-  }
-
-  get rulesVersion() {
-    return RULES_VERSION;
-  }
-
-  list(payload, envelopeKeys = ['items']) {
-    return asPaperclipList(payload, envelopeKeys);
-  }
+  get pendingStatuses() { return [...PENDING_STATUSES]; }
+  get rulesVersion() { return RULES_VERSION; }
 
   async requireCompany(envelopeKeys = ['items']) {
-    const companies = this.list(
+    const companies = asPaperclipList(
       await this.requireClient().request('GET', '/api/companies'),
       envelopeKeys,
     );
@@ -70,15 +52,25 @@ export class PaperclipOperationsHealthCatalog {
     return company;
   }
 
-  controllerBody() {
-    return {
+  async ensureRoutine() {
+    const client = this.requireClient();
+    let company;
+    try {
+      company = await this.requireCompany();
+    } catch (error) {
+      if (error.message === `Paperclip 中未找到公司：${this.companyName}`) {
+        throw new Error(`Paperclip 中未找到 ${this.companyName}。`);
+      }
+      throw error;
+    }
+    const controllerBody = {
       name: '本机健康确定性控制器',
       role: 'devops',
       title: '每半小时执行登记服务的无模型只读健康检查',
       icon: 'radar',
       capabilities: '无模型、无自由参数；只读检查登记的本机健康接口，异常时才派发运维事故。',
       adapterType: 'http',
-      adapterConfig: { url: CONTROLLER_URL },
+      adapterConfig: { url:CONTROLLER_URL },
       budgetMonthlyCents: 0,
       permissions: { canCreateAgents:false, canCreateSkills:false, canAssignTasks:false },
       metadata: {
@@ -87,57 +79,80 @@ export class PaperclipOperationsHealthCatalog {
         executionOwner: 'ajun-runtime-deterministic',
       },
     };
-  }
-
-  findController(agents) {
-    const matching = this.list(agents).filter((agent) =>
+    const agents = asPaperclipList(
+      await client.request('GET', `/api/companies/${company.id}/agents`),
+    );
+    const matching = agents.filter((agent) =>
       agent.status !== 'terminated' && agent.metadata?.agentArmySystemRole === CONTROLLER_ROLE
     );
     if (matching.length > 1) {
       throw new Error(`Paperclip 本机健康控制器必须唯一，当前为 ${matching.length} 个。`);
     }
-    return matching[0] ?? null;
-  }
+    const controllerCreated = matching.length === 0;
+    let controller = matching[0] || await client.request(
+      'POST',
+      `/api/companies/${company.id}/agents`,
+      { body:controllerBody },
+    );
+    const controllerStale = controller.status !== 'idle'
+      || controller.adapterType !== controllerBody.adapterType
+      || controller.adapterConfig?.url !== controllerBody.adapterConfig.url
+      || controller.metadata?.executionOwner !== controllerBody.metadata.executionOwner;
+    if (controllerCreated || controllerStale) {
+      controller = await client.request('PATCH', `/api/agents/${encodeURIComponent(controller.id)}`, {
+        body: { ...(controllerCreated ? {} : controllerBody), status:'idle' },
+      });
+    }
 
-  controllerNeedsUpdate(current, desired = this.controllerBody()) {
-    return current.status !== 'idle'
-      || current.adapterType !== desired.adapterType
-      || current.adapterConfig?.url !== desired.adapterConfig.url
-      || current.metadata?.executionOwner !== desired.metadata.executionOwner;
-  }
-
-  routineBody(controllerId) {
-    return {
+    const routines = asPaperclipList(
+      await client.request('GET', `/api/companies/${company.id}/routines`),
+    );
+    let routine = routines.find((item) =>
+      item.title === ROUTINE_TITLE || ROUTINE_MARKER_PATTERN.test(String(item.description || ''))
+    );
+    const routineBody = {
       title: ROUTINE_TITLE,
       description: `${ROUTINE_MARKER}\n${ROUTINE_CONTRACT_MARKER}\n由无模型 HTTP 控制器只读检查 A君、小D 与 Paperclip 的本机运行状态；正常时不调用任何大模型。只有发现异常时才幂等派发运维事故；不登录、不外发、不修改业务数据。`,
-      assigneeAgentId: controllerId,
+      assigneeAgentId: controller.id,
       priority: 'low',
       status: 'active',
       concurrencyPolicy: 'skip_if_active',
       catchUpPolicy: 'skip_missed',
     };
-  }
-
-  findRoutine(routines) {
-    return this.list(routines).find((item) =>
-      item.title === ROUTINE_TITLE || ROUTINE_MARKER_PATTERN.test(String(item.description || ''))
-    ) ?? null;
-  }
-
-  triggerBody() {
-    return {
+    const created = !routine;
+    routine = routine
+      ? await client.request('PATCH', `/api/routines/${encodeURIComponent(routine.id)}`, { body:routineBody })
+      : await client.request('POST', `/api/companies/${company.id}/routines`, { body:routineBody });
+    const detailed = Array.isArray(routine.triggers)
+      ? routine
+      : await client.request('GET', `/api/routines/${encodeURIComponent(routine.id)}`);
+    let trigger = asPaperclipList(detailed.triggers).find((item) =>
+      item.kind === 'schedule'
+      && (item.label === TRIGGER_LABEL || item.cronExpression === TRIGGER_CRON)
+    );
+    const triggerBody = {
       label: TRIGGER_LABEL,
       enabled: true,
       cronExpression: TRIGGER_CRON,
       timezone: TRIGGER_TIMEZONE,
     };
-  }
-
-  findTrigger(triggers) {
-    return this.list(triggers).find((item) =>
-      item.kind === 'schedule'
-      && (item.label === TRIGGER_LABEL || item.cronExpression === TRIGGER_CRON)
-    ) ?? null;
+    const triggerCreated = !trigger;
+    trigger = trigger
+      ? await client.request('PATCH', `/api/routine-triggers/${encodeURIComponent(trigger.id)}`, { body:triggerBody })
+      : await client.request('POST', `/api/routines/${encodeURIComponent(routine.id)}/triggers`, {
+        body: { kind:'schedule', ...triggerBody },
+      });
+    return {
+      controller: { id:controller.id, created:controllerCreated, adapterType:'http', url:CONTROLLER_URL },
+      created,
+      triggerCreated,
+      routine: { id:routine.id, title:routine.title || ROUTINE_TITLE, status:routine.status || 'active' },
+      trigger: {
+        id: trigger.id,
+        cronExpression: trigger.cronExpression || TRIGGER_CRON,
+        timezone: trigger.timezone || TRIGGER_TIMEZONE,
+      },
+    };
   }
 
   async listIssues({
@@ -166,7 +181,7 @@ export class PaperclipOperationsHealthCatalog {
         sortField,
         sortDir,
       });
-      const page = this.list(
+      const page = asPaperclipList(
         await this.requireClient().request(
           'GET',
           `/api/companies/${encodeURIComponent(companyId)}/issues?${query}`,
