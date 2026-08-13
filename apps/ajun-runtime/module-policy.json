@@ -361,7 +361,7 @@
       "affectedTests": [
         "test/paperclip-publisher-controller.test.js"
       ],
-      "lineLimit": 470
+      "lineLimit": 380
     },
     "src/paperclip-publisher.js": {
       "affectedTests": [
@@ -383,6 +383,13 @@
         "test/local-pptx-adapter.test.js",
         "test/open-kimi-ppt-adapter.test.js"
       ]
+    },
+    "src/publish-context-derivation.js": {
+      "affectedTests": [
+        "test/paperclip-publisher-controller.test.js"
+      ],
+      "lineLimit": 140,
+      "importLimit": 4
     },
     "src/runtime-composition-root.js": {
       "lineLimit": 220,
@@ -538,6 +545,17 @@
       ],
       "lineLimit": 300,
       "importLimit": 4
+    },
+    "src/paperclip-assignment-context.js": {
+      "affectedTests": [
+        "test/paperclip-assignment-context.test.js",
+        "test/m5-role-tool-execution.test.js",
+        "test/task-service-m5-recovery.test.js",
+        "test/task-service-paperclip-execution.test.js",
+        "test/task-service.test.js"
+      ],
+      "lineLimit": 300,
+      "importLimit": 2
     },
     "src/paperclip-assignment-completion.js": {
       "affectedTests": [

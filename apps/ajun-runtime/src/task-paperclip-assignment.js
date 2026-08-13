@@ -19,13 +19,7 @@ import {
   isTerminalTask,
   canonicalOpenResearchExecutionPolicy,
 } from './task-service-execution-support.js';
-import {
-  paperclipCaseContextFields,
-  m5PlanRevisionExecutionContext,
-  trustedRoleToolScope,
-  m5PipelineCaseChainIds,
-  m5RelatedTaskContext,
-} from './task-service-m5-execution-context-support.js';
+import { preparePaperclipAssignmentContext } from './paperclip-assignment-context.js';
 import { buildTaskContextCapsule } from './task-context-capsule.js';
 
 export const taskPaperclipAssignmentMethods = {
@@ -79,18 +73,16 @@ export const taskPaperclipAssignmentMethods = {
       requireProjectId:Boolean(m5Contract),
       requireExecutionWorkspaceId:Boolean(m5Contract) || rolePolicyWritesWorkspace(agent),
     });
-    const relatedCaseIds = await m5PipelineCaseChainIds({
+    const assignmentContext = await preparePaperclipAssignmentContext({
       governance:this.governance,
-      pipelineCaseId:assignmentTask.pipelineCaseId,
+      tasks:storedTasks,
+      assignmentTask,
       pipelineCase,
+      activePlanRevision,
     });
-    const related = m5RelatedTaskContext(storedTasks, relatedCaseIds, pipelineCase);
     if (!task) {
       const acceptedTaskType = assignmentTask.taskType;
       if (!acceptedTaskType) throw new ValidationError('当前岗位没有可映射的任务类型。');
-      const caseFields = paperclipCaseContextFields(
-        pipelineCase?.case?.fields || pipelineCase?.fields || {},
-      );
       task = await this.store.createTask({
         taskType:acceptedTaskType,
         idempotencyKey:`paperclip:${identity.issue.id}`,
@@ -98,35 +90,7 @@ export const taskPaperclipAssignmentMethods = {
         source:{ channel:'paperclip', paperclipIssueId:identity.issue.id, paperclipRunId:identity.run.id },
         assigneeAgentId:agent.agentId,
         parentTaskId:null,
-        input:{
-          title:String(identity.issue.title || 'Paperclip 指派任务').slice(0, 500),
-          description:String(identity.issue.description || '').slice(0, 4000),
-          topic:caseFields.theme || null,
-          contentGoal:caseFields.theme || null,
-          platforms:caseFields.platform ? [caseFields.platform] : [],
-          sourceUrl:related.sourceUrls[0] || null,
-          sourceUrls:related.sourceUrls,
-          context:{
-            paperclipIssueIdentifier:identity.issue.identifier || null,
-            ...(assignmentTask.routineKey ? { paperclipRoutineKey:assignmentTask.routineKey } : {}),
-            ...(assignmentTask.pipelineCaseId ? { pipelineCaseId:assignmentTask.pipelineCaseId } : {}),
-            ...(assignmentProjectId ? { paperclipProjectId:assignmentProjectId } : {}),
-            ...(activePlanRevision ? {
-              m5Recovery:m5PlanRevisionExecutionContext(activePlanRevision),
-            } : {}),
-            ...(related.sourceTaskIds.length ? { sourceTaskIds:related.sourceTaskIds } : {}),
-            ...(pipelineCase ? {
-              pipelineCase:{
-                id:pipelineCase.case?.id || pipelineCase.id || assignmentTask.pipelineCaseId,
-                parentCaseId:pipelineCase.case?.parentCaseId || pipelineCase.parentCaseId || null,
-                caseKey:pipelineCase.case?.caseKey || pipelineCase.caseKey || null,
-                title:pipelineCase.case?.title || pipelineCase.title || null,
-                stageKey:pipelineCase.case?.stageKey || pipelineCase.stageKey || null,
-                fields:caseFields,
-              },
-            } : {}),
-          }
-        },
+        input:assignmentContext.createTaskInput({ identity, assignmentProjectId }),
         status:'running',
         currentStage:'paperclip_hermes_running',
         routing:{ requestedAgentId:agent.agentId, candidateAgentIds:[agent.agentId], reason:'Paperclip 已把任务指派给该员工的 Hermes Profile。' },
@@ -160,45 +124,11 @@ export const taskPaperclipAssignmentMethods = {
           paperclipAgentId:identity.paperclipAgent.id,
           startedAt:task.execution?.startedAt || new Date().toISOString()
         },
-        input:{
-          ...(task.input || {}),
-          context:{
-            ...(task.input?.context || {}),
-            m5Recovery:activePlanRevision
-              ? m5PlanRevisionExecutionContext(activePlanRevision)
-              : null,
-            ...(assignmentProjectId ? { paperclipProjectId:assignmentProjectId } : {}),
-            ...(related.sourceTaskIds.length ? { sourceTaskIds:related.sourceTaskIds } : {}),
-            ...(pipelineCase ? {
-              pipelineCase:{
-                id:pipelineCase.case?.id || pipelineCase.id || assignmentTask.pipelineCaseId,
-                parentCaseId:pipelineCase.case?.parentCaseId || pipelineCase.parentCaseId || null,
-                caseKey:pipelineCase.case?.caseKey || pipelineCase.caseKey || null,
-                title:pipelineCase.case?.title || pipelineCase.title || null,
-                stageKey:pipelineCase.case?.stageKey || pipelineCase.stageKey || null,
-                fields:paperclipCaseContextFields(
-                  pipelineCase.case?.fields || pipelineCase.fields || {},
-                ),
-              },
-            } : {}),
-          },
-        },
+        input:assignmentContext.refreshTaskInput(task.input, { assignmentProjectId }),
       });
     }
     const groundTruth = agent.agentId === 'architect' ? await this.architectureGroundTruth() : null;
-    const roleToolGrant = baseRoleToolGrant
-      ? Object.freeze({
-          ...baseRoleToolGrant,
-          trustedScope:trustedRoleToolScope({
-            tasks:storedTasks,
-            task,
-            relatedTaskIds:related.sourceTaskIds,
-            paperclipIssueId:identity.issue.id,
-            paperclipRunId:identity.run.id,
-            pipelineCaseId:assignmentTask.pipelineCaseId,
-          }),
-        })
-      : null;
+    const roleToolGrant = assignmentContext.scopeRoleToolGrant(baseRoleToolGrant, { task, identity });
     const verified = {
       task,
       assignment:{
@@ -212,9 +142,7 @@ export const taskPaperclipAssignmentMethods = {
         pipelineCaseId:assignmentTask.pipelineCaseId || null,
         projectId:assignmentProjectId,
         contextCapsule:buildTaskContextCapsule(task),
-        ...(activePlanRevision ? {
-          m5Recovery:m5PlanRevisionExecutionContext(activePlanRevision),
-        } : {}),
+        ...assignmentContext.assignmentRecoveryFields(),
         ...(groundTruth ? { groundTruth } : {})
       }
     };

@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   PaperclipPublisherController,
+  PaperclipPublisherControllerError,
+  trustedPublishInputs,
 } from '../src/paperclip-publisher-controller.js';
 import {
   FakePlatformConnector,
@@ -223,6 +225,128 @@ function payload(overrides = {}) {
     ...overrides,
   };
 }
+
+test('发布上下文派生集中绑定 Case、Grant、内容、审核与幂等键并保持克隆语义', () => {
+  const outputs = trustedOutputs();
+  const campaignGrant = grant();
+  const derived = trustedPublishInputs({
+    outputs,
+    targetCase:{ fields:{ platform:'douyin', scheduledDate:'2026-07-30' } },
+    campaignCase:{ id:CAMPAIGN_ID },
+    grant:campaignGrant,
+    executionTime:new Date(NOW),
+  });
+
+  assert.equal(derived.contentVersion, outputs[0].metadata.contentVersion);
+  assert.equal(derived.reviewReport, outputs[1].metadata.reviewReport);
+  assert.notEqual(derived.request.grant, campaignGrant);
+  assert.notEqual(derived.request.tags, derived.contentVersion.tags);
+  assert.notEqual(derived.request.reviewReport, derived.reviewReport);
+  assert.equal(
+    derived.request.idempotencyKey,
+    `${CAMPAIGN_ID}:douyin:content-v1:2026-07-30`,
+  );
+  assert.equal(derived instanceof Promise, false);
+});
+
+test('发布上下文派生保持 grant、tags、reviewReport 的克隆异常顺序', () => {
+  const outputs = trustedOutputs();
+  Object.defineProperty(outputs[0].metadata.contentVersion.tags, '0', {
+    enumerable:true,
+    configurable:true,
+    get() { throw new Error('tags-clone-reached'); },
+  });
+  Object.defineProperty(outputs[1].metadata.reviewReport, 'cloneProbe', {
+    enumerable:true,
+    get() { throw new Error('review-clone-reached'); },
+  });
+  const campaignGrant = grant({ cloneFailure:() => 'not-cloneable' });
+  const input = {
+    outputs,
+    targetCase:{ fields:{ platform:'douyin', scheduledDate:'2026-07-30' } },
+    campaignCase:{ id:CAMPAIGN_ID },
+    grant:campaignGrant,
+    executionTime:new Date(NOW),
+  };
+
+  assert.throws(
+    () => trustedPublishInputs(input),
+    (error) => error?.name === 'DataCloneError'
+      && error.message !== 'tags-clone-reached'
+      && error.message !== 'review-clone-reached',
+  );
+
+  delete campaignGrant.cloneFailure;
+  assert.throws(
+    () => trustedPublishInputs(input),
+    /tags-clone-reached/,
+  );
+
+  outputs[0].metadata.contentVersion.tags = ['AI Agent', '实战'];
+  assert.throws(
+    () => trustedPublishInputs(input),
+    /review-clone-reached/,
+  );
+});
+
+test('发布上下文派生保持 Case 日期、执行日、内容、审核、Grant 的拒绝顺序和错误身份', () => {
+  const malformed = trustedOutputs();
+  delete malformed[0].metadata.contentVersion.checksum;
+  const base = {
+    outputs:malformed,
+    targetCase:{ fields:{ platform:'douyin', scheduledDate:'2026-07-30' } },
+    campaignCase:{ id:CAMPAIGN_ID },
+    grant:grant(),
+    executionTime:new Date(NOW),
+  };
+
+  const duplicates = trustedOutputs();
+  duplicates.push(
+    structuredClone(duplicates[0]),
+    structuredClone(duplicates[1]),
+  );
+  assert.throws(
+    () => trustedPublishInputs({ ...base, outputs:duplicates }),
+    (error) => error instanceof PaperclipPublisherControllerError
+      && error.message
+        === '当前 Case 必须各有一个可信 ContentVersion 和 MachineReview，实际为 2/2。',
+  );
+
+  assert.throws(
+    () => trustedPublishInputs({
+      ...base,
+      targetCase:{ fields:{ platform:'douyin', scheduledDate:'2026-02-31' } },
+    }),
+    (error) => error instanceof PaperclipPublisherControllerError
+      && error.message === '发布 Case 缺少可信平台或发布日期。',
+  );
+  assert.throws(
+    () => trustedPublishInputs({
+      ...base,
+      targetCase:{ fields:{ platform:'douyin', scheduledDate:'2026-07-29' } },
+    }),
+    (error) => error instanceof PaperclipPublisherControllerError
+      && error.code === 'publisher_scheduled_date_mismatch'
+      && error.recoveryAction?.action === 'reschedule_platform_case_for_current_date',
+  );
+  assert.throws(
+    () => trustedPublishInputs(base),
+    (error) => error instanceof PaperclipPublisherControllerError
+      && error.message === 'ContentVersion 与当前平台 Case 不一致或缺少发布产物。',
+  );
+
+  const reviewBeforeGrant = trustedOutputs();
+  reviewBeforeGrant[1].metadata.reviewReport.checks.privacy = false;
+  assert.throws(
+    () => trustedPublishInputs({
+      ...base,
+      outputs:reviewBeforeGrant,
+      grant:grant({ platforms:[] }),
+    }),
+    (error) => error instanceof PaperclipPublisherControllerError
+      && error.message === '机器审核未完整通过或审核版本不匹配。',
+  );
+});
 
 test('发布控制器严格核验 Paperclip 身份和 Case，从可信产物派生参数并写回唯一凭证', async () => {
   const governance = new FakeGovernance();

@@ -1,19 +1,13 @@
-import { M5_PLATFORMS, M5_SCHEMA_IDS } from '@agent-army/m5-contracts';
+import { M5_SCHEMA_IDS } from '@agent-army/m5-contracts';
 import {
   consumeM5SystemControllerPlanRevision,
   isRecoverableM5SystemControllerFailure,
   markM5SystemControllerFailure,
   recoverM5SystemControllerFailure,
 } from './m5-system-controller-recovery.js';
+import { derivePublishContext } from './publish-context-derivation.js';
 import {
-  IMMEDIATE_PUBLISH_RECOVERY_ACTION,
-  calendarDateInShanghai,
-} from '@agent-army/m5-publisher-gateway/policy';
-import {
-  assertContentVersionIdentity,
   assertPublishReceiptIdentity,
-  trustedContentVersionProducts,
-  trustedMachineReviewProducts,
   trustedPublishReceiptProducts,
 } from './trusted-publish-lineage.js';
 
@@ -21,15 +15,6 @@ const SYSTEM_ROLE = 'm5-publisher-controller';
 const ROUTINE_MARKER = '[agent-army:m5:routine:m5-publish]';
 const PUBLISHER_PROVIDER = 'agent-army.publisher-gateway';
 const PUBLISH_RECEIPT_SCHEMA = M5_SCHEMA_IDS.PUBLISH_RECEIPT;
-const REQUIRED_REVIEW_CHECKS = Object.freeze([
-  'facts',
-  'privacy',
-  'rights',
-  'media',
-  'claims',
-  'grantScope',
-  'duplicate',
-]);
 const FORBIDDEN_CALLER_FIELDS = new Set([
   'campaignId',
   'campaignCaseId',
@@ -259,70 +244,15 @@ export function trustedPublishInputs({
   grant,
   executionTime,
 }) {
-  const contentItems = trustedContentVersionProducts(outputs);
-  const reviewItems = trustedMachineReviewProducts(outputs);
-  if (contentItems.length !== 1 || reviewItems.length !== 1) {
-    throw new PaperclipPublisherControllerError(
-      `当前 Case 必须各有一个可信 ContentVersion 和 MachineReview，实际为 ${contentItems.length}/${reviewItems.length}。`,
-    );
-  }
-  const contentVersionCandidate = contentItems[0].metadata.contentVersion;
-  const reviewReport = reviewItems[0].metadata.reviewReport;
-  const platform = String(targetCase.fields?.platform || '').trim();
-  const scheduledDate = String(targetCase.fields?.scheduledDate || '').trim();
-  if (
-    !M5_PLATFORMS.includes(platform)
-    || !validCalendarDate(scheduledDate)
-  ) {
-    throw new PaperclipPublisherControllerError('发布 Case 缺少可信平台或发布日期。');
-  }
-  const executionDate = calendarDateInShanghai(executionTime);
-  if (scheduledDate !== executionDate) {
-    throw immediatePublishDateMismatch(scheduledDate, executionDate);
-  }
-  const contentVersion = assertContentVersionIdentity(contentVersionCandidate, {
-    invalid:() => new PaperclipPublisherControllerError(
-      'ContentVersion 与当前平台 Case 不一致或缺少发布产物。',
-    ),
+  return derivePublishContext({
+    outputs,
+    targetCase,
+    campaignCase,
+    grant,
+    executionTime,
+  }, {
+    invalid:(message) => new PaperclipPublisherControllerError(message),
   });
-  if (
-    contentVersion.platform !== platform
-  ) {
-    throw new PaperclipPublisherControllerError('ContentVersion 与当前平台 Case 不一致或缺少发布产物。');
-  }
-  if (
-    reviewReport?.status !== 'passed'
-    || REQUIRED_REVIEW_CHECKS.some((check) => reviewReport?.checks?.[check] !== true)
-    || reviewReport.contentVersionId !== contentVersion.contentVersionId
-  ) {
-    throw new PaperclipPublisherControllerError('机器审核未完整通过或审核版本不匹配。');
-  }
-  if (
-    !grant.platforms?.includes(platform)
-    || !String(grant.accountRefs?.[platform] || '').trim()
-  ) {
-    throw new PaperclipPublisherControllerError('活动授权没有覆盖当前平台账号。');
-  }
-  const request = {
-    campaignId:campaignCase.id,
-    grant:structuredClone(grant),
-    platform,
-    contentVersionId:contentVersion.contentVersionId,
-    contentChecksum:contentVersion.checksum,
-    scheduledDate,
-    mediaPath:contentVersion.mediaPath,
-    title:String(contentVersion.title).trim(),
-    body:String(contentVersion.body).trim(),
-    tags:structuredClone(contentVersion.tags),
-    reviewReport:structuredClone(reviewReport),
-    idempotencyKey:[
-      campaignCase.id,
-      platform,
-      contentVersion.contentVersionId,
-      scheduledDate,
-    ].join(':'),
-  };
-  return { request, contentVersion, reviewReport };
 }
 
 export function trustedPublishReceipts(outputs) {
@@ -395,28 +325,6 @@ function issueCaseId(issue) {
   )?.[1];
   if (!value) throw new PaperclipPublisherControllerError('M5 发布任务缺少固定 Case 绑定。');
   return value;
-}
-
-function validCalendarDate(value) {
-  const text = String(value || '');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
-  const date = new Date(`${text}T00:00:00.000Z`);
-  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === text;
-}
-
-function immediatePublishDateMismatch(scheduledDate, executionDate) {
-  const error = new PaperclipPublisherControllerError(
-    `当前连接器只允许即时发布；平台 Case 日期 ${scheduledDate} 与上海执行日 ${executionDate} 不一致。`,
-  );
-  error.code = 'publisher_scheduled_date_mismatch';
-  error.recoveryAction = Object.freeze({
-    action:IMMEDIATE_PUBLISH_RECOVERY_ACTION,
-    instruction:'将平台 Case 重排到当前上海日期后重新执行；禁止直接补发历史 Case 或提前发布未来 Case。',
-    scheduledDate,
-    executionDate,
-    timeZone:'Asia/Shanghai',
-  });
-  return error;
 }
 
 function validUuid(value) {
