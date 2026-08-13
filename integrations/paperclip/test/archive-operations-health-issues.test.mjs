@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { PaperclipHttpError } from '@agent-army/paperclip-client';
+
 import {
   applyOperationsHealthArchive,
   planOperationsHealthArchive,
 } from '../scripts/archive-operations-health-issues.mjs';
+import {
+  asPaperclipList,
+  createPaperclipLoopbackClient,
+} from '../scripts/support/paperclip-loopback-client.mjs';
 
 test('巡检归档计划只选成功记录和已被连续成功取代的旧失败', async () => {
   const fixture = createFixture();
@@ -50,6 +56,52 @@ test('巡检归档只写 hiddenAt，返回逐条可恢复信息且不改状态',
     assert.equal(mutation.body.hiddenAt, '2026-08-02T12:00:00.000Z');
   }
   assert.deepEqual(result.applied[0].rollback.body, { hiddenAt:null });
+});
+
+test('共享 loopback client 禁止重定向、保留 HTTP 错误语义且只对成功响应严格解析 JSON', async () => {
+  const requestOptions = [];
+  const responses = [
+    { ok:false, status:502, body:'{"message":"upstream failed"}' },
+    { ok:false, status:503, body:'bad gateway' },
+    { ok:true, status:200, body:'not json' },
+  ];
+  const client = createPaperclipLoopbackClient({
+    apiBase:'http://127.0.0.1:3100',
+    operation:'测试',
+    fetchImpl:async (_url, options) => {
+      requestOptions.push(options);
+      const response = responses.shift();
+      return {
+        ok:response.ok,
+        status:response.status,
+        async text() { return response.body; },
+      };
+    },
+  });
+
+  await assert.rejects(
+    client.request('GET', '/api/issues?status=blocked&limit=1'),
+    (error) => {
+      assert.equal(error instanceof PaperclipHttpError, true);
+      assert.equal(error.code, 'paperclip_http_error');
+      assert.equal(error.status, 502);
+      assert.equal(error.method, 'GET');
+      assert.equal(error.path, '/api/issues?status=blocked&limit=1');
+      assert.equal(error.url, 'http://127.0.0.1:3100/api/issues?status=blocked&limit=1');
+      assert.match(error.message, /upstream failed/);
+      return true;
+    },
+  );
+  await assert.rejects(
+    client.request('GET', '/api/issues?status=blocked'),
+    (error) => error instanceof PaperclipHttpError && error.status === 503,
+  );
+  await assert.rejects(
+    client.request('GET', '/api/issues'),
+    SyntaxError,
+  );
+  assert.equal(requestOptions.every((options) => options.redirect === 'error'), true);
+  assert.deepEqual(asPaperclipList({ actions:[{ id:'not-an-issue-list' }] }), []);
 });
 
 function createFixture() {

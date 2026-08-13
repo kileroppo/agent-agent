@@ -2,7 +2,11 @@
 
 import { createHash } from 'node:crypto';
 
-import { HttpPaperclipAdapter } from '../m5-content-pipeline/src/adapters/http.js';
+import {
+  asPaperclipList,
+  createPaperclipLoopbackClient,
+  validDate,
+} from './support/paperclip-loopback-client.mjs';
 
 const DEFAULT_API_BASE = 'http://127.0.0.1:3100';
 const DEFAULT_COMPANY_NAME = 'Agent军团';
@@ -15,6 +19,7 @@ const ARCHIVE_PLAN_VERSION = 'paperclip-historical-acceptance-archive-v1';
 const ARCHIVE_CONFIRM_PREFIX = 'ARCHIVE:';
 const MAX_ARCHIVE_ITEMS = 25;
 const HISTORICAL_AFTER_MS = 24 * 60 * 60 * 1000;
+const CLASSIFIER_LIST_ENVELOPES = ['items', 'actions'];
 
 const ACCEPTANCE_PATTERN = /(?:验收|回归|测试|演练|沙箱|合成数据|acceptance|regression|test(?:ing)?|drill|sandbox|synthetic|dry[\s_-]?run|canary)/i;
 const INCIDENT_PATTERN = /(?:故障|事故|失败|异常|崩溃|超时|不可用|恢复|incident|outage|failure|failed|error|crash|timeout|unavailable|recovery)/i;
@@ -31,21 +36,27 @@ export async function classifyBlockedPendingIssues({
   const boundedLimit = normalizeLimit(limit);
   const requestAudit = [];
   const guardedFetch = createReadOnlyFetch(fetchImpl, requestAudit);
-  const origin = assertLoopbackApiBase(apiBase);
-  const companies = asList(await getJson(guardedFetch, `${origin}/api/companies`));
+  const client = createPaperclipLoopbackClient({
+    apiBase,
+    fetchImpl:guardedFetch,
+    operation:'待办分类 dry-run',
+  });
+  const companies = asPaperclipList(
+    await client.request('GET', '/api/companies'),
+    CLASSIFIER_LIST_ENVELOPES,
+  );
   const company = companies.find((item) => item.name === companyName);
   if (!company) throw new Error(`Paperclip 中未找到公司：${companyName}`);
+  if (!company.id) throw new Error('companyId 必填');
 
-  const adapter = new HttpPaperclipAdapter({
-    apiBase: origin,
-    companyId: company.id,
-    fetchImpl: guardedFetch,
-  });
   const [agentsPayload, issuesPayload] = await Promise.all([
-    adapter.request('GET', `/api/companies/${encodeURIComponent(company.id)}/agents`),
-    listPendingIssues(adapter, company.id, boundedLimit),
+    client.request('GET', `/api/companies/${encodeURIComponent(company.id)}/agents`),
+    listPendingIssues(client, company.id, boundedLimit),
   ]);
-  const agentsById = new Map(asList(agentsPayload).map((agent) => [agent.id, agent]));
+  const agentsById = new Map(
+    asPaperclipList(agentsPayload, CLASSIFIER_LIST_ENVELOPES)
+      .map((agent) => [agent.id, agent]),
+  );
   const nowDate = normalizeDate(now, 'now');
   const items = issuesPayload.items
     .map((issue) => classifyIssue(issue, { agentsById, now: nowDate }));
@@ -156,12 +167,16 @@ export async function applyHistoricalAcceptanceArchive({
     throw new Error('归档确认值与当前快照不匹配；请重新执行 dry-run 并使用最新 requiredConfirmation');
   }
 
-  const origin = assertLoopbackApiBase(apiBase);
+  const client = createPaperclipLoopbackClient({
+    apiBase,
+    fetchImpl,
+    operation:'待办分类 dry-run',
+  });
   const preflight = [];
   for (const item of plan.items) {
-    const current = await getJson(
-      fetchImpl,
-      `${origin}/api/issues/${encodeURIComponent(item.issueId)}`,
+    const current = await client.request(
+      'GET',
+      `/api/issues/${encodeURIComponent(item.issueId)}`,
     );
     const classified = classifyIssue(current, { now });
     if (
@@ -177,13 +192,13 @@ export async function applyHistoricalAcceptanceArchive({
 
   const applied = [];
   for (const item of plan.items) {
-    const response = await patchJson(
-      fetchImpl,
-      `${origin}/api/issues/${encodeURIComponent(item.issueId)}`,
-      {
+    const response = await client.request(
+      'PATCH',
+      `/api/issues/${encodeURIComponent(item.issueId)}`,
+      { body:{
         status: 'cancelled',
         comment: `[agent-army:m5:historical-acceptance-archive:v1] ${item.identifier} 已经人工选入历史验收归档；保留 Issue、评论和运行证据，不删除记录。`,
-      },
+      } },
     );
     if (response?.status !== 'cancelled') {
       throw new Error(`Issue ${item.identifier} 未确认进入 cancelled，停止后续归档`);
@@ -218,16 +233,19 @@ export async function applyHistoricalAcceptanceArchive({
   };
 }
 
-async function listPendingIssues(adapter, companyId, maxItems) {
+async function listPendingIssues(client, companyId, maxItems) {
   const items = [];
   let offset = 0;
   let possiblyTruncated = false;
   while (items.length < maxItems) {
     const pageSize = Math.min(PAGE_SIZE, maxItems - items.length);
-    const page = asList(await adapter.request(
-      'GET',
-      `/api/companies/${encodeURIComponent(companyId)}/issues?status=${encodeURIComponent(PENDING_STATUSES.join(','))}&limit=${pageSize}&offset=${offset}&sortField=updated&sortDir=desc`,
-    ));
+    const page = asPaperclipList(
+      await client.request(
+        'GET',
+        `/api/companies/${encodeURIComponent(companyId)}/issues?status=${encodeURIComponent(PENDING_STATUSES.join(','))}&limit=${pageSize}&offset=${offset}&sortField=updated&sortDir=desc`,
+      ),
+      CLASSIFIER_LIST_ENVELOPES,
+    );
     items.push(...page);
     offset += page.length;
     if (page.length < pageSize) return { items, possiblyTruncated: false };
@@ -364,39 +382,6 @@ function createReadOnlyFetch(fetchImpl, requestAudit) {
   };
 }
 
-async function getJson(fetchImpl, url) {
-  const response = await fetchImpl(url, { method: 'GET', headers: { accept: 'application/json' } });
-  const text = await response.text();
-  const parsed = text ? JSON.parse(text) : null;
-  if (!response.ok) throw new Error(`Paperclip GET ${new URL(url).pathname} 失败: HTTP ${response.status}`);
-  return parsed;
-}
-
-async function patchJson(fetchImpl, url, body) {
-  const response = await fetchImpl(url, {
-    method: 'PATCH',
-    headers: {
-      accept: 'application/json',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
-  const text = await response.text();
-  const parsed = text ? JSON.parse(text) : null;
-  if (!response.ok) {
-    throw new Error(`Paperclip PATCH ${new URL(url).pathname} 失败: HTTP ${response.status}`);
-  }
-  return parsed;
-}
-
-function assertLoopbackApiBase(apiBase) {
-  const url = new URL(apiBase);
-  if (!['127.0.0.1', 'localhost', '::1'].includes(url.hostname)) {
-    throw new Error('待办分类 dry-run 只允许连接 loopback Paperclip');
-  }
-  return url.origin;
-}
-
 function normalizeLimit(value) {
   const number = Number(value);
   if (!Number.isInteger(number) || number <= 0) throw new Error('limit 必须是正整数');
@@ -404,15 +389,15 @@ function normalizeLimit(value) {
 }
 
 function normalizeDate(value, field) {
-  const result = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(result.getTime())) throw new Error(`${field} 必须是有效时间`);
+  const result = validDate(value);
+  if (!result) throw new Error(`${field} 必须是有效时间`);
   return result;
 }
 
 function isFresh(value, now) {
   if (!value) return false;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return false;
+  const date = validDate(value);
+  if (!date) return false;
   const age = now.getTime() - date.getTime();
   return age >= 0 && age < HISTORICAL_AFTER_MS;
 }
@@ -467,13 +452,6 @@ function digestArchivePlan(plan) {
   return createHash('sha256')
     .update(JSON.stringify(plan))
     .digest('hex');
-}
-
-function asList(value) {
-  if (Array.isArray(value)) return value;
-  if (Array.isArray(value?.items)) return value.items;
-  if (Array.isArray(value?.actions)) return value.actions;
-  return [];
 }
 
 function parseCliArgs(argv) {

@@ -286,6 +286,36 @@ test('超过单页上限时只用 GET 分页读取，直到拿全待办', async 
   assert.equal(calls.every((call) => call.method === 'GET'), true);
 });
 
+test('待办分类显式兼容 Paperclip actions 列表信封', async () => {
+  const result = await classifyBlockedPendingIssues({
+    now: NOW,
+    fetchImpl: async (url) => {
+      const pathname = new URL(url).pathname;
+      if (pathname === '/api/companies') {
+        return response({ actions:[{ id:'company-1', name:'Agent军团' }] });
+      }
+      if (pathname === '/api/companies/company-1/agents') {
+        return response({ actions:[{ id:'agent-reviewer', name:'Reviewer' }] });
+      }
+      if (pathname === '/api/companies/company-1/issues') {
+        return response({ actions:[{
+          id:'issue-historical',
+          identifier:'ARMY-100',
+          title:'旧版验收演练',
+          status:'blocked',
+          assigneeAgentId:'agent-reviewer',
+          updatedAt:'2026-07-28T00:00:00.000Z',
+        }] });
+      }
+      throw new Error(`unexpected GET ${pathname}`);
+    },
+  });
+
+  assert.equal(result.summary.total, 1);
+  assert.equal(result.items[0].classification, 'historical_acceptance');
+  assert.equal(result.items[0].owner.label, 'Reviewer');
+});
+
 function createArchiveFixture() {
   const calls = [];
   const issue = {

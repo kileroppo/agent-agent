@@ -2,6 +2,12 @@
 
 import { createHash } from 'node:crypto';
 
+import {
+  asPaperclipList,
+  createPaperclipLoopbackClient,
+  validDate,
+} from './support/paperclip-loopback-client.mjs';
+
 const DEFAULT_API_BASE = 'http://127.0.0.1:3100';
 const DEFAULT_COMPANY_NAME = 'Agent军团';
 const ROUTINE_TITLE = 'A君定时本机巡检';
@@ -16,11 +22,15 @@ export async function planOperationsHealthArchive({
   fetchImpl = fetch,
   minSuccessors = MIN_SUCCESSORS,
 } = {}) {
-  const origin = assertLoopbackApiBase(apiBase);
-  const companies = asList(await requestJson(fetchImpl, `${origin}/api/companies`));
+  const client = createPaperclipLoopbackClient({
+    apiBase,
+    fetchImpl,
+    operation:'巡检归档',
+  });
+  const companies = asPaperclipList(await client.request('GET', '/api/companies'));
   const company = companies.find((item) => item.name === companyName);
   if (!company) throw new Error(`Paperclip 中未找到公司：${companyName}`);
-  const issues = await listIssues(fetchImpl, origin, company.id);
+  const issues = await listIssues(client, company.id);
   const health = issues
     .filter(isOperationsHealthIssue)
     .filter((issue) => !issue.hiddenAt)
@@ -72,13 +82,17 @@ export async function applyOperationsHealthArchive({ confirmation, now = new Dat
     throw new Error('归档确认值与当前只读计划不匹配；请重新生成计划');
   }
   const archivedAt = normalizeDate(now).toISOString();
-  const origin = assertLoopbackApiBase(options.apiBase ?? DEFAULT_API_BASE);
+  const client = createPaperclipLoopbackClient({
+    apiBase:options.apiBase ?? DEFAULT_API_BASE,
+    fetchImpl:options.fetchImpl ?? fetch,
+    operation:'巡检归档',
+  });
   const applied = [];
   for (const item of plan.items) {
-    const updated = await requestJson(
-      options.fetchImpl ?? fetch,
-      `${origin}/api/issues/${encodeURIComponent(item.issueId)}`,
-      { method:'PATCH', body:{ hiddenAt:archivedAt } },
+    const updated = await client.request(
+      'PATCH',
+      `/api/issues/${encodeURIComponent(item.issueId)}`,
+      { body:{ hiddenAt:archivedAt } },
     );
     if (!updated?.hiddenAt) throw new Error(`Paperclip 未确认归档 ${item.identifier}`);
     applied.push({
@@ -105,12 +119,12 @@ export async function applyOperationsHealthArchive({ confirmation, now = new Dat
   };
 }
 
-async function listIssues(fetchImpl, origin, companyId) {
+async function listIssues(client, companyId) {
   const items = [];
   for (let offset = 0; ; offset += PAGE_SIZE) {
-    const page = asList(await requestJson(
-      fetchImpl,
-      `${origin}/api/companies/${encodeURIComponent(companyId)}/issues?status=done%2Cblocked&limit=${PAGE_SIZE}&offset=${offset}&sortField=updated&sortDir=asc`,
+    const page = asPaperclipList(await client.request(
+      'GET',
+      `/api/companies/${encodeURIComponent(companyId)}/issues?status=done%2Cblocked&limit=${PAGE_SIZE}&offset=${offset}&sortField=updated&sortDir=asc`,
     ));
     items.push(...page);
     if (page.length < PAGE_SIZE) return items;
@@ -133,39 +147,15 @@ function isOperationsHealthIssue(issue) {
     && String(issue.description || '').includes(ROUTINE_MARKER);
 }
 
-async function requestJson(fetchImpl, url, { method = 'GET', body } = {}) {
-  const response = await fetchImpl(url, {
-    method,
-    headers:body ? { accept:'application/json', 'content-type':'application/json' } : { accept:'application/json' },
-    body:body ? JSON.stringify(body) : undefined,
-  });
-  const text = await response.text();
-  const parsed = text ? JSON.parse(text) : null;
-  if (!response.ok) throw new Error(`Paperclip ${method} ${new URL(url).pathname} 失败: HTTP ${response.status}`);
-  return parsed;
-}
-
-function assertLoopbackApiBase(apiBase) {
-  const url = new URL(apiBase);
-  if (!['127.0.0.1', 'localhost', '::1'].includes(url.hostname)) {
-    throw new Error('巡检归档只允许连接 loopback Paperclip');
-  }
-  return url.origin;
-}
-
-function asList(value) {
-  return Array.isArray(value) ? value : Array.isArray(value?.items) ? value.items : [];
-}
-
 function timestamp(value) {
-  const result = new Date(value).getTime();
-  if (!Number.isFinite(result)) throw new Error('Paperclip Issue 时间无效');
-  return result;
+  const result = validDate(value);
+  if (!result) throw new Error('Paperclip Issue 时间无效');
+  return result.getTime();
 }
 
 function normalizeDate(value) {
-  const result = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(result.getTime())) throw new Error('now 必须是有效时间');
+  const result = validDate(value);
+  if (!result) throw new Error('now 必须是有效时间');
   return result;
 }
 
