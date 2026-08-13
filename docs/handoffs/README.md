@@ -55,22 +55,23 @@
 
 ## 当前交接
 
-这里只保留仍需要外部条件或负责人验收的事项；完成、关闭或已被替代的交接统一放在
-[`docs/archive/handoffs/`](../archive/handoffs/)，不得继续提供互相竞争的“唯一下一步”。
+`current/` 不是自动待办队列。产品级继续工作只从
+[Agent 军团产品成熟度总交接](./current/agent-army-product-maturity-handoff.md)开始；它当前为
+`revision_required` / 暂停，唯一下一步是保持现状，不执行命令、不创建任务。小R真实任务已证明
+门禁会拒绝不完整交付，但业务交付仍未通过；除非负责人把它重新立为独立产品问题，否则不得继续
+自动诊断、修复、部署或重试。
 
-产品级继续工作只从[Agent 军团产品成熟度总交接](./current/agent-army-product-maturity-handoff.md)开始：
-固定第二批 `maturity-62d5a859-69d0-4f16-ae40-eb75aaaa0dfd` 已在零模型调用、零费用、无外发边界下完成同一 `1 mission + 3 children`，并于 2026-08-11 登记 `revision_required`。审核官已有新鲜合格成功证据；小R显式交付覆盖门禁最初以 release `530d86bf…` 进入 live，并随 2026-08-12 的后续不可变 release 保留。门禁版真实任务 `2cb79a68…` 最终为 `waiting_test`：五个证据词覆盖四个，缺 `process.env`；建议数 1/3；只读取到一条指定来源；7 calls、估算 0.005862007 USD。系统没有再冒充成功，但小R业务能力仍未通过。
-当前唯一下一步是保持现状，不执行命令、不创建任务。用户已要求停止“发现一层缺口就继续修一层”的循环；只有负责人把“两条来源均成功读取并形成至少三条具体建议”重新作为独立产品问题开启时，才允许一次修复和一次最终 E2E。仍不得刷新或重开已决策批次，也不得把审核官单岗通过、历史成功或 `#B5403CD9` 机器门禁写成 `accepted` 或人工采用。下面的专项交接只有被总交接选中或负责人明确重开时才执行，不是并列自动待办。
+下面各项只有被负责人明确选中，或在自然业务工作流中出现其验收机会时才执行；它们不与总交接
+竞争“唯一下一步”：
 
-- [Agent 军团产品成熟度总交接](./current/agent-army-product-maturity-handoff.md)：固定第二批 `1+3` 已全部成功且为 0 调用/0 USD，审核官新鲜 E2E 已通过；小R防冒充门禁已 live 且真实拒绝不完整交付，当前暂停，不再自动修复或重试。
-- [视频分析四模式飞书验收](./current/video-analysis-modes-feishu-acceptance-handoff.md)：由负责人发送一条指定模式的视频链接，核对原会话结果。
-- [历史能力验证批次业务 E2E](./current/validation-campaign-business-e2e-handoff.md)：自动化闭环与真实小拆成功终态已进入当前不可变 live，`validationCampaign=0/0`；仅保留负责人可选的人工内容质量抽查，机器结构通过不等于人工采用。
-- [Agent 使用说明书问答验收](./current/agent-manual-query-handoff.md)：由负责人复验小D只返回最终说明书，再完成权限边界验收。
-- [小R多路线搜索与证据方法](./current/intel-research-search-method-handoff.md)：完成不可变 release 与一条真实公开研究质量验收。
-- [Agent 人性化体验验收](./current/m2-agent-experience-polish-handoff.md)：在真实飞书原会话验证处理图标、移动端排版和任务链接。
-- [能力 Plan B 与运行事件](./current/capability-plan-b-and-run-events-handoff.md)：已发布到 A君 4321 与小D 4318；正式任务已证明缺输入会安全停止且运行时间线完整，剩余仅负责人浏览器体验抽查。
-- [上下文、记忆与成本治理](./current/context-memory-cost-governance-handoff.md)：源码与自动化已完成，11 个 Profile 和 30 天 Session 清理均完成零写入预览；等待受控不可变发布、Profile apply 和真实任务成本对比。
-- [M5 高权限内容自治](./current/m5-high-autonomy-content-operations-handoff.md)：Campaign 已停止，旧 Profile lease 已过期，Publisher 保持关闭；先完成新的脱敏 readiness 快照与只读预检，任何恢复、Provider 注入或平台写入仍需独立授权。
+- [视频分析四模式飞书验收](./current/video-analysis-modes-feishu-acceptance-handoff.md)：等待负责人用已授权视频触发一次指定模式验收。
+- [Agent 使用说明书问答验收](./current/agent-manual-query-handoff.md)：小D路径已通过，仅余负责人按需核对 A君与独立岗位权限边界。
+- [Agent 人性化体验验收](./current/m2-agent-experience-polish-handoff.md)：等待自然出现的持续任务，顺手核对手机端详情、长内容和任务链接；不另造任务。
+- [能力 Plan B 与运行事件](./current/capability-plan-b-and-run-events-handoff.md)：机器闭环完成，仅余负责人可选的浏览器体验抽查。
+- [上下文、记忆与成本治理](./current/context-memory-cost-governance-handoff.md)：在下一条正常业务任务中记录成本对比，不为验收额外制造付费调用。
+- [历史能力验证批次业务 E2E](./current/validation-campaign-business-e2e-handoff.md)：自动化已闭环，仅保留可选人工内容质量结论。
+- [M5 高权限内容自治](./current/m5-high-autonomy-content-operations-handoff.md)：冻结；Campaign、Cron、Publisher 和外部写入保持关闭，只有负责人明确重开后才做新鲜 readiness 预检。
 
-已闭环的系统稳定性与微信本机分析验收已移入
-[`docs/archive/handoffs/`](../archive/handoffs/)，它们的历史 PID、release 和一次性授权不再是当前待办。
+已关闭且被新总交接接管，或已被后续里程碑替代的资料统一放在
+[`docs/archive/handoffs/`](../archive/handoffs/)。小R专项交接已归档，其暂停决定、失败证据和重开
+门槛由产品总交接统一维护；历史 PID、release 和一次性授权均不再作为当前事实。
