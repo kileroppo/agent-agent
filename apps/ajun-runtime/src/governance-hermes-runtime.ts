@@ -195,8 +195,13 @@ function safeModelSelection(value: any): any {
         throw new Error('Hermes Provider 不在受控白名单中。');
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._/-]{1,127}$/.test(model))
         throw new Error('Hermes 模型标识不合法。');
-    if (provider === 'stepfun' && model !== 'step-3.7-flash') {
-        throw new Error('StepFun 主模型必须使用受控固定版本。');
+    if (provider === 'stepfun' && ![
+        'step-3.7-flash',
+        'step-router-v1',
+        'step-3.5-flash-2603',
+        'step-3.5-flash',
+    ].includes(model)) {
+        throw new Error('StepFun 主模型不在受控推理模型目录中。');
     }
     if (provider === 'deepseek' && model !== 'deepseek-v4-flash') {
         throw new Error('DeepSeek 主模型必须使用受控固定版本。');

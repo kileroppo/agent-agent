@@ -4,7 +4,9 @@ export const paperclipOrganizationMethods: Record<string, any> = {
         try {
             const company: any = await this.companyForRuntime();
             const existing: any = await this.request(`/api/companies/${company.id}/agents`);
-            const roster: any = (Array.isArray(manifests) ? manifests : []).filter((manifest: any): any => manifest?.agentId && manifest?.name && manifest.status === 'active');
+            const roster: any = (Array.isArray(manifests) ? manifests : [])
+                .filter((manifest: any): any => manifest?.agentId && manifest?.name && manifest.status === 'active')
+                .map((manifest: any): any => this.modelPolicy?.applyToManifest(manifest) || manifest);
             const desiredAgentIds: any = new Set(roster.map((manifest: any): any => manifest.agentId));
             const synced: any[] = [];
             for (const manifest of roster) {

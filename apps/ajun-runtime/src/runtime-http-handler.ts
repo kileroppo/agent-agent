@@ -8,6 +8,7 @@ import { EmployeeFeishuConnectionError } from './employee-feishu-connection-serv
 import { FeishuChannelBridgeError } from './feishu-channel-bridge.ts';
 import { FeishuCommanderValidationError } from './feishu-commander.ts';
 import { HermesModelSetupError } from './hermes-model-setup-service.ts';
+import { StepFunModelPolicyError } from './stepfun-model-policy-service.ts';
 import { canAccessApi, isLocalAddress, lanAddresses, rotateLanShareKey, } from './lan-access.ts';
 import { MacWorkerBridgeError } from './mac-worker-task-bridge.ts';
 import { routeM5CampaignApi } from './m5-campaign-api.ts';
@@ -29,7 +30,7 @@ const OWNER_ACTION_NONCE_TTL_MS: any = 10 * 60 * 1000;
 export function createAjunHttpHandler({ environment, publicDir, dataDir, detailBaseUrl, development = {}, network, paperclip, work, connections, localAi, feishu, m5, }: any): any {
     const { deploymentMode, lanEnabled, lanAccess, } = network;
     const { tasks, store, proposals, missions, macWorker, xiaod, boomMonitor, boomMonitorEnabled, taskTimeline, productMaturity, } = work;
-    const { employeeFeishuConnections, employeeModelSetup, accessConnections, publicWebFetch, } = connections;
+    const { employeeFeishuConnections, employeeModelSetup, modelPolicy, accessConnections, publicWebFetch, } = connections;
     const { commander, officialFeishuChannel, hermesNativeCompletionWatcher, resolveFeishuApproval, } = feishu;
     const { campaigns } = m5;
     const ownerActionSession: any = createOwnerActionSession();
@@ -273,6 +274,26 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 if (!isLocalAddress(request.socket.remoteAddress))
                     return sendJson(response, 403, { error: '员工模型授权只能由老板在本机打开。' });
                 return sendJson(response, 200, { setup: await employeeModelSetup.open(employeeModelSetupMatch[1]) });
+            }
+            if (request.method === 'GET' && request.url === '/api/model-policy') {
+                if (!isLocalAddress(request.socket.remoteAddress))
+                    return sendJson(response, 403, { error: '军团模型策略只能由老板在本机查看。' });
+                const manifests: any = await modelPolicy.registry.list({ includeManagers: true });
+                return sendJson(response, 200, modelPolicy.service.snapshot(manifests));
+            }
+            if (request.method === 'PUT' && request.url === '/api/model-policy') {
+                if (!isLocalAddress(request.socket.remoteAddress))
+                    return sendJson(response, 403, { error: '军团模型策略只能由老板在本机修改。' });
+                const manifests: any = await modelPolicy.registry.list({ includeManagers: true });
+                const snapshot: any = await modelPolicy.service.update(await readJsonBody(request), manifests);
+                const reconciliation: any = await modelPolicy.governance.syncRoster(manifests);
+                return sendJson(response, 200, { ...snapshot, reconciliation });
+            }
+            if (request.method === 'POST' && request.url === '/api/model-policy/refresh') {
+                if (!isLocalAddress(request.socket.remoteAddress))
+                    return sendJson(response, 403, { error: '军团模型清单只能由老板在本机刷新。' });
+                const manifests: any = await modelPolicy.registry.list({ includeManagers: true });
+                return sendJson(response, 200, await modelPolicy.service.refreshCatalog(manifests));
             }
             if (request.method === 'POST' && request.url === '/api/capabilities/public-web-fetch')
                 return sendJson(response, 200, { content: await publicWebFetch.acquire(await readJsonBody(request)) });
@@ -581,6 +602,8 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 return sendFile(response, publicDir, 'app-access-views.js', 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && publicPath === '/app-interactions.js')
                 return sendFile(response, publicDir, 'app-interactions.js', 'text/javascript; charset=utf-8');
+            if (request.method === 'GET' && publicPath === '/stepfun-model-policy-console.js')
+                return sendFile(response, publicDir, 'stepfun-model-policy-console.js', 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && publicPath === '/refresh-scheduler.js')
                 return sendFile(response, publicDir, 'refresh-scheduler.js', 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && publicPath === '/boom-monitor-console.js')
@@ -723,6 +746,7 @@ function errorStatus(error: any): any {
         || error instanceof MacWorkerBridgeError
         || error instanceof EmployeeFeishuConnectionError
         || error instanceof HermesModelSetupError
+        || error instanceof StepFunModelPolicyError
         || error instanceof AgentArmyTaskInputError
         || error instanceof AccessConnectionError
         || error instanceof ContentCampaignError

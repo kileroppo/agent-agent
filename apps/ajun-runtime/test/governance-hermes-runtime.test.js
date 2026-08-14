@@ -136,7 +136,7 @@ test('Paperclip Hermes 适配器拒绝 Manifest 中未授权的 Provider', () =>
   }), /Provider 不在受控白名单/);
 });
 
-test('Paperclip Hermes 适配器拒绝 StepFun router 与非固定 DeepSeek 主模型', () => {
+test('Paperclip Hermes 适配器接受受控 StepFun 推理目录并拒绝能力专用模型与非固定 DeepSeek 主模型', () => {
   const manifest = {
     agentId:'architect',
     status:'active',
@@ -145,13 +145,21 @@ test('Paperclip Hermes 适配器拒绝 StepFun router 与非固定 DeepSeek 主�
     executionOwner:'paperclip-hermes'
   };
   const runtimeCapabilities = { paperclipToolsets:['agent-army'], mcpTools:[] };
-  assert.throws(() => paperclipHermesAdapterConfig({
+  const router = paperclipHermesAdapterConfig({
     ...manifest,
     runtimeCapabilities:{
       ...runtimeCapabilities,
       modelSelection:{ provider:'stepfun', model:'step-router-v1' }
     }
-  }), /StepFun 主模型必须使用受控固定版本/);
+  });
+  assert.equal(router.model, 'step-router-v1');
+  assert.throws(() => paperclipHermesAdapterConfig({
+    ...manifest,
+    runtimeCapabilities:{
+      ...runtimeCapabilities,
+      modelSelection:{ provider:'stepfun', model:'stepaudio-2.5-tts' }
+    }
+  }), /受控推理模型目录/);
   assert.throws(() => paperclipHermesAdapterConfig({
     ...manifest,
     runtimeCapabilities:{

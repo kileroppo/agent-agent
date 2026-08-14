@@ -37,7 +37,7 @@ test('A君控制台只在本机提供员工接线，不把应用凭据写进页�
   assert.match(script, /name="appSecret" type="password"/);
   assert.match(script, /<strong>模型：<\/strong>/);
   assert.match(script, /独立身份已建立，模型授权和真实调用待完成/);
-  assert.match(html, /A君模型与 API/);
+  assert.match(html, /军团模型策略/);
   assert.match(html, /data-model-setup-agent-id="ajun"/);
   assert.match(html, /设置 API 与 Key/);
   assert.match(script, /管理模型/);

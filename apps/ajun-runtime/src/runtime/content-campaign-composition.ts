@@ -6,6 +6,7 @@ import { createM5ServerPublisherComposition, PaperclipCurrentRunScope } from '..
 import { M5ToolExecutorRouter, PaperclipContentToolExecutor } from '../paperclip-content-tool-executor.ts';
 import { LocalBudgetTicketAuthority } from '../local-budget-ticket-authority.ts';
 import { M5ProductionTemplateResolver } from '../m5-production-template-resolver.ts';
+import { StepFunModelPolicyService } from '../stepfun-model-policy-service.ts';
 import type {
   ContentCampaignCompositionInput,
   ContentCampaignServiceInterface,
@@ -15,6 +16,7 @@ import type {
 export async function createContentCampaignComposition({
   environment,
   dataDir,
+  hermesProfileRoot,
   contentWorkspaceDir,
   taskRunEvents = null,
   resolveTaskIdForPaperclipCase = null,
@@ -23,8 +25,10 @@ export async function createContentCampaignComposition({
     path.join(dataDir, 'm5-budget-ticket-ed25519.pem'),
   );
   const paperclipCurrentRunScope = new PaperclipCurrentRunScope();
+  const modelPolicy = await StepFunModelPolicyService.open({ dataDir, profileRoot:hermesProfileRoot });
   const governance = new PaperclipBridge({
     publisherRunCredentialProvider:() => paperclipCurrentRunScope.currentCredential(),
+    modelPolicy,
   });
   const templateResolver = new M5ProductionTemplateResolver({ governance });
   let campaignService: ContentCampaignServiceInterface | null = null;
@@ -102,6 +106,7 @@ export async function createContentCampaignComposition({
 
   return Object.freeze({
     governance,
+    modelPolicy,
     campaigns,
     executeProviderVision,
     paperclipCurrentRunScope,

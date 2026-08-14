@@ -1430,6 +1430,45 @@ button:disabled {
   margin-bottom: 10px;
 }
 
+.fleet-model-body { display: grid; gap: 18px; }
+.fleet-model-lead,
+.fleet-model-section-head,
+.fleet-default-controls,
+.fleet-role-row { display: flex; align-items: center; gap: 14px; }
+.fleet-model-lead,
+.fleet-model-section-head { justify-content: space-between; }
+.fleet-model-lead h3,
+.fleet-model-section-head h3 { margin: 0 0 4px; }
+.fleet-model-lead p,
+.fleet-model-section-head p { margin: 0; color: var(--muted); }
+.fleet-model-lead a { color: var(--mint-deep); white-space: nowrap; }
+.fleet-model-source-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.fleet-default-controls { padding: 16px; border-radius: 14px; background: var(--surface-soft); flex-wrap: wrap; }
+.fleet-default-controls label,
+.fleet-role-row label { display: grid; gap: 5px; }
+.fleet-default-controls label { min-width: 190px; flex: 1; }
+.fleet-default-controls label span,
+.fleet-role-row label span { color: var(--muted); font-size: 12px; }
+.fleet-role-list { display: grid; gap: 8px; }
+.fleet-role-row { padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; }
+.fleet-role-row > div { display: grid; gap: 3px; min-width: 180px; flex: 1; }
+.fleet-role-row > div small { color: var(--muted); }
+.fleet-role-row label { min-width: 190px; }
+.capability-model-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 9px; }
+.capability-model-card { display: grid; gap: 5px; padding: 12px; border-radius: 12px; background: var(--surface-soft); }
+.capability-model-card span,
+.capability-model-card small { color: var(--muted); font-size: 12px; }
+.fleet-hermes-advanced { border-top: 1px solid var(--line); padding-top: 14px; }
+.fleet-hermes-advanced > summary { cursor: pointer; color: var(--muted); }
+.fleet-hermes-advanced .connection-actions { margin-top: 12px; }
+
+@media (max-width: 820px) {
+  .fleet-role-row { align-items: stretch; flex-direction: column; }
+  .fleet-role-row label { min-width: 0; }
+  .fleet-model-lead,
+  .fleet-model-section-head { align-items: flex-start; flex-direction: column; }
+}
+
 .summary-icon {
   display: grid;
   width: 38px;

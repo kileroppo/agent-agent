@@ -1,4 +1,4 @@
-export function createAccessViews({ elements, state, api, escapeHtml, statusLabel, formatDate, providerLabel, agentName, replaceChildrenPreservingDisclosureState, setTextIfChanged, }: any): any {
+export function createAccessViews({ elements, state, api, escapeHtml, statusLabel, formatDate, providerLabel, agentName, replaceChildrenPreservingDisclosureState, setTextIfChanged, modelPolicyConsole, }: any): any {
     const { shareInfo, employeeConnections, accessConnections, aiControl, aiServiceList, aiControlMessage, aiRoutingList, campaignList, campaignMessage, employeeConnectionList, accessConnectionList, accessConnectionMessage, contentAccessSummary, accessLoginDisclosure, accessLoginForm, accessLoginProvider, accessLoginAlias, accessLoginAccount, accessLoginMessage, saveAccessConnection, cancelAccessReauthorize, accessStepPanels, accessStepIndicators, }: any = elements;
     async function renderLocalShare(): Promise<any> {
         if (!isLoopbackLocation()) {
@@ -7,6 +7,7 @@ export function createAccessViews({ elements, state, api, escapeHtml, statusLabe
             employeeConnections.hidden = true;
             accessConnections.hidden = true;
             aiControl.hidden = true;
+            modelPolicyConsole.setVisible(false);
             return;
         }
         try {
@@ -24,7 +25,8 @@ export function createAccessViews({ elements, state, api, escapeHtml, statusLabe
                 renderAccessConnections(),
                 renderAccessLoginOptions(),
                 renderAiControl(),
-                renderContentCampaigns()
+                renderContentCampaigns(),
+                modelPolicyConsole.load()
             ]);
         }
         catch {
@@ -33,6 +35,7 @@ export function createAccessViews({ elements, state, api, escapeHtml, statusLabe
             employeeConnections.hidden = true;
             accessConnections.hidden = true;
             aiControl.hidden = true;
+            modelPolicyConsole.setVisible(false);
         }
     }
     async function renderAiControl(): Promise<any> {

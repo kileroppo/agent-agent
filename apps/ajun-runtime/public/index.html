@@ -249,19 +249,41 @@
           <div id="access-connection-list" class="connection-grid"></div>
         </section>
 
-        <details id="hermes-model-management" class="surface-section advanced-settings">
+        <details id="hermes-model-management" class="surface-section advanced-settings fleet-model-management" hidden open>
           <summary>
             <span class="summary-icon"><svg aria-hidden="true"><use href="#icon-spark"></use></svg></span>
-            <span><strong>A君模型与 API</strong><small>低频设置 · 在 Hermes 官方页面修改</small></span>
+            <span><strong>军团模型策略</strong><small>一次设置全员，也可按岗位覆盖</small></span>
             <svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg>
           </summary>
-          <div class="advanced-settings-body">
-            <p class="subtle">只作用于 A君独立 Profile；运行台不会读取或保存 Key。</p>
-            <div class="connection-actions" data-model-setup-scope>
-              <button type="button" data-model-setup-agent-id="ajun" data-model-setup-target="models">选择模型</button>
-              <button type="button" class="secondary-action" data-model-setup-agent-id="ajun" data-model-setup-target="keys">设置 API 与 Key</button>
-              <p class="model-setup-message connection-message" role="status"></p>
+          <div class="advanced-settings-body fleet-model-body">
+            <div class="fleet-model-lead">
+              <div>
+                <h3>全军默认</h3>
+                <p>优先用最新旗舰；简单岗位可单独换成省量模型。不会读取或保存 API Key。</p>
+              </div>
+              <div class="fleet-model-source-actions">
+                <button id="fleet-model-refresh" class="secondary-action" type="button">刷新账号模型</button>
+                <a href="https://platform.stepfun.com/docs/zh/guides/models/overview" target="_blank" rel="noreferrer">查看官方说明</a>
+              </div>
             </div>
+            <div class="fleet-default-controls">
+              <label><span>主模型</span><select id="fleet-default-model"></select></label>
+              <label><span>推理强度</span><select id="fleet-default-effort"></select></label>
+              <button id="fleet-model-apply-all" type="button">应用到全部岗位</button>
+            </div>
+            <p id="fleet-model-message" class="connection-message" role="status"></p>
+            <div class="fleet-model-section-head"><div><h3>岗位覆盖</h3><p>只改有特殊需要的岗位，其余跟随全军默认。</p></div><button id="fleet-model-save-roles" class="secondary-action" type="button">保存岗位配置</button></div>
+            <div id="fleet-model-employees" class="fleet-role-list"></div>
+            <div class="fleet-model-section-head"><div><h3>能力专用模型</h3><p>这些模型由对应能力自动调用，不应当作员工主模型。</p></div></div>
+            <div id="fleet-capability-models" class="capability-model-grid"></div>
+            <details class="fleet-hermes-advanced">
+              <summary>API Key 与 Hermes 高级设置</summary>
+              <div class="connection-actions" data-model-setup-scope>
+                <button type="button" class="secondary-action" data-model-setup-agent-id="ajun" data-model-setup-target="models">打开 Hermes 模型页</button>
+                <button type="button" class="secondary-action" data-model-setup-agent-id="ajun" data-model-setup-target="keys">设置 API 与 Key</button>
+                <p class="model-setup-message connection-message" role="status"></p>
+              </div>
+            </details>
           </div>
         </details>
 

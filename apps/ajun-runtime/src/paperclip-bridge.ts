@@ -10,15 +10,17 @@ export class PaperclipBridge {
     clock: any;
     fetch: any;
     publisherRunCredentialProvider: any;
+    modelPolicy: any;
     taskProjector: any;
     transport: any;
     declare companyForRuntime: () => Promise<any>;
-    constructor({ baseUrl = process.env.PAPERCLIP_URL || DEFAULT_URL, fetchImpl = fetch, publisherRunCredentialProvider = null, clock = (): any => new Date(), }: any = {}) {
+    constructor({ baseUrl = process.env.PAPERCLIP_URL || DEFAULT_URL, fetchImpl = fetch, publisherRunCredentialProvider = null, modelPolicy = null, clock = (): any => new Date(), }: any = {}) {
         this.transport = new PaperclipHttpTransport({ baseUrl, allowRemote: false, fetchImpl, timeoutMs: 2500 });
         this.taskProjector = new PaperclipTaskProjector({ endpoint: this.transport, clock });
         this.baseUrl = this.transport.baseUrl;
         this.fetch = fetchImpl;
         this.publisherRunCredentialProvider = publisherRunCredentialProvider;
+        this.modelPolicy = modelPolicy;
         this.clock = clock;
     }
     async project(task: any, approval: any): Promise<any> {

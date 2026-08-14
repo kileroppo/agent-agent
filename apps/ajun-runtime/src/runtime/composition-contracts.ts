@@ -164,6 +164,7 @@ export type ContentCampaignServiceInterface = Readonly<{
 export type ContentCampaignCompositionInput = Readonly<{
   environment: NodeJS.ProcessEnv;
   dataDir: string;
+  hermesProfileRoot: string;
   contentWorkspaceDir: string;
   taskRunEvents?: TaskRunEventStore | null;
   resolveTaskIdForPaperclipCase?: ((caseId: unknown) => Promise<string | null>) | null;

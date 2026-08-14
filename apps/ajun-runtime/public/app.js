@@ -7,6 +7,7 @@ import { BILLING_PAGE_SIZE, filterBillingEntries } from './billing-entry-filter.
 import { startBrowserHotReload } from './hot-reload-client.js';
 import { taskStatusGroup } from './task-record-filter.js';
 import { createTaskRecordWorkbench } from './task-record-workbench.js';
+import { createStepFunModelPolicyConsole } from './stepfun-model-policy-console.js';
 const capabilityList = document.querySelector('#capability-list');
 const agentList = document.querySelector('#agent-list');
 const recentTaskList = document.querySelector('#recent-task-list');
@@ -39,6 +40,7 @@ const syncStatus = document.querySelector('#sync-status');
 const syncIndicator = document.querySelector('#sync-indicator');
 const employeeConnections = document.querySelector('#employee-connections');
 const employeeConnectionList = document.querySelector('#employee-connection-list');
+const modelPolicyRoot = document.querySelector('#hermes-model-management');
 const accessConnections = document.querySelector('#access-connections');
 const aiControl = document.querySelector('#ai-control');
 const aiServiceList = document.querySelector('#ai-service-list');
@@ -660,6 +662,7 @@ const accessViews = createAccessViews({
     agentName,
     replaceChildrenPreservingDisclosureState,
     setTextIfChanged,
+    modelPolicyConsole: createStepFunModelPolicyConsole({ root: modelPolicyRoot, api, escapeHtml }),
 });
 recordWorkbench = createTaskRecordWorkbench({
     api,

@@ -39,6 +39,7 @@ export async function createRuntime({
     const contentCampaign = await createContentCampaignComposition({
       environment,
       dataDir:paths.dataDir,
+      hermesProfileRoot:paths.hermesProfileRoot,
       contentWorkspaceDir:paths.contentWorkspaceDir,
       taskRunEvents:runtimeState.taskRunEvents,
       resolveTaskIdForPaperclipCase:async (caseId: unknown) => {
@@ -47,7 +48,7 @@ export async function createRuntime({
         return task?.taskId || null;
       },
     });
-    const { governance, campaigns, paperclipCurrentRunScope, publisherBindings:m5PublisherBindings } = contentCampaign;
+    const { governance, modelPolicy, campaigns, paperclipCurrentRunScope, publisherBindings:m5PublisherBindings } = contentCampaign;
     const missionChildPolicy = await MissionChildPolicy.open({
       keyPath:path.join(paths.privateDir, 'product-maturity-child-policy.key'),
     });
@@ -163,6 +164,7 @@ export async function createRuntime({
       },
       connections:{
         ...feishuCommand.connections,
+        modelPolicy:{ service:modelPolicy, registry:localExecution.registry, governance },
         accessConnections:localExecution.accessConnections,
         publicWebFetch,
       },
