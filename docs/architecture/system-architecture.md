@@ -101,7 +101,7 @@ JSON、校验备份和 plist 回滚备份保留。运行包与技术修复源码
 
 ### 3.1 飞书交互适配层
 
-飞书中的“ A君·军团总管”是主要日常总管入口。A君、小D、小R、小办和运维官保持独立 Hermes Gateway 常驻；创建官、审核官、架构师和技术专家保留独立 Profile、岗位边界和 Paperclip `hermes_local` 按需执行能力，但不再拥有常驻 Gateway 或独立飞书入口。任务接收、路由和多人总任务由 A君承担；GitHub 公开研究由小R承担。飞书适配层不保存业务执行 checkpoint，也不自行判断任务完整成功。仓库 Profile/配置器、实际 `~/.hermes` 配置、Paperclip Adapter 和 A君不可变 release 必须分别对账；当前 11 个正式岗位已切到 `deepseek/deepseek-v4-flash` 且回退链为空，5 个常驻 Gateway 和 A君 fresh runtime 已重启。配置对账不替代真实 DeepSeek 调用证据。
+飞书中的“ A君·军团总管”是主要日常总管入口。A君、小D、小R、小办和运维官保持独立 Hermes Gateway 常驻；创建官、审核官、架构师和技术专家保留独立 Profile、岗位边界和 Paperclip `hermes_local` 按需执行能力，但不再拥有常驻 Gateway 或独立飞书入口。任务接收、路由和多人总任务由 A君承担；GitHub 公开研究由小R承担。飞书适配层不保存业务执行 checkpoint，也不自行判断任务完整成功。仓库 Profile/配置器、实际 `~/.hermes` 配置、Paperclip Adapter 和 A君不可变 release 必须分别对账；当前 11 个正式岗位已按 ADR-0013 切到 `stepfun/step-3.7-flash` 且回退链为空，5 个常驻 Gateway 和 A君 fresh runtime 已重启。配置对账不替代真实 StepFun 3.7 调用证据。
 
 ### 3.2 Paperclip 军团总控
 
@@ -123,7 +123,7 @@ Hermes 或其他执行运行时负责其 Agent Profile、模型、短期会话�
 
 老板一次提出多项清晰交付物时，A君可通过 `mission_create` 创建一个父任务和最多十一个受限子任务。每项以唯一 `key` 标识并可通过 `depends_on` 构成无环依赖图；没有依赖且仍有执行槽位的员工同时开始，活动并发不超过四项。汇总类员工必须等所依赖的来源任务进入终态后再工作；父任务只按实际子任务状态和已验证产物形成统一汇报。每名员工使用独立 Hermes Profile，并由 Manifest 驱动岗位 Prompt、Skill、飞书与 Paperclip Toolset；MCP 环境作用域限制可见员工、可创建任务类型和是否允许再次组建任务，不能只靠 Prompt 约束。Paperclip 通过官方 `hermes_local` Adapter 唤醒同一员工 Profile，Profile 只读取一次当前指派并把结果回写同一 run。任务、审批与产物真相仍在 A君/Paperclip 和业务存储，Profile 只保存各自会话、记忆与运行配置。
 
-M4 的 11 个开放任务入口继续保留，但 A君只做无状态的岗位委托映射：开放任务直接复用岗位已有专有执行器，能力请求只和岗位 Manifest 白名单比对，未登记能力保持闭锁。小R开放研究根据真实 Observation 在公开网页、动态网页、PDF 与 GitHub 只读适配器间换路；安全重试最多 2 次，耗尽后请求 Paperclip 重规划，预算不足或三次重规划耗尽时失败关闭，只有当前 Run 的健康产物才能写为 Work Product。恢复 Work Product 时同时校验外层和内嵌 Observation 的 Issue/Run 与当前 assignment 一致，拒绝任务自报及跨 Issue/Run 注入。A君不生成 `autonomous_work_plan`、任务级 CapabilityGrant、预算或 checkpoint，也不写 `capability-grants.json`；组织计划、Issue、预算、审批和恢复属于 Paperclip，Hermes 保存执行会话与运行检查点。历史自主计划模块仅供迁移测试，不得被生产 `server.js` 或 `TaskService` 引用。11 个正式岗位主推理模型按 ADR-0011 统一为 `deepseek/deepseek-v4-flash`，不配置 StepFun 文本回退。2026-07-31 的 StepFun 11/11 文本探针和语义门禁继续作为历史模型证据保留，不证明当前 DeepSeek 主传输；本次切换只完成配置、Gateway、Paperclip Adapter 与 fresh A君 runtime 对账，未执行付费模型探针。微信私密只读检索岗位继续使用本机模型，不计入这 11 岗；Profile 元数据不保存 Key。
+M4 的 11 个开放任务入口继续保留，但 A君只做无状态的岗位委托映射：开放任务直接复用岗位已有专有执行器，能力请求只和岗位 Manifest 白名单比对，未登记能力保持闭锁。小R开放研究根据真实 Observation 在公开网页、动态网页、PDF 与 GitHub 只读适配器间换路；安全重试最多 2 次，耗尽后请求 Paperclip 重规划，预算不足或三次重规划耗尽时失败关闭，只有当前 Run 的健康产物才能写为 Work Product。恢复 Work Product 时同时校验外层和内嵌 Observation 的 Issue/Run 与当前 assignment 一致，拒绝任务自报及跨 Issue/Run 注入。A君不生成 `autonomous_work_plan`、任务级 CapabilityGrant、预算或 checkpoint，也不写 `capability-grants.json`；组织计划、Issue、预算、审批和恢复属于 Paperclip，Hermes 保存执行会话与运行检查点。历史自主计划模块仅供迁移测试，不得被生产 `server.js` 或 `TaskService` 引用。11 个正式岗位主推理模型按 ADR-0013 统一为 `stepfun/step-3.7-flash`，不配置文本回退。2026-07-31 的 StepFun 3.5 探针和 2026-08 的 DeepSeek 任务证据继续作为历史模型证据保留，均不证明当前 StepFun 3.7 主传输；本次切换已完成配置、Gateway、Paperclip Adapter 与 fresh A君 runtime 对账，但未执行付费模型探针。微信私密只读检索岗位继续使用本机模型，不计入这 11 岗；仓库 Profile 元数据不保存 Key。
 
 #### M5 内容自治与并行 v2 边界
 

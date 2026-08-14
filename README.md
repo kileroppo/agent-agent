@@ -36,7 +36,7 @@ agent-agent/
 
 ### 当前机器事实（2026-08-14）
 
-- A君 `4321` 已切到 TypeScript clean 不可变 release `5ceb5069…`，入口为 `src/server.ts`、HTTP 200；manifest 绑定 payload `49872add…` 与隔离 clean Git `ee27aed…`。当前可见工作树仍未提交，因此 `runtime:fingerprint` 的源码关系为 `different_git_head`，不代表 live release 不干净。
+- A君 `4321` 已切到 StepFun 3.7 clean 不可变 release `0f3017d1…`，入口为 `src/server.ts`、HTTP 200；manifest 绑定 payload `5dbd1e17…` 与隔离 clean Git `136a959…`。`runtime:fingerprint` 回读 live 与当前源码为 `same_git_head`。默认 Hermes、11 个隔离 Profile、5 个常驻 Gateway 和 Paperclip 11/11 正式岗位均已对账到 `stepfun/step-3.7-flash`、空回退链；本轮未执行付费模型探针。
 - 小D `4318` 已重启为 `src/server.ts`、HTTP 200；Paperclip `3100` 仍可达。Publisher `4390` 未运行，Campaign 与 M5 Cron 继续关闭；本轮没有触发飞书、Publisher 或外部 Provider 工作流。
 - Business Workflow、能力真相、并列否定策略和人工评价写回已进入 `4321` live；飞书任务 `#167203DF` 完成一条真实只读 Workflow，并将 `useful` / `accepted` 写回任务账本。
 
@@ -55,9 +55,9 @@ agent-agent/
 ### 当前边界与下一步
 
 - M5 活动 `8dd29a3b…` 当前已经 `stopped`，不是旧文档中的 `paused`；旧 Profile lease 已过期。重新运行必须创建新授权草案，不能恢复旧授权。
-- 先维护只读 readiness、任务恢复和审计质量；恢复 Campaign、启动 Publisher 或平台写入仍需独立授权。模型型验证必须先通过现有预算 Policy；本轮真实小拆已产生两次有账本的 DeepSeek 调用，未调用视觉 Provider。
+- 先维护只读 readiness、任务恢复和审计质量；恢复 Campaign、启动 Publisher 或平台写入仍需独立授权。模型型验证必须先通过现有预算 Policy；历史真实小拆曾产生两次有账本的 DeepSeek 调用，当前 StepFun 3.7 切换本身未调用文本或视觉 Provider。
 - 新任务通过 `Model → Agent Runtime → Skills/Workflow → Policy/Permission → MCP/Tool Gateway → Provider` 执行；Model 不得自批权限。已登记同机只读能力可自动恢复一次并重试一次，仍失败才提示负责人。
-- 当前主线已完成不可变部署、真实 DeepSeek 小拆终态、Workflow/能力证据/用量归因修复和 Paperclip 本机完成同步；自动结构通过只证明产物满足机器门禁，不等于负责人已经采用内容。
+- 当前主线已完成 StepFun 3.7 不可变部署、Workflow/能力证据/用量归因修复和 Paperclip 本机完成同步；既有 DeepSeek 小拆终态继续作为历史任务证据。自动结构通过只证明产物满足机器门禁，不等于负责人已经采用内容。
 - 当前不得重复执行审核官，也不得继续创建小R重试。防冒充成功门禁已随 `64d5476… / 530d86bf…` 进入 live，并用一条真实 E2E 证明会如实拒绝不完整交付。后续只可把“两条来源读取 + 三条具体建议”作为独立产品问题重新立项；负责人未明确重开前保持现状。新成熟度批次仍需独立授权。
 - 历史能力验证批次的自动化闭环已完成，该批次仅保留可选人工内容质量抽查：如需形成最终采用结论，可对 `#B5403CD9` 登记 `accepted` 或 `revision_required`。项目其他外部/人工验收仍以[当前交接](./docs/handoffs/README.md#当前交接)为准，不将某一批次的闭环误说成整个项目只剩一件事。
 - 仍需负责人参与的真实验收统一见[当前交接](./docs/handoffs/README.md#当前交接)；已经完成或被替代的事项不得继续占用当前状态。

@@ -15,6 +15,16 @@
 
 唯一安全下一步：生成并人工审阅不含 Secret 的当前 Campaign readiness 输入快照，再执行只读 `production:readiness`。恢复 Campaign、注入 provider、启用 Publisher 或发布均须另行批准。
 
+## 2026-08-14 StepFun 3.7 文本主模型切换追加证据
+
+| 项目 | 事实 | 边界 |
+| --- | --- | --- |
+| 仓库契约 | 11 个正式 AgentManifest、Hermes 映射、schema 与 Paperclip Adapter 均固定为 `stepfun/step-3.7-flash`，fallback/extraArgs 为空 | 微信私密只读岗位继续本机 Qwen，不属于本次文本模型切换 |
+| 本机 Profile | 默认 Hermes 与 11/11 隔离 Profile 均回读为 `custom:sstefun / step-3.7-flash`、`api.stepfun.com/step_plan/v1`、凭据存在、fallback 为空；5 个常驻 Gateway 已以新 PID 重启 | 凭据只在本机配置间受控同步，未回显、未写入仓库 |
+| 不可变来源 | clean source commit `136a95998ae83230a889071222971b5521f1eefe`；release `0f3017d13a2e21b12334b299e18c8827acdb252c2a12c36845c2fd59daf582ec`；payload `5dbd1e17420e71ca36041771d2a4be231b7828b08b2f0127ae9eb4c985aa9112` | main/recovery smoke 与冻结门禁通过；降级只读恢复 ready |
+| live 切换 | A君 PID `90356`，4321 listener、entrypoint、cwd 与 `/api/overview=200`；`runtime:fingerprint` 为 `same_git_head`；Paperclip 11/11 正式岗位为 StepFun 3.7 且显式空数组 | PID 是本次切换快照；Publisher 关闭导致总体状态仍可为 degraded |
+| 外部证据 | 本轮未主动发起模型探针、飞书消息、Paperclip 业务任务或发布动作 | StepFun 3.7 主传输仍为 `model-transport-pending`，需真实业务调用或另行授权付费探针 |
+
 ## 2026-08-02 DeepSeek 文本主模型切换追加证据
 
 | 项目 | 事实 | 边界 |
@@ -50,7 +60,7 @@
 | Paperclip 待办清理 | PARTIAL | 已将 153 条带确定 Routine 标记的历史巡检失败和 9 条历史验收记录归档为 `cancelled`/hidden，保留评论与证据且未删除；当前分页读取为 83 条，其中 active_incident 16、unresolved 67 | 16 条真实故障与 67 条未决任务仍保留负责人和恢复动作，不能宣称清空 |
 | Paperclip live apply | PASS / CAMPAIGN PAUSED | live v2 为 Goal `0363da03…`、Project `86ad0a0a…`、17 个有效 Routine、15 阶段 Pipeline `6dfd94da…` 及 5 个 HTTP 系统控制器；旧 `m5-research` 已作为从未触发的归档记录保留，不计有效 Routine。活动 `8dd29a3b…` 当前 `paused`、无 active work，M5 每日 Cron 关闭 | 分层预算不能相加；保守 `cost-events` 不等于 StepFun 官方最终账单；暂停不等于删除或从未批准 |
 | 插件安装 | LIVE 0.4.9 READY / HEALTHY | `/api/plugins` 显示 `agent-army.content-autonomy` live `0.4.9`、`ready`，packagePath 与 worker 进程均指向 `content-autonomy-bundle-0.4.9-b64760f6…`；`/health` 返回 `ready/healthy`，对象形 Secret Reference 有效且未回显 Secret 值。不可变包 `payloadHash=b64760f6c00e2031d5a5ae51fac4a76e26183698e1bb9bf536e407fd27592c0d`、`entryCount=19986`、`manifestSha256=dabf16ac255eec3348e5800239f907793db1c1e507d1aa2820cd57fb71ec8dd7`、独立全目录哈希 `82f75845b927c8fa817e45e8e4d588338c7131677f2681c7297dba987db0c8bd`。`0.4.6` 回滚兼容链保留，回滚脚本及测试已改指向 `0.4.6`；`0.4.7` 本地包删除 | live 版本与安全门禁已对账；仍没有因此触发 Provider、恢复活动或授予发布权限 |
-| Hermes Profile 历史精确同步 | HISTORICAL STEP FUN BASELINE | 2026-07-31 曾将 11 个正式 Profile 同步到 StepFun、岗位 MCP 作用域和精确 Feishu toolset | 当前模型状态由上方 2026-08-02 DeepSeek 追加证据取代；历史同步不再代表 live 主模型 |
+| Hermes Profile 历史精确同步 | HISTORICAL STEP FUN BASELINE | 2026-07-31 曾将 11 个正式 Profile 同步到 StepFun、岗位 MCP 作用域和精确 Feishu toolset | 该 3.5 历史同步不代表当前 StepFun 3.7 live 主模型；当前状态以上方 2026-08-14 追加证据为准 |
 | Hermes 技能白名单 | LIVE PASS / 11 CLEAN | 11 个正式 Profile 指定只读检查均为 clean，无额外 enabled skill、无声明技能缺失或被禁用；`xiaod` 原有 78 个额外技能保持 disabled，办公助理遗留 `feishu-doc` 已显式收敛并复验 clean | 微信取件员不属于 11 个正式内容岗位；技能包仍可保留在目录或备份中，但未授权技能默认不可用 |
 | 岗位执行适配器 | LOCAL REAL-ADAPTER PASS / PROFILE CONFIG SYNCED | 小R动态网页用临时 Chrome、同源只读请求和 DNS 固定；公开 PDF 以固定 IP 流式读取，真实 2,215,244 bytes PDF 通过，超过 8MB 中止。开放研究及其路由/Routine 契约针对网页/PDF/GitHub、Observation 换路、预算/重试/重规划及 Work Product 回写的定向测试为 `29/29`；恢复来源必须匹配当前 assignment 的 Issue/Run，任务自报与跨 Issue/Run 内嵌 Observation 注入均失败关闭。小办 DOCX/XLSX/PDF 已真实生成回读；Markdown 外部资源、本机偷读和符号链接越界写入均拒绝。11 个实际 Hermes Profile 已完成精确同步并 post dry-run `0 drift` | 受控本地/公开读取、文档生成和 Profile 配置均有证据，但当前 A君 `4321` 尚未重启加载本轮源码；登录型网页、外部发送和业务闭环仍未证明 |
 | One-shot 与正式视觉边界 | LIVE CODE LOADED / PROVIDER NOT EXERCISED | 内容插件固定视觉模型 `step-1o-turbo-vision`、生图/改图模型 `step-image-edit-2`、TTS 模型 `stepaudio-2.5-tts`。通用 Hermes one-shot 已移除 `--ignore-rules`，普通调用固定为 `clarify`，只有无 Provider 的受控故事板分支允许 `vision`。正式视觉仅由当前 Paperclip Run 的单用途回调触发，绑定固定 action、相对 PNG、帧哈希、时间点、confirmed receipt 和同一 Project；新产物与已有视觉 Work Product 重放都使用同一校验，漂移时阻塞且不覆盖。渲染强制消费可信 `GeneratedImagePackage`，机器审核反查同 Project 的图片、视觉、TTS 三条 confirmed action/cost | `0.4.9` 已由 live 加载，但尚无真实 M5 Campaign StepFun 视觉调用；加载代码不能替代 Provider 或业务验收 |
@@ -60,8 +70,8 @@
 | 7 天真实 MP4 → Fake Publisher | LOCAL PASS / SIMULATED CLOCK | `work/m5-publisher-gateway/acceptance/fake-seven-day-2026-07-31-v1/` 使用 14 支真实本地 MP4 生成 14 个 fake PublishReceipt、42 个 2h/24h/72h 模拟 MetricSnapshot；44 次 Runtime 重建后幂等重放同一 72h 快照。`realPlatformTouched=false`、`externalPublished=false`、`realPlatformCalls=0`、`totalCostUsd=0` | `actualPlatformElapsedTime=false`；不等于真实等待 72 小时、真实平台指标或真实发布 |
 | 本地运行 | LIVE / CAMPAIGN PAUSED | Paperclip `127.0.0.1:3100/api/health` 为 200；A君 `4321/api/overview` 为 200；内容插件 `0.4.9` worker 存活；Publisher `4390/health` 仍为 `disabled`；Paperclip 15/17/5 对账保持 | 活动当前暂停、M5 每日 Cron disabled、真实连接器未启用；A君没有 `/api/health` 路由 |
 | 运维巡检 | PASS | “A君定时本机巡检”修复后连续 3 次受控手动 Routine Run 为 `completed`，并已观察到至少 1 次修复后自然定时 `completed` | 更早失败按历史保留 |
-| StepFun 文本 | CURRENT PROVIDER PASS | 11 个正式 Profile 已以 `step-3.5-flash-2603` 完成当前无副作用实调用 `11/11`，均返回精确文本 `M5_OK`；DeepSeek 0 次、无业务外部副作用。证据：`artifacts/2026-07-31-stepfun-text-probes.json` | 只证明当前文本传输，不证明复杂任务、多模态或回退 |
-| StepFun 复杂岗位任务 | STRUCTURE 11/11 / SEMANTIC 11/11 / CROSS PASS / PROFILE PROBE PASS | 最新 `video-content-analyst` 使用 `step-3.5-flash-2603`，18 项结构和语义门禁为 `18/18`，从而11个岗位全部通过。新的 Cross 首次因未转义 JSON 失败关闭，缩短并固定输出结构后安全重试为 `19/19`；最终 `summary.status=passed`、`rolePassedCount=11`、`crossRoleStatus=passed`，离线重验同样通过。此次新增 1 次 video 和 2 次 Cross StepFun 调用，工具调用 0、`externalSideEffects=0`；语义门禁与提示契约自测为 `72/72`。全军 Profile 收敛后另完成 1 次 `video-content-analyst` 真实 StepFun no-tool 探针，工具调用仍为 0 | usage 的 `cost_status=unknown` 必须保留；探针中的 `estimated_cost_usd=0` 只是 usage 字段，不是官方账单。no-tool 探针只证明文本传输和模型身份，不承担内容 Provider 血缘；这些证据不证明当前 A君已加载本轮源码、真实 M5 Campaign StepFun 视觉、平台发布或业务外部闭环 |
+| StepFun 3.5 文本 | HISTORICAL PROVIDER PASS | 11 个正式 Profile 曾以 `step-3.5-flash-2603` 完成无副作用实调用 `11/11`，均返回精确文本 `M5_OK`；DeepSeek 0 次、无业务外部副作用。证据：`artifacts/2026-07-31-stepfun-text-probes.json` | 只证明当时的 3.5 文本传输，不证明当前 3.7、复杂任务、多模态或回退 |
+| StepFun 3.5 复杂岗位任务 | HISTORICAL STRUCTURE 11/11 / SEMANTIC 11/11 / CROSS PASS | `video-content-analyst` 使用 `step-3.5-flash-2603`，18 项结构和语义门禁为 `18/18`，从而11个岗位全部通过。Cross 首次失败关闭后安全重试为 `19/19`；最终 `summary.status=passed`、`rolePassedCount=11`、`crossRoleStatus=passed`。此次新增 1 次 video 和 2 次 Cross 调用，工具调用 0、`externalSideEffects=0`；语义门禁与提示契约自测为 `72/72` | usage 的 `cost_status=unknown` 必须保留；这些历史证据不证明当前 StepFun 3.7 主传输、真实 M5 Campaign 视觉、平台发布或业务外部闭环 |
 | StepFun 多模态 | HISTORICAL PROVIDER LEDGER PASS / NO NEW CALL | 旧 `m5v2` 账本 `status=succeeded`：35 个 action-linked 费用记录合计 42 美分，`confirmedReplay=35`、`lifetimeProviderCalls=43`。本轮 Provider 请求/调用均为 0、没有新增费用或 `cost-event`；公司与 Project 累计仍为 392 分 | 42 美分是旧保守项目账本，不是 StepFun 官方最终账单；本轮没有新增付费调用，也不证明真实平台发布 |
 | 指标回流 | R4 BINDING LOADED / PIPELINE OFF | 2h/24h/72h、独立指标 approval、current-run scope 与 `PaperclipBridge` 六项核心 access 已由 R4 加载；发布与指标 runner/Profile 隔离 | Paperclip 原始 `2026.722.0` 的兼容补丁未 apply，R4 connector dependencies 为空并失败关闭；尚无真实 PublishReceipt、平台指标或人工核对 |
 | 生产 readiness | READ-ONLY / NOT READY | `npm run production:readiness` 固定检查 4390 health、Campaign snapshot、selector 安全、Profile lease 引用和 provider 注入；无 snapshot 输入时为 `not_ready`、退出码 `2`，机器建议动作 `provide-campaign-status-snapshot` | 不读 `.env`/Secret，不启动服务、不批准 Campaign/Cron，不等于生产启用 |
@@ -342,7 +352,7 @@ cua-driver doctor
 | 自动化 | PASS | 主工作区与隔离发布源码的 A君 均为 `1187/1187`；Manifest `18/18`；架构边界通过；Hermes 外层失败回退覆盖合格报告、深度待测试、证据拒绝和非视频隔离 | 不替代真实飞书或真实模型调用 |
 | 首次不可变验收包 | PASS | 代码快照 commit `0e2fdd400debef07da177fa5cfb5d4ac1a58ecbb`；`releaseHash=71aac0b41a699b7c6b4e759a6f689d06aba2b64f6fdc03ebd5efed2a18128d34`；`payloadHash=936401150f920b7c828f984e9a4a11291c90f0e21e681bb7be7084d481c359af`；`entryCount=7104`；主入口与只读恢复 smoke 通过 | 这是在线任务验收时的代码等价快照；最终 docs-bound release 以 launchd entrypoint 的 manifest 为准 |
 | 首次在线运行快照 | PASS | 验收时 launchd PID `10571`，监听 `127.0.0.1:4321`，命令与 cwd 指向只读 release；`/api/overview=200`，11 个 Agent | PID 是历史快照；当前值须重新读取 launchd；运行时通过不代表外部飞书收发通过 |
-| 真实任务 | PASS | 任务 `7d45ed66-e86a-4a08-8179-509939352593` 返回 `succeeded/local_evidence_fallback_ready`；报告为 `analysisIntent=digest`、`reportVersion=video-analysis/v2`、`generationMode=deterministic_fallback`，证据/模式/确认稿/800 字门禁均通过 | Hermes Profile 当前凭据返回 401，因此未形成真实 DeepSeek 语义报告；安全回退已实跑 |
+| 真实任务 | PASS | 任务 `7d45ed66-e86a-4a08-8179-509939352593` 返回 `succeeded/local_evidence_fallback_ready`；报告为 `analysisIntent=digest`、`reportVersion=video-analysis/v2`、`generationMode=deterministic_fallback`，证据/模式/确认稿/800 字门禁均通过 | 该次验收时 Hermes Profile 凭据返回 401，因此未形成真实 DeepSeek 语义报告；安全回退已实跑 |
 | 素材复用 | PASS | 来源任务 `c0636161-cb44-4449-81ee-9baa4e027570` 仍为 7 个来源产物；确认稿校验值保持 `96748e00c38e1fd8b05d3abba7946a5acd2bbc5f5b93f4bdbfde6d9f9adb5b92`；验收后新增媒体任务为 0 | 本轮只实跑 digest；其余三模式由自动化覆盖并复用同一契约 |
 | 下游与发布边界 | PASS | 验收任务之后只出现该分析任务；小创、审核、Publisher 任务为 0；`AJUN_M5_PUBLISHER_MODE`、Campaign 和 Cron 启用项均未设置 | 不批准真实发布或活动启用 |
 | 外部飞书 | NOT CHECKED | 本地解析与字段透传测试通过 | 必须由负责人在 A君 真实飞书会话发送一条带模式的视频任务 |
