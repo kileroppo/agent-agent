@@ -16,7 +16,8 @@ type ReceiptCarrierError = Error & { executionReceipt?: Readonly<Record<string, 
 const ROUTES: Readonly<Record<string, RouteDescriptor>> = Object.freeze({
   'source-subtitle':Object.freeze({ routeId:'audio.transcribe.source-subtitle', adapterId:'xiaod.source-subtitle' }),
   'mlx-whisper':Object.freeze({ routeId:'audio.transcribe.mlx-whisper', adapterId:'xiaod.mlx-whisper' }),
-  'faster-whisper':Object.freeze({ routeId:'audio.transcribe.faster-whisper', adapterId:'xiaod.faster-whisper' })
+  'faster-whisper':Object.freeze({ routeId:'audio.transcribe.faster-whisper', adapterId:'xiaod.faster-whisper' }),
+  'stepfun':Object.freeze({ routeId:'audio.transcribe.stepfun', adapterId:'xiaod.stepfun-asr' }),
 });
 
 export function asrQualityResult({ routing = {}, payload = null }: Readonly<{ routing?: DynamicRecord; payload?: DynamicRecord | null }> = {}) {
@@ -105,7 +106,9 @@ export function buildAsrExecutionReceipt({
     failureCode:canonicalFailureCode,
     inputHash:`sha256:${inputHash}`,
     outputHash:outputHash ? `sha256:${outputHash}` : null,
-    costUsd:0,
+    costUsd:routing.costUsd === null ? null : Number.isFinite(Number(routing.costUsd)) ? Number(routing.costUsd) : 0,
+    billingStatus:clean(routing.billingStatus, 80) || (selectedProvider === 'stepfun' ? 'unknown' : 'not_billed'),
+    apiCalls:Number.isInteger(routing.apiCalls) && routing.apiCalls >= 0 ? routing.apiCalls : 0,
     startedAt:normalizedStartedAt,
     completedAt:normalizedCompletedAt
   });

@@ -233,7 +233,7 @@ function m5ProviderProvenance({ generatedImage, visualAnalysis, voice, allowLoca
     const stepFunDeclared = generatedImage?.model === 'step-image-edit-2'
         || voice?.model === 'stepaudio-2.5-tts'
         || asList(visualAnalysis?.insights).some((item: any) => item?.evidenceKind === 'stepfun_vision_frame')
-        || visualAnalysis?.providerReceipt?.model === 'step-1o-turbo-vision';
+        || visualAnalysis?.providerReceipt?.model === 'step-3.7-flash';
     if (!stepFunDeclared)
         return { actionRefs: null, fixtureProvenance: null };
     const fixtureEntries = [generatedImage, visualAnalysis, voice]

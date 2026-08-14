@@ -712,14 +712,14 @@ function m5VisualArtifactFixture(projectId, overrides = {}) {
   const receipt = {
     actionId,
     operation:'vision',
-    model:'step-1o-turbo-vision',
+    model:'step-3.7-flash',
     sourcePath:'campaigns/assets/frame-001.png',
     sourceChecksum:`sha256:${'a'.repeat(64)}`,
     observationChecksum:`sha256:${'b'.repeat(64)}`,
     callRecord:{
       actionId,
       operation:'vision',
-      model:'step-1o-turbo-vision',
+      model:'step-3.7-flash',
       promptChecksum:`sha256:${'c'.repeat(64)}`,
       costEvent:{ provider:'stepfun', projectId },
     },

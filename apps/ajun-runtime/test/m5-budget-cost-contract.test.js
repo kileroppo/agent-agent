@@ -56,7 +56,7 @@ test('内容插件和真实Publisher费用草稿都映射到Paperclip核心cost_
       provider:'stepfun',
       biller:'stepfun',
       billingCode:'m5:vision',
-      model:'step-1o-turbo-vision',
+      model:'step-3.7-flash',
     }),
   });
   const publisher = createM5CostEventDraft({

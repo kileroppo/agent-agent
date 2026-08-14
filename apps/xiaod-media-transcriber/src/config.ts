@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const defaultFastPython = path.join(os.homedir(), '.local', 'share', 'agent-army', 'xiaod-faster-whisper', 'bin', 'python');
 const defaultFastModelRoot = path.join(os.homedir(), '.cache', 'huggingface', 'hub', 'models--Systran--faster-whisper-small', 'snapshots');
+const sharedDataDir = path.resolve(process.env.AGENT_ARMY_DATA_DIR || path.join(appRoot, '../ajun-runtime/data'));
 
 // Local development is started directly with Node, so load the project's
 // untracked .env before deriving the immutable runtime config below.
@@ -24,6 +25,7 @@ export const config = {
   host: requireLoopbackHost(process.env.HOST || '127.0.0.1'),
   workDir: path.resolve(process.env.WORK_DIR || './data'),
   taskRunEventDb:resolveTaskRunEventDb(process.env),
+  capabilityModelPolicyPath:path.resolve(process.env.AGENT_ARMY_MODEL_POLICY_PATH || path.join(sharedDataDir, 'stepfun-model-policy.json')),
   inboundMedia: {
     maxBytes: Number(process.env.INBOUND_MEDIA_MAX_BYTES || 1024 * 1024 * 1024),
     allowedRoots: (process.env.INBOUND_MEDIA_ALLOWED_ROOTS || (process.env.HERMES_HOME ? path.join(process.env.HERMES_HOME, 'cache') : ''))
@@ -44,6 +46,9 @@ export const config = {
     progressiveFastEnabled: process.env.FASTER_WHISPER_PROGRESSIVE_ENABLED === '1',
     fastMinDurationSeconds: Number(process.env.FASTER_WHISPER_MIN_DURATION_SECONDS || 60),
     fastMaxDurationSeconds: Number(process.env.FASTER_WHISPER_MAX_DURATION_SECONDS || 1800)
+  },
+  stepfunAsr:{
+    baseUrl:process.env.STEPFUN_ASR_BASE_URL || 'https://api.stepfun.com/step_plan/v1',
   },
   // Explicit local acceptance-test hook. Never set this in normal operation.
   testFailOnceAt: launchedTestFailOnceAt || process.env.XIAOD_TEST_FAIL_ONCE_AT || '',
@@ -124,6 +129,7 @@ export const configuredCapabilities = () => ({
     && existsSync(config.adaptiveAsr.fastPython)
     && existsSync(config.adaptiveAsr.fastScript)
     && existsSync(config.adaptiveAsr.fastModelRoot),
+  stepfunAsrSelectable:existsSync(process.env.XIAOD_HERMES_PYTHON || path.join(os.homedir(), '.hermes', 'hermes-agent', 'venv', 'bin', 'python')),
   aiRefinement: Boolean(config.refiner.url && config.refiner.model),
   lark: Boolean(config.lark.appId && config.lark.appSecret),
   mediaCrawlerDeep: Boolean(config.mediaCrawler.cookieBridgeUrl && config.mediaCrawler.downloadServerUrl),

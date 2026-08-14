@@ -43,6 +43,8 @@ type MakeJobInput = Readonly<{
   visualMode?: string;
   analysisDepth?: string;
   deliveryMode?: string;
+  asrProvider?: string;
+  asrModel?: string;
 }>;
 
 export function makeJob({
@@ -58,6 +60,8 @@ export function makeJob({
   visualMode = 'off',
   analysisDepth = 'fast',
   deliveryMode = 'feishu',
+  asrProvider = 'local',
+  asrModel = 'mlx-community/whisper-large-v3-turbo',
 }: MakeJobInput): XiaodJob {
   const now = new Date().toISOString();
   return {
@@ -74,6 +78,8 @@ export function makeJob({
     visualMode: visualMode === 'auto' || visualMode === 'required' ? visualMode : 'off',
     analysisDepth: analysisDepth === 'full' ? 'full' : 'fast',
     deliveryMode: deliveryMode === 'local_only' ? 'local_only' : 'feishu',
+    asrProvider:asrProvider === 'stepfun' ? 'stepfun' : 'local',
+    asrModel:asrProvider === 'stepfun' ? 'stepaudio-2.5-asr' : String(asrModel || 'mlx-community/whisper-large-v3-turbo'),
     title: originalName?.replace(/\.[^.]+$/, '') || sourceUrl || '未命名素材',
     status: 'queued',
     stageMessage: '已进入队列',

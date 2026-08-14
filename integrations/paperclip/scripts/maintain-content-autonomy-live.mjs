@@ -18,12 +18,12 @@ import {
 
 const execFileAsync = promisify(execFile);
 const PLUGIN_KEY = 'agent-army.content-autonomy';
-const OLD_PLUGIN_VERSION = '0.4.6';
+const OLD_PLUGIN_VERSION = '0.4.9';
 const NEW_PLUGIN_VERSION = '0.5.0';
-const OLD_PLUGIN_STEPFUN_SHA256 = 'd0c3ba28e2a175e16beacf3f2ee2761caa77aec5a6b62cf710869210be11ecf7';
+const OLD_PLUGIN_STEPFUN_SHA256 = 'df8223807097e865db59b80a109530030ff36ffb06e032426fa01366404be4de';
 const LAUNCHD_LABEL = 'ai.agent-army.paperclip';
 const APPLY_CONFIRMATION = 'I_ACCEPT_CONTENT_AUTONOMY_0_5_0_LIVE_MAINTENANCE';
-const ROLLBACK_CONFIRMATION = 'I_ACCEPT_CONTENT_AUTONOMY_0_4_6_ROLLBACK';
+const ROLLBACK_CONFIRMATION = 'I_ACCEPT_CONTENT_AUTONOMY_0_4_9_ROLLBACK';
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
 export async function runLiveMaintenance({
@@ -43,9 +43,7 @@ export async function runLiveMaintenance({
   const recoveryAction = rollbackAction(input);
   try {
     const expectedVersion = normalizedMode === 'execute' ? OLD_PLUGIN_VERSION : null;
-    const allowedCampaignStatuses = normalizedMode === 'execute'
-      ? ['draft']
-      : ['draft', 'paused'];
+    const allowedCampaignStatuses = ['draft', 'paused', 'stopped'];
     const before = await verifySnapshot({
       api,
       input,
@@ -114,7 +112,7 @@ export async function runLiveMaintenance({
       ) {
         stage = 'soft_uninstall_new_plugin';
         await api.delete(`/api/plugins/${encodeURIComponent(input.pluginId)}`);
-        stage = 'install_0_4_6';
+        stage = 'install_0_4_9';
         const installed = await api.post('/api/plugins/install', {
           packageName:oldBundle.root,
           isLocalPath:true,

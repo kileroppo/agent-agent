@@ -98,3 +98,66 @@ test('正式任务的质量模型失败时不允许用小模型冒充完成', as
   );
   assert.equal(runEvents.find((event) => event.eventType === 'capability_call_failed')?.status, 'confirmed_failure');
 });
+
+test('策略选中 StepFun 时只调用一次 StepAudio，不静默改投本机', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'xiaod-stepfun-asr-'));
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const input = path.join(root, 'input.wav');
+  await fs.writeFile(input, 'fixture');
+  let providerCalls = 0;
+  let localCalls = 0;
+  const runtime = new AdaptiveAsrRuntime({
+    stepfunAsr:{
+      async transcribe() {
+        providerCalls += 1;
+        return { text:'这是 StepAudio 返回的完整转录正文，用于验证显式服务商路线不会跨服务商重复提交。', timed:null, segments:[], usage:{ input_tokens:20, output_tokens:10 } };
+      },
+    },
+  });
+  runtime.transcribeQuality = async () => { localCalls += 1; throw new Error('不应调用'); };
+  const result = await runtime.transcribe(input, root, {
+    job:{ asrProvider:'stepfun', reviewPolicy:'optional', analysisDepth:'fast', visualMode:'off' },
+    durationSeconds:30,
+  });
+  assert.equal(providerCalls, 1);
+  assert.equal(localCalls, 0);
+  assert.equal(result.routing.selectedProvider, 'stepfun');
+  assert.equal(result.routing.selectedModel, 'stepaudio-2.5-asr');
+  assert.equal(result.routing.executionReceipt.routeId, 'audio.transcribe.stepfun');
+  assert.equal(result.routing.executionReceipt.costUsd, null);
+  assert.equal(result.routing.executionReceipt.billingStatus, 'subscription_included');
+  assert.equal(result.routing.executionReceipt.apiCalls, 1);
+});
+
+test('StepFun 调用结果不确定时保留 ambiguous 回执，不自动重试或改投本机', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'xiaod-stepfun-asr-ambiguous-'));
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const input = path.join(root, 'input.wav');
+  await fs.writeFile(input, 'fixture');
+  let providerCalls = 0;
+  let localCalls = 0;
+  const runtime = new AdaptiveAsrRuntime({
+    stepfunAsr:{
+      async transcribe() {
+        providerCalls += 1;
+        throw Object.assign(new Error('provider response interrupted'), { code:'stepfun_asr_ambiguous' });
+      },
+    },
+  });
+  runtime.transcribeQuality = async () => { localCalls += 1; throw new Error('不应调用'); };
+  await assert.rejects(
+    runtime.transcribe(input, root, {
+      job:{ asrProvider:'stepfun', reviewPolicy:'optional', analysisDepth:'fast', visualMode:'off' },
+      durationSeconds:30,
+    }),
+    (error) => {
+      assert.equal(error.executionReceipt.outcome, 'ambiguous');
+      assert.equal(error.executionReceipt.routeAttempts[0].outcome, 'ambiguous');
+      assert.equal(error.executionReceipt.failureCode, 'stepfun_asr_ambiguous');
+      assert.equal(error.executionReceipt.apiCalls, 1);
+      return true;
+    },
+  );
+  assert.equal(providerCalls, 1);
+  assert.equal(localCalls, 0);
+});

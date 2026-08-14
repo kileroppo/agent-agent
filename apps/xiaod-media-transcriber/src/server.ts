@@ -17,6 +17,7 @@ import { ConnectionInputError } from 'ajun-common-access/connection-store';
 import { readTranscriptRevision, reviseTranscript, reviewTranscript, TranscriptReviewError } from './transcript-review.ts';
 import { collectMetricsRequest, MetricsRequestError } from './metrics-api.ts';
 import { TaskRunEventStore } from 'ajun-runtime/task-run-event-store';
+import { CapabilityModelPolicyReader } from './capability-model-policy.ts';
 
 await fs.mkdir(config.workDir, { recursive: true });
 await fs.chmod(config.workDir, 0o700);
@@ -32,6 +33,7 @@ const onRunEvent = (event: unknown) => taskRunEvents.appendTaskRunEvent(
   event && typeof event === 'object' ? event as Readonly<Record<string, unknown>> : {},
 );
 const contentRuntime = await createContentRuntime(config.workDir);
+const capabilityModelPolicy = new CapabilityModelPolicyReader({ filePath:config.capabilityModelPolicyPath });
 const pauseController = new JobPauseController({ store });
 const larkDelivery = new LarkDeliveryCoordinator({ store, onRunEvent });
 const failpointMarkerPath = path.join(config.workDir, '.acceptance-test-failpoint-consumed');
@@ -50,7 +52,16 @@ const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.resolve('public')));
 
-app.get('/api/health', (_req, res) => res.json({ ok: true, capabilities: configuredCapabilities(), commonAccess: contentRuntime.health() }));
+app.get('/api/health', async (_req, res, next) => {
+  try {
+    res.json({
+      ok:true,
+      capabilities:configuredCapabilities(),
+      capabilityModelPolicy:await capabilityModelPolicy.snapshot(),
+      commonAccess:contentRuntime.health(),
+    });
+  } catch (error) { next(error); }
+});
 app.get('/api/jobs', (_req, res) => res.json({ jobs: store.list() }));
 app.get('/api/connections', (_req, res) => res.json({ connections: contentRuntime.connectionStore.list() }));
 app.get('/api/operations/events', (_req, res) => res.json({ events: contentRuntime.operations.list() }));
@@ -108,6 +119,7 @@ app.post('/api/jobs', async (req, res, next) => {
     const requestedConnectionId = req.body?.connectionId || null;
     if (requestedConnectionId !== null && (typeof requestedConnectionId !== 'string' || !requestedConnectionId.trim())) return res.status(422).json({ error: '连接标识格式不正确。' });
     const connectionBinding = await contentRuntime.resolveConnectionBindingForSource(valid.url, requestedConnectionId);
+    const asrSelection = await capabilityModelPolicy.asrSelection();
     const connectionId = connectionBinding?.connectionId || null;
     const candidate = makeJob({
       sourceType:'url',
@@ -118,6 +130,8 @@ app.post('/api/jobs', async (req, res, next) => {
       visualMode:req.body?.visualMode,
       analysisDepth:req.body?.analysisDepth,
       deliveryMode:req.body?.deliveryMode,
+      asrProvider:asrSelection.provider,
+      asrModel:asrSelection.model,
       agentArmyTaskId:idempotencyKey?.startsWith('agent-army:') ? idempotencyKey.slice('agent-army:'.length) : null,
       ingress:idempotencyKey ? { platform:'agent-army-mac-worker', idempotencyKey } : null
     });
@@ -197,6 +211,7 @@ app.post('/api/jobs/upload', upload.single('media'), async (req, res, next) => {
   try {
     if (!req.file) return res.status(422).json({ error: '请选择一个音频或视频文件。' });
     await fs.chmod(req.file.path, 0o600);
+    const asrSelection = await capabilityModelPolicy.asrSelection();
     const job = await store.create(makeJob({
       sourceType:'upload',
       originalName:req.file.originalname,
@@ -204,7 +219,9 @@ app.post('/api/jobs/upload', upload.single('media'), async (req, res, next) => {
       reviewPolicy:req.body?.reviewPolicy,
       visualMode:req.body?.visualMode,
       analysisDepth:req.body?.analysisDepth,
-      deliveryMode:req.body?.deliveryMode
+      deliveryMode:req.body?.deliveryMode,
+      asrProvider:asrSelection.provider,
+      asrModel:asrSelection.model,
     }));
     void pipeline.run(job.id);
     res.status(202).json({ job });
@@ -214,7 +231,8 @@ app.post('/api/jobs/upload', upload.single('media'), async (req, res, next) => {
 app.post('/api/internal/feishu-media', async (req, res, next) => {
   try {
     const result = await createFeishuMediaJob({
-      store, uploadsDir, body: req.body, maxBytes: config.inboundMedia.maxBytes, allowedRoots: config.inboundMedia.allowedRoots
+      store, uploadsDir, body: req.body, maxBytes: config.inboundMedia.maxBytes, allowedRoots: config.inboundMedia.allowedRoots,
+      asrSelection:await capabilityModelPolicy.asrSelection(),
     });
     if (!result.ok) return res.status(result.status).json({ error: result.error });
     if (result.created) void pipeline.run(result.job.id);

@@ -20,7 +20,7 @@ import {
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
-test('0.5.0版本链与当前StepFun SHA保持一致，maintenance只从0.4.6升级和回滚', async () => {
+test('0.5.0版本链与当前StepFun SHA保持一致，maintenance只从live 0.4.9升级和回滚', async () => {
   const pluginRoot = path.join(
     repositoryRoot,
     'integrations/paperclip/plugins/content-autonomy',
@@ -48,16 +48,16 @@ test('0.5.0版本链与当前StepFun SHA保持一致，maintenance只从0.4.6升
   assert.equal(CONTENT_PLUGIN_VERSION, '0.5.0');
   assert.equal(
     CONTENT_PLUGIN_STEPFUN_SHA256,
-    '524c917e1d784250263e5c7af2657b1f7ad9a4066f39d22e0558f008858a578e',
+    '6f0303f47cebebc6e02ea29a4a0bc8ec0397f652628215a35b41018f3d71f244',
   );
   assert.equal(stepfunSha, CONTENT_PLUGIN_STEPFUN_SHA256);
-  assert.match(maintenance, /OLD_PLUGIN_VERSION = '0\.4\.6'/);
+  assert.match(maintenance, /OLD_PLUGIN_VERSION = '0\.4\.9'/);
   assert.match(maintenance, /NEW_PLUGIN_VERSION = '0\.5\.0'/);
   assert.match(
     maintenance,
     /I_ACCEPT_CONTENT_AUTONOMY_0_5_0_LIVE_MAINTENANCE/,
   );
-  assert.match(maintenance, /I_ACCEPT_CONTENT_AUTONOMY_0_4_6_ROLLBACK/);
+  assert.match(maintenance, /I_ACCEPT_CONTENT_AUTONOMY_0_4_9_ROLLBACK/);
   assert.match(maintenance, /stage = 'binary_compat_preserve'/);
   assert.match(maintenance, /expectedPluginVersion:OLD_PLUGIN_VERSION/);
 });

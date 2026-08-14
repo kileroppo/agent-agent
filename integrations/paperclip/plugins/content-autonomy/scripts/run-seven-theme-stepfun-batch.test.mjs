@@ -691,7 +691,7 @@ function replayOnlyBridgeHarness(mode) {
         ? 'tts'
         : 'image_generate';
     const model = operation === 'vision'
-      ? 'step-1o-turbo-vision'
+      ? 'step-3.7-flash'
       : operation === 'tts'
         ? 'stepaudio-2.5-tts'
         : 'step-image-edit-2';
@@ -806,7 +806,7 @@ function mockHarness({ allUnsafe = false } = {}) {
       actionId:params.actionId,
       operation,
       model:operation === 'vision'
-        ? 'step-1o-turbo-vision'
+        ? 'step-3.7-flash'
         : operation === 'tts'
           ? 'stepaudio-2.5-tts'
           : 'step-image-edit-2',

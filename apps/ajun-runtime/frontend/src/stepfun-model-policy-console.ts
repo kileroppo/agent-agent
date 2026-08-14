@@ -9,17 +9,23 @@ export function createStepFunModelPolicyConsole({ root, api, escapeHtml }: any) 
   const message: any = root.querySelector('#fleet-model-message');
   const applyAll: any = root.querySelector('#fleet-model-apply-all');
   const saveRoles: any = root.querySelector('#fleet-model-save-roles');
+  const saveCapabilities: any = root.querySelector('#fleet-capability-save');
   const refresh: any = root.querySelector('#fleet-model-refresh');
 
   defaultModel.addEventListener('change', () => syncEffortOptions(defaultModel, defaultEffort));
   applyAll.addEventListener('click', () => save({ clearOverrides:true }));
   saveRoles.addEventListener('click', () => save({ clearOverrides:false }));
+  saveCapabilities.addEventListener('click', saveCapabilityPolicy);
   refresh.addEventListener('click', refreshCatalog);
   employeeList.addEventListener('change', (event: any) => {
     const modelSelect: any = event.target.closest('select[data-role-model]');
     if (!modelSelect) return;
     const effortSelect: any = employeeList.querySelector(`select[data-role-effort="${cssEscape(modelSelect.dataset.roleModel)}"]`);
     syncEffortOptions(modelSelect, effortSelect);
+  });
+  capabilityList.addEventListener('change', (event: any) => {
+    const select: any = event.target.closest('select[data-capability-key]');
+    if (select) syncCapabilityDescription(select);
   });
 
   async function load() {
@@ -48,12 +54,7 @@ export function createStepFunModelPolicyConsole({ root, api, escapeHtml }: any) 
     defaultModel.value = payload.policy.default.model;
     syncEffortOptions(defaultModel, defaultEffort, payload.policy.default.reasoningEffort);
     employeeList.innerHTML = payload.employees.map((employee: any) => roleRow(employee, reasoning)).join('');
-    capabilityList.innerHTML = (payload.catalog?.capabilities || []).map((model: any) => `
-      <article class="capability-model-card">
-        <span>${escapeHtml(model.capability)}</span>
-        <strong>${escapeHtml(model.name)}</strong>
-        <small>${escapeHtml(model.owner)}按任务自动调用，不占主模型位置${model.available === false ? ' · 当前账号未返回' : ''}</small>
-      </article>`).join('');
+    capabilityList.innerHTML = (payload.catalog?.capabilityRoutes || []).map((route: any) => capabilityRow(route)).join('');
     const updated = payload.policy.updatedAt
       ? `上次保存 ${new Date(payload.policy.updatedAt).toLocaleString('zh-CN')}`
       : '当前由岗位配置生成，尚未从本页保存';
@@ -96,6 +97,33 @@ export function createStepFunModelPolicyConsole({ root, api, escapeHtml }: any) 
     </article>`;
   }
 
+  function capabilityRow(route: any) {
+    const selected = payload.policy?.capabilities?.[route.key] || route.options?.[0] || {};
+    const selectedValue = capabilityValue(selected);
+    const options = (route.options || []).map((model: any) => {
+      const value = capabilityValue(model);
+      const unavailable = model.available === false ? ' · 当前账号未返回' : '';
+      return `<option value="${escapeHtml(value)}"${value === selectedValue ? ' selected' : ''}>${escapeHtml(model.name)} · ${escapeHtml(model.badge || model.provider)}${unavailable}</option>`;
+    }).join('');
+    return `<article class="capability-model-card">
+      <span>${escapeHtml(route.capability)} · ${escapeHtml(route.owner)}</span>
+      <label><strong>执行模型</strong><select data-capability-key="${escapeHtml(route.key)}">${options}</select></label>
+      <small data-capability-description>${escapeHtml(capabilityDescription(route, selectedValue))}</small>
+      <small class="capability-model-badge">${escapeHtml(route.summary || '')}</small>
+    </article>`;
+  }
+
+  function capabilityDescription(route: any, value: string) {
+    const selected = (route.options || []).find((model: any) => capabilityValue(model) === value);
+    return selected?.summary || '';
+  }
+
+  function syncCapabilityDescription(select: any) {
+    const route = (payload.catalog?.capabilityRoutes || []).find((item: any) => item.key === select.dataset.capabilityKey);
+    const description = select.closest('.capability-model-card')?.querySelector('[data-capability-description]');
+    if (route && description) description.textContent = capabilityDescription(route, select.value);
+  }
+
   function syncEffortOptions(modelSelect: any, effortSelect: any, preferred = '') {
     if (!payload || !effortSelect) return;
     const model = payload.catalog.reasoning.find((item: any) => item.id === modelSelect.value);
@@ -130,7 +158,7 @@ export function createStepFunModelPolicyConsole({ root, api, escapeHtml }: any) 
       const result = await api('/api/model-policy', {
         method:'PUT',
         headers:{ 'content-type':'application/json' },
-        body:JSON.stringify({ default:defaultSelection, overrides }),
+        body:JSON.stringify({ default:defaultSelection, overrides, capabilities:capabilitySelections() }),
       });
       render(result);
       message.textContent = result.reconciliation?.status === 'synced'
@@ -143,6 +171,43 @@ export function createStepFunModelPolicyConsole({ root, api, escapeHtml }: any) 
       applyAll.disabled = false;
       saveRoles.disabled = false;
     }
+  }
+
+  async function saveCapabilityPolicy() {
+    if (!payload || busy) return;
+    if (!window.confirm('保存后，小D等员工的新任务会采用这里的能力模型；正在执行的任务不变。确定继续吗？')) return;
+    busy = true;
+    saveCapabilities.disabled = true;
+    message.textContent = '正在保存能力模型策略…';
+    try {
+      const result = await api('/api/model-policy', {
+        method:'PUT',
+        headers:{ 'content-type':'application/json' },
+        body:JSON.stringify({
+          default:payload.policy.default,
+          overrides:payload.policy.overrides,
+          capabilities:capabilitySelections(),
+        }),
+      });
+      render(result);
+      message.textContent = '能力模型已保存；正在执行的会话不变，新任务按新路线执行。';
+    } catch (error: any) {
+      message.textContent = error.message;
+    } finally {
+      busy = false;
+      saveCapabilities.disabled = false;
+    }
+  }
+
+  function capabilitySelections() {
+    return Object.fromEntries([...capabilityList.querySelectorAll('select[data-capability-key]')].map((select: any) => {
+      const [provider, ...modelParts] = String(select.value).split(':');
+      return [select.dataset.capabilityKey, { provider, model:modelParts.join(':') }];
+    }));
+  }
+
+  function capabilityValue(selection: any) {
+    return `${selection.provider}:${selection.model}`;
   }
 
   function option(value: string, label: string) {

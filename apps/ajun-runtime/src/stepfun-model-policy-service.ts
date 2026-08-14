@@ -22,7 +22,7 @@ const HERMES_MODEL_DISCOVERY_SCRIPT = [
 export const STEPFUN_MODEL_CATALOG = Object.freeze({
   sourceUrl:'https://platform.stepfun.com/docs/zh/guides/models/overview',
   planUrl:'https://platform.stepfun.com/docs/zh/step-plan/overview',
-  verifiedAt:'2026-08-14',
+  verifiedAt:'2026-08-15',
   reasoning:Object.freeze([
     Object.freeze({
       id:'step-3.7-flash',
@@ -71,6 +71,59 @@ export const STEPFUN_MODEL_CATALOG = Object.freeze({
     Object.freeze({ id:'stepaudio-2.5-tts', name:'StepAudio 2.5 TTS', capability:'配音', owner:'小创' }),
     Object.freeze({ id:'stepaudio-2.5-chat', name:'StepAudio 2.5 Chat', capability:'语音理解', owner:'需要时' }),
     Object.freeze({ id:'stepaudio-2.5-realtime', name:'StepAudio 2.5 Realtime', capability:'实时语音对话', owner:'需要时' }),
+  ]),
+  capabilityRoutes:Object.freeze([
+    Object.freeze({
+      key:'asr',
+      capabilityId:'audio.transcribe',
+      capability:'语音识别',
+      owner:'小D',
+      summary:'新任务会冻结所选路线；失败后不会跨服务商重复提交。',
+      options:Object.freeze([
+        Object.freeze({ provider:'stepfun', model:'stepaudio-2.5-asr', name:'StepAudio 2.5 ASR', badge:'套餐推荐', summary:'Step Plan 高准确率、低延迟全文转写。' }),
+        Object.freeze({ provider:'local', model:'mlx-community/whisper-large-v3-turbo', name:'本机 Whisper Large V3 Turbo', badge:'离线备用', summary:'不联网、不占套餐，速度取决于本机资源。' }),
+      ]),
+    }),
+    Object.freeze({
+      key:'vision',
+      capabilityId:'vision.analyze',
+      capability:'图片 / 视频理解',
+      owner:'小D / 小拆',
+      summary:'正式视觉证据继续经过受控图片、哈希和费用回执门禁。',
+      options:Object.freeze([
+        Object.freeze({ provider:'stepfun', model:'step-3.7-flash', name:'Step 3.7 Flash', badge:'最新旗舰', summary:'原生多模态，直接理解图片和视频。' }),
+      ]),
+    }),
+    Object.freeze({
+      key:'imageGenerate',
+      capabilityId:'image.generate',
+      capability:'文生图',
+      owner:'小创',
+      summary:'按内容活动预算与产物血缘自动调用。',
+      options:Object.freeze([
+        Object.freeze({ provider:'stepfun', model:'step-image-edit-2', name:'Step Image Edit 2', badge:'最新推荐', summary:'单模型支持文生图与图像编辑。' }),
+      ]),
+    }),
+    Object.freeze({
+      key:'imageEdit',
+      capabilityId:'image.edit',
+      capability:'图片编辑',
+      owner:'小创',
+      summary:'输入图片与输出产物都保留校验哈希。',
+      options:Object.freeze([
+        Object.freeze({ provider:'stepfun', model:'step-image-edit-2', name:'Step Image Edit 2', badge:'最新推荐', summary:'低延迟图片编辑与生成一体模型。' }),
+      ]),
+    }),
+    Object.freeze({
+      key:'tts',
+      capabilityId:'audio.synthesize',
+      capability:'配音',
+      owner:'小创',
+      summary:'只允许登记的官方音色，不开放真人音色克隆。',
+      options:Object.freeze([
+        Object.freeze({ provider:'stepfun', model:'stepaudio-2.5-tts', name:'StepAudio 2.5 TTS', badge:'最新推荐', summary:'具备语境和情绪表达的官方配音模型。' }),
+      ]),
+    }),
   ]),
 });
 
@@ -153,6 +206,13 @@ export class StepFunModelPolicyService {
     const override = resolvedPolicy.overrides?.[agentId];
     const selection = override || resolvedPolicy.default || manifestSelection(manifest);
     return { ...selection, source:override ? 'override' : 'default' };
+  }
+
+  capabilitySelection(key: string, policy: any = this.policy) {
+    const resolvedPolicy = policy || seedPolicy([]);
+    const route = capabilityRouteByKey(key);
+    if (!route) throw new StepFunModelPolicyError(`未知能力模型：${key}。`);
+    return structuredClone(resolvedPolicy.capabilities?.[key] || route.options[0]);
   }
 
   applyToManifest(manifest: any) {
@@ -276,7 +336,14 @@ function seedPolicy(manifests: any[]) {
       overrides[manifest.agentId] = selection;
     }
   }
-  return { version:1, provider:'stepfun', default:defaultSelection, overrides, updatedAt:null };
+  return {
+    version:2,
+    provider:'stepfun',
+    default:defaultSelection,
+    overrides,
+    capabilities:seedCapabilityPolicy(),
+    updatedAt:null,
+  };
 }
 
 function recommendedEffortForAgent(agentId: string) {
@@ -313,10 +380,11 @@ function normalizeInputPolicy(input: any, allowedAgentIds: Set<string>, now: Dat
     }
   }
   return {
-    version:1,
+    version:2,
     provider:'stepfun',
     default:defaultSelection,
     overrides,
+    capabilities:normalizeCapabilityPolicy(value?.capabilities),
     updatedAt:now.toISOString(),
   };
 }
@@ -341,6 +409,31 @@ function modelById(model: string): any {
   return STEPFUN_MODEL_CATALOG.reasoning.find((item: any) => item.id === model) || null;
 }
 
+function seedCapabilityPolicy() {
+  return Object.fromEntries(STEPFUN_MODEL_CATALOG.capabilityRoutes.map((route: any) => [
+    route.key,
+    { provider:route.options[0].provider, model:route.options[0].model },
+  ]));
+}
+
+function normalizeCapabilityPolicy(value: any) {
+  const requested = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const normalized: Record<string, any> = {};
+  for (const route of STEPFUN_MODEL_CATALOG.capabilityRoutes as readonly any[]) {
+    const selection = requested[route.key] || route.options[0];
+    const provider = String(selection?.provider || '').trim();
+    const model = String(selection?.model || '').trim();
+    const supported = route.options.some((option: any) => option.provider === provider && option.model === model);
+    if (!supported) throw new StepFunModelPolicyError(`${route.capability}不支持 ${provider || '空服务商'} / ${model || '空模型'}。`);
+    normalized[route.key] = { provider, model };
+  }
+  return normalized;
+}
+
+function capabilityRouteByKey(key: string): any {
+  return STEPFUN_MODEL_CATALOG.capabilityRoutes.find((route: any) => route.key === key) || null;
+}
+
 function publicPolicy(policy: any) {
   return JSON.parse(JSON.stringify(policy));
 }
@@ -356,6 +449,13 @@ function publicCatalog(accountCatalog: any) {
     ...STEPFUN_MODEL_CATALOG,
     reasoning:STEPFUN_MODEL_CATALOG.reasoning.map((model: any) => ({ ...model, available:available.has(model.id) })),
     capabilities:STEPFUN_MODEL_CATALOG.capabilities.map((model: any) => ({ ...model, available:available.has(model.id) })),
+    capabilityRoutes:STEPFUN_MODEL_CATALOG.capabilityRoutes.map((route: any) => ({
+      ...route,
+      options:route.options.map((option: any) => ({
+        ...option,
+        available:option.provider === 'local' || available.has(option.model),
+      })),
+    })),
     account:{
       models:[...available],
       unknown:[...available].filter((model: string) => !known.has(model)),

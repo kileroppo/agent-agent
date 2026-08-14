@@ -145,7 +145,7 @@ test('0.5.0使用TS版StepFun SHA，0.4.x保留历史哈希且0.4.7回滚链不�
   );
   assert.equal(
     contentPluginStepfunShaForVersion('0.5.0'),
-    '524c917e1d784250263e5c7af2657b1f7ad9a4066f39d22e0558f008858a578e',
+    '6f0303f47cebebc6e02ea29a4a0bc8ec0397f652628215a35b41018f3d71f244',
   );
   assert.equal(contentPluginStepfunShaForVersion('0.4.5'), null);
 

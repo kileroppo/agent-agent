@@ -126,7 +126,7 @@ export type M5ProhibitedPublishAction = typeof M5_PROHIBITED_PUBLISH_ACTIONS[num
 export type M5PublishAction = M5AllowedPublishAction | M5ProhibitedPublishAction;
 
 export const M5_STEPFUN_MODELS = Object.freeze({
-  vision:'step-1o-turbo-vision',
+  vision:'step-3.7-flash',
   image_generate:'step-image-edit-2',
   image_edit:'step-image-edit-2',
   tts:'stepaudio-2.5-tts',

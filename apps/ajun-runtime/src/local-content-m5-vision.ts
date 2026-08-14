@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { M5_STEPFUN_MODELS } from '@agent-army/m5-contracts';
 import { validM5MediaChecksum } from '@agent-army/m5-kernel/content-version';
 import { findArtifact, needsInput, referencedArtifacts, successResult, visualEvidenceFromM5AssetPackage, writeArtifact, } from './local-content-artifacts.ts';
 const m5VisualAnalysisMethods: Record<string, any> = {
@@ -147,13 +148,13 @@ function confirmedM5VisionReceipt({ value, expectedProjectId, expectedActionId, 
     const heartbeatRunId: any = String(record?.costEvent?.heartbeatRunId || '').trim();
     if (value?.actionId !== expectedActionId
         || value?.operation !== 'vision'
-        || value?.model !== 'step-1o-turbo-vision'
+        || value?.model !== M5_STEPFUN_MODELS.vision
         || value?.sourcePath !== selectedFrame.relativePath
         || String(value?.sourceChecksum || '').toLowerCase() !== selectedFrame.checksum
         || !String(value?.observation || '').trim()
         || record?.actionId !== expectedActionId
         || record?.operation !== 'vision'
-        || record?.model !== 'step-1o-turbo-vision'
+        || record?.model !== M5_STEPFUN_MODELS.vision
         || !validM5MediaChecksum(String(record?.promptChecksum || ''))
         || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(projectId)
         || record?.costEvent?.projectId !== projectId
@@ -173,13 +174,13 @@ function confirmedM5VisionReceipt({ value, expectedProjectId, expectedActionId, 
         lineage: {
             actionId: expectedActionId,
             operation: 'vision',
-            model: 'step-1o-turbo-vision',
+            model: M5_STEPFUN_MODELS.vision,
             sourcePath: selectedFrame.relativePath,
             sourceChecksum: selectedFrame.checksum,
             callRecord: {
                 actionId: expectedActionId,
                 operation: 'vision',
-                model: 'step-1o-turbo-vision',
+                model: M5_STEPFUN_MODELS.vision,
                 promptChecksum: String(record.promptChecksum).toLowerCase(),
                 costEvent: {
                     provider: 'stepfun',

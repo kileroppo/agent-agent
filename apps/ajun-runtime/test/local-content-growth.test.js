@@ -62,7 +62,7 @@ test('M5 小拆只消费 AssetPackage，并产出逐条绑定帧、时间点和�
         ],
       };
       assert.equal(input.validate(data), true);
-      return { data, usage:{ model:{ provider:'stepfun', model:'step-1o-turbo-vision' } } };
+      return { data, usage:{ model:{ provider:'stepfun', model:'step-3.7-flash' } } };
     },
   };
   const analyst = new LocalVideoContentAnalyst({
@@ -1499,14 +1499,14 @@ function providerVisionFixture({
       receipt:{
         actionId:parameters.actionId,
         operation:'vision',
-        model:'step-1o-turbo-vision',
+        model:'step-3.7-flash',
         sourcePath:relativePath,
         sourceChecksum,
         observation:'{"visible":"task status"}',
         callRecord:{
           actionId:parameters.actionId,
           operation:'vision',
-          model:'step-1o-turbo-vision',
+          model:'step-3.7-flash',
           promptChecksum:`sha256:${'a'.repeat(64)}`,
           costEvent,
         },

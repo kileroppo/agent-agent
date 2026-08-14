@@ -1526,7 +1526,7 @@ test('m5_stage_execute 机器审核组合真实媒体与字幕结果后才生成
   confirmedKinds.visual_analysis_package.providerReceipt = confirmedProviderReceipt(
     'm5:vision:confirmed:1',
     'vision',
-    'step-1o-turbo-vision',
+    'step-3.7-flash',
     'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
   );
   confirmedKinds.voice_package.providerReceipt = confirmedProviderReceipt(
@@ -1777,7 +1777,7 @@ test('机器审核按平台锁定脚本声音和单平台copy，灰度抖音与b
       providerReceipt:confirmedProviderReceipt(
         'm5:vision:gray-review',
         'vision',
-        'step-1o-turbo-vision',
+        'step-3.7-flash',
         'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
       ),
     }),
@@ -2168,7 +2168,7 @@ test('灰度抖音真实阶段产物贯穿 Script→Voice→Render→MachineRevi
       providerReceipt:confirmedProviderReceipt(
         'm5:vision:full-chain',
         'vision',
-        'step-1o-turbo-vision',
+        'step-3.7-flash',
         'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
       ),
     },

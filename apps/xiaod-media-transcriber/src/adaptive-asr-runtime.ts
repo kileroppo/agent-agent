@@ -18,6 +18,7 @@ import {
   attachAsrFailureReceipt
 } from './asr-capability-adapter.ts';
 import { createTaskRunEventBridge } from './task-run-event-bridge.ts';
+import { StepFunAsrClient } from './stepfun-asr-client.ts';
 type DynamicRecord = Record<string, any>;
 type Settings = typeof config;
 type FastRuntime = Readonly<{ python: string; script: string; model: string }>;
@@ -26,19 +27,30 @@ type RunEvents = ReturnType<typeof createTaskRunEventBridge>;
 export class AdaptiveAsrRuntime {
   private readonly settings: Settings;
   private readonly runEvents: RunEvents;
+  private readonly stepfunAsr: StepFunAsrClient;
 
-  constructor({ settings = config, onRunEvent = null, runEventBridge = null }: Readonly<{
+  constructor({ settings = config, onRunEvent = null, runEventBridge = null, stepfunAsr = null }: Readonly<{
     settings?: Settings;
     onRunEvent?: ((event: unknown) => unknown | Promise<unknown>) | null;
     runEventBridge?: RunEvents | null;
+    stepfunAsr?: StepFunAsrClient | null;
   }> = {}) {
     this.settings = settings;
     this.runEvents = runEventBridge || createTaskRunEventBridge({ onRunEvent });
+    this.stepfunAsr = stepfunAsr || new StepFunAsrClient({ baseUrl:settings.stepfunAsr.baseUrl });
   }
 
   async transcribe(audioPath: string, jobDir: string, { job = {}, durationSeconds = null }: Readonly<{ job?: DynamicRecord; durationSeconds?: number | null }> = {}) {
     const startedAt = new Date().toISOString();
     const audioSha256 = await fileSha256OrNull(audioPath);
+    if (job.asrProvider === 'stepfun') {
+      return this.transcribeStepFun(audioPath, {
+        job,
+        durationSeconds,
+        startedAt,
+        audioSha256,
+      });
+    }
     const adaptive = this.settings.adaptiveAsr;
     const fastRuntime = adaptive.enabled ? await resolveFastRuntime(adaptive) : null;
     const initial = selectInitialAsrRoute({
@@ -157,6 +169,53 @@ export class AdaptiveAsrRuntime {
     }
   }
 
+  async transcribeStepFun(audioPath: string, { job, durationSeconds, startedAt, audioSha256 }: DynamicRecord) {
+    try {
+      const payload = await this.stepfunAsr.transcribe(audioPath);
+      return this.#complete(payload, {
+        schemaVersion:'agent.army/adaptive-asr-route/v1',
+        strategy:'explicit-provider',
+        selectedProvider:'stepfun',
+        selectedModel:'stepaudio-2.5-asr',
+        fallbackFrom:null,
+        requiresHumanReview:job.reviewPolicy === 'required',
+        escalated:false,
+        reasons:['model_policy_selected_stepfun', 'cross_provider_fallback_disabled'],
+        taskSignals:taskSignals(job),
+        durationSeconds:Number.isFinite(durationSeconds) ? durationSeconds : null,
+        fastCandidate:{ attempted:false, accepted:false, evaluation:null, verification:null, failure:null },
+        apiCalls:1,
+        billingStatus:'subscription_included',
+        costUsd:null,
+        usage:payload.usage || null,
+        createdAt:new Date().toISOString(),
+      }, { job, startedAt, input:{ audioSha256 } });
+    } catch (error: unknown) {
+      const outcome = failureCode(error) === 'stepfun_asr_ambiguous' ? 'ambiguous' : 'confirmed_failure';
+      const failure = attachAsrFailureReceipt(error, {
+        job,
+        input:{ audioSha256 },
+        startedAt,
+        routing:{
+          selectedProvider:'stepfun',
+          selectedModel:'stepaudio-2.5-asr',
+          durationSeconds:Number.isFinite(durationSeconds) ? durationSeconds : null,
+          apiCalls:failureCode(error) === 'stepfun_asr_credential_unavailable' ? 0 : 1,
+          billingStatus:'subscription_included',
+          costUsd:null,
+        },
+        outcome,
+        routeAttempts:[asrRouteAttempt({
+          provider:'stepfun',
+          outcome,
+          failureCode:failureCode(error),
+        })],
+      });
+      if (failure.executionReceipt) await this.runEvents.recordExecutionReceipt(failure.executionReceipt);
+      throw failure;
+    }
+  }
+
   async #complete(payload: DynamicRecord, routing: DynamicRecord, context: DynamicRecord) {
     const result = transcriptionResult(payload, routing, context);
     await this.runEvents.recordExecutionReceipt(result.routing.executionReceipt, {
@@ -237,6 +296,8 @@ export function compactAsrRouting(routing: DynamicRecord) {
     requiresHumanReview:routing.requiresHumanReview === true,
     escalated:routing.escalated,
     reasons:routing.reasons,
+    apiCalls:Number.isInteger(routing.apiCalls) ? routing.apiCalls : 0,
+    billingStatus:routing.billingStatus || null,
     fastCandidateAttempted:routing.fastCandidate?.attempted === true,
     fastCandidateAccepted:routing.fastCandidate?.accepted === true,
     qualityProbeAgreed:routing.fastCandidate?.verification?.accepted === true
@@ -305,7 +366,7 @@ function transcriptionResult(payload: DynamicRecord, routing: DynamicRecord, { j
   ].some(Number.isFinite);
   return {
     text:String(payload?.text || ''),
-    timed:payload?.timed || jsonTranscriptToVtt({ segments }),
+    timed:payload?.timed || (segments.length ? jsonTranscriptToVtt({ segments }) : null),
     qualitySignals:hasSignals ? qualitySignals : null,
     routing:attachAsrCapabilityResult({
       job,

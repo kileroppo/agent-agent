@@ -227,14 +227,14 @@ test('Campaign 与并行生产协议的非 Work Product schema 也由共享注�
 
 test('StepFun 操作映射稳定返回唯一模型并拒绝未知操作', () => {
   assert.deepEqual(M5_STEPFUN_MODELS, {
-    vision:'step-1o-turbo-vision',
+    vision:'step-3.7-flash',
     image_generate:'step-image-edit-2',
     image_edit:'step-image-edit-2',
     tts:'stepaudio-2.5-tts',
   });
   assert.equal(normalizeM5ProviderOperation(' Image Generate '), 'image_generate');
   assert.equal(assertM5ProviderOperation('IMAGE-EDIT'), 'image_edit');
-  assert.equal(getM5StepFunModel(' vision '), 'step-1o-turbo-vision');
+  assert.equal(getM5StepFunModel(' vision '), 'step-3.7-flash');
   assert.throws(
     () => getM5StepFunModel('video_generate'),
     (error) => error?.code === 'm5_provider_operation_unsupported',

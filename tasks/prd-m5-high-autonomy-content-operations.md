@@ -40,7 +40,7 @@
 - 公众号仅提供独立批准的“创建草稿”插槽，回执明确未发布、未群发；预览和群发不属于自动化范围；
 - 本机控制台的活动状态、唯一下一步和停止入口；
 - 11 个正式自主 Profile 按 ADR-0013 使用 `stepfun/step-3.7-flash` 且保持空回退链。微信私密只读检索岗位属于 A君本地适配能力，不纳入这 11 岗；M5 StepFun 多模态工具仍按独立媒体门禁处理。
-- 内容插件固定视觉模型 `step-1o-turbo-vision`、生图/改图模型 `step-image-edit-2` 和 TTS 模型 `stepaudio-2.5-tts`；模型身份必须进入 Provider action、费用事件和产物血缘。
+- 内容插件固定视觉模型 `step-3.7-flash`、生图/改图模型 `step-image-edit-2` 和 TTS 模型 `stepaudio-2.5-tts`；模型身份必须进入 Provider action、费用事件和产物血缘。A君模型页可保存能力路线，但已开始的 Run 仍使用冻结选择。
 
 ### 独立授权后实施或验收
 

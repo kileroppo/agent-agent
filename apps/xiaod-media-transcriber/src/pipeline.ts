@@ -102,7 +102,11 @@ export class MediaPipeline {
       const resolvedTitle = deliveryTitle(this.store.get(job.id), acquired.contentPackage);
       if (resolvedTitle !== (this.store.get(job.id) || job).title) await this.store.update(job.id, { title: resolvedTitle });
       const currentJob = this.store.get(job.id) || job;
-      await this.stage(job.id, 'transcribing', 45, acquired.kind === 'subtitle' ? '正在读取可用字幕' : '正在进行本地 ASR 转录');
+      await this.stage(job.id, 'transcribing', 45, acquired.kind === 'subtitle'
+        ? '正在读取可用字幕'
+        : currentJob.asrProvider === 'stepfun'
+          ? '正在使用 StepAudio 2.5 ASR 转录'
+          : '正在进行本机 ASR 转录');
       // The source has already been copied/normalized into jobDir. Failing here
       // exercises retry without creating any external delivery side effect.
       await this.failpoint('transcribing');

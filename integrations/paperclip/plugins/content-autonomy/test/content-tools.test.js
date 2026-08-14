@@ -47,7 +47,7 @@ test('StepFun调用记录脱敏并生成Paperclip费用事件契约', () => {
   const record = callRecord({
     run,
     actionId:'action:vision:1',
-    model:'step-1o-turbo-vision',
+    model:'step-3.7-flash',
     operation:'vision',
     prompt:'token=abc /Users/pengaro/private.png 判断画面',
     usage:{ inputTokens:10, outputTokens:5 },
@@ -70,7 +70,7 @@ test('调用记录只保留允许字段和prompt哈希，不保留自由文本',
   const record = callRecord({
     run,
     actionId:'action:secret:1',
-    model:'step-1o-turbo-vision',
+    model:'step-3.7-flash',
     operation:'vision',
     prompt:'Bearer secret api_key=xyz /Users/alice/file.png',
     costCents:1
@@ -245,7 +245,7 @@ test('固定产物包写入器从已确认Provider账本原生补齐StepFun血�
         vision:{
           actionId:'fresh:vision:1',
           operation:'vision',
-          model:'step-1o-turbo-vision',
+          model:'step-3.7-flash',
           replayed:false,
           providerCallReplayed:false,
           costCents:1,
@@ -472,7 +472,7 @@ test('固定产物包按同Project插件状态反查逐阶段confirmed action并
     vision:confirmedState({
       actionId:actionRefs.vision,
       operation:'vision',
-      model:'step-1o-turbo-vision',
+      model:'step-3.7-flash',
       costEventId:costEventIds.vision,
       resultData:{
         sourcePath:imagePath,
@@ -1449,7 +1449,7 @@ test('confirmed视觉action在输入图片篡改后拒绝跨Run回放且不调�
             costEvent:callRecord({
               run,
               actionId,
-              model:'step-1o-turbo-vision',
+              model:'step-3.7-flash',
               operation:'vision',
               prompt:'fixture',
               costCents:1,
@@ -1507,7 +1507,7 @@ test('pending、submitting和ambiguous付费action仍严格绑定原Run', async 
             costEvent:callRecord({
               run,
               actionId:pendingId,
-              model:'step-1o-turbo-vision',
+              model:'step-3.7-flash',
               operation:'vision',
               prompt:'fixture',
               costCents:1,

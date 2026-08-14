@@ -56,7 +56,7 @@ test('内容插件与Publisher真实费用草稿都可被Paperclip核心cost_eve
         kind:'provider-usage',
         receiptChecksum:`sha256:${'a'.repeat(64)}`,
       },
-      cost:cost('stepfun', 'm5:vision', 'step-1o-turbo-vision'),
+      cost:cost('stepfun', 'm5:vision', 'step-3.7-flash'),
     }),
     createM5CostEventDraft({
       ...common,

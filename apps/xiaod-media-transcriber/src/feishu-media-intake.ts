@@ -30,12 +30,14 @@ export async function createFeishuMediaJob({
   body,
   maxBytes,
   allowedRoots,
+  asrSelection,
 }: Readonly<{
   store: MediaJobStore;
   uploadsDir: string;
   body: unknown;
   maxBytes: number;
   allowedRoots: readonly string[];
+  asrSelection?: Readonly<{ provider: string; model: string }>;
 }>): Promise<MediaJobResult> {
   const input = validateFeishuMediaInput(body, maxBytes);
   if (!input.ok) return input;
@@ -52,6 +54,8 @@ export async function createFeishuMediaJob({
     sourceType: 'upload',
     originalName: input.originalName,
     sourcePath,
+    asrProvider:asrSelection?.provider,
+    asrModel:asrSelection?.model,
     ingress: {
       platform: 'feishu',
       messageId: sourceEventId,

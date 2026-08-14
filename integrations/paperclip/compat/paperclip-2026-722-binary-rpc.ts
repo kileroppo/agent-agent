@@ -5,7 +5,7 @@ export const PAPERCLIP_VERSION: any = '2026.722.0';
 export const CONTENT_PLUGIN_VERSION: any = '0.5.0';
 export const HOST_ORIGINAL_SHA256: any = '3113cfdd8f60726086945deaf066f5941a7758099a3eebd10456c703388068eb';
 export const HOST_PATCHED_SHA256: any = '71f8702afcc70cbe366e7d64138c820abe97a77fb679cfe27c9af8382569d8c1';
-export const CONTENT_PLUGIN_STEPFUN_SHA256: any = '524c917e1d784250263e5c7af2657b1f7ad9a4066f39d22e0558f008858a578e';
+export const CONTENT_PLUGIN_STEPFUN_SHA256: any = '6f0303f47cebebc6e02ea29a4a0bc8ec0397f652628215a35b41018f3d71f244';
 export const BACKUP_SUFFIX: any = '.agent-army-paperclip-2026.722.0-binary-rpc.bak';
 const CONTENT_PLUGIN_STEPFUN_SHA256_BY_VERSION: any = Object.freeze({
     '0.4.6': 'd0c3ba28e2a175e16beacf3f2ee2761caa77aec5a6b62cf710869210be11ecf7',

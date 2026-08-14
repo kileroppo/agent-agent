@@ -44,6 +44,8 @@ test('首次打开时生成最新旗舰默认与岗位强度建议，不写入�
   assert.equal(snapshot.employees.find((item) => item.agentId === 'architect').reasoningEffort, 'high');
   assert.equal(snapshot.employees.find((item) => item.agentId === 'operator').reasoningEffort, 'low');
   assert.ok(snapshot.catalog.capabilities.some((item) => item.id === 'step-image-edit-2'));
+  assert.deepEqual(snapshot.policy.capabilities.asr, { provider:'stepfun', model:'stepaudio-2.5-asr' });
+  assert.deepEqual(snapshot.policy.capabilities.vision, { provider:'stepfun', model:'step-3.7-flash' });
   assert.equal(JSON.stringify(snapshot).includes('api_key'), false);
 });
 
@@ -90,8 +92,10 @@ test('一次保存会更新默认 Profile、全部员工 Profile，并让 Paperc
   assert.equal(configClient.values.get(`${directory}/profiles/operator:model.default`), 'step-3.5-flash-2603');
   assert.equal(configClient.values.get(`${directory}/profiles/architect:agent.reasoning_effort`), 'high');
   assert.equal(service.applyToManifest(manifests[1]).runtimeCapabilities.modelSelection.model, 'step-3.5-flash-2603');
+  assert.deepEqual(service.capabilitySelection('asr'), { provider:'stepfun', model:'stepaudio-2.5-asr' });
   const stored = JSON.parse(await fs.readFile(path.join(directory, 'stepfun-model-policy.json'), 'utf8'));
   assert.equal(stored.overrides.operator.model, 'step-3.5-flash-2603');
+  assert.equal(stored.version, 2);
 });
 
 test('任一 Profile 写入失败时回滚此前修改且不落策略文件', async (t) => {
@@ -131,4 +135,28 @@ test('拒绝把语音/图片模型当主模型、拒绝未知员工和不受支�
     default:{ model:'step-3.7-flash', reasoningEffort:'medium' },
     overrides:{ outsider:{ model:'step-3.7-flash', reasoningEffort:'high' } },
   }, [manifest('architect')]), /未知员工/);
+  await assert.rejects(() => service.update({
+    default:{ model:'step-3.7-flash', reasoningEffort:'medium' },
+    overrides:{},
+    capabilities:{ asr:{ provider:'stepfun', model:'step-asr' } },
+  }, [manifest('architect')]), /语音识别不支持/);
+});
+
+test('旧版策略读取时自动补齐能力模型，不改写凭据', async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'stepfun-policy-'));
+  t.after(() => fs.rm(directory, { recursive:true, force:true }));
+  await fs.writeFile(path.join(directory, 'stepfun-model-policy.json'), JSON.stringify({
+    version:1,
+    provider:'stepfun',
+    default:{ model:'step-3.7-flash', reasoningEffort:'medium' },
+    overrides:{},
+    updatedAt:'2026-08-14T12:00:00.000Z',
+  }));
+  const service = await StepFunModelPolicyService.open({
+    dataDir:directory,
+    profileRoot:path.join(directory, 'profiles'),
+    configClient:new FakeConfigClient(),
+  });
+  assert.equal(service.snapshot([]).policy.version, 2);
+  assert.deepEqual(service.capabilitySelection('asr'), { provider:'stepfun', model:'stepaudio-2.5-asr' });
 });

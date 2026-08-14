@@ -76,7 +76,7 @@ export class StepFunContentTools {
                             { type: 'image_url', image_url: { url: `data:${detectedMime};base64,${bytes.toString('base64')}` } }
                         ]
                     }]
-            }, 'reasoning');
+            }, 'media');
             const response = requested.payload;
             if (!response?.usage || (!Number.isFinite(response.usage.prompt_tokens) && !Number.isFinite(response.usage.completion_tokens))) {
                 throw coded('stepfun_usage_missing', 'StepFun 视觉响应缺少可计费 usage；本次 action 进入歧义状态，禁止自动重放。');

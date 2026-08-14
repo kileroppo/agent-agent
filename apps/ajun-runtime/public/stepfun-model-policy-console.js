@@ -9,10 +9,12 @@ export function createStepFunModelPolicyConsole({ root, api, escapeHtml }) {
     const message = root.querySelector('#fleet-model-message');
     const applyAll = root.querySelector('#fleet-model-apply-all');
     const saveRoles = root.querySelector('#fleet-model-save-roles');
+    const saveCapabilities = root.querySelector('#fleet-capability-save');
     const refresh = root.querySelector('#fleet-model-refresh');
     defaultModel.addEventListener('change', () => syncEffortOptions(defaultModel, defaultEffort));
     applyAll.addEventListener('click', () => save({ clearOverrides: true }));
     saveRoles.addEventListener('click', () => save({ clearOverrides: false }));
+    saveCapabilities.addEventListener('click', saveCapabilityPolicy);
     refresh.addEventListener('click', refreshCatalog);
     employeeList.addEventListener('change', (event) => {
         const modelSelect = event.target.closest('select[data-role-model]');
@@ -20,6 +22,11 @@ export function createStepFunModelPolicyConsole({ root, api, escapeHtml }) {
             return;
         const effortSelect = employeeList.querySelector(`select[data-role-effort="${cssEscape(modelSelect.dataset.roleModel)}"]`);
         syncEffortOptions(modelSelect, effortSelect);
+    });
+    capabilityList.addEventListener('change', (event) => {
+        const select = event.target.closest('select[data-capability-key]');
+        if (select)
+            syncCapabilityDescription(select);
     });
     async function load() {
         if (busy || loaded)
@@ -44,12 +51,7 @@ export function createStepFunModelPolicyConsole({ root, api, escapeHtml }) {
         defaultModel.value = payload.policy.default.model;
         syncEffortOptions(defaultModel, defaultEffort, payload.policy.default.reasoningEffort);
         employeeList.innerHTML = payload.employees.map((employee) => roleRow(employee, reasoning)).join('');
-        capabilityList.innerHTML = (payload.catalog?.capabilities || []).map((model) => `
-      <article class="capability-model-card">
-        <span>${escapeHtml(model.capability)}</span>
-        <strong>${escapeHtml(model.name)}</strong>
-        <small>${escapeHtml(model.owner)}按任务自动调用，不占主模型位置${model.available === false ? ' · 当前账号未返回' : ''}</small>
-      </article>`).join('');
+        capabilityList.innerHTML = (payload.catalog?.capabilityRoutes || []).map((route) => capabilityRow(route)).join('');
         const updated = payload.policy.updatedAt
             ? `上次保存 ${new Date(payload.policy.updatedAt).toLocaleString('zh-CN')}`
             : '当前由岗位配置生成，尚未从本页保存';
@@ -92,6 +94,31 @@ export function createStepFunModelPolicyConsole({ root, api, escapeHtml }) {
       <label><span>推理</span><select data-role-effort="${escapeHtml(employee.agentId)}">${effortOptions}</select></label>
     </article>`;
     }
+    function capabilityRow(route) {
+        const selected = payload.policy?.capabilities?.[route.key] || route.options?.[0] || {};
+        const selectedValue = capabilityValue(selected);
+        const options = (route.options || []).map((model) => {
+            const value = capabilityValue(model);
+            const unavailable = model.available === false ? ' · 当前账号未返回' : '';
+            return `<option value="${escapeHtml(value)}"${value === selectedValue ? ' selected' : ''}>${escapeHtml(model.name)} · ${escapeHtml(model.badge || model.provider)}${unavailable}</option>`;
+        }).join('');
+        return `<article class="capability-model-card">
+      <span>${escapeHtml(route.capability)} · ${escapeHtml(route.owner)}</span>
+      <label><strong>执行模型</strong><select data-capability-key="${escapeHtml(route.key)}">${options}</select></label>
+      <small data-capability-description>${escapeHtml(capabilityDescription(route, selectedValue))}</small>
+      <small class="capability-model-badge">${escapeHtml(route.summary || '')}</small>
+    </article>`;
+    }
+    function capabilityDescription(route, value) {
+        const selected = (route.options || []).find((model) => capabilityValue(model) === value);
+        return selected?.summary || '';
+    }
+    function syncCapabilityDescription(select) {
+        const route = (payload.catalog?.capabilityRoutes || []).find((item) => item.key === select.dataset.capabilityKey);
+        const description = select.closest('.capability-model-card')?.querySelector('[data-capability-description]');
+        if (route && description)
+            description.textContent = capabilityDescription(route, select.value);
+    }
     function syncEffortOptions(modelSelect, effortSelect, preferred = '') {
         if (!payload || !effortSelect)
             return;
@@ -128,7 +155,7 @@ export function createStepFunModelPolicyConsole({ root, api, escapeHtml }) {
             const result = await api('/api/model-policy', {
                 method: 'PUT',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ default: defaultSelection, overrides }),
+                body: JSON.stringify({ default: defaultSelection, overrides, capabilities: capabilitySelections() }),
             });
             render(result);
             message.textContent = result.reconciliation?.status === 'synced'
@@ -143,6 +170,44 @@ export function createStepFunModelPolicyConsole({ root, api, escapeHtml }) {
             applyAll.disabled = false;
             saveRoles.disabled = false;
         }
+    }
+    async function saveCapabilityPolicy() {
+        if (!payload || busy)
+            return;
+        if (!window.confirm('保存后，小D等员工的新任务会采用这里的能力模型；正在执行的任务不变。确定继续吗？'))
+            return;
+        busy = true;
+        saveCapabilities.disabled = true;
+        message.textContent = '正在保存能力模型策略…';
+        try {
+            const result = await api('/api/model-policy', {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                    default: payload.policy.default,
+                    overrides: payload.policy.overrides,
+                    capabilities: capabilitySelections(),
+                }),
+            });
+            render(result);
+            message.textContent = '能力模型已保存；正在执行的会话不变，新任务按新路线执行。';
+        }
+        catch (error) {
+            message.textContent = error.message;
+        }
+        finally {
+            busy = false;
+            saveCapabilities.disabled = false;
+        }
+    }
+    function capabilitySelections() {
+        return Object.fromEntries([...capabilityList.querySelectorAll('select[data-capability-key]')].map((select) => {
+            const [provider, ...modelParts] = String(select.value).split(':');
+            return [select.dataset.capabilityKey, { provider, model: modelParts.join(':') }];
+        }));
+    }
+    function capabilityValue(selection) {
+        return `${selection.provider}:${selection.model}`;
     }
     function option(value, label) {
         const node = document.createElement('option');
