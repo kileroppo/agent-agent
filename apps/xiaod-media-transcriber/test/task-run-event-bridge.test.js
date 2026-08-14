@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { asrRouteAttempt, buildAsrExecutionReceipt } from '../src/asr-capability-adapter.js';
-import { createTaskRunEventBridge } from '../src/task-run-event-bridge.js';
+import { asrRouteAttempt, buildAsrExecutionReceipt } from '../src/asr-capability-adapter.ts';
+import { createTaskRunEventBridge } from '../src/task-run-event-bridge.ts';
 
 test('ASR 每次路由尝试、fallback 与质量门输出统一脱敏事件', async () => {
   const events = [];

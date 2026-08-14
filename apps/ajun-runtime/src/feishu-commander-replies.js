@@ -3,7 +3,7 @@ import { formatOfficeBriefingReply } from './local-office-assistant.js';
 import { resolveAnalysisIntent } from './analysis-intent.ts';
 import { validateTaskCompletion } from './task-completion-contract.ts';
 import { DEFAULT_TASK_DEFINITION_REGISTRY } from './task-definition-registry.js';
-import { taskStatusLabel as canonicalTaskStatusLabel, taskStatusPriority } from './task-status-policy.js';
+import { taskStatusLabel as canonicalTaskStatusLabel, taskStatusPriority } from './task-status-policy.ts';
 import { projectTaskNotification } from './task-notification-projection.js';
 
 export { safeAgentId, safeLoopbackBaseUrl, safeRef } from './feishu-commander-input.js';

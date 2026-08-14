@@ -1,4 +1,4 @@
-import { ValidationError } from './task-validation-error.js';
+import { ValidationError } from './task-validation-error.ts';
 
 export class TaskIntakeContinuation {
   constructor({ store, createTask } = {}) {

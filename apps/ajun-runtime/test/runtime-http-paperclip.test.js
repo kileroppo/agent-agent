@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { routePaperclipHttp } from '../src/runtime-http-paperclip.js';
+import { routePaperclipHttp } from '../src/runtime-http-paperclip.ts';
 
 test('Paperclip HTTP Module 忽略域外请求且在读取请求体前拒绝非本机调用', async () => {
   let bodyReads = 0;

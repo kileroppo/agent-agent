@@ -5,8 +5,8 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { createHotReloadMonitor, startBrowserHotReload } from '../public/hot-reload-client.js';
-import { createRuntime } from '../src/runtime-composition-root.js';
-import { startRuntime } from '../src/runtime-start.js';
+import { createRuntime } from '../src/runtime-composition-root.ts';
+import { startRuntime } from '../src/runtime-start.ts';
 
 test('开发运行版本变化后只刷新一次页面', async () => {
   const responses = [

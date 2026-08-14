@@ -3,7 +3,7 @@ import {
   validM5RouteExecution,
 } from '@agent-army/m5-kernel/route-execution';
 
-import { ValidationError } from './task-validation-error.js';
+import { ValidationError } from './task-validation-error.ts';
 export {
   m5PipelineCaseChainIds,
   m5PlanRevisionExecutionContext,

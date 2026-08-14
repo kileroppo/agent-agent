@@ -2,8 +2,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createRuntime } from '../../src/runtime-composition-root.js';
-import { startRuntime } from '../../src/runtime-start.js';
+import { createRuntime } from '../../src/runtime-composition-root.ts';
+import { startRuntime } from '../../src/runtime-start.ts';
 import { buildConsoleTaskScenarioState } from './console-task-scenarios.js';
 
 export async function startConsoleRuntimeFixture() {

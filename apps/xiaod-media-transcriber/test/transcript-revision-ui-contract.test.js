@@ -6,7 +6,7 @@ const root = new URL('../', import.meta.url);
 
 test('字幕补正 API 和网页入口保持 AI 主稿、局部补正与版本冲突契约', async () => {
   const [server, html, client] = await Promise.all([
-    fs.readFile(new URL('src/server.js', root), 'utf8'),
+    fs.readFile(new URL('src/server.ts', root), 'utf8'),
     fs.readFile(new URL('public/index.html', root), 'utf8'),
     fs.readFile(new URL('public/app.js', root), 'utf8'),
   ]);

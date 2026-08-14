@@ -6,7 +6,7 @@ import { evaluateHermesCostPolicy } from './hermes-cost-policy.js';
 import { agentCapabilityTruth } from './workflow/capability-truth.ts';
 import { buildTaskValidationOverview } from './task-validation-overview.ts';
 import { buildCapabilities } from './task-capability-overview.ts';
-import { isTaskExecutionClosedStatus } from './task-status-policy.js';
+import { isTaskExecutionClosedStatus } from './task-status-policy.ts';
 export class TaskOverview {
   constructor({
     registry,

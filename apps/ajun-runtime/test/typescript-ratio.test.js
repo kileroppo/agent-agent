@@ -5,11 +5,11 @@ import path from 'node:path';
 import test from 'node:test';
 import { assertTypeScriptRatio, measureTypeScriptRatio } from '../scripts/check-typescript-ratio.mjs';
 
-test('当前生产源码 TypeScript 比例不低于版本化 20% 门禁', async () => {
+test('当前生产源码 TypeScript 文件数与比例不低于版本化基线', async () => {
   const result = await assertTypeScriptRatio();
-  assert.equal(result.counts.typescript, 67);
-  assert.equal(result.counts.total, 284);
-  assert.ok(result.ratio >= 0.2);
+  assert.equal(result.counts.typescript, result.baseline.recordedCounts.typescript);
+  assert.equal(result.counts.total, result.baseline.recordedCounts.total);
+  assert.ok(result.ratio >= result.baseline.minimumRatio);
 });
 
 test('TypeScript 数量或比例回退时门禁失败', async () => {

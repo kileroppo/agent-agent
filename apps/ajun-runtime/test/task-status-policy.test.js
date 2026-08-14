@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { TASK_STATUSES, TERMINAL_TASK_STATUSES } from '../src/task-lifecycle.js';
-import * as taskStatusPolicyModule from '../src/task-status-policy.js';
+import * as taskStatusPolicyModule from '../src/task-status-policy.ts';
 import {
   TASK_BLOCKED_STATUSES,
   PAPERCLIP_COMPLETION_TASK_STATUSES,
@@ -22,7 +22,7 @@ import {
   taskStatusPriority,
   workflowStatusForStepOutcomes,
   workflowStatusForTaskOutcome,
-} from '../src/task-status-policy.js';
+} from '../src/task-status-policy.ts';
 
 test('TypeScript声明完整覆盖运行时状态策略Interface', () => {
   const declaration = readFileSync(new URL('../src/task-status-policy.d.ts', import.meta.url), 'utf8');

@@ -1,7 +1,7 @@
 import {
   isPaperclipCompletionTaskStatus,
   paperclipIssueStatusForTaskStatus,
-} from './task-status-policy.js';
+} from './task-status-policy.ts';
 
 export class PaperclipAssignmentCompletion {
   constructor({

@@ -193,7 +193,7 @@ test('产品装配 Module 变更选择所属领域和运行组合测试', () => 
   const ajun = graph.get('ajun-runtime');
   assert.deepEqual(
     selectAffectedTestFiles([
-      'apps/ajun-runtime/src/runtime-composition-root.js',
+      'apps/ajun-runtime/src/runtime-composition-root.ts',
     ], ajun),
     [
       'test/runtime-composition-modules.test.js',
@@ -202,8 +202,8 @@ test('产品装配 Module 变更选择所属领域和运行组合测试', () => 
   );
   assert.deepEqual(
     selectAffectedTestFiles([
-      'apps/ajun-runtime/src/runtime/content-campaign-composition.js',
-      'apps/ajun-runtime/src/runtime/paperclip-system-control-composition.js',
+      'apps/ajun-runtime/src/runtime/content-campaign-composition.ts',
+      'apps/ajun-runtime/src/runtime/paperclip-system-control-composition.ts',
     ], ajun),
     [
       'test/content-campaign-service.test.js',
@@ -220,7 +220,7 @@ test('产品装配 Module 变更选择所属领域和运行组合测试', () => 
   );
   assert.deepEqual(
     selectAffectedTestFiles([
-      'apps/ajun-runtime/src/runtime/role-execution-composition.js',
+      'apps/ajun-runtime/src/runtime/role-execution-composition.ts',
     ], ajun),
     [
       'test/agent-proposal-service.test.js',
@@ -239,9 +239,9 @@ test('产品装配 Module 变更选择所属领域和运行组合测试', () => 
   );
   assert.deepEqual(
     selectAffectedTestFiles([
-      'apps/ajun-runtime/src/runtime/role-research-execution-composition.js',
-      'apps/ajun-runtime/src/runtime/role-content-execution-composition.js',
-      'apps/ajun-runtime/src/runtime/role-technical-execution-composition.js',
+      'apps/ajun-runtime/src/runtime/role-research-execution-composition.ts',
+      'apps/ajun-runtime/src/runtime/role-content-execution-composition.ts',
+      'apps/ajun-runtime/src/runtime/role-technical-execution-composition.ts',
     ], ajun),
     [
       'test/agent-proposal-service.test.js',
@@ -266,7 +266,7 @@ test('任务定义与状态真相变更选择所有真实消费者接缝', () =>
   assert.deepEqual(
     selectAffectedTestFiles([
       'apps/ajun-runtime/src/task-definition-registry.js',
-      'apps/ajun-runtime/src/task-status-policy.js',
+      'apps/ajun-runtime/src/task-status-policy.ts',
     ], ajun),
     [
       'test/agent-army-client.test.js',
@@ -293,7 +293,7 @@ test('新深层 Module 与共享 Adapter 契约变更只跑必要接缝', () => 
       'apps/ajun-runtime/src/mission-approval-inheritance.js',
       'apps/ajun-runtime/src/task-feedback.js',
       'apps/ajun-runtime/src/contracts/agent-army-task-input.js',
-      'apps/ajun-runtime/src/contracts/agent-army-http-input.js',
+      'apps/ajun-runtime/src/contracts/agent-army-http-input.ts',
       'apps/ajun-runtime/src/workflow/delivery-quality-runtime.ts',
     ], ajun),
     [

@@ -3,8 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createFeishuMediaJob, validateFeishuMediaInput } from '../src/feishu-media-intake.js';
-import { JobStore } from '../src/store.js';
+import { createFeishuMediaJob, validateFeishuMediaInput } from '../src/feishu-media-intake.ts';
+import { JobStore } from '../src/store.ts';
 
 test('Feishu intake validates a media attachment and deduplicates by message and attachment index', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'xiaod-intake-'));

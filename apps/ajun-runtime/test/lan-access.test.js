@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { canAccessApi, loadLanShareKey, rotateLanShareKey } from '../src/lan-access.js';
+import { canAccessApi, loadLanShareKey, rotateLanShareKey } from '../src/lan-access.ts';
 
 const remote = (key) => ({ socket: { remoteAddress: '192.168.1.22' }, headers: key === undefined ? {} : { 'x-ajun-share-key': key } });
 

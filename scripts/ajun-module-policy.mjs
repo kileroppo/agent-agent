@@ -182,7 +182,7 @@ function normalizeTestGroups(rawGroups) {
 }
 
 function requiredCompositionModules(runtimeRoot) {
-  const modules = ['src/runtime-composition-root.js'];
+  const modules = ['src/runtime-composition-root.ts'];
   const directory = path.join(runtimeRoot, 'src/runtime');
   let entries = [];
   try {

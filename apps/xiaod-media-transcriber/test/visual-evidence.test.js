@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { createVisualEvidencePackage, hammingDistance, selectFrameCandidates } from '../src/visual-evidence.js';
+import { createVisualEvidencePackage, hammingDistance, selectFrameCandidates } from '../src/visual-evidence.ts';
 
 test('关键帧候选优先覆盖开头、结尾、字幕锚点和场景变化', () => {
   const candidates = selectFrameCandidates({

@@ -20,7 +20,7 @@
       "lifecycle": "active",
       "workspace": true,
       "deployable": true,
-      "entrypoint": "apps/ajun-runtime/src/server.js"
+      "entrypoint": "apps/ajun-runtime/src/server.ts"
     },
     {
       "path": "apps/animated-chart",
@@ -66,7 +66,7 @@
       "lifecycle": "active",
       "workspace": true,
       "deployable": true,
-      "entrypoint": "apps/xiaod-media-transcriber/src/server.js"
+      "entrypoint": "apps/xiaod-media-transcriber/src/server.ts"
     },
     {
       "path": "integrations/access",
@@ -75,7 +75,7 @@
       "lifecycle": "active",
       "workspace": true,
       "deployable": false,
-      "entrypoint": "integrations/access/content-acquisition-center.js"
+      "entrypoint": "integrations/access/content-acquisition-center.ts"
     },
     {
       "path": "integrations/boom-monitor",

@@ -3,9 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyFailure } from '../src/recovery.js';
-import { ContentAcquisitionError } from '../../../integrations/access/content-acquisition-center.js';
-import { ConnectionSelectionError, createContentRuntime } from '../src/content-runtime.js';
+import { classifyFailure } from '../src/recovery.ts';
+import { ContentAcquisitionError } from '../../../integrations/access/content-acquisition-center.ts';
+import { ConnectionSelectionError, createContentRuntime } from '../src/content-runtime.ts';
 
 test('a missing account connection becomes a recoverable user-input failure without credential instructions', () => {
   const error = new ContentAcquisitionError({

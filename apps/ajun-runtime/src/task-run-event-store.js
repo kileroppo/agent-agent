@@ -6,7 +6,7 @@ import {
   encodeTaskRunEventCursor,
   normalizeTaskRunEvent,
   normalizeTaskRunEventQuery,
-} from './task-run-event-contract.js';
+} from './task-run-event-contract.ts';
 import { buildTaskRunIncidentSummary } from './task-run-incident-summary.js';
 
 const EVENT_COLUMNS = Object.freeze({

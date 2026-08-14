@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createLocalVisualEvidenceAdapter, visualEvidenceQualityResult } from '../src/visual-capability-adapter.js';
-import { MediaPipeline } from '../src/pipeline.js';
+import { createLocalVisualEvidenceAdapter, visualEvidenceQualityResult } from '../src/visual-capability-adapter.ts';
+import { MediaPipeline } from '../src/pipeline.ts';
 
 const checksum = `sha256:${'a'.repeat(64)}`;
 

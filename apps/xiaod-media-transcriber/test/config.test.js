@@ -8,8 +8,8 @@ import {
   prepareTaskRunEventDatabasePath,
   requireLoopbackHost,
   resolveTaskRunEventDb,
-} from '../src/config.js';
-import { buildRefinerRequest, extractRefinerMarkdown, fallbackGuide, requestRefinement } from '../src/pipeline.js';
+} from '../src/config.ts';
+import { buildRefinerRequest, extractRefinerMarkdown, fallbackGuide, requestRefinement } from '../src/pipeline.ts';
 
 test('configuration reports only complete optional integrations', () => {
   const capabilities = configuredCapabilities();

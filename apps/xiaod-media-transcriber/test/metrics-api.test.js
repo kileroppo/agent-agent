@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { collectMetricsRequest, MetricsRequestError } from '../src/metrics-api.js';
+import { collectMetricsRequest, MetricsRequestError } from '../src/metrics-api.ts';
 
 test('metrics request resolves the approved connection and returns a sanitized bundle', async () => {
   const calls = [];

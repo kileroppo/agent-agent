@@ -25,7 +25,7 @@
 
 - `apps/ajun-runtime/src/agent-army-client.js`
 - `apps/ajun-runtime/src/agent-army-mcp-server.js`
-- `apps/ajun-runtime/src/server.js`
+- `apps/ajun-runtime/src/server.ts`
 - 对应 MCP/Client 自动检查与依赖
 - Hermes Profile 的 MCP 配置和岗位指令
 - Gateway 启动配置中的单一转发环境项

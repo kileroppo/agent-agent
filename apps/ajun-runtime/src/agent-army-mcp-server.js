@@ -15,8 +15,8 @@ import {
   taskClientInputFromTool,
   taskCreateToolInputSchema,
 } from './contracts/agent-army-task-input.js';
-import { projectMcpToolValue } from './contracts/agent-army-adapter-projection.js';
-import { PAPERCLIP_COMPLETION_TASK_STATUSES } from './task-status-policy.js';
+import { projectMcpToolValue } from './contracts/agent-army-adapter-projection.ts';
+import { PAPERCLIP_COMPLETION_TASK_STATUSES } from './task-status-policy.ts';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 

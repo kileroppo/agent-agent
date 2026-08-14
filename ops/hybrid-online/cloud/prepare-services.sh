@@ -13,7 +13,7 @@ service_user="agentarmy"
 
 required_files=(
   "/var/lib/agent-army/bootstrap-complete"
-  "$repo_root/apps/ajun-runtime/src/server.js"
+  "$repo_root/apps/ajun-runtime/src/server.ts"
   "$repo_root/apps/ajun-runtime/src/agent-army-mcp-server.js"
   "$repo_root/ops/hybrid-online/preflight.mjs"
   "$cloud_env"

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cleanTranscript, composeDelivery, mechanicalDraft, normalizeIdempotencyKey, qualityCheck, validatePublicHttpUrl } from '../src/domain.js';
-import { markdownToBlocks } from '../src/pipeline.js';
+import { cleanTranscript, composeDelivery, mechanicalDraft, normalizeIdempotencyKey, qualityCheck, validatePublicHttpUrl } from '../src/domain.ts';
+import { markdownToBlocks } from '../src/pipeline.ts';
 
 test('rejects internal and malformed URLs', () => {
   assert.equal(validatePublicHttpUrl('http://127.0.0.1:3000/a').ok, false);

@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { taskLifecycleEventPolicy } from './task-status-policy.js';
+import { taskLifecycleEventPolicy } from './task-status-policy.ts';
 
 export class TaskLifecycleEventRecorder {
   constructor({ eventStore = null } = {}) {

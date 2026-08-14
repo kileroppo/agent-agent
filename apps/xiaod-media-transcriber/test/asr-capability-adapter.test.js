@@ -4,7 +4,7 @@ import {
   asrQualityResult,
   attachAsrCapabilityResult,
   attachAsrFailureReceipt
-} from '../src/asr-capability-adapter.js';
+} from '../src/asr-capability-adapter.ts';
 
 const job = { id:'job-1', sourceType:'upload', workflowId:'workflow-1', stepId:'step-1' };
 

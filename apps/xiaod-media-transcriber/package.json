@@ -5,14 +5,20 @@
   "description": "Local-first audio/video transcription and delivery agent",
   "type": "module",
   "scripts": {
-    "dev": "node --watch src/server.js",
-    "start": "node src/server.js",
+    "dev": "node --watch src/server.ts",
+    "start": "node src/server.ts",
+    "check": "tsc -p tsconfig.json",
     "test": "node --test"
   },
   "dependencies": {
-    "ajun-runtime": "0.1.0",
     "ajun-common-access": "0.1.0",
+    "ajun-runtime": "0.1.0",
     "express": "^5.1.0",
     "multer": "^2.0.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/multer": "^2.2.0",
+    "typescript": "5.9.3"
   }
 }

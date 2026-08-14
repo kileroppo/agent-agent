@@ -5,16 +5,21 @@
   "description": "Controlled account connection and content acquisition adapters",
   "type": "module",
   "exports": {
-    "./bilibili-native-subtitle-adapter": "./bilibili-native-subtitle-adapter.js",
-    "./connection-broker": "./connection-broker.js",
-    "./connection-store": "./connection-store.js",
-    "./content-acquisition-center": "./content-acquisition-center.js",
-    "./mediacrawler-pro-adapter": "./mediacrawler-pro-adapter.js",
-    "./operations-event-store": "./operations-event-store.js",
-    "./wechat-local-vault-adapter": "./wechat-local-vault-adapter.js",
-    "./yt-dlp-general-media-adapter": "./yt-dlp-general-media-adapter.js"
+    "./bilibili-native-subtitle-adapter": "./bilibili-native-subtitle-adapter.ts",
+    "./connection-broker": "./connection-broker.ts",
+    "./connection-store": "./connection-store.ts",
+    "./content-acquisition-center": "./content-acquisition-center.ts",
+    "./content-acquisition-contracts": "./content-acquisition-contracts.ts",
+    "./mediacrawler-pro-adapter": "./mediacrawler-pro-adapter.ts",
+    "./operations-event-store": "./operations-event-store.ts",
+    "./wechat-local-vault-adapter": "./wechat-local-vault-adapter.ts",
+    "./yt-dlp-general-media-adapter": "./yt-dlp-general-media-adapter.ts"
   },
   "scripts": {
+    "check": "tsc -p tsconfig.json",
     "test": "node --test"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
   }
 }

@@ -1,5 +1,5 @@
 import { privateReadGrantStatus, revokePrivateReadGrant } from './private-read-grant.js';
-import { ValidationError } from './task-validation-error.js';
+import { ValidationError } from './task-validation-error.ts';
 
 export class TaskApprovalLifecycle {
   constructor({ store, governance = null } = {}) {

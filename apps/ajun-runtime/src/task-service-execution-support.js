@@ -9,8 +9,8 @@ import {
 import {
   isPaperclipCompletionTaskStatus,
   isTaskExecutionClosedStatus,
-} from './task-status-policy.js';
-export { ValidationError } from './task-validation-error.js';
+} from './task-status-policy.ts';
+export { ValidationError } from './task-validation-error.ts';
 export {
   assertM5ExecutorRouteReceipt,
   assertM5PlanRevisionConsumed,
@@ -22,7 +22,7 @@ export {
   prepareM5ExecutorTask,
   trustedRoleToolScope,
 } from './task-service-m5-execution-context-support.js';
-import { ValidationError } from './task-validation-error.js';
+import { ValidationError } from './task-validation-error.ts';
 
 export function isTerminalTask(task) {
   return isTaskExecutionClosedStatus(task?.status);

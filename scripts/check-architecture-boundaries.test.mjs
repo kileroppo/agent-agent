@@ -192,7 +192,7 @@ test('架构检查拒绝产品装配职责重新回流到根入口', async (cont
   const root = await fixture(context);
   await write(
     root,
-    'apps/ajun-runtime/src/runtime-composition-root.js',
+    'apps/ajun-runtime/src/runtime-composition-root.ts',
     `${Array.from({ length:221 }, (_, index) => `// ${index}`).join('\n')}\n`,
   );
   const result = run(root);
@@ -204,7 +204,7 @@ test('架构检查拒绝产品装配根重新直接认识过多实现', async (c
   const root = await fixture(context);
   await write(
     root,
-    'apps/ajun-runtime/src/runtime-composition-root.js',
+    'apps/ajun-runtime/src/runtime-composition-root.ts',
     `${Array.from({ length:21 }, (_, index) => `import './module-${index}.js';`).join('\n')}\n`,
   );
   const result = run(root);
@@ -411,7 +411,7 @@ async function fixture(context, { appDependencies = {} } = {}) {
   await write(root, 'apps/ajun-runtime/module-policy.json', JSON.stringify({
     schemaVersion:'agent.army/ajun-module-policy/v1',
     modules:{
-      'src/runtime-composition-root.js':{ lineLimit:220, importLimit:20 },
+      'src/runtime-composition-root.ts':{ lineLimit:220, importLimit:20 },
       'src/task-service.js':{ lineLimit:250 },
       'src/task-recovery.js':{ lineLimit:300 },
       'public/task-record-detail-view.js':{ importLimit:12 },
@@ -429,7 +429,7 @@ async function fixture(context, { appDependencies = {} } = {}) {
       },
     },
   }));
-  await write(root, 'apps/ajun-runtime/src/runtime-composition-root.js', 'export const runtime = true;\n');
+  await write(root, 'apps/ajun-runtime/src/runtime-composition-root.ts', 'export const runtime = true;\n');
   await write(root, 'apps/ajun-runtime/src/task-service.js', 'export const task = true;\n');
   await write(root, 'apps/ajun-runtime/src/task-recovery.js', 'export const recovery = true;\n');
   await write(root, 'apps/ajun-runtime/public/task-record-detail-view.js', 'export const detail = true;\n');

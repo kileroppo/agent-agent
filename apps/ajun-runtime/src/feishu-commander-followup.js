@@ -14,7 +14,7 @@ import {
   isVisibleEmployee,
   taskStatusLine,
 } from './feishu-commander-replies.js';
-import { isTaskExecutionClosedStatus } from './task-status-policy.js';
+import { isTaskExecutionClosedStatus } from './task-status-policy.ts';
 
 export const feishuCommanderFollowupMethods = {
   async taskProgress(chatRef, { taskId = null, agentId = null } = {}) {

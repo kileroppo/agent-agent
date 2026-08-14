@@ -20,7 +20,7 @@ import {
 import { assertM5PlanRevisionConsumed } from './task-service-m5-execution-context-support.js';
 import { prepareDeliveryQualityResult } from './workflow/delivery-quality-runtime.ts';
 import { deliveryQualityReviewInput } from './workflow/delivery-quality-review-input.ts';
-import { isPaperclipCompletionTaskStatus } from './task-status-policy.js';
+import { isPaperclipCompletionTaskStatus } from './task-status-policy.ts';
 
 const campaignDeliveryEvidenceModules = new WeakMap();
 

@@ -3,8 +3,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { config } from '../src/config.js';
-import { AdaptiveAsrRuntime } from '../src/adaptive-asr-runtime.js';
+import { config } from '../src/config.ts';
+import { AdaptiveAsrRuntime } from '../src/adaptive-asr-runtime.ts';
 
 const confidentPayload = {
   text:'这是清晰完整的应急转录正文，质量模型暂时不可用，因此必须等待人工完整听审。',

@@ -4,13 +4,13 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { createLocalExecutionComposition } from '../src/runtime/local-execution-composition.js';
-import { createRuntimeConfiguration } from '../src/runtime/runtime-configuration.js';
-import { createRuntimeStateComposition } from '../src/runtime/runtime-state-composition.js';
+import { createLocalExecutionComposition } from '../src/runtime/local-execution-composition.ts';
+import { createRuntimeConfiguration } from '../src/runtime/runtime-configuration.ts';
+import { createRuntimeStateComposition } from '../src/runtime/runtime-state-composition.ts';
 
 test('运行配置集中解析 createRuntime 的端口、数据目录和部署开关', () => {
   const configuration = createRuntimeConfiguration({
-    compositionRootUrl:'file:///workspace/apps/ajun-runtime/src/runtime-composition-root.js',
+    compositionRootUrl:'file:///workspace/apps/ajun-runtime/src/runtime-composition-root.ts',
     homeDirectory:'/private/test-home',
     bootedAt:'2026-08-13T00:00:00.000Z',
     environment:{

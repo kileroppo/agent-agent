@@ -3,9 +3,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { makeJob } from '../src/domain.js';
-import { LarkDeliveryCoordinator, deliverToLark } from '../src/lark-delivery.js';
-import { JobStore } from '../src/store.js';
+import { makeJob } from '../src/domain.ts';
+import { LarkDeliveryCoordinator, deliverToLark } from '../src/lark-delivery.ts';
+import { JobStore } from '../src/store.ts';
 
 const TITLE = '稳定性交付测试';
 const MARKDOWN = '# 稳定性交付测试\n\n## 内容导览\n\n正文内容。';

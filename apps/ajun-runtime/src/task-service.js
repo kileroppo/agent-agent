@@ -9,7 +9,7 @@ import { TaskRecordService } from './task-record-service.js';
 import { TaskRecovery } from './task-recovery.js';
 import { OfficePresentationExecution } from './office-presentation-execution.js';
 import { taskServiceExecutionMethods } from './task-service-execution.js';
-export { ValidationError } from './task-validation-error.js';
+export { ValidationError } from './task-validation-error.ts';
 import { taskApprovalCoordinatorMethods } from './task-approval-coordinator.js';
 import { TaskOverview } from './task-overview.js';
 import { taskXiaodTranscriptRevisionMethods } from './task-xiaod-transcript-revision.js';

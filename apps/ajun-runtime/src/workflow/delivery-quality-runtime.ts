@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { TaskLifecycleEventRecorder } from '../task-lifecycle-event-recorder.js';
-import { taskOutcomePolicy } from '../task-status-policy.js';
+import { taskOutcomePolicy } from '../task-status-policy.ts';
 import { orchestrateDeliveryQuality } from './delivery-quality-orchestrator.ts';
 import { verifiableQualityEvidenceRefs } from './quality-review.ts';
 

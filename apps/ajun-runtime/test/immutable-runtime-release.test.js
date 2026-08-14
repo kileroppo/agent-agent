@@ -23,7 +23,7 @@ test('按运行时白名单冻结内容寻址只读包，并排除data、测试�
   assert.match(result.payloadHash, /^[a-f0-9]{64}$/);
   assert.equal(path.basename(result.releaseRoot), `${AJUN_RELEASE_PREFIX}${result.releaseHash}`);
   assert.equal(
-    await fs.readFile(path.join(result.releaseRoot, 'apps/ajun-runtime/src/server.js'), 'utf8'),
+    await fs.readFile(path.join(result.releaseRoot, 'apps/ajun-runtime/src/server.ts'), 'utf8'),
     "import './local.js';\n",
   );
   for (const sourceFile of [
@@ -79,7 +79,7 @@ test('按运行时白名单冻结内容寻址只读包，并排除data、测试�
   );
   assert.equal((await fs.stat(result.releaseRoot)).mode & 0o777, 0o555);
   assert.equal(
-    (await fs.stat(path.join(result.releaseRoot, 'apps/ajun-runtime/src/server.js'))).mode & 0o777,
+    (await fs.stat(path.join(result.releaseRoot, 'apps/ajun-runtime/src/server.ts'))).mode & 0o777,
     0o444,
   );
 
@@ -88,7 +88,7 @@ test('按运行时白名单冻结内容寻址只读包，并排除data、测试�
     'utf8',
   ));
   assert.equal(manifest.payloadHash, result.payloadHash);
-  assert.equal(manifest.entrypoint, 'apps/ajun-runtime/src/server.js');
+  assert.equal(manifest.entrypoint, 'apps/ajun-runtime/src/server.ts');
   assert.deepEqual(manifest.externalState, [
     'AGENT_ARMY_DATA_DIR',
     'AGENT_ARMY_TASK_STORE',
@@ -169,7 +169,7 @@ test('相同内容幂等复用；已有同哈希包漂移时失败且不覆盖',
   assert.equal(second.status, 'already_frozen');
   assert.equal(second.releaseRoot, first.releaseRoot);
 
-  const target = path.join(first.releaseRoot, 'apps/ajun-runtime/src/server.js');
+  const target = path.join(first.releaseRoot, 'apps/ajun-runtime/src/server.ts');
   await fs.chmod(first.releaseRoot, 0o755);
   await fs.chmod(path.dirname(target), 0o755);
   await fs.chmod(target, 0o644);
@@ -314,7 +314,7 @@ test('输出目录与allowlist源码重叠被拒绝，竞态冻结只产生一�
 test('server静态依赖闭包缺文件时冻结失败关闭', async (context) => {
   const repoRoot = await createFixture(context, 'missing-import');
   await fs.writeFile(
-    path.join(repoRoot, 'apps/ajun-runtime/src/server.js'),
+    path.join(repoRoot, 'apps/ajun-runtime/src/server.ts'),
     "import './missing.js';\n",
   );
   await assert.rejects(
@@ -634,7 +634,7 @@ test('launchd计划强绑clean源码来源，cutover启用技术修复而rollbac
   assert.equal(degradedFallback.cutover.launchable, true);
   assert.deepEqual(
     degradedFallback.cutover.programArguments,
-    [process.execPath, path.join(newRelease.releaseRoot, 'apps/ajun-runtime/src/server.js')],
+    [process.execPath, path.join(newRelease.releaseRoot, 'apps/ajun-runtime/src/server.ts')],
   );
   assert.equal(
     degradedFallback.cutover.workingDirectory,
@@ -1013,7 +1013,7 @@ async function createFixture(context, suffix) {
     ['.gitignore', '/apps/ajun-runtime/data/releases/\n'],
     ['apps/ajun-runtime/package.json', '{"name":"ajun-runtime","type":"module","dependencies":{"pkg":"1.0.0"}}\n'],
     ['apps/ajun-runtime/package-lock.json', '{"lockfileVersion":3}\n'],
-    ['apps/ajun-runtime/src/server.js', "import './local.js';\n"],
+    ['apps/ajun-runtime/src/server.ts', "import './local.js';\n"],
     ['apps/ajun-runtime/src/recovery-server.js', recoveryServerSource],
     ['apps/ajun-runtime/src/local.js', "import '@agent-army/m5-content-pipeline';\nimport '@agent-army/m5-kernel';\nimport '@agent-army/paperclip-content-autonomy/signed-budget-ticket';\nimport '@agent-army/m5-publisher-gateway';\nimport 'ajun-common-access/content-acquisition-center';\nimport '@agent-army/boom-monitor';\nimport '@agent-army/m5-contracts';\nimport '@agent-army/paperclip-client';\nimport 'pkg';\n"],
     ['apps/ajun-runtime/src/hermes-oneshot-policy.js', 'export const policy = true;\n'],
@@ -1127,7 +1127,7 @@ function startupEvidence(gitHead) {
   return {
     status:'passed',
     evidenceLayer:'frozen_release_startup',
-    entrypoint:'apps/ajun-runtime/src/server.js',
+    entrypoint:'apps/ajun-runtime/src/server.ts',
     host:'127.0.0.1',
     portMode:'ephemeral_loopback',
     endpoint:'/api/overview',

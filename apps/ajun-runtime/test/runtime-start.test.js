@@ -6,9 +6,9 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { createRuntime } from '../src/runtime-composition-root.js';
-import { startRuntime, startRuntimeBackgroundServices } from '../src/runtime-start.js';
-import { dynamicTaskCardRolloutEnabled } from '../src/runtime/feishu-command-composition.js';
+import { createRuntime } from '../src/runtime-composition-root.ts';
+import { startRuntime, startRuntimeBackgroundServices } from '../src/runtime-start.ts';
+import { dynamicTaskCardRolloutEnabled } from '../src/runtime/feishu-command-composition.ts';
 import { startConsoleRuntimeFixture } from './fixtures/console-runtime-fixture.js';
 
 test('startRuntime 负责监听，并可在隔离冒烟中关闭后台副作用', async (context) => {

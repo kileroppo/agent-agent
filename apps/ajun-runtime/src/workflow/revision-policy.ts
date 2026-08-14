@@ -1,5 +1,5 @@
 import type { QualityReview } from './quality-review.ts';
-import { taskOutcomePolicy } from '../task-status-policy.js';
+import { taskOutcomePolicy } from '../task-status-policy.ts';
 
 export const MAX_DELIVERY_REVISION_ROUNDS = 2 as const;
 export const REVISION_DECISION_SCHEMA_VERSION = 'agent.army/delivery-revision-decision/v1' as const;

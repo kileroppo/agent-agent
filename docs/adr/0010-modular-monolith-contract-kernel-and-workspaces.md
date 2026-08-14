@@ -112,12 +112,12 @@ A君、Pipeline、内容插件与 Publisher 重复；启动文件同时承担装
 
 ## 2026-08-08 产品装配根深化
 
-- `runtime-composition-root.js` 从直接认识岗位、飞书、Campaign、Publisher 和系统 Controller 的宽入口，
+- `runtime-composition-root.ts` 从直接认识岗位、飞书、Campaign、Publisher 和系统 Controller 的宽入口，
   收敛为组合深层运行 Module 的产品壳；公开 `createRuntime()` Interface、端口、数据目录、HTTP 路由和
   后台服务顺序保持不变。
-- 活动生命周期运行装配进入 `runtime/content-campaign-composition.js`，集中 Paperclip Control Plane、
+- 活动生命周期运行装配进入 `runtime/content-campaign-composition.ts`，集中 Paperclip Control Plane、
   Publisher、预算票据、模板解析和视觉工具执行；调用方只消费 `campaigns()` 与受控执行能力。
-- 岗位执行装配进入 `runtime/role-execution-composition.js`，集中研究、办公、本机内容生产、技术修复、
+- 岗位执行装配进入 `runtime/role-execution-composition.ts`，集中研究、办公、本机内容生产、技术修复、
   提案与 TaskService 的实现知识；删除该 Module 会让这些装配规则重新扩散到产品根入口，因此通过
   deletion test。
 - 飞书指挥和 Paperclip 系统 Controller 分别进入独立装配 Module；官方飞书、Hermes 原生交付、员工

@@ -15,7 +15,7 @@
 
 - 结果：现用 `A君·军团总管` 已补齐群内 @ 权限、发布并加入真实验收群；旧同名应用已改名为 `A君·军团总管（旧版）`。
 - 自动化：`cd apps/ajun-runtime && npm test` 为 333 通过、0 失败。
-- 运行时：A君 重启后由当前仓库 `apps/ajun-runtime/src/server.js` 监听本机 `4321`，官方飞书长连接恢复为已连接。
+- 运行时：A君 重启后由当前仓库 `apps/ajun-runtime/src/server.ts` 监听本机 `4321`，官方飞书长连接恢复为已连接。
 - 外部平台：真实群聊 @ 在白名单加载后只建立一条任务并回复一次；停止旧 Hermes 总管 LaunchAgent 后再次复验，官方入口仍独立建立一条任务并回复一次。
 - 关闭证据：[ARMY-032 验收账本](../../reviews/m2-real-small-army/acceptance.md)。
 - 唯一下一步：本交接不再继续；多人协作群内员工接力另按 ARMY-033 执行，不重启旧总管入口。
@@ -51,7 +51,7 @@
 
 - Completed scope: Paperclip `2026.707.0` 以私有 loopback 模式运行；`A君本机健康官` 通过内置 HTTP Adapter 完成 `AGE-18` 的“任务分配 → heartbeat → A君低风险检查 → 回报同一任务 → done”闭环。重复 heartbeat 按任务 ID 去重。
 - Durable decisions and invariants: Paperclip 是唯一军团总控，但不是每条飞书消息的必经中转；低风险、单 Agent、可立即完成的请求直达 Hermes，跨 Agent、长任务、预算、审批、暂停/终止或统一审计需求才以事件幂等键进入 Paperclip 最小任务信封；飞书是日常派活与交付入口；A君不是第二套组织图、任务队列、排程、预算、审批或审计后台，其页面只承担授权、组件健康、恢复和脱敏诊断；新增本机能力必须经由能力、连接、内容、执行和恢复契约扩展；小D是已可用的业务 Agent，后续只接入口与治理，不重写转录能力。
-- Important changed files: `apps/ajun-runtime/src/paperclip-heartbeat.js`、`apps/ajun-runtime/src/paperclip-bridge.js`、`apps/ajun-runtime/src/server.js`、`apps/ajun-runtime/test/paperclip-heartbeat.test.js`；相关 M2 文档见下列入口。
+- Important changed files: `apps/ajun-runtime/src/paperclip-heartbeat.js`、`apps/ajun-runtime/src/paperclip-bridge.js`、`apps/ajun-runtime/src/server.ts`、`apps/ajun-runtime/test/paperclip-heartbeat.test.js`；相关 M2 文档见下列入口。
 - Existing artifacts to read instead of duplicating here: `docs/archive/handoffs/m2-authorization-connectors-planning-handoff.md`（M2总接手事实）、`tasks/prd-agent-army-master.md`、`tasks/prd-m2-authorization-connectors.md`、`docs/plans/m2-army-runtime-skeleton-plan.md`、`integrations/feishu/README.md`。
 
 ## Verification ledger
@@ -70,7 +70,7 @@ Checked at: 2026-07-20 20:14 CST
 | Service role | URL/port | Listener/process | Process cwd | Config source |
 | --- | --- | --- | --- | --- |
 | Paperclip 总控 | `http://127.0.0.1:3100` | PID `34666`，`paperclipai run --no-repair`，仅 `127.0.0.1` | 仓库根目录 | Paperclip 本机配置；不得读取或记录 `.env` |
-| A君本地运行时 | `http://127.0.0.1:4321` | PID `57194`，`node src/server.js`，监听 `*:4321` | `apps/ajun-runtime` | 本机运行配置；不得读取或记录 `.env` |
+| A君本地运行时 | `http://127.0.0.1:4321` | PID `57194`，`node src/server.ts`，监听 `*:4321` | `apps/ajun-runtime` | 本机运行配置；不得读取或记录 `.env` |
 
 ## Commands already run
 

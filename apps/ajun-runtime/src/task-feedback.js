@@ -1,6 +1,6 @@
-import { ValidationError } from './task-validation-error.js';
+import { ValidationError } from './task-validation-error.ts';
 
-import { isTaskExecutionClosedStatus } from './task-status-policy.js';
+import { isTaskExecutionClosedStatus } from './task-status-policy.ts';
 
 export class TaskFeedback {
   constructor({ store } = {}) {

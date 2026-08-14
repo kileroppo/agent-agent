@@ -12,9 +12,9 @@ npm run dev
 
 ## 产品结构
 
-- `src/server.js`：进程入口；
-- `src/runtime-start.js`：监听和后台生命周期；
-- `src/runtime-composition-root.js`：跨领域产品壳，只组合深层 Module；
+- `src/server.ts`：进程入口；
+- `src/runtime-start.ts`：监听和后台生命周期；
+- `src/runtime-composition-root.ts`：跨领域产品壳，只组合深层 Module；
 - [`src/runtime/`](./src/runtime/README.md)：活动生命周期、岗位执行、飞书指挥和 Paperclip 系统控制装配；
 - `src/task-service.js`：稳定任务 Interface，只负责装配与少量跨模块协调；
 - `src/campaign-delivery-evidence.js`：M5 阶段回执、失败留痕与 Work Product 写回协议；
@@ -30,7 +30,7 @@ npm run dev
 - `public/`：本机授权、健康、恢复与脱敏诊断界面；
 - `test/`：通过公开 Interface 和领域 Seam 验证行为。
 
-新增岗位或平台能力不得继续把具体 Adapter 堆回 `runtime-composition-root.js`；应进入所属领域装配
+新增岗位或平台能力不得继续把具体 Adapter 堆回 `runtime-composition-root.ts`；应进入所属领域装配
 Module，并补充该 Seam 的 affected-test 映射。
 `TaskService` 已委托给执行、审批或总览 Module 的方法不得重新保留影子实现；架构检查会阻止
 同名实现回流，并将该 Interface 限制在 350 行内。

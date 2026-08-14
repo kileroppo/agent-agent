@@ -14,27 +14,27 @@ import {
   isLocalAddress,
   lanAddresses,
   rotateLanShareKey,
-} from './lan-access.js';
+} from './lan-access.ts';
 import { MacWorkerBridgeError } from './mac-worker-task-bridge.js';
 import { routeM5CampaignApi } from './m5-campaign-api.js';
 import { M5PublisherBindingError } from './m5-publisher-bindings.js';
 import { routeM5PublisherApi } from './m5-publisher-api.js';
 import { PublicWebFetchError } from './public-web-fetch.js';
 import { OfficialFeishuCompletionWatcherError } from './official-feishu-completion-watcher.js';
-import { assertTaskCardOwnership, presentCommanderReply, presentTaskStatus, resolveTaskCardAction } from './runtime-http-feishu.js';
+import { assertTaskCardOwnership, presentCommanderReply, presentTaskStatus, resolveTaskCardAction } from './runtime-http-feishu.ts';
 import {
   createMissionHttpResult,
   createTaskHttpResult,
-} from './contracts/agent-army-adapter-projection.js';
+} from './contracts/agent-army-adapter-projection.ts';
 import { ValidationError } from './task-service.js';
 import { AgentArmyTaskInputError } from './contracts/agent-army-task-input.js';
 import {
   normalizeMissionHttpInput,
   normalizeTaskHttpInput,
-} from './contracts/agent-army-http-input.js';
+} from './contracts/agent-army-http-input.ts';
 import { dispatchBoomSignal } from '@agent-army/boom-monitor';
 import { routeBoomMonitorApi } from './boom-monitor/index.js';
-import { isPaperclipHttpError, routePaperclipHttp } from './runtime-http-paperclip.js';
+import { isPaperclipHttpError, routePaperclipHttp } from './runtime-http-paperclip.ts';
 import { routeProductMaturityApi } from './runtime-http-product-maturity.ts';
 
 const MAX_JSON_BODY_BYTES = 1024 * 1024;

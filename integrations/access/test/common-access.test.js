@@ -3,13 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ConnectionStore } from '../connection-store.js';
-import { ConnectionBroker } from '../connection-broker.js';
-import { ContentAcquisitionCenter } from '../content-acquisition-center.js';
-import { OperationsEventStore } from '../operations-event-store.js';
-import { browserSessionArgs, YtDlpGeneralMediaAdapter } from '../yt-dlp-general-media-adapter.js';
-import { MediaCrawlerProAdapter } from '../mediacrawler-pro-adapter.js';
-import { BilibiliNativeSubtitleAdapter } from '../bilibili-native-subtitle-adapter.js';
+import { ConnectionStore } from '../connection-store.ts';
+import { ConnectionBroker } from '../connection-broker.ts';
+import { ContentAcquisitionCenter } from '../content-acquisition-center.ts';
+import { OperationsEventStore } from '../operations-event-store.ts';
+import { browserSessionArgs, YtDlpGeneralMediaAdapter } from '../yt-dlp-general-media-adapter.ts';
+import { MediaCrawlerProAdapter } from '../mediacrawler-pro-adapter.ts';
+import { BilibiliNativeSubtitleAdapter } from '../bilibili-native-subtitle-adapter.ts';
 
 async function sandbox(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-access-'));

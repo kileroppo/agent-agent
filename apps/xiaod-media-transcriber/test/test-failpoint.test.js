@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createOneShotFailpoint, createPersistentOneShotFailpoint, resetPersistentOneShotFailpoint } from '../src/test-failpoint.js';
+import { createOneShotFailpoint, createPersistentOneShotFailpoint, resetPersistentOneShotFailpoint } from '../src/test-failpoint.ts';
 
 test('one-shot failpoint is inert unless explicitly configured', () => {
   const failpoint = createOneShotFailpoint('');

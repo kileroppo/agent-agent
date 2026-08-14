@@ -7,7 +7,7 @@ import {
   ownerActionForWorkflowOutcome,
   workflowStatusForStepOutcomes,
   workflowStatusForTaskOutcome,
-} from '../task-status-policy.js';
+} from '../task-status-policy.ts';
 
 export function evaluateWorkflowTasks(tasks: readonly any[]): WorkflowEvaluation[] {
   const groups = new Map<string, any[]>();

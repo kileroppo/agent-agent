@@ -1,6 +1,6 @@
 import { summarizeBacklog } from './workflow/backlog-classification.ts';
 import type { WorkflowEvaluation } from './workflow/contracts.ts';
-import { taskOutcomePolicy } from './task-status-policy.js';
+import { taskOutcomePolicy } from './task-status-policy.ts';
 
 export function buildTaskFocus(
   tasks: readonly any[],

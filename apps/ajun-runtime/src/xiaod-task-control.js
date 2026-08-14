@@ -1,4 +1,4 @@
-import { ValidationError } from './task-validation-error.js';
+import { ValidationError } from './task-validation-error.ts';
 
 const XIAOD_TERMINAL_OR_REVIEW_STATUSES = new Set(['completed', 'failed', 'cancelled', 'awaiting_review', 'awaiting_delivery']);
 

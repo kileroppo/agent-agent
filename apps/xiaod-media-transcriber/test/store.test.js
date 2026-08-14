@@ -3,8 +3,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { makeJob } from '../src/domain.js';
-import { JobStore, JobStoreConflictError } from '../src/store.js';
+import { makeJob } from '../src/domain.ts';
+import { JobStore, JobStoreConflictError } from '../src/store.ts';
 
 test('restart recovery preserves a retryable failure that the retry route accepts', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'xiaod-store-'));

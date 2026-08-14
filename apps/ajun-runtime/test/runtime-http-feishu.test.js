@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import test from 'node:test';
-import { presentCommanderReply, presentTaskStatus, resolveTaskCardAction } from '../src/runtime-http-feishu.js';
+import { presentCommanderReply, presentTaskStatus, resolveTaskCardAction } from '../src/runtime-http-feishu.ts';
 import { createAjunHttpHandler } from '../src/runtime-http-handler.js';
 import { projectTaskNotification } from '../src/task-notification-projection.js';
 

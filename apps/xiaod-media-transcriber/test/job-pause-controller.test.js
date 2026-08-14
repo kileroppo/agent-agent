@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { JobPauseController, JobPausedError } from '../src/job-pause-controller.js';
+import { JobPauseController, JobPausedError } from '../src/job-pause-controller.ts';
 
 function fixture(status = 'transcribing') {
   const job = { id:'job-1', status, progress:45, stageMessage:'正在转录', log:[] };

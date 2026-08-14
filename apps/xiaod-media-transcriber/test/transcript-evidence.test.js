@@ -3,10 +3,10 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { automaticConfirmationDecision, buildEvidenceRecords, parseTimedTranscript, sha256, timedTranscriptMarkdown } from '../src/transcript-evidence.js';
-import { createTranscriptConfirmationFiles, readTranscriptRevision, reviseTranscript, reviewTranscript } from '../src/transcript-review.js';
-import { JobStore } from '../src/store.js';
-import { makeJob } from '../src/domain.js';
+import { automaticConfirmationDecision, buildEvidenceRecords, parseTimedTranscript, sha256, timedTranscriptMarkdown } from '../src/transcript-evidence.ts';
+import { createTranscriptConfirmationFiles, readTranscriptRevision, reviseTranscript, reviewTranscript } from '../src/transcript-review.ts';
+import { JobStore } from '../src/store.ts';
+import { makeJob } from '../src/domain.ts';
 
 test('字幕解析保留可核验时间点并生成机器质量报告', () => {
   const raw = 'WEBVTT\n\n00:00:00.000 --> 00:00:02.000\n开场钩子\n\n00:00:02.000 --> 00:00:05.000\n核心观点';
@@ -62,7 +62,7 @@ test('音频覆盖和尾部完整性属于不能人工绕过的硬门禁', () =>
 });
 
 test('平台整数时长与本机探测相差不到一秒时使用精确时长，避免误报覆盖不足', async () => {
-  const { qualityGateDuration } = await import('../src/pipeline.js');
+  const { qualityGateDuration } = await import('../src/pipeline.ts');
   assert.equal(qualityGateDuration({
     reportedDurationSeconds:364,
     probedAudioDurationSeconds:363.178688

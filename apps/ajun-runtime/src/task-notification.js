@@ -6,7 +6,7 @@ import { wasVisualAnalysisUsed } from './local-content-artifacts.js';
 import {
   isTaskNotificationTerminalStatus,
   taskStatusLabel,
-} from './task-status-policy.js';
+} from './task-status-policy.ts';
 
 export class TaskNotification {
   constructor({ store, registry, executors = {} }) {

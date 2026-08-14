@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ContentAcquisitionCenter } from '../content-acquisition-center.js';
-import { WeChatLocalVaultAdapter } from '../wechat-local-vault-adapter.js';
+import { ContentAcquisitionCenter } from '../content-acquisition-center.ts';
+import { WeChatLocalVaultAdapter } from '../wechat-local-vault-adapter.ts';
 
 const approvalRef = 'approval_wechat_12345678';
 const taskId = 'task-wechat-1';

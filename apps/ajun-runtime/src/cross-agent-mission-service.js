@@ -2,7 +2,7 @@ import { canonicalizeBusinessAssignment } from './business-task-routing.ts';
 import {
   isTaskNotificationTerminalStatus,
   taskStatusLabel,
-} from './task-status-policy.js';
+} from './task-status-policy.ts';
 import { normalizedProductMaturityContext } from './workflow/mission-child-policy.ts';
 import {
   isExactLegacyMaturityContentBlock,

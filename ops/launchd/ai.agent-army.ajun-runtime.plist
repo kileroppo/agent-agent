@@ -7,7 +7,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/Users/pengaro/.local/bin/node</string>
-    <string>/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/apps/ajun-runtime/src/server.js</string>
+    <string>/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/apps/ajun-runtime/src/server.ts</string>
   </array>
   <key>WorkingDirectory</key>
   <string>/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/apps/ajun-runtime</string>

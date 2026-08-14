@@ -67,7 +67,7 @@
         "test/task-service.test.js"
       ]
     },
-    "src/contracts/agent-army-adapter-projection.js": {
+    "src/contracts/agent-army-adapter-projection.ts": {
       "affectedTests": [
         "test/agent-army-adapter-contract.test.js",
         "test/agent-army-mcp-server.test.js",
@@ -75,7 +75,7 @@
       ],
       "lineLimit": 200
     },
-    "src/contracts/agent-army-http-input.js": {
+    "src/contracts/agent-army-http-input.ts": {
       "affectedTests": [
         "test/agent-army-adapter-contract.test.js"
       ]
@@ -391,7 +391,7 @@
       "lineLimit": 140,
       "importLimit": 4
     },
-    "src/runtime-composition-root.js": {
+    "src/runtime-composition-root.ts": {
       "lineLimit": 220,
       "importLimit": 20,
       "affectedTests": [
@@ -408,14 +408,14 @@
         "test/runtime-start.test.js"
       ]
     },
-    "src/runtime-http-paperclip.js": {
+    "src/runtime-http-paperclip.ts": {
       "lineLimit": 150,
       "affectedTests": [
         "test/runtime-http-paperclip.test.js",
         "test/runtime-start.test.js"
       ]
     },
-    "src/runtime/background-lifecycle-composition.js": {
+    "src/runtime/background-lifecycle-composition.ts": {
       "lineLimit": 150,
       "affectedTests": [
         "test/cross-agent-mission-service.test.js",
@@ -423,7 +423,7 @@
         "test/runtime-start.test.js"
       ]
     },
-    "src/runtime/content-campaign-composition.js": {
+    "src/runtime/content-campaign-composition.ts": {
       "lineLimit": 120,
       "affectedTests": [
         "test/content-campaign-service.test.js",
@@ -432,7 +432,7 @@
         "test/runtime-start.test.js"
       ]
     },
-    "src/runtime/feishu-command-composition.js": {
+    "src/runtime/feishu-command-composition.ts": {
       "lineLimit": 180,
       "affectedTests": [
         "test/agent-feishu-channel-fleet.test.js",
@@ -444,14 +444,14 @@
         "test/runtime-start.test.js"
       ]
     },
-    "src/runtime/local-execution-composition.js": {
+    "src/runtime/local-execution-composition.ts": {
       "lineLimit": 80,
       "affectedTests": [
         "test/runtime-composition-modules.test.js",
         "test/runtime-start.test.js"
       ]
     },
-    "src/runtime/paperclip-system-control-composition.js": {
+    "src/runtime/paperclip-system-control-composition.ts": {
       "lineLimit": 100,
       "affectedTests": [
         "test/paperclip-heartbeat.test.js",
@@ -463,7 +463,7 @@
         "test/runtime-start.test.js"
       ]
     },
-    "src/runtime/role-content-execution-composition.js": {
+    "src/runtime/role-content-execution-composition.ts": {
       "lineLimit": 140,
       "affectedTests": [
         "test/agent-proposal-service.test.js",
@@ -475,7 +475,7 @@
         "test/runtime-start.test.js"
       ]
     },
-    "src/runtime/role-execution-composition.js": {
+    "src/runtime/role-execution-composition.ts": {
       "lineLimit": 160,
       "importLimit": 24,
       "affectedTests": [
@@ -493,7 +493,7 @@
         "test/technical-repair-watchdog.test.js"
       ]
     },
-    "src/runtime/role-research-execution-composition.js": {
+    "src/runtime/role-research-execution-composition.ts": {
       "lineLimit": 100,
       "affectedTests": [
         "test/agent-proposal-service.test.js",
@@ -503,7 +503,7 @@
         "test/runtime-start.test.js"
       ]
     },
-    "src/runtime/role-technical-execution-composition.js": {
+    "src/runtime/role-technical-execution-composition.ts": {
       "lineLimit": 80,
       "affectedTests": [
         "test/local-technical-expert.test.js",
@@ -515,14 +515,14 @@
         "test/technical-repair-watchdog.test.js"
       ]
     },
-    "src/runtime/runtime-configuration.js": {
+    "src/runtime/runtime-configuration.ts": {
       "lineLimit": 120,
       "affectedTests": [
         "test/runtime-composition-modules.test.js",
         "test/runtime-start.test.js"
       ]
     },
-    "src/runtime/runtime-state-composition.js": {
+    "src/runtime/runtime-state-composition.ts": {
       "lineLimit": 100,
       "affectedTests": [
         "test/runtime-composition-modules.test.js",
@@ -745,7 +745,7 @@
     "src/task-service.js": {
       "lineLimit": 250
     },
-    "src/task-status-policy.js": {
+    "src/task-status-policy.ts": {
       "affectedTests": [
         "test/agent-army-client.test.js",
         "test/agent-army-mcp-server.test.js",

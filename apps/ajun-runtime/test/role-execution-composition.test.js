@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { createRoleExecutionComposition } from '../src/runtime/role-execution-composition.js';
+import { createRoleExecutionComposition } from '../src/runtime/role-execution-composition.ts';
 
 test('岗位执行总装保持 research、content、technical Module 的对象与工具接线', async () => {
   const root = path.join(os.tmpdir(), 'agent-army-role-execution-composition-test');

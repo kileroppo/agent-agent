@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { MediaPipeline } from '../src/pipeline.js';
+import { MediaPipeline } from '../src/pipeline.ts';
 
 test('小D在判断采集成功或失败前先把acquisition receipt交给统一事件桥', async (context) => {
   const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'xiaod-acquisition-events-'));

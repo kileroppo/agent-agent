@@ -7,7 +7,7 @@ import {
   allowsFastFallback,
   selectInitialAsrRoute,
   summarizeAsrQuality
-} from '../src/asr-router.js';
+} from '../src/asr-router.ts';
 
 const confidentSegments = [
   {

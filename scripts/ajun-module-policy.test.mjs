@@ -13,9 +13,9 @@ const LEGACY_AJUN_LINE_LIMITS = Object.freeze({
   'src/task-service.js':250,
   'src/task-definition-registry.js':275,
   'src/task-definitions.js':200,
-  'src/task-status-policy.js':180,
+  'src/task-status-policy.ts':180,
   'src/contracts/agent-army-task-input.js':600,
-  'src/contracts/agent-army-adapter-projection.js':200,
+  'src/contracts/agent-army-adapter-projection.ts':200,
   'src/agent-army-mcp-server.js':600,
   'src/agent-army-client.js':750,
   'src/task-approval-coordinator.js':100,
@@ -85,13 +85,13 @@ test('AjunArchitecturePolicyCatalog 集中提供模块门禁、affected tests �
   const root = await fixture(context);
   const catalog = AjunArchitecturePolicyCatalog.load(root);
 
-  assert.deepEqual(catalog.moduleRule('src/runtime-composition-root.js'), {
+  assert.deepEqual(catalog.moduleRule('src/runtime-composition-root.ts'), {
     lineLimit:220,
     importLimit:20,
     affectedTests:['test/runtime-start.test.js'],
   });
   assert.deepEqual(
-    catalog.selectAffectedTests(['src/runtime-composition-root.js', 'test/runtime-start.test.js']),
+    catalog.selectAffectedTests(['src/runtime-composition-root.ts', 'test/runtime-start.test.js']),
     ['test/runtime-start.test.js'],
   );
   assert.deepEqual(
@@ -155,7 +155,7 @@ test('AjunArchitecturePolicyCatalog 要求策略目标、测试和装配覆盖�
 });
 
 async function fixture(context, {
-  modulePath = 'src/runtime-composition-root.js',
+  modulePath = 'src/runtime-composition-root.ts',
   moduleRule = {
     lineLimit:220,
     importLimit:20,
@@ -165,7 +165,7 @@ async function fixture(context, {
 } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-policy-catalog-'));
   context.after(() => fs.rm(root, { recursive:true, force:true }));
-  await write(root, 'apps/ajun-runtime/src/runtime-composition-root.js', 'export const runtime = true;\n');
+  await write(root, 'apps/ajun-runtime/src/runtime-composition-root.ts', 'export const runtime = true;\n');
   await write(root, 'apps/ajun-runtime/test/runtime-start.test.js', 'export const runtime = true;\n');
   await write(root, 'apps/ajun-runtime/module-policy.json', JSON.stringify({
     schemaVersion:'agent.army/ajun-module-policy/v1',

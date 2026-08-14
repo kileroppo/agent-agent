@@ -13,12 +13,12 @@ import {
 import {
   normalizeMissionHttpInput,
   normalizeTaskHttpInput,
-} from '../src/contracts/agent-army-http-input.js';
+} from '../src/contracts/agent-army-http-input.ts';
 import {
   createMissionHttpResult,
   createTaskHttpResult,
   projectMcpToolValue,
-} from '../src/contracts/agent-army-adapter-projection.js';
+} from '../src/contracts/agent-army-adapter-projection.ts';
 
 test('共享任务输入契约统一 MCP schema、snake_case 映射和岗位来源身份', () => {
   const parsed = taskCreateToolInputSchema.parse({

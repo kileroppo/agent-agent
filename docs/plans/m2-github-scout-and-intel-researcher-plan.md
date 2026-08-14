@@ -28,7 +28,7 @@
 - 岗位结构模板：`agents/xiaod/`、`agents/av-transcriber/manifest.json`
 - Hermes Profile 模板：`integrations/hermes/profiles/ajun.profile.json`
 - 注册（自动扫描 agents/ 目录）：`apps/ajun-runtime/src/agent-registry.js`
-- 执行器挂载：`apps/ajun-runtime/src/server.js` 的 `TaskService({ executors: {...} })`
+- 执行器挂载：`apps/ajun-runtime/src/server.ts` 的 `TaskService({ executors: {...} })`
 - 路由：`apps/ajun-runtime/src/feishu-commander.js` + `hermes-intent-planner.js`
 - 契约校验：`agents/test/agent-manifest.test.mjs`
 
@@ -111,7 +111,7 @@
   - 无结果/限流：`status:'needs_input'`，`userMessage` 如实说明并建议稍后重试或换关键词（照抄报告员错误对象结构 `code/userMessage/category/stage/occurredAt`）。
   - 成功：`status:'succeeded'` + `execution` + `usage.tools`（记录 `github-public-search`/`github-public-read` 调用次数）+ `artifactRefs`（含 `validation:{exists,readable,nonEmpty,publicReadOnly:true}`）。
 
-### 步骤 5：挂载执行器（`apps/ajun-runtime/src/server.js`）
+### 步骤 5：挂载执行器（`apps/ajun-runtime/src/server.ts`）
 - import `GithubSearch`、`LocalGithubScout`。
 - `const githubSearch = new GithubSearch({ fetchImpl:(...a)=>publicWebTransport.fetch(...a) });`
 - `TaskService({ ... executors:{ ..., 'github-scout': new LocalGithubScout({ githubSearch }) } })`。

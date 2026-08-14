@@ -5,7 +5,7 @@ import { OfficePresentationProduction } from './office-presentation-production.j
 import {
   isTaskNotificationTerminalStatus,
   taskStatusLabel,
-} from './task-status-policy.js';
+} from './task-status-policy.ts';
 
 export class LocalOfficeAssistant {
   constructor({ store, artifactsDir, knowledgeArchive = null, now = () => new Date() } = {}) {

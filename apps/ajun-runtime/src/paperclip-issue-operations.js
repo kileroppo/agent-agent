@@ -1,4 +1,4 @@
-import { paperclipIssueStatusForTaskStatus } from './task-status-policy.js';
+import { paperclipIssueStatusForTaskStatus } from './task-status-policy.ts';
 
 export const paperclipIssueMethods = {
   async update(task) {

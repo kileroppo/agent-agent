@@ -5,11 +5,11 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { createRuntime } from '../src/runtime-composition-root.js';
+import { createRuntime } from '../src/runtime-composition-root.ts';
 import {
   resolveRuntimeSourceRoot,
   RuntimeSourceRootError,
-} from '../src/runtime-source-root.js';
+} from '../src/runtime-source-root.ts';
 
 const execFile = promisify(execFileCallback);
 

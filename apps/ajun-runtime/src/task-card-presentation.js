@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { presentTask } from './task-presentation.js';
 import { sanitizeFailureText } from './technical-failure-classifier.ts';
 import { DEFAULT_TASK_DEFINITION_REGISTRY } from './task-definition-registry.js';
-import { isTaskCardTerminalStatus } from './task-status-policy.js';
+import { isTaskCardTerminalStatus } from './task-status-policy.ts';
 
 export const TASK_CARD_SCHEMA_VERSION = 'agent.army/task-card/v1';
 const TASK_CARD_RENDER_REVISION = 'card-ux4';

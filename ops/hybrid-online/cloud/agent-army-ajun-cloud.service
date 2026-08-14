@@ -10,7 +10,7 @@ Group=agentarmy
 WorkingDirectory=/opt/agent-army/current/apps/ajun-runtime
 Environment=HOME=/var/lib/agent-army
 EnvironmentFile=/etc/agent-army/cloud.env
-ExecStart=/usr/local/bin/node /opt/agent-army/current/apps/ajun-runtime/src/server.js
+ExecStart=/usr/local/bin/node /opt/agent-army/current/apps/ajun-runtime/src/server.ts
 Restart=always
 RestartSec=5
 TimeoutStopSec=30

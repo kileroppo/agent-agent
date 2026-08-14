@@ -2,7 +2,7 @@ import { presentationOutlinePreflight } from './presentation-input-contract.ts';
 import {
   isTaskNotificationTerminalStatus,
   taskStatusLabel,
-} from './task-status-policy.js';
+} from './task-status-policy.ts';
 
 export class OfficePresentationProduction {
   async execute({ task, roleToolContext, now }) {

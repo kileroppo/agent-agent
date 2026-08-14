@@ -1,4 +1,4 @@
-import { ValidationError } from './task-validation-error.js';
+import { ValidationError } from './task-validation-error.ts';
 import { XiaodTaskControl } from './xiaod-task-control.js';
 
 export class PaperclipApprovalResolution {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canRetryJob, classifyFailure, interruptedByRestartFailure, retryPatch } from '../src/recovery.js';
+import { canRetryJob, classifyFailure, interruptedByRestartFailure, retryPatch } from '../src/recovery.ts';
 
 test('invalid media needs a replacement instead of retrying', () => {
   const failure = classifyFailure(new Error('ffmpeg 执行失败（退出码 1）：Invalid data found when processing input'));

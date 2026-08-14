@@ -9,14 +9,14 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { resolveRuntimeSourceRoot } from '../src/runtime-source-root.js';
+import { resolveRuntimeSourceRoot } from '../src/runtime-source-root.ts';
 
 export const AJUN_RELEASE_SCHEMA_VERSION = 1;
 export const AJUN_RELEASE_PREFIX = 'ajun-runtime-release-v1-';
 export const AJUN_RELEASE_MANIFEST = 'release-manifest.json';
 export const DEFAULT_RELEASE_PARENT = 'apps/ajun-runtime/data/releases';
 
-const ENTRYPOINT = 'apps/ajun-runtime/src/server.js';
+const ENTRYPOINT = 'apps/ajun-runtime/src/server.ts';
 const RECOVERY_ENTRYPOINT = 'apps/ajun-runtime/src/recovery-server.js';
 const EXTERNAL_STATE = [
   'AGENT_ARMY_DATA_DIR',
