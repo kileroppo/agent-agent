@@ -71,8 +71,8 @@
   },
   "runtimeCapabilities": {
     "modelSelection": {
-      "provider": "deepseek",
-      "model": "deepseek-v4-flash"
+      "provider": "stepfun",
+      "model": "step-3.5-flash-2603"
     },
     "fallbackModels": [],
     "skills": ["paperclip"],

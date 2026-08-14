@@ -14,7 +14,7 @@
 4. 内容模型不持有发布工具。小创只产生经过审核的 ContentVersion，确定性 Publisher Gateway 才能消费 CampaignGrant 执行发布。
 5. 岗位工具权限使用 Paperclip agent tool grants 和独立 Hermes Profile 的工具/MCP开关；技能来源、版本与更新使用 Paperclip/Hermes 的现成 skills audit，不维护第二份注册表。
 6. 抖音优先官方 API；官方能力不可用时才能在明确授权下使用隔离 Computer Use。小红书首版使用隔离 Computer Use，不使用逆向 API 或 Cookie 导出。
-7. 本 ADR 最初采用 StepFun 文本主模型；该部分已由 [ADR-0011](./0011-deepseek-primary-reasoning-model.md) 取代。11 个正式岗位现使用 `deepseek/deepseek-v4-flash` 且无 StepFun 文本回退；M5 StepFun 多模态工具仍是独立媒体能力。
+7. 本 ADR 最初采用 StepFun 文本主模型，后由 [ADR-0011](./0011-deepseek-primary-reasoning-model.md) 切为 DeepSeek；[ADR-0013](./0013-stepfun-primary-reasoning-restoration.md) 已将 11 个正式岗位恢复为 `stepfun/step-3.5-flash-2603` 且保持空回退链。M5 StepFun 多模态工具仍是独立媒体能力。
 8. 目标源码使用 5 个职责隔离的无模型 HTTP 控制器：daily 只激活当天 Case，
    parallel 只核验并行分支和 blocker 汇聚门禁，publisher 只消费可信授权和内容产物并写回 `PublishReceipt` Work Product，
    metrics 只从该凭证派生 2h/24h/72h 检查点并写回 `MetricSnapshot`，

@@ -305,8 +305,8 @@ test("M3 内容增长岗位通过受限验收后以最小权限按需上岗，�
     assert.equal(manifest.status, "active");
     assert.equal(manifest.executionOwner, "paperclip-hermes");
     assert.deepEqual(manifest.runtimeCapabilities.modelSelection, {
-      provider:"deepseek",
-      model:"deepseek-v4-flash"
+      provider:"stepfun",
+      model:"step-3.5-flash-2603"
     });
     assert.equal(manifest.interaction.directFeishu, "disabled");
     assert.ok(manifest.acceptedTaskTypes.length > 0);
@@ -328,8 +328,8 @@ test("M3 内容增长岗位通过受限验收后以最小权限按需上岗，�
     assert.equal(profile.localProfile.credentialedTransportVerification.primary.verified, false);
     assert.equal(profile.localProfile.credentialedTransportVerification.fallback, null);
     assert.deepEqual(profile.modelSelection, {
-      provider:"deepseek",
-      model:"deepseek-v4-flash",
+      provider:"stepfun",
+      model:"step-3.5-flash-2603",
       secretStoredHere:false
     });
     assert.deepEqual(profile.toolAllowlist, manifest.toolAllowlist);
@@ -424,24 +424,24 @@ test("小拆把指标来源约束下沉到 Prompt、Skill、Manifest 和 Eval", 
   ));
 });
 
-test("创建官和审核官固定使用本机 DeepSeek，Profile 不保存密钥", async () => {
+test("创建官和审核官固定使用 StepFun，Profile 不保存密钥", async () => {
   for (const agentId of ["creator", "reviewer"]) {
     const manifest = await readJson(path.join(repositoryRoot, "agents", agentId, "manifest.json"));
     const profile = await readJson(path.join(repositoryRoot, manifest.runtimeProfileRef));
     assert.deepEqual(manifest.runtimeCapabilities.modelSelection, {
-      provider:"deepseek",
-      model:"deepseek-v4-flash"
+      provider:"stepfun",
+      model:"step-3.5-flash-2603"
     });
     assert.deepEqual(profile.modelSelection, {
-      provider:"deepseek",
-      model:"deepseek-v4-flash",
+      provider:"stepfun",
+      model:"step-3.5-flash-2603",
       secretStoredHere:false
     });
     assert.equal(profile.secrets.valuesStoredHere, false);
   }
 });
 
-test("11 个自主岗位统一明确 DeepSeek 模型，私密只读岗位仅开放本机模型且不自主扩权", async () => {
+test("11 个自主岗位统一明确 StepFun 模型，私密只读岗位仅开放本机模型且不自主扩权", async () => {
   const entries = await readdir(path.join(repositoryRoot, "agents"), { withFileTypes:true });
   const formalAutonomousAgentIds = [
     "ajun",
@@ -507,8 +507,8 @@ test("11 个自主岗位统一明确 DeepSeek 模型，私密只读岗位仅开�
       }
       formal.push(manifest);
       assert.deepEqual(manifest.runtimeCapabilities.modelSelection, {
-        provider:"deepseek",
-        model:"deepseek-v4-flash"
+        provider:"stepfun",
+        model:"step-3.5-flash-2603"
       });
       assert.deepEqual(manifest.runtimeCapabilities.fallbackModels, []);
       assert.equal(manifest.dynamicCapabilityPolicy.modelPolicyMutable, false);

@@ -207,7 +207,7 @@ flowchart LR
 
 五个常驻 Gateway 是 A君、小D、小R、小办和运维官。其余正式岗位保留独立 Profile、SOUL、模型和最小 MCP/Paperclip 作用域，由 Paperclip 官方 `hermes_local` Adapter 按需唤醒。
 
-11 个正式岗位当前 Manifest 主文本模型为 `deepseek/deepseek-v4-flash`，回退链为空。配置、Profile、Adapter 和 live roster 对账不等于已完成新的付费 DeepSeek 探针。微信私密岗位固定使用回环 Qwen3.5，不允许云端或 4070 回退。
+11 个正式岗位当前 Manifest 主文本模型为 `stepfun/step-3.5-flash-2603`，回退链为空。配置、Profile、Adapter 和 live roster 对账不等于已完成新的付费 StepFun 探针。微信私密岗位固定使用回环 Qwen3.5，不允许云端或 4070 回退。
 
 岗位的最终定义必须直接读取 [`agents/`](../agents/)；岗位概览见 [`agents/README.md`](../agents/README.md)，Schema 见 [`agents/schema/agent-manifest.schema.json`](../agents/schema/agent-manifest.schema.json)。
 

@@ -104,7 +104,7 @@ test('Paperclip Hermes 适配器从 Manifest 传播任务卡策略且未配置�
   );
 });
 
-test('Paperclip Hermes 员工统一选择 DeepSeek 固定模型且不配置 StepFun 回退', () => {
+test('Paperclip Hermes 员工统一选择 StepFun 固定模型且不配置文本回退', () => {
   const config = paperclipHermesAdapterConfig({
     agentId:'architect',
     status:'active',
@@ -113,14 +113,14 @@ test('Paperclip Hermes 员工统一选择 DeepSeek 固定模型且不配置 Step
     interaction:{ runtime:'hermes-profile' },
     executionOwner:'paperclip-hermes',
     runtimeCapabilities:{
-      modelSelection:{ provider:'deepseek', model:'deepseek-v4-flash' },
+      modelSelection:{ provider:'stepfun', model:'step-3.5-flash-2603' },
       fallbackModels:[],
       paperclipToolsets:['agent-army'],
       mcpTools:['approval_list']
     }
   });
-  assert.equal(config.provider, 'deepseek');
-  assert.equal(config.model, 'deepseek-v4-flash');
+  assert.equal(config.provider, 'stepfun');
+  assert.equal(config.model, 'step-3.5-flash-2603');
   assert.deepEqual(config.extraArgs, []);
   assert.deepEqual(config.fallbackModels, []);
 });
