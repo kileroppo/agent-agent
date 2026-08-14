@@ -39,7 +39,7 @@
 | `openTaskPolicy` | 否 | 岗位开放任务域与质量门禁；存在时至少声明一个岗位专属开放任务类型 |
 | `dynamicCapabilityPolicy` | 否 | 能力发现提案来源、模型策略不可变约束及需审批的敏感类别；不能自行激活能力 |
 | `autonomyBudgetPolicy` | 否 | 投影给 Paperclip 的预算建议，不是 A君本地预算真相 |
-| `runtimeCapabilities.modelSelection` | 是 | 主推理模型；11 个正式岗位当前固定为 `stepfun/step-3.5-flash-2603` |
+| `runtimeCapabilities.modelSelection` | 是 | 主推理模型；11 个正式岗位当前固定为 `stepfun/step-3.7-flash` |
 | `runtimeCapabilities.fallbackModels` | 否 | 有序回退；11 个正式岗位当前为空，不自动回退到其他文本模型 |
 | `promptRef` | 是 | 仓库中版本化系统 Prompt 的引用 |
 | `runtimeProfileRef` | 是 | Hermes 或其他运行时配置引用 |

@@ -9,7 +9,7 @@
 ## 决策
 
 11 个正式 Hermes 岗位的主推理模型统一切回
-`stepfun/step-3.5-flash-2603`，回退链保持为空。微信私密只读检索岗位不纳入这
+`stepfun/step-3.7-flash`，回退链保持为空。微信私密只读检索岗位不纳入这
 11 岗，继续使用本机回环 Qwen3.5-9B OpenAI-compatible 服务且禁止云端回退。
 
 本次不恢复历史 DeepSeek 文本回退，避免 StepFun 不可用时静默产生另一家

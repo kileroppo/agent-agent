@@ -11,7 +11,7 @@
     "credentialedTransportVerified": false,
     "credentialedTransportVerification": {
       "status": "model-transport-pending",
-      "primary": { "provider": "stepfun", "model": "step-3.5-flash-2603", "verified": false },
+      "primary": { "provider": "stepfun", "model": "step-3.7-flash", "verified": false },
       "fallback": null
     },
     "skillsSeeded": false
@@ -21,7 +21,7 @@
   "appRef": "apps/ajun-runtime",
   "modelSelection": {
     "provider": "stepfun",
-    "model": "step-3.5-flash-2603",
+    "model": "step-3.7-flash",
     "secretStoredHere": false
   },
   "fallbackModels": [],

@@ -265,8 +265,8 @@ test('提交新岗位前由审核官创建独立任务并把产物关联回草�
               interaction:{ runtime:'hermes-profile' },
               executionOwner:'paperclip-hermes',
               runtimeCapabilities:{
-                modelSelection:{ provider:'stepfun', model:'step-3.5-flash-2603' },
-                fallbackModels:[{ provider:'deepseek', model:'deepseek-v4-flash', trigger:'transport_unavailable' }],
+                modelSelection:{ provider:'stepfun', model:'step-3.7-flash' },
+                fallbackModels:[],
                 paperclipToolsets:['agent-army'],
                 mcpTools:['m5_stage_execute']
               }
@@ -283,7 +283,7 @@ test('提交新岗位前由审核官创建独立任务并把产物关联回草�
   assert.equal(calls[0].taskType, 'governance.approval-review');
   assert.equal(calls[0].agentId, 'reviewer');
   assert.equal(calls[0].context.proposalId, draft.proposalId);
-  assert.match(calls[0].description, /stepfun \/ step-3\.5-flash-2603/);
+  assert.match(calls[0].description, /stepfun \/ step-3\.7-flash/);
   assert.doesNotMatch(calls[0].description, /当前阶段：只判断草案能否进入负责人/);
   assert.match(calls[0].idempotencyKey, /^agent-proposal-review:[0-9a-f-]+:[0-9a-f]{16}$/);
   assert.equal(submitted.reviewRefs.find((item) => item.role === 'reviewer').taskId, 'review-task-1');

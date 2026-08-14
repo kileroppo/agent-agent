@@ -306,7 +306,7 @@ test("M3 内容增长岗位通过受限验收后以最小权限按需上岗，�
     assert.equal(manifest.executionOwner, "paperclip-hermes");
     assert.deepEqual(manifest.runtimeCapabilities.modelSelection, {
       provider:"stepfun",
-      model:"step-3.5-flash-2603"
+      model:"step-3.7-flash"
     });
     assert.equal(manifest.interaction.directFeishu, "disabled");
     assert.ok(manifest.acceptedTaskTypes.length > 0);
@@ -329,7 +329,7 @@ test("M3 内容增长岗位通过受限验收后以最小权限按需上岗，�
     assert.equal(profile.localProfile.credentialedTransportVerification.fallback, null);
     assert.deepEqual(profile.modelSelection, {
       provider:"stepfun",
-      model:"step-3.5-flash-2603",
+      model:"step-3.7-flash",
       secretStoredHere:false
     });
     assert.deepEqual(profile.toolAllowlist, manifest.toolAllowlist);
@@ -430,11 +430,11 @@ test("创建官和审核官固定使用 StepFun，Profile 不保存密钥", asyn
     const profile = await readJson(path.join(repositoryRoot, manifest.runtimeProfileRef));
     assert.deepEqual(manifest.runtimeCapabilities.modelSelection, {
       provider:"stepfun",
-      model:"step-3.5-flash-2603"
+      model:"step-3.7-flash"
     });
     assert.deepEqual(profile.modelSelection, {
       provider:"stepfun",
-      model:"step-3.5-flash-2603",
+      model:"step-3.7-flash",
       secretStoredHere:false
     });
     assert.equal(profile.secrets.valuesStoredHere, false);
@@ -508,7 +508,7 @@ test("11 个自主岗位统一明确 StepFun 模型，私密只读岗位仅开�
       formal.push(manifest);
       assert.deepEqual(manifest.runtimeCapabilities.modelSelection, {
         provider:"stepfun",
-        model:"step-3.5-flash-2603"
+        model:"step-3.7-flash"
       });
       assert.deepEqual(manifest.runtimeCapabilities.fallbackModels, []);
       assert.equal(manifest.dynamicCapabilityPolicy.modelPolicyMutable, false);

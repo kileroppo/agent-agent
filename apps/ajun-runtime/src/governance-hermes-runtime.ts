@@ -195,7 +195,7 @@ function safeModelSelection(value: any): any {
         throw new Error('Hermes Provider 不在受控白名单中。');
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._/-]{1,127}$/.test(model))
         throw new Error('Hermes 模型标识不合法。');
-    if (provider === 'stepfun' && model !== 'step-3.5-flash-2603') {
+    if (provider === 'stepfun' && model !== 'step-3.7-flash') {
         throw new Error('StepFun 主模型必须使用受控固定版本。');
     }
     if (provider === 'deepseek' && model !== 'deepseek-v4-flash') {
@@ -203,8 +203,8 @@ function safeModelSelection(value: any): any {
     }
     // Paperclip 的 Hermes adapter 尚未把 StepFun 列入 Provider 常量表；
     // 它会把该值安全降为 auto，让 Hermes 在目标 HERMES_HOME Profile
-    // 中解析原生 stepfun Provider。不要追加 custom:stepfun：Hermes 0.19
-    // 已将 StepFun 作为原生 Provider，旧别名会在任何网络请求前被拒绝。
+    // 中解析当前受控的 StepFun Provider。季度 Step Plan 可由 Profile
+    // 内的具名 custom provider 承载，仓库契约仍保持 provider=stepfun。
     // 显式空数组也用于覆盖 Paperclip 里已经保存的旧 extraArgs；
     // 该接口会合并 adapterConfig，省略字段无法清掉历史错误参数。
     return { provider, model };

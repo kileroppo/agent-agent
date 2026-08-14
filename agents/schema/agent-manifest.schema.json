@@ -165,7 +165,7 @@
                 "required": ["provider"]
               },
               "then": {
-                "properties": { "model": { "const": "step-3.5-flash-2603" } }
+                "properties": { "model": { "const": "step-3.7-flash" } }
               }
             },
             {

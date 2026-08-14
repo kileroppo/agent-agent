@@ -72,7 +72,7 @@
   "runtimeCapabilities": {
     "modelSelection": {
       "provider": "stepfun",
-      "model": "step-3.5-flash-2603"
+      "model": "step-3.7-flash"
     },
     "fallbackModels": [],
     "skills": ["paperclip"],

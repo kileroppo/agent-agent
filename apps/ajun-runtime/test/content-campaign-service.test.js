@@ -46,7 +46,7 @@ function readyM5Agents() {
       adapterType:'hermes_local',
       adapterConfig:{
         provider:'stepfun',
-        model:'step-3.5-flash-2603',
+        model:'step-3.7-flash',
         env:{
           AGENT_ARMY_ALLOWED_TASK_TYPES:taskTypes.join(','),
           AGENT_ARMY_ALLOWED_MCP_TOOLS:mcpTools.join(','),

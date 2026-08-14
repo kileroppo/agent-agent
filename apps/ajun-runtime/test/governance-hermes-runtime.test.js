@@ -113,14 +113,14 @@ test('Paperclip Hermes 员工统一选择 StepFun 固定模型且不配置文本
     interaction:{ runtime:'hermes-profile' },
     executionOwner:'paperclip-hermes',
     runtimeCapabilities:{
-      modelSelection:{ provider:'stepfun', model:'step-3.5-flash-2603' },
+      modelSelection:{ provider:'stepfun', model:'step-3.7-flash' },
       fallbackModels:[],
       paperclipToolsets:['agent-army'],
       mcpTools:['approval_list']
     }
   });
   assert.equal(config.provider, 'stepfun');
-  assert.equal(config.model, 'step-3.5-flash-2603');
+  assert.equal(config.model, 'step-3.7-flash');
   assert.deepEqual(config.extraArgs, []);
   assert.deepEqual(config.fallbackModels, []);
 });
@@ -169,7 +169,7 @@ test('Paperclip Hermes 适配器拒绝非 DeepSeek 或非连接故障触发的 f
     interaction:{ runtime:'hermes-profile' },
     executionOwner:'paperclip-hermes',
     runtimeCapabilities:{
-      modelSelection:{ provider:'stepfun', model:'step-3.5-flash-2603' },
+      modelSelection:{ provider:'stepfun', model:'step-3.7-flash' },
       paperclipToolsets:['agent-army'],
       mcpTools:[]
     }
