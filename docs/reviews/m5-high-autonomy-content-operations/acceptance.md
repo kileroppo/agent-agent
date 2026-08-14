@@ -2,6 +2,15 @@
 
 > 当前总判定：**PARTIAL / M5 NOT COMPLETE**。2026-08-05 已完成一次负责人单独授权的小红书真实发布冒烟，平台分配内容 ID 且笔记当前“审核中”；该动作使用隔离 CuaDriver 人工验收链，不是 A君 production Runtime、Paperclip selector/Profile lease 或真实 PublishReceipt。Cron 与 Publisher 继续关闭；抖音发布、双平台回读、指标和 7 天闭环仍未完成。
 
+## 2026-08-15 StepFun 能力模型切换追加证据
+
+| 项目 | 事实 | 边界 |
+| --- | --- | --- |
+| UI 与策略 | A君模型页可保存主模型、岗位覆盖和能力专用模型；ASR 可选 `stepaudio-2.5-asr` 或本机 Whisper，视觉固定 `step-3.7-flash`，生图/改图固定 `step-image-edit-2`，TTS 固定 `stepaudio-2.5-tts` | 保存只作用于新任务；正在执行的任务不换模型 |
+| 小D ASR | 小D创建任务时冻结 ASR 路线；StepFun 已提交后不自动重试、不跨服务商改投，响应中断写 `ambiguous` 回执 | 自动化和运行配置已验收；本轮未发送真实音频，因此不宣称 StepAudio 真实转写成功 |
+| 内容插件 | Paperclip 插件由不可变 `0.4.9` 同 ID 软升级为不可变 `0.5.0`，配置校验值保持，live API 与 health 均回读 `ready/healthy`；manifest 视觉工具回读 `step-3.7-flash` | 新包 `payloadHash=9fe0df77a9b9a87fbca8f787d6ebcc27ce50fef525d9998535c8bbd37893b43e`、`entryCount=939`；隔离冻结目录的 TypeScript 二次 check 因依赖解析冲突未通过，真实 Workspace check、全量测试和 live 加载健康通过 |
+| 安全状态 | Paperclip 数据库备份健康，Campaign `stopped`，每日 Cron disabled，Publisher 未启动；0.4.9 不可变回滚包和显式回滚动作保留 | 升级没有恢复活动、调用媒体 Provider、发送飞书消息或发布平台内容 |
+
 ## 2026-08-06 A君不可变 release 收口
 
 | 层级 | 结论 | 事实与边界 |

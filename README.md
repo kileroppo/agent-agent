@@ -34,10 +34,10 @@ agent-agent/
 
 ## 当前状态
 
-### 当前机器事实（2026-08-14）
+### 当前机器事实（2026-08-15）
 
-- A君 `4321` 已切到 StepFun 3.7 clean 不可变 release `0f3017d1…`，入口为 `src/server.ts`、HTTP 200；manifest 绑定 payload `5dbd1e17…` 与隔离 clean Git `136a959…`。`runtime:fingerprint` 回读 live 与当前源码为 `same_git_head`。默认 Hermes、11 个隔离 Profile、5 个常驻 Gateway 和 Paperclip 11/11 正式岗位均已对账到 `stepfun/step-3.7-flash`、空回退链；本轮未执行付费模型探针。
-- 小D `4318` 已重启为 `src/server.ts`、HTTP 200；Paperclip `3100` 仍可达。Publisher `4390` 未运行，Campaign 与 M5 Cron 继续关闭；本轮没有触发飞书、Publisher 或外部 Provider 工作流。
+- A君 `4321` 的模型页已支持直接保存主模型、岗位覆盖和能力专用模型；默认文本/视觉为 `step-3.7-flash`，语音识别可在 `stepaudio-2.5-asr` 与本机 Whisper 之间切换，生图/改图为 `step-image-edit-2`，配音为 `stepaudio-2.5-tts`。新任务冻结选择，正在执行的任务不换模型。
+- 小D `4318` 已接入共享能力策略；StepFun ASR 结果不明时记为 `ambiguous`，不自动重试或改投本机。Paperclip `3100` 内容插件 live 为不可变 `0.5.0`、`ready/healthy`，视觉工具回读为 `step-3.7-flash`。Publisher `4390` 未运行，Campaign 为 `stopped`、M5 Cron 关闭；本轮没有触发飞书、Publisher 或 StepFun 媒体 Provider 工作流。
 - Business Workflow、能力真相、并列否定策略和人工评价写回已进入 `4321` live；飞书任务 `#167203DF` 完成一条真实只读 Workflow，并将 `useful` / `accepted` 写回任务账本。
 
 ### 当前产品结论
