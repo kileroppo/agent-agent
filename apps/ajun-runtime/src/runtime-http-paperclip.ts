@@ -1,15 +1,9 @@
-// @ts-expect-error -- transitional JS Module; removed with the Paperclip lifecycle batch.
-import { M5LearningLifecycleError, PaperclipLearningLifecycleError } from './paperclip-learning-lifecycle.js';
-// @ts-expect-error -- transitional JS Adapter; removed with the Paperclip heartbeat batch.
-import { PaperclipHeartbeatError } from './paperclip-heartbeat.js';
-// @ts-expect-error -- transitional JS Module; removed with the Paperclip metrics batch.
-import { PaperclipMetricMonitorError } from './paperclip-metric-monitor.js';
-// @ts-expect-error -- transitional JS Module; removed with the Paperclip publisher batch.
-import { PaperclipPublisherControllerError } from './paperclip-publisher-controller.js';
-// @ts-expect-error -- transitional JS Module; removed with the Paperclip publisher batch.
-import { PaperclipPublisherRunContextError } from './paperclip-publisher-run-context.js';
-// @ts-expect-error -- transitional JS Module; removed with the Paperclip retrospective batch.
-import { PaperclipRetrospectiveError } from './paperclip-retrospective.js';
+import { M5LearningLifecycleError, PaperclipLearningLifecycleError } from './paperclip-learning-lifecycle.ts';
+import { PaperclipHeartbeatError } from './paperclip-heartbeat.ts';
+import { PaperclipMetricMonitorError } from './paperclip-metric-monitor.ts';
+import { PaperclipPublisherControllerError } from './paperclip-publisher-controller.ts';
+import { PaperclipPublisherRunContextError } from './paperclip-publisher-run-context.ts';
+import { PaperclipRetrospectiveError } from './paperclip-retrospective.ts';
 import type { HttpRouteResult, JsonRecord, PaperclipHttpInput } from './runtime-http-paperclip-contracts.ts';
 export type { HttpRouteResult } from './runtime-http-paperclip-contracts.ts';
 

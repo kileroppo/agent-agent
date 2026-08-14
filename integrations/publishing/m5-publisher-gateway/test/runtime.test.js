@@ -16,7 +16,7 @@ import {
   createPublisherRuntime,
   publishIdempotencyKey,
   selectorBundleChecksum,
-} from '../src/index.js';
+} from '../src/index.ts';
 import {
   actualCost,
   deterministicCostReporter,
@@ -876,7 +876,7 @@ test('生产 Runtime 通过本地假 runner 写入准确的 CUA connectorMode', 
 });
 
 test('Runtime 源码没有进程内轮询器', async () => {
-  const source = await fs.readFile(new URL('../src/runtime.js', import.meta.url), 'utf8');
+  const source = await fs.readFile(new URL('../src/runtime.ts', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /setInterval|clearInterval|metricTimer|collectDueMetrics/);
 });
 

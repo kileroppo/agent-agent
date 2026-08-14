@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
-import { IsolatedRepairWorkspace } from '../src/isolated-repair-workspace.js';
+import { IsolatedRepairWorkspace } from '../src/isolated-repair-workspace.ts';
 import { LocalTechnicalExpert } from '../src/local-technical-expert.ts';
 import { resolveRuntimeSourceRoot } from '../src/runtime-source-root.ts';
 

@@ -14,15 +14,15 @@ import {
   PAPERCLIP_VERSION,
   resolveCompatibilityTargets,
   rollbackCompatibilityPatch,
-} from '../compat/paperclip-2026-722-binary-rpc.mjs';
+} from '../compat/paperclip-2026-722-binary-rpc.ts';
 
 const execFileAsync = promisify(execFile);
 const PLUGIN_KEY = 'agent-army.content-autonomy';
 const OLD_PLUGIN_VERSION = '0.4.6';
-const NEW_PLUGIN_VERSION = '0.4.9';
+const NEW_PLUGIN_VERSION = '0.5.0';
 const OLD_PLUGIN_STEPFUN_SHA256 = 'd0c3ba28e2a175e16beacf3f2ee2761caa77aec5a6b62cf710869210be11ecf7';
 const LAUNCHD_LABEL = 'ai.agent-army.paperclip';
-const APPLY_CONFIRMATION = 'I_ACCEPT_CONTENT_AUTONOMY_0_4_9_LIVE_MAINTENANCE';
+const APPLY_CONFIRMATION = 'I_ACCEPT_CONTENT_AUTONOMY_0_5_0_LIVE_MAINTENANCE';
 const ROLLBACK_CONFIRMATION = 'I_ACCEPT_CONTENT_AUTONOMY_0_4_6_ROLLBACK';
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
@@ -85,7 +85,7 @@ export async function runLiveMaintenance({
       stage = 'soft_uninstall';
       await api.delete(`/api/plugins/${encodeURIComponent(input.pluginId)}`);
       mutated = true;
-      stage = 'install_0_4_9';
+      stage = 'install_0_5_0';
       const installed = await api.post('/api/plugins/install', {
         packageName:newBundle.root,
         isLocalPath:true,
@@ -96,7 +96,7 @@ export async function runLiveMaintenance({
       stage = 'binary_compat_apply';
       await compat.apply({
         paperclipEntry:input.paperclipEntry,
-        pluginEntry:path.join(newBundle.root, 'src', 'worker.js'),
+        pluginEntry:path.join(newBundle.root, 'src', 'worker.ts'),
       });
     } else {
       stage = 'binary_compat_preserve';
@@ -285,12 +285,13 @@ export async function inspectImmutableBundle(rootValue, expectedVersion) {
     packageJson.name !== '@agent-army/paperclip-content-autonomy'
     || packageJson.version !== expectedVersion
   ) throw new Error('immutable插件包名或版本不匹配。');
-  const stepfunSha = await fileSha(path.join(root, 'src', 'stepfun-tools.js'));
+  const currentBundle = expectedVersion === NEW_PLUGIN_VERSION;
+  const stepfunSha = await fileSha(path.join(root, 'src', currentBundle ? 'stepfun-tools.ts' : 'stepfun-tools.js'));
   const expectedSha = expectedVersion === NEW_PLUGIN_VERSION
     ? CONTENT_PLUGIN_STEPFUN_SHA256
     : OLD_PLUGIN_STEPFUN_SHA256;
   if (stepfunSha !== expectedSha) throw new Error('immutable插件StepFun源码SHA不匹配。');
-  const worker = path.join(root, 'src', 'worker.js');
+  const worker = path.join(root, 'src', currentBundle ? 'worker.ts' : 'worker.js');
   const stat = await fs.lstat(worker);
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('immutable插件worker无效。');
   return {

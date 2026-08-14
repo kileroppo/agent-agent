@@ -3,8 +3,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { XiaodReconciler } from '../src/xiaod-reconciler.js';
-import { TaskLifecycleEventRecorder } from '../src/task-lifecycle-event-recorder.js';
+import { XiaodReconciler } from '../src/xiaod-reconciler.ts';
+import { TaskLifecycleEventRecorder } from '../src/task-lifecycle-event-recorder.ts';
 
 function setup({ taskPatch = {}, getJob, onFailure = null, contentWorkspaceDir = null, deliveryQuality = null, lifecycleEvents = null } = {}) {
   const task = {

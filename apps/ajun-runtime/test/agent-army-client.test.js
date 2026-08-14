@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { AgentArmyClient, AgentArmyClientError } from '../src/agent-army-client.js';
+import { AgentArmyClient, AgentArmyClientError } from '../src/agent-army-client.ts';
 
 const overview = {
   capabilities:[{ id:'task-coordination', name:'统一任务协调', status:'ready', detail:'已就绪', truth:{ declared:true, configured:true, live:true, verified:true, humanAccepted:false, overall:'verified', verifiedAt:'2026-08-10T01:00:00.000Z', evidenceTaskId:'task-evidence', evidenceRef:'task:task-evidence', freshness:'later_than_latest_failure', latestFailureAt:'2026-08-09T01:00:00.000Z', latestFailureTaskId:'task-failure' } }],

@@ -10,10 +10,10 @@ Workspace、应用目录、入口文件和生命周期分类没有漂移。
 | --- | --- | --- |
 | `apps/ajun-runtime` | A君本机能力网关与执行适配 | `src/server.ts` |
 | `apps/xiaod-media-transcriber` | 小D音视频转录整理 Agent | `src/server.ts` |
-| `apps/mac-worker` | 私人云到 Mac 的出站工作桥 | `src/worker.js` |
+| `apps/mac-worker` | 私人云到 Mac 的出站工作桥 | `src/worker.ts` |
 | `integrations/local-ai` | 本机与 4070 的本地 AI 能力 Adapter | `local_ai_gateway.py` |
 | `integrations/paperclip/plugins/content-autonomy` | Paperclip 内容自治插件 | `src/worker.js` |
-| `integrations/publishing/m5-publisher-gateway` | 确定性外写 Gateway | `src/index.js`；默认关闭 |
+| `integrations/publishing/m5-publisher-gateway` | 确定性外写 Gateway | `src/index.ts`；默认关闭 |
 
 Paperclip 和 Hermes 是外部平台，不在本仓库重新实现。飞书是日常交互入口；A君网页只提供授权、
 健康、恢复和脱敏诊断。

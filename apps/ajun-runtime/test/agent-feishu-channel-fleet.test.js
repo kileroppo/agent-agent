@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AgentFeishuChannelFleet, agentChannelOptions, employeeFeishuChannelsEnabled, feishuChannelStartupPlan } from '../src/agent-feishu-channel-fleet.js';
+import { AgentFeishuChannelFleet, agentChannelOptions, employeeFeishuChannelsEnabled, feishuChannelStartupPlan } from '../src/agent-feishu-channel-fleet.ts';
 
 test('每个独立飞书智能体用自己的应用凭据和岗位身份连接，不共享 A君 身份', async () => {
   const created = [];

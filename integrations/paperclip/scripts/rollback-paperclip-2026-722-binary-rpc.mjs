@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import {
   PAPERCLIP_VERSION,
   rollbackCompatibilityPatch,
-} from '../compat/paperclip-2026-722-binary-rpc.mjs';
+} from '../compat/paperclip-2026-722-binary-rpc.ts';
 
 const CONFIRMATION = 'I_ACCEPT_PAPERCLIP_2026_722_BINARY_RPC_ROLLBACK';
 

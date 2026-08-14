@@ -3,7 +3,7 @@ import test from 'node:test';
 import {
   DEFAULT_TASK_DEFINITION_REGISTRY,
   TaskDefinitionRegistry,
-} from '../src/task-definition-registry.js';
+} from '../src/task-definition-registry.ts';
 
 test('任务定义注册中心集中默认岗位、固定岗位和开放委派', () => {
   assert.equal(DEFAULT_TASK_DEFINITION_REGISTRY.defaultAgentId('research.intel-report'), 'intel-researcher');
@@ -40,4 +40,11 @@ test('自定义注册中心拒绝缺失 taskType 的定义', () => {
   assert.throws(() => new TaskDefinitionRegistry({ definitions:[{ taskType:'x', openDelegate:'missing' }], defaultTaskType:'x' }), /openDelegate/);
   assert.throws(() => new TaskDefinitionRegistry({ definitions:[{ taskType:'x', prerequisiteTaskType:'missing' }], defaultTaskType:'x' }), /prerequisiteTaskType/);
   assert.throws(() => new TaskDefinitionRegistry({ definitions:[{ taskType:'x' }], defaultTaskType:'missing' }), /defaultTaskType/);
+  assert.throws(() => new TaskDefinitionRegistry({
+    defaultTaskType:'x',
+    definitions:[
+      { taskType:'x', defaultAgentId:'same', directDefault:true },
+      { taskType:'y', defaultAgentId:'same', directDefault:true },
+    ],
+  }), /directDefault definitions must be unique per agent/);
 });

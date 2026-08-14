@@ -5,9 +5,13 @@
   "description": "Shared Paperclip transport and organization/M5 semantic clients",
   "type": "module",
   "exports": {
-    ".": "./src/index.js"
+    ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "check": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
   }
 }

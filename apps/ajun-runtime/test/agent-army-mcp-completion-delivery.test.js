@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { createAgentArmyMcpServer } from '../src/agent-army-mcp-server.js';
+import { createAgentArmyMcpServer } from '../src/agent-army-mcp-server.ts';
 
 test('MCP 单任务和多人任务都保留 Hermes Gateway 动态卡投递契约', async (t) => {
   const calls = [];

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { HermesPublicComparisonAdvisor } from '../src/hermes-public-comparison-advisor.js';
+import { HermesPublicComparisonAdvisor } from '../src/hermes-public-comparison-advisor.ts';
 
 test('公开资料对比 AI 只能依据已读取摘要给出共同点、差别和建议', async () => {
   let prompt = '';

@@ -6,7 +6,7 @@ import {
   applyBootstrap,
   defaultDefinition,
   dryRunBootstrap,
-} from '../src/index.js';
+} from '../src/index.ts';
 
 test('dry-run只写Fake adapter并生成Goal、Project、Routine、Pipeline和预算', async () => {
   const adapter = new FakePaperclipAdapter();

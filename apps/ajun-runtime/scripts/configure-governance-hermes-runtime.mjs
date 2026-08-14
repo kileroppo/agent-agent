@@ -13,7 +13,7 @@ import {
   hermesProfileHome,
   taskCardPolicyForManifest,
   usesPaperclipHermesExecution
-} from '../src/governance-hermes-runtime.js';
+} from '../src/governance-hermes-runtime.ts';
 
 const scriptPath = fileURLToPath(import.meta.url);
 export function resolveGovernanceMcpServerPath({
@@ -23,14 +23,14 @@ export function resolveGovernanceMcpServerPath({
 } = {}) {
   const candidate = path.resolve(
     String(override || '').trim()
-      || path.resolve(path.dirname(currentScriptPath), '../src/agent-army-mcp-server.js'),
+      || path.resolve(path.dirname(currentScriptPath), '../src/agent-army-mcp-server.ts'),
   );
   const approvedRoot = path.resolve(repositoryRoot);
   if (
-    path.basename(candidate) !== 'agent-army-mcp-server.js'
+    path.basename(candidate) !== 'agent-army-mcp-server.ts'
     || !candidate.startsWith(`${approvedRoot}${path.sep}`)
   ) {
-    throw new Error('AGENT_ARMY_MCP_SERVER_PATH 必须指向仓库内的 agent-army-mcp-server.js。');
+    throw new Error('AGENT_ARMY_MCP_SERVER_PATH 必须指向仓库内的 agent-army-mcp-server.ts。');
   }
   return candidate;
 }

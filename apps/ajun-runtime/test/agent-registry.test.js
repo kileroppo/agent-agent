@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { AgentRegistry } from '../src/agent-registry.js';
+import { AgentRegistry } from '../src/agent-registry.ts';
 
 async function fixture({ manifest, profile }) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-registry-'));
@@ -53,4 +53,29 @@ test('A君有自己的岗位资料，但不会被误显示成可被派活的普�
   const { root, agentsDir } = await fixture({ manifest, profile:{ localProfile:{ created:true, modelConfigured:false }, gateway:{ enabled:false } } });
   t.after(() => fs.rm(root, { recursive:true, force:true }));
   assert.deepEqual(await new AgentRegistry({ agentsDir }).list(), []);
+});
+
+test('岗位清单复用短时快照，显式失效后重新读取磁盘', async (t) => {
+  const manifest = { agentId:'operator', name:'运维官', acceptedTaskTypes:['operations.health-review'], status:'active' };
+  const { root, agentsDir } = await fixture({ manifest });
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const registry = new AgentRegistry({ agentsDir });
+
+  assert.equal((await registry.list())[0].name, '运维官');
+  await fs.writeFile(path.join(agentsDir, manifest.agentId, 'manifest.json'), JSON.stringify({ ...manifest, name:'新运维官' }));
+  assert.equal((await registry.list())[0].name, '运维官');
+
+  registry.invalidate();
+  assert.equal((await registry.list())[0].name, '新运维官');
+});
+
+test('删除快照缓存 Adapter 后岗位注册表仍可独立工作', async (t) => {
+  const manifest = { agentId:'operator', name:'运维官', acceptedTaskTypes:['operations.health-review'], status:'active' };
+  const { root, agentsDir } = await fixture({ manifest });
+  t.after(() => fs.rm(root, { recursive:true, force:true }));
+  const registry = new AgentRegistry({ agentsDir, snapshotCache:null });
+
+  assert.equal((await registry.list())[0].name, '运维官');
+  await fs.writeFile(path.join(agentsDir, manifest.agentId, 'manifest.json'), JSON.stringify({ ...manifest, name:'即时更新' }));
+  assert.equal((await registry.list())[0].name, '即时更新');
 });

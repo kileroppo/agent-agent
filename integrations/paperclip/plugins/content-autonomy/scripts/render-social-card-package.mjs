@@ -67,7 +67,7 @@ for (const [index, card] of props.cards.entries()) {
 }
 
 await fs.writeFile(
-  path.join(outputDir, 'social-card-render-manifest.json'),
+  path.join(outputDir, 'social-card-render-manifest.tson'),
   `${JSON.stringify({ schemaVersion:1, platform:'xiaohongshu', cards }, null, 2)}\n`,
   { mode:0o600, flag:'wx' },
 );

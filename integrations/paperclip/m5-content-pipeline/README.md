@@ -18,7 +18,7 @@
 
 ## 公共模块
 
-服务端可以从 `src/index.js` 导入：
+服务端可以从 `src/index.ts` 导入：
 
 - `validateDefinition(definition)`
 - `buildBootstrapPlan(definition, bindings)`

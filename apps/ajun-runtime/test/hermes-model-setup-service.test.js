@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { HermesModelSetupError, HermesModelSetupService } from '../src/hermes-model-setup-service.js';
+import { HermesModelSetupError, HermesModelSetupService } from '../src/hermes-model-setup-service.ts';
 
 function profileStat() { return { isDirectory:() => true }; }
 function response(payload, ok = true) { return { ok, async json() { return payload; } }; }

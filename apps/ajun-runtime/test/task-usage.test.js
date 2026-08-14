@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { reconcileUsageBilling, recordTaskUsage, summarizeTaskUsage } from '../src/task-usage.js';
+import { reconcileUsageBilling, recordTaskUsage, summarizeTaskUsage } from '../src/task-usage.ts';
 
 test('工作使用记录只汇总实际报告的本机调用，不虚构模型或费用', () => {
   const usage = recordTaskUsage({

@@ -3,8 +3,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { KnowledgeArchiveWriter } from '../src/knowledge-archive-writer.js';
-import { LocalOfficeAssistant } from '../src/local-office-assistant.js';
+import { KnowledgeArchiveWriter } from '../src/knowledge-archive-writer.ts';
+import { LocalOfficeAssistant } from '../src/local-office-assistant.ts';
 
 test('知识归档只写固定 Agent军团 目录并按幂等键返回原文件', async (t) => {
   const root = await sandbox(t);

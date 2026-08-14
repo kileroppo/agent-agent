@@ -1,6 +1,6 @@
 import {
   PUBLISHER_ACCOUNT_IDENTITY_VERIFIER_SCHEMA,
-} from '../src/account-identity.js';
+} from '../src/account-identity.ts';
 
 export function recordingAccountIdentityVerifier({
   verified = true,

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { HermesIntelResearchAdvisor } from '../src/hermes-intel-research-advisor.js';
+import { HermesIntelResearchAdvisor } from '../src/hermes-intel-research-advisor.ts';
 
 const sources = [
   {

@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { SkillExecutionRegistry } from '../src/skill-execution-registry.js';
+import { SkillExecutionRegistry } from '../src/skill-execution-registry.ts';
 
 async function rootWith(...slugs) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'skill-registry-'));

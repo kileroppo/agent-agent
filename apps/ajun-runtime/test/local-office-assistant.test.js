@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { LocalOfficeAssistant, formatOfficeBriefingReply } from '../src/local-office-assistant.js';
+import { LocalOfficeAssistant, formatOfficeBriefingReply } from '../src/local-office-assistant.ts';
 
 const now = () => new Date('2026-07-26T12:00:00.000Z');
 

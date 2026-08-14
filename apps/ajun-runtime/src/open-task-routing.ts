@@ -1,9 +1,6 @@
-// @ts-expect-error legacy policy implementation is migrated in a later bounded batch
-import { openTaskRoutingPolicy } from './open-task-routing-policy.js';
-// @ts-expect-error legacy execution implementation is migrated in a later bounded batch
-import { openTaskResearchExecution } from './open-task-research-execution.js';
-// @ts-expect-error legacy state implementation is migrated in a later bounded batch
-import { openTaskResearchState } from './open-task-research-state.js';
+import { openTaskRoutingPolicy } from './open-task-routing-policy.ts';
+import { openTaskResearchExecution } from './open-task-research-execution.ts';
+import { openTaskResearchState } from './open-task-research-state.ts';
 
 export const {
   delegates:OPEN_TASK_DELEGATES,

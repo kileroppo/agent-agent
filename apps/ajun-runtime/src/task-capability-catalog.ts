@@ -1,5 +1,4 @@
-// @ts-expect-error legacy task definition registry has no declaration yet
-import { DEFAULT_TASK_DEFINITION_REGISTRY, TaskDefinitionRegistry } from './task-definition-registry.js';
+import { DEFAULT_TASK_DEFINITION_REGISTRY, TaskDefinitionRegistry } from './task-definition-registry.ts';
 
 export class TaskCapabilityCatalog {
   registry: any;

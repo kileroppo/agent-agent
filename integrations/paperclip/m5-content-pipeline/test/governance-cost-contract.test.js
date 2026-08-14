@@ -6,7 +6,7 @@ import {
 } from '@paperclipai/shared';
 import {
   createM5CostEventDraft,
-} from '../../../../apps/ajun-runtime/src/m5-budget-cost-contract.js';
+} from '../../../../apps/ajun-runtime/src/m5-budget-cost-contract.ts';
 
 const ids = Object.freeze({
   company:'11111111-1111-4111-8111-111111111111',

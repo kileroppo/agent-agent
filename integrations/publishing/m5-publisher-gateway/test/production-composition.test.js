@@ -10,7 +10,7 @@ import {
   DouyinOfficialApiConnector,
   PUBLISHER_APPROVAL_SNAPSHOT_SCHEMA,
   createProductionPublisherComposition,
-} from '../src/index.js';
+} from '../src/index.ts';
 import { deterministicCostReporter } from '../test-support/cost-reporter.js';
 import {
   recordingAccountIdentityVerifier,

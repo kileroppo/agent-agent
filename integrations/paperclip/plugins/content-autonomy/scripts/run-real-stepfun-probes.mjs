@@ -4,8 +4,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { StepFunContentTools } from '../src/stepfun-tools.js';
-import { assertM5BudgetCoverage } from '../../../../../apps/ajun-runtime/src/m5-budget-cost-contract.js';
+import { StepFunContentTools } from '../src/stepfun-tools.ts';
+import { assertM5BudgetCoverage } from '../../../../../apps/ajun-runtime/src/m5-budget-cost-contract.ts';
 
 const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const CONFIRMATION = 'I_ACCEPT_REAL_STEPFUN_CHARGES';

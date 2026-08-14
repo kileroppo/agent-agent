@@ -1,5 +1,4 @@
-// @ts-expect-error legacy task definition registry has no declaration yet
-import { DEFAULT_TASK_DEFINITION_REGISTRY } from './task-definition-registry.js';
+import { DEFAULT_TASK_DEFINITION_REGISTRY } from './task-definition-registry.ts';
 
 const OFFICE_AGENT_ID = 'office-assistant';
 const OFFICE_TASK_TYPE = 'office.briefing-package';

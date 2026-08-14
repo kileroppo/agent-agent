@@ -8,7 +8,7 @@ import test from 'node:test';
 import {
   PublicDynamicWebReader,
   runControlledChrome,
-} from '../src/public-dynamic-web-reader.js';
+} from '../src/public-dynamic-web-reader.ts';
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 

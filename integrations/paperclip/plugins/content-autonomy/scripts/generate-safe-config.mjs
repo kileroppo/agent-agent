@@ -2,7 +2,7 @@
 import {
   M5_CONTENT_ROLES,
   M5_ROLE_TOOL_BUNDLES,
-} from '../src/role-tool-bundles.js';
+} from '../src/role-tool-bundles.ts';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 

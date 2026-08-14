@@ -3,7 +3,7 @@ import { access, mkdtemp, mkdir, readFile, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { createM5RoleToolAdapters } from '../src/m5-role-tool-adapters.js';
+import { createM5RoleToolAdapters } from '../src/m5-role-tool-adapters.ts';
 
 test('任务读取适配器只返回当前信封明确引用或同父任务的条目', async () => {
   const tasks = [

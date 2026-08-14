@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { FeishuCommander, FeishuCommanderValidationError } from '../src/feishu-commander.js';
+import { FeishuCommander, FeishuCommanderValidationError } from '../src/feishu-commander.ts';
 import {
   TASK_ROUTING_DECISION_SCHEMA_VERSION,
   taskRoutingDecision,
-} from '../src/feishu-commander-replies.js';
+} from '../src/feishu-commander-replies.ts';
 
 const readableValidation = { exists:true, readable:true, nonEmpty:true };
 const completeVideoScriptArtifact = (data = {}) => ({

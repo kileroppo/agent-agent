@@ -7,7 +7,7 @@ import {
   createOwnerActionSession,
   isBoomLegacyIntegrationAuthorized,
   isBoomLegacyIntegrationPath,
-} from '../src/runtime-http-handler.js';
+} from '../src/runtime-http-handler.ts';
 
 test('本机动作 nonce 只在进程内短期有效', () => {
   let now = Date.parse('2026-08-08T08:00:00.000Z');

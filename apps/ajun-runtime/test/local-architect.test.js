@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { LocalArchitect } from '../src/local-architect.js';
+import { LocalArchitect } from '../src/local-architect.ts';
 
 test('架构师基于真实岗位清单给出能力与缺口，不改变边界', async () => {
   const registry = { async list() { return [

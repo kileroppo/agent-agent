@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import {
   createSignedBudgetTicket,
   verifySignedBudgetTicket,
-} from '../src/signed-budget-ticket.js';
+} from '../src/signed-budget-ticket.ts';
 
 const pair = crypto.generateKeyPairSync('ed25519');
 const run = {

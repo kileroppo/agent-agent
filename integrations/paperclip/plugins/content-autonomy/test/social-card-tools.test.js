@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { renderM5SocialCardPackage, validateM5SocialCardProps } from '../src/social-card-tools.js';
-import { sha256 } from '../src/policy.js';
+import { renderM5SocialCardPackage, validateM5SocialCardProps } from '../src/social-card-tools.ts';
+import { sha256 } from '../src/policy.ts';
 
 const run = {
   agentId:'11111111-1111-4111-8111-111111111111',
@@ -40,7 +40,7 @@ test('受控静态卡工具校验素材血缘并返回不可变 1080×1440 PNG �
         });
       }
       await fs.writeFile(
-        path.join(output, 'social-card-render-manifest.json'),
+        path.join(output, 'social-card-render-manifest.tson'),
         JSON.stringify({ schemaVersion:1, platform:'xiaohongshu', cards }),
       );
       return { stdout:'', stderr:'' };

@@ -5,9 +5,11 @@
   "description": "Local-first audio/video transcription and delivery agent",
   "type": "module",
   "scripts": {
-    "dev": "node --watch src/server.ts",
-    "start": "node src/server.ts",
-    "check": "tsc -p tsconfig.json",
+    "build:frontend": "tsc -p frontend/tsconfig.json",
+    "dev": "npm run build:frontend && node --watch src/server.ts",
+    "start": "npm run build:frontend && node src/server.ts",
+    "check": "tsc -p tsconfig.json && npm run build:frontend",
+    "pretest": "npm run check",
     "test": "node --test"
   },
   "dependencies": {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { evaluateHermesCostPolicy } from '../src/hermes-cost-policy.js';
+import { evaluateHermesCostPolicy } from '../src/hermes-cost-policy.ts';
 
 function usageView(overrides = {}) {
   return {

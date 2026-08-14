@@ -9,7 +9,7 @@ import {
   FileCapabilityGrantAdapter,
   MemoryCapabilityGrantAdapter,
   normalizeCapabilityGrant
-} from '../src/capability-grant-store.js';
+} from '../src/capability-grant-store.ts';
 
 const safeGrant = {
   capabilityId:'public-search-v2',

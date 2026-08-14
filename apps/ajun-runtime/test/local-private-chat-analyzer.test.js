@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { chunkMessages, LocalPrivateChatAnalyzer } from '../src/local-private-chat-analyzer.js';
+import { chunkMessages, LocalPrivateChatAnalyzer } from '../src/local-private-chat-analyzer.ts';
 
 test('本机分析器拒绝非回环地址', () => {
   assert.throws(() => new LocalPrivateChatAnalyzer({ baseUrl:'https://example.com' }), (error) => error.code === 'local_model_not_loopback');

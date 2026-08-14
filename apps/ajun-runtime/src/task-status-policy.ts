@@ -1,5 +1,4 @@
-// @ts-expect-error -- transitional JS domain Module; removed with the task-lifecycle batch.
-import { TASK_STATUSES, TERMINAL_TASK_STATUSES } from './task-lifecycle.js';
+import { TASK_STATUSES, TERMINAL_TASK_STATUSES } from './task-lifecycle.ts';
 import type { WorkflowStatus } from './workflow/contracts.ts';
 import {
   ACCEPTANCE_OWNER_ACTION,

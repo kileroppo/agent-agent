@@ -1,4 +1,4 @@
-import { TaskService } from '../../src/task-service.js';
+import { TaskService } from '../../src/task-service.ts';
 
 export function setupTaskService({
   agents = [],

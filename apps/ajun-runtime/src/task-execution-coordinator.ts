@@ -1,8 +1,6 @@
-// @ts-expect-error legacy governance adapter has no declaration yet
-import { usesPaperclipHermesExecution } from './governance-hermes-runtime.js';
+import { usesPaperclipHermesExecution } from './governance-hermes-runtime.ts';
 import { routeOpenTaskForExecutor } from './open-task-routing.ts';
-// @ts-expect-error legacy usage adapter has no declaration yet
-import { recordTaskUsage } from './task-usage.js';
+import { recordTaskUsage } from './task-usage.ts';
 import { validateTaskCompletion } from './task-completion-contract.ts';
 
 export class TaskExecutionCoordinator {

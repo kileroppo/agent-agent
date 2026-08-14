@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createPublisherGatewayServiceFromEnv } from '../src/service.js';
+import { createPublisherGatewayServiceFromEnv } from '../src/service.ts';
 
 let service;
 try {

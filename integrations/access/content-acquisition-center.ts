@@ -35,12 +35,12 @@ type ReceiptInput = Readonly<{
 
 export class ContentAcquisitionCenter {
   readonly adapters: readonly ContentAcquisitionAdapter[];
-  private readonly connectionBroker: ConnectionBrokerInterface;
+  private readonly connectionBroker: ConnectionBrokerInterface | null;
   private readonly operations: OperationsRecorder;
 
   constructor({ adapters, connectionBroker, operations }: Readonly<{
     adapters: readonly ContentAcquisitionAdapter[];
-    connectionBroker: ConnectionBrokerInterface;
+    connectionBroker: ConnectionBrokerInterface | null;
     operations: OperationsRecorder;
   }>) {
     this.adapters = [...adapters];
@@ -65,6 +65,15 @@ export class ContentAcquisitionCenter {
       const adapter = candidates[index];
       let connectionUse = null;
       if (adapter.accessMode === 'authorized' || (adapter.accessMode === 'either' && connectionId)) {
+        if (!this.connectionBroker) {
+          const unavailable = failure('connection_broker_unavailable', '当前没有可用的授权连接通道。', 'manual_review');
+          routeAttempts.push(acquisitionAttempt(adapter, 'confirmed_failure', unavailable.code, 0));
+          if (adapter.accessMode === 'either') continue;
+          return withAcquisitionReceipt(unavailable, acquisitionReceipt({
+            requestId, taskId, requestingAgentId, source, requested,
+            runtimeRequirement, routeAttempts, failureCode:unavailable.code, startedAt,
+          }));
+        }
         const access = await this.connectionBroker.authorize({
           connectionId, provider: adapter.providerFor(source) || adapter.id, operations: operationsFor(requested.filter((capability) => adapter.capabilities.includes(capability))), requestingAgentId
         });
@@ -96,7 +105,7 @@ export class ContentAcquisitionCenter {
         const providedCapabilities = normalizeCapabilities(acquired.providedCapabilities);
         if (providedCapabilities.length === 0) throw Object.assign(new Error('适配器没有返回可用内容。'), { code: 'adapter_empty_result' });
         if (connectionUse) {
-          await this.connectionBroker.connectionStore.recordVerification(connectionUse.connectionId, {
+          await this.connectionBroker?.connectionStore.recordVerification(connectionUse.connectionId, {
             status:'succeeded',
             adapterId:adapter.id,
             capabilities:providedCapabilities
@@ -124,7 +133,7 @@ export class ContentAcquisitionCenter {
         lastFailure = safeAdapterFailure(error);
         routeAttempts.push(acquisitionAttempt(adapter, 'confirmed_failure', lastFailure.code));
         if (connectionUse) {
-          await this.connectionBroker.connectionStore.recordVerification(connectionUse.connectionId, {
+          await this.connectionBroker?.connectionStore.recordVerification(connectionUse.connectionId, {
             status:'failed',
             adapterId:adapter.id,
             capabilities:requested.filter((capability) => adapter.capabilities.includes(capability)),
@@ -149,6 +158,7 @@ export class ContentAcquisitionCenter {
     ));
     const collectMetrics = adapter?.collectMetrics;
     if (!adapter || !collectMetrics) return failure('capability_not_available', '当前没有可用的作品指标采集通道。', 'manual_review');
+    if (!this.connectionBroker) return failure('connection_broker_unavailable', '当前没有可用的授权连接通道。', 'manual_review');
     const access = await this.connectionBroker.authorize({
       connectionId,
       provider:adapter.providerFor(source) || adapter.id,
@@ -219,8 +229,9 @@ function operationsFor(capabilities: readonly ContentCapability[]): string[] {
 
 function priority(priorityClass: ContentAcquisitionAdapter['priorityClass']): number { return priorityClass === 'specialized' ? 0 : 1; }
 function safeSourceRef(source: string): string { const parsed = new URL(source); return `${parsed.protocol}//${parsed.host}${parsed.pathname}`; }
-function safeAccessEvidence(connectionStore: ConnectionBrokerInterface['connectionStore'], connectionUse: ConnectionUse | null) {
+function safeAccessEvidence(connectionStore: ConnectionBrokerInterface['connectionStore'] | undefined, connectionUse: ConnectionUse | null) {
   if (!connectionUse) return { mode:'public_read', connectionId:null, accountAlias:null };
+  if (!connectionStore) throw new Error('授权连接证据缺少 ConnectionStore。');
   const connection = connectionStore.getSafe(connectionUse.connectionId);
   return {
     mode:'authorized_read',

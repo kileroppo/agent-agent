@@ -39,7 +39,7 @@
       "workspace": false,
       "deployable": false,
       "entrypoint": "ops/boom-monitor/docker-lifecycle.sh",
-      "replacement": "apps/ajun-runtime/src/boom-monitor/index.js"
+      "replacement": "apps/ajun-runtime/src/boom-monitor/index.ts"
     },
     {
       "path": "apps/mac-worker",
@@ -48,7 +48,7 @@
       "lifecycle": "active",
       "workspace": true,
       "deployable": true,
-      "entrypoint": "apps/mac-worker/src/worker.js"
+      "entrypoint": "apps/mac-worker/src/worker.ts"
     },
     {
       "path": "apps/project-progress-board",
@@ -57,7 +57,7 @@
       "lifecycle": "on-demand",
       "workspace": true,
       "deployable": true,
-      "entrypoint": "apps/project-progress-board/src/server.js"
+      "entrypoint": "apps/project-progress-board/src/server.ts"
     },
     {
       "path": "apps/xiaod-media-transcriber",
@@ -84,7 +84,7 @@
       "lifecycle": "active",
       "workspace": true,
       "deployable": false,
-      "entrypoint": "integrations/boom-monitor/ajun-intake.js"
+      "entrypoint": "integrations/boom-monitor/ajun-intake.ts"
     },
     {
       "path": "integrations/local-ai",
@@ -102,7 +102,7 @@
       "lifecycle": "active",
       "workspace": true,
       "deployable": false,
-      "entrypoint": "integrations/m5-kernel/src/index.js"
+      "entrypoint": "integrations/m5-kernel/src/index.ts"
     },
     {
       "path": "integrations/paperclip/m5-content-pipeline",
@@ -111,7 +111,7 @@
       "lifecycle": "active",
       "workspace": true,
       "deployable": false,
-      "entrypoint": "integrations/paperclip/m5-content-pipeline/src/index.js"
+      "entrypoint": "integrations/paperclip/m5-content-pipeline/src/index.ts"
     },
     {
       "path": "integrations/paperclip/plugins/content-autonomy",
@@ -120,7 +120,7 @@
       "lifecycle": "active",
       "workspace": true,
       "deployable": true,
-      "entrypoint": "integrations/paperclip/plugins/content-autonomy/src/worker.js"
+      "entrypoint": "integrations/paperclip/plugins/content-autonomy/src/worker.ts"
     },
     {
       "path": "integrations/publishing/m5-publisher-gateway",
@@ -130,7 +130,7 @@
       "runtimeMode": "disabled-by-default",
       "workspace": true,
       "deployable": true,
-      "entrypoint": "integrations/publishing/m5-publisher-gateway/src/index.js"
+      "entrypoint": "integrations/publishing/m5-publisher-gateway/src/index.ts"
     },
     {
       "path": "packages/m5-contracts",
@@ -148,7 +148,7 @@
       "lifecycle": "active",
       "workspace": true,
       "deployable": false,
-      "entrypoint": "packages/paperclip-client/src/index.js"
+      "entrypoint": "packages/paperclip-client/src/index.ts"
     }
   ]
 }

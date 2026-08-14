@@ -3,7 +3,7 @@ import test from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { createAgentArmyMcpServer, scopeFromEnvironment } from '../src/agent-army-mcp-server.js';
+import { createAgentArmyMcpServer, scopeFromEnvironment } from '../src/agent-army-mcp-server.ts';
 
 test('Agent Army MCP exposes factual read and controlled action tools', async (t) => {
   const calls = [];

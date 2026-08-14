@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { TaskStore } from '../src/task-store.js';
+import { TaskStore } from '../src/task-store.ts';
 
 test('持久化层拒绝绕过生命周期状态机的非法跳转', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-task-store-'));

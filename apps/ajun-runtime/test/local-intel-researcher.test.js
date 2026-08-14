@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { LocalIntelResearcher } from '../src/local-intel-researcher.js';
+import { LocalIntelResearcher } from '../src/local-intel-researcher.ts';
 
 const now = () => new Date('2026-07-23T00:00:00.000Z');
 

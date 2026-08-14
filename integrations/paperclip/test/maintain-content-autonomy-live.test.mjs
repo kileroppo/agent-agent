@@ -31,8 +31,8 @@ test('默认dry-run完成全部只读门禁且不卸载、不打补丁、不kick
   assert.deepEqual(harness.mutations, []);
 });
 
-test('0.4.9已live且活动暂停时dry-run幂等返回already_current', async () => {
-  const harness = createHarness({ pluginVersion:'0.4.9', campaignStatus:'paused' });
+test('0.5.0已live且活动暂停时dry-run幂等返回already_current', async () => {
+  const harness = createHarness({ pluginVersion:'0.5.0', campaignStatus:'paused' });
   const result = await runLiveMaintenance({
     input:harness.input,
     api:harness.api,
@@ -41,7 +41,7 @@ test('0.4.9已live且活动暂停时dry-run幂等返回already_current', async (
     inspectBundle:harness.inspectBundle,
   });
   assert.equal(result.status, 'already_current');
-  assert.equal(result.preflight.pluginVersion, '0.4.9');
+  assert.equal(result.preflight.pluginVersion, '0.5.0');
   assert.equal(result.preflight.campaignSafe, true);
   assert.equal(result.preflight.campaignStatus, 'paused');
   assert.deepEqual(result.plan, []);
@@ -60,14 +60,14 @@ test('execute按软卸载→同ID重装→配置保留→compat→kickstart→�
   });
   assert.equal(result.status, 'completed');
   assert.equal(result.pluginId, ids.plugin);
-  assert.equal(result.pluginVersion, '0.4.9');
+  assert.equal(result.pluginVersion, '0.5.0');
   assert.equal(result.pidBefore, 100);
   assert.equal(result.pidAfter, 200);
   assert.equal(result.configPreserved, true);
   assert.equal(result.stateScopePreserved, true);
   assert.deepEqual(harness.mutations, [
     'delete:no-purge',
-    'install:0.4.9',
+    'install:0.5.0',
     'compat:apply',
     'kickstart',
   ]);
@@ -87,7 +87,7 @@ test('变更后任一步失败只返回一个可执行rollback恢复动作', asy
     }),
     (error) => {
       assert.equal(error instanceof LiveMaintenanceError, true);
-      assert.equal(error.stage, 'install_0_4_9');
+      assert.equal(error.stage, 'install_0_5_0');
       assert.deepEqual(Object.keys(error.recoveryAction).sort(), ['args', 'command']);
       assert.equal(error.recoveryAction.args.includes('rollback'), true);
       return true;
@@ -97,7 +97,7 @@ test('变更后任一步失败只返回一个可执行rollback恢复动作', asy
 });
 
 test('rollback允许暂停活动，先幂等保留binary-RPC host补丁再软装0.4.6并只kickstart Paperclip', async () => {
-  const harness = createHarness({ pluginVersion:'0.4.9', campaignStatus:'paused' });
+  const harness = createHarness({ pluginVersion:'0.5.0', campaignStatus:'paused' });
   const result = await runLiveMaintenance({
     mode:'rollback',
     input:harness.input,
@@ -139,10 +139,10 @@ test('版本、draft、Cron或备份门禁失败时Provider与live状态均不�
   }
 });
 
-test('CLI只接受0.4.9 execute确认串和0.4.6 rollback确认串，旧候选确认串失败关闭', () => {
+test('CLI只接受0.5.0 execute确认串和0.4.6 rollback确认串，旧候选确认串失败关闭', () => {
   assert.doesNotThrow(() => assertLiveConfirmation(
     'execute',
-    'I_ACCEPT_CONTENT_AUTONOMY_0_4_9_LIVE_MAINTENANCE',
+    'I_ACCEPT_CONTENT_AUTONOMY_0_5_0_LIVE_MAINTENANCE',
   ));
   assert.doesNotThrow(() => assertLiveConfirmation(
     'rollback',
@@ -151,9 +151,9 @@ test('CLI只接受0.4.9 execute确认串和0.4.6 rollback确认串，旧候选�
   for (const [mode, confirmation] of [
     ['execute', 'I_ACCEPT_CONTENT_AUTONOMY_0_4_7_LIVE_MAINTENANCE'],
     ['execute', 'I_ACCEPT_CONTENT_AUTONOMY_0_4_8_LIVE_MAINTENANCE'],
-    ['execute', 'I_ACCEPT_CONTENT_AUTONOMY_0_4_9_ROLLBACK'],
+    ['execute', 'I_ACCEPT_CONTENT_AUTONOMY_0_5_0_ROLLBACK'],
     ['rollback', 'I_ACCEPT_CONTENT_AUTONOMY_0_4_7_ROLLBACK'],
-    ['rollback', 'I_ACCEPT_CONTENT_AUTONOMY_0_4_9_ROLLBACK'],
+    ['rollback', 'I_ACCEPT_CONTENT_AUTONOMY_0_5_0_ROLLBACK'],
     ['rollback', ''],
   ]) {
     assert.throws(
@@ -193,7 +193,7 @@ function createHarness({
     pluginId:ids.plugin,
     campaignId:ids.campaign,
     routineId:ids.routine,
-    newPluginPath:'/immutable/content-autonomy-0.4.9',
+    newPluginPath:'/immutable/content-autonomy-0.5.0',
     oldPluginPath:'/immutable/content-autonomy-0.4.6',
     paperclipEntry:'/immutable/paperclip/index.js',
   };
@@ -245,7 +245,7 @@ function createHarness({
         mutations.push('install:failed');
         throw new Error('injected install failure');
       }
-      const version = body.packageName.endsWith('0.4.9') ? '0.4.9' : '0.4.6';
+      const version = body.packageName.endsWith('0.5.0') ? '0.5.0' : '0.4.6';
       mutations.push(`install:${version}`);
       state.plugin = {
         ...state.plugin,
@@ -270,7 +270,7 @@ function createHarness({
         assert.equal(expectedPluginVersion, '0.4.6');
         assert.equal(pluginEntry, '/immutable/content-autonomy-0.4.6/src/worker.js');
       } else {
-        assert.equal(pluginEntry, '/immutable/content-autonomy-0.4.9/src/worker.js');
+        assert.equal(pluginEntry, '/immutable/content-autonomy-0.5.0/src/worker.ts');
       }
       mutations.push('compat:apply');
     },

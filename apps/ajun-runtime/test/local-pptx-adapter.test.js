@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { LocalPptxAdapter, OfficePresentationAdapter } from '../src/local-pptx-adapter.js';
+import { LocalPptxAdapter, OfficePresentationAdapter } from '../src/local-pptx-adapter.ts';
 
 const READY = Object.freeze({
   status:'ready',

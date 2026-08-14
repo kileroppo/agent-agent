@@ -1,31 +1,19 @@
 import path from 'node:path';
-
-// @ts-expect-error -- transitional JS Module; removed with the proposal batch.
-import { AgentProposalService } from '../agent-proposal-service.js';
-// @ts-expect-error -- transitional JS Module; removed with the recovery batch.
-import { FailureRecoveryCoordinator } from '../failure-recovery-coordinator.js';
-// @ts-expect-error -- transitional JS Adapter; removed with the Hermes advisor batch.
-import { HermesTaskAdvisor } from '../hermes-task-advisor.js';
-// @ts-expect-error -- transitional JS Adapter; removed with the Hermes ledger batch.
-import { HermesUsageLedger } from '../hermes-usage-ledger.js';
+import { AgentProposalService } from '../agent-proposal-service.ts';
+import { FailureRecoveryCoordinator } from '../failure-recovery-coordinator.ts';
+import { HermesTaskAdvisor } from '../hermes-task-advisor.ts';
+import { HermesUsageLedger } from '../hermes-usage-ledger.ts';
 import { LocalAjunCoordinator } from '../local-ajun-coordinator.ts';
-// @ts-expect-error -- transitional JS Module; removed with the role-execution batch.
-import { LocalArchitect } from '../local-architect.js';
+import { LocalArchitect } from '../local-architect.ts';
 import { LocalCreator } from '../local-creator.ts';
-// @ts-expect-error -- transitional JS Module; removed with the role-execution batch.
-import { LocalHealthOperator } from '../local-health-operator.js';
+import { LocalHealthOperator } from '../local-health-operator.ts';
 import { LocalReviewer } from '../local-reviewer.ts';
-// @ts-expect-error -- transitional JS Module; removed with the private-read batch.
-import { LocalWeChatChatRetriever } from '../local-wechat-chat-retriever.js';
+import { LocalWeChatChatRetriever } from '../local-wechat-chat-retriever.ts';
 import { ProposalAcceptanceRunner } from '../proposal-acceptance-runner.ts';
-// @ts-expect-error -- transitional JS Module; removed with the skill-registry batch.
-import { SkillExecutionRegistry } from '../skill-execution-registry.js';
-// @ts-expect-error -- transitional JS presentation Adapter; removed with the task-view batch.
-import { taskDetailBaseUrl } from '../task-presentation.js';
-// @ts-expect-error -- transitional JS compatibility Interface; removed with the task-runtime batch.
-import { TaskService } from '../task-service.js';
-// @ts-expect-error -- transitional JS Adapter; removed with the private-read batch.
-import { WeChatLocalVaultAcceptance } from '../wechat-local-vault-acceptance.js';
+import { SkillExecutionRegistry } from '../skill-execution-registry.ts';
+import { taskDetailBaseUrl } from '../task-presentation.ts';
+import { TaskService } from '../task-service.ts';
+import { WeChatLocalVaultAcceptance } from '../wechat-local-vault-acceptance.ts';
 import { MaturityExecutionGuard } from '../maturity-execution-guard.ts';
 import { createRoleContentExecutionComposition } from './role-content-execution-composition.ts';
 import { createRoleResearchExecutionComposition } from './role-research-execution-composition.ts';

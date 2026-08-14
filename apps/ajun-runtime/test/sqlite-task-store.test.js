@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { SQLiteTaskStore } from '../src/sqlite-task-store.js';
+import { SQLiteTaskStore } from '../src/sqlite-task-store.ts';
 
 const executeFile = promisify(execFile);
 

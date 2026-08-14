@@ -4,12 +4,12 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { LocalContentCreator, LocalVideoContentAnalyst } from '../src/local-content-growth.js';
-import { TaskNotification } from '../src/task-notification.js';
+import { LocalContentCreator, LocalVideoContentAnalyst } from '../src/local-content-growth.ts';
+import { TaskNotification } from '../src/task-notification.ts';
 import {
   defaultM5ProductionTemplateBinding,
   m5ProductionTemplateBindingHash,
-} from '../src/m5-production-template-resolver.js';
+} from '../src/m5-production-template-resolver.ts';
 
 const M5_PIPELINE_CASE_ID = '11111111-1111-4111-8111-111111111111';
 const M5_PROJECT_ID = '22222222-2222-4222-8222-222222222222';

@@ -4,7 +4,7 @@ import { constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { createProductionReadinessReport } from '../src/production-readiness.js';
+import { createProductionReadinessReport } from '../src/production-readiness.ts';
 
 const HEALTH_URL = 'http://127.0.0.1:4390/health';
 const MAX_SNAPSHOT_BYTES = 64 * 1024;

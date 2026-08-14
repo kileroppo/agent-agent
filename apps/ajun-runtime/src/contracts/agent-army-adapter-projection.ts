@@ -2,12 +2,9 @@ import {
   registerSourceCompletionWatch,
   type CompletionWatcher,
 } from '../source-completion-watch.ts';
-// @ts-expect-error -- transitional JS presentation Adapter; removed with the task-view batch.
-import { presentTaskCard } from '../task-card-presentation.js';
-// @ts-expect-error -- transitional JS presentation Adapter; removed with the task-view batch.
-import { projectTaskNotification } from '../task-notification-projection.js';
-// @ts-expect-error -- transitional JS presentation Adapter; removed with the task-view batch.
-import { formatTaskPresentation } from '../task-presentation.js';
+import { presentTaskCard } from '../task-card-presentation.ts';
+import { projectTaskNotification } from '../task-notification-projection.ts';
+import { formatTaskPresentation } from '../task-presentation.ts';
 
 type JsonRecord = Record<string, unknown>;
 type CreateService = Readonly<{ create(input: JsonRecord): Promise<unknown> }>;

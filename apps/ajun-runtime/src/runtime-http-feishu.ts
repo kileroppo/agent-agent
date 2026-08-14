@@ -1,7 +1,5 @@
-// @ts-expect-error -- transitional JS Module; removed with the proposal-service batch.
-import { ProposalValidationError } from './agent-proposal-service.js';
-// @ts-expect-error -- transitional JS presentation Adapter; removed with the task-view batch.
-import { presentTaskCard } from './task-card-presentation.js';
+import { ProposalValidationError } from './agent-proposal-service.ts';
+import { presentTaskCard } from './task-card-presentation.ts';
 
 import { presentCommanderReply, presentTaskStatus } from './contracts/agent-army-adapter-projection.ts';
 export { presentCommanderReply, presentTaskStatus };

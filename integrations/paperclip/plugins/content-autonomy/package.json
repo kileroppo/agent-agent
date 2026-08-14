@@ -5,13 +5,13 @@
   "type": "module",
   "description": "M5 内容自治的 Paperclip 业务插件，只补 StepFun、多媒体和发布策略缺口。",
   "exports": {
-    "./role-tool-bundles": "./src/role-tool-bundles.js",
-    "./signed-budget-ticket": "./src/signed-budget-ticket.js",
+    "./role-tool-bundles": "./src/role-tool-bundles.ts",
+    "./signed-budget-ticket": "./src/signed-budget-ticket.ts",
     "./seven-theme-batch": "./scripts/run-seven-theme-stepfun-batch.mjs"
   },
   "scripts": {
     "test": "node --test",
-    "check": "for file in src/*.js scripts/*.mjs; do node --check \"$file\"; done",
+    "check": "tsc -p tsconfig.json",
     "verify:social-card": "node scripts/verify-social-card-render.mjs",
     "config:draft": "node scripts/generate-safe-config.mjs",
     "secret:import-stepfun": "node scripts/import-stepfun-secret.mjs",
@@ -22,12 +22,16 @@
     "lineage:migrate-rendered-stepfun": "node scripts/migrate-rendered-stepfun-lineage.mjs"
   },
   "paperclipPlugin": {
-    "manifest": "./src/manifest.js",
-    "worker": "./src/worker.js"
+    "manifest": "./src/manifest.ts",
+    "worker": "./src/worker.ts"
   },
   "dependencies": {
     "@agent-army/m5-contracts": "0.1.0",
     "@paperclipai/plugin-sdk": "2026.722.0",
     "@paperclipai/shared": "2026.722.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "typescript": "5.9.3"
   }
 }

@@ -12,7 +12,7 @@ import {
   PaperclipControllerClient,
   rollbackControllerRunJwtCutover,
   snapshotControllerRunJwtCutover,
-} from '../src/controller-run-jwt-cutover.js';
+} from '../src/controller-run-jwt-cutover.ts';
 import {
   parseArgs,
 } from '../scripts/manage-controller-run-jwt-cutover.mjs';

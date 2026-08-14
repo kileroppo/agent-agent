@@ -17,9 +17,28 @@ import {
   findRichTextInputRef,
   parseBrowserPrepareResult,
   selectorBundleChecksum,
-} from '../src/index.js';
+} from '../src/index.ts';
+import { findRef } from '../src/cua-semantic-snapshot.ts';
 
 const PUBLISHED_AT = '2026-07-30T08:00:00.000Z';
+
+test('通用语义 ref 必须按名称和动作唯一匹配', () => {
+  assert.equal(findRef({
+    refs:[
+      { ref:'p1:1', name:'上传视频', actions:['upload'] },
+      { ref:'p1:2', name:'上传视频说明', actions:['click'] },
+    ],
+  }, '上传视频', 'upload'), 'p1:1');
+  assert.throws(
+    () => findRef({
+      refs:[
+        { ref:'p1:1', name:'上传视频', actions:['upload'] },
+        { ref:'p1:3', label:'上传视频文件', actions:['upload'] },
+      ],
+    }, '上传视频', 'upload'),
+    { code:'browser_ref_ambiguous' },
+  );
+});
 
 test('CuaDriver 0.14.1 browser_prepare 先保留结构化 refusal，再解析 prepared_pid', () => {
   assert.throws(

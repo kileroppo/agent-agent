@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { preparePaperclipAssignmentContext } from '../src/paperclip-assignment-context.js';
-import * as assignmentContext from '../src/paperclip-assignment-context.js';
-import * as compatibilitySupport from '../src/task-service-m5-execution-context-support.js';
-import * as publicSupport from '../src/task-service-execution-support.js';
+import { preparePaperclipAssignmentContext } from '../src/paperclip-assignment-context.ts';
+import * as assignmentContext from '../src/paperclip-assignment-context.ts';
+import * as compatibilitySupport from '../src/task-service-m5-execution-context-support.ts';
+import * as publicSupport from '../src/task-service-execution-support.ts';
 import { ValidationError } from '../src/task-validation-error.ts';
 import {
   hermesAgentFixture,

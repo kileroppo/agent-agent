@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { HermesIntentPlanner } from '../src/hermes-intent-planner.js';
+import { HermesIntentPlanner } from '../src/hermes-intent-planner.ts';
 
 test('AI理解器只接受预先允许的任务类别', async () => {
   const planner = new HermesIntentPlanner({ hermesHome: '/safe/profile', run: async (_command, args) => {

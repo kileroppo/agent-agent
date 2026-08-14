@@ -18,7 +18,7 @@ import {
   rollbackM5V2CloneDraft,
   verifyGzipBackupReference,
   FakePaperclipAdapter,
-} from '../src/index.js';
+} from '../src/index.ts';
 
 function adapterFixture({ active = false, cron = false } = {}) {
   const pipelineId = '11111111-1111-4111-8111-111111111111';

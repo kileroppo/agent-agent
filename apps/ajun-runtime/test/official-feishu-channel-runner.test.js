@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { OfficialFeishuChannelRunner, OfficialFeishuChannelRunnerError, approvalCard, officialChannelOptions } from '../src/official-feishu-channel-runner.js';
+import { OfficialFeishuChannelRunner, OfficialFeishuChannelRunnerError, approvalCard, officialChannelOptions } from '../src/official-feishu-channel-runner.ts';
 
 function setup({ environment = { AJUN_FEISHU_CHANNEL_ENABLED:'true', AJUN_FEISHU_CHANNEL_APP_ID:'app', AJUN_FEISHU_CHANNEL_APP_SECRET:'secret', AJUN_FEISHU_CHANNEL_ALLOWED_USER_IDS:'person-a' } } = {}) {
   const sent = []; let handlers = null; let connects = 0;

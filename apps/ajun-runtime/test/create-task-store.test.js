@@ -3,9 +3,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { createTaskStore } from '../src/create-task-store.js';
-import { SQLiteTaskStore } from '../src/sqlite-task-store.js';
-import { TaskStore } from '../src/task-store.js';
+import { createTaskStore } from '../src/create-task-store.ts';
+import { SQLiteTaskStore } from '../src/sqlite-task-store.ts';
+import { TaskStore } from '../src/task-store.ts';
 
 test('任务存储默认保留 JSON，只有显式开关才切到 SQLite', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-store-factory-'));

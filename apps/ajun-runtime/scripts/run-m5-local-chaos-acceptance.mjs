@@ -4,7 +4,7 @@ import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 import {
   runM5LocalChaosAcceptance,
-} from '../src/m5-local-chaos-acceptance.js';
+} from '../src/m5-local-chaos-acceptance.ts';
 
 export async function main(argv = process.argv.slice(2)) {
   if (argv.length > 0) {

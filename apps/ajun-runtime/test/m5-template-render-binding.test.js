@@ -3,8 +3,8 @@ import crypto from 'node:crypto';
 import test from 'node:test';
 import {
   ContentCampaignService,
-} from '../src/content-campaign-service.js';
-import { m5ProductionTemplateBindingHash } from '../src/m5-production-template-resolver.js';
+} from '../src/content-campaign-service.ts';
+import { m5ProductionTemplateBindingHash } from '../src/m5-production-template-resolver.ts';
 
 const BINDING_VALUE = {
   schemaVersion:'agent.army/production-template-binding/v1',

@@ -1,24 +1,15 @@
 import path from 'node:path';
 
 import { createLocalAiCapabilityAdapter } from '../adapters/local-ai-capability-adapter.ts';
-// @ts-expect-error -- transitional JS Adapter; removed with the content-advisor batch.
-import { HermesContentGrowthAdvisor } from '../hermes-content-growth-advisor.js';
-// @ts-expect-error -- transitional JS Module; removed with the knowledge-archive batch.
-import { KnowledgeArchiveWriter } from '../knowledge-archive-writer.js';
-// @ts-expect-error -- transitional JS Module; removed with the content-execution batch.
-import { LocalContentCreator, LocalVideoContentAnalyst } from '../local-content-growth.js';
-// @ts-expect-error -- transitional JS Module; removed with the office-execution batch.
-import { LocalOfficeAssistant } from '../local-office-assistant.js';
-// @ts-expect-error -- transitional JS Adapter; removed with the presentation batch.
-import { LocalPptxAdapter, OfficePresentationAdapter } from '../local-pptx-adapter.js';
-// @ts-expect-error -- transitional JS Module; removed with the content-execution batch.
-import { LocalVideoScriptPackage } from '../local-video-script-package.js';
-// @ts-expect-error -- transitional JS Adapter; removed with the M5 role-tool batch.
-import { createM5RoleToolAdapters } from '../m5-role-tool-adapters.js';
-// @ts-expect-error -- transitional JS Adapter; removed with the office-execution batch.
-import { OfficeDocumentAdapter, officeBinariesAvailable } from '../office-document-adapter.js';
-// @ts-expect-error -- transitional JS Adapter; removed with the presentation batch.
-import { OpenKimiPptAdapter } from '../open-kimi-ppt-adapter.js';
+import { HermesContentGrowthAdvisor } from '../hermes-content-growth-advisor.ts';
+import { KnowledgeArchiveWriter } from '../knowledge-archive-writer.ts';
+import { LocalContentCreator, LocalVideoContentAnalyst } from '../local-content-growth.ts';
+import { LocalOfficeAssistant } from '../local-office-assistant.ts';
+import { LocalPptxAdapter, OfficePresentationAdapter } from '../local-pptx-adapter.ts';
+import { LocalVideoScriptPackage } from '../local-video-script-package.ts';
+import { createM5RoleToolAdapters } from '../m5-role-tool-adapters.ts';
+import { OfficeDocumentAdapter, officeBinariesAvailable } from '../office-document-adapter.ts';
+import { OpenKimiPptAdapter } from '../open-kimi-ppt-adapter.ts';
 import { CapabilityExecutionEngine } from '../workflow/capability-execution.ts';
 import { createCapabilityEventRecorder } from '../workflow/capability-event-recorder.ts';
 import { createControlledVisionExecution } from '../workflow/controlled-vision.ts';

@@ -1,0 +1,118 @@
+export class LocalGithubResearch {
+    githubSearch: any;
+    now: any;
+    constructor({ githubSearch, now = (): any => new Date() }: any = {}) {
+        this.githubSearch = githubSearch;
+        this.now = now;
+    }
+    supports(agent: any): any { return agent?.agentId === 'intel-researcher'; }
+    async execute(task: any, { roleToolContext = null }: any = {}): Promise<any> {
+        const input: any = task?.input || {};
+        if (String(input.repo || '').trim())
+            return this.read(task, input, roleToolContext);
+        if (String(input.query || input.title || '').trim())
+            return this.search(task, input, roleToolContext);
+        return needsInput(this.now(), 'github_query_required', '请说明要找什么 GitHub 项目，或给出公开 owner/repo 和可选文件路径。');
+    }
+    async search(task: any, input: any, roleToolContext: any = null): Promise<any> {
+        try {
+            const limit: any = requestedResultLimit(input);
+            const query: any = input.query || input.title;
+            const search: any = roleToolContext
+                ? await roleToolContext.execute({
+                    toolId: 'github.public.search',
+                    externalSideEffect: 'network-read',
+                    url: 'https://api.github.com/search/repositories',
+                    input: { operation: 'search', query, limit },
+                })
+                : await this.githubSearch.search({ query, limit });
+            if (!search.results.length)
+                return needsInput(this.now(), 'github_no_results', '没有找到匹配的公开 GitHub 项目。请换一组更具体的关键词后再试。');
+            const completedAt: any = this.now().toISOString();
+            const report: Record<string, any> = {
+                query: search.query, searchedAt: search.searchedAt, results: search.results.slice(0, limit).map((item: any): any => ({ ...item, assessment: assess(item), suitability: suitability(item) })),
+                conclusion: `已按 star 排序整理 ${Math.min(search.results.length, limit)} 个公开 GitHub 项目；活跃度和适用性只依据本次读取的仓库元数据判断。`
+            };
+            return succeeded(task, completedAt, 'github_search_ready', 'github_search', 'github-public-search', '公开 GitHub 项目检索', 1, {
+                type: 'research_github_report', title: 'GitHub 公开项目检索报告', location: `runtime://${task.taskId}/github-search-report`, data: report,
+                validation: { exists: true, readable: true, nonEmpty: true, publicReadOnly: true, sourceCount: search.results.length }
+            });
+        }
+        catch (error: any) {
+            return failure(this.now(), error);
+        }
+    }
+    async read(task: any, input: any, roleToolContext: any = null): Promise<any> {
+        try {
+            const file: any = roleToolContext
+                ? await roleToolContext.execute({
+                    toolId: 'github.public.read',
+                    externalSideEffect: 'network-read',
+                    url: `https://api.github.com/repos/${String(input.repo || '').trim()}`,
+                    input: { operation: 'read', repo: input.repo, path: input.path || 'README' },
+                })
+                : await this.githubSearch.readRepo({ repo: input.repo, path: input.path || 'README' });
+            if (!file.text.trim())
+                return needsInput(this.now(), 'github_empty_file', '这个公开 GitHub 文件没有可用文本内容。请换一个 README 或公开文本文件。');
+            const completedAt: any = this.now().toISOString();
+            const report: Record<string, any> = {
+                repo: file.repo, path: file.path, source: `https://github.com/${file.repo}${file.path === 'README' ? '' : `/blob/HEAD/${file.path}`}`,
+                fetchedAt: file.fetchedAt, truncated: file.truncated, summary: summarize(file.text),
+                basis: '仅根据本次读取的公开 GitHub 文件内容。'
+            };
+            return succeeded(task, completedAt, 'github_code_read_ready', 'github_read', 'github-public-read', '公开 GitHub 文件读取', 1, {
+                type: 'github_code_read', title: `${file.repo} 的 ${file.path}`, location: `runtime://${task.taskId}/github-code-read`, data: report,
+                validation: { exists: true, readable: true, nonEmpty: true, publicReadOnly: true }
+            });
+        }
+        catch (error: any) {
+            return failure(this.now(), error);
+        }
+    }
+}
+function succeeded(task: any, completedAt: any, stage: any, mode: any, toolId: any, toolName: any, calls: any, artifact: any): any {
+    return {
+        status: 'succeeded', currentStage: stage,
+        execution: { executor: task.assigneeAgentId || 'intel-researcher', mode, startedAt: task.execution?.startedAt || completedAt, finishedAt: completedAt, outcome: 'report_ready' },
+        usage: { tools: [{ id: toolId, name: toolName, calls }] },
+        artifactRefs: [{ artifactId: `intel-researcher:${task.taskId}`, taskId: task.taskId, mimeType: 'application/json', accessScope: 'local-owner', createdAt: completedAt, ...artifact }]
+    };
+}
+function failure(now: any, error: any): any {
+    const code: any = error?.code || 'github_unavailable';
+    const userMessage: any = code === 'github_rate_limited'
+        ? 'GitHub 公开接口暂时限流，请稍后重试，或换一个更具体的关键词。'
+        : `${error?.message || 'GitHub 公开接口暂时无法读取。'} 你可以稍后重试，或换一个公开仓库/关键词。`;
+    return needsInput(now, code, userMessage);
+}
+function needsInput(now: any, code: any, userMessage: any): any {
+    return { status: 'needs_input', currentStage: code, error: { code, userMessage, category: 'needs_input', stage: 'input', occurredAt: now.toISOString() } };
+}
+function assess(item: any): any {
+    const stars: any = Number(item.stars || 0);
+    const updatedAt: any = Date.parse(item.updatedAt || '');
+    const ageDays: any = Number.isFinite(updatedAt) ? Math.max(0, Math.floor((Date.now() - updatedAt) / 86400000)) : null;
+    const popularity: any = stars >= 10000 ? '关注度很高' : stars >= 1000 ? '关注度较高' : stars >= 100 ? '有一定社区使用' : '社区信号有限';
+    const activity: any = ageDays === null ? '最近更新时间未提供' : ageDays <= 90 ? '近三个月仍有更新' : ageDays <= 365 ? '近一年有更新' : '超过一年未见更新';
+    return `${popularity}；${item.language ? `主要语言为 ${item.language}` : '主要语言未提供'}；${activity}。`;
+}
+function suitability(item: any): any {
+    const basis: any = `${item.fullName || ''} ${item.description || ''} ${(item.topics || []).join(' ')}`.toLowerCase();
+    if (/(?:trading|finance|financial|stock)/.test(basis))
+        return '适合参考垂直业务中的多智能体分工，不宜直接作为通用军团控制面。';
+    if (/(?:software|developer|metagpt|code|engineering)/.test(basis))
+        return '适合参考软件研发角色与任务编排，接入前仍需核对权限和人工审批边界。';
+    if (/(?:swarm|handoff|lightweight|minimal)/.test(basis))
+        return '适合参考轻量 Agent 交接与编排，不适合直接承担完整治理、审计和预算控制。';
+    return '适合进入多智能体编排候选清单，落地前仍需核对治理、审计和故障恢复能力。';
+}
+function requestedResultLimit(input: any): any {
+    const text: any = `${input?.title || ''}\n${input?.description || ''}`;
+    const raw: any = text.match(/(?:前|取|返回|比较|选择)\s*([1-9]\d?)/)?.[1]
+        || text.match(/([1-9]\d?)\s*个/)?.[1];
+    return Math.min(5, Math.max(1, Number.parseInt(raw, 10) || 5));
+}
+function summarize(text: any): any {
+    const lines: any = String(text).split(/\r?\n/).map((line: any): any => line.replace(/^#+\s*/, '').replace(/\s+/g, ' ').trim()).filter((line: any): any => line && !/^[-*_`]+$/.test(line));
+    return lines.slice(0, 8).join(' ').slice(0, 1800) || '该文件没有可提炼的文本要点。';
+}

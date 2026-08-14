@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { pluginManifestV1Schema } from '@paperclipai/shared';
 import { createTestHarness } from '@paperclipai/plugin-sdk/testing';
-import manifest from '../src/manifest.js';
-import plugin from '../src/worker.js';
-import { paidActionStateKey } from '../src/stepfun-tools.js';
+import manifest from '../src/manifest.ts';
+import plugin from '../src/worker.ts';
+import { paidActionStateKey } from '../src/stepfun-tools.ts';
 
 const agentId = '11111111-1111-4111-8111-111111111111';
 const run = {

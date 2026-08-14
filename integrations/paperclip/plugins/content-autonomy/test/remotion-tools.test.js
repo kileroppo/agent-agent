@@ -7,8 +7,8 @@ import {
   renderM5Composition,
   writeM5RenderProps,
   validateSubtitleLayout
-} from '../src/remotion-tools.js';
-import { sha256 } from '../src/policy.js';
+} from '../src/remotion-tools.ts';
+import { sha256 } from '../src/policy.ts';
 
 const run = {
   agentId:'11111111-1111-4111-8111-111111111111',

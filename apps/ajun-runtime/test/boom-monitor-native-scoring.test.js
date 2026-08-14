@@ -8,7 +8,7 @@ import {
   evaluateGrade,
   pythonRound,
   scoreWork,
-} from '../src/boom-monitor/index.js';
+} from '../src/boom-monitor/index.ts';
 
 function bundle(historyCount = 6) {
   return {

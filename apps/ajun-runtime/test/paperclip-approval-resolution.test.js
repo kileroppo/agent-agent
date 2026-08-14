@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { PaperclipApprovalResolution } from '../src/paperclip-approval-resolution.js';
-import { ValidationError } from '../src/task-service.js';
+import { PaperclipApprovalResolution } from '../src/paperclip-approval-resolution.ts';
+import { ValidationError } from '../src/task-service.ts';
 
 test('Paperclip 审批 Interface 跨 Module 实例共享单飞并拒绝相反决定', async () => {
   const approval = {

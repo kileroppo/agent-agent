@@ -3,8 +3,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { LocalBudgetTicketAuthority } from '../src/local-budget-ticket-authority.js';
-import { verifySignedBudgetTicket } from '../../../integrations/paperclip/plugins/content-autonomy/src/signed-budget-ticket.js';
+import { LocalBudgetTicketAuthority } from '../src/local-budget-ticket-authority.ts';
+import { verifySignedBudgetTicket } from '../../../integrations/paperclip/plugins/content-autonomy/src/signed-budget-ticket.ts';
 
 const run = {
   companyId:'11111111-1111-4111-8111-111111111111',

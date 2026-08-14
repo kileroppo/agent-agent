@@ -3,7 +3,21 @@ import { createRuntime as defaultCreateRuntime } from './runtime-composition-roo
 
 type Startable = Readonly<{ start(input?: unknown): unknown }>;
 type RuntimeLogger = Pick<Console, 'log' | 'warn'>;
-type RuntimeServices = Readonly<Record<string, Startable | undefined>>;
+type RuntimeServices = Readonly<Record<string, unknown>> & Readonly<{
+  interruptedLocalExecutionReconciler?: Startable;
+  deliveryQualityReconciler?: Startable;
+  paperclipRosterReconciler?: Startable;
+  approvalExpiryReconciler?: Startable;
+  xiaodReconciler?: Startable;
+  paperclipRepairReconciler?: Startable;
+  paperclipHermesTaskReconciler?: Startable;
+  missionReconciler?: Startable;
+  boomMonitor?: Startable;
+  hermesNativeCompletionWatcher?: Startable;
+  technicalRepairWatchdog?: Startable;
+  officialFeishuChannelRunner?: Startable;
+  agentFeishuChannelFleet?: Startable;
+}>;
 
 type RuntimeTarget = Readonly<{
   server: Server;

@@ -3,8 +3,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { AgentProposalService, ProposalValidationError } from '../src/agent-proposal-service.js';
-import { TaskStore } from '../src/task-store.js';
+import { AgentProposalService, ProposalValidationError } from '../src/agent-proposal-service.ts';
+import { TaskStore } from '../src/task-store.ts';
 
 async function setup(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-proposal-'));

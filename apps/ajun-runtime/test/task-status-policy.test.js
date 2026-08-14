@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { TASK_STATUSES, TERMINAL_TASK_STATUSES } from '../src/task-lifecycle.js';
+import { TASK_STATUSES, TERMINAL_TASK_STATUSES } from '../src/task-lifecycle.ts';
 import * as taskStatusPolicyModule from '../src/task-status-policy.ts';
 import {
   TASK_BLOCKED_STATUSES,

@@ -9,8 +9,8 @@ import {
   LazyProductionPublisher,
   M5PublisherBindingError,
   PaperclipPublisherControl,
-} from '../src/m5-publisher-bindings.js';
-import { routeM5PublisherApi } from '../src/m5-publisher-api.js';
+} from '../src/m5-publisher-bindings.ts';
+import { routeM5PublisherApi } from '../src/m5-publisher-api.ts';
 
 const NOW = new Date('2026-07-30T04:00:00.000Z');
 const CAMPAIGN_ID = '11111111-1111-4111-8111-111111111111';

@@ -191,7 +191,7 @@ function requiredCompositionModules(runtimeRoot) {
     if (error.code !== 'ENOENT') throw error;
   }
   for (const entry of entries) {
-    if (entry.isFile() && entry.name.endsWith('-composition.js')) {
+    if (entry.isFile() && entry.name.endsWith('-composition.ts')) {
       modules.push(`src/runtime/${entry.name}`);
     }
   }
@@ -223,7 +223,7 @@ function plainObject(value) {
 }
 
 function safeModulePath(value) {
-  return /^(?:src|public)\/[a-z0-9./-]+\.(?:js|mjs|ts|tsx)$/.test(value)
+  return /^(?:src|public|frontend\/src)\/[a-z0-9./-]+\.(?:js|mjs|ts|tsx)$/.test(value)
     && safeSegments(value);
 }
 

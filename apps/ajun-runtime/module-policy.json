@@ -1,7 +1,14 @@
 {
   "schemaVersion": "agent.army/ajun-module-policy/v1",
   "modules": {
-    "public/app-access-views.js": {
+    "src/agent-registry-snapshot-cache.ts": {
+      "affectedTests": [
+        "test/agent-registry.test.js"
+      ],
+      "lineLimit": 80,
+      "importLimit": 1
+    },
+    "frontend/src/app-access-views.ts": {
       "affectedTests": [
         "test/console-boundary.test.js",
         "test/content-campaign-ui.test.js",
@@ -9,7 +16,7 @@
       ],
       "lineLimit": 500
     },
-    "public/app-interactions.js": {
+    "frontend/src/app-interactions.ts": {
       "affectedTests": [
         "test/console-boundary.test.js",
         "test/content-campaign-ui.test.js",
@@ -17,15 +24,15 @@
       ],
       "lineLimit": 450
     },
-    "public/app.js": {
+    "frontend/src/app.ts": {
       "lineLimit": 750
     },
-    "public/console-navigation.js": {
+    "frontend/src/console-navigation.ts": {
       "affectedTests": [
         "test/console-navigation.test.js"
       ]
     },
-    "public/refresh-scheduler.js": {
+    "frontend/src/refresh-scheduler.ts": {
       "affectedTests": [
         "test/refresh-scheduler.test.js",
         "test/runtime-start.test.js"
@@ -33,7 +40,7 @@
       "lineLimit": 150,
       "importLimit": 6
     },
-    "public/task-record-detail-view.js": {
+    "frontend/src/task-record-detail-view.ts": {
       "affectedTests": [
         "test/console-boundary.test.js",
         "test/console-operator-flow-ui.test.js",
@@ -42,10 +49,10 @@
       "lineLimit": 450,
       "importLimit": 12
     },
-    "src/agent-army-client.js": {
+    "src/agent-army-client.ts": {
       "lineLimit": 750
     },
-    "src/agent-army-mcp-server.js": {
+    "src/agent-army-mcp-server.ts": {
       "lineLimit": 600
     },
     "src/analysis-intent.ts": {
@@ -57,7 +64,7 @@
         "test/task-service.test.js"
       ]
     },
-    "src/campaign-delivery-evidence.js": {
+    "src/campaign-delivery-evidence.ts": {
       "lineLimit": 350,
       "affectedTests": [
         "test/m5-hermes-stage-execute.test.js",
@@ -80,7 +87,7 @@
         "test/agent-army-adapter-contract.test.js"
       ]
     },
-    "src/contracts/agent-army-task-input.js": {
+    "src/contracts/agent-army-task-input.ts": {
       "affectedTests": [
         "test/agent-army-adapter-contract.test.js",
         "test/agent-army-client.test.js",
@@ -88,82 +95,82 @@
       ],
       "lineLimit": 600
     },
-    "src/feishu-commander-context.js": {
+    "src/feishu-commander-context.ts": {
       "affectedTests": [
         "test/feishu-commander.test.js"
       ],
       "lineLimit": 400
     },
-    "src/feishu-commander-followup.js": {
+    "src/feishu-commander-followup.ts": {
       "affectedTests": [
         "test/feishu-commander.test.js"
       ],
       "lineLimit": 300
     },
-    "src/feishu-commander-replies.js": {
+    "src/feishu-commander-replies.ts": {
       "affectedTests": [
         "test/feishu-commander.test.js"
       ],
       "lineLimit": 600
     },
-    "src/feishu-commander-routing.js": {
+    "src/feishu-commander-routing.ts": {
       "affectedTests": [
         "test/feishu-commander.test.js"
       ],
       "lineLimit": 400
     },
-    "src/feishu-commander.js": {
+    "src/feishu-commander.ts": {
       "lineLimit": 100
     },
-    "src/local-content-analysis.js": {
+    "src/local-content-analysis.ts": {
       "affectedTests": [
         "test/local-content-growth.test.js"
       ],
       "lineLimit": 750
     },
-    "src/local-content-artifacts.js": {
+    "src/local-content-artifacts.ts": {
       "affectedTests": [
         "test/local-content-growth.test.js"
       ],
       "lineLimit": 450
     },
-    "src/local-content-creation.js": {
+    "src/local-content-creation.ts": {
       "affectedTests": [
         "test/local-content-growth.test.js"
       ],
       "lineLimit": 450
     },
-    "src/local-content-growth.js": {
+    "src/local-content-growth.ts": {
       "lineLimit": 100
     },
-    "src/local-content-m5-vision.js": {
+    "src/local-content-m5-vision.ts": {
       "affectedTests": [
         "test/local-content-growth.test.js"
       ],
       "lineLimit": 400
     },
-    "src/local-intel-researcher.js": {
+    "src/local-intel-researcher.ts": {
       "lineLimit": 550,
       "affectedTests": [
         "test/local-intel-researcher.test.js",
         "test/open-task-runtime-wiring.test.js"
       ]
     },
-    "src/local-office-assistant.js": {
+    "src/local-office-assistant.ts": {
       "lineLimit": 500,
       "affectedTests": [
         "test/knowledge-archive-writer.test.js",
         "test/local-office-assistant.test.js"
       ]
     },
-    "src/local-pptx-adapter.js": {
+    "src/local-pptx-adapter.ts": {
       "lineLimit": 350,
       "affectedTests": [
         "test/local-office-assistant.test.js",
         "test/local-pptx-adapter.test.js"
       ]
     },
-    "src/local-video-script-content-protocol.js": {
+    "src/local-video-script-content-protocol.ts": {
       "lineLimit": 750,
       "importLimit": 2,
       "affectedTests": [
@@ -172,7 +179,7 @@
         "test/m5-hermes-stage-execute.test.js"
       ]
     },
-    "src/local-video-script-package.js": {
+    "src/local-video-script-package.ts": {
       "lineLimit": 250,
       "affectedTests": [
         "test/content-campaign-service.test.js",
@@ -180,7 +187,7 @@
         "test/m5-hermes-stage-execute.test.js"
       ]
     },
-    "src/local-video-script-production-package.js": {
+    "src/local-video-script-production-package.ts": {
       "lineLimit": 200,
       "affectedTests": [
         "test/content-campaign-service.test.js",
@@ -188,14 +195,14 @@
         "test/m5-hermes-stage-execute.test.js"
       ]
     },
-    "src/m5-learning-evidence.js": {
+    "src/m5-learning-evidence.ts": {
       "affectedTests": [
         "test/m5-learning-lifecycle.test.js"
       ],
       "lineLimit": 300,
       "importLimit": 8
     },
-    "src/m5-learning-lifecycle.js": {
+    "src/m5-learning-lifecycle.ts": {
       "affectedTests": [
         "test/m5-learning-lifecycle.test.js",
         "test/paperclip-learning-lifecycle.test.js"
@@ -203,84 +210,84 @@
       "lineLimit": 500,
       "importLimit": 8
     },
-    "src/m5-local-chaos-acceptance.js": {
+    "src/m5-local-chaos-acceptance.ts": {
       "lineLimit": 450
     },
-    "src/m5-local-chaos-adapters.js": {
+    "src/m5-local-chaos-adapters.ts": {
       "affectedTests": [
         "test/m5-local-chaos-acceptance.test.js"
       ],
       "lineLimit": 350
     },
-    "src/m5-local-chaos-fixtures.js": {
+    "src/m5-local-chaos-fixtures.ts": {
       "affectedTests": [
         "test/m5-local-chaos-acceptance.test.js"
       ],
       "lineLimit": 250
     },
-    "src/m5-local-chaos-journey.js": {
+    "src/m5-local-chaos-journey.ts": {
       "affectedTests": [
         "test/m5-local-chaos-acceptance.test.js"
       ],
       "lineLimit": 400
     },
-    "src/m5-local-chaos-ledger.js": {
+    "src/m5-local-chaos-ledger.ts": {
       "affectedTests": [
         "test/m5-local-chaos-acceptance.test.js"
       ],
       "lineLimit": 250
     },
-    "src/m5-publisher-bindings.js": {
+    "src/m5-publisher-bindings.ts": {
       "lineLimit": 450,
       "affectedTests": [
         "test/m5-publisher-bindings.test.js"
       ]
     },
-    "src/m5-publisher-runtime-lease.js": {
+    "src/m5-publisher-runtime-lease.ts": {
       "lineLimit": 500,
       "affectedTests": [
         "test/m5-publisher-bindings.test.js"
       ]
     },
-    "src/m5-work-product-trust.js": {
+    "src/m5-work-product-trust.ts": {
       "lineLimit": 100,
       "affectedTests": [
         "test/m5-learning-lifecycle.test.js",
         "test/paperclip-retrospective.test.js"
       ]
     },
-    "src/metric-checkpoint-execution.js": {
+    "src/metric-checkpoint-execution.ts": {
       "lineLimit": 630,
       "affectedTests": [
         "test/paperclip-metric-monitor.test.js"
       ]
     },
-    "src/mission-approval-inheritance.js": {
+    "src/mission-approval-inheritance.ts": {
       "affectedTests": [
         "test/mission-approval-inheritance.test.js"
       ]
     },
-    "src/office-presentation-production.js": {
+    "src/office-presentation-production.ts": {
       "lineLimit": 400,
       "affectedTests": [
         "test/local-office-assistant.test.js"
       ]
     },
-    "src/open-kimi-ppt-adapter.js": {
+    "src/open-kimi-ppt-adapter.ts": {
       "lineLimit": 800,
       "affectedTests": [
         "test/local-office-assistant.test.js",
         "test/open-kimi-ppt-adapter.test.js"
       ]
     },
-    "src/open-research-source-acquisition.js": {
+    "src/open-research-source-acquisition.ts": {
       "lineLimit": 500,
       "affectedTests": [
         "test/local-intel-researcher.test.js",
         "test/open-task-runtime-wiring.test.js"
       ]
     },
-    "src/open-task-research-execution.js": {
+    "src/open-task-research-execution.ts": {
       "affectedTests": [
         "test/open-task-routing.test.js",
         "test/open-task-runtime-wiring.test.js",
@@ -288,7 +295,7 @@
       ],
       "lineLimit": 700
     },
-    "src/open-task-research-state.js": {
+    "src/open-task-research-state.ts": {
       "affectedTests": [
         "test/open-task-routing.test.js",
         "test/open-task-runtime-wiring.test.js",
@@ -296,7 +303,7 @@
       ],
       "lineLimit": 650
     },
-    "src/open-task-routing-policy.js": {
+    "src/open-task-routing-policy.ts": {
       "affectedTests": [
         "test/open-task-routing.test.js",
         "test/business-task-routing.test.js",
@@ -307,76 +314,76 @@
     "src/open-task-routing.ts": {
       "lineLimit": 100
     },
-    "src/paperclip-bridge.js": {
+    "src/paperclip-bridge.ts": {
       "lineLimit": 100
     },
-    "src/paperclip-content-execution-context.js": {
+    "src/paperclip-content-execution-context.ts": {
       "lineLimit": 350,
       "affectedTests": [
         "test/content-campaign-service.test.js",
         "test/paperclip-content-tool-executor.test.js"
       ]
     },
-    "src/paperclip-content-tool-executor.js": {
+    "src/paperclip-content-tool-executor.ts": {
       "lineLimit": 600,
       "affectedTests": [
         "test/content-campaign-service.test.js",
         "test/paperclip-content-tool-executor.test.js"
       ]
     },
-    "src/paperclip-issue-operations.js": {
+    "src/paperclip-issue-operations.ts": {
       "affectedTests": [
         "test/paperclip-bridge.test.js"
       ],
       "lineLimit": 250
     },
-    "src/paperclip-m5-case-operations.js": {
+    "src/paperclip-m5-case-operations.ts": {
       "affectedTests": [
         "test/paperclip-bridge.test.js",
         "test/m5-role-tool-execution.test.js"
       ],
       "lineLimit": 350
     },
-    "src/paperclip-metric-monitor.js": {
+    "src/paperclip-metric-monitor.ts": {
       "lineLimit": 220,
       "affectedTests": [
         "test/paperclip-metric-monitor.test.js"
       ]
     },
-    "src/paperclip-organization.js": {
+    "src/paperclip-organization.ts": {
       "affectedTests": [
         "test/paperclip-bridge.test.js",
         "test/paperclip-task-projector.test.js"
       ],
       "lineLimit": 250
     },
-    "src/paperclip-publisher-contract.js": {
+    "src/paperclip-publisher-contract.ts": {
       "affectedTests": [
         "test/paperclip-bridge.test.js",
         "test/m5-publisher-bindings.test.js"
       ],
       "lineLimit": 400
     },
-    "src/paperclip-publisher-controller.js": {
+    "src/paperclip-publisher-controller.ts": {
       "affectedTests": [
         "test/paperclip-publisher-controller.test.js"
       ],
       "lineLimit": 380
     },
-    "src/paperclip-publisher.js": {
+    "src/paperclip-publisher.ts": {
       "affectedTests": [
         "test/paperclip-bridge.test.js",
         "test/m5-publisher-bindings.test.js"
       ],
       "lineLimit": 650
     },
-    "src/paperclip-task-projector.js": {
+    "src/paperclip-task-projector.ts": {
       "affectedTests": [
         "test/paperclip-task-projector.test.js",
         "test/paperclip-bridge.test.js"
       ]
     },
-    "src/presentation-adapter-protocol.js": {
+    "src/presentation-adapter-protocol.ts": {
       "lineLimit": 280,
       "affectedTests": [
         "test/local-office-assistant.test.js",
@@ -384,7 +391,7 @@
         "test/open-kimi-ppt-adapter.test.js"
       ]
     },
-    "src/publish-context-derivation.js": {
+    "src/publish-context-derivation.ts": {
       "affectedTests": [
         "test/paperclip-publisher-controller.test.js"
       ],
@@ -399,8 +406,8 @@
         "test/runtime-start.test.js"
       ]
     },
-    "src/runtime-http-handler.js": {
-      "lineLimit": 700,
+    "src/runtime-http-handler.ts": {
+      "lineLimit": 750,
       "affectedTests": [
         "test/production-control-plane-boundary.test.js",
         "test/runtime-http-feishu.test.js",
@@ -530,14 +537,14 @@
         "test/task-run-event-store.test.js"
       ]
     },
-    "src/task-approval-coordinator.js": {
+    "src/task-approval-coordinator.ts": {
       "affectedTests": [
         "test/task-service.test.js",
         "test/xiaod-delivery-resume.test.js"
       ],
-      "lineLimit": 100
+      "lineLimit": 120
     },
-    "src/paperclip-approval-resolution.js": {
+    "src/paperclip-approval-resolution.ts": {
       "affectedTests": [
         "test/paperclip-approval-resolution.test.js",
         "test/task-service.test.js",
@@ -546,7 +553,7 @@
       "lineLimit": 300,
       "importLimit": 4
     },
-    "src/paperclip-assignment-context.js": {
+    "src/paperclip-assignment-context.ts": {
       "affectedTests": [
         "test/paperclip-assignment-context.test.js",
         "test/m5-role-tool-execution.test.js",
@@ -557,7 +564,7 @@
       "lineLimit": 300,
       "importLimit": 2
     },
-    "src/paperclip-assignment-completion.js": {
+    "src/paperclip-assignment-completion.ts": {
       "affectedTests": [
         "test/paperclip-assignment-completion.test.js",
         "test/paperclip-hermes-task-reconciler.test.js",
@@ -566,7 +573,7 @@
       "lineLimit": 220,
       "importLimit": 4
     },
-    "src/paperclip-hermes-task-reconciler.js": {
+    "src/paperclip-hermes-task-reconciler.ts": {
       "affectedTests": [
         "test/paperclip-assignment-completion.test.js",
         "test/paperclip-hermes-task-reconciler.test.js"
@@ -574,12 +581,12 @@
       "lineLimit": 260,
       "importLimit": 4
     },
-    "src/task-approval-lifecycle.js": {
+    "src/task-approval-lifecycle.ts": {
       "affectedTests": [
         "test/task-approval-lifecycle.test.js"
       ]
     },
-    "src/task-attention-presentation.js": {
+    "src/task-attention-presentation.ts": {
       "affectedTests": [
         "test/task-presentation.test.js",
         "test/task-service.test.js"
@@ -595,7 +602,7 @@
         "test/task-service.test.js"
       ]
     },
-    "src/task-definition-registry.js": {
+    "src/task-definition-registry.ts": {
       "affectedTests": [
         "test/business-task-routing.test.js",
         "test/feishu-commander.test.js",
@@ -606,7 +613,7 @@
       ],
       "lineLimit": 275
     },
-    "src/task-definitions.js": {
+    "src/task-definitions.ts": {
       "affectedTests": [
         "test/business-task-routing.test.js",
         "test/feishu-commander.test.js",
@@ -622,17 +629,17 @@
         "test/task-service.test.js"
       ]
     },
-    "src/task-feedback.js": {
+    "src/task-feedback.ts": {
       "affectedTests": [
         "test/task-feedback.test.js"
       ]
     },
-    "src/task-intake-continuation.js": {
+    "src/task-intake-continuation.ts": {
       "affectedTests": [
         "test/task-intake-continuation.test.js"
       ]
     },
-    "src/task-intake.js": {
+    "src/task-intake.ts": {
       "affectedTests": [
         "test/task-service.test.js",
         "test/task-intake-interface.test.js",
@@ -640,13 +647,13 @@
       ],
       "lineLimit": 350
     },
-    "src/task-lifecycle-event-recorder.js": {
+    "src/task-lifecycle-event-recorder.ts": {
       "affectedTests": [
         "test/delivery-quality-runtime.test.js",
         "test/task-lifecycle-event-recorder.test.js"
       ]
     },
-    "src/task-notification-projection.js": {
+    "src/task-notification-projection.ts": {
       "lineLimit": 160,
       "importLimit": 4,
       "affectedTests": [
@@ -655,7 +662,7 @@
         "test/task-card-presentation.test.js"
       ]
     },
-    "src/task-notification.js": {
+    "src/task-notification.ts": {
       "affectedTests": [
         "test/task-service.test.js",
         "test/task-service-runtime-presentation.test.js",
@@ -663,7 +670,7 @@
       ],
       "lineLimit": 350
     },
-    "src/task-overview.js": {
+    "src/task-overview.ts": {
       "affectedTests": [
         "test/task-overview-focus.test.js",
         "test/task-service-runtime-presentation.test.js",
@@ -671,7 +678,7 @@
       ],
       "lineLimit": 275
     },
-    "src/task-paperclip-assignment.js": {
+    "src/task-paperclip-assignment.ts": {
       "affectedTests": [
         "test/task-service-paperclip-execution.test.js",
         "test/m5-role-tool-execution.test.js",
@@ -679,23 +686,23 @@
       ],
       "lineLimit": 350
     },
-    "src/task-presentation.js": {
+    "src/task-presentation.ts": {
       "affectedTests": [
         "test/task-presentation.test.js"
       ]
     },
-    "src/task-record-service.js": {
+    "src/task-record-service.ts": {
       "affectedTests": [
         "test/task-record-service.test.js"
       ]
     },
-    "src/task-recovery-policy.js": {
+    "src/task-recovery-policy.ts": {
       "affectedTests": [
         "test/task-recovery.test.js",
         "test/task-service.test.js"
       ]
     },
-    "src/task-recovery.js": {
+    "src/task-recovery.ts": {
       "affectedTests": [
         "test/failure-recovery-coordinator.test.js",
         "test/feishu-commander.test.js",
@@ -706,7 +713,7 @@
       "lineLimit": 300,
       "importLimit": 10
     },
-    "src/task-role-execution.js": {
+    "src/task-role-execution.ts": {
       "affectedTests": [
         "test/task-service-paperclip-execution.test.js",
         "test/m5-role-tool-execution.test.js",
@@ -714,7 +721,7 @@
       ],
       "lineLimit": 750
     },
-    "src/task-service-execution-support.js": {
+    "src/task-service-execution-support.ts": {
       "lineLimit": 650,
       "affectedTests": [
         "test/m5-role-tool-execution.test.js",
@@ -723,7 +730,7 @@
         "test/task-service.test.js"
       ]
     },
-    "src/task-service-execution.js": {
+    "src/task-service-execution.ts": {
       "lineLimit": 450,
       "affectedTests": [
         "test/m5-hermes-stage-execute.test.js",
@@ -734,7 +741,7 @@
         "test/task-service.test.js"
       ]
     },
-    "src/task-service-m5-execution-context-support.js": {
+    "src/task-service-m5-execution-context-support.ts": {
       "lineLimit": 320,
       "affectedTests": [
         "test/m5-role-tool-execution.test.js",
@@ -742,7 +749,7 @@
         "test/task-service.test.js"
       ]
     },
-    "src/task-service.js": {
+    "src/task-service.ts": {
       "lineLimit": 250
     },
     "src/task-status-policy.ts": {
@@ -759,7 +766,7 @@
       ],
       "lineLimit": 180
     },
-    "src/trusted-publish-lineage.js": {
+    "src/trusted-publish-lineage.ts": {
       "affectedTests": [
         "test/paperclip-metric-monitor.test.js",
         "test/paperclip-publisher-controller.test.js",
@@ -767,14 +774,14 @@
       ],
       "lineLimit": 220
     },
-    "src/xiaod-delivery-resume.js": {
+    "src/xiaod-delivery-resume.ts": {
       "lineLimit": 100,
       "affectedTests": [
         "test/task-service.test.js",
         "test/xiaod-delivery-resume.test.js"
       ]
     },
-    "src/xiaod-task-control.js": {
+    "src/xiaod-task-control.ts": {
       "lineLimit": 250,
       "affectedTests": [
         "test/task-service.test.js"

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { TaskOverview } from '../src/task-overview.js';
+import { TaskOverview } from '../src/task-overview.ts';
 
 test('任务总览把 Hermes 账本健康结果附在同一份 billing 响应中', () => {
   const overview = new TaskOverview({

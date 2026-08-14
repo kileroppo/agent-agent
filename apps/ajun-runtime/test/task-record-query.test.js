@@ -7,7 +7,7 @@ import {
   queryTaskRecordsInMemory,
   taskRecordView,
   taskRecordViewForTask,
-} from '../src/task-record-query.js';
+} from '../src/task-record-query.ts';
 
 const tasks = [
   task('needs-input', 'needs_input', '2026-08-07T10:00:00.000Z', { title:'补充演示材料', agentId:'office-assistant' }),

@@ -20,10 +20,10 @@ test('字幕补正 API 和网页入口保持 AI 主稿、局部补正与版本�
   assert.match(html, /不要求完整听审/);
   assert.match(html, /不调用模型，也不会自动更新或外发飞书文档/);
   assert.match(client, /\['completed', 'awaiting_delivery'\]\.includes\(job\.status\).*confirmedTranscriptPath/);
-  assert.match(client, /expectedVersion:activeRevisionVersion/);
-  assert.match(client, /correctedTranscript:data\.get\('correctedTranscript'\)/);
-  assert.match(client, /correctionSummary:data\.get\('correctionSummary'\)/);
-  assert.match(client, /editorRef:data\.get\('editorRef'\)/);
+  assert.match(client, /expectedVersion:\s*activeRevisionVersion/);
+  assert.match(client, /correctedTranscript:\s*data\.get\('correctedTranscript'\)/);
+  assert.match(client, /correctionSummary:\s*data\.get\('correctionSummary'\)/);
+  assert.match(client, /editorRef:\s*data\.get\('editorRef'\)/);
   assert.match(client, /response\.status === 409/);
   assert.match(client, /当前编辑未覆盖服务器内容/);
 });

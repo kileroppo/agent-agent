@@ -3,7 +3,7 @@ globalThis.fetch = async () => {
 };
 
 const { runM5LocalChaosAcceptance } = await import(
-  '../../../../apps/ajun-runtime/src/m5-local-chaos-acceptance.js'
+  '../../../../apps/ajun-runtime/src/m5-local-chaos-acceptance.ts'
 );
 
 const ledger = await runM5LocalChaosAcceptance();

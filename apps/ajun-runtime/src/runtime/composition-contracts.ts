@@ -126,8 +126,8 @@ export type BackgroundLifecycleCompositionInput = Readonly<{
   governance: unknown;
   localExecution: Readonly<{
     registry: unknown;
-    localXiaod: unknown;
-    xiaod: Readonly<{ collectMetrics(input: unknown): unknown }>;
+    localXiaod: Readonly<{ collectMetrics(input: unknown): unknown }>;
+    xiaod: unknown;
     bindXiaodReconciler(reconciler: unknown): void;
   }>;
   tasks: Readonly<{

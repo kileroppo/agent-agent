@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PublicPdfReader } from '../src/public-pdf-reader.js';
-import { PublicWebTransport } from '../src/public-web-transport.js';
+import { PublicPdfReader } from '../src/public-pdf-reader.ts';
+import { PublicWebTransport } from '../src/public-web-transport.ts';
 
 test('公开 PDF 复用 DNS 固定解析、拒绝跳转并返回来源哈希', async () => {
   const requests = [];

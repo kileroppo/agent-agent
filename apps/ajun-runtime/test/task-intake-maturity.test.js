@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { TaskIntake } from '../src/task-intake.js';
+import { TaskIntake } from '../src/task-intake.ts';
 
 test('产品成熟度总任务在 intake 阶段验签后不投影 Paperclip', async () => {
   const task = {

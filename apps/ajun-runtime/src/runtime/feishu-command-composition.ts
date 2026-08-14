@@ -1,30 +1,17 @@
 import path from 'node:path';
-// @ts-expect-error -- transitional JS Adapter; removed with the Hermes planner batch.
-import { HermesIntentPlanner } from '../hermes-intent-planner.js';
-// @ts-expect-error -- transitional JS Adapter; removed with the Hermes advisor batch.
-import { HermesConversationAdvisor } from '../hermes-conversation-advisor.js';
-// @ts-expect-error -- transitional JS Module; removed with the Feishu command batch.
-import { FeishuCommander } from '../feishu-commander.js';
-// @ts-expect-error -- transitional JS Adapter; removed with the Feishu channel batch.
-import { FeishuChannelBridge } from '../feishu-channel-bridge.js';
-// @ts-expect-error -- transitional JS Adapter; removed with the Feishu channel batch.
-import { OfficialFeishuChannelRunner } from '../official-feishu-channel-runner.js';
-// @ts-expect-error -- transitional JS Module; removed with the completion-watch batch.
-import { FileCompletionWatchStore, OfficialFeishuCompletionWatcher } from '../official-feishu-completion-watcher.js';
-// @ts-expect-error -- transitional JS Adapter; removed with the Feishu sender batch.
-import { HermesFeishuSender } from '../hermes-feishu-sender.js';
-// @ts-expect-error -- transitional JS Module; removed with the employee-channel batch.
-import { FileAgentFeishuAppStore } from '../agent-feishu-app-store.js';
-// @ts-expect-error -- transitional JS Module; removed with the employee-channel batch.
-import { AgentFeishuChannelFleet, employeeFeishuChannelsEnabled, feishuChannelStartupPlan } from '../agent-feishu-channel-fleet.js';
-// @ts-expect-error -- transitional JS Module; removed with the employee-channel batch.
-import { EmployeeFeishuConnectionService } from '../employee-feishu-connection-service.js';
-// @ts-expect-error -- transitional JS Adapter; removed with the Hermes model batch.
-import { HermesModelSetupService } from '../hermes-model-setup-service.js';
-// @ts-expect-error -- transitional JS Adapter; removed with the Hermes model batch.
-import { createHermesModelProfileResolver } from '../hermes-model-profile-resolver.js';
-// @ts-expect-error -- transitional JS presentation Adapter; removed with the task-view batch.
-import { taskDetailBaseUrl } from '../task-presentation.js';
+import { HermesIntentPlanner } from '../hermes-intent-planner.ts';
+import { HermesConversationAdvisor } from '../hermes-conversation-advisor.ts';
+import { FeishuCommander } from '../feishu-commander.ts';
+import { FeishuChannelBridge } from '../feishu-channel-bridge.ts';
+import { OfficialFeishuChannelRunner } from '../official-feishu-channel-runner.ts';
+import { FileCompletionWatchStore, OfficialFeishuCompletionWatcher } from '../official-feishu-completion-watcher.ts';
+import { HermesFeishuSender } from '../hermes-feishu-sender.ts';
+import { FileAgentFeishuAppStore } from '../agent-feishu-app-store.ts';
+import { AgentFeishuChannelFleet, employeeFeishuChannelsEnabled, feishuChannelStartupPlan } from '../agent-feishu-channel-fleet.ts';
+import { EmployeeFeishuConnectionService } from '../employee-feishu-connection-service.ts';
+import { HermesModelSetupService } from '../hermes-model-setup-service.ts';
+import { createHermesModelProfileResolver } from '../hermes-model-profile-resolver.ts';
+import { taskDetailBaseUrl } from '../task-presentation.ts';
 import { createFeishuApprovalResolver } from '../runtime-http-feishu.ts';
 import type { FeishuCommandCompositionInput } from './composition-contracts.ts';
 

@@ -5,7 +5,7 @@ import {
   createM5ObservationDecision,
   createM5RouteExecution,
   routeDescriptorFingerprint,
-} from '../src/route-execution.js';
+} from '../src/route-execution.ts';
 
 const rejectedExecution = {
   strategy:'default:m5_stage_execute',

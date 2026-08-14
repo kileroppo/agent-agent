@@ -3,8 +3,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LocalPptxAdapter, OfficePresentationAdapter } from '../src/local-pptx-adapter.js';
-import { OpenKimiPptAdapter } from '../src/open-kimi-ppt-adapter.js';
+import { LocalPptxAdapter, OfficePresentationAdapter } from '../src/local-pptx-adapter.ts';
+import { OpenKimiPptAdapter } from '../src/open-kimi-ppt-adapter.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixtureRoot = path.resolve(here, '../test/fixtures/open-kimi-ppt');

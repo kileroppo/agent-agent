@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DeterministicLocalHealthProbe } from '../src/deterministic-local-health-probe.js';
+import { DeterministicLocalHealthProbe } from '../src/deterministic-local-health-probe.ts';
 
 function response(body, { ok = true, status = 200 } = {}) {
   return { ok, status, async json() { return body; } };

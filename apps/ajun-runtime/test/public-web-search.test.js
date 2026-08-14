@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PublicWebSearch, PublicWebSearchError } from '../src/public-web-search.js';
+import { PublicWebSearch, PublicWebSearchError } from '../src/public-web-search.ts';
 
 test('公开搜索只返回有限的公开 HTTP 链接和标题', async () => {
   const search = new PublicWebSearch({ fetchImpl:async () => new Response('<a class="result__a" href="https://example.com/a">资料 A</a><a class="result__a" href="/l/?uddg=https%3A%2F%2Fexample.org%2Fb">资料 B</a>', { status:200 }) });

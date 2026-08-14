@@ -5,12 +5,12 @@ import {
   M5LearningLifecycle,
   M5LearningLifecycleError,
   buildOfflineReplay,
-} from '../src/m5-learning-lifecycle.js';
+} from '../src/m5-learning-lifecycle.ts';
 import {
   M5LearningEvidence,
   M5LearningLifecycleError as EvidenceLifecycleError,
-} from '../src/m5-learning-evidence.js';
-import { m5GrayProductionTemplateBinding } from '../src/m5-production-template-resolver.js';
+} from '../src/m5-learning-evidence.ts';
+import { m5GrayProductionTemplateBinding } from '../src/m5-production-template-resolver.ts';
 
 const IDS = Object.freeze({
   case:'11111111-1111-4111-8111-111111111111',

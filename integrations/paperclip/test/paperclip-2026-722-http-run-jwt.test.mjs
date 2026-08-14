@@ -9,7 +9,7 @@ import {
   patchHttpIndexSource,
   resolveCompatibilityTargets,
   rollbackCompatibilityPatch,
-} from '../compat/paperclip-2026-722-http-run-jwt.mjs';
+} from '../compat/paperclip-2026-722-http-run-jwt.ts';
 import { main as applyMain } from '../scripts/apply-paperclip-2026-722-http-run-jwt.mjs';
 import { main as rollbackMain } from '../scripts/rollback-paperclip-2026-722-http-run-jwt.mjs';
 

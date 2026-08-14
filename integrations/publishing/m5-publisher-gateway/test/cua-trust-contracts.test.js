@@ -13,7 +13,7 @@ import {
   selectorBundleChecksum,
   validateApprovedProfileLease,
   validateApprovedSelectorBundle,
-} from '../src/index.js';
+} from '../src/index.ts';
 
 const NOW = new Date('2026-07-30T08:00:00.000Z');
 

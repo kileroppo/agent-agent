@@ -5,22 +5,24 @@
   "description": "Agent Army local capability gateway, execution adapter, diagnostics, and recovery runtime",
   "type": "module",
   "exports": {
-    "./task-run-event-store": "./src/task-run-event-store.js"
+    "./task-run-event-store": "./src/task-run-event-store.ts"
   },
   "scripts": {
-    "dev": "AJUN_HOST=127.0.0.1 AJUN_DEV_HOT_RELOAD=true AJUN_DISABLE_BACKGROUND_SERVICES=true PORT=${PORT:-4322} node --watch-preserve-output --watch-path=src --watch-path=public --watch-path=../../agents --watch-path=../../integrations --watch-path=../../packages src/server.ts",
-    "start": "node src/server.ts",
+    "build:frontend": "tsc -p frontend/tsconfig.json",
+    "dev": "npm run build:frontend && AJUN_HOST=127.0.0.1 AJUN_DEV_HOT_RELOAD=true AJUN_DISABLE_BACKGROUND_SERVICES=true PORT=${PORT:-4322} node --watch-preserve-output --watch-path=src --watch-path=frontend/src --watch-path=public --watch-path=../../agents --watch-path=../../integrations --watch-path=../../packages src/server.ts",
+    "start": "npm run build:frontend && node src/server.ts",
     "acceptance:governance-feishu": "NODE_NO_WARNINGS=1 node scripts/verify-governance-feishu-acceptance.mjs",
     "acceptance:m3-content-growth": "node scripts/verify-m3-content-growth.mjs",
     "acceptance:m3-hermes-content-growth": "node scripts/verify-m3-content-growth.mjs --with-hermes",
     "acceptance:m3-paperclip-heartbeat": "node scripts/verify-m3-paperclip-heartbeat.mjs",
     "acceptance:m4-role-quality": "node scripts/verify-m4-role-quality.mjs",
+    "benchmark:hotspots": "node scripts/benchmark-runtime-hotspots.mjs",
     "verify:office-presentation": "node scripts/verify-office-presentation.mjs",
     "verify:video-analysis-local-fallback": "NODE_NO_WARNINGS=1 node scripts/verify-video-analysis-local-fallback.mjs",
     "test:video-analysis-local-fallback": "NODE_NO_WARNINGS=1 node --test test/video-analysis-local-fallback.test.js",
     "release:immutable": "node scripts/manage-immutable-runtime-release.mjs",
     "check:typescript-ratio": "node scripts/check-typescript-ratio.mjs",
-    "check": "tsc -p tsconfig.json && npm run check:typescript-ratio",
+    "check": "tsc -p tsconfig.json && npm run build:frontend && npm run check:typescript-ratio",
     "pretest": "npm run check",
     "test": "node --test"
   },

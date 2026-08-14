@@ -1,18 +1,11 @@
 import path from 'node:path';
-// @ts-expect-error -- transitional JS workspace Module; removed with the Pipeline batch.
 import { defaultDefinition, HttpPaperclipAdapter } from '@agent-army/m5-content-pipeline';
-// @ts-expect-error -- transitional JS Adapter; removed with the Paperclip bridge batch.
-import { PaperclipBridge } from '../paperclip-bridge.js';
-// @ts-expect-error -- transitional JS Module; removed with the M5 campaign batch.
-import { ContentCampaignService } from '../content-campaign-service.js';
-// @ts-expect-error -- transitional JS composition; removed with the Publisher batch.
-import { createM5ServerPublisherComposition, PaperclipCurrentRunScope } from '../m5-server-publisher-composition.js';
-// @ts-expect-error -- transitional JS Adapter; removed with the M5 tool batch.
-import { M5ToolExecutorRouter, PaperclipContentToolExecutor } from '../paperclip-content-tool-executor.js';
-// @ts-expect-error -- transitional JS Module; removed with the budget batch.
-import { LocalBudgetTicketAuthority } from '../local-budget-ticket-authority.js';
-// @ts-expect-error -- transitional JS Module; removed with the template batch.
-import { M5ProductionTemplateResolver } from '../m5-production-template-resolver.js';
+import { PaperclipBridge } from '../paperclip-bridge.ts';
+import { ContentCampaignService } from '../content-campaign-service.ts';
+import { createM5ServerPublisherComposition, PaperclipCurrentRunScope } from '../m5-server-publisher-composition.ts';
+import { M5ToolExecutorRouter, PaperclipContentToolExecutor } from '../paperclip-content-tool-executor.ts';
+import { LocalBudgetTicketAuthority } from '../local-budget-ticket-authority.ts';
+import { M5ProductionTemplateResolver } from '../m5-production-template-resolver.ts';
 import type {
   ContentCampaignCompositionInput,
   ContentCampaignServiceInterface,

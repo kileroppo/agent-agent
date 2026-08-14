@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
-import { SQLiteTaskStore } from '../src/sqlite-task-store.js';
+import { SQLiteTaskStore } from '../src/sqlite-task-store.ts';
 
 const { source, target } = parseArguments(process.argv.slice(2));
 if (!source || !target) {

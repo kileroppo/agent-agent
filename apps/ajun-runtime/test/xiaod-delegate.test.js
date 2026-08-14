@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { XiaodDelegate } from '../src/xiaod-delegate.js';
+import { XiaodDelegate } from '../src/xiaod-delegate.ts';
 
 test('小D缺少公开素材链接时不发起下游请求', async () => {
   let calls = 0;

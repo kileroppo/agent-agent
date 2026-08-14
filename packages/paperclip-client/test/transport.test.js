@@ -6,7 +6,7 @@ import {
   PaperclipM5Client,
   PaperclipOrganizationClient,
   normalizePaperclipBaseUrl,
-} from '../src/index.js';
+} from '../src/index.ts';
 
 test('默认拒绝远程 Paperclip，显式授权后只保留 origin', () => {
   assert.throws(() => normalizePaperclipBaseUrl('https://paperclip.example/api'), /loopback/);

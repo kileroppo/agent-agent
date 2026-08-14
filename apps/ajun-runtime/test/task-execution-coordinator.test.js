@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { TaskCapabilityCatalog } from '../src/task-capability-catalog.ts';
 import { TaskExecutionCoordinator } from '../src/task-execution-coordinator.ts';
-import { TaskStore } from '../src/task-store.js';
+import { TaskStore } from '../src/task-store.ts';
 
 test('任务执行协调器拒绝把没有专用产物的 succeeded 写成系统成功', async () => {
   let stored = { taskId:'task-1', taskType:'report.public-material', status:'queued', governance:null };

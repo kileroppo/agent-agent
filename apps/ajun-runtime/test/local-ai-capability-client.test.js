@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { LocalAiCapabilityClient } from '../src/local-ai-capability-client.js';
+import { LocalAiCapabilityClient } from '../src/local-ai-capability-client.ts';
 
 test('本机 AI 客户端拒绝非回环地址和 URL 内嵌凭据', () => {
   assert.throws(() => new LocalAiCapabilityClient({ baseUrl:'https://example.com' }), (error) => error.code === 'local_ai_gateway_not_loopback');

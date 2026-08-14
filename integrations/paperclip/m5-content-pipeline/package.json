@@ -5,27 +5,32 @@
   "description": "Paperclip Pipeline and Case workflow adapter for M5 content operations",
   "type": "module",
   "exports": {
-    ".": "./src/index.js"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "test": "node --test",
     "test:fake-e2e": "node --test test/fake-e2e.test.js",
     "acceptance:fake-e2e": "node scripts/run-local-fake-e2e.mjs",
-    "validate": "node src/cli.js validate",
-    "dry-run": "node src/cli.js dry-run",
-    "migration:v2:dry-run": "node src/cli.js migrate-v2-dry-run",
-    "clone-cutover:v2:dry-run": "node src/cli.js clone-cutover-v2-dry-run",
-    "clone-cutover:v2:apply": "node src/cli.js clone-cutover-v2-apply",
-    "reconcile:v2:dry-run": "node src/cli.js reconcile-existing-v2-dry-run",
-    "reconcile:v2:apply": "node src/cli.js reconcile-existing-v2-apply",
-    "reconcile:v2:recover": "node src/cli.js reconcile-existing-v2-recover",
+    "validate": "node src/cli.ts validate",
+    "dry-run": "node src/cli.ts dry-run",
+    "migration:v2:dry-run": "node src/cli.ts migrate-v2-dry-run",
+    "clone-cutover:v2:dry-run": "node src/cli.ts clone-cutover-v2-dry-run",
+    "clone-cutover:v2:apply": "node src/cli.ts clone-cutover-v2-apply",
+    "reconcile:v2:dry-run": "node src/cli.ts reconcile-existing-v2-dry-run",
+    "reconcile:v2:apply": "node src/cli.ts reconcile-existing-v2-apply",
+    "reconcile:v2:recover": "node src/cli.ts reconcile-existing-v2-recover",
     "controller-run-jwt": "node scripts/manage-controller-run-jwt-cutover.mjs",
-    "apply": "node src/cli.js apply"
+    "apply": "node src/cli.ts apply",
+    "check": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "@agent-army/m5-contracts": "0.1.0",
     "@agent-army/paperclip-client": "0.1.0",
     "@paperclipai/shared": "2026.707.0",
     "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "typescript": "5.9.3"
   }
 }

@@ -8,8 +8,8 @@ import { fileURLToPath } from 'node:url';
 import {
   CONTENT_PLUGIN_STEPFUN_SHA256,
   CONTENT_PLUGIN_VERSION,
-} from '../compat/paperclip-2026-722-binary-rpc.mjs';
-import pluginManifest from '../plugins/content-autonomy/src/manifest.js';
+} from '../compat/paperclip-2026-722-binary-rpc.ts';
+import pluginManifest from '../plugins/content-autonomy/src/manifest.ts';
 import {
   BUNDLE_VERSION,
   BUNDLE_PREFIX,
@@ -20,7 +20,7 @@ import {
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
-test('0.4.9版本链与当前StepFun SHA保持一致，maintenance只从0.4.7升级和回滚', async () => {
+test('0.5.0版本链与当前StepFun SHA保持一致，maintenance只从0.4.6升级和回滚', async () => {
   const pluginRoot = path.join(
     repositoryRoot,
     'integrations/paperclip/plugins/content-autonomy',
@@ -33,36 +33,36 @@ test('0.4.9版本链与当前StepFun SHA保持一致，maintenance只从0.4.7升
     path.join(pluginRoot, 'package-lock.json'),
     'utf8',
   ));
-  const stepfunBytes = await fs.readFile(path.join(pluginRoot, 'src/stepfun-tools.js'));
+  const stepfunBytes = await fs.readFile(path.join(pluginRoot, 'src/stepfun-tools.ts'));
   const stepfunSha = crypto.createHash('sha256').update(stepfunBytes).digest('hex');
   const maintenance = await fs.readFile(path.join(
     repositoryRoot,
     'integrations/paperclip/scripts/maintain-content-autonomy-live.mjs',
   ), 'utf8');
 
-  assert.equal(packageJson.version, '0.4.9');
-  assert.equal(packageLock.version, '0.4.9');
-  assert.equal(packageLock.packages[''].version, '0.4.9');
-  assert.equal(pluginManifest.version, '0.4.9');
-  assert.equal(BUNDLE_VERSION, '0.4.9');
-  assert.equal(CONTENT_PLUGIN_VERSION, '0.4.9');
+  assert.equal(packageJson.version, '0.5.0');
+  assert.equal(packageLock.version, '0.5.0');
+  assert.equal(packageLock.packages[''].version, '0.5.0');
+  assert.equal(pluginManifest.version, '0.5.0');
+  assert.equal(BUNDLE_VERSION, '0.5.0');
+  assert.equal(CONTENT_PLUGIN_VERSION, '0.5.0');
   assert.equal(
     CONTENT_PLUGIN_STEPFUN_SHA256,
-    'df8223807097e865db59b80a109530030ff36ffb06e032426fa01366404be4de',
+    '524c917e1d784250263e5c7af2657b1f7ad9a4066f39d22e0558f008858a578e',
   );
   assert.equal(stepfunSha, CONTENT_PLUGIN_STEPFUN_SHA256);
-  assert.match(maintenance, /OLD_PLUGIN_VERSION = '0\.4\.7'/);
-  assert.match(maintenance, /NEW_PLUGIN_VERSION = '0\.4\.9'/);
+  assert.match(maintenance, /OLD_PLUGIN_VERSION = '0\.4\.6'/);
+  assert.match(maintenance, /NEW_PLUGIN_VERSION = '0\.5\.0'/);
   assert.match(
     maintenance,
-    /I_ACCEPT_CONTENT_AUTONOMY_0_4_9_LIVE_MAINTENANCE/,
+    /I_ACCEPT_CONTENT_AUTONOMY_0_5_0_LIVE_MAINTENANCE/,
   );
-  assert.match(maintenance, /I_ACCEPT_CONTENT_AUTONOMY_0_4_7_ROLLBACK/);
+  assert.match(maintenance, /I_ACCEPT_CONTENT_AUTONOMY_0_4_6_ROLLBACK/);
   assert.match(maintenance, /stage = 'binary_compat_preserve'/);
   assert.match(maintenance, /expectedPluginVersion:OLD_PLUGIN_VERSION/);
 });
 
-test('冻结0.4.9复制完整运行依赖和ajun allowlist，精确排除生成物与Remotion缓存并设为只读', async (context) => {
+test('冻结0.5.0复制完整运行依赖和ajun allowlist，精确排除生成物与Remotion缓存并设为只读', async (context) => {
   const repoRoot = await createFixture(context);
   const result = await freezeContentAutonomyBundle({ repoRoot });
 
@@ -129,14 +129,14 @@ test('冻结0.4.9复制完整运行依赖和ajun allowlist，精确排除生成�
   assert.equal(
     await fs.readFile(path.join(
       result.bundleRoot,
-      'apps/ajun-runtime/src/m5-budget-cost-contract.js',
+      'apps/ajun-runtime/src/m5-budget-cost-contract.ts',
     ), 'utf8'),
     'export const budgetContract = true;\n',
   );
   assert.equal(
     await fs.readFile(path.join(
       result.bundleRoot,
-      'apps/ajun-runtime/src/local-budget-ticket-authority.js',
+      'apps/ajun-runtime/src/local-budget-ticket-authority.ts',
     ), 'utf8'),
     'export const ticketAuthority = true;\n',
   );
@@ -180,7 +180,7 @@ test('冻结0.4.9复制完整运行依赖和ajun allowlist，精确排除生成�
     path.join(result.bundleRoot, MANIFEST_FILE),
     'utf8',
   ));
-  assert.equal(manifest.bundleVersion, '0.4.9');
+  assert.equal(manifest.bundleVersion, '0.5.0');
   assert.equal(manifest.payloadHash, result.payloadHash);
   assert.deepEqual(manifest.exclusions, [
     'apps/animated-chart/out/**',
@@ -191,8 +191,8 @@ test('冻结0.4.9复制完整运行依赖和ajun allowlist，精确排除生成�
     entry.path.startsWith('apps/animated-chart/node_modules/.cache/')), false);
   assert.deepEqual(manifest.includedFiles, [
     'apps/ajun-runtime/package.json',
-    'apps/ajun-runtime/src/m5-budget-cost-contract.js',
-    'apps/ajun-runtime/src/local-budget-ticket-authority.js',
+    'apps/ajun-runtime/src/m5-budget-cost-contract.ts',
+    'apps/ajun-runtime/src/local-budget-ticket-authority.ts',
     'designs/m2-authorization-architecture/a-jun-product-runtime-preview.png',
     'designs/m2-authorization-architecture/architecture-preview.png',
     'designs/agent-army-m1/desktop-preview.png',
@@ -225,7 +225,7 @@ test('相同源码重复冻结返回同一路径且不覆盖；已有包被改�
 
   const tampered = path.join(
     first.bundleRoot,
-    'integrations/paperclip/plugins/content-autonomy/src/index.js',
+    'integrations/paperclip/plugins/content-autonomy/src/index.ts',
   );
   await fs.chmod(first.bundleRoot, 0o755);
   await fs.chmod(path.dirname(tampered), 0o755);
@@ -237,7 +237,7 @@ test('相同源码重复冻结返回同一路径且不覆盖；已有包被改�
   );
 });
 
-test('源码软链越出组件、输出目录软链和非0.4.9版本均被拒绝', async (context) => {
+test('源码软链越出组件、输出目录软链和非0.5.0版本均被拒绝', async (context) => {
   const escapingRepo = await createFixture(context);
   await fs.writeFile(path.join(escapingRepo, 'outside.txt'), 'outside\n');
   await fs.symlink(
@@ -273,7 +273,7 @@ test('源码软链越出组件、输出目录软链和非0.4.9版本均被拒绝
   }));
   await assert.rejects(
     freezeContentAutonomyBundle({ repoRoot: wrongVersionRepo }),
-    /只允许冻结 content-autonomy 0\.4\.9/,
+    /只允许冻结 content-autonomy 0\.5\.0/,
   );
 });
 
@@ -392,12 +392,12 @@ async function createFixture(context) {
 
   await fs.writeFile(path.join(pluginRoot, 'package.json'), JSON.stringify({
     name: '@agent-army/paperclip-content-autonomy',
-    version: '0.4.9',
-    scripts: { test: 'node --test', check: 'node --check src/index.js' },
+    version: '0.5.0',
+    scripts: { test: 'node --test', check: 'node --check src/index.ts' },
   }));
-  await fs.writeFile(path.join(pluginRoot, 'src/index.js'), 'export const ready = true;\n');
+  await fs.writeFile(path.join(pluginRoot, 'src/index.ts'), 'export const ready = true;\n');
   await fs.writeFile(
-    path.join(pluginRoot, 'node_modules/plugin-dep/index.js'),
+    path.join(pluginRoot, 'node_modules/plugin-dep/index.ts'),
     'module.exports = true;\n',
   );
   await fs.writeFile(path.join(appRoot, 'package.json'), JSON.stringify({
@@ -431,11 +431,11 @@ async function createFixture(context) {
     version: '0.1.0',
   }));
   await fs.writeFile(
-    path.join(ajunRoot, 'src/m5-budget-cost-contract.js'),
+    path.join(ajunRoot, 'src/m5-budget-cost-contract.ts'),
     'export const budgetContract = true;\n',
   );
   await fs.writeFile(
-    path.join(ajunRoot, 'src/local-budget-ticket-authority.js'),
+    path.join(ajunRoot, 'src/local-budget-ticket-authority.ts'),
     'export const ticketAuthority = true;\n',
   );
   await fs.writeFile(

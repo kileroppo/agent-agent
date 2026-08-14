@@ -4,8 +4,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { TaskRunEventStore } from '../src/task-run-event-store.js';
-import { TaskRunEventRetention } from '../src/task-run-event-retention.js';
+import { TaskRunEventStore } from '../src/task-run-event-store.ts';
+import { TaskRunEventRetention } from '../src/task-run-event-retention.ts';
 
 test('运行事件只追加白名单字段并脱敏摘要，不保存正文和 secret', async () => {
   await withStore(async ({ store, filePath }) => {

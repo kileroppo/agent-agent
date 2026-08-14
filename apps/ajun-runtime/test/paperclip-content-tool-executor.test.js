@@ -4,8 +4,8 @@ import {
   M5ToolExecutorRouter,
   PaperclipContentToolExecutor,
   PaperclipContentToolExecutorError,
-} from '../src/paperclip-content-tool-executor.js';
-import { buildContentAutonomyApprovalSnapshot } from '../src/content-autonomy-plugin-snapshot.js';
+} from '../src/paperclip-content-tool-executor.ts';
+import { buildContentAutonomyApprovalSnapshot } from '../src/content-autonomy-plugin-snapshot.ts';
 
 const ids = Object.freeze({
   company:'11111111-1111-4111-8111-111111111111',

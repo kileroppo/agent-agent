@@ -87,9 +87,9 @@ test('恢复动作固定走本机安全路径并带并发与幂等保护', async
 
   assert.match(script, /api\('\/api\/owner-action-session'\)/);
   assert.match(script, /\/api\/tasks\/\$\{encodeURIComponent\(task\.taskId\)\}\/recovery-actions\/\$\{encodeURIComponent\(action\.actionKey\)\}/);
-  assert.match(script, /'Idempotency-Key':idempotencyKey/);
-  assert.match(script, /'X-Ajun-Owner-Action':nonce/);
-  assert.match(script, /expectedUpdatedAt:task\.updatedAt \|\| null/);
+  assert.match(script, /'Idempotency-Key':\s*idempotencyKey/);
+  assert.match(script, /'X-Ajun-Owner-Action':\s*nonce/);
+  assert.match(script, /expectedUpdatedAt:\s*task\.updatedAt \|\| null/);
   assert.doesNotMatch(script, /action\.(?:endpoint|url|method)/);
   assert.doesNotMatch(script, /task\.(?:error|routing|requester)/);
   assert.match(script, /task-record-detail-view\.js/);

@@ -5,8 +5,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import * as lark from '@larksuiteoapi/node-sdk';
-import { feishuRegisterAppOptions } from '../src/feishu-agent-provisioning-plan.js';
-import { FileAgentFeishuAppStore } from '../src/agent-feishu-app-store.js';
+import { feishuRegisterAppOptions } from '../src/feishu-agent-provisioning-plan.ts';
+import { FileAgentFeishuAppStore } from '../src/agent-feishu-app-store.ts';
 
 const execFileAsync = promisify(execFile);
 const agentId = String(process.argv[2] || '').trim();

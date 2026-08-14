@@ -15,7 +15,7 @@ import {
   inspectExistingM5V2Reconcile,
   recoverExistingM5V2Reconcile,
   writeM5V2RollbackSnapshotFile,
-} from '../src/index.js';
+} from '../src/index.ts';
 
 test('existing v2 dry-run 精确报告三处 diff，且全程只有 GET', async () => {
   const fixture = buildFixture();

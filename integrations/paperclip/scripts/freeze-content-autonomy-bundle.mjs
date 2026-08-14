@@ -7,7 +7,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export const BUNDLE_VERSION = '0.4.9';
+export const BUNDLE_VERSION = '0.5.0';
 export const BUNDLE_PREFIX = `content-autonomy-bundle-${BUNDLE_VERSION}-`;
 export const DEFAULT_OUTPUT_RELATIVE = 'work/m5-content-autonomy/plugin-packages';
 export const MANIFEST_FILE = 'bundle-manifest.json';
@@ -30,8 +30,8 @@ const COMPONENTS = [
     exclusions: [],
     includePaths: [
       'package.json',
-      'src/m5-budget-cost-contract.js',
-      'src/local-budget-ticket-authority.js',
+      'src/m5-budget-cost-contract.ts',
+      'src/local-budget-ticket-authority.ts',
     ],
   },
   {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { TaskService } from '../src/task-service.js';
+import { TaskService } from '../src/task-service.ts';
 
 const IDS = Object.freeze({
   issue:'11111111-1111-4111-8111-111111111111',

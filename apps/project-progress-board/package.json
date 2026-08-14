@@ -5,8 +5,15 @@
   "description": "On-demand local project progress board backed by SQLite",
   "type": "module",
   "scripts": {
-    "dev": "node --watch src/server.js",
-    "start": "node src/server.js",
-    "test": "node --test"
+    "build:frontend": "tsc -p frontend/tsconfig.json",
+    "dev": "npm run build:frontend && node --watch src/server.ts",
+    "start": "npm run build:frontend && node src/server.ts",
+    "test": "node --test",
+    "check": "tsc -p tsconfig.json && npm run build:frontend",
+    "pretest": "npm run check"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "typescript": "5.9.3"
   }
 }

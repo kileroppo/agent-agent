@@ -2,7 +2,7 @@
 
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 已生效；候选 1–7、SQLite 与正式本机 release 已切换 |
+| 状态 | 已生效；SQLite、严格 TypeScript 生产边界与正式本机 release 已切换 |
 | 日期 | 2026-08-02 |
 | 决策人 | A君 |
 | 关联 | `docs/plans/architecture-debt-repayment-execution.md` |
@@ -143,3 +143,19 @@ A君、Pipeline、内容插件与 Publisher 重复；启动文件同时承担装
   继续退回 A君 Workspace 全量测试。
 - 本节仍是候选源码结构，不代表当前 `4321` 不可变 release 已切换，也不证明任何飞书、Paperclip、
   Publisher 或外部 Provider 行为发生变化。
+
+## 2026-08-14 TypeScript 运行边界与热点优化
+
+- 生产业务源码统一迁移到严格 TypeScript；测试和一次性运维脚本仍可保留 JavaScript/MJS。浏览器
+  入口以 `frontend/src/*.ts` 为唯一源码，`public/*.js` 与 `frontend/generated/*.js` 只是可重建产物。
+- 本节取代“按触达渐进迁移”的过渡策略。根 `check` 同时验证全部 Workspace、浏览器构建、Paperclip
+  兼容层和架构策略；生产 JavaScript 清单必须为空，避免同一业务同时维护 JS/TS 两份真相。
+- `AgentRegistrySnapshotCache` 通过可注入 Adapter 提供 1 秒快照缓存和并发去重；传入 `null` 可删除缓存
+  而不改变注册表行为。`TaskDefinitionRegistry` 预计算直接任务类型索引，并拒绝同一岗位的重复默认映射。
+- 固定性能门禁覆盖 100 次岗位列表和 50 万次直接任务路由；相对迁移前基线分别提升约 80% 和 93%，
+  任一热点回退超过 5% 即失败。
+- 迁移保持 SQLite 读取/迁移、HTTP 路由、共享契约、不可变 release manifest 和外置状态目录兼容；
+  Publisher、Campaign、Cron、飞书和外部 Provider 的授权状态不因语言迁移而改变。
+- 正式 A君 release `5ceb5069…`（payload `49872add…`、clean Git `ee27aed…`）已在 Node 22.23.1
+  上从 `src/server.ts` 启动；小D `4318` 也已从 `src/server.ts` 重启。两端 HTTP 200，A君历史
+  任务总数 833、运行中 0，切换前后保持一致；旧 plist、旧 release 和小D JS rollback worktree 均保留。

@@ -9,7 +9,7 @@ import {
   M5StageRecoveryError,
   M5StageRecoveryLedger,
   planM5StageFailureRecovery,
-} from '../src/m5-stage-recovery-controller.js';
+} from '../src/m5-stage-recovery-controller.ts';
 import {
   consumeM5SystemPlanRevision as kernelConsumeM5SystemPlanRevision,
   deriveM5StageRecoveryState as kernelDeriveM5StageRecoveryState,

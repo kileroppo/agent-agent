@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
-import { WeChatLocalVaultAcceptance } from '../src/wechat-local-vault-acceptance.js';
+import { WeChatLocalVaultAcceptance } from '../src/wechat-local-vault-acceptance.ts';
 
 test('微信 Vault 合成验收只保存检查结果，不保存聊天原文或真实数据', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wechat-vault-acceptance-'));

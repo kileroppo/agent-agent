@@ -9,7 +9,7 @@ import {
   MemoryPublisherRepository,
   WechatDraftGateway,
   WorkspaceArtifactVerifier,
-} from '../src/index.js';
+} from '../src/index.ts';
 import { deterministicCostReporter } from '../test-support/cost-reporter.js';
 
 const NOW = new Date('2026-08-05T03:00:00.000Z');

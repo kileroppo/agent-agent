@@ -114,13 +114,13 @@ test('控制台收敛为四个主导航，并保留旧 hash 深链兼容边界',
   assert.match(html, /href="#system"[^>]*data-module="system"[\s\S]*?<span>系统<\/span>/);
   assert.match(html, /href="#tools"[^>]*data-module="tools"[^>]*data-owner-only[\s\S]*?<span>工具<\/span>/);
 
-  assert.match(navigation, /overview:\{ page:'overview', group:'overview' \}/);
-  assert.match(navigation, /records:\{ page:'records', group:'records' \}/);
-  assert.match(navigation, /employees:\{ page:'employees', group:'system' \}/);
-  assert.match(navigation, /connections:\{ page:'connections', group:'system' \}/);
-  assert.match(navigation, /billing:\{ page:'billing', group:'system' \}/);
-  assert.match(navigation, /campaigns:\{ page:'campaigns', group:'tools' \}/);
-  assert.match(navigation, /'boom-monitor':\{ page:'boom-monitor', group:'tools' \}/);
+  assert.match(navigation, /overview:\s*\{\s*page:\s*'overview',\s*group:\s*'overview'\s*\}/);
+  assert.match(navigation, /records:\s*\{\s*page:\s*'records',\s*group:\s*'records'\s*\}/);
+  assert.match(navigation, /employees:\s*\{\s*page:\s*'employees',\s*group:\s*'system'\s*\}/);
+  assert.match(navigation, /connections:\s*\{\s*page:\s*'connections',\s*group:\s*'system'\s*\}/);
+  assert.match(navigation, /billing:\s*\{\s*page:\s*'billing',\s*group:\s*'system'\s*\}/);
+  assert.match(navigation, /campaigns:\s*\{\s*page:\s*'campaigns',\s*group:\s*'tools'\s*\}/);
+  assert.match(navigation, /'boom-monitor':\s*\{\s*page:\s*'boom-monitor',\s*group:\s*'tools'\s*\}/);
 });
 
 test('任务记录使用服务端用户意图查询、游标分页、搜索和低频筛选', async () => {
@@ -135,7 +135,7 @@ test('任务记录使用服务端用户意图查询、游标分页、搜索和�
   assert.match(html, /id="record-detail"/);
   assert.match(script, /api\('\/api\/console-overview'\)/);
   assert.match(script, /\/api\/task-records\?/);
-  assert.match(script, /limit:'24'/);
+  assert.match(script, /limit:\s*'24'/);
   assert.match(script, /params\.set\('cursor', cursor\)/);
   assert.match(script, /setTimeout\(async \(\) =>/);
   assert.doesNotMatch(script, /state\.overview\.tasks/);
@@ -146,9 +146,9 @@ test('记录页后台自动同步不重排当前列表，并单独刷新选中�
 
   assert.match(script, /if \(page\.revision !== state\.revision\)/);
   assert.match(script, /有新的记录，点击更新/);
-  assert.match(script, /if \(state\.selectedTaskId\) await loadSelectedDetail/);
+  assert.match(script, /if \(state\.selectedTaskId\)\s*await loadSelectedDetail/);
   assert.match(script, /if \(quiet && state\.selectedDetailLoaded && payload\.task\.updatedAt === state\.selectedTask\?\.updatedAt/);
-  assert.match(script, /if \(!quiet\) renderList\(\)/);
+  assert.match(script, /if \(!quiet\)\s*renderList\(\)/);
   assert.match(script, /history\.replaceState\(null, '', `\/tasks\//);
   assert.match(script, /record-detail-back/);
 });
@@ -157,6 +157,6 @@ test('控制台刷新由可测试 scheduler 管理，生产间隔保持十五秒
   const script = await readFile(new URL('app-interactions.js', root), 'utf8');
 
   assert.match(script, /import \{ canRefreshConsole, startRefreshScheduler \} from '\.\/refresh-scheduler\.js'/);
-  assert.match(script, /startRefreshScheduler\(\{[\s\S]*refresh:load,[\s\S]*canRefresh:\(\) => canRefreshConsole\(\{[\s\S]*page:document,[\s\S]*accessGate,[\s\S]*forms:\[accessForm, accessLoginForm\][\s\S]*intervalMs:15_000/);
+  assert.match(script, /startRefreshScheduler\(\{[\s\S]*refresh:\s*load,[\s\S]*canRefresh:\s*\(\) => canRefreshConsole\(\{[\s\S]*page:\s*document,[\s\S]*accessGate,[\s\S]*forms:\s*\[accessForm, accessLoginForm\][\s\S]*intervalMs:\s*15_?000/);
   assert.doesNotMatch(script, /setInterval\(/);
 });

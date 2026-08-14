@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { AccessConnectionError, AccessConnectionService } from '../src/access-connection-service.js';
+import { AccessConnectionError, AccessConnectionService } from '../src/access-connection-service.ts';
 
 const CONNECTION_ID = '123e4567-e89b-42d3-a456-426614174000';
 

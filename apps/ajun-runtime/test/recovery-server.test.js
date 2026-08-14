@@ -4,7 +4,7 @@ import net from 'node:net';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { startRecoveryServer } from '../src/recovery-server.js';
+import { startRecoveryServer } from '../src/recovery-server.ts';
 
 const HASH_A = 'a'.repeat(64);
 const HASH_B = 'b'.repeat(64);
@@ -53,7 +53,7 @@ test('只读恢复入口只暴露固定GET，并拒绝全部写请求', async (c
 test('恢复入口不导入业务执行器、文件系统、网络客户端或子进程', async () => {
   const sourcePath = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
-    '../src/recovery-server.js',
+    '../src/recovery-server.ts',
   );
   const source = await fs.readFile(sourcePath, 'utf8');
   assert.deepEqual(
@@ -70,7 +70,7 @@ test('恢复入口不导入业务执行器、文件系统、网络客户端或�
 });
 
 test('恢复入口拒绝非loopback监听、非法端口和非哈希身份', async () => {
-  const module = await import('../src/recovery-server.js');
+  const module = await import('../src/recovery-server.ts');
   await assert.rejects(
     module.startRecoveryServer({
       port:0,

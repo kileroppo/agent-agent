@@ -41,7 +41,7 @@ test('爆款雷达包含采集、作品、队列、扫描、JSON CSV 导入和�
   assert.match(consoleSource, /\/analysis\/queue\//);
   assert.match(consoleSource, /\/works\/\$\{workId\}/);
   assert.match(consoleSource, /\/import/);
-  assert.match(consoleSource, /analysis_daily_limit:dailyLimit/);
+  assert.match(consoleSource, /analysis_daily_limit:\s*dailyLimit/);
 });
 
 test('自动派发默认关闭，启用和手动派发都需明确确认', async () => {
@@ -52,10 +52,10 @@ test('自动派发默认关闭，启用和手动派发都需明确确认', async
 
   assert.match(html, /id="boom-auto-enabled" type="checkbox"/);
   assert.doesNotMatch(html, /id="boom-auto-enabled"[^>]*checked/);
-  assert.match(consoleSource, /settings = \{ enabled:false/);
+  assert.match(consoleSource, /settings = \{\s*enabled:\s*false/);
   assert.match(consoleSource, /启用后，命中所选等级的作品会在每日上限内自动交给小D和小拆/);
-  assert.match(consoleSource, /manual:true/);
-  assert.match(consoleSource, /work_id:Number\(workId\)/);
+  assert.match(consoleSource, /manual:\s*true/);
+  assert.match(consoleSource, /work_id:\s*Number\(workId\)/);
   assert.match(consoleSource, /\['T1', 'T2', 'T3'\]\.includes\(work\.grade\)/);
   assert.match(consoleSource, /交给小D和小拆/);
   assert.doesNotMatch(consoleSource, /setInterval|analysis\/run.*onMounted/);
@@ -69,7 +69,7 @@ test('单作品操作具有作品上下文、动态详情状态和请求防重�
   assert.match(consoleSource, /aria-controls="\$\{detailId\}" aria-expanded="false"/);
   assert.match(consoleSource, /role="status" aria-live="polite" aria-atomic="true"/);
   assert.match(consoleSource, /triggerButton\?\.setAttribute\('aria-expanded', 'true'\)/);
-  assert.match(consoleSource, /if \(triggerButton\?\.disabled\) return/);
+  assert.match(consoleSource, /if \(triggerButton\?\.disabled\)\s*return/);
   assert.match(consoleSource, /triggerButton\.disabled = true/);
   assert.match(consoleSource, /if \(triggerButton\?\.isConnected\)/);
 });

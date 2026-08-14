@@ -10,20 +10,20 @@ import {
   parseEbur128,
   writeM5ArtifactPackage,
   validateArtifactLineage
-} from '../src/media-tools.js';
-import { sha256 } from '../src/policy.js';
+} from '../src/media-tools.ts';
+import { sha256 } from '../src/policy.ts';
 import {
   paidActionStateKey,
   paidParameterChecksum,
   paperclipResponseBytes,
   StepFunContentTools,
-} from '../src/stepfun-tools.js';
+} from '../src/stepfun-tools.ts';
 import {
   callRecord,
   costForImage,
   costForTts,
   costForVision
-} from '../src/call-record.js';
+} from '../src/call-record.ts';
 
 const run = {
   agentId:'11111111-1111-4111-8111-111111111111',
@@ -115,7 +115,7 @@ test('固定产物清单逐文件核验真实哈希和最小血缘', async (cont
   await writeArtifactFixture(root);
   const result = await validateArtifactLineage({
     localFolders:{ status:async () => ({ healthy:true, realPath:root }) }
-  }, { manifestPath:'artifact-manifest.json' }, run);
+  }, { manifestPath:'artifact-manifest.tson' }, run);
   assert.equal(result.data.passed, true, result.data.errors.join(' '));
 });
 
@@ -186,7 +186,7 @@ test('固定产物包写入器从三份可信成片和真实封面生成子目�
     },
     lineage,
   }, run);
-  assert.equal(result.data.manifestPath, 'packages/content-v1/artifact-manifest.json');
+  assert.equal(result.data.manifestPath, 'packages/content-v1/artifact-manifest.tson');
   assert.ok(/^sha256:[a-f0-9]{64}$/.test(result.data.manifestChecksum));
 
   const validation = await validateArtifactLineage(
@@ -377,12 +377,12 @@ test('固定产物包写入器从已确认Provider账本原生补齐StepFun血�
   const sourcesBytes = Buffer.from(`${JSON.stringify(sources, null, 2)}\n`);
   await fs.writeFile(path.join(root, 'packages/fresh-content-v1/sources.json'), sourcesBytes);
   const manifest = JSON.parse(await fs.readFile(
-    path.join(root, 'packages/fresh-content-v1/artifact-manifest.json'),
+    path.join(root, 'packages/fresh-content-v1/artifact-manifest.tson'),
     'utf8',
   ));
   manifest.files['sources.json'].checksum = sha256(sourcesBytes);
   await fs.writeFile(
-    path.join(root, 'packages/fresh-content-v1/artifact-manifest.json'),
+    path.join(root, 'packages/fresh-content-v1/artifact-manifest.tson'),
     `${JSON.stringify(manifest, null, 2)}\n`,
   );
   const tampered = await validateArtifactLineage(
@@ -609,7 +609,7 @@ test('固定产物门禁拒绝空文案、版权账本缺失、审核失败和�
   });
   const result = await validateArtifactLineage({
     localFolders:{ status:async () => ({ healthy:true, realPath:root }) }
-  }, { manifestPath:'artifact-manifest.json' }, run);
+  }, { manifestPath:'artifact-manifest.tson' }, run);
   assert.equal(result.data.passed, false);
   assert.match(result.data.errors.join('\n'), /douyin.copy.json/);
   assert.match(result.data.errors.join('\n'), /sources.json/);
@@ -1930,7 +1930,7 @@ async function writeArtifactFixture(root, overrides = {}) {
     await fs.writeFile(path.join(root, name), bytes);
     files[name] = { path:name, checksum:sha256(bytes) };
   }
-  await fs.writeFile(path.join(root, 'artifact-manifest.json'), JSON.stringify({
+  await fs.writeFile(path.join(root, 'artifact-manifest.tson'), JSON.stringify({
     schemaVersion:1,
     files,
     lineage

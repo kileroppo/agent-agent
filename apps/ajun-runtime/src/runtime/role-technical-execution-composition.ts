@@ -1,12 +1,9 @@
 import path from 'node:path';
-
-// @ts-expect-error -- transitional JS Adapter; removed when the repair workspace batch migrates.
-import { IsolatedRepairWorkspace } from '../isolated-repair-workspace.js';
+import { IsolatedRepairWorkspace } from '../isolated-repair-workspace.ts';
 import { LocalTechnicalExpert } from '../local-technical-expert.ts';
 import { TechnicalExpertRunner } from '../technical-expert-runner.ts';
 import { TechnicalRepairDiagnoser } from '../technical-repair-diagnoser.ts';
-// @ts-expect-error -- transitional JS Adapter; removed when the promotion batch migrates.
-import { TechnicalRepairPromotion } from '../technical-repair-promotion.js';
+import { TechnicalRepairPromotion } from '../technical-repair-promotion.ts';
 import { TechnicalRepairWatchdog } from '../technical-repair-watchdog.ts';
 import type {
   RoleTechnicalExecutionCompositionInput,

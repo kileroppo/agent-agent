@@ -12,7 +12,7 @@ import {
   ingestParallelWorkCaseBatch,
   FakePaperclipAdapter,
   validateDefinition,
-} from '../src/index.js';
+} from '../src/index.ts';
 
 const uuid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 

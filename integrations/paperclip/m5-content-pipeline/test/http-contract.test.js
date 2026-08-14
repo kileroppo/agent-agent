@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { HttpPaperclipAdapter } from '../src/index.js';
+import { HttpPaperclipAdapter } from '../src/index.ts';
 
 const companyId = '00000000-0000-4000-8000-000000000001';
 const pipelineId = '00000000-0000-4000-8000-000000000002';

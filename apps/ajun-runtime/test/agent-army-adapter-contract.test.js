@@ -9,7 +9,7 @@ import {
   prepareTaskCreateRequest,
   taskClientInputFromTool,
   taskCreateToolInputSchema,
-} from '../src/contracts/agent-army-task-input.js';
+} from '../src/contracts/agent-army-task-input.ts';
 import {
   normalizeMissionHttpInput,
   normalizeTaskHttpInput,

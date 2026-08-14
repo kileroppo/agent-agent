@@ -6,7 +6,7 @@ import {
   FakePaperclipAdapter,
   ingestCampaignDraftCase,
   ingestCampaignExecutionCases,
-} from '../src/index.js';
+} from '../src/index.ts';
 
 test('Fake 岗位和 Fake 平台从选题执行到指标回流且覆盖关键恢复门禁', async () => {
   const pipelineId = '10000000-0000-4000-8000-000000000001';

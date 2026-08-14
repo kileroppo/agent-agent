@@ -4,18 +4,18 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { ContentCampaignService } from '../src/content-campaign-service.js';
-import { LocalContentCreator } from '../src/local-content-growth.js';
-import { LocalVideoScriptPackage } from '../src/local-video-script-package.js';
-import { M5LearningLifecycle } from '../src/m5-learning-lifecycle.js';
+import { ContentCampaignService } from '../src/content-campaign-service.ts';
+import { LocalContentCreator } from '../src/local-content-growth.ts';
+import { LocalVideoScriptPackage } from '../src/local-video-script-package.ts';
+import { M5LearningLifecycle } from '../src/m5-learning-lifecycle.ts';
 import { m5WorkProductArtifactHash } from '@agent-army/m5-kernel/work-product-integrity';
 import {
   defaultM5ProductionTemplateBinding,
   m5GrayProductionTemplateBinding,
   m5ProductionTemplateBindingHash,
-} from '../src/m5-production-template-resolver.js';
+} from '../src/m5-production-template-resolver.ts';
 import { getM5RoutineExecutionContract } from '@agent-army/m5-kernel/routine-execution-contract';
-import { defaultDefinition } from '../../../integrations/paperclip/m5-content-pipeline/src/index.js';
+import { defaultDefinition } from '../../../integrations/paperclip/m5-content-pipeline/src/index.ts';
 
 const campaignId = '11111111-1111-4111-8111-111111111111';
 const caseId = '22222222-2222-4222-8222-222222222222';

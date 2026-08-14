@@ -1,12 +1,8 @@
 import path from 'node:path';
-// @ts-expect-error -- transitional JS persistence factory; removed with the task-store batch.
-import { createTaskStore } from '../create-task-store.js';
-// @ts-expect-error -- transitional JS Module; removed with the event-store batch.
-import { TaskRunEventRetention } from '../task-run-event-retention.js';
-// @ts-expect-error -- transitional JS Module; removed with the event-store batch.
-import { TaskRunEventStore } from '../task-run-event-store.js';
-// @ts-expect-error -- transitional JS query Module; removed with the task-view batch.
-import { TaskTimelineService } from '../task-timeline-service.js';
+import { createTaskStore } from '../create-task-store.ts';
+import { TaskRunEventRetention } from '../task-run-event-retention.ts';
+import { TaskRunEventStore } from '../task-run-event-store.ts';
+import { TaskTimelineService } from '../task-timeline-service.ts';
 
 const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
 

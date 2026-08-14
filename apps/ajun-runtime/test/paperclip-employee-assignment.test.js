@@ -4,7 +4,7 @@ import {
   assertPaperclipEmployeeExecutorAssignment,
   paperclipRoutineKey,
   resolvePaperclipAssignmentTaskType,
-} from '../src/paperclip-employee-assignment.js';
+} from '../src/paperclip-employee-assignment.ts';
 
 test('M5 Routine marker 映射到当前岗位声明的专用任务类型和 Case', () => {
   const issue = {

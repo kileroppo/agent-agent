@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PaperclipBridge } from '../src/paperclip-bridge.js';
-import { paperclipHermesAdapterConfig } from '../src/governance-hermes-runtime.js';
+import { PaperclipBridge } from '../src/paperclip-bridge.ts';
+import { paperclipHermesAdapterConfig } from '../src/governance-hermes-runtime.ts';
 
 test('PaperclipBridge 可只读回查单条审批，用于响应丢失后的收口', async () => {
   const bridge = new PaperclipBridge();

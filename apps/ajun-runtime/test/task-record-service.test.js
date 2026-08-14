@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { TaskRecordService } from '../src/task-record-service.js';
+import { TaskRecordService } from '../src/task-record-service.ts';
 
 const task = {
   taskId:'11111111-1111-4111-8111-111111111111',

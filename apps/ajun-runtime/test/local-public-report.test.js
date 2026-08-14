@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { LocalPublicReport } from '../src/local-public-report.js';
+import { LocalPublicReport } from '../src/local-public-report.ts';
 
 test('单个公开网页在 AI 未配置时如实标注为机械摘要', async () => {
   const worker = new LocalPublicReport({ publicWebFetch:{ async acquire() { return { sourceRef:'https://example.com/readme', title:'示例页面', text:'第一句说明。第二句说明！第三句说明？第四句不会进入摘要。', fetchedAt:'2026-07-22T00:00:00.000Z', truncated:false }; } } });

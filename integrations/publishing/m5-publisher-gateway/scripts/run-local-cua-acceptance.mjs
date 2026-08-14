@@ -16,8 +16,8 @@ import {
   createLocalFixtureRequestHandler,
   evaluateCuaPreflight,
   resolveAcceptanceUploadPath
-} from '../src/local-cua-acceptance.js';
-import { parseBrowserPrepareResult } from '../src/cua-driver-runner.js';
+} from '../src/local-cua-acceptance.ts';
+import { parseBrowserPrepareResult } from '../src/cua-driver-runner.ts';
 
 const execFileAsync = promisify(execFile);
 const here = path.dirname(fileURLToPath(import.meta.url));

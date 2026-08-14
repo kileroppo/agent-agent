@@ -10,7 +10,7 @@ import {
   PaperclipControllerClient,
   rollbackControllerRunJwtCutover,
   snapshotControllerRunJwtCutover,
-} from '../src/controller-run-jwt-cutover.js';
+} from '../src/controller-run-jwt-cutover.ts';
 
 export async function main(argv = process.argv.slice(2), {
   clientFactory = (apiBase) => new PaperclipControllerClient({ apiBase }),

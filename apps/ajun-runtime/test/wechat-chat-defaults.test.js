@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { inferChatSelector, normalizeWechatChatRequest } from '../src/wechat-chat-defaults.js';
+import { inferChatSelector, normalizeWechatChatRequest } from '../src/wechat-chat-defaults.ts';
 
 test('微信聊天请求只要求群名，其余采用有主见的安全默认值', () => {
   const now = new Date('2026-07-30T14:25:30+08:00');

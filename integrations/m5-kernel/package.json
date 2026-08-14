@@ -5,26 +5,29 @@
   "type": "module",
   "description": "M5 Campaign/Case 领域编排内核与受控 Paperclip 适配层。",
   "exports": {
-    ".": "./src/index.js",
-    "./campaign-domain": "./src/campaign-domain.js",
-    "./content-version": "./src/content-version.js",
-    "./parallel-work-coordinator": "./src/parallel-work-coordinator.js",
-    "./paperclip-content-autonomy-preflight": "./src/paperclip-content-autonomy-preflight.js",
-    "./paperclip-content-autonomy-snapshot": "./src/paperclip-content-autonomy-snapshot.js",
-    "./production-template-binding": "./src/production-template-binding.js",
-    "./route-execution": "./src/route-execution.js",
-    "./routine-execution-contract": "./src/routine-execution-contract.js",
-    "./stage-recovery-controller": "./src/stage-recovery-controller.js",
-    "./work-product-integrity": "./src/work-product-integrity.js"
+    ".": "./src/index.ts",
+    "./campaign-domain": "./src/campaign-domain.ts",
+    "./content-version": "./src/content-version.ts",
+    "./parallel-work-coordinator": "./src/parallel-work-coordinator.ts",
+    "./paperclip-content-autonomy-preflight": "./src/paperclip-content-autonomy-preflight.ts",
+    "./paperclip-content-autonomy-snapshot": "./src/paperclip-content-autonomy-snapshot.ts",
+    "./production-template-binding": "./src/production-template-binding.ts",
+    "./route-execution": "./src/route-execution.ts",
+    "./routine-execution-contract": "./src/routine-execution-contract.ts",
+    "./stage-recovery-controller": "./src/stage-recovery-controller.ts",
+    "./work-product-integrity": "./src/work-product-integrity.ts"
   },
   "scripts": {
     "test": "node --test",
-    "check": "for file in src/*.js; do node --check \"$file\"; done"
+    "check": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "@agent-army/m5-contracts": "0.1.0",
     "@agent-army/m5-content-pipeline": "0.1.0",
     "@agent-army/paperclip-client": "0.1.0",
     "@agent-army/paperclip-content-autonomy": "0.5.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
   }
 }

@@ -20,7 +20,7 @@ import {
   normalizeRecoveryApprovalPayload,
   patchRecoveryApprovalRouteSource,
   rollbackRecoveryApprovalPatch,
-} from '../compat/paperclip-2026-722-recovery-approval.mjs';
+} from '../compat/paperclip-2026-722-recovery-approval.ts';
 import { main as applyMain } from '../scripts/apply-paperclip-2026-722-recovery-approval.mjs';
 import { main as rollbackMain } from '../scripts/rollback-paperclip-2026-722-recovery-approval.mjs';
 

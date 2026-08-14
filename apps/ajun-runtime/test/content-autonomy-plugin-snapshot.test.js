@@ -4,7 +4,7 @@ import {
   assertContentAutonomyApprovalSnapshot,
   buildContentAutonomyApprovalSnapshot,
   readContentAutonomyApprovalSnapshot,
-} from '../src/content-autonomy-plugin-snapshot.js';
+} from '../src/content-autonomy-plugin-snapshot.ts';
 
 const plugin = {
   id:'11111111-1111-4111-8111-111111111111',

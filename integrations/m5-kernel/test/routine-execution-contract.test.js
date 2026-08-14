@@ -5,7 +5,7 @@ import {
   INTEL_RESEARCH_OPEN_TASK_EXECUTION_CONTRACT,
   assertM5RoutineExecutionContracts,
   getM5RoutineExecutionContract,
-} from '../src/routine-execution-contract.js';
+} from '../src/routine-execution-contract.ts';
 
 test('全部 M5 业务 Routine 都有唯一 Hermes 或 system controller 执行契约', () => {
   const contracts = assertM5RoutineExecutionContracts(defaultDefinition);

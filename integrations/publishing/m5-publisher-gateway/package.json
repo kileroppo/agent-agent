@@ -5,12 +5,12 @@
   "type": "module",
   "description": "M5 无模型确定性发布边界；Runtime 默认仅允许 fake，真实连接器源码保持关闭。",
   "exports": {
-    ".": "./src/index.js",
-    "./policy": "./src/policy.js"
+    ".": "./src/index.ts",
+    "./policy": "./src/policy.ts"
   },
   "scripts": {
     "test": "node --test",
-    "check": "for file in src/*.js scripts/*.mjs; do node --check \"$file\"; done",
+    "check": "tsc -p tsconfig.json",
     "serve": "node scripts/run-service.mjs",
     "acceptance:fake:seven-day": "node scripts/run-fake-mp4-acceptance.mjs --source-set seven-day",
     "acceptance:cua:local": "node scripts/run-local-cua-acceptance.mjs",
@@ -22,5 +22,9 @@
   },
   "dependencies": {
     "@agent-army/m5-contracts": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1",
+    "typescript": "5.9.3"
   }
 }

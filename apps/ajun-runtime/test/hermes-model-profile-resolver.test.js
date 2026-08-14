@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createHermesModelProfileResolver } from '../src/hermes-model-profile-resolver.js';
+import { createHermesModelProfileResolver } from '../src/hermes-model-profile-resolver.ts';
 
 function resolverFixture({ agentStatus = 'draft', proposalStatus = 'testing', acceptanceStatus = 'passed', instanceStatus = 'passed', runtimeProfileRef = 'integrations/hermes/profiles/video-content-analyst.profile.json' } = {}) {
   return createHermesModelProfileResolver({

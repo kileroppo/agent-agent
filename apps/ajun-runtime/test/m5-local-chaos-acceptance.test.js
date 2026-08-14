@@ -6,7 +6,7 @@ import {
   buildM5LocalChaosRenderWorkProductFixture,
   inspectM5LocalLedgerSafety,
   validateLocalChaosRenderWorkProduct,
-} from '../src/m5-local-chaos-acceptance.js';
+} from '../src/m5-local-chaos-acceptance.ts';
 import {
   getM5RoutineExecutionContract,
 } from '@agent-army/m5-kernel/routine-execution-contract';
@@ -14,10 +14,10 @@ import {
   buildBootstrapPlan,
   defaultDefinition,
   validateDefinition,
-} from '../../../integrations/paperclip/m5-content-pipeline/src/index.js';
+} from '../../../integrations/paperclip/m5-content-pipeline/src/index.ts';
 
 test('M5 本地全链 chaos 纵切输出统一 JSON ledger，覆盖恢复、硬停、幂等和三次指标', async () => {
-  const moduleUrl = new URL('../src/m5-local-chaos-acceptance.js', import.meta.url);
+  const moduleUrl = new URL('../src/m5-local-chaos-acceptance.ts', import.meta.url);
   const isolatedRun = spawnSync(
     process.execPath,
     [

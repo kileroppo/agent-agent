@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { XiaodDeliveryResume } from '../src/xiaod-delivery-resume.js';
+import { XiaodDeliveryResume } from '../src/xiaod-delivery-resume.ts';
 import { setupTaskService } from './support/task-service-fixture.js';
 
 test('XiaodDeliveryResume 隐藏单飞恢复协议并保留构造后 Adapter override Seam', async () => {

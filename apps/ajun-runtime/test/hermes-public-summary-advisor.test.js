@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { HermesPublicSummaryAdvisor } from '../src/hermes-public-summary-advisor.js';
+import { HermesPublicSummaryAdvisor } from '../src/hermes-public-summary-advisor.ts';
 
 test('单来源摘要顾问只能依据已读取内容给出中文重点', async () => {
   let prompt = '';

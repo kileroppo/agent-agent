@@ -1,5 +1,4 @@
-// @ts-expect-error legacy lifecycle implementation has no declaration yet
-import { interruptedTaskExecutionPatch } from './task-lifecycle.js';
+import { interruptedTaskExecutionPatch } from './task-lifecycle.ts';
 
 const LOCAL_START_STAGES = new Set([
   'starting',

@@ -5,7 +5,7 @@ import {
   calendarDateInShanghai,
   publishIdempotencyKey,
   validatePublishRequest,
-} from '../src/policy.js';
+} from '../src/policy.ts';
 
 const CHECKSUM = `sha256:${'a'.repeat(64)}`;
 

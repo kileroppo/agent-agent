@@ -1,17 +1,10 @@
-// @ts-expect-error -- transitional JS workspace Adapter; removed with the Pipeline batch.
 import { HttpPaperclipAdapter } from '@agent-army/m5-content-pipeline';
-// @ts-expect-error -- transitional JS Module; removed with the Paperclip handler batch.
-import { createOperationsHealthIncidentDispatcher, PaperclipCampaignDailyHandler, PaperclipHeartbeatHandler, PaperclipParallelWorkHandler } from '../paperclip-heartbeat.js';
-// @ts-expect-error -- transitional JS Module; removed with the Paperclip handler batch.
-import { PaperclipMetricMonitorHandler } from '../paperclip-metric-monitor.js';
-// @ts-expect-error -- transitional JS Module; removed with the Paperclip handler batch.
-import { PaperclipPublisherController } from '../paperclip-publisher-controller.js';
-// @ts-expect-error -- transitional JS Module; removed with the Paperclip handler batch.
-import { canonicalPaperclipHeartbeat, PaperclipPublisherRunContext } from '../paperclip-publisher-run-context.js';
-// @ts-expect-error -- transitional JS Module; removed with the Paperclip handler batch.
-import { PaperclipRetrospectiveHandler } from '../paperclip-retrospective.js';
-// @ts-expect-error -- transitional JS Module; removed with the Paperclip handler batch.
-import { PaperclipLearningLifecycleHandler } from '../paperclip-learning-lifecycle.js';
+import { createOperationsHealthIncidentDispatcher, PaperclipCampaignDailyHandler, PaperclipHeartbeatHandler, PaperclipParallelWorkHandler } from '../paperclip-heartbeat.ts';
+import { PaperclipMetricMonitorHandler } from '../paperclip-metric-monitor.ts';
+import { PaperclipPublisherController } from '../paperclip-publisher-controller.ts';
+import { canonicalPaperclipHeartbeat, PaperclipPublisherRunContext } from '../paperclip-publisher-run-context.ts';
+import { PaperclipRetrospectiveHandler } from '../paperclip-retrospective.ts';
+import { PaperclipLearningLifecycleHandler } from '../paperclip-learning-lifecycle.ts';
 
 type PaperclipControlCampaigns = Readonly<{
   activateScheduledDay(): unknown;

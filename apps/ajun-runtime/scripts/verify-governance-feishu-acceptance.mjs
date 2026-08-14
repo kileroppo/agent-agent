@@ -11,7 +11,7 @@ import {
   AGENT_ARMY_REPOSITORY_ROOT,
   GOVERNANCE_HERMES_AGENT_IDS,
   hermesProfileHome
-} from '../src/governance-hermes-runtime.js';
+} from '../src/governance-hermes-runtime.ts';
 
 const scriptPath = fileURLToPath(import.meta.url);
 

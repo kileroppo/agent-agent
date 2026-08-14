@@ -6,7 +6,7 @@ import {
   CUA_RUNNER_SCHEMA,
   CuaPlatformConnector,
   buildPlatformCuaSessionPolicy
-} from '../src/index.js';
+} from '../src/index.ts';
 
 const PUBLISHED_AT = '2026-07-30T04:00:00.000Z';
 

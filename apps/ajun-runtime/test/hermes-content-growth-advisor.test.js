@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import test from 'node:test';
-import { HermesContentGrowthAdvisor } from '../src/hermes-content-growth-advisor.js';
+import { HermesContentGrowthAdvisor } from '../src/hermes-content-growth-advisor.ts';
 
 test('Hermes 内容执行器使用隔离 Profile、写入用量并在读取后清理临时文件', async () => {
   let usagePath;

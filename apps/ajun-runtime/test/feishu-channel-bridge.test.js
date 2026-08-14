@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { FeishuChannelBridge, FeishuChannelBridgeError } from '../src/feishu-channel-bridge.js';
+import { FeishuChannelBridge, FeishuChannelBridgeError } from '../src/feishu-channel-bridge.ts';
 
 function setup() {
   const calls = { messages:[], approvals:[] };

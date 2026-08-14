@@ -6,7 +6,7 @@ import test from 'node:test';
 import {
   PRODUCTION_READINESS_SCHEMA,
   createProductionReadinessReport,
-} from '../src/index.js';
+} from '../src/index.ts';
 import {
   main,
   parseArguments,

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
-import { HermesFeishuSender, HermesFeishuSenderError } from '../src/hermes-feishu-sender.js';
+import { HermesFeishuSender, HermesFeishuSenderError } from '../src/hermes-feishu-sender.ts';
 
 test('Hermes 飞书回话只向受控原会话发送 stdin 文本，不经过 shell', async () => {
   const calls = [];

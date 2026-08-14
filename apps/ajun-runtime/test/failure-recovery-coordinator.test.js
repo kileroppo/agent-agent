@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { FailureRecoveryCoordinator } from '../src/failure-recovery-coordinator.js';
+import { FailureRecoveryCoordinator } from '../src/failure-recovery-coordinator.ts';
 
 test('可重试故障先交给运维官，并且只创建一次自动重试任务', async () => {
   const created = [];

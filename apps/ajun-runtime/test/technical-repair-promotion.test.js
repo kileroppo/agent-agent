@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { TechnicalRepairPromotion } from '../src/technical-repair-promotion.js';
+import { TechnicalRepairPromotion } from '../src/technical-repair-promotion.ts';
 
 const evidence = { metadata:{ agentArmyRepairEvidence:{ changedFiles:['src/fix.js'], testsPassed:true, recoveryVerified:true } } };
 const hash = (value) => crypto.createHash('sha256').update(value).digest('hex');

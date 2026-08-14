@@ -27,9 +27,9 @@ test('按运行时白名单冻结内容寻址只读包，并排除data、测试�
     "import './local.js';\n",
   );
   for (const sourceFile of [
-    'hermes-oneshot-policy.js',
+    'hermes-oneshot-policy.ts',
     'task-execution-coordinator.ts',
-    'task-service.js',
+    'task-service.ts',
   ]) {
     assert.equal(
       (await fs.stat(path.join(result.releaseRoot, 'apps/ajun-runtime/src', sourceFile))).isFile(),
@@ -116,15 +116,15 @@ test('按运行时白名单冻结内容寻址只读包，并排除data、测试�
     '# 检查\n',
   );
   assert.ok(manifest.entries.some(({ path: entryPath }) =>
-    entryPath === 'integrations/paperclip/m5-content-pipeline/src/index.js'));
+    entryPath === 'integrations/paperclip/m5-content-pipeline/src/index.ts'));
   assert.ok(manifest.entries.some(({ path: entryPath }) =>
     entryPath === 'integrations/paperclip/m5-content-pipeline/config/definition.json'));
   assert.ok(manifest.entries.some(({ path: entryPath }) =>
-    entryPath === 'integrations/paperclip/plugins/content-autonomy/src/signed-budget-ticket.js'));
+    entryPath === 'integrations/paperclip/plugins/content-autonomy/src/signed-budget-ticket.ts'));
   assert.ok(manifest.entries.some(({ path: entryPath }) =>
-    entryPath === 'integrations/publishing/m5-publisher-gateway/src/index.js'));
+    entryPath === 'integrations/publishing/m5-publisher-gateway/src/index.ts'));
   assert.ok(manifest.entries.some(({ path: entryPath }) =>
-    entryPath === 'integrations/access/content-acquisition-center.js'));
+    entryPath === 'integrations/access/content-acquisition-center.ts'));
   assert.ok(manifest.entries.some(({ path: entryPath }) =>
     entryPath === 'packages/m5-contracts/src/index.ts'));
   assert.ok(manifest.entries.some(({ type, path: entryPath }) =>
@@ -650,7 +650,7 @@ test('launchd计划强绑clean源码来源，cutover启用技术修复而rollbac
   assert.equal(degradedFallback.rollback.launchable, true);
   assert.deepEqual(
     degradedFallback.rollback.programArguments,
-    [process.execPath, path.join(newRelease.releaseRoot, 'apps/ajun-runtime/src/recovery-server.js')],
+    [process.execPath, path.join(newRelease.releaseRoot, 'apps/ajun-runtime/src/recovery-server.ts')],
   );
   assert.equal(
     degradedFallback.rollback.workingDirectory,
@@ -680,7 +680,7 @@ test('launchd计划强绑clean源码来源，cutover启用技术修复而rollbac
   );
   assert.equal(
     degradedFallback.rollback.recoveryEntrypoint.path,
-    path.join(newRelease.releaseRoot, 'apps/ajun-runtime/src/recovery-server.js'),
+    path.join(newRelease.releaseRoot, 'apps/ajun-runtime/src/recovery-server.ts'),
   );
   assert.deepEqual(degradedFallback.rollback.requiredPassthroughEnvironment, []);
   assert.deepEqual(degradedFallback.rollback.requiredLoopbackEnvironment, []);
@@ -889,10 +889,10 @@ test('validator兼容不含日志的历史v1排除契约，但拒绝任意漂移
     async (manifest) => {
       await fs.rm(path.join(
         currentHistoricalRelease.releaseRoot,
-        'apps/ajun-runtime/src/recovery-server.js',
+        'apps/ajun-runtime/src/recovery-server.ts',
       ));
       manifest.entries = manifest.entries.filter(
-        ({ path:entryPath }) => entryPath !== 'apps/ajun-runtime/src/recovery-server.js',
+        ({ path:entryPath }) => entryPath !== 'apps/ajun-runtime/src/recovery-server.ts',
       );
       const payloadHasher = crypto.createHash('sha256');
       for (const entry of manifest.entries) {
@@ -977,7 +977,7 @@ test('plan拒绝dirty来源release和未做真实启动验收的release', async 
 async function createFixture(context, suffix) {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), `ajun-release-${suffix}-`));
   const recoveryServerSource = await fs.readFile(
-    new URL('../src/recovery-server.js', import.meta.url),
+    new URL('../src/recovery-server.ts', import.meta.url),
     'utf8',
   );
   context.after(async () => {
@@ -1014,15 +1014,15 @@ async function createFixture(context, suffix) {
     ['apps/ajun-runtime/package.json', '{"name":"ajun-runtime","type":"module","dependencies":{"pkg":"1.0.0"}}\n'],
     ['apps/ajun-runtime/package-lock.json', '{"lockfileVersion":3}\n'],
     ['apps/ajun-runtime/src/server.ts', "import './local.js';\n"],
-    ['apps/ajun-runtime/src/recovery-server.js', recoveryServerSource],
+    ['apps/ajun-runtime/src/recovery-server.ts', recoveryServerSource],
     ['apps/ajun-runtime/src/local.js', "import '@agent-army/m5-content-pipeline';\nimport '@agent-army/m5-kernel';\nimport '@agent-army/paperclip-content-autonomy/signed-budget-ticket';\nimport '@agent-army/m5-publisher-gateway';\nimport 'ajun-common-access/content-acquisition-center';\nimport '@agent-army/boom-monitor';\nimport '@agent-army/m5-contracts';\nimport '@agent-army/paperclip-client';\nimport 'pkg';\n"],
-    ['apps/ajun-runtime/src/hermes-oneshot-policy.js', 'export const policy = true;\n'],
+    ['apps/ajun-runtime/src/hermes-oneshot-policy.ts', 'export const policy = true;\n'],
     ['apps/ajun-runtime/src/task-execution-coordinator.ts', 'export const execute = true;\n'],
-    ['apps/ajun-runtime/src/task-service.js', 'export const tasks = true;\n'],
+    ['apps/ajun-runtime/src/task-service.ts', 'export const tasks = true;\n'],
     ['apps/ajun-runtime/src/runtime.log', 'runtime log must not ship\n'],
     ['apps/ajun-runtime/public/index.html', '<!doctype html>\n'],
-    ['node_modules/pkg/package.json', '{"name":"pkg","type":"module","exports":{"import":"./index.js"}}\n'],
-    ['node_modules/pkg/index.js', 'export default true;\n'],
+    ['node_modules/pkg/package.json', '{"name":"pkg","type":"module","exports":{"import":"./index.ts"}}\n'],
+    ['node_modules/pkg/index.ts', 'export default true;\n'],
     ['node_modules/.cache/generated.log', 'generated\n'],
     ['apps/ajun-runtime/data/runtime.json', '{}\n'],
     ['apps/ajun-runtime/test/server.test.js', 'throw new Error("not runtime");\n'],
@@ -1034,33 +1034,33 @@ async function createFixture(context, suffix) {
     ['agents/ajun/prompts/system.md', '# A君\n'],
     ['agents/ajun/prompts/task-guides/check.md', '# 检查\n'],
     ['integrations/hermes/profiles/ajun.profile.json', '{"profileId":"ajun"}\n'],
-    ['integrations/paperclip/m5-content-pipeline/package.json', '{"name":"@agent-army/m5-content-pipeline","type":"module","exports":"./src/index.js"}\n'],
+    ['integrations/paperclip/m5-content-pipeline/package.json', '{"name":"@agent-army/m5-content-pipeline","type":"module","exports":"./src/index.ts"}\n'],
     ['integrations/paperclip/m5-content-pipeline/package-lock.json', '{"lockfileVersion":3}\n'],
     ['integrations/paperclip/m5-content-pipeline/config/definition.json', '{"key":"fixture"}\n'],
-    ['integrations/paperclip/m5-content-pipeline/src/index.js', 'export const pipeline = true;\n'],
+    ['integrations/paperclip/m5-content-pipeline/src/index.ts', 'export const pipeline = true;\n'],
     ['integrations/paperclip/m5-content-pipeline/node_modules/zod/package.json', '{"name":"zod"}\n'],
     ['integrations/paperclip/m5-content-pipeline/test/pipeline.test.js', '// fixture\n'],
     ['integrations/paperclip/m5-content-pipeline/test/controller-run-jwt-cutover.test.js', '// fixture\n'],
-    ['integrations/paperclip/plugins/content-autonomy/package.json', '{"name":"@agent-army/paperclip-content-autonomy","type":"module","exports":{"./signed-budget-ticket":"./src/signed-budget-ticket.js"},"scripts":{"check":"true"}}\n'],
+    ['integrations/paperclip/plugins/content-autonomy/package.json', '{"name":"@agent-army/paperclip-content-autonomy","type":"module","exports":{"./signed-budget-ticket":"./src/signed-budget-ticket.ts"},"scripts":{"check":"true"}}\n'],
     ['integrations/paperclip/plugins/content-autonomy/package-lock.json', '{"lockfileVersion":3}\n'],
-    ['integrations/paperclip/plugins/content-autonomy/src/signed-budget-ticket.js', 'export const ticket = true;\n'],
+    ['integrations/paperclip/plugins/content-autonomy/src/signed-budget-ticket.ts', 'export const ticket = true;\n'],
     ['integrations/paperclip/plugins/content-autonomy/node_modules/plugin-sdk/package.json', '{"name":"plugin-sdk"}\n'],
-    ['integrations/publishing/m5-publisher-gateway/package.json', '{"name":"@agent-army/m5-publisher-gateway","type":"module","exports":"./src/index.js","scripts":{"check":"true"}}\n'],
-    ['integrations/publishing/m5-publisher-gateway/src/index.js', 'export const publisher = true;\n'],
-    ['integrations/access/package.json', '{"name":"ajun-common-access","type":"module","exports":{"./content-acquisition-center":"./content-acquisition-center.js"}}\n'],
-    ['integrations/access/content-acquisition-center.js', 'export const access = true;\n'],
-    ['integrations/access/connection-broker.js', 'export const broker = true;\n'],
-    ['integrations/boom-monitor/ajun-intake.js', 'export const boom = true;\n'],
-    ['integrations/boom-monitor/package.json', '{"name":"@agent-army/boom-monitor","type":"module","exports":"./ajun-intake.js"}\n'],
-    ['integrations/m5-kernel/package.json', '{"name":"@agent-army/m5-kernel","type":"module","exports":"./src/index.js","scripts":{"test":"true"}}\n'],
-    ['integrations/m5-kernel/src/index.js', 'export const kernel = true;\n'],
+    ['integrations/publishing/m5-publisher-gateway/package.json', '{"name":"@agent-army/m5-publisher-gateway","type":"module","exports":"./src/index.ts","scripts":{"check":"true"}}\n'],
+    ['integrations/publishing/m5-publisher-gateway/src/index.ts', 'export const publisher = true;\n'],
+    ['integrations/access/package.json', '{"name":"ajun-common-access","type":"module","exports":{"./content-acquisition-center":"./content-acquisition-center.ts"}}\n'],
+    ['integrations/access/content-acquisition-center.ts', 'export const access = true;\n'],
+    ['integrations/access/connection-broker.ts', 'export const broker = true;\n'],
+    ['integrations/boom-monitor/ajun-intake.ts', 'export const boom = true;\n'],
+    ['integrations/boom-monitor/package.json', '{"name":"@agent-army/boom-monitor","type":"module","exports":"./ajun-intake.ts"}\n'],
+    ['integrations/m5-kernel/package.json', '{"name":"@agent-army/m5-kernel","type":"module","exports":"./src/index.ts","scripts":{"test":"true"}}\n'],
+    ['integrations/m5-kernel/src/index.ts', 'export const kernel = true;\n'],
     ['packages/m5-contracts/package.json', '{"name":"@agent-army/m5-contracts","type":"module","exports":"./src/index.ts","scripts":{"check":"true"}}\n'],
     [
       'packages/m5-contracts/src/index.ts',
       "import type { MissingTypeOnlyDependency } from 'not-installed';\nexport const contracts: boolean = true;\n",
     ],
-    ['packages/paperclip-client/package.json', '{"name":"@agent-army/paperclip-client","type":"module","exports":"./src/index.js","scripts":{"test":"true"}}\n'],
-    ['packages/paperclip-client/src/index.js', 'export const client = true;\n'],
+    ['packages/paperclip-client/package.json', '{"name":"@agent-army/paperclip-client","type":"module","exports":"./src/index.ts","scripts":{"test":"true"}}\n'],
+    ['packages/paperclip-client/src/index.ts', 'export const client = true;\n'],
   ]);
   for (const [relative, content] of files) {
     const absolute = path.join(repoRoot, relative);
@@ -1156,7 +1156,7 @@ function recoveryStartupEvidence(gitHead, payloadHash) {
   return {
     status:'passed',
     evidenceLayer:'frozen_recovery_startup',
-    entrypoint:'apps/ajun-runtime/src/recovery-server.js',
+    entrypoint:'apps/ajun-runtime/src/recovery-server.ts',
     host:'127.0.0.1',
     portMode:'ephemeral_loopback',
     healthEndpoint:'/api/health',

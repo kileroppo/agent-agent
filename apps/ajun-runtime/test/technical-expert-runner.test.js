@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TechnicalExpertRunner } from '../src/technical-expert-runner.ts';
 
-const task = { input:{ title:'修复登记遗漏', description:'技术修复任务没有记录。', context:{ repairScope:{ files:['apps/ajun-runtime/src/task-service.js'], testCommand:'npm test --prefix apps/ajun-runtime', recoveryCheck:'确认小D业务任务不会被登记。' } } } };
+const task = { input:{ title:'修复登记遗漏', description:'技术修复任务没有记录。', context:{ repairScope:{ files:['apps/ajun-runtime/src/task-service.ts'], testCommand:'npm test --prefix apps/ajun-runtime', recoveryCheck:'确认小D业务任务不会被登记。' } } } };
 
 test('技术专家只在修复范围完整时启动，并要求留下可核对结果', async () => {
   const calls = [];
@@ -10,7 +10,7 @@ test('技术专家只在修复范围完整时启动，并要求留下可核对�
   const result = await runner.run(task, '/safe/repair');
   assert.equal(result.status, 'evidence_ready');
   assert.equal(calls[0][0], 'codex');
-  assert.match(calls[0][1].at(-1), /只允许修改这些文件：apps\/ajun-runtime\/src\/task-service\.js/);
+  assert.match(calls[0][1].at(-1), /只允许修改这些文件：apps\/ajun-runtime\/src\/task-service\.ts/);
   assert.match(calls[0][1].at(-1), /paperclip-work-product\.json/);
   assert.match(calls[0][1].at(-1), /agentArmyRepairEvidence/);
   assert.deepEqual(calls[0][2].stdio, ['ignore', 'pipe', 'pipe']);

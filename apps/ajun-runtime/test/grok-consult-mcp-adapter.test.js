@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { GrokConsultMcpAdapter } from '../src/grok-consult-mcp-adapter.js';
+import { GrokConsultMcpAdapter } from '../src/grok-consult-mcp-adapter.ts';
 
 test('未登录时明确失败且不调用插件或替代路线', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'grok-adapter-'));

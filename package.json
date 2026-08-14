@@ -20,7 +20,9 @@
   ],
   "scripts": {
     "test": "npm test --workspaces --if-present && node --test scripts/*.test.mjs",
-    "check": "npm run check:architecture && npm run check --workspaces --if-present",
+    "build:boom-frontend": "tsc -p apps/boom-monitor/frontend/tsconfig.json",
+    "check:paperclip-compat": "tsc -p integrations/paperclip/tsconfig.json",
+    "check": "npm run check:architecture && npm run build:boom-frontend && npm run check:paperclip-compat && npm run check --workspaces --if-present",
     "check:architecture": "node scripts/check-architecture-boundaries.mjs",
     "test:affected": "node scripts/run-affected-tests.mjs",
     "test:contracts": "npm test --workspace=@agent-army/m5-contracts --if-present && npm test --workspace=@agent-army/paperclip-client --if-present",

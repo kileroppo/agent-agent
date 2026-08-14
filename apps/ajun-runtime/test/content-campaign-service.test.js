@@ -4,19 +4,19 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { ContentCampaignError, ContentCampaignService } from '../src/content-campaign-service.js';
-import { createM5PublisherBindings } from '../src/m5-publisher-bindings.js';
-import { routeM5PublisherApi } from '../src/m5-publisher-api.js';
-import { M5ToolExecutorRouter } from '../src/paperclip-content-tool-executor.js';
+import { ContentCampaignError, ContentCampaignService } from '../src/content-campaign-service.ts';
+import { createM5PublisherBindings } from '../src/m5-publisher-bindings.ts';
+import { routeM5PublisherApi } from '../src/m5-publisher-api.ts';
+import { M5ToolExecutorRouter } from '../src/paperclip-content-tool-executor.ts';
 import {
   M5_ROUTINE_EXECUTION_CONTRACTS,
   getM5RoutineExecutionContract,
 } from '@agent-army/m5-kernel/routine-execution-contract';
-import { defaultDefinition, FakePaperclipAdapter } from '../../../integrations/paperclip/m5-content-pipeline/src/index.js';
+import { defaultDefinition, FakePaperclipAdapter } from '../../../integrations/paperclip/m5-content-pipeline/src/index.ts';
 import {
   M5_CONTENT_ROLES,
   M5_ROLE_TOOL_BUNDLES,
-} from '../../../integrations/paperclip/plugins/content-autonomy/src/role-tool-bundles.js';
+} from '../../../integrations/paperclip/plugins/content-autonomy/src/role-tool-bundles.ts';
 
 const m5Owners = [...new Set([
   ...M5_CONTENT_ROLES,

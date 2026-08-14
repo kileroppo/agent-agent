@@ -5,12 +5,12 @@ import {
   CUA_PROFILE_LEASE_SCHEMA,
   CUA_SELECTOR_BUNDLE_SCHEMA,
   selectorBundleChecksum,
-} from '../src/cua-trust-contracts.js';
+} from '../src/cua-trust-contracts.ts';
 import {
   XHS_OWN_METRICS_CUA_ACTIONS,
   XHS_OWN_METRICS_CUA_RUNNER_SCHEMA,
   XhsOwnMetricsCuaConnector,
-} from '../src/xhs-own-metrics-cua-connector.js';
+} from '../src/xhs-own-metrics-cua-connector.ts';
 
 const NOW = new Date('2026-07-30T10:00:00.000Z');
 const RECEIPT_ID = '11111111-1111-4111-8111-111111111111';
@@ -217,7 +217,7 @@ test('页面账号身份、内容 ID、selector 或 origin 漂移都不能生成
 
 test('叶模块不实现浏览器 bridge、网络、文件或进程能力，也不包含发布动作', async () => {
   const source = await fs.readFile(
-    new URL('../src/xhs-own-metrics-cua-connector.js', import.meta.url),
+    new URL('../src/xhs-own-metrics-cua-connector.ts', import.meta.url),
     'utf8',
   );
   assert.doesNotMatch(
@@ -228,7 +228,7 @@ test('叶模块不实现浏览器 bridge、网络、文件或进程能力，也�
     source,
     /upload_media|set_title|set_body|set_tags|submit_publish|read_result/,
   );
-  assert.doesNotMatch(source, /from '\.\/cua-connector\.js'/);
+  assert.doesNotMatch(source, /from '\.\/cua-connector\.ts'/);
 });
 
 function connectorFixture({

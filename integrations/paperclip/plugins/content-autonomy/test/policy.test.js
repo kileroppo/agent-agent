@@ -5,8 +5,8 @@ import {
   campaignPreflight,
   publishPreflight,
   safeRelativePath
-} from '../src/policy.js';
-import { M5_ROLE_TOOL_BUNDLES } from '../src/role-tool-bundles.js';
+} from '../src/policy.ts';
+import { M5_ROLE_TOOL_BUNDLES } from '../src/role-tool-bundles.ts';
 
 const now = new Date('2026-07-30T00:00:00.000Z');
 

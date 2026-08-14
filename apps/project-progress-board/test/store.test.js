@@ -6,7 +6,7 @@ import path from 'node:path';
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'progress-board-'));
 process.env.PROGRESS_BOARD_DB = path.join(tempDir, 'test.sqlite');
-const store = await import(`../src/store.js?test=${Date.now()}`);
+const store = await import(`../src/store.ts?test=${Date.now()}`);
 
 test('seeds multiple projects and calculates dashboard progress', () => {
   const data = store.dashboard();

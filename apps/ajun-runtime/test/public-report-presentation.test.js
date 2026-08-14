@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { extractReportFocus, formatPublicReportReply } from '../src/public-report-presentation.js';
+import { extractReportFocus, formatPublicReportReply } from '../src/public-report-presentation.ts';
 
 test('公开网页回执分段呈现摘要并保留来源', () => {
   const reply = formatPublicReportReply({

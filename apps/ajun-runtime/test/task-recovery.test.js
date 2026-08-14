@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { TaskRecovery, TaskRecoveryError, view } from '../src/task-recovery.js';
+import { TaskRecovery, TaskRecoveryError, view } from '../src/task-recovery.ts';
 
 test('失败详情只向本机主人提供固定恢复动作和稳定核验视图', () => {
   const tasks = eligibleTasks();

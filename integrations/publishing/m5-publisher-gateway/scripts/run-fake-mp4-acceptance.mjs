@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import {
   createPublisherRuntime,
   publishIdempotencyKey,
-} from '../src/index.js';
+} from '../src/index.ts';
 
 const CONFIRMATION = 'I_ACCEPT_LOCAL_FAKE_MP4_ACCEPTANCE';
 const here = path.dirname(fileURLToPath(import.meta.url));

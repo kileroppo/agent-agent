@@ -1,15 +1,10 @@
 import path from 'node:path';
-// @ts-expect-error -- transitional JS Module; removed with the access-connection batch.
-import { AccessConnectionService } from '../access-connection-service.js';
-// @ts-expect-error -- transitional JS Module; removed with the registry batch.
-import { AgentRegistry } from '../agent-registry.js';
-// @ts-expect-error -- transitional JS Adapter; removed with the Xiaod execution batch.
-import { CloudXiaodExecutor } from '../cloud-xiaod-executor.js';
-// @ts-expect-error -- transitional JS Adapter; removed with the local-AI client batch.
-import { LocalAiCapabilityClient } from '../local-ai-capability-client.js';
+import { AccessConnectionService } from '../access-connection-service.ts';
+import { AgentRegistry } from '../agent-registry.ts';
+import { CloudXiaodExecutor } from '../cloud-xiaod-executor.ts';
+import { LocalAiCapabilityClient } from '../local-ai-capability-client.ts';
 import { ProposalAgentRegistry } from '../proposal-agent-registry.ts';
-// @ts-expect-error -- transitional JS Adapter; removed with the Xiaod execution batch.
-import { XiaodDelegate } from '../xiaod-delegate.js';
+import { XiaodDelegate } from '../xiaod-delegate.ts';
 import type { LocalExecutionCompositionInput } from './composition-contracts.ts';
 
 type XiaodReconciler = Readonly<{ reconcile(): unknown }>;

@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
-import { HermesUsageLedger } from '../src/hermes-usage-ledger.js';
+import { HermesUsageLedger } from '../src/hermes-usage-ledger.ts';
 
 test('Hermes 用量账本只读汇总调用、Token 和费用，不暴露会话正文或 Base URL', async (context) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'hermes-usage-ledger-'));

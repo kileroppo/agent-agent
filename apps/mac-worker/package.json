@@ -5,7 +5,11 @@
   "description": "Outbound-only Mac workplace bridge for Agent Army",
   "type": "module",
   "scripts": {
-    "start": "node src/worker.js",
-    "test": "node --test"
+    "start": "node src/worker.ts",
+    "test": "node --test",
+    "check": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
   }
 }

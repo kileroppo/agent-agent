@@ -4,11 +4,11 @@ import {
   PaperclipRetrospectiveError,
   PaperclipRetrospectiveHandler,
   trustedMetricSamples,
-} from '../src/paperclip-retrospective.js';
+} from '../src/paperclip-retrospective.ts';
 import {
   isValidM5WorkProductDate,
   trustedM5WorkProducts,
-} from '../src/m5-work-product-trust.js';
+} from '../src/m5-work-product-trust.ts';
 
 const IDS = Object.freeze({
   case:'11111111-1111-4111-8111-111111111111',

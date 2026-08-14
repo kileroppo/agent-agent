@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { GithubSearch } from '../src/github-search.js';
+import { GithubSearch } from '../src/github-search.ts';
 
 test('GitHub 公开检索解析仓库元数据，不携带认证头', async () => {
   let request;

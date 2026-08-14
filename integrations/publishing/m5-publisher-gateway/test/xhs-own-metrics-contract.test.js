@@ -6,7 +6,7 @@ import {
   XHS_OWN_METRIC_OBSERVATION_SCHEMA,
   normalizeXhsOwnMetricObservation,
   xhsOwnMetricCollectionKey,
-} from '../src/xhs-own-metrics-contract.js';
+} from '../src/xhs-own-metrics-contract.ts';
 
 const RECEIPT_ID = '11111111-1111-4111-8111-111111111111';
 const SELECTOR_CHECKSUM = `sha256:${'a'.repeat(64)}`;
@@ -161,7 +161,7 @@ test('观察与批准上下文拒绝额外字段，避免 Cookie、Token 或页�
 
 test('契约模块不导入浏览器、网络、进程或文件执行能力', async () => {
   const source = await fs.readFile(
-    new URL('../src/xhs-own-metrics-contract.js', import.meta.url),
+    new URL('../src/xhs-own-metrics-contract.ts', import.meta.url),
     'utf8',
   );
   assert.doesNotMatch(
@@ -172,7 +172,7 @@ test('契约模块不导入浏览器、网络、进程或文件执行能力', as
     source,
     /^import \{ M5_PLATFORM_IDS \} from '@agent-army\/m5-contracts';/,
   );
-  assert.match(source, /import \{ coded \} from '\.\/policy\.js';/);
+  assert.match(source, /import \{ coded \} from '\.\/policy\.ts';/);
 });
 
 function fixture() {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PaperclipRosterReconciler } from '../src/paperclip-roster-reconciler.js';
+import { PaperclipRosterReconciler } from '../src/paperclip-roster-reconciler.ts';
 
 test('岗位登记暂时失败后会在下一轮重新读取全员清单', async () => {
   let reads = 0;

@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { TaskStore } from '../src/task-store.js';
+import { TaskStore } from '../src/task-store.ts';
 
 const root = path.resolve(new URL('../../..', import.meta.url).pathname);
 const dataDir = path.join(root, 'apps/ajun-runtime/data');

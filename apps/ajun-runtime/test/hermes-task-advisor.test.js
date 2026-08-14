@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { HermesTaskAdvisor } from '../src/hermes-task-advisor.js';
+import { HermesTaskAdvisor } from '../src/hermes-task-advisor.ts';
 
 test('任务理解 AI 只输出目标、交付物、缺少信息和安全下一步', async () => {
   let prompt = '';

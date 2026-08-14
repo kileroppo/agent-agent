@@ -6,7 +6,7 @@ import {
   recordAutonomyUsage,
   recordWorkPlanCheckpoint,
   replanAfterFailure
-} from '../src/autonomous-work-planner.js';
+} from '../src/autonomous-work-planner.ts';
 
 const goalSpec = {
   schemaVersion:'agent.army/goal-spec/v1',

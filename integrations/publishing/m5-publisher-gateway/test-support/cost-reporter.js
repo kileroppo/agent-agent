@@ -1,6 +1,6 @@
 import {
   PUBLISHER_COST_REPORTER_SCHEMA,
-} from '../src/cost-reporting.js';
+} from '../src/cost-reporting.ts';
 
 export function deterministicCostReporter({
   allowed = true,

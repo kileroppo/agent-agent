@@ -9,7 +9,7 @@ import {
   DouyinOfficialApiConnector,
   createPublisherRuntime,
   publishIdempotencyKey,
-} from '../src/index.js';
+} from '../src/index.ts';
 import {
   actualCost,
   deterministicCostReporter,

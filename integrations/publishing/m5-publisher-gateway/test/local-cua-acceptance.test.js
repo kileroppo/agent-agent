@@ -21,7 +21,7 @@ import {
   resolveAcceptanceUploadPath,
   validateLoopbackOrigin,
   versionAtLeast
-} from '../src/index.js';
+} from '../src/index.ts';
 
 test('本地 CUA 在启动 daemon 前拒绝缺失的一次性 browser approval token', () => {
   assert.throws(

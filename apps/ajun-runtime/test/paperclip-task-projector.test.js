@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PaperclipTaskProjector } from '../src/paperclip-task-projector.js';
+import { PaperclipTaskProjector } from '../src/paperclip-task-projector.ts';
 
 test('任务投影 Module 通过语义 Client 创建 Issue 与审批', async () => {
   const calls = [];

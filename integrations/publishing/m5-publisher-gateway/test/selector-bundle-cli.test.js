@@ -8,7 +8,7 @@ import {
   CUA_PLATFORM_ORIGINS,
   CUA_SELECTOR_BUNDLE_SCHEMA,
   selectorBundleChecksum,
-} from '../src/index.js';
+} from '../src/index.ts';
 import {
   FREEZE_CONFIRMATION,
   PAPERCLIP_SELECTOR_APPROVAL_SNAPSHOT_SCHEMA,

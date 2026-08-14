@@ -3,8 +3,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { renderM5SocialCardPackage } from '../src/social-card-tools.js';
-import { sha256 } from '../src/policy.js';
+import { renderM5SocialCardPackage } from '../src/social-card-tools.ts';
+import { sha256 } from '../src/policy.ts';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDir, '../../../../..');

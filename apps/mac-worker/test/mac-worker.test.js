@@ -3,9 +3,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { loadConfig } from '../src/config.js';
-import { MacWorker } from '../src/mac-worker.js';
-import { WorkerStateStore } from '../src/state-store.js';
+import { loadConfig } from '../src/config.ts';
+import { MacWorker } from '../src/mac-worker.ts';
+import { WorkerStateStore } from '../src/state-store.ts';
 
 test('Mac工作间拒绝明文远程地址和非本机小D地址', () => {
   const base = { AGENT_ARMY_WORKER_TOKEN:'a'.repeat(32), AGENT_ARMY_WORKER_ID:'boss-mac' };

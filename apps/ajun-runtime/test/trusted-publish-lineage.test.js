@@ -6,7 +6,7 @@ import {
   assertPublishReceiptIdentity,
   trustedContentVersionProducts,
   trustedPublishReceiptProducts,
-} from '../src/trusted-publish-lineage.js';
+} from '../src/trusted-publish-lineage.ts';
 
 const RECEIPT = Object.freeze({
   receiptId:'11111111-1111-4111-8111-111111111111',

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { consumePrivateReadGrant, privateReadGrantStatus, resolvePrivateReadGrant, revokePrivateReadGrant } from '../src/private-read-grant.js';
+import { consumePrivateReadGrant, privateReadGrantStatus, resolvePrivateReadGrant, revokePrivateReadGrant } from '../src/private-read-grant.ts';
 
 const now = new Date('2026-08-02T02:00:00.000Z');
 const scope = { chatSelector:'项目群', startTime:'2026-08-02T00:00:00.000Z', endTime:'2026-08-02T02:00:00.000Z', maxMessages:200 };

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { EmployeeFeishuConnectionError, EmployeeFeishuConnectionService } from '../src/employee-feishu-connection-service.js';
+import { EmployeeFeishuConnectionError, EmployeeFeishuConnectionService } from '../src/employee-feishu-connection-service.ts';
 
 function fixture() {
   const apps = [];

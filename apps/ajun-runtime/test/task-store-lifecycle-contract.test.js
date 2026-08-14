@@ -3,8 +3,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { SQLiteTaskStore } from '../src/sqlite-task-store.js';
-import { TaskStore } from '../src/task-store.js';
+import { SQLiteTaskStore } from '../src/sqlite-task-store.ts';
+import { TaskStore } from '../src/task-store.ts';
 
 for (const backend of [jsonBackend(), sqliteBackend()]) {
   test(`${backend.name} 原子声明幂等任务创建所有权`, async () => {

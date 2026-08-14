@@ -4,9 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
-import { LocalVideoScriptPackage } from '../src/local-video-script-package.js';
-import { m5ProductionTemplateBindingHash } from '../src/m5-production-template-resolver.js';
-import { confirmedTranscriptDocument } from '../../xiaod-media-transcriber/src/transcript-evidence.js';
+import { LocalVideoScriptPackage } from '../src/local-video-script-package.ts';
+import { m5ProductionTemplateBindingHash } from '../src/m5-production-template-resolver.ts';
+import { confirmedTranscriptDocument } from '../../xiaod-media-transcriber/src/transcript-evidence.ts';
 
 test('缺少脚本主题时在模板解析和生产写入前停止', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'video-script-topic-required-'));

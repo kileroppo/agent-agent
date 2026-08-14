@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { TaskLifecycleEventRecorder } from '../src/task-lifecycle-event-recorder.js';
+import { TaskLifecycleEventRecorder } from '../src/task-lifecycle-event-recorder.ts';
 
 function eventFixture() {
   const events = new Map();

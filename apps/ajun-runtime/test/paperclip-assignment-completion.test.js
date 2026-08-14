@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PaperclipHermesTaskReconciler } from '../src/paperclip-hermes-task-reconciler.js';
-import { PaperclipAssignmentCompletion } from '../src/paperclip-assignment-completion.js';
-import { taskServiceExecutionMethods } from '../src/task-service-execution.js';
+import { PaperclipHermesTaskReconciler } from '../src/paperclip-hermes-task-reconciler.ts';
+import { PaperclipAssignmentCompletion } from '../src/paperclip-assignment-completion.ts';
+import { taskServiceExecutionMethods } from '../src/task-service-execution.ts';
 
 function taskFixture(taskPatch = {}) {
   return {

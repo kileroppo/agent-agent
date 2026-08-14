@@ -3,7 +3,7 @@ import { access, mkdtemp, mkdir, readFile, symlink, writeFile } from 'node:fs/pr
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { OfficeDocumentAdapter } from '../src/office-document-adapter.js';
+import { OfficeDocumentAdapter } from '../src/office-document-adapter.ts';
 
 test('默认 Office 转换器只使用标准应用路径，不引用开发机用户缓存', () => {
   const adapter = new OfficeDocumentAdapter();

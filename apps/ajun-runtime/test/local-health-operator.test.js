@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { LocalHealthOperator } from '../src/local-health-operator.js';
+import { LocalHealthOperator } from '../src/local-health-operator.ts';
 
 test('运维官把A君、小D和总控的真实巡检结果合并成一份健康报告', async () => {
   const operator = new LocalHealthOperator({

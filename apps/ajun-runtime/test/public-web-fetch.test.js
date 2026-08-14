@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PublicWebFetch, PublicWebFetchError, htmlToText } from '../src/public-web-fetch.js';
+import { PublicWebFetch, PublicWebFetchError, htmlToText } from '../src/public-web-fetch.ts';
 
 function response(body, type = 'text/html; charset=utf-8') { return new Response(body, { status: 200, headers: { 'content-type': type } }); }
 

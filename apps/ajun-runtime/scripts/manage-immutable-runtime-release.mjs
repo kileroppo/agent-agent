@@ -17,7 +17,9 @@ export const AJUN_RELEASE_MANIFEST = 'release-manifest.json';
 export const DEFAULT_RELEASE_PARENT = 'apps/ajun-runtime/data/releases';
 
 const ENTRYPOINT = 'apps/ajun-runtime/src/server.ts';
-const RECOVERY_ENTRYPOINT = 'apps/ajun-runtime/src/recovery-server.js';
+const RECOVERY_ENTRYPOINT = 'apps/ajun-runtime/src/recovery-server.ts';
+const LEGACY_ENTRYPOINT = 'apps/ajun-runtime/src/server.js';
+const LEGACY_RECOVERY_ENTRYPOINT = 'apps/ajun-runtime/src/recovery-server.js';
 const EXTERNAL_STATE = [
   'AGENT_ARMY_DATA_DIR',
   'AGENT_ARMY_TASK_STORE',
@@ -124,12 +126,12 @@ const COMPONENT_RULES = [
   {
     root:'integrations/access',
     files:['package.json'],
-    topLevelFilePattern:/^[a-z0-9-]+\.js$/,
+    topLevelFilePattern:/^[a-z0-9-]+\.ts$/,
   },
   {
     root:'integrations/boom-monitor',
     files:['package.json'],
-    topLevelFilePattern:/^[a-z0-9-]+\.js$/,
+    topLevelFilePattern:/^[a-z0-9-]+\.ts$/,
   },
   {
     root:'integrations/m5-kernel',
@@ -486,7 +488,7 @@ export async function validateAjunRuntimeRelease(releaseRoot, expectedHash) {
   if (JSON.stringify(snapshot.entries) !== JSON.stringify(manifest.entries)) {
     throw new Error('release文件清单不匹配');
   }
-  await assertRuntimeStaticClosure(canonicalRoot);
+  await assertRuntimeStaticClosure(canonicalRoot, manifest.entrypoint);
   await assertGovernanceRosterSmoke(canonicalRoot);
   return {
     releaseRoot:canonicalRoot,
@@ -702,7 +704,7 @@ export async function buildLaunchdCutoverPlan({
       programArguments:rollbackLaunchable
         ? [
             canonicalNode,
-            path.join(newRelease.releaseRoot, ENTRYPOINT),
+            path.join(newRelease.releaseRoot, newRelease.manifest.entrypoint),
           ]
         : null,
       workingDirectory:rollbackLaunchable
@@ -769,7 +771,7 @@ export async function buildLaunchdCutoverPlan({
             canonicalNode,
             rollbackMode === 'verified_degraded_fallback'
               ? path.join(newRelease.releaseRoot, RECOVERY_ENTRYPOINT)
-              : path.join(oldRelease.releaseRoot, ENTRYPOINT),
+              : path.join(oldRelease.releaseRoot, oldRelease.manifest.entrypoint),
           ]
         : null,
       workingDirectory:rollbackLaunchable
@@ -1226,8 +1228,8 @@ async function readOrdinaryFile(file, allowedRoot, label) {
   }
 }
 
-async function assertRuntimeStaticClosure(releaseRoot) {
-  const entrypoint = path.join(releaseRoot, ENTRYPOINT);
+async function assertRuntimeStaticClosure(releaseRoot, entrypointPath = ENTRYPOINT) {
+  const entrypoint = path.join(releaseRoot, entrypointPath);
   const pending = [entrypoint];
   const visited = new Set();
   while (pending.length) {
@@ -1261,7 +1263,7 @@ async function assertRuntimeStaticClosure(releaseRoot) {
       }
     }
   }
-  return { entrypoint:ENTRYPOINT, moduleCount:visited.size };
+  return { entrypoint:entrypointPath, moduleCount:visited.size };
 }
 
 async function resolveEsmPackage(releaseRoot, importer, specifier) {
@@ -1285,7 +1287,7 @@ async function resolveEsmPackage(releaseRoot, importer, specifier) {
       const exportTarget = selectImportExport(packageJson.exports, exportKey)
         || (!subpathParts.length && String(packageJson.module || '').trim())
         || (!subpathParts.length && String(packageJson.main || '').trim())
-        || (subpathParts.length ? `./${subpathParts.join('/')}` : './index.js');
+        || (subpathParts.length ? `./${subpathParts.join('/')}` : './index.ts');
       if (!exportTarget.startsWith('./')) {
         throw new Error(`包 ${packageName} 的import导出不是包内相对路径`);
       }
@@ -1335,7 +1337,7 @@ function selectImportCondition(candidate) {
 async function assertGovernanceRosterSmoke(releaseRoot) {
   const modulePath = path.join(
     releaseRoot,
-    'apps/ajun-runtime/src/governance-hermes-runtime.js',
+    'apps/ajun-runtime/src/governance-hermes-runtime.ts',
   );
   const moduleStat = await lstatOrNull(modulePath);
   if (!moduleStat) return { status:'not_present_in_fixture', checked:0 };
@@ -1384,7 +1386,7 @@ async function resolveRelativeModule(directory, specifier) {
     `${base}.mts`,
     `${base}.cts`,
     `${base}.json`,
-    path.join(base, 'index.js'),
+    path.join(base, 'index.ts'),
     path.join(base, 'index.mjs'),
     path.join(base, 'index.cjs'),
     path.join(base, 'index.ts'),
@@ -1550,7 +1552,7 @@ function releaseReference(release) {
     root:release.releaseRoot,
     releaseHash:release.releaseHash,
     payloadHash:release.payloadHash,
-    entrypoint:path.join(release.releaseRoot, ENTRYPOINT),
+    entrypoint:path.join(release.releaseRoot, release.manifest.entrypoint),
   };
 }
 
@@ -1634,7 +1636,14 @@ function assertExactManifest(manifest) {
   if (JSON.stringify(actualKeys) !== JSON.stringify(expectedKeys)) {
     throw new Error('release清单字段不符合精确契约');
   }
-  if (manifest.entrypoint !== ENTRYPOINT) throw new Error('release entrypoint发生漂移');
+  if (!Array.isArray(manifest.entries)) throw new Error('release entries不合法');
+  const supportedEntrypoints = new Set([ENTRYPOINT, LEGACY_ENTRYPOINT]);
+  const entrypointEntry = manifest.entries.find(
+    (entry) => entry.type === 'file' && entry.path === manifest.entrypoint,
+  );
+  if (!supportedEntrypoints.has(manifest.entrypoint) || !entrypointEntry) {
+    throw new Error('release entrypoint发生漂移');
+  }
   if (JSON.stringify(manifest.externalState) !== JSON.stringify(EXTERNAL_STATE)) {
     throw new Error('release externalState发生漂移');
   }
@@ -1673,15 +1682,19 @@ function assertExactManifest(manifest) {
   ) {
     throw new Error('release Node ABI与当前运行时不匹配');
   }
-  if (!Array.isArray(manifest.entries)) throw new Error('release entries不合法');
+  const expectedRecoveryEntrypoint = manifest.entrypoint === LEGACY_ENTRYPOINT
+    ? LEGACY_RECOVERY_ENTRYPOINT
+    : RECOVERY_ENTRYPOINT;
   const hasRecoveryEntrypoint = manifest.entries.some(
-    (entry) => entry.type === 'file' && entry.path === RECOVERY_ENTRYPOINT,
+    (entry) => entry.type === 'file' && entry.path === expectedRecoveryEntrypoint,
   );
   assertVerificationContract(manifest.verification, manifest.git?.gitHead, {
     verificationCommands:sourceExclusions === legacySourceExclusions
       ? LEGACY_V1_VERIFY_COMMANDS
       : VERIFY_COMMANDS,
     expectedPayloadHash:manifest.payloadHash,
+    expectedEntrypoint:manifest.entrypoint,
+    expectedRecoveryEntrypoint,
     requireRecoveryStartupSmoke:hasRecoveryEntrypoint,
   });
 }
@@ -1692,6 +1705,8 @@ function assertVerificationContract(
   {
     verificationCommands = VERIFY_COMMANDS,
     expectedPayloadHash,
+    expectedEntrypoint = ENTRYPOINT,
+    expectedRecoveryEntrypoint = RECOVERY_ENTRYPOINT,
     requireRecoveryStartupSmoke = false,
   } = {},
 ) {
@@ -1726,12 +1741,13 @@ function assertVerificationContract(
   ) {
     throw new Error('release验证状态不符合精确契约');
   }
-  assertStartupSmokeEvidence(verification.startupSmoke, expectedGitHead);
+  assertStartupSmokeEvidence(verification.startupSmoke, expectedGitHead, expectedEntrypoint);
   if (requireRecoveryStartupSmoke) {
     assertRecoveryStartupSmokeEvidence(
       verification.recoveryStartupSmoke,
       expectedGitHead,
       expectedPayloadHash,
+      expectedRecoveryEntrypoint,
     );
   }
   const expectedCommands = verificationCommands.map((item) => ({
@@ -1743,7 +1759,12 @@ function assertVerificationContract(
   }
 }
 
-function assertRecoveryStartupSmokeEvidence(evidence, expectedGitHead, expectedPayloadHash) {
+function assertRecoveryStartupSmokeEvidence(
+  evidence,
+  expectedGitHead,
+  expectedPayloadHash,
+  expectedEntrypoint = RECOVERY_ENTRYPOINT,
+) {
   const expectedKeys = [
     'bootIdPresent',
     'entrypoint',
@@ -1786,7 +1807,7 @@ function assertRecoveryStartupSmokeEvidence(evidence, expectedGitHead, expectedP
     !evidence
     || evidence.status !== 'passed'
     || evidence.evidenceLayer !== 'frozen_recovery_startup'
-    || evidence.entrypoint !== RECOVERY_ENTRYPOINT
+    || evidence.entrypoint !== expectedEntrypoint
     || evidence.host !== '127.0.0.1'
     || evidence.portMode !== 'ephemeral_loopback'
     || evidence.healthEndpoint !== '/api/health'
@@ -1859,7 +1880,7 @@ function assertVerifiedDegradedRecoveryAttestation(newRelease) {
   }
 }
 
-function assertStartupSmokeEvidence(evidence, expectedGitHead) {
+function assertStartupSmokeEvidence(evidence, expectedGitHead, expectedEntrypoint = ENTRYPOINT) {
   const expectedKeys = [
     'endpoint',
     'entrypoint',
@@ -1879,7 +1900,7 @@ function assertStartupSmokeEvidence(evidence, expectedGitHead) {
     !evidence
     || evidence.status !== 'passed'
     || evidence.evidenceLayer !== 'frozen_release_startup'
-    || evidence.entrypoint !== ENTRYPOINT
+    || evidence.entrypoint !== expectedEntrypoint
     || evidence.host !== '127.0.0.1'
     || evidence.portMode !== 'ephemeral_loopback'
     || evidence.endpoint !== '/api/overview'

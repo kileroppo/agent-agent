@@ -15,7 +15,7 @@ import {
   createProductionPublisherComposition,
   publishIdempotencyKey,
   selectorBundleChecksum,
-} from '../src/index.js';
+} from '../src/index.ts';
 import { deterministicCostReporter } from '../test-support/cost-reporter.js';
 
 const PUBLISHED_AT = '2026-07-30T04:00:00.000Z';

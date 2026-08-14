@@ -34,17 +34,17 @@ agent-agent/
 
 ## 当前状态
 
-### 当前机器事实（2026-08-12）
+### 当前机器事实（2026-08-14）
 
-- A君 `4321` 绑定 clean 不可变 release 正常运行、HTTP 200；当前可见工作树仍有未提交文档/配置，因此 `runtime:fingerprint` 的源码关系为 `different_git_head`，不代表 live release 不干净。精确 PID、release、payload 与 Git 身份以当前 release manifest 和该只读指纹为准，不在 README 固化易漂移值。
-- Paperclip `3100`、Hermes Gateway 和小D运行面可达；Paperclip roster 已同步 12 个岗位，小拆与 A君 Hermes Profile 再次 dry-run 均为 `changed=false`。Publisher `4390` 未运行，Campaign 与 M5 Cron 继续关闭。
+- A君 `4321` 已切到 TypeScript clean 不可变 release `5ceb5069…`，入口为 `src/server.ts`、HTTP 200；manifest 绑定 payload `49872add…` 与隔离 clean Git `ee27aed…`。当前可见工作树仍未提交，因此 `runtime:fingerprint` 的源码关系为 `different_git_head`，不代表 live release 不干净。
+- 小D `4318` 已重启为 `src/server.ts`、HTTP 200；Paperclip `3100` 仍可达。Publisher `4390` 未运行，Campaign 与 M5 Cron 继续关闭；本轮没有触发飞书、Publisher 或外部 Provider 工作流。
 - Business Workflow、能力真相、并列否定策略和人工评价写回已进入 `4321` live；飞书任务 `#167203DF` 完成一条真实只读 Workflow，并将 `useful` / `accepted` 写回任务账本。
 
 ### 当前产品结论
 
 - M0–M3 已完成；M4 本地岗位质量与模型回归已完成，剩余项均为明确的外部或人工验收；M5 仍为 **PARTIAL**。
 - 产品成熟度固定第二批已以 `revision_required` 结束，不得再刷新或重开。审核官新鲜 E2E 已通过；小R显式交付覆盖门禁已经以 release `530d86bf…` 进入 live。新门禁下的真实任务 `2cb79a68…` 正确停在 `waiting_test`：只读到一条来源，缺 `process.env`，建议数为 1/3；调用增量 7、估算费用 0.005862007 USD。门禁有效，但小R业务能力仍未通过。当前停止反复修复/部署/重试，唯一继续口径见[产品成熟度总交接](./docs/handoffs/current/agent-army-product-maturity-handoff.md)。
-- 当前源码收敛候选已合入产品成熟度固定批次、签名子任务与统一验收接口；A君生产源码为 `67 TS / 216 JS / 1 MJS`，TypeScript 比例 `67/284 = 23.59%`，本机类型检查和全量测试通过。该候选尚未切换到 `4321`，不改变上一条 live 结论，也不授权重开成熟度批次。
+- 生产业务源码已统一为严格 TypeScript：全仓业务源清单为 `442 TS / 0 JS`，A君架构门禁为 `287/287 = 100%`。测试、运维脚本和浏览器构建产物可保留 JavaScript/MJS；浏览器 TypeScript 源码与生成物分目录管理。该版本已完成 `4318` / `4321` 本机切换，但不授权重开产品成熟度批次或任何外部动作。
 - Business Workflow 已作为新任务主对象，TypeScript Policy、CapabilityAdapter、ExecutionReceipt、Evaluation 和五层能力真相已在 live 生效；历史任务只读分类，不改写旧终态。
 - 任务与待办数量以 live `/api/overview.taskFocus` 为准，README 不再固化会持续变化的计数。真正的 `waiting_acceptance` Workflow 会进入 `ownerActionable`；等待自动验证的 `waiting_test` 或产物门禁未通过会显示为 `waiting_validation`，不再冒充老板待办。历史分类仍只读，不改写旧任务终态。
 - live `agent.army/validation-campaign/v1` 已收敛为 `taskCount=0`、`groupCount=0`。首次真实小拆 `#716FA2E8` 的任务终态仍保留为 `waiting_test`，Workflow 正确呈现为 `waiting_validation` 且不产生负责人动作；修复后的 `#B5403CD9` 以 `paperclip_hermes_completed` 成功，其 Workflow 为 `waiting_acceptance`，结构校验由 `false` 经一次 deterministic repair 变为 `true`，生成 7077 bytes、194 字摘要报告。

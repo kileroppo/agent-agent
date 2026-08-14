@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
-import { createBoomMonitorService, routeBoomMonitorApi } from '../src/boom-monitor/index.js';
+import { createBoomMonitorService, routeBoomMonitorApi } from '../src/boom-monitor/index.ts';
 
 function collectedBundle() {
   return {

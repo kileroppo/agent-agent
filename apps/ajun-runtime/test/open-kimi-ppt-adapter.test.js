@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { OpenKimiPptAdapter } from '../src/open-kimi-ppt-adapter.js';
+import { OpenKimiPptAdapter } from '../src/open-kimi-ppt-adapter.ts';
 
 const READY = Object.freeze({
   status:'ready',

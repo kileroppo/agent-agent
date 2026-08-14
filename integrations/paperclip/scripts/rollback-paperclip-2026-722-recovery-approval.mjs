@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import {
   PAPERCLIP_VERSION,
   rollbackRecoveryApprovalPatch,
-} from '../compat/paperclip-2026-722-recovery-approval.mjs';
+} from '../compat/paperclip-2026-722-recovery-approval.ts';
 
 const CONFIRMATION = 'I_ACCEPT_PAPERCLIP_2026_722_RECOVERY_APPROVAL_ROLLBACK';
 

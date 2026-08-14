@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   PaperclipLearningLifecycleHandler,
-} from '../src/paperclip-learning-lifecycle.js';
+} from '../src/paperclip-learning-lifecycle.ts';
 
 const IDS = Object.freeze({
   issue:'11111111-1111-4111-8111-111111111111',

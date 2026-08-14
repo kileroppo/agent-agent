@@ -16,18 +16,18 @@ npm run dev
 - `src/runtime-start.ts`：监听和后台生命周期；
 - `src/runtime-composition-root.ts`：跨领域产品壳，只组合深层 Module；
 - [`src/runtime/`](./src/runtime/README.md)：活动生命周期、岗位执行、飞书指挥和 Paperclip 系统控制装配；
-- `src/task-service.js`：稳定任务 Interface，只负责装配与少量跨模块协调；
-- `src/campaign-delivery-evidence.js`：M5 阶段回执、失败留痕与 Work Product 写回协议；
-- `src/open-research-source-acquisition.js`：开放研究来源发现、读取预算与证据资格；
-- `src/paperclip-content-execution-context.js`：内容岗位的 Case、Run、JWT 与活动授权可信上下文；
-- `src/office-presentation-production.js`：演示文稿生成、导出、QA 与阻塞产物协议；
-- `src/m5-publisher-runtime-lease.js`：Publisher 一次性授权、快照与运行时租约；
-- `src/metric-checkpoint-execution.js`：2h/24h/72h 指标证据推进状态机；
-- `src/presentation-adapter-protocol.js`：两个本地演示 Adapter 共用的安全工作区与命令协议；
-- `src/task-overview.js`：运行总览、能力状态和用量账单 Module；
-- `src/task-approval-coordinator.js`：本机/Paperclip 审批、任务控制和幂等恢复 Module；
+- `src/task-service.ts`：稳定任务 Interface，只负责装配与少量跨模块协调；
+- `src/campaign-delivery-evidence.ts`：M5 阶段回执、失败留痕与 Work Product 写回协议；
+- `src/open-research-source-acquisition.ts`：开放研究来源发现、读取预算与证据资格；
+- `src/paperclip-content-execution-context.ts`：内容岗位的 Case、Run、JWT 与活动授权可信上下文；
+- `src/office-presentation-production.ts`：演示文稿生成、导出、QA 与阻塞产物协议；
+- `src/m5-publisher-runtime-lease.ts`：Publisher 一次性授权、快照与运行时租约；
+- `src/metric-checkpoint-execution.ts`：2h/24h/72h 指标证据推进状态机；
+- `src/presentation-adapter-protocol.ts`：两个本地演示 Adapter 共用的安全工作区与命令协议；
+- `src/task-overview.ts`：运行总览、能力状态和用量账单 Module；
+- `src/task-approval-coordinator.ts`：本机/Paperclip 审批、任务控制和幂等恢复 Module；
 - `src/boom-monitor/`：A君进程内的爆款雷达业务 Module；
-- `public/`：本机授权、健康、恢复与脱敏诊断界面；
+- `frontend/src/`：浏览器 TypeScript 源码；`public/` 只保存 HTML/CSS 和构建生成的浏览器 JavaScript；
 - `test/`：通过公开 Interface 和领域 Seam 验证行为。
 
 新增岗位或平台能力不得继续把具体 Adapter 堆回 `runtime-composition-root.ts`；应进入所属领域装配

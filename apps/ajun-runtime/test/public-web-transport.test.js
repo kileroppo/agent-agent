@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PublicWebTransport, runBoundedCommand } from '../src/public-web-transport.js';
+import { PublicWebTransport, runBoundedCommand } from '../src/public-web-transport.ts';
 
 test('公开网页传输只发起一次受限的公开读取，并保留响应状态和正文', async () => {
   let received;

@@ -3,7 +3,7 @@ import test from 'node:test';
 import {
   M5ProductionTemplateResolver,
   m5GrayProductionTemplateBinding,
-} from '../src/m5-production-template-resolver.js';
+} from '../src/m5-production-template-resolver.ts';
 
 const SAFE = {
   promptMutation:false,

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { FilePublisherRepository } from '../src/index.js';
+import { FilePublisherRepository } from '../src/index.ts';
 
 const NOW = new Date('2026-07-30T12:00:00.000Z');
 

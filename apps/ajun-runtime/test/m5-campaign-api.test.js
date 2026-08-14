@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { routeM5CampaignApi } from '../src/m5-campaign-api.js';
+import { routeM5CampaignApi } from '../src/m5-campaign-api.ts';
 
 test('M5 Campaign 路由在进入领域服务前统一执行本机门禁', async () => {
   let calls = 0;

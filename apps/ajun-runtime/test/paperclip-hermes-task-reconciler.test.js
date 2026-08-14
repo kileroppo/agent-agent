@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PaperclipHermesTaskReconciler } from '../src/paperclip-hermes-task-reconciler.js';
+import { PaperclipHermesTaskReconciler } from '../src/paperclip-hermes-task-reconciler.ts';
 
 function setup({ issueStatus, artifactRefs = [], taskType = 'governance.architecture-review', input = {}, error = null, issueError = null, fallback = null, taskPatch = {} }) {
   let task = {

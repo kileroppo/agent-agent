@@ -1,17 +1,17 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import test from 'node:test';
-import { ContentCampaignKernel } from '../src/content-campaign-kernel.js';
-import { createFakeM5ControlPlane } from '../src/control-plane.js';
+import { ContentCampaignKernel } from '../src/content-campaign-kernel.ts';
+import { createFakeM5ControlPlane } from '../src/control-plane.ts';
 import {
   assertM5ControlPlane,
   M5_CONTROL_PLANE_METHODS,
-} from '../src/control-plane.js';
+} from '../src/control-plane.ts';
 import {
   normalizePaperclipCase,
   normalizePaperclipWorkProduct,
   PaperclipM5ControlPlane,
-} from '../src/paperclip-control-plane.js';
+} from '../src/paperclip-control-plane.ts';
 
 const PIPELINE = {
   id:'22222222-2222-4222-8222-222222222222',
@@ -22,8 +22,8 @@ const PIPELINE = {
 
 test('M5业务内核只依赖规范化控制面，不含Paperclip URL或原始envelope字段', async () => {
   const sources = await Promise.all([
-    new URL('../src/content-campaign-kernel.js', import.meta.url),
-    new URL('../src/parallel-work-coordinator.js', import.meta.url),
+    new URL('../src/content-campaign-kernel.ts', import.meta.url),
+    new URL('../src/parallel-work-coordinator.ts', import.meta.url),
   ].map((url) => fs.readFile(url, 'utf8')));
   for (const source of sources) {
     assert.doesNotMatch(source, /adapter\.request|\/api\/|\.fields\b|\.metadata\b|\.items\b/);

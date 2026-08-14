@@ -5,6 +5,12 @@
   "description": "Compatibility intake between legacy Boom Monitor and the native AJun module",
   "type": "module",
   "exports": {
-    ".": "./ajun-intake.js"
+    ".": "./ajun-intake.ts"
+  },
+  "scripts": {
+    "check": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
   }
 }

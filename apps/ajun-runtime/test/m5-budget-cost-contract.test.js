@@ -3,7 +3,7 @@ import test from 'node:test';
 import {
   assertM5BudgetCoverage,
   createM5CostEventDraft,
-} from '../src/m5-budget-cost-contract.js';
+} from '../src/m5-budget-cost-contract.ts';
 
 const ids = Object.freeze({
   company:'11111111-1111-4111-8111-111111111111',

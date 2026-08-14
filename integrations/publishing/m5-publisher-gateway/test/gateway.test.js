@@ -12,7 +12,7 @@ import {
   PublisherGateway,
   WorkspaceArtifactVerifier,
   publishIdempotencyKey
-} from '../src/index.js';
+} from '../src/index.ts';
 
 const NOW = new Date('2026-07-30T00:00:00.000Z');
 const CHECKSUM_A = `sha256:${'a'.repeat(64)}`;

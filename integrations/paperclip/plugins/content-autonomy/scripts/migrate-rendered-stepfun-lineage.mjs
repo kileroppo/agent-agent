@@ -3,8 +3,8 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { validateArtifactLineage } from '../src/media-tools.js';
-import { safeRelativePath, sha256 } from '../src/policy.js';
+import { validateArtifactLineage } from '../src/media-tools.ts';
+import { safeRelativePath, sha256 } from '../src/policy.ts';
 
 const REQUIRED_ARTIFACTS = Object.freeze([
   'master.mp4',
@@ -123,9 +123,9 @@ try {
     ];
     await writeJsonAtomic(lineagePath, lineage);
 
-    const manifestPath = path.join(destinationDirectory, 'artifact-manifest.json');
+    const manifestPath = path.join(destinationDirectory, 'artifact-manifest.tson');
     const manifest = parseJson(
-      await fs.readFile(path.join(sourceDirectory, 'artifact-manifest.json')),
+      await fs.readFile(path.join(sourceDirectory, 'artifact-manifest.tson')),
       'artifact_manifest_invalid',
     );
     manifest.lineage = lineage;
@@ -142,7 +142,7 @@ try {
     const relativeManifest = path.posix.join(
       outputRelative,
       directoryName,
-      'artifact-manifest.json',
+      'artifact-manifest.tson',
     );
     const validationRoot = path.dirname(output);
     const validationContext = {
@@ -158,7 +158,7 @@ try {
     const stagingRelative = path.posix.join(
       path.basename(staging),
       directoryName,
-      'artifact-manifest.json',
+      'artifact-manifest.tson',
     );
     const validation = await validateArtifactLineage(
       validationContext,

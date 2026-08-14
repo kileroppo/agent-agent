@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { FeishuAgentProvisioningPlanError, FeishuAgentProvisioningPlanner } from '../src/feishu-agent-provisioning-plan.js';
+import { FeishuAgentProvisioningPlanError, FeishuAgentProvisioningPlanner } from '../src/feishu-agent-provisioning-plan.ts';
 
 const planner = new FeishuAgentProvisioningPlanner();
 

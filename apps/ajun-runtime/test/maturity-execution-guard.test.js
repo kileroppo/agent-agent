@@ -5,8 +5,8 @@ import path from 'node:path';
 import test from 'node:test';
 import { MaturityExecutionGuard } from '../src/maturity-execution-guard.ts';
 import { isExactWaitingMaturityMissionRetry, knownZeroUsage } from '../src/maturity-legacy-content-retry.ts';
-import { LocalVideoScriptPackage } from '../src/local-video-script-package.js';
-import { LocalContentCreator } from '../src/local-content-creation.js';
+import { LocalVideoScriptPackage } from '../src/local-video-script-package.ts';
+import { LocalContentCreator } from '../src/local-content-creation.ts';
 
 function fixture(executionMode, taskType) {
   const mission = { taskId:'mission-1', input:{ context:{ productMaturityBatchId:'maturity-1' } } };

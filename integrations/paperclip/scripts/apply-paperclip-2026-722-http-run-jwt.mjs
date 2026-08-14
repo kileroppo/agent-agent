@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import {
   applyCompatibilityPatch,
   PAPERCLIP_VERSION,
-} from '../compat/paperclip-2026-722-http-run-jwt.mjs';
+} from '../compat/paperclip-2026-722-http-run-jwt.ts';
 
 const CONFIRMATION = 'I_ACCEPT_PAPERCLIP_2026_722_HTTP_RUN_JWT_PATCH';
 

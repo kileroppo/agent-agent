@@ -5,7 +5,7 @@ import {
   PUBLISHER_ACCOUNT_IDENTITY_VERIFIER_SCHEMA,
   validateAccountIdentityVerifier,
   verifyDouyinAccountIdentity,
-} from '../src/index.js';
+} from '../src/index.ts';
 import {
   recordingAccountIdentityVerifier,
 } from '../test-support/account-identity-verifier.js';

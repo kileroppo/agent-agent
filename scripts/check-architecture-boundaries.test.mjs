@@ -96,7 +96,7 @@ test('架构检查拒绝核心责任模块重新长回巨型文件', async (cont
   const root = await fixture(context);
   await write(
     root,
-    'apps/ajun-runtime/src/task-service.js',
+    'apps/ajun-runtime/src/task-service.ts',
     `${Array.from({ length:251 }, (_, index) => `// ${index}`).join('\n')}\n`,
   );
   const result = run(root);
@@ -108,7 +108,7 @@ test('架构检查拒绝 TaskService 重新声明已委托方法', async (contex
   const root = await fixture(context);
   await write(
     root,
-    'apps/ajun-runtime/src/task-service.js',
+    'apps/ajun-runtime/src/task-service.ts',
     'export class TaskService {\n  async approveApproval() {}\n}\n',
   );
   const result = run(root);
@@ -120,7 +120,7 @@ test('架构检查拒绝任务定义消费者重新维护影子映射', async (c
   const root = await fixture(context);
   await write(
     root,
-    'apps/ajun-runtime/src/feishu-commander-replies.js',
+    'apps/ajun-runtime/src/feishu-commander-replies.ts',
     "const TASK_TYPE_BY_INTENT = { office: 'office.presentation-package' };\n",
   );
   const result = run(root);
@@ -130,7 +130,7 @@ test('架构检查拒绝任务定义消费者重新维护影子映射', async (c
 
 test('架构检查拒绝岗位声明未登记的任务类型', async (context) => {
   const root = await fixture(context);
-  await write(root, 'apps/ajun-runtime/src/task-definitions.js', "taskDefinition('known.task');\n");
+  await write(root, 'apps/ajun-runtime/src/task-definitions.ts', "taskDefinition('known.task');\n");
   await write(root, 'agents/operator/manifest.json', JSON.stringify({ acceptedTaskTypes:['unknown.task'] }));
   const result = run(root);
   assert.notEqual(result.status, 0);
@@ -141,7 +141,7 @@ test('架构检查拒绝任务状态消费者重新维护影子终态', async (c
   const root = await fixture(context);
   await write(
     root,
-    'apps/ajun-runtime/src/agent-army-client.js',
+    'apps/ajun-runtime/src/agent-army-client.ts',
     "const TERMINAL_STATUSES = new Set(['succeeded', 'failed']);\n",
   );
   const result = run(root);
@@ -197,7 +197,7 @@ test('架构检查拒绝产品装配职责重新回流到根入口', async (cont
   );
   const result = run(root);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /runtime-composition-root\.js: 责任模块超过 220 行/);
+  assert.match(result.stderr, /runtime-composition-root\.ts: 责任模块超过 220 行/);
 });
 
 test('架构检查拒绝产品装配根重新直接认识过多实现', async (context) => {
@@ -237,7 +237,7 @@ test('架构检查要求装配 Module 双向登记且策略目标存在', async 
   const missingRegistrationRoot = await fixture(context);
   await write(
     missingRegistrationRoot,
-    'apps/ajun-runtime/src/runtime/new-capability-composition.js',
+    'apps/ajun-runtime/src/runtime/new-capability-composition.ts',
     'export const capability = true;\n',
   );
   const missingRegistration = run(missingRegistrationRoot);
@@ -247,7 +247,7 @@ test('架构检查要求装配 Module 双向登记且策略目标存在', async 
   const missingTargetRoot = await fixture(context);
   const policyPath = path.join(missingTargetRoot, 'apps/ajun-runtime/module-policy.json');
   const policy = JSON.parse(await fs.readFile(policyPath, 'utf8'));
-  policy.modules['src/missing-module.js'] = { lineLimit:100 };
+  policy.modules['src/missing-module.ts'] = { lineLimit:100 };
   await fs.writeFile(policyPath, JSON.stringify(policy));
   const missingTarget = run(missingTargetRoot);
   assert.notEqual(missingTarget.status, 0);
@@ -256,7 +256,7 @@ test('架构检查要求装配 Module 双向登记且策略目标存在', async 
   const missingTestRoot = await fixture(context);
   const missingTestPolicyPath = path.join(missingTestRoot, 'apps/ajun-runtime/module-policy.json');
   const missingTestPolicy = JSON.parse(await fs.readFile(missingTestPolicyPath, 'utf8'));
-  missingTestPolicy.modules['src/task-recovery.js'].affectedTests = ['test/missing.test.js'];
+  missingTestPolicy.modules['src/task-recovery.ts'].affectedTests = ['test/missing.test.js'];
   await fs.writeFile(missingTestPolicyPath, JSON.stringify(missingTestPolicy));
   const missingTest = run(missingTestRoot);
   assert.notEqual(missingTest.status, 0);
@@ -267,24 +267,24 @@ test('架构检查为候选任务恢复与展示 Module 预留行数门禁', asy
   const root = await fixture(context);
   await write(
     root,
-    'apps/ajun-runtime/src/task-recovery.js',
+    'apps/ajun-runtime/src/task-recovery.ts',
     `${Array.from({ length:301 }, (_, index) => `// ${index}`).join('\n')}\n`,
   );
   const result = run(root);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /task-recovery\.js: 责任模块超过 300 行/);
+  assert.match(result.stderr, /task-recovery\.ts: 责任模块超过 300 行/);
 });
 
 test('架构检查限制候选任务详情和刷新 Module 的直接 import 扩散', async (context) => {
   const root = await fixture(context);
   await write(
     root,
-    'apps/ajun-runtime/public/task-record-detail-view.js',
+    'apps/ajun-runtime/frontend/src/task-record-detail-view.ts',
     `${Array.from({ length:13 }, (_, index) => `import './module-${index}.js';`).join('\n')}\n`,
   );
   const result = run(root);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /task-record-detail-view\.js: 产品装配根超过 12 个直接 import/);
+  assert.match(result.stderr, /task-record-detail-view\.ts: 产品装配根超过 12 个直接 import/);
 });
 
 test('架构检查拒绝未登记的生产源码超过一千行', async (context) => {
@@ -412,9 +412,9 @@ async function fixture(context, { appDependencies = {} } = {}) {
     schemaVersion:'agent.army/ajun-module-policy/v1',
     modules:{
       'src/runtime-composition-root.ts':{ lineLimit:220, importLimit:20 },
-      'src/task-service.js':{ lineLimit:250 },
-      'src/task-recovery.js':{ lineLimit:300 },
-      'public/task-record-detail-view.js':{ importLimit:12 },
+      'src/task-service.ts':{ lineLimit:250 },
+      'src/task-recovery.ts':{ lineLimit:300 },
+      'frontend/src/task-record-detail-view.ts':{ importLimit:12 },
     },
     testGroups:{
       'task-service-seams':{
@@ -430,9 +430,9 @@ async function fixture(context, { appDependencies = {} } = {}) {
     },
   }));
   await write(root, 'apps/ajun-runtime/src/runtime-composition-root.ts', 'export const runtime = true;\n');
-  await write(root, 'apps/ajun-runtime/src/task-service.js', 'export const task = true;\n');
-  await write(root, 'apps/ajun-runtime/src/task-recovery.js', 'export const recovery = true;\n');
-  await write(root, 'apps/ajun-runtime/public/task-record-detail-view.js', 'export const detail = true;\n');
+  await write(root, 'apps/ajun-runtime/src/task-service.ts', 'export const task = true;\n');
+  await write(root, 'apps/ajun-runtime/src/task-recovery.ts', 'export const recovery = true;\n');
+  await write(root, 'apps/ajun-runtime/frontend/src/task-record-detail-view.ts', 'export const detail = true;\n');
   for (const name of [
     'task-service.test.js',
     'task-service-paperclip-execution.test.js',

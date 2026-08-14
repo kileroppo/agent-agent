@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dispatchBoomSignal, normalizeBoomSignal } from '../../../integrations/boom-monitor/ajun-intake.js';
-import { CrossAgentMissionService } from '../src/cross-agent-mission-service.js';
+import { dispatchBoomSignal, normalizeBoomSignal } from '../../../integrations/boom-monitor/ajun-intake.ts';
+import { CrossAgentMissionService } from '../src/cross-agent-mission-service.ts';
 
 const signal = {
   workId:'work-1',

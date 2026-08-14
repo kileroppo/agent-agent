@@ -8,7 +8,7 @@ import {
   discoverGovernanceHermesAgentIds,
   hermesRuntimePolicyForManifest,
   paperclipHermesAdapterConfig
-} from '../src/governance-hermes-runtime.js';
+} from '../src/governance-hermes-runtime.ts';
 
 test('Paperclip Hermes 员工清单从 Manifest 自动发现，不维护第二份岗位名单', () => {
   assert.deepEqual(GOVERNANCE_HERMES_AGENT_IDS, [

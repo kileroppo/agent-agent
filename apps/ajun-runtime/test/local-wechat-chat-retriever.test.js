@@ -3,8 +3,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { LocalWeChatChatRetriever } from '../src/local-wechat-chat-retriever.js';
-import { wechatApprovalScope } from '../src/wechat-chat-defaults.js';
+import { LocalWeChatChatRetriever } from '../src/local-wechat-chat-retriever.ts';
+import { wechatApprovalScope } from '../src/wechat-chat-defaults.ts';
 
 function healthyVaultStatus() {
   return {

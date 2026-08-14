@@ -81,8 +81,8 @@ test('A君深层模块变更只选择该模块及 TaskService 接缝测试', () 
   );
   assert.deepEqual(
     selectAffectedTestFiles([
-      'apps/ajun-runtime/src/task-intake.js',
-      'apps/ajun-runtime/src/task-notification.js',
+      'apps/ajun-runtime/src/task-intake.ts',
+      'apps/ajun-runtime/src/task-notification.ts',
     ], ajun),
     [
       'test/cross-agent-mission-service.test.js',
@@ -94,8 +94,8 @@ test('A君深层模块变更只选择该模块及 TaskService 接缝测试', () 
   );
   assert.deepEqual(
     selectAffectedTestFiles([
-      'apps/ajun-runtime/src/task-approval-coordinator.js',
-      'apps/ajun-runtime/src/task-overview.js',
+      'apps/ajun-runtime/src/task-approval-coordinator.ts',
+      'apps/ajun-runtime/src/task-overview.ts',
     ], ajun),
     [
       'test/runtime-start.test.js',
@@ -107,9 +107,9 @@ test('A君深层模块变更只选择该模块及 TaskService 接缝测试', () 
   );
   assert.deepEqual(
     selectAffectedTestFiles([
-      'apps/ajun-runtime/src/task-attention-presentation.js',
-      'apps/ajun-runtime/src/task-recovery.js',
-      'apps/ajun-runtime/src/task-recovery-policy.js',
+      'apps/ajun-runtime/src/task-attention-presentation.ts',
+      'apps/ajun-runtime/src/task-recovery.ts',
+      'apps/ajun-runtime/src/task-recovery-policy.ts',
     ], ajun),
     [
       'test/failure-recovery-coordinator.test.js',
@@ -122,8 +122,8 @@ test('A君深层模块变更只选择该模块及 TaskService 接缝测试', () 
   );
   assert.deepEqual(
     selectAffectedTestFiles([
-      'apps/ajun-runtime/src/task-paperclip-assignment.js',
-      'apps/ajun-runtime/src/task-role-execution.js',
+      'apps/ajun-runtime/src/task-paperclip-assignment.ts',
+      'apps/ajun-runtime/src/task-role-execution.ts',
     ], ajun),
     [
       'test/local-content-growth.test.js',
@@ -134,9 +134,9 @@ test('A君深层模块变更只选择该模块及 TaskService 接缝测试', () 
   );
   assert.deepEqual(
     selectAffectedTestFiles([
-      'apps/ajun-runtime/src/open-task-research-execution.js',
-      'apps/ajun-runtime/src/local-content-analysis.js',
-      'apps/ajun-runtime/public/app-interactions.js',
+      'apps/ajun-runtime/src/open-task-research-execution.ts',
+      'apps/ajun-runtime/src/local-content-analysis.ts',
+      'apps/ajun-runtime/frontend/src/app-interactions.ts',
     ], ajun),
     [
       'test/console-boundary.test.js',
@@ -150,8 +150,8 @@ test('A君深层模块变更只选择该模块及 TaskService 接缝测试', () 
   );
   assert.deepEqual(
     selectAffectedTestFiles([
-      'apps/ajun-runtime/public/task-record-detail-view.js',
-      'apps/ajun-runtime/public/refresh-scheduler.js',
+      'apps/ajun-runtime/frontend/src/task-record-detail-view.ts',
+      'apps/ajun-runtime/frontend/src/refresh-scheduler.ts',
     ], ajun),
     [
       'test/console-boundary.test.js',
@@ -163,9 +163,9 @@ test('A君深层模块变更只选择该模块及 TaskService 接缝测试', () 
   );
   assert.deepEqual(
     selectAffectedTestFiles([
-      'apps/ajun-runtime/src/task-record-service.js',
-      'apps/ajun-runtime/src/task-presentation.js',
-      'apps/ajun-runtime/public/console-navigation.js',
+      'apps/ajun-runtime/src/task-record-service.ts',
+      'apps/ajun-runtime/src/task-presentation.ts',
+      'apps/ajun-runtime/frontend/src/console-navigation.ts',
     ], ajun),
     [
       'test/console-navigation.test.js',
@@ -265,7 +265,7 @@ test('任务定义与状态真相变更选择所有真实消费者接缝', () =>
   const ajun = graph.get('ajun-runtime');
   assert.deepEqual(
     selectAffectedTestFiles([
-      'apps/ajun-runtime/src/task-definition-registry.js',
+      'apps/ajun-runtime/src/task-definition-registry.ts',
       'apps/ajun-runtime/src/task-status-policy.ts',
     ], ajun),
     [
@@ -290,9 +290,9 @@ test('新深层 Module 与共享 Adapter 契约变更只跑必要接缝', () => 
   const ajun = graph.get('ajun-runtime');
   assert.deepEqual(
     selectAffectedTestFiles([
-      'apps/ajun-runtime/src/mission-approval-inheritance.js',
-      'apps/ajun-runtime/src/task-feedback.js',
-      'apps/ajun-runtime/src/contracts/agent-army-task-input.js',
+      'apps/ajun-runtime/src/mission-approval-inheritance.ts',
+      'apps/ajun-runtime/src/task-feedback.ts',
+      'apps/ajun-runtime/src/contracts/agent-army-task-input.ts',
       'apps/ajun-runtime/src/contracts/agent-army-http-input.ts',
       'apps/ajun-runtime/src/workflow/delivery-quality-runtime.ts',
     ], ajun),
@@ -311,7 +311,7 @@ test('新深层 Module 与共享 Adapter 契约变更只跑必要接缝', () => 
 test('A君未知或跨模块文件变更退回 workspace 全量测试', () => {
   const ajun = graph.get('ajun-runtime');
   assert.equal(
-    selectAffectedTestFiles(['apps/ajun-runtime/src/task-service.js'], ajun),
+    selectAffectedTestFiles(['apps/ajun-runtime/src/task-service.ts'], ajun),
     null,
   );
   assert.equal(

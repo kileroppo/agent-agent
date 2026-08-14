@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   TaskTimelineService,
   normalizeTaskTimelineQuery,
-} from '../src/task-timeline-service.js';
+} from '../src/task-timeline-service.ts';
 
 const taskId = '11111111-1111-4111-8111-111111111111';
 const events = [

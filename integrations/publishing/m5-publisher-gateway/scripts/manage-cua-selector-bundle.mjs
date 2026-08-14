@@ -9,8 +9,8 @@ import {
   CUA_SELECTOR_BUNDLE_SCHEMA,
   loadApprovedSelectorBundle,
   selectorBundleChecksum,
-} from '../src/cua-trust-contracts.js';
-import { coded } from '../src/policy.js';
+} from '../src/cua-trust-contracts.ts';
+import { coded } from '../src/policy.ts';
 
 export const FREEZE_CONFIRMATION = 'I_ACCEPT_FREEZE_M5_CUA_SELECTOR_BUNDLE';
 export const PAPERCLIP_SELECTOR_APPROVAL_SNAPSHOT_SCHEMA =

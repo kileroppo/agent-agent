@@ -5,13 +5,13 @@ import path from 'node:path';
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import test from 'node:test';
-import { CrossAgentMissionService } from '../src/cross-agent-mission-service.js';
+import { CrossAgentMissionService } from '../src/cross-agent-mission-service.ts';
 import { CrossAgentMissionReconciler } from '../src/cross-agent-mission-reconciler.ts';
 import { LocalAjunCoordinator } from '../src/local-ajun-coordinator.ts';
 import { LocalCreator } from '../src/local-creator.ts';
 import { MaturityExecutionGuard } from '../src/maturity-execution-guard.ts';
-import { TaskService } from '../src/task-service.js';
-import { TaskStore } from '../src/task-store.js';
+import { TaskService } from '../src/task-service.ts';
+import { TaskStore } from '../src/task-store.ts';
 import { MissionChildPolicy } from '../src/workflow/mission-child-policy.ts';
 
 const execFile = promisify(execFileCallback);

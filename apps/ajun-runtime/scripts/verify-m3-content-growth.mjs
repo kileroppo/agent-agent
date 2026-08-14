@@ -4,10 +4,10 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { LocalContentCreator, LocalVideoContentAnalyst } from '../src/local-content-growth.js';
-import { HermesContentGrowthAdvisor } from '../src/hermes-content-growth-advisor.js';
-import { KnowledgeArchiveWriter } from '../src/knowledge-archive-writer.js';
-import { LocalOfficeAssistant } from '../src/local-office-assistant.js';
+import { LocalContentCreator, LocalVideoContentAnalyst } from '../src/local-content-growth.ts';
+import { HermesContentGrowthAdvisor } from '../src/hermes-content-growth-advisor.ts';
+import { KnowledgeArchiveWriter } from '../src/knowledge-archive-writer.ts';
+import { LocalOfficeAssistant } from '../src/local-office-assistant.ts';
 
 const writeRealVault = process.argv.includes('--write-real-vault');
 const withHermes = process.argv.includes('--with-hermes');

@@ -4,12 +4,12 @@ import {
   createM5ServerPublisherComposition,
   PaperclipCurrentRunScope,
   PaperclipMetricRecoveryRunScope,
-} from '../src/m5-server-publisher-composition.js';
-import { PaperclipBridge } from '../src/paperclip-bridge.js';
+} from '../src/m5-server-publisher-composition.ts';
+import { PaperclipBridge } from '../src/paperclip-bridge.ts';
 import {
   canonicalMetricRecoveryAuthorizationId,
   hashMetricRecoveryScope,
-} from '../src/paperclip-metric-recovery-access.js';
+} from '../src/paperclip-metric-recovery-access.ts';
 
 const IDS = Object.freeze({
   company:'11111111-1111-4111-8111-111111111111',

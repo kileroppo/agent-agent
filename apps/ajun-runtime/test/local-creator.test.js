@@ -85,7 +85,7 @@ test('创建官生成能力复用证据、缺口、最小沙箱实验和修订�
         source:'existing-adapter',
         version:'1.2.0',
         auditStatus:'passed',
-        evidenceRefs:['integrations/access/content-acquisition-center.js']
+        evidenceRefs:['integrations/access/content-acquisition-center.ts']
       }
     ],
     acceptanceTitle:'用一条公开网页生成证据表'

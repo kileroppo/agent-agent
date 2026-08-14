@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { ValidationError } from '../src/task-service.js';
+import { ValidationError } from '../src/task-service.ts';
 import {
   agentFixture,
   coordinator,

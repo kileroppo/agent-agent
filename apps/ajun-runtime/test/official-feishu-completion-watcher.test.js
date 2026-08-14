@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { FileCompletionWatchStore, OfficialFeishuCompletionWatcher } from '../src/official-feishu-completion-watcher.js';
+import { FileCompletionWatchStore, OfficialFeishuCompletionWatcher } from '../src/official-feishu-completion-watcher.ts';
 
 function setup({ status = { terminal:false, status:'running', message:'正在处理。' }, detailBaseUrl = '' } = {}) {
   const records = []; const sent = [];

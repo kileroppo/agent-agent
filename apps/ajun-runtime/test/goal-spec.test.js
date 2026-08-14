@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { GoalSpecError, normalizeGoalSpec } from '../src/goal-spec.js';
+import { GoalSpecError, normalizeGoalSpec } from '../src/goal-spec.ts';
 
 test('目标规范会形成稳定契约，并且只能缩小调用方授予的权限', () => {
   const goal = normalizeGoalSpec({

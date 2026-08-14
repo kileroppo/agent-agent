@@ -1,8 +1,7 @@
 import http from 'node:http';
 import path from 'node:path';
 import { loadLanShareKey } from './lan-access.ts';
-// @ts-expect-error -- transitional JS HTTP Adapter; removed with the HTTP batch.
-import { createAjunHttpHandler } from './runtime-http-handler.js';
+import { createAjunHttpHandler } from './runtime-http-handler.ts';
 import { resolveRuntimeSourceRoot } from './runtime-source-root.ts';
 import { createBackgroundLifecycleComposition } from './runtime/background-lifecycle-composition.ts';
 import { createContentCampaignComposition } from './runtime/content-campaign-composition.ts';

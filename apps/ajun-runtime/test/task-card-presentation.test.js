@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { presentTaskCard, projectTaskCard, TASK_CARD_SCHEMA_VERSION } from '../src/task-card-presentation.js';
+import { presentTaskCard, projectTaskCard, TASK_CARD_SCHEMA_VERSION } from '../src/task-card-presentation.ts';
 
 const baseTask = {
   taskId:'7df3c85a-1111-2222-3333-444444444444',

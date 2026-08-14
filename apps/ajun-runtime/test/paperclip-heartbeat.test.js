@@ -5,7 +5,7 @@ import {
   PaperclipCampaignDailyHandler,
   PaperclipHeartbeatError,
   PaperclipHeartbeatHandler,
-} from '../src/paperclip-heartbeat.js';
+} from '../src/paperclip-heartbeat.ts';
 
 test('M5 每日 HTTP heartbeat 无模型、无自由参数地执行唯一确定性激活', async () => {
   const calls = [];

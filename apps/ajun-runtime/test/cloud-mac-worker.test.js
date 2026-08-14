@@ -3,9 +3,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { CloudXiaodExecutor } from '../src/cloud-xiaod-executor.js';
-import { MacWorkerTaskBridge } from '../src/mac-worker-task-bridge.js';
-import { TaskStore } from '../src/task-store.js';
+import { CloudXiaodExecutor } from '../src/cloud-xiaod-executor.ts';
+import { MacWorkerTaskBridge } from '../src/mac-worker-task-bridge.ts';
+import { TaskStore } from '../src/task-store.ts';
 
 test('云端小D任务在 Mac 离线时安全排队，不会误报执行或失败', async () => {
   const executor = new CloudXiaodExecutor();

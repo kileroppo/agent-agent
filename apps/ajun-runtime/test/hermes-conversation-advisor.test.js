@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { HermesConversationAdvisor } from '../src/hermes-conversation-advisor.js';
+import { HermesConversationAdvisor } from '../src/hermes-conversation-advisor.ts';
 
 test('AI 能把自然追问识别为上一轮使用记录的明细请求', async () => {
   const advisor = new HermesConversationAdvisor({ hermesHome:'/safe/profile', run:async (_command, args) => {

@@ -5,7 +5,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { LocalVideoContentAnalyst } from '../src/local-content-growth.js';
+import { LocalVideoContentAnalyst } from '../src/local-content-growth.ts';
 
 export const DEFAULT_SOURCE_TASK_ID = '10e4f814-8c03-4c51-ad5a-79b8328dd6e5';
 export const DEFAULT_RUNTIME_DATABASE_PATH = fileURLToPath(new URL('../data/runtime.sqlite', import.meta.url));

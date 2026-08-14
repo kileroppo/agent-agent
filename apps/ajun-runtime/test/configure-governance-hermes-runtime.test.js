@@ -978,7 +978,7 @@ test('Profile 同步可把 MCP 固定到仓库内的不可变 release，拒绝�
   const repositoryRoot = '/fixture/agent-agent';
   const immutableServer = path.join(
     repositoryRoot,
-    'work/runtime-releases-final/release-1/apps/ajun-runtime/src/agent-army-mcp-server.js',
+    'work/runtime-releases-final/release-1/apps/ajun-runtime/src/agent-army-mcp-server.ts',
   );
   assert.equal(resolveGovernanceMcpServerPath({
     override:immutableServer,
@@ -987,7 +987,7 @@ test('Profile 同步可把 MCP 固定到仓库内的不可变 release，拒绝�
   }), immutableServer);
   assert.throws(
     () => resolveGovernanceMcpServerPath({
-      override:'/tmp/agent-army-mcp-server.js',
+      override:'/tmp/agent-army-mcp-server.ts',
       repositoryRoot,
     }),
     /必须指向仓库内/,
@@ -1041,7 +1041,7 @@ function legacyProfileState(agentId) {
     mcp:{
       enabled:true,
       command:process.execPath,
-      args:[path.resolve('src/agent-army-mcp-server.js')],
+      args:[path.resolve('src/agent-army-mcp-server.ts')],
       timeout:290,
       env:[
         `AGENT_ARMY_AGENT_ID=${agentId}`,

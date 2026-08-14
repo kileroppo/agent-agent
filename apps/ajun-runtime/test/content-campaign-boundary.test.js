@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import test from 'node:test';
-import { ContentCampaignService } from '../src/content-campaign-service.js';
+import { ContentCampaignService } from '../src/content-campaign-service.ts';
 
 test('ContentCampaignService 不引入本地状态库，活动视图始终读取 Paperclip Case 真相', async () => {
-  const source = await fs.readFile(new URL('../src/content-campaign-service.js', import.meta.url), 'utf8');
+  const source = await fs.readFile(new URL('../src/content-campaign-service.ts', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /from ['"]node:(?:fs|sqlite|level)/);
   assert.doesNotMatch(source, /\b(?:TaskStore|localStorage|sessionStorage|writeFile|appendFile)\b/);
   assert.doesNotMatch(source, /this\.adapter\.request/);

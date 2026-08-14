@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { formatTaskPresentation, presentTask, shortTaskRef, taskDetailBaseUrl } from '../src/task-presentation.js';
+import { formatTaskPresentation, presentTask, shortTaskRef, taskDetailBaseUrl } from '../src/task-presentation.ts';
 
 const task = {
   taskId:'7df3c85a-1111-2222-3333-444444444444',

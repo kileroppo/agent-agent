@@ -3,7 +3,7 @@
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
-import { HttpPaperclipAdapter } from '../m5-content-pipeline/src/adapters/http.js';
+import { HttpPaperclipAdapter } from '../m5-content-pipeline/src/adapters/http.ts';
 
 export const APPLY_CONFIRMATION = 'MIGRATE_M5_DRAFT_ZERO_WAKE';
 const DEFAULT_API_BASE = 'http://127.0.0.1:3100';

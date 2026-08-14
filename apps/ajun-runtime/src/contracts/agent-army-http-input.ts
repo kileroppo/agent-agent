@@ -1,7 +1,5 @@
 import { z } from 'zod';
-
-// @ts-expect-error -- transitional JS contract Module; removed with the task-input contract batch.
-import { AgentArmyTaskInputError, httpUrlSchema } from './agent-army-task-input.js';
+import { AgentArmyTaskInputError, httpUrlSchema } from './agent-army-task-input.ts';
 
 const taskHttpInputSchema = z.object({
   title:z.string().min(1).max(500),

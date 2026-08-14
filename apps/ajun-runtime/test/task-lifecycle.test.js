@@ -14,7 +14,7 @@ import {
   isTerminalTaskStatus,
   isWorkerTaskClaimable,
   validateTaskStatusPatch,
-} from '../src/task-lifecycle.js';
+} from '../src/task-lifecycle.ts';
 
 function task(status, attempt = 1) {
   return { taskId:'task-1', status, attempt, currentStage:'before' };

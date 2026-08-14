@@ -8,7 +8,7 @@ import {
   compileM5RoleToolGrant,
   createM5RoleToolExecutionContext,
   M5RoleToolGrantError,
-} from '../src/m5-role-tool-grant.js';
+} from '../src/m5-role-tool-grant.ts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const ids = Object.freeze({

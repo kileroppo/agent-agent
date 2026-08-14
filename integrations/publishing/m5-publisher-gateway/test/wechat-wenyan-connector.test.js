@@ -7,7 +7,7 @@ import test from 'node:test';
 import {
   WenyanCliRunner,
   WechatWenyanConnector,
-} from '../src/index.js';
+} from '../src/index.ts';
 
 test('Wenyan runner 只执行版本核验和公众号草稿命令，临时文件随后清除', async (context) => {
   const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'wenyan-runner-test-'));

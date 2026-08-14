@@ -1,24 +1,16 @@
 import path from 'node:path';
-// @ts-expect-error -- transitional JS workspace Adapter; removed with the Boom batch.
 import { dispatchBoomSignal } from '@agent-army/boom-monitor';
 import { ApprovalExpiryReconciler } from '../approval-expiry-reconciler.ts';
-// @ts-expect-error -- transitional JS Module; removed with the Boom batch.
-import { createBoomMonitorService } from '../boom-monitor/index.js';
+import { createBoomMonitorService } from '../boom-monitor/index.ts';
 import { CrossAgentMissionReconciler } from '../cross-agent-mission-reconciler.ts';
-// @ts-expect-error -- transitional JS Module; removed with the mission batch.
-import { CrossAgentMissionService } from '../cross-agent-mission-service.js';
+import { CrossAgentMissionService } from '../cross-agent-mission-service.ts';
 import { InterruptedLocalExecutionReconciler } from '../interrupted-local-execution-reconciler.ts';
-// @ts-expect-error -- transitional JS Adapter; removed with the Mac worker batch.
-import { MacWorkerTaskBridge } from '../mac-worker-task-bridge.js';
-// @ts-expect-error -- transitional JS reconciler; removed with the Paperclip batch.
-import { PaperclipHermesTaskReconciler } from '../paperclip-hermes-task-reconciler.js';
+import { MacWorkerTaskBridge } from '../mac-worker-task-bridge.ts';
+import { PaperclipHermesTaskReconciler } from '../paperclip-hermes-task-reconciler.ts';
 import { PaperclipRepairReconciler } from '../paperclip-repair-reconciler.ts';
-// @ts-expect-error -- transitional JS reconciler; removed with the Paperclip batch.
-import { PaperclipRosterReconciler } from '../paperclip-roster-reconciler.js';
-// @ts-expect-error -- transitional JS Adapter; removed with the repair-evidence batch.
-import { TechnicalRepairEvidenceRelay } from '../technical-repair-evidence-relay.js';
-// @ts-expect-error -- transitional JS reconciler; removed with the Xiaod batch.
-import { XiaodReconciler } from '../xiaod-reconciler.js';
+import { PaperclipRosterReconciler } from '../paperclip-roster-reconciler.ts';
+import { TechnicalRepairEvidenceRelay } from '../technical-repair-evidence-relay.ts';
+import { XiaodReconciler } from '../xiaod-reconciler.ts';
 import { DeliveryQualityReconciler } from '../workflow/delivery-quality-reconciler.ts';
 import type { BackgroundLifecycleCompositionInput } from './composition-contracts.ts';
 
@@ -101,7 +93,7 @@ export function createBackgroundLifecycleComposition({
   const boomMonitor = features.boomMonitorEnabled ? createBoomMonitorService({
     dbPath:path.join(paths.dataDir, 'boom-monitor.sqlite'),
     dataDir:path.join(paths.dataDir, 'boom-monitor'),
-    collectMetrics:(input: unknown) => localExecution.xiaod.collectMetrics(input),
+    collectMetrics:(input: unknown) => localExecution.localXiaod.collectMetrics(input),
     dispatchBoomSignal:(input: unknown) => dispatchBoomSignal(input, { missions }),
     analysisDailyLimit:features.boomAnalysisDailyLimit,
   }) : null;

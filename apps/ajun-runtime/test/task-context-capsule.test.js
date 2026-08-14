@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildTaskContextCapsule } from '../src/task-context-capsule.js';
+import { buildTaskContextCapsule } from '../src/task-context-capsule.ts';
 
 test('任务上下文胶囊只保留目标、结果、已验证产物和一个下一步', () => {
   const capsule = buildTaskContextCapsule({

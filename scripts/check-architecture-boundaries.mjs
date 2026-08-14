@@ -18,38 +18,38 @@ const retiredAjunM5Facades = new Set([
   'm5-work-product-integrity',
 ]);
 const responsibilityLineLimits = new Map([
-  ['integrations/m5-kernel/src/content-campaign-kernel.js', 400],
-  ['integrations/m5-kernel/src/campaign-lifecycle.js', 550],
-  ['integrations/m5-kernel/src/content-campaign-execution.js', 100],
-  ['integrations/m5-kernel/src/campaign-execution-router.js', 400],
-  ['integrations/m5-kernel/src/campaign-execution-replay.js', 400],
-  ['integrations/m5-kernel/src/campaign-execution-planning.js', 500],
-  ['integrations/m5-kernel/src/content-campaign-execution-support.js', 250],
-  ['integrations/m5-kernel/src/campaign-work-product-lineage.js', 525],
-  ['integrations/m5-kernel/src/campaign-delivery-validation.js', 750],
-  ['integrations/m5-kernel/src/stage-recovery-controller.js', 100],
-  ['integrations/m5-kernel/src/stage-recovery-state.js', 650],
-  ['integrations/m5-kernel/src/stage-recovery-plan-revision.js', 350],
-  ['integrations/m5-kernel/src/stage-recovery-execution.js', 400],
-  ['integrations/paperclip/m5-content-pipeline/src/reconcile-existing-v2.js', 100],
-  ['integrations/paperclip/m5-content-pipeline/src/reconcile-v2-inspection.js', 600],
-  ['integrations/paperclip/m5-content-pipeline/src/reconcile-v2-execution.js', 250],
-  ['integrations/paperclip/m5-content-pipeline/src/reconcile-v2-recovery.js', 450],
-  ['integrations/paperclip/m5-content-pipeline/src/reconcile-v2-journal.js', 350],
-  ['integrations/paperclip/m5-content-pipeline/src/controller-run-jwt-cutover.js', 100],
-  ['integrations/paperclip/m5-content-pipeline/src/controller-run-jwt-contract.js', 400],
-  ['integrations/paperclip/m5-content-pipeline/src/controller-run-jwt-snapshot-store.js', 750],
-  ['integrations/paperclip/m5-content-pipeline/src/controller-run-jwt-operations.js', 350],
-  ['integrations/paperclip/plugins/content-autonomy/src/media-tools.js', 100],
-  ['integrations/paperclip/plugins/content-autonomy/src/media-runtime.js', 350],
-  ['integrations/paperclip/plugins/content-autonomy/src/media-provider-lineage.js', 500],
-  ['integrations/paperclip/plugins/content-autonomy/src/media-artifact-package.js', 450],
-  ['integrations/publishing/m5-publisher-gateway/src/gateway.js', 300],
-  ['integrations/publishing/m5-publisher-gateway/src/publish-execution.js', 600],
-  ['integrations/publishing/m5-publisher-gateway/src/metric-collection-execution.js', 700],
-  ['integrations/publishing/m5-publisher-gateway/src/cua-driver-runner.js', 550],
-  ['integrations/publishing/m5-publisher-gateway/src/cua-driver-cli-bridge.js', 500],
-  ['integrations/publishing/m5-publisher-gateway/src/cua-semantic-snapshot.js', 450],
+  ['integrations/m5-kernel/src/content-campaign-kernel.ts', 400],
+  ['integrations/m5-kernel/src/campaign-lifecycle.ts', 550],
+  ['integrations/m5-kernel/src/content-campaign-execution.ts', 100],
+  ['integrations/m5-kernel/src/campaign-execution-router.ts', 400],
+  ['integrations/m5-kernel/src/campaign-execution-replay.ts', 400],
+  ['integrations/m5-kernel/src/campaign-execution-planning.ts', 500],
+  ['integrations/m5-kernel/src/content-campaign-execution-support.ts', 250],
+  ['integrations/m5-kernel/src/campaign-work-product-lineage.ts', 525],
+  ['integrations/m5-kernel/src/campaign-delivery-validation.ts', 750],
+  ['integrations/m5-kernel/src/stage-recovery-controller.ts', 100],
+  ['integrations/m5-kernel/src/stage-recovery-state.ts', 650],
+  ['integrations/m5-kernel/src/stage-recovery-plan-revision.ts', 350],
+  ['integrations/m5-kernel/src/stage-recovery-execution.ts', 400],
+  ['integrations/paperclip/m5-content-pipeline/src/reconcile-existing-v2.ts', 100],
+  ['integrations/paperclip/m5-content-pipeline/src/reconcile-v2-inspection.ts', 600],
+  ['integrations/paperclip/m5-content-pipeline/src/reconcile-v2-execution.ts', 250],
+  ['integrations/paperclip/m5-content-pipeline/src/reconcile-v2-recovery.ts', 450],
+  ['integrations/paperclip/m5-content-pipeline/src/reconcile-v2-journal.ts', 350],
+  ['integrations/paperclip/m5-content-pipeline/src/controller-run-jwt-cutover.ts', 100],
+  ['integrations/paperclip/m5-content-pipeline/src/controller-run-jwt-contract.ts', 400],
+  ['integrations/paperclip/m5-content-pipeline/src/controller-run-jwt-snapshot-store.ts', 750],
+  ['integrations/paperclip/m5-content-pipeline/src/controller-run-jwt-operations.ts', 350],
+  ['integrations/paperclip/plugins/content-autonomy/src/media-tools.ts', 100],
+  ['integrations/paperclip/plugins/content-autonomy/src/media-runtime.ts', 350],
+  ['integrations/paperclip/plugins/content-autonomy/src/media-provider-lineage.ts', 500],
+  ['integrations/paperclip/plugins/content-autonomy/src/media-artifact-package.ts', 450],
+  ['integrations/publishing/m5-publisher-gateway/src/gateway.ts', 300],
+  ['integrations/publishing/m5-publisher-gateway/src/publish-execution.ts', 600],
+  ['integrations/publishing/m5-publisher-gateway/src/metric-collection-execution.ts', 700],
+  ['integrations/publishing/m5-publisher-gateway/src/cua-driver-runner.ts', 550],
+  ['integrations/publishing/m5-publisher-gateway/src/cua-driver-cli-bridge.ts', 500],
+  ['integrations/publishing/m5-publisher-gateway/src/cua-semantic-snapshot.ts', 450],
 ]);
 const responsibilityImportLimits = new Map([
 ]);
@@ -88,19 +88,19 @@ const delegatedTaskServiceMethods = new Set([
   'syncM5StageWorkProducts',
 ]);
 const semanticShadowRules = new Map([
-  ['apps/ajun-runtime/src/feishu-commander-replies.js', [
+  ['apps/ajun-runtime/src/feishu-commander-replies.ts', [
     [/\b(?:const|let|var)\s+TASK_TYPE_BY_INTENT\b/, '任务意图映射必须从 TaskDefinitionRegistry 读取'],
   ]],
-  ['apps/ajun-runtime/src/feishu-commander-routing.js', [
+  ['apps/ajun-runtime/src/feishu-commander-routing.ts', [
     [/\bdirectTaskTypes\b/, '直达岗位映射必须从 TaskDefinitionRegistry 读取'],
   ]],
-  ['apps/ajun-runtime/src/task-card-presentation.js', [
+  ['apps/ajun-runtime/src/task-card-presentation.ts', [
     [/\b(?:const|let|var)\s+TASK_TYPE_LABELS\b/, '任务类型展示名必须从 TaskDefinitionRegistry 读取'],
   ]],
-  ['apps/ajun-runtime/src/agent-army-client.js', [
+  ['apps/ajun-runtime/src/agent-army-client.ts', [
     [/\b(?:const|let|var)\s+TERMINAL_STATUSES\b/, '通知停止状态必须从 TaskStatusPolicy 读取'],
   ]],
-  ['apps/ajun-runtime/src/paperclip-assignment-completion.js', [
+  ['apps/ajun-runtime/src/paperclip-assignment-completion.ts', [
     [/\bCOMPLETABLE_TASK_STATUSES\b/, 'Paperclip 完成状态必须从 TaskStatusPolicy 读取'],
   ]],
   ['apps/ajun-runtime/src/workflow/delivery-quality-runtime.ts', [
@@ -164,7 +164,7 @@ for (const sourceRoot of sourceRoots) {
     if (importLimit && importCount > importLimit) {
       violations.push(`${portableRelative}: 产品装配根超过 ${importLimit} 个直接 import，请将领域装配知识下沉到深层 Module`);
     }
-    if (portableRelative === 'apps/ajun-runtime/src/task-service.js') {
+    if (portableRelative === 'apps/ajun-runtime/src/task-service.ts') {
       for (const methodName of delegatedTaskServiceMethods) {
         if (new RegExp(`^\\s+(?:async\\s+)?${methodName}\\s*\\(`, 'm').test(source)) {
           violations.push(`${portableRelative}: ${methodName} 已委托给深层 Module，不得在 TaskService 保留影子实现`);
@@ -278,14 +278,14 @@ async function validateHermesTaskCardPatch() {
 }
 
 async function validateTaskDefinitionCoverage() {
-  const definitionsPath = path.join(root, 'apps/ajun-runtime/src/task-definitions.js');
+  const definitionsPath = path.join(root, 'apps/ajun-runtime/src/task-definitions.ts');
   const agentsPath = path.join(root, 'agents');
   if (!await pathExists(definitionsPath) || !await pathExists(agentsPath)) return;
   const definitionsSource = await fs.readFile(definitionsPath, 'utf8');
   const definedTaskTypes = new Set(
     [...definitionsSource.matchAll(/taskDefinition\(['"]([^'"]+)['"]/g)].map((match) => match[1]),
   );
-  const defaultTaskType = definitionsSource.match(/DEFAULT_TASK_TYPE\s*=\s*['"]([^'"]+)['"]/)?.[1];
+  const defaultTaskType = definitionsSource.match(/DEFAULT_TASK_TYPE(?:\s*:\s*[^=]+)?\s*=\s*['"]([^'"]+)['"]/)?.[1];
   if (defaultTaskType) definedTaskTypes.add(defaultTaskType);
   for (const entry of await fs.readdir(agentsPath, { withFileTypes:true })) {
     if (!entry.isDirectory()) continue;

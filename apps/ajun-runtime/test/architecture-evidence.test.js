@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildArchitectureGroundTruth, validateArchitectureEvidenceRefs } from '../src/architecture-evidence.js';
+import { buildArchitectureGroundTruth, validateArchitectureEvidenceRefs } from '../src/architecture-evidence.ts';
 
 test('架构事实快照只暴露真实岗位、任务类型、受控路径和脱敏任务证据', () => {
   const snapshot = buildArchitectureGroundTruth({

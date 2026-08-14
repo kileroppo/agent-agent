@@ -12,8 +12,8 @@ import {
   PUBLISHER_APPROVAL_SNAPSHOT_SCHEMA,
   createProductionPublisherComposition,
   publishIdempotencyKey,
-} from '../src/index.js';
-import { createPublisherGatewayService } from '../src/service.js';
+} from '../src/index.ts';
+import { createPublisherGatewayService } from '../src/service.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const serviceScript = path.resolve(here, '../scripts/run-service.mjs');
