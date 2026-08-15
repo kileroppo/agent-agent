@@ -3,7 +3,7 @@ import { createConsoleNavigation } from './console-navigation.js';
 import { createAccessViews } from './app-access-views.js';
 import { bindConsoleInteractions } from './app-interactions.js';
 import { createBoomMonitorConsole } from './boom-monitor-console.js';
-import { BILLING_PAGE_SIZE, filterBillingEntries } from './billing-entry-filter.js';
+import { createBillingLedgerWorkbench } from './billing-ledger-workbench.js';
 import { startBrowserHotReload } from './hot-reload-client.js';
 import { taskStatusGroup } from './task-record-filter.js';
 import { createTaskRecordWorkbench } from './task-record-workbench.js';
@@ -18,13 +18,6 @@ const billingStats: any = document.querySelector('#billing-stats');
 const billingCostHealth: any = document.querySelector('#billing-cost-health');
 const billingAttribution: any = document.querySelector('#billing-attribution');
 const billingProfileList: any = document.querySelector('#billing-profile-list');
-const billingEntryList: any = document.querySelector('#billing-entry-list');
-const billingEntryCount: any = document.querySelector('#billing-entry-count');
-const billingListContext: any = document.querySelector('#billing-list-context');
-const billingSearch: any = document.querySelector('#billing-search');
-const billingAgentFilter: any = document.querySelector('#billing-agent-filter');
-const billingLoadMore: any = document.querySelector('#billing-load-more');
-const billingViewButtons: any = [...document.querySelectorAll('[data-billing-view]')];
 const focusPanel: any = document.querySelector('#focus-panel');
 const capabilitySummary: any = document.querySelector('#capability-summary');
 const accessGate: any = document.querySelector('#access-gate');
@@ -136,10 +129,9 @@ const directEmployeeTaskTypes: any = [
     'office.presentation-package'
 ];
 const ownerOnlyModules: any = new Set(['connections', 'campaigns', 'billing', 'boom-monitor', 'tools']);
-const billingViewLabels: any = { all: '全部', task: '任务', agent_session: 'Agent 会话', system: '系统', unattributed: '未识别' };
 let boomMonitor: any;
 let recordWorkbench: any;
-const billingLedgerState: any = { query: '', agentId: '', view: 'all', visible: BILLING_PAGE_SIZE };
+const billingLedgerWorkbench: any = createBillingLedgerWorkbench({ agentName, formatDate, formatNumber, formatUsd, escapeHtml });
 function taskIdFromPath(pathname: any): any {
     return pathname.match(/^\/tasks\/([0-9a-f-]{36})$/i)?.[1] || '';
 }
@@ -284,7 +276,7 @@ function render(): any {
     renderRecentTasks(state.overview.recentTasks || []);
 }
 function renderBilling(): any {
-    if (!billingSummary || !billingStats || !billingCostHealth || !billingAttribution || !billingProfileList || !billingEntryList)
+    if (!billingSummary || !billingStats || !billingCostHealth || !billingAttribution || !billingProfileList)
         return;
     const billing: any = state.overview.billing;
     if (!billing || billing.status === 'unavailable') {
@@ -293,10 +285,7 @@ function renderBilling(): any {
         renderBillingCostHealth(null);
         billingAttribution.innerHTML = '<strong>账本暂不可用</strong><span>任务记录仍保留，但暂时无法核对全部模型消耗。</span>';
         billingProfileList.replaceChildren(billingEmpty('暂时无法读取岗位用量。'));
-        billingEntryList.replaceChildren(billingEmpty('暂时没有可展示的消费流水。'));
-        billingEntryCount.textContent = '读取失败';
-        billingListContext.textContent = '请稍后重试';
-        billingLoadMore.hidden = true;
+        billingLedgerWorkbench.setUnavailable();
         return;
     }
     const totals: any = billing.totals || {};
@@ -320,7 +309,7 @@ function renderBilling(): any {
     billingAttribution.innerHTML = `<strong>${unattributed ? `${unattributed} 条消费仍未识别来源` : '账本来源均已识别'}</strong><span>${taskEntries} 条精确关联业务任务，${agentSessions} 条属于独立 Agent 会话，${systemEntries} 条属于系统调用；识别到 Agent 会话不等同于具体业务任务。</span>`;
     const profiles: any = Array.isArray(billing.profiles) ? billing.profiles : [];
     billingProfileList.replaceChildren(...(profiles.length ? profiles.map(billingProfileRow) : [billingEmpty('最近七天没有岗位模型用量。')]));
-    renderBillingEntries(Array.isArray(billing.entries) ? billing.entries : []);
+    billingLedgerWorkbench.setEntries(Array.isArray(billing.entries) ? billing.entries : []);
 }
 function renderBillingCostHealth(health: any): any {
     billingCostHealth.className = 'billing-cost-health';
@@ -339,51 +328,6 @@ function renderBillingCostHealth(health: any): any {
     }
     billingCostHealth.replaceChildren(title, detail);
 }
-function renderBillingEntries(entries: any): any {
-    const filtered: any = filterBillingEntries(entries, billingLedgerState);
-    const visible: any = filtered.slice(0, billingLedgerState.visible);
-    const viewCounts: any = Object.fromEntries(['task', 'agent_session', 'system', 'unattributed'].map((status: any): any => [
-        status,
-        entries.filter((entry: any): any => entry.attribution?.status === status).length,
-    ]));
-    viewCounts.all = entries.length;
-    billingEntryList.replaceChildren(...(visible.length ? visible.map(billingEntryRow) : [billingEmpty('没有匹配的消费流水。')]));
-    billingEntryCount.textContent = `${filtered.length} 条流水`;
-    billingListContext.textContent = visible.length < filtered.length ? `已显示 ${visible.length} 条` : '按时间排列';
-    billingLoadMore.hidden = visible.length >= filtered.length;
-    billingLoadMore.textContent = `继续加载（已显示 ${visible.length}/${filtered.length}）`;
-    for (const button of billingViewButtons) {
-        const active: any = button.dataset.billingView === billingLedgerState.view;
-        button.textContent = `${billingViewLabels[button.dataset.billingView]} ${viewCounts[button.dataset.billingView]}`;
-        button.classList.toggle('is-active', active);
-        button.setAttribute('aria-pressed', String(active));
-    }
-    const agentIds: any = [...new Set(entries.map((entry: any): any => entry.agentId).filter(Boolean))];
-    const selectedAgent: any = billingAgentFilter.value;
-    billingAgentFilter.replaceChildren(billingOption('', '全部员工'), ...agentIds.map((id: any): any => billingOption(id, agentName(id))));
-    billingAgentFilter.value = agentIds.includes(selectedAgent) ? selectedAgent : '';
-}
-function resetBillingPage(): any {
-    billingLedgerState.visible = BILLING_PAGE_SIZE;
-    renderBilling();
-}
-for (const button of billingViewButtons)
-    button.addEventListener('click', (): any => {
-        billingLedgerState.view = button.dataset.billingView;
-        resetBillingPage();
-    });
-billingSearch.addEventListener('input', (): any => {
-    billingLedgerState.query = billingSearch.value;
-    resetBillingPage();
-});
-billingAgentFilter.addEventListener('change', (): any => {
-    billingLedgerState.agentId = billingAgentFilter.value;
-    resetBillingPage();
-});
-billingLoadMore.addEventListener('click', (): any => {
-    billingLedgerState.visible += BILLING_PAGE_SIZE;
-    renderBilling();
-});
 function billingProfileRow(profile: any): any {
     const node: any = document.createElement('article');
     node.className = 'billing-profile-row';
@@ -391,37 +335,10 @@ function billingProfileRow(profile: any): any {
     node.innerHTML = `<div><strong>${escapeHtml(agentName(profile.agentId))}</strong><span>${formatNumber(profile.apiCalls)} 次请求 · ${formatCompactNumber(profile.tokens?.total)} Token · ${formatNumber(profile.sessionCount)} 个会话</span></div><b>${knownCostCount ? formatUsd(profile.cost?.knownUsd) : '金额未知'}</b>`;
     return node;
 }
-function billingEntryRow(entry: any): any {
-    const node: any = document.createElement('article');
-    const attributionStatus: any = ['task', 'agent_session', 'system'].includes(entry.attribution?.status)
-        ? entry.attribution.status
-        : 'unattributed';
-    node.className = `billing-entry-row ${attributionStatus}`;
-    const attribution: any = attributionStatus === 'task'
-        ? `<a href="/tasks/${encodeURIComponent(entry.attribution.taskId)}">${escapeHtml(entry.attribution.taskRef)} · ${escapeHtml(entry.attribution.taskTitle)}</a>`
-        : attributionStatus === 'agent_session'
-            ? '<span class="billing-attribution-label agent-session">独立 Agent 会话</span>'
-            : attributionStatus === 'system'
-                ? '<span class="billing-attribution-label system">系统调用</span>'
-                : '<span class="billing-attribution-label unattributed">未识别来源</span>';
-    const cost: any = entry.cost?.status === 'actual'
-        ? `${formatUsd(entry.cost.amountUsd)} 实际`
-        : entry.cost?.status === 'estimated'
-            ? `${formatUsd(entry.cost.amountUsd)} 估算`
-            : entry.cost?.status === 'included' ? '套餐内' : '金额未知';
-    node.innerHTML = `<div class="billing-entry-main"><span>${escapeHtml(formatDate(entry.occurredAt))}</span><strong>${escapeHtml(agentName(entry.agentId))} · ${escapeHtml(entry.model || '未知模型')}</strong><small>${formatNumber(entry.apiCalls)} 次请求 · ${formatNumber((entry.tokens?.input || 0) + (entry.tokens?.output || 0))} 输入/输出 Token · 缓存 ${formatNumber((entry.tokens?.cacheRead || 0) + (entry.tokens?.cacheWrite || 0))}</small>${attribution}</div><b>${escapeHtml(cost)}</b>`;
-    return node;
-}
 function billingEmpty(message: any): any {
     const node: any = document.createElement('p');
     node.className = 'billing-empty';
     node.textContent = message;
-    return node;
-}
-function billingOption(value: any, label: any): any {
-    const node: any = document.createElement('option');
-    node.value = value;
-    node.textContent = label;
     return node;
 }
 function formatNumber(value: any): any {

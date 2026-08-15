@@ -166,6 +166,11 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
   assert.match(billingEntryFilter.headers.get('content-type'), /^text\/javascript/);
   assert.match(await billingEntryFilter.text(), /filterBillingEntries/);
 
+  const billingLedgerWorkbench = await fetch(`${baseUrl}/billing-ledger-workbench.js`);
+  assert.equal(billingLedgerWorkbench.status, 200);
+  assert.match(billingLedgerWorkbench.headers.get('content-type'), /^text\/javascript/);
+  assert.match(await billingLedgerWorkbench.text(), /createBillingLedgerWorkbench/);
+
   const consoleWithRecordState = await fetch(`${baseUrl}/?recordView=all&recordTime=all`);
   assert.equal(consoleWithRecordState.status, 200);
   assert.match(consoleWithRecordState.headers.get('content-type'), /^text\/html/);

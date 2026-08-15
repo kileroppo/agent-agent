@@ -372,12 +372,22 @@
               <select id="billing-agent-filter" aria-label="按员工筛选"><option value="">全部员工</option></select>
             </div>
           </div>
-          <div class="record-list-summary billing-list-summary">
-            <strong id="billing-entry-count">正在读取…</strong>
-            <span id="billing-list-context">按时间排列</span>
+          <div id="billing-workbench" class="record-workbench billing-workbench">
+            <section class="record-list-panel" aria-label="消费流水列表">
+              <div class="record-list-summary billing-list-summary">
+                <strong id="billing-entry-count">正在读取…</strong>
+                <span id="billing-list-context">按时间排列</span>
+              </div>
+              <div id="billing-entry-list" class="billing-entry-list" role="listbox" aria-label="消费流水"></div>
+              <button id="billing-load-more" class="task-load-more secondary-action" type="button" hidden>继续加载</button>
+            </section>
+            <aside id="billing-entry-detail" class="record-detail billing-entry-detail" aria-live="polite">
+              <div class="record-detail-empty">
+                <svg aria-hidden="true"><use href="#icon-cost"></use></svg>
+                <p>选择一条流水查看用量和归属</p>
+              </div>
+            </aside>
           </div>
-          <div id="billing-entry-list" class="billing-entry-list"></div>
-          <button id="billing-load-more" class="task-load-more secondary-action" type="button" hidden>继续加载</button>
         </section>
       </section>
 

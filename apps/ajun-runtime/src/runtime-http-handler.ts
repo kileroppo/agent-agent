@@ -610,6 +610,8 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 return sendFile(response, publicDir, 'boom-monitor-console.js', 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && publicPath === '/billing-entry-filter.js')
                 return sendFile(response, publicDir, 'billing-entry-filter.js', 'text/javascript; charset=utf-8');
+            if (request.method === 'GET' && publicPath === '/billing-ledger-workbench.js')
+                return sendFile(response, publicDir, 'billing-ledger-workbench.js', 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && publicPath === '/console-navigation.js')
                 return sendFile(response, publicDir, 'console-navigation.js', 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && publicPath === '/disclosure-state.js')
