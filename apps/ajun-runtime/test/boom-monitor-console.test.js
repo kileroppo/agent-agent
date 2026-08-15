@@ -29,6 +29,8 @@ test('爆款雷达包含采集、作品、队列、扫描、JSON CSV 导入和�
   ]);
 
   assert.match(html, /id="boom-collect-form"/);
+  assert.match(html, /id="boom-source-url" type="text" inputmode="url"/);
+  assert.match(html, /placeholder="粘贴作品链接或整段分享文案"/);
   assert.match(html, /id="boom-work-list"/);
   assert.match(html, /id="boom-analysis-list"/);
   assert.match(html, /id="boom-scan-run"/);

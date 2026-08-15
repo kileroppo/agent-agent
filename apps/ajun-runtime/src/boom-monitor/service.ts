@@ -243,9 +243,8 @@ export class BoomMonitorService {
     async collectUrl(input: any = {}): Promise<any> {
         if (typeof this.collectMetricsCallback !== 'function')
             throw new BoomIntegrationUnavailableError('指标读取能力未注入。');
-        const sourceUrl: any = String(input.url ?? '').trim();
-        if (!/^https?:\/\//.test(sourceUrl))
-            throw new Error('请输入完整的 HTTP(S) 作品链接。');
+        const sourceUrl: any = extractFirstHttpUrl(String(input.url ?? ''));
+        assertConcreteBoomWorkUrl(sourceUrl);
         const metrics: any = await this.collectMetricsCallback({
             url: sourceUrl,
             connectionId: input.connection_id ?? input.connectionId ?? null,
@@ -608,3 +607,30 @@ function parseJson(value: any, fallback: any): any {
 }
 function integer(value: any): any { return Number.isFinite(Number(value)) ? Math.trunc(Number(value)) : 0; }
 function clamp(value: any, minimum: any, maximum: any): any { return Math.max(minimum, Math.min(integer(value), maximum)); }
+function extractFirstHttpUrl(value: string): string {
+    const matched: RegExpMatchArray | null = String(value).match(/https?:\/\/[^\s<>"'，。！？；、）】》]+/i);
+    const sourceUrl: string = String(matched?.[0] || '').replace(/[),.;!]+$/g, '');
+    if (!sourceUrl)
+        throw new Error('请输入完整的 HTTP(S) 作品链接，或粘贴包含作品链接的分享文案。');
+    return sourceUrl;
+}
+function assertConcreteBoomWorkUrl(sourceUrl: string): void {
+    let parsed: URL;
+    try {
+        parsed = new URL(sourceUrl);
+    }
+    catch {
+        throw new Error('请输入完整的 HTTP(S) 作品链接。');
+    }
+    const host: string = parsed.hostname.toLowerCase();
+    const isDouyin: boolean = host === 'douyin.com' || host.endsWith('.douyin.com')
+        || host === 'iesdouyin.com' || host.endsWith('.iesdouyin.com');
+    if (!isDouyin)
+        return;
+    const isShareShortLink: boolean = host === 'v.douyin.com' && /^\/[^/]+\/?$/.test(parsed.pathname);
+    const hasWorkPath: boolean = /^\/(?:video|note|share\/(?:video|note))\/[^/]+\/?$/.test(parsed.pathname);
+    const hasWorkId: boolean = Boolean(parsed.searchParams.get('aweme_id') || parsed.searchParams.get('modal_id'));
+    if (!isShareShortLink && !hasWorkPath && !hasWorkId) {
+        throw new Error('必须粘贴具体的抖音作品链接，不能使用推荐首页。请从作品的分享菜单复制链接。');
+    }
+}

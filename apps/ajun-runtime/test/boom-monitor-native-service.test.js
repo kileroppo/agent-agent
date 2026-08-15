@@ -114,6 +114,43 @@ test('in-process callbacks collect metrics and dispatch a trackable mission with
   assert.equal(service.listAnalysis().items[0].army_task_id, 'mission-1');
 });
 
+test('抖音推荐首页会明确要求作品链接且不会调用指标采集器', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'boom-native-invalid-douyin-url-'));
+  t.after(() => rm(directory, { recursive:true, force:true }));
+  let collectCalls = 0;
+  const service = createBoomMonitorService({
+    dbPath:path.join(directory, 'boom.sqlite'), dataDir:directory,
+    collectMetrics:async () => { collectCalls += 1; return collectedBundle(); },
+  });
+  t.after(() => service.close());
+
+  const response = await routeBoomMonitorApi({
+    method:'POST', url:'/api/boom-monitor/collect/url', local:true,
+    readBody:async () => ({ url:'https://www.douyin.com/?recommend=1' }),
+    getService:async () => service,
+  });
+  assert.equal(response.status, 422);
+  assert.match(response.payload.detail, /必须粘贴具体的抖音作品链接，不能使用推荐首页/);
+  assert.equal(collectCalls, 0);
+});
+
+test('抖音整段分享文案会提取作品短链后再采集', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'boom-native-douyin-share-text-'));
+  t.after(() => rm(directory, { recursive:true, force:true }));
+  const calls = [];
+  const service = createBoomMonitorService({
+    dbPath:path.join(directory, 'boom.sqlite'), dataDir:directory,
+    collectMetrics:async (input) => { calls.push(input); return collectedBundle(); },
+  });
+  t.after(() => service.close());
+
+  await service.collectUrl({
+    url:'4.30 Zzg:/ 太卷了！改变视频行业的AI又迭代了什么？ https://v.douyin.com/Ujhi8EjlHAY/ 复制此链接，打开抖音搜索，直接观看视频！',
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'https://v.douyin.com/Ujhi8EjlHAY/');
+});
+
 test('explicit manual dispatch works while automatic dispatch stays disabled', async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), 'boom-native-manual-'));
   t.after(() => rm(directory, { recursive:true, force:true }));
