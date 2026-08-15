@@ -3051,7 +3051,7 @@ textarea:focus {
 /* Task record workbench */
 
 .record-heading {
-  margin-bottom: 18px;
+  margin-bottom: 12px;
 }
 
 .record-toolbar {
@@ -3257,7 +3257,7 @@ textarea:focus {
 .record-row {
   display: grid;
   width: 100%;
-  min-height: 68px;
+  min-height: 60px;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
@@ -3297,14 +3297,14 @@ textarea:focus {
 }
 
 .record-row-reason {
-  display: -webkit-box;
+  display: block;
   margin-top: 4px;
   overflow: hidden;
   color: var(--ink-soft);
   font-size: 11px;
   line-height: 1.4;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .record-row-meta {
@@ -3393,7 +3393,7 @@ textarea:focus {
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  padding: 26px 28px 34px;
+  padding: 22px 24px 30px;
 }
 
 .record-detail-empty {
@@ -3426,7 +3426,7 @@ textarea:focus {
 }
 
 .record-detail-header {
-  padding-bottom: 18px;
+  padding-bottom: 14px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -3440,8 +3440,8 @@ textarea:focus {
 }
 
 .record-detail-header h2 {
-  margin: 9px 0 7px;
-  font-size: clamp(22px, 2.4vw, 30px);
+  margin: 7px 0 6px;
+  font-size: clamp(20px, 2vw, 26px);
   line-height: 1.2;
 }
 
@@ -3482,6 +3482,55 @@ textarea:focus {
   line-height: 1.55;
 }
 
+.record-primary-summary {
+  display: grid;
+  gap: 9px;
+  margin: 18px 0 4px;
+  padding: 17px 18px;
+  border-left: 3px solid var(--mint);
+  background: var(--surface-mint);
+}
+
+.record-primary-summary.needs-action {
+  border-left-color: var(--amber);
+  background: var(--amber-soft);
+}
+
+.record-primary-summary > span,
+.record-outcome-label {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: .05em;
+}
+
+.record-primary-summary h3 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.record-primary-summary > p,
+.record-primary-next p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.record-primary-summary > p strong,
+.record-primary-next strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.record-primary-next {
+  padding-top: 9px;
+  border-top: 1px solid color-mix(in srgb, var(--mint-deep) 16%, transparent);
+}
+
 .record-attention {
   margin: 20px 0 4px;
   overflow: hidden;
@@ -3491,7 +3540,7 @@ textarea:focus {
 }
 
 .record-attention-head {
-  padding: 17px 18px;
+  padding: 17px 18px 14px;
   border-bottom: 1px solid var(--amber-line);
 }
 
@@ -3507,46 +3556,37 @@ textarea:focus {
   font-size: 18px;
 }
 
-.record-attention-step {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
-  gap: 10px;
-  padding: 15px 18px;
-  border-bottom: 1px solid color-mix(in srgb, var(--amber-line) 72%, transparent);
-}
-
-.record-attention-step:last-child {
-  border-bottom: 0;
-}
-
-.record-attention-number {
-  display: grid;
-  width: 22px;
-  height: 22px;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--surface);
-  color: var(--amber);
-  font: 700 10px/1 var(--mono);
-}
-
-.record-attention-step h3 {
-  margin: 2px 0 6px;
-  font-size: 12px;
-}
-
-.record-attention-step p {
+.record-attention-head p,
+.record-attention-impact p,
+.record-attention-next p,
+.record-recovery-status p {
   margin: 0;
   color: var(--ink-soft);
   font-size: 12px;
   line-height: 1.65;
 }
 
-.record-attention-step.is-muted p {
-  color: var(--muted);
+.record-attention-head p {
+  margin-top: 7px;
 }
 
-.record-attention-step.is-action {
+.record-attention-impact,
+.record-attention-next,
+.record-recovery-status {
+  padding: 13px 18px;
+  border-bottom: 1px solid color-mix(in srgb, var(--amber-line) 72%, transparent);
+}
+
+.record-attention-impact > strong,
+.record-attention-next > strong,
+.record-recovery-status > strong {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.record-attention-next {
   background: var(--surface);
 }
 
@@ -3609,25 +3649,47 @@ textarea:focus {
   background: var(--rose-soft);
 }
 
-.record-diagnosis-result {
+.record-diagnosis-outcome {
   display: grid;
-  gap: 8px;
-  margin-top: 10px;
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--mint-deep) 20%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  gap: 12px;
+  margin: 18px 0 4px;
+  padding: 18px;
+  border: 1px solid var(--mint-line);
+  border-radius: 12px;
+  background: var(--surface-mint);
 }
 
-.record-diagnosis-result p {
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  gap: 8px;
+.record-diagnosis-outcome h3 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.5;
 }
 
-.record-diagnosis-result strong {
+.record-outcome-impact,
+.record-outcome-next {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.record-outcome-impact strong,
+.record-outcome-next strong {
   color: var(--ink);
   font-size: 11px;
+}
+
+.record-outcome-impact p,
+.record-outcome-next p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.record-outcome-next {
+  padding: 11px 12px;
+  border-radius: 8px;
+  background: var(--surface);
 }
 
 .record-recovery-link {
@@ -3658,6 +3720,32 @@ textarea:focus {
   color: var(--ink-soft);
   font-size: 12px;
   line-height: 1.65;
+}
+
+.record-context-details summary,
+.task-timeline > summary {
+  cursor: pointer;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.task-timeline > summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.task-timeline > summary small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.record-context-details[open] summary,
+.task-timeline[open] > summary {
+  margin-bottom: 10px;
 }
 
 .record-artifact-list {
@@ -3732,7 +3820,14 @@ textarea:focus {
   color: var(--ink-soft);
 }
 
-.task-timeline-heading,
+.record-technical > .record-copy-id {
+  margin-top: 9px;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 10px;
+}
+
 .task-timeline-title {
   display: flex;
   align-items: baseline;

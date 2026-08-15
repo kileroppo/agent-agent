@@ -86,11 +86,10 @@ test('attention 只接受安全动作键并保留恢复任务链接', () => {
   assert.equal(view.verification.diagnosis.conclusion, 'Paperclip 执行链结束，但没有形成可验证产物。');
   assert.equal(view.technical.code, 'controlled_provider_vision_required');
   const html = renderAttentionDetail(view, null, escapeHtml);
-  assert.match(html, /发生了什么[\s\S]*影响什么[\s\S]*现在怎么处理[\s\S]*剩余风险[\s\S]*诊断结果/);
-  assert.match(html, /未提供剩余风险说明，不能据此判断为无风险/);
-  assert.match(html, /诊断结论[\s\S]*判断依据[\s\S]*影响[\s\S]*下一步/);
+  assert.match(html, /诊断完成[\s\S]*影响[\s\S]*下一步[\s\S]*为什么这样判断/);
+  assert.doesNotMatch(html, /发生了什么|剩余风险|还没有执行恢复动作/);
   assert.match(html, /Paperclip 执行链结束，但没有形成可验证产物/);
-  assert.equal((html.match(/record-attention-primary/g) || []).length, 1);
+  assert.equal((html.match(/record-attention-primary/g) || []).length, 0);
 
   const confirmingHtml = renderAttentionDetail(view, {
     status:'confirming',

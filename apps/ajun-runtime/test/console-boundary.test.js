@@ -151,6 +151,8 @@ test('记录页后台自动同步不重排当前列表，并单独刷新选中�
   assert.match(script, /if \(!quiet\)\s*renderList\(\)/);
   assert.match(script, /history\.replaceState\(null, '', `\/tasks\//);
   assert.match(script, /record-detail-back/);
+  assert.match(script, /data-task-timeline-shell/);
+  assert.match(script, /addEventListener\('toggle'/);
 });
 
 test('控制台刷新由可测试 scheduler 管理，生产间隔保持十五秒', async () => {

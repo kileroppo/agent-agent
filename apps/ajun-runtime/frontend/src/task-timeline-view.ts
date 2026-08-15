@@ -4,13 +4,14 @@ const FILTER_LABELS: any = Object.freeze({
 export function renderTaskTimeline(payload: any, { escapeHtml = defaultEscapeHtml }: any = {}): any {
     const items: any = Array.isArray(payload?.items) ? payload.items : [];
     if (!items.length) {
-        return '<section class="record-detail-section task-timeline"><h3>运行过程</h3><p class="task-timeline-empty">暂时没有可展示的运行记录。</p></section>';
+        return '<details class="record-detail-section task-timeline" data-task-timeline open><summary>运行过程</summary><p class="task-timeline-empty">暂时没有可展示的运行记录。</p></details>';
     }
-    return `<section class="record-detail-section task-timeline" data-task-timeline>
-    <div class="task-timeline-heading"><h3>运行过程</h3>${renderActiveFilters(payload?.filters, escapeHtml)}</div>
+    return `<details class="record-detail-section task-timeline" data-task-timeline open>
+    <summary><span>运行过程</span><small>${items.length} 条</small></summary>
+    ${renderActiveFilters(payload?.filters, escapeHtml)}
     <ol class="task-timeline-list">${items.map((item: any): any => renderTimelineItem(item, escapeHtml)).join('')}</ol>
     ${payload?.nextCursor ? '<button class="text-action task-timeline-more" type="button" data-task-timeline-more>继续加载</button>' : ''}
-  </section>`;
+  </details>`;
 }
 export function createTaskTimelineLoader({ api, escapeHtml = defaultEscapeHtml }: any = {}): any {
     if (typeof api !== 'function')

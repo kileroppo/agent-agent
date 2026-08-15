@@ -207,7 +207,6 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
                 return;
             const detailScrollTop: any = quiet ? elements.detail.scrollTop : 0;
             state.selectedTask = payload.task;
-            state.timelineHtml = await loadTimeline(payload.task.taskId);
             state.selectedDetailLoaded = true;
             if (!payload.task?.presentation?.attention || payload.task.presentation.attention.verification) {
                 state.actionState.delete(payload.task.taskId);
@@ -238,10 +237,6 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             elements.workbench.classList.add('is-detail-open');
         if (!state.selectedDetailLoaded)
             await loadSelectedDetail({ revealDetail, quiet: true });
-        else {
-            state.timelineHtml = await loadTimeline(task.taskId);
-            renderDetail();
-        }
     }
     function renderWorkbench(routineSummary: any): any {
         renderTabs();
@@ -256,14 +251,16 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         for (const button of elements.viewButtons) {
             const view: any = button.dataset.recordView;
             const active: any = view === state.view;
-            button.textContent = `${VIEW_LABELS[view]} ${state.counts[view] ?? 0}`;
+            const count: any = Number(state.counts[view] || 0);
+            const showCount: any = ['needs_action', 'active'].includes(view) && count > 0;
+            button.textContent = `${VIEW_LABELS[view]}${showCount ? ` ${count}` : ''}`;
             button.classList.toggle('is-active', active);
             button.setAttribute('aria-pressed', String(active));
         }
-        elements.count.textContent = state.total ? `${state.total} 条记录` : emptyCountLabel();
+        elements.count.textContent = state.total ? `${VIEW_LABELS[state.view]} · ${state.total}` : emptyCountLabel();
         elements.listContext.textContent = state.autoExpanded
             ? '近 30 天未找到，已查询全部时间'
-            : state.items.length < state.total ? `已显示 ${state.items.length} 条` : '按更新时间排列';
+            : state.items.length < state.total ? `当前 ${state.items.length} 条` : '';
     }
     function renderList(): any {
         if (!state.items.length) {
@@ -318,28 +315,26 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const result: any = resultSummary(task);
         const artifacts: any = artifactItems(task.artifactRefs || [], { hideEmployeeReport: Boolean(attention) });
         const actionState: any = state.actionState.get(task.taskId) || null;
+        const summary: any = presentation.summary || `${displayTaskTitle(task)}状态已更新。`;
+        const showNextAction: any = needsAction || taskView === 'active';
         elements.detail.innerHTML = `
       <button class="record-detail-back" type="button">← 返回记录</button>
       <header class="record-detail-header">
         <div class="record-detail-kicker"><span class="record-row-status ${escapeHtml(presentation.tone || 'active')}">${escapeHtml(presentation.statusLabel || '状态更新')}</span><span>${escapeHtml(presentation.taskRef || '')}</span></div>
         <h2>${escapeHtml(displayTaskTitle(task))}</h2>
-        <div class="record-detail-meta"><span>${escapeHtml(agentName(task.assigneeAgentId))}</span><span>${escapeHtml(taskTypeLabel(task.taskType))}</span><span>更新于 ${escapeHtml(relativeTime(task.updatedAt || task.createdAt))}</span></div>
+        <div class="record-detail-meta"><span>${escapeHtml(agentName(task.assigneeAgentId))}</span><span>更新于 ${escapeHtml(relativeTime(task.updatedAt || task.createdAt))}</span></div>
       </header>
       ${attention
             ? renderAttentionDetail(attention, actionState, escapeHtml)
-            : `<div class="record-decision${needsAction ? ' needs-action' : ''}">
-            <span>${needsAction ? '你现在需要做什么' : taskView === 'active' ? '当前状态' : taskView === 'completed' ? '结果' : '历史状态'}</span>
-            <strong>${escapeHtml(presentation.nextAction || '等待新的进度。')}</strong>
-          </div>
-          <section class="record-detail-section">
-            <h3>发生了什么</h3>
-            <p>${escapeHtml(presentation.summary || `${displayTaskTitle(task)}状态已更新。`)}</p>
+            : `<section class="record-primary-summary${needsAction ? ' needs-action' : ''}">
+            <span>${taskView === 'completed' ? '运行结果' : taskView === 'active' ? '当前进度' : needsAction ? '需要你处理' : '记录摘要'}</span>
+            <h3>${escapeHtml(summary)}</h3>
+            ${result && result.text !== summary ? `<p><strong>${escapeHtml(result.label)}</strong>${escapeHtml(result.text)}</p>` : ''}
+            ${showNextAction ? `<div class="record-primary-next"><strong>下一步</strong><p>${escapeHtml(presentation.nextAction || '等待新的进度。')}</p></div>` : ''}
           </section>
-          ${result ? `<section class="record-detail-section"><h3>${escapeHtml(result.label)}</h3><p>${escapeHtml(result.text)}</p></section>` : ''}
-          ${task.pendingApproval?.reason ? `<section class="record-detail-section"><h3>等待确认的原因</h3><p>${escapeHtml(task.pendingApproval.reason)}</p></section>` : ''}`}
+          ${task.pendingApproval?.reason ? `<details class="record-detail-section record-context-details"><summary>为什么需要确认</summary><p>${escapeHtml(task.pendingApproval.reason)}</p></details>` : ''}`}
       ${artifacts.length ? `<section class="record-detail-section"><h3>交付与证据</h3><ul class="record-artifact-list">${artifacts.map(renderArtifact).join('')}</ul></section>` : ''}
-      ${state.timelineHtml}
-      <div class="record-detail-actions"><button class="secondary-action record-copy-id" type="button">复制任务编号</button></div>
+      ${state.timelineHtml || '<details class="record-detail-section task-timeline" data-task-timeline-shell><summary><span>运行过程</span><small>按需查看</small></summary></details>'}
       ${renderTechnicalDetails(task, presentation, attention, escapeHtml)}`;
         elements.detail.querySelector('.record-detail-back')?.addEventListener('click', (): any => {
             elements.workbench.classList.remove('is-detail-open');
@@ -362,12 +357,22 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             state.actionState.delete(task.taskId);
             renderDetail();
         });
+        const timelineShell: any = elements.detail.querySelector('[data-task-timeline-shell]');
+        timelineShell?.addEventListener('toggle', async (): Promise<any> => {
+            if (!timelineShell.open || state.timelineHtml)
+                return;
+            timelineShell.querySelector('small').textContent = '正在读取…';
+            state.timelineHtml = await loadTimeline(task.taskId);
+            renderDetail();
+            elements.detail.querySelector('[data-task-timeline]')?.setAttribute('open', '');
+        });
         elements.detail.querySelector('[data-task-timeline-more]')?.addEventListener('click', async (): Promise<any> => {
             try {
                 state.timelineHtml = await timeline.loadMore();
             }
             catch { /* Keep the already loaded timeline page visible. */ }
             renderDetail();
+            elements.detail.querySelector('[data-task-timeline]')?.setAttribute('open', '');
         });
     }
     async function loadTimeline(taskId: any): Promise<any> {
@@ -375,7 +380,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             return await timeline.load(taskId);
         }
         catch {
-            return '<section class="record-detail-section task-timeline"><h3>运行过程</h3><p>运行记录暂时无法读取，不影响任务结果。</p></section>';
+            return '<details class="record-detail-section task-timeline" data-task-timeline open><summary>运行过程</summary><p>运行记录暂时无法读取，不影响任务结果。</p></details>';
         }
     }
     function confirmAttentionAction(task: any, actionKey: any): any {
@@ -521,7 +526,7 @@ function compactAttentionReason(task: any): any {
     const attention: any = taskAttentionView(task);
     if (!attention)
         return '';
-    return attention.cause;
+    return cleanAttentionText(attention.cause, 90);
 }
 function renderTechnicalDetails(task: any, presentation: any, attention: any, escapeHtml: any): any {
     const attentionTechnicalView: any = attention?.technical || null;
@@ -542,7 +547,7 @@ function renderTechnicalDetails(task: any, presentation: any, attention: any, es
     ].filter(([, value]: any): any => value);
     if (!rows.length)
         return '';
-    return `<details class="record-technical"><summary>技术详情</summary><dl>${rows.map(([label, value]: any): any => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl></details>`;
+    return `<details class="record-technical"><summary>技术与审计信息</summary><dl>${rows.map(([label, value]: any): any => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl><button class="text-action record-copy-id" type="button">复制完整编号</button></details>`;
 }
 function newIdempotencyKey(taskId: any, actionKey: any): any {
     const random: any = globalThis.crypto?.randomUUID?.()

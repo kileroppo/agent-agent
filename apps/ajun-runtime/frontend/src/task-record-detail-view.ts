@@ -31,6 +31,10 @@ export function taskAttentionView(task: any = {}): any {
     };
 }
 export function renderAttentionDetail(attention: any, actionState: any, escapeHtml: any): any {
+    const recovery: any = actionState?.status === 'confirming' ? attention.verification : actionState || attention.verification;
+    const diagnosis: any = actionState?.status === 'confirming' ? null : recoveryDiagnosis(recovery?.diagnosis);
+    if (diagnosis)
+        return renderDiagnosisOutcome(diagnosis, recovery, escapeHtml);
     const primaryIndex: any = Math.max(0, attention.actions.findIndex((action: any): any => action.emphasis === 'primary'));
     const submitting: any = actionState?.status === 'submitting';
     const confirmingAction: any = actionState?.status === 'confirming'
@@ -52,27 +56,35 @@ export function renderAttentionDetail(attention: any, actionState: any, escapeHt
         ? `<details class="record-attention-evidence"><summary>查看判断依据</summary><p>${escapeHtml(attention.evidence)}</p></details>`
         : '';
     const risks: any = attention.remainingRisks
-        ? `<section class="record-attention-step"><span class="record-attention-number">4</span><div><h3>剩余风险</h3><p>${escapeHtml(attention.remainingRisks)}</p></div></section>`
-        : `<section class="record-attention-step is-muted"><span class="record-attention-number">4</span><div><h3>剩余风险</h3><p>未提供剩余风险说明，不能据此判断为无风险。</p></div></section>`;
-    const recovery: any = actionState?.status === 'confirming' ? attention.verification : actionState || attention.verification;
+        ? `<details class="record-attention-evidence"><summary>查看剩余风险</summary><p>${escapeHtml(attention.remainingRisks)}</p></details>`
+        : '';
     const recoveryPath: any = safeTaskDetailPath(recovery?.detailPath, recovery?.taskId);
     const recoveryLink: any = recoveryPath
         ? `<a class="record-recovery-link" href="${escapeHtml(recoveryPath)}">查看恢复进度</a>`
         : '';
-    const diagnosis: any = recoveryDiagnosis(recovery?.diagnosis);
-    const diagnosisContent: any = diagnosis
-        ? `<div class="record-diagnosis-result"><p><strong>诊断结论</strong>${escapeHtml(diagnosis.conclusion)}</p><p><strong>判断依据</strong>${escapeHtml(diagnosis.evidence)}</p><p><strong>影响</strong>${escapeHtml(diagnosis.impact)}</p><p><strong>下一步</strong>${escapeHtml(diagnosis.nextAction)}</p></div>`
-        : '';
     const recoveryResult: any = recovery
-        ? `<section class="record-attention-step record-recovery-status ${escapeHtml(recoveryTone(recovery.status))}" role="status"><span class="record-attention-number">5</span><div><h3>${diagnosis ? '诊断结果' : '恢复结果'}</h3><p>${escapeHtml(recovery.message)}</p>${diagnosisContent}${recoveryLink}</div></section>`
-        : `<section class="record-attention-step is-muted"><span class="record-attention-number">5</span><div><h3>恢复结果</h3><p>还没有执行恢复动作。</p></div></section>`;
+        ? `<div class="record-recovery-status ${escapeHtml(recoveryTone(recovery.status))}" role="status"><strong>处理进度</strong><p>${escapeHtml(recovery.message)}</p>${recoveryLink}</div>`
+        : '';
     return `<section class="record-attention" aria-label="任务处理说明">
-    <div class="record-attention-head"><span>需要处理</span><h3>${escapeHtml(attention.headline)}</h3></div>
-    <section class="record-attention-step"><span class="record-attention-number">1</span><div><h3>发生了什么</h3><p>${escapeHtml(attention.cause)}</p>${evidence}</div></section>
-    <section class="record-attention-step"><span class="record-attention-number">2</span><div><h3>影响什么</h3><p>${escapeHtml(attention.impact)}</p></div></section>
-    <section class="record-attention-step is-action"><span class="record-attention-number">3</span><div><h3>现在怎么处理</h3>${actionContent}</div></section>
-    ${risks}
+    <div class="record-attention-head"><span>需要你处理</span><h3>${escapeHtml(attention.headline)}</h3><p>${escapeHtml(attention.cause)}</p></div>
+    <div class="record-attention-impact"><strong>影响</strong><p>${escapeHtml(attention.impact)}</p>${evidence}${risks}</div>
+    <div class="record-attention-next"><strong>下一步</strong>${actionContent}</div>
     ${recoveryResult}
+  </section>`;
+}
+
+function renderDiagnosisOutcome(diagnosis: any, recovery: any, escapeHtml: any): any {
+    const recoveryPath: any = safeTaskDetailPath(recovery?.detailPath, recovery?.taskId);
+    const recoveryLink: any = recoveryPath
+        ? `<a class="record-recovery-link" href="${escapeHtml(recoveryPath)}">查看诊断任务</a>`
+        : '';
+    return `<section class="record-diagnosis-outcome" aria-label="只读诊断结果">
+    <span class="record-outcome-label">诊断完成</span>
+    <h3>${escapeHtml(diagnosis.conclusion)}</h3>
+    <div class="record-outcome-impact"><strong>影响</strong><p>${escapeHtml(diagnosis.impact)}</p></div>
+    <div class="record-outcome-next"><strong>下一步</strong><p>${escapeHtml(diagnosis.nextAction)}</p></div>
+    <details class="record-attention-evidence"><summary>为什么这样判断</summary><p>${escapeHtml(diagnosis.evidence)}</p></details>
+    ${recoveryLink}
   </section>`;
 }
 export function recoverySubmissionView(payload: any, label: any): any {
