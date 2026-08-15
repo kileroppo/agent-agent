@@ -66,7 +66,15 @@ test('attention 只接受安全动作键并保留恢复任务链接', () => {
           { actionKey:'text-only', label:'重复动作' },
           { actionKey:'../../escape', label:'危险动作' },
         ],
-        verification:{ status:'running', message:'恢复任务正在验证。', taskId, detailPath:`/tasks/${taskId}` },
+        verification:{
+          status:'verified', message:'只读诊断完成。', taskId, detailPath:`/tasks/${taskId}`,
+          diagnosis:{
+            conclusion:'Paperclip 执行链结束，但没有形成可验证产物。',
+            evidence:'故障代码 paperclip_hermes_failed；阶段 paperclip_hermes。',
+            impact:'原任务仍未完成，已有记录保持不变。',
+            nextAction:'检查 Paperclip 执行记录，再决定是否修复或重跑。',
+          },
+        },
         technical:{ code:'controlled_provider_vision_required', stage:'paperclip_hermes' },
       },
     },
@@ -74,11 +82,14 @@ test('attention 只接受安全动作键并保留恢复任务链接', () => {
 
   assert.equal(view.remainingRisks, '');
   assert.deepEqual(view.actions, [{ actionKey:'text-only', label:'仅用转录继续', emphasis:'primary', confirmation:'确认改为仅文本？' }]);
-  assert.deepEqual(view.verification, { status:'running', message:'恢复任务正在验证。', taskId, detailPath:`/tasks/${taskId}` });
+  assert.equal(view.verification.status, 'verified');
+  assert.equal(view.verification.diagnosis.conclusion, 'Paperclip 执行链结束，但没有形成可验证产物。');
   assert.equal(view.technical.code, 'controlled_provider_vision_required');
   const html = renderAttentionDetail(view, null, escapeHtml);
-  assert.match(html, /发生了什么[\s\S]*影响什么[\s\S]*现在怎么处理[\s\S]*剩余风险[\s\S]*恢复结果/);
+  assert.match(html, /发生了什么[\s\S]*影响什么[\s\S]*现在怎么处理[\s\S]*剩余风险[\s\S]*诊断结果/);
   assert.match(html, /未提供剩余风险说明，不能据此判断为无风险/);
+  assert.match(html, /诊断结论[\s\S]*判断依据[\s\S]*影响[\s\S]*下一步/);
+  assert.match(html, /Paperclip 执行链结束，但没有形成可验证产物/);
   assert.equal((html.match(/record-attention-primary/g) || []).length, 1);
 
   const confirmingHtml = renderAttentionDetail(view, {

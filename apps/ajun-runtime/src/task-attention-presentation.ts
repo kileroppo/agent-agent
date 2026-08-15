@@ -155,9 +155,23 @@ function recoveryVerification(value: any): any {
     const detailPath: any = cleanText(value.detailPath, 500);
     if (!state && !taskId && !detailPath)
         return null;
+    const diagnosis: any = recoveryDiagnosis(value.diagnosis);
     return {
         state: state || null,
         taskId: taskId || null,
         detailPath: detailPath || null,
+        ...(cleanText(value.message, 1000) ? { message: failureText(value.message, 1000) } : {}),
+        ...(diagnosis ? { diagnosis } : {}),
     };
+}
+function recoveryDiagnosis(value: any): any {
+    if (!value || typeof value !== 'object')
+        return null;
+    const diagnosis: any = {
+        conclusion: failureText(value.conclusion, 800),
+        evidence: failureText(value.evidence, 1200),
+        impact: failureText(value.impact, 800),
+        nextAction: failureText(value.nextAction, 1000),
+    };
+    return Object.values(diagnosis).every(Boolean) ? diagnosis : null;
 }

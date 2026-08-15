@@ -66,6 +66,7 @@ export class LocalHealthOperator {
             && !highRisk
             && Boolean(component);
         const playbook: any = selectRecoveryPlaybook({ canRetry, component, failure, highRisk });
+        const diagnosis: any = presentReadOnlyDiagnosis({ context, failure, component, playbook });
         const decision: Record<string, any> = {
             schemaVersion: 'agent.army/recovery-decision/v1',
             failedTaskId: context.failedTaskId || task.parentTaskId || null,
@@ -82,6 +83,7 @@ export class LocalHealthOperator {
             unknownOrHighRiskActionExecuted: false,
             automaticRetryLimit: Number(context.maxAutomaticRetries || 0),
             attempt: Number(context.attempt || 0),
+            diagnosis,
             checkedAt
         };
         return {
@@ -90,6 +92,24 @@ export class LocalHealthOperator {
             artifactRefs: [{ artifactId: `recovery-decision:${task.taskId}`, taskId: task.taskId, type: 'recovery_decision', title: '运维官恢复决定', location: `runtime://${task.taskId}/recovery-decision`, mimeType: 'application/json', accessScope: 'local-owner', validation: { exists: true, readable: true, nonEmpty: true }, createdAt: checkedAt, data: decision }]
         };
     }
+}
+function presentReadOnlyDiagnosis({ context, failure, component, playbook }: any): any {
+    const artifactSummary: any = context.artifactSummary || {};
+    const failureCode: any = String(failure.code || 'unknown_failure');
+    const failureStage: any = String(failure.stage || 'unknown');
+    const verifiedArtifacts: any = Number(artifactSummary.verified || 0);
+    const classification: any = context.failureClassification || {};
+    const isPaperclipFailure: any = component?.id === 'paperclip' || /paperclip/i.test(`${failureCode} ${failureStage}`);
+    return {
+        conclusion: isPaperclipFailure && verifiedArtifacts === 0
+            ? 'Paperclip 执行链本轮已经失败，且没有形成可验证完成产物。'
+            : `任务在 ${failureStage} 阶段以 ${failureCode} 结束；当前可验证产物 ${verifiedArtifacts} 份。`,
+        evidence: `故障代码 ${failureCode}；阶段 ${failureStage}；分类 ${String(classification.failureClass || failure.category || 'unknown')}；可验证产物 ${verifiedArtifacts} 份。`,
+        impact: '原任务仍未完成；已有产物和审计记录保持不变，本次诊断没有重跑任务或执行外部动作。',
+        nextAction: isPaperclipFailure
+            ? '先查看原 Paperclip Issue 的失败运行和日志，确认具体失败点后，再决定受控修复或显式重跑。'
+            : `按“${String(playbook.playbookId || '受控排查')}”范围收集缺失证据，再决定是否修复；不要直接原样重试。`,
+    };
 }
 function selectRecoveryPlaybook({ canRetry, component, failure, highRisk }: any): any {
     if (!component)

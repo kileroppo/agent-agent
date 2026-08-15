@@ -7,6 +7,7 @@ import { resolveAnalysisIntent } from './analysis-intent.ts';
 import { TaskCreationCoordinator, taskIdempotencyFingerprint } from './task-idempotency.ts';
 import { createWorkflowLink } from './workflow/contracts.ts';
 import { attachDeliveryQualityContracts, deliveryBriefGuardPatch } from './workflow/delivery-quality-intake.ts';
+import { isTrustedReadOnlyDiagnosisTask } from './read-only-diagnosis-contract.ts';
 const HIGH_RISK_ACTIONS: any[] = ['外发', '发布', '删除', '付款', '付费', '扩权', '敏感'];
 const ORGANIZATION_GOVERNANCE_WORDS: any = /创建.*(?:agent|智能体|岗位)|新建.*(?:agent|智能体|岗位)|扩权|账号|连接|公开发布|对外发布|付款|付费|预算|暂停|终止|跨\s*agent/i;
 export class TaskIntake {
@@ -120,6 +121,7 @@ export class TaskIntake {
         }
         if (taskType !== WECHAT_CHAT_TASK_TYPE
             && hasAffirmativeHighRiskIntent(`${title} ${description}`)
+            && !isTrustedReadOnlyDiagnosisTask(task)
             && !['army.intake', 'governance.approval-review', 'office.knowledge-summary', 'content.platform-draft', 'content.video-script-package'].includes(taskType)) {
             await this.store.createApproval({
                 taskId: task.taskId,

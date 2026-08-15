@@ -131,9 +131,134 @@ test('只读诊断创建原 Paperclip Issue 子任务，并显式禁止重试、
   assert.equal(result.status, 'accepted');
   assert.equal(created[0].context.parentPaperclipIssueId, 'paperclip-issue-original');
   assert.equal(created[0].context.diagnosisOnly, true);
+  assert.deepEqual(created[0].context.failure, {
+    code:'provider_http_402',
+    category:null,
+    stage:null,
+    retryable:false,
+    occurredAt:null,
+    userMessage:null,
+  });
   assert.deepEqual(created[0].context.prohibitedActions, ['retry', 'code_write', 'permission_expansion', 'external_publish']);
-  assert.equal(created[0].idempotencyKey, `recovery-read-only-diagnosis:${tasks[0].taskId}`);
+  assert.equal(created[0].idempotencyKey, `recovery-read-only-diagnosis-v2:${tasks[0].taskId}`);
   assert.deepEqual((await recovery.view(tasks[0].taskId, { audience:'local-owner' })).actions, []);
+});
+
+test('只读诊断完成后在原任务恢复区直接给出结论、依据、影响和下一步', () => {
+  const tasks = eligibleTasks();
+  const diagnosisTask = {
+    taskId:'33333333-3333-4333-a333-333333333333',
+    taskType:'operations.failure-recovery',
+    status:'succeeded',
+    parentTaskId:tasks[0].taskId,
+    requester:{ kind:'local-owner' },
+    source:{ channel:'internal-recovery' },
+    recovery:{ mode:'read_only_diagnosis' },
+    input:{ context:{
+      failedTaskId:tasks[0].taskId,
+      parentPaperclipIssueId:'paperclip-issue-original',
+      diagnosisOnly:true,
+      prohibitedActions:['retry', 'code_write', 'permission_expansion', 'external_publish'],
+    } },
+    artifactRefs:[{
+      type:'recovery_decision',
+      validation:{ exists:true, readable:true, nonEmpty:true },
+      data:{ diagnosis:{
+        conclusion:'Paperclip 执行链结束，但没有形成可验证产物。',
+        evidence:'故障代码 provider_http_402；阶段 paperclip_hermes。',
+        impact:'原任务仍未完成，已有记录保持不变。',
+        nextAction:'先核对 Paperclip 失败记录，再决定是否修复。',
+      } },
+    }],
+  };
+  tasks[0].recovery = { coordination:{
+    status:'verified',
+    actionKey:'request_read_only_diagnosis',
+    operatorTaskId:diagnosisTask.taskId,
+    attempt:1,
+  } };
+
+  assert.deepEqual(view(tasks[0], { audience:'local-owner', relatedTasks:[...tasks, diagnosisTask] }).verification, {
+    state:'verified',
+    taskId:diagnosisTask.taskId,
+    detailPath:`/tasks/${diagnosisTask.taskId}`,
+    message:'只读诊断完成。',
+    diagnosis:{
+      conclusion:'Paperclip 执行链结束，但没有形成可验证产物。',
+      evidence:'故障代码 provider_http_402；阶段 paperclip_hermes。',
+      impact:'原任务仍未完成，已有记录保持不变。',
+      nextAction:'先核对 Paperclip 失败记录，再决定是否修复。',
+    },
+  });
+});
+
+test('旧版只读诊断被误卡二次审批时允许一次性替换执行', async () => {
+  const tasks = eligibleTasks();
+  const parent = tasks[0];
+  const oldChild = {
+    taskId:'44444444-4444-4444-a444-444444444444',
+    taskType:'operations.failure-recovery',
+    status:'waiting_approval',
+    parentTaskId:parent.taskId,
+    requester:{ kind:'local-owner' },
+    source:{ channel:'internal-recovery' },
+    recovery:{ mode:'read_only_diagnosis' },
+    input:{ context:{
+      failedTaskId:parent.taskId,
+      parentPaperclipIssueId:'paperclip-issue-original',
+      diagnosisOnly:true,
+      prohibitedActions:['retry', 'code_write', 'permission_expansion', 'external_publish'],
+    } },
+    artifactRefs:[],
+    approvalRefs:['legacy-approval'],
+  };
+  parent.recovery = {
+    coordination:{
+      status:'diagnosed',
+      actionKey:'request_read_only_diagnosis',
+      operatorTaskId:oldChild.taskId,
+      attempt:1,
+    },
+    events:[{
+      event:'diagnosed',
+      actionKey:'request_read_only_diagnosis',
+      requestId:'legacy-request',
+      attempt:1,
+    }],
+  };
+  const store = memoryStore([...tasks, oldChild]);
+  const approvals = [{ approvalId:'legacy-approval', taskId:oldChild.taskId, status:'pending' }];
+  store.listApprovals = async () => structuredClone(approvals);
+  store.updateApproval = async (approvalId, patch) => {
+    const approval = approvals.find((item) => item.approvalId === approvalId);
+    Object.assign(approval, structuredClone(patch));
+    return structuredClone(approval);
+  };
+  const created = [];
+  const recovery = new TaskRecovery({
+    store,
+    async createTask(input) {
+      created.push(input);
+      return { taskId:'replacement-diagnosis', status:'succeeded', artifactRefs:[], ...input };
+    },
+  });
+
+  const recoveryView = await recovery.view(parent.taskId, { audience:'local-owner' });
+  assert.equal(recoveryView.verification.state, 'blocked');
+  assert.deepEqual(recoveryView.actions.map((item) => item.label), ['重新执行只读诊断']);
+
+  const current = await store.getTask(parent.taskId);
+  const result = await recovery.request(parent.taskId, {
+    actionKey:'request_read_only_diagnosis',
+    requestId:'replacement-request',
+    expectedUpdatedAt:current.updatedAt,
+  }, { kind:'local-owner', ref:'A君' });
+
+  assert.equal(result.status, 'accepted');
+  assert.equal(created.length, 1);
+  assert.equal(created[0].idempotencyKey, `recovery-read-only-diagnosis-v2:${parent.taskId}`);
+  assert.equal((await store.getTask(oldChild.taskId)).status, 'cancelled');
+  assert.equal(approvals[0].status, 'rejected');
 });
 
 test('Paperclip Hermes 失败请求本机安全恢复时只返回 requires_external', async () => {

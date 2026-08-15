@@ -1,6 +1,7 @@
-import { confirmedTranscriptFor, confirmedTranscriptOnlyEligible, duplicateRecovery, existingResult, ineligibleResult, recoveryEvents, recoveryRelatedTasks, requestAttempt, safeText, taskById, uniqueStrings, view, } from './task-recovery-policy.ts';
+import { confirmedTranscriptFor, confirmedTranscriptOnlyEligible, duplicateRecovery, existingResult, failureClassification, ineligibleResult, legacyBlockedReadOnlyDiagnosis, recoveryEvents, recoveryRelatedTasks, requestAttempt, safeText, taskById, uniqueStrings, view, } from './task-recovery-policy.ts';
 import { retryVisualAnalysis, visionCapabilityReadiness } from './task-visual-recovery.ts';
 import { cleanActionKey, cleanActor, cleanRequestId, recoveryError } from './task-recovery-input.ts';
+import { closeSupersededReadOnlyDiagnosis, hasVerifiedReadOnlyDiagnosis, readOnlyDiagnosisContext } from './read-only-diagnosis-contract.ts';
 export { TaskRecoveryError } from './task-recovery-input.ts';
 export { failureClassification, view } from './task-recovery-policy.ts';
 export class TaskRecovery {
@@ -46,14 +47,15 @@ export class TaskRecovery {
         if (!task)
             throw recoveryError('找不到要处理的任务。', 'task_recovery_not_found', 404);
         const attempt: any = requestAttempt(task);
+        const relatedTasks: any = await recoveryRelatedTasks(this.store, task);
+        const legacyDiagnosisTask: any = legacyBlockedReadOnlyDiagnosis(task, relatedTasks);
         const duplicate: any = duplicateRecovery(task, input, attempt);
-        if (duplicate)
+        if (duplicate && !legacyDiagnosisTask)
             return existingResult(task, duplicate);
         const expectedUpdatedAt: any = String(input.expectedUpdatedAt || '').trim();
         if (!expectedUpdatedAt || expectedUpdatedAt !== String(task.updatedAt || '')) {
             throw recoveryError('任务状态已经变化，请刷新详情后再决定。', 'task_recovery_stale', 409);
         }
-        const relatedTasks: any = await recoveryRelatedTasks(this.store, task);
         const recoveryView: any = view(task, { audience: 'local-owner', relatedTasks });
         if (!recoveryView.actions.some((item: any): any => item.actionKey === input.actionKey)) {
             return ineligibleResult(task, input.actionKey, recoveryView);
@@ -101,7 +103,7 @@ export class TaskRecovery {
             const outcome: any = input.actionKey === 'use_confirmed_transcript_only'
                 ? await this.#useConfirmedTranscriptOnly(task, relatedTasks, { requestId: input.requestId, requestedBy })
                 : input.actionKey === 'request_read_only_diagnosis'
-                    ? await this.#requestReadOnlyDiagnosis(task, { requestId: input.requestId, requestedBy })
+                    ? await this.#requestReadOnlyDiagnosis(task, { requestId: input.requestId, requestedBy, legacyDiagnosisTask })
                     : input.actionKey === 'retry_visual_analysis_after_recovery'
                         ? await retryVisualAnalysis({
                             task,
@@ -220,7 +222,7 @@ export class TaskRecovery {
         });
         return { retryTask };
     }
-    async #requestReadOnlyDiagnosis(task: any, { requestId, requestedBy }: any): Promise<any> {
+    async #requestReadOnlyDiagnosis(task: any, { requestId, requestedBy, legacyDiagnosisTask = null }: any): Promise<any> {
         if (typeof this.createTask !== 'function') {
             throw recoveryError('只读诊断入口暂不可用，未创建子任务。', 'task_recovery_unavailable', 503);
         }
@@ -236,13 +238,8 @@ export class TaskRecovery {
             requester: { kind: 'local-owner', ref: requestedBy.ref },
             source: { channel: 'internal-recovery', parentChannel: task.source?.channel || null, chatRef: task.source?.chatRef || null },
             parentTaskId: task.taskId,
-            idempotencyKey: `recovery-read-only-diagnosis:${task.taskId}`,
-            context: {
-                parentPaperclipIssueId: paperclipIssueId,
-                failedTaskId: task.taskId,
-                diagnosisOnly: true,
-                prohibitedActions: ['retry', 'code_write', 'permission_expansion', 'external_publish'],
-            },
+            idempotencyKey: `recovery-read-only-diagnosis-v2:${task.taskId}`,
+            context: readOnlyDiagnosisContext(task, failureClassification(task)),
             recovery: {
                 rootTaskId: task.recovery?.rootTaskId || task.taskId,
                 attempt: Number(task.recovery?.attempt || 0),
@@ -251,14 +248,22 @@ export class TaskRecovery {
                 requestId,
             },
         });
+        const diagnosisVerified: any = hasVerifiedReadOnlyDiagnosis(diagnosisTask);
+        if (legacyDiagnosisTask)
+            await closeSupersededReadOnlyDiagnosis({
+                store: this.store,
+                task: legacyDiagnosisTask,
+                replacementTaskId: diagnosisTask.taskId,
+                decidedAt: this.clock().toISOString(),
+            });
         await this.#record(task.taskId, {
-            status: 'diagnosed',
+            status: diagnosisVerified ? 'verified' : diagnosisTask.status === 'running' ? 'running' : 'pending',
             actionKey: 'request_read_only_diagnosis',
             requestId,
             requestedBy,
             operatorTaskId: diagnosisTask.taskId,
             attempt: Number(task.recovery?.attempt || 0) + 1,
-            reason: '已创建原 Paperclip Issue 的只读诊断子任务。',
+            reason: diagnosisVerified ? '只读诊断已完成并形成可验证结果。' : '已创建原 Paperclip Issue 的只读诊断子任务。',
         }, {
             event: 'diagnosed',
             actionKey: 'request_read_only_diagnosis',

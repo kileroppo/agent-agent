@@ -114,6 +114,55 @@ test('TaskIntake 识别“不外发或发布”的并列否定', async () => {
   assert.equal(task.status, 'succeeded');
 });
 
+test('受信任只读诊断不再二次审批且不唤醒 Paperclip Hermes', async () => {
+  const operator = {
+    agentId:'operator',
+    status:'active',
+    acceptedTaskTypes:['operations.failure-recovery'],
+    executionOwner:'paperclip-hermes',
+    interaction:{ runtime:'hermes-profile' },
+  };
+  let localExecutions = 0;
+  const { service, records } = setupTaskService({ agents:[operator] });
+  service.executors.operator = { async execute(task) {
+    localExecutions += 1;
+    return {
+      status:'succeeded',
+      currentStage:'recovery_decision_ready',
+      artifactRefs:[verifiedArtifact(task, 'recovery_decision', {
+        diagnosis:{
+          conclusion:'Paperclip 执行链结束，但没有形成可验证产物。',
+          evidence:'故障代码 paperclip_hermes_failed；阶段 paperclip_hermes。',
+          impact:'原任务仍未完成，已有记录保持不变。',
+          nextAction:'检查 Paperclip 执行记录，再决定是否修复或重跑。',
+        },
+      })],
+    };
+  } };
+
+  const task = await service.create({
+    title:'只读诊断：检查系统状态',
+    description:'只读分类原任务失败和缺失证据，输出恢复建议。禁止重跑原任务、修改代码、扩大权限或调用外部发布动作。',
+    taskType:'operations.failure-recovery',
+    agentId:'operator',
+    requester:{ kind:'local-owner', ref:'A君' },
+    source:{ channel:'internal-recovery' },
+    parentTaskId:'failed-parent',
+    context:{
+      parentPaperclipIssueId:'paperclip-issue-original',
+      failedTaskId:'failed-parent',
+      diagnosisOnly:true,
+      prohibitedActions:['retry', 'code_write', 'permission_expansion', 'external_publish'],
+    },
+    recovery:{ mode:'read_only_diagnosis' },
+  });
+
+  assert.equal(records.approvals.length, 0);
+  assert.equal(localExecutions, 1);
+  assert.equal(task.status, 'succeeded');
+  assert.equal(task.currentStage, 'recovery_decision_ready');
+});
+
 test('TaskIntake 明确不外发的只读任务不触发审批', async () => {
   const reporter = { agentId:'public-reporter', status:'active', acceptedTaskTypes:['report.public-material'], runtime:{ kind:'proposal-public-report' } };
   const { service, records } = setupTaskService({ agents:[reporter] });

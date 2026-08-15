@@ -59,8 +59,12 @@ export function renderAttentionDetail(attention: any, actionState: any, escapeHt
     const recoveryLink: any = recoveryPath
         ? `<a class="record-recovery-link" href="${escapeHtml(recoveryPath)}">查看恢复进度</a>`
         : '';
+    const diagnosis: any = recoveryDiagnosis(recovery?.diagnosis);
+    const diagnosisContent: any = diagnosis
+        ? `<div class="record-diagnosis-result"><p><strong>诊断结论</strong>${escapeHtml(diagnosis.conclusion)}</p><p><strong>判断依据</strong>${escapeHtml(diagnosis.evidence)}</p><p><strong>影响</strong>${escapeHtml(diagnosis.impact)}</p><p><strong>下一步</strong>${escapeHtml(diagnosis.nextAction)}</p></div>`
+        : '';
     const recoveryResult: any = recovery
-        ? `<section class="record-attention-step record-recovery-status ${escapeHtml(recoveryTone(recovery.status))}" role="status"><span class="record-attention-number">5</span><div><h3>恢复结果</h3><p>${escapeHtml(recovery.message)}</p>${recoveryLink}</div></section>`
+        ? `<section class="record-attention-step record-recovery-status ${escapeHtml(recoveryTone(recovery.status))}" role="status"><span class="record-attention-number">5</span><div><h3>${diagnosis ? '诊断结果' : '恢复结果'}</h3><p>${escapeHtml(recovery.message)}</p>${diagnosisContent}${recoveryLink}</div></section>`
         : `<section class="record-attention-step is-muted"><span class="record-attention-number">5</span><div><h3>恢复结果</h3><p>还没有执行恢复动作。</p></div></section>`;
     return `<section class="record-attention" aria-label="任务处理说明">
     <div class="record-attention-head"><span>需要处理</span><h3>${escapeHtml(attention.headline)}</h3></div>
@@ -86,6 +90,9 @@ export function recoverySubmissionView(payload: any, label: any): any {
         message,
         taskId,
         detailPath: safeTaskDetailPath(verification?.detailPath || payload?.detailPath || payload?.task?.presentation?.attention?.verification?.detailPath, taskId),
+        ...(recoveryDiagnosis(verification?.diagnosis || payload?.task?.presentation?.attention?.verification?.diagnosis)
+            ? { diagnosis: recoveryDiagnosis(verification?.diagnosis || payload?.task?.presentation?.attention?.verification?.diagnosis) }
+            : {}),
     };
 }
 export function cleanAttentionText(value: any, limit: any): any {
@@ -99,12 +106,25 @@ function attentionVerification(value: any): any {
         || verificationStateMessage(status);
     if (!message && !value.taskId && !value.detailPath)
         return null;
+    const diagnosis: any = recoveryDiagnosis(value.diagnosis);
     return {
         status,
         message,
         taskId: cleanAttentionText(value.taskId, 80) || null,
         detailPath: safeTaskDetailPath(value.detailPath, value.taskId),
+        ...(diagnosis ? { diagnosis } : {}),
     };
+}
+function recoveryDiagnosis(value: any): any {
+    if (!value || typeof value !== 'object')
+        return null;
+    const diagnosis: any = {
+        conclusion: cleanAttentionText(value.conclusion, 800),
+        evidence: cleanAttentionText(value.evidence, 1200),
+        impact: cleanAttentionText(value.impact, 800),
+        nextAction: cleanAttentionText(value.nextAction, 1000),
+    };
+    return Object.values(diagnosis).every(Boolean) ? diagnosis : null;
 }
 function attentionTechnical(value: any): any {
     if (!value || typeof value !== 'object')

@@ -2,6 +2,7 @@ import { usesPaperclipHermesExecution } from './governance-hermes-runtime.ts';
 import { routeOpenTaskForExecutor } from './open-task-routing.ts';
 import { recordTaskUsage } from './task-usage.ts';
 import { validateTaskCompletion } from './task-completion-contract.ts';
+import { isTrustedReadOnlyDiagnosisTask } from './read-only-diagnosis-contract.ts';
 
 export class TaskExecutionCoordinator {
   store: any;
@@ -64,7 +65,9 @@ export class TaskExecutionCoordinator {
         throw error;
       }
     }
-    if (!maturityAuthorization && usesPaperclipHermesExecution(agent) && task.status !== 'waiting_approval') {
+    if (!maturityAuthorization && usesPaperclipHermesExecution(agent)
+      && !isTrustedReadOnlyDiagnosisTask(task)
+      && task.status !== 'waiting_approval') {
       return this.delegateToPaperclip(task, agent);
     }
     const fallbackExecutor = this.fallbackExecutorResolver();
