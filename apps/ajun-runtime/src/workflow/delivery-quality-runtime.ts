@@ -3,6 +3,10 @@ import { TaskLifecycleEventRecorder } from '../task-lifecycle-event-recorder.ts'
 import { taskOutcomePolicy } from '../task-status-policy.ts';
 import { orchestrateDeliveryQuality } from './delivery-quality-orchestrator.ts';
 import { verifiableQualityEvidenceRefs } from './quality-review.ts';
+import {
+  hasReadOnlyDiagnosisArtifact,
+  isTrustedReadOnlyDiagnosisTask,
+} from '../read-only-diagnosis-contract.ts';
 
 type RuntimeTask = Record<string, any>;
 type RuntimeStore = {
@@ -15,6 +19,7 @@ type QualityOutcome = ReturnType<typeof orchestrateDeliveryQuality>;
 
 export function prepareDeliveryQualityResult(task: RuntimeTask, result: RuntimeTask = {}) {
   if (result?.status !== 'succeeded' || task?.taskType === 'governance.assurance-review') return result;
+  if (isTrustedReadOnlyDiagnosisTask(task)) return result;
   const completedTask = {
     ...task,
     ...result,
@@ -62,6 +67,7 @@ export class DeliveryQualityRuntime {
   }
 
   async continue(task: RuntimeTask) {
+    if (isHeldReadOnlyDiagnosis(task)) return this.completeHeldReadOnlyDiagnosis(task);
     const request = task?.deliveryQuality?.reviewTaskRequest;
     if (task?.status !== 'running' || task?.currentStage !== 'delivery_quality_review_pending' || !request) return task;
     const existingId = task.deliveryQualityRuntime?.reviewTaskId;
@@ -107,6 +113,39 @@ export class DeliveryQualityRuntime {
       safeSummary:`${updated.qualityProfile?.tier || 'important'} quality review ${reviewTask.taskId}`,
     });
     return updated;
+  }
+
+  async completeHeldReadOnlyDiagnosis(task: RuntimeTask) {
+    const now = new Date().toISOString();
+    const reviewTaskId = String(task?.deliveryQualityRuntime?.reviewTaskId || '').trim();
+    const reviewTask = reviewTaskId ? await this.get(reviewTaskId) : null;
+    if (reviewTask && !['succeeded', 'failed', 'cancelled', 'rejected'].includes(String(reviewTask.status || ''))) {
+      const closedReview = await this.store.updateTask(reviewTask.taskId, {
+        status:'cancelled',
+        currentStage:'superseded_read_only_diagnosis_review',
+        execution:{ ...(reviewTask.execution || {}), outcome:'superseded', finishedAt:now },
+        error:{
+          code:'superseded_read_only_diagnosis_review',
+          message:'确定性只读诊断不需要独立交付复核，旧复核任务已关闭。',
+          userMessage:'这条复核由旧规则误建，已自动关闭；只读诊断结果不受影响。',
+          category:'manual', stage:'delivery_quality', retryable:false, occurredAt:now,
+        },
+      });
+      await this.sync(closedReview);
+    }
+    const completed = await this.sync(await this.store.updateTask(task.taskId, {
+      status:'succeeded',
+      currentStage:'recovery_decision_ready',
+      deliveryQualityRuntime:{
+        ...(task.deliveryQualityRuntime || {}),
+        status:'bypassed_for_trusted_read_only_diagnosis',
+        updatedAt:now,
+      },
+      execution:{ ...(task.execution || {}), outcome:'escalate_technical_expert', finishedAt:now },
+      error:undefined,
+    }));
+    this.lifecycleEvents.recordPersisted(completed, { previousTask:task });
+    return completed;
   }
 
   async resolveReview(reviewTask: RuntimeTask, reviewResult: unknown) {
@@ -277,6 +316,13 @@ export class DeliveryQualityRuntime {
       });
     } catch { /* 可观测性失败不能改变业务结果。 */ }
   }
+}
+
+export function isHeldReadOnlyDiagnosis(task: RuntimeTask) {
+  return task?.status === 'running'
+    && task?.currentStage === 'delivery_quality_review_pending'
+    && isTrustedReadOnlyDiagnosisTask(task)
+    && hasReadOnlyDiagnosisArtifact(task);
 }
 
 function deliveryQualityEventId(task: RuntimeTask, eventType: string) {

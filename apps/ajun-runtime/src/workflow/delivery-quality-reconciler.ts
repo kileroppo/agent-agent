@@ -1,3 +1,4 @@
+import { isHeldReadOnlyDiagnosis } from './delivery-quality-runtime.ts';
 type ReconcileTask = Record<string, any>;
 type ReconcileStore = { list(): Promise<ReconcileTask[]> };
 type QualityRuntime = { continue(task: ReconcileTask): Promise<ReconcileTask> };
@@ -68,8 +69,8 @@ type ReconcileResult = Readonly<{
 }>;
 
 function isPendingQualityReview(task: ReconcileTask) {
-  return task?.status === 'running'
+  return isHeldReadOnlyDiagnosis(task) || (task?.status === 'running'
     && task?.currentStage === 'delivery_quality_review_pending'
     && Boolean(task?.deliveryQuality?.reviewTaskRequest)
-    && !task?.deliveryQualityRuntime?.reviewTaskId;
+    && !task?.deliveryQualityRuntime?.reviewTaskId);
 }

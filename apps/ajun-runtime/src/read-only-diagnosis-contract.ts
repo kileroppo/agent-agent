@@ -56,8 +56,11 @@ export function readOnlyDiagnosisContext(task: any, failureClassification: any):
 }
 
 export function hasVerifiedReadOnlyDiagnosis(task: any): boolean {
-  return task?.status === 'succeeded'
-    && (task.artifactRefs || []).some((artifact: any) => artifact?.type === 'recovery_decision' && readableArtifact(artifact));
+  return task?.status === 'succeeded' && hasReadOnlyDiagnosisArtifact(task);
+}
+
+export function hasReadOnlyDiagnosisArtifact(task: any): boolean {
+  return (task?.artifactRefs || []).some((artifact: any) => artifact?.type === 'recovery_decision' && readableArtifact(artifact));
 }
 
 export async function closeSupersededReadOnlyDiagnosis({ store, task, replacementTaskId, decidedAt }: any): Promise<any> {

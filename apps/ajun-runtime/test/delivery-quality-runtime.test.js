@@ -25,6 +25,40 @@ function report(id = 'report-v1') {
   return { artifactId:id, type:'intel_research_report', validation:{ exists:true, readable:true, nonEmpty:true } };
 }
 
+function readOnlyDiagnosisTask(overrides = {}) {
+  const taskId = 'diagnosis-1';
+  return {
+    taskId,
+    taskType:'operations.failure-recovery',
+    parentTaskId:'failed-parent',
+    requester:{ kind:'local-owner' },
+    source:{ channel:'internal-recovery' },
+    recovery:{ mode:'read_only_diagnosis' },
+    status:'queued',
+    currentStage:'queued_for_execution',
+    input:{
+      title:'只读诊断：检查系统状态',
+      context:{
+        failedTaskId:'failed-parent',
+        parentPaperclipIssueId:'paperclip-issue-original',
+        diagnosisOnly:true,
+        prohibitedActions:['retry', 'code_write', 'permission_expansion', 'external_publish'],
+      },
+    },
+    artifactRefs:[],
+    ...overrides,
+  };
+}
+
+function diagnosisArtifact(taskId = 'diagnosis-1') {
+  return {
+    artifactId:`recovery-decision:${taskId}`,
+    type:'recovery_decision',
+    validation:{ exists:true, readable:true, nonEmpty:true },
+    data:{ diagnosis:{ conclusion:'结论', evidence:'依据', impact:'影响', nextAction:'下一步' } },
+  };
+}
+
 function fixture(initial) {
   const tasks = new Map(initial.map((task) => [task.taskId, structuredClone(task)]));
   const created = [];
@@ -66,6 +100,41 @@ test('重要任务产出后先扣留并只创建一个独立复核任务', async
   assert.equal(state.created[0].taskType, 'governance.assurance-review');
   assert.equal(replay.deliveryQualityRuntime.reviewTaskId, state.created[0].taskId);
   assert.deepEqual(state.events.map((event) => event.eventType), ['workflow_state_changed', 'review_requested']);
+});
+
+test('受信任只读诊断直接完成，不再进入独立交付复核', () => {
+  const task = readOnlyDiagnosisTask();
+  const result = prepareDeliveryQualityResult(task, {
+    status:'succeeded', currentStage:'recovery_decision_ready', artifactRefs:[diagnosisArtifact()],
+  });
+
+  assert.equal(result.status, 'succeeded');
+  assert.equal(result.currentStage, 'recovery_decision_ready');
+  assert.equal(result.deliveryQuality, undefined);
+});
+
+test('旧规则已扣留的只读诊断自动完成并关闭误建复核', async () => {
+  const reviewTask = {
+    taskId:'diagnosis-review-1', taskType:'governance.assurance-review', status:'running',
+    currentStage:'waiting_paperclip_heartbeat', execution:{ owner:'paperclip-hermes' },
+  };
+  const held = readOnlyDiagnosisTask({
+    status:'running',
+    currentStage:'delivery_quality_review_pending',
+    artifactRefs:[diagnosisArtifact()],
+    deliveryQuality:{ reviewTaskRequest:{ taskType:'governance.assurance-review' } },
+    deliveryQualityRuntime:{ status:'review_pending', reviewTaskId:reviewTask.taskId },
+    execution:{ executor:'operator', outcome:'delivery_quality_review_pending' },
+  });
+  const state = fixture([held, reviewTask]);
+
+  const completed = await state.runtime.continue(held);
+
+  assert.equal(completed.status, 'succeeded');
+  assert.equal(completed.currentStage, 'recovery_decision_ready');
+  assert.equal(completed.deliveryQualityRuntime.status, 'bypassed_for_trusted_read_only_diagnosis');
+  assert.equal(state.tasks.get(reviewTask.taskId).status, 'cancelled');
+  assert.equal(state.created.length, 0);
 });
 
 test('复核通过才放行原任务，失败项只创建一轮定向返工', async () => {

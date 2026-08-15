@@ -136,7 +136,7 @@ test('受信任只读诊断不再二次审批且不唤醒 Paperclip Hermes', asy
           impact:'原任务仍未完成，已有记录保持不变。',
           nextAction:'检查 Paperclip 执行记录，再决定是否修复或重跑。',
         },
-      })],
+      }, { artifactId:`recovery-decision:${task.taskId}` })],
     };
   } };
 
