@@ -708,6 +708,59 @@ test('MediaCrawlerPro combines current work, creator followers, and ordered hist
   ]);
 });
 
+test('MediaCrawlerPro preserves Douyin publish time and recovers it from an aweme id when the downloader omits the field', async () => {
+  const adapter = new MediaCrawlerProAdapter({
+    cookieBridgeUrl:'http://127.0.0.1:8274',
+    downloadServerUrl:'http://127.0.0.1:8205',
+    fetchImpl:async (url, options = {}) => {
+      const pathname = new URL(url).pathname;
+      if (pathname === '/api/cookies/dy') return jsonResponse({ isok:true, data:{ cookies:'local-only' } });
+      const body = JSON.parse(options.body);
+      if (pathname === '/api/v1/content_detail') return jsonResponse({
+        isok:true,
+        data:{ content:{
+          id:'7668182625089273123',
+          title:'当前视频',
+          url:'https://www.douyin.com/video/7668182625089273123',
+          create_time:1785387896,
+          author:{ sec_uid:'creator-sec-uid', nickname:'作者' },
+          interaction:{ liked_count:'8600', collected_count:'1200', comment_count:'90', share_count:'30', play_count:'100000' }
+        } }
+      });
+      if (pathname === '/api/v1/creator_query') return jsonResponse({
+        isok:true,
+        data:{ user_id:'creator-sec-uid', nickname:'作者', follower_count:'120000', content_count:'21' }
+      });
+      if (pathname === '/api/v1/creator_contents') return jsonResponse({
+        isok:true,
+        data:{
+          contents:Array.from({ length:6 }, (_, index) => {
+            const timestamp = 1785300000 + index;
+            return {
+              id:String((BigInt(timestamp) << 32n) + BigInt(index + 1)),
+              title:`历史 ${index + 1}`,
+              url:`https://www.douyin.com/video/history-${index + 1}`,
+              interaction:{ liked_count:String(100 + index), collected_count:String(20 + index) }
+            };
+          }),
+          has_more:false,
+          next_cursor:''
+        }
+      });
+      throw new Error(`unexpected ${pathname}: ${JSON.stringify(body)}`);
+    }
+  });
+
+  const result = await adapter.collectMetrics({
+    source:'https://www.douyin.com/video/7668182625089273123',
+    connectionUse:{ credentialKind:'cookie_bridge', cookieBridgeClientId:'local_douyin_account_1' },
+    historyLimit:20
+  });
+
+  assert.equal(result.currentWork.publishedAt, '2026-07-30T05:04:56.000Z');
+  assert.equal(result.historyWorks[0].publishedAt, '2026-07-29T04:40:00.000Z');
+});
+
 test('MediaCrawlerPro reports insufficient history without inventing missing metrics', async () => {
   const adapter = new MediaCrawlerProAdapter({
     cookieBridgeUrl:'http://127.0.0.1:8274',

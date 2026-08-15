@@ -30,7 +30,7 @@ test('native service persists v2 and defaults auto dispatch to disabled', async 
   const result = fx.service.ingestMetricsBundle(collectedBundle());
   assert.equal(result.score.version, 'v2');
   assert.equal(result.score.grade, 'T1');
-  assert.equal(result.legacy_score.grade, 'N0');
+  assert.equal(Object.hasOwn(result, 'legacy_score'), false);
   assert.equal(fx.service.getSettings().analysis_auto.enabled, false);
   assert.equal(fx.service.listAnalysis().items.length, 0);
   assert.equal(fx.service.getWork(result.work_id).score_details.grade, 'T1');
@@ -42,6 +42,15 @@ test('native service persists v2 and defaults auto dispatch to disabled', async 
     [],
   );
   assert.equal((await stat(path.join(fx.directory, 'boom.sqlite'))).mode & 0o777, 0o600);
+});
+
+test('native service persists a collected platform publish time', async (t) => {
+  const fx = await fixture();
+  t.after(() => fx.close());
+  const value = collectedBundle();
+  value.currentWork.publishedAt = '2026-08-14T13:41:00.000Z';
+  fx.service.ingestMetricsBundle(value);
+  assert.equal(fx.service.listWorks().works[0].publish_at, '2026-08-14T13:41:00.000Z');
 });
 
 test('settings and daily limit survive reopen; enabling queues but never dispatches externally', async (t) => {
@@ -112,6 +121,7 @@ test('in-process callbacks collect metrics and dispatch a trackable mission with
   assert.equal(calls[1][1].scoreVersion, 'v2');
   assert.equal(service.listAnalysis().items[0].status, 'dispatched');
   assert.equal(service.listAnalysis().items[0].army_task_id, 'mission-1');
+  assert.equal(service.listWorks().works[0].army_task_id, 'mission-1');
 });
 
 test('抖音推荐首页会明确要求作品链接且不会调用指标采集器', async (t) => {

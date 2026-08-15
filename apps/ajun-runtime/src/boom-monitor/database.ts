@@ -36,7 +36,7 @@ export class BoomMonitorDatabase {
         FOREIGN KEY (creator_id) REFERENCES creators(id) ON DELETE CASCADE
       );
       CREATE TABLE IF NOT EXISTS scores (
-        work_id INTEGER PRIMARY KEY, score_version TEXT NOT NULL DEFAULT 'legacy-v1',
+        work_id INTEGER PRIMARY KEY, score_version TEXT NOT NULL DEFAULT 'v2',
         r_value REAL NOT NULL, m_value REAL NOT NULL, grade TEXT NOT NULL, tier TEXT NOT NULL,
         baseline_metric REAL, baseline_sample_count INTEGER DEFAULT 0, follower_snapshot INTEGER DEFAULT 0,
         baseline_at TEXT, baseline_version TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
@@ -81,12 +81,22 @@ export class BoomMonitorDatabase {
         this.ensureColumn('analysis_queue', 'dispatch_result_json', 'TEXT');
         this.ensureColumn('analysis_queue', 'dispatched_at', 'TEXT');
         this.ensureColumn('scores', 'baseline_version', 'TEXT');
-        this.ensureColumn('scores', 'score_version', "TEXT NOT NULL DEFAULT 'legacy-v1'");
+        this.ensureColumn('scores', 'score_version', "TEXT NOT NULL DEFAULT 'v2'");
+        this.invalidateObsoleteScores();
     }
     ensureColumn(table: any, column: any, definition: any): any {
         const columns: any = new Set(this.connection.prepare(`PRAGMA table_info(${table})`).all().map((row: any): any => row.name));
         if (!columns.has(column))
             this.connection.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
+    invalidateObsoleteScores(): any {
+        this.connection.exec(`
+          DELETE FROM shadow_scores WHERE version <> 'v2';
+          UPDATE scores SET score_version='v2', r_value=0, m_value=0, grade='N0', tier='low',
+            baseline_metric=NULL, baseline_sample_count=0, follower_snapshot=0,
+            baseline_at=NULL, baseline_version=NULL, updated_at=updated_at
+          WHERE score_version <> 'v2';
+        `);
     }
     upsertCreator(platform: any, creatorId: any, creatorName: any, followerCount: any): any {
         const now: any = this.now();
@@ -115,7 +125,7 @@ export class BoomMonitorDatabase {
         const dbWorkId: any = Number(this.connection.prepare('SELECT id FROM works WHERE platform=? AND work_id=?').get(platform, workId).id);
         this.connection.prepare(`
       INSERT INTO scores(work_id,score_version,r_value,m_value,grade,tier,baseline_metric,baseline_sample_count,follower_snapshot,baseline_at,baseline_version,created_at,updated_at)
-      VALUES(?,'legacy-v1',0,0,'N0','low',NULL,0,0,NULL,NULL,?,?) ON CONFLICT(work_id) DO NOTHING
+      VALUES(?,'v2',0,0,'N0','low',NULL,0,0,NULL,NULL,?,?) ON CONFLICT(work_id) DO NOTHING
     `).run(dbWorkId, now, now);
         return [dbWorkId, !existing];
     }
@@ -136,6 +146,19 @@ export class BoomMonitorDatabase {
       ORDER BY COALESCE(NULLIF(historical.publish_at,''),'1970-01-01') DESC,historical.id DESC LIMIT ?
     `).all(excludeWorkId, creatorDbId, platform, limit).map((item: any): any => (item.platform === 'xiaohongshu' ? integer(item.likes) + integer(item.favorites) : integer(item.likes)));
     }
+    historyWorks(creatorDbId: any, platform: any, excludeWorkId: any, limit: any = 20): any {
+        return this.connection.prepare(`
+      SELECT historical.work_id AS id,historical.likes,historical.favorites,historical.plays
+      FROM works historical JOIN works current ON current.id=?
+      WHERE historical.creator_id=? AND historical.platform=? AND historical.id<>current.id AND (
+        COALESCE(NULLIF(historical.publish_at,''),'1970-01-01') < COALESCE(NULLIF(current.publish_at,''),'1970-01-01') OR (
+          COALESCE(NULLIF(historical.publish_at,''),'1970-01-01') = COALESCE(NULLIF(current.publish_at,''),'1970-01-01')
+          AND historical.id < current.id))
+      ORDER BY COALESCE(NULLIF(historical.publish_at,''),'1970-01-01') DESC,historical.id DESC LIMIT ?
+    `).all(excludeWorkId, creatorDbId, platform, limit).map((item: any): any => ({
+            id: String(item.id ?? ''), likes: integer(item.likes), favorites: integer(item.favorites), plays: item.plays == null ? null : integer(item.plays),
+        }));
+    }
     getScore(workId: any): any { return row(this.connection.prepare('SELECT * FROM scores WHERE work_id=?').get(integer(workId))); }
     upsertScore(workId: any, score: any): any {
         const now: any = this.now();
@@ -146,7 +169,7 @@ export class BoomMonitorDatabase {
       tier=excluded.tier,baseline_metric=excluded.baseline_metric,baseline_sample_count=excluded.baseline_sample_count,
       follower_snapshot=excluded.follower_snapshot,baseline_at=excluded.baseline_at,
       baseline_version=excluded.baseline_version,updated_at=excluded.updated_at
-    `).run(workId, String(score.version ?? score.score_version ?? 'legacy-v1'), Number(score.r_value), Number(score.m_value), String(score.grade), String(score.tier), score.baseline_metric == null ? null : Number(score.baseline_metric), integer(score.sample_count ?? score.baseline_sample_count), integer(score.follower_snapshot), score.baseline_at ?? null, score.baseline_version ?? null, now, now);
+    `).run(workId, String(score.version ?? score.score_version ?? 'v2'), Number(score.r_value), Number(score.m_value), String(score.grade), String(score.tier), score.baseline_metric == null ? null : Number(score.baseline_metric), integer(score.sample_count ?? score.baseline_sample_count), integer(score.follower_snapshot), score.baseline_at ?? null, score.baseline_version ?? null, now, now);
     }
     upsertShadowScore(workId: any, score: any): any {
         const version: any = String(score.version ?? '').trim();
@@ -318,7 +341,7 @@ export class BoomMonitorDatabase {
         return this.connection.prepare(`
       SELECT w.id,w.platform,c.creator_id AS creator_external_id,c.creator_name,w.work_id,w.title,w.publish_at,
       w.likes,w.favorites,w.plays,s.score_version,s.grade,s.r_value,s.m_value,s.tier,s.baseline_metric,s.updated_at AS scored_at,
-      aq.status AS analysis_status FROM works w JOIN creators c ON c.id=w.creator_id
+      aq.status AS analysis_status,aq.army_task_id FROM works w JOIN creators c ON c.id=w.creator_id
       LEFT JOIN scores s ON s.work_id=w.id LEFT JOIN analysis_queue aq ON aq.work_id=w.id
       WHERE ${conditions.join(' AND ')} ORDER BY COALESCE(s.updated_at,w.updated_at) DESC LIMIT ?
     `).all(...parameters).map(row);

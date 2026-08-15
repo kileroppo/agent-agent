@@ -395,110 +395,105 @@
         <div class="module-heading">
           <div>
             <h1 id="boom-monitor-title">爆款雷达</h1>
-            <p class="subtle">采集作品指标并判断是否值得拆解；命中后仍由“小D取证 → 小拆分析”，这里不会直接发布内容。</p>
+            <p class="subtle">粘贴作品链接，判断是否值得拆解。需要拆解时先由小D取证，再交给小拆。</p>
           </div>
           <div class="module-heading-actions">
             <nav class="context-nav" aria-label="业务工具">
               <a href="#boom-monitor" data-context-page="boom-monitor">爆款雷达</a>
               <a href="#campaigns" data-context-page="campaigns">发布活动</a>
             </nav>
-            <button id="boom-refresh" type="button" class="secondary-action">刷新雷达</button>
+            <button id="boom-refresh" type="button" class="secondary-action">刷新</button>
           </div>
         </div>
 
-        <p id="boom-message" class="boom-message" role="status" aria-live="polite">打开后读取雷达状态。</p>
-        <div id="boom-stats" class="boom-stat-grid" aria-label="爆款雷达概览"></div>
+        <p id="boom-message" class="boom-message" role="status" aria-live="polite" hidden></p>
+        <div id="boom-stats" class="boom-overview-summary" aria-label="爆款雷达概览" hidden></div>
 
         <section class="surface-section boom-collect-panel" aria-labelledby="boom-collect-title">
           <div class="section-head">
             <div>
-              <h2 id="boom-collect-title">粘贴链接或分享文案评分</h2>
-              <p class="section-intro">支持小红书和抖音作品链接，也可直接粘贴整段分享文案；默认只读取指标，后续派发严格服从下方设置。</p>
+              <h2 id="boom-collect-title">粘贴作品链接</h2>
+              <p class="section-intro">支持小红书、抖音链接或整段分享文案。</p>
             </div>
           </div>
           <form id="boom-collect-form" class="boom-inline-form">
             <label><span class="visually-hidden">作品链接或分享文案</span><input id="boom-source-url" type="text" inputmode="url" required placeholder="粘贴作品链接或整段分享文案"></label>
-            <button id="boom-collect-submit" type="submit">采集并评分</button>
+            <button id="boom-collect-submit" type="submit">判断是不是爆款</button>
           </form>
           <div id="boom-collect-result" class="boom-result" hidden></div>
         </section>
 
         <div class="boom-view-tabs" role="group" aria-label="爆款雷达内容">
-          <button type="button" class="filter-button is-active" data-boom-view="works" aria-pressed="true">作品</button>
-          <button type="button" class="filter-button" data-boom-view="queue" aria-pressed="false">队列</button>
-          <button type="button" class="filter-button" data-boom-view="import" aria-pressed="false">导入</button>
+          <button type="button" class="filter-button is-active" data-boom-view="works" aria-pressed="true">最近作品</button>
+          <button type="button" class="filter-button" data-boom-view="queue" aria-pressed="false" hidden>需要处理</button>
           <button type="button" class="filter-button" data-boom-view="settings" aria-pressed="false">设置</button>
         </div>
 
         <section id="boom-view-works" class="surface-section boom-view is-active" data-boom-view-page="works">
           <div class="section-head">
             <div>
-              <h2>作品看板</h2>
-              <p class="section-intro">正式 v2 评分控制派发；N0 表示样本或表现尚未达到拆解门槛。</p>
+              <h2>最近作品</h2>
             </div>
-            <button id="boom-scan-run" type="button" class="secondary-action">扫描现有数据</button>
           </div>
-          <form id="boom-work-filters" class="boom-filter-grid">
-            <label>等级<select id="boom-filter-grade"><option value="">全部等级</option><option>T3</option><option>T2</option><option>T1</option><option>N0</option></select></label>
-            <label>平台<select id="boom-filter-platform"><option value="">全部平台</option><option value="douyin">抖音</option><option value="xiaohongshu">小红书</option><option value="youtube">YouTube</option></select></label>
-            <label>创作者编号<input id="boom-filter-creator" placeholder="可不填"></label>
-            <button type="submit">查询</button>
-          </form>
+          <details class="boom-filter-tools">
+            <summary>筛选作品</summary>
+            <form id="boom-work-filters" class="boom-filter-grid">
+              <label>等级<select id="boom-filter-grade"><option value="">全部等级</option><option>T3</option><option>T2</option><option>T1</option><option>N0</option></select></label>
+              <label>平台<select id="boom-filter-platform"><option value="">全部平台</option><option value="douyin">抖音</option><option value="xiaohongshu">小红书</option><option value="youtube">YouTube</option></select></label>
+              <label>创作者编号<input id="boom-filter-creator" placeholder="可不填"></label>
+              <button type="submit">应用筛选</button>
+            </form>
+          </details>
           <div id="boom-work-list" class="boom-list"></div>
         </section>
 
         <section id="boom-view-queue" class="surface-section boom-view" data-boom-view-page="queue" hidden>
           <div class="section-head">
             <div>
-              <h2>扫描与派发队列</h2>
-              <p class="section-intro">命中作品只会进入现有军团任务链，不在雷达内另起一套 AI。</p>
+              <h2>需要处理</h2>
+              <p class="section-intro">这里只显示缺少链接、拆解失败或今日额度已满的作品。</p>
             </div>
             <div class="boom-section-actions">
-              <button id="boom-queue-refresh" type="button" class="secondary-action">刷新队列</button>
-              <button id="boom-dispatch-run" type="button">处理待派发项</button>
+              <button id="boom-queue-refresh" type="button" class="secondary-action">刷新</button>
             </div>
           </div>
-          <div class="boom-queue-columns">
-            <div><h3>扫描任务</h3><div id="boom-scan-list" class="boom-list compact"></div></div>
-            <div><h3>军团派发</h3><div id="boom-analysis-list" class="boom-list compact"></div></div>
-          </div>
-        </section>
-
-        <section id="boom-view-import" class="surface-section boom-view" data-boom-view-page="import" hidden>
-          <div class="section-head">
-            <div>
-              <h2>导入历史作品</h2>
-              <p class="section-intro">可选 JSON/CSV 文件，或粘贴 JSON；导入后先进入扫描队列，后续派发严格服从下方设置。</p>
-            </div>
-          </div>
-          <form id="boom-import-form" class="boom-import-form">
-            <label>选择文件<input id="boom-import-file" type="file" accept=".json,.csv,application/json,text/csv"></label>
-            <div class="boom-divider"><span>或粘贴 JSON</span></div>
-            <label>JSON 数据<textarea id="boom-import-payload" rows="8" spellcheck="false" placeholder='{"platform":"douyin","creator_id":"xxx","creator_name":"name","follower_count":120000,"works":[{...}]}'></textarea></label>
-            <div class="boom-section-actions"><button id="boom-import-submit" type="submit">提交导入</button></div>
-          </form>
-          <pre id="boom-import-result" class="boom-import-result" hidden></pre>
+          <div id="boom-analysis-list" class="boom-list compact"></div>
         </section>
 
         <section id="boom-view-settings" class="surface-section boom-view" data-boom-view-page="settings" hidden>
           <div class="section-head">
             <div>
-              <h2>自动派发设置</h2>
-              <p class="section-intro">默认关闭。启用后，只有选中等级且未超过每日上限的作品才会交给小D和小拆。</p>
+              <h2>拆解设置</h2>
+              <p class="section-intro">只需要决定是否自动拆解，以及每天最多拆多少条。</p>
             </div>
           </div>
           <form id="boom-settings-form" class="boom-settings-form">
-            <label class="boom-toggle"><input id="boom-auto-enabled" type="checkbox"><span><strong>自动派发命中作品</strong><small>关闭时只采集、评分和排队</small></span></label>
-            <fieldset>
-              <legend>允许自动派发的等级</legend>
-              <label><input type="checkbox" name="boom-grade" value="T1">T1</label>
-              <label><input type="checkbox" name="boom-grade" value="T2" checked>T2</label>
-              <label><input type="checkbox" name="boom-grade" value="T3" checked>T3</label>
-            </fieldset>
-            <label>每日派发上限<input id="boom-daily-limit" type="number" min="0" max="100" step="1" value="5"><small>设为 0 可停止当天派发。</small></label>
-            <div class="boom-budget" id="boom-budget">今日派发情况待读取。</div>
+            <label class="boom-toggle"><input id="boom-auto-enabled" type="checkbox"><span><strong>发现爆款后自动拆解</strong><small>系统会先让小D取证，再由小拆分析；不会直接发布内容。</small></span></label>
+            <label>每日最多拆解<input id="boom-daily-limit" type="number" min="0" max="100" step="1" value="5"><small>设为 0 可暂停自动拆解。</small></label>
+            <div class="boom-budget" id="boom-budget">今日拆解情况待读取。</div>
+            <details class="boom-advanced-tools">
+              <summary>高级：自动拆解等级</summary>
+              <p class="section-intro">默认自动处理 T2、T3；T1 只建议观察，除非你明确需要。</p>
+              <fieldset>
+                <legend>允许自动拆解的等级</legend>
+                <label><input type="checkbox" name="boom-grade" value="T1">T1</label>
+                <label><input type="checkbox" name="boom-grade" value="T2" checked>T2</label>
+                <label><input type="checkbox" name="boom-grade" value="T3" checked>T3</label>
+              </fieldset>
+            </details>
             <div class="boom-section-actions"><button id="boom-settings-submit" type="submit">保存设置</button></div>
           </form>
+          <details class="boom-advanced-tools">
+            <summary>高级：历史数据</summary>
+            <p class="section-intro">日常不需要用这里；只有补历史样本或重跑已有数据时打开。</p>
+            <form id="boom-import-form" class="boom-import-form">
+              <label>选择文件<input id="boom-import-file" type="file" accept=".json,.csv,application/json,text/csv"></label>
+              <div class="boom-divider"><span>或粘贴 JSON</span></div>
+              <label>JSON 数据<textarea id="boom-import-payload" rows="8" spellcheck="false" placeholder='{"platform":"douyin","creator_id":"xxx","creator_name":"name","follower_count":120000,"works":[{...}]}'></textarea></label>
+              <div class="boom-section-actions"><button id="boom-import-submit" type="submit">提交导入</button><button id="boom-scan-run" type="button" class="secondary-action">重新扫描已导入数据</button></div>
+            </form>
+            <pre id="boom-import-result" class="boom-import-result" hidden></pre>
+          </details>
         </section>
       </section>
 

@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync
 import path from 'node:path';
 import { backup as sqliteBackup } from 'node:sqlite';
 import { BoomMonitorDatabase } from './database.ts';
-import { buildScoreComparison, bundleToRecord, evaluateGrade, platformCoreMetric, pythonRound, scoreWork, tierKeyFromFollowers, } from './scoring.ts';
+import { METRICS_SCHEMA_VERSION, buildV2Score, bundleToRecord, } from './scoring.ts';
 const VALID_ANALYSIS_GRADES: any = new Set(['T1', 'T2', 'T3']);
 export function createBoomMonitorService(options: any = {}): any {
     return new BoomMonitorService(options);
@@ -208,36 +208,31 @@ export class BoomMonitorService {
         if (bundle?.status === 'metrics_unavailable') {
             return {
                 status: 'metrics_unavailable', message: '内容可继续做普通拆解，但当前没有可靠爆款分级依据。',
-                metrics: bundle, score: null, legacy_score: null,
+                metrics: bundle, score: null,
             };
         }
         const record: any = bundleToRecord(bundle);
         const creatorId: any = this.db.upsertCreator(record.platform, record.creator_id, record.creator_name, record.follower_count);
         const [workId] = this.db.upsertWork(creatorId, record.platform, record);
-        const persisted: any = this.db.getScore(workId) ?? {};
-        const frozenLegacy: any = persisted.baseline_version === 'url-history-v1'
-            ? persisted : this.db.getShadowScore(workId, 'legacy-v1');
-        let frozenV2: any = this.db.getShadowScore(workId, 'v2') ?? this.db.getShadowScore(workId, 'shadow-v2');
-        if (!frozenV2 && ['url-history-v2', 'url-history-shadow-v2'].includes(persisted.baseline_version)) {
-            frozenV2 = { ...persisted, version: persisted.score_version || 'v2', sample_count: persisted.baseline_sample_count };
-        }
-        const comparison: any = buildScoreComparison(bundle, frozenLegacy, frozenV2);
-        const score: any = comparison.official_score;
-        const legacyScore: any = comparison.legacy_score;
+        const persisted: any = this.db.getScore(workId);
+        const frozenScore: any = this.db.getShadowScore(workId, 'v2')
+            ?? (persisted?.score_version === 'v2' && persisted?.baseline_version === 'url-history-v2'
+                ? { ...persisted, version: 'v2', sample_count: persisted.baseline_sample_count }
+                : null);
+        const score: any = buildV2Score(bundle, frozenScore);
         this.db.upsertScore(workId, score);
         this.db.upsertShadowScore(workId, score);
-        this.db.upsertShadowScore(workId, legacyScore);
         const work: any = this.db.getWork(workId);
         if (this.shouldAutoEnqueue(score.grade)) {
             this.db.upsertAnalysisQueue(workId, score.grade, buildBoomSignal(work, score), score.grade === 'T3' ? 'full' : 'fast');
         }
         else if (this.analysisAuto.enabled || !VALID_ANALYSIS_GRADES.has(String(score.grade).toUpperCase())) {
-            this.db.cancelPendingAnalysis(workId, '正式 v2 等级未命中当前自动派发范围');
+            this.db.cancelPendingAnalysis(workId, '当前等级未命中自动派发范围');
         }
         return {
-            status: bundle.status || 'collected', work_id: workId, score, legacy_score: legacyScore, metrics: bundle,
+            status: bundle.status || 'collected', work_id: workId, score, metrics: bundle,
             message: score.grade === 'N0' && score.baseline_metric == null
-                ? '历史样本不足，保持 N0，不自动拆解。' : '指标已读取；正式 v2 已完成评分并决定派发。',
+                ? '历史样本不足，保持 N0，不自动拆解。' : '指标已读取，已完成评分并决定派发。',
         };
     }
     async collectUrl(input: any = {}): Promise<any> {
@@ -319,29 +314,21 @@ export class BoomMonitorService {
         const work: any = this.db.getWork(workId);
         if (!work)
             throw new Error('作品不存在。');
-        const metric: any = platformCoreMetric(work.platform, work.likes, work.favorites);
-        const history: any = this.db.historyMetrics(work.creator_id, work.platform, workId);
-        const frozen: any = this.db.getScore(workId);
-        let score: any;
-        if (frozen?.baseline_version === 'work-history-v1' && frozen.baseline_metric != null) {
-            const followers: any = integer(frozen.follower_snapshot || work.follower_count);
-            const rValue: any = metric / Number(frozen.baseline_metric);
-            const mValue: any = followers > 0 ? integer(work.likes) / followers : 0;
-            score = {
-                version: 'legacy-v1', r_value: pythonRound(rValue, 4), m_value: pythonRound(mValue, 4),
-                grade: evaluateGrade(rValue, mValue, followers), tier: tierKeyFromFollowers(followers),
-                baseline_metric: Number(frozen.baseline_metric), sample_count: integer(frozen.baseline_sample_count),
-                follower_snapshot: followers, baseline_at: frozen.baseline_at, baseline_version: 'work-history-v1',
-            };
-        }
-        else {
-            score = scoreWork(metric, work.follower_count, history, { mMetric: work.likes });
-            Object.assign(score, {
-                version: 'legacy-v1', follower_snapshot: integer(work.follower_count),
-                baseline_at: score.baseline_metric == null ? null : this.clock().toISOString(),
-                baseline_version: score.baseline_metric == null ? null : 'work-history-v1',
-            });
-        }
+        const currentScore: any = this.db.getShadowScore(workId, 'v2');
+        const historyWorks: any[] = this.db.historyWorks(work.creator_id, work.platform, workId);
+        const score: any = buildV2Score({
+            schemaVersion: METRICS_SCHEMA_VERSION,
+            status: 'collected', platform: work.platform,
+            sourceUrl: work.source_url,
+            observedAt: this.clock().toISOString(),
+            creator: { id: work.creator_external_id, name: work.creator_name, followerCount: integer(work.follower_count) },
+            currentWork: {
+                id: work.work_id, title: work.title, sourceUrl: work.source_url,
+                likes: integer(work.likes), favorites: integer(work.favorites), plays: work.plays,
+            },
+            historyWorks,
+            historyOrder: 'creator_feed_desc', sampleCount: historyWorks.length,
+        }, currentScore);
         this.db.upsertScore(workId, score);
         if (this.shouldAutoEnqueue(score.grade)) {
             this.db.upsertAnalysisQueue(workId, score.grade, buildBoomSignal(work, score), score.grade === 'T3' ? 'full' : 'fast');
@@ -435,18 +422,14 @@ export class BoomMonitorService {
     }
     dashboard(): any { return this.db.dashboardSummary(); }
     listWorks(filters: any = {}): any { return { works: this.db.listWorksWithScores(filters) }; }
-    listVersionedScores(version: any = 'v2', limit: any = 100): any {
-        return { version, controls_dispatch: version === 'v2', items: this.db.listShadowScores(version, limit) };
+    listVersionedScores(_version: any = 'v2', limit: any = 100): any {
+        return { version: 'v2', controls_dispatch: true, items: this.db.listShadowScores('v2', limit) };
     }
     getWork(workId: any): any {
         const work: any = this.db.getWorkDetail(workId);
         if (!work)
             return null;
-        return {
-            work,
-            score_details: this.db.getShadowScore(workId, 'v2') ?? this.db.getShadowScore(workId, 'shadow-v2'),
-            legacy_score: this.db.getShadowScore(workId, 'legacy-v1'),
-        };
+        return { work, score_details: this.db.getShadowScore(workId, 'v2') };
     }
     listScanJobs(limit: any = 20): any { return { jobs: this.db.listScanJobs(limit) }; }
     listAnalysis(limit: any = 200): any { return { items: this.db.listAnalysisQueue(limit) }; }
@@ -477,7 +460,7 @@ export function buildBoomSignal(work: any, score: any): any {
         creatorRef: String(work?.creator_external_id ?? ''), creatorName: String(work?.creator_name ?? ''), sourceUrl,
         observedAt: new Date().toISOString(), evidenceKind: 'platform_observed',
         sourceRef: sourceUrl || `boom-monitor:work:${work?.id}`,
-        scoreVersion: String(score?.version ?? score?.score_version ?? 'legacy-v1'), grade: String(score?.grade ?? 'N0'),
+        scoreVersion: String(score?.version ?? score?.score_version ?? 'v2'), grade: String(score?.grade ?? 'N0'),
         tier: String(score?.tier ?? 'low'), rValue: Number(score?.r_value ?? 0), mValue: Number(score?.m_value ?? 0),
         absoluteInteractions: score?.absolute_interactions ?? null, signals: score?.signals ?? {},
         observedMetrics: {

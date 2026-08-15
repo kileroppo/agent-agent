@@ -22,7 +22,7 @@ test('A君控制台内建爆款雷达入口并统一使用同源 API', async () 
   assert.doesNotMatch(`${html}\n${app}\n${consoleSource}`, /iframe|localhost:8081|127\.0\.0\.1:8081/i);
 });
 
-test('爆款雷达包含采集、作品、队列、扫描、JSON CSV 导入和设置', async () => {
+test('爆款雷达主界面只保留判断、最近作品、需要处理和设置，历史导入仍在高级工具', async () => {
   const [html, consoleSource] = await Promise.all([
     readFile(new URL('index.html', publicRoot), 'utf8'),
     readFile(new URL('boom-monitor-console.js', publicRoot), 'utf8'),
@@ -36,9 +36,11 @@ test('爆款雷达包含采集、作品、队列、扫描、JSON CSV 导入和�
   assert.match(html, /id="boom-scan-run"/);
   assert.match(html, /accept="\.json,\.csv/);
   assert.match(html, /id="boom-settings-form"/);
-  assert.match(html, /每日派发上限/);
+  assert.match(html, /每日最多拆解/);
+  assert.match(html, /class="boom-advanced-tools"[\s\S]*高级：历史数据/);
+  assert.doesNotMatch(html, /data-boom-view="import"/);
   assert.match(consoleSource, /\/collect\/url/);
-  assert.match(consoleSource, /\/scan\/jobs/);
+  assert.doesNotMatch(consoleSource, /\/scan\/jobs/);
   assert.match(consoleSource, /\/analysis\/run/);
   assert.match(consoleSource, /\/analysis\/queue\//);
   assert.match(consoleSource, /\/works\/\$\{workId\}/);
@@ -66,8 +68,13 @@ test('自动派发默认关闭，启用和手动派发都需明确确认', async
 test('单作品操作具有作品上下文、动态详情状态和请求防重入', async () => {
   const consoleSource = await readFile(new URL('boom-monitor-console.js', publicRoot), 'utf8');
 
-  assert.match(consoleSource, /aria-label="查看“\$\{escapeHtml\(workTitle\)\}”的评分依据"/);
-  assert.match(consoleSource, /aria-label="把“\$\{escapeHtml\(workTitle\)\}”交给小D和小拆"/);
+  assert.match(consoleSource, /aria-label="查看“\$\{escapeHtml\(workTitle\)\}”的判断依据"/);
+  assert.match(consoleSource, /aria-label="开始拆解“\$\{escapeHtml\(workTitle\)\}”"/);
+  assert.match(consoleSource, /data-boom-approve=/);
+  assert.match(consoleSource, /确认并继续/);
+  assert.match(consoleSource, /\/api\/approvals\/\$\{encodeURIComponent\(approvalId\)\}\/approve/);
+  assert.match(consoleSource, /\/api\/tasks\/\$\{encodeURIComponent\(taskId\)\}/);
+  assert.match(consoleSource, /查看拆解进度/);
   assert.match(consoleSource, /aria-controls="\$\{detailId\}" aria-expanded="false"/);
   assert.match(consoleSource, /role="status" aria-live="polite" aria-atomic="true"/);
   assert.match(consoleSource, /triggerButton\?\.setAttribute\('aria-expanded', 'true'\)/);
@@ -76,11 +83,56 @@ test('单作品操作具有作品上下文、动态详情状态和请求防重�
   assert.match(consoleSource, /if \(triggerButton\?\.isConnected\)/);
 });
 
-test('评分详情失败会写回当前作品卡片，同时保留全局错误提示', async () => {
+test('作品卡常驻人话判断和唯一主动作，筛选及技术指标按需查看', async () => {
+  const [html, consoleSource, styles] = await Promise.all([
+    readFile(new URL('index.html', publicRoot), 'utf8'),
+    readFile(new URL('boom-monitor-console.js', publicRoot), 'utf8'),
+    readFile(new URL('styles.css', publicRoot), 'utf8'),
+  ]);
+
+  assert.match(html, /class="boom-filter-tools"[\s\S]*<summary>筛选作品<\/summary>/);
+  assert.match(html, /id="boom-stats" class="boom-overview-summary"/);
+  assert.doesNotMatch(html, /class="boom-stat-grid"/);
+  assert.match(consoleSource, /<article class="boom-list-item">/);
+  assert.doesNotMatch(consoleSource, /<details class="boom-list-item">/);
+  assert.match(consoleSource, /gradeReason\(work\.grade\)/);
+  assert.match(consoleSource, /判断可信度/);
+  assert.match(styles, /\.boom-item-head\s*\{/);
+});
+
+test('需要处理只收异常和额度耗尽，正常派发过程留在作品状态', async () => {
+  const [html, consoleSource] = await Promise.all([
+    readFile(new URL('index.html', publicRoot), 'utf8'),
+    readFile(new URL('boom-monitor-console.js', publicRoot), 'utf8'),
+  ]);
+
+  assert.match(html, /data-boom-view="queue"[^>]*hidden>需要处理/);
+  assert.doesNotMatch(html, /id="boom-dispatch-run"/);
+  assert.match(consoleSource, /\['waiting_source', 'dispatch_failed', 'failed'\]\.includes\(status\)/);
+  assert.match(consoleSource, /status === 'queued'[\s\S]*remaining_today/);
+  assert.match(consoleSource, /dispatching: ' · 拆解中'/);
+  assert.match(consoleSource, /completed: ' · 已完成'/);
+  assert.match(consoleSource, /return ' · 等你确认'/);
+  assert.match(consoleSource, /data-boom-focus-intake/);
+  assert.match(consoleSource, /data-boom-open-settings/);
+});
+
+test('作品评分只展示当前评分，并用中文解释表现指标', async () => {
+  const consoleSource = await readFile(new URL('boom-monitor-console.js', publicRoot), 'utf8');
+
+  assert.match(consoleSource, /相对历史表现/);
+  assert.match(consoleSource, /粉丝互动率/);
+  assert.match(consoleSource, /当前核心互动 ÷ 作者历史作品中位数/);
+  assert.match(consoleSource, /点赞数 ÷ 粉丝数/);
+  assert.doesNotMatch(consoleSource, /旧 v1 对照|legacy_score/);
+  assert.doesNotMatch(consoleSource, /R \+|M \+/);
+});
+
+test('判断依据失败会写回当前作品卡片，同时保留全局错误提示', async () => {
   const consoleSource = await readFile(new URL('boom-monitor-console.js', publicRoot), 'utf8');
 
   assert.match(consoleSource, /output\.classList\.add\('is-error'\)/);
-  assert.match(consoleSource, /output\.textContent = `评分依据读取失败：\$\{error\.message\}`/);
+  assert.match(consoleSource, /output\.textContent = `判断依据读取失败：\$\{error\.message\}`/);
   assert.match(consoleSource, /throw error/);
   assert.match(consoleSource, /showWorkDetail\(detail\.dataset\.boomDetail, detail\)\.catch\(showError\)/);
 });
