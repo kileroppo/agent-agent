@@ -73,3 +73,10 @@ test('collected record preserves unknown plays and does not invent publish time'
   assert.equal(record.plays, null);
   assert.equal(record.metadata.history_order, 'creator_feed_desc');
 });
+
+test('collected record preserves a valid platform publish time', () => {
+  const value = bundle();
+  value.currentWork.publishedAt = '2026-08-14T13:41:00.000Z';
+  const record = bundleToRecord(value);
+  assert.equal(record.publish_at, '2026-08-14T13:41:00.000Z');
+});

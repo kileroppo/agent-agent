@@ -44,6 +44,15 @@ test('native service persists v2 and defaults auto dispatch to disabled', async 
   assert.equal((await stat(path.join(fx.directory, 'boom.sqlite'))).mode & 0o777, 0o600);
 });
 
+test('native service persists a collected platform publish time', async (t) => {
+  const fx = await fixture();
+  t.after(() => fx.close());
+  const value = collectedBundle();
+  value.currentWork.publishedAt = '2026-08-14T13:41:00.000Z';
+  fx.service.ingestMetricsBundle(value);
+  assert.equal(fx.service.listWorks().works[0].publish_at, '2026-08-14T13:41:00.000Z');
+});
+
 test('settings and daily limit survive reopen; enabling queues but never dispatches externally', async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), 'boom-native-settings-'));
   t.after(() => rm(directory, { recursive:true, force:true }));

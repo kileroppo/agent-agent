@@ -159,7 +159,7 @@ export function bundleToRecord(bundle: any): any {
         favorites: favorites ?? 0,
         plays: optionalExactInt(current.plays),
         source_url: String(current.sourceUrl ?? bundle.sourceUrl ?? '').trim(),
-        publish_at: '',
+        publish_at: optionalIsoDate(current.publishedAt),
         metadata: {
             metrics_schema: METRICS_SCHEMA_VERSION,
             metrics_status: String(bundle.status ?? ''),
@@ -167,8 +167,15 @@ export function bundleToRecord(bundle: any): any {
             history_order: String(bundle.historyOrder ?? ''),
             history_sample_count: integer(bundle.sampleCount),
             history_works: bundle.historyWorks ?? [],
+            publish_time_source: String(current.publishTimeSource ?? '').trim() || null,
         },
     };
+}
+function optionalIsoDate(value: any): string {
+    if (typeof value !== 'string' || !value.trim())
+        return '';
+    const timestamp: any = Date.parse(value);
+    return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : '';
 }
 export function validateBundle(bundle: any): any {
     if (!isPlainObject(bundle) || bundle.schemaVersion !== METRICS_SCHEMA_VERSION)

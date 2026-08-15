@@ -25,6 +25,8 @@ type MetricWork = Readonly<{
   id: string | null;
   title: string;
   sourceUrl: string | null;
+  publishedAt?: string;
+  publishTimeSource?: 'platform_field' | 'douyin_aweme_id';
   likes: number | null;
   favorites: number | null;
   plays: number | null;
@@ -83,7 +85,7 @@ export class MediaCrawlerProAdapter implements ContentAcquisitionAdapter {
       });
       const payload = await response.json().catch(() => ({})) as JsonObject;
       if (!response.ok || payload.isok === false || payload.biz_code) throw new Error('MediaCrawlerPro 内容读取未成功。');
-      const normalized = normalizeContent(payload?.data?.content, { runtimeRequirement });
+      const normalized = normalizeContent(payload?.data?.content, { runtimeRequirement, provider });
       if (normalized.runtime.kind && ['remote_media', 'remote_audio'].includes(normalized.runtime.kind) && normalized.runtime.url && workspace) {
         normalized.runtime = await this.downloadAuthorizedMedia({
           source:resolvedSource,
@@ -119,7 +121,7 @@ export class MediaCrawlerProAdapter implements ContentAcquisitionAdapter {
         cookies
       });
       const detail = detailPayload?.data?.content || {};
-      const currentWork = sanitizeMetricWork(normalizeMetricWork(detail, source));
+      const currentWork = sanitizeMetricWork(normalizeMetricWork(detail, source, provider));
       const detailAuthor = normalizeMetricAuthor(detail.author, provider);
       const base = {
         schemaVersion:'agent.army/boom-metrics-bundle/v1',
@@ -174,7 +176,7 @@ export class MediaCrawlerProAdapter implements ContentAcquisitionAdapter {
         const page = listPayload?.data || {};
         const contents = Array.isArray(page.contents) ? page.contents : [];
         for (const content of contents) {
-          const work = normalizeMetricWork(content);
+          const work = normalizeMetricWork(content, null, provider);
           if (!work.id || work.id === targetId || seenIds.has(work.id)) continue;
           seenIds.add(work.id);
           historyWorks.push(work);
@@ -246,7 +248,7 @@ export class MediaCrawlerProAdapter implements ContentAcquisitionAdapter {
             content_url:work.sourceUrl,
             cookies
           });
-          const detail = normalizeMetricWork(payload?.data?.content || {}, work.sourceUrl);
+          const detail = normalizeMetricWork(payload?.data?.content || {}, work.sourceUrl, provider);
           if (detail.id && detail.id === work.id) enriched[index] = detail;
         } catch {
           // A missing/deleted history item must not invalidate the current work.
@@ -349,19 +351,69 @@ function normalizeMetricAuthor(value: unknown, provider: 'xhs' | 'dy') {
   };
 }
 
-function normalizeMetricWork(contentValue: unknown = {}, sourceFallback: string | null = null): MetricWork {
+function normalizeMetricWork(contentValue: unknown = {}, sourceFallback: string | null = null, provider: Provider | null = null): MetricWork {
   const content: JsonObject = contentValue && typeof contentValue === 'object' ? contentValue as JsonObject : {};
   const interaction = content.interaction && typeof content.interaction === 'object' ? content.interaction : {};
+  const platformPublishedAt = normalizePublishedAt(publishTimeValue(content));
+  const derivedPublishedAt = provider === 'dy' ? douyinPublishedAtFromAwemeId(content.id) : null;
+  const publishedAt = platformPublishedAt || derivedPublishedAt;
   return {
     id:String(content.id || '').trim() || null,
     title:String(content.title || '').trim().slice(0, 500),
     sourceUrl:isPublicHttpUrl(content.url) ? content.url : sourceFallback,
+    ...(publishedAt ? {
+      publishedAt,
+      publishTimeSource:platformPublishedAt ? 'platform_field' as const : 'douyin_aweme_id' as const
+    } : {}),
     likes:normalizeExactCount(interaction.liked_count),
     favorites:normalizeExactCount(interaction.collected_count),
     plays:normalizeExactCount(interaction.play_count),
     comments:normalizeExactCount(interaction.comment_count),
     shares:normalizeExactCount(interaction.share_count)
   };
+}
+
+function publishTimeValue(content: JsonObject): unknown {
+  const extra = content.extria_info && typeof content.extria_info === 'object'
+    ? content.extria_info as JsonObject
+    : {};
+  return content.published_at
+    ?? content.publishedAt
+    ?? content.publish_time
+    ?? content.publishTime
+    ?? content.create_time
+    ?? content.createTime
+    ?? extra.published_at
+    ?? extra.publish_time
+    ?? extra.create_time;
+}
+
+function normalizePublishedAt(value: unknown): string | null {
+  if (value == null || value === '') return null;
+  let timestamp = NaN;
+  if (typeof value === 'number' || (typeof value === 'string' && /^\d+(?:\.\d+)?$/.test(value.trim()))) {
+    const numeric = Number(value);
+    timestamp = numeric < 1_000_000_000_000 ? numeric * 1000 : numeric;
+  } else if (typeof value === 'string') {
+    timestamp = Date.parse(value.trim());
+  }
+  const earliest = Date.UTC(2000, 0, 1);
+  const latest = Date.now() + 24 * 60 * 60 * 1000;
+  return Number.isFinite(timestamp) && timestamp >= earliest && timestamp <= latest
+    ? new Date(timestamp).toISOString()
+    : null;
+}
+
+function douyinPublishedAtFromAwemeId(value: unknown): string | null {
+  const id = String(value ?? '').trim();
+  if (!/^\d{18,20}$/.test(id)) return null;
+  try {
+    const seconds = Number(BigInt(id) >> 32n);
+    const publishedAt = normalizePublishedAt(seconds);
+    return publishedAt && Date.parse(publishedAt) >= Date.UTC(2016, 8, 1) ? publishedAt : null;
+  } catch {
+    return null;
+  }
 }
 
 function sanitizeMetricWork(work: MetricWork): MetricWork {
@@ -403,12 +455,14 @@ function isLoopback(host: string): boolean {
   return host === '127.0.0.1' || host === '::1' || host === 'localhost';
 }
 
-function normalizeContent(contentValue: unknown = {}, { runtimeRequirement }: Readonly<{ runtimeRequirement?: string | null }> = {}): NormalizedContent {
+function normalizeContent(contentValue: unknown = {}, { runtimeRequirement, provider = null }: Readonly<{ runtimeRequirement?: string | null; provider?: Provider | null }> = {}): NormalizedContent {
   const content: JsonObject = contentValue && typeof contentValue === 'object' ? contentValue as JsonObject : {};
   const images = Array.isArray(content.image_urls) ? content.image_urls.filter(Boolean) : [];
   const video = isPublicHttpUrl(content.video_download_url) ? content.video_download_url : null;
   const audio = isPublicHttpUrl(content.extria_info?.audio_url) ? content.extria_info.audio_url : null;
   const durationSeconds = Number(content.extria_info?.duration);
+  const publishedAt = normalizePublishedAt(publishTimeValue(content))
+    || (provider === 'dy' ? douyinPublishedAtFromAwemeId(content.id) : null);
   const basic = {
     title: String(content.title || '').slice(0, 500),
     description: String(content.desc || '').slice(0, 16000),
@@ -416,6 +470,7 @@ function normalizeContent(contentValue: unknown = {}, { runtimeRequirement }: Re
     author: normalizeAuthor(content.author),
     interaction: content.interaction || null,
     contentType: content.content_type || null,
+    ...(publishedAt ? { publishedAt } : {}),
     ...(Number.isFinite(durationSeconds) && durationSeconds > 0 ? { durationSeconds } : {})
   };
   const contentItems: Record<string, unknown> = { basic_content: basic };
