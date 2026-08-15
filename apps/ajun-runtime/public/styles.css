@@ -2841,6 +2841,24 @@ button:disabled {
   padding: 0 15px 15px;
 }
 
+.boom-task-link {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 14px;
+  border-radius: 11px;
+  background: var(--mint);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 720;
+  text-decoration: none;
+}
+
+.boom-task-link:hover {
+  background: var(--mint-deep);
+}
+
 .boom-score-detail {
   margin: 0 15px 15px;
   padding: 12px;
@@ -4217,7 +4235,8 @@ textarea:focus {
     flex-direction: column;
   }
 
-  .boom-item-actions button {
+  .boom-item-actions button,
+  .boom-item-actions .boom-task-link {
     width: 100%;
   }
 }

@@ -341,7 +341,7 @@ export class BoomMonitorDatabase {
         return this.connection.prepare(`
       SELECT w.id,w.platform,c.creator_id AS creator_external_id,c.creator_name,w.work_id,w.title,w.publish_at,
       w.likes,w.favorites,w.plays,s.score_version,s.grade,s.r_value,s.m_value,s.tier,s.baseline_metric,s.updated_at AS scored_at,
-      aq.status AS analysis_status FROM works w JOIN creators c ON c.id=w.creator_id
+      aq.status AS analysis_status,aq.army_task_id FROM works w JOIN creators c ON c.id=w.creator_id
       LEFT JOIN scores s ON s.work_id=w.id LEFT JOIN analysis_queue aq ON aq.work_id=w.id
       WHERE ${conditions.join(' AND ')} ORDER BY COALESCE(s.updated_at,w.updated_at) DESC LIMIT ?
     `).all(...parameters).map(row);

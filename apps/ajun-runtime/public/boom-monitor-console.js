@@ -169,7 +169,7 @@ export function createBoomMonitorConsole({ root, api, escapeHtml, formatDate }) 
         const normalized = ['T1', 'T2', 'T3'].includes(grade) ? grade : 'N0';
         return `<span class="boom-grade ${normalized.toLowerCase()}">${escapeHtml(normalized)}</span>`;
     }
-    function renderWorks(works) {
+    function renderWorks(works, taskProgress = new Map()) {
         if (!works.length) {
             elements.workList.innerHTML = '<p class="boom-empty">还没有符合条件的作品。</p>';
             return;
@@ -182,7 +182,15 @@ export function createBoomMonitorConsole({ root, api, escapeHtml, formatDate }) 
                 && (!analysisStatus || analysisStatus === 'cancelled' || (analysisStatus === 'queued' && !autoHandlesWork));
             const workTitle = work.title || work.work_id || `作品 ${work.id}`;
             const detailId = `boom-score-detail-${work.id}`;
-            const status = workStatusLabel(analysisStatus, autoHandlesWork);
+            const taskId = String(work.army_task_id || '');
+            const task = taskId ? taskProgress.get(taskId) : null;
+            const pendingApprovalId = String(task?.pendingApproval?.approvalId || '');
+            const status = workStatusLabel(analysisStatus, autoHandlesWork, task);
+            const progressAction = pendingApprovalId
+                ? `<button type="button" data-boom-approve="${escapeHtml(pendingApprovalId)}">确认并继续</button>`
+                : taskId
+                    ? `<a class="boom-task-link" href="/tasks/${encodeURIComponent(taskId)}">查看拆解进度</a>`
+                    : '';
             return `
       <article class="boom-list-item">
         <div class="boom-item-head">
@@ -192,7 +200,7 @@ export function createBoomMonitorConsole({ root, api, escapeHtml, formatDate }) 
         <p class="boom-item-reason">${escapeHtml(gradeReason(work.grade))}</p>
         <div class="boom-item-actions">
           <button type="button" class="secondary-action" data-boom-detail="${work.id}" aria-label="查看“${escapeHtml(workTitle)}”的判断依据" aria-controls="${detailId}" aria-expanded="false">查看判断依据</button>
-          ${canDispatch ? `<button type="button" data-boom-dispatch-work="${work.id}" aria-label="开始拆解“${escapeHtml(workTitle)}”">开始拆解</button>` : ''}
+          ${canDispatch ? `<button type="button" data-boom-dispatch-work="${work.id}" aria-label="开始拆解“${escapeHtml(workTitle)}”">开始拆解</button>` : progressAction}
         </div>
         <div id="${detailId}" class="boom-score-detail" data-boom-detail-output="${work.id}" role="status" aria-live="polite" aria-atomic="true" hidden></div>
       </article>`;
@@ -248,7 +256,9 @@ export function createBoomMonitorConsole({ root, api, escapeHtml, formatDate }) 
                     ? '当前没有待派发作品。'
                     : result.status === 'external_dispatch_disabled'
                         ? '军团任务入口未就绪，作品仍保留在队列。'
-                        : `本次处理 ${result.processed ?? 0} 条。`;
+                        : Number(result.processed || 0) > 0
+                            ? '拆解任务已创建。后续进度和需要你确认的步骤会显示在作品卡上。'
+                            : '当前没有新的作品需要处理。';
             setMessage(message, result.status === 'ok' ? 'ready' : '');
             await loadSettings();
             await Promise.all([loadWorks(), loadQueues()]);
@@ -270,7 +280,42 @@ export function createBoomMonitorConsole({ root, api, escapeHtml, formatDate }) 
         if (elements.filterCreator.value.trim())
             query.set('creator_id', elements.filterCreator.value.trim());
         const payload = await api(`${API_ROOT}/works?${query}`);
-        renderWorks(payload.works || []);
+        const works = payload.works || [];
+        const taskIds = [...new Set(works.map((work) => String(work.army_task_id || '')).filter(Boolean))];
+        const taskEntries = await Promise.all(taskIds.map(async (taskId) => {
+            try {
+                const detail = await api(`/api/tasks/${encodeURIComponent(taskId)}`);
+                return [taskId, detail.task || detail];
+            }
+            catch {
+                return [taskId, null];
+            }
+        }));
+        renderWorks(works, new Map(taskEntries));
+    }
+    async function approveAndContinue(approvalId, triggerButton) {
+        if (triggerButton?.disabled)
+            return;
+        if (!window.confirm('确认继续这条拆解吗？这里只会取证和分析，不会自动发布内容。'))
+            return;
+        const originalLabel = triggerButton.textContent;
+        triggerButton.disabled = true;
+        triggerButton.textContent = '正在继续…';
+        try {
+            await api(`/api/approvals/${encodeURIComponent(approvalId)}/approve`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ decisionBy: '爆款雷达本机确认', decisionReason: '已在爆款雷达确认只进行素材取证和内容拆解，不自动发布。' }),
+            });
+            setMessage('已确认，系统会继续取证和拆解。你可以关闭页面，稍后回来查看进度。', 'ready');
+            await Promise.all([loadWorks(), loadQueues()]);
+        }
+        finally {
+            if (triggerButton?.isConnected) {
+                triggerButton.disabled = false;
+                triggerButton.textContent = originalLabel;
+            }
+        }
     }
     function queueItem(item) {
         const title = item.title || item.work_id || `作品 ${item.work_id || item.id}`;
@@ -352,6 +397,9 @@ export function createBoomMonitorConsole({ root, api, escapeHtml, formatDate }) 
             const dispatch = event.target.closest('[data-boom-dispatch-work]');
             if (dispatch)
                 dispatchManually(dispatch.dataset.boomDispatchWork, dispatch).catch(showError);
+            const approval = event.target.closest('[data-boom-approve]');
+            if (approval)
+                approveAndContinue(approval.dataset.boomApprove, approval).catch(showError);
         });
         elements.analysisList.addEventListener('click', (event) => {
             const dispatch = event.target.closest('[data-boom-dispatch-work]');
@@ -492,7 +540,13 @@ function platformLabel(platform) {
 function queueStatusLabel(status) {
     return { queued: '等待处理', running: '处理中', completed: '已完成', failed: '失败', dispatched: '已派发', dispatching: '派发中', dispatch_failed: '派发失败', waiting_source: '等待来源', cancelled: '已关闭' }[status] || status || '未入队';
 }
-function workStatusLabel(status, autoHandlesWork) {
+function workStatusLabel(status, autoHandlesWork, task = null) {
+    if (task?.pendingApproval?.approvalId || ['pending_approval', 'waiting_approval'].includes(String(task?.status || '')))
+        return ' · 等你确认';
+    if (['succeeded', 'completed'].includes(String(task?.status || '')))
+        return ' · 已完成';
+    if (['failed', 'cancelled', 'rejected'].includes(String(task?.status || '')))
+        return ' · 拆解未完成';
     return {
         queued: autoHandlesWork ? ' · 等待自动拆解' : ' · 等待手动拆解',
         running: ' · 拆解中',

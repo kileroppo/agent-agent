@@ -70,6 +70,11 @@ test('单作品操作具有作品上下文、动态详情状态和请求防重�
 
   assert.match(consoleSource, /aria-label="查看“\$\{escapeHtml\(workTitle\)\}”的判断依据"/);
   assert.match(consoleSource, /aria-label="开始拆解“\$\{escapeHtml\(workTitle\)\}”"/);
+  assert.match(consoleSource, /data-boom-approve=/);
+  assert.match(consoleSource, /确认并继续/);
+  assert.match(consoleSource, /\/api\/approvals\/\$\{encodeURIComponent\(approvalId\)\}\/approve/);
+  assert.match(consoleSource, /\/api\/tasks\/\$\{encodeURIComponent\(taskId\)\}/);
+  assert.match(consoleSource, /查看拆解进度/);
   assert.match(consoleSource, /aria-controls="\$\{detailId\}" aria-expanded="false"/);
   assert.match(consoleSource, /role="status" aria-live="polite" aria-atomic="true"/);
   assert.match(consoleSource, /triggerButton\?\.setAttribute\('aria-expanded', 'true'\)/);
@@ -107,6 +112,7 @@ test('需要处理只收异常和额度耗尽，正常派发过程留在作品�
   assert.match(consoleSource, /status === 'queued'[\s\S]*remaining_today/);
   assert.match(consoleSource, /dispatching: ' · 拆解中'/);
   assert.match(consoleSource, /completed: ' · 已完成'/);
+  assert.match(consoleSource, /return ' · 等你确认'/);
   assert.match(consoleSource, /data-boom-focus-intake/);
   assert.match(consoleSource, /data-boom-open-settings/);
 });

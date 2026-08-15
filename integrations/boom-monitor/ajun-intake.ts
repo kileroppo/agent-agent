@@ -51,7 +51,7 @@ export async function dispatchBoomSignal(input: any, { missions }: any = {}) {
     const metricSummary = [
         `命中 ${signal.grade}，R=${signal.rValue.toFixed(4)}，M=${signal.mValue.toFixed(4)}`,
         `点赞=${signal.observedMetrics.likes}，收藏=${signal.observedMetrics.favorites}，播放=${signal.observedMetrics.plays}，粉丝快照=${signal.observedMetrics.followers}`,
-        `基线为发布前最近 ${signal.baseline.sampleCount}/${signal.baseline.historyWindow} 条作品核心指标中位数 ${signal.baseline.metricMedian ?? '未提供'}`,
+        `基线为该作品之前最近 ${signal.baseline.sampleCount}/${signal.baseline.historyWindow} 条作品核心指标中位数 ${signal.baseline.metricMedian ?? '未提供'}`,
         `指标证据：${signal.evidenceKind}，来源 ${signal.sourceRef}，观察时间 ${signal.observedAt || '未提供'}`,
         '该评分只用于筛选和排序，不构成传播因果判断。',
     ].join('；');

@@ -36,6 +36,7 @@ test('T3 爆款信号映射为小D到小拆的同一军团任务', async () => {
   assert.deepEqual(received.items[1].dependsOn, ['acquire-transcript']);
   assert.equal(received.items[1].depth, 'full');
   assert.equal(received.items[1].context.boomSignal.rValue, 8.6);
+  assert.doesNotMatch(received.items.map((item) => item.description).join('\n'), /外发|发布|删除|付款|付费|扩权|敏感/);
 });
 
 test('没有来源链接时停止派发', () => {
@@ -70,6 +71,7 @@ test('军团分派保留爆款信号到小拆子任务上下文', async () => {
   };
   const missions = new CrossAgentMissionService({ tasks, store, governance:{} });
   await dispatchBoomSignal(signal, { missions });
+  assert.equal(created[0].context.missionSafeOnly, true);
   const analysis = created.find((item) => item.taskType === 'content.video-benchmark-analysis');
   assert.equal(analysis.input, undefined);
   assert.equal(analysis.context.boomSignal.workId, 'work-1');

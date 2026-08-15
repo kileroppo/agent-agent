@@ -121,6 +121,7 @@ test('in-process callbacks collect metrics and dispatch a trackable mission with
   assert.equal(calls[1][1].scoreVersion, 'v2');
   assert.equal(service.listAnalysis().items[0].status, 'dispatched');
   assert.equal(service.listAnalysis().items[0].army_task_id, 'mission-1');
+  assert.equal(service.listWorks().works[0].army_task_id, 'mission-1');
 });
 
 test('抖音推荐首页会明确要求作品链接且不会调用指标采集器', async (t) => {
