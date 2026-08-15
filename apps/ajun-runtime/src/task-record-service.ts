@@ -4,10 +4,12 @@ export class TaskRecordService {
     store: any;
     taskDetailBaseUrl: any;
     taskRecovery: any;
-    constructor({ store, taskDetailBaseUrl = '', taskRecovery = null }: any) {
+    paperclipBaseUrl: any;
+    constructor({ store, taskDetailBaseUrl = '', taskRecovery = null, paperclipBaseUrl = process.env.PAPERCLIP_URL || 'http://127.0.0.1:3100' }: any) {
         this.store = store;
         this.taskDetailBaseUrl = taskDetailBaseUrl;
         this.taskRecovery = taskRecovery;
+        this.paperclipBaseUrl = safeHttpBaseUrl(paperclipBaseUrl);
     }
     async list(query: any = {}): Promise<any> {
         const [page, approvals] = await Promise.all([
@@ -29,7 +31,7 @@ export class TaskRecordService {
         const recoveryView: any = typeof this.taskRecovery?.view === 'function'
             ? await this.taskRecovery.view(task, { audience })
             : null;
-        return presentRecord(task, approvals, this.taskDetailBaseUrl, recoveryView, audience);
+        return presentRecord(task, approvals, this.taskDetailBaseUrl, recoveryView, audience, this.paperclipBaseUrl);
     }
 }
 function presentRecordSummary(task: any, approvals: any, detailBaseUrl: any): any {
@@ -47,7 +49,7 @@ function presentRecordSummary(task: any, approvals: any, detailBaseUrl: any): an
         presentation: presentTask(task, { approvals, detailBaseUrl }),
     };
 }
-function presentRecord(task: any, approvals: any, detailBaseUrl: any, recoveryView: any = null, audience: any = 'lan'): any {
+function presentRecord(task: any, approvals: any, detailBaseUrl: any, recoveryView: any = null, audience: any = 'lan', paperclipBaseUrl: any = ''): any {
     const pendingApproval: any = approvals.find((approval: any): any => approval?.status === 'pending' && (task.approvalRefs || []).includes(approval.approvalId));
     const common: Record<string, any> = {
         taskId: cleanText(task.taskId, 120),
@@ -64,6 +66,7 @@ function presentRecord(task: any, approvals: any, detailBaseUrl: any, recoveryVi
         return common;
     return {
         ...common,
+        paperclipIssue: safePaperclipIssue(task, paperclipBaseUrl),
         taskType: cleanText(task.taskType, 120) || null,
         assigneeAgentId: cleanText(task.assigneeAgentId, 120) || null,
         parentTaskId: cleanText(task.parentTaskId, 120) || null,
@@ -73,6 +76,35 @@ function presentRecord(task: any, approvals: any, detailBaseUrl: any, recoveryVi
         error: safeOwnerError(task.error),
         recovery: safeOwnerRecovery(task.recovery),
     };
+}
+function safePaperclipIssue(task: any, baseUrl: any): any {
+    const issueId: any = safePaperclipIssueRef(task?.governance?.paperclipIssueId);
+    const identifier: any = safePaperclipIssueRef(task?.governance?.paperclipIssueIdentifier);
+    const ref: any = identifier || issueId;
+    if (!ref || !baseUrl)
+        return null;
+    return {
+        identifier: identifier || null,
+        detailUrl: new URL(`/issues/${encodeURIComponent(ref)}`, `${baseUrl}/`).toString(),
+    };
+}
+function safePaperclipIssueRef(value: any): any {
+    const text: any = cleanText(value, 120);
+    return /^[a-z0-9][a-z0-9-]{0,119}$/i.test(text) ? text : '';
+}
+function safeHttpBaseUrl(value: any): any {
+    try {
+        const url: any = new URL(String(value || '').trim());
+        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password)
+            return '';
+        url.pathname = '/';
+        url.search = '';
+        url.hash = '';
+        return url.toString().replace(/\/$/, '');
+    }
+    catch {
+        return '';
+    }
 }
 function safeArtifactMetadata(value: any): any {
     if (!Array.isArray(value))

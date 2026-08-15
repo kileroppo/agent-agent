@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   decodeTaskRecordCursor,
   isRoutineHealthTask,
+  isInternalDiagnosticTask,
   queryTaskRecordsInMemory,
   taskRecordView,
   taskRecordViewForTask,
@@ -15,6 +16,15 @@ const tasks = [
   task('done', 'succeeded', '2026-08-07T08:00:00.000Z', { title:'公开资料整理', agentId:'intel-researcher' }),
   task('routine', 'succeeded', '2026-08-07T07:00:00.000Z', { title:'A君定时本机巡检', taskType:'operations.health-review', channel:'paperclip' }),
   task('failed-routine', 'failed', '2026-08-07T06:00:00.000Z', { title:'A君定时本机巡检', taskType:'operations.health-review', channel:'paperclip' }),
+  {
+    ...task('diagnosis', 'succeeded', '2026-08-07T05:00:00.000Z', { title:'只读诊断：补充演示材料', taskType:'operations.failure-recovery', channel:'internal-recovery' }),
+    recovery:{ mode:'read_only_diagnosis' },
+    input:{ title:'只读诊断：补充演示材料', context:{ diagnosisOnly:true } },
+  },
+  {
+    ...task('diagnosis-review', 'failed', '2026-08-07T04:00:00.000Z', { title:'交付质量复核：只读诊断', taskType:'governance.assurance-review', channel:'ajun-runtime' }),
+    parentTaskId:'diagnosis',
+  },
 ];
 
 test('任务记录按用户意图分组，并只把正常例行巡检收进摘要', () => {
@@ -23,12 +33,15 @@ test('任务记录按用户意图分组，并只把正常例行巡检收进摘�
   assert.equal(taskRecordView('succeeded'), 'completed');
   assert.equal(taskRecordViewForTask({ status:'blocked' }), 'needs_action');
   assert.equal(isRoutineHealthTask(tasks[3]), true);
+  assert.equal(isInternalDiagnosticTask(tasks[5], tasks), true);
+  assert.equal(isInternalDiagnosticTask(tasks[6], tasks), true);
 
   const page = queryTaskRecordsInMemory(tasks, { view:'all' });
   assert.deepEqual(page.items.map((item) => item.taskId), ['needs-input', 'active', 'done']);
   assert.deepEqual(page.counts, { needs_action:1, active:1, completed:1, all:3 });
   assert.equal(page.routineSummary.hidden, 2);
   assert.equal(page.routineSummary.attention, 1);
+  assert.equal(page.items.some((item) => item.taskId.startsWith('diagnosis')), false);
 });
 
 test('任务记录支持多词搜索、员工筛选和稳定游标分页', () => {

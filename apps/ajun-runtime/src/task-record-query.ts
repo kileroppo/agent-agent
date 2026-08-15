@@ -22,6 +22,14 @@ export function isRoutineHealthTask(task: any): any {
 export function isHiddenRoutineTask(task: any, includeRoutine: any = false): any {
     return !includeRoutine && isRoutineHealthTask(task);
 }
+export function isInternalDiagnosticTask(task: any, tasks: any = []): any {
+    if (isReadOnlyDiagnosisTask(task))
+        return true;
+    if (task?.taskType !== 'governance.assurance-review')
+        return false;
+    const parentTaskId: any = String(task?.parentTaskId || '').trim();
+    return Boolean(parentTaskId) && tasks.some((candidate: any): any => candidate?.taskId === parentTaskId && isReadOnlyDiagnosisTask(candidate));
+}
 export function taskRecordViewForTask(task: any, tasks: any = []): any {
     if (VIEW_STATUSES.completed.has(task?.status))
         return 'completed';
@@ -57,7 +65,7 @@ export function queryTaskRecordsInMemory(tasks: any, input: any = {}): any {
     const ordered: any = [...(Array.isArray(tasks) ? tasks : [])].sort(compareTaskRecords);
     const baseMatches: any = ordered.filter((task: any): any => matchesBaseQuery(task, query));
     const hiddenRoutine: any = baseMatches.filter((task: any): any => isHiddenRoutineTask(task, query.includeRoutine));
-    const visible: any = baseMatches.filter((task: any): any => !isHiddenRoutineTask(task, query.includeRoutine));
+    const visible: any = baseMatches.filter((task: any): any => !isHiddenRoutineTask(task, query.includeRoutine) && !isInternalDiagnosticTask(task, ordered));
     const counts: any = Object.fromEntries(TASK_RECORD_VIEWS.map((view: any): any => [
         view,
         visible.filter((task: any): any => view === 'all' || taskRecordViewForTask(task, ordered) === view).length,
@@ -81,6 +89,12 @@ export function queryTaskRecordsInMemory(tasks: any, input: any = {}): any {
         routineSummary: routineSummary(hiddenRoutine),
         query: { ...query, cursor: query.cursor ? input.cursor : null },
     };
+}
+function isReadOnlyDiagnosisTask(task: any): any {
+    return task?.taskType === 'operations.failure-recovery'
+        && task?.source?.channel === 'internal-recovery'
+        && task?.recovery?.mode === 'read_only_diagnosis'
+        && task?.input?.context?.diagnosisOnly === true;
 }
 export function encodeTaskRecordCursor(task: any): any {
     if (!task)

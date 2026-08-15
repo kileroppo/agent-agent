@@ -3651,45 +3651,39 @@ textarea:focus {
 
 .record-diagnosis-outcome {
   display: grid;
-  gap: 12px;
+  justify-items: start;
+  gap: 8px;
   margin: 18px 0 4px;
-  padding: 18px;
-  border: 1px solid var(--mint-line);
+  padding: 15px 16px;
+  border: 1px solid var(--line);
   border-radius: 12px;
-  background: var(--surface-mint);
+  background: var(--surface);
 }
 
 .record-diagnosis-outcome h3 {
   margin: 0;
-  font-size: 17px;
-  line-height: 1.5;
+  font-size: 18px;
+  line-height: 1.35;
 }
 
-.record-outcome-impact,
-.record-outcome-next {
-  display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
-  gap: 10px;
-}
-
-.record-outcome-impact strong,
-.record-outcome-next strong {
-  color: var(--ink);
-  font-size: 11px;
-}
-
-.record-outcome-impact p,
-.record-outcome-next p {
+.record-outcome-summary,
+.record-outcome-fallback {
   margin: 0;
   color: var(--ink-soft);
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 1.55;
 }
 
-.record-outcome-next {
-  padding: 11px 12px;
-  border-radius: 8px;
-  background: var(--surface);
+.record-paperclip-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  margin-top: 2px;
+  padding: 0 14px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 720;
+  text-decoration: none;
 }
 
 .record-recovery-link {

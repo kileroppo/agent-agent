@@ -59,6 +59,7 @@ test('任务记录列表只返回行摘要，完整正文和产物按选中详�
   }
   assert.equal(Object.hasOwn(detail.artifactRefs[0], 'data'), false);
   assert.equal(Object.hasOwn(detail.artifactRefs[0], 'location'), false);
+  assert.equal(Object.hasOwn(detail, 'paperclipIssue'), false);
 });
 
 test('失败记录列表和详情共享稳定 attention 契约而不暴露列表原始产物', async () => {
@@ -139,6 +140,7 @@ test('失败记录列表和详情共享稳定 attention 契约而不暴露列表
   assert.equal(Object.hasOwn(detail, 'routing'), false);
   assert.equal(Object.hasOwn(detail, 'source'), false);
   assert.equal(Object.hasOwn(detail, 'governance'), false);
+  assert.equal(detail.paperclipIssue, null);
   assert.equal(Object.hasOwn(detail.recovery, 'events'), false);
   assert.equal(Object.hasOwn(detail.error, 'message'), false);
 
@@ -151,4 +153,29 @@ test('失败记录列表和详情共享稳定 attention 契约而不暴露列表
     { taskId:failed.taskId, audience:'local-owner' },
     { taskId:failed.taskId, audience:'lan' },
   ]);
+});
+
+test('本机负责人详情只投影可直接打开的 Paperclip Issue 链接', async () => {
+  const linkedTask = {
+    ...task,
+    governance:{
+      paperclipIssueId:'65cea30a-df85-4a78-b910-309586d27aa8',
+      paperclipIssueIdentifier:'AGE-1462',
+    },
+  };
+  const service = new TaskRecordService({
+    store:{
+      getTask:async () => linkedTask,
+      listApprovals:async () => [],
+    },
+    paperclipBaseUrl:'http://127.0.0.1:3100/api?ignored=1',
+  });
+
+  const ownerDetail = await service.detail(linkedTask.taskId, { audience:'local-owner' });
+  assert.deepEqual(ownerDetail.paperclipIssue, {
+    identifier:'AGE-1462',
+    detailUrl:'http://127.0.0.1:3100/issues/AGE-1462',
+  });
+  const lanDetail = await service.detail(linkedTask.taskId, { audience:'lan' });
+  assert.equal(Object.hasOwn(lanDetail, 'paperclipIssue'), false);
 });

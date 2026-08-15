@@ -33,6 +33,7 @@ export class SQLiteTaskStore {
         const base: any = taskRecordBaseSql(query);
         const visible: any[] = [...base.clauses];
         const visibleParams: any[] = [...base.params];
+        visible.push(`NOT (${internalDiagnosticTaskSql()})`);
         if (!query.includeRoutine)
             visible.push(`NOT (${routineTaskSql()})`);
         const countRow: any = this.database.prepare(`
@@ -550,6 +551,25 @@ function routineTaskSql(): any {
     AND (
       trim(COALESCE(json_extract(data_json, '$.input.title'), '')) = 'A君定时本机巡检'
       OR trim(COALESCE(json_extract(data_json, '$.input.description'), '')) LIKE 'agent-army:operations-health-v1%'
+    )
+  )`;
+}
+function internalDiagnosticTaskSql(): any {
+    const diagnosis: any = (alias: any): any => `(
+    json_extract(${alias}.data_json, '$.taskType') = 'operations.failure-recovery'
+    AND json_extract(${alias}.data_json, '$.source.channel') = 'internal-recovery'
+    AND json_extract(${alias}.data_json, '$.recovery.mode') = 'read_only_diagnosis'
+    AND json_extract(${alias}.data_json, '$.input.context.diagnosisOnly') = 1
+  )`;
+    return `(
+    ${diagnosis('tasks')}
+    OR (
+      json_extract(tasks.data_json, '$.taskType') = 'governance.assurance-review'
+      AND EXISTS (
+        SELECT 1 FROM tasks AS diagnostic_parent
+        WHERE diagnostic_parent.task_id = json_extract(tasks.data_json, '$.parentTaskId')
+          AND ${diagnosis('diagnostic_parent')}
+      )
     )
   )`;
 }

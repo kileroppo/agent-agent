@@ -70,6 +70,19 @@ test('SQLite Store 在服务端完成任务筛选、计数、例行降噪和游�
         fixtureTask('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'succeeded', '2026-08-07T08:00:00.000Z', '公开资料整理', 'intel-researcher'),
         fixtureTask('dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'succeeded', '2026-08-07T07:00:00.000Z', 'A君定时本机巡检', 'operations', true),
         fixtureTask('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 'failed', '2026-08-07T06:00:00.000Z', 'A君定时本机巡检', 'operations', true),
+        {
+          ...fixtureTask('ffffffff-ffff-4fff-8fff-ffffffffffff', 'succeeded', '2026-08-07T05:00:00.000Z', '只读诊断：补充演示材料', 'operations'),
+          taskType:'operations.failure-recovery',
+          source:{ channel:'internal-recovery' },
+          recovery:{ mode:'read_only_diagnosis' },
+          input:{ title:'只读诊断：补充演示材料', context:{ diagnosisOnly:true } },
+        },
+        {
+          ...fixtureTask('99999999-9999-4999-8999-999999999999', 'failed', '2026-08-07T04:00:00.000Z', '交付质量复核：只读诊断', 'reviewer'),
+          taskType:'governance.assurance-review',
+          parentTaskId:'ffffffff-ffff-4fff-8fff-ffffffffffff',
+          source:{ channel:'ajun-runtime' },
+        },
       ],
       approvals:[], proposals:[], testInstances:[], conversationContexts:{},
     };
@@ -80,6 +93,7 @@ test('SQLite Store 在服务端完成任务筛选、计数、例行降噪和游�
     assert.deepEqual(first.items.map((item) => item.taskId), snapshot.tasks.slice(0, 2).map((item) => item.taskId));
     assert.equal(first.routineSummary.hidden, 2);
     assert.equal(first.routineSummary.attention, 1);
+    assert.equal(first.counts.all, 3);
     assert.ok(first.nextCursor);
 
     const next = await store.queryTasks({ view:'all', limit:2, cursor:first.nextCursor });

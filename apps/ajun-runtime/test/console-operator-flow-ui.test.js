@@ -54,6 +54,7 @@ test('任务 pathname 是详情真相，切往其他 hash 时清除详情 pathna
 
 test('attention 只接受安全动作键并保留恢复任务链接', () => {
   const view = taskAttentionView({
+    paperclipIssue:{ identifier:'AGE-1462', detailUrl:'http://127.0.0.1:3100/issues/AGE-1462' },
     presentation:{
       attention:{
         kind:'failed',
@@ -86,10 +87,12 @@ test('attention 只接受安全动作键并保留恢复任务链接', () => {
   assert.equal(view.verification.diagnosis.conclusion, 'Paperclip 执行链结束，但没有形成可验证产物。');
   assert.equal(view.technical.code, 'controlled_provider_vision_required');
   const html = renderAttentionDetail(view, null, escapeHtml);
-  assert.match(html, /诊断完成[\s\S]*影响[\s\S]*下一步[\s\S]*为什么这样判断/);
+  assert.match(html, /Paperclip 执行失败[\s\S]*未生成可验证产物，原任务未完成/);
+  assert.match(html, /href="http:\/\/127\.0\.0\.1:3100\/issues\/AGE-1462"[\s\S]*打开 Paperclip 失败记录/);
+  assert.match(html, /诊断依据[\s\S]*诊断记录/);
+  assert.doesNotMatch(html, /诊断完成|<strong>影响<\/strong>|<strong>下一步<\/strong>|为什么这样判断/);
   assert.doesNotMatch(html, /发生了什么|剩余风险|还没有执行恢复动作/);
-  assert.match(html, /Paperclip 执行链结束，但没有形成可验证产物/);
-  assert.equal((html.match(/record-attention-primary/g) || []).length, 0);
+  assert.equal((html.match(/record-attention-primary/g) || []).length, 1);
 
   const confirmingHtml = renderAttentionDetail(view, {
     status:'confirming',

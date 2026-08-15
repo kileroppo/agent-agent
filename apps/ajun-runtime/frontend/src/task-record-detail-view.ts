@@ -26,6 +26,7 @@ export function taskAttentionView(task: any = {}): any {
         remainingRisks: cleanAttentionText(source.remainingRisks, 1800),
         nextAction: cleanAttentionText(source.nextAction, 1000) || '请根据当前原因决定下一步。',
         actions,
+        paperclipIssue: safePaperclipIssue(task?.paperclipIssue),
         verification: attentionVerification(source.verification),
         technical: attentionTechnical(source.technical),
     };
@@ -34,7 +35,7 @@ export function renderAttentionDetail(attention: any, actionState: any, escapeHt
     const recovery: any = actionState?.status === 'confirming' ? attention.verification : actionState || attention.verification;
     const diagnosis: any = actionState?.status === 'confirming' ? null : recoveryDiagnosis(recovery?.diagnosis);
     if (diagnosis)
-        return renderDiagnosisOutcome(diagnosis, recovery, escapeHtml);
+        return renderDiagnosisOutcome(diagnosis, recovery, attention.paperclipIssue, escapeHtml);
     const primaryIndex: any = Math.max(0, attention.actions.findIndex((action: any): any => action.emphasis === 'primary'));
     const submitting: any = actionState?.status === 'submitting';
     const confirmingAction: any = actionState?.status === 'confirming'
@@ -73,18 +74,22 @@ export function renderAttentionDetail(attention: any, actionState: any, escapeHt
   </section>`;
 }
 
-function renderDiagnosisOutcome(diagnosis: any, recovery: any, escapeHtml: any): any {
+function renderDiagnosisOutcome(diagnosis: any, recovery: any, paperclipIssue: any, escapeHtml: any): any {
     const recoveryPath: any = safeTaskDetailPath(recovery?.detailPath, recovery?.taskId);
     const recoveryLink: any = recoveryPath
-        ? `<a class="record-recovery-link" href="${escapeHtml(recoveryPath)}">查看诊断任务</a>`
+        ? `<a class="record-recovery-link" href="${escapeHtml(recoveryPath)}">诊断记录</a>`
         : '';
+    const paperclipLink: any = paperclipIssue?.detailUrl
+        ? `<a class="record-attention-primary record-paperclip-link" href="${escapeHtml(paperclipIssue.detailUrl)}" target="_blank" rel="noopener">打开 Paperclip 失败记录</a>`
+        : '';
+    const fallbackNext: any = paperclipLink
+        ? ''
+        : `<p class="record-outcome-fallback">${escapeHtml(diagnosis.nextAction)}</p>`;
     return `<section class="record-diagnosis-outcome" aria-label="只读诊断结果">
-    <span class="record-outcome-label">诊断完成</span>
-    <h3>${escapeHtml(diagnosis.conclusion)}</h3>
-    <div class="record-outcome-impact"><strong>影响</strong><p>${escapeHtml(diagnosis.impact)}</p></div>
-    <div class="record-outcome-next"><strong>下一步</strong><p>${escapeHtml(diagnosis.nextAction)}</p></div>
-    <details class="record-attention-evidence"><summary>为什么这样判断</summary><p>${escapeHtml(diagnosis.evidence)}</p></details>
-    ${recoveryLink}
+    <h3>${escapeHtml(diagnosisHeadline(diagnosis))}</h3>
+    <p class="record-outcome-summary">${escapeHtml(diagnosisSummary(diagnosis))}</p>
+    ${paperclipLink}${fallbackNext}
+    <details class="record-attention-evidence"><summary>诊断依据</summary><p>${escapeHtml(diagnosis.evidence)}</p>${recoveryLink}</details>
   </section>`;
 }
 export function recoverySubmissionView(payload: any, label: any): any {
@@ -147,6 +152,35 @@ function attentionTechnical(value: any): any {
         retryable: typeof value.retryable === 'boolean' ? value.retryable : null,
         occurredAt: cleanAttentionText(value.occurredAt, 80) || null,
     };
+}
+function safePaperclipIssue(value: any): any {
+    if (!value || typeof value !== 'object')
+        return null;
+    try {
+        const url: any = new URL(cleanAttentionText(value.detailUrl, 1000));
+        if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || !/^\/issues\/[a-z0-9-]+\/?$/i.test(url.pathname))
+            return null;
+        return {
+            identifier: cleanAttentionText(value.identifier, 120) || null,
+            detailUrl: url.toString(),
+        };
+    }
+    catch {
+        return null;
+    }
+}
+function diagnosisHeadline(diagnosis: any): any {
+    const conclusion: any = cleanAttentionText(diagnosis?.conclusion, 800);
+    return /paperclip/i.test(conclusion) && /(失败|结束)/.test(conclusion)
+        ? 'Paperclip 执行失败'
+        : conclusion;
+}
+function diagnosisSummary(diagnosis: any): any {
+    const conclusion: any = cleanAttentionText(diagnosis?.conclusion, 800);
+    const evidence: any = cleanAttentionText(diagnosis?.evidence, 1200);
+    if (/(没有形成|未生成|没有生成).{0,12}可验证/.test(conclusion) || /可验证产物\s*0\s*份/.test(evidence))
+        return '未生成可验证产物，原任务未完成。';
+    return cleanAttentionText(diagnosis?.impact, 800);
 }
 function verificationStateMessage(status: any): any {
     return ({
