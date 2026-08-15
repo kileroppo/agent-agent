@@ -355,8 +355,13 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             }
         });
         for (const button of elements.detail.querySelectorAll('[data-attention-action]')) {
-            button.addEventListener('click', (): any => executeAttentionAction(task, button.dataset.attentionAction));
+            button.addEventListener('click', (): any => confirmAttentionAction(task, button.dataset.attentionAction));
         }
+        elements.detail.querySelector('[data-attention-confirm]')?.addEventListener('click', (event: any): any => executeAttentionAction(task, event.currentTarget.dataset.attentionConfirm));
+        elements.detail.querySelector('[data-attention-cancel]')?.addEventListener('click', (): any => {
+            state.actionState.delete(task.taskId);
+            renderDetail();
+        });
         elements.detail.querySelector('[data-task-timeline-more]')?.addEventListener('click', async (): Promise<any> => {
             try {
                 state.timelineHtml = await timeline.loadMore();
@@ -373,13 +378,23 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             return '<section class="record-detail-section task-timeline"><h3>运行过程</h3><p>运行记录暂时无法读取，不影响任务结果。</p></section>';
         }
     }
-    async function executeAttentionAction(task: any, actionKey: any): Promise<any> {
+    function confirmAttentionAction(task: any, actionKey: any): any {
         const attention: any = taskAttentionView(task);
         const action: any = attention?.actions.find((item: any): any => item.actionKey === actionKey);
         if (!action || state.actionState.get(task.taskId)?.status === 'submitting')
             return;
-        const confirmation: any = action.confirmation || `确认执行“${action.label}”？系统只会执行这条明确的恢复动作。`;
-        if (!window.confirm(confirmation))
+        state.actionState.set(task.taskId, {
+            status: 'confirming',
+            actionKey: action.actionKey,
+            message: action.confirmation || `确认执行“${action.label}”？系统只会执行这条明确的恢复动作。`,
+        });
+        renderDetail();
+        elements.detail.querySelector('[data-attention-confirm]')?.focus();
+    }
+    async function executeAttentionAction(task: any, actionKey: any): Promise<any> {
+        const attention: any = taskAttentionView(task);
+        const action: any = attention?.actions.find((item: any): any => item.actionKey === actionKey);
+        if (!action || state.actionState.get(task.taskId)?.status === 'submitting')
             return;
         state.actionState.set(task.taskId, { status: 'submitting', message: `正在${action.label}…` });
         renderDetail();

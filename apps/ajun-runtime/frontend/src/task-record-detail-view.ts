@@ -33,20 +33,28 @@ export function taskAttentionView(task: any = {}): any {
 export function renderAttentionDetail(attention: any, actionState: any, escapeHtml: any): any {
     const primaryIndex: any = Math.max(0, attention.actions.findIndex((action: any): any => action.emphasis === 'primary'));
     const submitting: any = actionState?.status === 'submitting';
+    const confirmingAction: any = actionState?.status === 'confirming'
+        ? attention.actions.find((action: any): any => action.actionKey === actionState.actionKey)
+        : null;
     const actions: any = attention.actions.map((action: any, index: any): any => {
         const className: any = index === primaryIndex ? 'record-attention-primary' : 'secondary-action';
         return `<button type="button" class="${className}" data-attention-action="${escapeHtml(action.actionKey)}"${submitting ? ' disabled' : ''}>${escapeHtml(action.label)}</button>`;
     }).join('');
-    const actionContent: any = actions
-        ? `<div class="record-attention-actions">${actions}</div>`
-        : `<p>${escapeHtml(attention.nextAction)}</p>`;
+    const confirmation: any = confirmingAction
+        ? cleanAttentionText(actionState?.message, 500) || confirmingAction.confirmation || `确认执行“${confirmingAction.label}”？系统只会执行这条明确的恢复动作。`
+        : '';
+    const actionContent: any = confirmingAction
+        ? `<div class="record-attention-confirmation" role="alert"><p>${escapeHtml(confirmation)}</p><div class="record-attention-actions"><button type="button" class="record-attention-primary" data-attention-confirm="${escapeHtml(confirmingAction.actionKey)}">确认${escapeHtml(confirmingAction.label)}</button><button type="button" class="secondary-action" data-attention-cancel>取消</button></div></div>`
+        : actions
+            ? `<div class="record-attention-actions">${actions}</div>`
+            : `<p>${escapeHtml(attention.nextAction)}</p>`;
     const evidence: any = attention.evidence
         ? `<details class="record-attention-evidence"><summary>查看判断依据</summary><p>${escapeHtml(attention.evidence)}</p></details>`
         : '';
     const risks: any = attention.remainingRisks
         ? `<section class="record-attention-step"><span class="record-attention-number">4</span><div><h3>剩余风险</h3><p>${escapeHtml(attention.remainingRisks)}</p></div></section>`
         : `<section class="record-attention-step is-muted"><span class="record-attention-number">4</span><div><h3>剩余风险</h3><p>未提供剩余风险说明，不能据此判断为无风险。</p></div></section>`;
-    const recovery: any = actionState || attention.verification;
+    const recovery: any = actionState?.status === 'confirming' ? attention.verification : actionState || attention.verification;
     const recoveryPath: any = safeTaskDetailPath(recovery?.detailPath, recovery?.taskId);
     const recoveryLink: any = recoveryPath
         ? `<a class="record-recovery-link" href="${escapeHtml(recoveryPath)}">查看恢复进度</a>`

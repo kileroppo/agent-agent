@@ -80,6 +80,16 @@ test('attention 只接受安全动作键并保留恢复任务链接', () => {
   assert.match(html, /发生了什么[\s\S]*影响什么[\s\S]*现在怎么处理[\s\S]*剩余风险[\s\S]*恢复结果/);
   assert.match(html, /未提供剩余风险说明，不能据此判断为无风险/);
   assert.equal((html.match(/record-attention-primary/g) || []).length, 1);
+
+  const confirmingHtml = renderAttentionDetail(view, {
+    status:'confirming',
+    actionKey:'text-only',
+    message:'确认改为仅文本？',
+  }, escapeHtml);
+  assert.match(confirmingHtml, /role="alert"/);
+  assert.match(confirmingHtml, /data-attention-confirm="text-only"/);
+  assert.match(confirmingHtml, /data-attention-cancel/);
+  assert.equal((confirmingHtml.match(/确认改为仅文本？/g) || []).length, 1);
 });
 
 test('恢复动作固定走本机安全路径并带并发与幂等保护', async () => {
@@ -93,6 +103,9 @@ test('恢复动作固定走本机安全路径并带并发与幂等保护', async
   assert.doesNotMatch(script, /action\.(?:endpoint|url|method)/);
   assert.doesNotMatch(script, /task\.(?:error|routing|requester)/);
   assert.match(script, /task-record-detail-view\.js/);
+  assert.match(script, /data-attention-confirm/);
+  assert.match(script, /data-attention-cancel/);
+  assert.doesNotMatch(script, /window\.confirm\(confirmation\)/);
 });
 
 function escapeHtml(value) {

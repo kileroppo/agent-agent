@@ -33,20 +33,28 @@ export function taskAttentionView(task = {}) {
 export function renderAttentionDetail(attention, actionState, escapeHtml) {
     const primaryIndex = Math.max(0, attention.actions.findIndex((action) => action.emphasis === 'primary'));
     const submitting = actionState?.status === 'submitting';
+    const confirmingAction = actionState?.status === 'confirming'
+        ? attention.actions.find((action) => action.actionKey === actionState.actionKey)
+        : null;
     const actions = attention.actions.map((action, index) => {
         const className = index === primaryIndex ? 'record-attention-primary' : 'secondary-action';
         return `<button type="button" class="${className}" data-attention-action="${escapeHtml(action.actionKey)}"${submitting ? ' disabled' : ''}>${escapeHtml(action.label)}</button>`;
     }).join('');
-    const actionContent = actions
-        ? `<div class="record-attention-actions">${actions}</div>`
-        : `<p>${escapeHtml(attention.nextAction)}</p>`;
+    const confirmation = confirmingAction
+        ? cleanAttentionText(actionState?.message, 500) || confirmingAction.confirmation || `确认执行“${confirmingAction.label}”？系统只会执行这条明确的恢复动作。`
+        : '';
+    const actionContent = confirmingAction
+        ? `<div class="record-attention-confirmation" role="alert"><p>${escapeHtml(confirmation)}</p><div class="record-attention-actions"><button type="button" class="record-attention-primary" data-attention-confirm="${escapeHtml(confirmingAction.actionKey)}">确认${escapeHtml(confirmingAction.label)}</button><button type="button" class="secondary-action" data-attention-cancel>取消</button></div></div>`
+        : actions
+            ? `<div class="record-attention-actions">${actions}</div>`
+            : `<p>${escapeHtml(attention.nextAction)}</p>`;
     const evidence = attention.evidence
         ? `<details class="record-attention-evidence"><summary>查看判断依据</summary><p>${escapeHtml(attention.evidence)}</p></details>`
         : '';
     const risks = attention.remainingRisks
         ? `<section class="record-attention-step"><span class="record-attention-number">4</span><div><h3>剩余风险</h3><p>${escapeHtml(attention.remainingRisks)}</p></div></section>`
         : `<section class="record-attention-step is-muted"><span class="record-attention-number">4</span><div><h3>剩余风险</h3><p>未提供剩余风险说明，不能据此判断为无风险。</p></div></section>`;
-    const recovery = actionState || attention.verification;
+    const recovery = actionState?.status === 'confirming' ? attention.verification : actionState || attention.verification;
     const recoveryPath = safeTaskDetailPath(recovery?.detailPath, recovery?.taskId);
     const recoveryLink = recoveryPath
         ? `<a class="record-recovery-link" href="${escapeHtml(recoveryPath)}">查看恢复进度</a>`

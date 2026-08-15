@@ -3560,6 +3560,19 @@ textarea:focus {
   min-height: 38px;
 }
 
+.record-attention-confirmation {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--amber-line);
+  border-radius: 10px;
+  background: var(--amber-soft);
+}
+
+.record-attention-confirmation p {
+  color: var(--ink-soft);
+}
+
 .record-attention-primary {
   background: var(--ink);
   color: #fff;
