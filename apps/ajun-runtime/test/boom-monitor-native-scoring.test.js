@@ -2,12 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  buildScoreComparison,
   buildV2Score,
   bundleToRecord,
-  evaluateGrade,
   pythonRound,
-  scoreWork,
 } from '../src/boom-monitor/index.ts';
 
 function bundle(historyCount = 6) {
@@ -30,17 +27,19 @@ function bundle(historyCount = 6) {
   };
 }
 
-test('legacy scorer keeps R on core interactions and M on likes', () => {
-  assert.equal(evaluateGrade(6, 0.1, 100_000), 'T2');
-  assert.deepEqual(scoreWork(400, 1_000, [100, 100, 100, 100, 100], { mMetric:100 }), {
-    r_value:4,
-    m_value:0.1,
-    grade:'N0',
-    tier:'low',
-    baseline_metric:100,
-    sample_count:5,
-  });
-  assert.equal(scoreWork(10_000, 1_000, [10, 10, 10, 10], { mMetric:10_000 }).grade, 'N0');
+test('current scorer uses the single v2 algorithm', () => {
+  const value = bundle(12);
+  value.creator.followerCount = 2_147;
+  Object.assign(value.currentWork, { likes:93, favorites:34, shares:24, comments:7 });
+  value.historyWorks = Array.from({ length:12 }, (_, index) => ({
+    id:`history-${index}`, likes:8, favorites:2, shares:0, comments:0,
+  }));
+  const result = buildV2Score(value);
+  assert.equal(result.version, 'v2');
+  assert.equal(result.grade, 'T1');
+  assert.equal(result.absolute_interactions, 127);
+  assert.equal(result.signals.quality.passed, true);
+  assert.equal(result.controls_dispatch, true);
 });
 
 test('rounding matches Python half-even at exact, negative, and ordinary boundaries', () => {
@@ -49,30 +48,6 @@ test('rounding matches Python half-even at exact, negative, and ordinary boundar
   assert.equal(pythonRound(-1.2355, 3), -1.236);
   assert.equal(pythonRound(1.23456, 4), 1.2346);
   assert.equal(pythonRound(2.675, 2), 2.67);
-  const score = scoreWork(1, 32, [32, 32, 32, 32, 32], { mMetric:1 });
-  assert.equal(score.r_value, 0.0312);
-  assert.equal(score.m_value, 0.0312);
-  assert.equal(score.grade, 'N0');
-  assert.equal(evaluateGrade(3, 0.04, 1_000_000), 'T2');
-  assert.equal(evaluateGrade(3, 0.03999, 1_000_000), 'T1');
-});
-
-test('v2 is official, promotes quality evidence, and keeps legacy rollback score', () => {
-  const value = bundle(12);
-  value.creator.followerCount = 2_147;
-  Object.assign(value.currentWork, { likes:93, favorites:34, shares:24, comments:7 });
-  value.historyWorks = Array.from({ length:12 }, (_, index) => ({
-    id:`history-${index}`, likes:8, favorites:2, shares:0, comments:0,
-  }));
-  const result = buildScoreComparison(value);
-  assert.equal(result.official_score.version, 'v2');
-  assert.equal(result.official_score.grade, 'T1');
-  assert.equal(result.official_score.absolute_interactions, 127);
-  assert.equal(result.official_score.signals.quality.passed, true);
-  assert.equal(result.official_score.controls_dispatch, true);
-  assert.equal(result.legacy_score.version, 'legacy-v1');
-  assert.equal(result.legacy_score.grade, 'N0');
-  assert.equal(result.legacy_score.controls_dispatch, false);
 });
 
 test('v2 keeps first valid baseline and quality medians frozen', () => {

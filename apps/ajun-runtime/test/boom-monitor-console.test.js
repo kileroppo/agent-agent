@@ -76,6 +76,17 @@ test('单作品操作具有作品上下文、动态详情状态和请求防重�
   assert.match(consoleSource, /if \(triggerButton\?\.isConnected\)/);
 });
 
+test('作品评分只展示当前评分，并用中文解释表现指标', async () => {
+  const consoleSource = await readFile(new URL('boom-monitor-console.js', publicRoot), 'utf8');
+
+  assert.match(consoleSource, /相对历史表现/);
+  assert.match(consoleSource, /粉丝互动率/);
+  assert.match(consoleSource, /当前核心互动 ÷ 作者历史作品中位数/);
+  assert.match(consoleSource, /点赞数 ÷ 粉丝数/);
+  assert.doesNotMatch(consoleSource, /旧 v1 对照|legacy_score/);
+  assert.doesNotMatch(consoleSource, /R \+|M \+/);
+});
+
 test('评分详情失败会写回当前作品卡片，同时保留全局错误提示', async () => {
   const consoleSource = await readFile(new URL('boom-monitor-console.js', publicRoot), 'utf8');
 

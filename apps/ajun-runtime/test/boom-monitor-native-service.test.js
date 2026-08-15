@@ -30,7 +30,7 @@ test('native service persists v2 and defaults auto dispatch to disabled', async 
   const result = fx.service.ingestMetricsBundle(collectedBundle());
   assert.equal(result.score.version, 'v2');
   assert.equal(result.score.grade, 'T1');
-  assert.equal(result.legacy_score.grade, 'N0');
+  assert.equal(Object.hasOwn(result, 'legacy_score'), false);
   assert.equal(fx.service.getSettings().analysis_auto.enabled, false);
   assert.equal(fx.service.listAnalysis().items.length, 0);
   assert.equal(fx.service.getWork(result.work_id).score_details.grade, 'T1');

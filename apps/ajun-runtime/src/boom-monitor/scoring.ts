@@ -1,6 +1,5 @@
 export const METRICS_SCHEMA_VERSION: any = 'agent.army/boom-metrics-bundle/v1';
 export const V2_SCORE_VERSION: any = 'v2';
-export const LEGACY_SHADOW_SCORE_VERSION: any = 'shadow-v2';
 const DEFAULT_THRESHOLDS: Record<string, any> = { high: 0.04, mid: 0.08, mid_small: 0.15, low: 0.3 };
 export function platformCoreMetric(platform: any, likes: any, favorites: any): any {
     return platform === 'xiaohongshu' ? integer(likes) + integer(favorites) : integer(likes);
@@ -17,49 +16,6 @@ export function tierKeyFromFollowers(followers: any): any {
 }
 export function mThresholdByFollowers(followers: any, thresholds: any = DEFAULT_THRESHOLDS): any {
     return Number(thresholds[tierKeyFromFollowers(followers)]);
-}
-export function evaluateGrade(rValue: any, mValue: any, followers: any, config: any = {}): any {
-    const followerCount: any = integer(followers);
-    if (followerCount <= 0)
-        return 'N0';
-    const t3RatioMin: any = config.t3RatioMin ?? 8;
-    const t2RatioMin: any = config.t2RatioMin ?? 3;
-    const t1RatioMin: any = config.t1RatioMin ?? 2;
-    const threshold: any = mThresholdByFollowers(followerCount, config.tierThresholds ?? DEFAULT_THRESHOLDS);
-    if (rValue >= t3RatioMin && mValue >= threshold)
-        return 'T3';
-    if (rValue >= t2RatioMin && rValue < t3RatioMin && mValue >= threshold)
-        return 'T2';
-    if (rValue >= t1RatioMin && mValue >= threshold * 0.9)
-        return 'T1';
-    return 'N0';
-}
-export function scoreWork(currentMetric: any, followers: any, historyMetrics: any, options: any = {}): any {
-    const minimum: any = options.minHistorySamples ?? 5;
-    const values: any = historyMetrics.map((value: any): any => Math.max(0, Number(value)));
-    const followerCount: any = integer(followers);
-    const mNumerator: any = options.mMetric == null ? Number(currentMetric) : Math.max(0, Number(options.mMetric));
-    if (values.length < minimum || followerCount <= 0) {
-        return {
-            r_value: 0,
-            m_value: followerCount <= 0 ? 0 : mNumerator / followerCount,
-            grade: 'N0',
-            tier: tierKeyFromFollowers(followerCount),
-            baseline_metric: null,
-            sample_count: values.length,
-        };
-    }
-    const baseline: any = median(values);
-    const rValue: any = baseline > 0 ? Number(currentMetric) / baseline : 0;
-    const mValue: any = mNumerator / followerCount;
-    return {
-        r_value: pythonRound(rValue, 4),
-        m_value: pythonRound(mValue, 4),
-        grade: evaluateGrade(rValue, mValue, followerCount, options),
-        tier: tierKeyFromFollowers(followerCount),
-        baseline_metric: pythonRound(baseline, 4),
-        sample_count: values.length,
-    };
 }
 export function buildV2Score(bundle: any, frozenScore: any = null): any {
     validateBundle(bundle);
@@ -94,8 +50,8 @@ export function buildV2Score(bundle: any, frozenScore: any = null): any {
         }
     }
     const frozenValid: any = Boolean(frozenScore
-        && [V2_SCORE_VERSION, LEGACY_SHADOW_SCORE_VERSION].includes(frozenScore.version)
-        && ['url-history-v2', 'url-history-shadow-v2'].includes(frozenScore.baseline_version)
+        && frozenScore.version === V2_SCORE_VERSION
+        && frozenScore.baseline_version === 'url-history-v2'
         && frozenScore.baseline_metric != null);
     const baseline: any = frozenValid ? Number(frozenScore.baseline_metric) : (historyMetrics.length ? median(historyMetrics) : 0);
     const sampleCount: any = frozenValid ? integer(frozenScore.sample_count) : historyMetrics.length;
@@ -213,52 +169,6 @@ export function bundleToRecord(bundle: any): any {
             history_works: bundle.historyWorks ?? [],
         },
     };
-}
-export function buildCollectedScore(bundle: any, frozenScore: any = null): any {
-    validateBundle(bundle);
-    if (bundle.status === 'metrics_unavailable')
-        throw new Error('当前作品指标不可用，不能生成爆款分级。');
-    const record: any = bundleToRecord(bundle);
-    const currentMetric: any = platformCoreMetric(record.platform, record.likes, record.favorites);
-    const historyMetrics: any[] = [];
-    for (const work of bundle.historyWorks ?? []) {
-        const likes: any = optionalExactInt(work?.likes);
-        const favorites: any = optionalExactInt(work?.favorites);
-        if (likes == null || (record.platform === 'xiaohongshu' && favorites == null))
-            continue;
-        historyMetrics.push(platformCoreMetric(record.platform, likes, favorites ?? 0));
-    }
-    if (frozenScore?.baseline_version === 'url-history-v1' && frozenScore.baseline_metric != null) {
-        const baseline: any = Number(frozenScore.baseline_metric);
-        const followers: any = integer(frozenScore.follower_snapshot || record.follower_count);
-        const rValue: any = baseline > 0 ? currentMetric / baseline : 0;
-        const mValue: any = followers > 0 ? record.likes / followers : 0;
-        return {
-            r_value: pythonRound(rValue, 4), m_value: pythonRound(mValue, 4), grade: evaluateGrade(rValue, mValue, followers),
-            tier: tierKeyFromFollowers(followers), baseline_metric: baseline,
-            sample_count: integer(frozenScore.baseline_sample_count), follower_snapshot: followers,
-            baseline_at: frozenScore.baseline_at, baseline_version: 'url-history-v1',
-        };
-    }
-    const score: any = scoreWork(currentMetric, record.follower_count, historyMetrics.slice(0, 20), { mMetric: record.likes });
-    return {
-        ...score,
-        follower_snapshot: record.follower_count,
-        baseline_at: score.baseline_metric != null ? String(bundle.observedAt ?? '') : null,
-        baseline_version: score.baseline_metric != null ? 'url-history-v1' : null,
-    };
-}
-export function buildScoreComparison(bundle: any, frozenLegacyScore: any = null, frozenV2Score: any = null): any {
-    const legacy: any = buildCollectedScore(bundle, frozenLegacyScore);
-    const official: any = buildV2Score(bundle, frozenV2Score);
-    official.legacy_grade = legacy.grade;
-    official.differs_from_legacy = official.grade !== legacy.grade;
-    official.observed_at = String(bundle.observedAt ?? '');
-    Object.assign(legacy, {
-        version: 'legacy-v1', controls_dispatch: false, official_grade: official.grade,
-        differs_from_official: legacy.grade !== official.grade, observed_at: String(bundle.observedAt ?? ''),
-    });
-    return { official_score: official, legacy_score: legacy };
 }
 export function validateBundle(bundle: any): any {
     if (!isPlainObject(bundle) || bundle.schemaVersion !== METRICS_SCHEMA_VERSION)

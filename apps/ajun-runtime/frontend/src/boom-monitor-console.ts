@@ -184,9 +184,9 @@ export function createBoomMonitorConsole({ root, api, escapeHtml, formatDate }: 
           <svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg>
         </summary>
         <dl class="boom-facts">
-          <div><dt>R 相对表现</dt><dd>${numberText(work.r_value, 2)}</dd></div>
-          <div><dt>M 触达效率</dt><dd>${numberText(work.m_value, 4)}</dd></div>
-          <div><dt>历史基线</dt><dd>${escapeHtml(work.baseline_metric ?? '待确认')}</dd></div>
+          <div><dt>相对历史表现</dt><dd>${ratioText(work.r_value)}</dd></div>
+          <div><dt>粉丝互动率</dt><dd>${percentText(work.m_value)}</dd></div>
+          <div><dt>作者历史中位数</dt><dd>${escapeHtml(work.baseline_metric ?? '待确认')}</dd></div>
           <div><dt>派发状态</dt><dd>${escapeHtml(queueStatusLabel(work.analysis_status))}</dd></div>
         </dl>
         <div class="boom-item-actions">
@@ -208,11 +208,11 @@ export function createBoomMonitorConsole({ root, api, escapeHtml, formatDate }: 
         try {
             const payload: any = await api(`${API_ROOT}/works/${workId}`);
             const official: any = payload.score_details;
-            const legacy: any = payload.legacy_score;
             output.innerHTML = `
         <strong>评分依据</strong>
-        <p>正式 v2：${official ? `${gradeBadge(official.grade)} · R ${numberText(official.r_value, 4)} · M ${numberText(official.m_value, 4)}` : '暂无'}</p>
-        <p>旧 v1 对照：${legacy ? `${gradeBadge(legacy.grade)} · 仅供回滚，不控制派发` : '暂无'}</p>
+        <p>当前等级：${official ? gradeBadge(official.grade) : '暂无'}</p>
+        <p>相对历史表现：${official ? `${ratioText(official.r_value)}（当前核心互动 ÷ 作者历史作品中位数）` : '暂无'}</p>
+        <p>粉丝互动率：${official ? `${percentText(official.m_value)}（点赞数 ÷ 粉丝数）` : '暂无'}</p>
         <small>缺少发布时间时只表示累计表现，不表示作品正在爆发。</small>`;
         }
         catch (error: any) {
@@ -306,7 +306,7 @@ export function createBoomMonitorConsole({ root, api, escapeHtml, formatDate }: 
         elements.collectResult.hidden = false;
         elements.collectResult.innerHTML = score ? `
       <div class="boom-result-head"><strong>${escapeHtml(payload.message || '已完成采集和评分')}</strong>${gradeBadge(score.grade)}</div>
-      <p>正式 v2 · R ${numberText(score.r_value, 2)} · M ${numberText(score.m_value, 4)} · 历史样本 ${escapeHtml(score.sample_count ?? 0)} 条</p>
+      <p>相对历史表现 ${ratioText(score.r_value)} · 粉丝互动率 ${percentText(score.m_value)} · 历史样本 ${escapeHtml(score.sample_count ?? 0)} 条</p>
       <small>缺少发布时间时只判断累计表现，不宣称作品“正在爆”。</small>` : `<strong>${escapeHtml(payload.message || '已完成采集。')}</strong>`;
     }
     async function parseImportInput(): Promise<any> {
@@ -462,7 +462,11 @@ function platformLabel(platform: any): any {
 function queueStatusLabel(status: any): any {
     return ({ queued: '等待处理', running: '处理中', completed: '已完成', failed: '失败', dispatched: '已派发', dispatching: '派发中', dispatch_failed: '派发失败', waiting_source: '等待来源', cancelled: '已关闭' } as Record<string, string>)[status] || status || '未入队';
 }
-function numberText(value: any, digits: any): any {
+function ratioText(value: any): any {
     const number: any = Number(value);
-    return Number.isFinite(number) ? number.toFixed(digits) : '-';
+    return Number.isFinite(number) ? `${number.toFixed(2)} 倍` : '-';
+}
+function percentText(value: any): any {
+    const number: any = Number(value);
+    return Number.isFinite(number) ? `${(number * 100).toFixed(2)}%` : '-';
 }
