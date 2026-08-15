@@ -67,7 +67,7 @@ agent-agent/
 
 ### 产品与计划
 
-- [Agent军团项目说明](./docs/Agent军团项目说明.md)
+- [Agent军团项目说明](./docs/overview/Agent军团项目说明.md)
 - [Agent军团总 PRD](./tasks/prd-agent-army-master.md)
 - [M1 小D飞书业务闭环 PRD](./tasks/prd-m1-xiaod-feishu-closure.md)
 - [M2 A君独立运行时、通用连接与内容获取、治理控制面 PRD](./tasks/prd-m2-authorization-connectors.md)
@@ -118,7 +118,7 @@ agent-agent/
 - [项目交接与闭环](./docs/handoffs/README.md)
 - [验收记录入口](./docs/reviews/README.md)
 - [Claude 交叉 AI 审核任务书](./docs/reviews/cross-ai-audit-prompt.md)
-- [AI 推测内容评估与采纳](./docs/AI推测内容评估与采纳.md)
+- [AI 推测内容评估与采纳](./docs/standards/AI推测内容评估与采纳.md)
 - [仓库协作规则](./AGENTS.md)
 
 ## 编码前门禁

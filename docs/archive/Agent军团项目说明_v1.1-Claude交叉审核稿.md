@@ -358,7 +358,7 @@ A 君把音视频链接发给飞书里的小D
 - 本地资料：/Users/pengaro/Downloads/agent资料/小D复制部署说明：音视频转录整理 Agent.md
 - 飞书 Agent 集成能力概览
 - Paperclip 开源项目
-- 推测内容的证据分级与采纳结果：docs/AI推测内容评估与采纳.md
+- 推测内容的证据分级与采纳结果：docs/standards/AI推测内容评估与采纳.md
 - 当前小D原型说明：apps/xiaod-media-transcriber/README.md
 
 ## 16. 修订记录
