@@ -11,6 +11,8 @@
 ## 二、依赖与证据
 
 - 下游任务必须同时保存 `dependsOn` 与 `sourceTaskIds`，不能只依赖执行顺序推测输入来源。
+- 普通业务 Mission 与产品成熟度 Mission 的依赖都只有在前置任务 `succeeded` 后才算满足。`needs_input`、`waiting_test`、`failed`、`cancelled` 只能让总任务进入对应的显式未完成状态，不能触发下游，也不能冒充“前置已完成”。
+- 业务信号上下文必须经过同一受限规范化入口穿过“入口 → A君计划 → 子任务”。爆款信号只允许保留可序列化且不超过 12KB 的 `boomSignal`，最终分析必须能回溯 `workId`、评分等级和观察证据。
 - 可选能力失败时降级并明确标记缺失；只有用户声明为 `required` 的能力才阻断任务。
 - 报告中的关键判断必须引用确认稿、时间点或画面证据；部分报告不得伪装成完整报告。
 
@@ -32,3 +34,17 @@
 - Paperclip 所属恢复通过 `projectChild` 追加到原 Issue 审计链；原失败任务保持失败终态。存在恢复链时只展示进度，不重复执行。`governanceMode=paperclip` 的审批不得由本机 reject 路径单边改写。
 - `task-record-detail-view` 是详情区块的纯生成 Interface；`refresh-scheduler` 提供可注入的 15 秒调度、可见性门禁、不重入与清理。静态 ESM 资源必须同时通过 HTTP 200 与 JavaScript Content-Type 门禁。
 - 上述实现和隔离浏览器验收只证明候选源码可用；当前 `4321` 不可变 live 未切换，飞书、Paperclip、Publisher、Provider 及真实恢复按钮均未做外部写入验收。
+
+## 六、审批恢复与卡死显性化
+
+- 审批通过后的恢复必须使用包含 manager 的岗位查找。A君总任务不能因为默认员工列表过滤 manager 而停在 `queued / approval_approved`。
+- 找不到活动岗位或执行器时，任务必须转为 `failed / approval_resume_executor_unavailable`，并给出可重试的安全恢复入口；禁止静默保持“已批准”或“运行中”。
+- Boom Monitor 接受军团任务后只记为 `submitted`，随后持续读取总任务与子任务真相，投影为 `planning`、`acquiring`、`analyzing`、`waiting_approval`、`needs_input`、`completed`、`failed` 或 `cancelled`。
+- 已受理但超过门限仍没有计划、任务记录无法读取、子任务卡在需处理状态时，必须进入“需要处理”，并链接到真实任务详情。队列状态不得只停在历史 `dispatched`。
+
+## 七、内容获取运行健康与有限恢复
+
+- Content Acquisition Center 的健康状态必须来自运行时探测。静态注册只能说明“已配置”，不能把 CookieBridge、DownloadServer 或平台读取能力显示为绿色。
+- MediaCrawler Pro 的单请求、整段指标采集和媒体下载分别有有界超时；超时统一返回 `provider_timeout`，不允许无限悬挂。
+- 指标读取只允许同一适配器重试一次；仍失败后按“专用适配器优先、通用适配器兜底”切换一次。未通过动态健康探测的适配器不得收到真实读取调用。
+- 获取产物必须保存安全路由证据：最终适配器、尝试次数、是否发生回退及前序失败类别。不得保存 Cookie、Token、响应正文或其他凭据。

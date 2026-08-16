@@ -44,7 +44,7 @@ agent-agent/
 
 - M0–M3 已完成；M4 本地岗位质量与模型回归已完成，剩余项均为明确的外部或人工验收；M5 仍为 **PARTIAL**。
 - 产品成熟度固定第二批已以 `revision_required` 结束，不得再刷新或重开。审核官新鲜 E2E 已通过；小R显式交付覆盖门禁已经以 release `530d86bf…` 进入 live。新门禁下的真实任务 `2cb79a68…` 正确停在 `waiting_test`：只读到一条来源，缺 `process.env`，建议数为 1/3；调用增量 7、估算费用 0.005862007 USD。门禁有效，但小R业务能力仍未通过。当前停止反复修复/部署/重试，唯一继续口径见[产品成熟度总交接](./docs/handoffs/current/agent-army-product-maturity-handoff.md)。
-- 生产业务源码已统一为严格 TypeScript：全仓业务源清单为 `442 TS / 0 JS`，A君架构门禁为 `287/287 = 100%`。测试、运维脚本和浏览器构建产物可保留 JavaScript/MJS；浏览器 TypeScript 源码与生成物分目录管理。该版本已完成 `4318` / `4321` 本机切换，但不授权重开产品成熟度批次或任何外部动作。
+- 生产业务源码已统一为严格 TypeScript：当前候选工作树业务源清单为 `446 TS / 0 JS`，A君架构门禁为 `293/293 = 100%`。测试、运维脚本和浏览器构建产物可保留 JavaScript/MJS；浏览器 TypeScript 源码与生成物分目录管理。此前版本已完成 `4318` / `4321` 本机切换；本轮爆款雷达稳定性候选尚未切换 `4321`，也不授权重开产品成熟度批次或任何外部动作。
 - Business Workflow 已作为新任务主对象，TypeScript Policy、CapabilityAdapter、ExecutionReceipt、Evaluation 和五层能力真相已在 live 生效；历史任务只读分类，不改写旧终态。
 - 任务与待办数量以 live `/api/overview.taskFocus` 为准，README 不再固化会持续变化的计数。真正的 `waiting_acceptance` Workflow 会进入 `ownerActionable`；等待自动验证的 `waiting_test` 或产物门禁未通过会显示为 `waiting_validation`，不再冒充老板待办。历史分类仍只读，不改写旧任务终态。
 - live `agent.army/validation-campaign/v1` 已收敛为 `taskCount=0`、`groupCount=0`。首次真实小拆 `#716FA2E8` 的任务终态仍保留为 `waiting_test`，Workflow 正确呈现为 `waiting_validation` 且不产生负责人动作；修复后的 `#B5403CD9` 以 `paperclip_hermes_completed` 成功，其 Workflow 为 `waiting_acceptance`，结构校验由 `false` 经一次 deterministic repair 变为 `true`，生成 7077 bytes、194 字摘要报告。
@@ -54,6 +54,7 @@ agent-agent/
 
 ### 当前边界与下一步
 
+- 爆款雷达“链接 → 评分 → 小D → 质量复核 → 小拆 → 总任务汇总”的三批稳定性加固已进入候选源码和无外部副作用端到端测试；当前 `4321` live 尚未切换。构建不可变 release、重启和 live API/PID 回读必须另行授权，不能把候选测试冒充线上生效。
 - M5 活动 `8dd29a3b…` 当前已经 `stopped`，不是旧文档中的 `paused`；旧 Profile lease 已过期。重新运行必须创建新授权草案，不能恢复旧授权。
 - 先维护只读 readiness、任务恢复和审计质量；恢复 Campaign、启动 Publisher 或平台写入仍需独立授权。模型型验证必须先通过现有预算 Policy；历史真实小拆曾产生两次有账本的 DeepSeek 调用，当前 StepFun 3.7 切换本身未调用文本或视觉 Provider。
 - 新任务通过 `Model → Agent Runtime → Skills/Workflow → Policy/Permission → MCP/Tool Gateway → Provider` 执行；Model 不得自批权限。已登记同机只读能力可自动恢复一次并重试一次，仍失败才提示负责人。

@@ -48,16 +48,46 @@ export class MediaCrawlerProAdapter implements ContentAcquisitionAdapter {
   private readonly fetchImpl: FetchImplementation;
   private readonly cookieBridgeUrl: string;
   private readonly downloadServerUrl: string;
+  private readonly requestTimeoutMs: number;
+  private readonly metricsTimeoutMs: number;
+  private readonly mediaTimeoutMs: number;
+  private readonly healthProbeTimeoutMs: number;
 
-  constructor({ cookieBridgeUrl, downloadServerUrl, fetchImpl = fetch }: Readonly<{
+  constructor({ cookieBridgeUrl, downloadServerUrl, fetchImpl = fetch, requestTimeoutMs = 8_000, metricsTimeoutMs = 45_000, mediaTimeoutMs = 60_000, healthProbeTimeoutMs = 1_000 }: Readonly<{
     cookieBridgeUrl?: string;
     downloadServerUrl?: string;
     fetchImpl?: FetchImplementation;
+    requestTimeoutMs?: number;
+    metricsTimeoutMs?: number;
+    mediaTimeoutMs?: number;
+    healthProbeTimeoutMs?: number;
   }> = {}) {
     this.fetchImpl = fetchImpl;
     this.cookieBridgeUrl = normalizeLocalUrl(cookieBridgeUrl);
     this.downloadServerUrl = normalizeLocalUrl(downloadServerUrl);
     this.healthStatus = this.cookieBridgeUrl && this.downloadServerUrl ? 'healthy' : 'unavailable';
+    this.requestTimeoutMs = boundedTimeout(requestTimeoutMs, 50, 30_000, 8_000);
+    this.metricsTimeoutMs = boundedTimeout(metricsTimeoutMs, this.requestTimeoutMs, 55_000, 45_000);
+    this.mediaTimeoutMs = boundedTimeout(mediaTimeoutMs, this.requestTimeoutMs, 10 * 60_000, 60_000);
+    this.healthProbeTimeoutMs = boundedTimeout(healthProbeTimeoutMs, 50, 5_000, 1_000);
+  }
+
+  async probeHealth() {
+    const checkedAt = new Date().toISOString();
+    if (!this.cookieBridgeUrl || !this.downloadServerUrl) {
+      return { status:'unavailable' as const, checkedAt, detail:'本机采集服务地址未完整配置。', checks:{ cookieBridgeTransport:false, downloadServerTransport:false } };
+    }
+    const [cookieBridgeTransport, downloadServerTransport] = await Promise.all([
+      probeLoopbackTransport(this.cookieBridgeUrl, this.healthProbeTimeoutMs),
+      probeLoopbackTransport(this.downloadServerUrl, this.healthProbeTimeoutMs),
+    ]);
+    const ready = cookieBridgeTransport && downloadServerTransport;
+    return {
+      status:ready ? 'healthy' as const : 'unavailable' as const,
+      checkedAt,
+      detail:ready ? 'CookieBridge 与 DownloadServer 本机传输均可达；具体平台作品仍需实际读取验证。' : 'CookieBridge 或 DownloadServer 本机传输不可达。',
+      checks:{ cookieBridgeTransport, downloadServerTransport },
+    };
   }
 
   matches(source: string): boolean {
@@ -81,7 +111,8 @@ export class MediaCrawlerProAdapter implements ContentAcquisitionAdapter {
       cookies = await this.readCookies(provider, connectionUse.cookieBridgeClientId);
       const response = await this.fetchImpl(`${this.downloadServerUrl}/api/v1/content_detail`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ platform: provider, content_url: resolvedSource, cookies })
+        body: JSON.stringify({ platform: provider, content_url: resolvedSource, cookies }),
+        signal:AbortSignal.timeout(this.requestTimeoutMs),
       });
       const payload = await response.json().catch(() => ({})) as JsonObject;
       if (!response.ok || payload.isok === false || payload.biz_code) throw new Error('MediaCrawlerPro 内容读取未成功。');
@@ -111,15 +142,16 @@ export class MediaCrawlerProAdapter implements ContentAcquisitionAdapter {
     }
     assertCookieBridgeConnection(connectionUse);
     const limit = Math.max(5, Math.min(Number(historyLimit) || 20, 20));
+    const metricsSignal = AbortSignal.timeout(this.metricsTimeoutMs);
     let cookies = '';
     try {
-      const resolvedSource = await this.resolveSource(source, provider);
-      cookies = await this.readCookies(provider, connectionUse.cookieBridgeClientId);
+      const resolvedSource = await this.resolveSource(source, provider, metricsSignal);
+      cookies = await this.readCookies(provider, connectionUse.cookieBridgeClientId, metricsSignal);
       const detailPayload = await this.postDownloadServer('/api/v1/content_detail', {
         platform:provider,
         content_url:resolvedSource,
         cookies
-      });
+      }, metricsSignal);
       const detail = detailPayload?.data?.content || {};
       const currentWork = sanitizeMetricWork(normalizeMetricWork(detail, source, provider));
       const detailAuthor = normalizeMetricAuthor(detail.author, provider);
@@ -151,7 +183,7 @@ export class MediaCrawlerProAdapter implements ContentAcquisitionAdapter {
         platform:provider,
         creator_url:detailAuthor.profileUrl,
         cookies
-      });
+      }, metricsSignal);
       const creatorInfo = creatorPayload?.data || {};
       const creator = {
         id:String(creatorInfo.user_id || detailAuthor.id).trim(),
@@ -172,7 +204,7 @@ export class MediaCrawlerProAdapter implements ContentAcquisitionAdapter {
           creator_id:creator.id,
           cursor,
           cookies
-        });
+        }, metricsSignal);
         const page = listPayload?.data || {};
         const contents = Array.isArray(page.contents) ? page.contents : [];
         for (const content of contents) {
@@ -187,7 +219,7 @@ export class MediaCrawlerProAdapter implements ContentAcquisitionAdapter {
         cursor = hasMore ? String(page.next_cursor) : '';
       }
 
-      const enrichedHistoryWorks = (await this.enrichHistoryMetrics(provider, historyWorks, cookies))
+      const enrichedHistoryWorks = (await this.enrichHistoryMetrics(provider, historyWorks, cookies, metricsSignal))
         .map(sanitizeMetricWork);
       const sampleCount = enrichedHistoryWorks.filter((work) => hasCoreMetric(provider, work)).length;
       const unavailableReasons: string[] = [];
@@ -201,12 +233,16 @@ export class MediaCrawlerProAdapter implements ContentAcquisitionAdapter {
         historyWorks:enrichedHistoryWorks,
         sampleCount
       };
+    } catch (error) {
+      if (isTimeoutError(error) || metricsSignal.aborted)
+        throw codedError('MediaCrawlerPro 指标读取超过受控时限。', 'provider_timeout');
+      throw error;
     } finally {
       cookies = '';
     }
   }
 
-  async resolveSource(source: string, provider: Provider): Promise<string> {
+  async resolveSource(source: string, provider: Provider, parentSignal: AbortSignal | null = null): Promise<string> {
     if (provider !== 'xhs' || !isXhsShortUrl(source)) return source;
     try {
       const response = await this.fetchImpl(source, {
@@ -215,7 +251,8 @@ export class MediaCrawlerProAdapter implements ContentAcquisitionAdapter {
         headers:{
           Accept:'text/html,application/xhtml+xml',
           'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/131 Safari/537.36'
-        }
+        },
+        signal:requestSignal(this.requestTimeoutMs, parentSignal),
       });
       let resolved = new URL(response.url);
       if (resolved.pathname === '/login') {
@@ -233,7 +270,7 @@ export class MediaCrawlerProAdapter implements ContentAcquisitionAdapter {
     }
   }
 
-  async enrichHistoryMetrics(provider: Provider, historyWorks: readonly MetricWork[], cookies: string): Promise<MetricWork[]> {
+  async enrichHistoryMetrics(provider: Provider, historyWorks: readonly MetricWork[], cookies: string, parentSignal: AbortSignal | null = null): Promise<MetricWork[]> {
     if (provider !== 'xhs') return [...historyWorks];
     const enriched = [...historyWorks];
     let nextIndex = 0;
@@ -247,7 +284,7 @@ export class MediaCrawlerProAdapter implements ContentAcquisitionAdapter {
             platform:provider,
             content_url:work.sourceUrl,
             cookies
-          });
+          }, parentSignal);
           const detail = normalizeMetricWork(payload?.data?.content || {}, work.sourceUrl, provider);
           if (detail.id && detail.id === work.id) enriched[index] = detail;
         } catch {
@@ -259,11 +296,12 @@ export class MediaCrawlerProAdapter implements ContentAcquisitionAdapter {
     return enriched;
   }
 
-  async postDownloadServer(pathname: string, body: Readonly<Record<string, unknown>>): Promise<JsonObject> {
+  async postDownloadServer(pathname: string, body: Readonly<Record<string, unknown>>, parentSignal: AbortSignal | null = null): Promise<JsonObject> {
     const response = await this.fetchImpl(`${this.downloadServerUrl}${pathname}`, {
       method:'POST',
       headers:{ 'Content-Type':'application/json' },
-      body:JSON.stringify(body)
+      body:JSON.stringify(body),
+      signal:requestSignal(this.requestTimeoutMs, parentSignal),
     });
     const payload = await response.json().catch(() => ({})) as JsonObject;
     if (!response.ok || payload.isok === false || payload.biz_code) {
@@ -272,10 +310,10 @@ export class MediaCrawlerProAdapter implements ContentAcquisitionAdapter {
     return payload;
   }
 
-  async readCookies(provider: Provider, clientId: string): Promise<string> {
+  async readCookies(provider: Provider, clientId: string, parentSignal: AbortSignal | null = null): Promise<string> {
     const target = new URL(`/api/cookies/${provider}`, this.cookieBridgeUrl);
     target.searchParams.set('client_id', clientId);
-    const response = await this.fetchImpl(target, { headers: { Accept: 'application/json' } });
+    const response = await this.fetchImpl(target, { headers: { Accept: 'application/json' }, signal:requestSignal(this.requestTimeoutMs, parentSignal) });
     const payload = await response.json().catch(() => ({})) as JsonObject;
     const cookies = payload?.data?.cookies;
     if (!response.ok || payload.isok === false || typeof cookies !== 'string' || !cookies) {
@@ -297,7 +335,8 @@ export class MediaCrawlerProAdapter implements ContentAcquisitionAdapter {
         Cookie: cookies,
         Referer: new URL(source).origin,
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/131 Safari/537.36'
-      }
+      },
+      signal:AbortSignal.timeout(this.mediaTimeoutMs),
     });
     if (!response.ok || !response.body) {
       throw codedError('已授权媒体下载被平台拒绝。', 'authorization_required');
@@ -310,6 +349,36 @@ export class MediaCrawlerProAdapter implements ContentAcquisitionAdapter {
     );
     return { kind, path: outputPath };
   }
+}
+
+function boundedTimeout(value: unknown, minimum: number, maximum: number, fallback: number): number {
+  const normalized = Number(value);
+  return Number.isFinite(normalized) ? Math.max(minimum, Math.min(Math.trunc(normalized), maximum)) : fallback;
+}
+
+function requestSignal(timeoutMs: number, parentSignal: AbortSignal | null): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return parentSignal ? AbortSignal.any([parentSignal, timeout]) : timeout;
+}
+
+function isTimeoutError(error: unknown): boolean {
+  const name = error && typeof error === 'object' && 'name' in error ? String(error.name || '') : '';
+  return name === 'TimeoutError' || name === 'AbortError' || /timed?\s*out|超时/i.test(error instanceof Error ? error.message : String(error));
+}
+
+function probeLoopbackTransport(value: string, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const target = new URL(value);
+    const socket = net.createConnection({ host:target.hostname, port:Number(target.port || (target.protocol === 'https:' ? 443 : 80)) });
+    const finish = (ready: boolean) => {
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve(ready);
+    };
+    socket.setTimeout(timeoutMs, () => finish(false));
+    socket.once('connect', () => finish(true));
+    socket.once('error', () => finish(false));
+  });
 }
 
 function assertCookieBridgeConnection(connectionUse: ConnectionUse | null): asserts connectionUse is ConnectionUse & { cookieBridgeClientId: string } {

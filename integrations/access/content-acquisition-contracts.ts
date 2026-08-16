@@ -41,8 +41,15 @@ export type AdapterAcquireResult = Readonly<{
 
 export type AdapterMetricsInput = Readonly<{
   source: string;
-  connectionUse: ConnectionUse;
+  connectionUse: ConnectionUse | null;
   historyLimit: number;
+}>;
+
+export type AdapterHealthProbe = Readonly<{
+  status: AdapterHealthStatus;
+  checkedAt: string;
+  detail?: string | null;
+  checks?: Readonly<Record<string, boolean>>;
 }>;
 
 export interface ContentAcquisitionAdapter {
@@ -57,6 +64,7 @@ export interface ContentAcquisitionAdapter {
   providerFor(source: string): string | null;
   acquire(input: AdapterAcquireInput): Promise<AdapterAcquireResult>;
   collectMetrics?(input: AdapterMetricsInput): Promise<unknown>;
+  probeHealth?(): Promise<AdapterHealthProbe>;
 }
 
 export type ContentAcquisitionRequest = Readonly<{

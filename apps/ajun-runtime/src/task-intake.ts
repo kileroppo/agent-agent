@@ -8,7 +8,7 @@ import { TaskCreationCoordinator, taskIdempotencyFingerprint } from './task-idem
 import { createWorkflowLink } from './workflow/contracts.ts';
 import { attachDeliveryQualityContracts, deliveryBriefGuardPatch } from './workflow/delivery-quality-intake.ts';
 import { isTrustedReadOnlyDiagnosisTask } from './read-only-diagnosis-contract.ts';
-const HIGH_RISK_ACTIONS: any[] = ['外发', '发布', '删除', '付款', '付费', '扩权', '敏感'];
+import { hasAffirmativeRiskIntent } from './task-risk-intent.ts';
 const ORGANIZATION_GOVERNANCE_WORDS: any = /创建.*(?:agent|智能体|岗位)|新建.*(?:agent|智能体|岗位)|扩权|账号|连接|公开发布|对外发布|付款|付费|预算|暂停|终止|跨\s*agent/i;
 export class TaskIntake {
     creation: any;
@@ -120,7 +120,7 @@ export class TaskIntake {
             return this.reload(task.taskId);
         }
         if (taskType !== WECHAT_CHAT_TASK_TYPE
-            && hasAffirmativeHighRiskIntent(`${title} ${description}`)
+            && hasAffirmativeRiskIntent(`${title} ${description}`)
             && !isTrustedReadOnlyDiagnosisTask(task)
             && !['army.intake', 'governance.approval-review', 'office.knowledge-summary', 'content.platform-draft', 'content.video-script-package'].includes(taskType)) {
             await this.store.createApproval({
@@ -311,27 +311,6 @@ function extractPublicUrls(value: any): any {
 }
 function uniquePublicUrls(values: any): any {
     return [...new Set(values.map((value: any): any => String(value || '').trim()).filter(Boolean))];
-}
-function hasAffirmativeHighRiskIntent(value: any): any {
-    const text: any = String(value || '');
-    return HIGH_RISK_ACTIONS.some((action: any): any => {
-        let startAt: any = 0;
-        while (startAt < text.length) {
-            const index: any = text.indexOf(action, startAt);
-            if (index < 0)
-                return false;
-            if (!isExplicitlyNegated(text.slice(0, index)))
-                return true;
-            startAt = index + action.length;
-        }
-        return false;
-    });
-}
-function isExplicitlyNegated(prefix: any): any {
-    if (/(?:不|无|禁止|不得|不可|不能|无需|不用|不需要|不允许|不涉及)\s*$/.test(prefix))
-        return true;
-    const clause: any = String(prefix || '').split(/[，,。；;：:！？!?\n]/).at(-1) || '';
-    return /^\s*(?:请)?(?:不|不要|不得|禁止|不可|不能|无需|不用|不需要|不允许|不涉及)[^，,。；;：:！？!?\n]{0,80}(?:、|或|和|以及)\s*$/.test(clause);
 }
 function shouldProjectToPaperclip(task: any, approval: any = null): any {
     return approval?.governanceMode === 'paperclip'

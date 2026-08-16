@@ -16,6 +16,7 @@ export async function routeBoomMonitorApi({ method, url, local, enabled = true, 
         if (method === 'GET' && pathname === '/api/boom-monitor/dashboard')
             return response(200, service.dashboard());
         if (method === 'GET' && pathname === '/api/boom-monitor/works') {
+            await service.refreshAnalysisStatuses?.();
             return response(200, service.listWorks({
                 grade: parsed.searchParams.get('grade'),
                 platform: parsed.searchParams.get('platform'),
@@ -32,6 +33,7 @@ export async function routeBoomMonitorApi({ method, url, local, enabled = true, 
         }
         const workMatch: any = pathname.match(/^\/api\/boom-monitor\/works\/(\d+)$/);
         if (method === 'GET' && workMatch) {
+            await service.refreshAnalysisStatuses?.();
             const result: any = service.getWork(Number(workMatch[1]));
             return result ? response(200, result) : response(404, { detail: '找不到作品' });
         }
@@ -53,8 +55,10 @@ export async function routeBoomMonitorApi({ method, url, local, enabled = true, 
         if (method === 'POST' && pathname === '/api/boom-monitor/collect/url') {
             return response(200, await service.collectUrl(await readBody()));
         }
-        if (method === 'GET' && pathname === '/api/boom-monitor/analysis')
+        if (method === 'GET' && pathname === '/api/boom-monitor/analysis') {
+            await service.refreshAnalysisStatuses?.();
             return response(200, service.listAnalysis());
+        }
         if (method === 'POST' && ['/api/boom-monitor/analysis/run', '/api/boom-monitor/analysis/process'].includes(pathname)) {
             const input: any = await readBody();
             return response(200, await service.runAnalysisWorker({

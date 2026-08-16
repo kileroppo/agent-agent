@@ -435,6 +435,49 @@ test('多人任务已持久化但计划仍在异步生成时返回已受理而�
   assert.match(result.reply, /已经登记|计划生成后/);
 });
 
+test('业务多人任务只在上游成功后创建下游，needs_input 不再冒充依赖完成', async () => {
+  const records = [];
+  const tasks = {
+    async create(input) {
+      if (input.taskType === 'army.cross-agent-mission') {
+        const mission = {
+          taskId:'mission-strict-dependency', taskType:input.taskType, status:'running',
+          idempotencyKey:'mission:strict-dependency', requester:{ kind:'local-owner', ref:'A君' }, source:{ channel:'ajun-runtime' },
+          input:{ context:input.context },
+          artifactRefs:[{ type:'cross_agent_mission_plan', data:{ kind:'business', safeOnly:true, summary:input.title, subtasks:input.context.businessMissionItems } }],
+        };
+        records.push(mission);
+        return mission;
+      }
+      const child = {
+        taskId:`child-${records.length}`, parentTaskId:input.parentTaskId, taskType:input.taskType,
+        assigneeAgentId:input.agentId, idempotencyKey:input.idempotencyKey,
+        status:input.taskType === 'media.transcribe-and-refine' ? 'needs_input' : 'succeeded',
+        currentStage:input.taskType === 'media.transcribe-and-refine' ? 'source_unavailable' : 'completed',
+        artifactRefs:[],
+      };
+      records.push(child);
+      return child;
+    },
+  };
+  const store = {
+    async list(){ return records; },
+    async updateTask(taskId, patch){ const task = records.find((item) => item.taskId === taskId); Object.assign(task, patch); return task; },
+  };
+  const service = new CrossAgentMissionService({ tasks, store, governance:{} });
+  const result = await service.createBusinessMission({
+    title:'先取证再分析',
+    items:[
+      { key:'media', title:'获取确认稿', taskType:'media.transcribe-and-refine', agentId:'xiaod' },
+      { key:'analysis', title:'分析内容', taskType:'content.video-benchmark-analysis', agentId:'video-content-analyst', dependsOn:['media'] },
+    ],
+  });
+
+  assert.equal(records.some((task) => task.taskType === 'content.video-benchmark-analysis'), false);
+  assert.equal(result.mission.status, 'needs_input');
+  assert.equal(result.mission.currentStage, 'mission_needs_input');
+});
+
 test('依赖任务创建时分离固定内容来源与依赖编号并保留无固定来源的旧行为', async () => {
   const created = [];
   let mission = null;

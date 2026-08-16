@@ -323,19 +323,22 @@ export function createBoomMonitorConsole({ root, api, escapeHtml, formatDate }) 
         const status = String(item.status || '');
         const summary = queueProblemSummary(status);
         const failure = item.dispatch_error || item.error_message;
+        const taskId = String(item.army_task_id || '');
         const action = status === 'waiting_source'
             ? '<button type="button" class="secondary-action" data-boom-focus-intake>补充链接</button>'
-            : status === 'queued' && Number(budgetState.remaining_today) <= 0
-                ? '<button type="button" class="secondary-action" data-boom-open-settings>调整今日上限</button>'
-                : workId
-                    ? `<button type="button" data-boom-dispatch-work="${escapeHtml(workId)}">重试</button>`
-                    : '';
-        return `<article class="boom-queue-item"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(summary)}</span>${item.army_task_id ? `<small>任务编号 ${escapeHtml(item.army_task_id)}</small>` : ''}<div class="boom-item-actions">${action}</div>${failure ? `<details class="boom-technical-detail"><summary>查看技术原因</summary><small class="is-error">${escapeHtml(failure)}</small></details>` : ''}</article>`;
+            : taskId && ['waiting_approval', 'needs_input', 'failed'].includes(status)
+                ? `<a class="boom-task-link" href="/tasks/${encodeURIComponent(taskId)}">查看并处理</a>`
+                : status === 'queued' && Number(budgetState.remaining_today) <= 0
+                    ? '<button type="button" class="secondary-action" data-boom-open-settings>调整今日上限</button>'
+                    : workId
+                        ? `<button type="button" data-boom-dispatch-work="${escapeHtml(workId)}">重试</button>`
+                        : '';
+        return `<article class="boom-queue-item"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(summary)}</span>${taskId ? `<small>任务编号 ${escapeHtml(taskId)}</small>` : ''}<div class="boom-item-actions">${action}</div>${failure ? `<details class="boom-technical-detail"><summary>查看技术原因</summary><small class="is-error">${escapeHtml(failure)}</small></details>` : ''}</article>`;
     }
     function actionableAnalysisItems(items) {
         return items.filter((item) => {
             const status = String(item.status || '');
-            if (['waiting_source', 'dispatch_failed', 'failed'].includes(status))
+            if (['waiting_source', 'dispatch_failed', 'waiting_approval', 'needs_input', 'failed'].includes(status))
                 return true;
             return status === 'queued' && settings.enabled === true && Number(budgetState.remaining_today) <= 0;
         });
@@ -358,7 +361,7 @@ export function createBoomMonitorConsole({ root, api, escapeHtml, formatDate }) 
         for (const checkbox of root.querySelectorAll('input[name="boom-grade"]'))
             checkbox.checked = grades.has(checkbox.value);
         elements.dailyLimit.value = settings.daily_limit ?? budget.daily_limit ?? payload.daily_limit ?? 5;
-        elements.budget.textContent = `今日已派发 ${budget.dispatched_today ?? 0} 条 · 剩余 ${budget.remaining_today ?? Math.max(0, Number(elements.dailyLimit.value))} 条`;
+        elements.budget.textContent = `今日已创建拆解 ${budget.dispatched_today ?? 0} 条 · 剩余 ${budget.remaining_today ?? Math.max(0, Number(elements.dailyLimit.value))} 条`;
     }
     async function loadSettings() {
         renderSettings(await api(`${API_ROOT}/settings`));
@@ -538,7 +541,7 @@ function platformLabel(platform) {
     return { douyin: '抖音', xiaohongshu: '小红书', youtube: 'YouTube', manual: '手动' }[platform] || platform || '未知平台';
 }
 function queueStatusLabel(status) {
-    return { queued: '等待处理', running: '处理中', completed: '已完成', failed: '失败', dispatched: '已派发', dispatching: '派发中', dispatch_failed: '派发失败', waiting_source: '等待来源', cancelled: '已关闭' }[status] || status || '未入队';
+    return { queued: '等待处理', submitted: '已受理', planning: '规划中', acquiring: '取证中', analyzing: '分析中', waiting_approval: '等待确认', needs_input: '需要处理', completed: '已完成', failed: '失败', dispatching: '正在创建任务', dispatch_failed: '任务创建失败', waiting_source: '等待来源', cancelled: '已关闭' }[status] || status || '未入队';
 }
 function workStatusLabel(status, autoHandlesWork, task = null) {
     if (task?.pendingApproval?.approvalId || ['pending_approval', 'waiting_approval'].includes(String(task?.status || '')))
@@ -549,9 +552,13 @@ function workStatusLabel(status, autoHandlesWork, task = null) {
         return ' · 拆解未完成';
     return {
         queued: autoHandlesWork ? ' · 等待自动拆解' : ' · 等待手动拆解',
-        running: ' · 拆解中',
-        dispatching: ' · 拆解中',
-        dispatched: ' · 拆解中',
+        submitted: ' · 已受理',
+        planning: ' · 正在规划',
+        acquiring: ' · 小D取证中',
+        analyzing: ' · 小拆分析中',
+        waiting_approval: ' · 等你确认',
+        needs_input: ' · 需要处理',
+        dispatching: ' · 正在创建任务',
         completed: ' · 已完成',
         failed: ' · 拆解失败',
         dispatch_failed: ' · 拆解失败',
@@ -564,6 +571,8 @@ function queueProblemSummary(status) {
         waiting_source: '缺少可核验作品链接，暂时不能让小D取证。',
         dispatch_failed: '交给拆解流程失败，作品仍安全保留。',
         failed: '拆解启动失败，作品仍安全保留。',
+        waiting_approval: '拆解任务正在等待你的确认，确认前不会继续。',
+        needs_input: '拆解任务已停止等待处理，不会继续伪装成运行中。',
         queued: '今日自动拆解额度已用完。',
     }[status] || '这条作品需要人工确认。';
 }

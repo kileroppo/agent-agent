@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import net from 'node:net';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ConnectionStore } from '../connection-store.ts';
@@ -862,8 +863,68 @@ test('content center authorizes a metrics read and returns only the sanitized bu
     requestingAgentId:'xiaod'
   });
 
-  assert.deepEqual(result, { ok:true, metricsBundle:expected });
+  assert.equal(result.ok, true);
+  assert.equal(result.metricsBundle.schemaVersion, expected.schemaVersion);
+  assert.equal(result.metricsBundle.status, expected.status);
+  assert.deepEqual(result.metricsBundle.acquisition, {
+    adapterId:'metrics-adapter', attempts:1, fallbackUsed:false, priorAttempts:[],
+  });
   assert.equal(JSON.stringify(result).includes('xhs_work'), false);
+});
+
+test('指标采集先做真实就绪检查，单通道只重试一次再切备用通道', async (t) => {
+  const { broker, operations } = await sandbox(t);
+  const calls = [];
+  const specialized = {
+    id:'metrics-specialized', healthStatus:'healthy', accessMode:'public', priorityClass:'specialized',
+    matches:() => true, providerFor:() => 'xhs',
+    probeHealth:async () => ({ status:'healthy', checkedAt:'2026-08-15T00:00:00.000Z', checks:{ transport:true } }),
+    collectMetrics:async () => {
+      calls.push('specialized');
+      throw Object.assign(new Error('temporary unavailable'), { code:'adapter_unavailable' });
+    },
+  };
+  const general = {
+    id:'metrics-general', healthStatus:'healthy', accessMode:'public', priorityClass:'general',
+    matches:() => true, providerFor:() => 'xhs',
+    probeHealth:async () => ({ status:'healthy', checkedAt:'2026-08-15T00:00:00.000Z', checks:{ transport:true } }),
+    collectMetrics:async () => {
+      calls.push('general');
+      return { schemaVersion:'agent.army/boom-metrics-bundle/v1', status:'collected' };
+    },
+  };
+  const center = new ContentAcquisitionCenter({ adapters:[general, specialized], connectionBroker:broker, operations, metricsRetryLimit:1 });
+  const result = await center.collectMetrics({
+    taskId:'metrics-task', source:'https://www.xiaohongshu.com/explore/target', requestingAgentId:'xiaod',
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls, ['specialized', 'specialized', 'general']);
+  assert.equal(result.metricsBundle.acquisition.adapterId, 'metrics-general');
+  assert.equal(result.metricsBundle.acquisition.fallbackUsed, true);
+  assert.deepEqual(result.metricsBundle.acquisition.priorAttempts.map((attempt) => attempt.failureCode), ['adapter_unavailable', 'adapter_unavailable']);
+  assert.equal(operations.list().some((event) => event.eventType === 'metrics_fallback_used'), true);
+});
+
+test('未通过动态就绪检查的指标通道不会被调用且健康结果不再假绿', async (t) => {
+  const { broker, operations } = await sandbox(t);
+  let calls = 0;
+  const adapter = {
+    id:'configured-but-down', healthStatus:'healthy', accessMode:'public', priorityClass:'specialized',
+    matches:() => true, providerFor:() => 'xhs',
+    probeHealth:async () => ({ status:'unavailable', checkedAt:'2026-08-15T00:00:00.000Z', detail:'本机端口不可达。', checks:{ transport:false } }),
+    collectMetrics:async () => { calls += 1; return {}; },
+  };
+  const center = new ContentAcquisitionCenter({ adapters:[adapter], connectionBroker:broker, operations });
+  const health = await center.health();
+  const result = await center.collectMetrics({ source:'https://www.xiaohongshu.com/explore/target', requestingAgentId:'xiaod' });
+
+  assert.equal(health.ready, false);
+  assert.equal(health.adapters[0].configuredStatus, 'healthy');
+  assert.equal(health.adapters[0].status, 'unavailable');
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'capability_not_available');
+  assert.equal(calls, 0);
 });
 
 test('MediaCrawlerPro 识别小红书当前分享口令短链域名', () => {
@@ -873,6 +934,56 @@ test('MediaCrawlerPro 识别小红书当前分享口令短链域名', () => {
   });
   assert.equal(adapter.matches('http://xhslink.cn/o/3HInBgvjTG'), true);
   assert.equal(adapter.providerFor('http://xhslink.cn/o/3HInBgvjTG'), 'xhs');
+});
+
+test('MediaCrawlerPro 健康状态来自两个本机服务的真实传输探针', async (t) => {
+  const cookieBridge = net.createServer((socket) => socket.end());
+  const downloadServer = net.createServer((socket) => socket.end());
+  await Promise.all([listenLoopback(cookieBridge), listenLoopback(downloadServer)]);
+  t.after(() => Promise.all([closeServer(cookieBridge), closeServer(downloadServer)]));
+  const cookiePort = cookieBridge.address().port;
+  const downloadPort = downloadServer.address().port;
+  const adapter = new MediaCrawlerProAdapter({
+    cookieBridgeUrl:`http://127.0.0.1:${cookiePort}`,
+    downloadServerUrl:`http://127.0.0.1:${downloadPort}`,
+    healthProbeTimeoutMs:200,
+  });
+
+  const health = await adapter.probeHealth();
+  assert.equal(health.status, 'healthy');
+  assert.deepEqual(health.checks, { cookieBridgeTransport:true, downloadServerTransport:true });
+  assert.match(health.detail, /具体平台作品仍需实际读取验证/);
+});
+
+test('MediaCrawlerPro 单次指标请求超时会返回可重试的 provider_timeout', async () => {
+  const adapter = new MediaCrawlerProAdapter({
+    cookieBridgeUrl:'http://127.0.0.1:8274',
+    downloadServerUrl:'http://127.0.0.1:8205',
+    requestTimeoutMs:50,
+    metricsTimeoutMs:200,
+    fetchImpl:async (url, options = {}) => {
+      if (String(url).includes('/api/cookies/xhs')) return jsonResponse({ isok:true, data:{ cookies:'test-cookie' } });
+      if (String(url).includes('/api/v1/content_detail')) {
+        return new Promise((_resolve, reject) => {
+          const keepAlive = setTimeout(() => reject(new Error('test timeout guard')), 1_000);
+          options.signal.addEventListener('abort', () => {
+            clearTimeout(keepAlive);
+            reject(options.signal.reason);
+          }, { once:true });
+        });
+      }
+      throw new Error(`unexpected ${url}`);
+    },
+  });
+
+  await assert.rejects(
+    () => adapter.collectMetrics({
+      source:'https://www.xiaohongshu.com/explore/timeout-note',
+      connectionUse:{ credentialKind:'cookie_bridge', cookieBridgeClientId:'local_xhs_account_1' },
+      historyLimit:20,
+    }),
+    (error) => error.code === 'provider_timeout' && /受控时限/.test(error.message),
+  );
 });
 
 test('MediaCrawlerPro 在适配层解析小红书短链并转换为官方服务支持的 explore URL', async () => {
@@ -1009,4 +1120,15 @@ test('MediaCrawlerPro 为视觉分析返回视频而不是独立音轨', async (
 
 function jsonResponse(payload) {
   return { ok: true, json: async () => payload };
+}
+
+function listenLoopback(server) {
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+}
+
+function closeServer(server) {
+  return new Promise((resolve) => server.close(resolve));
 }

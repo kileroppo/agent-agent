@@ -110,12 +110,21 @@ export async function createContentRuntime(workDir: string) {
       const resolved = await this.resolveConnectionBindingForSource(source);
       return resolved?.connectionId || null;
     },
-    health() {
+    async health() {
+      const acquisition = await contentCenter.health();
       return {
         connectionManager: true,
-        contentAcquisitionCenter: true,
+        contentAcquisitionCenter: acquisition.ready,
         operationsOfficer: true,
-        adapters: contentCenter.adapters.map((adapter: any) => ({ id: adapter.id, priorityClass: adapter.priorityClass, healthStatus: adapter.healthStatus }))
+        adapters: acquisition.adapters.map((adapter: any) => ({
+          id:adapter.id,
+          priorityClass:adapter.priorityClass,
+          healthStatus:adapter.status,
+          configuredStatus:adapter.configuredStatus,
+          checkedAt:adapter.checkedAt,
+          detail:adapter.detail,
+          checks:adapter.checks,
+        }))
       };
     }
   };

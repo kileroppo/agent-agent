@@ -58,7 +58,7 @@ app.get('/api/health', async (_req, res, next) => {
       ok:true,
       capabilities:configuredCapabilities(),
       capabilityModelPolicy:await capabilityModelPolicy.snapshot(),
-      commonAccess:contentRuntime.health(),
+      commonAccess:await contentRuntime.health(),
     });
   } catch (error) { next(error); }
 });

@@ -100,7 +100,7 @@ test('作品卡常驻人话判断和唯一主动作，筛选及技术指标按�
   assert.match(styles, /\.boom-item-head\s*\{/);
 });
 
-test('需要处理只收异常和额度耗尽，正常派发过程留在作品状态', async () => {
+test('需要处理收纳异常、等待确认和卡死状态，正常过程留在作品状态', async () => {
   const [html, consoleSource] = await Promise.all([
     readFile(new URL('index.html', publicRoot), 'utf8'),
     readFile(new URL('boom-monitor-console.js', publicRoot), 'utf8'),
@@ -108,13 +108,16 @@ test('需要处理只收异常和额度耗尽，正常派发过程留在作品�
 
   assert.match(html, /data-boom-view="queue"[^>]*hidden>需要处理/);
   assert.doesNotMatch(html, /id="boom-dispatch-run"/);
-  assert.match(consoleSource, /\['waiting_source', 'dispatch_failed', 'failed'\]\.includes\(status\)/);
+  assert.match(consoleSource, /\['waiting_source', 'dispatch_failed', 'waiting_approval', 'needs_input', 'failed'\]\.includes\(status\)/);
   assert.match(consoleSource, /status === 'queued'[\s\S]*remaining_today/);
-  assert.match(consoleSource, /dispatching: ' · 拆解中'/);
+  assert.match(consoleSource, /acquiring: ' · 小D取证中'/);
+  assert.match(consoleSource, /analyzing: ' · 小拆分析中'/);
+  assert.match(consoleSource, /needs_input: ' · 需要处理'/);
   assert.match(consoleSource, /completed: ' · 已完成'/);
   assert.match(consoleSource, /return ' · 等你确认'/);
   assert.match(consoleSource, /data-boom-focus-intake/);
   assert.match(consoleSource, /data-boom-open-settings/);
+  assert.match(consoleSource, /查看并处理/);
 });
 
 test('作品评分只展示当前评分，并用中文解释表现指标', async () => {

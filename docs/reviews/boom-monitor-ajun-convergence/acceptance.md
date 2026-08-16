@@ -25,3 +25,16 @@
 - 恢复 native 前必须先停止 Docker、显式处理两边差异，再恢复 A君数据库写权限；不做自动双向合并。
 
 详细操作见 [数据切换与 Docker 退役说明](../../plans/boom-monitor-ajun-convergence.md)。
+
+## 2026-08-15 稳定性加固候选源码
+
+本节记录的是尚未切换到 `4321` live 的候选源码，不能覆盖上面的历史运行验收，也不能据此声称真实平台采集、飞书回告或 Provider 调用已经通过。
+
+| 批次 | 已完成候选行为 | 自动化证据 |
+| --- | --- | --- |
+| 第一批 | 审批恢复可找到 manager；岗位或执行器缺失时显式失败；雷达持续对账总任务与子任务，并把规划卡死投影为“需要处理” | `task-service.test.js`、`boom-monitor-native-service.test.js` |
+| 第二批 | 内容获取改为动态传输探测；请求/整段采集/下载均有超时；同适配器最多重试一次并有限回退；产物保存不含凭据的路由证据 | `common-access.test.js`、`media-transcriber-agent check` |
+| 第三批 | 页面显示真实的规划、取证、分析、等待确认和需处理阶段；业务依赖只有 `succeeded` 才放行；爆款信号经过 A君规划后仍保留在小拆上下文 | `boom-monitor-console.test.js`、`cross-agent-mission-service.test.js`、`local-ajun-coordinator.test.js` |
+| 全链路 | 真实 `AgentRegistry`、`TaskStore`、`TaskService`、Mission、Boom SQLite 串联；确定性本地替身完成“链接 → 评分 → 小D → 两次质量复核 → 小拆 → 总任务汇总”，没有访问平台或执行外部写入 | `boom-monitor-end-to-end.test.js` |
+
+上线仍需单独授权：构建不可变 release、切换/重启 `4321`、核对 PID/端口/cwd/argv 和真实 API 回读。真实登录态采集、Provider、飞书、发布与外部写入不在本轮候选验收范围内。

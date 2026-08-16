@@ -95,6 +95,13 @@ export function createBackgroundLifecycleComposition({
     dataDir:path.join(paths.dataDir, 'boom-monitor'),
     collectMetrics:(input: unknown) => localExecution.localXiaod.collectMetrics(input),
     dispatchBoomSignal:(input: unknown) => dispatchBoomSignal(input, { missions }),
+    getMissionSnapshot:async (taskId: unknown) => {
+      const allTasks = await store.list();
+      return {
+        mission:allTasks.find((task: any) => task.taskId === taskId) || null,
+        children:allTasks.filter((task: any) => task.parentTaskId === taskId),
+      };
+    },
     analysisDailyLimit:features.boomAnalysisDailyLimit,
   }) : null;
 

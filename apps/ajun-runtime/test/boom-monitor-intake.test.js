@@ -77,3 +77,24 @@ test('军团分派保留爆款信号到小拆子任务上下文', async () => {
   assert.equal(analysis.context.boomSignal.workId, 'work-1');
   assert.equal(analysis.context.boomSignal.grade, 'T3');
 });
+
+test('多人任务安全边界理解并列否定但仍识别真实高风险动作', async () => {
+  const created = [];
+  const tasks = {
+    async create(input) {
+      created.push(input);
+      return { taskId:`mission-${created.length}`, status:'running', artifactRefs:[] };
+    },
+  };
+  const missions = new CrossAgentMissionService({ tasks, store:{ async list(){ return []; } }, governance:{} });
+  await missions.createBusinessMission({
+    title:'只读内容拆解',
+    items:[{ key:'read', title:'读取公开素材', description:'只取证和分析，不外发或发布。', taskType:'media.transcribe-and-refine', agentId:'xiaod' }],
+  });
+  await missions.createBusinessMission({
+    title:'对外发布内容',
+    items:[{ key:'publish', title:'公开发布', description:'把内容发布到平台。', taskType:'content.platform-publish', agentId:'publisher' }],
+  });
+  assert.equal(created[0].context.missionSafeOnly, true);
+  assert.equal(created[1].context.missionSafeOnly, false);
+});

@@ -20,8 +20,15 @@ export function setupTaskService({
   const store = createTaskStore(records);
   const testGovernance = governance ? { async assertCaseIssueLink() {}, ...governance } : governance;
   const registry = {
-    async list() { return agents; },
-    async get(agentId) { return agents.find((agent) => agent.agentId === agentId) || null; },
+    async list({ includeInactive = false, includeManagers = false } = {}) {
+      return agents
+        .filter((agent) => includeManagers || agent.kind !== 'manager')
+        .filter((agent) => includeInactive || agent.status === 'active');
+    },
+    async get(agentId, options = {}) {
+      return (await this.list({ includeInactive:true, includeManagers:true, ...options }))
+        .find((agent) => agent.agentId === agentId) || null;
+    },
     async candidates(type) { return agents.filter((agent) => agent.acceptedTaskTypes.includes(type)); },
   };
   const service = new TaskService({
@@ -47,6 +54,7 @@ export function setupTaskService({
 export const coordinator = {
   agentId:'ajun',
   name:'A君',
+  kind:'manager',
   status:'active',
   acceptedTaskTypes:['army.intake', 'army.route-task', 'army.cross-agent-mission'],
 };

@@ -318,6 +318,52 @@ test('一次性外发审批留在 A君，批准后只恢复原任务一次', asy
   await assert.rejects(() => service.approveApproval(records.approvals[0].approvalId), /已经处理/);
   assert.equal(executed, 1);
 });
+test('manager 任务审批通过后能重新找到 A君并继续执行', async () => {
+  const manager = { ...coordinator };
+  let executed = 0;
+  const { service, records } = setup({ agents:[manager], executors:{
+    ajun:{ async execute(task) {
+      executed += 1;
+      return {
+        status:'running', currentStage:'mission_planned',
+        artifactRefs:[{ artifactId:`plan:${task.taskId}`, type:'cross_agent_mission_plan', validation:{ exists:true, readable:true, nonEmpty:true }, data:{ kind:'business', safeOnly:true, subtasks:[] } }],
+      };
+    } },
+  } });
+  records.tasks.push({
+    taskId:'manager-approval-1', taskType:'army.cross-agent-mission', status:'waiting_approval',
+    currentStage:'approval_required', approvalRefs:['manager-approval'], assigneeAgentId:'ajun',
+    input:{ title:'只读拆解任务' },
+  });
+  records.approvals.push({
+    approvalId:'manager-approval', taskId:'manager-approval-1', status:'pending', governanceMode:'local',
+    action:'manual-risk-review', requestedScope:{ taskType:'army.cross-agent-mission', title:'只读拆解任务', assigneeAgentId:'ajun' },
+  });
+
+  const resumed = await service.approveApproval('manager-approval');
+  assert.equal(executed, 1);
+  assert.equal(resumed.status, 'running');
+  assert.equal(resumed.currentStage, 'mission_planned');
+});
+test('审批后没有可用执行器时显式失败而不是永久 queued', async () => {
+  const manager = { ...coordinator };
+  const { service, records } = setup({ agents:[manager] });
+  records.tasks.push({
+    taskId:'manager-approval-no-executor', taskType:'army.cross-agent-mission', status:'waiting_approval',
+    currentStage:'approval_required', approvalRefs:['manager-approval-no-executor-ref'], assigneeAgentId:'ajun',
+    input:{ title:'只读拆解任务' },
+  });
+  records.approvals.push({
+    approvalId:'manager-approval-no-executor-ref', taskId:'manager-approval-no-executor', status:'pending', governanceMode:'local',
+    action:'manual-risk-review', requestedScope:{ taskType:'army.cross-agent-mission', title:'只读拆解任务', assigneeAgentId:'ajun' },
+  });
+
+  const stopped = await service.approveApproval('manager-approval-no-executor-ref');
+  assert.equal(stopped.status, 'failed');
+  assert.equal(stopped.currentStage, 'approval_resume_executor_unavailable');
+  assert.equal(stopped.error.retryable, true);
+  assert.match(stopped.error.userMessage, /安全恢复/);
+});
 test('运行总览展示微信 Vault 真实健康状态而不是只看岗位 active', async () => {
   const wechat = { agentId:'wechat-chat-retriever', name:'微信聊天取件员', status:'active', acceptedTaskTypes:['wechat.chat.retrieval'], interaction:{ directFeishu:'disabled' } };
   const { service } = setup({ agents:[wechat] });

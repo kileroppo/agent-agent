@@ -119,9 +119,45 @@ test('in-process callbacks collect metrics and dispatch a trackable mission with
   assert.equal(calls[0][1].historyLimit, 20);
   assert.equal(calls[1][0], 'dispatch');
   assert.equal(calls[1][1].scoreVersion, 'v2');
-  assert.equal(service.listAnalysis().items[0].status, 'dispatched');
+  assert.equal(service.listAnalysis().items[0].status, 'submitted');
   assert.equal(service.listAnalysis().items[0].army_task_id, 'mission-1');
   assert.equal(service.listWorks().works[0].army_task_id, 'mission-1');
+});
+
+test('雷达持续对账军团任务真实阶段并显性暴露规划卡死', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'boom-native-mission-state-'));
+  t.after(() => rm(directory, { recursive:true, force:true }));
+  let snapshot = { mission:{ taskId:'mission-state', status:'queued', currentStage:'approval_approved', updatedAt:'2026-08-15T00:00:00.000Z', artifactRefs:[] }, children:[] };
+  const service = createBoomMonitorService({
+    dbPath:path.join(directory, 'boom.sqlite'), dataDir:directory,
+    now:() => new Date('2026-08-15T01:00:00.000Z'), missionStuckAfterMs:30_000,
+    dispatchBoomSignal:async () => ({ mission:{ taskId:'mission-state' } }),
+    getMissionSnapshot:async () => snapshot,
+  });
+  t.after(() => service.close());
+  const collected = service.ingestMetricsBundle(collectedBundle());
+  service.enqueueWorkAnalysis(collected.work_id);
+  await service.runAnalysisWorker({ manual:true, workId:collected.work_id });
+  await service.refreshAnalysisStatuses();
+  assert.equal(service.listAnalysis().items[0].status, 'needs_input');
+  assert.equal(service.listAnalysis().items[0].mission_stage, 'approval_approved');
+  assert.match(service.listAnalysis().items[0].dispatch_error, /安全恢复/);
+
+  snapshot = { mission:{ taskId:'mission-state', status:'running', currentStage:'mission_planned', updatedAt:'2026-08-15T01:01:00.000Z', artifactRefs:[{ type:'cross_agent_mission_plan' }] }, children:[
+    { taskId:'xiaod-child', taskType:'media.transcribe-and-refine', status:'running', currentStage:'xiaod_downloading', updatedAt:'2026-08-15T01:01:01.000Z' },
+  ] };
+  await service.refreshAnalysisStatuses();
+  assert.equal(service.listAnalysis().items[0].status, 'acquiring');
+  assert.equal(service.listAnalysis().items[0].mission_stage, 'xiaod_downloading');
+
+  snapshot.children.push({ taskId:'analysis-child', taskType:'content.video-benchmark-analysis', status:'running', currentStage:'content_analysis_running', updatedAt:'2026-08-15T01:02:00.000Z' });
+  await service.refreshAnalysisStatuses();
+  assert.equal(service.listAnalysis().items[0].status, 'analyzing');
+
+  snapshot = { mission:{ taskId:'mission-state', status:'succeeded', currentStage:'mission_completed', updatedAt:'2026-08-15T01:03:00.000Z', artifactRefs:[{ type:'cross_agent_mission_summary' }] }, children:snapshot.children };
+  await service.refreshAnalysisStatuses();
+  assert.equal(service.listAnalysis().items[0].status, 'completed');
+  assert.equal(service.getSettings().analysis_budget.dispatched_today, 1);
 });
 
 test('抖音推荐首页会明确要求作品链接且不会调用指标采集器', async (t) => {

@@ -1,7 +1,9 @@
 import { canonicalizeBusinessAssignment } from './business-task-routing.ts';
+import { normalizeBusinessMissionContext } from './business-mission-context.ts';
 import { isTaskNotificationTerminalStatus, taskStatusLabel, } from './task-status-policy.ts';
-import { normalizedProductMaturityContext } from './workflow/mission-child-policy.ts';
 import { isExactLegacyMaturityContentBlock, isExactPlannedMaturityMissionRetry, isExactQueuedMaturityContentRetry, isExactQueuedMaturityMissionRetry, isExactRunningMaturityMissionRetry, isExactWaitingMaturityMissionRetry, } from './maturity-legacy-content-retry.ts';
+import { hasAffirmativeRiskIntent } from './task-risk-intent.ts';
+const MISSION_HIGH_RISK_ACTIONS: any = Object.freeze(['外发', '发布', '删除', '付款', '付费', '扩权', '敏感', '账号', '登录', '连接', '预算', '暂停', '终止']);
 export class CrossAgentMissionService {
     governance: any;
     missionChildPolicy: any;
@@ -181,7 +183,9 @@ export class CrossAgentMissionService {
             batch.forEach((subtask: any, index: any): any => childByKey.set(subtask.key, created[index]));
         }
         const children: any[] = [...childByKey.values()];
-        const state: any = missionState(children, plan.subtasks.length);
+        const state: any = missionState(children, plan.subtasks.length, {
+            allowDependencyBlockedTerminal: plan.kind === 'business' && !mission?.input?.context?.productMaturityBatchId
+        });
         const artifact: any = missionSummary(mission, plan, children, state);
         const maturityMission: any = Boolean(mission?.input?.context?.productMaturityBatchId);
         if (maturityMission && mission.status === 'waiting_test' && state.status !== 'succeeded') {
@@ -370,7 +374,7 @@ function normalizeBusinessItems(items: any): any {
             proposalOnly: item?.proposalOnly === true,
             draftOnly: item?.draftOnly === true,
             deterministicAcceptanceRepair: item?.deterministicAcceptanceRepair === true,
-            context: normalizeBusinessContext(item?.context),
+            context: normalizeBusinessMissionContext(item?.context),
             dependsOnPrevious: item?.dependsOnPrevious === true || agentId === 'office-assistant',
             dependsOn: Array.isArray(item?.dependsOn)
                 ? [...new Set(item.dependsOn.map((value: any): any => clean(value, 80)).filter(Boolean))].slice(0, 10)
@@ -384,22 +388,15 @@ function normalizeBusinessItems(items: any): any {
         return [];
     return hasDependencyCycle(normalized) ? [] : normalized;
 }
-function normalizeBusinessContext(value: any): any {
-    const productMaturity: any = normalizedProductMaturityContext(value);
-    if (productMaturity)
-        return productMaturity;
-    const signal: any = value?.boomSignal;
-    if (!signal || typeof signal !== 'object' || Array.isArray(signal))
-        return undefined;
-    const serialized: any = JSON.stringify(signal);
-    if (serialized.length > 12000)
-        return undefined;
-    return { boomSignal: JSON.parse(serialized) };
-}
-function missionState(children: any, plannedCount: any): any {
+function missionState(children: any, plannedCount: any, { allowDependencyBlockedTerminal = false }: any = {}): any {
     const allCreated: any = children.length === plannedCount;
     const allDone: any = allCreated && children.every((item: any): any => item.status === 'succeeded');
-    const allTerminal: any = allCreated && children.every((item: any): any => isTaskNotificationTerminalStatus(item.status));
+    const createdChildrenTerminal: any = children.length > 0 && children.every((item: any): any => isTaskNotificationTerminalStatus(item.status));
+    const allTerminal: any = allCreated
+        ? createdChildrenTerminal
+        : allowDependencyBlockedTerminal
+            && createdChildrenTerminal
+            && children.some((item: any): any => item.status !== 'succeeded');
     if (allDone)
         return { status: 'succeeded', stage: 'mission_delivered', allDone, allTerminal: true };
     if (!allTerminal) {
@@ -438,7 +435,7 @@ function isActivelyRunning(status: any): any {
     return ['queued', 'running', 'waiting_worker'].includes(status);
 }
 function dependencySatisfied(mission: any, status: any): any {
-    return mission?.input?.context?.productMaturityBatchId
+    return mission?.input?.context?.productMaturityBatchId || Array.isArray(mission?.input?.context?.businessMissionItems)
         ? status === 'succeeded'
         : isTaskNotificationTerminalStatus(status);
 }
@@ -477,7 +474,7 @@ function isVerifiedArtifact(artifact: any): any {
         && artifact.validation.nonEmpty === true;
 }
 function containsHighRisk(value: any): any {
-    return /外发|发布|删除|付款|付费|扩权|敏感|账号|登录|连接|预算|暂停|终止/i.test(String(value || ''));
+    return hasAffirmativeRiskIntent(value, MISSION_HIGH_RISK_ACTIONS);
 }
 function statusLabel(status: any): any {
     return taskStatusLabel(status);

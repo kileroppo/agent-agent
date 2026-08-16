@@ -1,5 +1,5 @@
 import { canonicalizeBusinessAssignment } from './business-task-routing.ts';
-import { normalizedProductMaturityContext } from './workflow/mission-child-policy.ts';
+import { normalizeBusinessMissionContext } from './business-mission-context.ts';
 
 export class LocalAjunCoordinator {
   now: () => Date; advisor: any; registry: any;
@@ -190,7 +190,7 @@ function normalizeBusinessMissionItems(value: any) {
     proposalOnly:item?.proposalOnly === true,
     draftOnly:item?.draftOnly === true,
     deterministicAcceptanceRepair:item?.deterministicAcceptanceRepair === true,
-    context:normalizedProductMaturityContext(item?.context),
+    context:normalizeBusinessMissionContext(item?.context),
     dependsOnPrevious:item?.dependsOnPrevious === true || String(item?.agentId || '').trim() === 'office-assistant',
     dependsOn:Array.isArray(item?.dependsOn)
       ? [...new Set(item.dependsOn.map((key: any) => String(key || '').trim()).filter(Boolean))].slice(0, 10)

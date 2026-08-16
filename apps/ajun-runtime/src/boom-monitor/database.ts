@@ -59,7 +59,8 @@ export class BoomMonitorDatabase {
         l1_result_json TEXT, score_snapshot_json TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
         started_at TEXT, finished_at TEXT, analysis_depth TEXT NOT NULL DEFAULT 'fast', army_task_id TEXT,
         dispatch_attempt_count INTEGER NOT NULL DEFAULT 0, dispatch_error TEXT,
-        dispatch_result_json TEXT, dispatched_at TEXT, UNIQUE(work_id),
+        dispatch_result_json TEXT, dispatched_at TEXT, mission_status TEXT, mission_stage TEXT,
+        mission_updated_at TEXT, last_reconciled_at TEXT, UNIQUE(work_id),
         FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE
       );
       CREATE TABLE IF NOT EXISTS transcripts (
@@ -80,6 +81,10 @@ export class BoomMonitorDatabase {
         this.ensureColumn('analysis_queue', 'dispatch_error', 'TEXT');
         this.ensureColumn('analysis_queue', 'dispatch_result_json', 'TEXT');
         this.ensureColumn('analysis_queue', 'dispatched_at', 'TEXT');
+        this.ensureColumn('analysis_queue', 'mission_status', 'TEXT');
+        this.ensureColumn('analysis_queue', 'mission_stage', 'TEXT');
+        this.ensureColumn('analysis_queue', 'mission_updated_at', 'TEXT');
+        this.ensureColumn('analysis_queue', 'last_reconciled_at', 'TEXT');
         this.ensureColumn('scores', 'baseline_version', 'TEXT');
         this.ensureColumn('scores', 'score_version', "TEXT NOT NULL DEFAULT 'v2'");
         this.invalidateObsoleteScores();
@@ -246,9 +251,9 @@ export class BoomMonitorDatabase {
         this.connection.prepare(`
       INSERT INTO analysis_queue(work_id,tier,priority,status,created_at,updated_at,score_snapshot_json,analysis_depth)
       VALUES(?,?,?,'queued',?,?,?,?) ON CONFLICT(work_id) DO UPDATE SET tier=excluded.tier,priority=excluded.priority,
-      status=CASE WHEN analysis_queue.status IN ('dispatched','dispatching') THEN analysis_queue.status ELSE 'queued' END,
+      status=CASE WHEN analysis_queue.army_task_id IS NOT NULL THEN analysis_queue.status ELSE 'queued' END,
       score_snapshot_json=excluded.score_snapshot_json,analysis_depth=excluded.analysis_depth,
-      dispatch_error=CASE WHEN analysis_queue.status IN ('dispatched','dispatching') THEN analysis_queue.dispatch_error ELSE NULL END,
+      dispatch_error=CASE WHEN analysis_queue.army_task_id IS NOT NULL THEN analysis_queue.dispatch_error ELSE NULL END,
       updated_at=excluded.updated_at
     `).run(workId, grade, priority, now, now, normalizeJson(scoreSnapshot), analysisDepth === 'full' ? 'full' : 'fast');
     }
@@ -283,7 +288,7 @@ export class BoomMonitorDatabase {
     }
     countDispatchedSince(sinceIso: any): any {
         return Number(this.connection.prepare(`SELECT COUNT(*) AS total FROM analysis_queue
-      WHERE status='dispatched' AND dispatched_at IS NOT NULL AND dispatched_at>=?`).get(sinceIso).total);
+      WHERE army_task_id IS NOT NULL AND dispatched_at IS NOT NULL AND dispatched_at>=?`).get(sinceIso).total);
     }
     beginDispatch(queueId: any): any {
         const now: any = this.now();
@@ -295,8 +300,18 @@ export class BoomMonitorDatabase {
     finishDispatch(queueId: any, status: any, { taskId = null, result = {}, error = null }: any = {}): any {
         const now: any = this.now();
         this.connection.prepare(`UPDATE analysis_queue SET status=?,army_task_id=?,dispatch_result_json=?,dispatch_error=?,
-      updated_at=?,finished_at=?,dispatched_at=? WHERE id=?`)
-            .run(status, taskId, normalizeJson(result), error, now, now, status === 'dispatched' ? now : null, queueId);
+      updated_at=?,finished_at=?,dispatched_at=?,mission_status=?,mission_stage=?,mission_updated_at=?,last_reconciled_at=? WHERE id=?`)
+            .run(status, taskId, normalizeJson(result), error, now, status === 'submitted' ? null : now,
+            taskId ? now : null, taskId ? 'accepted' : null, taskId ? 'mission_accepted' : null,
+            taskId ? now : null, taskId ? now : null, queueId);
+    }
+    syncAnalysisMission(queueId: any, projection: any): any {
+        const now: any = this.now();
+        const terminal: any = ['completed', 'failed', 'cancelled'].includes(String(projection.status));
+        this.connection.prepare(`UPDATE analysis_queue SET status=?,mission_status=?,mission_stage=?,mission_updated_at=?,
+      dispatch_error=?,last_reconciled_at=?,updated_at=?,finished_at=CASE WHEN ? THEN COALESCE(finished_at,?) ELSE NULL END WHERE id=?`)
+            .run(String(projection.status), String(projection.missionStatus || ''), String(projection.missionStage || ''),
+            projection.missionUpdatedAt || null, projection.error || null, now, now, terminal ? 1 : 0, now, queueId);
     }
     getSetting(key: any): any {
         const result: any = this.connection.prepare('SELECT value_json FROM app_settings WHERE key=?').get(String(key));
@@ -363,7 +378,8 @@ export class BoomMonitorDatabase {
         return this.connection.prepare(`
       SELECT aq.id,aq.work_id,aq.tier,aq.priority,aq.status,aq.l1_status,aq.created_at,aq.updated_at,
       w.title,w.platform,s.grade,s.r_value,s.m_value,aq.analysis_depth,aq.army_task_id,
-      aq.dispatch_attempt_count,aq.dispatch_error,aq.dispatched_at
+      aq.dispatch_attempt_count,aq.dispatch_error,aq.dispatched_at,aq.mission_status,aq.mission_stage,
+      aq.mission_updated_at,aq.last_reconciled_at
       FROM analysis_queue aq JOIN scores s ON s.work_id=aq.work_id JOIN works w ON w.id=aq.work_id
       ORDER BY aq.priority DESC,aq.created_at ASC LIMIT ?
     `).all(integer(limit)).map(row);

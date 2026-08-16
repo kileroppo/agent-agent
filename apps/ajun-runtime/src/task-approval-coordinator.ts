@@ -1,4 +1,5 @@
 import { ValidationError } from './task-service-execution-support.ts';
+import { resumeApprovedTask } from './approved-task-resume.ts';
 import { PaperclipApprovalResolution } from './paperclip-approval-resolution.ts';
 import { XiaodDeliveryResume } from './xiaod-delivery-resume.ts';
 import { XiaodTaskControl } from './xiaod-task-control.ts';
@@ -57,8 +58,8 @@ async function approveLocal(this: any, approvalId: any, { decisionBy = 'A君', d
         });
     }
     await this.store.updateApproval(approvalId, decisionPatch('approved', decisionBy, decisionReason));
-    const agent: any = (await this.registry.list()).find((item: any): any => item.agentId === task.assigneeAgentId) || null;
-    return this.executeTask(await this.store.updateTask(task.taskId, { status: 'queued', currentStage: 'approval_approved', error: undefined }), agent);
+    const approvedTask: any = await this.store.updateTask(task.taskId, { status: 'queued', currentStage: 'approval_approved', error: undefined });
+    return resumeApprovedTask(this, approvedTask);
 }
 async function rejectLocal(this: any, approvalId: any, { decisionBy = 'A君', decisionReason = '本机主人拒绝当前请求范围。', chatRef = '' }: any = {}): Promise<any> {
     const approval: any = await approvalFor(this, approvalId);

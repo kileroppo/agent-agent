@@ -37,15 +37,18 @@ export class ContentAcquisitionCenter {
   readonly adapters: readonly ContentAcquisitionAdapter[];
   private readonly connectionBroker: ConnectionBrokerInterface | null;
   private readonly operations: OperationsRecorder;
+  private readonly metricsRetryLimit: number;
 
-  constructor({ adapters, connectionBroker, operations }: Readonly<{
+  constructor({ adapters, connectionBroker, operations, metricsRetryLimit = 1 }: Readonly<{
     adapters: readonly ContentAcquisitionAdapter[];
     connectionBroker: ConnectionBrokerInterface | null;
     operations: OperationsRecorder;
+    metricsRetryLimit?: number;
   }>) {
     this.adapters = [...adapters];
     this.connectionBroker = connectionBroker;
     this.operations = operations;
+    this.metricsRetryLimit = Math.max(0, Math.min(Number(metricsRetryLimit) || 0, 2));
   }
 
   async fetch({ requestId = crypto.randomUUID(), taskId, source, requestedCapabilities, connectionId = null, requestingAgentId, workspace, runtimeRequirement = null, onProgress = null }: ContentAcquisitionRequest): Promise<ContentAcquisitionResult> {
@@ -151,52 +154,100 @@ export class ContentAcquisitionCenter {
   }
 
   async collectMetrics({ taskId = null, source, connectionId = null, requestingAgentId, historyLimit = 20 }: MetricsRequest) {
-    const adapter = this.adapters.find((candidate) => (
-      candidate.healthStatus === 'healthy'
-      && typeof candidate.collectMetrics === 'function'
-      && candidate.matches(source)
-    ));
-    const collectMetrics = adapter?.collectMetrics;
-    if (!adapter || !collectMetrics) return failure('capability_not_available', '当前没有可用的作品指标采集通道。', 'manual_review');
-    if (!this.connectionBroker) return failure('connection_broker_unavailable', '当前没有可用的授权连接通道。', 'manual_review');
-    const access = await this.connectionBroker.authorize({
-      connectionId,
-      provider:adapter.providerFor(source) || adapter.id,
-      operations:['read_media_metadata'],
-      requestingAgentId
-    });
-    if (!access.ok) return failure(access.code, access.safeMessage, access.recommendedAction);
-    try {
-      const metricsBundle = await collectMetrics.call(adapter, {
-        source,
-        connectionUse:access.connectionUse,
-        historyLimit
-      });
-      await this.connectionBroker.connectionStore.recordVerification(access.connectionUse.connectionId, {
-        status:'succeeded',
-        adapterId:adapter.id,
-        capabilities:['creator_metrics']
-      });
-      return { ok:true, metricsBundle };
-    } catch (error) {
-      const safe = safeAdapterFailure(error);
-      await this.connectionBroker.connectionStore.recordVerification(access.connectionUse.connectionId, {
-        status:'failed',
-        adapterId:adapter.id,
-        capabilities:['creator_metrics'],
-        failureCode:safe.code
-      });
-      await this.operations.record({
-        subjectType:'adapter',
-        subjectRef:adapter.id,
-        eventType:safe.code,
-        severity:'warning',
-        safeMessage:safe.safeMessage,
-        recommendedAction:safe.recommendedAction,
-        taskRefs:taskId ? [taskId] : []
-      });
-      return failure(safe.code, safe.safeMessage, safe.recommendedAction);
+    const candidates = await this.metricsCandidates(source, taskId);
+    if (!candidates.length) return failure('capability_not_available', '当前没有通过真实就绪检查的作品指标采集通道。', 'manual_review');
+    let lastFailure: SafeAdapterFailure | null = null;
+    const routeAttempts: Array<Readonly<{ adapterId: string; attempt: number; outcome: string; failureCode: string | null }>> = [];
+    for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
+      const adapter = candidates[candidateIndex];
+      const collectMetrics = adapter.collectMetrics!;
+      let connectionUse: ConnectionUse | null = null;
+      if (adapter.accessMode === 'authorized' || (adapter.accessMode === 'either' && connectionId)) {
+        if (!this.connectionBroker) {
+          lastFailure = { code:'connection_broker_unavailable', safeMessage:'当前没有可用的授权连接通道。', recommendedAction:'manual_review' };
+          routeAttempts.push({ adapterId:adapter.id, attempt:0, outcome:'confirmed_failure', failureCode:lastFailure.code });
+          continue;
+        }
+        const access = await this.connectionBroker.authorize({
+          connectionId,
+          provider:adapter.providerFor(source) || adapter.id,
+          operations:['read_media_metadata'],
+          requestingAgentId
+        });
+        if (!access.ok) {
+          lastFailure = { code:access.code, safeMessage:access.safeMessage, recommendedAction:access.recommendedAction };
+          routeAttempts.push({ adapterId:adapter.id, attempt:0, outcome:'confirmed_failure', failureCode:access.code });
+          continue;
+        }
+        connectionUse = access.connectionUse;
+      }
+      const maximumAttempts = this.metricsRetryLimit + 1;
+      for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+        try {
+          const rawBundle = await collectMetrics.call(adapter, { source, connectionUse, historyLimit });
+          const metricsBundle = metricsBundleWithRouteEvidence(rawBundle, { adapterId:adapter.id, routeAttempts, attempt, fallbackUsed:candidateIndex > 0 });
+          if (connectionUse) {
+            await this.connectionBroker?.connectionStore.recordVerification(connectionUse.connectionId, {
+              status:'succeeded', adapterId:adapter.id, capabilities:['creator_metrics']
+            });
+          }
+          routeAttempts.push({ adapterId:adapter.id, attempt, outcome:'success', failureCode:null });
+          if (candidateIndex > 0) await this.operations.record({
+            subjectType:'adapter', subjectRef:adapter.id, eventType:'metrics_fallback_used', severity:'info',
+            safeMessage:'作品指标已切换到备用采集通道。', recommendedAction:'none', taskRefs:taskId ? [taskId] : []
+          });
+          return { ok:true, metricsBundle };
+        } catch (error) {
+          lastFailure = safeAdapterFailure(error);
+          routeAttempts.push({ adapterId:adapter.id, attempt, outcome:'confirmed_failure', failureCode:lastFailure.code });
+          await this.operations.record({
+            subjectType:'adapter', subjectRef:adapter.id, eventType:lastFailure.code, severity:'warning',
+            safeMessage:`第 ${attempt} 次指标读取失败：${lastFailure.safeMessage}`,
+            recommendedAction:lastFailure.recommendedAction, taskRefs:taskId ? [taskId] : []
+          });
+          if (lastFailure.recommendedAction !== 'retry' || attempt >= maximumAttempts) break;
+        }
+      }
+      if (connectionUse && lastFailure) {
+        await this.connectionBroker?.connectionStore.recordVerification(connectionUse.connectionId, {
+          status:'failed', adapterId:adapter.id, capabilities:['creator_metrics'], failureCode:lastFailure.code
+        });
+      }
     }
+    const finalFailure = lastFailure || { code:'adapter_unavailable', safeMessage:'作品指标采集通道当前不可用。', recommendedAction:'retry' };
+    return { ...failure(finalFailure.code, finalFailure.safeMessage, finalFailure.recommendedAction), routeAttempts };
+  }
+
+  async health() {
+    const adapters = await Promise.all(this.adapters.map(async (adapter) => ({
+      id:adapter.id,
+      priorityClass:adapter.priorityClass,
+      configuredStatus:adapter.healthStatus,
+      ...(typeof adapter.probeHealth === 'function'
+        ? await adapter.probeHealth().catch(() => ({ status:'unavailable' as const, checkedAt:new Date().toISOString(), detail:'真实就绪检查失败。' }))
+        : { status:adapter.healthStatus, checkedAt:new Date().toISOString(), detail:'该适配器未提供动态就绪检查。' }),
+    })));
+    return { ready:adapters.some((adapter) => adapter.status === 'healthy'), adapters };
+  }
+
+  private async metricsCandidates(source: string, taskId: string | null) {
+    const matching = this.adapters
+      .filter((adapter) => adapter.healthStatus !== 'unavailable' && typeof adapter.collectMetrics === 'function' && adapter.matches(source))
+      .sort((left, right) => priority(left.priorityClass) - priority(right.priorityClass));
+    const ready = [];
+    for (const adapter of matching) {
+      if (typeof adapter.probeHealth !== 'function') {
+        if (adapter.healthStatus === 'healthy') ready.push(adapter);
+        continue;
+      }
+      const probe = await adapter.probeHealth().catch(() => ({ status:'unavailable' as const, checkedAt:new Date().toISOString(), detail:'真实就绪检查失败。' }));
+      if (probe.status === 'healthy') ready.push(adapter);
+      else await this.operations.record({
+        subjectType:'adapter', subjectRef:adapter.id, eventType:'adapter_not_ready', severity:'warning',
+        safeMessage:probe.detail || '作品指标采集器未通过真实就绪检查。', recommendedAction:'repair', taskRefs:taskId ? [taskId] : []
+      });
+    }
+    return ready;
   }
 
   findCandidates(source: string, requestedCapabilities: readonly ContentCapability[], runtimeRequirement: RuntimeRequirement | null = null): ContentAcquisitionAdapter[] {
@@ -206,6 +257,24 @@ export class ContentAcquisitionCenter {
       .filter((adapter) => !runtimeRequirement || (adapter.runtimeRequirements || []).includes(runtimeRequirement))
       .sort((a, b) => priority(a.priorityClass) - priority(b.priorityClass));
   }
+}
+
+function metricsBundleWithRouteEvidence(raw: unknown, input: Readonly<{ adapterId: string; routeAttempts: readonly unknown[]; attempt: number; fallbackUsed: boolean }>) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const bundle = raw as Record<string, unknown>;
+  const acquisition = bundle.acquisition && typeof bundle.acquisition === 'object' && !Array.isArray(bundle.acquisition)
+    ? bundle.acquisition as Record<string, unknown>
+    : {};
+  return {
+    ...bundle,
+    acquisition:{
+      ...acquisition,
+      adapterId:input.adapterId,
+      attempts:input.attempt,
+      fallbackUsed:input.fallbackUsed,
+      priorAttempts:[...input.routeAttempts],
+    },
+  };
 }
 
 export class ContentAcquisitionError extends Error {
@@ -266,6 +335,9 @@ function safeAdapterFailure(error: unknown): SafeAdapterFailure {
   }
   if (code === 'tool_unavailable') {
     return { code: 'tool_unavailable', safeMessage: '本机缺少读取公开视频所需工具，请由运维官检查。', recommendedAction: 'repair' };
+  }
+  if (code === 'provider_timeout' || /timed?\s*out|超时/i.test(raw)) {
+    return { code:'provider_timeout', safeMessage:'内容采集器在受控时限内没有返回，请稍后重试。', recommendedAction:'retry' };
   }
   if (/private|login|sign in|cookies|403|401|authorization/i.test(raw)) return { code: 'authorization_required', safeMessage: '素材需要登录或额外授权；请在 A君中重新授权，或改用本地文件。', recommendedAction: 'reauthorize' };
   if (code === 'capability_not_available') return { code, safeMessage: '当前通道不能提供所需内容能力。', recommendedAction: 'manual_review' };

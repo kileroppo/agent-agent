@@ -25,6 +25,8 @@ import { dispatchBoomSignal } from '@agent-army/boom-monitor';
 import { routeBoomMonitorApi } from './boom-monitor/index.ts';
 import { isPaperclipHttpError, routePaperclipHttp } from './runtime-http-paperclip.ts';
 import { routeProductMaturityApi } from './runtime-http-product-maturity.ts';
+import { bearerToken, isBoomLegacyIntegrationAuthorized, isBoomLegacyIntegrationPath } from './runtime-http-boom-legacy.ts';
+export { isBoomLegacyIntegrationAuthorized, isBoomLegacyIntegrationPath } from './runtime-http-boom-legacy.ts';
 const MAX_JSON_BODY_BYTES: any = 1024 * 1024;
 const OWNER_ACTION_NONCE_TTL_MS: any = 10 * 60 * 1000;
 export function createAjunHttpHandler({ environment, publicDir, dataDir, detailBaseUrl, development = {}, network, paperclip, work, connections, localAi, feishu, m5, }: any): any {
@@ -715,26 +717,6 @@ async function sendFile(response: any, publicDir: any, name: any, type: any): Pr
 function sendJson(response: any, status: any, data: any): any {
     response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
     response.end(JSON.stringify(data));
-}
-function bearerToken(value: any): any {
-    const match: any = String(value || '').match(/^Bearer\s+(.+)$/i);
-    return match ? match[1].trim() : '';
-}
-export function isBoomLegacyIntegrationAuthorized({ remoteAddress, authorization, expectedToken }: any): any {
-    if (isLocalAddress(remoteAddress))
-        return true;
-    const supplied: any = bearerToken(authorization);
-    const expected: any = String(expectedToken || '');
-    if (!supplied || !expected || supplied.length !== expected.length)
-        return false;
-    return crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
-}
-export function isBoomLegacyIntegrationPath(url: any): any {
-    return [
-        '/api/integrations/boom-monitor/health',
-        '/api/integrations/boom-monitor/dispatch',
-        '/api/integrations/boom-monitor/metrics',
-    ].includes(String(url || ''));
 }
 function errorStatus(error: any): any {
     if (Number.isInteger(error?.httpStatus) && error.httpStatus >= 400 && error.httpStatus <= 599)

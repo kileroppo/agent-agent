@@ -18,6 +18,7 @@ export class BoomMonitorService {
     dataDir: any;
     db: any;
     dispatchBoomSignalCallback: any;
+    getMissionSnapshotCallback: any;
     importDir: any;
     importedDir: any;
     intervals: any;
@@ -26,7 +27,8 @@ export class BoomMonitorService {
     scanRunning: any;
     startupBackupPromise: any;
     timers: any;
-    constructor({ dbPath, dataDir = path.dirname(dbPath), collectMetrics = null, dispatchBoomSignal = null, analysisDailyLimit = 5, scanIntervalMs = 6000, analysisIntervalMs = 15000, scheduleIntervalMs = 30000, backupIntervalMs = 60 * 60 * 1000, now = (): any => new Date(), }: any = {}) {
+    missionStuckAfterMs: any;
+    constructor({ dbPath, dataDir = path.dirname(dbPath), collectMetrics = null, dispatchBoomSignal = null, getMissionSnapshot = null, analysisDailyLimit = 5, missionStuckAfterMs = 5 * 60 * 1000, scanIntervalMs = 6000, analysisIntervalMs = 15000, scheduleIntervalMs = 30000, backupIntervalMs = 60 * 60 * 1000, now = (): any => new Date(), }: any = {}) {
         if (!dbPath)
             throw new Error('Boom Monitor dbPath 必须提供。');
         this.dataDir = dataDir;
@@ -40,6 +42,8 @@ export class BoomMonitorService {
         this.db = new BoomMonitorDatabase(dbPath);
         this.collectMetricsCallback = collectMetrics;
         this.dispatchBoomSignalCallback = dispatchBoomSignal;
+        this.getMissionSnapshotCallback = getMissionSnapshot;
+        this.missionStuckAfterMs = Math.max(30_000, Number(missionStuckAfterMs) || 5 * 60 * 1000);
         this.intervals = { scanIntervalMs, analysisIntervalMs, scheduleIntervalMs, backupIntervalMs };
         this.clock = now;
         this.timers = [];
@@ -390,7 +394,7 @@ export class BoomMonitorService {
                     const taskId: any = String(result?.mission?.taskId ?? result?.taskId ?? '');
                     if (!taskId)
                         throw new Error('A君未返回可追踪的军团总任务。');
-                    this.db.finishDispatch(item.id, 'dispatched', { taskId, result });
+                    this.db.finishDispatch(item.id, 'submitted', { taskId, result });
                     processed += 1;
                 }
                 catch (error: any) {
@@ -414,6 +418,7 @@ export class BoomMonitorService {
     }
     async tickAnalysis(): Promise<any> {
         try {
+            await this.refreshAnalysisStatuses();
             return await this.runAnalysisWorker({ manual: false });
         }
         catch {
@@ -433,6 +438,32 @@ export class BoomMonitorService {
     }
     listScanJobs(limit: any = 20): any { return { jobs: this.db.listScanJobs(limit) }; }
     listAnalysis(limit: any = 200): any { return { items: this.db.listAnalysisQueue(limit) }; }
+    async refreshAnalysisStatuses(): Promise<any> {
+        if (typeof this.getMissionSnapshotCallback !== 'function')
+            return { status: 'disabled', reconciled: 0 };
+        const items: any[] = this.db.listAnalysisQueue(500).filter((item: any): any => item.army_task_id && !['completed', 'cancelled'].includes(String(item.status)));
+        let reconciled: any = 0;
+        for (const item of items) {
+            let projection: any;
+            try {
+                const snapshot: any = await this.getMissionSnapshotCallback(item.army_task_id);
+                projection = projectMissionState(snapshot, {
+                    now: this.clock(),
+                    acceptedAt: item.dispatched_at || item.updated_at,
+                    stuckAfterMs: this.missionStuckAfterMs,
+                });
+            }
+            catch (error: any) {
+                projection = {
+                    status: 'needs_input', missionStatus: 'unavailable', missionStage: 'mission_status_unavailable',
+                    missionUpdatedAt: null, error: `任务状态读取失败：${String(error?.message || error).slice(0, 300)}`,
+                };
+            }
+            this.db.syncAnalysisMission(item.id, projection);
+            reconciled += 1;
+        }
+        return { status: 'ok', reconciled };
+    }
     enqueueWorkAnalysis(workId: any): any {
         const work: any = this.db.getWorkDetail(workId);
         if (!work)
@@ -449,6 +480,54 @@ export class BoomMonitorService {
         this.db.upsertAnalysisQueue(workId, score.grade, buildBoomSignal(work, score), score.grade === 'T3' ? 'full' : 'fast');
         return { status: 'ok', work_id: workId, grade: score.grade };
     }
+}
+function projectMissionState(snapshot: any, { now, acceptedAt, stuckAfterMs }: any): any {
+    const mission: any = snapshot?.mission || snapshot || null;
+    const children: any[] = Array.isArray(snapshot?.children) ? snapshot.children : [];
+    if (!mission) {
+        return elapsed(now, acceptedAt) >= stuckAfterMs
+            ? missionProjection('needs_input', 'missing', 'mission_not_found', null, '军团任务记录暂时无法读取，请在任务详情检查或请求安全恢复。')
+            : missionProjection('submitted', 'accepted', 'mission_accepted', null, null);
+    }
+    const status: any = String(mission.status || '');
+    const stage: any = String(mission.currentStage || '');
+    const updatedAt: any = mission.updatedAt || mission.createdAt || null;
+    const error: any = mission.error?.userMessage || mission.error?.message || null;
+    if (['succeeded', 'completed'].includes(status))
+        return missionProjection('completed', status, stage || 'mission_completed', updatedAt, null);
+    if (['failed', 'cancelled', 'rejected'].includes(status))
+        return missionProjection(status === 'failed' ? 'failed' : 'cancelled', status, stage, updatedAt, error || '拆解任务没有完成，请查看任务详情。');
+    if (['waiting_approval', 'pending_approval'].includes(status))
+        return missionProjection('waiting_approval', status, stage || 'approval_required', updatedAt, null);
+    if (['needs_input', 'waiting_test', 'paused'].includes(status))
+        return missionProjection('needs_input', status, stage, updatedAt, error || '拆解任务需要补充信息或人工处理。');
+    const failedChild: any = children.find((child: any): any => ['failed', 'cancelled', 'rejected'].includes(String(child.status || '')));
+    if (failedChild)
+        return missionProjection('failed', status, failedChild.currentStage || 'child_failed', failedChild.updatedAt || updatedAt, failedChild.error?.userMessage || failedChild.error?.message || '拆解分工没有完成。');
+    const blockedChild: any = children.find((child: any): any => ['needs_input', 'waiting_test', 'paused'].includes(String(child.status || '')));
+    if (blockedChild)
+        return missionProjection('needs_input', status, blockedChild.currentStage || 'child_needs_input', blockedChild.updatedAt || updatedAt, blockedChild.error?.userMessage || blockedChild.error?.message || '拆解分工需要人工处理。');
+    const approvalChild: any = children.find((child: any): any => ['waiting_approval', 'pending_approval'].includes(String(child.status || '')));
+    if (approvalChild)
+        return missionProjection('waiting_approval', status, approvalChild.currentStage || 'approval_required', approvalChild.updatedAt || updatedAt, null);
+    const analysisChild: any = children.find((child: any): any => child.taskType === 'content.video-benchmark-analysis');
+    if (analysisChild)
+        return missionProjection('analyzing', status, analysisChild.currentStage || 'analysis_running', analysisChild.updatedAt || updatedAt, null);
+    const acquisitionChild: any = children.find((child: any): any => child.taskType === 'media.transcribe-and-refine');
+    if (acquisitionChild)
+        return missionProjection('acquiring', status, acquisitionChild.currentStage || 'source_acquisition_running', acquisitionChild.updatedAt || updatedAt, null);
+    const hasPlan: any = mission.artifactRefs?.some((item: any): any => item.type === 'cross_agent_mission_plan');
+    if (!hasPlan && ['queued', 'running'].includes(status) && elapsed(now, updatedAt || acceptedAt) >= stuckAfterMs)
+        return missionProjection('needs_input', status, stage || 'mission_planning_stalled', updatedAt, '任务已受理但规划长时间没有开始，请在任务详情请求安全恢复。');
+    return missionProjection('planning', status || 'accepted', stage || (hasPlan ? 'mission_planned' : 'mission_planning'), updatedAt, null);
+}
+function missionProjection(status: any, missionStatus: any, missionStage: any, missionUpdatedAt: any, error: any): any {
+    return { status, missionStatus, missionStage, missionUpdatedAt, error };
+}
+function elapsed(now: any, since: any): any {
+    const current: any = now instanceof Date ? now.getTime() : new Date(now).getTime();
+    const started: any = new Date(since || 0).getTime();
+    return Number.isFinite(current) && Number.isFinite(started) ? Math.max(0, current - started) : 0;
 }
 export class BoomIntegrationUnavailableError extends Error {
 }
