@@ -171,6 +171,48 @@ test('Paperclip 终态响应丢失时先读回外部状态，不重复追加完�
   assert.equal(completionAttempts, 1);
 });
 
+test('Paperclip 状态询问不会让已取消的投影任务反复自动补跑', async () => {
+  const operator = hermesAgentFixture('operator', '运维官', ['operations.health-review']);
+  const identity = paperclipIdentityFixture('cancelled-projection', 'operator', '运维官', {
+    title:'只读健康检查', description:'只生成健康报告。',
+  });
+  let issueStatus = 'in_progress';
+  let completionAttempts = 0;
+  const governance = paperclipGovernanceFixture(identity, {
+    async getPaperclipIssue() { return { ...identity.issue, status:issueStatus }; },
+    async completePaperclipIssue(issueId, input) {
+      assert.equal(issueId, identity.issue.id);
+      assert.equal(input.result.status, 'cancelled');
+      completionAttempts += 1;
+      issueStatus = 'blocked';
+    },
+  });
+  const { service, records } = setup({ agents:[operator], governance });
+  await service.create({ title:'只读健康检查', taskType:'operations.health-review', agentId:'operator' });
+  records.tasks[0].status = 'cancelled';
+  records.tasks[0].currentStage = 'approval_rejected';
+  records.tasks[0].error = {
+    code:'approval_rejected',
+    userMessage:'审批已拒绝，未执行健康检查。',
+  };
+
+  const result = await service.completePaperclipAssignment({
+    issueId:identity.issue.id,
+    runId:identity.run.id,
+    paperclipAgentId:identity.paperclipAgent.id,
+    agentArmyId:'operator',
+    status:'waiting_test',
+    summary:'原任务已取消，未执行健康检查。',
+  });
+
+  assert.equal(result.duplicate, true);
+  assert.equal(result.task.status, 'cancelled');
+  assert.equal(issueStatus, 'blocked');
+  assert.equal(completionAttempts, 1);
+  assert.equal(result.task.governance.completionSync.status, 'confirmed');
+  assert.equal(result.task.governance.completionSync.taskStatus, 'cancelled');
+});
+
 test('同一 Paperclip Run 的并发完成回报单飞，冲突终态不会覆盖已开始的结果', async () => {
   const reviewer = hermesAgentFixture('reviewer', '审核官', ['governance.approval-review']);
   const identity = paperclipIdentityFixture('concurrent-complete', 'reviewer', '审核官', {

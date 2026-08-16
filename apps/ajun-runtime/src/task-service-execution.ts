@@ -6,7 +6,7 @@ import { taskPaperclipAssignmentMethods } from './task-paperclip-assignment.ts';
 import { taskRoleExecutionMethods } from './task-role-execution.ts';
 import { validateTaskCompletion } from './task-completion-contract.ts';
 import { taskIdempotencyFingerprint } from './task-idempotency.ts';
-import { PaperclipAssignmentCompletion, isPaperclipCompletableTaskStatus, } from './paperclip-assignment-completion.ts';
+import { PaperclipAssignmentCompletion, isPaperclipProjectionSyncTaskStatus, } from './paperclip-assignment-completion.ts';
 import { ValidationError, isTerminalTask, paperclipUuid, contentGrowthArtifactVerified, normalizeArchitectureLayers, } from './task-service-execution-support.ts';
 import { assertM5PlanRevisionConsumed } from './task-service-m5-execution-context-support.ts';
 import { prepareDeliveryQualityResult } from './workflow/delivery-quality-runtime.ts';
@@ -232,7 +232,7 @@ export const taskServiceExecutionMethods: Record<string, any> = {
         return { task: updated, assignment, duplicate: false, ...(qualitySourceTask ? { qualitySourceTask } : {}) };
     },
     async ensurePaperclipAssignmentCompletion({ task, assignment, paperclipAgentId, apiKey }: any = {}): Promise<any> {
-        if (!isPaperclipCompletableTaskStatus(task?.status))
+        if (!isPaperclipProjectionSyncTaskStatus(task?.status))
             return task;
         if (task.status === 'succeeded')
             await this.syncM5StageWorkProducts({ task, assignment, apiKey });

@@ -59,6 +59,52 @@ test('PaperclipAssignmentCompletion 先读回已生效终态，再确认本地�
   assert.equal(updated.governance.syncedAt, '2026-08-13T10:01:00.000Z');
 });
 
+test('已取消的 A君任务被 Paperclip 重开后会重新同步为阻塞，避免纠错补跑', async () => {
+  let issueStatus = 'in_progress';
+  let task = taskFixture({
+    status:'cancelled',
+    currentStage:'approval_rejected',
+    governance:{ paperclipIssueId:'issue-1' },
+  });
+  let completionAttempts = 0;
+  const protocol = new PaperclipAssignmentCompletion({
+    store:{
+      async updateTask(taskId, patch) {
+        assert.equal(taskId, 'task-1');
+        task = { ...task, ...patch };
+        return task;
+      },
+    },
+    governance:{
+      async getPaperclipIssue(issueId) {
+        assert.equal(issueId, 'issue-1');
+        return { status:issueStatus };
+      },
+      async completePaperclipIssue(issueId, input) {
+        assert.equal(issueId, 'issue-1');
+        assert.equal(input.result.status, 'cancelled');
+        completionAttempts += 1;
+        issueStatus = 'blocked';
+      },
+    },
+    now:() => '2026-08-16T09:10:00.000Z',
+  });
+
+  const updated = await protocol.ensure(task, {
+    issueId:'issue-1',
+    runId:'run-cancelled',
+  }, {
+    paperclipAgentId:'paperclip-agent-1',
+    apiKey:'secret',
+  });
+
+  assert.equal(completionAttempts, 1);
+  assert.equal(issueStatus, 'blocked');
+  assert.equal(updated.governance.completionSync.status, 'confirmed');
+  assert.equal(updated.governance.completionSync.taskStatus, 'cancelled');
+  assert.equal(updated.governance.completionSync.expectedIssueStatus, 'blocked');
+});
+
 test('PaperclipAssignmentCompletion 用同一个 Interface 收口重启后的 pending completion', async () => {
   let task = taskFixture({
     status:'failed',

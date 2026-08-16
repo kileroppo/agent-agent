@@ -1,4 +1,4 @@
-import { isPaperclipCompletionTaskStatus, paperclipIssueStatusForTaskStatus, } from './task-status-policy.ts';
+import { isPaperclipCompletionTaskStatus, isTaskExecutionClosedStatus, paperclipIssueStatusForTaskStatus, } from './task-status-policy.ts';
 export class PaperclipAssignmentCompletion {
     confirmTask: any;
     governance: any;
@@ -26,7 +26,7 @@ export class PaperclipAssignmentCompletion {
         return pendingPaperclipCompletion(task);
     }
     async ensure(task: any, assignment: any, { paperclipAgentId, apiKey }: any = {}): Promise<any> {
-        if (!isPaperclipCompletableTaskStatus(task?.status))
+        if (!isPaperclipProjectionSyncTaskStatus(task?.status))
             return task;
         if (this.confirmed(task, assignment))
             return task;
@@ -88,6 +88,9 @@ export class PaperclipAssignmentCompletion {
 export function isPaperclipCompletableTaskStatus(status: any): any {
     return isPaperclipCompletionTaskStatus(status);
 }
+export function isPaperclipProjectionSyncTaskStatus(status: any): any {
+    return isTaskExecutionClosedStatus(status);
+}
 export function paperclipIssueStatusForTask(taskStatus: any): any {
     return paperclipIssueStatusForTaskStatus(taskStatus);
 }
@@ -112,7 +115,7 @@ export function paperclipCompletionConfirmed(task: any, assignment: any): any {
 export function pendingPaperclipCompletion(task: any): any {
     const sync: any = task?.governance?.completionSync;
     if (sync?.status !== 'pending'
-        || !isPaperclipCompletableTaskStatus(task?.status)
+        || !isPaperclipProjectionSyncTaskStatus(task?.status)
         || sync.taskStatus !== task.status
         || sync.expectedIssueStatus !== paperclipIssueStatusForTask(task.status)
         || !sync.paperclipIssueId
