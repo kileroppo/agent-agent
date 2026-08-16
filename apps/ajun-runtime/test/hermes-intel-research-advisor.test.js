@@ -70,7 +70,10 @@ test('天气研究的 AI 不可用时仍从已读取七日预报生成可直接�
     fetchedAt:'2026-08-17T00:00:00.000Z',
     contentHash:'d'.repeat(64),
     evidenceEligible:true,
-    evidenceFragments:[{ fragmentId:'source-2-fragment-1', text:'杭州天气预报 发布时间：08-16 20:00 7天预报。' }],
+    evidenceFragments:[{
+      fragmentId:'source-2-fragment-1',
+      text:'杭州天气预报 发布时间：08-17 08:00 7天预报 08/17 周一 小雨 东风 微风 33℃ 26℃ 多云 东风 微风 08/18 周二 小雨 东北风 微风 34℃ 25℃ 多云 东南风 微风 08/19 周三 多云 东风 微风 34℃ 26℃ 阴 东南风 微风 08/20 周四 中雨 东风 微风 31℃ 25℃ 小雨 东南风 微风 08/21 周五 小雨 东风 微风 33℃ 26℃ 晴 东南风 微风 08/22 周六 小雨 东风 微风 33℃ 26℃ 多云 南风 微风 08/23 周日 小雨 东南风 微风 33℃ 26℃ 多云 南风 微风',
+    }],
   }];
   const report = await new HermesIntelResearchAdvisor({ hermesHome:'' }).analyze({ topic:'查询杭州未来7天天气并给出出行建议', sources:weatherSources });
   assert.equal(report.aiAssisted, false);
@@ -79,6 +82,11 @@ test('天气研究的 AI 不可用时仍从已读取七日预报生成可直接�
   assert.match(report.recommendations.join('\n'), /20日.*带伞/);
   assert.deepEqual(report.claims[0].sourceIds, ['source-1']);
   assert.equal(report.claims[0].evidenceFragments[0].text, weatherSources[0].evidenceFragments[0].text);
+  assert.match(report.conclusion, /有6天存在差异/);
+  assert.match(report.conclusion, /17日天气为中国天气网“多云”、中央气象台“小雨转多云”/);
+  assert.match(report.conclusion, /20日.*中国天气网33\/25℃、中央气象台31\/25℃/);
+  assert.deepEqual(report.claims[1].sourceIds, ['source-1', 'source-2']);
+  assert.equal(report.claims[1].evidenceFragments.length, 2);
 });
 
 test('Hermes 顾问编造或改写 evidence fragment 时整份输出失效并回退', async () => {

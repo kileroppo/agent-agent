@@ -84,6 +84,9 @@ function fallbackWeatherResearch({ topic, sources, claims }: any): any {
             return false;
         }
     });
+    const crossCheckFragment: any = crossCheck?.evidenceFragments?.find((item: any): any => parseNmcSevenDayForecast(item?.text).length > 0);
+    const crossCheckForecast: any[] = parseNmcSevenDayForecast(crossCheckFragment?.text);
+    const comparison: any = compareWeatherForecasts(forecast, crossCheckForecast);
     const weatherClaim: any = {
         claimId: 'claim-weather-seven-day',
         text: `当前页面列出的七日预报为：${forecastText}`,
@@ -94,6 +97,22 @@ function fallbackWeatherResearch({ topic, sources, claims }: any): any {
                 text: cleanText(fragment?.text, 1000),
             }],
     };
+    const comparisonClaim: any = crossCheck && crossCheckFragment && comparison
+        ? {
+            claimId: 'claim-weather-source-comparison',
+            text: comparison,
+            sourceIds: [cleanText(primary?.sourceId, 120), cleanText(crossCheck?.sourceId, 120)],
+            evidenceFragments: [{
+                    sourceId: cleanText(primary?.sourceId, 120),
+                    fragmentId: cleanText(fragment?.fragmentId, 120),
+                    text: cleanText(fragment?.text, 1000),
+                }, {
+                    sourceId: cleanText(crossCheck?.sourceId, 120),
+                    fragmentId: cleanText(crossCheckFragment?.fragmentId, 120),
+                    text: cleanText(crossCheckFragment?.text, 1000),
+                }],
+        }
+        : null;
     const recommendations: any[] = [
         rainDays.length
             ? `${rainDays.join('、')}预报含降雨，通勤随身带伞，骑行或步行预留更长时间。`
@@ -105,11 +124,13 @@ function fallbackWeatherResearch({ topic, sources, claims }: any): any {
     ];
     return {
         background: `本报告围绕“${cleanText(topic, 180)}”，只整理本次实际读取的公开天气页面。`,
-        findings: [weatherClaim.text],
-        claims: [weatherClaim, ...claims.filter((claim: any): any => claim.claimId !== weatherClaim.claimId).slice(0, MAX_ITEMS - 1)],
-        conclusion: `${forecastText}。${crossCheck ? '中央气象台城市预报已作为第二来源交叉核对；' : ''}天气预报具有时效性，临近出行应以最新页面为准。`,
+        findings: [weatherClaim.text, ...(comparisonClaim ? [comparisonClaim.text] : [])],
+        claims: [weatherClaim, ...(comparisonClaim ? [comparisonClaim] : []), ...claims.filter((claim: any): any => claim.claimId !== weatherClaim.claimId)].slice(0, MAX_ITEMS),
+        conclusion: `${forecastText}。${comparison ? `${comparison}；` : (crossCheck ? '中央气象台城市预报已作为第二来源交叉核对；' : '')}天气预报具有时效性，临近出行应以更新更晚的页面和短时预报为准。`,
         recommendations,
-        openQuestions: ['不同来源的发布时间和逐日天气若有差异，应以临近出行时更新较新的预报再次核对。'],
+        openQuestions: [comparison
+                ? '两站预报存在明确差异；临近出行时需再次核对哪一站更新时间更晚，以及降雨预报是否已经收敛。'
+                : '临近出行时需再次核对两站最新发布时间，以及降雨预报是否发生变化。'],
         basis: '仅根据已读取的公开来源内容',
         aiAssisted: false,
     };
@@ -126,6 +147,39 @@ function parseSevenDayForecast(value: any): any[] {
         low: Number(match[5]),
     }))
         .filter((item: any): any => item.weather && item.high >= item.low && item.high <= 60 && item.low >= -50);
+}
+function parseNmcSevenDayForecast(value: any): any[] {
+    const text: any = cleanText(value, 1000);
+    return [...text.matchAll(/(\d{1,2})\/(\d{1,2})\s+周[一二三四五六日天]\s+(\S+)(?:\s+\S+)*?\s+(-?\d{1,2})℃\s+(-?\d{1,2})℃\s+(\S+)/gu)]
+        .slice(0, 7)
+        .map((match: any): any => ({
+        month: match[1],
+        day: match[2],
+        weather: match[3] === match[6] ? cleanText(match[3], 40) : `${cleanText(match[3], 20)}转${cleanText(match[6], 20)}`,
+        high: Number(match[4]),
+        low: Number(match[5]),
+    }))
+        .filter((item: any): any => item.weather && item.high >= item.low && item.high <= 60 && item.low >= -50);
+}
+function compareWeatherForecasts(primary: any[] = [], secondary: any[] = []): any {
+    const secondaryByDay: any = new Map(secondary.map((item: any): any => [String(Number(item.day)), item]));
+    const comparable: any[] = primary.flatMap((item: any): any => {
+        const other: any = secondaryByDay.get(String(Number(item.day)));
+        return other ? [{ primary: item, secondary: other }] : [];
+    });
+    if (!comparable.length)
+        return '';
+    const differences: any[] = comparable.flatMap(({ primary: current, secondary: other }: any): any => {
+        const fields: any[] = [];
+        if (current.weather !== other.weather)
+            fields.push(`天气为中国天气网“${current.weather}”、中央气象台“${other.weather}”`);
+        if (current.high !== other.high || current.low !== other.low)
+            fields.push(`高低温为中国天气网${current.high}/${current.low}℃、中央气象台${other.high}/${other.low}℃`);
+        return fields.length ? [`${Number(current.day)}日${fields.join('，')}`] : [];
+    });
+    if (!differences.length)
+        return `中国天气网与中央气象台在可比的${comparable.length}天中，天气和高低温一致`;
+    return `两站在可比的${comparable.length}天中有${differences.length}天存在差异：${differences.join('；')}`;
 }
 function promptFor(topic: any, sources: any): any {
     const material: any = sources.slice(0, MAX_ITEMS).map((source: any, index: any): any => ({
