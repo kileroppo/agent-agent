@@ -33,7 +33,11 @@ test('任务总览把 Hermes 账本健康结果附在同一份 billing 响应中
   assert.equal(billing.status, 'ready');
   assert.equal(billing.health.schemaVersion, 'agent.army/hermes-cost-health/v1');
   assert.equal(billing.health.status, 'warning');
-  assert.deepEqual(billing.health.alerts.map((alert) => alert.code), ['low_cache_hit_ratio', 'high_reasoning_output_ratio']);
+  assert.deepEqual(billing.health.alerts.map((alert) => alert.code), [
+    'provider_total_not_reconciled',
+    'low_cache_hit_ratio',
+    'high_reasoning_output_ratio',
+  ]);
 });
 
 test('账本不可读时仍返回 health 结构，但不会把未知费用写成零', () => {

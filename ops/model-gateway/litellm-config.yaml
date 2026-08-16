@@ -13,14 +13,28 @@ model_list:
       input_cost_per_token: 0.00000010
       cache_read_input_token_cost: 0.00000002
       output_cost_per_token: 0.00000030
+  - model_name: step-router-v1
+    litellm_params:
+      model: openai/step-router-v1
+      api_base: https://api.stepfun.com/step_plan/v1
+      api_key: os.environ/STEPFUN_UPSTREAM_API_KEY
+      timeout: 180
+      num_retries: 0
+    model_info:
+      mode: chat
+      # Router 可能命中更贵的模型，使用保守估算让预算更早熔断。
+      input_cost_per_token: 0.00000060
+      cache_read_input_token_cost: 0.00000012
+      output_cost_per_token: 0.00000140
 
 litellm_settings:
+  callbacks: token_guard.token_guard
   turn_off_message_logging: true
   overwrite_user_with_key_hash: true
   request_timeout: 180
   num_retries: 0
   default_key_generate_params:
-    models: [step-3.7-flash]
+    models: [step-3.7-flash, step-router-v1]
     max_budget: 0.10
     budget_duration: 1d
     rpm_limit: 6

@@ -20,6 +20,10 @@ const OFFICIAL_STEPFUN_BASES = new Set([
   'https://api.stepfun.com/step_plan/v1',
   'https://api.stepfun.ai/step_plan/v1',
 ]);
+const OFFICIAL_STEPFUN_ROUTER_BASES = new Set([
+  'https://api.stepfun.com/step_plan',
+  'https://api.stepfun.ai/step_plan',
+]);
 const PRIVATE_FILE_MODE = 0o600;
 const PRIVATE_DIRECTORY_MODE = 0o700;
 
@@ -31,6 +35,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     else if (command === 'provision') await provision();
     else if (command === 'cutover') await cutover(requireProfile(args));
     else if (command === 'rollback') await rollback(requireProfile(args));
+    else if (command === 'probe') await probe(requireProfile(args));
     else if (command === 'status') await status();
     else if (command === 'usage') await usage(requireDate(args));
     else throw safeError(`未知命令：${command}`);
@@ -74,11 +79,11 @@ async function provision() {
     profiles:{},
   });
   let created = 0;
+  let updated = 0;
   for (const [profile, limits] of Object.entries(policy.profiles)) {
-    if (validVirtualKey(saved.profiles?.[profile]?.key)) continue;
     const body = {
       key_alias:`agent-army:${profile}`,
-      models:[policy.model],
+      models:policy.models,
       max_budget:limits.maxBudgetUsd,
       budget_duration:'1d',
       rpm_limit:limits.rpm,
@@ -90,6 +95,19 @@ async function provision() {
         budget_basis:'estimated_step_3_5_flash_public_price',
       },
     };
+    const existingKey = String(saved.profiles?.[profile]?.key || '');
+    if (validVirtualKey(existingKey)) {
+      await gatewayJson('/key/update', {
+        method:'POST',
+        masterKey:runtime.LITELLM_MASTER_KEY,
+        body:{ key:existingKey, ...body },
+      });
+      saved.profiles[profile].policy = limits;
+      saved.profiles[profile].updatedAt = new Date().toISOString();
+      await writePrivateJson(VIRTUAL_KEYS_FILE, saved);
+      updated += 1;
+      continue;
+    }
     const response = await gatewayJson('/key/generate', {
       method:'POST',
       masterKey:runtime.LITELLM_MASTER_KEY,
@@ -106,7 +124,7 @@ async function provision() {
     await writePrivateJson(VIRTUAL_KEYS_FILE, saved);
     created += 1;
   }
-  process.stdout.write(`虚拟钥匙就绪：${Object.keys(saved.profiles).length} 个岗位，本次新建 ${created} 个。\n`);
+  process.stdout.write(`虚拟钥匙就绪：${Object.keys(saved.profiles).length} 个岗位，本次新建 ${created} 个、同步 ${updated} 个。\n`);
 }
 
 async function cutover(profile) {
@@ -125,7 +143,7 @@ async function cutover(profile) {
     STEPFUN_API_KEY:virtualKey,
     STEPFUN_BASE_URL:policy.gatewayBaseUrl,
   });
-  const nextConfig = rewriteSstefunProvider(configContent, policy.gatewayBaseUrl);
+  const nextConfig = rewriteStepfunProviders(configContent, policy.gatewayBaseUrl);
   const backup = await createBackup(profile, { envFile, configFile, envContent, configContent });
   try {
     await writePrivateAtomic(envFile, nextEnv);
@@ -166,24 +184,72 @@ async function rollback(profile) {
   process.stdout.write(`${profile} 已恢复到切换前配置；重启该 Hermes 进程后生效。\n`);
 }
 
+async function probe(profile) {
+  const policy = await readPolicy();
+  if (!policy.profiles[profile]) throw safeError(`策略中没有岗位：${profile}`);
+  const keys = await readPrivateJson(VIRTUAL_KEYS_FILE);
+  const virtualKey = String(keys?.profiles?.[profile]?.key || '');
+  if (!validVirtualKey(virtualKey)) throw safeError(`岗位 ${profile} 尚未生成虚拟钥匙。`);
+  const startedAt = Date.now();
+  const response = await gatewayJson('/v1/chat/completions', {
+    method:'POST',
+    masterKey:virtualKey,
+    body:{
+      model:policy.model,
+      messages:[{ role:'user', content:'统一入口验收：只回复 OK' }],
+      max_tokens:8,
+      temperature:0,
+    },
+  });
+  const usage = response?.usage || {};
+  process.stdout.write(`${JSON.stringify({
+    ok:Boolean(response?.id) && Array.isArray(response?.choices) && number(usage.total_tokens) > 0,
+    profile,
+    model:String(response?.model || policy.model),
+    requestId:String(response?.id || ''),
+    latencyMs:Date.now() - startedAt,
+    inputTokens:number(usage.prompt_tokens),
+    outputTokens:number(usage.completion_tokens),
+    totalTokens:number(usage.total_tokens),
+  }, null, 2)}\n`);
+}
+
 async function status() {
   const policy = await readPolicy();
   const keys = await readPrivateJson(VIRTUAL_KEYS_FILE, { profiles:{} });
   const cutovers = await readPrivateJson(CUTOVERS_FILE, { profiles:{} });
+  const runtime = parseEnv(await readPrivateFile(RUNTIME_ENV));
   let gateway = 'down';
   try {
     const response = await fetch(`${policy.gatewayBaseUrl}/health/liveliness`, { signal:AbortSignal.timeout(1500) });
     if (response.ok) gateway = 'up';
   } catch {}
   const rows = [];
+  const observedKeys = new Set();
+  let sharedUpstreamCredentials = 0;
   for (const profile of Object.keys(policy.profiles)) {
+    const profileHome = hermesProfileHome(profile);
+    const env = parseEnv(await readPrivateFile(path.join(profileHome, '.env')));
+    const config = await readOwnedRegularFile(path.join(profileHome, 'config.yaml'));
+    const expectedKey = String(keys?.profiles?.[profile]?.key || '');
+    const observedKey = String(env.STEPFUN_API_KEY || '');
+    if (observedKey) observedKeys.add(observedKey);
+    if (observedKey === runtime.STEPFUN_UPSTREAM_API_KEY) sharedUpstreamCredentials += 1;
     rows.push({
       profile,
-      key:validVirtualKey(keys?.profiles?.[profile]?.key) ? 'ready' : 'missing',
+      key:validVirtualKey(expectedKey) && observedKey === expectedKey ? 'active_unique' : 'missing_or_drifted',
       route:cutovers?.profiles?.[profile] ? 'gateway' : 'direct_or_unused',
+      envBaseUrl:env.STEPFUN_BASE_URL === policy.gatewayBaseUrl ? 'gateway' : 'other',
+      configBaseUrl:config.includes(`base_url: ${policy.gatewayBaseUrl}`) ? 'gateway' : 'other',
     });
   }
-  process.stdout.write(`${JSON.stringify({ gateway, baseUrl:policy.gatewayBaseUrl, profiles:rows }, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({
+    gateway,
+    baseUrl:policy.gatewayBaseUrl,
+    uniqueProfileCredentials:observedKeys.size,
+    sharedUpstreamCredentials,
+    profiles:rows,
+  }, null, 2)}\n`);
 }
 
 async function usage(date) {
@@ -266,6 +332,32 @@ export function rewriteSstefunProvider(content, gatewayBaseUrl) {
   return `${lines.join('\n').replace(/\n+$/, '')}\n`;
 }
 
+export function rewriteStepfunProviders(content, gatewayBaseUrl) {
+  const primary = rewriteSstefunProvider(content, gatewayBaseUrl);
+  const lines = primary.split(/\r?\n/);
+  for (let start = 0; start < lines.length; start += 1) {
+    if (!/^  - name:\s*stepfun\s*$/.test(lines[start])) continue;
+    let end = lines.length;
+    for (let index = start + 1; index < lines.length; index += 1) {
+      if (/^  - name:\s*/.test(lines[index]) || /^[A-Za-z_][A-Za-z0-9_-]*:\s*$/.test(lines[index])) {
+        end = index;
+        break;
+      }
+    }
+    const baseIndex = lines.findIndex((line, index) =>
+      index > start && index < end && /^    base_url:\s*/.test(line));
+    if (baseIndex < 0) continue;
+    const current = lines[baseIndex].replace(/^    base_url:\s*/, '').trim().replace(/^['"]|['"]$/g, '');
+    if (!OFFICIAL_STEPFUN_ROUTER_BASES.has(current) && current !== gatewayBaseUrl) continue;
+    lines[baseIndex] = `    base_url: ${gatewayBaseUrl}`;
+    const keyIndex = lines.findIndex((line, index) => index > start && index < end && /^    api_key:\s*/.test(line));
+    if (keyIndex >= 0) lines[keyIndex] = '    api_key: ${STEPFUN_API_KEY}';
+    else lines.splice(baseIndex + 1, 0, '    api_key: ${STEPFUN_API_KEY}');
+    break;
+  }
+  return `${lines.join('\n').replace(/\n+$/, '')}\n`;
+}
+
 async function createBackup(profile, files) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const directory = path.join(BACKUP_ROOT, `${stamp}-${profile}`);
@@ -332,6 +424,8 @@ async function readPolicy() {
     policy?.schemaVersion !== 'agent.army/model-gateway-policy/v1'
     || policy?.gatewayBaseUrl !== 'http://127.0.0.1:4000'
     || policy?.model !== 'step-3.7-flash'
+    || !Array.isArray(policy?.models)
+    || !policy.models.includes(policy.model)
     || !policy?.profiles
   ) throw safeError('模型入口策略文件无效。');
   return policy;

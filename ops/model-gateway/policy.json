@@ -2,6 +2,7 @@
   "schemaVersion": "agent.army/model-gateway-policy/v1",
   "gatewayBaseUrl": "http://127.0.0.1:4000",
   "model": "step-3.7-flash",
+  "models": ["step-3.7-flash", "step-router-v1"],
   "profiles": {
     "default": { "maxBudgetUsd": 0.20, "rpm": 8, "tpm": 200000, "maxParallel": 1 },
     "ajun": { "maxBudgetUsd": 0.10, "rpm": 6, "tpm": 150000, "maxParallel": 1 },

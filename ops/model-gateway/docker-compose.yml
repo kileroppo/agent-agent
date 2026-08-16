@@ -44,6 +44,7 @@ services:
       retries: 30
     volumes:
       - ./litellm-config.yaml:/app/config.yaml:ro
+      - ./token_guard.py:/app/token_guard.py:ro
     networks: [gateway]
 
 networks:
