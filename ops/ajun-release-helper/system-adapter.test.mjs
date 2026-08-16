@@ -38,6 +38,78 @@ test('当前启动目录缺少可信 manifest 时失败关闭', async (context) 
   await assert.rejects(() => fixture.adapter.inspect(), /可信 release manifest/);
 });
 
+test('发布严格按准备、验证、冻结、切换和线上回读推进', async (context) => {
+  const fixture = await createFixture(context);
+  const stages = [];
+  const history = [];
+  const candidate = { releaseHash:'release-new', payloadHash:'payload-new', gitHead:fixture.newHead, releaseRoot:path.join(fixture.root, 'deploy-new') };
+  fixture.adapter.readCurrentRelease = async () => ({ releaseHash:'release-old', payloadHash:'payload-old', gitHead:fixture.oldHead, releaseRoot:fixture.releaseRoot });
+  fixture.adapter.prepareCandidateSource = async () => path.join(fixture.root, 'source-new');
+  fixture.adapter.runCommand = async (command) => {
+    assert.equal(command, 'npm');
+    return { code:0, stdout:'', stderr:'' };
+  };
+  fixture.adapter.freezeCandidate = async () => ({ ...candidate, releaseRoot:path.join(fixture.root, 'frozen-new') });
+  fixture.adapter.deployCandidateRelease = async () => candidate;
+  fixture.adapter.activateCandidate = async () => path.join(fixture.root, 'backup.plist');
+  fixture.adapter.verifyLive = async () => ({ ok:true });
+  fixture.adapter.writeHistory = async (value) => history.push(value);
+
+  const result = await fixture.adapter.publish({
+    inspection:{ candidate:{ gitHead:fixture.newHead } },
+    onStage:async (stage) => stages.push(stage),
+  });
+  assert.deepEqual(stages, ['preparing_source', 'verifying', 'freezing', 'activating', 'verifying_live']);
+  assert.equal(result.current.releaseHash, 'release-new');
+  assert.equal(result.rollback.releaseHash, 'release-old');
+  assert.equal(history[0].backupPlist, path.join(fixture.root, 'backup.plist'));
+});
+
+test('新版启动失败时恢复旧 plist 并标记自动回滚', async (context) => {
+  const fixture = await createFixture(context);
+  const mainPlist = path.join(fixture.root, 'main.plist');
+  await fs.writeFile(mainPlist, 'old-plist', { mode:0o600 });
+  const candidateRoot = path.join(fixture.root, 'deploy-new');
+  await fs.mkdir(path.join(candidateRoot, 'apps', 'ajun-runtime', 'src'), { recursive:true });
+  fixture.adapter.runCommand = async () => ({ code:0, stdout:'', stderr:'' });
+  let starts = 0;
+  fixture.adapter.restartAndVerify = async () => {
+    starts += 1;
+    if (starts === 1) throw new Error('new failed');
+  };
+  await assert.rejects(
+    () => fixture.adapter.activateCandidate({
+      candidate:{ releaseHash:'release-new', gitHead:fixture.newHead, releaseRoot:candidateRoot },
+      sourceRoot:path.join(fixture.root, 'source-new'),
+      previous:{ releaseHash:'release-old', gitHead:fixture.oldHead, releaseRoot:fixture.releaseRoot },
+    }),
+    (error) => error.rolledBack === true,
+  );
+  assert.equal(await fs.readFile(mainPlist, 'utf8'), 'old-plist');
+  assert.equal(starts, 2);
+});
+
+test('手动回滚恢复上一版并清空连续回滚入口', async (context) => {
+  const fixture = await createFixture(context);
+  const previous = { releaseHash:'release-old', payloadHash:'payload-old', gitHead:fixture.oldHead, releaseRoot:fixture.releaseRoot };
+  const calls = [];
+  fixture.adapter.readHistory = async () => ({ previous, backupPlist:path.join(fixture.root, 'previous.plist') });
+  fixture.adapter.readCurrentRelease = async () => ({ releaseHash:'release-new', gitHead:fixture.newHead, releaseRoot:path.join(fixture.root, 'new') });
+  fixture.adapter.backupMainPlist = async () => path.join(fixture.root, 'current.plist');
+  fixture.adapter.replaceMainPlist = async (source) => calls.push(['replace', source]);
+  fixture.adapter.restartAndVerify = async (expected) => calls.push(['restart', expected.releaseHash]);
+  fixture.adapter.writeHistory = async (value) => calls.push(['history', value]);
+  const result = await fixture.adapter.rollback({ onStage:async (stage) => calls.push(['stage', stage]) });
+  assert.equal(result.current.releaseHash, 'release-old');
+  assert.equal(result.rollback, null);
+  assert.deepEqual(calls.slice(0, 3), [
+    ['stage', 'rolling_back'],
+    ['replace', path.join(fixture.root, 'previous.plist')],
+    ['restart', 'release-old'],
+  ]);
+  assert.equal(calls.at(-1)[1].previous, null);
+});
+
 async function createFixture(context, options = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-release-adapter-'));
   context.after(() => fs.rm(root, { recursive:true, force:true }));
@@ -49,6 +121,7 @@ async function createFixture(context, options = {}) {
   await fs.writeFile(path.join(releaseRoot, 'release-manifest.json'), JSON.stringify({
     kind:'agent-army/ajun-immutable-runtime-release', releaseHash:'release-old', payloadHash:'payload-old', git:{ gitHead:oldHead },
   }));
+  await fs.writeFile(path.join(root, 'main.plist'), 'fixture', { mode:0o600 });
   const values = new Map([
     ['git:-C,repo,branch,--show-current', options.branch || 'main'],
     ['git:-C,repo,rev-parse,HEAD', newHead],
