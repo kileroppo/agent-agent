@@ -173,6 +173,15 @@ export class TaskService {
             createTask: (input: any): any => this.create(input),
             taskRunEvents,
             syncTask: async (task: any): Promise<any> => this.store.updateTask(task.taskId, { governance: await this.governance.update(task) }),
+            markReviewPending: async (task: any): Promise<any> => {
+                const issueId: any = String(task?.governance?.paperclipIssueId || '').trim();
+                if (!issueId || typeof this.governance?.markPaperclipIssueReviewPending !== 'function')
+                    return null;
+                return this.governance.markPaperclipIssueReviewPending(issueId, {
+                    result: task,
+                    reviewTaskId: task.deliveryQualityRuntime?.reviewTaskId,
+                });
+            },
         });
         this.intakeContinuation = new TaskIntakeContinuation({
             store,

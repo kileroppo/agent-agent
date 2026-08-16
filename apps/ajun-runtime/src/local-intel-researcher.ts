@@ -111,6 +111,8 @@ export class LocalIntelResearcher {
                         evidenceSourceCount: evidenceSources.length,
                         minimumSourcesMet: !isCampaignResearch && !isCampaignEvidence ? undefined : evidenceSources.length >= 2,
                         claimEvidenceBound: report.claims?.every(validClaimEvidenceBinding) === true,
+                        topicRelevanceMet: evidenceSources.length > 0
+                            && evidenceSources.every((source: any): any => source.topicRelevant !== false),
                         searchDiversityMet: discovery ? researchMethod.coverage.searchDiversityMet : undefined,
                         counterEvidenceSearched: discovery ? researchMethod.coverage.counterEvidenceSearched : undefined,
                         contentOpportunityPresent: isCampaignResearch
@@ -425,12 +427,18 @@ function buildResearchMethod({ discovery = null, sources = [], claims = [] }: an
         : [];
     const selectedLaneIds: any = distinct(discovery?.selectedLaneIds || []);
     const resultLaneIds: any = distinct(discovery?.resultLaneIds || []);
-    const requiredDiversity: any[] = ['primary', 'practice', 'investigative', 'counterevidence'];
+    const plannedRequiredDiversity: any[] = queryPlan
+        .filter((lane: any): any => lane.requiredForDiversity === true)
+        .map((lane: any): any => lane.id);
+    const requiredDiversity: any[] = plannedRequiredDiversity.length
+        ? plannedRequiredDiversity
+        : ['primary', 'practice', 'investigative', 'counterevidence'];
     const sourceById: any = new Map(sources.map((source: any): any => [String(source?.sourceId || ''), source]));
     const sourceAssessments: any = sources.map((source: any): any => ({
         sourceId: String(source?.sourceId || ''),
         discoveryLaneIds: distinct(source?.discovery?.laneIds || []),
         evidenceEligible: source?.evidenceEligible === true,
+        topicRelevant: source?.topicRelevant !== false,
         authority: 'not_inferred_from_search_rank_or_title',
         interestConflict: 'not_established',
         independence: 'not_established',
@@ -472,7 +480,7 @@ function buildResearchMethod({ discovery = null, sources = [], claims = [] }: an
             selectedSourceCount: sources.length,
             omittedLaneIds: queryPlan.map((lane: any): any => lane.id).filter((laneId: any): any => !selectedLaneIds.includes(laneId)),
             searchDiversityMet: requiredDiversity.every((laneId: any): any => resultLaneIds.includes(laneId))
-                && selectedLaneIds.length >= MAX_RESEARCH_SOURCES,
+                && selectedLaneIds.length >= Math.min(MAX_RESEARCH_SOURCES, requiredDiversity.length),
             counterEvidenceSearched: Number(discovery?.searchCalls || 0) > 0
                 && queryPlan.some((lane: any): any => lane.id === 'counterevidence'),
         },

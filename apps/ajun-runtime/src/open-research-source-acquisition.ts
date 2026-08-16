@@ -107,7 +107,8 @@ export class OpenResearchSourceAcquisition {
                     continue;
                 }
                 completedLaneIds.push(attempt.lane.id);
-                const results: any = Array.isArray(attempt.search?.results) ? attempt.search.results : [];
+                const results: any = (Array.isArray(attempt.search?.results) ? attempt.search.results : [])
+                    .filter((item: any): any => discoveryResultRelevant(topic, item));
                 if (results.some((item: any): any => publicSourceUrl(item?.url))) {
                     resultLaneIds.push(attempt.lane.id);
                 }
@@ -210,25 +211,32 @@ export class OpenResearchSourceAcquisition {
                     : readMode === 'dynamic'
                         ? 'content.public.dynamic.read'
                         : 'content.public.fetch';
-                const page: any = roleToolContext
-                    ? await roleToolContext.execute({
+                    const page: any = roleToolContext
+                        ? await roleToolContext.execute({
                         toolId,
                         externalSideEffect: 'network-read',
                         url: sourceUrl,
                         input: { sourceUrl },
                     })
                     : await this.publicWebFetch.acquire({ sourceUrl, task });
-                sources.push({
+                    const candidate: any = candidatesByUrl?.get?.(sourceUrl);
+                    const pageTopic: any = researchTopic(task);
+                    if (candidate && !sourcePageRelevant(pageTopic, page, candidate)) {
+                        failures.push(`公开来源与研究主题不匹配：${String(page.title || candidate.title || sourceUrl).slice(0, 160)}`);
+                        continue;
+                    }
+                    sources.push({
                     kind: readMode === 'pdf'
                         ? 'public_pdf'
                         : readMode === 'dynamic' ? 'public_dynamic_web' : 'public_web',
                     title: page.title || '未提供标题的公开来源',
                     source: page.sourceRef,
-                    summary: summarize(page.text),
+                    summary: summarize(page.text, pageTopic),
                     contentHash: page.contentHash || null,
                     fetchedAt: page.fetchedAt,
                     truncated: Boolean(page.truncated),
-                    discovery: sourceDiscoveryMetadata(candidatesByUrl?.get?.(sourceUrl)),
+                    topicRelevant: candidate ? true : null,
+                    discovery: sourceDiscoveryMetadata(candidate),
                 });
             }
             catch (error: any) {
@@ -342,6 +350,21 @@ function sourceReadModes(input: any): any {
 }
 function researchQueryPlan(topic: any): any {
     const baseQuery: any = discoveryQuery(topic).replace(/\s+/g, ' ').trim().slice(0, 300);
+    const weather: any = weatherResearchContext(topic);
+    if (weather) {
+        return [
+            ['baseline', '天气基线', '读取目标城市的七天天气预报', `${weather.location} 7天天气预报`],
+            ['primary', '中国天气网', '优先读取中国天气网的目标城市预报', `${weather.location} 天气 中国天气网`],
+            ['counterevidence', '中央气象台', '用中央气象台城市预报交叉核对', `${weather.location} 天气 中央气象台`],
+        ].map(([id, label, purpose, query]: any): any => ({
+            id,
+            label,
+            purpose,
+            query,
+            requiredForDiversity: true,
+            credibilityPolicy: 'forecast_must_name_the_requested_location_and_be_read_from_the_target_page',
+        }));
+    }
     const chinese: any = /[\u3400-\u9fff]/.test(baseQuery);
     const lanes: any = chinese
         ? [
@@ -443,11 +466,65 @@ function discoveryQuery(topic: any): any {
         return 'multi-agent governance';
     return value;
 }
+function discoveryResultRelevant(topic: any, result: any): any {
+    const weather: any = weatherResearchContext(topic);
+    if (!weather)
+        return true;
+    const title: any = String(result?.title || '').replace(/\s+/g, ' ').trim();
+    const url: any = publicSourceUrl(result?.url);
+    if (!url)
+        return false;
+    const location: any = weather.location.replace(/[市县区]$/u, '');
+    return Boolean(location
+        && title.includes(location)
+        && /天气|气温|预报|降雨|降水/u.test(title));
+}
+function sourcePageRelevant(topic: any, page: any, candidate: any): any {
+    const weather: any = weatherResearchContext(topic);
+    if (!weather)
+        return true;
+    const location: any = weather.location.replace(/[市县区]$/u, '');
+    const material: any = `${String(page?.title || candidate?.title || '')}\n${String(page?.text || '')}`;
+    return Boolean(location
+        && material.includes(location)
+        && /天气|气温|预报|℃|降雨|降水|晴|多云|小雨|中雨|大雨/u.test(material));
+}
+function weatherResearchContext(topic: any): any {
+    const value: any = String(topic || '').replace(/\s+/g, ' ').trim();
+    const weatherIndex: any = value.search(/天气|气温|天气预报/u);
+    if (weatherIndex < 0)
+        return null;
+    const before: any = value.slice(0, weatherIndex)
+        .replace(/[，。！？、,!.?]/g, ' ')
+        .replace(/帮我|麻烦|请|查下|查一下|查询|看看|想知道|了解/g, ' ')
+        .replace(/最近|未来|接下来|过去|近|这/g, ' ')
+        .replace(/一周|七天|7天|一个星期|本周|下周/g, ' ')
+        .replace(/的/g, ' ')
+        .trim();
+    const locations: any = before.match(/[\u3400-\u9fff]{2,16}(?:市|县|区)?/g) || [];
+    const location: any = String(locations.at(-1) || '').trim();
+    return location ? { location } : null;
+}
+function researchTopic(task: any): any {
+    return String(task?.input?.topic
+        || task?.input?.context?.pipelineCase?.fields?.theme
+        || task?.input?.title
+        || '').trim();
+}
 function distinct(values: any): any {
     return [...new Set((Array.isArray(values) ? values : []).map(String).filter(Boolean))];
 }
-function summarize(text: any): any {
+function summarize(text: any, topic: any = ''): any {
     const compact: any = String(text || '').replace(/\s+/g, ' ').trim();
+    const weather: any = weatherResearchContext(topic);
+    if (weather) {
+        const location: any = weather.location.replace(/[市县区]$/u, '');
+        const index: any = compact.indexOf(location);
+        if (index >= 0) {
+            return compact.slice(Math.max(0, index - 120), index + 1_200).slice(0, 900)
+                || '公开网页没有可用正文。';
+        }
+    }
     const sentences: any = compact.split(/(?<=[。！？.!?])\s*/).filter(Boolean);
     return (sentences.length ? sentences.slice(0, 3).join(' ') : compact).slice(0, 900)
         || '公开网页没有可用正文。';

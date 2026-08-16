@@ -32,6 +32,9 @@ export function prepareDeliveryQualityResult(task: RuntimeTask, result: RuntimeT
   const outcome = taskOutcomePolicy('delivery_quality_review_pending');
   return {
     ...result,
+    ...(result.governance ? {
+      governance:{ ...result.governance, completionSync:undefined },
+    } : {}),
     status:outcome.taskStatus,
     currentStage:'delivery_quality_review_pending',
     deliveryQuality:quality,
@@ -52,18 +55,21 @@ export class DeliveryQualityRuntime {
     recordPersisted(task: RuntimeTask, input?: { previousTask?: RuntimeTask | null }): void;
   };
   syncTask: ((task: RuntimeTask) => Promise<RuntimeTask>) | null;
+  markReviewPending: ((task: RuntimeTask) => Promise<unknown>) | null;
 
-  constructor({ store, createTask, taskRunEvents = null, syncTask = null }: {
+  constructor({ store, createTask, taskRunEvents = null, syncTask = null, markReviewPending = null }: {
     store: RuntimeStore;
     createTask: (input: RuntimeTask) => Promise<RuntimeTask>;
     taskRunEvents?: RuntimeEventStore | null;
     syncTask?: ((task: RuntimeTask) => Promise<RuntimeTask>) | null;
+    markReviewPending?: ((task: RuntimeTask) => Promise<unknown>) | null;
   }) {
     this.store = store;
     this.createTask = createTask;
     this.taskRunEvents = taskRunEvents;
     this.lifecycleEvents = new TaskLifecycleEventRecorder({ eventStore:taskRunEvents });
     this.syncTask = syncTask;
+    this.markReviewPending = typeof markReviewPending === 'function' ? markReviewPending : null;
   }
 
   async continue(task: RuntimeTask) {
@@ -71,7 +77,7 @@ export class DeliveryQualityRuntime {
     const request = task?.deliveryQuality?.reviewTaskRequest;
     if (task?.status !== 'running' || task?.currentStage !== 'delivery_quality_review_pending' || !request) return task;
     const existingId = task.deliveryQualityRuntime?.reviewTaskId;
-    if (existingId) return task;
+    if (existingId) return this.syncReviewPending(task);
     let reviewTask;
     try {
       reviewTask = await this.createTask(request);
@@ -105,6 +111,9 @@ export class DeliveryQualityRuntime {
         status:'review_pending',
         reviewTaskId:reviewTask.taskId,
         rootTaskId:qualityRootTaskId(task),
+        ...(this.markReviewPending ? {
+          reviewSync:{ status:'pending', updatedAt:new Date().toISOString() },
+        } : {}),
         updatedAt:new Date().toISOString(),
       },
     });
@@ -112,7 +121,34 @@ export class DeliveryQualityRuntime {
     this.record(updated, 'review_requested', 'waiting', {
       safeSummary:`${updated.qualityProfile?.tier || 'important'} quality review ${reviewTask.taskId}`,
     });
-    return updated;
+    return this.syncReviewPending(updated);
+  }
+
+  async syncReviewPending(task: RuntimeTask) {
+    if (!this.markReviewPending || !task?.deliveryQualityRuntime?.reviewTaskId) return task;
+    const now = new Date().toISOString();
+    try {
+      await this.markReviewPending(task);
+      return this.store.updateTask(task.taskId, {
+        deliveryQualityRuntime:{
+          ...(task.deliveryQualityRuntime || {}),
+          reviewSync:{ status:'confirmed', updatedAt:now },
+          updatedAt:now,
+        },
+      });
+    } catch (error: unknown) {
+      return this.store.updateTask(task.taskId, {
+        deliveryQualityRuntime:{
+          ...(task.deliveryQualityRuntime || {}),
+          reviewSync:{
+            status:'sync_pending',
+            reason:String(error instanceof Error ? error.message : error || 'Paperclip review sync failed').slice(0, 300),
+            updatedAt:now,
+          },
+          updatedAt:now,
+        },
+      });
+    }
   }
 
   async completeHeldReadOnlyDiagnosis(task: RuntimeTask) {

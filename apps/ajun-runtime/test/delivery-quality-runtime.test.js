@@ -232,6 +232,45 @@ test('启动恢复幂等扫描未创建复核任务的pending父任务', async (
   assert.equal(state.created.length, 1);
 });
 
+test('启动恢复会重试复核中状态同步且不重复创建复核任务', async () => {
+  const original = researchTask();
+  const held = prepareDeliveryQualityResult(original, {
+    status:'succeeded', artifactRefs:[report()],
+  });
+  const tasks = new Map([[original.taskId, { ...original, ...held }]]);
+  const created = [];
+  let syncAttempts = 0;
+  const store = {
+    async getTask(id) { return tasks.get(id) || null; },
+    async list() { return [...tasks.values()]; },
+    async updateTask(id, patch) {
+      const updated = { ...tasks.get(id), ...patch };
+      tasks.set(id, updated);
+      return updated;
+    },
+  };
+  const runtime = new DeliveryQualityRuntime({
+    store,
+    async createTask(input) {
+      const task = { ...input, taskId:'review-sync-1', status:'running' };
+      created.push(task);
+      return task;
+    },
+    async markReviewPending() {
+      syncAttempts += 1;
+      if (syncAttempts === 1) throw new Error('temporary Paperclip failure');
+    },
+  });
+  const first = await runtime.continue(tasks.get(original.taskId));
+  assert.equal(first.deliveryQualityRuntime.reviewSync.status, 'sync_pending');
+  const reconciler = new DeliveryQualityReconciler({ store, deliveryQuality:runtime });
+  const result = await reconciler.reconcile();
+  assert.equal(result.status, 'reconciled');
+  assert.equal(tasks.get(original.taskId).deliveryQualityRuntime.reviewSync.status, 'confirmed');
+  assert.equal(created.length, 1);
+  assert.equal(syncAttempts, 2);
+});
+
 test('运行事件写入失败时仍如实保存质量复核启动失败', async () => {
   const original = researchTask({
     status:'running',

@@ -348,6 +348,7 @@ test('Paperclip Hermes 不能用文字岗位回报替代小R专用研究产物',
   const completed = await service.completePaperclipAssignment(input);
   assert.equal(completed.task.status, 'running');
   assert.equal(completed.task.currentStage, 'delivery_quality_review_pending');
+  assert.equal(completed.task.governance.completionSync, undefined);
   assert.equal(completed.task.artifactRefs.some((item) => item.type === 'intel_research_report'), true);
   assert.equal(completions.length, 0);
   assert.equal(reviews.length, 1);

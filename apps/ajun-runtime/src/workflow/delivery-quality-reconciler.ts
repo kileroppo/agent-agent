@@ -72,5 +72,6 @@ function isPendingQualityReview(task: ReconcileTask) {
   return isHeldReadOnlyDiagnosis(task) || (task?.status === 'running'
     && task?.currentStage === 'delivery_quality_review_pending'
     && Boolean(task?.deliveryQuality?.reviewTaskRequest)
-    && !task?.deliveryQualityRuntime?.reviewTaskId);
+    && (!task?.deliveryQualityRuntime?.reviewTaskId
+      || ['pending', 'sync_pending'].includes(task?.deliveryQualityRuntime?.reviewSync?.status)));
 }

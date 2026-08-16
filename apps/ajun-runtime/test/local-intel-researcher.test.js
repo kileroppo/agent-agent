@@ -234,6 +234,75 @@ test('小R 六路发现后按证据价值选择五条来源并保留可审计方
   assert.deepEqual(result.usage.tools[0], { id:'public-web-search', name:'公开网页搜索', calls:6 });
 });
 
+test('天气查询使用城市专用检索并拒绝同页搜索中的无关结果', async () => {
+  const searched = [];
+  const pages = new Map([
+    ['https://www.weather.com.cn/weather/101210904.shtml', {
+      title:'义乌天气预报,义乌7天天气预报',
+      text:'全国 浙江 金华 义乌 16日（今天）小雨 25℃ 17日小雨转多云 33℃ / 24℃ 18日多云 34℃ / 25℃ 19日晴转多云 34℃ / 24℃ 20日中雨转小雨 34℃ / 25℃ 21日小雨转阴 33℃ / 24℃ 22日中雨转小雨 32℃ / 25℃',
+    }],
+    ['https://www.weather.com.cn/weather1dn/101210904.shtml', {
+      title:'义乌天气预报 - 中国天气网',
+      text:'义乌天气 16日小雨 25℃，17日小雨转多云 33℃ / 24℃，18日多云 34℃ / 25℃。',
+    }],
+    ['https://www.nmc.cn/publish/forecast/AZJ/yiwu.html', {
+      title:'义乌-天气预报 - 中央气象台',
+      text:'当前位置 浙江省 义乌天气预报 7天预报 08/16 25℃ 小雨，08/17 33℃ 24℃ 小雨转多云。',
+    }],
+  ]);
+  const worker = new LocalIntelResearcher({
+    now,
+    publicWebSearch:{
+      async search({ query }) {
+        searched.push(query);
+        if (query.includes('7天天气预报')) return { results:[
+          { url:'https://status.example.com/fedex', title:'FedEx system down' },
+          { url:'https://www.weather.com.cn/weather/101210904.shtml', title:'义乌天气预报,义乌7天天气预报' },
+        ] };
+        if (query.includes('中国天气网')) return { results:[
+          { url:'https://www.weather.com.cn/weather1dn/101210904.shtml', title:'义乌天气预报 - 中国天气网' },
+        ] };
+        return { results:[
+          { url:'https://www.nmc.cn/publish/forecast/AZJ/yiwu.html', title:'义乌-天气预报 - 中央气象台' },
+        ] };
+      },
+    },
+    publicWebFetch:{
+      async acquire({ sourceUrl }) {
+        const page = pages.get(sourceUrl);
+        assert.ok(page, `不应读取无关搜索结果：${sourceUrl}`);
+        return {
+          sourceRef:sourceUrl,
+          ...page,
+          contentHash:(sourceUrl.includes('nmc.cn') ? 'c' : sourceUrl.includes('1dn') ? 'b' : 'a').repeat(64),
+          fetchedAt:now().toISOString(),
+        };
+      },
+    },
+  });
+
+  const result = await worker.execute({
+    taskId:'intel-yiwu-weather',
+    taskType:'research.intel-report',
+    input:{ title:'查下最近一周义乌天气' },
+  });
+
+  assert.equal(result.status, 'succeeded');
+  assert.deepEqual(searched, [
+    '义乌 7天天气预报',
+    '义乌 天气 中国天气网',
+    '义乌 天气 中央气象台',
+  ]);
+  const artifact = result.artifactRefs[0];
+  assert.equal(artifact.data.sources.length, 3);
+  assert.equal(artifact.data.sources.every((source) => source.topicRelevant === true), true);
+  assert.equal(artifact.data.sources.some((source) => source.summary.includes('33℃')), true);
+  assert.equal(artifact.data.researchMethod.coverage.candidateCount, 3);
+  assert.equal(artifact.validation.topicRelevanceMet, true);
+  assert.equal(artifact.validation.searchDiversityMet, true);
+  assert.equal(artifact.validation.counterEvidenceSearched, true);
+});
+
 test('M5 研究和证据阶段生成不同的专用产物且至少绑定两个来源', async () => {
   const worker = new LocalIntelResearcher({
     now,

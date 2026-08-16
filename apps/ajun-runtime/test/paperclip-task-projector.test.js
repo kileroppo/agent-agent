@@ -24,7 +24,9 @@ test('任务投影 Module 通过语义 Client 创建 Issue 与审批', async () 
   }, { action:'inspect', riskLevel:'low', reason:'test', requestedScope:{} });
   assert.equal(result.paperclipIssueId, 'issue-1');
   assert.equal(result.paperclipApprovalId, 'approval-1');
-  assert.equal(calls.some((call) => call.path === '/api/companies/company-1/issues'), true);
+  const issueCall = calls.find((call) => call.path === '/api/companies/company-1/issues');
+  assert.equal(issueCall.body.idempotencyKey, 'ajun-runtime:task-1');
+  assert.equal(issueCall.body.allowDuplicate, true);
 });
 
 test('任务投影 Module 在 Paperclip 不可用时返回可重试投影状态', async () => {

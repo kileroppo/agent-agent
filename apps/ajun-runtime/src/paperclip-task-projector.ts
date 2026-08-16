@@ -20,6 +20,12 @@ export class PaperclipTaskProjector {
             const issue: any = await this.client.createIssue(company.id, {
                 title: task.input.title,
                 description: describeTask(task),
+                // Paperclip protects users from accidentally creating two recent issues
+                // with the same title. AJun already has its own task idempotency contract,
+                // so use the local task id here and do not let a previous same-title review
+                // become the execution envelope for a new delivery snapshot.
+                idempotencyKey: `ajun-runtime:${task.taskId}`.slice(0, 255),
+                allowDuplicate: true,
                 status: approval
                     ? 'blocked'
                     : deterministicPresentation

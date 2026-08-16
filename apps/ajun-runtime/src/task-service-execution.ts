@@ -228,17 +228,9 @@ export const taskServiceExecutionMethods: Record<string, any> = {
             const beforeQuality: any = structuredClone(updated);
             updated = await this.deliveryQuality.continue(updated);
             this.taskLifecycleEvents?.recordPersisted(updated, { previousTask: beforeQuality });
-            if (updated.status === 'running'
+            if (!(updated.status === 'running'
                 && updated.currentStage === 'delivery_quality_review_pending'
-                && updated.deliveryQualityRuntime?.reviewTaskId) {
-                await this.governance?.markPaperclipIssueReviewPending?.(assignment.issueId, {
-                    runId: assignment.runId,
-                    apiKey: input.paperclipApiKey,
-                    result: updated,
-                    reviewTaskId: updated.deliveryQualityRuntime.reviewTaskId,
-                });
-            }
-            else {
+                && updated.deliveryQualityRuntime?.reviewTaskId)) {
                 updated = await this.ensurePaperclipAssignmentCompletion({ task: updated, assignment, paperclipAgentId: input.paperclipAgentId, apiKey: input.paperclipApiKey });
             }
         }
