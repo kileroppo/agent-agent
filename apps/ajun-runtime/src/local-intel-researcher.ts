@@ -433,6 +433,11 @@ function buildResearchMethod({ discovery = null, sources = [], claims = [] }: an
     const requiredDiversity: any[] = plannedRequiredDiversity.length
         ? plannedRequiredDiversity
         : ['primary', 'practice', 'investigative', 'counterevidence'];
+    const plannedMinimumSelectedSources: any = queryPlan
+        .map((lane: any): any => Number(lane.minimumSelectedSources))
+        .find((value: any): any => Number.isSafeInteger(value) && value > 0);
+    const minimumSelectedSources: any = plannedMinimumSelectedSources
+        || Math.min(MAX_RESEARCH_SOURCES, requiredDiversity.length);
     const sourceById: any = new Map(sources.map((source: any): any => [String(source?.sourceId || ''), source]));
     const sourceAssessments: any = sources.map((source: any): any => ({
         sourceId: String(source?.sourceId || ''),
@@ -480,7 +485,7 @@ function buildResearchMethod({ discovery = null, sources = [], claims = [] }: an
             selectedSourceCount: sources.length,
             omittedLaneIds: queryPlan.map((lane: any): any => lane.id).filter((laneId: any): any => !selectedLaneIds.includes(laneId)),
             searchDiversityMet: requiredDiversity.every((laneId: any): any => resultLaneIds.includes(laneId))
-                && selectedLaneIds.length >= Math.min(MAX_RESEARCH_SOURCES, requiredDiversity.length),
+                && selectedLaneIds.length >= minimumSelectedSources,
             counterEvidenceSearched: Number(discovery?.searchCalls || 0) > 0
                 && queryPlan.some((lane: any): any => lane.id === 'counterevidence'),
         },

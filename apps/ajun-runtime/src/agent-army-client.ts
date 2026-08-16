@@ -272,6 +272,10 @@ export class AgentArmyClient {
                 ...(response.task?.input?.context?.m5Recovery
                     ? { m5Recovery: m5RecoveryView(response.task.input.context.m5Recovery) }
                     : {}),
+                ...(response.task?.taskType === 'governance.assurance-review'
+                    && safeText(response.task?.input?.context?.sourceTaskId, 128)
+                    ? { context:{ sourceTaskId:safeText(response.task.input.context.sourceTaskId, 128) } }
+                    : {}),
                 ...(response.assignment?.agentId === 'technical-expert'
                     ? {
                         repairScope: technicalRepairScopeView(response.task?.input?.context?.repairScope),

@@ -916,6 +916,31 @@ test('AgentArmyClient returns a compact Paperclip assignment without the full ta
   assert.equal(JSON.stringify(assignment).includes('large internal task envelope'), false);
 });
 
+test('质量复核指派只透传可读取的原任务编号，不暴露完整复核上下文', async () => {
+  const client = new AgentArmyClient({ fetchImpl:fakeFetch({
+    'POST /api/mcp/paperclip-assignment':{
+      assignment:{
+        issueId:'issue-review', identifier:'AGE-2000', title:'交付质量复核',
+        description:'逐项复核。', agentId:'reviewer', runId:'run-review',
+      },
+      task:{
+        taskId:'review-task', taskType:'governance.assurance-review', status:'running',
+        currentStage:'paperclip_hermes_running',
+        input:{ context:{
+          sourceTaskId:'source-task-1234',
+          criteria:[{ key:'secret-detail', label:'must-not-leak' }],
+          artifactRefs:[{ location:'/private/path' }],
+        } },
+      },
+    },
+  }) });
+
+  const result = await client.getPaperclipAssignment({});
+  assert.deepEqual(result.task.context, { sourceTaskId:'source-task-1234' });
+  assert.equal(JSON.stringify(result).includes('must-not-leak'), false);
+  assert.equal(JSON.stringify(result).includes('/private/path'), false);
+});
+
 test('AgentArmyClient 只通过受保护端点发送本机 AI 事件白名单', async () => {
   let request = null;
   const client = new AgentArmyClient({

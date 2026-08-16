@@ -362,6 +362,7 @@ function researchQueryPlan(topic: any): any {
             purpose,
             query,
             requiredForDiversity: true,
+            minimumSelectedSources: 2,
             credibilityPolicy: 'forecast_must_name_the_requested_location_and_be_read_from_the_target_page',
         }));
     }
