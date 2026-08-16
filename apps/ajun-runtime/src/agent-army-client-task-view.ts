@@ -74,17 +74,18 @@ function artifactView(artifact: any = {}): any {
         };
     }
     if (artifact.type === 'intel_research_report' && artifact.data) {
+        const topic: any = safeText(artifact.data.topic, 500);
         view.report = {
-            topic: safeText(artifact.data.topic, 500),
+            topic,
             background: safeText(artifact.data.background, 1200),
-            findings: safeStringList(artifact.data.findings, 8, 800),
+            findings: safeResearchList(artifact.data.findings, topic, 8, 800),
             conclusion: safeText(artifact.data.conclusion, 1200),
             recommendations: safeStringList(artifact.data.recommendations, 8, 800),
             openQuestions: safeStringList(artifact.data.openQuestions, 8, 800),
             sources: (Array.isArray(artifact.data.sources) ? artifact.data.sources : []).slice(0, 5).map((item: any): any => ({
                 title: safeText(item?.title, 300),
                 source: safeText(item?.source, 1000),
-                summary: safeText(item?.summary, 900)
+                summary: relevantResearchExcerpt(item?.summary, topic, 900)
             }))
         };
     }
@@ -175,4 +176,20 @@ function safeText(value: any, limit: any = 500): any {
 function safeStringList(value: any, maxItems: any, maxChars: any): any {
     const values: any = Array.isArray(value) ? value : value == null ? [] : [value];
     return [...new Set(values.map((item: any): any => safeText(item, maxChars)).filter(Boolean))].slice(0, maxItems);
+}
+function safeResearchList(value: any, topic: any, maxItems: any, maxChars: any): any {
+    const values: any = Array.isArray(value) ? value : value == null ? [] : [value];
+    return [...new Set(values.map((item: any): any => relevantResearchExcerpt(item, topic, maxChars)).filter(Boolean))].slice(0, maxItems);
+}
+function relevantResearchExcerpt(value: any, topic: any, limit: any): any {
+    const text: any = safeText(value, 6000);
+    if (!text)
+        return '';
+    if (String(topic || '').includes('天气')) {
+        const weatherMarkers: any[] = [/>\s*[\u4e00-\u9fff]{2,10}\s*-\s*(?:今天|今日)/, /当前位置\s*[:：]\s*[\u4e00-\u9fff]{2,10}天气/];
+        const indexes: any[] = weatherMarkers.map((pattern: any): any => text.search(pattern)).filter((index: any): any => index >= 0);
+        if (indexes.length)
+            return text.slice(Math.min(...indexes), Math.min(...indexes) + limit).trim();
+    }
+    return text.slice(0, limit);
 }

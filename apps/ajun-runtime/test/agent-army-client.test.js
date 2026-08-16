@@ -1198,7 +1198,15 @@ test('task_get 只展示同一产物的最新版本，不让失败重试的旧�
           {
             artifactId:'intel-research:task-1', type:'intel_research_report',
             validation:{ exists:true, readable:true, nonEmpty:true },
-            data:{ topic:'义乌天气', findings:['最新结果'], conclusion:'最新结论', sources:[{ title:'义䱌7天天气预报', source:'https://www.weather.com.cn/weather/101210904.shtml' }] },
+            data:{
+              topic:'义乌天气',
+              findings:['资料记录：巴黎 罗马 伦敦 纽约 > 义乌 - 今天 小雨 25℃ - 明天 小雨转多云 33℃ / 24℃'],
+              conclusion:'最新结论',
+              sources:[{
+                title:'义乌7天天气预报', source:'https://www.weather.com.cn/weather/101210904.shtml',
+                summary:'热门城市 巴黎 罗马 伦敦 纽约 > 义乌 - 今天 小雨 25℃ - 明天 小雨转多云 33℃ / 24℃',
+              }],
+            },
           },
         ],
       }],
@@ -1211,6 +1219,8 @@ test('task_get 只展示同一产物的最新版本，不让失败重试的旧�
   assert.equal(task.artifacts.length, 2);
   assert.equal(task.artifacts[1].report.conclusion, '最新结论');
   assert.equal(JSON.stringify(task).includes('FedEx System Down'), false);
+  assert.equal(JSON.stringify(task).includes('巴黎'), false);
+  assert.match(task.artifacts[1].report.sources[0].summary, /^> 义乌 - 今天/);
 });
 
 test('AgentArmyClient exposes a verified sanitized health report', async () => {
