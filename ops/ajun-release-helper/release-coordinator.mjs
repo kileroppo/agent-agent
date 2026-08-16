@@ -1,0 +1,154 @@
+import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
+const ACTIVE_STATES = new Set([
+  'checking',
+  'preparing_source',
+  'verifying',
+  'freezing',
+  'activating',
+  'verifying_live',
+  'rolling_back',
+]);
+
+const CONFIRMATIONS = Object.freeze({
+  publish:'publish_current_commit',
+  rollback:'rollback_previous_release',
+});
+
+export class ReleaseCoordinator {
+  constructor({ stateDir, adapter, clock = () => new Date(), randomUUID = crypto.randomUUID } = {}) {
+    if (!stateDir) throw new Error('缺少发布状态目录');
+    if (!adapter?.inspect) throw new Error('缺少发布检查适配器');
+    this.stateDir = path.resolve(stateDir);
+    this.statePath = path.join(this.stateDir, 'status.json');
+    this.adapter = adapter;
+    this.clock = clock;
+    this.randomUUID = randomUUID;
+    this.state = idleState(this.clock());
+    this.running = null;
+  }
+
+  async initialize() {
+    await fs.mkdir(this.stateDir, { recursive:true, mode:0o700 });
+    try {
+      const stored = JSON.parse(await fs.readFile(this.statePath, 'utf8'));
+      this.state = ACTIVE_STATES.has(stored.state)
+        ? { ...stored, state:'failed', message:'上次发布助手意外退出，请重新检查。', finishedAt:this.clock().toISOString() }
+        : stored;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    await this.persist();
+    return this.status();
+  }
+
+  status() {
+    return structuredClone(this.state);
+  }
+
+  async start(action, input = {}) {
+    if (!['check', 'publish', 'rollback'].includes(action)) throw new ReleaseRequestError(404, '未知发布动作。');
+    if (this.running || ACTIVE_STATES.has(this.state.state)) {
+      return { accepted:false, duplicate:true, status:this.status() };
+    }
+    if (CONFIRMATIONS[action] && input.confirm !== CONFIRMATIONS[action]) {
+      throw new ReleaseRequestError(400, action === 'publish' ? '请确认发布当前正式版本。' : '请确认退回上一版。');
+    }
+    const now = this.clock().toISOString();
+    this.state = {
+      schemaVersion:'agent.army/self-service-release-status/v1',
+      runId:this.randomUUID(),
+      action,
+      state:action === 'check' ? 'checking' : action === 'publish' ? 'preparing_source' : 'rolling_back',
+      message:action === 'check' ? '正在检查正式仓库与线上版本。' : action === 'publish' ? '正在重新核对候选版本。' : '正在核对可回滚版本。',
+      startedAt:now,
+      updatedAt:now,
+      finishedAt:null,
+      current:null,
+      candidate:null,
+      rollback:null,
+    };
+    await this.persist();
+    this.running = this.execute(action).finally(() => { this.running = null; });
+    return { accepted:true, duplicate:false, status:this.status() };
+  }
+
+  async wait() {
+    await this.running;
+    return this.status();
+  }
+
+  async execute(action) {
+    try {
+      const inspection = await this.adapter.inspect();
+      await this.update({ current:inspection.current, candidate:inspection.candidate, rollback:inspection.rollback || null });
+      if (action === 'check') {
+        await this.update({
+          state:inspection.canPublish ? 'ready' : inspection.updateAvailable ? 'blocked' : 'up_to_date',
+          message:inspection.message,
+          finishedAt:this.clock().toISOString(),
+        });
+        return;
+      }
+      if (action === 'publish') {
+        if (!inspection.canPublish) throw new Error(inspection.message || '当前版本不能发布。');
+        const result = await this.adapter.publish({ inspection, onStage:(stage, message) => this.update({ state:stage, message }) });
+        await this.update({ ...result, state:'succeeded', message:'新版已发布并通过运行检查。', finishedAt:this.clock().toISOString() });
+        return;
+      }
+      const result = await this.adapter.rollback({ inspection, onStage:(stage, message) => this.update({ state:stage, message }) });
+      await this.update({ ...result, state:'succeeded', message:'已退回上一版并通过运行检查。', finishedAt:this.clock().toISOString() });
+    } catch (error) {
+      const rolledBack = error?.rolledBack === true;
+      await this.update({
+        state:rolledBack ? 'rolled_back' : 'failed',
+        message:rolledBack ? '新版未通过检查，已自动恢复旧版。' : publicError(error),
+        finishedAt:this.clock().toISOString(),
+      });
+    }
+  }
+
+  async update(patch) {
+    this.state = { ...this.state, ...patch, updatedAt:this.clock().toISOString() };
+    await this.persist();
+  }
+
+  async persist() {
+    const temporary = `${this.statePath}.${process.pid}.tmp`;
+    await fs.writeFile(temporary, `${JSON.stringify(this.state, null, 2)}\n`, { mode:0o600 });
+    await fs.chmod(temporary, 0o600);
+    await fs.rename(temporary, this.statePath);
+  }
+}
+
+export class ReleaseRequestError extends Error {
+  constructor(httpStatus, message) {
+    super(message);
+    this.name = 'ReleaseRequestError';
+    this.httpStatus = httpStatus;
+  }
+}
+
+function idleState(now) {
+  const at = now.toISOString();
+  return {
+    schemaVersion:'agent.army/self-service-release-status/v1',
+    runId:null,
+    action:null,
+    state:'idle',
+    message:'尚未检查新版。',
+    startedAt:null,
+    updatedAt:at,
+    finishedAt:null,
+    current:null,
+    candidate:null,
+    rollback:null,
+  };
+}
+
+function publicError(error) {
+  const message = String(error?.message || '发布助手执行失败。').replace(/[\r\n]+/g, ' ').trim();
+  return message.slice(0, 240) || '发布助手执行失败。';
+}
