@@ -62,6 +62,27 @@ test('任务记录列表只返回行摘要，完整正文和产物按选中详�
   assert.equal(Object.hasOwn(detail, 'paperclipIssue'), false);
 });
 
+test('精确状态筛选会读取完整账本后再分类，不受 SQLite 粗分组限制', async () => {
+  const records = [
+    { ...task, taskId:'waiting-test', status:'waiting_test', updatedAt:'2026-08-08T10:00:00.000Z' },
+    { ...task, taskId:'failed', status:'failed', updatedAt:'2026-08-08T09:00:00.000Z' },
+  ];
+  let broadQueryCalled = false;
+  const service = new TaskRecordService({
+    store:{
+      list:async () => records,
+      listProposals:async () => [],
+      queryTasks:async () => { broadQueryCalled = true; return { items:[] }; },
+      listApprovals:async () => [],
+    },
+  });
+
+  const page = await service.list({ view:'all', backlogCategory:'needs_reverification', time:'all' });
+  assert.equal(broadQueryCalled, false);
+  assert.deepEqual(page.items.map((item) => item.taskId), ['waiting-test']);
+  assert.equal(page.total, 1);
+});
+
 test('失败记录列表和详情共享稳定 attention 契约而不暴露列表原始产物', async () => {
   const recoveryCalls = [];
   const failed = {

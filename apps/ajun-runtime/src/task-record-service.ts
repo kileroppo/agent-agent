@@ -1,21 +1,33 @@
 import { presentTask } from './task-presentation.ts';
 import { sanitizeFailureText } from './technical-failure-classifier.ts';
+import { queryTaskRecordsInMemory } from './task-record-query.ts';
 export class TaskRecordService {
     store: any;
     taskDetailBaseUrl: any;
     taskRecovery: any;
     paperclipBaseUrl: any;
-    constructor({ store, taskDetailBaseUrl = '', taskRecovery = null, paperclipBaseUrl = process.env.PAPERCLIP_URL || 'http://127.0.0.1:3100' }: any) {
+    capabilityCatalog: any;
+    constructor({ store, taskDetailBaseUrl = '', taskRecovery = null, capabilityCatalog = null, paperclipBaseUrl = process.env.PAPERCLIP_URL || 'http://127.0.0.1:3100' }: any) {
         this.store = store;
         this.taskDetailBaseUrl = taskDetailBaseUrl;
         this.taskRecovery = taskRecovery;
+        this.capabilityCatalog = capabilityCatalog;
         this.paperclipBaseUrl = safeHttpBaseUrl(paperclipBaseUrl);
     }
     async list(query: any = {}): Promise<any> {
-        const [page, approvals] = await Promise.all([
-            this.store.queryTasks(query),
+        const exactBacklogCategory: any = String(query.backlogCategory || '').trim();
+        const [tasksOrPage, approvals, proposals] = await Promise.all([
+            exactBacklogCategory ? this.store.list() : this.store.queryTasks(query),
             this.store.listApprovals(),
+            exactBacklogCategory && typeof this.store.listProposals === 'function' ? this.store.listProposals() : [],
         ]);
+        const page: any = exactBacklogCategory
+            ? queryTaskRecordsInMemory(tasksOrPage, query, {
+                proposals,
+                taskTypeDelegates: this.capabilityCatalog?.openTaskDelegates?.() || {},
+                approvals,
+            })
+            : tasksOrPage;
         return {
             ...page,
             items: page.items.map((task: any): any => presentRecordSummary(task, approvals, this.taskDetailBaseUrl)),

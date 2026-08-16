@@ -1,9 +1,20 @@
 import { isOwnerActionableTask } from './task-overview-focus.ts';
+import { taskOutcomePolicy } from './task-status-policy.ts';
+import { classifyTaskBacklog } from './workflow/backlog-classification.ts';
+import { evaluateWorkflowTasks } from './workflow/evaluation.ts';
 const VIEW_STATUSES: any = Object.freeze({
     needs_action: new Set(['failed', 'needs_input', 'pending_approval', 'waiting_approval', 'waiting_test', 'paused', 'blocked', 'error']),
     completed: new Set(['succeeded', 'cancelled', 'rejected', 'stopped']),
 });
 export const TASK_RECORD_VIEWS: any = Object.freeze(['needs_action', 'active', 'completed', 'all']);
+export const TASK_BACKLOG_CATEGORIES: any = Object.freeze([
+    'owner_actionable',
+    'business_active',
+    'needs_reverification',
+    'unresolved_failures',
+    'validated_by_later_evidence',
+    'historical_archived',
+]);
 export function taskRecordView(status: any): any {
     const normalized: any = String(status || '').trim();
     if (VIEW_STATUSES.needs_action.has(normalized))
@@ -58,6 +69,9 @@ export function normalizeTaskRecordQuery(input: any = {}): any {
     const until: any = validIso(input.until);
     return {
         view,
+        backlogCategory: TASK_BACKLOG_CATEGORIES.includes(String(input.backlogCategory || '').trim())
+            ? String(input.backlogCategory).trim()
+            : '',
         q: clean(input.q, 160).toLocaleLowerCase('zh-CN'),
         agentId: clean(input.agentId, 80),
         taskType: clean(input.taskType, 160),
@@ -68,12 +82,16 @@ export function normalizeTaskRecordQuery(input: any = {}): any {
         cursor: decodeTaskRecordCursor(input.cursor),
     };
 }
-export function queryTaskRecordsInMemory(tasks: any, input: any = {}): any {
+export function queryTaskRecordsInMemory(tasks: any, input: any = {}, evidenceContext: any = {}): any {
     const query: any = normalizeTaskRecordQuery(input);
     const ordered: any = [...(Array.isArray(tasks) ? tasks : [])].sort(compareTaskRecords);
     const baseMatches: any = ordered.filter((task: any): any => matchesBaseQuery(task, query));
-    const hiddenRoutine: any = baseMatches.filter((task: any): any => isHiddenRoutineTask(task, query.includeRoutine));
-    const visible: any = baseMatches.filter((task: any): any => !isHiddenRoutineTask(task, query.includeRoutine) && !isInternalDiagnosticTask(task, ordered));
+    const categoryTaskIds: any = backlogCategoryTaskIds(ordered, query.backlogCategory, evidenceContext);
+    const exactCategory: any = Boolean(query.backlogCategory);
+    const hiddenRoutine: any = exactCategory ? [] : baseMatches.filter((task: any): any => isHiddenRoutineTask(task, query.includeRoutine));
+    const visible: any = baseMatches.filter((task: any): any => (exactCategory
+        ? categoryTaskIds.has(task.taskId)
+        : !isHiddenRoutineTask(task, query.includeRoutine) && !isInternalDiagnosticTask(task, ordered)));
     const counts: any = Object.fromEntries(TASK_RECORD_VIEWS.map((view: any): any => [
         view,
         visible.filter((task: any): any => view === 'all' || taskRecordViewForTask(task, ordered) === view).length,
@@ -97,6 +115,46 @@ export function queryTaskRecordsInMemory(tasks: any, input: any = {}): any {
         routineSummary: routineSummary(hiddenRoutine),
         query: { ...query, cursor: query.cursor ? input.cursor : null },
     };
+}
+function backlogCategoryTaskIds(tasks: any, category: any, evidenceContext: any): any {
+    const ids: any = new Set();
+    if (!category)
+        return ids;
+    if (category === 'owner_actionable') {
+        for (const task of tasks) {
+            if (['waiting_approval', 'needs_input', 'paused', 'failed', 'waiting_test'].includes(task?.status)
+                && isOwnerActionableTask(task, tasks))
+                ids.add(task.taskId);
+        }
+        for (const workflow of evaluateWorkflowTasks(tasks)) {
+            const outcome: any = taskOutcomePolicy(workflow.status);
+            if (!outcome.ownerActionable || !workflow.ownerAction)
+                continue;
+            const step: any = workflow.steps.find((item: any): any => item.required && item.verified)
+                || workflow.steps.find((item: any): any => item.verified);
+            if (step)
+                ids.add(step.taskId);
+        }
+        return ids;
+    }
+    if (category === 'business_active') {
+        for (const task of tasks) {
+            if (['pausing', 'running', 'waiting_worker', 'queued'].includes(task?.status) && !isRoutineHealthTask(task))
+                ids.add(task.taskId);
+        }
+        return ids;
+    }
+    for (const task of tasks) {
+        const classification: any = classifyTaskBacklog(task, tasks, evidenceContext);
+        const matches: any = category === 'unresolved_failures'
+            ? ['unresolved_failure', 'unresolved'].includes(classification)
+            : category === 'historical_archived'
+                ? ['archived_cancelled', 'superseded', 'expected_acceptance_failure', 'expected_boundary_rejection'].includes(classification)
+                : classification === category;
+        if (matches)
+            ids.add(task.taskId);
+    }
+    return ids;
 }
 function isReadOnlyDiagnosisTask(task: any): any {
     return task?.taskType === 'operations.failure-recovery'

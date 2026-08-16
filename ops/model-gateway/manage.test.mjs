@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { replaceEnvValues, rewriteSstefunProvider, rewriteStepfunProviders } from './manage.mjs';
+import {
+  replaceEnvValues,
+  resolvePrepareProfile,
+  rewriteSstefunProvider,
+  rewriteStepfunProviders,
+} from './manage.mjs';
+
+test('prepare profile defaults safely and accepts an explicit profile', () => {
+  assert.equal(resolvePrepareProfile([]), 'default');
+  assert.equal(resolvePrepareProfile(['--profile', 'xiaod']), 'xiaod');
+  assert.throws(() => resolvePrepareProfile(['xiaod']), /必须使用 --profile/);
+});
 
 test('replaceEnvValues only replaces scoped values', () => {
   const result = replaceEnvValues('KEEP=yes\nSTEPFUN_API_KEY=old\n', {

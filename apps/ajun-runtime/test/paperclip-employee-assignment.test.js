@@ -70,3 +70,26 @@ test('员工执行器同时核验允许岗位、任务承接人和任务类型',
     /不允许调用/,
   );
 });
+
+test('小R 普通 Paperclip 指派按输入选择网页整理、GitHub 或公开检索', () => {
+  const agent = {
+    agentId:'intel-researcher',
+    acceptedTaskTypes:[
+      'report.public-material',
+      'research.github-search',
+      'research.intel-report',
+    ],
+  };
+  assert.equal(resolvePaperclipAssignmentTaskType({
+    agent,
+    issue:{ title:'查下最近一周义乌天气', description:'展示一周义乌天气情况' },
+  }).taskType, 'research.intel-report');
+  assert.equal(resolvePaperclipAssignmentTaskType({
+    agent,
+    issue:{ title:'整理网页', description:'请整理 https://example.com/a' },
+  }).taskType, 'report.public-material');
+  assert.equal(resolvePaperclipAssignmentTaskType({
+    agent,
+    issue:{ title:'查代码', description:'比较 https://github.com/acme/example' },
+  }).taskType, 'research.github-search');
+});

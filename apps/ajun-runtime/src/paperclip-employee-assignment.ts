@@ -11,7 +11,7 @@ export function resolvePaperclipAssignmentTaskType({ agent, issue }: any = {}): 
     const routineKey: any = paperclipRoutineKey(issue);
     if (!routineKey)
         return {
-            taskType: String(agent?.acceptedTaskTypes?.[0] || '').trim(),
+            taskType: resolveGeneralPaperclipTaskType(agent, issue),
             routineKey: null,
             pipelineCaseId: null,
         };
@@ -33,6 +33,28 @@ export function resolvePaperclipAssignmentTaskType({ agent, issue }: any = {}): 
         routineKey,
         pipelineCaseId: paperclipPipelineCaseId(issue),
     };
+}
+function resolveGeneralPaperclipTaskType(agent: any, issue: any): any {
+    const accepted: any[] = Array.isArray(agent?.acceptedTaskTypes)
+        ? agent.acceptedTaskTypes.map((value: any): any => String(value || '').trim()).filter(Boolean)
+        : [];
+    if (String(agent?.agentId || '').trim() !== 'intel-researcher') {
+        return accepted[0] || '';
+    }
+    const text: any = `${String(issue?.title || '')}\n${String(issue?.description || '')}`;
+    const urls: any[] = text.match(/https?:\/\/[^\s<>()\[\]{}"']+/gi) || [];
+    const githubRequest: any = urls.some((url: any): any => /https?:\/\/(?:www\.)?github\.com\//i.test(url))
+        || /(?:^|\s)(?:github|git hub|开源仓库|代码仓库)(?:\s|$)/i.test(text);
+    if (githubRequest && accepted.includes('research.github-search')) {
+        return 'research.github-search';
+    }
+    if (urls.length && accepted.includes('report.public-material')) {
+        return 'report.public-material';
+    }
+    if (accepted.includes('research.intel-report')) {
+        return 'research.intel-report';
+    }
+    return accepted[0] || '';
 }
 export function assertPaperclipEmployeeExecutorAssignment({ agent, task }: any = {}): any {
     const agentId: any = String(agent?.agentId || '').trim();

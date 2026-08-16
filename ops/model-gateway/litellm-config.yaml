@@ -29,6 +29,9 @@ model_list:
 
 litellm_settings:
   callbacks: token_guard.token_guard
+  # Hermes 会为部分模型发送 reasoning_effort 等 OpenAI 扩展参数；
+  # StepFun 不接受这些字段，让 LiteLLM 在转发前只丢弃上游不支持的参数。
+  drop_params: true
   turn_off_message_logging: true
   overwrite_user_with_key_hash: true
   request_timeout: 180
@@ -37,15 +40,15 @@ litellm_settings:
     models: [step-3.7-flash, step-router-v1]
     max_budget: 0.10
     budget_duration: 1d
-    rpm_limit: 6
-    tpm_limit: 150000
-    max_parallel_requests: 1
+    rpm_limit: 30
+    tpm_limit: 1000000
+    max_parallel_requests: 2
   upperbound_key_generate_params:
     max_budget: 0.25
     budget_duration: 1d
-    rpm_limit: 12
-    tpm_limit: 300000
-    max_parallel_requests: 2
+    rpm_limit: 60
+    tpm_limit: 2000000
+    max_parallel_requests: 4
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

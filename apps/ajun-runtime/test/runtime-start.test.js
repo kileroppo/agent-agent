@@ -117,7 +117,7 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
     revision:'::0',
     routineSummary:{ hidden:0, today:0, attention:0, latestUpdatedAt:null },
     query:{
-      view:'needs_action', q:'', agentId:'', taskType:'', since:'', until:'', includeRoutine:false, limit:24, cursor:null,
+      view:'needs_action', q:'', agentId:'', taskType:'', backlogCategory:'', since:'', until:'', includeRoutine:false, limit:24, cursor:null,
     },
   });
 

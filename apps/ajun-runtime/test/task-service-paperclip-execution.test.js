@@ -59,6 +59,63 @@ test('Paperclip 本机 AI 事件核验任务、身份和岗位能力后只写脱
   assert.equal(saved.length, 1);
 });
 
+test('Paperclip 新 Run 会重新打开失败信封并按新岗位和任务类型执行', async () => {
+  const architect = hermesAgentFixture('architect', '架构师', ['governance.architecture-review']);
+  const researcher = hermesAgentFixture('intel-researcher', '小R', [
+    'report.public-material',
+    'research.github-search',
+    'research.intel-report',
+  ]);
+  const firstIdentity = paperclipIdentityFixture('retry-rebind', 'architect', '架构师', {
+    title:'查下最近一周义乌天气',
+    description:'展示一周义乌天气情况',
+  }, { runId:'paperclip-run-first', paperclipAgentId:'paperclip-agent-architect' });
+  let identity = firstIdentity;
+  const governance = paperclipAssignmentGovernanceFixture(firstIdentity, {
+    async verifyHermesAssignment() { return identity; },
+  });
+  const { service, records } = setup({ agents:[architect, researcher], governance });
+  const first = await service.getPaperclipAssignment(firstIdentity);
+  await service.store.updateTask(first.task.taskId, {
+    status:'failed',
+    currentStage:'paperclip_hermes_failed',
+    execution:{ ...first.task.execution, finishedAt:'2026-08-16T07:36:00.000Z', outcome:'failed' },
+    governance:{
+      ...first.task.governance,
+      completionSync:{
+        status:'confirmed',
+        paperclipIssueId:firstIdentity.issue.id,
+        paperclipRunId:firstIdentity.run.id,
+        taskStatus:'failed',
+      },
+    },
+    error:{ code:'paperclip_hermes_failed', retryable:true },
+  });
+  identity = {
+    ...firstIdentity,
+    run:{ id:'paperclip-run-second' },
+    paperclipAgent:{ id:'paperclip-agent-researcher', name:'小R' },
+    agentArmyId:'intel-researcher',
+  };
+
+  const retried = await service.getPaperclipAssignment(identity);
+
+  assert.equal(retried.task.taskId, first.task.taskId);
+  assert.equal(retried.task.status, 'running');
+  assert.equal(retried.task.currentStage, 'paperclip_hermes_running');
+  assert.equal(retried.task.attempt, 2);
+  assert.equal(retried.task.assigneeAgentId, 'intel-researcher');
+  assert.equal(retried.task.taskType, 'research.intel-report');
+  assert.equal(retried.task.execution.hermesProfileId, 'intel-researcher');
+  assert.equal(retried.task.execution.paperclipRunId, 'paperclip-run-second');
+  assert.equal(retried.task.execution.finishedAt, undefined);
+  assert.equal(retried.task.execution.outcome, undefined);
+  assert.equal(retried.task.governance.paperclipAssigneeAgentId, 'paperclip-agent-researcher');
+  assert.equal(retried.task.governance.completionSync, undefined);
+  assert.equal(retried.task.error, undefined);
+  assert.equal(records.tasks.length, 1);
+});
+
 test('Paperclip 终态同步明确失败后可重放，failed 与 waiting_test 不会永久卡在两套真相', async (t) => {
   for (const { label, reportedStatus, preciseError } of [
     { label:'failed-precise-error', reportedStatus:'failed', preciseError:true },

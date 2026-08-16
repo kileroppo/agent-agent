@@ -30,7 +30,7 @@ const PRIVATE_DIRECTORY_MODE = 0o700;
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const [command = 'status', ...args] = process.argv.slice(2);
   try {
-    if (command === 'prepare') await prepare();
+    if (command === 'prepare') await prepare(resolvePrepareProfile(args));
     else if (command === 'start') await start();
     else if (command === 'provision') await provision();
     else if (command === 'cutover') await cutover(requireProfile(args));
@@ -45,8 +45,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   }
 }
 
-async function prepare() {
-  const sourceEnv = path.join(HERMES_ROOT, '.env');
+async function prepare(profile = 'default') {
+  const sourceEnv = path.join(hermesProfileHome(profile), '.env');
   const upstreamKey = parseEnvValue(await readPrivateFile(sourceEnv), 'STEPFUN_API_KEY');
   if (!upstreamKey) throw safeError('Hermes 默认 Profile 缺少 STEPFUN_API_KEY。');
   await ensurePrivateDirectory(RUNTIME_ROOT);
@@ -61,7 +61,7 @@ async function prepare() {
     STEPFUN_UPSTREAM_API_KEY: upstreamKey,
   };
   await writePrivateAtomic(RUNTIME_ENV, serializeEnv(next));
-  process.stdout.write(`运行目录已准备：${RUNTIME_ROOT}（未输出任何钥匙）\n`);
+  process.stdout.write(`运行目录已准备：${RUNTIME_ROOT}；上游凭据来源：${profile}（未输出任何钥匙）\n`);
 }
 
 async function start() {
@@ -535,6 +535,10 @@ function hermesProfileHome(profile) {
 function requireProfile(args) {
   if (args.length !== 2 || args[0] !== '--profile') throw safeError('必须使用 --profile <岗位>。');
   return args[1];
+}
+
+export function resolvePrepareProfile(args) {
+  return args.length === 0 ? 'default' : requireProfile(args);
 }
 
 function requireDate(args) {

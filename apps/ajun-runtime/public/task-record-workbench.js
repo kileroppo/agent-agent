@@ -7,6 +7,14 @@ const VIEW_LABELS = Object.freeze({
     completed: '已完成',
     all: '全部记录',
 });
+const BACKLOG_CATEGORY_LABELS = Object.freeze({
+    owner_actionable: '待处理',
+    business_active: '运行中',
+    needs_reverification: '待复验',
+    unresolved_failures: '仍失败',
+    validated_by_later_evidence: '已有新证据',
+    historical_archived: '历史归档',
+});
 export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agentName, escapeHtml, initialTaskId = '', }) {
     const elements = recordElements();
     const timeline = createTaskTimelineLoader({ api, escapeHtml });
@@ -21,6 +29,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         taskType: urlState.taskType,
         time: urlState.time,
         includeRoutine: urlState.includeRoutine,
+        backlogCategory: urlState.backlogCategory,
         items: [],
         counts: { needs_action: 0, active: 0, completed: 0, all: 0 },
         total: 0,
@@ -59,9 +68,10 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
     function bindEvents() {
         for (const button of elements.viewButtons)
             button.addEventListener('click', async () => {
-                if (state.view === button.dataset.recordView && !state.selectedTaskId)
+                if (state.view === button.dataset.recordView && !state.selectedTaskId && !state.backlogCategory)
                     return;
                 state.view = button.dataset.recordView;
+                state.backlogCategory = '';
                 state.selectedTaskId = '';
                 state.selectedTask = null;
                 state.autoExpanded = false;
@@ -102,7 +112,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             await loadRecords();
         });
         elements.filterReset.addEventListener('click', async () => {
-            Object.assign(state, { agentId: '', taskType: '', time: '30d', includeRoutine: false, autoExpanded: false });
+            Object.assign(state, { agentId: '', taskType: '', time: '30d', includeRoutine: false, backlogCategory: '', autoExpanded: false });
             syncControls();
             replaceRecordUrl();
             await loadRecords();
@@ -257,14 +267,15 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             button.classList.toggle('is-active', active);
             button.setAttribute('aria-pressed', String(active));
         }
-        elements.count.textContent = state.total ? `${VIEW_LABELS[state.view]} · ${state.total}` : emptyCountLabel();
+        const activeLabel = BACKLOG_CATEGORY_LABELS[state.backlogCategory] || VIEW_LABELS[state.view];
+        elements.count.textContent = state.total ? `${activeLabel} · ${state.total}` : emptyCountLabel();
         elements.listContext.textContent = state.autoExpanded
             ? '近 30 天未找到，已查询全部时间'
             : state.items.length < state.total ? `当前 ${state.items.length} 条` : '';
     }
     function renderList() {
         if (!state.items.length) {
-            const filtered = Boolean(state.q || state.agentId || state.taskType || state.time !== '30d' || state.includeRoutine);
+            const filtered = Boolean(state.q || state.agentId || state.taskType || state.time !== '30d' || state.includeRoutine || state.backlogCategory);
             const title = filtered ? '没有匹配的记录' : state.view === 'needs_action' ? '目前没有需要你处理的事' : '这个分类暂时没有记录';
             const detail = filtered
                 ? '调整搜索词或筛选条件后再试。'
@@ -448,9 +459,11 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             chips.push(state.time === 'all' ? '全部时间' : '近 7 天');
         if (state.includeRoutine)
             chips.push('包含例行巡检');
+        if (state.backlogCategory)
+            chips.unshift(`状态：${BACKLOG_CATEGORY_LABELS[state.backlogCategory]}`);
         elements.activeFilters.innerHTML = chips.map((chip) => `<span class="record-filter-chip">${escapeHtml(chip)}</span>`).join('');
         elements.activeFilters.hidden = !chips.length;
-        const changed = Boolean(state.q || state.agentId || state.taskType || state.time !== '30d' || state.includeRoutine);
+        const changed = Boolean(state.q || state.agentId || state.taskType || state.time !== '30d' || state.includeRoutine || state.backlogCategory);
         elements.filterToggle.classList.toggle('has-filters', changed);
     }
     function refreshFilterOptions() {
@@ -473,6 +486,8 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
     }
     function recordQueryUrl(cursor) {
         const params = new URLSearchParams({ view: state.view, limit: '24' });
+        if (state.backlogCategory)
+            params.set('backlogCategory', state.backlogCategory);
         if (state.q)
             params.set('q', state.q);
         if (state.agentId)
@@ -501,6 +516,8 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             url.searchParams.set('recordTime', state.time);
         if (state.includeRoutine)
             url.searchParams.set('recordRoutine', '1');
+        if (state.backlogCategory)
+            url.searchParams.set('recordCategory', state.backlogCategory);
         url.hash = 'records';
         history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
     }
@@ -516,7 +533,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         elements.detail.innerHTML = `<div class="record-list-error"><strong>无法打开这条记录</strong><p>${escapeHtml(error.message || '任务可能已经不存在。')}</p></div>`;
     }
     function emptyCountLabel() {
-        return state.view === 'needs_action' ? '无需处理' : '0 条记录';
+        return state.backlogCategory ? `${BACKLOG_CATEGORY_LABELS[state.backlogCategory]} · 0` : state.view === 'needs_action' ? '无需处理' : '0 条记录';
     }
     function emptyDetailLabel() {
         return state.view === 'needs_action' ? '目前没有需要你处理的事' : '当前条件下没有记录';
@@ -588,6 +605,9 @@ function readUrlState() {
         taskType: String(params.get('recordType') || '').slice(0, 160),
         time,
         includeRoutine: params.get('recordRoutine') === '1',
+        backlogCategory: Object.hasOwn(BACKLOG_CATEGORY_LABELS, String(params.get('recordCategory') || ''))
+            ? String(params.get('recordCategory'))
+            : '',
     };
 }
 function option(value, label) {

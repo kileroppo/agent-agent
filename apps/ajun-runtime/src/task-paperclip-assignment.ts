@@ -25,7 +25,14 @@ export const taskPaperclipAssignmentMethods: Record<string, any> = {
         }
         const storedTasks: any = await this.store.list();
         let task: any = storedTasks.find((item: any): any => item.governance?.paperclipIssueId === identity.issue.id);
-        if (task && assignmentTask.routineKey && task.taskType !== assignmentTask.taskType) {
+        const storedPaperclipRunId: any = paperclipRunId(task);
+        const currentPaperclipRunId: any = String(identity.run.id || '').trim();
+        const newPaperclipRun: any = Boolean(task
+            && storedPaperclipRunId
+            && currentPaperclipRunId
+            && storedPaperclipRunId !== currentPaperclipRunId);
+        const retryingTerminalTask: any = Boolean(task && isTerminalTask(task) && newPaperclipRun);
+        if (task && assignmentTask.routineKey && task.taskType !== assignmentTask.taskType && !retryingTerminalTask) {
             throw new ValidationError(`当前任务信封类型与 M5 Routine ${assignmentTask.routineKey} 不一致。`);
         }
         const pipelineCase: any = assignmentTask.pipelineCaseId && typeof this.governance.getPipelineCase === 'function'
@@ -96,12 +103,94 @@ export const taskPaperclipAssignmentMethods: Record<string, any> = {
                 }
             });
         }
+        else if (retryingTerminalTask) {
+            const previousTask: any = task;
+            const nextAttempt: any = Number.isSafeInteger(task.attempt) ? task.attempt + 1 : 2;
+            const { completionSync: _completionSync, ...retainedGovernance } = task.governance || {};
+            const {
+                finishedAt: _finishedAt,
+                outcome: _outcome,
+                paperclipEmployee: _paperclipEmployee,
+                ...retainedExecution
+            } = task.execution || {};
+            task = await this.store.updateTask(task.taskId, {
+                status: 'queued',
+                currentStage: 'paperclip_hermes_retry_queued',
+                attempt: nextAttempt,
+                taskType: assignmentTask.taskType,
+                assigneeAgentId: agent.agentId,
+                source: {
+                    ...(task.source || {}),
+                    channel: 'paperclip',
+                    paperclipIssueId: identity.issue.id,
+                    paperclipRunId: identity.run.id,
+                },
+                routing: {
+                    requestedAgentId: agent.agentId,
+                    candidateAgentIds: [agent.agentId],
+                    reason: 'Paperclip 已为新的 Run 重新指派该任务。',
+                },
+                governance: {
+                    ...retainedGovernance,
+                    status: 'synced',
+                    paperclipIssueId: identity.issue.id,
+                    paperclipIssueIdentifier: identity.issue.identifier || null,
+                    paperclipAssigneeAgentId: identity.paperclipAgent.id,
+                    paperclipAssigneeName: identity.paperclipAgent.name,
+                    syncedAt: new Date().toISOString(),
+                },
+                execution: {
+                    ...retainedExecution,
+                    owner: 'paperclip-hermes',
+                    hermesProfileId: agent.agentId,
+                    paperclipRunId: identity.run.id,
+                    paperclipAgentId: identity.paperclipAgent.id,
+                    startedAt: new Date().toISOString(),
+                },
+                input: assignmentContext.refreshTaskInput(task.input, { assignmentProjectId }),
+                recovery: {
+                    ...(task.recovery || {}),
+                    attempt: nextAttempt,
+                    reason: 'paperclip_new_run',
+                    previousStatus: task.status,
+                    previousPaperclipRunId: paperclipRunId(task),
+                },
+                error: undefined,
+            });
+            this.taskLifecycleEvents?.recordPersisted(task, { previousTask });
+            const queuedTask: any = task;
+            task = await this.store.updateTask(task.taskId, {
+                status: 'running',
+                currentStage: 'paperclip_hermes_running',
+            });
+            this.taskLifecycleEvents?.recordPersisted(task, { previousTask: queuedTask });
+        }
         else if (!isTerminalTask(task)) {
             task = await this.store.updateTask(task.taskId, {
                 status: 'running',
                 currentStage: task.execution?.paperclipEmployee
                     ? task.currentStage
                     : 'paperclip_hermes_running',
+                taskType: assignmentTask.taskType,
+                assigneeAgentId: agent.agentId,
+                source: {
+                    ...(task.source || {}),
+                    channel: 'paperclip',
+                    paperclipIssueId: identity.issue.id,
+                    paperclipRunId: identity.run.id,
+                },
+                routing: {
+                    requestedAgentId: agent.agentId,
+                    candidateAgentIds: [agent.agentId],
+                    reason: 'Paperclip 已把任务指派给该员工的 Hermes Profile。',
+                },
+                governance: {
+                    ...(task.governance || {}),
+                    status: 'synced',
+                    paperclipAssigneeAgentId: identity.paperclipAgent.id,
+                    paperclipAssigneeName: identity.paperclipAgent.name,
+                    syncedAt: new Date().toISOString(),
+                },
                 execution: {
                     ...(task.execution || {}),
                     owner: 'paperclip-hermes',
@@ -203,4 +292,10 @@ function contractedOpenResearchExecutionPolicy(task: any): any {
 function rolePolicyWritesWorkspace(agent: any): any {
     return Object.values(agent?.toolExecutionPolicy?.grants || {})
         .some((declaration: any): any => declaration?.access === 'write');
+}
+function paperclipRunId(task: any): any {
+    return String(task?.execution?.paperclipRunId
+        || task?.source?.paperclipRunId
+        || task?.governance?.completionSync?.paperclipRunId
+        || '').trim();
 }

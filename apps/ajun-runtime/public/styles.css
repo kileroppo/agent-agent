@@ -669,6 +669,23 @@ h3 {
   transition: transform .22s var(--ease), border-color .22s ease, box-shadow .22s ease;
 }
 
+.stat-card.is-link {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.stat-card.is-link:hover {
+  border-color: color-mix(in srgb, var(--mint-deep) 38%, var(--line));
+  box-shadow: var(--shadow);
+  transform: translateY(-2px);
+}
+
+.stat-card.is-link:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--mint-deep) 28%, transparent);
+  outline-offset: 2px;
+}
+
 .stat-card-head {
   display: flex;
   align-items: center;

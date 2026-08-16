@@ -153,7 +153,7 @@ export class TaskService {
             execute: (task: any, agent: any): any => this.executeTask(task, agent),
         });
         this.notification = new TaskNotification({ store, registry, executors });
-        this.taskRecords = new TaskRecordService({ store, taskDetailBaseUrl, taskRecovery: this.taskRecovery });
+        this.taskRecords = new TaskRecordService({ store, taskDetailBaseUrl, taskRecovery: this.taskRecovery, capabilityCatalog });
         this.taskOverview = new TaskOverview({
             registry,
             store,

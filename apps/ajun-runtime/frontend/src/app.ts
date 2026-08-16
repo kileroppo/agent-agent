@@ -500,19 +500,27 @@ function renderOverviewStats(): any {
             ? `${active} 项工作正在推进，你暂时不用处理。`
             : '当前没有必须处理的事。';
     const cards: any = [
-        statCard('待处理', ownerActionable, ownerActionable ? '打开上方事项处理' : '目前无需决定', 'target', ownerActionable > 0),
-        statCard('运行中', active, active ? '系统会继续推进' : '当前没有执行中的工作', 'clock'),
-        ...(verificationBacklog ? [statCard('待复验', verificationBacklog, '需要按业务优先级重新跑验收', 'records', true)] : []),
-        ...(unresolvedFailures ? [statCard('仍失败', unresolvedFailures, '保留错误证据，不会自动重试', 'alert', true)] : []),
-        ...(validatedByLaterEvidence ? [statCard('已有新证据', validatedByLaterEvidence, '同岗位同能力的后续成功产物已通过校验', 'target')] : []),
-        ...(historicalArchived ? [statCard('历史归档', historicalArchived, '包含取消、验收样例和已被成功结果替代的记录', 'records')] : []),
-        ...(unavailableAgents ? [statCard('接入异常', unavailableAgents, '前往系统页检查员工与连接', 'alert', true)] : []),
+        statCard('待处理', ownerActionable, ownerActionable ? '打开对应事项处理' : '目前无需决定', 'target', ownerActionable > 0, recordCategoryHref('owner_actionable')),
+        statCard('运行中', active, active ? '查看系统正在推进的工作' : '当前没有执行中的工作', 'clock', false, recordCategoryHref('business_active')),
+        ...(verificationBacklog ? [statCard('待复验', verificationBacklog, '需要按业务优先级重新跑验收', 'records', true, recordCategoryHref('needs_reverification'))] : []),
+        ...(unresolvedFailures ? [statCard('仍失败', unresolvedFailures, '保留错误证据，不会自动重试', 'alert', true, recordCategoryHref('unresolved_failures'))] : []),
+        ...(validatedByLaterEvidence ? [statCard('已有新证据', validatedByLaterEvidence, '同岗位同能力的后续成功产物已通过校验', 'target', false, recordCategoryHref('validated_by_later_evidence'))] : []),
+        ...(historicalArchived ? [statCard('历史归档', historicalArchived, '包含取消、验收样例和已被成功结果替代的记录', 'records', false, recordCategoryHref('historical_archived'))] : []),
+        ...(unavailableAgents ? [statCard('接入异常', unavailableAgents, '前往系统页检查员工与连接', 'alert', true, '/#system')] : []),
     ];
     overviewStats.replaceChildren(...cards);
 }
-function statCard(label: any, value: any, note: any, icon: any, attention: any = false): any {
-    const node: any = document.createElement('article');
-    node.className = `stat-card${attention ? ' attention' : ''}`;
+function recordCategoryHref(category: any): any {
+    const params: any = new URLSearchParams({ recordView: 'all', recordCategory: category, recordTime: 'all' });
+    return `/?${params}#records`;
+}
+function statCard(label: any, value: any, note: any, icon: any, attention: any = false, href: any = ''): any {
+    const node: any = document.createElement(href ? 'a' : 'article');
+    node.className = `stat-card${attention ? ' attention' : ''}${href ? ' is-link' : ''}`;
+    if (href) {
+        node.href = href;
+        node.setAttribute('aria-label', `${label} ${value}，${note}`);
+    }
     node.innerHTML = `<div class="stat-card-head"><span>${escapeHtml(label)}</span><span class="stat-icon"><svg aria-hidden="true"><use href="#icon-${icon}"></use></svg></span></div><strong class="stat-value">${escapeHtml(value)}</strong><span class="stat-note">${escapeHtml(note)}</span>`;
     return node;
 }

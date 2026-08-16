@@ -80,6 +80,31 @@ test('爆款雷达发起的失败任务仍归入需要处理，不会被静默�
   assert.equal(taskRecordViewForTask(failed, [failed]), 'needs_action');
 });
 
+test('总览状态卡使用同一套积压分类精确打开对应记录', () => {
+  const backlog = [
+    task('verify', 'waiting_test', '2026-08-07T11:00:00.000Z', { title:'待复验', agentId:'ops' }),
+    task('failed', 'failed', '2026-08-07T10:00:00.000Z', { title:'真实失败', agentId:'ops' }),
+    task('cancelled', 'cancelled', '2026-08-07T09:00:00.000Z', { title:'已取消', agentId:'ops' }),
+    task('running', 'running', '2026-08-07T08:00:00.000Z', { title:'正在做', agentId:'ops' }),
+  ];
+  assert.deepEqual(
+    queryTaskRecordsInMemory(backlog, { view:'all', backlogCategory:'needs_reverification' }).items.map((item) => item.taskId),
+    ['verify'],
+  );
+  assert.deepEqual(
+    queryTaskRecordsInMemory(backlog, { view:'all', backlogCategory:'unresolved_failures' }).items.map((item) => item.taskId),
+    ['failed'],
+  );
+  assert.deepEqual(
+    queryTaskRecordsInMemory(backlog, { view:'all', backlogCategory:'historical_archived' }).items.map((item) => item.taskId),
+    ['cancelled'],
+  );
+  assert.deepEqual(
+    queryTaskRecordsInMemory(backlog, { view:'all', backlogCategory:'business_active' }).items.map((item) => item.taskId),
+    ['running'],
+  );
+});
+
 function task(taskId, status, updatedAt, { title, agentId = 'ops', taskType = 'army.intake', channel = 'feishu' }) {
   return {
     taskId,
