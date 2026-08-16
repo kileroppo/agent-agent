@@ -19,6 +19,7 @@ function usageView(overrides = {}) {
         unknownEntryCount:0,
       },
     },
+    providerReconciliation:{ status:'matched', untrackedApiCalls:0, untrackedTokens:0 },
     ...overrides,
   };
 }
@@ -39,6 +40,9 @@ test('从 Hermes 账本汇总缓存、调用、推理和已知费用，并给出
     knownCostUsd:0.5,
     costStatus:'known',
     unknownCostEntryCount:0,
+    providerReconciliationStatus:'matched',
+    untrackedApiCalls:0,
+    untrackedTokens:0,
   });
   assert.deepEqual(result.alerts, []);
   assert.match(result.operatorMessage, /100 次调用/);
@@ -224,4 +228,34 @@ test('部分 Profile 不可读时保留已知金额，但健康状态标记为�
   assert.equal(result.metrics.knownCostUsd, 0.5);
   assert.equal(result.alerts[0].code, 'usage_partial');
   assert.match(result.operatorMessage, /账本数据不完整/);
+});
+
+test('未接 Provider 总账时局部账本即使为零也不能显示成本正常', () => {
+  const result = evaluateHermesCostPolicy(usageView({
+    providerReconciliation:{ status:'not_configured' },
+    totals:{
+      entryCount:0,
+      apiCalls:0,
+      tokens:{ input:0, output:0, cacheRead:0, cacheWrite:0, reasoning:0 },
+      cost:{ knownUsd:0, actualEntryCount:0, estimatedEntryCount:0, includedEntryCount:0, unknownEntryCount:0 },
+    },
+  }));
+
+  assert.equal(result.status, 'attention');
+  assert.equal(result.alerts[0].code, 'provider_total_not_reconciled');
+  assert.match(result.operatorMessage, /尚未核对 Provider 总账/);
+  assert.doesNotMatch(result.operatorMessage, /成本正常/);
+});
+
+test('Provider 总账高于受管账本时明确告警账外调用和 Token 差额', () => {
+  const result = evaluateHermesCostPolicy(usageView({
+    providerReconciliation:{ status:'gap', untrackedApiCalls:827, untrackedTokens:27_781_756 },
+  }));
+
+  assert.equal(result.status, 'warning');
+  assert.equal(result.metrics.untrackedApiCalls, 827);
+  assert.equal(result.metrics.untrackedTokens, 27_781_756);
+  assert.equal(result.alerts[0].code, 'provider_usage_gap');
+  assert.match(result.alerts[0].message, /827 次调用/);
+  assert.match(result.operatorMessage, /827 次账外调用/);
 });

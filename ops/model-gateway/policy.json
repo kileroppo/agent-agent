@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "agent.army/model-gateway-policy/v1",
+  "gatewayBaseUrl": "http://127.0.0.1:4000",
+  "model": "step-3.7-flash",
+  "profiles": {
+    "default": { "maxBudgetUsd": 0.20, "rpm": 8, "tpm": 200000, "maxParallel": 1 },
+    "ajun": { "maxBudgetUsd": 0.10, "rpm": 6, "tpm": 150000, "maxParallel": 1 },
+    "architect": { "maxBudgetUsd": 0.15, "rpm": 6, "tpm": 180000, "maxParallel": 1 },
+    "content-creator": { "maxBudgetUsd": 0.10, "rpm": 6, "tpm": 150000, "maxParallel": 1 },
+    "creator": { "maxBudgetUsd": 0.15, "rpm": 6, "tpm": 180000, "maxParallel": 1 },
+    "intel-researcher": { "maxBudgetUsd": 0.10, "rpm": 6, "tpm": 150000, "maxParallel": 1 },
+    "office-assistant": { "maxBudgetUsd": 0.05, "rpm": 4, "tpm": 100000, "maxParallel": 1 },
+    "operator": { "maxBudgetUsd": 0.10, "rpm": 6, "tpm": 150000, "maxParallel": 1 },
+    "reviewer": { "maxBudgetUsd": 0.10, "rpm": 6, "tpm": 150000, "maxParallel": 1 },
+    "technical-expert": { "maxBudgetUsd": 0.10, "rpm": 6, "tpm": 150000, "maxParallel": 1 },
+    "video-content-analyst": { "maxBudgetUsd": 0.10, "rpm": 6, "tpm": 150000, "maxParallel": 1 },
+    "xiaod": { "maxBudgetUsd": 0.10, "rpm": 6, "tpm": 150000, "maxParallel": 1 }
+  }
+}

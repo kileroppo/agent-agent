@@ -13,12 +13,18 @@ test('运行事件只追加白名单字段并脱敏摘要，不保存正文和 s
       eventId:'event-1', taskId:'task-1', traceId:'trace-1', eventType:'capability_call_failed',
       capabilityId:'vision.analyze', status:'failed', startedAt:'2026-05-01T00:00:00Z',
       artifactRefs:['artifact:one', 'artifact:one'], errorCode:'provider_unavailable',
+      apiCalls:2, inputTokens:100, outputTokens:20, cacheReadTokens:70, cacheWriteTokens:10,
+      reasoningTokens:5, providerAttempts:3, rateLimitRejections:1,
+      credentialAlias:'stepfun-ajun-primary', requestClass:'interactive',
       safeSummary:'Authorization: Bearer top-secret token=abc url=https://x.test/?api_key=123',
       prompt:'这里是绝不能落库的完整提示词', requestBody:{ password:'also-secret' },
     });
     assert.equal(event.safeSummary.includes('top-secret'), false);
     assert.equal(event.safeSummary.includes('abc'), false);
     assert.deepEqual(event.artifactRefs, ['artifact:one']);
+    assert.equal(event.inputTokens, 100);
+    assert.equal(event.providerAttempts, 3);
+    assert.equal(event.credentialAlias, 'stepfun-ajun-primary');
     assert.equal('prompt' in event, false);
 
     const raw = new DatabaseSync(filePath, { readOnly:true });
@@ -30,6 +36,31 @@ test('运行事件只追加白名单字段并脱敏摘要，不保存正文和 s
     raw.close();
     assert.throws(() => store.appendTaskRunEvent({ ...event }), (error) => error.code === 'task_run_event_exists');
   });
+});
+
+test('模型调用事件缺少岗位、模型、凭据别名或调用类型时拒绝落库', () => {
+  const database = new DatabaseSync(':memory:');
+  const store = new TaskRunEventStore(database);
+  assert.throws(
+    () => store.appendTaskRunEvent({ taskId:'task-model', eventType:'model_call_started', provider:'stepfun', model:'step-3.7-flash' }),
+    (error) => error.code === 'model_call_attribution_required' && /agentId/.test(error.message),
+  );
+  assert.throws(
+    () => store.appendTaskRunEvent({
+      taskId:'task-model', agentId:'ajun', eventType:'model_call_started', provider:'stepfun', model:'step-3.7-flash',
+      credentialAlias:'sk-this-is-a-real-secret-shaped-value', requestClass:'interactive',
+    }),
+    (error) => error.code === 'model_call_attribution_required' && /credentialAlias/.test(error.message),
+  );
+  const event = store.appendTaskRunEvent({
+    taskId:'task-model', agentId:'ajun', eventType:'model_call_succeeded',
+    provider:'stepfun', model:'step-3.7-flash', credentialAlias:'stepfun-ajun-primary',
+    requestClass:'interactive', apiCalls:1, inputTokens:120, outputTokens:30,
+  });
+  assert.equal(event.apiCalls, 1);
+  assert.equal(event.inputTokens, 120);
+  store.close();
+  database.close();
 });
 
 test('运行事件按时间正序游标分页，并支持快捷和结构化过滤', async () => {
@@ -135,6 +166,9 @@ test('旧 detail/permanent 数据库自动迁移到四级留存约束且保留�
   `);
   const store = new TaskRunEventStore(database);
   assert.equal(store.queryTaskRunEvents({ taskId:'legacy-task' }).items[0].eventId, 'legacy-event');
+  const columns = database.prepare('PRAGMA table_info(task_run_events)').all().map((column) => column.name);
+  assert.equal(columns.includes('input_tokens'), true);
+  assert.equal(columns.includes('credential_alias'), true);
   assert.equal(store.appendTaskRunEvent({ taskId:'legacy-task', eventType:'workflow_completed', retentionClass:'audit' }).retentionClass, 'audit');
   store.close();
   database.close();

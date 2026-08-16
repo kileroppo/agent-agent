@@ -77,7 +77,12 @@ export class PaperclipHermesTaskReconciler {
                 status: 'failed',
                 currentStage: 'paperclip_hermes_failed',
                 outcome: 'paperclip_hermes_failed',
-                error: task.error || taskFailure('paperclip_hermes_failed', 'Paperclip 已结束本次运行，且没有可验证产物；任务已如实记为失败。', this.now())
+                error: task.error || taskFailure(
+                    'paperclip_hermes_failed',
+                    'Paperclip 执行器本轮失败，没有生成可验证产物。请打开关联的 Paperclip 任务查看最后一次运行；如果显示 401，请重新授权对应模型账号后再重试。',
+                    this.now(),
+                    { category:'configuration', retryable:true },
+                )
             });
             return;
         }
@@ -202,14 +207,14 @@ function validLocalEvidenceReport(artifact: any, expectedIntent: any, evidenceMo
         && Array.isArray(artifact.sourceRefs)
         && artifact.sourceRefs.includes(data.sourceTranscriptArtifactId);
 }
-function taskFailure(code: any, userMessage: any, now: any): any {
+function taskFailure(code: any, userMessage: any, now: any, { category = 'manual', retryable = false }: any = {}): any {
     return {
         code,
         message: userMessage,
         userMessage,
-        category: 'manual',
+        category,
         stage: 'paperclip_hermes',
-        retryable: false,
+        retryable,
         occurredAt: new Date(now).toISOString()
     };
 }

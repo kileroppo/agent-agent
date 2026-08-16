@@ -9,11 +9,13 @@ export class TaskRecovery {
     clock: any;
     createTask: any;
     recover: any;
+    resumeApprovedMission: any;
     requests: any;
     store: any;
-    constructor({ store, recover = null, createTask = null, capabilityStatus = null, clock = (): any => new Date() }: any = {}) {
+    constructor({ store, recover = null, createTask = null, capabilityStatus = null, resumeApprovedMission = null, clock = (): any => new Date() }: any = {}) {
         this.store = store;
         this.recover = recover;
+        this.resumeApprovedMission = resumeApprovedMission;
         this.createTask = createTask;
         this.capabilityStatus = capabilityStatus;
         this.clock = clock;
@@ -25,8 +27,11 @@ export class TaskRecovery {
             : taskOrId;
         if (!task)
             throw recoveryError('找不到要处理的任务。', 'task_recovery_not_found', 404);
-        const relatedTasks: any = options.relatedTasks || await recoveryRelatedTasks(this.store, task);
-        return view(task, { ...options, relatedTasks });
+        const [relatedTasks, approvals] = await Promise.all([
+            options.relatedTasks || recoveryRelatedTasks(this.store, task),
+            options.approvals || (typeof this.store.listApprovals === 'function' ? this.store.listApprovals() : []),
+        ]);
+        return view(task, { ...options, relatedTasks, approvals });
     }
     request(taskId: any, input: any = {}, actor: any = {}): any {
         const actionKey: any = cleanActionKey(input.actionKey);
@@ -56,7 +61,8 @@ export class TaskRecovery {
         if (!expectedUpdatedAt || expectedUpdatedAt !== String(task.updatedAt || '')) {
             throw recoveryError('任务状态已经变化，请刷新详情后再决定。', 'task_recovery_stale', 409);
         }
-        const recoveryView: any = view(task, { audience: 'local-owner', relatedTasks });
+        const approvals: any = typeof this.store.listApprovals === 'function' ? await this.store.listApprovals() : [];
+        const recoveryView: any = view(task, { audience: 'local-owner', relatedTasks, approvals });
         if (!recoveryView.actions.some((item: any): any => item.actionKey === input.actionKey)) {
             return ineligibleResult(task, input.actionKey, recoveryView);
         }
@@ -100,7 +106,9 @@ export class TaskRecovery {
             occurredAt: requestedAt,
         });
         try {
-            const outcome: any = input.actionKey === 'use_confirmed_transcript_only'
+            const outcome: any = input.actionKey === 'resume_approved_mission'
+                ? await this.#resumeApprovedMission(task, { requestId: input.requestId, requestedBy })
+                : input.actionKey === 'use_confirmed_transcript_only'
                 ? await this.#useConfirmedTranscriptOnly(task, relatedTasks, { requestId: input.requestId, requestedBy })
                 : input.actionKey === 'request_read_only_diagnosis'
                     ? await this.#requestReadOnlyDiagnosis(task, { requestId: input.requestId, requestedBy, legacyDiagnosisTask })
@@ -153,6 +161,27 @@ export class TaskRecovery {
             throw recoveryError('受控恢复暂不可用，未改变任务。', 'task_recovery_unavailable', 503);
         }
         return this.recover(task, input);
+    }
+    async #resumeApprovedMission(task: any, { requestId, requestedBy }: any): Promise<any> {
+        if (typeof this.resumeApprovedMission !== 'function')
+            throw recoveryError('已批准任务的继续入口暂不可用，任务没有被更改。', 'approved_mission_resume_unavailable', 503);
+        const resumedTask: any = await this.resumeApprovedMission(task);
+        await this.#record(task.taskId, {
+            status: 'completed',
+            actionKey: 'resume_approved_mission',
+            requestId,
+            requestedBy,
+            attempt: Number(task.recovery?.attempt || 0) + 1,
+            reason: '已从批准后的规划阶段继续处理。',
+        }, {
+            event: 'resumed',
+            actionKey: 'resume_approved_mission',
+            requestId,
+            attempt: Number(task.recovery?.attempt || 0) + 1,
+            actor: requestedBy,
+            occurredAt: this.clock().toISOString(),
+        });
+        return { resumedTask };
     }
     async #useConfirmedTranscriptOnly(task: any, tasks: any, { requestId, requestedBy }: any): Promise<any> {
         if (typeof this.createTask !== 'function') {

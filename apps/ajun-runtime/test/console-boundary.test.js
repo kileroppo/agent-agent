@@ -92,7 +92,7 @@ test('A君控制台先说明当前状态和唯一下一步，并把历史噪音�
   assert.match(script, /无需处理/);
   assert.match(script, /对外发布关闭/);
   assert.match(script, /今日费用未上报/);
-  assert.match(script, /已读取正式岗位 Hermes 用量/);
+  assert.match(script, /正式岗位 Hermes 用量/);
   assert.match(script, /例行巡检已自动归档/);
   assert.match(script, /focus\.inProgress/);
   assert.match(script, /默认账号已明确/);

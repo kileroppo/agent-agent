@@ -39,6 +39,30 @@ test('短编号只用于展示，完整编号仍保留在技术详情中', () =>
   assert.equal(presentTask(task).technical.taskId, task.taskId);
 });
 
+test('批准后未启动的多人任务明确说明原因并给唯一继续动作', () => {
+  const presentation = presentTask({
+    taskId:'86eea524-eb4a-426c-bcc6-ff6aa9ce5155',
+    taskType:'army.cross-agent-mission',
+    status:'queued',
+    currentStage:'approval_approved',
+    input:{ title:'爆款候选拆解｜晕肉了' },
+    artifactRefs:[],
+  }, { recoveryView:{ actions:[{
+    actionKey:'resume_approved_mission',
+    label:'继续处理',
+    emphasis:'primary',
+    confirmation:'只执行已确认范围，不自动发布。',
+  }] } });
+
+  assert.equal(presentation.statusLabel, '需要继续');
+  assert.equal(presentation.attention.kind, 'approved_not_started');
+  assert.equal(presentation.attention.headline, '已批准，但没有开始');
+  assert.match(presentation.attention.cause, /执行器没有接手/);
+  assert.match(presentation.attention.impact, /没有生成素材或拆解报告/);
+  assert.match(presentation.attention.nextAction, /不会重复审批，也不会自动发布/);
+  assert.deepEqual(presentation.attention.actions.map((item) => item.label), ['继续处理']);
+});
+
 test('视频分析结果展示当前模式和唯一的人工下一步', () => {
   const presentation = presentTask({
     taskId:'video-analysis-1',

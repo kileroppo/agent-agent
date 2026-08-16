@@ -1,5 +1,20 @@
 # 本地 AI 能力系统验收
 
+## 2026-08-16 项目外插件迁移
+
+| 验收项 | 结论 | 证据 |
+| --- | --- | --- |
+| 插件版本 | PASS | `npm run local-ai:plugin:status` 返回活动内容哈希 `7516c36b26e156390d370649255d42ef9a05052444b8a5699ba54f6c3e807c5d` |
+| 项目解耦 | PASS | live LaunchAgent 的 program、arguments、cwd、stdout/stderr 全部位于 `$HOME/Library/Application Support/AgentArmy/`，不含项目 checkout；`work/local-ai` 已不存在 |
+| 可移植安装 | PASS | 安装器支持新 Apple Silicon Mac 的 `--bootstrap --download-models`，动态生成本机 LaunchAgent；模型和 Python 依赖均有固定版本清单 |
+| 热切换与回滚 | PASS | 插件 release 按内容哈希保存，`current` 原子选中活动版本；迁移测试覆盖空目录合并、配对文件保留和运行根回滚 |
+| 自动化 | PASS | `npm run check && npm test` 全部通过；插件管理专项 3/3，本地 AI Adapter 专项 28/28 |
+| 真实运行 | PASS | 最终 release 重装后 `18082` 可达，11 项 Mac 能力仍 configured；文本与 Embedding 真实 smoke 输出 `local AI smoke: ok`；A君 `/api/local-ai/control` 返回 `ready`。网关总状态仅因 4070 离线显示 `degraded` |
+| A君与 Paperclip | PASS | `runtime:fingerprint` 显示 A君仍运行原不可变 release、HTTP 200、`local-ai=ready`；Paperclip HTTP 200，本轮未切换二者发布包 |
+| 空间 | PASS | 项目目录 `473488 KiB`（约 462 MiB）；外置本地 AI 运行根 `1675844 KiB`（约 1.60 GiB）；保留的插件代码 releases 合计约 `396 KiB` |
+
+迁移前验收表中的 `work/local-ai/...` 是历史证据位置；同类日志、索引与产物现位于 `$HOME/Library/Application Support/AgentArmy/local-ai/` 的对应子目录。此次迁移没有调用云端模型、付费 Provider、飞书或发布接口，也没有读取或展示 4070 配对 token。4070 节点在最终回读时为离线，Mac 本地能力和回退路径保持健康；该离线状态不冒充跨机复验通过。
+
 | 字段 | 内容 |
 | --- | --- |
 | 日期 | 2026-08-04 |

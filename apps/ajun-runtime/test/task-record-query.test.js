@@ -59,6 +59,27 @@ test('任务记录支持多词搜索、员工筛选和稳定游标分页', () =>
   assert.deepEqual(second.items.map((item) => item.taskId), ['done', 'routine']);
 });
 
+test('批准后没有进入规划的多人任务归入需要处理', () => {
+  const stalled = {
+    ...task('approved-mission', 'queued', '2026-08-07T11:00:00.000Z', { title:'拆解爆款', agentId:'ajun', taskType:'army.cross-agent-mission' }),
+    currentStage:'approval_approved',
+    artifactRefs:[],
+  };
+  assert.equal(taskRecordViewForTask(stalled), 'needs_action');
+  assert.equal(taskRecordViewForTask({ ...stalled, artifactRefs:[{ type:'cross_agent_mission_plan' }] }), 'active');
+  assert.equal(taskRecordViewForTask({ ...stalled, currentStage:'queued' }), 'active');
+});
+
+test('爆款雷达发起的失败任务仍归入需要处理，不会被静默归档', () => {
+  const failed = task('boom-failed', 'failed', '2026-08-16T04:41:42.355Z', {
+    title:'获取并整理：晕肉了',
+    agentId:'xiaod',
+    taskType:'media.transcribe-and-refine',
+    channel:'boom-monitor',
+  });
+  assert.equal(taskRecordViewForTask(failed, [failed]), 'needs_action');
+});
+
 function task(taskId, status, updatedAt, { title, agentId = 'ops', taskType = 'army.intake', channel = 'feishu' }) {
   return {
     taskId,

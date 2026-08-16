@@ -1,5 +1,6 @@
 import { safeText } from './task-recovery-policy.ts';
 const ACTION_KEYS: any = Object.freeze([
+    'resume_approved_mission',
     'use_confirmed_transcript_only',
     'request_safe_recovery',
     'request_read_only_diagnosis',

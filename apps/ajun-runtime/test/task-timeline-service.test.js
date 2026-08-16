@@ -5,6 +5,7 @@ import {
   TaskTimelineService,
   normalizeTaskTimelineQuery,
 } from '../src/task-timeline-service.ts';
+import { presentTaskTimelineEvent } from '../src/task-timeline-presentation.ts';
 
 const taskId = '11111111-1111-4111-8111-111111111111';
 const events = [
@@ -68,4 +69,15 @@ test('查询限制游标与筛选均采用小而稳定的接口约定', () => {
   assert.throws(() => normalizeTaskTimelineQuery(taskId, { filter:'provider' }), { code:'invalid_filter' });
   assert.throws(() => normalizeTaskTimelineQuery(taskId, { cursor:'not a cursor' }), { code:'invalid_cursor' });
   assert.throws(() => normalizeTaskTimelineQuery('bad', {}), { code:'invalid_task_id' });
+});
+
+test('审批等待是历史状态，不再笼统显示为当前需要处理', () => {
+  const item = presentTaskTimelineEvent({
+    eventId:'approval-wait', eventType:'workflow_blocked', status:'waiting_approval',
+    startedAt:'2026-08-15T08:59:51.545Z', safeSummary:'approval_required',
+  }, { audience:'local-owner' });
+  assert.equal(item.title, '当时等待确认');
+  assert.match(item.summary, /确认完成后应自动继续/);
+  assert.equal(item.tone, 'warning');
+  assert.doesNotMatch(`${item.title}${item.summary}`, /需要处理/);
 });

@@ -26,6 +26,7 @@ export function evaluateHermesCostPolicy(view: any, { thresholds = {}, baseline 
         .reduce((sum: any, field: any): any => sum + nonNegativeInteger(cost[field]), 0);
     const costStatus: any = costCoverageStatus({ sourceStatus, unknownCostEntryCount, knownCostEntryCount });
     const knownCostUsd: any = costStatus === 'unknown' ? null : nonNegativeNumber(cost.knownUsd);
+    const providerReconciliation: any = normalizeProviderReconciliation(view?.providerReconciliation);
     const metrics: Record<string, any> = {
         cacheHitRatio,
         apiCalls,
@@ -37,6 +38,9 @@ export function evaluateHermesCostPolicy(view: any, { thresholds = {}, baseline 
         knownCostUsd,
         costStatus,
         unknownCostEntryCount,
+        providerReconciliationStatus: providerReconciliation.status,
+        untrackedApiCalls: providerReconciliation.untrackedApiCalls,
+        untrackedTokens: providerReconciliation.untrackedTokens,
     };
     const policy: any = normalizeThresholds(thresholds);
     const baselineApiCalls: any = optionalNonNegativeInteger(baseline?.totals?.apiCalls ?? baseline?.metrics?.apiCalls ?? baseline?.apiCalls);
@@ -63,6 +67,36 @@ export function evaluateHermesCostPolicy(view: any, { thresholds = {}, baseline 
             value: unavailableProfileCount,
             threshold: 0,
             message: `Hermes 用量账本数据不完整${unavailableProfileCount ? `，${unavailableProfileCount} 个 Profile 不可读` : ''}；已知金额不代表完整费用。`,
+        });
+    }
+    if (providerReconciliation.status === 'not_configured') {
+        alerts.push({
+            code: 'provider_total_not_reconciled',
+            severity: 'attention',
+            metric: 'providerReconciliationStatus',
+            value: 'not_configured',
+            threshold: 'matched',
+            message: '当前只统计受管 Hermes 岗位，不包含 StepFun 全账号和其他客户端；局部 0 次不能解释为账号 0 次。',
+        });
+    }
+    else if (providerReconciliation.status === 'gap') {
+        alerts.push({
+            code: 'provider_usage_gap',
+            severity: 'warning',
+            metric: 'untrackedApiCalls',
+            value: providerReconciliation.untrackedApiCalls,
+            threshold: 0,
+            message: `Provider 总账比受管账本多 ${providerReconciliation.untrackedApiCalls} 次调用、${providerReconciliation.untrackedTokens} Token；这些消耗尚未归属，必须先查密钥和调用入口。`,
+        });
+    }
+    else if (providerReconciliation.status === 'invalid' || providerReconciliation.status === 'mismatch') {
+        alerts.push({
+            code: 'provider_reconciliation_invalid',
+            severity: 'warning',
+            metric: 'providerReconciliationStatus',
+            value: providerReconciliation.status,
+            threshold: 'matched',
+            message: 'Provider 总账与受管账本的时间窗或统计口径不一致，不能据此下成本结论。',
         });
     }
     if (cacheEligibleTokens >= policy.minCacheInputTokens
@@ -219,9 +253,24 @@ function operatorMessage({ status, metrics, alerts }: any): any {
             return `费用未知（${alert.value} 条）`;
         if (alert.code === 'usage_partial')
             return '账本数据不完整';
+        if (alert.code === 'provider_total_not_reconciled')
+            return '尚未核对 Provider 总账';
+        if (alert.code === 'provider_usage_gap')
+            return `发现 ${alert.value} 次账外调用`;
+        if (alert.code === 'provider_reconciliation_invalid')
+            return 'Provider 核对口径不一致';
         return alert.message;
     });
     return `模型成本需关注：${labels.join('；')}。`;
+}
+
+function normalizeProviderReconciliation(value: any): any {
+    const status: any = String(value?.status || 'not_configured').trim();
+    return {
+        status: ['not_configured', 'matched', 'gap', 'mismatch', 'invalid'].includes(status) ? status : 'invalid',
+        untrackedApiCalls: nonNegativeInteger(value?.untrackedApiCalls),
+        untrackedTokens: nonNegativeInteger(value?.untrackedTokens),
+    };
 }
 function normalizeSourceStatus(value: any): any {
     const status: any = String(value || '').trim().toLowerCase();

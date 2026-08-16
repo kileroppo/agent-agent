@@ -13,6 +13,11 @@ export class CrossAgentMissionService {
     async create({ title, requester, source, idempotencyKey }: any): Promise<any> {
         return this.createMission({ title, requester, source, idempotencyKey });
     }
+    async resumeApprovedMission(missionOrId: any): Promise<any> {
+        if (typeof this.tasks?.resumeApprovedMission !== 'function')
+            throw new Error('已批准多人任务缺少续接入口，未继续执行。');
+        return this.tasks.resumeApprovedMission(missionOrId);
+    }
     async createBusinessMission({ title, items, requester, source, idempotencyKey, productMaturityBatchId = null }: any): Promise<any> {
         const normalized: any = normalizeBusinessItems(items);
         const missionTitle: any = clean(title, 500);
@@ -219,10 +224,12 @@ export class CrossAgentMissionService {
             }
             mission = latestMission || mission;
         }
+        const failure: any = missionFailure(children, state);
         mission = await this.store.updateTask(mission.taskId, {
             status: state.status,
             currentStage: state.stage,
-            artifactRefs: [...(mission.artifactRefs || []).filter((item: any): any => item.type !== 'cross_agent_mission_summary'), artifact]
+            artifactRefs: [...(mission.artifactRefs || []).filter((item: any): any => item.type !== 'cross_agent_mission_summary'), artifact],
+            ...(failure ? { error:failure } : {}),
         });
         if (mission.governance?.paperclipIssueId)
             mission = await this.store.updateTask(mission.taskId, { governance: await this.governance.update(mission) });
@@ -265,6 +272,22 @@ export class CrossAgentMissionService {
             childByKey.set(subtask.key, resumed);
         }
     }
+}
+function missionFailure(children: any[], state: any): any {
+    if (state?.status !== 'failed')
+        return null;
+    const child: any = children.find((item: any): any => item?.status === 'failed');
+    const title: any = clean(child?.input?.title, 200) || '一项分工';
+    const reason: any = clean(child?.error?.userMessage, 600) || '执行失败，且没有生成可验证产物。';
+    return {
+        code:'mission_child_failed',
+        message:`${title}未完成：${reason}`,
+        userMessage:`${title}未完成：${reason}`,
+        category:clean(child?.error?.category, 80) || 'manual',
+        stage:'mission',
+        retryable:child?.error?.retryable === true,
+        occurredAt:new Date().toISOString(),
+    };
 }
 function missionSummary(mission: any, plan: any, children: any, state: any): any {
     const at: any = new Date().toISOString();

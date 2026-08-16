@@ -8,6 +8,7 @@ import { startBrowserHotReload } from './hot-reload-client.js';
 import { taskStatusGroup } from './task-record-filter.js';
 import { createTaskRecordWorkbench } from './task-record-workbench.js';
 import { createStepFunModelPolicyConsole } from './stepfun-model-policy-console.js';
+import { canRefreshConsole } from './refresh-scheduler.js';
 const capabilityList: any = document.querySelector('#capability-list');
 const agentList: any = document.querySelector('#agent-list');
 const recentTaskList: any = document.querySelector('#recent-task-list');
@@ -18,6 +19,10 @@ const billingStats: any = document.querySelector('#billing-stats');
 const billingCostHealth: any = document.querySelector('#billing-cost-health');
 const billingAttribution: any = document.querySelector('#billing-attribution');
 const billingProfileList: any = document.querySelector('#billing-profile-list');
+const billingDateFilter: any = document.querySelector('#billing-date-filter');
+const billingDateFrom: any = document.querySelector('#billing-date-from');
+const billingDateTo: any = document.querySelector('#billing-date-to');
+const billingDateMessage: any = document.querySelector('#billing-date-message');
 const focusPanel: any = document.querySelector('#focus-panel');
 const capabilitySummary: any = document.querySelector('#capability-summary');
 const accessGate: any = document.querySelector('#access-gate');
@@ -178,6 +183,12 @@ async function load({ background = false }: any = {}): Promise<any> {
     markSyncStarted(syncIndicator, { background });
     try {
         state.overview = await api('/api/console-overview');
+        if (background && !canRefreshConsole({
+            page: document,
+            accessGate,
+            forms: [accessForm, accessLoginForm],
+        }))
+            return;
         accessGate.hidden = true;
         document.body.classList.remove('access-required');
         await accessViews.renderLocalShare();
@@ -283,6 +294,7 @@ function renderBilling(): any {
         billingSummary.textContent = 'Hermes 用量库暂时不可读；缺失数据不会显示成 0。';
         billingStats.replaceChildren(statCard('可核金额', '未知', '等待用量库恢复', 'cost', true), statCard('模型请求', '未知', '暂时无法读取', 'clock'), statCard('Token', '未知', '暂时无法读取', 'records'));
         renderBillingCostHealth(null);
+        billingAttribution.hidden = false;
         billingAttribution.innerHTML = '<strong>账本暂不可用</strong><span>任务记录仍保留，但暂时无法核对全部模型消耗。</span>';
         billingProfileList.replaceChildren(billingEmpty('暂时无法读取岗位用量。'));
         billingLedgerWorkbench.setUnavailable();
@@ -298,23 +310,44 @@ function renderBilling(): any {
         : Number(cost.estimatedEntryCount || 0)
             ? '当前全部为 Hermes 估算，不是 Provider 最终账单'
             : 'Provider 未返回可核金额';
-    billingSummary.textContent = `${periodStart} 至今 · ${billing.status === 'partial' ? '部分岗位暂不可读' : '已读取正式岗位 Hermes 用量'}`;
+    syncBillingDateInputs(billing.period);
+    billingSummary.textContent = `${periodStart} 起 · ${billing.status === 'partial' ? '部分岗位暂不可读' : '正式岗位 Hermes 用量'}，不等于 StepFun 全账号账单`;
     billingStats.replaceChildren(statCard('可核金额', knownCostCount ? formatUsd(cost.knownUsd) : '未知', costNote, 'cost'), statCard('模型请求', formatNumber(totals.apiCalls), `${formatNumber(totals.sessionCount)} 个会话`, 'clock'), statCard('Token', formatCompactNumber(tokens.total), `输入、输出与缓存合计 ${formatNumber(tokens.total)}`, 'records'));
     renderBillingCostHealth(billing.health);
     const taskEntries: any = Number(billing.attribution?.taskEntryCount ?? billing.attribution?.attributedEntryCount ?? 0);
     const agentSessions: any = Number(billing.attribution?.agentSessionEntryCount || 0);
     const systemEntries: any = Number(billing.attribution?.systemEntryCount || 0);
     const unattributed: any = Number(billing.attribution?.unattributedEntryCount || 0);
-    billingAttribution.classList.toggle('attention', unattributed > 0);
-    billingAttribution.innerHTML = `<strong>${unattributed ? `${unattributed} 条消费仍未识别来源` : '账本来源均已识别'}</strong><span>${taskEntries} 条精确关联业务任务，${agentSessions} 条属于独立 Agent 会话，${systemEntries} 条属于系统调用；识别到 Agent 会话不等同于具体业务任务。</span>`;
+    const providerReconciliation: any = billing.providerReconciliation || { status: 'not_configured' };
+    const providerCoverageMissing: any = providerReconciliation.status !== 'matched';
+    billingAttribution.hidden = unattributed === 0 && !providerCoverageMissing;
+    billingAttribution.classList.toggle('attention', unattributed > 0 || providerCoverageMissing);
+    billingAttribution.innerHTML = providerReconciliation.status === 'gap'
+        ? `<div><strong>发现 ${formatNumber(providerReconciliation.untrackedApiCalls)} 次账外调用</strong><span>Provider 总账比本系统多 ${formatNumber(providerReconciliation.untrackedTokens)} Token；这些调用尚未归属到任务或岗位。</span></div><a class="secondary-action" href="https://platform.stepfun.com/" target="_blank" rel="noreferrer">打开 StepFun 后台核对</a>`
+        : providerCoverageMissing
+            ? '<div><strong>这里只是受管岗位的局部账本</strong><span>尚未接入 StepFun 全账号总量；这里显示 0 次，也不能说明账号今天没有调用。</span></div><a class="secondary-action" href="https://platform.stepfun.com/" target="_blank" rel="noreferrer">打开 StepFun 后台核对</a>'
+            : unattributed
+        ? `<div><strong>${unattributed} 条消费仍未识别来源</strong><span>${taskEntries} 条关联业务任务，${agentSessions} 条属于独立 Agent 会话，${systemEntries} 条属于系统调用。</span></div><button type="button" class="secondary-action">只看未识别</button>`
+        : '';
+    billingAttribution.querySelector('button')?.addEventListener('click', (): any => focusBillingLedger({ view: 'unattributed' }));
     const profiles: any = Array.isArray(billing.profiles) ? billing.profiles : [];
-    billingProfileList.replaceChildren(...(profiles.length ? profiles.map(billingProfileRow) : [billingEmpty('最近七天没有岗位模型用量。')]));
+    billingProfileList.replaceChildren(...(profiles.length ? profiles.map(billingProfileRow) : [billingEmpty('当前范围没有岗位模型用量。')]));
     billingLedgerWorkbench.setEntries(Array.isArray(billing.entries) ? billing.entries : []);
 }
 function renderBillingCostHealth(health: any): any {
     billingCostHealth.className = 'billing-cost-health';
+    const alerts: any[] = Array.isArray(health?.alerts) ? health.alerts : [];
+    if (health?.status === 'healthy' && alerts.length === 0) {
+        billingCostHealth.hidden = true;
+        billingCostHealth.replaceChildren();
+        return;
+    }
+    billingCostHealth.hidden = false;
+    const copy: any = document.createElement('div');
     const title: any = document.createElement('strong');
     const detail: any = document.createElement('span');
+    const actions: any = document.createElement('div');
+    actions.className = 'billing-alert-actions';
     if (!health) {
         billingCostHealth.classList.add('unavailable');
         title.textContent = '成本健康状态未知';
@@ -323,17 +356,112 @@ function renderBillingCostHealth(health: any): any {
     else {
         const status: any = ['warning', 'attention', 'healthy'].includes(health.status) ? health.status : 'attention';
         billingCostHealth.classList.add(status);
-        title.textContent = status === 'healthy' ? '成本健康正常' : status === 'warning' ? '成本需要处理' : '成本需要关注';
+        const highCalls: any = alerts.find((alert: any): any => alert.code === 'high_api_calls');
+        const unknownCost: any = alerts.find((alert: any): any => alert.code === 'cost_unknown');
+        const providerGap: any = alerts.find((alert: any): any => alert.code === 'provider_usage_gap');
+        const providerMissing: any = alerts.find((alert: any): any => alert.code === 'provider_total_not_reconciled');
+        title.textContent = highCalls ? `当前范围调用较多（${formatNumber(highCalls.value)} 次）`
+            : providerGap ? `发现 ${formatNumber(providerGap.value)} 次账外调用`
+                : providerMissing ? '尚未核对 StepFun 全账号总量'
+            : unknownCost ? `${formatNumber(unknownCost.value)} 条费用待核对`
+                : status === 'warning' ? '成本数据有异常' : '成本数据待核对';
         detail.textContent = health.operatorMessage || '成本健康数据不完整，暂不下结论。';
+        if (highCalls)
+            actions.append(alertAction('看高频岗位', (): any => document.querySelector('#billing-profile-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' })));
+        if (unknownCost)
+            actions.append(alertAction('看费用未知', (): any => focusBillingLedger({ view: 'unknown_cost' })));
+        if (providerGap || providerMissing)
+            actions.append(alertLink('打开 StepFun 后台', 'https://platform.stepfun.com/'));
     }
-    billingCostHealth.replaceChildren(title, detail);
+    copy.append(title, detail);
+    billingCostHealth.replaceChildren(copy, actions);
 }
 function billingProfileRow(profile: any): any {
     const node: any = document.createElement('article');
     node.className = 'billing-profile-row';
     const knownCostCount: any = Number(profile.cost?.actualEntryCount || 0) + Number(profile.cost?.estimatedEntryCount || 0);
-    node.innerHTML = `<div><strong>${escapeHtml(agentName(profile.agentId))}</strong><span>${formatNumber(profile.apiCalls)} 次请求 · ${formatCompactNumber(profile.tokens?.total)} Token · ${formatNumber(profile.sessionCount)} 个会话</span></div><b>${knownCostCount ? formatUsd(profile.cost?.knownUsd) : '金额未知'}</b>`;
+    node.innerHTML = `<div><strong>${escapeHtml(agentName(profile.agentId))}</strong><span>${formatNumber(profile.apiCalls)} 次请求 · ${formatCompactNumber(profile.tokens?.total)} Token · ${formatNumber(profile.sessionCount)} 个会话</span></div><div class="billing-profile-actions"><b>${knownCostCount ? formatUsd(profile.cost?.knownUsd) : '金额未知'}</b><button type="button" class="text-action">看流水</button></div>`;
+    node.querySelector('button')?.addEventListener('click', (): any => focusBillingLedger({ agentId: profile.agentId }));
     return node;
+}
+function alertAction(label: any, action: any): any {
+    const button: any = document.createElement('button');
+    button.type = 'button';
+    button.className = 'secondary-action';
+    button.textContent = label;
+    button.addEventListener('click', action);
+    return button;
+}
+function alertLink(label: any, href: any): any {
+    const link: any = document.createElement('a');
+    link.className = 'secondary-action';
+    link.href = href;
+    link.target = '_blank';
+    link.rel = 'noreferrer';
+    link.textContent = label;
+    return link;
+}
+function focusBillingLedger({ view = 'all', agentId = '' }: any = {}): any {
+    billingLedgerWorkbench.setView(view);
+    billingLedgerWorkbench.setAgent(agentId);
+    document.querySelector('#billing-ledger-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function syncBillingDateInputs(period: any): any {
+    if (!billingDateFrom || !billingDateTo || !period?.since)
+        return;
+    billingDateFrom.value = localDateValue(new Date(period.since));
+    const until: any = period.until ? new Date(period.until) : new Date();
+    if (until.getHours() === 0 && until.getMinutes() === 0 && until.getSeconds() === 0 && until.getMilliseconds() === 0)
+        until.setMilliseconds(-1);
+    billingDateTo.value = localDateValue(until);
+}
+async function loadBillingDateRange(): Promise<any> {
+    const since: any = localDayStart(billingDateFrom?.value);
+    const selectedUntil: any = localDayStart(billingDateTo?.value);
+    if (!since || !selectedUntil || selectedUntil < since) {
+        billingDateMessage.textContent = '请选择有效的起止日期。';
+        return;
+    }
+    const until: any = new Date(selectedUntil);
+    until.setDate(until.getDate() + 1);
+    billingDateMessage.textContent = '正在查询…';
+    try {
+        const usage: any = await api(`/api/usage?since=${encodeURIComponent(since.toISOString())}&until=${encodeURIComponent(until.toISOString())}`);
+        state.overview.billing = usage.billing;
+        renderBilling();
+        billingDateMessage.textContent = '已更新';
+    }
+    catch (error: any) {
+        billingDateMessage.textContent = error.message || '查询失败。';
+    }
+}
+function localDayStart(value: any): any {
+    const match: any = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match)
+        return null;
+    const date: any = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    return Number.isNaN(date.getTime()) ? null : date;
+}
+function localDateValue(value: any): any {
+    const date: any = value instanceof Date && !Number.isNaN(value.getTime()) ? value : new Date();
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+function bindBillingDateControls(): any {
+    billingDateFilter?.addEventListener('submit', (event: any): any => {
+        event.preventDefault();
+        loadBillingDateRange();
+    });
+    for (const button of document.querySelectorAll('[data-billing-range-days]')) {
+        button.addEventListener('click', (): any => {
+            const days: any = Math.max(1, Number((button as HTMLElement).dataset.billingRangeDays || 1));
+            const to: any = new Date();
+            const from: any = new Date(to.getFullYear(), to.getMonth(), to.getDate());
+            from.setDate(from.getDate() - days + 1);
+            billingDateFrom.value = localDateValue(from);
+            billingDateTo.value = localDateValue(to);
+            loadBillingDateRange();
+        });
+    }
 }
 function billingEmpty(message: any): any {
     const node: any = document.createElement('p');
@@ -595,6 +723,7 @@ boomMonitor = createBoomMonitorConsole({
     escapeHtml,
     formatDate,
 });
+bindBillingDateControls();
 bindConsoleInteractions({
     elements,
     state,

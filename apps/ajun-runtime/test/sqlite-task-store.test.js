@@ -105,6 +105,41 @@ test('SQLite Store 在服务端完成任务筛选、计数、例行降噪和游�
   });
 });
 
+test('SQLite 查询把批准后未规划的多人任务放入需要处理', async () => {
+  await withStore(async ({ store }) => {
+    const mission = await store.createTask({
+      idempotencyKey:'approved-mission-stalled',
+      taskType:'army.cross-agent-mission',
+      status:'queued',
+      currentStage:'approval_approved',
+      input:{ title:'爆款候选拆解' },
+      artifactRefs:[],
+    });
+    const page = await store.queryTasks({ view:'needs_action' });
+    assert.deepEqual(page.items.map((item) => item.taskId), [mission.taskId]);
+    assert.equal(page.items[0].recordView, 'needs_action');
+
+    await store.updateTask(mission.taskId, { artifactRefs:[{ type:'cross_agent_mission_plan' }] });
+    assert.equal((await store.queryTasks({ view:'needs_action' })).items.length, 0);
+    assert.deepEqual((await store.queryTasks({ view:'active' })).items.map((item) => item.taskId), [mission.taskId]);
+  });
+});
+
+test('SQLite 查询不会把爆款雷达失败静默归档', async () => {
+  await withStore(async ({ store }) => {
+    const created = await store.createTask({
+      taskType:'media.transcribe-and-refine',
+      status:'queued',
+      source:{ channel:'army-mission', originChannel:'boom-monitor' },
+      input:{ title:'获取并整理：晕肉了' },
+    });
+    const failed = await store.updateTask(created.taskId, { status:'failed', currentStage:'paperclip_hermes_failed' });
+    const page = await store.queryTasks({ view:'needs_action', q:'晕肉了', includeRoutine:true });
+    assert.deepEqual(page.items.map((item) => item.taskId), [failed.taskId]);
+    assert.equal(page.items[0].recordView, 'needs_action');
+  });
+});
+
 test('JSON 快照导入校验数量和关键 ID；相同源幂等，其他非空源拒绝覆盖', async () => {
   await withStore(async ({ store }) => {
     const snapshot = fixtureSnapshot();

@@ -21,10 +21,13 @@ import { TaskApprovalLifecycle } from './task-approval-lifecycle.ts';
 import { MissionApprovalInheritance } from './mission-approval-inheritance.ts';
 import { TaskFeedback } from './task-feedback.ts';
 import { maturityQueuedChildRecoveryMethods } from './maturity-queued-child-recovery.ts';
+import { approvedMissionResumeEligible } from './task-recovery-policy.ts';
+import { ValidationError } from './task-validation-error.ts';
 export class TaskService {
     agentChannelStates: any;
     approvalLifecycle: any;
     approvalResolutionRuns: any;
+    approvedMissionResumeRuns: any;
     capabilityCatalog: any;
     contentGrowthRuns: any;
     contentGrowthWaitMs: any;
@@ -108,6 +111,7 @@ export class TaskService {
         this.contentGrowthRuns = new Map();
         this.employeeAssignmentRuns = new Map();
         this.approvalResolutionRuns = new Map();
+        this.approvedMissionResumeRuns = new Map();
         this.taskControlRuns = new Map();
         this.xiaodDeliveryRequestRuns = new Map();
         this.xiaodDeliveryRuns = new Map();
@@ -120,6 +124,7 @@ export class TaskService {
             recover: typeof onTaskFailed === 'function' ? (task: any, input: any): any => onTaskFailed(task, input) : null,
             createTask: (input: any): any => this.create(input),
             capabilityStatus: this.localAiCapabilityStatus,
+            resumeApprovedMission: (task: any): any => this.resumeApprovedMission(task),
         });
         this.executionCoordinator = new TaskExecutionCoordinator({
             store,
@@ -217,6 +222,55 @@ export class TaskService {
     async resumeApprovedMissionChild(taskId: any): Promise<any> {
         return this.missionApprovalInheritance.resumeChild(taskId);
     }
+    async resumeApprovedMission(taskOrId: any): Promise<any> {
+        const taskId: any = String(typeof taskOrId === 'string' ? taskOrId : taskOrId?.taskId || '').trim();
+        if (!taskId)
+            throw new ValidationError('找不到要继续的已批准任务。');
+        const running: any = this.approvedMissionResumeRuns.get(taskId);
+        if (running)
+            return running;
+        const operation: any = (async (): Promise<any> => {
+            const task: any = await this.store.getTask(taskId);
+            if (!task)
+                throw new ValidationError('找不到要继续的已批准任务。');
+            if (task.status !== 'queued' || task.currentStage !== 'approval_approved')
+                return task;
+            const approvals: any = await this.store.listApprovals();
+            if (!approvedMissionResumeEligible(task, approvals))
+                throw new ValidationError('这项任务没有有效的已批准范围，未继续执行。');
+            const agent: any = typeof this.registry.get === 'function'
+                ? await this.registry.get(task.assigneeAgentId)
+                : (await this.registry.list({ includeManagers:true }))
+                    .find((item: any): any => item.agentId === task.assigneeAgentId) || null;
+            const executor: any = agent?.status === 'active'
+                ? this.capabilityCatalog.executor(agent.agentId, this.executors)
+                : null;
+            if (!executor || typeof executor.execute !== 'function')
+                throw new ValidationError('已批准任务缺少本机总任务规划器，未继续执行。');
+            const planning: any = await this.store.updateTask(task.taskId, {
+                status:'running',
+                currentStage:'approval_resume_planning',
+                error:undefined,
+                execution:{
+                    ...(task.execution || {}),
+                    executor:agent.agentId,
+                    mode:'approved_mission_local_plan',
+                    startedAt:new Date().toISOString(),
+                },
+            });
+            const result: any = await executor.execute(planning);
+            if (result?.status !== 'running'
+                || !result?.artifactRefs?.some((item: any): any => item.type === 'cross_agent_mission_plan')) {
+                throw new ValidationError('本机总任务规划器没有生成可分派计划，未继续执行。');
+            }
+            const resumed: any = await this.store.updateTask(task.taskId, { ...result, error:undefined });
+            this.taskLifecycleEvents?.recordPersisted(resumed, { previousTask:task });
+            return resumed;
+        })().finally((): any => this.approvedMissionResumeRuns.get(taskId) === operation
+            && this.approvedMissionResumeRuns.delete(taskId));
+        this.approvedMissionResumeRuns.set(taskId, operation);
+        return operation;
+    }
     async executeTask(task: any, agent: any): Promise<any> {
         if (this.officePresentationExecution.supports(task, agent)) {
             return this.officePresentationExecution.execute(task, agent);
@@ -234,8 +288,8 @@ export class TaskService {
     async taskRecordDetail(taskId: any, { audience = 'lan' }: any = {}): Promise<any> { return this.taskRecords.detail(taskId, { audience }); }
     async recoveryView(taskOrId: any, options: any = {}): Promise<any> { return this.taskRecovery.view(taskOrId, options); }
     async requestRecovery(taskId: any, input: any, actor: any = {}): Promise<any> { return this.taskRecovery.request(taskId, input, actor); }
-    async usageOverview(): Promise<any> {
-        return this.taskOverview.usage();
+    async usageOverview(options: any = {}): Promise<any> {
+        return this.taskOverview.usage(options);
     }
     async notificationStatus(taskId: any, chatRef: any = ''): Promise<any> {
         return this.notification.status(taskId, chatRef);

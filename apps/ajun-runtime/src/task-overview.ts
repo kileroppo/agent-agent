@@ -7,6 +7,26 @@ import { agentCapabilityTruth } from './workflow/capability-truth.ts';
 import { buildTaskValidationOverview } from './task-validation-overview.ts';
 import { buildCapabilities } from './task-capability-overview.ts';
 import { isTaskExecutionClosedStatus } from './task-status-policy.ts';
+import { ValidationError } from './task-validation-error.ts';
+const MAX_USAGE_RANGE_MS: any = 366 * 24 * 60 * 60 * 1000;
+
+export function parseUsageRange(url: any): any {
+    const sinceValue: any = String(url?.searchParams?.get('since') || '').trim();
+    const untilValue: any = String(url?.searchParams?.get('until') || '').trim();
+    if (!sinceValue && !untilValue)
+        return {};
+    if (!sinceValue || !untilValue)
+        throw new ValidationError('请选择完整的开始和结束日期。');
+    const since: any = new Date(sinceValue);
+    const until: any = new Date(untilValue);
+    if (Number.isNaN(since.getTime()) || Number.isNaN(until.getTime()))
+        throw new ValidationError('日期格式无效，请重新选择。');
+    if (until <= since)
+        throw new ValidationError('结束日期必须晚于开始日期。');
+    if (until.getTime() - since.getTime() > MAX_USAGE_RANGE_MS)
+        throw new ValidationError('一次最多查询 366 天。');
+    return { since, until };
+}
 export class TaskOverview {
     capabilityCatalog: any;
     executors: any;
@@ -20,7 +40,8 @@ export class TaskOverview {
     store: any;
     taskDetailBaseUrl: any;
     usageLedger: any;
-    constructor({ registry, store, governance = null, executors = {}, capabilityCatalog, skillExecutionRegistry, localAiCapabilityStatus = null, usageLedger = null, taskDetailBaseUrl = '', getFeishuChannelStatus = (): any => null, getAgentChannelStates = (): any => null, getWorkerStatus = (): any => null, }: any) {
+    providerUsageLedger: any;
+    constructor({ registry, store, governance = null, executors = {}, capabilityCatalog, skillExecutionRegistry, localAiCapabilityStatus = null, usageLedger = null, providerUsageLedger = null, taskDetailBaseUrl = '', getFeishuChannelStatus = (): any => null, getAgentChannelStates = (): any => null, getWorkerStatus = (): any => null, }: any) {
         this.registry = registry;
         this.store = store;
         this.governance = governance;
@@ -29,6 +50,7 @@ export class TaskOverview {
         this.skillExecutionRegistry = skillExecutionRegistry;
         this.localAiCapabilityStatus = localAiCapabilityStatus;
         this.usageLedger = usageLedger;
+        this.providerUsageLedger = providerUsageLedger;
         this.taskDetailBaseUrl = taskDetailBaseUrl;
         this.getFeishuChannelStatus = getFeishuChannelStatus;
         this.getAgentChannelStates = getAgentChannelStates;
@@ -98,24 +120,38 @@ export class TaskOverview {
             capabilities,
         };
     }
-    async usage(): Promise<any> {
-        const tasks: any = await this.store.list();
-        const since: any = startOfToday();
+    async usage({ since = startOfToday(), until = null }: any = {}): Promise<any> {
+        const [tasks, agents, manager]: any = await Promise.all([
+            this.store.list(),
+            this.registry.list(),
+            this.registry.get('ajun'),
+        ]);
         return {
-            ...summarizeTaskUsage(tasks, { since }),
-            billing: this.billing(tasks, await this.registry.list(), since),
+            ...summarizeTaskUsage(tasks, { since, until }),
+            billing: this.billing(tasks, [...agents, ...(manager ? [manager] : [])], since, until),
         };
     }
-    billing(tasks: any, agents: any, since: any): any {
+    billing(tasks: any, agents: any, since: any, until: any = null): any {
+        const providerSnapshot: any = this.providerSnapshot({ since, until });
         if (!this.usageLedger?.summarize) {
-            const billing: any = reconcileUsageBilling(tasks, null, { since });
+            const billing: any = reconcileUsageBilling(tasks, null, { since, until, providerSnapshot });
             return { ...billing, health: evaluateHermesCostPolicy(billing) };
         }
         const agentIds: any = (Array.isArray(agents) ? agents : [])
             .filter((agent: any): any => agent.executionOwner === 'paperclip-hermes')
             .map((agent: any): any => agent.agentId);
-        const billing: any = reconcileUsageBilling(tasks, this.usageLedger.summarize({ since, agentIds }), { since });
+        const billing: any = reconcileUsageBilling(tasks, this.usageLedger.summarize({ since, until, agentIds }), { since, until, providerSnapshot });
         return { ...billing, health: evaluateHermesCostPolicy(billing) };
+    }
+    providerSnapshot({ since, until }: any): any {
+        if (!this.providerUsageLedger?.summarize)
+            return null;
+        try {
+            return this.providerUsageLedger.summarize({ since, until });
+        }
+        catch {
+            return { status: 'invalid', source: 'provider_usage_ledger' };
+        }
     }
 }
 function isRecentConsoleTask(task: any): any {

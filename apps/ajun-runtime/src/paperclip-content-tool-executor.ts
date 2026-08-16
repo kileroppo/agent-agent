@@ -1,4 +1,5 @@
 import { assertM5BudgetCoverage } from './m5-budget-cost-contract.ts';
+import { getM5StepFunModel } from '@agent-army/m5-contracts';
 import { PaperclipContentExecutionContextResolver, PaperclipContentToolExecutorError, } from './paperclip-content-execution-context.ts';
 import { externalCapabilityEvidence, runExternalCapabilityWithEvents, } from './adapters/external-capability-run-event-bridge.ts';
 const CONTENT_PLUGIN_ID: any = 'agent-army.content-autonomy';
@@ -62,6 +63,9 @@ export class PaperclipContentToolExecutor {
                 capabilityId: paidCapabilityId(toolId),
                 routeId: 'paperclip-content-plugin-stepfun',
                 provider: 'stepfun',
+                model: getM5StepFunModel(paidOperation(toolId)),
+                credentialAlias: 'paperclip-content-stepfun',
+                requestClass: 'paid_media_task',
             },
             execute: (): any => this.withBudgetGate(context.runContext, async (): Promise<any> => {
                 const maximumCostCents: any = await this.maximumPaidCallCost(toolId, parameters);

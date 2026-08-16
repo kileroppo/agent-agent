@@ -4,6 +4,8 @@
 
 A君提供本机组件控制与诊断，不复制 Paperclip 的组织、任务和审批控制面。Agent 调用的是能力名，不接触 `launchctl`、Windows 计划任务、模型路径、Bearer token 或 ComfyUI 工作流。
 
+Mac 能力实现通过独立插件运行时提供。A君只展示活动插件版本、运行状态和固定动作，不展示项目 checkout 或要求用户维护仓库内 venv；插件升级/回滚不改变业务 Agent 的能力入口。
+
 ## 控制链路
 
 ```mermaid

@@ -513,17 +513,24 @@ function taskViewSql(): any {
     const channel: any = `COALESCE(json_extract(tasks.data_json, '$.source.channel'), '')`;
     const origin: any = `COALESCE(json_extract(tasks.data_json, '$.source.originChannel'), '')`;
     const userFacing: any = (alias: any): any => `(
-    COALESCE(json_extract(${alias}.data_json, '$.source.channel'), '') IN ('feishu', 'local-ui', 'hermes-native')
-    OR COALESCE(json_extract(${alias}.data_json, '$.source.originChannel'), '') IN ('feishu', 'local-ui', 'hermes-native')
+    COALESCE(json_extract(${alias}.data_json, '$.source.channel'), '') IN ('feishu', 'local-ui', 'hermes-native', 'boom-monitor')
+    OR COALESCE(json_extract(${alias}.data_json, '$.source.originChannel'), '') IN ('feishu', 'local-ui', 'hermes-native', 'boom-monitor')
   )`;
     return `CASE
     WHEN ${status} IN (${values(completed)}) THEN 'completed'
     WHEN ${status} IN ('pending_approval', 'waiting_approval', 'paused', 'blocked', 'error') THEN 'needs_action'
+    WHEN ${status} = 'queued'
+      AND json_extract(tasks.data_json, '$.taskType') = 'army.cross-agent-mission'
+      AND json_extract(tasks.data_json, '$.currentStage') = 'approval_approved'
+      AND NOT EXISTS (
+        SELECT 1 FROM json_each(COALESCE(json_extract(tasks.data_json, '$.artifactRefs'), '[]')) AS artifact
+        WHERE json_extract(artifact.value, '$.type') = 'cross_agent_mission_plan'
+      ) THEN 'needs_action'
     WHEN ${status} IN ('failed', 'needs_input', 'waiting_test')
       AND (
         (${channel} = '' AND ${origin} = '')
         OR (
-          (${channel} IN ('feishu', 'local-ui', 'hermes-native') OR ${origin} IN ('feishu', 'local-ui', 'hermes-native'))
+          (${channel} IN ('feishu', 'local-ui', 'hermes-native', 'boom-monitor') OR ${origin} IN ('feishu', 'local-ui', 'hermes-native', 'boom-monitor'))
           AND NOT EXISTS (
             SELECT 1 FROM tasks AS later
             WHERE later.updated_at > tasks.updated_at

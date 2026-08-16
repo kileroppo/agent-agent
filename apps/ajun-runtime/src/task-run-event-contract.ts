@@ -10,7 +10,9 @@ export const TASK_RUN_EVENT_FIELDS = Object.freeze([
   'eventType', 'capabilityId', 'routeId', 'provider', 'model', 'attempt', 'status', 'startedAt',
   'finishedAt', 'durationMs', 'policyDecisionId', 'receiptId', 'checkpointRef', 'inputHash',
   'outputHash', 'artifactRefs', 'errorCode', 'safeSummary', 'costAmount', 'costCurrency',
-  'retentionClass',
+  'apiCalls', 'inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens',
+  'reasoningTokens', 'providerAttempts', 'rateLimitRejections', 'credentialAlias',
+  'requestClass', 'retentionClass',
 ] as const);
 
 const RETENTION_CLASSES = new Set(['transient', 'detail', 'audit', 'permanent']);
@@ -19,6 +21,7 @@ const MAX_LENGTH: Readonly<Record<string, number>> = Object.freeze({
   stepId:160, agentId:120, eventType:120, capabilityId:160, routeId:160, provider:120,
   model:160, status:80, policyDecisionId:160, receiptId:160, checkpointRef:240,
   inputHash:160, outputHash:160, errorCode:120, safeSummary:500, costCurrency:12,
+  credentialAlias:120, requestClass:80,
 });
 
 export function normalizeTaskRunEvent(
@@ -43,9 +46,10 @@ export function normalizeTaskRunEvent(
     else if (field === 'eventType') event.eventType = eventType;
     else if (field === 'startedAt') event.startedAt = startedAt;
     else if (field === 'finishedAt') event.finishedAt = finishedAt || null;
-    else if (field === 'attempt') event.attempt = normalizeNonNegativeInteger(input?.attempt);
+    else if (field === 'attempt' || isUsageIntegerField(field)) event[field] = normalizeNonNegativeInteger(input?.[field]);
     else if (field === 'durationMs') event.durationMs = normalizeDuration(input?.durationMs, startedAt, finishedAt);
     else if (field === 'costAmount') event.costAmount = normalizeCost(input?.costAmount);
+    else if (field === 'credentialAlias') event.credentialAlias = normalizeCredentialAlias(input?.credentialAlias);
     else if (field === 'artifactRefs') event.artifactRefs = normalizeArtifactRefs(input?.artifactRefs);
     else if (field === 'safeSummary') event.safeSummary = redactTaskRunSummary(input?.safeSummary);
     else if (field === 'retentionClass') event.retentionClass = RETENTION_CLASSES.has(String(input?.retentionClass || ''))
@@ -53,7 +57,25 @@ export function normalizeTaskRunEvent(
       : defaultRetentionClass(eventType);
     else event[field] = cleanIdentifier(input?.[field], MAX_LENGTH[field]) || null;
   }
+  assertModelCallAttribution(event);
   return Object.freeze({ schemaVersion:TASK_RUN_EVENT_SCHEMA_VERSION, ...event });
+}
+
+function isUsageIntegerField(field: string): boolean {
+  return ['apiCalls', 'inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens',
+    'reasoningTokens', 'providerAttempts', 'rateLimitRejections'].includes(field);
+}
+
+function assertModelCallAttribution(event: JsonRecord): void {
+  if (!/^model_call_(?:started|succeeded|failed|ambiguous)$/.test(String(event.eventType || ''))) return;
+  const missing = ['agentId', 'provider', 'model', 'credentialAlias', 'requestClass']
+    .filter((field) => !event[field]);
+  if (missing.length) {
+    throw codedError(
+      'model_call_attribution_required',
+      `模型调用缺少归属字段：${missing.join(', ')}。`,
+    );
+  }
 }
 
 function defaultRetentionClass(eventType: string): string {
@@ -141,6 +163,12 @@ function normalizeCost(value: unknown): number | null {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0) return null;
   return Math.round(number * 1e8) / 1e8;
+}
+
+function normalizeCredentialAlias(value: unknown): string | null {
+  const raw = String(value || '').trim();
+  if (/^(?:sk|api)[-_][A-Za-z0-9_=-]{12,}$/i.test(raw) || /^bearer\s+/i.test(raw)) return null;
+  return cleanIdentifier(raw, MAX_LENGTH.credentialAlias) || null;
 }
 
 function normalizeIso(value: unknown): string | null {

@@ -23,6 +23,9 @@ export function presentTask(task: any = {}, { approvals = [], detailBaseUrl = ''
     const pendingApproval: any = approvals.some((approval: any): any => approval?.status === 'pending' && (task.approvalRefs || []).includes(approval.approvalId));
     const base: any = pendingApproval ? STATUS_PRESENTATION.waiting_approval : (STATUS_PRESENTATION as any)[status];
     const attention: any = presentTaskAttention(task, { pendingApproval, recoveryView });
+    const effectiveBase: any = attention?.kind === 'approved_not_started'
+        ? { label: '需要继续', tone: 'attention' }
+        : base;
     const analysisReport: any = (task.artifactRefs || []).find((artifact: any): any => artifact?.type === 'video_content_analysis_report')?.data;
     const analysisIntent: any = cleanText(analysisReport?.analysisIntent || task.input?.analysisIntent, 20);
     const analysisNextAction: any = cleanText(analysisReport?.nextAction?.label, 500);
@@ -31,18 +34,18 @@ export function presentTask(task: any = {}, { approvals = [], detailBaseUrl = ''
         : null;
     const summary: any = attention?.cause
         ? `${title}：${attention.cause}`
-        : analysisSummary || (base?.summary
-            ? `${title}：${base.summary}`
+        : analysisSummary || (effectiveBase?.summary
+            ? `${title}：${effectiveBase.summary}`
             : `${title}：状态已更新。`);
     const nextAction: any = attention?.nextAction
         || analysisNextAction
-        || base?.nextAction
+        || effectiveBase?.nextAction
         || '等待新的进度；无需重复提交。';
     const detailPath: any = taskId ? `/tasks/${encodeURIComponent(taskId)}` : null;
     return {
         taskRef: shortTaskRef(taskId),
-        statusLabel: base?.label || '状态更新',
-        tone: base?.tone || 'active',
+        statusLabel: effectiveBase?.label || '状态更新',
+        tone: effectiveBase?.tone || 'active',
         summary,
         nextAction,
         detailPath,

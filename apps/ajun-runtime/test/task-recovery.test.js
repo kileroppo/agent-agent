@@ -25,6 +25,50 @@ test('失败详情只向本机主人提供固定恢复动作和稳定核验视�
   assert.deepEqual(view(tasks[0], { audience:'lan', relatedTasks:tasks }), { actions:[], verification:null });
 });
 
+test('已批准但未进入规划的多人任务提供继续按钮并只恢复一次', async () => {
+  const mission = {
+    taskId:'86eea524-eb4a-426c-bcc6-ff6aa9ce5155',
+    taskType:'army.cross-agent-mission',
+    status:'queued',
+    currentStage:'approval_approved',
+    updatedAt:'2026-08-15T09:45:47.247Z',
+    approvalRefs:['approval-1'],
+    artifactRefs:[],
+    input:{ title:'爆款候选拆解｜晕肉了' },
+  };
+  const store = memoryStore([mission]);
+  store.listApprovals = async () => [{
+    approvalId:'approval-1', taskId:mission.taskId, status:'approved', action:'manual-risk-review',
+  }];
+  let resumeCalls = 0;
+  const recovery = new TaskRecovery({
+    store,
+    async resumeApprovedMission(task) {
+      resumeCalls += 1;
+      return store.updateTask(task.taskId, {
+        status:'running', currentStage:'mission_planned',
+        artifactRefs:[{ type:'cross_agent_mission_plan' }],
+      });
+    },
+  });
+
+  const recoveryView = await recovery.view(mission.taskId, { audience:'local-owner' });
+  assert.deepEqual(recoveryView.actions.map((item) => item.label), ['继续处理']);
+  const result = await recovery.request(mission.taskId, {
+    actionKey:'resume_approved_mission',
+    requestId:'resume-approved-mission-0001',
+    expectedUpdatedAt:mission.updatedAt,
+  }, { kind:'local-owner', ref:'A君' });
+
+  assert.equal(result.status, 'accepted');
+  assert.equal(resumeCalls, 1);
+  const stored = await store.getTask(mission.taskId);
+  assert.equal(stored.status, 'running');
+  assert.equal(stored.currentStage, 'mission_planned');
+  assert.equal(stored.recovery.coordination.status, 'completed');
+  assert.deepEqual(stored.recovery.events.map((event) => event.event), ['requested', 'resumed']);
+});
+
 test('仅用确认稿恢复会复核条件并创建原 Paperclip Issue 的文本子任务', async () => {
   const tasks = eligibleTasks();
   const store = memoryStore(tasks);

@@ -10,9 +10,11 @@ export class HermesUsageLedger {
         this.profileRoot = path.resolve(String(profileRoot || '.'));
         this.clock = clock;
     }
-    summarize({ since, agentIds = [] }: any = {}): any {
+    summarize({ since, until: requestedUntil, agentIds = [] }: any = {}): any {
         const startedAt: any = validDate(since) || startOfToday(this.clock());
-        const until: any = validDate(this.clock()) || new Date();
+        const now: any = validDate(this.clock()) || new Date();
+        const upperBound: any = validDate(requestedUntil) || now;
+        const until: any = upperBound < now ? upperBound : now;
         const ids: any[] = [...new Set((Array.isArray(agentIds) ? agentIds : [])
                 .map((value: any): any => String(value || '').trim())
                 .filter((value: any): any => PROFILE_ID.test(value)))];
@@ -50,9 +52,10 @@ export class HermesUsageLedger {
             COALESCE(u.last_seen, u.first_seen, s.started_at) AS occurred_at
           FROM session_model_usage u
           JOIN sessions s ON s.id = u.session_id
-          WHERE s.started_at >= ?
+          WHERE CAST(COALESCE(u.last_seen, u.first_seen, s.started_at) AS REAL) >= ?
+            AND CAST(COALESCE(u.last_seen, u.first_seen, s.started_at) AS REAL) < ?
           ORDER BY occurred_at DESC
-        `).all(startedAt.getTime() / 1000);
+        `).all(startedAt.getTime() / 1000, upperBound.getTime() / 1000);
                 for (const row of rows)
                     entries.push(normalizeEntry(agentId, row));
             }
@@ -79,6 +82,7 @@ export class HermesUsageLedger {
             unavailableProfiles,
             limitations: [
                 '金额优先采用 Provider 实际费用；没有实际费用时仅展示 Hermes 标记的估算费用。',
+                'Hermes 按会话累计用量；日期筛选按会话最后活动时间归档，不能拆分同一会话跨日产生的调用。',
                 '不会读取会话正文、Prompt、密钥、Base URL 或聊天标题。',
             ],
         };

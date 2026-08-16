@@ -5,6 +5,7 @@ const VIEW_LABELS = {
     agent_session: 'Agent 会话',
     system: '系统',
     unattributed: '未识别',
+    unknown_cost: '费用未知',
 };
 export function createBillingLedgerWorkbench({ agentName, formatDate, formatNumber, formatUsd, escapeHtml }) {
     const elements = {
@@ -80,6 +81,7 @@ export function createBillingLedgerWorkbench({ agentName, formatDate, formatNumb
             status, state.entries.filter((entry) => attributionStatus(entry) === status).length,
         ]));
         counts.all = state.entries.length;
+        counts.unknown_cost = state.entries.filter((entry) => entry.cost?.status === 'unknown').length;
         for (const button of elements.viewButtons) {
             const active = button.dataset.billingView === state.view;
             button.textContent = `${VIEW_LABELS[button.dataset.billingView]} ${counts[button.dataset.billingView]}`;
@@ -170,5 +172,10 @@ export function createBillingLedgerWorkbench({ agentName, formatDate, formatNumb
         node.textContent = message;
         return node;
     }
-    return { setEntries, setUnavailable };
+    return {
+        setEntries,
+        setUnavailable,
+        setView: (view) => reset({ view }),
+        setAgent: (agentId) => reset({ agentId }),
+    };
 }

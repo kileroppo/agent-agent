@@ -4,7 +4,9 @@ export function filterBillingEntries(entries: any, { query = '', agentId = '', v
     return (Array.isArray(entries) ? entries : []).filter((entry: any): any => {
         if (agentId && entry.agentId !== agentId)
             return false;
-        if (view !== 'all' && entry.attribution?.status !== view)
+        if (view === 'unknown_cost' && entry.cost?.status !== 'unknown')
+            return false;
+        if (!['all', 'unknown_cost'].includes(view) && entry.attribution?.status !== view)
             return false;
         if (!term)
             return true;

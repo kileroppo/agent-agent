@@ -29,7 +29,9 @@
     "test:core": "npm test --workspace=ajun-runtime && npm test --workspace=@agent-army/m5-content-pipeline && npm test --workspace=@agent-army/paperclip-content-autonomy && npm test --workspace=@agent-army/m5-publisher-gateway",
     "runtime:fingerprint": "node scripts/runtime-fingerprint.mjs",
     "local-ai:status": "ops/local-ai/status.sh",
-    "local-ai:smoke": "ops/local-ai/smoke.sh"
+    "local-ai:smoke": "ops/local-ai/smoke.sh",
+    "local-ai:plugin:install": "ops/local-ai/install-plugin.sh",
+    "local-ai:plugin:status": "node ops/local-ai/plugin-manager.mjs status"
   },
   "engines": {
     "node": ">=22.18.0"

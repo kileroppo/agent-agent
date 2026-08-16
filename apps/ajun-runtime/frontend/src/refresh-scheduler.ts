@@ -1,7 +1,40 @@
 export function canRefreshConsole({ page, accessGate, forms = [] }: any = {}): any {
     if (!page || !accessGate || page.hidden || !accessGate.hidden)
         return false;
-    return !forms.some((form: any): any => form?.contains?.(page.activeElement));
+    const protectedForms: any[] = [...(page.querySelectorAll?.('form[data-refresh-protected]') || [])];
+    return ![...forms, ...protectedForms].some((form: any): any => (
+        form?.contains?.(page.activeElement)
+        || form?.dataset?.refreshDirty === 'true'
+    ));
+}
+export function bindRefreshProtectedForms({ page = globalThis.document }: any = {}): any {
+    const markDirty: any = (event: any): any => {
+        const form: any = event.target?.closest?.('form[data-refresh-protected]');
+        if (form)
+            form.dataset.refreshDirty = 'true';
+    };
+    const clearAfterReset: any = (event: any): any => {
+        const form: any = event.target?.closest?.('form[data-refresh-protected]');
+        if (form)
+            queueMicrotask((): any => clearRefreshDraft(form));
+    };
+    page?.addEventListener?.('input', markDirty, true);
+    page?.addEventListener?.('change', markDirty, true);
+    page?.addEventListener?.('reset', clearAfterReset, true);
+    return Object.freeze({
+        stop(): any {
+            page?.removeEventListener?.('input', markDirty, true);
+            page?.removeEventListener?.('change', markDirty, true);
+            page?.removeEventListener?.('reset', clearAfterReset, true);
+        },
+    });
+}
+export function clearRefreshDraft(form: any): any {
+    if (!form?.dataset)
+        return false;
+    const wasDirty: any = form.dataset.refreshDirty === 'true';
+    delete form.dataset.refreshDirty;
+    return wasDirty;
 }
 export function startRefreshScheduler({ refresh, canRefresh = (): any => true, intervalMs = 15000, schedule = globalThis.setInterval, cancel = globalThis.clearInterval, visibilityTarget = globalThis.document, }: any = {}): any {
     if (typeof refresh !== 'function')

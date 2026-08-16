@@ -1,9 +1,11 @@
 #!/bin/zsh
 set -euo pipefail
 
-readonly REPO_ROOT='/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent'
-readonly HF_ROOT='/Users/pengaro/.cache/huggingface/hub'
-readonly EXPORT_ROOT="$REPO_ROOT/work/local-ai/desktop-model-export/ComfyUI"
+readonly SCRIPT_DIR="${0:A:h}"
+readonly REPO_ROOT="${SCRIPT_DIR:h:h:h}"
+readonly HF_ROOT="${HF_HOME:-$HOME/.cache/huggingface}/hub"
+readonly LOCAL_AI_HOME="${AGENT_ARMY_LOCAL_AI_HOME:-$HOME/Library/Application Support/AgentArmy/local-ai}"
+readonly EXPORT_ROOT="$LOCAL_AI_HOME/desktop-model-export/ComfyUI"
 
 link_verified_model() {
   local source_path="$1"

@@ -19,3 +19,29 @@ test('未批准或已经汇总的多人工作不会被自动分派', async () =>
   await reconciler.reconcile();
   assert.deepEqual(calls, []);
 });
+
+test('已批准但卡在规划前的多人工作会自动续接并继续分派', async () => {
+  let mission = {
+    taskId:'mission-approved-stalled', taskType:'army.cross-agent-mission', status:'queued',
+    currentStage:'approval_approved', approvalRefs:['approval-1'], artifactRefs:[],
+  };
+  const calls = [];
+  const store = {
+    async list() { return [mission]; },
+    async listApprovals() { return [{ approvalId:'approval-1', taskId:mission.taskId, status:'approved', action:'manual-risk-review' }]; },
+  };
+  const reconciler = new CrossAgentMissionReconciler({ store, missions:{
+    async resumeApprovedMission(task) {
+      calls.push(['resume', task.taskId]);
+      mission = { ...mission, status:'running', currentStage:'mission_planned', artifactRefs:[{ type:'cross_agent_mission_plan' }] };
+      return mission;
+    },
+    async dispatch(task) { calls.push(['dispatch', task.taskId]); },
+  } });
+
+  await reconciler.reconcile();
+  assert.deepEqual(calls, [
+    ['resume', mission.taskId],
+    ['dispatch', mission.taskId],
+  ]);
+});

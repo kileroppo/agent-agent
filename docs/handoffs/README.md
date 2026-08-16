@@ -64,6 +64,8 @@
 下面各项只有被负责人明确选中，或在自然业务工作流中出现其验收机会时才执行；它们不与总交接
 竞争“唯一下一步”：
 
+- [本地 AI 插件运行时迁移](./current/local-ai-plugin-runtime-migration-handoff.md)：已关闭；项目内运行物已迁出，另一台 Mac 只需按插件 README 重建，不是当前待办。
+
 - [视频分析四模式飞书验收](./current/video-analysis-modes-feishu-acceptance-handoff.md)：等待负责人用已授权视频触发一次指定模式验收。
 - [Agent 使用说明书问答验收](./current/agent-manual-query-handoff.md)：小D路径已通过，仅余负责人按需核对 A君与独立岗位权限边界。
 - [Agent 人性化体验验收](./current/m2-agent-experience-polish-handoff.md)：等待自然出现的持续任务，顺手核对手机端详情、长内容和任务链接；不另造任务。

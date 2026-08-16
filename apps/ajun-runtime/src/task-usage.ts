@@ -17,11 +17,13 @@ export function recordTaskUsage({ task, result, startedAt, finishedAt = new Date
         attribution: normalizeTaskAttribution(task),
     };
 }
-export function summarizeTaskUsage(tasks: any, { since = null }: any = {}): any {
+export function summarizeTaskUsage(tasks: any, { since = null, until = null }: any = {}): any {
     const after: any = asDate(since);
+    const before: any = asDate(until);
     const selected: any = (Array.isArray(tasks) ? tasks : []).filter((task: any): any => {
         const recordedAt: any = asDate(task.usage?.recordedAt || task.updatedAt || task.createdAt);
-        return !after || (recordedAt && recordedAt >= after);
+        return (!after || (recordedAt && recordedAt >= after))
+            && (!before || (recordedAt && recordedAt < before));
     });
     const tracked: any = selected.filter((task: any): any => task.usage?.schemaVersion === 'agent.army/task-usage/v1');
     const tools: any = new Map();
@@ -30,6 +32,11 @@ export function summarizeTaskUsage(tasks: any, { since = null }: any = {}): any 
     let modelApiCalls: any = 0;
     let modelInputTokens: any = 0;
     let modelOutputTokens: any = 0;
+    let modelCacheReadTokens: any = 0;
+    let modelCacheWriteTokens: any = 0;
+    let modelReasoningTokens: any = 0;
+    let modelProviderAttempts: any = 0;
+    let modelRateLimitRejections: any = 0;
     const costByCurrency: any = new Map();
     let costReportedTasks: any = 0;
     for (const task of tracked) {
@@ -39,6 +46,11 @@ export function summarizeTaskUsage(tasks: any, { since = null }: any = {}): any 
             modelApiCalls += Number(usage.model.apiCalls || 0);
             modelInputTokens += Number(usage.model.inputTokens || 0);
             modelOutputTokens += Number(usage.model.outputTokens || 0);
+            modelCacheReadTokens += Number(usage.model.cacheReadTokens || 0);
+            modelCacheWriteTokens += Number(usage.model.cacheWriteTokens || 0);
+            modelReasoningTokens += Number(usage.model.reasoningTokens || 0);
+            modelProviderAttempts += Number(usage.model.providerAttempts || 0);
+            modelRateLimitRejections += Number(usage.model.rateLimitRejections || 0);
         }
         for (const tool of usage.tools || []) {
             actualToolCalls += tool.calls;
@@ -62,17 +74,25 @@ export function summarizeTaskUsage(tasks: any, { since = null }: any = {}): any 
             apiCalls: modelApiCalls,
             inputTokens: modelInputTokens,
             outputTokens: modelOutputTokens,
+            cacheReadTokens: modelCacheReadTokens,
+            cacheWriteTokens: modelCacheWriteTokens,
+            reasoningTokens: modelReasoningTokens,
+            totalTokens: modelInputTokens + modelOutputTokens + modelCacheReadTokens + modelCacheWriteTokens,
+            providerAttempts: modelProviderAttempts,
+            rateLimitRejections: modelRateLimitRejections,
         },
         cost: { reportedTaskCount: costReportedTasks, totals: [...costByCurrency.entries()].map(([currency, amount]: any): any => ({ currency, amount })) }
     };
 }
-export function reconcileUsageBilling(tasks: any, ledger: any, { since = null }: any = {}): any {
+export function reconcileUsageBilling(tasks: any, ledger: any, { since = null, until = null, providerSnapshot = null }: any = {}): any {
     const after: any = asDate(since);
+    const before: any = asDate(until);
     const taskEntries: any = (Array.isArray(tasks) ? tasks : [])
         .filter((task: any): any => task.usage?.schemaVersion === 'agent.army/task-usage/v1')
         .filter((task: any): any => {
         const recordedAt: any = asDate(task.usage?.recordedAt || task.updatedAt || task.createdAt);
-        return !after || (recordedAt && recordedAt >= after);
+        return (!after || (recordedAt && recordedAt >= after))
+            && (!before || (recordedAt && recordedAt < before));
     })
         .filter((task: any): any => task.usage?.model?.status === 'reported')
         .map(taskBillingEntry);
@@ -101,11 +121,16 @@ export function reconcileUsageBilling(tasks: any, ledger: any, { since = null }:
         status,
         entries.filter((entry: any): any => entry.attribution.status === status).length,
     ]));
+    const totals: any = ledger?.totals || emptyLedgerTotals();
+    const providerReconciliation: any = reconcileProviderSnapshot(totals, providerSnapshot);
+    const incompleteTaskRecords: any = taskEntries.filter((entry: any): any => !entry.taskId
+        || !entry.agentId || !entry.provider || !entry.model);
+    const credentialAliasMissingCount: any = taskEntries.filter((entry: any): any => entry.apiCalls > 0 && !entry.credentialAlias).length;
     return {
         schemaVersion: 'agent.army/usage-billing-view/v1',
         status: String(ledger?.status || 'unavailable'),
         period: ledger?.period || null,
-        totals: ledger?.totals || emptyLedgerTotals(),
+        totals,
         profiles: Array.isArray(ledger?.profiles) ? ledger.profiles : [],
         entries,
         attribution: {
@@ -120,7 +145,18 @@ export function reconcileUsageBilling(tasks: any, ledger: any, { since = null }:
             unattributedApiCalls: sumApiCalls(entries, 'unattributed'),
             taskModelRecordCount: taskEntries.length,
             unmatchedTaskRecordCount: taskEntries.filter((entry: any): any => entry.ledgerRefs.length === 0).length,
+            incompleteTaskModelRecordCount: incompleteTaskRecords.length,
+            credentialAliasMissingCount,
         },
+        coverage: {
+            scope: 'managed_hermes_profiles',
+            providerAccountIncluded: ['matched', 'gap', 'mismatch'].includes(providerReconciliation.status),
+            externalClientsIncluded: ['matched', 'gap', 'mismatch'].includes(providerReconciliation.status),
+            canAssertAccountTotal: providerReconciliation.status === 'matched',
+            taskModelRecordsComplete: incompleteTaskRecords.length === 0,
+            credentialAliasesComplete: credentialAliasMissingCount === 0,
+        },
+        providerReconciliation,
         efficiency: {
             inputTokensByAttribution: Object.fromEntries(['task', 'system', 'agent_session', 'unattributed'].map((status: any): any => [
                 status,
@@ -150,6 +186,14 @@ function taskBillingEntry(task: any): any {
         apiCalls: Number(usage.model.apiCalls || 0),
         inputTokens: Number(usage.model.inputTokens || 0),
         outputTokens: Number(usage.model.outputTokens || 0),
+        cacheReadTokens: Number(usage.model.cacheReadTokens || 0),
+        cacheWriteTokens: Number(usage.model.cacheWriteTokens || 0),
+        reasoningTokens: Number(usage.model.reasoningTokens || 0),
+        providerAttempts: Number(usage.model.providerAttempts || 0),
+        rateLimitRejections: Number(usage.model.rateLimitRejections || 0),
+        credentialAlias: usage.model.credentialAlias || null,
+        requestClass: usage.model.requestClass || null,
+        purpose: usage.model.purpose || null,
         cost: usage.cost,
         sessionIds: normalizedSessionIds(usage.model),
         workflowId: String(task.workflow?.workflowId || usage.attribution?.workflowId || '').trim() || null,
@@ -211,8 +255,16 @@ function normalizeModel(value: any): any {
     const inputTokens: any = nonNegativeInteger(value.inputTokens);
     const outputTokens: any = nonNegativeInteger(value.outputTokens);
     const apiCalls: any = nonNegativeInteger(value.apiCalls);
+    const cacheReadTokens: any = nonNegativeInteger(value.cacheReadTokens ?? value.cachedInputTokens);
+    const cacheWriteTokens: any = nonNegativeInteger(value.cacheWriteTokens);
+    const reasoningTokens: any = nonNegativeInteger(value.reasoningTokens);
+    const providerAttempts: any = nonNegativeInteger(value.providerAttempts);
+    const rateLimitRejections: any = nonNegativeInteger(value.rateLimitRejections);
     if (inputTokens === null && outputTokens === null && apiCalls === null)
         return { status: 'not_reported' };
+    const credentialAlias: any = safeCredentialAlias(value.credentialAlias);
+    const requestClass: any = safeIdentifier(value.requestClass, 80);
+    const purpose: any = safeText(value.purpose, 160);
     return {
         status: 'reported',
         ...(String(value.provider || '').trim() ? { provider: String(value.provider).trim().slice(0, 80) } : {}),
@@ -220,7 +272,15 @@ function normalizeModel(value: any): any {
         ...normalizeSessionFields(value),
         ...(inputTokens !== null ? { inputTokens } : {}),
         ...(outputTokens !== null ? { outputTokens } : {}),
-        ...(apiCalls !== null ? { apiCalls } : {})
+        ...(cacheReadTokens !== null ? { cacheReadTokens } : {}),
+        ...(cacheWriteTokens !== null ? { cacheWriteTokens } : {}),
+        ...(reasoningTokens !== null ? { reasoningTokens } : {}),
+        ...(apiCalls !== null ? { apiCalls } : {}),
+        ...(providerAttempts !== null ? { providerAttempts } : {}),
+        ...(rateLimitRejections !== null ? { rateLimitRejections } : {}),
+        ...(credentialAlias ? { credentialAlias } : {}),
+        ...(requestClass ? { requestClass } : {}),
+        ...(purpose ? { purpose } : {}),
     };
 }
 function normalizeTaskAttribution(task: any): any {
@@ -298,4 +358,103 @@ function asDate(value: any): any {
 function nonNegativeInteger(value: any): any {
     const number: any = Number(value);
     return Number.isSafeInteger(number) && number >= 0 ? number : null;
+}
+
+function reconcileProviderSnapshot(managedTotals: any, snapshot: any): any {
+    if (!snapshot || typeof snapshot !== 'object') {
+        return {
+            status: 'not_configured',
+            provider: null,
+            source: null,
+            managedApiCalls: nonNegativeInteger(managedTotals?.apiCalls) || 0,
+            providerApiCalls: null,
+            untrackedApiCalls: null,
+            managedTokens: totalTokens(managedTotals?.tokens),
+            providerTokens: null,
+            untrackedTokens: null,
+        };
+    }
+    if (snapshot.status !== 'ready') {
+        return {
+            status: 'invalid',
+            provider: safeIdentifier(snapshot.provider, 80) || null,
+            source: safeIdentifier(snapshot.source, 120) || null,
+            managedApiCalls: nonNegativeInteger(managedTotals?.apiCalls) || 0,
+            providerApiCalls: null,
+            untrackedApiCalls: null,
+            managedTokens: totalTokens(managedTotals?.tokens),
+            providerTokens: null,
+            untrackedTokens: null,
+        };
+    }
+    const providerApiCalls: any = nonNegativeInteger(snapshot?.totals?.apiCalls);
+    const providerTokens: any = totalTokens(snapshot?.totals?.tokens);
+    if (providerApiCalls === null || providerTokens === null) {
+        return {
+            status: 'invalid',
+            provider: safeIdentifier(snapshot.provider, 80) || null,
+            source: safeIdentifier(snapshot.source, 120) || null,
+            managedApiCalls: nonNegativeInteger(managedTotals?.apiCalls) || 0,
+            providerApiCalls: null,
+            untrackedApiCalls: null,
+            managedTokens: totalTokens(managedTotals?.tokens),
+            providerTokens: null,
+            untrackedTokens: null,
+        };
+    }
+    const managedApiCalls: any = nonNegativeInteger(managedTotals?.apiCalls) || 0;
+    const managedTokens: any = totalTokens(managedTotals?.tokens) || 0;
+    const apiCallDifference: any = providerApiCalls - managedApiCalls;
+    const tokenDifference: any = providerTokens - managedTokens;
+    const status: any = apiCallDifference === 0 && tokenDifference === 0
+        ? 'matched'
+        : apiCallDifference >= 0 && tokenDifference >= 0 ? 'gap' : 'mismatch';
+    return {
+        status,
+        provider: safeIdentifier(snapshot.provider, 80) || null,
+        source: safeIdentifier(snapshot.source, 120) || null,
+        observedAt: asDate(snapshot.observedAt)?.toISOString() || null,
+        managedApiCalls,
+        providerApiCalls,
+        apiCallDifference,
+        untrackedApiCalls: Math.max(0, apiCallDifference),
+        managedTokens,
+        providerTokens,
+        tokenDifference,
+        untrackedTokens: Math.max(0, tokenDifference),
+    };
+}
+
+function totalTokens(tokens: any): any {
+    if (!tokens || typeof tokens !== 'object')
+        return null;
+    const explicit: any = nonNegativeInteger(tokens.total);
+    if (explicit !== null)
+        return explicit;
+    const fields: any[] = ['input', 'output', 'cacheRead', 'cacheWrite'];
+    const values: any[] = fields.map((field: any): any => nonNegativeInteger(tokens[field]));
+    return values.some((value: any): any => value !== null)
+        ? values.reduce((sum: any, value: any): any => sum + Number(value || 0), 0)
+        : null;
+}
+
+function safeIdentifier(value: any, limit: any): any {
+    return String(value || '').replace(/[^A-Za-z0-9:._-]/g, '').slice(0, limit);
+}
+
+function safeText(value: any, limit: any): any {
+    return String(value || '')
+        .replace(/[\u0000-\u001f\u007f]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .replace(/\b(authorization|cookie|token|api[_-]?key|password|secret)\b\s*[:=]\s*(?:bearer\s+)?[^\s,;]+/gi, '$1=[已脱敏]')
+        .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, 'Bearer [已脱敏]')
+        .trim()
+        .slice(0, limit);
+}
+
+function safeCredentialAlias(value: any): any {
+    const raw: any = String(value || '').trim();
+    if (/^(?:sk|api)[-_][A-Za-z0-9_=-]{12,}$/i.test(raw) || /^bearer\s+/i.test(raw))
+        return '';
+    return safeIdentifier(raw, 120);
 }

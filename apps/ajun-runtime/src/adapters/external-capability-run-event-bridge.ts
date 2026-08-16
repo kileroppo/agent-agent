@@ -9,6 +9,8 @@ export type ExternalCapabilityEventContext = Readonly<{
   routeId: string;
   provider: string;
   model?: string | null;
+  credentialAlias?: string | null;
+  requestClass?: string | null;
 }>;
 
 type ExternalCapabilityEvidence = Readonly<{
@@ -20,6 +22,14 @@ type ExternalCapabilityEvidence = Readonly<{
   costAmount?: unknown;
   costCurrency?: unknown;
   model?: unknown;
+  apiCalls?: unknown;
+  inputTokens?: unknown;
+  outputTokens?: unknown;
+  cacheReadTokens?: unknown;
+  cacheWriteTokens?: unknown;
+  reasoningTokens?: unknown;
+  providerAttempts?: unknown;
+  rateLimitRejections?: unknown;
 }>;
 
 /**
@@ -119,6 +129,14 @@ export function externalCapabilityEvidence(value: unknown): ExternalCapabilityEv
     costAmount:costCents === null ? finiteNumber(receipt.costUsd) : costCents / 100,
     costCurrency:costCents === null && receipt.costUsd == null ? null : 'USD',
     model:safeId(receipt.model || callRecord.model || result.model, 160) || null,
+    apiCalls:usageInteger(result.apiCalls ?? result.providerCalls ?? (callRecord.operation || costEvent.provider ? 1 : null)),
+    inputTokens:usageInteger(costEvent.inputTokens ?? result.usage?.inputTokens),
+    outputTokens:usageInteger(costEvent.outputTokens ?? result.usage?.outputTokens),
+    cacheReadTokens:usageInteger(costEvent.cachedInputTokens ?? result.usage?.cacheReadTokens),
+    cacheWriteTokens:usageInteger(result.usage?.cacheWriteTokens),
+    reasoningTokens:usageInteger(result.usage?.reasoningTokens),
+    providerAttempts:usageInteger(result.providerAttempts),
+    rateLimitRejections:usageInteger(result.rateLimitRejections),
   });
 }
 
@@ -128,6 +146,8 @@ function allowlistedEvent(value: Readonly<Record<string, unknown>>): Record<stri
     'provider', 'model', 'attempt', 'status', 'startedAt', 'finishedAt', 'durationMs',
     'policyDecisionId', 'receiptId', 'checkpointRef', 'inputHash', 'outputHash',
     'errorCode', 'safeSummary', 'costAmount', 'costCurrency', 'retentionClass',
+    'apiCalls', 'inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens',
+    'reasoningTokens', 'providerAttempts', 'rateLimitRejections', 'credentialAlias', 'requestClass',
   ];
   return Object.fromEntries(fields
     .filter((field) => value[field] !== undefined)
@@ -160,6 +180,12 @@ function duration(startedAt: string, completedAt: string): number {
 function finiteNumber(value: unknown): number | null {
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function usageInteger(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number >= 0 ? number : null;
 }
 
 function record(value: unknown): Record<string, any> {

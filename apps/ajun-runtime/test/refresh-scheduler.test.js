@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { canRefreshConsole, startRefreshScheduler } from '../public/refresh-scheduler.js';
+import {
+  bindRefreshProtectedForms,
+  canRefreshConsole,
+  clearRefreshDraft,
+  startRefreshScheduler,
+} from '../public/refresh-scheduler.js';
 
 test('控制台只在页面可见、已通过访问门禁且表单未输入时自动刷新', () => {
   const accessForm = { contains:(node) => node === 'access-input' };
@@ -18,6 +23,43 @@ test('控制台只在页面可见、已通过访问门禁且表单未输入时�
   input.accessGate.hidden = true;
   page.activeElement = 'login-input';
   assert.equal(canRefreshConsole(input), false);
+});
+
+test('动态授权表单一旦有未保存输入，失去焦点后也继续阻止自动刷新', () => {
+  const protectedForm = {
+    contains:() => false,
+    dataset:{ refreshDirty:'true' },
+  };
+  const page = {
+    hidden:false,
+    activeElement:null,
+    querySelectorAll:(selector) => selector === 'form[data-refresh-protected]' ? [protectedForm] : [],
+  };
+
+  assert.equal(canRefreshConsole({ page, accessGate:{ hidden:true } }), false);
+  assert.equal(clearRefreshDraft(protectedForm), true);
+  assert.equal(canRefreshConsole({ page, accessGate:{ hidden:true } }), true);
+});
+
+test('动态表单输入会被标为未保存，解除绑定后不再监听', () => {
+  const listeners = new Map();
+  const removed = [];
+  const page = {
+    addEventListener:(name, callback, capture) => listeners.set(name, { callback, capture }),
+    removeEventListener:(name, callback, capture) => removed.push({ name, callback, capture }),
+  };
+  const form = { dataset:{} };
+  const target = { closest:() => form };
+  const binding = bindRefreshProtectedForms({ page });
+
+  listeners.get('input').callback({ target });
+  assert.equal(form.dataset.refreshDirty, 'true');
+  binding.stop();
+  assert.deepEqual(removed.map(({ name, capture }) => [name, capture]), [
+    ['input', true],
+    ['change', true],
+    ['reset', true],
+  ]);
 });
 
 test('控制台按配置间隔后台刷新，并在停止后解除定时器和可见性监听', async () => {

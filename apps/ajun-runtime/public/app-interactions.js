@@ -1,4 +1,5 @@
 import { canRefreshConsole, startRefreshScheduler } from './refresh-scheduler.js';
+import { bindRefreshProtectedForms, clearRefreshDraft } from './refresh-scheduler.js';
 export function bindConsoleInteractions({ elements, state, api, load, setSyncStatus, moduleNavigation, accessViews, }) {
     const { accessForm, accessKey, collaboratorName, rotateShareKey, shareMessage, refreshAiControl, aiControlMessage, aiServiceList, employeeConnectionList, accessLoginProvider, accessLoginAccount, accessStepNext2, accessStepBack1, accessStepBack2, accessStepNext3, accessLoginMessage, openPlatformLogin, refreshLoginAccounts, accessLoginForm, saveAccessConnection, cancelAccessReauthorize, accessConnectionList, accessConnectionMessage, accessLoginAlias, accessLoginDisclosure, campaignList, campaignMessage, accessGate, } = elements;
     accessForm.addEventListener('submit', async (event) => {
@@ -99,6 +100,7 @@ export function bindConsoleInteractions({ elements, state, api, load, setSyncSta
                     allowedUserId: data.get('allowedUserId')
                 })
             });
+            clearRefreshDraft(form);
             form.reset();
             message.textContent = payload.employee.channel?.message || '已保存，正在连接。';
             await accessViews.renderEmployeeConnections();
@@ -210,6 +212,7 @@ export function bindConsoleInteractions({ elements, state, api, load, setSyncSta
                 })
             });
             accessLoginMessage.textContent = state.reauthorizeConnectionId ? '连接已续期并恢复可用。' : '账号已授权给小D的只读能力。';
+            clearRefreshDraft(accessLoginForm);
             accessLoginForm.reset();
             accessViews.resetAccessReauthorization();
             await Promise.all([accessViews.renderAccessConnections(), accessViews.renderAccessLoginOptions()]);
@@ -222,6 +225,7 @@ export function bindConsoleInteractions({ elements, state, api, load, setSyncSta
         }
     });
     cancelAccessReauthorize.addEventListener('click', () => {
+        clearRefreshDraft(accessLoginForm);
         accessLoginForm.reset();
         accessViews.resetAccessReauthorization();
         accessViews.renderAccessLoginAccounts();
@@ -324,6 +328,7 @@ export function bindConsoleInteractions({ elements, state, api, load, setSyncSta
         }
     });
     window.addEventListener('hashchange', moduleNavigation.locationChanged);
+    bindRefreshProtectedForms({ page: document });
     startRefreshScheduler({
         refresh: load,
         canRefresh: () => canRefreshConsole({

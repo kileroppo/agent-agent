@@ -10,7 +10,15 @@ const EVENT_COLUMNS: any = Object.freeze({
     finishedAt: 'finished_at', durationMs: 'duration_ms', policyDecisionId: 'policy_decision_id', receiptId: 'receipt_id',
     checkpointRef: 'checkpoint_ref', inputHash: 'input_hash', outputHash: 'output_hash', artifactRefs: 'artifact_refs_json',
     errorCode: 'error_code', safeSummary: 'safe_summary', costAmount: 'cost_amount', costCurrency: 'cost_currency',
+    apiCalls: 'api_calls', inputTokens: 'input_tokens', outputTokens: 'output_tokens', cacheReadTokens: 'cache_read_tokens',
+    cacheWriteTokens: 'cache_write_tokens', reasoningTokens: 'reasoning_tokens', providerAttempts: 'provider_attempts',
+    rateLimitRejections: 'rate_limit_rejections', credentialAlias: 'credential_alias', requestClass: 'request_class',
     retentionClass: 'retention_class',
+});
+const ADDITIVE_EVENT_COLUMNS: any = Object.freeze({
+    apiCalls: 'INTEGER', inputTokens: 'INTEGER', outputTokens: 'INTEGER', cacheReadTokens: 'INTEGER',
+    cacheWriteTokens: 'INTEGER', reasoningTokens: 'INTEGER', providerAttempts: 'INTEGER',
+    rateLimitRejections: 'INTEGER', credentialAlias: 'TEXT', requestClass: 'TEXT',
 });
 const RETENTION_CLASSES_WITH_EXPIRY: any = Object.freeze(['transient', 'detail', 'audit']);
 const DEFAULT_RETENTION_DAYS: any = Object.freeze({ transient: 7, detail: 30, audit: 365 });
@@ -193,12 +201,16 @@ export class TaskRunEventStore {
         this.database.exec(eventTableSql());
         const currentSql: any = String(this.database.prepare(`
       SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'task_run_events'
-    `).get()?.sql || '');
+        `).get()?.sql || '');
         if (!currentSql.includes("'transient'") || !currentSql.includes("'audit'")) {
             this.#transaction((): any => {
+                const legacyColumns: any = tableColumns(this.database, 'task_run_events');
                 this.database.exec('ALTER TABLE task_run_events RENAME TO task_run_events_legacy_retention;');
                 this.database.exec(eventTableSql());
-                const columns: any = TASK_RUN_EVENT_FIELDS.map((field: any): any => EVENT_COLUMNS[field]).join(', ');
+                const columns: any = TASK_RUN_EVENT_FIELDS
+                    .map((field: any): any => EVENT_COLUMNS[field])
+                    .filter((column: any): any => legacyColumns.has(column))
+                    .join(', ');
                 this.database.exec(`
           INSERT INTO task_run_events (${columns})
           SELECT ${columns} FROM task_run_events_legacy_retention;
@@ -206,6 +218,7 @@ export class TaskRunEventStore {
         `);
             });
         }
+        this.#ensureUsageColumns();
         this.database.exec(`
       CREATE INDEX IF NOT EXISTS task_run_events_task_time_idx
         ON task_run_events(task_id, started_at, event_id);
@@ -222,6 +235,14 @@ export class TaskRunEventStore {
       CREATE INDEX IF NOT EXISTS task_run_incidents_time_idx
         ON task_run_incident_summaries(last_occurred_at DESC, incident_id DESC);
     `);
+    }
+    #ensureUsageColumns(): any {
+        const existing: any = tableColumns(this.database, 'task_run_events');
+        for (const [field, definition] of Object.entries(ADDITIVE_EVENT_COLUMNS)) {
+            const column: any = EVENT_COLUMNS[field];
+            if (!existing.has(column))
+                this.database.exec(`ALTER TABLE task_run_events ADD COLUMN ${column} ${definition};`);
+        }
     }
     #transaction(operation: any): any {
         this.database.exec('BEGIN IMMEDIATE');
@@ -276,10 +297,17 @@ function eventTableSql(): any {
       attempt INTEGER, status TEXT, started_at TEXT NOT NULL, finished_at TEXT, duration_ms INTEGER,
       policy_decision_id TEXT, receipt_id TEXT, checkpoint_ref TEXT, input_hash TEXT, output_hash TEXT,
       artifact_refs_json TEXT NOT NULL DEFAULT '[]', error_code TEXT, safe_summary TEXT,
-      cost_amount REAL, cost_currency TEXT, retention_class TEXT NOT NULL DEFAULT 'detail'
+      cost_amount REAL, cost_currency TEXT,
+      api_calls INTEGER, input_tokens INTEGER, output_tokens INTEGER, cache_read_tokens INTEGER,
+      cache_write_tokens INTEGER, reasoning_tokens INTEGER, provider_attempts INTEGER,
+      rate_limit_rejections INTEGER, credential_alias TEXT, request_class TEXT,
+      retention_class TEXT NOT NULL DEFAULT 'detail'
         CHECK (retention_class IN ('transient', 'detail', 'audit', 'permanent'))
     );
   `;
+}
+function tableColumns(database: any, table: any): any {
+    return new Set(database.prepare(`PRAGMA table_info(${table})`).all().map((column: any): any => column.name));
 }
 function retentionCutoffs(now: any, { retentionDays, retentionDaysByClass }: any = {}): any {
     const legacyDays: any = Number.isFinite(Number(retentionDays))

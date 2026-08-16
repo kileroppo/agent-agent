@@ -1,6 +1,6 @@
 import { classifyTechnicalFailure } from './technical-failure-classifier.ts';
 import { isTrustedReadOnlyDiagnosisTask } from './read-only-diagnosis-contract.ts';
-export function view(task: any, { audience = 'local-owner', relatedTasks = [] }: any = {}): any {
+export function view(task: any, { audience = 'local-owner', relatedTasks = [], approvals = [] }: any = {}): any {
     const coordination: any = task?.recovery?.coordination || null;
     const verificationTaskId: any = coordination?.retryTaskId || coordination?.technicalTaskId || coordination?.operatorTaskId || null;
     const verificationTask: any = relatedTasks.find((candidate: any): any => candidate?.taskId === verificationTaskId) || null;
@@ -21,6 +21,10 @@ export function view(task: any, { audience = 'local-owner', relatedTasks = [] }:
     if (coordination && !legacyBlocked)
         return { actions: [], verification };
     const actions: any[] = [];
+    if (approvedMissionResumeEligible(task, approvals)) {
+        actions.push(action('resume_approved_mission', '继续处理', 'primary', '将从已批准的规划阶段继续，只执行已确认的素材取证和内容拆解；不会重复审批，也不会自动发布。'));
+        return { actions, verification };
+    }
     if (legacyBlocked) {
         actions.push(action('request_read_only_diagnosis', '重新执行只读诊断', 'primary', '将替换被错误卡住的旧诊断；本次直接完成只读分类，不重跑原任务、不修改代码、不扩权、不外发。'));
         return { actions, verification };
@@ -36,6 +40,18 @@ export function view(task: any, { audience = 'local-owner', relatedTasks = [] }:
     if (visionCapabilityRecoveryEligible(task))
         actions.push(action('retry_visual_analysis_after_recovery', '恢复识图后重跑', actions.length ? 'secondary' : 'primary', '只有本机主人点击后才会先核验 vision.analyze 已配置、健康且通过端到端验证；余额或额度错误还必须有晚于本次失败的新端到端验证。能力未恢复时不创建任务、不消耗重跑次数。恢复后仅创建一次保留原视觉模式的子任务，子任务会调用识图能力，可能产生一次 Provider 费用。'));
     return { actions, verification };
+}
+export function approvedMissionResumeEligible(task: any, approvals: any = []): any {
+    if (task?.taskType !== 'army.cross-agent-mission'
+        || task?.status !== 'queued'
+        || task?.currentStage !== 'approval_approved'
+        || task?.artifactRefs?.some((item: any): any => item?.type === 'cross_agent_mission_plan'))
+        return false;
+    const approvalRefs: any = new Set(Array.isArray(task?.approvalRefs) ? task.approvalRefs : []);
+    return (Array.isArray(approvals) ? approvals : []).some((approval: any): any => approvalRefs.has(approval?.approvalId)
+        && approval?.taskId === task.taskId
+        && approval?.status === 'approved'
+        && approval?.action === 'manual-risk-review');
 }
 export function visionCapabilityRecoveryEligible(task: any): any {
     return task?.taskType === 'content.video-benchmark-analysis'

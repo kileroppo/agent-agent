@@ -26,8 +26,12 @@ from knowledge_index import KnowledgeIndex
 from retrieval_engine import RetrievalEngine, RetrievalPaths
 
 
-REPO_ROOT = Path(os.environ.get("AGENT_ARMY_ROOT", Path(__file__).resolve().parents[2])).resolve()
-WORK_ROOT = Path(os.environ.get("LOCAL_AI_WORK_ROOT", REPO_ROOT / "work/local-ai")).resolve()
+WORK_ROOT = Path(
+    os.environ.get(
+        "LOCAL_AI_WORK_ROOT",
+        Path.home() / "Library/Application Support/AgentArmy/local-ai",
+    )
+).expanduser().resolve()
 ARTIFACT_ROOT = WORK_ROOT / "artifacts"
 DESKTOP_ATTACHMENT_FIELDS: dict[str, dict[str, bool]] = {
     "vision.analyze": {"imagePath": False, "imagePaths": True},
@@ -44,32 +48,32 @@ class Settings:
     qwen_url: str = os.environ.get("LOCAL_AI_QWEN_URL", "http://127.0.0.1:18081")
     qwen_model: str = os.environ.get(
         "LOCAL_AI_QWEN_MODEL",
-        "/Users/pengaro/.cache/huggingface/hub/models--mlx-community--Qwen3.5-9B-MLX-4bit/snapshots/938d8919941c6e7efd3c7150eff7fe9d12afa631",
+        "mlx-community/Qwen3.5-9B-MLX-4bit",
     )
     tts_model: str = os.environ.get(
         "LOCAL_AI_TTS_MODEL",
-        "/Users/pengaro/.cache/huggingface/hub/models--mlx-community--Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit/snapshots/049ef77fe8816b536193c0c25f9a214d17921282",
+        "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit",
     )
     embedding_model: str = os.environ.get(
         "LOCAL_AI_EMBEDDING_MODEL",
-        "/Users/pengaro/.cache/huggingface/hub/models--mlx-community--Qwen3-Embedding-0.6B-8bit/snapshots/407ad2329cd30702720aafe83f74a1ba30fdfbca",
+        "mlx-community/Qwen3-Embedding-0.6B-8bit",
     )
     reranker_model: str = os.environ.get(
         "LOCAL_AI_RERANKER_MODEL",
-        "/Users/pengaro/.cache/huggingface/hub/models--mlx-community--Qwen3-Reranker-0.6B-4bit/snapshots/5f324548f1d20c2b5a450f126fc6ef2fb1126524",
+        "mlx-community/Qwen3-Reranker-0.6B-4bit",
     )
     flux_model: str = os.environ.get(
         "LOCAL_AI_FLUX_MODEL",
-        "/Users/pengaro/.cache/huggingface/hub/models--black-forest-labs--FLUX.2-klein-4B/snapshots/e7b7dc27f91deacad38e78976d1f2b499d76a294",
+        "Comfy-Org/flux2-klein-4B",
     )
     whisper_model: str = os.environ.get(
         "LOCAL_AI_WHISPER_MODEL",
-        "/Users/pengaro/.cache/huggingface/hub/models--mlx-community--whisper-large-v3-turbo/snapshots",
+        "mlx-community/whisper-large-v3-turbo",
     )
-    mlx_whisper: str = os.environ.get("LOCAL_AI_MLX_WHISPER", "/Users/pengaro/.local/bin/mlx_whisper")
-    ffmpeg: str = os.environ.get("LOCAL_AI_FFMPEG", "/opt/homebrew/bin/ffmpeg")
-    ffprobe: str = os.environ.get("LOCAL_AI_FFPROBE", "/opt/homebrew/bin/ffprobe")
-    tts_python: str = os.environ.get("LOCAL_AI_TTS_PYTHON", str(WORK_ROOT / "venvs/mlx-vlm/bin/python"))
+    mlx_whisper: str = os.environ.get("LOCAL_AI_MLX_WHISPER", "mlx_whisper")
+    ffmpeg: str = os.environ.get("LOCAL_AI_FFMPEG", "ffmpeg")
+    ffprobe: str = os.environ.get("LOCAL_AI_FFPROBE", "ffprobe")
+    tts_python: str = os.environ.get("LOCAL_AI_TTS_PYTHON", str(WORK_ROOT / "venvs/gateway/bin/python"))
     mflux_generate: str = os.environ.get("LOCAL_AI_MFLUX_GENERATE", str(WORK_ROOT / "venvs/mflux/bin/mflux-generate-flux2"))
     mflux_edit: str = os.environ.get("LOCAL_AI_MFLUX_EDIT", str(WORK_ROOT / "venvs/mflux/bin/mflux-generate-flux2-edit"))
     desktop_url: str | None = os.environ.get("LOCAL_AI_DESKTOP_BASE_URL") or None

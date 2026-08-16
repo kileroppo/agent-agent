@@ -1,8 +1,10 @@
 #!/bin/zsh
 set -euo pipefail
 
-readonly REPO_ROOT='/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent'
-readonly OUTPUT_ROOT="$REPO_ROOT/work/local-ai/desktop-node-bundles"
+readonly SCRIPT_DIR="${0:A:h}"
+readonly REPO_ROOT="${SCRIPT_DIR:h:h:h}"
+readonly LOCAL_AI_HOME="${AGENT_ARMY_LOCAL_AI_HOME:-$HOME/Library/Application Support/AgentArmy/local-ai}"
+readonly OUTPUT_ROOT="$LOCAL_AI_HOME/desktop-node-bundles"
 readonly OUTPUT_FILE="$OUTPUT_ROOT/agent-army-4070-node-20260804.zip"
 bundle_tmp=$(mktemp -d /tmp/agent-army-4070-bundle.XXXXXX)
 trap 'rm -rf "$bundle_tmp"' EXIT

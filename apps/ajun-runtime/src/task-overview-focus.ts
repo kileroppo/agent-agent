@@ -91,7 +91,9 @@ export function isOwnerActionableTask(task: any, tasks: readonly any[]) {
   return channel === 'feishu'
     || originChannel === 'feishu'
     || channel === 'local-ui'
-    || channel === 'hermes-native';
+    || channel === 'hermes-native'
+    || channel === 'boom-monitor'
+    || originChannel === 'boom-monitor';
 }
 
 function isSupersededBySuccess(task: any, tasks: readonly any[]) {

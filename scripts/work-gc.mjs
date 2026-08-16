@@ -12,7 +12,7 @@
 //   4. m5-runtime-sources/     : 按天数过期
 //   5. m5-runtime-releases/    : 按天数过期
 //   6. runtime-releases/       : 按天数过期（默认 7 天，保留最近 cutover）
-//   保留：local-ai/venvs/（Python 运行环境，非产物）
+//   本地 AI 插件运行物已外置，不属于 work/ 清理范围。
 
 import { readdirSync, statSync, rmSync, chmodSync } from "node:fs";
 import { join } from "node:path";
@@ -106,7 +106,7 @@ for (const sub of [
 let total = 0;
 console.log(`\nwork-gc  模式: ${APPLY ? " APPLY（真删）" : "DRY-RUN（只报告）"}`);
 console.log(`策略: release 保留最近 ${KEEP_RELEASES} 个；其余按 ${MAX_AGE_DAYS} 天过期`);
-console.log(`local-ai/venvs/ 保留（Python 运行环境）\n`);
+console.log(`本地 AI 插件运行物位于仓库外，不参与 work/ 清理\n`);
 console.log("─".repeat(80));
 for (const p of plans.sort((a, b) => b.size - a.size)) {
   total += p.size;

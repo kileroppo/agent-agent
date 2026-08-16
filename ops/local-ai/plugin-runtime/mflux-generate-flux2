@@ -1,0 +1,5 @@
+#!/bin/zsh
+set -euo pipefail
+
+readonly RUNTIME_ROOT="${AGENT_ARMY_LOCAL_AI_HOME:-$HOME/Library/Application Support/AgentArmy/local-ai}"
+exec "$RUNTIME_ROOT/venvs/mflux/bin/python" -c 'from mflux.models.flux2.cli.flux2_generate import main; main()' "$@"

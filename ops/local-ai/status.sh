@@ -8,6 +8,10 @@ for label in com.agent-army.local-ai.qwen35 com.agent-army.local-ai.gateway; do
 done
 
 echo '18081 Qwen3.5'
-curl -fsS --max-time 5 http://127.0.0.1:18081/health | jq '{status,loaded_model,continuous_batching_enabled}'
+if qwen_health="$(curl -fsS --max-time 5 http://127.0.0.1:18081/health 2>/dev/null)"; then
+  print -r -- "$qwen_health" | jq '{status,loaded_model,continuous_batching_enabled}'
+else
+  echo 'stopped (expected for on_demand)'
+fi
 echo '18082 unified gateway'
 curl -fsS --max-time 5 http://127.0.0.1:18082/health | jq '{status,node,desktopEnhancement,queues,capabilities:[.capabilities[]|{capability,configured,healthy,e2eVerified,provider}]}'

@@ -9,6 +9,7 @@ const context = Object.freeze({
   taskId:'task-events-1', workflowId:'workflow-events-1', stepId:'step-events-1',
   agentId:'intel-researcher', capabilityId:'content.public.search',
   routeId:'public-web-search', provider:'public-search',
+  credentialAlias:'public-search-research', requestClass:'task',
 });
 
 test('外部能力事件桥只输出白名单字段并复用已确认费用与哈希血缘', async () => {
@@ -24,14 +25,17 @@ test('外部能力事件桥只输出白名单字段并复用已确认费用与�
       checksum:'a'.repeat(64),
       callRecord:{
         actionId:'campaign:day1:image:cover',
+        operation:'image_generate',
         model:'step-image-v1',
         promptChecksum:`sha256:${'b'.repeat(64)}`,
       },
       costCommit:{
         status:'confirmed',
         costEventId:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-        costEvent:{ costCents:3, provider:'stepfun' },
+        costEvent:{ costCents:3, provider:'stepfun', inputTokens:120, cachedInputTokens:80, outputTokens:30 },
       },
+      providerAttempts:2,
+      rateLimitRejections:1,
     }),
     evidence:externalCapabilityEvidence,
   });
@@ -42,6 +46,13 @@ test('外部能力事件桥只输出白名单字段并复用已确认费用与�
   assert.equal(events[1].durationMs, 25);
   assert.equal(events[1].model, 'step-image-v1');
   assert.equal(events[1].costAmount, 0.03);
+  assert.equal(events[1].apiCalls, 1);
+  assert.equal(events[1].inputTokens, 120);
+  assert.equal(events[1].cacheReadTokens, 80);
+  assert.equal(events[1].outputTokens, 30);
+  assert.equal(events[1].providerAttempts, 2);
+  assert.equal(events[1].rateLimitRejections, 1);
+  assert.equal(events[1].credentialAlias, 'public-search-research');
   assert.equal(events[1].checkpointRef, 'cost-event:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
   assert.equal(events[1].inputHash, `sha256:${'b'.repeat(64)}`);
   assert.equal(events[1].outputHash, `sha256:${'a'.repeat(64)}`);

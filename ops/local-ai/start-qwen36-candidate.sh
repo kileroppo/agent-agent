@@ -1,17 +1,6 @@
 #!/bin/zsh
 set -euo pipefail
 
-readonly LLAMA_ROOT='/Users/pengaro/Documents/work/codeDevelop/ideaSpace/llama'
-readonly SERVER="$LLAMA_ROOT/build/bin/llama-server"
-readonly MODEL="$LLAMA_ROOT/models/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf"
-
-exec "$SERVER" \
-  -m "$MODEL" \
-  --host 127.0.0.1 \
-  --port 18080 \
-  -ngl 99 \
-  -c 65536 \
-  --parallel 2 \
-  --reasoning off \
-  --reasoning-format none \
-  --alias qwen3.6-local
+readonly RUNTIME_ROOT="${AGENT_ARMY_LOCAL_AI_HOME:-$HOME/Library/Application Support/AgentArmy/local-ai}"
+readonly PLUGIN_ROOT="${AGENT_ARMY_LOCAL_AI_PLUGIN_ROOT:-$HOME/Library/Application Support/AgentArmy/plugins/local-ai}"
+exec "$RUNTIME_ROOT/venvs/gateway/bin/python" "$PLUGIN_ROOT/current/bin/launcher.py" qwen36-candidate

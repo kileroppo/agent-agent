@@ -3,6 +3,7 @@ import {
   isExactQueuedMaturityContentRetry,
   isExactQueuedMaturityMissionRetry,
 } from './maturity-legacy-content-retry.ts';
+import { approvedMissionResumeEligible } from './task-recovery-policy.ts';
 
 export class CrossAgentMissionReconciler {
   store: any; missions: any; intervalMs: number;
@@ -25,7 +26,11 @@ export class CrossAgentMissionReconciler {
   }
 
   async reconcileOnce() {
-    const tasks = await this.store.list();
+    let tasks = await this.store.list();
+    const approvals = typeof this.store.listApprovals === 'function' ? await this.store.listApprovals() : [];
+    for (const mission of tasks.filter((task: any) => approvedMissionResumeEligible(task, approvals)))
+      await this.missions.resumeApprovedMission(mission);
+    tasks = await this.store.list();
     for (const mission of tasks.filter((task: any) => needsDispatch(task, tasks))) await this.missions.dispatch(mission);
   }
 }

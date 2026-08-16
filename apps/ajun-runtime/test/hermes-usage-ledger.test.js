@@ -74,3 +74,36 @@ test('Hermes 用量账本在 Profile 数据库不可用时安全降级', () => {
   assert.equal(ledger.totals.entryCount, 0);
   assert.deepEqual(ledger.unavailableProfiles, ['ajun']);
 });
+
+test('Hermes 用量账本按用量最后活动时间筛选起止日期，不因旧会话开始时间漏记', async (context) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'hermes-usage-ledger-range-'));
+  context.after(() => fs.rm(root, { recursive:true, force:true }));
+  const profile = path.join(root, 'ajun');
+  await fs.mkdir(profile, { recursive:true });
+  const database = new DatabaseSync(path.join(profile, 'state.db'));
+  database.exec(`
+    CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT, started_at REAL);
+    CREATE TABLE session_model_usage (
+      session_id TEXT, task TEXT, model TEXT, billing_provider TEXT, billing_mode TEXT,
+      api_call_count INTEGER, input_tokens INTEGER, output_tokens INTEGER,
+      cache_read_tokens INTEGER, cache_write_tokens INTEGER, reasoning_tokens INTEGER,
+      estimated_cost_usd REAL, actual_cost_usd REAL, cost_status TEXT, cost_source TEXT,
+      first_seen REAL, last_seen REAL
+    );
+  `);
+  database.prepare('INSERT INTO sessions VALUES (?, ?, ?)').run('old-session', 'cli', 100);
+  database.prepare('INSERT INTO session_model_usage VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+    'old-session', 'main', 'step-3.7-flash', 'custom', 'subscription', 9, 100, 50, 20, 0, 10, 0, 0, 'included', '', 150, 1000,
+  );
+  database.close();
+
+  const ledger = new HermesUsageLedger({ profileRoot:root, clock:() => new Date(2_000_000) }).summarize({
+    since:new Date(900_000),
+    until:new Date(1_100_000),
+    agentIds:['ajun'],
+  });
+
+  assert.equal(ledger.totals.apiCalls, 9);
+  assert.equal(ledger.period.until, new Date(1_100_000).toISOString());
+  assert.match(ledger.limitations.join(' '), /最后活动时间/);
+});

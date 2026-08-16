@@ -35,12 +35,20 @@ export function taskRecordViewForTask(task: any, tasks: any = []): any {
         return 'completed';
     if (['pending_approval', 'waiting_approval', 'paused', 'blocked', 'error'].includes(task?.status))
         return 'needs_action';
+    if (isApprovedMissionWaitingToResume(task))
+        return 'needs_action';
     if (['failed', 'needs_input', 'waiting_test'].includes(task?.status)
         && isOwnerActionableTask(task, tasks))
         return 'needs_action';
     if (['queued', 'running', 'pausing', 'waiting_worker', 'recovery_pending', 'technical_repair'].includes(task?.status))
         return 'active';
     return 'archived';
+}
+export function isApprovedMissionWaitingToResume(task: any): any {
+    return task?.taskType === 'army.cross-agent-mission'
+        && task?.status === 'queued'
+        && task?.currentStage === 'approval_approved'
+        && !task?.artifactRefs?.some((item: any): any => item?.type === 'cross_agent_mission_plan');
 }
 export function normalizeTaskRecordQuery(input: any = {}): any {
     const requestedView: any = String(input.view || 'needs_action').trim();

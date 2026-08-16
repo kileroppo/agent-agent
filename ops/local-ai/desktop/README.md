@@ -41,4 +41,4 @@ Enable-ScheduledTask -TaskPath "\AgentArmy\" -TaskName "RTX4070EnhancementNode"
 
 安装脚本不会自动下载候选模型、打开公网端口、修改路由器、安装远程控制软件或调用付费服务。
 
-如果三份权重已先下载到 Mac，可在 Mac 执行 `prepare-mac-model-export.sh`，得到 `work/local-ai/desktop-model-export/ComfyUI/`。该目录使用符号链接，不重复占用约 12.45GB 权重；复制到另一台电脑时必须使用 `rsync -aL` 或其他“跟随符号链接”方式，并在目标端复核 `SHA256SUMS`。
+如果三份权重已先下载到 Mac，可在 Mac 执行 `prepare-mac-model-export.sh`，默认得到 `$HOME/Library/Application Support/AgentArmy/local-ai/desktop-model-export/ComfyUI/`。该目录使用符号链接，不重复占用约 12.45GB 权重；复制到另一台电脑时必须使用 `rsync -aL` 或其他“跟随符号链接”方式，并在目标端复核 `SHA256SUMS`。

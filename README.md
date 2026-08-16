@@ -34,11 +34,12 @@ agent-agent/
 
 ## 当前状态
 
-### 当前机器事实（2026-08-15）
+### 当前机器事实（2026-08-16）
 
 - A君 `4321` 的模型页已支持直接保存主模型、岗位覆盖和能力专用模型；默认文本/视觉为 `step-3.7-flash`，语音识别可在 `stepaudio-2.5-asr` 与本机 Whisper 之间切换，生图/改图为 `step-image-edit-2`，配音为 `stepaudio-2.5-tts`。新任务冻结选择，正在执行的任务不换模型。
 - 小D `4318` 已接入共享能力策略；StepFun ASR 结果不明时记为 `ambiguous`，不自动重试或改投本机。Paperclip `3100` 内容插件 live 为不可变 `0.5.0`、`ready/healthy`，视觉工具回读为 `step-3.7-flash`。Publisher `4390` 未运行，Campaign 为 `stopped`、M5 Cron 关闭；本轮没有触发飞书、Publisher 或 StepFun 媒体 Provider 工作流。
 - Business Workflow、能力真相、并列否定策略和人工评价写回已进入 `4321` live；飞书任务 `#167203DF` 完成一条真实只读 Workflow，并将 `useful` / `accepted` 写回任务账本。
+- 本地 AI 已从仓库 `work/` 迁到项目外的内容哈希插件运行时；A君只依赖回环 `18082` Interface，插件代码、Python 环境、模型、日志和索引不再随 A君或项目发布包滚版。当前机器迁移与新启动链路已通过状态、文本和 Embedding smoke。
 
 ### 当前产品结论
 
@@ -111,6 +112,8 @@ agent-agent/
 - [ADR-0004：通用账号连接、内容获取与运维观察边界](./docs/adr/0004-common-access-foundation.md)
 - [ADR-0005：飞书手机总管与审批分流边界](./docs/adr/0005-feishu-mobile-command-and-approval-boundary.md)
 - [ADR-0012：以业务工作流为主对象的能力治理与验收架构](./docs/adr/0012-workflow-first-capability-policy-and-evaluation.md)
+- [ADR-0014：本地 AI 插件运行时与项目发布隔离](./docs/adr/0014-local-ai-plugin-runtime-isolation.md)
+- [本地 AI 插件安装与迁移说明](./ops/local-ai/README.md)
 - [现成能力复用调研与采用边界](./docs/research/2026-07-agent-army-reuse-landscape.md)
 
 ### 治理与依据
@@ -153,3 +156,16 @@ npm run dev
 ```
 
 默认访问地址：`http://127.0.0.1:4321`。它是本机连接授权、组件健康、恢复和脱敏诊断页；已能作为本机 Paperclip HTTP Agent 的执行适配端，完成低风险健康任务并回报同一 Paperclip 任务单。日常派活、结果交付和用户审批在飞书完成；A君不维护第二套军团队列。小D任务仅调用本机 `4318` 服务，公开链接以外的外部账号、飞书和 Hermes 不由运行台直接调用。
+
+## 安装本地 AI 插件
+
+本地 AI 是可拔插能力，不是项目发布包的一部分。新 Apple Silicon Mac 克隆项目并安装依赖后执行：
+
+```bash
+brew install uv ffmpeg jq
+ops/local-ai/install-plugin.sh --bootstrap --download-models
+npm run local-ai:plugin:status
+npm run local-ai:smoke
+```
+
+成功标准：状态里有 `currentReleaseHash`，`18082` 为 ready，smoke 最后输出 `local AI smoke: ok`。完整的新机安装、升级和回滚见[本地 AI 插件说明](./ops/local-ai/README.md)。

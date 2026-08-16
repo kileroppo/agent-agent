@@ -107,7 +107,11 @@ test('StepFun生图确认回执写入统一脱敏事件且不会伪造备用Prov
   assert.equal(events[0].taskId, ids.contentCase);
   assert.equal(events[0].workflowId, ids.campaign);
   assert.equal(events[0].capabilityId, 'image.generate');
+  assert.equal(events[0].model, 'step-image-edit-2');
+  assert.equal(events[0].credentialAlias, 'paperclip-content-stepfun');
+  assert.equal(events[0].requestClass, 'paid_media_task');
   assert.equal(events[1].provider, 'stepfun');
+  assert.equal(events[1].apiCalls, 1);
   assert.equal(events[1].checkpointRef, `cost-event:${ids.costEvent}`);
   assert.equal(events[1].costAmount, 0.03);
   assert.equal(events.some((event) => event.eventType === 'route_fallback_started'), false);

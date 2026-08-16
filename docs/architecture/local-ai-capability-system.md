@@ -27,8 +27,19 @@ flowchart LR
   G --> F["MFLUX + FLUX.2 4B 重任务队列"]
   G -. "批准 + Bearer + SHA-256 附件" .-> D["4070 Ti Super :18083"]
   D --> C["ComfyUI + FLUX.2 klein 4B"]
-  P["Paperclip"] --> A
+P["Paperclip"] --> A
 ```
+
+## 插件安装与运行隔离
+
+本地 AI 的能力 Interface 仍是 `127.0.0.1:18082`，实现由独立的[本地 AI 插件运行时](../adr/0014-local-ai-plugin-runtime-isolation.md)承载。A君 release 只包含调用 Adapter，不包含 `integrations/local-ai`、Python venv、模型或运行数据。
+
+- 插件代码：`~/Library/Application Support/AgentArmy/plugins/local-ai/releases/<hash>`；`current` 原子选择活动版本；
+- 运行根：`~/Library/Application Support/AgentArmy/local-ai`；保存 venv、日志、索引、产物、策略与受限配对文件；
+- LaunchAgent：安装时按本机用户路径动态生成，不引用项目 checkout；
+- 仓库：只保存源码、锁定依赖、固定模型清单、安装器、测试与说明。
+
+代码 release 与运行根分离：升级/回滚插件代码不复制索引、模型或凭据。另一台 Apple Silicon Mac 从仓库运行安装器重建；Windows 4070 仍使用独立 desktop bundle。
 
 `18080` 的 Qwen3.6 35B 是 A君中默认禁用的显式质量候选，不在统一网关的自动回退链里，也不替代 Qwen3.5 的视觉能力；历史 `screen` 常驻方式已移除。
 
@@ -84,8 +95,9 @@ flowchart LR
 - `npm run local-ai:status`：读取 launchd、端口、队列与四层能力状态；
 - `npm run local-ai:smoke`：执行无外发文本和 Embedding 快速回归；
 - `npm run smoke:desktop-simulated --workspace=@agent-army/local-ai`：启动真实模拟桌面 HTTP 节点，验收鉴权、附件、产物回传与断线后的 Mac 默认路由；
-- `ops/local-ai/install-launch-agents.sh`：安装并启动两个回环 LaunchAgent；
+- `ops/local-ai/install-plugin.sh`：安装/升级外置插件并动态生成三个回环 LaunchAgent；新 Mac 使用 `--bootstrap --download-models`；
+- `npm run local-ai:plugin:status`：只读显示插件根、运行根和活动内容哈希；
 - `ops/local-ai/desktop/build-bundle.sh`：生成可复制到另一台 Windows/Linux 电脑的 4070 节点包；
-- 运行日志和 E2E 状态放在被 Git 忽略的 `work/local-ai/`，不得写入聊天原文、凭据或 Cookie。
+- 运行日志和 E2E 状态放在仓库外的 `~/Library/Application Support/AgentArmy/local-ai/`，不得写入聊天原文、凭据或 Cookie。
 
 验收记录见 [本地 AI 能力系统验收](../reviews/local-ai-capability-system/acceptance.md)。

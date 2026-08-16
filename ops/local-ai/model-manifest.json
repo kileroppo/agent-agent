@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "agent-army/local-ai-model-manifest/v1",
+  "models": [
+    {
+      "id": "qwen35",
+      "repoId": "mlx-community/Qwen3.5-9B-MLX-4bit",
+      "revision": "938d8919941c6e7efd3c7150eff7fe9d12afa631"
+    },
+    {
+      "id": "tts",
+      "repoId": "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit",
+      "revision": "049ef77fe8816b536193c0c25f9a214d17921282"
+    },
+    {
+      "id": "embedding",
+      "repoId": "mlx-community/Qwen3-Embedding-0.6B-8bit",
+      "revision": "407ad2329cd30702720aafe83f74a1ba30fdfbca"
+    },
+    {
+      "id": "reranker",
+      "repoId": "mlx-community/Qwen3-Reranker-0.6B-4bit",
+      "revision": "5f324548f1d20c2b5a450f126fc6ef2fb1126524"
+    },
+    {
+      "id": "whisper",
+      "repoId": "mlx-community/whisper-large-v3-turbo",
+      "revision": "a4aaeec0636e6fef84abdcbe3544cb2bf7e9f6fb"
+    },
+    {
+      "id": "mflux",
+      "repoId": "Comfy-Org/flux2-klein-4B",
+      "revision": "a9e4ca87c16db4c4e1a16406a9ddb300ab0ae246"
+    }
+  ]
+}

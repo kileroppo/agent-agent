@@ -1871,6 +1871,46 @@ button:disabled {
   color: var(--mint-deep);
 }
 
+.billing-date-filter {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin: -6px 0 20px;
+}
+
+.billing-date-fields,
+.billing-date-presets,
+.billing-alert-actions,
+.billing-profile-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.billing-date-fields label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.billing-date-fields input {
+  min-height: 40px;
+  padding: 0 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-small);
+  background: var(--surface);
+  color: var(--ink-soft);
+  font: 600 11px/1 var(--mono);
+}
+
+#billing-date-message {
+  min-width: 48px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .billing-cost-health {
   margin-bottom: 12px;
 }
@@ -1888,6 +1928,12 @@ button:disabled {
 .billing-attribution strong {
   flex: none;
   font-size: 12px;
+}
+
+.billing-cost-health > div:first-child,
+.billing-attribution > div:first-child {
+  display: grid;
+  gap: 3px;
 }
 
 .billing-cost-health span,
@@ -1969,6 +2015,11 @@ button:disabled {
 .billing-profile-row > b,
 .billing-entry-row > b {
   flex: none;
+  color: var(--ink-soft);
+  font: 700 11px/1.4 var(--mono);
+}
+
+.billing-profile-actions b {
   color: var(--ink-soft);
   font: 700 11px/1.4 var(--mono);
 }
@@ -4202,6 +4253,16 @@ textarea:focus {
     align-items: flex-start;
     flex-direction: column;
     gap: 7px;
+  }
+
+  .billing-date-filter,
+  .billing-date-fields {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .billing-date-presets {
+    flex-wrap: wrap;
   }
 
   .billing-toolbar .record-query-tools {

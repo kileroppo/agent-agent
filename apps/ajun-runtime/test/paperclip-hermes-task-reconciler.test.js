@@ -52,6 +52,9 @@ test('Paperclip 已阻塞且没有本地产物时如实记为失败', async () =
   assert.equal(fixture.task.status, 'failed');
   assert.equal(fixture.task.currentStage, 'paperclip_hermes_failed');
   assert.equal(fixture.task.error.code, 'paperclip_hermes_failed');
+  assert.equal(fixture.task.error.category, 'configuration');
+  assert.equal(fixture.task.error.retryable, true);
+  assert.match(fixture.task.error.userMessage, /401/);
 });
 
 test('视频分析的 Hermes 外层失败时只接受本机证据化报告兜底', async () => {

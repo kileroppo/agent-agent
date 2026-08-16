@@ -23,6 +23,10 @@ const PRESENTATION: any = Object.freeze({
         headline: '任务已暂停',
         impact: '确认继续前，任务不会开始新的处理步骤。',
     },
+    approved_not_started: {
+        headline: '已批准，但没有开始',
+        impact: '目前还没有生成素材或拆解报告；继续处理也不会自动发布。',
+    },
 });
 export function presentTaskAttention(task: any = {}, { pendingApproval = false, recoveryView = null }: any = {}): any {
     const kind: any = attentionKind(task, pendingApproval);
@@ -71,6 +75,11 @@ export function currentEmployeeReport(task: any = {}): any {
         && failureText(artifact?.data?.summary, 800)) || reversed.find((artifact: any): any => failureText(artifact?.data?.summary, 800)) || null;
 }
 function attentionKind(task: any, pendingApproval: any): any {
+    if (task?.taskType === 'army.cross-agent-mission'
+        && task?.status === 'queued'
+        && task?.currentStage === 'approval_approved'
+        && !task?.artifactRefs?.some((item: any): any => item?.type === 'cross_agent_mission_plan'))
+        return 'approved_not_started';
     if (pendingApproval || ['pending_approval', 'waiting_approval'].includes(task?.status))
         return 'waiting_approval';
     return Object.hasOwn(PRESENTATION, task?.status) ? task.status : null;
@@ -102,6 +111,7 @@ function safeNextAction(kind: any, userMessage: any, hasReportSummary: any, retr
         waiting_test: '请查看已有结果和验证缺口，再决定是否采用。',
         waiting_approval: '请核对范围并完成确认。',
         paused: '如需继续，请确认恢复任务。',
+        approved_not_started: '点击“继续处理”，系统会从已批准的规划阶段继续；不会重复审批，也不会自动发布。',
     }) as any)[kind] || '请查看任务详情。';
 }
 function retryAction(retryable: any): any {
@@ -118,6 +128,7 @@ function fallbackCause(kind: any): any {
         waiting_test: '本轮自动验证尚未完成。',
         waiting_approval: '任务正在等待确认。',
         paused: '任务已经暂停。',
+        approved_not_started: '你已经确认处理范围，但执行器没有接手，任务停在规划开始前。',
     }) as any)[kind];
 }
 function validIso(value: any): any {

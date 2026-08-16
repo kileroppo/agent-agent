@@ -14,6 +14,20 @@ test('工作使用记录只汇总实际报告的本机调用，不虚构模型�
   assert.equal(usage.cost.status, 'not_reported');
 });
 
+test('工作使用汇总按起止时间排除范围外任务', () => {
+  const task = (taskId, recordedAt) => ({
+    taskId,
+    usage:{ schemaVersion:'agent.army/task-usage/v1', recordedAt, model:{ status:'reported', apiCalls:1 } },
+  });
+  const summary = summarizeTaskUsage([
+    task('before', '2026-08-15T23:59:59.000Z'),
+    task('inside', '2026-08-16T08:00:00.000Z'),
+    task('after', '2026-08-17T00:00:00.000Z'),
+  ], { since:new Date('2026-08-16T00:00:00.000Z'), until:new Date('2026-08-17T00:00:00.000Z') });
+  assert.equal(summary.taskCount, 1);
+  assert.equal(summary.model.apiCalls, 1);
+});
+
 test('只有执行方实际返回的模型和费用数据才允许进入汇总', () => {
   const tracked = recordTaskUsage({
     result:{ status:'succeeded', execution:{ executor:'worker' }, usage:{ model:{ provider:'local', model:'demo', inputTokens:12, outputTokens:8, apiCalls:1, cost:{ amount:0.02, currency:'USD' } }, tools:[{ id:'worker-api', name:'本机工作接口', calls:2 }] } },
@@ -28,6 +42,36 @@ test('只有执行方实际返回的模型和费用数据才允许进入汇总',
   assert.equal(summary.model.outputTokens, 8);
   assert.deepEqual(summary.cost.totals, [{ currency:'USD', amount:0.02 }]);
   assert.equal(tracked.cost.basis, 'task_usage_reported');
+});
+
+test('任务用量保留缓存、推理、重试和凭据别名，且不保存真实密钥', () => {
+  const usage = recordTaskUsage({
+    task:{ taskId:'task-token-control', assigneeAgentId:'ajun' },
+    result:{
+      status:'succeeded',
+      usage:{ model:{
+        provider:'stepfun', model:'step-3.7-flash', apiCalls:2,
+        inputTokens:100, outputTokens:20, cachedInputTokens:70, cacheWriteTokens:10,
+        reasoningTokens:5, providerAttempts:3, rateLimitRejections:1,
+        credentialAlias:'ajun-stepfun-primary', requestClass:'interactive', purpose:'用户任务分析',
+        apiKey:'never-store-this-secret',
+      } },
+    },
+    finishedAt:new Date('2026-08-16T08:00:00.000Z'),
+  });
+  const summary = summarizeTaskUsage([{ taskId:'task-token-control', usage }]);
+
+  assert.deepEqual(usage.model, {
+    status:'reported', provider:'stepfun', model:'step-3.7-flash',
+    inputTokens:100, outputTokens:20, cacheReadTokens:70, cacheWriteTokens:10,
+    reasoningTokens:5, apiCalls:2, providerAttempts:3, rateLimitRejections:1,
+    credentialAlias:'ajun-stepfun-primary', requestClass:'interactive', purpose:'用户任务分析',
+  });
+  assert.equal(summary.model.totalTokens, 200);
+  assert.equal(summary.model.providerAttempts, 3);
+  assert.equal(summary.model.rateLimitRejections, 1);
+  assert.equal(JSON.stringify(usage).includes('never-store-this-secret'), false);
+  assert.equal('apiKey' in usage.model, false);
 });
 
 test('Hermes 估算费用保留估算依据，只有 apiCalls 也不会漏报模型调用', () => {
@@ -149,4 +193,46 @@ test('账单同时统计输入上下文归属、记忆写入、历史检索和�
   assert.equal(billing.efficiency.sessionSearchCount, 3);
   assert.equal(billing.efficiency.budgetStopCount, 1);
   assert.equal(billing.efficiency.toolCountCoverage, 'task_usage_only');
+});
+
+test('账单明确声明只覆盖受管 Hermes，未核 Provider 总账时不能断言账号总量', () => {
+  const billing = reconcileUsageBilling([], {
+    status:'ready',
+    totals:{ entryCount:0, sessionCount:0, apiCalls:0, tokens:{ input:0, output:0, cacheRead:0, cacheWrite:0, reasoning:0, total:0 } },
+    entries:[],
+  });
+
+  assert.deepEqual(billing.coverage, {
+    scope:'managed_hermes_profiles',
+    providerAccountIncluded:false,
+    externalClientsIncluded:false,
+    canAssertAccountTotal:false,
+    taskModelRecordsComplete:true,
+    credentialAliasesComplete:true,
+  });
+  assert.equal(billing.providerReconciliation.status, 'not_configured');
+  assert.equal(billing.providerReconciliation.providerApiCalls, null);
+});
+
+test('回填 Provider 总量后计算账外调用差额，不把差额伪装成已归属流水', () => {
+  const billing = reconcileUsageBilling([], {
+    status:'ready',
+    totals:{ entryCount:0, sessionCount:0, apiCalls:0, tokens:{ input:0, output:0, cacheRead:0, cacheWrite:0, reasoning:0, total:0 } },
+    entries:[],
+  }, {
+    providerSnapshot:{
+      status:'ready', provider:'stepfun', source:'provider_console', observedAt:'2026-08-16T12:00:00Z',
+      totals:{ apiCalls:827, tokens:{ total:27_781_756 } },
+    },
+  });
+
+  assert.equal(billing.entries.length, 0);
+  assert.deepEqual(billing.providerReconciliation, {
+    status:'gap', provider:'stepfun', source:'provider_console', observedAt:'2026-08-16T12:00:00.000Z',
+    managedApiCalls:0, providerApiCalls:827, apiCallDifference:827, untrackedApiCalls:827,
+    managedTokens:0, providerTokens:27_781_756, tokenDifference:27_781_756, untrackedTokens:27_781_756,
+  });
+  assert.equal(billing.coverage.providerAccountIncluded, true);
+  assert.equal(billing.coverage.externalClientsIncluded, true);
+  assert.equal(billing.coverage.canAssertAccountTotal, false);
 });

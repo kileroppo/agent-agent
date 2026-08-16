@@ -26,6 +26,7 @@ import { routeBoomMonitorApi } from './boom-monitor/index.ts';
 import { isPaperclipHttpError, routePaperclipHttp } from './runtime-http-paperclip.ts';
 import { routeProductMaturityApi } from './runtime-http-product-maturity.ts';
 import { bearerToken, isBoomLegacyIntegrationAuthorized, isBoomLegacyIntegrationPath } from './runtime-http-boom-legacy.ts';
+import { parseUsageRange } from './task-overview.ts';
 export { isBoomLegacyIntegrationAuthorized, isBoomLegacyIntegrationPath } from './runtime-http-boom-legacy.ts';
 const MAX_JSON_BODY_BYTES: any = 1024 * 1024;
 const OWNER_ACTION_NONCE_TTL_MS: any = 10 * 60 * 1000;
@@ -98,7 +99,7 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
             });
             if (productMaturityResult)
                 return sendJson(response, productMaturityResult.status, productMaturityResult.payload);
-            const recoveryRequestMatch: any = request.url?.match(/^\/api\/tasks\/([0-9a-f-]+)\/recovery-actions\/(use_confirmed_transcript_only|request_safe_recovery|request_read_only_diagnosis|retry_visual_analysis_after_recovery)$/i);
+            const recoveryRequestMatch: any = request.url?.match(/^\/api\/tasks\/([0-9a-f-]+)\/recovery-actions\/(resume_approved_mission|use_confirmed_transcript_only|request_safe_recovery|request_read_only_diagnosis|retry_visual_analysis_after_recovery)$/i);
             if (request.method === 'POST' && recoveryRequestMatch) {
                 if (!isLocalAddress(request.socket.remoteAddress))
                     return sendJson(response, 403, { error: '任务恢复只能由老板在本机发起。' });
@@ -137,6 +138,9 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 return sendJson(response, 200, await tasks.overview());
             if (request.method === 'GET' && request.url === '/api/console-overview')
                 return sendJson(response, 200, await tasks.consoleOverview());
+            const usageUrl: any = request.method === 'GET' && request.url?.startsWith('/api/usage') ? new URL(request.url, 'http://127.0.0.1') : null;
+            if (usageUrl?.pathname === '/api/usage')
+                return sendJson(response, 200, await tasks.usageOverview(parseUsageRange(usageUrl)));
             const taskRecordUrl: any = request.method === 'GET' && request.url?.startsWith('/api/task-records')
                 ? new URL(request.url, 'http://127.0.0.1')
                 : null;

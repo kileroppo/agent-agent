@@ -61,7 +61,11 @@ export function presentTaskTimelineEvent(event: any, { audience = 'lan' }: any =
     const eventType: any = cleanText(event.eventType, 80);
     if (!eventType)
         return null;
-    const [defaultTitle, defaultSummary, defaultTone] = EVENT_PRESENTATION[eventType]
+    const eventPresentation: any = eventType === 'workflow_blocked'
+        && ['pending_approval', 'waiting_approval'].includes(cleanText(event.status, 40))
+        ? ['当时等待确认', '这一步当时暂停等待确认；确认完成后应自动继续。', 'warning']
+        : EVENT_PRESENTATION[eventType];
+    const [defaultTitle, defaultSummary, defaultTone] = eventPresentation
         || ['运行状态更新', '任务运行状态已经更新。', 'active'];
     const qualityStatus: any = cleanText(event.qualityResult?.status || event.qualityStatus, 40);
     const status: any = cleanText(event.status || qualityStatus, 40);

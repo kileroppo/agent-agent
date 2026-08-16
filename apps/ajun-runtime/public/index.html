@@ -194,7 +194,7 @@
               <span><strong>连接账号</strong><small>新增、续期或恢复登录</small></span>
               <svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg>
             </summary>
-            <form id="access-login-form" class="access-login-panel">
+            <form id="access-login-form" class="access-login-panel" data-refresh-protected>
               <ol class="auth-progress" aria-label="授权步骤">
                 <li class="is-active" data-access-step-indicator="1"><span>1</span>登录</li>
                 <li data-access-step-indicator="2"><span>2</span>账号</li>
@@ -345,7 +345,20 @@
             <a href="#billing" data-context-page="billing">用量诊断</a>
           </nav>
         </div>
-        <div id="billing-stats" class="stat-grid" aria-label="最近七天 AI 成本概览"></div>
+        <form id="billing-date-filter" class="billing-date-filter">
+          <div class="billing-date-fields">
+            <label>开始日期<input id="billing-date-from" type="date" required></label>
+            <span>至</span>
+            <label>结束日期<input id="billing-date-to" type="date" required></label>
+            <button type="submit" class="secondary-action">查询</button>
+          </div>
+          <div class="billing-date-presets" aria-label="常用日期范围">
+            <button type="button" class="text-action" data-billing-range-days="1">今天</button>
+            <button type="button" class="text-action" data-billing-range-days="7">近 7 天</button>
+            <span id="billing-date-message" aria-live="polite"></span>
+          </div>
+        </form>
+        <div id="billing-stats" class="stat-grid" aria-label="所选日期范围 AI 成本概览"></div>
         <div id="billing-cost-health" class="billing-cost-health" role="status"></div>
         <div id="billing-attribution" class="billing-attribution"></div>
         <section class="surface-section billing-section" aria-labelledby="billing-profile-title">
@@ -365,6 +378,7 @@
               <button type="button" class="record-view-tab" data-billing-view="agent_session" aria-pressed="false">Agent 会话</button>
               <button type="button" class="record-view-tab" data-billing-view="system" aria-pressed="false">系统</button>
               <button type="button" class="record-view-tab" data-billing-view="unattributed" aria-pressed="false">未识别</button>
+              <button type="button" class="record-view-tab" data-billing-view="unknown_cost" aria-pressed="false">费用未知</button>
             </div>
             <div class="record-query-tools">
               <label class="task-search"><span class="visually-hidden">搜索消费流水</span><input id="billing-search" type="search" autocomplete="off" placeholder="搜索模型或任务"></label>
