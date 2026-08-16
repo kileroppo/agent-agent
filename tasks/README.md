@@ -15,6 +15,7 @@
 | [M5 高权限内容自治](./prd-m5-high-autonomy-content-operations.md) | Paperclip 内容流水线、StepFun/媒体工具、确定性发布、指标与受控学习闭环 | 深层 Module 源码已随 `main@8d69073` 进入 A君 live；Paperclip 资源仍15/17/5，Campaign、Cron、Publisher关闭。本轮无真实Provider调用或发布 |
 | [小办演示文稿能力](./prd-office-presentation-capability.md) | `office.presentation-package`、PPTD 自包含交付和受控本地 PPTX 导出 | PPTD/PPTX/逐页 QA、WPS 固定样例与不可变运行时验收通过；待真实任务验收 |
 | [本地 AI 能力治理与插件运行时](./prd-local-ai-capability-control.md) | Mac/4070 能力路由、资源互斥、项目外插件安装、迁移与回滚 | Mac 运行时已迁到项目外并通过真实 smoke；4070 保持可选增强节点 |
+| [A君自助版本发布](./prd-self-service-runtime-release.md) | 本机负责人检查、发布和回滚 A君不可变版本 | 实施中：固定服务、完整验证、自动回滚和本机 owner 门禁 |
 
 M2 已用小红书完成“从零登录 → 命名连接 → 真实读取 → 飞书交付 → 撤销 → 获取前拒绝 → 重新授权 → 再次交付”的登录型平台闭环。A君现已提供白名单平台登录、刷新账号、续期、暂时禁用和撤销入口，真实连接完成禁用与同 ID 续期恢复。当前单用户、本机回环阶段由负责人接受来源链接敏感参数的已知风险，该项不阻塞 M2；CookieBridge 仍只是 A君内部连接器，不是万能登录器。
 
