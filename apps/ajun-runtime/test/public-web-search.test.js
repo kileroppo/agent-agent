@@ -33,6 +33,22 @@ test('Bing ck 跳转链接会还原真实公开来源，不把跳转占位页当
   assert.deepEqual(result.results, [{ url:target, title:'义乌天气' }]);
 });
 
+test('中文天气查询优先使用 360 的真实目标链接，避免区域错误的搜索结果', async () => {
+  const calls = [];
+  const search = new PublicWebSearch({ fetchImpl:async (url) => {
+    calls.push(url);
+    return new Response(`<a href="https://www.so.com/link?m=opaque" data-mdurl="https://www.weather.com.cn/weather/101210101.shtml" data-res='{"pos":1}'>杭州7天天气预报</a>`, { status:200 });
+  } });
+  const result = await search.search({ query:'杭州 天气 中国天气网', limit:1 });
+  assert.equal(result.provider, 'so');
+  assert.deepEqual(result.results, [{
+    url:'https://www.weather.com.cn/weather/101210101.shtml',
+    title:'杭州7天天气预报',
+  }]);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0], /^https:\/\/www\.so\.com\/s\?q=/);
+});
+
 test('公开搜索失败或没有结果时不返回编造链接', async () => {
   const unavailable = new PublicWebSearch({ fetchImpl:async () => { throw new Error('offline'); } });
   await assert.rejects(() => unavailable.search({ query:'测试' }), PublicWebSearchError);

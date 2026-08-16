@@ -74,6 +74,9 @@ export class OpenResearchSourceAcquisition {
     async discover(topic: any, roleToolContext: any = null): Promise<any> {
         const queryPlan: any = researchQueryPlan(topic);
         const baseQuery: any = queryPlan[0].query;
+        const resultsPerLane: any = weatherResearchContext(topic)
+            ? MAX_RESEARCH_SOURCES
+            : DISCOVERY_RESULTS_PER_LANE;
         const failures: any[] = [];
         let searchCalls: any = 0;
         const candidates: any = new Map();
@@ -89,11 +92,11 @@ export class OpenResearchSourceAcquisition {
                             toolId: 'content.public.search',
                             externalSideEffect: 'network-read',
                             url: 'https://html.duckduckgo.com/html/',
-                            input: { query: lane.query, limit: DISCOVERY_RESULTS_PER_LANE },
+                            input: { query: lane.query, limit: resultsPerLane },
                         })
                         : await this.publicWebSearch.search({
                             query: lane.query,
-                            limit: DISCOVERY_RESULTS_PER_LANE,
+                            limit: resultsPerLane,
                         });
                     attempts.push({ lane, search });
                 }
@@ -108,7 +111,8 @@ export class OpenResearchSourceAcquisition {
                 }
                 completedLaneIds.push(attempt.lane.id);
                 const results: any = (Array.isArray(attempt.search?.results) ? attempt.search.results : [])
-                    .filter((item: any): any => discoveryResultRelevant(topic, item));
+                    .filter((item: any): any => discoveryResultRelevant(topic, item))
+                    .sort((left: any, right: any): any => discoveryResultPriority(topic, right) - discoveryResultPriority(topic, left));
                 if (results.some((item: any): any => publicSourceUrl(item?.url))) {
                     resultLaneIds.push(attempt.lane.id);
                 }
@@ -116,17 +120,20 @@ export class OpenResearchSourceAcquisition {
                     const url: any = publicSourceUrl(result?.url);
                     if (!url)
                         continue;
-                    const current: any = candidates.get(url) || {
+                    const identity: any = sourceIdentity(url);
+                    const current: any = candidates.get(identity) || {
                         url,
                         title: String(result?.title || '').trim().slice(0, 300) || null,
                         laneIds: new Set(),
                         queries: new Set(),
                         ranks: [],
                     };
+                    if (String(current.url).startsWith('http:') && url.startsWith('https:'))
+                        current.url = url;
                     current.laneIds.add(attempt.lane.id);
                     current.queries.add(attempt.lane.query);
                     current.ranks.push(rank + 1);
-                    candidates.set(url, current);
+                    candidates.set(identity, current);
                 }
             }
             if (candidates.size) {
@@ -354,8 +361,8 @@ function researchQueryPlan(topic: any): any {
     if (weather) {
         return [
             ['baseline', '天气基线', '读取目标城市的七天天气预报', `${weather.location} 7天天气预报`],
-            ['primary', '中国天气网', '优先读取中国天气网的目标城市预报', `${weather.location} 天气 中国天气网`],
-            ['counterevidence', '中央气象台', '用中央气象台城市预报交叉核对', `${weather.location} 天气 中央气象台`],
+            ['primary', '中国天气网', '优先读取中国天气网的目标城市预报', `site:weather.com.cn ${weather.location} 天气`],
+            ['counterevidence', '中央气象台', '用中央气象台城市预报交叉核对', `site:nmc.cn ${weather.location} 天气`],
         ].map(([id, label, purpose, query]: any): any => ({
             id,
             label,
@@ -399,19 +406,19 @@ function selectDiverseCandidates(candidates: any): any {
     const selected: any[] = [];
     const selectedUrls: any = new Set();
     for (const laneId of DISCOVERY_LANE_SELECTION_PRIORITY) {
-        const candidate: any = pool.find((item: any): any => item.laneIds.has(laneId) && !selectedUrls.has(item.url));
+        const candidate: any = pool.find((item: any): any => item.laneIds.has(laneId) && !selectedUrls.has(sourceIdentity(item.url)));
         if (!candidate)
             continue;
         selected.push(materializeCandidate(candidate, laneId));
-        selectedUrls.add(candidate.url);
+        selectedUrls.add(sourceIdentity(candidate.url));
         if (selected.length >= MAX_RESEARCH_SOURCES)
             return selected;
     }
     for (const candidate of pool) {
-        if (selectedUrls.has(candidate.url))
+        if (selectedUrls.has(sourceIdentity(candidate.url)))
             continue;
         selected.push(materializeCandidate(candidate, [...candidate.laneIds][0] || 'baseline'));
-        selectedUrls.add(candidate.url);
+        selectedUrls.add(sourceIdentity(candidate.url));
         if (selected.length >= MAX_RESEARCH_SOURCES)
             break;
     }
@@ -450,6 +457,17 @@ function publicSourceUrl(value: any): any {
         return null;
     }
 }
+function sourceIdentity(value: any): any {
+    try {
+        const parsed: any = new URL(String(value || ''));
+        parsed.hash = '';
+        parsed.protocol = 'https:';
+        return parsed.toString();
+    }
+    catch {
+        return String(value || '');
+    }
+}
 function validTimestamp(value: any): any {
     const timestamp: any = String(value || '').trim();
     return Number.isFinite(Date.parse(timestamp)) ? new Date(timestamp).toISOString() : null;
@@ -479,6 +497,26 @@ function discoveryResultRelevant(topic: any, result: any): any {
     return Boolean(location
         && title.includes(location)
         && /天气|气温|预报|降雨|降水/u.test(title));
+}
+function discoveryResultPriority(topic: any, result: any): any {
+    if (!weatherResearchContext(topic))
+        return 0;
+    try {
+        const url: any = new URL(String(result?.url || ''));
+        const host: any = url.hostname.toLowerCase();
+        if (host === 'www.weather.com.cn' && /^\/weather\/\d+\.shtml$/i.test(url.pathname))
+            return 100;
+        if (host === 'www.nmc.cn' && /^\/publish\/forecast\//i.test(url.pathname))
+            return 100;
+        if (host.endsWith('.weather.com.cn') || host === 'weather.com.cn')
+            return 80;
+        if (host.endsWith('.nmc.cn') || host === 'nmc.cn')
+            return 80;
+        return 10;
+    }
+    catch {
+        return 0;
+    }
 }
 function sourcePageRelevant(topic: any, page: any, candidate: any): any {
     const weather: any = weatherResearchContext(topic);
@@ -521,8 +559,13 @@ function summarize(text: any, topic: any = ''): any {
     if (weather) {
         const location: any = weather.location.replace(/[市县区]$/u, '');
         const index: any = compact.indexOf(location);
-        if (index >= 0) {
-            return compact.slice(Math.max(0, index - 120), index + 1_200).slice(0, 900)
+        const markerIndexes: any[] = [
+            compact.search(/\d{1,2}日（今天）/u),
+            compact.search(/发布时间[:：]\s*\d{2}-\d{2}\s+\d{2}:\d{2}/u),
+        ].filter((value: any): any => value >= 0);
+        const anchor: any = markerIndexes[0] ?? index;
+        if (anchor >= 0) {
+            return compact.slice(Math.max(0, anchor - 220), anchor + 1_200).slice(0, 900)
                 || '公开网页没有可用正文。';
         }
     }

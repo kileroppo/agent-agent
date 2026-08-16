@@ -1,7 +1,9 @@
 const SEARCH_PROVIDERS: any[] = [
+    { id: 'so', endpoint: 'https://www.so.com/s', query: (query: any): any => `?q=${encodeURIComponent(query)}`, extract: extractSoResults, weatherOnly: true },
     { id: 'duckduckgo', endpoint: 'https://html.duckduckgo.com/html/', query: (query: any): any => `?q=${encodeURIComponent(query)}`, extract: extractDuckDuckGoResults },
     { id: 'bing', endpoint: 'https://www.bing.com/search', query: (query: any): any => `?q=${encodeURIComponent(query)}`, extract: extractBingResults }
 ];
+const WEATHER_QUERY: any = /天气|气温|预报|降雨|降水/u;
 export class PublicWebSearch {
     fetch: any;
     constructor({ fetchImpl = fetch }: any = {}) { this.fetch = fetchImpl; }
@@ -12,6 +14,8 @@ export class PublicWebSearch {
         const count: any = Math.min(Math.max(Number(limit) || 3, 1), 5);
         let reachableProvider: any = false;
         for (const provider of SEARCH_PROVIDERS) {
+            if (provider.weatherOnly && !WEATHER_QUERY.test(normalized))
+                continue;
             try {
                 const response: any = await this.fetch(`${provider.endpoint}${provider.query(normalized)}`, { headers: { accept: 'text/html' }, signal: AbortSignal.timeout(8000), timeoutMs: 8000 });
                 if (!response.ok)
@@ -37,6 +41,9 @@ export class PublicWebSearchError extends Error {
 }
 function extractDuckDuckGoResults(html: any, limit: any): any {
     return extractAnchors(String(html || '').matchAll(/<a\b(?=[^>]*\bclass=["'][^"']*\bresult__a\b[^"']*["'])[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi), limit, 'https://html.duckduckgo.com/html/');
+}
+function extractSoResults(html: any, limit: any): any {
+    return extractAnchors(String(html || '').matchAll(/<a\b(?=[^>]*\bdata-res=(?:"[^"]*"|'[^']*'))(?=[^>]*\bdata-mdurl=["']([^"']+)["'])[^>]*>([\s\S]*?)<\/a>/gi), limit, 'https://www.so.com/s');
 }
 function extractBingResults(html: any, limit: any): any {
     const anchors: any[] = [];

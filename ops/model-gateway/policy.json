@@ -9,10 +9,10 @@
     "architect": { "maxBudgetUsd": 0.15, "rpm": 30, "tpm": 1000000, "maxParallel": 2 },
     "content-creator": { "maxBudgetUsd": 0.10, "rpm": 30, "tpm": 1000000, "maxParallel": 2 },
     "creator": { "maxBudgetUsd": 0.15, "rpm": 30, "tpm": 1000000, "maxParallel": 2 },
-    "intel-researcher": { "maxBudgetUsd": 0.10, "rpm": 30, "tpm": 1000000, "maxParallel": 2 },
+    "intel-researcher": { "maxBudgetUsd": 0.25, "rpm": 30, "tpm": 1000000, "maxParallel": 2 },
     "office-assistant": { "maxBudgetUsd": 0.05, "rpm": 30, "tpm": 1000000, "maxParallel": 2 },
     "operator": { "maxBudgetUsd": 0.10, "rpm": 30, "tpm": 1000000, "maxParallel": 2 },
-    "reviewer": { "maxBudgetUsd": 0.10, "rpm": 30, "tpm": 1000000, "maxParallel": 2 },
+    "reviewer": { "maxBudgetUsd": 0.25, "rpm": 30, "tpm": 1000000, "maxParallel": 2 },
     "technical-expert": { "maxBudgetUsd": 0.10, "rpm": 30, "tpm": 1000000, "maxParallel": 2 },
     "video-content-analyst": { "maxBudgetUsd": 0.10, "rpm": 30, "tpm": 1000000, "maxParallel": 2 },
     "xiaod": { "maxBudgetUsd": 0.10, "rpm": 30, "tpm": 1000000, "maxParallel": 2 }
