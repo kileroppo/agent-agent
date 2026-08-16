@@ -104,7 +104,7 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                     return sendJson(response, 403, { error: '版本管理只能由老板在本机操作。' });
                 if (!String(request.headers['content-type'] || '').toLowerCase().startsWith('application/json'))
                     return sendJson(response, 415, { error: '版本操作必须使用 application/json。' });
-                if (!hasSameOrigin(request))
+                if (!hasRuntimeReleaseConsoleProof(request))
                     return sendJson(response, 403, { error: '版本操作必须来自当前 A君 控制台。' });
                 if (!ownerActionSession.authorize(request.headers['x-ajun-owner-action']))
                     return sendJson(response, 403, { error: '本机动作会话无效或已过期，请重新打开版本管理。' });
@@ -703,6 +703,16 @@ function hasSameOrigin(request: any): any {
         return false;
     const scheme: any = request.socket.encrypted ? 'https' : 'http';
     return origin === `${scheme}://${host}`;
+}
+function hasRuntimeReleaseConsoleProof(request: any): any {
+    if (hasSameOrigin(request))
+        return true;
+    const consoleOrigin: any = String(request.headers['x-ajun-console-origin'] || '').trim();
+    const host: any = String(request.headers.host || '').trim();
+    if (!consoleOrigin || !host)
+        return false;
+    const scheme: any = request.socket.encrypted ? 'https' : 'http';
+    return consoleOrigin === `${scheme}://${host}`;
 }
 async function readJsonBody(request: any): Promise<any> {
     const chunks: any[] = [];

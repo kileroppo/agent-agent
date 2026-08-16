@@ -104,7 +104,11 @@ export function createRuntimeReleaseConsole({ root, api, confirmAction = window.
             throw new Error('暂时无法取得本机操作授权，请刷新后重试。');
         const payload = await api(`/api/runtime-release/${action}`, {
             method: 'POST',
-            headers: { 'content-type': 'application/json', 'X-Ajun-Owner-Action': nonce },
+            headers: {
+                'content-type': 'application/json',
+                'X-Ajun-Owner-Action': nonce,
+                'X-Ajun-Console-Origin': location.origin,
+            },
             body: JSON.stringify(body),
         });
         render(payload.status);

@@ -35,6 +35,7 @@ test('发布进度来自真实助手状态，没有伪造百分比', async () =>
 
   const script = await readFile(new URL('runtime-release-console.js', publicRoot), 'utf8');
   assert.match(script, /api\('\/api\/owner-action-session'\)/);
+  assert.match(script, /'X-Ajun-Console-Origin':\s*location\.origin/);
   assert.match(script, /publish_current_commit/);
   assert.match(script, /rollback_previous_release/);
   assert.match(script, /A君正在重启，等待重新连接/);

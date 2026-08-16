@@ -36,13 +36,36 @@ test('版本管理写操作只允许本机同源 owner 会话', async (context) 
   });
   assert.equal(denied.status, 403);
   const session = await (await fetch(`${fixture.baseUrl}/api/owner-action-session`)).json();
+  const spoofed = await fetch(`${fixture.baseUrl}/api/runtime-release/check`, {
+    method:'POST',
+    headers:{
+      'content-type':'application/json',
+      'x-ajun-owner-action':session.nonce,
+      'x-ajun-console-origin':'http://evil.example',
+    },
+    body:'{}',
+  });
+  assert.equal(spoofed.status, 403);
+  const webviewAccepted = await fetch(`${fixture.baseUrl}/api/runtime-release/check`, {
+    method:'POST',
+    headers:{
+      'content-type':'application/json',
+      'x-ajun-owner-action':session.nonce,
+      'x-ajun-console-origin':fixture.baseUrl,
+    },
+    body:'{}',
+  });
+  assert.equal(webviewAccepted.status, 202);
   const accepted = await fetch(`${fixture.baseUrl}/api/runtime-release/publish`, {
     method:'POST',
     headers:{ 'content-type':'application/json', origin:fixture.baseUrl, 'x-ajun-owner-action':session.nonce },
     body:JSON.stringify({ confirm:'publish_current_commit' }),
   });
   assert.equal(accepted.status, 202);
-  assert.deepEqual(calls, [['publish', { confirm:'publish_current_commit' }]]);
+  assert.deepEqual(calls, [
+    ['check', {}],
+    ['publish', { confirm:'publish_current_commit' }],
+  ]);
 });
 
 test('旧版爆款雷达容器只能用回滚凭据访问兼容入口', () => {
