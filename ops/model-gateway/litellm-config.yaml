@@ -44,7 +44,7 @@ litellm_settings:
     tpm_limit: 1000000
     max_parallel_requests: 2
   upperbound_key_generate_params:
-    max_budget: 0.25
+    max_budget: 0.50
     budget_duration: 1d
     rpm_limit: 60
     tpm_limit: 2000000

@@ -9,7 +9,7 @@ export const paperclipIssueMethods: Record<string, any> = {
         }
         try {
             await this.request(`/api/issues/${projection.paperclipIssueId}`, {
-                method: 'PATCH', body: { status: paperclipIssueStatusForTaskStatus(task.status), comment: `A君状态更新：${task.status}${task.currentStage ? ` / ${task.currentStage}` : ''}` }
+                method: 'PATCH', body: { status: paperclipIssueStatusForTaskStatus(task.status) }
             });
             return { ...projection, status: 'synced', syncedAt: new Date().toISOString() };
         }
@@ -45,13 +45,6 @@ export const paperclipIssueMethods: Record<string, any> = {
         return this.request(`/api/issues/${encodeURIComponent(issueId)}`, {
             method: 'PATCH', runId, apiKey, body: {
                 status: 'in_review',
-                comment: [
-                    '员工已提交可读产物，A君已启动独立质量复核。',
-                    `运行：${String(runId || 'unknown')}`,
-                    `阶段：${String(result?.currentStage || 'delivery_quality_review_pending')}`,
-                    ...(reviewTaskId ? [`复核任务：${String(reviewTaskId)}`] : []),
-                    '复核完成后将自动回写最终状态；当前无需重复唤醒原员工。',
-                ].join('\n'),
             },
         });
     },

@@ -845,6 +845,28 @@ test('任务等待补充信息或已过期时，Paperclip 不会继续显示为�
   }
 });
 
+test('A君自动状态投影不写 Paperclip 评论，避免把状态回写误当成新任务唤醒', async () => {
+  const requests = [];
+  const bridge = new PaperclipBridge({ fetchImpl:async (url, options = {}) => {
+    requests.push({ url, options });
+    return { ok:true, status:200, async json(){ return {}; } };
+  } });
+
+  await bridge.update({
+    taskType:'research.intel-report',
+    status:'succeeded',
+    currentStage:'delivery_quality_passed',
+    governance:{ paperclipIssueId:'issue-terminal-sync' },
+  });
+  await bridge.markPaperclipIssueReviewPending('issue-review-sync', {
+    result:{ currentStage:'delivery_quality_review_pending' },
+    reviewTaskId:'review-task-1',
+  });
+
+  assert.deepEqual(JSON.parse(requests[0].options.body), { status:'done' });
+  assert.deepEqual(JSON.parse(requests[1].options.body), { status:'in_review' });
+});
+
 test('Hermes heartbeat 回写沿用 Paperclip run 身份，不触发重复唤醒', async () => {
   const requests = [];
   const bridge = new PaperclipBridge({ fetchImpl:async (url, options = {}) => {
