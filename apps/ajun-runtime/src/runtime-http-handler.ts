@@ -631,6 +631,8 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 return sendFile(response, publicDir, 'app-interactions.js', 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && publicPath === '/stepfun-model-policy-console.js')
                 return sendFile(response, publicDir, 'stepfun-model-policy-console.js', 'text/javascript; charset=utf-8');
+            if (request.method === 'GET' && publicPath === '/runtime-release-console.js')
+                return sendFile(response, publicDir, 'runtime-release-console.js', 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && publicPath === '/refresh-scheduler.js')
                 return sendFile(response, publicDir, 'refresh-scheduler.js', 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && publicPath === '/boom-monitor-console.js')

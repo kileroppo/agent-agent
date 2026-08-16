@@ -8,6 +8,7 @@ import { startBrowserHotReload } from './hot-reload-client.js';
 import { taskStatusGroup } from './task-record-filter.js';
 import { createTaskRecordWorkbench } from './task-record-workbench.js';
 import { createStepFunModelPolicyConsole } from './stepfun-model-policy-console.js';
+import { createRuntimeReleaseConsole } from './runtime-release-console.js';
 import { canRefreshConsole } from './refresh-scheduler.js';
 const capabilityList = document.querySelector('#capability-list');
 const agentList = document.querySelector('#agent-list');
@@ -133,9 +134,10 @@ const directEmployeeTaskTypes = [
     'office.briefing-package',
     'office.presentation-package'
 ];
-const ownerOnlyModules = new Set(['connections', 'campaigns', 'billing', 'boom-monitor', 'tools']);
+const ownerOnlyModules = new Set(['connections', 'campaigns', 'billing', 'release', 'boom-monitor', 'tools']);
 let boomMonitor;
 let recordWorkbench;
+let runtimeReleaseConsole;
 const billingLedgerWorkbench = createBillingLedgerWorkbench({ agentName, formatDate, formatNumber, formatUsd, escapeHtml });
 function taskIdFromPath(pathname) {
     return pathname.match(/^\/tasks\/([0-9a-f-]{36})$/i)?.[1] || '';
@@ -232,7 +234,7 @@ function activateModule(name, { navigationGroup = '', replaceHash = false } = {}
         ? 'overview'
         : selected === 'records'
             ? 'records'
-            : ['employees', 'connections', 'billing'].includes(selected)
+            : ['employees', 'connections', 'billing', 'release'].includes(selected)
                 ? 'system'
                 : ['campaigns', 'boom-monitor'].includes(selected)
                     ? 'tools'
@@ -261,12 +263,16 @@ function activateModule(name, { navigationGroup = '', replaceHash = false } = {}
     document.title = `${moduleTitle(selected)} · A君运行台`;
     if (selected === 'boom-monitor')
         boomMonitor?.activate();
+    if (selected === 'release')
+        runtimeReleaseConsole?.activate();
+    else
+        runtimeReleaseConsole?.deactivate();
     recordWorkbench?.setActive(selected === 'records').catch((error) => setSyncStatus(error.message, 'error'));
     if (replaceHash && location.hash !== '#now')
         history.replaceState(null, '', '#now');
 }
 function moduleTitle(name) {
-    return { overview: '现在', employees: '员工', connections: '账号与接入', campaigns: '发布活动', billing: 'AI 成本账本', 'boom-monitor': '爆款雷达', records: '运行记录' }[name] || '现在';
+    return { overview: '现在', employees: '员工', connections: '账号与接入', campaigns: '发布活动', billing: 'AI 成本账本', release: '版本管理', 'boom-monitor': '爆款雷达', records: '运行记录' }[name] || '现在';
 }
 function render() {
     renderFocus(state.overview.taskFocus);
@@ -722,6 +728,10 @@ boomMonitor = createBoomMonitorConsole({
     api,
     escapeHtml,
     formatDate,
+});
+runtimeReleaseConsole = createRuntimeReleaseConsole({
+    root: document.querySelector('#module-release'),
+    api,
 });
 bindBillingDateControls();
 bindConsoleInteractions({
