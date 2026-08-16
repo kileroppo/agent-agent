@@ -271,6 +271,33 @@ test('启动恢复会重试复核中状态同步且不重复创建复核任务',
   assert.equal(syncAttempts, 2);
 });
 
+test('启动恢复会把自身失败的复核任务收口为可安全重跑', async () => {
+  const original = researchTask({
+    status:'running',
+    currentStage:'delivery_quality_review_pending',
+    deliveryQuality:{ reviewTaskRequest:{ taskType:'governance.assurance-review' } },
+    deliveryQualityRuntime:{ status:'review_pending', reviewTaskId:'review-failed-1' },
+  });
+  const failedReview = {
+    taskId:'review-failed-1', taskType:'governance.assurance-review', status:'failed',
+    error:{ userMessage:'复核执行器没有生成结论。' },
+  };
+  const state = fixture([original, failedReview]);
+  const reconciler = new DeliveryQualityReconciler({
+    store:state.store,
+    deliveryQuality:state.runtime,
+  });
+  const result = await reconciler.reconcile();
+  const stopped = state.tasks.get(original.taskId);
+  assert.equal(result.status, 'reconciled');
+  assert.equal(stopped.status, 'waiting_test');
+  assert.equal(stopped.currentStage, 'delivery_quality_review_failed');
+  assert.equal(stopped.deliveryQualityRuntime.status, 'review_failed');
+  assert.equal(stopped.error.code, 'delivery_quality_review_failed');
+  assert.equal(stopped.error.retryable, true);
+  assert.equal(state.created.length, 0);
+});
+
 test('运行事件写入失败时仍如实保存质量复核启动失败', async () => {
   const original = researchTask({
     status:'running',

@@ -205,6 +205,37 @@ export class DeliveryQualityRuntime {
     return this.stop(source, reviewTask, quality);
   }
 
+  async failReview(source: RuntimeTask, reviewTask: RuntimeTask) {
+    const now = new Date().toISOString();
+    const outcome = taskOutcomePolicy('delivery_quality_stopped');
+    const detail = String(reviewTask?.error?.userMessage
+      || reviewTask?.error?.message
+      || '独立质量复核任务没有生成可验证结论。').slice(0, 500);
+    const updated = await this.sync(await this.store.updateTask(source.taskId, {
+      status:outcome.taskStatus,
+      currentStage:'delivery_quality_review_failed',
+      deliveryQualityRuntime:{
+        ...(source.deliveryQualityRuntime || {}),
+        status:'review_failed',
+        reviewTaskId:reviewTask.taskId,
+        updatedAt:now,
+      },
+      execution:{ ...(source.execution || {}), outcome:outcome.executionOutcome, finishedAt:now },
+      error:{
+        code:'delivery_quality_review_failed',
+        message:detail,
+        userMessage:'业务产物已保留，但独立质量复核执行失败；原任务已停止并可安全重新运行。',
+        category:'retryable', stage:'delivery_quality', retryable:true, occurredAt:now,
+      },
+    }));
+    this.lifecycleEvents.recordPersisted(updated, { previousTask:source });
+    this.record(updated, 'quality_check_completed', 'waiting_test', {
+      errorCode:'delivery_quality_review_failed',
+      safeSummary:detail,
+    });
+    return updated;
+  }
+
   async accept(source: RuntimeTask, reviewTask: RuntimeTask, quality: QualityOutcome) {
     const now = new Date().toISOString();
     const outcome = taskOutcomePolicy('delivery_quality_passed');

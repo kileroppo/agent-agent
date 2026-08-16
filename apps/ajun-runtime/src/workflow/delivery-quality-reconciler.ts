@@ -1,7 +1,10 @@
 import { isHeldReadOnlyDiagnosis } from './delivery-quality-runtime.ts';
 type ReconcileTask = Record<string, any>;
 type ReconcileStore = { list(): Promise<ReconcileTask[]> };
-type QualityRuntime = { continue(task: ReconcileTask): Promise<ReconcileTask> };
+type QualityRuntime = {
+  continue(task: ReconcileTask): Promise<ReconcileTask>;
+  failReview?(task: ReconcileTask, reviewTask: ReconcileTask): Promise<ReconcileTask>;
+};
 
 /** Boot-time recovery for the persistence gap between quality hold and review creation. */
 export class DeliveryQualityReconciler {
@@ -43,12 +46,19 @@ export class DeliveryQualityReconciler {
 
   async reconcileOnce(): Promise<ReconcileResult> {
     const tasks = await this.store.list();
-    const pending = tasks.filter(isPendingQualityReview);
+    const taskById = new Map(tasks.map((task) => [String(task?.taskId || ''), task]));
+    const pending = tasks.filter((task) => isPendingQualityReview(task)
+      || Boolean(failedQualityReview(task, taskById)));
     const resumedTaskIds: string[] = [];
     const failedTaskIds: string[] = [];
     for (const task of pending) {
       try {
-        await this.deliveryQuality.continue(task);
+        const failedReview = failedQualityReview(task, taskById);
+        if (failedReview && this.deliveryQuality.failReview) {
+          await this.deliveryQuality.failReview(task, failedReview);
+        } else {
+          await this.deliveryQuality.continue(task);
+        }
         resumedTaskIds.push(task.taskId);
       } catch {
         failedTaskIds.push(task.taskId);
@@ -60,6 +70,15 @@ export class DeliveryQualityReconciler {
       failedTaskIds:Object.freeze(failedTaskIds),
     });
   }
+}
+
+function failedQualityReview(task: ReconcileTask, taskById: Map<string, ReconcileTask>) {
+  if (task?.status !== 'running' || task?.currentStage !== 'delivery_quality_review_pending') return null;
+  const reviewTaskId = String(task?.deliveryQualityRuntime?.reviewTaskId || '').trim();
+  const reviewTask = reviewTaskId ? taskById.get(reviewTaskId) : null;
+  return reviewTask && ['failed', 'cancelled', 'rejected', 'waiting_test'].includes(String(reviewTask.status || ''))
+    ? reviewTask
+    : null;
 }
 
 type ReconcileResult = Readonly<{
