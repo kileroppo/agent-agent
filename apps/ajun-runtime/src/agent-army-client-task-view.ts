@@ -55,7 +55,7 @@ function artifactView(artifact: any = {}): any {
     const validation: any = artifact.validation || {};
     const view: Record<string, any> = {
         type: safeText(artifact.type, 120),
-        ref: safeText(artifact.ref || artifact.url || artifact.location || artifact.data?.larkUrl, 1000) || null,
+        ref: safeText(artifact.ref || artifact.url || artifact.location || artifact.data?.larkUrl || artifact.artifactId, 1000) || null,
         verified: artifact.data?.larkPermissionGranted === true
             || artifact.verified === true
             || (validation.exists === true && validation.readable === true && validation.nonEmpty === true)
@@ -87,6 +87,15 @@ function artifactView(artifact: any = {}): any {
                 source: safeText(item?.source, 1000),
                 summary: relevantResearchExcerpt(item?.summary, topic, 900)
             }))
+        };
+    }
+    if (artifact.type === 'employee_role_report' && artifact.data) {
+        view.report = {
+            agentId: safeText(artifact.data.agentId, 80) || null,
+            reportedStatus: safeText(artifact.data.reportedStatus, 60),
+            summary: safeText(artifact.data.summary, 2000),
+            evidence: safeText(artifact.data.evidence, 2000),
+            remainingRisks: safeText(artifact.data.remainingRisks, 1200),
         };
     }
     if (artifact.type === 'office_briefing_package' && artifact.data) {
@@ -161,14 +170,19 @@ function artifactView(artifact: any = {}): any {
 function latestArtifactVersions(artifacts: any[]): any[] {
     const latestIndexById: any = new Map();
     artifacts.forEach((artifact: any, index: any): any => {
-        const artifactId: any = safeText(artifact?.artifactId, 200);
+        const artifactId: any = artifactVersionKey(artifact);
         if (artifactId)
             latestIndexById.set(artifactId, index);
     });
     return artifacts.filter((artifact: any, index: any): any => {
-        const artifactId: any = safeText(artifact?.artifactId, 200);
+        const artifactId: any = artifactVersionKey(artifact);
         return !artifactId || latestIndexById.get(artifactId) === index;
     });
+}
+function artifactVersionKey(artifact: any): any {
+    if (artifact?.type === 'employee_role_report' && safeText(artifact?.data?.agentId, 80))
+        return `employee_role_report:${safeText(artifact.data.agentId, 80)}`;
+    return safeText(artifact?.artifactId, 200);
 }
 function safeText(value: any, limit: any = 500): any {
     return String(value || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, limit);

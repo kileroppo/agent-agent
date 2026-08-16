@@ -350,6 +350,7 @@ test("内容方法升级由现有岗位承接，不新增任务真相或平台�
   assert.match(prompts.creator, /六项语义质量清单/u);
   assert.match(prompts.creator, /公众号/u);
   assert.match(prompts.reviewer, /证据.*账号声音.*平台原生.*视觉一致.*合规.*发布包完整/u);
+  assert.match(prompts.reviewer, /quality_review\.evidence_refs.*task_get\.artifacts\[\]\.ref/u);
   assert.match(prompts.office, /中位数.*P75/u);
   assert.match(prompts.office, /五条真实 72 小时/u);
 

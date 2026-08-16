@@ -1193,7 +1193,12 @@ test('task_get 只展示同一产物的最新版本，不让失败重试的旧�
           },
           {
             artifactId:'employee-role-report:run-1', type:'employee_role_report',
-            validation:{ exists:true, readable:true, nonEmpty:true }, data:{ summary:'历史回报' },
+            validation:{ exists:true, readable:true, nonEmpty:true }, data:{ agentId:'intel-researcher', summary:'历史回报' },
+          },
+          {
+            artifactId:'employee-role-report:run-2', type:'employee_role_report',
+            validation:{ exists:true, readable:true, nonEmpty:true },
+            data:{ agentId:'intel-researcher', reportedStatus:'succeeded', summary:'最新交付简报', evidence:'runtime://task/intel-research-report', remainingRisks:'天气会变化' },
           },
           {
             artifactId:'intel-research:task-1', type:'intel_research_report',
@@ -1215,9 +1220,12 @@ test('task_get 只展示同一产物的最新版本，不让失败重试的旧�
   }) });
 
   const task = await client.getTask('11111111-1111-1111-1111-111111111111');
-  assert.deepEqual(task.artifactHistory, { total:3, current:2, superseded:1 });
+  assert.deepEqual(task.artifactHistory, { total:4, current:2, superseded:2 });
   assert.equal(task.artifacts.length, 2);
   assert.equal(task.artifacts[1].report.conclusion, '最新结论');
+  assert.equal(task.artifacts[0].ref, 'employee-role-report:run-2');
+  assert.equal(task.artifacts[0].report.summary, '最新交付简报');
+  assert.equal(JSON.stringify(task).includes('历史回报'), false);
   assert.equal(JSON.stringify(task).includes('FedEx System Down'), false);
   assert.equal(JSON.stringify(task).includes('巴黎'), false);
   assert.match(task.artifacts[1].report.sources[0].summary, /^> 义乌 - 今天/);
