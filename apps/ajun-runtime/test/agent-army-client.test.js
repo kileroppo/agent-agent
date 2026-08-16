@@ -1179,6 +1179,40 @@ test('AgentArmyClient exposes sanitized business mission, research and office re
   assert.equal(JSON.stringify(task).includes('secret'), false);
 });
 
+test('task_get 只展示同一产物的最新版本，不让失败重试的旧来源污染复核', async () => {
+  const client = new AgentArmyClient({ fetchImpl:fakeFetch({
+    'GET /api/overview':{
+      ...overview,
+      tasks:[{
+        ...overview.tasks[0],
+        artifactRefs:[
+          {
+            artifactId:'intel-research:task-1', type:'intel_research_report',
+            validation:{ exists:true, readable:true, nonEmpty:true },
+            data:{ topic:'义乌天气', findings:['旧结果'], conclusion:'旧结论', sources:[{ title:'FedEx System Down', source:'https://irrelevant.example' }] },
+          },
+          {
+            artifactId:'employee-role-report:run-1', type:'employee_role_report',
+            validation:{ exists:true, readable:true, nonEmpty:true }, data:{ summary:'历史回报' },
+          },
+          {
+            artifactId:'intel-research:task-1', type:'intel_research_report',
+            validation:{ exists:true, readable:true, nonEmpty:true },
+            data:{ topic:'义乌天气', findings:['最新结果'], conclusion:'最新结论', sources:[{ title:'义䱌7天天气预报', source:'https://www.weather.com.cn/weather/101210904.shtml' }] },
+          },
+        ],
+      }],
+    },
+    'POST /api/feishu/task-status':{ terminal:false, message:'待复核。' },
+  }) });
+
+  const task = await client.getTask('11111111-1111-1111-1111-111111111111');
+  assert.deepEqual(task.artifactHistory, { total:3, current:2, superseded:1 });
+  assert.equal(task.artifacts.length, 2);
+  assert.equal(task.artifacts[1].report.conclusion, '最新结论');
+  assert.equal(JSON.stringify(task).includes('FedEx System Down'), false);
+});
+
 test('AgentArmyClient exposes a verified sanitized health report', async () => {
   const client = new AgentArmyClient({ fetchImpl:fakeFetch({
     'GET /api/overview':{

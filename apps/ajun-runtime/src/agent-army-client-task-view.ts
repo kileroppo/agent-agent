@@ -1,6 +1,8 @@
 import { presentTask } from './task-presentation.ts';
 export function agentArmyTaskView(task: any = {}, approvals: any = [], detailBaseUrl: any = ''): any {
     const taskApprovals: any = (approvals || []).filter((approval: any): any => (task.approvalRefs || []).includes(approval.approvalId));
+    const artifactRefs: any[] = Array.isArray(task.artifactRefs) ? task.artifactRefs : [];
+    const currentArtifactRefs: any[] = latestArtifactVersions(artifactRefs);
     return {
         taskId: task.taskId,
         title: safeText(task.input?.title, 500),
@@ -18,7 +20,12 @@ export function agentArmyTaskView(task: any = {}, approvals: any = [], detailBas
             retryable: task.error.retryable === true,
             userMessage: safeText(task.error.userMessage, 1000)
         } : null,
-        artifacts: (task.artifactRefs || []).map(artifactView),
+        artifacts: currentArtifactRefs.map(artifactView),
+        artifactHistory: {
+            total: artifactRefs.length,
+            current: currentArtifactRefs.length,
+            superseded: artifactRefs.length - currentArtifactRefs.length,
+        },
         presentation: presentTask(task, { approvals: taskApprovals, detailBaseUrl })
     };
 }
@@ -149,6 +156,18 @@ function artifactView(artifact: any = {}): any {
         };
     }
     return view;
+}
+function latestArtifactVersions(artifacts: any[]): any[] {
+    const latestIndexById: any = new Map();
+    artifacts.forEach((artifact: any, index: any): any => {
+        const artifactId: any = safeText(artifact?.artifactId, 200);
+        if (artifactId)
+            latestIndexById.set(artifactId, index);
+    });
+    return artifacts.filter((artifact: any, index: any): any => {
+        const artifactId: any = safeText(artifact?.artifactId, 200);
+        return !artifactId || latestIndexById.get(artifactId) === index;
+    });
 }
 function safeText(value: any, limit: any = 500): any {
     return String(value || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, limit);
