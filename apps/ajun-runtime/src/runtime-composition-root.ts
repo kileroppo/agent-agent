@@ -10,6 +10,7 @@ import { createLocalExecutionComposition } from './runtime/local-execution-compo
 import { createPaperclipSystemControlComposition } from './runtime/paperclip-system-control-composition.ts';
 import { createRoleExecutionComposition } from './runtime/role-execution-composition.ts';
 import { readProductMaturityRuntimeBoundary } from './runtime/product-maturity-runtime-boundary.ts';
+import { RuntimeReleaseClient } from './runtime-release-client.ts';
 import { createRuntimeConfiguration } from './runtime/runtime-configuration.ts';
 import { createRuntimeStateComposition } from './runtime/runtime-state-composition.ts';
 import { CapabilityAcceptanceBundle } from './workflow/capability-acceptance-bundle.ts';
@@ -171,6 +172,7 @@ export async function createRuntime({
       localAi:localExecution.localAi,
       feishu:feishuCommand.handler,
       m5:{ campaigns },
+      runtimeRelease:new RuntimeReleaseClient({ socketPath:environment.AJUN_RELEASE_HELPER_SOCKET }),
     });
     const server = http.createServer(handler);
     server.once('close', () => {

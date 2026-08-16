@@ -20,6 +20,31 @@ test('本机动作 nonce 只在进程内短期有效', () => {
   assert.notEqual(session.issue().nonce, issued.nonce);
 });
 
+test('版本管理写操作只允许本机同源 owner 会话', async (context) => {
+  const calls = [];
+  const runtimeRelease = {
+    async status() { return { state:'idle' }; },
+    async action(action, input) {
+      calls.push([action, input]);
+      return { accepted:true, duplicate:false, status:{ state:'checking' } };
+    },
+  };
+  const fixture = await startHandler(context, {}, {}, {}, runtimeRelease);
+  assert.deepEqual(await (await fetch(`${fixture.baseUrl}/api/runtime-release/status`)).json(), { status:{ state:'idle' } });
+  const denied = await fetch(`${fixture.baseUrl}/api/runtime-release/check`, {
+    method:'POST', headers:{ 'content-type':'application/json' }, body:'{}',
+  });
+  assert.equal(denied.status, 403);
+  const session = await (await fetch(`${fixture.baseUrl}/api/owner-action-session`)).json();
+  const accepted = await fetch(`${fixture.baseUrl}/api/runtime-release/publish`, {
+    method:'POST',
+    headers:{ 'content-type':'application/json', origin:fixture.baseUrl, 'x-ajun-owner-action':session.nonce },
+    body:JSON.stringify({ confirm:'publish_current_commit' }),
+  });
+  assert.equal(accepted.status, 202);
+  assert.deepEqual(calls, [['publish', { confirm:'publish_current_commit' }]]);
+});
+
 test('旧版爆款雷达容器只能用回滚凭据访问兼容入口', () => {
   const expectedToken = 'rollback-token-with-enough-entropy';
   assert.equal(isBoomLegacyIntegrationAuthorized({
@@ -465,7 +490,7 @@ test('产品成熟度批次透传接受资格，accepted 拒绝保持 409 且 re
   ]);
 });
 
-async function startHandler(context, paperclipOverrides = {}, workOverrides = {}, feishuOverrides = {}) {
+async function startHandler(context, paperclipOverrides = {}, workOverrides = {}, feishuOverrides = {}, runtimeRelease = undefined) {
   const handler = createAjunHttpHandler({
     environment:{},
     publicDir:new URL('../public', import.meta.url).pathname,
@@ -509,6 +534,7 @@ async function startHandler(context, paperclipOverrides = {}, workOverrides = {}
       ...feishuOverrides,
     },
     m5:{ campaigns:async () => unreachable() },
+    runtimeRelease,
   });
   const server = http.createServer(handler);
   await new Promise((resolve, reject) => {

@@ -30,7 +30,7 @@ import { parseUsageRange } from './task-overview.ts';
 export { isBoomLegacyIntegrationAuthorized, isBoomLegacyIntegrationPath } from './runtime-http-boom-legacy.ts';
 const MAX_JSON_BODY_BYTES: any = 1024 * 1024;
 const OWNER_ACTION_NONCE_TTL_MS: any = 10 * 60 * 1000;
-export function createAjunHttpHandler({ environment, publicDir, dataDir, detailBaseUrl, development = {}, network, paperclip, work, connections, localAi, feishu, m5, }: any): any {
+export function createAjunHttpHandler({ environment, publicDir, dataDir, detailBaseUrl, development = {}, network, paperclip, work, connections, localAi, feishu, m5, runtimeRelease, }: any): any {
     const { deploymentMode, lanEnabled, lanAccess, } = network;
     const { tasks, store, proposals, missions, macWorker, xiaod, boomMonitor, boomMonitorEnabled, taskTimeline, productMaturity, } = work;
     const { employeeFeishuConnections, employeeModelSetup, modelPolicy, accessConnections, publicWebFetch, } = connections;
@@ -90,6 +90,27 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 if (!isLocalAddress(request.socket.remoteAddress))
                     return sendJson(response, 403, { error: '本机动作会话只能由老板在这台设备上获取。' });
                 return sendJson(response, 200, ownerActionSession.issue());
+            }
+            if (request.method === 'GET' && request.url === '/api/runtime-release/status') {
+                if (!isLocalAddress(request.socket.remoteAddress))
+                    return sendJson(response, 403, { error: '版本管理只能由老板在本机查看。' });
+                if (!runtimeRelease)
+                    return sendJson(response, 503, { error: '发布助手尚未接入。' });
+                return sendJson(response, 200, { status:await runtimeRelease.status() });
+            }
+            const runtimeReleaseAction: any = request.url?.match(/^\/api\/runtime-release\/(check|publish|rollback)$/)?.[1];
+            if (request.method === 'POST' && runtimeReleaseAction) {
+                if (!isLocalAddress(request.socket.remoteAddress))
+                    return sendJson(response, 403, { error: '版本管理只能由老板在本机操作。' });
+                if (!String(request.headers['content-type'] || '').toLowerCase().startsWith('application/json'))
+                    return sendJson(response, 415, { error: '版本操作必须使用 application/json。' });
+                if (!hasSameOrigin(request))
+                    return sendJson(response, 403, { error: '版本操作必须来自当前 A君 控制台。' });
+                if (!ownerActionSession.authorize(request.headers['x-ajun-owner-action']))
+                    return sendJson(response, 403, { error: '本机动作会话无效或已过期，请重新打开版本管理。' });
+                if (!runtimeRelease)
+                    return sendJson(response, 503, { error: '发布助手尚未接入。' });
+                return sendJson(response, 202, await runtimeRelease.action(runtimeReleaseAction, await readJsonBody(request)));
             }
             const productMaturityResult: any = await routeProductMaturityApi({
                 request, service: productMaturity, local: isLocalAddress(request.socket.remoteAddress),
