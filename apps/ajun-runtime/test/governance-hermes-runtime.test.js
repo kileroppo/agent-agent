@@ -257,6 +257,17 @@ test('小创与审核官的 Profile、Manifest 和 Paperclip adapter 同时开�
   }
 });
 
+test('审核官交付复核只判断已声明标准，不把审批条件或等待复核状态当失败', () => {
+  const prompt = readFileSync(
+    new URL('../../../agents/reviewer/prompts/system.md', import.meta.url),
+    'utf8',
+  );
+  assert.match(prompt, /只逐项核对指派 `context\.criteria` 和 `context\.deliveryBrief\.acceptanceCriteria`/);
+  assert.match(prompt, /不得把审批审核里的预算、有效期、失败去向等额外条件新增为交付失败项/);
+  assert.match(prompt, /不能作为产物不完整的证据/);
+  assert.match(prompt, /不能增加指派未声明的通过条件/);
+});
+
 test('Paperclip Hermes 配置在 M5 任务类型或专用工具缺失时失败关闭', () => {
   const manifest = readJson(
     new URL('../../../agents/content-creator/manifest.json', import.meta.url),
