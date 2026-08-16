@@ -68,7 +68,7 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), local
         })
     }, async ({ task_id, chat_ref }: any): Promise<any> => {
         const task: any = await client.getTask(task_id, { chatRef: chat_ref });
-        assertReadableTask(task, scope);
+        await assertReadableTask(task, scope, client);
         return task;
     });
     action('task_create', {
@@ -400,6 +400,7 @@ export function scopeFromEnvironment(): any {
     const allowedTools: any = paperclipHeartbeat
         ? configuredTools.filter((name: any): any => [
             'paperclip_assignment_get',
+            'task_get',
             'agent_manual',
             'agent_proposal_create_execute',
             'technical_repair_execute',
@@ -472,10 +473,21 @@ function scopedTaskFilter(input: any, scope: any): any {
         return { ...input, employee: onlyValue(scope.agentIds) };
     return input;
 }
-function assertReadableTask(task: any, scope: any): any {
-    if (scope.agentIds.length && !scope.agentIds.includes(task?.agentId)) {
-        throw new AgentArmyClientError('当前员工身份不能读取不属于自己的任务。');
+async function assertReadableTask(task: any, scope: any, client: any): Promise<any> {
+    if (!scope.agentIds.length || scope.agentIds.includes(task?.agentId))
+        return;
+    if (scope.enforceToolAllowlist === true && scope.allowedTools?.includes('task_get')) {
+        const assignment: any = await client.getPaperclipAssignment(paperclipIdentityFromEnvironment());
+        const sourceTaskId: any = String(assignment?.task?.context?.sourceTaskId || '').trim();
+        const assignedAgentId: any = String(assignment?.assignment?.agentId || '').trim();
+        if (assignment?.task?.taskType === 'governance.assurance-review'
+            && sourceTaskId
+            && sourceTaskId === String(task?.taskId || '').trim()
+            && scope.agentIds.includes(assignedAgentId)) {
+            return;
+        }
     }
+    throw new AgentArmyClientError('当前员工身份不能读取不属于自己的任务。');
 }
 function onlyValue(values: any): any {
     return values.length === 1 ? values[0] : undefined;

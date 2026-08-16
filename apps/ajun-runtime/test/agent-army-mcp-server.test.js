@@ -604,13 +604,13 @@ test('Paperclip heartbeat 只暴露当前岗位的受控执行与指派工具', 
   ];
   const before = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   try {
-    process.env.AGENT_ARMY_ALLOWED_MCP_TOOLS = 'capabilities,task_list,task_create,agent_manual,paperclip_assignment_get,agent_proposal_create_execute,operations_health_execute,employee_assignment_execute,paperclip_assignment_complete';
+    process.env.AGENT_ARMY_ALLOWED_MCP_TOOLS = 'capabilities,task_list,task_get,task_create,agent_manual,paperclip_assignment_get,agent_proposal_create_execute,operations_health_execute,employee_assignment_execute,paperclip_assignment_complete';
     process.env.PAPERCLIP_TASK_ID = 'b3357f8c-1d3a-4a80-8bac-2eb44468e320';
     process.env.PAPERCLIP_RUN_ID = '4f968d26-9bd9-4e86-b4fd-8ef68ae82ea2';
     process.env.PAPERCLIP_AGENT_ID = '5afa80b6-dbc6-491d-9019-a234850b235b';
     assert.deepEqual(
       scopeFromEnvironment().allowedTools,
-      ['agent_manual', 'paperclip_assignment_get', 'agent_proposal_create_execute', 'operations_health_execute', 'employee_assignment_execute', 'paperclip_assignment_complete']
+      ['task_get', 'agent_manual', 'paperclip_assignment_get', 'agent_proposal_create_execute', 'operations_health_execute', 'employee_assignment_execute', 'paperclip_assignment_complete']
     );
   } finally {
     for (const key of keys) {
@@ -618,6 +618,50 @@ test('Paperclip heartbeat 只暴露当前岗位的受控执行与指派工具', 
       else process.env[key] = before[key];
     }
   }
+});
+
+test('Paperclip 质量复核只能通过 task_get 读取当前指派绑定的原任务', { concurrency:false }, async (t) => {
+  const keys = ['AGENT_ARMY_AGENT_ID', 'PAPERCLIP_TASK_ID', 'PAPERCLIP_RUN_ID', 'PAPERCLIP_AGENT_ID'];
+  const before = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  process.env.AGENT_ARMY_AGENT_ID = 'reviewer';
+  process.env.PAPERCLIP_TASK_ID = 'b3357f8c-1d3a-4a80-8bac-2eb44468e320';
+  process.env.PAPERCLIP_RUN_ID = '4f968d26-9bd9-4e86-b4fd-8ef68ae82ea2';
+  process.env.PAPERCLIP_AGENT_ID = '5afa80b6-dbc6-491d-9019-a234850b235b';
+  t.after(() => {
+    for (const key of keys) {
+      if (before[key] === undefined) delete process.env[key];
+      else process.env[key] = before[key];
+    }
+  });
+  const tasks = new Map([
+    ['source-task-1234', { taskId:'source-task-1234', agentId:'intel-researcher', status:'waiting_test' }],
+    ['other-task-1234', { taskId:'other-task-1234', agentId:'intel-researcher', status:'succeeded' }],
+  ]);
+  const clientApi = {
+    getTask:async (taskId) => tasks.get(taskId),
+    getPaperclipAssignment:async () => ({
+      assignment:{ agentId:'reviewer' },
+      task:{ taskType:'governance.assurance-review', context:{ sourceTaskId:'source-task-1234' } },
+    }),
+  };
+  const { client, server } = await connect(clientApi, {
+    scope:{
+      agentIds:['reviewer'],
+      taskTypes:['governance.assurance-review'],
+      enforceToolAllowlist:true,
+      allowedTools:['task_get'],
+      allowMissions:false,
+    },
+  });
+  t.after(async () => { await client.close(); await server.close(); });
+
+  const source = await client.callTool({ name:'task_get', arguments:{ task_id:'source-task-1234' } });
+  assert.equal(source.isError, undefined);
+  assert.equal(source.structuredContent.taskId, 'source-task-1234');
+
+  const denied = await client.callTool({ name:'task_get', arguments:{ task_id:'other-task-1234' } });
+  assert.equal(denied.isError, true);
+  assert.match(denied.content[0].text, /不能读取不属于自己的任务/);
 });
 
 test('Paperclip heartbeat 工具白名单缺失或过滤后为空时 fail-closed', { concurrency:false }, async (t) => {
