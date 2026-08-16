@@ -51,6 +51,36 @@ test('小R AI 不可用时仍返回有边界的结构化降级报告', async () 
   assert.match(report.conclusion, /无法确认/);
 });
 
+test('天气研究的 AI 不可用时仍从已读取七日预报生成可直接使用的三条建议', async () => {
+  const weatherSources = [{
+    sourceId:'source-1',
+    title:'杭州7天天气预报',
+    url:'https://www.weather.com.cn/weather/101210101.shtml',
+    fetchedAt:'2026-08-17T00:00:00.000Z',
+    contentHash:'c'.repeat(64),
+    evidenceEligible:true,
+    evidenceFragments:[{
+      fragmentId:'source-1-fragment-1',
+      text:'17日（今天） 多云 33 / 26℃ 18日（明天） 阴转多云 34 / 25℃ 19日（后天） 多云转阴 34 / 26℃ 20日（周四） 中雨转多云 33 / 25℃ 21日（周五） 小雨转阴 33 / 24℃ 22日（周六） 中雨转小雨 33 / 25℃ 23日（周日） 小雨 32 / 24℃',
+    }],
+  }, {
+    sourceId:'source-2',
+    title:'杭州-天气预报',
+    url:'https://www.nmc.cn/publish/forecast/AZJ/hangzhou.html',
+    fetchedAt:'2026-08-17T00:00:00.000Z',
+    contentHash:'d'.repeat(64),
+    evidenceEligible:true,
+    evidenceFragments:[{ fragmentId:'source-2-fragment-1', text:'杭州天气预报 发布时间：08-16 20:00 7天预报。' }],
+  }];
+  const report = await new HermesIntelResearchAdvisor({ hermesHome:'' }).analyze({ topic:'查询杭州未来7天天气并给出出行建议', sources:weatherSources });
+  assert.equal(report.aiAssisted, false);
+  assert.equal(report.recommendations.length, 3);
+  assert.match(report.conclusion, /17日（今天）多云，33℃\/26℃/);
+  assert.match(report.recommendations.join('\n'), /20日.*带伞/);
+  assert.deepEqual(report.claims[0].sourceIds, ['source-1']);
+  assert.equal(report.claims[0].evidenceFragments[0].text, weatherSources[0].evidenceFragments[0].text);
+});
+
 test('Hermes 顾问编造或改写 evidence fragment 时整份输出失效并回退', async () => {
   const advisor = new HermesIntelResearchAdvisor({
     hermesHome:'/safe/profile',

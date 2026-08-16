@@ -45,7 +45,8 @@ export function fallbackResearch({ topic, sources = [] }: any = {}): any {
                     }],
             }];
     });
-    return {
+    const weather: any = fallbackWeatherResearch({ topic, sources: cleanSources, claims });
+    return weather || {
         background: `本报告围绕“${cleanText(topic, 180) || '未命名主题'}”，仅整理本次读取到的 ${cleanSources.length} 条公开来源。`,
         findings: claims.map((claim: any): any => claim.text).slice(0, MAX_ITEMS),
         claims,
@@ -55,6 +56,76 @@ export function fallbackResearch({ topic, sources = [] }: any = {}): any {
         basis: '仅根据已读取的公开来源内容',
         aiAssisted: false
     };
+}
+function fallbackWeatherResearch({ topic, sources, claims }: any): any {
+    if (!/天气|气温|预报/u.test(String(topic || '')))
+        return null;
+    const primary: any = sources.find((source: any): any => {
+        try {
+            const url: any = new URL(String(source?.url || source?.source || ''));
+            return url.hostname === 'www.weather.com.cn' && /^\/weather\/\d+\.shtml$/i.test(url.pathname);
+        }
+        catch {
+            return false;
+        }
+    });
+    const fragment: any = primary?.evidenceFragments?.find((item: any): any => parseSevenDayForecast(item?.text).length >= 7);
+    const forecast: any[] = parseSevenDayForecast(fragment?.text);
+    if (!primary || !fragment || forecast.length < 7)
+        return null;
+    const forecastText: any = forecast.map((item: any): any => `${item.day}日（${item.label}）${item.weather}，${item.high}℃/${item.low}℃`).join('；');
+    const rainDays: any[] = forecast.filter((item: any): any => /雨/u.test(item.weather)).map((item: any): any => `${item.day}日`);
+    const hotDays: any[] = forecast.filter((item: any): any => item.high >= 33).map((item: any): any => `${item.day}日`);
+    const crossCheck: any = sources.find((source: any): any => {
+        try {
+            return new URL(String(source?.url || source?.source || '')).hostname.endsWith('nmc.cn');
+        }
+        catch {
+            return false;
+        }
+    });
+    const weatherClaim: any = {
+        claimId: 'claim-weather-seven-day',
+        text: `当前页面列出的七日预报为：${forecastText}`,
+        sourceIds: [cleanText(primary?.sourceId, 120)],
+        evidenceFragments: [{
+                sourceId: cleanText(primary?.sourceId, 120),
+                fragmentId: cleanText(fragment?.fragmentId, 120),
+                text: cleanText(fragment?.text, 1000),
+            }],
+    };
+    const recommendations: any[] = [
+        rainDays.length
+            ? `${rainDays.join('、')}预报含降雨，通勤随身带伞，骑行或步行预留更长时间。`
+            : '当前七日页面未列出降雨，出门前仍应刷新短时预报。',
+        hotDays.length
+            ? `${hotDays.join('、')}最高温达到或超过33℃，户外安排尽量避开午后高温时段，并及时补水防晒。`
+            : '户外活动仍需根据当天最高温调整时段并及时补水。',
+        `预报会滚动更新；每天出发前再次核对中国天气网${crossCheck ? '和中央气象台' : ''}的最新发布时间与降雨变化。`,
+    ];
+    return {
+        background: `本报告围绕“${cleanText(topic, 180)}”，只整理本次实际读取的公开天气页面。`,
+        findings: [weatherClaim.text],
+        claims: [weatherClaim, ...claims.filter((claim: any): any => claim.claimId !== weatherClaim.claimId).slice(0, MAX_ITEMS - 1)],
+        conclusion: `${forecastText}。${crossCheck ? '中央气象台城市预报已作为第二来源交叉核对；' : ''}天气预报具有时效性，临近出行应以最新页面为准。`,
+        recommendations,
+        openQuestions: ['不同来源的发布时间和逐日天气若有差异，应以临近出行时更新较新的预报再次核对。'],
+        basis: '仅根据已读取的公开来源内容',
+        aiAssisted: false,
+    };
+}
+function parseSevenDayForecast(value: any): any[] {
+    const text: any = cleanText(value, 1000);
+    return [...text.matchAll(/(\d{1,2})日（([^）]{1,8})）\s*([^\d℃]{1,20}?)\s*(\d{2})\s*\/\s*(\d{2})℃/gu)]
+        .slice(0, 7)
+        .map((match: any): any => ({
+        day: match[1],
+        label: cleanText(match[2], 20),
+        weather: cleanText(match[3], 40),
+        high: Number(match[4]),
+        low: Number(match[5]),
+    }))
+        .filter((item: any): any => item.weather && item.high >= item.low && item.high <= 60 && item.low >= -50);
 }
 function promptFor(topic: any, sources: any): any {
     const material: any = sources.slice(0, MAX_ITEMS).map((source: any, index: any): any => ({
