@@ -178,7 +178,10 @@ export const taskServiceExecutionMethods: Record<string, any> = {
             },
             validation: { exists: true, readable: true, nonEmpty: true, checkedAt: completedAt }
         };
-        const completionArtifacts: any[] = [...(task.artifactRefs || []), artifact];
+        const completionArtifacts: any[] = [
+            ...(task.artifactRefs || []).filter((item: any): any => item?.artifactId !== artifact.artifactId),
+            artifact,
+        ];
         if (requestedStatus === 'succeeded') {
             const completion: any = validateTaskCompletion(task, completionArtifacts);
             if (!completion.valid)
@@ -225,6 +228,19 @@ export const taskServiceExecutionMethods: Record<string, any> = {
             const beforeQuality: any = structuredClone(updated);
             updated = await this.deliveryQuality.continue(updated);
             this.taskLifecycleEvents?.recordPersisted(updated, { previousTask: beforeQuality });
+            if (updated.status === 'running'
+                && updated.currentStage === 'delivery_quality_review_pending'
+                && updated.deliveryQualityRuntime?.reviewTaskId) {
+                await this.governance?.markPaperclipIssueReviewPending?.(assignment.issueId, {
+                    runId: assignment.runId,
+                    apiKey: input.paperclipApiKey,
+                    result: updated,
+                    reviewTaskId: updated.deliveryQualityRuntime.reviewTaskId,
+                });
+            }
+            else {
+                updated = await this.ensurePaperclipAssignmentCompletion({ task: updated, assignment, paperclipAgentId: input.paperclipAgentId, apiKey: input.paperclipApiKey });
+            }
         }
         const qualitySourceTask: any = qualityReview
             ? await this.deliveryQuality.resolveReview(updated, qualityReview)

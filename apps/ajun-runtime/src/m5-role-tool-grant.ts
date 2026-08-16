@@ -146,6 +146,7 @@ export function createM5RoleToolExecutionContext(grant: any, { adapters = {}, wo
         throw new M5RoleToolGrantError('岗位工具授权上下文无效。', 'role_tool_context_invalid');
     }
     const accesses: any[] = [];
+    let enforcedAttempts: any = 0;
     return Object.freeze({
         executionWorkspaceId: grant.executionWorkspaceId,
         workspaceRoot,
@@ -154,6 +155,7 @@ export function createM5RoleToolExecutionContext(grant: any, { adapters = {}, wo
                 ...input,
                 executionWorkspaceId: grant.executionWorkspaceId,
             });
+            enforcedAttempts += 1;
             const adapter: any = adapterFor(adapters, access.adapter);
             if (typeof adapter !== 'function') {
                 throw new M5RoleToolGrantError(`岗位工具 ${access.toolId} 的受控适配器当前不可执行。`, 'role_tool_adapter_unavailable');
@@ -172,6 +174,9 @@ export function createM5RoleToolExecutionContext(grant: any, { adapters = {}, wo
         },
         snapshot(): any {
             return Object.freeze(accesses.map((item: any): any => Object.freeze({ ...item })));
+        },
+        enforced(): any {
+            return enforcedAttempts > 0;
         },
     });
 }

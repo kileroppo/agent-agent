@@ -88,7 +88,7 @@ test('M5 Hermes 阶段必须把专用产物写回同一 Case 后才能完成 Iss
   assert.equal(outputs[0].metadata.kind, 'TopicSelection');
   assert.equal(outputs[0].metadata.artifact.theme, 'AI Agent 真实失败恢复');
   assert.match(outputs[0].metadata.artifactHash, /^sha256:[0-9a-f]{64}$/);
-  assert.equal(completions.length, 0);
+  assert.equal(completions.length, 1);
 
   const duplicate = await service.completePaperclipAssignment({
     ...input,

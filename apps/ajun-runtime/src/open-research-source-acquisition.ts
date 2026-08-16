@@ -80,7 +80,8 @@ export class OpenResearchSourceAcquisition {
         const completedLaneIds: any[] = [];
         const resultLaneIds: any[] = [];
         if (this.publicWebSearch?.search) {
-            const attempts: any = await Promise.all(queryPlan.map(async (lane: any): Promise<any> => {
+            const attempts: any[] = [];
+            for (const lane of queryPlan) {
                 searchCalls += 1;
                 try {
                     const search: any = roleToolContext
@@ -94,12 +95,12 @@ export class OpenResearchSourceAcquisition {
                             query: lane.query,
                             limit: DISCOVERY_RESULTS_PER_LANE,
                         });
-                    return { lane, search };
+                    attempts.push({ lane, search });
                 }
                 catch (error: any) {
-                    return { lane, error };
+                    attempts.push({ lane, error });
                 }
-            }));
+            }
             for (const attempt of attempts) {
                 if (attempt.error) {
                     failures.push(`${attempt.lane.label}：${attempt.error?.message || '公开搜索暂时无法读取。'}`);
@@ -291,7 +292,8 @@ function prepareResearchSources(sources: any): any {
         const contentHash: any = validContentHash(source?.contentHash);
         const summary: any = String(source?.summary || '').replace(/\s+/g, ' ').trim().slice(0, 900);
         const metadataOnly: any = source?.kind === 'github_metadata';
-        const evidenceEligible: any = !metadataOnly && Boolean(url && fetchedAt && contentHash && summary);
+        const unusableBody: any = unusablePublicSourceBody(summary);
+        const evidenceEligible: any = !metadataOnly && !unusableBody && Boolean(url && fetchedAt && contentHash && summary);
         return {
             ...source,
             sourceId,
@@ -303,12 +305,20 @@ function prepareResearchSources(sources: any): any {
                 ? null
                 : metadataOnly
                     ? 'github_metadata_only'
+                    : unusableBody
+                        ? 'fetch_error_or_redirect_placeholder'
                     : 'missing_url_fetched_at_content_hash_or_text',
             evidenceFragments: evidenceEligible
                 ? [{ fragmentId: `${sourceId}-fragment-1`, text: summary }]
                 : [],
         };
     });
+}
+function unusablePublicSourceBody(summary: any): any {
+    const text: any = String(summary || '').replace(/\s+/g, ' ').trim();
+    if (!text)
+        return false;
+    return /^(?:please\s+click\s+here\s+if\s+the\s+page\s+does\s+not\s+redirect\s+automatically|无法访问此网站|this\s+site\s+can(?:not|'t)\s+be\s+reached|the\s+page\s+is\s+not\s+redirecting)/i.test(text);
 }
 function sourceList(input: any): any {
     return [...new Set([

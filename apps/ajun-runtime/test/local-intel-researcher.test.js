@@ -71,6 +71,48 @@ test('小R 没有来源且读取失败时明确 needs_input，不编造报告', 
   assert.match(result.error.userMessage, /公开来源/);
 });
 
+test('小R 不把抓取失败页和跳转占位页当作研究证据', async () => {
+  let analyzedSources = null;
+  const worker = new LocalIntelResearcher({
+    now,
+    publicWebFetch:{
+      async acquire({ sourceUrl }) {
+        const placeholder = sourceUrl.endsWith('/placeholder');
+        return {
+          sourceRef:sourceUrl,
+          title:placeholder ? '未提供标题的公开来源' : '义乌天气',
+          text:placeholder
+            ? 'Please click here if the page does not redirect automatically . . .'
+            : '义乌今天小雨，明天多云。',
+          contentHash:(placeholder ? 'a' : 'b').repeat(64),
+          fetchedAt:now().toISOString(),
+        };
+      },
+    },
+    researchAdvisor:{
+      async analyze({ sources }) {
+        analyzedSources = sources;
+        return {
+          background:'背景', findings:['义乌今天小雨'],
+          claims:[{ claimId:'claim-1', text:'义乌今天小雨', sourceIds:['source-2'], evidenceFragments:[{ sourceId:'source-2', fragmentId:'source-2-fragment-1', text:'义乌今天小雨，明天多云。' }] }],
+          conclusion:'义乌今天小雨', recommendations:[], openQuestions:[], basis:'公开天气正文', aiAssisted:true,
+        };
+      },
+    },
+  });
+  const result = await worker.execute({
+    taskId:'intel-placeholder-filter',
+    taskType:'research.intel-report',
+    input:{ topic:'义乌天气', sourceUrls:['https://example.com/placeholder', 'https://weather.example.com/yiwu'] },
+  });
+  assert.equal(result.status, 'succeeded');
+  assert.equal(analyzedSources.length, 1);
+  assert.equal(analyzedSources[0].source, 'https://weather.example.com/yiwu');
+  assert.equal(result.artifactRefs[0].data.sources[0].evidenceEligible, false);
+  assert.equal(result.artifactRefs[0].data.sources[0].evidenceExclusionReason, 'fetch_error_or_redirect_placeholder');
+  assert.equal(result.artifactRefs[0].validation.evidenceSourceCount, 1);
+});
+
 test('小R 的 Grok 公开 X 检索只有绑定公开来源链接后才生成标准研究报告', async () => {
   const worker = new LocalIntelResearcher({
     now,
@@ -132,11 +174,17 @@ test('小R 会将主题扩展为六路查询，并在网页搜索无结果时用
 
 test('小R 六路发现后按证据价值选择五条来源并保留可审计方法账本', async () => {
   const searched = [];
+  let activeSearches = 0;
+  let maxActiveSearches = 0;
   const worker = new LocalIntelResearcher({
     now,
     publicWebSearch:{
       async search({ query }) {
+        activeSearches += 1;
+        maxActiveSearches = Math.max(maxActiveSearches, activeSearches);
+        await new Promise((resolve) => setImmediate(resolve));
         const index = searched.push(query);
+        activeSearches -= 1;
         return {
           results:[{
             url:`https://source-${index}.example.com/report`,
@@ -168,6 +216,7 @@ test('小R 六路发现后按证据价值选择五条来源并保留可审计方
 
   assert.equal(result.status, 'succeeded');
   assert.equal(searched.length, 6);
+  assert.equal(maxActiveSearches, 1);
   const report = result.artifactRefs[0].data;
   assert.equal(report.sources.length, 5);
   assert.deepEqual(report.researchMethod.coverage.selectedLaneIds, [

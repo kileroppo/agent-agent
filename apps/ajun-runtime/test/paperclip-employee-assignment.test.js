@@ -93,3 +93,33 @@ test('小R 普通 Paperclip 指派按输入选择网页整理、GitHub 或公开
     issue:{ title:'查代码', description:'比较 https://github.com/acme/example' },
   }).taskType, 'research.github-search');
 });
+
+test('A君投影到 Paperclip 的明确任务类型优先于岗位默认第一项', () => {
+  const result = resolvePaperclipAssignmentTaskType({
+    agent:{
+      agentId:'reviewer',
+      acceptedTaskTypes:['governance.approval-review', 'governance.assurance-review'],
+    },
+    issue:{
+      title:'交付质量复核',
+      description:'由 A君运行台创建的过渡任务投影。\n\n任务类型：governance.assurance-review\n\n请核对产物。',
+    },
+    projectedTask:{ taskId:'review-task', taskType:'governance.assurance-review' },
+  });
+  assert.equal(result.taskType, 'governance.assurance-review');
+  assert.throws(
+    () => resolvePaperclipAssignmentTaskType({
+      agent:{ agentId:'reviewer', acceptedTaskTypes:['governance.approval-review'] },
+      issue:{ description:'由 A君运行台创建的过渡任务投影。' },
+      projectedTask:{ taskId:'review-task', taskType:'governance.assurance-review' },
+    }),
+    /未获当前岗位声明/,
+  );
+  assert.equal(resolvePaperclipAssignmentTaskType({
+    agent:{
+      agentId:'reviewer',
+      acceptedTaskTypes:['governance.approval-review', 'governance.assurance-review'],
+    },
+    issue:{ description:'任务类型：governance.assurance-review' },
+  }).taskType, 'governance.approval-review');
+});

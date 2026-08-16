@@ -6,12 +6,12 @@ export const PAPERCLIP_EMPLOYEE_EXECUTOR_AGENT_IDS: any = Object.freeze([
     'office-assistant',
 ]);
 const PAPERCLIP_EMPLOYEE_EXECUTOR_AGENT_ID_SET: any = new Set(PAPERCLIP_EMPLOYEE_EXECUTOR_AGENT_IDS);
-export function resolvePaperclipAssignmentTaskType({ agent, issue }: any = {}): any {
+export function resolvePaperclipAssignmentTaskType({ agent, issue, projectedTask = null }: any = {}): any {
     const agentId: any = String(agent?.agentId || '').trim();
     const routineKey: any = paperclipRoutineKey(issue);
     if (!routineKey)
         return {
-            taskType: resolveGeneralPaperclipTaskType(agent, issue),
+            taskType: resolveGeneralPaperclipTaskType(agent, issue, projectedTask),
             routineKey: null,
             pipelineCaseId: null,
         };
@@ -34,10 +34,17 @@ export function resolvePaperclipAssignmentTaskType({ agent, issue }: any = {}): 
         pipelineCaseId: paperclipPipelineCaseId(issue),
     };
 }
-function resolveGeneralPaperclipTaskType(agent: any, issue: any): any {
+function resolveGeneralPaperclipTaskType(agent: any, issue: any, projectedTask: any): any {
     const accepted: any[] = Array.isArray(agent?.acceptedTaskTypes)
         ? agent.acceptedTaskTypes.map((value: any): any => String(value || '').trim()).filter(Boolean)
         : [];
+    const projectedTaskType: any = String(projectedTask?.taskType || '').trim();
+    if (projectedTaskType) {
+        if (!accepted.includes(projectedTaskType)) {
+            throw new Error(`A君投影任务类型 ${projectedTaskType} 未获当前岗位声明。`);
+        }
+        return projectedTaskType;
+    }
     if (String(agent?.agentId || '').trim() !== 'intel-researcher') {
         return accepted[0] || '';
     }

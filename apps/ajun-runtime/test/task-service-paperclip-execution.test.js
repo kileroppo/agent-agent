@@ -90,6 +90,8 @@ test('Paperclip 新 Run 会重新打开失败信封并按新岗位和任务类�
       },
     },
     error:{ code:'paperclip_hermes_failed', retryable:true },
+    deliveryQuality:{ action:'request_review' },
+    deliveryQualityRuntime:{ status:'review_pending', reviewTaskId:'stale-review' },
   });
   identity = {
     ...firstIdentity,
@@ -112,6 +114,8 @@ test('Paperclip 新 Run 会重新打开失败信封并按新岗位和任务类�
   assert.equal(retried.task.execution.outcome, undefined);
   assert.equal(retried.task.governance.paperclipAssigneeAgentId, 'paperclip-agent-researcher');
   assert.equal(retried.task.governance.completionSync, undefined);
+  assert.equal(retried.task.deliveryQuality, undefined);
+  assert.equal(retried.task.deliveryQualityRuntime, undefined);
   assert.equal(retried.task.error, undefined);
   assert.equal(records.tasks.length, 1);
 });
@@ -310,8 +314,10 @@ test('Paperclip Hermes 不能用文字岗位回报替代小R专用研究产物',
     title:'研究 Agent 稳定性', description:'形成有来源的研究报告。',
   });
   const completions = [];
+  const reviews = [];
   const governance = paperclipGovernanceFixture(identity, {
     async completePaperclipIssue(issueId) { completions.push(issueId); },
+    async markPaperclipIssueReviewPending(issueId, input) { reviews.push({ issueId, input }); },
   });
   const { service, records } = setup({ agents:[researcher], governance });
   const task = await service.create({
@@ -344,6 +350,60 @@ test('Paperclip Hermes 不能用文字岗位回报替代小R专用研究产物',
   assert.equal(completed.task.currentStage, 'delivery_quality_review_pending');
   assert.equal(completed.task.artifactRefs.some((item) => item.type === 'intel_research_report'), true);
   assert.equal(completions.length, 0);
+  assert.equal(reviews.length, 1);
+  assert.equal(reviews[0].issueId, identity.issue.id);
+  assert.equal(reviews[0].input.result.currentStage, 'delivery_quality_review_pending');
+  assert.equal(reviews[0].input.reviewTaskId, completed.task.deliveryQualityRuntime.reviewTaskId);
+});
+
+test('独立复核未能启动时原任务与 Paperclip 都收口为阻塞，不冒充复核中', async () => {
+  const researcher = hermesAgentFixture('intel-researcher', '小R', ['research.intel-report']);
+  const identity = paperclipIdentityFixture('quality-start-failed', 'intel-researcher', '小R', {
+    title:'研究 Agent 稳定性', description:'形成有来源的研究报告。',
+  });
+  let issueStatus = 'in_progress';
+  const reviews = [];
+  const completions = [];
+  const governance = paperclipGovernanceFixture(identity, {
+    async getPaperclipIssue() { return { ...identity.issue, status:issueStatus }; },
+    async completePaperclipIssue(issueId, input) {
+      completions.push({ issueId, input });
+      issueStatus = 'blocked';
+    },
+    async markPaperclipIssueReviewPending(issueId, input) { reviews.push({ issueId, input }); },
+  });
+  const { service } = setup({ agents:[researcher], governance });
+  const task = await service.create({
+    title:'研究 Agent 稳定性', taskType:'research.intel-report', agentId:'intel-researcher',
+  });
+  await service.store.updateTask(task.taskId, {
+    artifactRefs:[verifiedArtifact(task, 'intel_research_report', {
+      conclusion:'稳定性依赖完成契约。',
+      sources:[{ source:'https://example.com/stability' }],
+    })],
+  });
+  service.deliveryQuality.continue = async (pending) => service.store.updateTask(pending.taskId, {
+    status:'waiting_test',
+    currentStage:'delivery_quality_review_start_failed',
+    deliveryQualityRuntime:{ status:'stopped' },
+    error:{ code:'delivery_quality_review_start_failed', userMessage:'独立质量复核没有成功启动。' },
+  });
+
+  const completed = await service.completePaperclipAssignment({
+    issueId:identity.issue.id,
+    runId:identity.run.id,
+    paperclipAgentId:identity.paperclipAgent.id,
+    agentArmyId:'intel-researcher',
+    status:'succeeded',
+    summary:'研究已经完成。',
+  });
+
+  assert.equal(completed.task.status, 'waiting_test');
+  assert.equal(completed.task.currentStage, 'delivery_quality_review_start_failed');
+  assert.equal(issueStatus, 'blocked');
+  assert.equal(reviews.length, 0);
+  assert.equal(completions.length, 1);
+  assert.equal(completed.task.governance.completionSync.status, 'confirmed');
 });
 
 test('创建官 heartbeat 真实写入一次岗位草案并保持任务等待最终回报', async () => {

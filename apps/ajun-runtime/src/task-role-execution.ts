@@ -325,7 +325,9 @@ export const taskRoleExecutionMethods: Record<string, any> = {
                         ? { m5Recovery: prepared.recovery }
                         : undefined);
             if (roleToolContext
-                && roleToolContext.snapshot().length === 0
+                && !(typeof roleToolContext.enforced === 'function'
+                    ? roleToolContext.enforced()
+                    : roleToolContext.snapshot().length > 0)
                 && result?.openResearch?.reusedReport !== true
                 && !(result?.openResearch
                     && !String(result.openResearch.decision?.selectedToolId || '').trim())) {

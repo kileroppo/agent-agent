@@ -22,6 +22,17 @@ test('搜索站的导航链接不会被错当成公开资料；首个来源没�
   assert.equal(calls.length, 2);
 });
 
+test('Bing ck 跳转链接会还原真实公开来源，不把跳转占位页当正文', async () => {
+  const target = 'https://www.weather.com.cn/weather/101210904.shtml';
+  const encoded = `a1${Buffer.from(target).toString('base64url')}`;
+  const search = new PublicWebSearch({ fetchImpl:async (url) => {
+    if (url.startsWith('https://html.duckduckgo.com')) return new Response('', { status:202 });
+    return new Response(`<li class="b_algo"><h2><a href="https://www.bing.com/ck/a?u=${encoded}">义乌天气</a></h2></li>`, { status:200 });
+  } });
+  const result = await search.search({ query:'义乌天气', limit:1 });
+  assert.deepEqual(result.results, [{ url:target, title:'义乌天气' }]);
+});
+
 test('公开搜索失败或没有结果时不返回编造链接', async () => {
   const unavailable = new PublicWebSearch({ fetchImpl:async () => { throw new Error('offline'); } });
   await assert.rejects(() => unavailable.search({ query:'测试' }), PublicWebSearchError);

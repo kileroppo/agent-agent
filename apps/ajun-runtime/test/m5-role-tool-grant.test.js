@@ -247,6 +247,7 @@ test('受信执行上下文只通过精确适配器执行并在成功后生成�
     availableAdapters:adapters,
   });
   const context = createM5RoleToolExecutionContext(grant, { adapters });
+  assert.equal(context.enforced(), false);
   const output = await context.execute({
     toolId:'content.public.fetch',
     externalSideEffect:'network-read',
@@ -255,9 +256,25 @@ test('受信执行上下文只通过精确适配器执行并在成功后生成�
   });
   assert.equal(output.sourceRef, 'https://example.com/source');
   assert.equal(calls.length, 1);
+  assert.equal(context.enforced(), true);
   assert.equal(context.snapshot().length, 1);
   assert.equal(context.snapshot()[0].executed, true);
   assert.equal('authorize' in context, false);
+});
+
+test('通过授权门禁但适配器不可用时保留真实失败，不冒充从未经过授权上下文', async () => {
+  const grant = await roleGrant('intel-researcher');
+  const context = createM5RoleToolExecutionContext(grant, { adapters:{} });
+  await assert.rejects(
+    context.execute({
+      toolId:'content.public.fetch',
+      externalSideEffect:'network-read',
+      url:'https://example.com/source',
+    }),
+    { code:'role_tool_adapter_unavailable' },
+  );
+  assert.equal(context.enforced(), true);
+  assert.equal(context.snapshot().length, 0);
 });
 
 test('Profile额外放行工具或Manifest策略缺项时失败关闭', async () => {

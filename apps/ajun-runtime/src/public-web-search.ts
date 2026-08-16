@@ -68,9 +68,25 @@ function resultUrl(href: any, baseUrl: any): any {
     try {
         const parsed: any = new URL(href, baseUrl);
         const redirected: any = parsed.searchParams.get('uddg');
-        const candidate: any = redirected ? decodeURIComponent(redirected) : parsed.toString();
+        const bingTarget: any = bingRedirectTarget(parsed);
+        const candidate: any = redirected ? decodeURIComponent(redirected) : bingTarget || parsed.toString();
         const url: any = new URL(candidate);
         return ['http:', 'https:'].includes(url.protocol) ? url.toString() : null;
+    }
+    catch {
+        return null;
+    }
+}
+function bingRedirectTarget(parsed: any): any {
+    if (!/(?:^|\.)bing\.com$/i.test(String(parsed?.hostname || '')) || !/^\/ck\/a/i.test(String(parsed?.pathname || '')))
+        return null;
+    const encoded: any = String(parsed.searchParams.get('u') || '');
+    if (!encoded.startsWith('a1') || encoded.length < 4)
+        return null;
+    try {
+        const decoded: any = Buffer.from(encoded.slice(2), 'base64url').toString('utf8').trim();
+        const target: any = new URL(decoded);
+        return ['http:', 'https:'].includes(target.protocol) ? target.toString() : null;
     }
     catch {
         return null;

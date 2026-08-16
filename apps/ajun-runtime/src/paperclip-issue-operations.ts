@@ -41,6 +41,20 @@ export const paperclipIssueMethods: Record<string, any> = {
             }
         });
     },
+    async markPaperclipIssueReviewPending(issueId: any, { runId, apiKey, result, reviewTaskId = null, }: any = {}): Promise<any> {
+        return this.request(`/api/issues/${encodeURIComponent(issueId)}`, {
+            method: 'PATCH', runId, apiKey, body: {
+                status: 'in_review',
+                comment: [
+                    '员工已提交可读产物，A君已启动独立质量复核。',
+                    `运行：${String(runId || 'unknown')}`,
+                    `阶段：${String(result?.currentStage || 'delivery_quality_review_pending')}`,
+                    ...(reviewTaskId ? [`复核任务：${String(reviewTaskId)}`] : []),
+                    '复核完成后将自动回写最终状态；当前无需重复唤醒原员工。',
+                ].join('\n'),
+            },
+        });
+    },
     async getPaperclipIssue(issueId: any): Promise<any> {
         return this.request(`/api/issues/${encodeURIComponent(issueId)}`);
     },

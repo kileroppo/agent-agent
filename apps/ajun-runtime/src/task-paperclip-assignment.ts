@@ -16,15 +16,19 @@ export const taskPaperclipAssignmentMethods: Record<string, any> = {
         const agent: any = await this.registry.get(identity.agentArmyId);
         if (!usesPaperclipHermesExecution(agent))
             throw new ValidationError('当前岗位未启用 Paperclip Hermes 执行。');
+        const storedTasks: any = await this.store.list();
+        let task: any = storedTasks.find((item: any): any => item.governance?.paperclipIssueId === identity.issue.id);
         let assignmentTask: any;
         try {
-            assignmentTask = resolvePaperclipAssignmentTaskType({ agent, issue: identity.issue });
+            assignmentTask = resolvePaperclipAssignmentTaskType({
+                agent,
+                issue: identity.issue,
+                projectedTask: task?.assigneeAgentId === agent.agentId ? task : null,
+            });
         }
         catch (error: any) {
             throw new ValidationError(error?.message || '当前 Paperclip 指派任务类型无法安全映射。');
         }
-        const storedTasks: any = await this.store.list();
-        let task: any = storedTasks.find((item: any): any => item.governance?.paperclipIssueId === identity.issue.id);
         const storedPaperclipRunId: any = paperclipRunId(task);
         const currentPaperclipRunId: any = String(identity.run.id || '').trim();
         const newPaperclipRun: any = Boolean(task
@@ -155,6 +159,8 @@ export const taskPaperclipAssignmentMethods: Record<string, any> = {
                     previousStatus: task.status,
                     previousPaperclipRunId: paperclipRunId(task),
                 },
+                deliveryQuality: undefined,
+                deliveryQualityRuntime: undefined,
                 error: undefined,
             });
             this.taskLifecycleEvents?.recordPersisted(task, { previousTask });
@@ -168,7 +174,9 @@ export const taskPaperclipAssignmentMethods: Record<string, any> = {
         else if (!isTerminalTask(task)) {
             task = await this.store.updateTask(task.taskId, {
                 status: 'running',
-                currentStage: task.execution?.paperclipEmployee
+                currentStage: task.currentStage === 'delivery_quality_review_pending'
+                    ? task.currentStage
+                    : task.execution?.paperclipEmployee
                     ? task.currentStage
                     : 'paperclip_hermes_running',
                 taskType: assignmentTask.taskType,

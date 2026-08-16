@@ -163,6 +163,19 @@ test('Paperclip 指派上下文集中解析 Case 链、前置任务、恢复修�
   });
 });
 
+test('独立复核任务的可信只读范围包含它直接引用的原任务', async () => {
+  const source = { taskId:'source-task', artifactRefs:[] };
+  const context = await preparePaperclipAssignmentContext({
+    tasks:[source, { taskId:'review-task', parentTaskId:'source-task' }],
+    assignmentTask:{}, pipelineCase:null, activePlanRevision:null,
+  });
+  const grant = context.scopeRoleToolGrant({ grant:{ tool:'read' } }, {
+    task:{ taskId:'review-task', parentTaskId:'source-task', assigneeAgentId:'reviewer' },
+    identity:{ issue:{ id:'review-issue' }, run:{ id:'review-run' } },
+  });
+  assert.deepEqual(grant.trustedScope.allowedTaskIds, ['source-task']);
+});
+
 test('Paperclip 指派保留核验、读取、授权、父链和写信封的请求时序及 method override', async () => {
   const calls = [];
   const caseId = '11111111-1111-4111-8111-111111111111';

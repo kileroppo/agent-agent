@@ -137,6 +137,7 @@ export function trustedRoleToolScope({ tasks, task, relatedTaskIds, paperclipIss
     const currentTaskId: any = String(task?.taskId || '').trim();
     const allowedTaskIds: any = (Array.isArray(tasks) ? tasks : []).filter((candidate: any): any => candidate?.taskId !== currentTaskId
         && (relatedIds.has(String(candidate?.taskId || ''))
+            || (parentTaskId && candidate?.taskId === parentTaskId)
             || (parentTaskId && candidate?.parentTaskId === parentTaskId))).map((candidate: any): any => candidate.taskId);
     return Object.freeze({
         currentTaskId: currentTaskId || null,
