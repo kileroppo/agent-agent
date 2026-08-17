@@ -264,6 +264,7 @@ export async function summarizeObservationFile(filePath) {
         ? 'unknown'
         : requiredEndpointSuccessRate >= REQUIRED_ENDPOINT_AVAILABILITY_THRESHOLD ? 'passed' : 'failed',
     }),
+    externalEffectsGate:summarizeExternalEffectsGate(observations),
     endpoints:summarizeEndpointSamples(endpointSamples),
     ajun:Object.freeze({
       cpuMetricVersion:AJUN_CPU_METRIC_VERSION,
@@ -362,6 +363,127 @@ export async function readObservationRecords(filePath) {
     if (error?.code === 'ENOENT') return Object.freeze([]);
     throw error;
   }
+}
+
+async function readExistingStopRequested(filePath) {
+  let text;
+  try {
+    text = await fsp.readFile(filePath, 'utf8');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+  if (!text.trim()) return null;
+  let summary;
+  try {
+    summary = JSON.parse(text);
+  } catch (error) {
+    if (error instanceof SyntaxError) return null;
+    throw error;
+  }
+  if (!summary || typeof summary !== 'object' || Array.isArray(summary)) return null;
+  return typeof summary.stopRequested === 'boolean' ? summary.stopRequested : null;
+}
+
+function summarizeExternalEffectsGate(observations) {
+  let falseCount = 0;
+  let trueCount = 0;
+  let unknownCount = 0;
+  for (const observation of observations) {
+    const value = observation?.safety?.externalEffects;
+    if (value === false) falseCount += 1;
+    else if (value === true) trueCount += 1;
+    else unknownCount += 1;
+  }
+  const status = trueCount > 0
+    ? 'degraded'
+    : observations.length > 0 && unknownCount === 0 ? 'passed' : 'unknown';
+  return Object.freeze({
+    status,
+    observationCount:observations.length,
+    externalEffectsFalseCount:falseCount,
+    externalEffectsTrueCount:trueCount,
+    unknownCount,
+  });
+}
+
+async function summarizeCostLedger(filePath) {
+  let text;
+  try {
+    text = await fsp.readFile(filePath, 'utf8');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return unknownCostGate('ledger_missing');
+    throw error;
+  }
+  const lines = text.split(/\r?\n/).filter((line) => line.trim());
+  if (lines.length === 0) return unknownCostGate('ledger_empty');
+  let totalCny = 0;
+  let invalidRecordCount = 0;
+  for (const line of lines) {
+    try {
+      const record = JSON.parse(line);
+      const amountCny = record?.amountCny;
+      const nextGate = Number.isFinite(amountCny) && amountCny >= 0
+        ? evaluateBudget(totalCny, amountCny)
+        : null;
+      const valid = record?.schemaVersion === 'agent.army/stability-cost/v1'
+        && Number.isFinite(Date.parse(record?.recordedAt || ''))
+        && Number.isFinite(amountCny)
+        && amountCny >= 0
+        && ['manual', 'paperclip', 'gateway', 'provider'].includes(record?.source)
+        && (record?.referenceSha256 === null || /^[0-9a-f]{64}$/.test(record?.referenceSha256 || ''))
+        && record?.totalCny === nextGate?.totalCny
+        && record?.gate === nextGate?.gate;
+      if (!valid) {
+        invalidRecordCount += 1;
+        continue;
+      }
+      totalCny = nextGate.totalCny;
+    } catch {
+      invalidRecordCount += 1;
+    }
+  }
+  if (invalidRecordCount > 0) {
+    return unknownCostGate('invalid_record', {
+      recordCount:lines.length,
+      validRecordCount:lines.length - invalidRecordCount,
+      invalidRecordCount,
+    });
+  }
+  const budget = evaluateBudget(totalCny);
+  const level = budget.gate === 'hard_stop' ? 'hard'
+    : budget.gate === 'soft_stop' ? 'soft' : 'open';
+  return Object.freeze({
+    currency:'CNY',
+    totalCny:budget.totalCny,
+    level,
+    status:level === 'open' ? 'passed' : 'degraded',
+    reason:level === 'open' ? 'within_budget' : `${level}_stop`,
+    softStopCny:SOFT_BUDGET_CNY,
+    hardStopCny:HARD_BUDGET_CNY,
+    recordCount:lines.length,
+    validRecordCount:lines.length,
+    invalidRecordCount:0,
+  });
+}
+
+function unknownCostGate(reason, {
+  recordCount = 0,
+  validRecordCount = 0,
+  invalidRecordCount = 0,
+} = {}) {
+  return Object.freeze({
+    currency:'CNY',
+    totalCny:null,
+    level:null,
+    status:'unknown',
+    reason,
+    softStopCny:SOFT_BUDGET_CNY,
+    hardStopCny:HARD_BUDGET_CNY,
+    recordCount,
+    validRecordCount,
+    invalidRecordCount,
+  });
 }
 
 function normalizeObservationTimes(observations) {
@@ -519,9 +641,11 @@ export async function prepareObserveRunState({
 
 export async function summarizeRunDirectory(runDirectory) {
   const manifest = await readJsonIfExists(path.join(runDirectory, 'soak-manifest.json'));
+  const stopRequested = await readExistingStopRequested(path.join(runDirectory, 'summary.json'));
   const observationPath = path.join(runDirectory, 'observations.jsonl');
   const observations = await readObservationRecords(observationPath);
   const summary = await summarizeObservationFile(observationPath);
+  const costGate = await summarizeCostLedger(path.join(runDirectory, 'cost-ledger.jsonl'));
   const durationProgress = manifest
     ? calculateObservationDurationProgress(observations, {
       startedAt:manifest.startedAt,
@@ -531,6 +655,8 @@ export async function summarizeRunDirectory(runDirectory) {
     : null;
   return Object.freeze({
     ...summary,
+    stopRequested,
+    costGate,
     identityGate:summarizeIdentityGates(observations),
     run:manifest ? Object.freeze({
       runId:manifest.runId || null,
@@ -574,6 +700,12 @@ export function buildRuntimeReliabilitySnapshot(summary = {}) {
     : summary?.ajun?.rssGate?.status === 'failed' ? 'failed' : 'unknown';
   const durationSeconds = Number(summary?.run?.durationSeconds);
   const isLongSoak = Number.isFinite(durationSeconds) && durationSeconds >= LONG_SOAK_DURATION_SECONDS;
+  const longSoakCost = summary?.costGate?.status === 'passed' ? 'passed'
+    : summary?.costGate?.status === 'degraded' ? 'failed' : 'unknown';
+  const longSoakNaturalCompletion = summary?.stopRequested === false ? 'passed'
+    : 'unknown';
+  const longSoakExternalEffects = summary?.externalEffectsGate?.status === 'passed' ? 'passed'
+    : summary?.externalEffectsGate?.status === 'degraded' ? 'failed' : 'unknown';
   const cpuP95Percent = summary?.ajun?.cpuP95Percent;
   const cpuMetricVersion = summary?.ajun?.cpuMetricVersion;
   const runCpuMetricVersion = summary?.run?.cpuMetric?.version;
@@ -602,7 +734,12 @@ export function buildRuntimeReliabilitySnapshot(summary = {}) {
     availability,
     rss,
     ...endpointP95,
-    ...(isLongSoak ? { 'ajun-cpu-p95':longSoakCpuP95 } : {}),
+    ...(isLongSoak ? {
+      'ajun-cpu-p95':longSoakCpuP95,
+      'cost-budget':longSoakCost,
+      'natural-completion':longSoakNaturalCompletion,
+      'external-effects':longSoakExternalEffects,
+    } : {}),
   };
   const failed = Object.entries(gates).filter(([, status]) => status === 'failed').map(([id]) => id);
   const unknown = Object.entries(gates).filter(([, status]) => status === 'unknown').map(([id]) => id);
@@ -622,20 +759,44 @@ export function buildRuntimeReliabilitySnapshot(summary = {}) {
     ? '长期稳定仍以更长观测为准。'
     : '';
   const passedGateDescription = isLongSoak
-    ? '所有可用率、端点 P95、A君 CPU P95 和 RSS 门禁通过。'
+    ? '所有可用率、端点 P95、A君 CPU P95、RSS、费用预算、自然完成和无外部副作用门禁通过。'
     : '所有可用率、端点 P95 和 RSS 门禁通过。';
-  const failedGateDescription = failed.map((id) => id === 'ajun-cpu-p95'
-    ? `A君 CPU P95（阈值 ${AJUN_IDLE_CPU_P95_PERCENT_THRESHOLD}%）`
-    : id);
+  const failedGateDescription = failed.map((id) => ({
+    completion:'有效观测时长',
+    identity:'运行身份',
+    availability:'必需端点可用率',
+    rss:'A君 RSS',
+    'ajun-health':'A君健康端点 P95',
+    'ajun-console-overview':'A君控制台端点 P95',
+    'ajun-cpu-p95':`A君 CPU P95（阈值 ${AJUN_IDLE_CPU_P95_PERCENT_THRESHOLD}%）`,
+    'cost-budget':'费用预算（达到软/硬停止线）',
+    'natural-completion':'自然完成',
+    'external-effects':'无外部副作用',
+  })[id] || id);
+  const unknownGateDescription = unknown.map((id) => ({
+    completion:'有效观测时长',
+    identity:'运行身份',
+    availability:'必需端点可用率',
+    rss:'A君 RSS',
+    'ajun-health':'A君健康端点 P95',
+    'ajun-console-overview':'A君控制台端点 P95',
+    'ajun-cpu-p95':'A君 CPU P95',
+    'cost-budget':'费用预算证据',
+    'natural-completion':'自然完成标记',
+    'external-effects':'外部副作用证据',
+  })[id] || id);
   return Object.freeze({
     status,
     detail:status === 'healthy'
       ? [ `${observationLabel}已完成，${passedGateDescription}`, scopeQualifier ].filter(Boolean).join(' ')
       : status === 'degraded'
         ? `${observationLabel}存在失败门禁：${failedGateDescription.join('、')}。`
-        : `${observationLabel}尚不完整，不能显示为稳定。`,
+        : isLongSoak && unknownGateDescription.length
+          ? `${observationLabel}尚不完整，缺少可判定门禁：${unknownGateDescription.join('、')}；不能显示为稳定。`
+          : `${observationLabel}尚不完整，不能显示为稳定。`,
     observedAt:summary?.lastObservedAt || summary?.generatedAt || null,
     runtimeIdentity:Object.freeze(runtimeIdentity),
+    gates:Object.freeze(gates),
   });
 }
 
@@ -1195,6 +1356,7 @@ async function observeCommand({ root, runId, acceptanceRoot, options }) {
         intervalSeconds:manifest.intervalSeconds,
         durationSeconds:manifest.durationSeconds,
       });
+      const completeAtStart = durationProgress.complete;
       if (!durationProgress.complete) {
         do {
           const observation = await collectObservation({ root });
@@ -1214,11 +1376,12 @@ async function observeCommand({ root, runId, acceptanceRoot, options }) {
           if (durationProgress.complete || stopRequested) break;
           await waitForNextInterval();
         } while (!stopRequested);
-      } else {
-        stopRequested = true;
       }
       const summary = await summarizeRunDirectory(runDirectory);
-      const summaryWithOutcome = { ...summary, identityFailure, stopRequested };
+      const persistedStopRequested = completeAtStart
+        ? summary.stopRequested
+        : stopRequested ? true : durationProgress.complete ? false : null;
+      const summaryWithOutcome = { ...summary, identityFailure, stopRequested:persistedStopRequested };
       await writePrivateJson(path.join(runDirectory, 'summary.json'), summaryWithOutcome);
       await writeRuntimeReliabilitySnapshot(buildRuntimeReliabilitySnapshot(summaryWithOutcome));
       process.stdout.write(`${JSON.stringify(buildPublicRunResult({
@@ -1230,7 +1393,7 @@ async function observeCommand({ root, runId, acceptanceRoot, options }) {
         },
         summary,
         identityFailure,
-        stopRequested,
+        stopRequested:persistedStopRequested,
       }), null, 2)}\n`);
       if (identityFailure) process.exitCode = 2;
     } finally {

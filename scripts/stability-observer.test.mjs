@@ -38,6 +38,11 @@ const scriptsDirectory = path.dirname(fileURLToPath(import.meta.url));
 const observerScriptPath = path.join(scriptsDirectory, 'stability-observer.mjs');
 const phase1ScriptPath = path.join(scriptsDirectory, 'run-stability-phase1.mjs');
 const CPU_METRIC_V2 = 'agent.army/ajun-cpu-interval-percent/v2';
+const LONG_SOAK_CLOSURE_GATES = Object.freeze({
+  stopRequested:false,
+  costGate:Object.freeze({ status:'passed' }),
+  externalEffectsGate:Object.freeze({ status:'passed' }),
+});
 
 async function seedSoakRun(root, {
   runId = 'stability-seeded-run',
@@ -137,6 +142,7 @@ test('未完成 summarize 不降级覆盖同身份结论，但身份变化和新
       lastObservedAt:remainingDurationSeconds === 0
         ? '2026-08-17T01:00:00.000Z'
         : '2026-08-17T00:10:00.000Z',
+      ...LONG_SOAK_CLOSURE_GATES,
       run:{
         durationSeconds:259_200,
         remainingDurationSeconds,
@@ -193,6 +199,7 @@ test('72 小时快照纳入 A君 CPU P95 门禁，未完成与样本缺失保持
     endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
   });
   const longPending = buildRuntimeReliabilitySnapshot({
+    ...LONG_SOAK_CLOSURE_GATES,
     run:{
       durationSeconds:259_200,
       remainingDurationSeconds:258_000,
@@ -212,6 +219,7 @@ test('72 小时快照纳入 A君 CPU P95 门禁，未完成与样本缺失保持
     endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
   });
   const longHealthy = buildRuntimeReliabilitySnapshot({
+    ...LONG_SOAK_CLOSURE_GATES,
     run:{
       durationSeconds:259_200,
       remainingDurationSeconds:0,
@@ -231,6 +239,7 @@ test('72 小时快照纳入 A君 CPU P95 门禁，未完成与样本缺失保持
     endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
   });
   const longCpuFailed = buildRuntimeReliabilitySnapshot({
+    ...LONG_SOAK_CLOSURE_GATES,
     run:{
       durationSeconds:259_200,
       remainingDurationSeconds:0,
@@ -250,6 +259,7 @@ test('72 小时快照纳入 A君 CPU P95 门禁，未完成与样本缺失保持
     endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
   });
   const longCpuUnknown = buildRuntimeReliabilitySnapshot({
+    ...LONG_SOAK_CLOSURE_GATES,
     run:{
       durationSeconds:259_200,
       remainingDurationSeconds:0,
@@ -269,6 +279,7 @@ test('72 小时快照纳入 A君 CPU P95 门禁，未完成与样本缺失保持
     endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
   });
   const longLegacyManifest = buildRuntimeReliabilitySnapshot({
+    ...LONG_SOAK_CLOSURE_GATES,
     run:{
       durationSeconds:259_200,
       remainingDurationSeconds:0,
@@ -288,6 +299,7 @@ test('72 小时快照纳入 A君 CPU P95 门禁，未完成与样本缺失保持
     endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
   });
   const longLowCoverage = buildRuntimeReliabilitySnapshot({
+    ...LONG_SOAK_CLOSURE_GATES,
     run:{
       durationSeconds:259_200,
       remainingDurationSeconds:0,
@@ -313,6 +325,9 @@ test('72 小时快照纳入 A君 CPU P95 门禁，未完成与样本缺失保持
   assert.equal(longPending.status, 'unknown');
   assert.match(longPending.detail, /72小时稳定性观测尚不完整/);
   assert.equal(longHealthy.status, 'healthy');
+  assert.equal(longHealthy.gates['cost-budget'], 'passed');
+  assert.equal(longHealthy.gates['natural-completion'], 'passed');
+  assert.equal(longHealthy.gates['external-effects'], 'passed');
   assert.match(longHealthy.detail, /72小时稳定性观测已完成/);
   assert.match(longHealthy.detail, /A君 CPU P95/);
   assert.doesNotMatch(longHealthy.detail, /长期稳定仍以更长观测为准/);
@@ -597,6 +612,148 @@ test('cost CLI 只把 referenceSha256 落到 ledger，不保存原始 reference'
   assert.doesNotMatch(stdout, /private-reference/);
 });
 
+test('run summary 对费用账本 fail-closed：0/open 通过，软硬停止线降级，缺失或坏记录未知', async (context) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-cost-summary-'));
+  context.after(() => fsp.rm(root, { recursive:true, force:true }));
+  const observation = {
+    observedAt:'2026-08-17T00:00:00.000Z',
+    safety:{ externalEffects:false },
+    endpoints:[],
+    processes:{},
+  };
+  const validRecord = (amountCny, gate) => ({
+    schemaVersion:'agent.army/stability-cost/v1',
+    recordedAt:'2026-08-17T00:00:00.000Z',
+    amountCny,
+    source:'manual',
+    referenceSha256:null,
+    totalCny:amountCny,
+    gate,
+  });
+  const cases = [
+    { id:'open', records:[validRecord(0, 'open')], expected:{ totalCny:0, level:'open', status:'passed' } },
+    { id:'soft', records:[validRecord(40, 'soft_stop')], expected:{ totalCny:40, level:'soft', status:'degraded' } },
+    { id:'hard', records:[validRecord(50, 'hard_stop')], expected:{ totalCny:50, level:'hard', status:'degraded' } },
+    { id:'missing', records:null, expected:{ totalCny:null, level:null, status:'unknown', reason:'ledger_missing' } },
+    { id:'invalid', records:['{"broken"'], expected:{ totalCny:null, level:null, status:'unknown', reason:'invalid_record' } },
+  ];
+  for (const item of cases) {
+    const runDirectory = path.join(root, item.id);
+    await fsp.mkdir(runDirectory, { recursive:true });
+    await fsp.writeFile(path.join(runDirectory, 'observations.jsonl'), `${JSON.stringify(observation)}\n`);
+    if (item.records) {
+      const ledger = item.records.map((record) => typeof record === 'string' ? record : JSON.stringify(record)).join('\n');
+      await fsp.writeFile(path.join(runDirectory, 'cost-ledger.jsonl'), `${ledger}\n`);
+    }
+    const summary = await summarizeRunDirectory(runDirectory);
+    assert.equal(summary.costGate.totalCny, item.expected.totalCny, item.id);
+    assert.equal(summary.costGate.level, item.expected.level, item.id);
+    assert.equal(summary.costGate.status, item.expected.status, item.id);
+    if (item.expected.reason) assert.equal(summary.costGate.reason, item.expected.reason, item.id);
+  }
+});
+
+test('summary 汇总每条 observation 的 externalEffects，明确 true 优先降级，缺失或非法为 unknown', async (context) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-external-effects-'));
+  context.after(() => fsp.rm(root, { recursive:true, force:true }));
+  const file = path.join(root, 'observations.jsonl');
+  const summarize = async (values) => {
+    const observations = values.map((externalEffects, index) => ({
+      observedAt:new Date(Date.parse('2026-08-17T00:00:00.000Z') + (index * 30_000)).toISOString(),
+      ...(externalEffects === undefined ? {} : { safety:{ externalEffects } }),
+      endpoints:[],
+      processes:{},
+    }));
+    await fsp.writeFile(file, `${observations.map(JSON.stringify).join('\n')}\n`);
+    return (await summarizeObservationFile(file)).externalEffectsGate;
+  };
+  const passed = await summarize([false, false]);
+  assert.equal(passed.status, 'passed');
+  assert.equal(passed.externalEffectsFalseCount, 2);
+  assert.equal(passed.unknownCount, 0);
+  const degraded = await summarize([false, undefined, true]);
+  assert.equal(degraded.status, 'degraded');
+  assert.equal(degraded.externalEffectsTrueCount, 1);
+  assert.equal(degraded.unknownCount, 1);
+  const missing = await summarize([false, undefined]);
+  assert.equal(missing.status, 'unknown');
+  const invalid = await summarize([false, 'false']);
+  assert.equal(invalid.status, 'unknown');
+});
+
+test('72小时可靠性快照要求费用、自然完成和无外部副作用，30分钟旧 summary 仍兼容', () => {
+  const identity = { gitHead:'a'.repeat(40), releaseHash:'b'.repeat(64) };
+  const completeLongSummary = {
+    ...LONG_SOAK_CLOSURE_GATES,
+    run:{
+      durationSeconds:259_200,
+      remainingDurationSeconds:0,
+      expected:identity,
+      cpuMetric:{ version:CPU_METRIC_V2 },
+    },
+    identityGate:{ status:'passed' },
+    requiredEndpointAvailabilityGate:{ status:'passed' },
+    ajun:{
+      cpuMetricVersion:CPU_METRIC_V2,
+      cpuExpectedAdjacentIntervalCount:5,
+      cpuValidIntervalCount:5,
+      cpuP95Percent:1,
+      rssGate:{ status:'passed' },
+    },
+    endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
+  };
+  const healthy = buildRuntimeReliabilitySnapshot(completeLongSummary);
+  assert.equal(healthy.status, 'healthy');
+  assert.match(healthy.detail, /费用预算、自然完成和无外部副作用门禁通过/);
+
+  for (const level of ['soft', 'hard']) {
+    const degraded = buildRuntimeReliabilitySnapshot({
+      ...completeLongSummary,
+      costGate:{ status:'degraded', level },
+    });
+    assert.equal(degraded.status, 'degraded', level);
+    assert.equal(degraded.gates['cost-budget'], 'failed', level);
+    assert.match(degraded.detail, /费用预算/);
+  }
+  const missingLedger = buildRuntimeReliabilitySnapshot({ ...completeLongSummary, costGate:undefined });
+  assert.equal(missingLedger.status, 'unknown');
+  assert.equal(missingLedger.gates['cost-budget'], 'unknown');
+  assert.match(missingLedger.detail, /费用预算/);
+
+  const stopped = buildRuntimeReliabilitySnapshot({ ...completeLongSummary, stopRequested:true });
+  assert.equal(stopped.status, 'unknown');
+  assert.equal(stopped.gates['natural-completion'], 'unknown');
+  assert.match(stopped.detail, /自然完成/);
+  const unknownStop = buildRuntimeReliabilitySnapshot({ ...completeLongSummary, stopRequested:null });
+  assert.equal(unknownStop.status, 'unknown');
+  assert.equal(unknownStop.gates['natural-completion'], 'unknown');
+
+  const externalEffect = buildRuntimeReliabilitySnapshot({
+    ...completeLongSummary,
+    externalEffectsGate:{ status:'degraded' },
+  });
+  assert.equal(externalEffect.status, 'degraded');
+  assert.equal(externalEffect.gates['external-effects'], 'failed');
+  assert.match(externalEffect.detail, /外部副作用/);
+  const unknownExternalEffect = buildRuntimeReliabilitySnapshot({
+    ...completeLongSummary,
+    externalEffectsGate:undefined,
+  });
+  assert.equal(unknownExternalEffect.status, 'unknown');
+  assert.equal(unknownExternalEffect.gates['external-effects'], 'unknown');
+
+  const legacyThirtyMinute = buildRuntimeReliabilitySnapshot({
+    run:{ durationSeconds:1_800, remainingDurationSeconds:0, expected:identity },
+    identityGate:{ status:'passed' },
+    requiredEndpointAvailabilityGate:{ status:'passed' },
+    ajun:{ rssGate:{ status:'passed' } },
+    endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
+  });
+  assert.equal(legacyThirtyMinute.status, 'healthy');
+  assert.equal(Object.hasOwn(legacyThirtyMinute.gates, 'cost-budget'), false);
+  assert.doesNotMatch(JSON.stringify([healthy, missingLedger, stopped, externalEffect]), /cost-ledger|referenceSha256|\/Users\//);
+});
+
 test('已有 observations 时默认拒绝 observe 混跑，显式 resume 前不会覆盖', async (context) => {
   const homeRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-observe-no-resume-'));
   context.after(() => fsp.rm(homeRoot, { recursive:true, force:true }));
@@ -766,11 +923,156 @@ test('resume 会保留 startedAt、累加 resumeCount，并按整 run 汇总剩�
   assert.equal(summaryFile.run.resumeCount, 1);
   assert.equal(summaryFile.run.effectiveObservedSeconds, 90);
   assert.equal(summaryFile.run.remainingDurationSeconds, 0);
+  assert.equal(summaryFile.stopRequested, null);
   assert.deepEqual(summaryFile.run.manualResearchProbeMilestones, [24, 48, 72]);
   assert.equal(summaryFile.run.requiresExternalConfirmation, true);
   assert.equal(summarized.run.resumeCount, 1);
   assert.equal(summarized.observationCount, 4);
   assert.doesNotMatch(stdout, /\/Users\/|runDirectory/);
+});
+
+test('summarize 子命令重算时保留已有 stopRequested，缺失时明确为 null', async (context) => {
+  const homeRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-summary-stop-outcome-'));
+  context.after(() => fsp.rm(homeRoot, { recursive:true, force:true }));
+  const runId = 'stability-summary-stop-outcome';
+  const runDirectory = await seedSoakRun(homeRoot, {
+    runId,
+    manifest:{
+      schemaVersion:'agent.army/stability-run/v1',
+      runId,
+      startedAt:'2026-08-17T00:00:00.000Z',
+      durationSeconds:1_800,
+      intervalSeconds:30,
+      expected:{ gitHead:'a'.repeat(40), releaseHash:'b'.repeat(64) },
+    },
+    observations:[{
+      observedAt:'2026-08-17T00:00:00.000Z',
+      safety:{ externalEffects:false },
+      identityGate:{ passed:true },
+      endpoints:[],
+      processes:{},
+    }],
+  });
+  const summaryPath = path.join(runDirectory, 'summary.json');
+  await fsp.writeFile(summaryPath, '{"stopRequested":true}\n');
+  execFileSync(process.execPath, [observerScriptPath, 'summarize', '--run-id', runId], {
+    cwd:path.resolve(scriptsDirectory, '..'),
+    encoding:'utf8',
+    env:{ ...process.env, HOME:homeRoot },
+  });
+  assert.equal(JSON.parse(await fsp.readFile(summaryPath, 'utf8')).stopRequested, true);
+
+  const existing = JSON.parse(await fsp.readFile(summaryPath, 'utf8'));
+  await fsp.writeFile(summaryPath, `${JSON.stringify({ ...existing, stopRequested:false })}\n`);
+  assert.equal((await summarizeRunDirectory(runDirectory)).stopRequested, false);
+  await fsp.unlink(summaryPath);
+  assert.equal((await summarizeRunDirectory(runDirectory)).stopRequested, null);
+
+  for (const invalidSummary of ['', '{"stopRequested":', '[]', 'null', '"not-an-object"']) {
+    await fsp.writeFile(summaryPath, invalidSummary);
+    assert.equal((await summarizeRunDirectory(runDirectory)).stopRequested, null);
+  }
+  await fsp.writeFile(summaryPath, '{"stopRequested":');
+  execFileSync(process.execPath, [observerScriptPath, 'summarize', '--run-id', runId], {
+    cwd:path.resolve(scriptsDirectory, '..'),
+    encoding:'utf8',
+    env:{ ...process.env, HOME:homeRoot },
+  });
+  const repairedSummary = JSON.parse(await fsp.readFile(summaryPath, 'utf8'));
+  assert.equal(repairedSummary.schemaVersion, 'agent.army/stability-summary/v1');
+  assert.equal(repairedSummary.stopRequested, null);
+});
+
+test('已完成 run 执行 resume 不采样时保留旧 stopRequested=true，不伪装自然完成', async (context) => {
+  const homeRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-complete-resume-stop-'));
+  context.after(() => fsp.rm(homeRoot, { recursive:true, force:true }));
+  const runId = 'stability-complete-resume-stop';
+  const expected = { gitHead:'a'.repeat(40), releaseHash:'b'.repeat(64) };
+  const runDirectory = await seedSoakRun(homeRoot, {
+    runId,
+    manifest:{
+      schemaVersion:'agent.army/stability-run/v1',
+      runId,
+      startedAt:'2026-08-17T00:00:00.000Z',
+      durationSeconds:60,
+      intervalSeconds:30,
+      expected,
+      cpuMetric:{ version:CPU_METRIC_V2 },
+    },
+    observations:[0, 30, 60].map((seconds) => ({
+      observedAt:new Date(Date.parse('2026-08-17T00:00:00.000Z') + (seconds * 1_000)).toISOString(),
+      safety:{ externalEffects:false },
+      identityGate:{ passed:true },
+      endpoints:[],
+      processes:{},
+    })),
+  });
+  const summaryPath = path.join(runDirectory, 'summary.json');
+  await fsp.writeFile(summaryPath, '{"stopRequested":true}\n');
+  const beforeCount = (await readObservationRecords(path.join(runDirectory, 'observations.jsonl'))).length;
+  execFileSync(process.execPath, [
+    observerScriptPath,
+    'observe',
+    '--run-id', runId,
+    '--duration-seconds', '60',
+    '--interval-seconds', '30',
+    '--resume', 'true',
+    '--expected-git-head', expected.gitHead,
+    '--expected-release-hash', expected.releaseHash,
+  ], {
+    cwd:path.resolve(scriptsDirectory, '..'),
+    encoding:'utf8',
+    env:{ ...process.env, HOME:homeRoot },
+  });
+  const afterCount = (await readObservationRecords(path.join(runDirectory, 'observations.jsonl'))).length;
+  const summary = JSON.parse(await fsp.readFile(summaryPath, 'utf8'));
+  assert.equal(afterCount, beforeCount);
+  assert.equal(summary.stopRequested, true);
+
+  await fsp.writeFile(summaryPath, '{"stopRequested":');
+  execFileSync(process.execPath, [
+    observerScriptPath,
+    'observe',
+    '--run-id', runId,
+    '--duration-seconds', '60',
+    '--interval-seconds', '30',
+    '--resume', 'true',
+    '--expected-git-head', expected.gitHead,
+    '--expected-release-hash', expected.releaseHash,
+  ], {
+    cwd:path.resolve(scriptsDirectory, '..'),
+    encoding:'utf8',
+    env:{ ...process.env, HOME:homeRoot },
+  });
+  const repairedSummary = JSON.parse(await fsp.readFile(summaryPath, 'utf8'));
+  assert.equal(
+    (await readObservationRecords(path.join(runDirectory, 'observations.jsonl'))).length,
+    beforeCount,
+  );
+  assert.equal(repairedSummary.stopRequested, null);
+});
+
+test('本次从未完成状态自然达到有效时长时才落盘 stopRequested=false', async (context) => {
+  const homeRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-natural-completion-'));
+  context.after(() => fsp.rm(homeRoot, { recursive:true, force:true }));
+  const runId = 'stability-natural-completion';
+  execFileSync(process.execPath, [
+    observerScriptPath,
+    'observe',
+    '--run-id', runId,
+    '--duration-seconds', '1',
+    '--interval-seconds', '1',
+  ], {
+    cwd:path.resolve(scriptsDirectory, '..'),
+    encoding:'utf8',
+    env:{ ...process.env, HOME:homeRoot },
+  });
+  const summary = JSON.parse(await fsp.readFile(
+    path.join(homeRoot, '.agent-army', 'acceptance', runId, 'summary.json'),
+    'utf8',
+  ));
+  assert.equal(summary.run.remainingDurationSeconds, 0);
+  assert.equal(summary.stopRequested, false);
 });
 
 test('v2 manifest 缺少 resumeCount 时，resume 仍兼容并从 1 开始累计', async (context) => {
@@ -1005,6 +1307,7 @@ test('完整长测即使有 5 个有效 CPU 区间，覆盖率不足 99.5% 仍�
   const identity = { gitHead:'a'.repeat(40), releaseHash:'b'.repeat(64) };
   const snapshot = buildRuntimeReliabilitySnapshot({
     ...summary,
+    ...LONG_SOAK_CLOSURE_GATES,
     run:{
       durationSeconds:259_200,
       remainingDurationSeconds:0,
