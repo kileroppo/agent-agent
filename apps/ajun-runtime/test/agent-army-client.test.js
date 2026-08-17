@@ -1242,6 +1242,46 @@ test('task_get exposes bounded video-analysis evidence for independent review wi
   assert.equal(JSON.stringify(task).includes('must-not-leak'), false);
 });
 
+test('task_get exposes bounded office evidence for independent review without local paths', async () => {
+  const client = new AgentArmyClient({ fetchImpl:fakeFetch({
+    'GET /api/overview':{
+      ...overview,
+      tasks:[{
+        ...overview.tasks[0],
+        taskType:'office.briefing-package',
+        artifactRefs:[{
+          artifactId:'office-briefing:task-1',
+          type:'office_briefing_package',
+          location:'file:///Users/private/office.md',
+          mimeType:'text/markdown',
+          validation:{
+            exists:true, readable:true, nonEmpty:true, bytes:3938, sourceTaskCount:2,
+            sourceStatusesTruthful:true, includesOpenItems:true, includesNextAction:true,
+          },
+          data:{
+            title:'老板简报', summary:'两项上游工作均已完成。',
+            sourceTasks:[{ taskId:'source-task-1', title:'公开视频听审', employeeId:'xiaod', status:'succeeded' }],
+            openItems:[], nextAction:'请审阅并决定是否采用。',
+            markdown:'# 老板简报\n\n## 执行摘要\n两项工作完成。\n\n## 下一步\n请审阅。\n\nfile:///Users/private/secret.md',
+            private:'must-not-leak',
+          },
+        }],
+      }],
+    },
+    'POST /api/feishu/task-status':{ terminal:false, message:'待复核。' },
+  }) });
+
+  const task = await client.getTask('11111111-1111-1111-1111-111111111111');
+  assert.equal(task.artifacts[0].ref, 'office-briefing:task-1');
+  assert.deepEqual(task.artifacts[0].report.validation, {
+    exists:true, readable:true, nonEmpty:true, bytes:3938, sourceTaskCount:2,
+    sourceStatusesTruthful:true, includesOpenItems:true, includesNextAction:true, editableFormat:true,
+  });
+  assert.match(task.artifacts[0].report.contentExcerpt, /执行摘要/);
+  assert.equal(JSON.stringify(task).includes('/Users/private/'), false);
+  assert.equal(JSON.stringify(task).includes('must-not-leak'), false);
+});
+
 test('task_get 只展示同一产物的最新版本，不让失败重试的旧来源污染复核', async () => {
   const client = new AgentArmyClient({ fetchImpl:fakeFetch({
     'GET /api/overview':{

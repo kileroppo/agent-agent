@@ -102,6 +102,17 @@ function artifactView(artifact: any = {}): any {
         view.report = {
             title: safeText(artifact.data.title, 500),
             summary: safeText(artifact.data.summary, 1200),
+            validation: {
+                exists: validation.exists === true,
+                readable: validation.readable === true,
+                nonEmpty: validation.nonEmpty === true,
+                bytes: boundedInteger(validation.bytes, 1, 10_000_000),
+                sourceTaskCount: boundedInteger(validation.sourceTaskCount, 0, 100),
+                sourceStatusesTruthful: validation.sourceStatusesTruthful === true,
+                includesOpenItems: validation.includesOpenItems === true,
+                includesNextAction: validation.includesNextAction === true,
+                editableFormat: artifact.mimeType === 'text/markdown',
+            },
             sourceTasks: (Array.isArray(artifact.data.sourceTasks) ? artifact.data.sourceTasks : []).slice(0, 10).map((item: any): any => ({
                 taskId: safeText(item?.taskId, 100),
                 title: safeText(item?.title, 500),
@@ -109,7 +120,8 @@ function artifactView(artifact: any = {}): any {
                 status: safeText(item?.status, 60)
             })),
             openItems: safeStringList(artifact.data.openItems, 8, 600),
-            nextAction: safeText(artifact.data.nextAction, 800)
+            nextAction: safeText(artifact.data.nextAction, 800),
+            contentExcerpt: verifiedOfficeExcerpt(artifact, validation),
         };
     }
     if (artifact.type === 'video_content_analysis_report' && artifact.data) {
@@ -237,6 +249,23 @@ function boundedNumber(value: any, minimum: any, maximum: any): any {
 function safeHttpUrl(value: any): any {
     const candidate: any = safeText(value, 1000);
     return /^https?:\/\//i.test(candidate) ? candidate : null;
+}
+function safeOfficeExcerpt(value: any, limit: any): any {
+    return safeText(value, 12_000)
+        .replace(/file:\/\/\/[^\s）)]+/gi, '[本地产物引用已脱敏]')
+        .replace(/\b\/Users\/[^\s）)]+/g, '[本地路径已脱敏]')
+        .slice(0, limit);
+}
+function verifiedOfficeExcerpt(artifact: any, validation: any): any {
+    const eligible = validation.exists === true
+        && validation.readable === true
+        && validation.nonEmpty === true
+        && boundedInteger(validation.bytes, 1, 10_000_000) !== null
+        && validation.sourceStatusesTruthful === true
+        && validation.includesOpenItems === true
+        && validation.includesNextAction === true
+        && artifact.mimeType === 'text/markdown';
+    return eligible ? safeOfficeExcerpt(artifact.data?.markdown, 2400) : '';
 }
 function latestArtifactVersions(artifacts: any[]): any[] {
     const latestIndexById: any = new Map();
