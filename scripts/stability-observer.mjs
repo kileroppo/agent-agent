@@ -44,6 +44,7 @@ const HARD_BUDGET_CNY = 50;
 const REQUIRED_ENDPOINT_AVAILABILITY_THRESHOLD = 0.995;
 const RSS_GROWTH_RATIO_THRESHOLD = 1.25;
 const RUNTIME_RELIABILITY_SNAPSHOT_FILE = 'runtime-reliability.json';
+const LONG_SOAK_DURATION_SECONDS = 72 * 60 * 60;
 const RELIABILITY_ENDPOINT_P95_MS = Object.freeze({
   'ajun-health':300,
   'ajun-console-overview':1_000,
@@ -479,13 +480,21 @@ export function buildRuntimeReliabilitySnapshot(summary = {}) {
   };
   const identityComplete = Boolean(runtimeIdentity.gitHead && runtimeIdentity.releaseHash);
   const status = failed.length ? 'degraded' : unknown.length || !identityComplete ? 'unknown' : 'healthy';
+  const observationWindow = describeObservationWindow(summary?.run?.durationSeconds);
+  const observationLabel = observationWindow
+    ? `当前 git/release 的${observationWindow}稳定性观测`
+    : '当前 git/release 的稳定性观测';
+  const scopeQualifier = Number(summary?.run?.durationSeconds) > 0
+    && Number(summary.run.durationSeconds) < LONG_SOAK_DURATION_SECONDS
+    ? '；长期稳定仍以更长观测为准。'
+    : '';
   return Object.freeze({
     status,
     detail:status === 'healthy'
-      ? '当前 git/release 的稳定性观测已完成，所有可用率、端点 P95 和 RSS 门禁通过。'
+      ? `${observationLabel}已完成，所有可用率、端点 P95 和 RSS 门禁通过。${scopeQualifier}`
       : status === 'degraded'
-        ? `当前 git/release 的稳定性观测存在失败门禁：${failed.join('、')}。`
-        : '当前 git/release 的稳定性观测尚不完整，不能显示为稳定。',
+        ? `${observationLabel}存在失败门禁：${failed.join('、')}。`
+        : `${observationLabel}尚不完整，不能显示为稳定。`,
     observedAt:summary?.lastObservedAt || summary?.generatedAt || null,
     runtimeIdentity:Object.freeze(runtimeIdentity),
   });
@@ -778,6 +787,14 @@ function summarizeResourceTrend(values) {
   });
 }
 
+function describeObservationWindow(durationSeconds) {
+  const seconds = Number(durationSeconds);
+  if (!Number.isFinite(seconds) || seconds <= 0) return '';
+  if (seconds % 3600 === 0) return `${seconds / 3600} 小时`;
+  if (seconds % 60 === 0) return `${seconds / 60} 分钟`;
+  return `${roundMillis(seconds)} 秒`;
+}
+
 function evaluateRssGate(trend) {
   if ((trend?.sampleCount || 0) < 5) {
     return Object.freeze({
@@ -935,7 +952,24 @@ async function observeCommand({ root, runId, acceptanceRoot, options }) {
     const { manifest, manifestPath, observationPath, remainingDurationMs } = state;
     await writePrivateJson(manifestPath, manifest);
     let stopRequested = false;
-    const requestStop = () => { stopRequested = true; };
+    let wakeIntervalWait = null;
+    const requestStop = () => {
+      stopRequested = true;
+      wakeIntervalWait?.();
+    };
+    const waitForNextInterval = () => new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (wakeIntervalWait === finish) wakeIntervalWait = null;
+        resolve();
+      };
+      const timer = setTimeout(finish, manifest.intervalSeconds * 1_000);
+      wakeIntervalWait = finish;
+      if (stopRequested) finish();
+    });
     process.once('SIGINT', requestStop);
     process.once('SIGTERM', requestStop);
     try {
@@ -951,7 +985,7 @@ async function observeCommand({ root, runId, acceptanceRoot, options }) {
             break;
           }
           if (Date.now() >= deadline || stopRequested) break;
-          await new Promise((resolve) => setTimeout(resolve, manifest.intervalSeconds * 1_000));
+          await waitForNextInterval();
         } while (!stopRequested);
       } else {
         stopRequested = true;
@@ -973,6 +1007,7 @@ async function observeCommand({ root, runId, acceptanceRoot, options }) {
       }), null, 2)}\n`);
       if (identityFailure) process.exitCode = 2;
     } finally {
+      wakeIntervalWait?.();
       process.removeListener('SIGINT', requestStop);
       process.removeListener('SIGTERM', requestStop);
     }

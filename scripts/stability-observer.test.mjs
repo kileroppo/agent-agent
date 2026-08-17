@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -54,6 +54,43 @@ async function seedSoakRun(root, {
   return runDirectory;
 }
 
+async function waitForFile(filePath, { timeoutMs = 8_000, intervalMs = 25 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      await fsp.access(filePath);
+      return;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw new Error('等待 CLI 证据文件超时');
+}
+
+function waitForChild(child, { timeoutMs = 8_000 } = {}) {
+  return new Promise((resolve, reject) => {
+    let stdout = '';
+    let stderr = '';
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error('等待 CLI 子进程退出超时'));
+    }, timeoutMs);
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.once('error', (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.once('close', (code, signal) => {
+      clearTimeout(timeout);
+      resolve({ code, signal, stdout, stderr });
+    });
+  });
+}
+
 test('验收目录限制 run-id 且收紧为 0700', async (context) => {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-observer-'));
   context.after(() => fsp.rm(root, { recursive:true, force:true }));
@@ -70,7 +107,7 @@ test('完整且同身份的稳定性结论以 0600 原子快照供运行台读�
   const releaseHash = 'b'.repeat(64);
   const snapshot = buildRuntimeReliabilitySnapshot({
     generatedAt:'2026-08-17T00:00:00.000Z', lastObservedAt:'2026-08-17T01:00:00.000Z',
-    run:{ remainingDurationSeconds:0, expected:{ gitHead, releaseHash } },
+    run:{ durationSeconds:1_800, remainingDurationSeconds:0, expected:{ gitHead, releaseHash } },
     identityGate:{ status:'passed' },
     requiredEndpointAvailabilityGate:{ status:'passed' },
     ajun:{ rssGate:{ status:'passed' } },
@@ -78,6 +115,8 @@ test('完整且同身份的稳定性结论以 0600 原子快照供运行台读�
   });
   const filePath = await writeRuntimeReliabilitySnapshot(snapshot, { dataDir });
   assert.equal(snapshot.status, 'healthy');
+  assert.match(snapshot.detail, /30 分钟稳定性观测已完成/);
+  assert.match(snapshot.detail, /长期稳定仍以更长观测为准/);
   assert.deepEqual(JSON.parse(await fsp.readFile(filePath, 'utf8')), snapshot);
   assert.equal((await fsp.stat(filePath)).mode & 0o777, 0o600);
   assert.deepEqual((await fsp.readdir(dataDir)).sort(), ['runtime-reliability.json']);
@@ -94,7 +133,7 @@ test('未完成 summarize 不降级覆盖同身份结论，但身份变化和新
       lastObservedAt:remainingDurationSeconds === 0
         ? '2026-08-17T01:00:00.000Z'
         : '2026-08-17T00:10:00.000Z',
-      run:{ remainingDurationSeconds, expected:identity },
+      run:{ durationSeconds:259_200, remainingDurationSeconds, expected:identity },
       identityGate:{ status:'passed' },
       requiredEndpointAvailabilityGate:{ status:'passed' },
       ajun:{ rssGate:{ status:'passed' } },
@@ -126,6 +165,37 @@ test('未完成 summarize 不降级覆盖同身份结论，但身份变化和新
   await writeRuntimeReliabilitySnapshot(completedNewIdentity, { dataDir });
   assert.deepEqual(await readSnapshot(), completedNewIdentity);
   assert.equal((await fsp.stat(path.join(dataDir, 'runtime-reliability.json'))).mode & 0o777, 0o600);
+});
+
+test('快照 detail 会区分短期门禁与 72 小时长观测', () => {
+  const identity = { gitHead:'a'.repeat(40), releaseHash:'b'.repeat(64) };
+  const shortHealthy = buildRuntimeReliabilitySnapshot({
+    run:{ durationSeconds:1_800, remainingDurationSeconds:0, expected:identity },
+    identityGate:{ status:'passed' },
+    requiredEndpointAvailabilityGate:{ status:'passed' },
+    ajun:{ rssGate:{ status:'passed' } },
+    endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
+  });
+  const longPending = buildRuntimeReliabilitySnapshot({
+    run:{ durationSeconds:259_200, remainingDurationSeconds:258_000, expected:identity },
+    identityGate:{ status:'passed' },
+    requiredEndpointAvailabilityGate:{ status:'passed' },
+    ajun:{ rssGate:{ status:'passed' } },
+    endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
+  });
+  const longHealthy = buildRuntimeReliabilitySnapshot({
+    run:{ durationSeconds:259_200, remainingDurationSeconds:0, expected:identity },
+    identityGate:{ status:'passed' },
+    requiredEndpointAvailabilityGate:{ status:'passed' },
+    ajun:{ rssGate:{ status:'passed' } },
+    endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
+  });
+
+  assert.match(shortHealthy.detail, /30 分钟稳定性观测已完成/);
+  assert.match(shortHealthy.detail, /长期稳定仍以更长观测为准/);
+  assert.match(longPending.detail, /72 小时稳定性观测尚不完整/);
+  assert.match(longHealthy.detail, /72 小时稳定性观测已完成/);
+  assert.doesNotMatch(longHealthy.detail, /长期稳定仍以更长观测为准/);
 });
 
 test('可靠性快照拒绝符号链接和非普通目标且不触碰链接外部文件', async (context) => {
@@ -539,6 +609,51 @@ test('observe 独占锁原子创建为 0600，冲突时拒绝且 release 后清�
   await lock.release();
   await assert.rejects(() => fsp.stat(lockPath), /ENOENT/);
 });
+
+for (const stopSignal of ['SIGINT', 'SIGTERM']) {
+  test(`CLI observe 收到 ${stopSignal} 后立即唤醒、汇总并释放独占锁`, async (context) => {
+    const homeRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-observe-signal-'));
+    context.after(() => fsp.rm(homeRoot, { recursive:true, force:true }));
+    const runId = `stability-observe-${stopSignal.toLowerCase()}`;
+    const runDirectory = path.join(homeRoot, '.agent-army', 'acceptance', runId);
+    const observationPath = path.join(runDirectory, 'observations.jsonl');
+    const lockPath = path.join(runDirectory, 'observe.lock');
+    const summaryPath = path.join(runDirectory, 'summary.json');
+    const child = spawn(process.execPath, [
+      observerScriptPath,
+      'observe',
+      '--run-id', runId,
+      '--duration-seconds', '120',
+      '--interval-seconds', '30',
+    ], {
+      cwd:path.resolve(scriptsDirectory, '..'),
+      env:{ ...process.env, HOME:homeRoot },
+      stdio:['ignore', 'pipe', 'pipe'],
+    });
+    context.after(() => {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    });
+    const childResult = waitForChild(child);
+
+    await waitForFile(observationPath);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const signalSentAt = Date.now();
+    assert.equal(child.kill(stopSignal), true);
+    const result = await childResult;
+    const signalToExitMs = Date.now() - signalSentAt;
+
+    assert.equal(result.code, 0);
+    assert.equal(result.signal, null);
+    assert.equal(signalToExitMs < 4_000, true, `${stopSignal} 后退出耗时 ${signalToExitMs}ms`);
+    await assert.rejects(() => fsp.stat(lockPath), /ENOENT/);
+    const summary = JSON.parse(await fsp.readFile(summaryPath, 'utf8'));
+    assert.equal(summary.stopRequested, true);
+    assert.equal(summary.observationCount >= 1, true);
+    assert.equal(summary.run.remainingDurationSeconds > 0, true);
+    assert.doesNotMatch(result.stdout, /observe\.lock|\/Users\/|\.agent-army|runDirectory/);
+    assert.doesNotMatch(result.stderr, /observe\.lock|\/Users\/|\.agent-army|runDirectory/);
+  });
+}
 
 test('CLI observe 遇到既有锁文件时拒绝，stdout/stderr 不泄露锁路径', async (context) => {
   const homeRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-observe-lock-cli-'));
