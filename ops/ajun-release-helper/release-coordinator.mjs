@@ -122,6 +122,20 @@ export class ReleaseCoordinator {
         finishedAt:this.clock().toISOString(),
       });
     } catch (error) {
+      if (error?.releaseActive === true) {
+        await this.update({
+          current:error.current || this.state.current,
+          rollback:error.rollback || this.state.rollback,
+          candidate:candidateForLiveRelease(this.state.candidate, error.current, {
+            validationStatus:'passed',
+            verifiedAt:this.clock().toISOString(),
+          }),
+          state:'succeeded',
+          message:'新版已上线并核对运行身份；正式历史写入失败，临时恢复记录仍可用于回滚，请重新检查以重建历史。',
+          finishedAt:this.clock().toISOString(),
+        });
+        return;
+      }
       const rolledBack = error?.rolledBack === true;
       await this.update({
         state:rolledBack ? 'rolled_back' : 'failed',

@@ -51,43 +51,49 @@ test('首页读模型只保留当前状态、单份员工摘要、能力摘要�
   assert.ok(Buffer.byteLength(serialized) < 50 * 1024);
 });
 
-test('首页在任务账本未变更时复用精确快照，写入通知后才重算', async () => {
+test('首页每次读取易变运行态，只复用任务派生快照', async () => {
   let taskReads = 0;
   let approvalReads = 0;
   let proposalReads = 0;
   let acceptanceReads = 0;
-  let notify = null;
-  const task = {
-    taskId:'historic-failure', taskType:'research.intel-report', status:'failed',
-    updatedAt:'2026-08-17T00:00:00.000Z', createdAt:'2026-08-17T00:00:00.000Z',
-    input:{ title:'待复验任务' }, source:{ channel:'feishu', targetAgentId:'operator' }, artifactRefs:[],
-  };
+  let registryReads = 0;
+  let governanceReads = 0;
+  let skillReads = 0;
+  let localAiReads = 0;
+  let executorReads = 0;
+  let state = 'first';
   const overview = new TaskOverview({
-    registry:{ list:async () => [{ agentId:'operator', name:'操作员', status:'active', acceptedTaskTypes:[] }], get:async () => null },
+    registry:{
+      list:async () => { registryReads += 1; return [{ agentId:'operator', name:`操作员-${state}`, status:'active', acceptedTaskTypes:[] }]; },
+      get:async () => null,
+    },
     store:{
-      list:async () => { taskReads += 1; return [task]; },
+      list:async () => { taskReads += 1; return []; },
       listApprovals:async () => { approvalReads += 1; return []; },
       listProposals:async () => { proposalReads += 1; return []; },
       listWorkflowAcceptances:async () => { acceptanceReads += 1; return []; },
-      subscribe:(listener) => { notify = listener; return () => {}; },
+      subscribe:() => () => {},
     },
-    governance:{ health:async () => ({ status:'ready', version:'test' }) },
-    skillExecutionRegistry:{ overview:async () => [] },
+    governance:{ health:async () => { governanceReads += 1; return { status:state === 'first' ? 'ready' : 'unavailable', version:state }; } },
+    skillExecutionRegistry:{ overview:async () => { skillReads += 1; return [{ slug:'open-kimi-ppt', status:state === 'first' ? 'ready' : 'unavailable' }]; } },
+    localAiCapabilityStatus:async () => { localAiReads += 1; return { status:state === 'first' ? 'healthy' : 'degraded' }; },
+    executors:{ operator:{ health:async () => { executorReads += 1; return { status:'healthy', checkedAt:state, requiredDatabases:{}, safeMessage:state }; } } },
     capabilityCatalog:{ openTaskDelegates:() => ({}) },
   });
 
-  const first = await overview.readConsole();
-  const second = await overview.readConsole();
-  assert.equal(first.taskFocus.unresolvedFailures, 1);
-  assert.equal(second.taskFocus.unresolvedFailures, 1);
+  const first = await overview.readConsoleSnapshot();
+  state = 'second';
+  const second = await overview.readConsoleSnapshot();
+
+  assert.equal(first.agents[0].name, '操作员-first');
+  assert.equal(second.agents[0].name, '操作员-second');
+  assert.equal(first.capabilities.find((capability) => capability.id === 'governance').status, 'ready');
+  assert.equal(second.capabilities.find((capability) => capability.id === 'governance').status, 'unavailable');
   assert.deepEqual({ taskReads, approvalReads, proposalReads, acceptanceReads }, {
     taskReads:1, approvalReads:1, proposalReads:1, acceptanceReads:1,
   });
-
-  notify({ kind:'mutation' });
-  await overview.readConsole();
-  assert.deepEqual({ taskReads, approvalReads, proposalReads, acceptanceReads }, {
-    taskReads:2, approvalReads:2, proposalReads:2, acceptanceReads:2,
+  assert.deepEqual({ registryReads, governanceReads, skillReads, localAiReads, executorReads }, {
+    registryReads:2, governanceReads:2, skillReads:2, localAiReads:2, executorReads:2,
   });
 });
 

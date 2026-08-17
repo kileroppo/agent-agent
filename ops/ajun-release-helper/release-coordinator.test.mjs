@@ -113,6 +113,28 @@ test('自动恢复旧版时候选保持未部署且不会伪装验证通过', as
   assert.equal(status.candidate.validation.status, 'not_completed');
 });
 
+test('历史持久化失败但新版本已通过线上核对时，状态保留新版本与回滚入口而非报失败', async (context) => {
+  const fixture = await createFixture(context, {
+    publish:async () => {
+      const error = new Error('history write failed');
+      error.releaseActive = true;
+      error.current = {
+        releaseHash:'new-release', gitHead:'abcdef1234567890',
+        verification:{ pid:123, verifiedAt:'2026-08-17T00:00:00.000Z', checks:{ pid:true, listener:true, cwd:true, argv:true, releaseHash:true, payloadHash:true, gitHead:true, api:true, rollbackAvailable:true } },
+      };
+      error.rollback = { releaseHash:'old-release', gitHead:'0'.repeat(40) };
+      throw error;
+    },
+  });
+  await fixture.coordinator.start('publish', { confirm:'publish_current_commit' });
+  const status = await fixture.coordinator.wait();
+  assert.equal(status.state, 'succeeded');
+  assert.equal(status.current.releaseHash, 'new-release');
+  assert.equal(status.rollback.releaseHash, 'old-release');
+  assert.equal(status.candidate.validation.status, 'passed');
+  assert.match(status.message, /历史写入失败/);
+});
+
 async function createFixture(context, overrides = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-release-coordinator-'));
   context.after(() => fs.rm(root, { recursive:true, force:true }));

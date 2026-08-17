@@ -17,19 +17,21 @@ export class OfficialFeishuCompletionWatcher {
     deliverySnapshot: any;
     detailBaseUrl: any;
     intervalMs: any;
+    leaseMs: any;
     logger: any;
+    ownerId: any;
     send: any;
     store: any;
     taskStatus: any;
     timer: any;
     timers: any;
-    constructor({ taskStatus, send, store, intervalMs = 3000, timers = globalThis, detailBaseUrl = '', logger = console }: any = {}) {
+    constructor({ taskStatus, send, store, intervalMs = 3000, leaseMs = 30000, ownerId = crypto.randomUUID(), timers = globalThis, detailBaseUrl = '', logger = console }: any = {}) {
         if (typeof taskStatus !== 'function')
             throw new OfficialFeishuCompletionWatcherError('官方飞书跟进缺少任务状态读取方法。');
         if (typeof send !== 'function')
             throw new OfficialFeishuCompletionWatcherError('官方飞书跟进缺少原会话发送方法。');
-        if (!store?.list || !store?.upsert || !store?.remove)
-            throw new OfficialFeishuCompletionWatcherError('官方飞书跟进缺少本机记录。');
+        if (!store?.list || !store?.upsert || !store?.remove || !store?.claimDelivery || !store?.completeDelivery || !store?.recoverExpiredDelivery)
+            throw new OfficialFeishuCompletionWatcherError('官方飞书跟进缺少可原子领取的本机记录。');
         this.taskStatus = taskStatus;
         this.send = send;
         this.store = store;
@@ -37,6 +39,8 @@ export class OfficialFeishuCompletionWatcher {
         this.timers = timers;
         this.detailBaseUrl = taskDetailBaseUrl(detailBaseUrl);
         this.logger = logger;
+        this.leaseMs = Math.max(1000, Number(leaseMs) || 30000);
+        this.ownerId = required(ownerId, '官方飞书跟进缺少投递实例标识。');
         this.timer = null;
         this.checkInFlight = null;
         this.deliverySnapshot = deliveryState([]);
@@ -123,7 +127,9 @@ export class OfficialFeishuCompletionWatcher {
                 await this.store.upsert(watch);
             }
             if (receipt?.status === 'sending') {
-                await this.markDeliveryUncertain(watch, 'process_interrupted');
+                if (leaseActive(receipt))
+                    return;
+                await this.store.recoverExpiredDelivery({ taskId:watch.taskId, chatId:watch.chatId });
                 return;
             }
             if (receipt?.status === 'delivery_unknown' || receipt?.status === 'delivered')
@@ -155,9 +161,10 @@ export class OfficialFeishuCompletionWatcher {
     }
     async deliver(watch: any, targetStatus: any, kind: any, message: any): Promise<any> {
         const previous: any = normalizeDeliveryReceipt(watch.delivery);
+        const nextDeliveryId: any = deliveryId(watch.taskId, watch.chatId, kind, targetStatus);
         const prepared: Record<string, any> = createReceipt({
-            deliveryId: deliveryId(watch.taskId, watch.chatId, kind, targetStatus),
-            idempotencyKey: previous?.idempotencyKey || deliveryId(watch.taskId, watch.chatId, kind, targetStatus),
+            deliveryId: nextDeliveryId,
+            idempotencyKey: previous?.deliveryId === nextDeliveryId ? previous.idempotencyKey : nextDeliveryId,
             channel:'feishu',
             kind,
             targetStatus: String(targetStatus || ''),
@@ -165,11 +172,19 @@ export class OfficialFeishuCompletionWatcher {
             preparedAt:new Date().toISOString(),
             attempt:(Number(previous?.attempt) || 0) + 1,
         });
-        const preparedWatch: Record<string, any> = { ...watch, delivery:prepared, updatedAt: new Date().toISOString() };
-        await this.store.upsert(preparedWatch);
-        const delivery: Record<string, any> = createReceipt({ ...prepared, status:'sending', sendingAt:new Date().toISOString() });
-        const sendingWatch: Record<string, any> = { ...preparedWatch, delivery, updatedAt: new Date().toISOString() };
-        await this.store.upsert(sendingWatch);
+        // The claim is file-backed and conditional: separate processes may
+        // observe the same task, but only one can begin external I/O.
+        const claim: any = await this.store.claimDelivery({
+            taskId:watch.taskId, chatId:watch.chatId, delivery:prepared,
+            ownerId:this.ownerId, leaseMs:this.leaseMs,
+        });
+        if (!claim?.claimed)
+            return;
+        const sendingWatch: Record<string, any> = claim.watch;
+        const delivery: Record<string, any> = normalizeDeliveryReceipt(sendingWatch.delivery);
+        // `check()` is awaiting external I/O below.  Publish the durable
+        // sending state now so concurrent UI/API reads cannot project ready.
+        await this.refreshSnapshot();
         try {
             const sent: any = await this.send(watch.chatId, { markdown: message, deliveryId: delivery.deliveryId, idempotencyKey:delivery.idempotencyKey });
             const delivered: any = deliveredReceipt(delivery, sent);
@@ -177,11 +192,11 @@ export class OfficialFeishuCompletionWatcher {
                 await this.markDeliveryUncertain(sendingWatch, safeDeliveryError(sent));
                 return;
             }
-            await this.store.upsert({ ...sendingWatch, lastStatus:targetStatus, delivery:delivered, updatedAt:new Date().toISOString() });
+            await this.store.completeDelivery({ taskId:watch.taskId, chatId:watch.chatId, claimToken:delivery.lease?.token, update:{ lastStatus:targetStatus, delivery:delivered } });
         }
         catch (error: any) {
             if (error?.deliveryState === 'not_started') {
-                await this.store.upsert({ ...sendingWatch, delivery:createReceipt({ ...delivery, status:'failed', failedAt:new Date().toISOString(), errorCode:safeDeliveryError(error) }), updatedAt: new Date().toISOString() });
+                await this.store.completeDelivery({ taskId:watch.taskId, chatId:watch.chatId, claimToken:delivery.lease?.token, update:{ delivery:createReceipt({ ...delivery, status:'failed', failedAt:new Date().toISOString(), errorCode:safeDeliveryError(error) }) } });
             }
             else {
                 await this.markDeliveryUncertain(sendingWatch, safeDeliveryError(error));
@@ -196,7 +211,7 @@ export class OfficialFeishuCompletionWatcher {
             unknownAt:new Date().toISOString(),
             errorCode:safeDeliveryError(reason),
         });
-        await this.store.upsert({ ...watch, delivery, updatedAt: new Date().toISOString() });
+        await this.store.completeDelivery({ taskId:watch.taskId, chatId:watch.chatId, claimToken:normalizeDeliveryReceipt(watch.delivery)?.lease?.token, update:{ delivery } });
         this.logger.warn?.(`飞书任务 ${watch.taskId} 的完成跟进投递结果不确定；已停止自动重发，等待本机核对。`);
     }
     async refreshSnapshot(): Promise<any> {
@@ -206,12 +221,19 @@ export class OfficialFeishuCompletionWatcher {
 export class OfficialFeishuCompletionWatcherError extends Error {
 }
 export class FileCompletionWatchStore {
+    beforeStaleReclaim: any;
     filePath: any;
+    lockLeaseMs: any;
     mutations: any;
-    constructor(filePath: any) { this.filePath = filePath; this.mutations = Promise.resolve(); }
+    constructor(filePath: any, { lockLeaseMs = 10000, beforeStaleReclaim = null }: any = {}) {
+        this.filePath = filePath;
+        this.lockLeaseMs = Math.max(25, Number(lockLeaseMs) || 10000);
+        this.beforeStaleReclaim = beforeStaleReclaim;
+        this.mutations = Promise.resolve();
+    }
     async list(): Promise<any> { await this.mutations.catch((): any => undefined); return (await this.read()).watches; }
     async upsert(input: any): Promise<any> {
-        return this.mutate(async (): Promise<any> => {
+        return this.mutate(async (): Promise<any> => this.withFileLock(async (): Promise<any> => {
             const data: any = await this.read();
             const key: any = watchKey(input.taskId, input.chatId);
             const index: any = data.watches.findIndex((item: any): any => watchKey(item.taskId, item.chatId) === key);
@@ -220,19 +242,139 @@ export class FileCompletionWatchStore {
             else
                 data.watches.push(input);
             await this.write(data);
-        });
+        }));
     }
     async remove(taskId: any, chatId: any): Promise<any> {
-        return this.mutate(async (): Promise<any> => {
+        return this.mutate(async (): Promise<any> => this.withFileLock(async (): Promise<any> => {
             const data: any = await this.read();
             data.watches = data.watches.filter((item: any): any => watchKey(item.taskId, item.chatId) !== watchKey(taskId, chatId));
             await this.write(data);
-        });
+        }));
+    }
+    async claimDelivery({ taskId, chatId, delivery, ownerId, leaseMs = 30000 }: any): Promise<any> {
+        return this.mutate(async (): Promise<any> => this.withFileLock(async (): Promise<any> => {
+            const data: any = await this.read();
+            const index: any = data.watches.findIndex((item: any): any => watchKey(item.taskId, item.chatId) === watchKey(taskId, chatId));
+            if (index < 0) return { claimed:false, reason:'watch_missing' };
+            const current: any = normalizeDeliveryReceipt(data.watches[index].delivery);
+            if (current?.status === 'sending') {
+                if (leaseActive(current)) return { claimed:false, reason:'lease_held' };
+                data.watches[index] = uncertainWatch(data.watches[index], current, 'process_interrupted');
+                await this.write(data);
+                return { claimed:false, reason:'lease_expired' };
+            }
+            if (current?.status === 'delivered' || current?.status === 'delivery_unknown' || (current?.status === 'failed' && Number(current.attempt || 0) >= 2))
+                return { claimed:false, reason:'not_deliverable' };
+            const lease: any = {
+                owner:required(ownerId, '投递租约缺少实例标识。'), token:crypto.randomUUID(),
+                expiresAt:new Date(Date.now() + Math.max(1000, Number(leaseMs) || 30000)).toISOString(),
+            };
+            const sending: any = createReceipt({ ...delivery, status:'sending', sendingAt:new Date().toISOString(), lease });
+            const watch: any = { ...data.watches[index], delivery:sending, updatedAt:new Date().toISOString() };
+            data.watches[index] = watch;
+            await this.write(data);
+            return { claimed:true, watch };
+        }));
+    }
+    async completeDelivery({ taskId, chatId, claimToken, update }: any): Promise<any> {
+        return this.mutate(async (): Promise<any> => this.withFileLock(async (): Promise<any> => {
+            const data: any = await this.read();
+            const index: any = data.watches.findIndex((item: any): any => watchKey(item.taskId, item.chatId) === watchKey(taskId, chatId));
+            const current: any = index >= 0 ? normalizeDeliveryReceipt(data.watches[index].delivery) : null;
+            if (!current || current.status !== 'sending' || !claimToken || current.lease?.token !== claimToken)
+                return { completed:false, reason:'lease_lost' };
+            data.watches[index] = { ...data.watches[index], ...update, updatedAt:new Date().toISOString() };
+            await this.write(data);
+            return { completed:true, watch:data.watches[index] };
+        }));
+    }
+    async recoverExpiredDelivery({ taskId, chatId }: any): Promise<any> {
+        return this.mutate(async (): Promise<any> => this.withFileLock(async (): Promise<any> => {
+            const data: any = await this.read();
+            const index: any = data.watches.findIndex((item: any): any => watchKey(item.taskId, item.chatId) === watchKey(taskId, chatId));
+            const current: any = index >= 0 ? normalizeDeliveryReceipt(data.watches[index].delivery) : null;
+            if (!current || current.status !== 'sending' || leaseActive(current)) return { recovered:false };
+            data.watches[index] = uncertainWatch(data.watches[index], current, 'process_interrupted');
+            await this.write(data);
+            return { recovered:true, watch:data.watches[index] };
+        }));
     }
     mutate(operation: any): any {
         const run: any = this.mutations.catch((): any => undefined).then(operation);
         this.mutations = run;
         return run;
+    }
+    async withFileLock(operation: any): Promise<any> {
+        const lockPath: any = `${this.filePath}.lock`;
+        await fs.mkdir(path.dirname(this.filePath), { recursive:true });
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+            const token: any = crypto.randomUUID();
+            try {
+                const handle: any = await fs.open(lockPath, 'wx', 0o600);
+                await this.writeLockMetadata(handle, token);
+                let renewal: any = Promise.resolve();
+                const heartbeat: any = setInterval((): any => {
+                    renewal = renewal.catch((): any => undefined).then((): any => this.writeLockMetadata(handle, token));
+                }, Math.max(10, Math.floor(this.lockLeaseMs / 3)));
+                heartbeat.unref?.();
+                try { return await operation(); }
+                finally {
+                    clearInterval(heartbeat);
+                    await renewal.catch((): any => undefined);
+                    await this.releaseFileLock(lockPath, token, handle);
+                    await handle.close();
+                }
+            }
+            catch (error: any) {
+                if (error?.code !== 'EEXIST') throw error;
+                await this.recoverStaleLock(lockPath);
+                await delay(10);
+            }
+        }
+        throw new OfficialFeishuCompletionWatcherError('等待飞书投递记录锁超时；未开始外发。');
+    }
+    async recoverStaleLock(lockPath: any): Promise<any> {
+        const first: any = await readLockIdentity(lockPath);
+        if (!staleLock(first, this.lockLeaseMs)) return;
+        await this.beforeStaleReclaim?.(first);
+        // Re-read identity after the async gap.  A replacement lock must never
+        // be removed just because the previous pathname was stale.
+        const verified: any = await readLockIdentity(lockPath);
+        if (!sameLock(first, verified) || !staleLock(verified, this.lockLeaseMs)) return;
+        const quarantine: any = `${lockPath}.reclaim.${process.pid}.${crypto.randomUUID()}`;
+        try { await fs.rename(lockPath, quarantine); }
+        catch (error: any) { if (error?.code === 'ENOENT') return; throw error; }
+        const moved: any = await readLockIdentity(quarantine);
+        if (sameLock(verified, moved) && staleLock(moved, this.lockLeaseMs)) {
+            await fs.rm(quarantine, { force:true });
+            return;
+        }
+        // The pathname changed after verification. Keep the unexpected lock
+        // intact and restore it only if nobody acquired a new lock meanwhile.
+        try { await fs.link(quarantine, lockPath); await fs.rm(quarantine, { force:true }); }
+        catch (error: any) { if (error?.code !== 'EEXIST') throw error; }
+    }
+    async writeLockMetadata(handle: any, token: any): Promise<any> {
+        const value: any = Buffer.from(JSON.stringify({ token, expiresAt:new Date(Date.now() + this.lockLeaseMs).toISOString() }));
+        await handle.write(value, 0, value.length, 0);
+        await handle.truncate(value.length);
+        await handle.sync();
+    }
+    async releaseFileLock(lockPath: any, token: any, handle: any): Promise<any> {
+        const held: any = await handle.stat().catch((): any => null);
+        const quarantine: any = `${lockPath}.release.${process.pid}.${crypto.randomUUID()}`;
+        try { await fs.rename(lockPath, quarantine); }
+        catch (error: any) { if (error?.code === 'ENOENT') return; throw error; }
+        const moved: any = await readLockIdentity(quarantine);
+        if (held && moved?.metadata?.token === token && sameFile(held, moved.stat)) {
+            await fs.rm(quarantine, { force:true });
+            return;
+        }
+        // A stale-breaker or a new owner changed the name after this owner
+        // started releasing. Do not unlink that replacement; restore only if
+        // the canonical lock path is still empty.
+        try { await fs.link(quarantine, lockPath); await fs.rm(quarantine, { force:true }); }
+        catch (error: any) { if (error?.code !== 'EEXIST') throw error; }
     }
     async read(): Promise<any> {
         try {
@@ -306,21 +448,25 @@ function deliveryId(taskId: any, chatId: any, kind: any, targetStatus: any): any
 }
 function deliveryState(watches: any): any {
     const receipts: any[] = watches.map((watch: any): any => normalizeDeliveryReceipt(watch.delivery)).filter(Boolean);
+    const pendingDeliveries: any = receipts.filter((receipt: any): any => ['prepared', 'sending'].includes(receipt.status)).length;
     const uncertainDeliveries: any = receipts.filter((receipt: any): any => receipt.status === 'delivery_unknown').length;
     const failedDeliveries: any = receipts.filter((receipt: any): any => receipt.status === 'failed').length;
     const actions: any[] = receipts.map(deliveryRecoveryAction).filter(Boolean);
     return {
         // Keep the existing public status for compatibility, but do not hide a
         // confirmed send failure behind "ready".
-        status: uncertainDeliveries || failedDeliveries ? 'delivery_uncertain' : 'ready',
+        status: uncertainDeliveries || failedDeliveries ? 'delivery_uncertain' : pendingDeliveries ? 'delivery_pending' : 'ready',
         uncertainDeliveries,
         failedDeliveries,
+        pendingDeliveries,
         actions,
         message: uncertainDeliveries
             ? `有 ${uncertainDeliveries} 条飞书完成跟进的投递结果不确定；已停止自动重发，需在本机核对。`
             : failedDeliveries
                 ? `有 ${failedDeliveries} 条飞书完成跟进明确失败；后台重试已停止，需显式恢复交付。`
-            : '飞书完成跟进没有待核对的投递。'
+                : pendingDeliveries
+                    ? `有 ${pendingDeliveries} 条飞书完成跟进仍在等待投递确认；确认前不显示为已就绪。`
+                    : '飞书完成跟进没有待核对的投递。'
     };
 }
 function safeDeliveryError(error: any): any {
@@ -338,16 +484,58 @@ function createReceipt(input: any): any {
     return receipt;
 }
 function deliveredReceipt(delivery: any, sent: any): any {
-    if (sent?.deliveryState && !['delivered', 'confirmed', 'success', 'succeeded'].includes(String(sent.deliveryState).toLowerCase()))
+    // Undefined, booleans and arbitrary provider payloads are not delivery
+    // confirmation.  The adapter must deliberately assert the confirmation
+    // and attach a normalized acknowledgement credential.
+    if (sent?.deliveryConfirmed !== true || !['delivered', 'confirmed', 'success', 'succeeded'].includes(String(sent?.deliveryState || '').toLowerCase()))
+        return null;
+    const evidence: any = sent?.deliveryEvidence || sent?.evidence;
+    if (!evidence?.type || !evidence?.observedAt)
         return null;
     const now: any = new Date().toISOString();
     return createReceipt({
         ...delivery,
         status:'delivered',
         deliveredAt:now,
-        evidence:sent?.deliveryEvidence || sent?.evidence || {
-            type:'channel_send_acknowledged', observedAt:now,
-            reference:String(sent?.messageId || sent?.providerMessageId || '').trim() || undefined,
-        },
+        evidence,
     });
 }
+function leaseActive(receipt: any): boolean {
+    const expiresAt: any = Date.parse(receipt?.lease?.expiresAt || '');
+    return Number.isFinite(expiresAt) && expiresAt > Date.now();
+}
+function uncertainWatch(watch: any, delivery: any, reason: any): any {
+    return {
+        ...watch,
+        delivery:createReceipt({ ...delivery, status:'delivery_unknown', unknownAt:new Date().toISOString(), errorCode:safeDeliveryError(reason) }),
+        updatedAt:new Date().toISOString(),
+    };
+}
+async function readLockIdentity(lockPath: any): Promise<any> {
+    let handle: any;
+    try {
+        handle = await fs.open(lockPath, 'r');
+        const stat: any = await handle.stat();
+        let metadata: any = null;
+        try { metadata = JSON.parse(await handle.readFile('utf8')); }
+        catch { metadata = null; }
+        return { stat, metadata };
+    }
+    catch (error: any) {
+        if (error?.code === 'ENOENT') return null;
+        throw error;
+    }
+    finally { await handle?.close?.(); }
+}
+function sameFile(left: any, right: any): boolean {
+    return Boolean(left && right && left.dev === right.dev && left.ino === right.ino);
+}
+function sameLock(left: any, right: any): boolean {
+    return sameFile(left?.stat, right?.stat) && left?.metadata?.token === right?.metadata?.token;
+}
+function staleLock(lock: any, lockLeaseMs: any): boolean {
+    if (!lock?.stat) return false;
+    const expiresAt: any = Date.parse(lock.metadata?.expiresAt || '');
+    return Number.isFinite(expiresAt) ? expiresAt <= Date.now() : Date.now() - lock.stat.mtimeMs > lockLeaseMs;
+}
+function delay(ms: any): Promise<void> { return new Promise((resolve: any): any => setTimeout(resolve, ms)); }

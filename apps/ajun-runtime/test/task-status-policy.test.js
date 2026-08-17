@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { TASK_STATUSES, TERMINAL_TASK_STATUSES } from '../src/task-lifecycle.ts';
 import * as taskStatusPolicyModule from '../src/task-status-policy.ts';
@@ -26,10 +28,17 @@ import {
 
 test('TypeScript声明完整覆盖运行时状态策略Interface', () => {
   const declaration = readFileSync(new URL('../src/task-status-policy.d.ts', import.meta.url), 'utf8');
-  const declaredValues = [...declaration.matchAll(/^export (?:const|function) ([A-Za-z_][A-Za-z0-9_]*)/gm)]
-    .map((match) => match[1])
+  const declaredValues = [...new Set([...declaration.matchAll(/^export (?:const|function) ([A-Za-z_][A-Za-z0-9_]*)/gm)]
+    .map((match) => match[1]))]
     .sort();
   assert.deepEqual(declaredValues, Object.keys(taskStatusPolicyModule).sort());
+});
+
+test('状态策略声明保留已知状态全覆盖，并把未知字符串隔离在运行时边界', () => {
+  execFileSync(process.execPath, [
+    fileURLToPath(new URL('../../../node_modules/typescript/bin/tsc', import.meta.url)),
+    '-p', fileURLToPath(new URL('./task-status-policy.typecheck.json', import.meta.url)),
+  ], { stdio:'pipe' });
 });
 
 test('状态策略完整覆盖生命周期状态且终态只复用生命周期真相', () => {

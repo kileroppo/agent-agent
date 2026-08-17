@@ -26,7 +26,7 @@ export async function readRuntimeReleaseIdentity(runtimeRoot: string | null | un
     if (manifest?.kind !== RELEASE_KIND) return null;
     const gitHead = normalizeGitHead(manifest?.git?.gitHead);
     const releaseHash = normalizeReleaseHash(manifest?.releaseHash);
-    return gitHead || releaseHash ? Object.freeze({ gitHead, releaseHash }) : null;
+    return gitHead && releaseHash ? Object.freeze({ gitHead, releaseHash }) : null;
   }
   catch {
     return null;
@@ -50,6 +50,8 @@ function normalizeSnapshot(value: any) {
     status,
     detail:safeText(value?.detail, 240) || '当前版本的稳定性观测没有有效结论。',
     observedAt:validTime(value?.observedAt),
+    progressObservedAt:validTime(value?.progressObservedAt),
+    progressIntervalSeconds:validIntervalSeconds(value?.progressIntervalSeconds),
     runtimeIdentity:Object.freeze(runtimeIdentity),
   });
 }
@@ -67,6 +69,11 @@ function normalizeReleaseHash(value: unknown) {
 function validTime(value: unknown) {
   const text = String(value || '').trim();
   return Number.isFinite(Date.parse(text)) ? text : null;
+}
+
+function validIntervalSeconds(value: unknown) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 && parsed <= 3_600 ? parsed : null;
 }
 
 function safeText(value: unknown, limit: number) {

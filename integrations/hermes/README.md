@@ -209,9 +209,17 @@ node integrations/hermes/scripts/start-hermes-gateway-guarded.mjs --agent xiaod
 
 维护窗口可使用受控迁移器逐个替换已有 launchd 项；它不读取、显示或写入
 `EnvironmentVariables`，并且拒绝目录外、符号链接、label 不匹配或不是 Hermes
-`gateway run` 的 plist。launchd 不应直接执行 `~/Documents` 中的可变源码（后台
-进程可能被 macOS 隐私权限拒绝）；`--guard-script` 应显式指向已经验证的 A君不可变
-release 内入口：
+`gateway run` 的 plist。`--apply`（包括不落盘的 dry-run）必须显式给出
+`--guard-script`：它只能精确等于一个已通过 A君冻结器完整清单/哈希校验的不可变
+release 内 `integrations/hermes/scripts/start-hermes-gateway-guarded.mjs`。同名普通文件、
+`/tmp` 临时文件、可变源码和只伪造 `release-manifest.json` 的目录都会被拒绝。
+
+对 `--plist` 和 `--backup`，迁移器会逐级 `lstat` 和 `realpath` 校验其真实路径仍在
+`$HOME/Library/LaunchAgents` 根内；中间目录软链接也会拒绝。写入前再次核对 plist 与
+guard 的文件身份；备份/原 plist 从 `O_NOFOLLOW` 句柄读入受控暂存文件，并在 `rename`
+前复核父目录链、目标 inode 与备份摘要，降低检查和原子替换之间被换路径的风险。
+launchd 不应直接执行 `~/Documents` 中的可变源码（后台进程可能被 macOS 隐私权限拒绝）；
+正确用法如下：
 
 ```bash
 node integrations/hermes/scripts/migrate-hermes-gateway-launchd.mjs \
@@ -222,7 +230,8 @@ node integrations/hermes/scripts/migrate-hermes-gateway-launchd.mjs \
 
 它会建立权限为 `0600` 的精确 plist 备份、在临时文件写入 wrapper 的固定参数并执行
 `plutil -lint`，然后原子替换。迁移后由负责人逐个 `launchctl bootout/bootstrap` 并
-验证；恢复时必须携带同一岗位、label、plist 和命令返回的精确备份路径：
+验证；回滚契约保持不变：不需要、也不能传 `--guard-script`，但必须携带同一岗位、
+label、plist 和命令返回的精确备份路径：
 
 ```bash
 node integrations/hermes/scripts/migrate-hermes-gateway-launchd.mjs \

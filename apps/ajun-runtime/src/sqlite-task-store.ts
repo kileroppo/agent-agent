@@ -33,6 +33,10 @@ export class SQLiteTaskStore {
         this.mutationListeners.add(listener);
         return (): any => this.mutationListeners.delete(listener);
     }
+    async revision(): Promise<any> {
+        // data_version 只读取 SQLite 连接的变更计数，不扫描任务表；另一 Store 实例提交后会递增。
+        return Number(this.database.prepare('PRAGMA data_version').get().data_version);
+    }
     async list(): Promise<any> { return this.#listRecords('tasks', 'updated_at DESC'); }
     async getTask(taskId: any): Promise<any> {
         const row: any = this.database.prepare(`SELECT data_json, ${taskViewSql()} AS record_view FROM tasks WHERE task_id = ?`).get(taskId);

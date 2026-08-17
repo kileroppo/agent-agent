@@ -3,12 +3,12 @@ import { presentTask } from './task-presentation.ts';
 import { isRoutineHealthTask } from './task-record-query.ts';
 import { privateReadGrantStatus } from './private-read-grant.ts';
 import { evaluateHermesCostPolicy } from './hermes-cost-policy.ts';
-import { buildTaskValidationOverview } from './task-validation-overview.ts';
 import { buildCapabilities } from './task-capability-overview.ts';
 import { ValidationError } from './task-validation-error.ts';
 import { consoleOverviewReadView } from './console-overview-read-model.ts';
 import { buildConsoleHealthTruth, buildRuntimeHealth, reliabilityForCurrentRuntime } from './runtime-health.ts';
 import { TaskOverviewRuntimeProjection } from './task-overview-runtime-projection.ts';
+import { TaskOverviewSnapshotCache } from './task-overview-snapshot-cache.ts';
 const MAX_USAGE_RANGE_MS: any = 366 * 24 * 60 * 60 * 1000;
 
 export function parseUsageRange(url: any): any {
@@ -39,8 +39,7 @@ export class TaskOverview {
     usageLedger: any;
     providerUsageLedger: any;
     runtimeProjection: any;
-    consoleSnapshot: any;
-    consoleSnapshotUnsubscribe: any;
+    taskSnapshotCache: any;
     governanceHealthInFlight: any;
     getReliabilitySnapshot: any;
     getRuntimeIdentity: any;
@@ -56,11 +55,11 @@ export class TaskOverview {
         this.taskDetailBaseUrl = taskDetailBaseUrl;
         this.getReliabilitySnapshot = getReliabilitySnapshot;
         this.getRuntimeIdentity = getRuntimeIdentity;
-        this.consoleSnapshot = null;
+        this.taskSnapshotCache = new TaskOverviewSnapshotCache({
+            store:this.store,
+            capabilityCatalog:this.capabilityCatalog,
+        });
         this.governanceHealthInFlight = null;
-        this.consoleSnapshotUnsubscribe = typeof this.store?.subscribe === 'function'
-            ? this.store.subscribe((): any => { this.consoleSnapshot = null; })
-            : null;
         this.runtimeProjection = new TaskOverviewRuntimeProjection({
             executors,
             getFeishuChannelStatus,
@@ -68,16 +67,16 @@ export class TaskOverview {
             getWorkerStatus,
         });
     }
-    async read({ includeTasks = true, includeBilling = true }: any = {}): Promise<any> {
-        const [agents, manager, tasks, approvals, governance, skillReadiness, localAi] = await Promise.all([
+    async read({ includeTasks = true, includeBilling = true, cacheTaskSnapshot = false }: any = {}): Promise<any> {
+        const [agents, manager, taskSnapshot, governance, skillReadiness, localAi] = await Promise.all([
             this.registry.list(),
             this.registry.get('ajun'),
-            this.store.list(),
-            this.store.listApprovals(),
+            this.taskSnapshotCache.read({ includeValidationCampaign: includeTasks, cache: cacheTaskSnapshot }),
             this.readGovernanceHealth(),
             this.skillExecutionRegistry.overview(),
             this.localAiCapabilityStatus?.() || null,
         ]);
+        const { tasks, approvals, taskValidation, usage } = taskSnapshot;
         const { runtimeHealth, feishuChannel, worker, visibleAgents } = await this.runtimeProjection.read(agents, tasks);
         const present: any = (task: any): any => ({
             ...task,
@@ -92,13 +91,6 @@ export class TaskOverview {
             runtimeHealth,
             tasks,
             approvals,
-        });
-        const taskValidation: any = await buildTaskValidationOverview({
-            tasks,
-            approvals,
-            store: this.store,
-            capabilityCatalog: this.capabilityCatalog,
-            includeValidationCampaign:includeTasks,
         });
         return {
             manager:manager || null,
@@ -118,7 +110,7 @@ export class TaskOverview {
             recentTasks: tasks.filter(isRecentConsoleTask).slice(0, 3).map(present),
             skillReadiness,
             ...taskValidation,
-            usage: summarizeTaskUsage(tasks, { since: startOfToday() }),
+            usage,
             ...(includeBilling ? { billing: this.billing(tasks, [...agents, ...(manager ? [manager] : [])], startOfRecentDays(7)) } : {}),
             capabilities,
         };
@@ -135,19 +127,8 @@ export class TaskOverview {
         });
     }
     async readConsoleSnapshot(): Promise<any> {
-        // 精确 backlog/workflow 规则需要全量关系，但不能随着首页轮询重复扫描。
-        // SQLite/JSON store 的事务通知会立即失效这份快照；不支持通知的兼容 store 不缓存。
-        if (!this.consoleSnapshotUnsubscribe)
-            return this.read({ includeTasks: false, includeBilling: false });
-        if (!this.consoleSnapshot) {
-            const pending: any = this.read({ includeTasks: false, includeBilling: false });
-            this.consoleSnapshot = pending;
-            pending.catch((): any => {
-                if (this.consoleSnapshot === pending)
-                    this.consoleSnapshot = null;
-            });
-        }
-        return this.consoleSnapshot;
+        // Snapshot cache 只保存任务派生数据；易变依赖仍由 read() 每次读取。
+        return this.read({ includeTasks: false, includeBilling: false, cacheTaskSnapshot: true });
     }
     async health({ optionalModules = [] }: any = {}): Promise<any> {
         const governance = await this.readGovernanceHealth();

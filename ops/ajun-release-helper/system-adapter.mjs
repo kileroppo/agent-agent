@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
@@ -18,6 +19,7 @@ export class AjunReleaseSystemAdapter {
     appPort = 4321,
     runCommand = defaultRunCommand,
     fetchFn = fetch,
+    listenerPidsForPort,
   } = {}) {
     for (const [name, value] of Object.entries({ repositoryRoot, mainPlist, stateDir, deployRoot, sourceParent })) {
       if (!value) throw new Error(`缺少${name}`);
@@ -28,19 +30,23 @@ export class AjunReleaseSystemAdapter {
     this.deployRoot = path.resolve(deployRoot);
     this.sourceParent = path.resolve(sourceParent);
     this.historyPath = path.join(this.stateDir, 'history.json');
+    // This is deliberately separate from history.json.  It is written before
+    // changing the plist, so a successful cutover never loses its only route
+    // back merely because the final history write is interrupted.
+    this.recoveryPath = path.join(this.stateDir, 'activation-recovery.json');
     this.label = label;
     this.appPort = Number(appPort);
     this.runCommand = runCommand;
     this.fetchFn = fetchFn;
+    this.listenerPidsForPort = listenerPidsForPort || ((port) => this.defaultListenerPidsForPort(port));
   }
 
   async inspect() {
-    const [branch, gitHead, dirty, current, history] = await Promise.all([
+    const [branch, gitHead, dirty, current] = await Promise.all([
       this.git(['branch', '--show-current']),
       this.git(['rev-parse', 'HEAD']),
       this.git(['status', '--porcelain', '--untracked-files=all']),
       this.readCurrentRelease(),
-      this.readHistory(),
     ]);
     const clean = dirty === '';
     const updateAvailable = gitHead !== current.gitHead;
@@ -52,6 +58,7 @@ export class AjunReleaseSystemAdapter {
       verification = publicVerification(null);
     }
     const liveVerified = requiredVerificationPassed(verification);
+    const history = await this.reconcileRollbackHistory(current, verification);
     const canPublish = clean && branchReady && updateAvailable && liveVerified;
     const message = !clean
       ? '正式仓库有未提交改动；这些内容不会发布，请先整理成正式版本。'
@@ -86,16 +93,42 @@ export class AjunReleaseSystemAdapter {
     const frozen = await this.freezeCandidate(sourceRoot, inspection.candidate.gitHead);
     const deployed = await this.deployCandidateRelease(frozen);
     await onStage('activating', '已备份旧版，正在切换 A君。');
-    const backupPlist = await this.activateCandidate({ candidate:deployed, sourceRoot, previous:current });
+    let recovery = null;
+    const backupPlist = await this.activateCandidate({
+      candidate:deployed,
+      sourceRoot,
+      previous:current,
+      onBackupPrepared:async (backup) => {
+        recovery = activationRecovery({ candidate:deployed, previous:current, backupPlist:backup });
+        await this.writeRecovery(recovery);
+      },
+    });
     await onStage('verifying_live', '新版已启动，正在核对 PID、版本和 4321。');
     const verification = await this.verifyLive(deployed);
-    await this.writeHistory({
-      schemaVersion:'agent.army/self-service-release-history/v1',
-      activatedAt:new Date().toISOString(),
-      current:deployed,
-      previous:current,
-      backupPlist,
-    });
+    if (recovery) {
+      recovery = { ...recovery, state:'verified', verifiedAt:new Date().toISOString() };
+      try {
+        await this.writeRecovery(recovery);
+      } catch (error) {
+        throw activeReleaseHistoryError(error, deployed, current, verification);
+      }
+    }
+    try {
+      await this.writeHistory({
+        schemaVersion:'agent.army/self-service-release-history/v1',
+        activatedAt:new Date().toISOString(),
+        current:deployed,
+        previous:current,
+        backupPlist,
+      });
+    } catch (error) {
+      if (recovery) throw activeReleaseHistoryError(error, deployed, current, verification);
+      throw error;
+    }
+    // history.json is now durable.  A stale recovery file is harmless and is
+    // intentionally left for the next successful write/cleanup rather than
+    // turning an already committed release into a reported failure.
+    await this.clearRecovery().catch(() => {});
     return {
       current:publicRelease({ ...deployed, verification:{ ...verification, rollbackAvailable:true } }),
       rollback:publicRelease(current),
@@ -103,9 +136,10 @@ export class AjunReleaseSystemAdapter {
   }
 
   async rollback({ onStage }) {
-    const history = await this.readHistory();
-    if (!history?.previous || !history?.backupPlist) throw new Error('没有可用的上一版。');
     const current = await this.readCurrentRelease();
+    const currentVerification = await this.verifyLive(current);
+    const history = await this.readRollbackHistory(current, currentVerification);
+    if (!history?.previous || !history?.backupPlist) throw new Error('没有可用的上一版。');
     await onStage('rolling_back', '正在恢复上一版启动配置。');
     const currentBackup = await this.backupMainPlist(`rollback-${Date.now()}`);
     try {
@@ -118,6 +152,7 @@ export class AjunReleaseSystemAdapter {
         previous:null,
         backupPlist:null,
       });
+      await this.clearRecovery().catch(() => {});
       return {
         current:publicRelease({ ...history.previous, verification:{ ...verification, rollbackAvailable:false } }),
         rollback:null,
@@ -169,7 +204,7 @@ export class AjunReleaseSystemAdapter {
     await fs.mkdir(this.deployRoot, { recursive:true, mode:0o700 });
     const target = path.join(this.deployRoot, path.basename(frozen.releaseRoot));
     try {
-      const existing = await readReleaseManifest(target);
+      const existing = await validateImmutableRelease(target, frozen.releaseHash, { deployRoot:this.deployRoot });
       if (existing.releaseHash !== frozen.releaseHash) throw new Error('部署目录已有不同身份的同名 release。');
       return { ...existing, releaseRoot:target };
     } catch (error) {
@@ -177,7 +212,10 @@ export class AjunReleaseSystemAdapter {
     }
     const temporary = path.join(this.deployRoot, `.deploy-${process.pid}-${Date.now()}.tmp`);
     await fs.cp(frozen.releaseRoot, temporary, { recursive:true, errorOnExist:true, force:false, verbatimSymlinks:true });
-    const copied = await readReleaseManifest(temporary);
+    const copied = await validateImmutableRelease(temporary, frozen.releaseHash, {
+      requireReleaseDirectoryName:false,
+      deployRoot:this.deployRoot,
+    });
     if (copied.releaseHash !== frozen.releaseHash || copied.payloadHash !== frozen.payloadHash) {
       throw new Error('部署副本身份与冻结 release 不一致。');
     }
@@ -185,9 +223,10 @@ export class AjunReleaseSystemAdapter {
     return { ...copied, releaseRoot:target };
   }
 
-  async activateCandidate({ candidate, sourceRoot, previous }) {
+  async activateCandidate({ candidate, sourceRoot, previous, onBackupPrepared }) {
     const runId = `${Date.now()}-${shortHash(candidate.gitHead)}`;
     const backupPlist = await this.backupMainPlist(runId);
+    if (onBackupPrepared) await onBackupPrepared(backupPlist);
     const stagedPlist = path.join(this.stateDir, `candidate-${runId}.plist`);
     await fs.copyFile(this.mainPlist, stagedPlist);
     await fs.chmod(stagedPlist, 0o600);
@@ -255,29 +294,35 @@ export class AjunReleaseSystemAdapter {
 
   async verifyLive(expected) {
     const domain = `gui/${process.getuid()}`;
+    const liveManifest = await validateImmutableRelease(expected.releaseRoot, expected.releaseHash, {
+      deployRoot:this.deployRoot,
+    });
     const printed = await this.runCommand('launchctl', ['print', `${domain}/${this.label}`]);
-    const expectedWorkingDirectory = expected.workingDirectory || path.join(expected.releaseRoot, WORKDIR_SUFFIX);
+    const expectedWorkingDirectory = expected.workingDirectory || path.join(liveManifest.releaseRoot, WORKDIR_SUFFIX);
     if (!printed.stdout.includes(`working directory = ${expectedWorkingDirectory}`)) throw new Error('launchd 工作目录不是目标 release。');
     if (!/\bpid = \d+/.test(printed.stdout)) throw new Error('launchd 没有活动 PID。');
     const pid = launchdPid(printed.stdout);
     if (!pid) throw new Error('launchd 没有活动 PID。');
+    const listenerPids = await this.listenerPidsForPort(this.appPort);
+    if (listenerPids.length !== 1 || listenerPids[0] !== pid) {
+      throw new Error('4321 listener PID 与 launchd 目标 PID 不一致。');
+    }
     const cwd = await this.processCwd(pid);
     if (cwd !== expectedWorkingDirectory) throw new Error('A君实际工作目录不是目标 release。');
     const argv = await this.processArgv(pid);
-    const expectedEntrypoint = path.join(expected.releaseRoot, ENTRYPOINT_SUFFIX);
+    const expectedEntrypoint = path.join(liveManifest.releaseRoot, ENTRYPOINT_SUFFIX);
     if (!argv.includes(expectedEntrypoint)) throw new Error('A君实际启动参数不是目标 release。');
     const response = await this.fetchFn(`http://127.0.0.1:${this.appPort}/api/console-overview`, { signal:AbortSignal.timeout(3_000) });
     if (!response.ok) throw new Error(`4321 返回 HTTP ${response.status}。`);
     const overview = await response.json();
     if (overview?.schemaVersion !== 'agent.army/console-overview/v2') throw new Error('4321 响应不符合 A君控制台概览契约。');
-    const liveManifest = await readReleaseManifest(expected.releaseRoot);
     if (liveManifest.releaseHash !== expected.releaseHash) throw new Error('线上 release hash 身份不匹配。');
     if (liveManifest.payloadHash !== expected.payloadHash) throw new Error('线上 payload hash 身份不匹配。');
     if (liveManifest.gitHead !== expected.gitHead) throw new Error('线上 Git HEAD 身份不匹配。');
     return publicVerification({
       pid,
       verifiedAt:new Date().toISOString(),
-      checks:{ pid:true, cwd:true, argv:true, releaseHash:true, payloadHash:true, gitHead:true, api:true },
+      checks:{ pid:true, listener:true, cwd:true, argv:true, releaseHash:true, payloadHash:true, gitHead:true, api:true },
     });
   }
 
@@ -293,6 +338,16 @@ export class AjunReleaseSystemAdapter {
     const argv = result.stdout.trim();
     if (!argv) throw new Error('无法读取 A君实际启动参数。');
     return argv;
+  }
+
+  async defaultListenerPidsForPort(port) {
+    const result = await this.runCommand('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fp']);
+    const pids = [...new Set(result.stdout.split(/\r?\n/)
+      .filter((line) => /^p\d+$/.test(line))
+      .map((line) => Number.parseInt(line.slice(1), 10))
+      .filter((pid) => Number.isInteger(pid) && pid > 0))];
+    if (!pids.length) throw new Error('4321 没有可核对的 listener PID。');
+    return pids;
   }
 
   async serviceLoaded(domain) {
@@ -312,6 +367,20 @@ export class AjunReleaseSystemAdapter {
     await fs.rename(temporary, this.historyPath);
   }
 
+  async writeRecovery(recovery) {
+    await fs.mkdir(this.stateDir, { recursive:true, mode:0o700 });
+    const temporary = `${this.recoveryPath}.${process.pid}.tmp`;
+    await fs.writeFile(temporary, `${JSON.stringify(recovery, null, 2)}\n`, { mode:0o600 });
+    await fs.chmod(temporary, 0o600);
+    await fs.rename(temporary, this.recoveryPath);
+  }
+
+  async clearRecovery() {
+    await fs.unlink(this.recoveryPath).catch((error) => {
+      if (error?.code !== 'ENOENT') throw error;
+    });
+  }
+
   async git(args) {
     const result = await this.runCommand('git', ['-C', this.repositoryRoot, ...args]);
     return result.stdout.trim();
@@ -329,8 +398,8 @@ export class AjunReleaseSystemAdapter {
       throw new Error('A君启动入口与工作目录不一致。');
     }
     const releaseRoot = workingDirectory.slice(0, -WORKDIR_SUFFIX.length).replace(/[\\/]$/, '');
-    const manifest = await readReleaseManifest(releaseRoot);
-    return { ...manifest, releaseRoot, sourceRoot, entrypoint, workingDirectory };
+    const manifest = await validateImmutableRelease(releaseRoot, undefined, { deployRoot:this.deployRoot });
+    return { ...manifest, sourceRoot, entrypoint, workingDirectory };
   }
 
   async plistValue(key) {
@@ -341,6 +410,60 @@ export class AjunReleaseSystemAdapter {
   async readHistory() {
     try {
       return JSON.parse(await fs.readFile(this.historyPath, 'utf8'));
+    } catch (error) {
+      if (error?.code === 'ENOENT') return null;
+      throw error;
+    }
+  }
+
+  async readRollbackHistory(current, verification) {
+    const history = await this.readHistory();
+    if (history?.current && sameRelease(history.current, current) && await isUsableBackup(history.backupPlist)) return history;
+    const recovery = await this.readRecovery();
+    // A pre-activation record is only promotable after the *actual* current
+    // process has passed the complete live proof.  It is never mistaken for a
+    // completed rollback record just because a backup file exists.
+    if (
+      recovery
+      && sameRelease(recovery.current, current)
+      && requiredVerificationPassed(verification)
+      && await isUsableBackup(recovery.backupPlist)
+    ) return {
+      schemaVersion:'agent.army/self-service-release-history/v1',
+      current:recovery.current,
+      previous:recovery.previous,
+      backupPlist:recovery.backupPlist,
+      recoveryPending:true,
+    };
+    return null;
+  }
+
+  async reconcileRollbackHistory(current, verification) {
+    const history = await this.readRollbackHistory(current, verification);
+    if (!history?.recoveryPending) return history;
+    try {
+      await this.writeHistory({
+        schemaVersion:'agent.army/self-service-release-history/v1',
+        recoveredAt:new Date().toISOString(),
+        current:history.current,
+        previous:history.previous,
+        backupPlist:history.backupPlist,
+      });
+      await this.clearRecovery();
+      return { ...history, recoveryPending:false };
+    } catch {
+      // The journal remains the authoritative, usable rollback record until
+      // its next successful reconciliation.  Do not hide it or claim the
+      // persistent history was repaired.
+      return history;
+    }
+  }
+
+  async readRecovery() {
+    try {
+      const value = JSON.parse(await fs.readFile(this.recoveryPath, 'utf8'));
+      if (!isActivationRecovery(value)) throw new Error('恢复记录格式不合法。');
+      return value;
     } catch (error) {
       if (error?.code === 'ENOENT') return null;
       throw error;
@@ -374,6 +497,178 @@ async function readReleaseManifest(releaseRoot) {
   if (manifest?.kind !== 'agent-army/ajun-immutable-runtime-release') throw new Error('当前运行目录缺少可信 release manifest。');
   if (!manifest.releaseHash || !manifest.git?.gitHead) throw new Error('当前 release manifest 身份不完整。');
   return { releaseHash:manifest.releaseHash, payloadHash:manifest.payloadHash, gitHead:manifest.git.gitHead };
+}
+
+async function validateImmutableRelease(releaseRoot, expectedReleaseHash, {
+  requireReleaseDirectoryName = true,
+  deployRoot,
+} = {}) {
+  const canonicalRoot = deployRoot
+    ? await assertPlainContainedReleaseRoot(deployRoot, releaseRoot)
+    : path.resolve(releaseRoot);
+  const rootStat = await fs.lstat(canonicalRoot);
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error('部署 release 根目录不是普通目录。');
+  if ((rootStat.mode & 0o777) !== 0o555) throw new Error('部署 release 根目录不是只读模式。');
+  const manifestPath = path.join(canonicalRoot, RELEASE_MANIFEST);
+  const manifestStat = await fs.lstat(manifestPath);
+  if (!manifestStat.isFile() || manifestStat.isSymbolicLink()) throw new Error('部署 release manifest 不是普通文件。');
+  if ((manifestStat.mode & 0o777) !== 0o444) throw new Error('部署 release manifest 不是只读模式。');
+  const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+  if (
+    manifest?.kind !== 'agent-army/ajun-immutable-runtime-release'
+    || !Array.isArray(manifest.entries)
+    || typeof manifest.payloadHash !== 'string'
+    || typeof manifest.releaseHash !== 'string'
+    || !manifest.git?.gitHead
+  ) throw new Error('部署 release manifest 身份或文件清单不完整。');
+  if (expectedReleaseHash && manifest.releaseHash !== expectedReleaseHash) throw new Error('部署 release manifest hash 与候选不一致。');
+  if (requireReleaseDirectoryName && path.basename(canonicalRoot) !== `ajun-runtime-release-v1-${manifest.releaseHash}`) {
+    throw new Error('部署 release 目录名没有绑定 release hash。');
+  }
+  const { releaseHash, ...withoutReleaseHash } = manifest;
+  if (sha256Canonical(withoutReleaseHash) !== releaseHash) throw new Error('部署 release manifest 未绑定内容。');
+  const snapshot = await snapshotImmutablePayload(canonicalRoot);
+  if (snapshot.payloadHash !== manifest.payloadHash) throw new Error('部署 release payload hash 不匹配。');
+  if (JSON.stringify(snapshot.entries) !== JSON.stringify(manifest.entries)) throw new Error('部署 release 文件清单与内容不匹配。');
+  return {
+    releaseHash:manifest.releaseHash,
+    payloadHash:manifest.payloadHash,
+    gitHead:manifest.git.gitHead,
+    // Keep the configured spelling for launchd cwd/argv comparison.  The
+    // containment decision above was made with real paths and every segment
+    // below deployRoot has already been proved to be a plain directory.
+    releaseRoot:path.resolve(releaseRoot),
+  };
+}
+
+async function assertPlainContainedReleaseRoot(deployRoot, releaseRoot) {
+  const lexicalDeployRoot = path.resolve(deployRoot);
+  const lexicalReleaseRoot = path.resolve(releaseRoot);
+  const relative = path.relative(lexicalDeployRoot, lexicalReleaseRoot);
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error('release 根目录必须位于受信任部署目录内。');
+  }
+  const deployStat = await fs.lstat(lexicalDeployRoot);
+  if (!deployStat.isDirectory() || deployStat.isSymbolicLink()) throw new Error('部署目录不是普通目录。');
+  const canonicalDeployRoot = await fs.realpath(lexicalDeployRoot);
+  let current = lexicalDeployRoot;
+  for (const segment of relative.split(path.sep)) {
+    current = path.join(current, segment);
+    const stat = await fs.lstat(current);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      throw new Error('release 路径含软链或非目录中间节点。');
+    }
+  }
+  const canonicalReleaseRoot = await fs.realpath(lexicalReleaseRoot);
+  const canonicalRelative = path.relative(canonicalDeployRoot, canonicalReleaseRoot);
+  if (!canonicalRelative || canonicalRelative === '..' || canonicalRelative.startsWith(`..${path.sep}`) || path.isAbsolute(canonicalRelative)) {
+    throw new Error('release 根目录真实路径不在受信任部署目录内。');
+  }
+  return canonicalReleaseRoot;
+}
+
+async function snapshotImmutablePayload(root) {
+  const entries = [];
+  await collectImmutableEntries(root, root, entries);
+  entries.sort((left, right) => Buffer.compare(Buffer.from(left.path), Buffer.from(right.path)));
+  const hasher = crypto.createHash('sha256');
+  for (const entry of entries) hasher.update(`${JSON.stringify(entry)}\n`);
+  return { payloadHash:hasher.digest('hex'), entries };
+}
+
+async function collectImmutableEntries(root, current, entries) {
+  for (const name of (await fs.readdir(current)).sort((left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right)))) {
+    const absolute = path.join(current, name);
+    const relative = path.relative(root, absolute).split(path.sep).join('/');
+    if (relative === RELEASE_MANIFEST) continue;
+    const stat = await fs.lstat(absolute);
+    if (stat.isSymbolicLink()) throw new Error(`部署 release 含软链: ${relative}`);
+    if (stat.isDirectory()) {
+      if ((stat.mode & 0o777) !== 0o555) throw new Error(`部署 release 目录不是只读模式: ${relative}`);
+      entries.push({ type:'directory', path:relative, mode:'0555' });
+      await collectImmutableEntries(root, absolute, entries);
+      continue;
+    }
+    if (stat.isFile()) {
+      const executable = (stat.mode & 0o111) !== 0;
+      const mode = executable ? 0o555 : 0o444;
+      if ((stat.mode & 0o777) !== mode) throw new Error(`部署 release 文件不是只读模式: ${relative}`);
+      const bytes = await fs.readFile(absolute);
+      entries.push({
+        type:'file', path:relative, mode:executable ? '0555' : '0444', size:bytes.length,
+        sha256:crypto.createHash('sha256').update(bytes).digest('hex'),
+      });
+      continue;
+    }
+    throw new Error(`部署 release 含不支持条目: ${relative}`);
+  }
+}
+
+function sha256Canonical(value) {
+  return crypto.createHash('sha256').update(stableCanonical(value)).digest('hex');
+}
+
+function stableCanonical(value) {
+  if (Array.isArray(value)) return `[${value.map(stableCanonical).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort((left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right)))
+      .map((key) => `${JSON.stringify(key)}:${stableCanonical(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function activationRecovery({ candidate, previous, backupPlist }) {
+  return {
+    schemaVersion:'agent.army/self-service-activation-recovery/v1',
+    state:'prepared',
+    preparedAt:new Date().toISOString(),
+    current:releaseIdentity(candidate),
+    previous:releaseIdentity(previous),
+    backupPlist,
+  };
+}
+
+function isActivationRecovery(value) {
+  return value?.schemaVersion === 'agent.army/self-service-activation-recovery/v1'
+    && ['prepared', 'verified'].includes(value.state)
+    && releaseIdentity(value.current)
+    && releaseIdentity(value.previous)
+    && typeof value.backupPlist === 'string';
+}
+
+function releaseIdentity(value) {
+  if (!value?.releaseHash || !value?.gitHead || !value?.releaseRoot) return null;
+  return {
+    releaseHash:value.releaseHash,
+    payloadHash:value.payloadHash || null,
+    gitHead:value.gitHead,
+    releaseRoot:value.releaseRoot,
+  };
+}
+
+function sameRelease(left, right) {
+  return Boolean(left && right
+    && left.releaseHash === right.releaseHash
+    && left.payloadHash === right.payloadHash
+    && left.gitHead === right.gitHead);
+}
+
+async function isUsableBackup(value) {
+  if (!value) return false;
+  try {
+    const stat = await fs.lstat(value);
+    return stat.isFile() && !stat.isSymbolicLink() && (stat.mode & 0o777) === 0o600;
+  } catch {
+    return false;
+  }
+}
+
+function activeReleaseHistoryError(error, current, previous, verification) {
+  const result = new Error(`新版已上线且运行身份已核对；发布历史写入失败，恢复记录仍可用于回滚：${error.message}`);
+  result.releaseActive = true;
+  result.current = publicRelease({ ...current, verification:{ ...verification, rollbackAvailable:true } });
+  result.rollback = publicRelease(previous);
+  return result;
 }
 
 async function waitUntil(check, timeoutMs) {
@@ -424,6 +719,7 @@ function publicVerification(value) {
     pid:Number.isInteger(value?.pid) && value.pid > 0 ? value.pid : null,
     checks:{
       pid:checks.pid === true,
+      listener:checks.listener === true,
       cwd:checks.cwd === true,
       argv:checks.argv === true,
       releaseHash:checks.releaseHash === true,
@@ -437,7 +733,7 @@ function publicVerification(value) {
 
 function requiredVerificationPassed(value) {
   const checks = value?.checks || {};
-  return ['pid', 'cwd', 'argv', 'releaseHash', 'payloadHash', 'gitHead', 'api']
+  return ['pid', 'listener', 'cwd', 'argv', 'releaseHash', 'payloadHash', 'gitHead', 'api']
     .every((name) => checks[name] === true);
 }
 

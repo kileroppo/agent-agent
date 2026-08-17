@@ -17,8 +17,10 @@ export class HermesFeishuSender {
         const message: any = safeMessage(payload.markdown || payload.text);
         if (!message)
             throw new HermesFeishuSenderError('飞书回话内容为空。');
-        await new Promise((resolve: any, reject: any): any => {
+        const idempotencyKey: any = safeIdempotencyKey(payload.idempotencyKey || payload.deliveryId);
+        const acknowledgement: any = await new Promise((resolve: any, reject: any): any => {
             let child: any;
+            let stdout: any = '';
             try {
                 child = this.spawn(this.command, [
                     'send',
@@ -26,10 +28,14 @@ export class HermesFeishuSender {
                     `feishu:${chat}`,
                     '--file',
                     '-',
-                    '--quiet'
+                    '--json'
                 ], {
-                    env: { ...process.env, HERMES_HOME: this.hermesHome },
-                    stdio: ['pipe', 'ignore', 'ignore']
+                    // Hermes currently has no documented provider-side
+                    // idempotency argument. This crosses the process boundary
+                    // for a future adapter, but local atomic leases remain the
+                    // only asserted de-duplication guarantee today.
+                    env: { ...process.env, HERMES_HOME: this.hermesHome, ...(idempotencyKey ? { HERMES_DELIVERY_IDEMPOTENCY_KEY:idempotencyKey } : {}) },
+                    stdio: ['pipe', 'pipe', 'ignore']
                 });
             }
             catch {
@@ -45,7 +51,7 @@ export class HermesFeishuSender {
                 if (error)
                     reject(error);
                 else
-                    resolve();
+                    resolve(stdout);
             };
             const timer: any = setTimeout((): any => {
                 child.kill('SIGTERM');
@@ -54,22 +60,57 @@ export class HermesFeishuSender {
             timer.unref?.();
             child.once('error', (): any => finish(new HermesFeishuSenderError('Hermes 飞书回话进程未启动，将保留任务跟进记录后重试。', { deliveryState: 'not_started' })));
             child.once('close', (code: any): any => finish(code === 0 ? null : new HermesFeishuSenderError('Hermes 飞书回话未确认成功；无法判断平台是否已经收件。', { deliveryState: 'unknown' })));
+            child.stdout?.on?.('data', (chunk: any): any => {
+                // The JSON result is tiny. A large or malformed response is
+                // deliberately not persisted or echoed into errors/logs.
+                if (stdout.length < 16384)
+                    stdout += String(chunk).slice(0, 16384 - stdout.length);
+            });
             child.stdin.once('error', (): any => undefined);
             child.stdin.end(message);
         });
+        const providerMessageId: any = confirmedProviderMessageId(acknowledgement);
+        if (!providerMessageId)
+            throw new HermesFeishuSenderError('Hermes 命令已结束，但没有可核验的飞书回执；投递结果不确定。', { deliveryState:'unknown', code:'hermes_send_unconfirmed' });
         const observedAt: any = new Date().toISOString();
-        // Hermes has acknowledged the hand-off.  Keep the evidence deliberately
-        // compact: chat contents and provider output must never enter receipt logs.
         return {
             success: true,
+            deliveryConfirmed:true,
             deliveryState:'delivered',
             deliveryEvidence:{
-                type:'hermes_send_acknowledged',
+                type:'hermes_feishu_provider_acknowledged',
                 observedAt,
-                reference:String(payload.deliveryId || payload.idempotencyKey || '').trim() || undefined,
+                reference:providerMessageId,
             },
+            idempotencyKey,
+            providerIdempotency:{ forwardedToHermesProcess:Boolean(idempotencyKey), providerDeduplication:'unsupported' },
         };
     }
+}
+function safeIdempotencyKey(value: any): any {
+    const key: any = String(value || '').trim();
+    if (!key) return undefined;
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,159}$/.test(key))
+        throw new HermesFeishuSenderError('飞书投递幂等标识无效。', { deliveryState:'not_started' });
+    return key;
+}
+function confirmedProviderMessageId(stdout: any): any {
+    if (typeof stdout !== 'string' || stdout.length === 0 || stdout.length > 16384)
+        return null;
+    try {
+        const result: any = JSON.parse(stdout);
+        // The target is fixed to `feishu:<chat>` above. Hermes 0.19's send
+        // JSON confirms Feishu with success + message_id but does not always
+        // include a platform field, so requiring one would turn real receipts
+        // into false unknowns.
+        if (result?.success !== true)
+            return null;
+        const messageId: any = String(result.message_id || '').trim();
+        // Do not retain a raw CLI payload: it may include a chat id or a
+        // provider error. The provider-assigned message id is the sole receipt.
+        return /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,199}$/.test(messageId) ? messageId : null;
+    }
+    catch { return null; }
 }
 export class HermesFeishuSenderError extends Error {
     code: any;

@@ -1,25 +1,15 @@
 import type { WorkflowStatus, WorkflowStepEvaluation } from './workflow/contracts.ts';
 import type { TaskStatus } from './task-lifecycle.ts';
-import type { TaskOutcome } from './task-status-policy-contracts.ts';
+import type { TaskOutcome, TaskStatusPolicy, UnknownTaskStatusPolicy } from './task-status-policy-contracts.ts';
 
-export type TaskStatusProjection = Readonly<{
-  status: TaskStatus | string;
-  label: string;
-  terminal: boolean;
-  blocked: boolean;
-  notificationTerminal: boolean;
-  executionClosed: boolean;
-  taskCardTerminal: boolean;
-  attentionPriority: number;
-  paperclipIssueStatus: 'backlog' | 'blocked' | 'done';
-  paperclipCompletionEligible: boolean;
-}>;
+export type TaskStatusProjection = TaskStatusPolicy | UnknownTaskStatusPolicy;
 
-export const PAPERCLIP_COMPLETION_TASK_STATUSES: readonly string[];
-export const TASK_BLOCKED_STATUSES: readonly string[];
-export const TASK_STATUS_POLICIES: Readonly<Record<string, TaskStatusProjection>>;
+export const PAPERCLIP_COMPLETION_TASK_STATUSES: readonly TaskStatus[];
+export const TASK_BLOCKED_STATUSES: readonly TaskStatus[];
+export const TASK_STATUS_POLICIES: Readonly<Record<TaskStatus, TaskStatusPolicy>>;
 
-export function taskStatusPolicy(status: unknown): TaskStatusProjection;
+export function taskStatusPolicy(status: TaskStatus): TaskStatusPolicy;
+export function taskStatusPolicy(status: unknown): UnknownTaskStatusPolicy;
 export function taskStatusLabel(status: unknown): string;
 export const taskStatusPriority: (status: unknown) => number;
 export const paperclipIssueStatusForTaskStatus: (status: unknown) => TaskStatusProjection['paperclipIssueStatus'];

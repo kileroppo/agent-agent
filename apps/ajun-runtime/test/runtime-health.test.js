@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildConsoleHealthTruth, buildRuntimeHealth, reliabilityForCurrentRuntime } from '../src/runtime-health.ts';
+import {
+  buildConsoleHealthTruth,
+  buildRuntimeHealth,
+  reliabilityForCurrentRuntime,
+  RUNTIME_RELIABILITY_COMPLETION_MAX_AGE_MS,
+  RUNTIME_RELIABILITY_MAX_FUTURE_SKEW_MS,
+} from '../src/runtime-health.ts';
 import { TaskOverview } from '../src/task-overview.ts';
 
 test('可选能力 disabled 或 limited 不会把核心健康误判为 degraded', () => {
@@ -57,18 +63,93 @@ test('运行台把存活、可靠性和业务债务分层，缺少可靠性观�
 });
 
 test('稳定性观测必须和当前 git/release 身份完全一致，旧版本不得染绿首页', () => {
-  const current = { gitHead:'source-a', releaseHash:'release-a' };
+  const current = { gitHead:'a'.repeat(40), releaseHash:'b'.repeat(64) };
+  const checkedAt = '2026-08-18T00:00:00.000Z';
   const matching = reliabilityForCurrentRuntime({
-    status:'healthy', observedAt:'2026-08-17T01:00:00.000Z', runtimeIdentity:current,
-  }, current);
+    status:'healthy', observedAt:checkedAt, runtimeIdentity:current,
+  }, current, { checkedAt });
   const stale = reliabilityForCurrentRuntime({
-    status:'healthy', runtimeIdentity:{ gitHead:'source-a', releaseHash:'release-old' },
-  }, current);
-  const missing = reliabilityForCurrentRuntime({ status:'healthy', runtimeIdentity:{ gitHead:'source-a' } }, current);
+    status:'healthy', observedAt:checkedAt, runtimeIdentity:{ gitHead:current.gitHead, releaseHash:'c'.repeat(64) },
+  }, current, { checkedAt });
+  const missing = reliabilityForCurrentRuntime({ status:'healthy', observedAt:checkedAt, runtimeIdentity:{ gitHead:current.gitHead } }, current, { checkedAt });
 
   assert.equal(matching.status, 'healthy');
   assert.equal(stale.status, 'unknown');
   assert.equal(missing.status, 'unknown');
+});
+
+test('当前与快照身份都必须同时带有合法 gitHead 和 releaseHash', () => {
+  const checkedAt = '2026-08-18T00:00:00.000Z';
+  const current = { gitHead:'a'.repeat(40), releaseHash:'b'.repeat(64) };
+  const healthySnapshot = { status:'healthy', observedAt:checkedAt, runtimeIdentity:current };
+
+  assert.equal(reliabilityForCurrentRuntime(healthySnapshot, { gitHead:current.gitHead }, { checkedAt }).status, 'unknown');
+  assert.equal(reliabilityForCurrentRuntime(healthySnapshot, { releaseHash:current.releaseHash }, { checkedAt }).status, 'unknown');
+  assert.equal(reliabilityForCurrentRuntime({
+    ...healthySnapshot,
+    runtimeIdentity:{ gitHead:current.gitHead, releaseHash:'not-a-release-hash' },
+  }, current, { checkedAt }).status, 'unknown');
+  assert.equal(reliabilityForCurrentRuntime({
+    ...healthySnapshot,
+    runtimeIdentity:{ gitHead:current.gitHead, releaseHash:'c'.repeat(64) },
+  }, current, { checkedAt }).status, 'unknown');
+});
+
+test('完成稳定性结论保留 24 小时，旧 schema 没有 heartbeat 时仍兼容', () => {
+  const current = { gitHead:'a'.repeat(40), releaseHash:'b'.repeat(64) };
+  const checkedAt = Date.parse('2026-08-18T00:00:00.000Z');
+  const atMaxAge = new Date(checkedAt - RUNTIME_RELIABILITY_COMPLETION_MAX_AGE_MS).toISOString();
+  const justStale = new Date(checkedAt - RUNTIME_RELIABILITY_COMPLETION_MAX_AGE_MS - 1).toISOString();
+
+  assert.equal(reliabilityForCurrentRuntime({ status:'healthy', observedAt:atMaxAge, runtimeIdentity:current }, current, { checkedAt }).status, 'healthy');
+  const stale = reliabilityForCurrentRuntime({ status:'degraded', observedAt:justStale, runtimeIdentity:current }, current, { checkedAt });
+  assert.equal(stale.status, 'unknown');
+  assert.match(stale.detail, /超过 24 小时/);
+});
+
+test('进行中的同身份 72 小时观测以 heartbeat 延续结论，停测超过两个周期加余量即 unknown', () => {
+  const current = { gitHead:'a'.repeat(40), releaseHash:'b'.repeat(64) };
+  const checkedAt = Date.parse('2026-08-18T00:10:00.000Z');
+  const oldConclusion = new Date(checkedAt - RUNTIME_RELIABILITY_COMPLETION_MAX_AGE_MS - 1).toISOString();
+  const activeProgress = new Date(checkedAt - 119_000).toISOString(); // interval=30s: 2*30s + 60s = 120s
+  const stoppedProgress = new Date(checkedAt - 121_000).toISOString();
+  const active = {
+    status:'healthy', observedAt:oldConclusion, runtimeIdentity:current,
+    progressObservedAt:activeProgress, progressIntervalSeconds:30,
+  };
+
+  assert.equal(reliabilityForCurrentRuntime(active, current, { checkedAt }).status, 'healthy');
+  const stopped = reliabilityForCurrentRuntime({ ...active, progressObservedAt:stoppedProgress }, current, { checkedAt });
+  assert.equal(stopped.status, 'unknown');
+  assert.match(stopped.detail, /推进已停止/);
+});
+
+test('同身份未来或无时间的稳定性快照 fail-closed，五分钟内时钟偏差仍可采信', () => {
+  const current = { gitHead:'a'.repeat(40), releaseHash:'b'.repeat(64) };
+  const checkedAt = Date.parse('2026-08-18T00:00:00.000Z');
+  const withinSkew = new Date(checkedAt + RUNTIME_RELIABILITY_MAX_FUTURE_SKEW_MS).toISOString();
+  const future = new Date(checkedAt + RUNTIME_RELIABILITY_MAX_FUTURE_SKEW_MS + 1).toISOString();
+
+  assert.equal(reliabilityForCurrentRuntime({ status:'healthy', observedAt:withinSkew, runtimeIdentity:current }, current, { checkedAt }).status, 'healthy');
+  assert.equal(reliabilityForCurrentRuntime({ status:'healthy', observedAt:future, runtimeIdentity:current }, current, { checkedAt }).status, 'unknown');
+  assert.equal(reliabilityForCurrentRuntime({
+    status:'healthy', observedAt:new Date(checkedAt - RUNTIME_RELIABILITY_COMPLETION_MAX_AGE_MS - 1).toISOString(), runtimeIdentity:current,
+    progressObservedAt:future, progressIntervalSeconds:30,
+  }, current, { checkedAt }).status, 'unknown');
+  assert.equal(reliabilityForCurrentRuntime({ status:'healthy', observedAt:null, runtimeIdentity:current }, current, { checkedAt }).status, 'unknown');
+});
+
+test('核心探测为空或非法时不能被 every 空集合误判为健康', () => {
+  const absent = buildRuntimeHealth();
+  const invalid = buildRuntimeHealth({ core:'not-an-array' });
+  const malformed = buildRuntimeHealth({ core:[null] });
+
+  assert.equal(absent.status, 'degraded');
+  assert.equal(absent.core.status, 'unknown');
+  assert.equal(invalid.status, 'degraded');
+  assert.equal(invalid.core.status, 'unknown');
+  assert.equal(malformed.status, 'degraded');
+  assert.equal(malformed.core.status, 'unavailable');
 });
 
 test('并发轻量探针复用同一轮 Paperclip 健康探测，不读取任务账本', async () => {

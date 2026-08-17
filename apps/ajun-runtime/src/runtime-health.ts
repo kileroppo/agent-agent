@@ -2,6 +2,15 @@ const CORE_HEALTHY = new Set(['healthy', 'ready']);
 const CORE_STATUSES = new Set(['healthy', 'degraded', 'unavailable']);
 const OPTIONAL_STATUSES = new Set(['healthy', 'limited', 'disabled', 'unavailable']);
 
+/**
+ * 完成结论可保留 24 小时；运行中的长测另以小快照 heartbeat 证明仍在推进。
+ * 两者都失效时必须回到 unknown，不能让旧结论永久染绿或显示降级。
+ */
+export const RUNTIME_RELIABILITY_COMPLETION_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
+/** 容忍写入机与运行台最多五分钟的时钟差；更远的未来时间一律不采信。 */
+export const RUNTIME_RELIABILITY_MAX_FUTURE_SKEW_MS = 5 * 60 * 1_000;
+const RUNTIME_RELIABILITY_PROGRESS_MAX_AGE_MS = (2 * 60 * 60 + 60) * 1_000;
+
 export type RuntimeHealthComponent = Readonly<{
   id: string;
   name?: string;
@@ -18,6 +27,8 @@ export type ReliabilitySnapshot = Readonly<{
   status?: string;
   detail?: string;
   observedAt?: string | null;
+  progressObservedAt?: string | null;
+  progressIntervalSeconds?: number | null;
   runtimeIdentity?: RuntimeObservationIdentity | null;
 }>;
 
@@ -28,19 +39,22 @@ export type ReliabilitySnapshot = Readonly<{
 export function reliabilityForCurrentRuntime(
   snapshot: ReliabilitySnapshot | null | undefined,
   currentRuntime: RuntimeObservationIdentity | null | undefined,
+  { checkedAt = Date.now() }: { checkedAt?: string | number | Date } = {},
 ) {
   const current = safeIdentity(currentRuntime);
   const observed = safeIdentity(snapshot?.runtimeIdentity);
-  const currentKeys = Object.keys(current);
-  if (!currentKeys.length) {
-    return unknownReliability('当前运行身份尚未提供，不能采信任何稳定性观测。');
+  if (!current) {
+    return unknownReliability('当前运行身份不完整或无效，不能采信任何稳定性观测。');
   }
-  if (!currentKeys.every((key) => observed[key] === current[key])) {
+  if (!observed || observed.gitHead !== current.gitHead || observed.releaseHash !== current.releaseHash) {
     return unknownReliability('稳定性观测不是当前 git/release 身份，不能显示为当前版本结论。');
   }
   const status = normalizeReliabilityStatus(snapshot?.status);
   if (status === 'unknown')
     return unknownReliability('当前版本的稳定性观测没有有效结论。');
+  const freshness = reliabilityFreshness(snapshot, checkedAt);
+  if (freshness !== null)
+    return unknownReliability(freshness);
   return Object.freeze({
     status,
     detail:safeText(snapshot?.detail, 240) || '可靠性状态来自当前版本的有效观测。',
@@ -102,17 +116,20 @@ export function buildRuntimeHealth({
   summary?: Record<string, unknown>;
   checkedAt?: string;
 } = {}) {
+  const suppliedCore = Array.isArray(core) && core.length > 0;
   const coreComponents = Object.freeze((Array.isArray(core) ? core : [])
     .slice(0, 20)
     .map((item) => healthComponent(item, 'core')));
   const optionalComponents = Object.freeze((Array.isArray(optional) ? optional : [])
     .slice(0, 30)
     .map((item) => healthComponent(item, 'optional')));
-  const coreStatus = coreComponents.every((item) => CORE_HEALTHY.has(item.status))
-    ? 'healthy'
-    : coreComponents.some((item) => item.status === 'unavailable')
-      ? 'unavailable'
-      : 'degraded';
+  const coreStatus = !suppliedCore
+    ? 'unknown'
+    : coreComponents.every((item) => CORE_HEALTHY.has(item.status))
+      ? 'healthy'
+      : coreComponents.some((item) => item.status === 'unavailable')
+        ? 'unavailable'
+        : 'degraded';
 
   return Object.freeze({
     schemaVersion:'agent.army/runtime-health/v1',
@@ -155,15 +172,48 @@ function normalizeReliabilityStatus(value: unknown): 'healthy' | 'degraded' | 'u
     : 'unknown';
 }
 
-function safeIdentity(value: RuntimeObservationIdentity | null | undefined): Record<string, string> {
-  return Object.fromEntries(['gitHead', 'releaseHash'].flatMap((key) => {
-    const text = safeText(value?.[key as keyof RuntimeObservationIdentity], 160);
-    return text ? [[key, text]] : [];
-  }));
+function safeIdentity(value: RuntimeObservationIdentity | null | undefined): Readonly<{ gitHead: string; releaseHash: string }> | null {
+  const gitHead = safeText(value?.gitHead, 40).toLowerCase();
+  const releaseHash = safeText(value?.releaseHash, 64).toLowerCase();
+  if (!/^[0-9a-f]{40}$/.test(gitHead) || !/^[0-9a-f]{64}$/.test(releaseHash)) return null;
+  return Object.freeze({ gitHead, releaseHash });
 }
 
 function unknownReliability(detail: string) {
   return Object.freeze({ status:'unknown', detail, observedAt:null });
+}
+
+function reliabilityFreshness(snapshot: ReliabilitySnapshot | null | undefined, checkedAt: string | number | Date): string | null {
+  const checkedMs = checkedAt instanceof Date ? checkedAt.getTime() : typeof checkedAt === 'number'
+    ? checkedAt
+    : Date.parse(String(checkedAt || ''));
+  const conclusion = reliabilityTime(snapshot?.observedAt);
+  if (!Number.isFinite(checkedMs) || conclusion === null)
+    return '稳定性结论缺少可校验时间，不能显示为当前版本结论。';
+  if (conclusion > checkedMs + RUNTIME_RELIABILITY_MAX_FUTURE_SKEW_MS)
+    return '稳定性结论时间明显晚于本机时钟，不能显示为当前版本结论。';
+  const progressValue = snapshot?.progressObservedAt;
+  const progress = progressValue === undefined || progressValue === null ? null : reliabilityTime(progressValue);
+  if (progressValue !== undefined && progressValue !== null && progress === null)
+    return '稳定性观测推进时间无效，不能显示为当前版本结论。';
+  if (progress !== null && progress > checkedMs + RUNTIME_RELIABILITY_MAX_FUTURE_SKEW_MS)
+    return '稳定性观测推进时间明显晚于本机时钟，不能显示为当前版本结论。';
+  if (checkedMs - conclusion <= RUNTIME_RELIABILITY_COMPLETION_MAX_AGE_MS) return null;
+  if (progress !== null && checkedMs - progress <= reliabilityProgressMaxAgeMs(snapshot?.progressIntervalSeconds)) return null;
+  return progress === null
+    ? '稳定性结论已超过 24 小时，且没有正在推进的同身份观测，不能显示为当前版本结论。'
+    : '稳定性观测推进已停止，不能显示为当前版本结论。';
+}
+
+function reliabilityTime(value: unknown): number | null {
+  const parsed = Date.parse(String(value || ''));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function reliabilityProgressMaxAgeMs(intervalSeconds: unknown): number {
+  const interval = Number(intervalSeconds);
+  const valid = Number.isSafeInteger(interval) && interval > 0 && interval <= 3_600 ? interval : 30;
+  return Math.min((2 * valid + 60) * 1_000, RUNTIME_RELIABILITY_PROGRESS_MAX_AGE_MS);
 }
 
 function debtSnapshot(taskFocus: any) {

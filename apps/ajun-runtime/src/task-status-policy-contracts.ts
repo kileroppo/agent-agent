@@ -10,7 +10,7 @@ export type TaskOutcome =
   | 'delivery_quality_stopped';
 
 export type TaskStatusPolicy = Readonly<{
-  status: TaskStatus | 'unknown' | string;
+  status: TaskStatus;
   label: string;
   terminal: boolean;
   blocked: boolean;
@@ -20,6 +20,20 @@ export type TaskStatusPolicy = Readonly<{
   attentionPriority: number;
   paperclipIssueStatus: PaperclipIssueStatus;
   paperclipCompletionEligible: boolean;
+}>;
+
+/** Runtime compatibility boundary for persisted statuses newer than this runtime. */
+export type UnknownTaskStatusPolicy = Readonly<{
+  status: string;
+  label: string;
+  terminal: false;
+  blocked: false;
+  notificationTerminal: false;
+  executionClosed: false;
+  taskCardTerminal: false;
+  attentionPriority: number;
+  paperclipIssueStatus: PaperclipIssueStatus;
+  paperclipCompletionEligible: false;
 }>;
 
 export type WorkflowStepOutcome = Readonly<{

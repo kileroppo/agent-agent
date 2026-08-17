@@ -10,9 +10,32 @@ function setup({ status = { terminal:false, status:'running', message:'正在处
   const store = {
     async list() { return records.map((item) => ({ ...item })); },
     async upsert(item) { const index = records.findIndex((record) => record.taskId === item.taskId && record.chatId === item.chatId); if (index >= 0) records[index] = { ...records[index], ...item }; else records.push({ ...item }); },
-    async remove(taskId, chatId) { const index = records.findIndex((record) => record.taskId === taskId && record.chatId === chatId); if (index >= 0) records.splice(index, 1); }
+    async remove(taskId, chatId) { const index = records.findIndex((record) => record.taskId === taskId && record.chatId === chatId); if (index >= 0) records.splice(index, 1); },
+    async claimDelivery({ taskId, chatId, delivery, ownerId, leaseMs }) {
+      const index = records.findIndex((record) => record.taskId === taskId && record.chatId === chatId);
+      const current = records[index]?.delivery;
+      if (index < 0 || ['sending', 'delivered', 'delivery_unknown'].includes(current?.status)) return { claimed:false };
+      const watch = { ...records[index], delivery:{ ...delivery, status:'sending', sendingAt:new Date().toISOString(), lease:{ owner:ownerId, token:`lease-${ownerId}`, expiresAt:new Date(Date.now() + leaseMs).toISOString() } } };
+      records[index] = watch;
+      return { claimed:true, watch:{ ...watch } };
+    },
+    async completeDelivery({ taskId, chatId, claimToken, update }) {
+      const index = records.findIndex((record) => record.taskId === taskId && record.chatId === chatId);
+      if (index < 0 || records[index].delivery?.lease?.token !== claimToken) return { completed:false };
+      records[index] = { ...records[index], ...update };
+      return { completed:true, watch:{ ...records[index] } };
+    },
+    async recoverExpiredDelivery({ taskId, chatId }) {
+      const index = records.findIndex((record) => record.taskId === taskId && record.chatId === chatId);
+      if (index < 0 || records[index].delivery?.status !== 'sending') return { recovered:false };
+      records[index] = { ...records[index], delivery:{ ...records[index].delivery, status:'delivery_unknown', unknownAt:new Date().toISOString() } };
+      return { recovered:true };
+    }
   };
-  const watcher = new OfficialFeishuCompletionWatcher({ taskStatus:async () => status, send:async (chatId, content) => sent.push({ chatId, content }), store, detailBaseUrl });
+  const watcher = new OfficialFeishuCompletionWatcher({ taskStatus:async () => status, send:async (chatId, content) => {
+    sent.push({ chatId, content });
+    return { deliveryConfirmed:true, deliveryState:'delivered', deliveryEvidence:{ type:'test_ack', observedAt:new Date().toISOString() } };
+  }, store, detailBaseUrl });
   return { watcher, records, sent, setStatus(value) { status = value; } };
 }
 
@@ -28,7 +51,7 @@ test('长任务会在完成时只回到原聊天一次，并保留脱敏的已�
   assert.equal(state.records.length, 1);
   assert.equal(state.records[0].delivery.status, 'delivered');
   assert.equal(state.records[0].delivery.idempotencyKey, state.sent[0].content.deliveryId);
-  assert.equal(state.records[0].delivery.evidence.type, 'channel_send_acknowledged');
+  assert.equal(state.records[0].delivery.evidence.type, 'test_ack');
 });
 
 test('终态发送较慢时并发检查也只回到原聊天一次', async () => {
@@ -38,12 +61,14 @@ test('终态发送较慢时并发检查也只回到原聊天一次', async () =>
   state.watcher.send = async (chatId, content) => {
     state.sent.push({ chatId, content });
     await sendBlocked;
+    return { deliveryConfirmed:true, deliveryState:'delivered', deliveryEvidence:{ type:'test_ack', observedAt:new Date().toISOString() } };
   };
   await state.watcher.watch({ taskId:'task-a', chatId:'chat-a' });
 
   const checks = [state.watcher.check(), state.watcher.check(), state.watcher.check()];
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(state.sent.length, 1);
+  assert.equal(state.watcher.snapshot().status, 'delivery_pending');
   releaseSend();
   await Promise.all(checks);
   assert.equal(state.records[0].delivery.status, 'delivered');
@@ -96,6 +121,7 @@ test('发送结果不确定时停止盲目重发，并要求本机明确选择�
   state.watcher.send = async () => {
     attempts += 1;
     if (attempts === 1) throw Object.assign(new Error('process closed'), { deliveryState:'unknown' });
+    return { deliveryConfirmed:true, deliveryState:'delivered', deliveryEvidence:{ type:'test_ack', observedAt:new Date().toISOString() } };
   };
   await state.watcher.watch({ taskId:'task-uncertain', chatId:'chat-uncertain' });
 
@@ -110,6 +136,64 @@ test('发送结果不确定时停止盲目重发，并要求本机明确选择�
   await state.watcher.check();
   assert.equal(attempts, 2);
   assert.equal(state.records[0].delivery.status, 'delivered');
+});
+
+test('send 没有显式确认凭据时只能记录 delivery_unknown，不能冒充已送达', async () => {
+  const state = setup({ status:{ terminal:true, status:'succeeded', message:'工作已经完成。' } });
+  state.watcher.send = async () => undefined;
+  await state.watcher.watch({ taskId:'task-no-ack', chatId:'chat-no-ack' });
+  await state.watcher.check();
+  assert.equal(state.records[0].delivery.status, 'delivery_unknown');
+  assert.equal(state.records[0].delivery.errorCode, 'delivery_outcome_unknown');
+});
+
+test('两个独立文件存储竞争同一任务时，只有拿到持久化租约的一方可以外发', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-army-watch-'));
+  const filePath = path.join(directory, 'watches.json');
+  const sent = [];
+  const send = async (_chatId, payload) => {
+    sent.push(payload);
+    return { deliveryConfirmed:true, deliveryState:'delivered', deliveryEvidence:{ type:'test_ack', observedAt:new Date().toISOString() } };
+  };
+  try {
+    const input = { taskStatus:async () => ({ terminal:true, status:'succeeded', message:'完成。' }), send };
+    const first = new OfficialFeishuCompletionWatcher({ ...input, ownerId:'watcher-one', store:new FileCompletionWatchStore(filePath) });
+    const second = new OfficialFeishuCompletionWatcher({ ...input, ownerId:'watcher-two', store:new FileCompletionWatchStore(filePath) });
+    await Promise.all([first.watch({ taskId:'task-race', chatId:'chat-race' }), second.watch({ taskId:'task-race', chatId:'chat-race' })]);
+    await Promise.all([first.check(), second.check()]);
+    assert.equal(sent.length, 1);
+    assert.equal((await new FileCompletionWatchStore(filePath).list())[0].delivery.status, 'delivered');
+  } finally {
+    await fs.rm(directory, { recursive:true, force:true });
+  }
+});
+
+test('租约到期后的发送中记录按崩溃恢复为 unknown，绝不自动再发', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-army-watch-'));
+  const filePath = path.join(directory, 'watches.json');
+  try {
+    const store = new FileCompletionWatchStore(filePath);
+    await store.upsert({ taskId:'task-crash', chatId:'chat-crash', lastStatus:null, delivery:{
+      deliveryId:'11111111-1111-5111-a111-111111111111', idempotencyKey:'crash-key', kind:'terminal', targetStatus:'succeeded', status:'sending',
+      lease:{ owner:'dead-process', token:'dead-lease', expiresAt:'2020-01-01T00:00:00.000Z' },
+    } });
+    let sends = 0;
+    const watcher = new OfficialFeishuCompletionWatcher({ taskStatus:async () => ({ terminal:true, status:'succeeded', message:'完成。' }), send:async () => { sends += 1; }, store });
+    await watcher.check();
+    assert.equal(sends, 0);
+    assert.equal((await store.list())[0].delivery.status, 'delivery_unknown');
+  } finally {
+    await fs.rm(directory, { recursive:true, force:true });
+  }
+});
+
+test('prepared 或 sending 回执投影为待投递，不显示为 ready', async () => {
+  const state = setup();
+  await state.watcher.watch({ taskId:'task-pending', chatId:'chat-pending' });
+  state.records[0].delivery = { deliveryId:'22222222-2222-5222-a222-222222222222', kind:'terminal', targetStatus:'succeeded', status:'prepared' };
+  await state.watcher.check();
+  assert.equal(state.watcher.snapshot().status, 'delivery_pending');
+  assert.equal(state.watcher.snapshot().pendingDeliveries, 1);
 });
 
 test('进程重启读到发送中记录时标记投递不确定，不会再次调用外部发送', async () => {
@@ -130,6 +214,7 @@ test('明确未启动发送进程时保留自动重试能力', async () => {
   state.watcher.send = async () => {
     attempts += 1;
     if (attempts === 1) throw Object.assign(new Error('spawn failed'), { deliveryState:'not_started' });
+    return { deliveryConfirmed:true, deliveryState:'delivered', deliveryEvidence:{ type:'test_ack', observedAt:new Date().toISOString() } };
   };
   await state.watcher.watch({ taskId:'task-not-started', chatId:'chat-not-started' });
 
@@ -169,6 +254,7 @@ test('冻结的 failed 回执只有人工 retry 才能恢复，并保持同一�
   state.watcher.send = async () => {
     attempts += 1;
     if (attempts < 3) throw Object.assign(new Error('spawn failed'), { deliveryState:'not_started' });
+    return { deliveryConfirmed:true, deliveryState:'delivered', deliveryEvidence:{ type:'test_ack', observedAt:new Date().toISOString() } };
   };
   await state.watcher.watch({ taskId:'task-manual-retry', chatId:'chat-manual-retry' });
   await state.watcher.check();
@@ -277,6 +363,49 @@ test('并发登记不同任务时文件存储不会因读改写竞态丢记录',
     const watches = await store.list();
     assert.equal(watches.length, 20);
     assert.deepEqual(watches.map((item) => item.taskId).sort(), Array.from({ length:20 }, (_, index) => `task-${index}`).sort());
+  } finally {
+    await fs.rm(directory, { recursive:true, force:true });
+  }
+});
+
+test('文件锁在临界区超过原 TTL 时持续续租，第二个 store 不会并发进入', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-army-watch-'));
+  const filePath = path.join(directory, 'watches.json');
+  const first = new FileCompletionWatchStore(filePath, { lockLeaseMs:25 });
+  const second = new FileCompletionWatchStore(filePath, { lockLeaseMs:25 });
+  let active = 0; let maximum = 0;
+  try {
+    const longOperation = first.withFileLock(async () => {
+      active += 1; maximum = Math.max(maximum, active);
+      await new Promise((resolve) => setTimeout(resolve, 90));
+      active -= 1;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    const contender = second.withFileLock(async () => {
+      active += 1; maximum = Math.max(maximum, active); active -= 1;
+    });
+    await Promise.all([longOperation, contender]);
+    assert.equal(maximum, 1);
+  } finally {
+    await fs.rm(directory, { recursive:true, force:true });
+  }
+});
+
+test('回收 stale lock 前若路径已被新 token 原子替换，不会删除新锁', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-army-watch-'));
+  const filePath = path.join(directory, 'watches.json');
+  const lockPath = `${filePath}.lock`;
+  try {
+    await fs.writeFile(lockPath, JSON.stringify({ token:'stale-token', expiresAt:'2020-01-01T00:00:00.000Z' }), { mode:0o600 });
+    const store = new FileCompletionWatchStore(filePath, {
+      beforeStaleReclaim:async () => {
+        const replacement = `${lockPath}.replacement`;
+        await fs.writeFile(replacement, JSON.stringify({ token:'live-token', expiresAt:'2099-01-01T00:00:00.000Z' }), { mode:0o600 });
+        await fs.rename(replacement, lockPath);
+      }
+    });
+    await store.recoverStaleLock(lockPath);
+    assert.deepEqual(JSON.parse(await fs.readFile(lockPath, 'utf8')), { token:'live-token', expiresAt:'2099-01-01T00:00:00.000Z' });
   } finally {
     await fs.rm(directory, { recursive:true, force:true });
   }

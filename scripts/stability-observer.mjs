@@ -44,6 +44,7 @@ const HARD_BUDGET_CNY = 50;
 const REQUIRED_ENDPOINT_AVAILABILITY_THRESHOLD = 0.995;
 const RSS_GROWTH_RATIO_THRESHOLD = 1.25;
 const RUNTIME_RELIABILITY_SNAPSHOT_FILE = 'runtime-reliability.json';
+const RUNTIME_RELIABILITY_SNAPSHOT_LOCK_STALE_MS = 5 * 60 * 1_000;
 const LONG_SOAK_DURATION_SECONDS = 72 * 60 * 60;
 const AJUN_IDLE_CPU_P95_PERCENT_THRESHOLD = 5;
 const AJUN_CPU_METRIC_VERSION = 'agent.army/ajun-cpu-interval-percent/v2';
@@ -171,6 +172,17 @@ export function evaluateIdentityGate(observation, expected = {}) {
   return Object.freeze({ passed:errors.length === 0, errors:Object.freeze(errors) });
 }
 
+/** A heartbeat is evidence of progress only when every required probe succeeded. */
+export function isHeartbeatEligibleObservation(observation) {
+  if (!validReliabilityTimestamp(observation?.observedAt)) return false;
+  const endpoints = Array.isArray(observation?.endpoints) ? observation.endpoints : [];
+  const requiredSamples = endpoints.filter((sample) => sample?.required === true);
+  return requiredSamples.every((sample) => sample.ok === true)
+    && ENDPOINTS.filter((endpoint) => endpoint.required).every((expected) => endpoints.some((sample) => (
+    sample?.endpointId === expected.id && sample.required === true && sample.ok === true
+  )));
+}
+
 export async function runEndpointLoad({
   levels = [1, 3, 5, 10],
   requestsPerEndpoint = 20,
@@ -237,6 +249,10 @@ export function hashEvidenceReference(value) {
 export async function summarizeObservationFile(filePath) {
   const text = await fsp.readFile(filePath, 'utf8');
   const observations = text.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line));
+  return summarizeObservations(observations);
+}
+
+export function summarizeObservations(observations = []) {
   const endpointSamples = observations.flatMap((observation) => observation.endpoints || []);
   const requiredSamples = endpointSamples.filter((sample) => sample.required);
   const requiredSuccess = requiredSamples.filter((sample) => sample.ok).length;
@@ -503,20 +519,7 @@ export function calculateObservedDurationMs(observations, {
   startedAt = null,
   intervalSeconds,
 } = {}) {
-  const intervalMs = positiveInteger(intervalSeconds, 30, 'interval-seconds') * 1_000;
-  const startMs = Date.parse(startedAt || '');
-  let cursorMs = Number.isFinite(startMs) ? startMs : null;
-  let totalMs = 0;
-  for (const observedMs of normalizeObservationTimes(observations)) {
-    if (cursorMs === null) {
-      cursorMs = observedMs;
-      continue;
-    }
-    const deltaMs = observedMs - cursorMs;
-    if (deltaMs > 0) totalMs += Math.min(deltaMs, intervalMs);
-    cursorMs = observedMs;
-  }
-  return totalMs;
+  return initialObservationDurationState(observations, { startedAt, intervalSeconds }).effectiveObservedMs;
 }
 
 export function calculateObservationDurationProgress(observations, {
@@ -526,6 +529,60 @@ export function calculateObservationDurationProgress(observations, {
 } = {}) {
   const targetDurationSeconds = positiveInteger(durationSeconds, 72 * 60 * 60, 'duration-seconds');
   const effectiveObservedMs = calculateObservedDurationMs(observations, { startedAt, intervalSeconds });
+  return durationProgress(effectiveObservedMs, targetDurationSeconds);
+}
+
+/**
+ * Seed once from a resumed JSONL, then advance only from the new observation.
+ * Live observations are append-only; an out-of-order clock value is ignored so it
+ * can never manufacture elapsed time. The final summary still reads the full log.
+ */
+export function createObservationDurationAccumulator(observations, {
+  startedAt = null,
+  intervalSeconds,
+  durationSeconds,
+} = {}) {
+  const targetDurationSeconds = positiveInteger(durationSeconds, 72 * 60 * 60, 'duration-seconds');
+  const state = initialObservationDurationState(observations, { startedAt, intervalSeconds });
+  return Object.freeze({
+    progress:() => durationProgress(state.effectiveObservedMs, targetDurationSeconds),
+    append(observation) {
+      const observedMs = Date.parse(observation?.observedAt || '');
+      if (!Number.isFinite(observedMs) || (state.cursorMs !== null && observedMs <= state.cursorMs)) {
+        return durationProgress(state.effectiveObservedMs, targetDurationSeconds);
+      }
+      if (state.cursorMs === null) {
+        state.cursorMs = observedMs;
+      } else {
+        state.effectiveObservedMs += Math.min(observedMs - state.cursorMs, state.intervalMs);
+        state.cursorMs = observedMs;
+      }
+      return durationProgress(state.effectiveObservedMs, targetDurationSeconds);
+    },
+  });
+}
+
+function initialObservationDurationState(observations, { startedAt = null, intervalSeconds } = {}) {
+  const intervalMs = positiveInteger(intervalSeconds, 30, 'interval-seconds') * 1_000;
+  const startMs = Date.parse(startedAt || '');
+  const state = {
+    intervalMs,
+    cursorMs:Number.isFinite(startMs) ? startMs : null,
+    effectiveObservedMs:0,
+  };
+  for (const observedMs of normalizeObservationTimes(observations)) {
+    if (state.cursorMs === null) {
+      state.cursorMs = observedMs;
+      continue;
+    }
+    const deltaMs = observedMs - state.cursorMs;
+    if (deltaMs > 0) state.effectiveObservedMs += Math.min(deltaMs, intervalMs);
+    state.cursorMs = observedMs;
+  }
+  return state;
+}
+
+function durationProgress(effectiveObservedMs, targetDurationSeconds) {
   const targetDurationMs = targetDurationSeconds * 1_000;
   return Object.freeze({
     effectiveObservedMs,
@@ -644,7 +701,9 @@ export async function summarizeRunDirectory(runDirectory) {
   const stopRequested = await readExistingStopRequested(path.join(runDirectory, 'summary.json'));
   const observationPath = path.join(runDirectory, 'observations.jsonl');
   const observations = await readObservationRecords(observationPath);
-  const summary = await summarizeObservationFile(observationPath);
+  // Finalization is the one deliberate full-log pass. The observe loop itself
+  // only uses an in-memory incremental duration accumulator.
+  const summary = summarizeObservations(observations);
   const costGate = await summarizeCostLedger(path.join(runDirectory, 'cost-ledger.jsonl'));
   const durationProgress = manifest
     ? calculateObservationDurationProgress(observations, {
@@ -807,24 +866,320 @@ export async function writeRuntimeReliabilitySnapshot(snapshot, {
   await fsp.mkdir(directory, { recursive:true, mode:0o700 });
   await fsp.chmod(directory, 0o700);
   const target = path.join(directory, RUNTIME_RELIABILITY_SNAPSHOT_FILE);
-  const existing = await openRuntimeReliabilitySnapshotForUpdate(target);
+  await withRuntimeReliabilitySnapshotLock(target, async () => {
+    const existing = await openRuntimeReliabilitySnapshotForUpdate(target);
+    try {
+      if (shouldPreserveRuntimeReliabilitySnapshot(existing.snapshot, snapshot)) {
+        await existing.handle?.chmod(0o600);
+        return;
+      }
+    } finally {
+      await existing.handle?.close();
+    }
+    await replaceRuntimeReliabilitySnapshot(target, snapshot);
+  });
+  return target;
+}
+
+/**
+ * A successful, identity-verified sample proves an existing same-release conclusion is still being observed.
+ * It deliberately does not alter observedAt/status/detail or summarize observations again.
+ */
+export async function writeRuntimeReliabilityProgressHeartbeat({
+  runtimeIdentity,
+  progressObservedAt,
+  progressIntervalSeconds,
+} = {}, {
+  dataDir = resolveRuntimeDataDir(),
+} = {}) {
+  const identity = normalizedRuntimeIdentity(runtimeIdentity);
+  const observedAt = validReliabilityTimestamp(progressObservedAt);
+  const intervalSeconds = validProgressIntervalSeconds(progressIntervalSeconds);
+  if (!identity || !observedAt || !intervalSeconds) return null;
+  const directory = path.resolve(dataDir);
+  await fsp.mkdir(directory, { recursive:true, mode:0o700 });
+  await fsp.chmod(directory, 0o700);
+  const target = path.join(directory, RUNTIME_RELIABILITY_SNAPSHOT_FILE);
+  return withRuntimeReliabilitySnapshotLock(target, async () => {
+    const existing = await openRuntimeReliabilitySnapshotForUpdate(target);
+    let updated = null;
+    try {
+      const existingIdentity = normalizedRuntimeIdentity(existing.snapshot?.runtimeIdentity);
+      if (!['healthy', 'degraded'].includes(existing.snapshot?.status)
+        || !existingIdentity
+        || existingIdentity.gitHead !== identity.gitHead
+        || existingIdentity.releaseHash !== identity.releaseHash) return null;
+      updated = {
+        ...existing.snapshot,
+        progressObservedAt:observedAt,
+        progressIntervalSeconds:intervalSeconds,
+      };
+    } finally {
+      await existing.handle?.close();
+    }
+    await replaceRuntimeReliabilitySnapshot(target, updated);
+    return target;
+  });
+}
+
+export async function acquireRuntimeReliabilitySnapshotLock(target, {
+  timeoutMs = 5_000,
+  retryMs = 10,
+  now = () => Date.now(),
+  isProcessAlive = runtimeLockProcessAlive,
+  openLock = fsp.open,
+} = {}) {
+  const lockPath = `${target}.lock`;
+  const token = crypto.randomUUID();
+  const ownerPid = process.pid;
+  const createdAt = new Date(now()).toISOString();
+  const deadline = now() + timeoutMs;
+  while (true) {
+    let handle;
+    let createdStat = null;
+    try {
+      await waitForRuntimeReliabilitySnapshotRecovery(lockPath, { deadline, retryMs, now });
+      handle = await openLock(lockPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
+      // lstat gives us an inode to clean up even when the injected/underlying
+      // FileHandle.stat initialization step itself fails.
+      createdStat = await fsp.lstat(lockPath);
+      if (!createdStat.isFile()) throw new Error('稳定性快照锁不是普通文件，拒绝写入。');
+      await handle.writeFile(`${JSON.stringify({ token, ownerPid, createdAt })}\n`, 'utf8');
+      await handle.sync();
+      const stat = await handle.stat();
+      if (!stat.isFile() || stat.dev !== createdStat.dev || stat.ino !== createdStat.ino) {
+        throw new Error('稳定性快照锁在初始化期间发生变化，拒绝写入。');
+      }
+      // Recovery guard may have been created after the first preflight check.
+      // Do not let a new writer pass through while a stale lock is quarantined.
+      if (await runtimeReliabilitySnapshotRecoveryExists(lockPath)) {
+        await handle.close();
+        handle = null;
+        await unlinkRuntimeReliabilitySnapshotLockIfSameFile(lockPath, stat);
+        if (now() >= deadline) throw new Error('稳定性快照正在被其他 observe/run 更新，等待锁超时。');
+        await delay(retryMs);
+        continue;
+      }
+      return Object.freeze({
+        lockPath,
+        async release() {
+          await handle.close();
+          const owned = await readOwnedRuntimeReliabilitySnapshotLock(lockPath, token, stat);
+          if (owned) await fsp.unlink(lockPath).catch((error) => {
+            if (error?.code !== 'ENOENT') throw error;
+          });
+        },
+      });
+    } catch (error) {
+      await handle?.close().catch(() => {});
+      if (createdStat !== null) {
+        // Initialization failed after this process won O_EXCL. Only remove the
+        // exact inode we created; a replacement lock is never unlinked here.
+        await unlinkRuntimeReliabilitySnapshotLockIfSameFile(lockPath, createdStat);
+      }
+      if (error?.code !== 'EEXIST') throw error;
+      if (await recoverStaleRuntimeReliabilitySnapshotLock(lockPath, { now, isProcessAlive })) continue;
+      await assertRuntimeReliabilitySnapshotLockIsRegular(lockPath);
+      if (now() >= deadline) throw new Error('稳定性快照正在被其他 observe/run 更新，等待锁超时。');
+      await delay(retryMs);
+    }
+  }
+}
+
+async function withRuntimeReliabilitySnapshotLock(target, action) {
+  const lock = await acquireRuntimeReliabilitySnapshotLock(target);
   try {
-    if (shouldPreserveRuntimeReliabilitySnapshot(existing.snapshot, snapshot)) {
-      await existing.handle.chmod(0o600);
-      return target;
+    return await action();
+  } finally {
+    await lock.release();
+  }
+}
+
+async function assertRuntimeReliabilitySnapshotLockIsRegular(lockPath) {
+  const linkStat = await fsp.lstat(lockPath).catch((error) => {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (linkStat === null) return;
+  if (!linkStat.isFile()) throw new Error('稳定性快照锁不是普通文件，拒绝写入。');
+  const handle = await fsp.open(lockPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.dev !== linkStat.dev || stat.ino !== linkStat.ino) {
+      throw new Error('稳定性快照锁在安全检查期间发生变化，拒绝写入。');
     }
   } finally {
-    await existing.handle?.close();
+    await handle.close();
   }
-  const temporary = path.join(directory, `.${RUNTIME_RELIABILITY_SNAPSHOT_FILE}.${process.pid}.${crypto.randomUUID()}.tmp`);
+}
+
+async function recoverStaleRuntimeReliabilitySnapshotLock(lockPath, { now, isProcessAlive }) {
+  const observed = await readRuntimeReliabilitySnapshotLock(lockPath);
+  if (!isStaleRuntimeReliabilitySnapshotLock(observed?.record, { now, isProcessAlive })) return false;
+  const recovery = await acquireRuntimeReliabilitySnapshotRecovery(lockPath, { now });
+  if (!recovery) return false;
   try {
-    await fsp.writeFile(temporary, `${JSON.stringify(snapshot)}\n`, { mode:0o600, flag:'wx' });
-    await fsp.chmod(temporary, 0o600);
-    await fsp.rename(temporary, target);
-    return target;
+    // A second inode/token read prevents a later writer from being quarantined.
+    const current = await readRuntimeReliabilitySnapshotLock(lockPath);
+    if (!sameRuntimeReliabilitySnapshotLock(current, observed)
+      || !isStaleRuntimeReliabilitySnapshotLock(current?.record, { now, isProcessAlive })) return false;
+    const quarantinePath = `${lockPath}.stale.${current.record.token}.${crypto.randomUUID()}`;
+    await fsp.rename(lockPath, quarantinePath);
+    await fsp.chmod(quarantinePath, 0o600);
+    return true;
   } finally {
-    await fsp.unlink(temporary).catch(() => {});
+    await recovery.release();
   }
+}
+
+function isStaleRuntimeReliabilitySnapshotLock(record, { now, isProcessAlive }) {
+  if (!validRuntimeReliabilitySnapshotLockRecord(record)) return false;
+  const ageMs = now() - Date.parse(record.createdAt);
+  const ownerState = isProcessAlive(record.ownerPid);
+  // A live PID always wins, even if its timestamp is old. If liveness cannot be
+  // determined (for example EPERM), only a long-expired lock is recoverable.
+  return ownerState === false || (ownerState === null && Number.isFinite(ageMs) && ageMs >= RUNTIME_RELIABILITY_SNAPSHOT_LOCK_STALE_MS);
+}
+
+function validRuntimeReliabilitySnapshotLockRecord(record) {
+  return typeof record?.token === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(record.token)
+    && Number.isSafeInteger(record?.ownerPid) && record.ownerPid > 0
+    && Number.isFinite(Date.parse(record?.createdAt || ''));
+}
+
+function sameRuntimeReliabilitySnapshotLock(left, right) {
+  return Boolean(
+    left && right
+    && left.stat.dev === right.stat.dev
+    && left.stat.ino === right.stat.ino
+    && left.record?.token === right.record?.token,
+  );
+}
+
+function runtimeLockProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'ESRCH' ? false : null;
+  }
+}
+
+async function readRuntimeReliabilitySnapshotLock(lockPath) {
+  let linkStat;
+  try {
+    linkStat = await fsp.lstat(lockPath);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+  if (!linkStat.isFile()) throw new Error('稳定性快照锁不是普通文件，拒绝写入。');
+  const handle = await fsp.open(lockPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.dev !== linkStat.dev || stat.ino !== linkStat.ino) {
+      throw new Error('稳定性快照锁在安全检查期间发生变化，拒绝写入。');
+    }
+    let record = null;
+    try {
+      record = JSON.parse(await handle.readFile('utf8'));
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+    }
+    return { stat, record };
+  } finally {
+    await handle.close();
+  }
+}
+
+async function unlinkRuntimeReliabilitySnapshotLockIfSameFile(lockPath, expectedStat) {
+  const current = await readRuntimeReliabilitySnapshotLock(lockPath).catch((error) => {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (!current || current.stat.dev !== expectedStat.dev || current.stat.ino !== expectedStat.ino) return false;
+  await fsp.unlink(lockPath).catch((error) => {
+    if (error?.code !== 'ENOENT') throw error;
+  });
+  return true;
+}
+
+async function acquireRuntimeReliabilitySnapshotRecovery(lockPath, { now }) {
+  const recoveryPath = `${lockPath}.recovery`;
+  const token = crypto.randomUUID();
+  let handle;
+  let createdStat = null;
+  try {
+    handle = await fsp.open(recoveryPath, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
+    createdStat = await fsp.lstat(recoveryPath);
+    if (!createdStat.isFile()) throw new Error('稳定性快照恢复锁不是普通文件，拒绝写入。');
+    await handle.writeFile(`${JSON.stringify({ token, ownerPid:process.pid, createdAt:new Date(now()).toISOString() })}\n`, 'utf8');
+    await handle.sync();
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.dev !== createdStat.dev || stat.ino !== createdStat.ino) {
+      throw new Error('稳定性快照恢复锁在初始化期间发生变化，拒绝写入。');
+    }
+    return Object.freeze({
+      async release() {
+        await handle.close();
+        const owned = await readOwnedRuntimeReliabilitySnapshotLock(recoveryPath, token, stat);
+        if (owned) await fsp.unlink(recoveryPath).catch((error) => {
+          if (error?.code !== 'ENOENT') throw error;
+        });
+      },
+    });
+  } catch (error) {
+    await handle?.close().catch(() => {});
+    if (createdStat !== null) await unlinkRuntimeReliabilitySnapshotLockIfSameFile(recoveryPath, createdStat);
+    if (error?.code === 'EEXIST') return null;
+    throw error;
+  }
+}
+
+async function runtimeReliabilitySnapshotRecoveryExists(lockPath) {
+  const recoveryPath = `${lockPath}.recovery`;
+  const stat = await fsp.lstat(recoveryPath).catch((error) => {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (stat === null) return false;
+  await assertRuntimeReliabilitySnapshotLockIsRegular(recoveryPath);
+  return true;
+}
+
+async function waitForRuntimeReliabilitySnapshotRecovery(lockPath, { deadline, retryMs, now }) {
+  while (await runtimeReliabilitySnapshotRecoveryExists(lockPath)) {
+    if (now() >= deadline) throw new Error('稳定性快照正在被其他 observe/run 更新，等待锁超时。');
+    await delay(retryMs);
+  }
+}
+
+async function readOwnedRuntimeReliabilitySnapshotLock(lockPath, token, expectedStat) {
+  let linkStat;
+  try {
+    linkStat = await fsp.lstat(lockPath);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return false;
+    throw error;
+  }
+  if (!linkStat.isFile() || linkStat.dev !== expectedStat.dev || linkStat.ino !== expectedStat.ino) return false;
+  const handle = await fsp.open(lockPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.dev !== expectedStat.dev || stat.ino !== expectedStat.ino) return false;
+    const record = JSON.parse(await handle.readFile('utf8'));
+    return record?.token === token;
+  } catch (error) {
+    if (error instanceof SyntaxError) return false;
+    throw error;
+  } finally {
+    await handle.close();
+  }
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function shouldPreserveRuntimeReliabilitySnapshot(existing, candidate) {
@@ -873,6 +1228,28 @@ async function openRuntimeReliabilitySnapshotForUpdate(filePath) {
     await handle?.close();
     throw error;
   }
+}
+
+async function replaceRuntimeReliabilitySnapshot(target, snapshot) {
+  const directory = path.dirname(target);
+  const temporary = path.join(directory, `.${RUNTIME_RELIABILITY_SNAPSHOT_FILE}.${process.pid}.${crypto.randomUUID()}.tmp`);
+  try {
+    await fsp.writeFile(temporary, `${JSON.stringify(snapshot)}\n`, { mode:0o600, flag:'wx' });
+    await fsp.chmod(temporary, 0o600);
+    await fsp.rename(temporary, target);
+  } finally {
+    await fsp.unlink(temporary).catch(() => {});
+  }
+}
+
+function validReliabilityTimestamp(value) {
+  const text = String(value || '').trim();
+  return Number.isFinite(Date.parse(text)) ? text : null;
+}
+
+function validProgressIntervalSeconds(value) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 && parsed <= 3_600 ? parsed : null;
 }
 
 function summarizeIdentityGates(observations) {
@@ -1327,7 +1704,6 @@ async function observeCommand({ root, runId, acceptanceRoot, options }) {
     });
     const { manifest, manifestPath, observationPath } = state;
     await writePrivateJson(manifestPath, manifest);
-    const observations = [...state.observations];
     let stopRequested = false;
     let wakeIntervalWait = null;
     const requestStop = () => {
@@ -1351,11 +1727,14 @@ async function observeCommand({ root, runId, acceptanceRoot, options }) {
     process.once('SIGTERM', requestStop);
     try {
       let identityFailure = null;
-      let durationProgress = calculateObservationDurationProgress(observations, {
+      // Resume pays one full-log calculation here. Every newly appended sample then
+      // advances the accumulator in O(1), instead of repeatedly sorting JSONL.
+      const durationAccumulator = createObservationDurationAccumulator(state.observations, {
         startedAt:manifest.startedAt,
         intervalSeconds:manifest.intervalSeconds,
         durationSeconds:manifest.durationSeconds,
       });
+      let durationProgress = durationAccumulator.progress();
       const completeAtStart = durationProgress.complete;
       if (!durationProgress.complete) {
         do {
@@ -1363,16 +1742,19 @@ async function observeCommand({ root, runId, acceptanceRoot, options }) {
           const identityGate = evaluateIdentityGate(observation, manifest.expected);
           const observationWithGate = { ...observation, identityGate };
           await appendPrivateJsonLine(observationPath, observationWithGate);
-          observations.push(observationWithGate);
           if (!identityGate.passed) {
             identityFailure = identityGate;
             break;
           }
-          durationProgress = calculateObservationDurationProgress(observations, {
-            startedAt:manifest.startedAt,
-            intervalSeconds:manifest.intervalSeconds,
-            durationSeconds:manifest.durationSeconds,
-          });
+          // 身份正确还不够：所有 required probe 均成功才证明当前 run 仍健康地推进。
+          if (isHeartbeatEligibleObservation(observationWithGate)) {
+            await writeRuntimeReliabilityProgressHeartbeat({
+              runtimeIdentity:manifest.expected,
+              progressObservedAt:observationWithGate.observedAt,
+              progressIntervalSeconds:manifest.intervalSeconds,
+            });
+          }
+          durationProgress = durationAccumulator.append(observationWithGate);
           if (durationProgress.complete || stopRequested) break;
           await waitForNextInterval();
         } while (!stopRequested);

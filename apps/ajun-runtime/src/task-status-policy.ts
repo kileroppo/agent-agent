@@ -11,6 +11,7 @@ import {
   TASK_CARD_TERMINAL_TASK_STATUSES,
   WORKFLOW_OUTCOME_STATUSES,
   type TaskStatusPolicy,
+  type UnknownTaskStatusPolicy,
   type TaskOutcomeProjection,
   taskLifecycleEventForPolicy,
   type WorkflowStepOutcome,
@@ -51,7 +52,9 @@ export const TASK_STATUS_POLICIES: Readonly<Record<TaskStatus, TaskStatusPolicy>
   }),
 )) as Readonly<Record<TaskStatus, TaskStatusPolicy>>;
 
-export function taskStatusPolicy(status: unknown): TaskStatusPolicy {
+export function taskStatusPolicy(status: TaskStatus): TaskStatusPolicy;
+export function taskStatusPolicy(status: unknown): UnknownTaskStatusPolicy;
+export function taskStatusPolicy(status: unknown): TaskStatusPolicy | UnknownTaskStatusPolicy {
   const value = String(status || '').trim();
   return (isKnownTaskStatus(value) ? TASK_STATUS_POLICIES[value] : null) || Object.freeze({
     status:value || 'unknown',

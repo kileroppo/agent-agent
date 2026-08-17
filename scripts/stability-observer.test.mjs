@@ -7,18 +7,21 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
+  acquireRuntimeReliabilitySnapshotLock,
   acquireObserveLock,
   backupStateDatabases,
   buildPublicRunResult,
   buildRuntimeReliabilitySnapshot,
   calculateObservationDurationProgress,
   calculateObservedDurationMs,
+  createObservationDurationAccumulator,
   collectFileSnapshot,
   collectHermesProfileSnapshots,
   collectObservation,
   evaluateBudget,
   evaluateIdentityGate,
   hashEvidenceReference,
+  isHeartbeatEligibleObservation,
   parsePsCpuTime,
   parseBooleanOption,
   preparePrivateRunDirectory,
@@ -31,6 +34,7 @@ import {
   summarizeEndpointSamples,
   summarizeCpuTimeIntervals,
   summarizeObservationFile,
+  writeRuntimeReliabilityProgressHeartbeat,
   writeRuntimeReliabilitySnapshot,
 } from './stability-observer.mjs';
 
@@ -98,6 +102,25 @@ function waitForChild(child, { timeoutMs = 8_000 } = {}) {
       resolve({ code, signal, stdout, stderr });
     });
   });
+}
+
+function failingLockOpen(method) {
+  return async (...args) => {
+    const handle = await fsp.open(...args);
+    return new Proxy(handle, {
+      get(target, property) {
+        if (property === method) {
+          return async () => {
+            const error = new Error(`injected ${method} failure`);
+            error.code = 'EIO';
+            throw error;
+          };
+        }
+        const value = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+  };
 }
 
 test('验收目录限制 run-id 且收紧为 0700', async (context) => {
@@ -187,6 +210,133 @@ test('未完成 summarize 不降级覆盖同身份结论，但身份变化和新
   await writeRuntimeReliabilitySnapshot(completedNewIdentity, { dataDir });
   assert.deepEqual(await readSnapshot(), completedNewIdentity);
   assert.equal((await fsp.stat(path.join(dataDir, 'runtime-reliability.json'))).mode & 0o777, 0o600);
+});
+
+test('运行中 heartbeat 只原子推进同身份完成结论，不读取或汇总 observations', async (context) => {
+  const dataDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-runtime-heartbeat-'));
+  context.after(() => fsp.rm(dataDir, { recursive:true, force:true }));
+  const identity = { gitHead:'a'.repeat(40), releaseHash:'b'.repeat(64) };
+  const completed = buildRuntimeReliabilitySnapshot({
+    lastObservedAt:'2026-08-17T01:00:00.000Z',
+    run:{ durationSeconds:1_800, remainingDurationSeconds:0, expected:identity },
+    identityGate:{ status:'passed' }, requiredEndpointAvailabilityGate:{ status:'passed' },
+    ajun:{ rssGate:{ status:'passed' } },
+    endpoints:{ 'ajun-health':{ p95Ms:100 }, 'ajun-console-overview':{ p95Ms:200 } },
+  });
+  await writeRuntimeReliabilitySnapshot(completed, { dataDir });
+  const heartbeat = '2026-08-18T01:00:00.000Z';
+  await writeRuntimeReliabilityProgressHeartbeat({
+    runtimeIdentity:identity, progressObservedAt:heartbeat, progressIntervalSeconds:30,
+  }, { dataDir });
+  const refreshed = JSON.parse(await fsp.readFile(path.join(dataDir, 'runtime-reliability.json'), 'utf8'));
+  assert.equal(refreshed.observedAt, completed.observedAt);
+  assert.equal(refreshed.status, completed.status);
+  assert.equal(refreshed.progressObservedAt, heartbeat);
+  assert.equal(refreshed.progressIntervalSeconds, 30);
+
+  await writeRuntimeReliabilityProgressHeartbeat({
+    runtimeIdentity:{ gitHead:'c'.repeat(40), releaseHash:'d'.repeat(64) },
+    progressObservedAt:'2026-08-18T01:00:30.000Z', progressIntervalSeconds:30,
+  }, { dataDir });
+  await writeRuntimeReliabilityProgressHeartbeat({
+    runtimeIdentity:identity, progressObservedAt:'not-a-time', progressIntervalSeconds:30,
+  }, { dataDir });
+  assert.deepEqual(JSON.parse(await fsp.readFile(path.join(dataDir, 'runtime-reliability.json'), 'utf8')), refreshed);
+});
+
+test('snapshot 写入与 heartbeat 共用身份安全锁，旧 heartbeat 不会覆盖较新的 degraded 结论', async (context) => {
+  const dataDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-runtime-write-lock-'));
+  context.after(() => fsp.rm(dataDir, { recursive:true, force:true }));
+  const identity = { gitHead:'a'.repeat(40), releaseHash:'b'.repeat(64) };
+  const healthy = buildRuntimeReliabilitySnapshot({
+    lastObservedAt:'2026-08-17T01:00:00.000Z',
+    run:{ durationSeconds:1_800, remainingDurationSeconds:0, expected:identity },
+    identityGate:{ status:'passed' }, requiredEndpointAvailabilityGate:{ status:'passed' },
+    ajun:{ rssGate:{ status:'passed' } },
+    endpoints:{ 'ajun-health':{ p95Ms:100 }, 'ajun-console-overview':{ p95Ms:200 } },
+  });
+  const degraded = { ...healthy, status:'degraded', detail:'同版本最新观测发现失败门禁。' };
+  const target = await writeRuntimeReliabilitySnapshot(healthy, { dataDir });
+
+  await Promise.all([
+    writeRuntimeReliabilityProgressHeartbeat({
+      runtimeIdentity:identity, progressObservedAt:'2026-08-18T01:00:00.000Z', progressIntervalSeconds:30,
+    }, { dataDir }),
+    writeRuntimeReliabilitySnapshot(degraded, { dataDir }),
+  ]);
+  assert.equal(JSON.parse(await fsp.readFile(target, 'utf8')).status, 'degraded');
+
+  const lock = await acquireRuntimeReliabilitySnapshotLock(target);
+  await fsp.unlink(lock.lockPath);
+  await fsp.writeFile(lock.lockPath, '{"token":"replacement"}\n', { mode:0o600, flag:'wx' });
+  await lock.release();
+  assert.equal((await fsp.readFile(lock.lockPath, 'utf8')).includes('replacement'), true);
+  await fsp.unlink(lock.lockPath);
+});
+
+test('snapshot 锁初始化 write/sync/stat 失败只清理自己创建的 inode，不留下死锁', async (context) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-runtime-lock-init-'));
+  context.after(() => fsp.rm(root, { recursive:true, force:true }));
+  for (const method of ['writeFile', 'sync', 'stat']) {
+    const target = path.join(root, `${method}.json`);
+    await assert.rejects(
+      acquireRuntimeReliabilitySnapshotLock(target, { openLock:failingLockOpen(method) }),
+      new RegExp(`injected ${method} failure`),
+    );
+    await assert.rejects(fsp.access(`${target}.lock`), { code:'ENOENT' });
+  }
+});
+
+test('snapshot 锁初始化失败遇到路径替换时不删除新 inode', async (context) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-runtime-lock-replacement-'));
+  context.after(() => fsp.rm(root, { recursive:true, force:true }));
+  const target = path.join(root, 'runtime-reliability.json');
+  const replacement = JSON.stringify({
+    token:'11111111-1111-4111-8111-111111111111', ownerPid:process.pid, createdAt:new Date().toISOString(),
+  });
+  const openLock = async (...args) => {
+    const handle = await fsp.open(...args);
+    return new Proxy(handle, {
+      get(targetHandle, property) {
+        if (property === 'writeFile') return async () => {
+          await fsp.unlink(`${target}.lock`);
+          await fsp.writeFile(`${target}.lock`, `${replacement}\n`, { mode:0o600, flag:'wx' });
+          throw new Error('injected replacement failure');
+        };
+        const value = Reflect.get(targetHandle, property, targetHandle);
+        return typeof value === 'function' ? value.bind(targetHandle) : value;
+      },
+    });
+  };
+
+  await assert.rejects(acquireRuntimeReliabilitySnapshotLock(target, { openLock }), /injected replacement failure/);
+  assert.equal((await fsp.readFile(`${target}.lock`, 'utf8')).trim(), replacement);
+});
+
+test('SIGKILL 遗留的死 PID snapshot 锁会隔离恢复，活 PID 的旧锁绝不被抢占', async (context) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-runtime-stale-lock-'));
+  context.after(() => fsp.rm(root, { recursive:true, force:true }));
+  const target = path.join(root, 'runtime-reliability.json');
+  const deadLock = {
+    token:'22222222-2222-4222-8222-222222222222', ownerPid:999_999_999,
+    createdAt:'2026-01-01T00:00:00.000Z',
+  };
+  await fsp.writeFile(`${target}.lock`, `${JSON.stringify(deadLock)}\n`, { mode:0o600 });
+  const recovered = await acquireRuntimeReliabilitySnapshotLock(target, { isProcessAlive:() => false });
+  const names = await fsp.readdir(root);
+  assert.equal(names.some((name) => name.startsWith('runtime-reliability.json.lock.stale.22222222-2222-4222-8222-222222222222.')), true);
+  await recovered.release();
+
+  const liveLock = {
+    token:'33333333-3333-4333-8333-333333333333', ownerPid:process.pid,
+    createdAt:'2020-01-01T00:00:00.000Z',
+  };
+  await fsp.writeFile(`${target}.lock`, `${JSON.stringify(liveLock)}\n`, { mode:0o600 });
+  await assert.rejects(
+    acquireRuntimeReliabilitySnapshotLock(target, { timeoutMs:25, retryMs:1, isProcessAlive:() => true }),
+    /等待锁超时/,
+  );
+  assert.deepEqual(JSON.parse(await fsp.readFile(`${target}.lock`, 'utf8')), liveLock);
 });
 
 test('72 小时快照纳入 A君 CPU P95 门禁，未完成与样本缺失保持 unknown，30 分钟不受影响', () => {
@@ -476,6 +626,26 @@ test('身份门禁同时约束 Git HEAD 和 release hash', () => {
   assert.equal(failed.errors.length, 2);
 });
 
+test('heartbeat 只接受时间有效且所有 required endpoint 明确成功的采样', () => {
+  const base = {
+    observedAt:'2026-08-17T00:00:00.000Z',
+    endpoints:[
+      { endpointId:'ajun-health', required:true, ok:true },
+      { endpointId:'ajun-console-overview', required:true, ok:true },
+      { endpointId:'xiaod-health', required:true, ok:true },
+      { endpointId:'paperclip-health', required:true, ok:true },
+      { endpointId:'publisher-health', required:false, ok:false },
+    ],
+  };
+  assert.equal(isHeartbeatEligibleObservation(base), true);
+  assert.equal(isHeartbeatEligibleObservation({
+    ...base,
+    endpoints:base.endpoints.map((endpoint) => endpoint.endpointId === 'xiaod-health' ? { ...endpoint, ok:false } : endpoint),
+  }), false);
+  assert.equal(isHeartbeatEligibleObservation({ ...base, observedAt:'not-a-time' }), false);
+  assert.equal(isHeartbeatEligibleObservation({ ...base, endpoints:[{ endpointId:'ajun-health', required:true, ok:true }] }), false);
+});
+
 test('只读并发探测按 1/3/5/10 分层并汇总 P95', async () => {
   let calls = 0;
   const result = await runEndpointLoad({
@@ -551,6 +721,26 @@ test('累计观察时长会先排序去重，大 gap 按 interval 截断且乱�
     intervalSeconds:30,
   });
   assert.equal(observedMs, 120_000);
+});
+
+test('长测时长在 resume 单次扫描后按新增 observation 增量推进，结果保持与全量汇总一致', () => {
+  const start = Date.parse('2026-08-17T00:00:00.000Z');
+  const intervalSeconds = 30;
+  const existing = Array.from({ length:10_000 }, (_, index) => ({
+    observedAt:new Date(start + (index * intervalSeconds * 1_000)).toISOString(),
+  }));
+  const accumulator = createObservationDurationAccumulator(existing, {
+    startedAt:new Date(start).toISOString(), intervalSeconds, durationSeconds:600_000,
+  });
+  const appended = Array.from({ length:10_000 }, (_, index) => ({
+    observedAt:new Date(start + ((index + existing.length) * intervalSeconds * 1_000)).toISOString(),
+  }));
+  for (const observation of appended) accumulator.append(observation);
+  const full = calculateObservationDurationProgress([...existing, ...appended], {
+    startedAt:new Date(start).toISOString(), intervalSeconds, durationSeconds:600_000,
+  });
+  assert.deepEqual(accumulator.progress(), full);
+  assert.deepEqual(accumulator.append({ observedAt:existing.at(-1).observedAt }), full);
 });
 
 test('跨数小时墙钟 gap 不会提前完成，只有有效观测累计满才完成', () => {

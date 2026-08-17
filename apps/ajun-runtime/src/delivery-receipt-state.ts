@@ -22,6 +22,7 @@ export function normalizeDeliveryReceipt(input: any): any {
   const status = normalizeState(input.status || input.state || input.deliveryState);
   if (!id || !status) return null;
   const evidence = normalizeEvidence(input.evidence || input.deliveryEvidence);
+  const lease = normalizeLease(input.lease);
   const errorCode = safeCode(input.errorCode || input.reason)
     || ((status === 'delivery_unknown' || status === 'failed') && (input.errorCode || input.reason) ? 'delivery_outcome_unknown' : undefined);
   return Object.freeze({
@@ -38,6 +39,7 @@ export function normalizeDeliveryReceipt(input: any): any {
     ...(status === 'failed' ? { failedAt:iso(input.failedAt) } : {}),
     attempt:positiveInteger(input.attempt || input.attemptCount) || undefined,
     errorCode,
+    ...(status === 'sending' && lease ? { lease } : {}),
     ...(evidence ? { evidence } : {}),
   });
 }
@@ -104,6 +106,18 @@ function normalizeEvidence(value: any): any {
     observedAt,
     reference:safeReference(value.reference || value.providerMessageId || value.documentUrl),
   });
+}
+
+// A lease is local coordination evidence, not a provider delivery receipt. It
+// is kept only while a send is in progress so a later process can recover a
+// crashed sender without assuming that the provider deduplicated anything.
+function normalizeLease(value: any): any {
+  if (!value || typeof value !== 'object') return null;
+  const owner = text(value.owner, 120);
+  const token = text(value.token, 120);
+  const expiresAt = iso(value.expiresAt);
+  if (!owner || !token || !expiresAt) return null;
+  return Object.freeze({ owner, token, expiresAt });
 }
 
 function safeReference(value: any): string | undefined {

@@ -106,12 +106,12 @@ export async function createFeishuCommandComposition({
   tasks.setFeishuChannelStatus(() => feishuChannelStartup.startLegacyAJun
     ? officialFeishuChannelRunner.snapshot()
     : feishuChannelStartup.ajunOwner === 'hermes-native'
-      ? hermesNativeCompletionWatcher.snapshot().status === 'delivery_uncertain'
-        ? hermesNativeCompletionWatcher.snapshot()
-        : {
+      ? hermesNativeCompletionWatcher.snapshot().status === 'ready'
+        ? {
           status:'external',
           message:'A君飞书入口已交由 Hermes 原生 Gateway；连接真相以 Hermes Gateway 为准。',
         }
+        : hermesNativeCompletionWatcher.snapshot()
       : agentFeishuChannelFleet.snapshot().ajun
         || { status:'connecting', message:'A君智能体入口正在连接。' });
   tasks.setAgentChannelStates(() => agentFeishuChannelFleet.snapshot());
