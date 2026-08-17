@@ -1199,6 +1199,49 @@ test('AgentArmyClient exposes sanitized business mission, research and office re
   assert.equal(JSON.stringify(task).includes('secret'), false);
 });
 
+test('task_get exposes bounded video-analysis evidence for independent review without local paths', async () => {
+  const client = new AgentArmyClient({ fetchImpl:fakeFetch({
+    'GET /api/overview':{
+      ...overview,
+      tasks:[{
+        ...overview.tasks[0],
+        taskType:'content.video-benchmark-analysis',
+        artifactRefs:[{
+          artifactId:'video_content_analysis_report:task-1',
+          type:'video_content_analysis_report',
+          location:'file:///private/video_content_analysis_report.md',
+          validation:{
+            exists:true, readable:true, nonEmpty:true, moduleCount:13,
+            formalSourceConfirmed:true, claimsEvidenceLinked:true,
+            semanticValidationPassed:true, modeStructurePassed:true,
+            visualClaimsEvidenceLinked:true, visualAnalysisApplied:true,
+            controlledVisionInvoked:true, visualExecutionReceiptValid:true,
+          },
+          data:{
+            title:'视频拆解', summary:'基于确认稿完成证据化拆解。', analysisIntent:'deep',
+            completeness:'complete', generationMode:'hermes_advisor_evidence_repaired',
+            modules:[{ name:'开头诊断', finding:'开头直接提出争议问题。', confidence:'high', evidence:{ timestamp:'00:08', fragment:'命运可以被预测', private:'must-not-leak' }, private:'must-not-leak' }],
+            visualFindings:[{ category:'opening_visual_hook', finding:'双人对谈画面。', confidence:'high', evidence:{ timestamp:'00:10', frameRef:'frame-003', private:'must-not-leak' } }],
+            reusablePatterns:['观点确认—极端推演—情绪反问'], actionItems:['补一句概念解释'],
+            sourceMetadata:{ title:'公开视频', author:'作者', platform:'dy', durationSeconds:48.6, canonicalUrl:'https://example.com/video', publishedAt:'2026-08-17', private:'must-not-leak' },
+            rawTranscript:'must-not-leak',
+          },
+        }],
+      }],
+    },
+    'POST /api/feishu/task-status':{ terminal:false, message:'待复核。' },
+  }) });
+
+  const task = await client.getTask('11111111-1111-1111-1111-111111111111');
+  assert.equal(task.artifacts[0].ref, 'video_content_analysis_report:task-1');
+  assert.equal(task.artifacts[0].report.validation.moduleCount, 13);
+  assert.equal(task.artifacts[0].report.modules[0].evidence.timestamp, '00:08');
+  assert.equal(task.artifacts[0].report.visualFindings[0].evidence.frameRef, 'frame-003');
+  assert.equal(task.artifacts[0].report.sourceMetadata.canonicalUrl, 'https://example.com/video');
+  assert.equal(JSON.stringify(task).includes('/private/'), false);
+  assert.equal(JSON.stringify(task).includes('must-not-leak'), false);
+});
+
 test('task_get 只展示同一产物的最新版本，不让失败重试的旧来源污染复核', async () => {
   const client = new AgentArmyClient({ fetchImpl:fakeFetch({
     'GET /api/overview':{

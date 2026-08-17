@@ -55,7 +55,7 @@ function artifactView(artifact: any = {}): any {
     const validation: any = artifact.validation || {};
     const view: Record<string, any> = {
         type: safeText(artifact.type, 120),
-        ref: safeText(artifact.ref || artifact.url || artifact.location || artifact.data?.larkUrl || artifact.artifactId, 1000) || null,
+        ref: artifactReference(artifact),
         verified: artifact.data?.larkPermissionGranted === true
             || artifact.verified === true
             || (validation.exists === true && validation.readable === true && validation.nonEmpty === true)
@@ -112,6 +112,48 @@ function artifactView(artifact: any = {}): any {
             nextAction: safeText(artifact.data.nextAction, 800)
         };
     }
+    if (artifact.type === 'video_content_analysis_report' && artifact.data) {
+        view.report = {
+            title: safeText(artifact.data.title, 500),
+            summary: safeText(artifact.data.summary, 1600),
+            analysisIntent: safeText(artifact.data.analysisIntent || validation.analysisIntent, 40),
+            completeness: safeText(artifact.data.completeness || validation.completeness, 40),
+            generationMode: safeText(artifact.data.generationMode, 80),
+            validation: {
+                moduleCount: boundedInteger(validation.moduleCount, 0, 100),
+                formalSourceConfirmed: validation.formalSourceConfirmed === true,
+                claimsEvidenceLinked: validation.claimsEvidenceLinked === true,
+                semanticValidationPassed: validation.semanticValidationPassed === true,
+                modeStructurePassed: validation.modeStructurePassed === true,
+                visualClaimsEvidenceLinked: validation.visualClaimsEvidenceLinked === true,
+                visualAnalysisApplied: validation.visualAnalysisApplied === true,
+                controlledVisionInvoked: validation.controlledVisionInvoked === true,
+                visualExecutionReceiptValid: validation.visualExecutionReceiptValid === true,
+            },
+            modules: (Array.isArray(artifact.data.modules) ? artifact.data.modules : []).slice(0, 13).map((item: any): any => ({
+                name: safeText(item?.name, 120),
+                finding: safeText(item?.finding, 900),
+                confidence: safeText(item?.confidence, 40),
+                evidence: safeEvidence(item?.evidence),
+            })),
+            visualFindings: (Array.isArray(artifact.data.visualFindings) ? artifact.data.visualFindings : []).slice(0, 8).map((item: any): any => ({
+                category: safeText(item?.category, 120),
+                finding: safeText(item?.finding, 700),
+                confidence: safeText(item?.confidence, 40),
+                evidence: safeEvidence(item?.evidence),
+            })),
+            reusablePatterns: safeStringList(artifact.data.reusablePatterns, 5, 700),
+            actionItems: safeStringList(artifact.data.actionItems, 8, 700),
+            sourceMetadata: artifact.data.sourceMetadata ? {
+                title: safeText(artifact.data.sourceMetadata.title, 500),
+                author: safeText(artifact.data.sourceMetadata.author, 200),
+                platform: safeText(artifact.data.sourceMetadata.platform, 80),
+                durationSeconds: boundedNumber(artifact.data.sourceMetadata.durationSeconds, 0, 86_400),
+                canonicalUrl: safeHttpUrl(artifact.data.sourceMetadata.canonicalUrl),
+                publishedAt: safeText(artifact.data.sourceMetadata.publishedAt, 80) || null,
+            } : null,
+        };
+    }
     if (artifact.type === 'autonomous_work_plan' && artifact.data?.plan) {
         const plan: any = artifact.data.plan;
         view.report = {
@@ -166,6 +208,35 @@ function artifactView(artifact: any = {}): any {
         };
     }
     return view;
+}
+function artifactReference(artifact: any = {}): any {
+    const artifactId: any = safeText(artifact.artifactId, 200);
+    if (artifactId)
+        return artifactId;
+    const candidate: any = safeText(artifact.ref || artifact.url || artifact.data?.larkUrl || artifact.location, 1000);
+    return /^(?:https?:\/\/|runtime:\/\/)/i.test(candidate) ? candidate : null;
+}
+function safeEvidence(value: any = {}): any {
+    const timestamp: any = safeText(value?.timestamp, 40);
+    const frameRef: any = safeText(value?.frameRef, 120);
+    const fragment: any = safeText(value?.fragment, 500);
+    return {
+        ...(timestamp ? { timestamp } : {}),
+        ...(frameRef ? { frameRef } : {}),
+        ...(fragment ? { fragment } : {}),
+    };
+}
+function boundedInteger(value: any, minimum: any, maximum: any): any {
+    const number: any = Number(value);
+    return Number.isSafeInteger(number) && number >= minimum && number <= maximum ? number : null;
+}
+function boundedNumber(value: any, minimum: any, maximum: any): any {
+    const number: any = Number(value);
+    return Number.isFinite(number) && number >= minimum && number <= maximum ? number : null;
+}
+function safeHttpUrl(value: any): any {
+    const candidate: any = safeText(value, 1000);
+    return /^https?:\/\//i.test(candidate) ? candidate : null;
 }
 function latestArtifactVersions(artifacts: any[]): any[] {
     const latestIndexById: any = new Map();
