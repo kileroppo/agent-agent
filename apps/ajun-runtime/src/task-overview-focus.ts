@@ -1,6 +1,7 @@
 import { summarizeBacklog } from './workflow/backlog-classification.ts';
 import type { WorkflowEvaluation } from './workflow/contracts.ts';
 import { taskOutcomePolicy } from './task-status-policy.ts';
+import { deriveWorkflowWorkKind } from './workflow/contracts.ts';
 
 export function buildTaskFocus(
   tasks: readonly any[],
@@ -15,14 +16,17 @@ export function buildTaskFocus(
   );
   const ownerPriority = ['waiting_approval', 'needs_input', 'paused', 'failed', 'waiting_test'];
   const systemPriority = ['pausing', 'running', 'waiting_worker', 'queued'];
-  const ownerActionableTasks = ownerPriority.flatMap((status) =>
+  const ownerActionableCandidates = ownerPriority.flatMap((status) =>
     tasks.filter((task) => task.status === status && isOwnerActionableTask(task, tasks))
   );
+  const ownerActionableTasks = uniqueWorkflowTasks(ownerActionableCandidates);
   const ownerActionableTaskIds = new Set(ownerActionableTasks.map((task) => String(task.taskId || '')));
   const workflowActions = workflows.flatMap((workflow) => {
     const outcome = taskOutcomePolicy(workflow.status);
     if (!outcome.ownerActionable || !workflow.ownerAction) return [];
-    const step = workflow.steps.find((item) => item.required && item.verified) || workflow.steps.find((item) => item.verified);
+    const step = workflow.steps.find((item) => item.taskId === workflow.acceptanceTaskId)
+      || workflow.steps.find((item) => item.required && item.verified)
+      || workflow.steps.find((item) => item.verified);
     if (!step || ownerActionableTaskIds.has(step.taskId)) return [];
     const task = tasks.find((item) => item.taskId === step.taskId);
     if (!task) return [];
@@ -82,6 +86,7 @@ function isBackgroundSystemTask(task: any) {
 }
 
 export function isOwnerActionableTask(task: any, tasks: readonly any[]) {
+  if (deriveWorkflowWorkKind(task) !== 'business') return false;
   if (!['needs_input', 'failed', 'waiting_test'].includes(task.status)) return true;
   if (isSupersededBySuccess(task, tasks)) return false;
   const channel = String(task.source?.channel || '').trim();
@@ -94,6 +99,16 @@ export function isOwnerActionableTask(task: any, tasks: readonly any[]) {
     || channel === 'hermes-native'
     || channel === 'boom-monitor'
     || originChannel === 'boom-monitor';
+}
+
+function uniqueWorkflowTasks(tasks: readonly any[]) {
+  const seen = new Set<string>();
+  return tasks.filter((task) => {
+    const key = String(task?.workflow?.workflowId || task?.taskId || '');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function isSupersededBySuccess(task: any, tasks: readonly any[]) {

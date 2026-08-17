@@ -10,14 +10,20 @@ export async function buildTaskValidationOverview({
 }: {
   tasks: readonly any[];
   approvals: readonly any[];
-  store: { listProposals?: () => Promise<readonly any[]> };
+  store: {
+    listProposals?: () => Promise<readonly any[]>;
+    listWorkflowAcceptances?: () => Promise<readonly any[]>;
+  };
   capabilityCatalog?: { openTaskDelegates?: () => Readonly<Record<string, string>> } | null;
 }) {
   const evidenceContext = {
     proposals:await store.listProposals?.() || [],
     taskTypeDelegates:capabilityCatalog?.openTaskDelegates?.() || {},
   };
-  const workflows = evaluateWorkflowTasks(tasks);
+  const workflows = evaluateWorkflowTasks(
+    tasks,
+    await store.listWorkflowAcceptances?.() || [],
+  );
   return Object.freeze({
     workflows,
     taskFocus:buildTaskFocus(tasks, approvals, evidenceContext, workflows),

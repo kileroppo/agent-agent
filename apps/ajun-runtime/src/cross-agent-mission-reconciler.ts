@@ -4,6 +4,7 @@ import {
   isExactQueuedMaturityMissionRetry,
 } from './maturity-legacy-content-retry.ts';
 import { approvedMissionResumeEligible } from './task-recovery-policy.ts';
+import { queryReconciliationTasks } from './reconciliation-task-query.ts';
 
 export class CrossAgentMissionReconciler {
   store: any; missions: any; intervalMs: number;
@@ -26,12 +27,24 @@ export class CrossAgentMissionReconciler {
   }
 
   async reconcileOnce() {
-    let tasks = await this.store.list();
+    let tasks = await queryReconciliationTasks(this.store, { taskType:'army.cross-agent-mission' });
     const approvals = typeof this.store.listApprovals === 'function' ? await this.store.listApprovals() : [];
-    for (const mission of tasks.filter((task: any) => approvedMissionResumeEligible(task, approvals)))
+    const resumable = tasks.filter((task: any) => approvedMissionResumeEligible(task, approvals));
+    for (const mission of resumable)
       await this.missions.resumeApprovedMission(mission);
-    tasks = await this.store.list();
-    for (const mission of tasks.filter((task: any) => needsDispatch(task, tasks))) await this.missions.dispatch(mission);
+    tasks = await queryReconciliationTasks(this.store, { taskType:'army.cross-agent-mission' });
+    const maturityMissionIds = new Set(tasks
+      .filter((task: any) => task.status === 'waiting_test' && task.input?.context?.productMaturityBatchId)
+      .map((task: any) => task.taskId));
+    if (maturityMissionIds.size > 0) {
+      const children = await queryReconciliationTasks(this.store, {
+        predicate:(task: any) => maturityMissionIds.has(task.parentTaskId),
+      });
+      tasks = [...tasks, ...children];
+    }
+    const dispatchable = tasks.filter((task: any) => needsDispatch(task, tasks));
+    for (const mission of dispatchable) await this.missions.dispatch(mission);
+    return resumable.length + dispatchable.length;
   }
 }
 

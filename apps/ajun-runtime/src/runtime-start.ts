@@ -6,15 +6,9 @@ type RuntimeLogger = Pick<Console, 'log' | 'warn'>;
 type RuntimeServices = Readonly<Record<string, unknown>> & Readonly<{
   interruptedLocalExecutionReconciler?: Startable;
   deliveryQualityReconciler?: Startable;
-  paperclipRosterReconciler?: Startable;
-  approvalExpiryReconciler?: Startable;
-  xiaodReconciler?: Startable;
-  paperclipRepairReconciler?: Startable;
-  paperclipHermesTaskReconciler?: Startable;
-  missionReconciler?: Startable;
+  reconciliationCoordinator?: Startable;
   boomMonitor?: Startable;
   hermesNativeCompletionWatcher?: Startable;
-  technicalRepairWatchdog?: Startable;
   officialFeishuChannelRunner?: Startable;
   agentFeishuChannelFleet?: Startable;
 }>;
@@ -59,18 +53,12 @@ export function startRuntimeBackgroundServices(runtime: RuntimeTarget) {
   const services = runtime.services || {};
   services.interruptedLocalExecutionReconciler?.start();
   services.deliveryQualityReconciler?.start();
-  services.paperclipRosterReconciler?.start();
-  services.approvalExpiryReconciler?.start();
-  if (runtime.deploymentMode !== 'cloud') services.xiaodReconciler?.start();
-  services.paperclipRepairReconciler?.start();
-  services.paperclipHermesTaskReconciler?.start();
-  services.missionReconciler?.start();
+  services.reconciliationCoordinator?.start();
   services.boomMonitor?.start();
   // Keep the shared HTTP/MCP completion watcher alive. Dynamic Commander cards
   // are never registered in this watcher, while callers without a confirmed
   // card anchor still depend on it for the terminal notification fallback.
   startWithoutBlocking(services.hermesNativeCompletionWatcher, null, runtime.logger);
-  services.technicalRepairWatchdog?.start();
   if (runtime.feishuChannelStartup?.startLegacyAJun) {
     startWithoutBlocking(
       services.officialFeishuChannelRunner,

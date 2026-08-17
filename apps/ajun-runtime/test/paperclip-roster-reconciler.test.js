@@ -28,3 +28,41 @@ test('岗位清单暂时读不到时不抛错，保留待补同步状态', async
   assert.equal(result.status, 'sync_pending');
   assert.equal(result.reason, '岗位清单暂时无法补同步。');
 });
+
+test('岗位清单没有变化时不重复同步，也不重复上报同一结果', async () => {
+  let syncs = 0;
+  const reported = [];
+  const reconciler = new PaperclipRosterReconciler({
+    registry:{ async list() { return [{ status:'active', agentId:'writer' }]; } },
+    governance:{ async syncRoster() { syncs += 1; return { status:'synced' }; } },
+    onResult:(result) => reported.push(result.status),
+  });
+
+  assert.equal((await reconciler.reconcile()).status, 'synced');
+  assert.equal((await reconciler.reconcile()).status, 'unchanged');
+  assert.equal((await reconciler.reconcile()).status, 'unchanged');
+  assert.equal(syncs, 1);
+  assert.deepEqual(reported, ['synced', 'unchanged']);
+});
+
+test('岗位同步失败会指数退避且同一错误不反复上报', async () => {
+  const delays = [];
+  const reported = [];
+  const reconciler = new PaperclipRosterReconciler({
+    registry:{ async list() { return [{ agentId:'writer' }]; } },
+    governance:{ async syncRoster() { return { status:'sync_pending', reason:'Paperclip 暂不可用。' }; } },
+    intervalMs:100,
+    maxIntervalMs:400,
+    onResult:(result) => reported.push(result.status),
+    setTimer(callback, delay) { delays.push(delay); return { callback, unref() {} }; },
+    clearTimer() {},
+  });
+  reconciler.started = true;
+
+  await reconciler.tick();
+  await reconciler.tick();
+  reconciler.stop();
+
+  assert.deepEqual(delays, [200, 400]);
+  assert.deepEqual(reported, ['sync_pending']);
+});

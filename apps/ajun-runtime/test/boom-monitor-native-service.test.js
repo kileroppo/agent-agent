@@ -357,6 +357,12 @@ test('route adapter preserves Boom API payloads under the unified prefix', async
     method:'GET', url:'/api/boom-monitor/dashboard', local:true, getService:async () => fx.service,
   });
   assert.deepEqual(dashboard, { status:200, payload:{ totals:{ creators:0, works:0 }, boom:{ T3:0, T2:0, T1:0 }, scan_jobs:0 } });
+  const idleHealth = await routeBoomMonitorApi({
+    method:'GET', url:'/api/boom-monitor/health', local:true, getService:async () => fx.service,
+  });
+  assert.equal(idleHealth.status, 200);
+  assert.equal(idleHealth.payload.status, 'idle');
+  assert.equal(idleHealth.payload.automation.enabled, false);
   let manualInput;
   const manual = await routeBoomMonitorApi({
     method:'POST', url:'/api/boom-monitor/analysis/run', local:true,
@@ -371,6 +377,7 @@ test('route adapter preserves Boom API payloads under the unified prefix', async
     getService:async () => { resolvedDisabledService = true; return fx.service; },
   });
   assert.equal(disabled.status, 503);
+  assert.equal(disabled.payload.code, 'boom_monitor_disabled');
   assert.equal(resolvedDisabledService, false);
   assert.equal(await routeBoomMonitorApi({ method:'GET', url:'/elsewhere', local:true, getService:async () => fx.service }), null);
 });

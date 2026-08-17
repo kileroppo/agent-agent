@@ -5,23 +5,33 @@ import { DatabaseSync } from 'node:sqlite';
 import { encodeTaskRecordCursor, normalizeTaskRecordQuery, taskRecordStatusSets, } from './task-record-query.ts';
 import { applyApprovalPatch, applyTaskStatusPatch, applyWorkerTaskPatch, assertTaskIdempotencyMatch, claimTaskForWorker, holdTaskForApproval, initializeApprovalRecord, initializeTaskRecord, interruptedTaskExecutionPatch, isWorkerTaskClaimable, } from './task-lifecycle.ts';
 import { isExactLegacyMaturityContentBlock, isExactWaitingMaturityMissionRetry } from './maturity-legacy-content-retry.ts';
-const SCHEMA_VERSION: any = 1;
+import { applyWorkflowAcceptanceDecision } from './workflow-acceptance-record.ts';
+const SCHEMA_VERSION: any = 2;
 const COLLECTIONS: any = Object.freeze([
     { key: 'tasks', table: 'tasks', id: 'taskId', idColumn: 'task_id', created: 'createdAt', updated: 'updatedAt' },
     { key: 'approvals', table: 'approvals', id: 'approvalId', idColumn: 'approval_id', created: 'createdAt', updated: 'createdAt' },
     { key: 'proposals', table: 'proposals', id: 'proposalId', idColumn: 'proposal_id', created: 'createdAt', updated: 'updatedAt' },
     { key: 'testInstances', table: 'test_instances', id: 'testInstanceId', idColumn: 'test_instance_id', created: 'createdAt', updated: 'updatedAt' }
+    , { key: 'workflowAcceptances', table: 'workflow_acceptances', id: 'workflowId', idColumn: 'workflow_id', created: 'decidedAt', updated: 'updatedAt' }
 ]);
 export class SQLiteTaskStore {
     database: any;
     filePath: any;
+    mutationListeners: any;
     constructor(filePath: any) {
         this.filePath = path.resolve(filePath);
+        this.mutationListeners = new Set();
         fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
         this.database = new DatabaseSync(this.filePath);
         this.database.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
         this.#migrateSchema();
         this.#secureFiles();
+    }
+    subscribe(listener: any): any {
+        if (typeof listener !== 'function')
+            return (): any => { };
+        this.mutationListeners.add(listener);
+        return (): any => this.mutationListeners.delete(listener);
     }
     async list(): Promise<any> { return this.#listRecords('tasks', 'updated_at DESC'); }
     async getTask(taskId: any): Promise<any> {
@@ -99,6 +109,25 @@ export class SQLiteTaskStore {
             },
             query: { ...query, cursor: query.cursor ? input.cursor : null },
         };
+    }
+    async listWorkflowTasks(workflowId: any): Promise<any> {
+        return this.database.prepare(`SELECT data_json FROM tasks WHERE json_extract(data_json, '$.workflow.workflowId') = ? ORDER BY updated_at DESC`)
+            .all(workflowId).map((row: any): any => parseRecord(row.data_json));
+    }
+    async listWorkflowAcceptances(): Promise<any> { return this.#listRecords('workflow_acceptances', 'updated_at DESC'); }
+    async getWorkflowAcceptance(workflowId: any): Promise<any> { return this.#getRecord('workflow_acceptances', 'workflow_id', workflowId); }
+    async recordWorkflowAcceptance(input: any): Promise<any> {
+        return this.#transaction((): any => {
+            const current: any = this.#getRecord('workflow_acceptances', 'workflow_id', input.workflowId);
+            const result: any = applyWorkflowAcceptanceDecision(current, input, new Date().toISOString());
+            if (!result.duplicate) {
+                if (current)
+                    this.#updateRecord(COLLECTIONS[4], result.acceptance);
+                else
+                    this.#insertRecord(COLLECTIONS[4], result.acceptance);
+            }
+            return cloneRecord(result);
+        });
     }
     async listApprovals(): Promise<any> { return this.#listRecords('approvals', 'created_at DESC'); }
     async listProposals(): Promise<any> { return this.#listRecords('proposals', 'updated_at DESC'); }
@@ -388,7 +417,7 @@ export class SQLiteTaskStore {
             return { status: 'imported', before, after, idChecks: actual.idChecks };
         });
     }
-    close(): any { this.database.close(); }
+    close(): any { this.mutationListeners.clear(); this.database.close(); }
     #migrateSchema(): any {
         const currentVersion: any = Number(this.database.prepare('PRAGMA user_version').get().user_version);
         if (currentVersion > SCHEMA_VERSION)
@@ -401,11 +430,13 @@ export class SQLiteTaskStore {
       CREATE INDEX IF NOT EXISTS tasks_status_updated ON tasks(json_extract(data_json, '$.status'), updated_at DESC, task_id DESC);
       CREATE INDEX IF NOT EXISTS tasks_agent_updated ON tasks(json_extract(data_json, '$.assigneeAgentId'), updated_at DESC, task_id DESC);
       CREATE INDEX IF NOT EXISTS tasks_type_updated ON tasks(json_extract(data_json, '$.taskType'), updated_at DESC, task_id DESC);
+      CREATE INDEX IF NOT EXISTS tasks_workflow_updated ON tasks(json_extract(data_json, '$.workflow.workflowId'), updated_at DESC, task_id DESC);
       CREATE TABLE IF NOT EXISTS approvals (approval_id TEXT PRIMARY KEY, created_at TEXT NOT NULL, data_json TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS proposals (proposal_id TEXT PRIMARY KEY, source_event_ref TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, data_json TEXT NOT NULL);
       CREATE UNIQUE INDEX IF NOT EXISTS proposals_source_event_ref ON proposals(source_event_ref) WHERE source_event_ref IS NOT NULL;
       CREATE TABLE IF NOT EXISTS test_instances (test_instance_id TEXT PRIMARY KEY, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, data_json TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS conversation_contexts (chat_ref TEXT PRIMARY KEY, updated_at TEXT NOT NULL, data_json TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS workflow_acceptances (workflow_id TEXT PRIMARY KEY, decided_at TEXT NOT NULL, updated_at TEXT NOT NULL, data_json TEXT NOT NULL);
       INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (${SCHEMA_VERSION}, datetime('now'));
     `);
         if (currentVersion < SCHEMA_VERSION)
@@ -417,11 +448,20 @@ export class SQLiteTaskStore {
             const result: any = operation();
             this.database.exec('COMMIT');
             this.#secureFiles();
+            this.#notifyMutation();
             return result;
         }
         catch (error: any) {
             this.database.exec('ROLLBACK');
             throw error;
+        }
+    }
+    #notifyMutation(): any {
+        for (const listener of this.mutationListeners) {
+            try {
+                listener({ kind: 'mutation' });
+            }
+            catch { }
         }
     }
     #listRecords(table: any, orderBy: any): any { return this.database.prepare(`SELECT data_json FROM ${table} ORDER BY ${orderBy}`).all().map((row: any): any => parseRecord(row.data_json)); }
@@ -434,6 +474,8 @@ export class SQLiteTaskStore {
             this.database.prepare('INSERT INTO approvals (approval_id, created_at, data_json) VALUES (?, ?, ?)').run(record.approvalId, common[1], common[3]);
         else if (collection.table === 'proposals')
             this.database.prepare('INSERT INTO proposals (proposal_id, source_event_ref, created_at, updated_at, data_json) VALUES (?, ?, ?, ?, ?)').run(record.proposalId, record.sourceEventRef || null, common[1], common[2], common[3]);
+        else if (collection.table === 'workflow_acceptances')
+            this.database.prepare('INSERT INTO workflow_acceptances (workflow_id, decided_at, updated_at, data_json) VALUES (?, ?, ?, ?)').run(...common);
         else
             this.database.prepare('INSERT INTO test_instances (test_instance_id, created_at, updated_at, data_json) VALUES (?, ?, ?, ?)').run(...common);
     }
@@ -444,6 +486,8 @@ export class SQLiteTaskStore {
             this.database.prepare('UPDATE approvals SET created_at = ?, data_json = ? WHERE approval_id = ?').run(record.createdAt || '', encodeRecord(record), record.approvalId);
         else if (collection.table === 'proposals')
             this.database.prepare('UPDATE proposals SET source_event_ref = ?, created_at = ?, updated_at = ?, data_json = ? WHERE proposal_id = ?').run(record.sourceEventRef || null, record.createdAt || '', record.updatedAt || '', encodeRecord(record), record.proposalId);
+        else if (collection.table === 'workflow_acceptances')
+            this.database.prepare('UPDATE workflow_acceptances SET decided_at = ?, updated_at = ?, data_json = ? WHERE workflow_id = ?').run(record.decidedAt || '', record.updatedAt || '', encodeRecord(record), record.workflowId);
         else
             this.database.prepare('UPDATE test_instances SET created_at = ?, updated_at = ?, data_json = ? WHERE test_instance_id = ?').run(record.createdAt || '', record.updatedAt || '', encodeRecord(record), record.testInstanceId);
     }

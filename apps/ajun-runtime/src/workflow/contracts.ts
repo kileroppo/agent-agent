@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 export const WORKFLOW_SCHEMA_VERSION = 'agent.army/business-workflow/v1' as const;
 export const WORKFLOW_STEP_SCHEMA_VERSION = 'agent.army/workflow-step/v1' as const;
 
+export type WorkflowWorkKind = 'business' | 'validation' | 'system';
+
 export type WorkflowType =
   | 'content-production'
   | 'technical-repair'
@@ -27,6 +29,7 @@ export type WorkflowLink = Readonly<{
   schemaVersion: typeof WORKFLOW_SCHEMA_VERSION;
   workflowId: string;
   workflowType: WorkflowType;
+  workKind: WorkflowWorkKind;
   step: Readonly<{
     schemaVersion: typeof WORKFLOW_STEP_SCHEMA_VERSION;
     stepId: string;
@@ -65,6 +68,10 @@ export type WorkflowEvaluation = Readonly<{
   verifiedArtifactCount: number;
   humanAcceptanceRequired: boolean;
   humanAccepted: boolean;
+  workKind: WorkflowWorkKind;
+  acceptanceDecision: 'accepted' | 'revision_required' | null;
+  acceptanceVersion: number;
+  acceptanceTaskId: string | null;
   ownerAction: string | null;
 }>;
 
@@ -105,6 +112,7 @@ export function createWorkflowLink({
   idempotencyKey,
   workflowId,
   workflowType,
+  workKind,
   stepId,
   stepKey,
   required = true,
@@ -113,6 +121,7 @@ export function createWorkflowLink({
   idempotencyKey: unknown;
   workflowId?: unknown;
   workflowType?: unknown;
+  workKind?: unknown;
   stepId?: unknown;
   stepKey?: unknown;
   required?: unknown;
@@ -126,6 +135,7 @@ export function createWorkflowLink({
     schemaVersion:WORKFLOW_SCHEMA_VERSION,
     workflowId:stableWorkflowId,
     workflowType:isWorkflowType(workflowType) ? workflowType : deriveWorkflowType(taskType),
+    workKind:isWorkflowWorkKind(workKind) ? workKind : deriveWorkflowWorkKind({ taskType }),
     step:Object.freeze({
       schemaVersion:WORKFLOW_STEP_SCHEMA_VERSION,
       stepId:stableStepId,
@@ -133,6 +143,44 @@ export function createWorkflowLink({
       required:required !== false,
     }),
   });
+}
+
+export function deriveWorkflowWorkKind(task: any): WorkflowWorkKind {
+  const explicit = task?.workflow?.workKind || task?.workKind || task?.input?.context?.workKind;
+  const source = [
+    task?.source?.channel,
+    task?.source?.originChannel,
+    task?.source?.eventRef,
+    task?.idempotencyKey,
+  ].map((value) => clean(value, 500).toLowerCase()).join('\n');
+  const context = task?.input?.context || {};
+  const historicalPurpose = [task?.input?.title, task?.input?.description]
+    .map((value) => clean(value, 1200))
+    .join('\n');
+  if (
+    source.includes('product-maturity-validation')
+    || source.includes('real-business-e2e')
+    || historicalPurpose.includes('业务复验')
+    || context?.productMaturityAuthorization?.kind === 'product-maturity-validation'
+    || Boolean(context?.productMaturityBatchId)
+    || Boolean(context?.validationPurpose)
+    || Boolean(context?.validationRun)
+    || Boolean(context?.businessValidation)
+    || Boolean(context?.realBusinessE2e)
+  ) return 'validation';
+  if (isWorkflowWorkKind(explicit)) return explicit;
+  const taskType = clean(task?.taskType, 160);
+  if (
+    taskType === 'operations.health-review'
+    || (taskType === 'operations.failure-recovery' && source.includes('internal-recovery'))
+  ) return 'system';
+  return 'business';
+}
+
+export function workflowWorkKindForTasks(tasks: readonly any[]): WorkflowWorkKind {
+  const kinds = tasks.map(deriveWorkflowWorkKind);
+  if (kinds.includes('validation')) return 'validation';
+  return kinds.length > 0 && kinds.every((kind) => kind === 'system') ? 'system' : 'business';
 }
 
 export function workflowIdFromTask(task: unknown): string | null {
@@ -149,6 +197,10 @@ function isWorkflowType(value: unknown): value is WorkflowType {
     'private-read',
     'single-task',
   ].includes(String(value));
+}
+
+function isWorkflowWorkKind(value: unknown): value is WorkflowWorkKind {
+  return ['business', 'validation', 'system'].includes(String(value));
 }
 
 function validIdentifier(value: unknown, limit: number): string {

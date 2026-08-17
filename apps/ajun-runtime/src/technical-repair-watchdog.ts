@@ -4,6 +4,7 @@ const STALLED_STAGES = new Set([
   'repair_promotion_rejected',
   'repair_promotion_conflict'
 ]);
+import { queryReconciliationTasks } from './reconciliation-task-query.ts';
 
 export class TechnicalRepairWatchdog {
   store: any; governance: any; now: () => number; intervalMs: number; staleAfterMs: number;
@@ -34,9 +35,15 @@ export class TechnicalRepairWatchdog {
   }
 
   async reconcileOnce() {
-    const tasks = await this.store.list();
-    await Promise.all(tasks.filter((task: any) => needsWaitingTest(task, this.now(), this.staleAfterMs)).map((task: any) => this.markWaitingTest(task)));
-    await Promise.all(tasks.filter(needsPaperclipWaitingTestSync).map((task: any) => this.syncWaitingTest(task)));
+    const tasks = await queryReconciliationTasks(this.store, {
+      taskType:'operations.technical-repair',
+      views:['all'],
+    });
+    const stale = tasks.filter((task: any) => needsWaitingTest(task, this.now(), this.staleAfterMs));
+    const unsynced = tasks.filter(needsPaperclipWaitingTestSync);
+    await Promise.all(stale.map((task: any) => this.markWaitingTest(task)));
+    await Promise.all(unsynced.map((task: any) => this.syncWaitingTest(task)));
+    return stale.length + unsynced.length;
   }
 
   async markWaitingTest(task: any) {

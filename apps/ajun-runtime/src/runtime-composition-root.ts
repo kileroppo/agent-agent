@@ -8,13 +8,11 @@ import { createContentCampaignComposition } from './runtime/content-campaign-com
 import { createFeishuCommandComposition } from './runtime/feishu-command-composition.ts';
 import { createLocalExecutionComposition } from './runtime/local-execution-composition.ts';
 import { createPaperclipSystemControlComposition } from './runtime/paperclip-system-control-composition.ts';
+import { createProductMaturityRuntime } from './runtime/product-maturity-runtime-boundary.ts';
 import { createRoleExecutionComposition } from './runtime/role-execution-composition.ts';
-import { readProductMaturityRuntimeBoundary } from './runtime/product-maturity-runtime-boundary.ts';
 import { RuntimeReleaseClient } from './runtime-release-client.ts';
 import { createRuntimeConfiguration } from './runtime/runtime-configuration.ts';
 import { createRuntimeStateComposition } from './runtime/runtime-state-composition.ts';
-import { CapabilityAcceptanceBundle } from './workflow/capability-acceptance-bundle.ts';
-import { MissionChildPolicy } from './workflow/mission-child-policy.ts';
 import type { CreateRuntimeInput, RuntimeBackgroundLifecycle } from './runtime/composition-contracts.ts';
 export async function createRuntime({
   environment = process.env,
@@ -38,6 +36,7 @@ export async function createRuntime({
   let backgroundLifecycle: RuntimeBackgroundLifecycle | null = null;
   try {
     const contentCampaign = await createContentCampaignComposition({
+      enabled:features.m5RuntimeEnabled,
       environment,
       dataDir:paths.dataDir,
       hermesProfileRoot:paths.hermesProfileRoot,
@@ -50,9 +49,11 @@ export async function createRuntime({
       },
     });
     const { governance, modelPolicy, campaigns, paperclipCurrentRunScope, publisherBindings:m5PublisherBindings } = contentCampaign;
-    const missionChildPolicy = await MissionChildPolicy.open({
-      keyPath:path.join(paths.privateDir, 'product-maturity-child-policy.key'),
-    });
+    const missionChildPolicy = features.m5RuntimeEnabled
+      ? await (await import('./workflow/mission-child-policy.ts')).MissionChildPolicy.open({
+        keyPath:path.join(paths.privateDir, 'product-maturity-child-policy.key'),
+      })
+      : null;
     const localExecution = createLocalExecutionComposition({
       configuration,
       store:runtimeState.store,
@@ -92,17 +93,17 @@ export async function createRuntime({
       logger,
     }) as RuntimeBackgroundLifecycle;
     backgroundLifecycle = lifecycle;
-    const productMaturity = new CapabilityAcceptanceBundle({
-      store:runtimeState.store,
-      missions:lifecycle.missions,
-      policy:missionChildPolicy,
-      ledgerPath:path.join(paths.dataDir, 'product-maturity-validation-batches.json'),
-      projectRoot:sourceProjectRoot,
-      runtimeBoundarySnapshot:() => readProductMaturityRuntimeBoundary({
+    const productMaturity = features.m5RuntimeEnabled
+      ? await createProductMaturityRuntime({
+        store:runtimeState.store,
+        missions:lifecycle.missions,
+        policy:missionChildPolicy,
+        dataDir:paths.dataDir,
+        projectRoot:sourceProjectRoot,
         campaigns,
-        publisher:m5PublisherBindings.publisher,
-      }),
-    });
+        publisher:m5PublisherBindings?.publisher,
+      })
+      : null;
     const feishuCommand = await createFeishuCommandComposition({
       environment,
       root:paths.root,
@@ -122,10 +123,13 @@ export async function createRuntime({
     tasks.setWorkerStatus((currentTasks: unknown) => deployment.mode === 'cloud'
       ? lifecycle.macWorker.snapshot(currentTasks)
       : { status:'ready', detail:'当前由这台 Mac 直接承接本机文件、私人账号和音视频工作。' });
-    tasks.setM5WorkProductObserver(
-      async (event: unknown) => (await campaigns()).onM5WorkProductSynced(event),
-    );
-    const paperclipSystemControl = createPaperclipSystemControlComposition({
+    if (features.m5RuntimeEnabled) {
+      tasks.setM5WorkProductObserver(
+        async (event: unknown) => (await campaigns()).onM5WorkProductSynced(event),
+      );
+    }
+    const paperclipSystemControl = await createPaperclipSystemControlComposition({
+      m5RuntimeEnabled:features.m5RuntimeEnabled,
       governance,
       tasks,
       operator,
@@ -160,6 +164,7 @@ export async function createRuntime({
         xiaod:localExecution.xiaod,
         boomMonitor:lifecycle.boomMonitor,
         boomMonitorEnabled:features.boomMonitorEnabled,
+        boomMonitorAutoScheduleEnabled:features.boomMonitorAutoScheduleEnabled,
         taskTimeline:runtimeState.taskTimeline,
         productMaturity,
       },

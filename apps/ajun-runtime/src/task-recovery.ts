@@ -2,6 +2,8 @@ import { confirmedTranscriptFor, confirmedTranscriptOnlyEligible, duplicateRecov
 import { retryVisualAnalysis, visionCapabilityReadiness } from './task-visual-recovery.ts';
 import { cleanActionKey, cleanActor, cleanRequestId, recoveryError } from './task-recovery-input.ts';
 import { closeSupersededReadOnlyDiagnosis, hasVerifiedReadOnlyDiagnosis, readOnlyDiagnosisContext } from './read-only-diagnosis-contract.ts';
+import { resumeApprovedMissionRecovery } from './task-recovery-mission.ts';
+import { loadTaskRecoveryView } from './task-recovery-view.ts';
 export { TaskRecoveryError } from './task-recovery-input.ts';
 export { failureClassification, view } from './task-recovery-policy.ts';
 export class TaskRecovery {
@@ -22,16 +24,7 @@ export class TaskRecovery {
         this.requests = new Map();
     }
     async view(taskOrId: any, options: any = {}): Promise<any> {
-        const task: any = typeof taskOrId === 'string'
-            ? await taskById(this.store, taskOrId)
-            : taskOrId;
-        if (!task)
-            throw recoveryError('找不到要处理的任务。', 'task_recovery_not_found', 404);
-        const [relatedTasks, approvals] = await Promise.all([
-            options.relatedTasks || recoveryRelatedTasks(this.store, task),
-            options.approvals || (typeof this.store.listApprovals === 'function' ? this.store.listApprovals() : []),
-        ]);
-        return view(task, { ...options, relatedTasks, approvals });
+        return loadTaskRecoveryView({ store: this.store, taskOrId, options, errorFactory: recoveryError });
     }
     request(taskId: any, input: any = {}, actor: any = {}): any {
         const actionKey: any = cleanActionKey(input.actionKey);
@@ -107,7 +100,12 @@ export class TaskRecovery {
         });
         try {
             const outcome: any = input.actionKey === 'resume_approved_mission'
-                ? await this.#resumeApprovedMission(task, { requestId: input.requestId, requestedBy })
+                ? await resumeApprovedMissionRecovery({
+                    task, requestId: input.requestId, requestedBy,
+                    resumeApprovedMission: this.resumeApprovedMission,
+                    record: (...args: any): any => (this.#record as any)(...args),
+                    clock: this.clock, errorFactory: recoveryError,
+                })
                 : input.actionKey === 'use_confirmed_transcript_only'
                 ? await this.#useConfirmedTranscriptOnly(task, relatedTasks, { requestId: input.requestId, requestedBy })
                 : input.actionKey === 'request_read_only_diagnosis'
@@ -161,27 +159,6 @@ export class TaskRecovery {
             throw recoveryError('受控恢复暂不可用，未改变任务。', 'task_recovery_unavailable', 503);
         }
         return this.recover(task, input);
-    }
-    async #resumeApprovedMission(task: any, { requestId, requestedBy }: any): Promise<any> {
-        if (typeof this.resumeApprovedMission !== 'function')
-            throw recoveryError('已批准任务的继续入口暂不可用，任务没有被更改。', 'approved_mission_resume_unavailable', 503);
-        const resumedTask: any = await this.resumeApprovedMission(task);
-        await this.#record(task.taskId, {
-            status: 'completed',
-            actionKey: 'resume_approved_mission',
-            requestId,
-            requestedBy,
-            attempt: Number(task.recovery?.attempt || 0) + 1,
-            reason: '已从批准后的规划阶段继续处理。',
-        }, {
-            event: 'resumed',
-            actionKey: 'resume_approved_mission',
-            requestId,
-            attempt: Number(task.recovery?.attempt || 0) + 1,
-            actor: requestedBy,
-            occurredAt: this.clock().toISOString(),
-        });
-        return { resumedTask };
     }
     async #useConfirmedTranscriptOnly(task: any, tasks: any, { requestId, requestedBy }: any): Promise<any> {
         if (typeof this.createTask !== 'function') {

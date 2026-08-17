@@ -1,6 +1,36 @@
 import crypto from 'node:crypto';
+import path from 'node:path';
 
 const SCHEMA_VERSION = 'agent.army/product-maturity-runtime-boundary/v1';
+
+export function productMaturityDisabledState() {
+  return Object.freeze({
+    status:'disabled',
+    code:'m5_runtime_disabled',
+    detail:'产品成熟度验证属于 M5 管理工具，当前未启用。',
+    recommendedAction:'需要运行验证时，请显式设置 AJUN_M5_RUNTIME_ENABLED=true 后重新发布 A君。',
+  });
+}
+
+export async function createProductMaturityRuntime({
+  store,
+  missions,
+  policy,
+  dataDir,
+  projectRoot,
+  campaigns,
+  publisher,
+}: any) {
+  const { CapabilityAcceptanceBundle } = await import('../workflow/capability-acceptance-bundle.ts');
+  return new CapabilityAcceptanceBundle({
+    store,
+    missions,
+    policy,
+    ledgerPath:path.join(dataDir, 'product-maturity-validation-batches.json'),
+    projectRoot,
+    runtimeBoundarySnapshot:() => readProductMaturityRuntimeBoundary({ campaigns, publisher }),
+  });
+}
 
 export async function readProductMaturityRuntimeBoundary({ campaigns, publisher }: any = {}) {
   if (typeof campaigns !== 'function'

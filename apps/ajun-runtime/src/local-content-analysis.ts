@@ -8,6 +8,8 @@ import { buildMetricLearning } from './local-content-performance-learning.ts';
 import { evaluateVisualAnalysis } from './local-content-visual-evaluation.ts';
 import { attemptControlledVision } from './workflow/controlled-vision.ts';
 import { evaluateModeStructureWithDigestRecovery } from './workflow/digest-structure-recovery.ts';
+import { evidenceLinkedItems, evidenceMatches, evidenceSegments, validSentenceBreakdown, } from './local-content-evidence.ts';
+export { evidenceSegments } from './local-content-evidence.ts';
 const FULL_ANALYSIS_MODULES: any[] = [
     '基本信息',
     '标题诊断',
@@ -308,28 +310,6 @@ export class LocalVideoContentAnalyst {
         });
         return successResult(task, artifact, completedAt, 'performance_review');
     }
-}
-export function evidenceSegments(transcript: any): any {
-    const body: any = String(transcript || '').replace(/^---[\s\S]*?---\s*/m, '').replace(/^#\s+[^\n]+\n+/m, '');
-    const timed: any = [...body.matchAll(/\[((?:\d{2}:)?\d{2}:\d{2})\]\s*([^\n]+)/g)].map((match: any): any => ({ timestamp: (match as any)[1], text: clean((match as any)[2], 500) }));
-    if (timed.length)
-        return groupEvidenceSegments(timed);
-    const untimed: any = body.split(/\n+/).map((line: any): any => clean(line, 500)).filter((line: any): any => line.length >= 8).map((text: any): any => ({ timestamp: null, text }));
-    return groupEvidenceSegments(untimed);
-}
-function groupEvidenceSegments(segments: any, maxBlocks: any = 30): any {
-    if (segments.length <= maxBlocks)
-        return segments;
-    const groupSize: any = Math.ceil(segments.length / maxBlocks);
-    const grouped: any[] = [];
-    for (let index: any = 0; index < segments.length; index += groupSize) {
-        const group: any = segments.slice(index, index + groupSize);
-        grouped.push({
-            timestamp: (group as any)[0]?.timestamp || null,
-            text: clean(group.map((item: any): any => item.text).join(' '), 2000)
-        });
-    }
-    return grouped;
 }
 function buildAnalysis({ title, segments, analysisIntent, depth, evidenceMode, confirmationMode = 'human', focus, sourceMetadata = {} }: any): any {
     const usable: any = segments.length ? segments : [{ timestamp: null, text: '当前转录没有足够可引用片段。' }];
@@ -718,45 +698,4 @@ function validAdvisedModuleCore(module: any, transcript: any, depth: any): any {
         && evidenceLinkedItems(module.diagnosis, transcript)
         && evidenceLinkedItems(module.optimization, transcript);
 }
-function validSentenceBreakdown(value: any, transcript: any, { requireCoverage }: any): any {
-    const breakdown: any = Array.isArray(value) ? value : [];
-    if (!breakdown.length || !breakdown.every((item: any): any => evidenceMatches(transcript, breakdownEvidence(item))))
-        return false;
-    if (!requireCoverage)
-        return true;
-    const covered: any = breakdown.map((item: any): any => evidenceText(breakdownEvidence(item)?.fragment)).join('');
-    return evidenceSegments(transcript).every((segment: any): any => covered.includes(evidenceText(segment.text)));
-}
-function evidenceLinkedItems(value: any, transcript: any): any {
-    return Array.isArray(value) && value.length > 0 && value.every((item: any): any => evidenceMatches(transcript, item?.evidence));
-}
-function evidenceMatches(transcript: any, evidence: any): any {
-    const fragment: any = clean(evidence?.fragment, 500);
-    if (!fragment || evidenceText(fragment).length < 4)
-        return false;
-    const segments: any = evidenceSegments(transcript);
-    const transcriptText: any = segments.map((segment: any): any => segment.text).join(' ');
-    if (!evidenceText(transcriptText).includes(evidenceText(fragment)))
-        return false;
-    const timeline: any = new Set(segments.map((segment: any): any => segment.timestamp).filter(Boolean));
-    if (!timeline.size)
-        return true;
-    const timestamp: any = clean(evidence?.timestamp, 40);
-    return Boolean(timestamp && timeline.has(timestamp));
-}
-function breakdownEvidence(item: any): any {
-    if (item?.evidence?.fragment)
-        return item.evidence;
-    const fragment: any = item?.fragment || item?.original || item?.text;
-    return fragment ? { timestamp: item?.timestamp ?? null, fragment } : null;
-}
-function evidenceText(value: any): any {
-    // “[时间点缺失]”是小D在无时间轴稿上附加的证据等级标记，
-    // 不是作者原话。模型引用真实原句时可省略该标记，不能因此误判为
-    // “来源片段不存在”。
-    return normalize(value)
-        .replace(/\[\s*时间点缺失\s*\]/gu, '')
-        .replace(/[\p{P}\p{S}\s]+/gu, '');
-}
 function clean(value: any, limit: any): any { return String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit); }
-function normalize(value: any): any { return clean(value, 100000).toLowerCase(); }

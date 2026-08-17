@@ -121,19 +121,27 @@ function backlogCategoryTaskIds(tasks: any, category: any, evidenceContext: any)
     if (!category)
         return ids;
     if (category === 'owner_actionable') {
+        const seenWorkflows: any = new Set();
         for (const task of tasks) {
             if (['waiting_approval', 'needs_input', 'paused', 'failed', 'waiting_test'].includes(task?.status)
-                && isOwnerActionableTask(task, tasks))
+                && isOwnerActionableTask(task, tasks)) {
+                const workflowId: any = String(task?.workflow?.workflowId || '').trim();
+                if (workflowId && seenWorkflows.has(workflowId))
+                    continue;
                 ids.add(task.taskId);
+                if (workflowId)
+                    seenWorkflows.add(workflowId);
+            }
         }
-        for (const workflow of evaluateWorkflowTasks(tasks)) {
+        for (const workflow of evaluateWorkflowTasks(tasks, evidenceContext.workflowAcceptances || [])) {
             const outcome: any = taskOutcomePolicy(workflow.status);
-            if (!outcome.ownerActionable || !workflow.ownerAction)
+            if (workflow.workKind !== 'business' || !outcome.ownerActionable || !workflow.ownerAction
+                || seenWorkflows.has(workflow.workflowId))
                 continue;
-            const step: any = workflow.steps.find((item: any): any => item.required && item.verified)
-                || workflow.steps.find((item: any): any => item.verified);
+            const step: any = workflow.steps.find((item: any): any => item.taskId === workflow.acceptanceTaskId);
             if (step)
                 ids.add(step.taskId);
+            seenWorkflows.add(workflow.workflowId);
         }
         return ids;
     }

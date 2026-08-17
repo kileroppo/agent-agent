@@ -1,4 +1,5 @@
 const TERMINAL_FAILURES = new Set(['blocked', 'cancelled', 'failed']);
+import { queryReconciliationTasks } from './reconciliation-task-query.ts';
 
 export class PaperclipRepairReconciler {
   store: any; governance: any; evidenceRelay: any; now: () => number; intervalMs: number;
@@ -32,8 +33,13 @@ export class PaperclipRepairReconciler {
   }
 
   async reconcileOnce() {
-    const tasks = await this.store.list();
-    await Promise.all(tasks.filter(isDelegatedRepair).map((task: any) => this.reconcileTask(task)));
+    const tasks = await queryReconciliationTasks(this.store, {
+      taskType:'operations.technical-repair',
+      views:['active'],
+      predicate:isDelegatedRepair,
+    });
+    await Promise.all(tasks.map((task: any) => this.reconcileTask(task)));
+    return tasks.length;
   }
 
   async reconcileTask(task: any) {

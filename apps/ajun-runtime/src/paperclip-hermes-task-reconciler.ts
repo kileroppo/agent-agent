@@ -1,5 +1,7 @@
 import { validateTaskCompletion } from './task-completion-contract.ts';
 import { PaperclipAssignmentCompletion, pendingPaperclipCompletion, } from './paperclip-assignment-completion.ts';
+import { PaperclipHermesReconciliationSource } from './paperclip-hermes-reconciliation-source.ts';
+import { expectedAnalysisIntent, hasReadableArtifact, mergeArtifactRefs, taskFailure, validDate, validLocalEvidenceReport, } from './paperclip-hermes-task-support.ts';
 const FAILURE_STATUSES: any = new Set(['blocked', 'failed']);
 export class PaperclipHermesTaskReconciler {
     fallback: any;
@@ -9,6 +11,7 @@ export class PaperclipHermesTaskReconciler {
     running: any;
     store: any;
     timer: any;
+    taskSource: any;
     constructor({ store, governance, fallback = null, now = (): any => Date.now(), intervalMs = 10000 }: any = {}) {
         this.store = store;
         this.governance = governance;
@@ -17,6 +20,7 @@ export class PaperclipHermesTaskReconciler {
         this.intervalMs = intervalMs;
         this.timer = null;
         this.running = null;
+        this.taskSource = new PaperclipHermesReconciliationSource(store);
     }
     start(): any {
         if (this.timer)
@@ -37,9 +41,12 @@ export class PaperclipHermesTaskReconciler {
         return this.running;
     }
     async reconcileOnce(): Promise<any> {
-        const tasks: any = await this.store.list();
-        await Promise.all(tasks.filter((task: any): any => pendingPaperclipCompletion(task)).map((task: any): any => this.reconcilePendingCompletion(task)));
-        await Promise.all(tasks.filter(isDelegatedHermesTask).map((task: any): any => this.reconcileTask(task)));
+        const tasks: any = await this.taskSource.list();
+        const pending: any = tasks.filter((task: any): any => pendingPaperclipCompletion(task));
+        const delegated: any = tasks.filter(isDelegatedHermesTask);
+        await Promise.all(pending.map((task: any): any => this.reconcilePendingCompletion(task)));
+        await Promise.all(delegated.map((task: any): any => this.reconcileTask(task)));
+        return pending.length + delegated.length;
     }
     async reconcilePendingCompletion(task: any): Promise<any> {
         if (!pendingPaperclipCompletion(task))
@@ -200,63 +207,9 @@ export class PaperclipHermesTaskReconciler {
         });
     }
 }
-function validDate(value: any): any {
-    const text: any = String(value || '').trim();
-    return text && Number.isFinite(Date.parse(text)) ? new Date(text).toISOString() : null;
-}
-function mergeArtifactRefs(existing: any = [], added: any = []): any {
-    const merged: any = new Map();
-    for (const artifact of [...existing, ...added]) {
-        const key: any = artifact?.artifactId
-            || `${artifact?.type || 'unknown'}:${artifact?.checksum || artifact?.location || merged.size}`;
-        merged.set(key, artifact);
-    }
-    return [...merged.values()];
-}
 function isDelegatedHermesTask(task: any): any {
     return task?.status === 'running'
         && task.taskType !== 'operations.technical-repair'
         && task.execution?.owner === 'paperclip-hermes'
         && Boolean(task.governance?.paperclipIssueId);
-}
-function hasReadableArtifact(task: any): any {
-    return (task.artifactRefs || []).some((artifact: any): any => artifact?.validation?.exists === true
-        && artifact.validation.readable === true
-        && artifact.validation.nonEmpty === true);
-}
-function expectedAnalysisIntent(input: any = {}): any {
-    const structured: any = String(input?.analysisIntent || '').trim().toLowerCase();
-    if (['digest', 'deep', 'template', 'style'].includes(structured))
-        return structured;
-    return input?.depth === 'full' ? 'deep' : 'digest';
-}
-function validLocalEvidenceReport(artifact: any, expectedIntent: any, evidenceMode: any): any {
-    const validation: any = artifact?.validation || {};
-    const data: any = artifact?.data || {};
-    return artifact?.type === 'video_content_analysis_report'
-        && validation.exists === true
-        && validation.readable === true
-        && validation.nonEmpty === true
-        && validation.modeStructurePassed === true
-        && validation.claimsEvidenceLinked === true
-        && (evidenceMode !== 'formal' || validation.formalSourceConfirmed === true)
-        && validation.analysisIntent === expectedIntent
-        && validation.reportVersion === 'video-analysis/v2'
-        && data.analysisIntent === expectedIntent
-        && data.reportVersion === 'video-analysis/v2'
-        && data.generationMode === 'deterministic_fallback'
-        && Boolean(data.sourceTranscriptArtifactId)
-        && Array.isArray(artifact.sourceRefs)
-        && artifact.sourceRefs.includes(data.sourceTranscriptArtifactId);
-}
-function taskFailure(code: any, userMessage: any, now: any, { category = 'manual', retryable = false }: any = {}): any {
-    return {
-        code,
-        message: userMessage,
-        userMessage,
-        category,
-        stage: 'paperclip_hermes',
-        retryable,
-        occurredAt: new Date(now).toISOString()
-    };
 }

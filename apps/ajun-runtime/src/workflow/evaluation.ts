@@ -1,5 +1,6 @@
 import {
   deriveWorkflowType,
+  workflowWorkKindForTasks,
   type WorkflowEvaluation,
   type WorkflowStepEvaluation,
 } from './contracts.ts';
@@ -9,7 +10,7 @@ import {
   workflowStatusForTaskOutcome,
 } from '../task-status-policy.ts';
 
-export function evaluateWorkflowTasks(tasks: readonly any[]): WorkflowEvaluation[] {
+export function evaluateWorkflowTasks(tasks: readonly any[], acceptances: readonly any[] = []): WorkflowEvaluation[] {
   const groups = new Map<string, any[]>();
   for (const task of tasks || []) {
     const workflowId = String(task?.workflow?.workflowId || '').trim();
@@ -19,21 +20,32 @@ export function evaluateWorkflowTasks(tasks: readonly any[]): WorkflowEvaluation
     groups.set(workflowId, group);
   }
   return [...groups.entries()]
-    .map(([workflowId, group]) => evaluateWorkflow(workflowId, group))
+    .map(([workflowId, group]) => evaluateWorkflow(
+      workflowId,
+      group,
+      acceptances.find((item) => item?.workflowId === workflowId) || null,
+    ))
     .sort((left, right) => right.steps.length - left.steps.length || left.workflowId.localeCompare(right.workflowId));
 }
 
-export function evaluateWorkflow(workflowId: string, tasks: readonly any[]): WorkflowEvaluation {
+export function evaluateWorkflow(workflowId: string, tasks: readonly any[], acceptance: any = null): WorkflowEvaluation {
   const steps = tasks.map(evaluateStep);
   const required = steps.filter((step) => step.required);
   const requiredStepsComplete = required.length > 0 && required.every((step) => step.verified);
-  const humanAcceptanceRequired = steps.some((step) => qualityTask(step.taskType));
-  const humanAccepted = !humanAcceptanceRequired || steps.filter((step) => qualityTask(step.taskType)).every((step) => step.humanAccepted);
-  const status = workflowStatusForStepOutcomes(steps, {
+  const workKind = workflowWorkKindForTasks(tasks);
+  const acceptanceDecision = normalizedAcceptanceDecision(acceptance?.decision);
+  const humanAcceptanceRequired = workKind === 'business' && steps.some((step) => qualityTask(step.taskType));
+  const legacyHumanAccepted = steps.filter((step) => qualityTask(step.taskType)).every((step) => step.humanAccepted);
+  const humanAccepted = !humanAcceptanceRequired || acceptanceDecision === 'accepted' || (!acceptanceDecision && legacyHumanAccepted);
+  const evaluatedStatus = workflowStatusForStepOutcomes(steps, {
     requiredStepsComplete,
     humanAcceptanceRequired,
     humanAccepted,
   });
+  const status = acceptanceDecision === 'revision_required' && evaluatedStatus === 'waiting_acceptance'
+    ? 'succeeded'
+    : evaluatedStatus;
+  const acceptanceTaskId = acceptanceTargetStep(steps)?.taskId || null;
   return Object.freeze({
     schemaVersion:'agent.army/workflow-evaluation/v1',
     workflowId,
@@ -44,8 +56,22 @@ export function evaluateWorkflow(workflowId: string, tasks: readonly any[]): Wor
     verifiedArtifactCount:steps.reduce((count, step) => count + step.artifacts.filter((item) => item.verified).length, 0),
     humanAcceptanceRequired,
     humanAccepted,
-    ownerAction:ownerActionForWorkflowOutcome(steps, status),
+    workKind,
+    acceptanceDecision,
+    acceptanceVersion:Number.isSafeInteger(acceptance?.version) ? acceptance.version : 0,
+    acceptanceTaskId,
+    ownerAction:workKind === 'business' && !acceptanceDecision
+      ? ownerActionForWorkflowOutcome(steps, status)
+      : null,
   });
+}
+
+export function acceptanceTargetStep(steps: readonly WorkflowStepEvaluation[]): WorkflowStepEvaluation | null {
+  return steps.find((step) => qualityTask(step.taskType) && step.required && step.verified)
+    || steps.find((step) => qualityTask(step.taskType) && step.verified)
+    || steps.find((step) => step.required && step.verified)
+    || steps.find((step) => step.verified)
+    || null;
 }
 
 export function evaluateStep(task: any): WorkflowStepEvaluation {
@@ -167,4 +193,8 @@ function qualityTask(taskType: unknown): boolean {
   return value.startsWith('research.')
     || value.startsWith('content.')
     || value.startsWith('office.');
+}
+
+function normalizedAcceptanceDecision(value: unknown): 'accepted' | 'revision_required' | null {
+  return value === 'accepted' || value === 'revision_required' ? value : null;
 }

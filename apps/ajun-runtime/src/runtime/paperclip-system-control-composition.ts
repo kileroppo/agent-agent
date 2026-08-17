@@ -1,10 +1,6 @@
-import { HttpPaperclipAdapter } from '@agent-army/m5-content-pipeline';
-import { createOperationsHealthIncidentDispatcher, PaperclipCampaignDailyHandler, PaperclipHeartbeatHandler, PaperclipParallelWorkHandler } from '../paperclip-heartbeat.ts';
-import { PaperclipMetricMonitorHandler } from '../paperclip-metric-monitor.ts';
-import { PaperclipPublisherController } from '../paperclip-publisher-controller.ts';
-import { canonicalPaperclipHeartbeat, PaperclipPublisherRunContext } from '../paperclip-publisher-run-context.ts';
-import { PaperclipRetrospectiveHandler } from '../paperclip-retrospective.ts';
-import { PaperclipLearningLifecycleHandler } from '../paperclip-learning-lifecycle.ts';
+import { createOperationsHealthIncidentDispatcher, PaperclipHeartbeatHandler } from '../paperclip-heartbeat.ts';
+import { M5RuntimeDisabledError } from './content-campaign-composition.ts';
+import { createEnabledM5PaperclipSystemControl } from './m5-paperclip-system-control-composition.ts';
 
 type PaperclipControlCampaigns = Readonly<{
   activateScheduledDay(): unknown;
@@ -12,6 +8,7 @@ type PaperclipControlCampaigns = Readonly<{
 }>;
 
 export type PaperclipSystemControlCompositionInput = Readonly<{
+  m5RuntimeEnabled?: boolean;
   governance: Readonly<{
     baseUrl: string;
     companyForRuntime(): Promise<Readonly<{ id: string }>>;
@@ -23,7 +20,8 @@ export type PaperclipSystemControlCompositionInput = Readonly<{
   paperclipCurrentRunScope: unknown;
 }>;
 
-export function createPaperclipSystemControlComposition({
+export async function createPaperclipSystemControlComposition({
+  m5RuntimeEnabled = true,
   governance,
   tasks,
   operator,
@@ -36,51 +34,35 @@ export function createPaperclipSystemControlComposition({
     governance,
     incidentDispatcher:createOperationsHealthIncidentDispatcher({ tasks }),
   });
-  const paperclipCampaignDaily = new PaperclipCampaignDailyHandler({
-    governance,
-    campaignActivator:async () => (await campaigns()).activateScheduledDay(),
-  });
-  const paperclipParallelWork = new PaperclipParallelWorkHandler({
-    governance,
-    reconcileParallelWork:async (caseId: unknown) => (await campaigns()).reconcileParallelWork(caseId),
-  });
-  const paperclipRunAuthenticationAdapter = {
-    async authenticateRun(input: unknown) {
-      const company = await governance.companyForRuntime();
-      return new HttpPaperclipAdapter({
-        apiBase:governance.baseUrl,
-        companyId:company.id,
-      }).authenticateRun(input);
-    },
-  };
-  const paperclipPublisherRunContext = new PaperclipPublisherRunContext({
-    paperclipAdapter:paperclipRunAuthenticationAdapter,
-    governance,
-    systemRole:'m5-publisher-controller',
-  });
-  const paperclipMetricRunContext = new PaperclipPublisherRunContext({
-    paperclipAdapter:paperclipRunAuthenticationAdapter,
-    governance,
-    systemRole:'m5-metrics-controller',
-  });
+  if (!m5RuntimeEnabled) {
+    return disabledM5ControlPlane(paperclipHeartbeat);
+  }
 
+  return createEnabledM5PaperclipSystemControl({
+    governance,
+    campaigns,
+    publisherBindings,
+    paperclipCurrentRunScope,
+    paperclipHeartbeat,
+  });
+}
+
+function disabledM5ControlPlane(paperclipHeartbeat: unknown) {
+  const reject = async () => { throw new M5RuntimeDisabledError(); };
+  const handler = Object.freeze({ handle:reject });
+  const runContext = Object.freeze({ resolve:reject });
+  const runScope = Object.freeze({ run:reject });
   return Object.freeze({
     paperclipHeartbeat,
-    paperclipCampaignDaily,
-    paperclipParallelWork,
-    paperclipMetricRunContext,
-    paperclipMetricMonitor:new PaperclipMetricMonitorHandler({
-      governance,
-      publisher:publisherBindings.publisher,
-    }),
-    paperclipCurrentRunScope,
-    paperclipPublisherRunContext,
-    paperclipPublisherController:new PaperclipPublisherController({
-      governance,
-      publisher:publisherBindings.publisher,
-    }),
-    paperclipRetrospective:new PaperclipRetrospectiveHandler({ governance }),
-    paperclipLearningLifecycle:new PaperclipLearningLifecycleHandler({ governance }),
-    canonicalPaperclipHeartbeat,
+    paperclipCampaignDaily:handler,
+    paperclipParallelWork:handler,
+    paperclipMetricRunContext:runContext,
+    paperclipMetricMonitor:handler,
+    paperclipCurrentRunScope:runScope,
+    paperclipPublisherRunContext:runContext,
+    paperclipPublisherController:handler,
+    paperclipRetrospective:handler,
+    paperclipLearningLifecycle:handler,
+    canonicalPaperclipHeartbeat:(heartbeat: unknown) => heartbeat,
   });
 }

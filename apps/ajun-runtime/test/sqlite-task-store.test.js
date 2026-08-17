@@ -145,8 +145,8 @@ test('JSON 快照导入校验数量和关键 ID；相同源幂等，其他非空
     const snapshot = fixtureSnapshot();
     const first = await store.importSnapshot(snapshot, { sourceDigest:'fixture-a' });
     assert.equal(first.status, 'imported');
-    assert.deepEqual(first.before, { tasks:0, approvals:0, proposals:0, testInstances:0, conversationContexts:0 });
-    assert.deepEqual(first.after, { tasks:1, approvals:1, proposals:1, testInstances:1, conversationContexts:1 });
+    assert.deepEqual(first.before, { tasks:0, approvals:0, proposals:0, testInstances:0, workflowAcceptances:0, conversationContexts:0 });
+    assert.deepEqual(first.after, { tasks:1, approvals:1, proposals:1, testInstances:1, workflowAcceptances:0, conversationContexts:1 });
     assert.equal(Object.values(first.idChecks).every((digest) => /^[a-f0-9]{64}$/.test(digest)), true);
     assert.equal((await store.importSnapshot(snapshot, { sourceDigest:'fixture-a' })).status, 'already_imported');
     await assert.rejects(() => store.importSnapshot(fixtureSnapshot(), { sourceDigest:'fixture-b' }), (error) => error.code === 'sqlite_target_not_empty');

@@ -63,6 +63,20 @@ export class BoomMonitorService {
             this.db.setSetting('analysis_daily_limit', this.analysisDailyLimit);
     }
     close(): any { this.stop(); this.db.close(); }
+    runtimeStatus(): any {
+        const automatic = this.timers.length > 0;
+        return {
+            ok: true,
+            status: automatic ? 'running' : 'idle',
+            runtime: 'ajun-native',
+            automation: {
+                enabled: automatic,
+                detail: automatic
+                    ? '自动扫描、分析、调度和备份正在运行。'
+                    : '历史数据和手动工具可用；自动扫描、分析、调度和备份未启用。',
+            },
+        };
+    }
     start(): any {
         if (this.timers.length)
             return this;

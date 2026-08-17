@@ -95,17 +95,43 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
   });
 
   const baseUrl = `http://127.0.0.1:${runtime.port}`;
+  const health = await fetch(`${baseUrl}/api/health`);
+  assert.equal(health.status, 200);
+  const healthText = await health.text();
+  const healthPayload = JSON.parse(healthText);
+  assert.equal(healthPayload.status, 'healthy');
+  assert.ok(Buffer.byteLength(healthText) < 10 * 1024);
+  assert.deepEqual(
+    healthPayload.optional.components.find((item) => item.id === 'boom-monitor'),
+    { id:'boom-monitor', name:'爆款雷达', status:'limited', detail:'历史和手动工具可用，自动监控已关闭。' },
+  );
   const overview = await fetch(`${baseUrl}/api/overview`);
   assert.equal(overview.status, 200);
   const payload = await overview.json();
   assert.ok(Array.isArray(payload.tasks));
   assert.equal(runtime.services.hermesNativeCompletionWatcher.detailBaseUrl, '');
+  assert.equal(runtime.services.boomMonitor, null);
+  assert.deepEqual([...runtime.services.reconciliationCoordinator.jobs.keys()], [
+    'paperclip-roster',
+    'approval-expiry',
+    'xiaod',
+    'paperclip-repair',
+    'paperclip-hermes-task',
+    'cross-agent-mission',
+    'technical-repair-watchdog',
+  ]);
+  assert.equal(Object.hasOwn(runtime.services, 'xiaodReconciler'), false);
+  assert.equal(Object.hasOwn(runtime.services, 'missionReconciler'), false);
+  await assert.rejects(fs.access(path.join(temporaryRoot, 'data', 'm5-budget-ticket-ed25519.pem')), { code:'ENOENT' });
+  await assert.rejects(fs.access(path.join(temporaryRoot, 'private', 'product-maturity-child-policy.key')), { code:'ENOENT' });
 
   const consoleOverview = await fetch(`${baseUrl}/api/console-overview`);
   assert.equal(consoleOverview.status, 200);
-  const consolePayload = await consoleOverview.json();
+  const consoleText = await consoleOverview.text();
+  const consolePayload = JSON.parse(consoleText);
   assert.equal(Object.hasOwn(consolePayload, 'tasks'), false);
   assert.ok(Array.isArray(consolePayload.recentTasks));
+  assert.ok(Buffer.byteLength(consoleText) < 50 * 1024);
 
   const taskRecords = await fetch(`${baseUrl}/api/task-records?view=needs_action&limit=24`);
   assert.equal(taskRecords.status, 200);
@@ -187,7 +213,10 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
 
   const boomHealth = await fetch(`${baseUrl}/api/boom-monitor/health`);
   assert.equal(boomHealth.status, 200);
-  assert.deepEqual((await boomHealth.json()).runtime, 'ajun-native');
+  const boomHealthPayload = await boomHealth.json();
+  assert.equal(boomHealthPayload.runtime, 'ajun-native');
+  assert.equal(boomHealthPayload.status, 'idle');
+  assert.equal(boomHealthPayload.automation.enabled, false);
 
   const boomSettings = await fetch(`${baseUrl}/api/boom-monitor/settings`);
   assert.equal(boomSettings.status, 200);
@@ -261,7 +290,7 @@ test('隔离 HTTP 夹具完整提供失败、待补充、待验证、待审批�
   assert.equal(crossChatFeedback.status, 403);
 });
 
-test('后台服务沿用原启动顺序，cloud 模式不启动本机小D', () => {
+test('后台服务只启动统一协调器，不再重复启动旧轮询器', () => {
   const calls = [];
   const service = (name) => ({ start:(input) => calls.push([name, input]) });
   startRuntimeBackgroundServices({
@@ -272,6 +301,7 @@ test('后台服务沿用原启动顺序，cloud 模式不启动本机小D', () =
       interruptedLocalExecutionReconciler:service('interrupted-local-execution'),
       deliveryQualityReconciler:service('delivery-quality'),
       paperclipRosterReconciler:service('roster'),
+      reconciliationCoordinator:service('reconciliation-coordinator'),
       approvalExpiryReconciler:service('approval-expiry'),
       xiaodReconciler:service('xiaod'),
       paperclipRepairReconciler:service('repair'),
@@ -288,14 +318,9 @@ test('后台服务沿用原启动顺序，cloud 模式不启动本机小D', () =
   assert.deepEqual(calls.map(([name]) => name), [
     'interrupted-local-execution',
     'delivery-quality',
-    'roster',
-    'approval-expiry',
-    'repair',
-    'hermes-task',
-    'mission',
+    'reconciliation-coordinator',
     'boom-monitor',
     'completion-watch',
-    'repair-watchdog',
     'legacy-feishu',
     'employee-feishu',
   ]);

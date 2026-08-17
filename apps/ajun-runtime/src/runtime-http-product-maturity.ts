@@ -1,3 +1,5 @@
+import { productMaturityDisabledState } from './runtime/product-maturity-runtime-boundary.ts';
+
 export async function routeProductMaturityApi({
   request,
   service,
@@ -16,7 +18,7 @@ export async function routeProductMaturityApi({
   const label = create ? '产品成熟度验证批次' : '产品成熟度统一验收';
   const denied = validateOwnerJsonAction({ request, local, sameOrigin, authorize, label });
   if (denied) return { status:denied.status, payload:{ error:denied.error } };
-  if (!service) return { status:503, payload:{ error:'产品成熟度验证服务尚未接入。' } };
+  if (!service) return { status:503, payload:productMaturityDisabledState() };
   const input = await readBody();
   return create
     ? { status:202, payload:await service.create() }

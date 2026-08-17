@@ -85,7 +85,12 @@ export function createRuntimeConfiguration({
         : 'dry-run',
     }),
     features:Object.freeze({
+      m5RuntimeEnabled:normalized(environment.AJUN_M5_RUNTIME_ENABLED, 'false') === 'true',
       boomMonitorEnabled:normalized(environment.AJUN_BOOM_MONITOR_ENABLED, 'true') !== 'false',
+      boomMonitorAutoScheduleEnabled:normalized(
+        environment.AJUN_BOOM_MONITOR_AUTO_SCHEDULE_ENABLED,
+        'false',
+      ) === 'true',
       boomAnalysisDailyLimit:Number(environment.BOOM_ANALYSIS_DAILY_LIMIT || 5),
       developmentHotReload:normalized(environment.AJUN_DEV_HOT_RELOAD) === 'true',
     }),

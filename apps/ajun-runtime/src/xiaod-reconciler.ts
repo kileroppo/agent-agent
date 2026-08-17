@@ -2,6 +2,7 @@ const BASE_BACKOFF_MS: any = 3000;
 const MAX_BACKOFF_MS: any = 30000;
 const MAX_UNAVAILABLE_POLLS: any = 5;
 import { validateTaskCompletion } from './task-completion-contract.ts';
+import { queryReconciliationTasks } from './reconciliation-task-query.ts';
 import { prepareDeliveryQualityResult } from './workflow/delivery-quality-runtime.ts';
 export class XiaodReconciler {
     contentWorkspaceDir: any;
@@ -47,11 +48,14 @@ export class XiaodReconciler {
         return this.running;
     }
     async reconcileOnce(): Promise<any> {
-        const tasks: any = await this.store.list();
+        const tasks: any = await queryReconciliationTasks(this.store, {
+            views:['active'],
+            predicate:isRunningXiaodTask,
+        });
         const now: any = this.now();
-        await Promise.all(tasks
-            .filter((task: any): any => isRunningXiaodTask(task) && isPollDue(task, now))
-            .map((task: any): any => this.reconcileTask(task)));
+        const due: any = tasks.filter((task: any): any => isPollDue(task, now));
+        await Promise.all(due.map((task: any): any => this.reconcileTask(task)));
+        return due.length;
     }
     async reconcileTask(task: any): Promise<any> {
         try {

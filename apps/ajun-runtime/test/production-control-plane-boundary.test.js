@@ -20,6 +20,140 @@ test('本机动作 nonce 只在进程内短期有效', () => {
   assert.notEqual(session.issue().nonce, issued.nonce);
 });
 
+test('轻量健康接口不要求局域网口令，只读取裁剪后的健康状态', async (context) => {
+  const calls = [];
+  const health = {
+    schemaVersion:'agent.army/runtime-health/v1',
+    status:'healthy',
+    core:{ status:'healthy', components:[] },
+    optional:{ components:[] },
+    summary:{ employeeCount:2 },
+  };
+  const fixture = await startHandler(context, {}, {
+    tasks:{
+      async healthOverview(options) {
+        calls.push(options);
+        return health;
+      },
+    },
+  }, {}, undefined, {
+    lanEnabled:true,
+    lanAccess:{ enabled:true, key:'lan-secret' },
+  });
+
+  const response = await fetch(`${fixture.baseUrl}/api/health`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), health);
+  assert.deepEqual(calls, [{ optionalModules:[
+    { id:'m5-runtime', name:'M5 内容运营', status:'disabled', detail:'需要时设置 AJUN_M5_RUNTIME_ENABLED=true 后重新发布。' },
+    { id:'boom-monitor', name:'爆款雷达', status:'disabled', detail:'爆款雷达已关闭；需要时设置 AJUN_BOOM_MONITOR_ENABLED=true。' },
+    { id:'product-maturity', name:'产品成熟度验证', status:'disabled', detail:'需要验证时启用 M5 管理工具。' },
+  ] }]);
+});
+
+test('运行台工作流验收要求本机同源、owner nonce、版本和幂等键', async (context) => {
+  const calls = [];
+  const fixture = await startHandler(context, {}, {
+    tasks:{
+      async recordWorkflowAcceptance(workflowId, input) {
+        if (input.decision === 'revision_required') {
+          const error = new Error('这件工作的验收状态刚刚发生变化，请刷新后再操作。');
+          error.code = 'workflow_acceptance_version_conflict';
+          throw error;
+        }
+        calls.push([workflowId, input]);
+        return { acceptance:{ workflowId, decision:input.decision, version:1 }, duplicate:false };
+      },
+    },
+  });
+  const workflowPath = encodeURIComponent('workflow:business-1');
+  const url = `${fixture.baseUrl}/api/workflows/${workflowPath}/acceptance`;
+  const session = await (await fetch(`${fixture.baseUrl}/api/owner-action-session`)).json();
+  const baseHeaders = {
+    'content-type':'application/json',
+    origin:fixture.baseUrl,
+    'x-ajun-owner-action':session.nonce,
+  };
+
+  const missingOrigin = await fetch(url, {
+    method:'POST',
+    headers:{ ...baseHeaders, origin:'http://invalid.example', 'idempotency-key':'acceptance-1' },
+    body:JSON.stringify({ decision:'accepted', expectedRevision:0 }),
+  });
+  assert.equal(missingOrigin.status, 403);
+
+  const missingKey = await fetch(url, {
+    method:'POST', headers:baseHeaders,
+    body:JSON.stringify({ decision:'accepted', expectedRevision:0 }),
+  });
+  assert.equal(missingKey.status, 422);
+  assert.deepEqual(await missingKey.json(), { error:'缺少本次操作编号，请刷新任务详情后重试。' });
+
+  const invalidVersion = await fetch(url, {
+    method:'POST', headers:{ ...baseHeaders, 'idempotency-key':'acceptance-1' },
+    body:JSON.stringify({ decision:'accepted', expectedRevision:'0' }),
+  });
+  assert.equal(invalidVersion.status, 422);
+  assert.deepEqual(await invalidVersion.json(), { error:'验收版本号无效，请刷新任务详情后重试。' });
+
+  const accepted = await fetch(url, {
+    method:'POST', headers:{ ...baseHeaders, 'idempotency-key':'acceptance-1' },
+    body:JSON.stringify({ decision:'accepted', note:'可以使用', expectedRevision:0 }),
+  });
+  assert.equal(accepted.status, 200);
+  assert.deepEqual(await accepted.json(), {
+    acceptance:{ workflowId:'workflow:business-1', decision:'accepted', version:1 },
+    duplicate:false,
+  });
+  assert.deepEqual(calls, [['workflow:business-1', {
+    decision:'accepted',
+    note:'可以使用',
+    expectedVersion:0,
+    idempotencyKey:'acceptance-1',
+    source:'local_console',
+  }]]);
+
+  const stale = await fetch(url, {
+    method:'POST', headers:{ ...baseHeaders, 'idempotency-key':'acceptance-2' },
+    body:JSON.stringify({ decision:'revision_required', expectedRevision:0 }),
+  });
+  assert.equal(stale.status, 409);
+  assert.deepEqual(await stale.json(), { error:'这件工作的验收状态刚刚发生变化，请刷新后再操作。' });
+});
+
+test('内嵌浏览器缺少 Origin 时可用同源 Referer 证明，跨站 Referer 仍被拒绝', async (context) => {
+  const calls = [];
+  const fixture = await startHandler(context, {}, {
+    tasks:{
+      async recordWorkflowAcceptance(workflowId, input) {
+        calls.push([workflowId, input]);
+        return { acceptance:{ workflowId, decision:input.decision, version:1 }, duplicate:false };
+      },
+    },
+  });
+  const session = await (await fetch(`${fixture.baseUrl}/api/owner-action-session`)).json();
+  const url = `${fixture.baseUrl}/api/workflows/${encodeURIComponent('workflow:embedded-browser')}/acceptance`;
+  const headers = {
+    'content-type':'application/json',
+    referer:`${fixture.baseUrl}/tasks/00000000-0000-0000-0000-000000000001`,
+    'idempotency-key':'embedded-browser-acceptance',
+    'x-ajun-owner-action':session.nonce,
+  };
+  const accepted = await fetch(url, {
+    method:'POST', headers,
+    body:JSON.stringify({ decision:'accepted', expectedRevision:0 }),
+  });
+  assert.equal(accepted.status, 200);
+  assert.equal(calls.length, 1);
+
+  const rejected = await fetch(url, {
+    method:'POST', headers:{ ...headers, referer:'https://invalid.example/tasks/1', 'idempotency-key':'cross-site-acceptance' },
+    body:JSON.stringify({ decision:'accepted', expectedRevision:0 }),
+  });
+  assert.equal(rejected.status, 403);
+  assert.equal(calls.length, 1);
+});
+
 test('版本管理写操作只允许本机同源 owner 会话', async (context) => {
   const calls = [];
   const runtimeRelease = {
@@ -513,13 +647,13 @@ test('产品成熟度批次透传接受资格，accepted 拒绝保持 409 且 re
   ]);
 });
 
-async function startHandler(context, paperclipOverrides = {}, workOverrides = {}, feishuOverrides = {}, runtimeRelease = undefined) {
+async function startHandler(context, paperclipOverrides = {}, workOverrides = {}, feishuOverrides = {}, runtimeRelease = undefined, networkOverrides = {}) {
   const handler = createAjunHttpHandler({
     environment:{},
     publicDir:new URL('../public', import.meta.url).pathname,
     dataDir:'/tmp/agent-army-http-handler-test',
     detailBaseUrl:'http://127.0.0.1',
-    network:{ deploymentMode:'local', lanEnabled:false, lanAccess:{ enabled:false, key:null } },
+    network:{ deploymentMode:'local', lanEnabled:false, lanAccess:{ enabled:false, key:null }, ...networkOverrides },
     paperclip:{
       paperclipHeartbeat:unreachable(),
       paperclipCampaignDaily:unreachable(),

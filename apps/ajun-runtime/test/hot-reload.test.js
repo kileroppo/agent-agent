@@ -29,10 +29,10 @@ test('开发运行版本变化后只刷新一次页面', async () => {
   assert.equal(reloads, 1);
 });
 
-test('正式运行未开放热更新端点时不启动轮询', async () => {
+test('正式运行明确返回热更新关闭时不启动轮询', async () => {
   let scheduled = 0;
   const monitor = startBrowserHotReload({
-    fetchImpl:async () => ({ ok:false, status:404 }),
+    fetchImpl:async () => ({ ok:true, async json() { return { enabled:false }; } }),
     schedule:() => { scheduled += 1; },
   });
 

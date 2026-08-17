@@ -7,11 +7,21 @@ export async function routeBoomMonitorApi({ method, url, local, enabled = true, 
     if (!local)
         return response(403, { error: '爆款雷达只允许本机负责人访问。' });
     if (!enabled)
-        return response(503, { detail: 'A君原生爆款雷达已停用；当前可能处于旧 Docker 恢复模式。' });
+        return response(503, {
+            status: 'disabled',
+            code: 'boom_monitor_disabled',
+            detail: '爆款雷达当前未启用，历史数据不会被改动。',
+            recommended_action: '需要查看历史记录或手动运行时，请设置 AJUN_BOOM_MONITOR_ENABLED=true 后重新发布 A君。',
+        });
     try {
         const service: any = await getService();
         if (method === 'GET' && pathname === '/api/boom-monitor/health') {
-            return response(200, { ok: true, time: new Date().toISOString(), status: 'running', runtime: 'ajun-native' });
+            return response(200, {
+                ...(typeof service.runtimeStatus === 'function'
+                    ? service.runtimeStatus()
+                    : { ok:true, status:'idle', runtime:'ajun-native' }),
+                time: new Date().toISOString(),
+            });
         }
         if (method === 'GET' && pathname === '/api/boom-monitor/dashboard')
             return response(200, service.dashboard());

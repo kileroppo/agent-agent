@@ -1,6 +1,7 @@
 import { presentTask } from './task-presentation.ts';
 import { sanitizeFailureText } from './technical-failure-classifier.ts';
 import { queryTaskRecordsInMemory } from './task-record-query.ts';
+import { buildWorkflowAcceptanceTarget } from './workflow-acceptance-projection.ts';
 export class TaskRecordService {
     store: any;
     taskDetailBaseUrl: any;
@@ -16,21 +17,29 @@ export class TaskRecordService {
     }
     async list(query: any = {}): Promise<any> {
         const exactBacklogCategory: any = String(query.backlogCategory || '').trim();
-        const [tasksOrPage, approvals, proposals] = await Promise.all([
+        const [tasksOrPage, approvals, proposals, workflowAcceptances] = await Promise.all([
             exactBacklogCategory ? this.store.list() : this.store.queryTasks(query),
             this.store.listApprovals(),
             exactBacklogCategory && typeof this.store.listProposals === 'function' ? this.store.listProposals() : [],
+            exactBacklogCategory && typeof this.store.listWorkflowAcceptances === 'function' ? this.store.listWorkflowAcceptances() : [],
         ]);
         const page: any = exactBacklogCategory
             ? queryTaskRecordsInMemory(tasksOrPage, query, {
                 proposals,
                 taskTypeDelegates: this.capabilityCatalog?.openTaskDelegates?.() || {},
                 approvals,
+                workflowAcceptances,
             })
             : tasksOrPage;
         return {
             ...page,
-            items: page.items.map((task: any): any => presentRecordSummary(task, approvals, this.taskDetailBaseUrl)),
+            items: page.items.map((task: any): any => presentRecordSummary(
+                task,
+                approvals,
+                this.taskDetailBaseUrl,
+                exactBacklogCategory ? tasksOrPage : [],
+                workflowAcceptances,
+            )),
         };
     }
     async detail(taskId: any, { audience = 'lan' }: any = {}): Promise<any> {
@@ -43,10 +52,27 @@ export class TaskRecordService {
         const recoveryView: any = typeof this.taskRecovery?.view === 'function'
             ? await this.taskRecovery.view(task, { audience })
             : null;
-        return presentRecord(task, approvals, this.taskDetailBaseUrl, recoveryView, audience, this.paperclipBaseUrl);
+        let acceptanceTarget: any = null;
+        if (audience === 'local-owner' && task?.workflow?.workflowId) {
+            const workflowId: any = task.workflow.workflowId;
+            const [workflowTasks, acceptance] = await Promise.all([
+                typeof this.store.listWorkflowTasks === 'function'
+                    ? this.store.listWorkflowTasks(workflowId)
+                    : this.store.list().then((items: any[]): any => items.filter((item: any): any => item?.workflow?.workflowId === workflowId)),
+                typeof this.store.getWorkflowAcceptance === 'function'
+                    ? this.store.getWorkflowAcceptance(workflowId)
+                    : null,
+            ]);
+            acceptanceTarget = buildWorkflowAcceptanceTarget(task, workflowTasks, acceptance);
+        }
+        return presentRecord(task, approvals, this.taskDetailBaseUrl, recoveryView, audience, this.paperclipBaseUrl, acceptanceTarget);
     }
 }
-function presentRecordSummary(task: any, approvals: any, detailBaseUrl: any): any {
+function presentRecordSummary(task: any, approvals: any, detailBaseUrl: any, tasks: any[] = [], acceptances: any[] = []): any {
+    const workflowId: any = String(task?.workflow?.workflowId || '').trim();
+    const acceptanceTarget: any = workflowId && tasks.length
+        ? buildWorkflowAcceptanceTarget(task, tasks, acceptances.find((item: any): any => item?.workflowId === workflowId) || null)
+        : null;
     return {
         taskId: task.taskId,
         status: task.status,
@@ -59,9 +85,10 @@ function presentRecordSummary(task: any, approvals: any, detailBaseUrl: any): an
         recordView: task.recordView,
         recordSummary: true,
         presentation: presentTask(task, { approvals, detailBaseUrl }),
+        ...(acceptanceTarget ? { acceptanceTarget } : {}),
     };
 }
-function presentRecord(task: any, approvals: any, detailBaseUrl: any, recoveryView: any = null, audience: any = 'lan', paperclipBaseUrl: any = ''): any {
+function presentRecord(task: any, approvals: any, detailBaseUrl: any, recoveryView: any = null, audience: any = 'lan', paperclipBaseUrl: any = '', acceptanceTarget: any = null): any {
     const pendingApproval: any = approvals.find((approval: any): any => approval?.status === 'pending' && (task.approvalRefs || []).includes(approval.approvalId));
     const common: Record<string, any> = {
         taskId: cleanText(task.taskId, 120),
@@ -88,6 +115,7 @@ function presentRecord(task: any, approvals: any, detailBaseUrl: any, recoveryVi
         error: safeOwnerError(task.error),
         recovery: safeOwnerRecovery(task.recovery),
         paperclipRun: safePaperclipRun(task.execution?.paperclipRun, task.execution, task),
+        acceptanceTarget,
     };
 }
 function safePaperclipRun(value: any, execution: any = {}, task: any = {}): any {

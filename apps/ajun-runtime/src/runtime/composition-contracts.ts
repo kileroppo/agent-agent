@@ -113,8 +113,11 @@ export type BackgroundLifecycleCompositionInput = Readonly<{
       dataDir: string;
     }>;
     bootedAt: string;
+    deployment: Readonly<{ mode: string }>;
     features: Readonly<{
+      m5RuntimeEnabled: boolean;
       boomMonitorEnabled: boolean;
+      boomMonitorAutoScheduleEnabled: boolean;
       boomAnalysisDailyLimit: number;
     }>;
   }>;
@@ -162,6 +165,7 @@ export type ContentCampaignServiceInterface = Readonly<{
 }>;
 
 export type ContentCampaignCompositionInput = Readonly<{
+  enabled?: boolean;
   environment: NodeJS.ProcessEnv;
   dataDir: string;
   hermesProfileRoot: string;

@@ -3,23 +3,22 @@ const REGISTERED_HTTP_CHECKS: any = Object.freeze([
         id: 'ajun-runtime',
         name: 'A君运行台',
         port: 4321,
-        path: '/api/overview',
-        contract: 'ajun-overview/v1',
+        path: '/api/health',
+        contract: 'ajun-runtime-health/v1',
         healthyDetail: '运行状态接口可读。',
         degradedDetail: 'A君运行状态接口不可读；未执行重启、登录或配置修改。',
         verify(body: any): any {
-            return Boolean(body && Array.isArray(body.agents) && Array.isArray(body.tasks));
+            return body?.schemaVersion === 'agent.army/runtime-health/v1'
+                && body?.status === 'healthy'
+                && body?.core?.status === 'healthy';
         },
         summarize(body: any): any {
-            const focus: any = body.taskFocus || {};
-            const active: any = Number(focus.inProgress || 0);
-            const paused: any = Number(focus.paused || 0);
-            const waiting: any = Number(focus.waitingApproval || 0) + Number(focus.waitingTest || 0);
-            return `运行正常；${Number(body.agents.length)} 名员工可用，${active} 项处理中${paused ? `，${paused} 项已暂停` : ''}${waiting ? `，${waiting} 项等待确认或测试` : ''}。`;
+            const employees: any = Number(body?.summary?.employeeCount || 0);
+            return `核心运行正常；已登记 ${employees} 名员工。可选能力关闭或受限不会影响核心健康。`;
         },
         recoverySteps: [
             '确认 127.0.0.1:4321 仍由已登记的 A君运行台监听。',
-            '仅重试一次固定的 /api/overview 只读检查。',
+            '仅重试一次固定的 /api/health 只读检查。',
             '仍不可读时保留探测证据并升级技术专家。'
         ]
     }),

@@ -1,28 +1,12 @@
 import { buildArchitectureGroundTruth } from './architecture-evidence.ts';
-import { SkillExecutionRegistry } from './skill-execution-registry.ts';
-import { TaskCapabilityCatalog } from './task-capability-catalog.ts';
-import { TaskExecutionCoordinator } from './task-execution-coordinator.ts';
-import { TaskFailureRecoveryCoordinator } from './task-failure-recovery-coordinator.ts';
-import { TaskIntake } from './task-intake.ts';
-import { TaskNotification } from './task-notification.ts';
-import { TaskRecordService } from './task-record-service.ts';
-import { TaskRecovery } from './task-recovery.ts';
-import { OfficePresentationExecution } from './office-presentation-execution.ts';
 import { taskServiceExecutionMethods } from './task-service-execution.ts';
 export { ValidationError } from './task-validation-error.ts';
 import { taskApprovalCoordinatorMethods } from './task-approval-coordinator.ts';
-import { TaskOverview } from './task-overview.ts';
 import { taskXiaodTranscriptRevisionMethods } from './task-xiaod-transcript-revision.ts';
-import { TaskLifecycleEventRecorder } from './task-lifecycle-event-recorder.ts';
-import { DeliveryQualityRuntime, prepareDeliveryQualityResult } from './workflow/delivery-quality-runtime.ts';
-import { TaskLocalAiRunEventRecorder } from './task-local-ai-run-event-recorder.ts';
-import { TaskIntakeContinuation } from './task-intake-continuation.ts';
-import { TaskApprovalLifecycle } from './task-approval-lifecycle.ts';
-import { MissionApprovalInheritance } from './mission-approval-inheritance.ts';
-import { TaskFeedback } from './task-feedback.ts';
 import { maturityQueuedChildRecoveryMethods } from './maturity-queued-child-recovery.ts';
 import { approvedMissionResumeEligible } from './task-recovery-policy.ts';
 import { ValidationError } from './task-validation-error.ts';
+import { composeTaskService } from './task-service-composition.ts';
 export class TaskService {
     agentChannelStates: any;
     approvalLifecycle: any;
@@ -60,6 +44,7 @@ export class TaskService {
     taskDefinitionRegistry: any;
     taskDetailBaseUrl: any;
     taskFeedback: any;
+    workflowAcceptance: any;
     taskLifecycleEvents: any;
     taskOverview: any;
     taskRecords: any;
@@ -75,126 +60,8 @@ export class TaskService {
     declare resolvePaperclipApproval: (approvalId: any, decision: any, options?: any) => Promise<any>;
     declare approveApproval: (approvalId: any, options?: any) => Promise<any>;
     declare rejectApproval: (approvalId: any, options?: any) => Promise<any>;
-    constructor({ registry, store, governance = null, executors = {}, fallbackExecutor = null, onTaskFailed = null, feishuChannelStatus = null, agentChannelStates = null, workerStatus = null, contentGrowthWaitMs = 240000, employeeAssignmentWaitMs = 0, taskDetailBaseUrl = '', roleToolAdapters = {}, m5ProviderVision = null, m5WorkProductValidator = null, skillExecutionRegistry = new SkillExecutionRegistry(), capabilityCatalog = new TaskCapabilityCatalog({ executors }), localAiCapabilityStatus = null, officePresentationWorkspaceRoot = null, usageLedger = null, taskRunEvents = null, missionChildPolicy = null, }: any) {
-        this.registry = registry;
-        this.taskDefinitionRegistry = capabilityCatalog.registry;
-        this.store = store;
-        this.governance = governance;
-        this.executors = executors;
-        this.capabilityCatalog = capabilityCatalog;
-        this.fallbackExecutor = fallbackExecutor;
-        this.feishuChannelStatus = feishuChannelStatus;
-        this.agentChannelStates = agentChannelStates;
-        this.workerStatus = workerStatus;
-        this.taskDetailBaseUrl = taskDetailBaseUrl;
-        this.roleToolAdapters = roleToolAdapters;
-        this.m5ProviderVision = typeof m5ProviderVision === 'function'
-            ? m5ProviderVision
-            : null;
-        this.m5WorkProductValidator = typeof m5WorkProductValidator === 'function'
-            ? m5WorkProductValidator
-            : null;
-        this.skillExecutionRegistry = skillExecutionRegistry;
-        this.localAiCapabilityStatus = typeof localAiCapabilityStatus === 'function'
-            ? localAiCapabilityStatus
-            : null;
-        this.usageLedger = usageLedger;
-        this.missionChildPolicy = missionChildPolicy;
-        this.taskLifecycleEvents = new TaskLifecycleEventRecorder({ eventStore: taskRunEvents });
-        this.localAiRunEvents = new TaskLocalAiRunEventRecorder({
-            eventStore: taskRunEvents,
-            registry,
-            resolveAssignment: (input: any): any => this.getPaperclipAssignment(input),
-        });
-        this.contentGrowthWaitMs = Math.max(1, Math.min(Number(contentGrowthWaitMs) || 240000, 240000));
-        this.employeeAssignmentWaitMs = Math.max(0, Math.min(Number(employeeAssignmentWaitMs) || 0, 240000));
-        this.contentGrowthRuns = new Map();
-        this.employeeAssignmentRuns = new Map();
-        this.approvalResolutionRuns = new Map();
-        this.approvedMissionResumeRuns = new Map();
-        this.taskControlRuns = new Map();
-        this.xiaodDeliveryRequestRuns = new Map();
-        this.xiaodDeliveryRuns = new Map();
-        this.xiaodTranscriptRevisionRuns = new Map();
-        this.paperclipAssignmentCompletionRuns = new Map();
-        this.m5WorkProductObserver = null;
-        this.failureRecovery = new TaskFailureRecoveryCoordinator({ store, recover: onTaskFailed });
-        this.taskRecovery = new TaskRecovery({
-            store,
-            recover: typeof onTaskFailed === 'function' ? (task: any, input: any): any => onTaskFailed(task, input) : null,
-            createTask: (input: any): any => this.create(input),
-            capabilityStatus: this.localAiCapabilityStatus,
-            resumeApprovedMission: (task: any): any => this.resumeApprovedMission(task),
-        });
-        this.executionCoordinator = new TaskExecutionCoordinator({
-            store,
-            governance,
-            capabilityCatalog,
-            executorResolver: (agentId: any): any => capabilityCatalog.executor(agentId, this.executors),
-            fallbackExecutor,
-            fallbackExecutorResolver: (): any => this.fallbackExecutor,
-            markFailureRecoveryPending: (task: any): any => this.failureRecovery.markPending(task),
-            startFailureRecovery: (task: any): any => this.failureRecovery.start(task),
-            prepareCompletion: prepareDeliveryQualityResult,
-        });
-        this.officePresentationExecution = new OfficePresentationExecution({
-            workspaceRoot: officePresentationWorkspaceRoot,
-            store,
-            governance,
-            capabilityCatalog,
-            executorResolver: (agentId: any): any => capabilityCatalog.executor(agentId, this.executors),
-            roleToolAdapters,
-            prepareCompletion: prepareDeliveryQualityResult,
-        });
-        this.intake = new TaskIntake({
-            registry,
-            store,
-            governance,
-            execute: (task: any, agent: any): any => this.executeTask(task, agent),
-        });
-        this.notification = new TaskNotification({ store, registry, executors });
-        this.taskRecords = new TaskRecordService({ store, taskDetailBaseUrl, taskRecovery: this.taskRecovery, capabilityCatalog });
-        this.taskOverview = new TaskOverview({
-            registry,
-            store,
-            governance,
-            executors,
-            capabilityCatalog,
-            skillExecutionRegistry,
-            localAiCapabilityStatus: this.localAiCapabilityStatus,
-            usageLedger,
-            taskDetailBaseUrl,
-            getFeishuChannelStatus: (): any => this.feishuChannelStatus,
-            getAgentChannelStates: (): any => this.agentChannelStates,
-            getWorkerStatus: (): any => this.workerStatus,
-        });
-        this.deliveryQuality = new DeliveryQualityRuntime({
-            store,
-            createTask: (input: any): any => this.create(input),
-            taskRunEvents,
-            syncTask: async (task: any): Promise<any> => this.store.updateTask(task.taskId, { governance: await this.governance.update(task) }),
-            markReviewPending: async (task: any): Promise<any> => {
-                const issueId: any = String(task?.governance?.paperclipIssueId || '').trim();
-                if (!issueId || typeof this.governance?.markPaperclipIssueReviewPending !== 'function')
-                    return null;
-                return this.governance.markPaperclipIssueReviewPending(issueId, {
-                    result: task,
-                    reviewTaskId: task.deliveryQualityRuntime?.reviewTaskId,
-                });
-            },
-        });
-        this.intakeContinuation = new TaskIntakeContinuation({
-            store,
-            createTask: (input: any): any => this.create(input),
-        });
-        this.approvalLifecycle = new TaskApprovalLifecycle({ store, governance });
-        this.missionApprovalInheritance = new MissionApprovalInheritance({
-            store,
-            registry,
-            taskDefinitions: capabilityCatalog.registry,
-            executeTask: (task: any, agent: any): any => this.executeTask(task, agent),
-        });
-        this.taskFeedback = new TaskFeedback({ store });
+    constructor(input: any) {
+        Object.assign(this, composeTaskService(this, input));
     }
     setFeishuChannelStatus(status: any): any { this.feishuChannelStatus = status; }
     setAgentChannelStates(status: any): any { this.agentChannelStates = status; }
@@ -289,10 +156,14 @@ export class TaskService {
     async recordFeedback(taskId: any, { sentiment, note = '' }: any = {}): Promise<any> {
         return this.taskFeedback.record(taskId, { sentiment, note });
     }
+    async recordWorkflowAcceptance(workflowId: any, input: any = {}): Promise<any> {
+        return this.workflowAcceptance.record(workflowId, input);
+    }
     async overview({ includeTasks = true }: any = {}): Promise<any> {
         return this.taskOverview.read({ includeTasks });
     }
-    async consoleOverview(): Promise<any> { return this.overview({ includeTasks: false }); }
+    async consoleOverview(): Promise<any> { return this.taskOverview.readConsole(); }
+    async healthOverview(options: any = {}): Promise<any> { return this.taskOverview.health(options); }
     async listTaskRecords(query: any = {}, { audience = 'lan' }: any = {}): Promise<any> { return this.taskRecords.list(query, { audience }); }
     async taskRecordDetail(taskId: any, { audience = 'lan' }: any = {}): Promise<any> { return this.taskRecords.detail(taskId, { audience }); }
     async recoveryView(taskOrId: any, options: any = {}): Promise<any> { return this.taskRecovery.view(taskOrId, options); }

@@ -9,6 +9,7 @@ import { MacWorkerTaskBridge } from '../mac-worker-task-bridge.ts';
 import { PaperclipHermesTaskReconciler } from '../paperclip-hermes-task-reconciler.ts';
 import { PaperclipRepairReconciler } from '../paperclip-repair-reconciler.ts';
 import { PaperclipRosterReconciler } from '../paperclip-roster-reconciler.ts';
+import { ReconciliationCoordinator, reconciliationJob } from '../reconciliation-coordinator.ts';
 import { TechnicalRepairEvidenceRelay } from '../technical-repair-evidence-relay.ts';
 import { XiaodReconciler } from '../xiaod-reconciler.ts';
 import { DeliveryQualityReconciler } from '../workflow/delivery-quality-reconciler.ts';
@@ -25,7 +26,7 @@ export function createBackgroundLifecycleComposition({
   missionChildPolicy = null,
   logger = console,
 }: BackgroundLifecycleCompositionInput) {
-  const { paths, bootedAt, features } = configuration;
+  const { paths, bootedAt, features, deployment } = configuration;
   const interruptedLocalExecutionReconciler = new InterruptedLocalExecutionReconciler({
     store,
     bootedAt,
@@ -90,6 +91,25 @@ export function createBackgroundLifecycleComposition({
   });
   const missions = new CrossAgentMissionService({ tasks, store, governance, missionChildPolicy });
   const missionReconciler = new CrossAgentMissionReconciler({ store, missions });
+  const reconciliationCoordinator = new ReconciliationCoordinator({
+    mutationSource:store,
+    jobs:[
+      reconciliationJob('paperclip-roster', paperclipRosterReconciler, { maxIntervalMs:15 * 60_000 }),
+      reconciliationJob('approval-expiry', approvalExpiryReconciler, { maxIntervalMs:15 * 60_000 }),
+      ...(deployment.mode === 'cloud' ? [] : [
+        reconciliationJob('xiaod', xiaodReconciler, { maxIntervalMs:30_000 }),
+      ]),
+      reconciliationJob('paperclip-repair', paperclipRepairReconciler, { maxIntervalMs:60_000 }),
+      reconciliationJob('paperclip-hermes-task', paperclipHermesTaskReconciler, { maxIntervalMs:60_000 }),
+      reconciliationJob('cross-agent-mission', missionReconciler, { maxIntervalMs:60_000 }),
+      reconciliationJob('technical-repair-watchdog', roleExecution.technicalRepairWatchdog, { maxIntervalMs:60_000 }),
+    ],
+    onEvent:(event: any) => {
+      if (event.type === 'reconciliation_failed') {
+        logger.warn(`后台闭环 ${event.job} 暂时失败，将自动退避重试：${event.reason}`);
+      }
+    },
+  });
   const boomMonitor = features.boomMonitorEnabled ? createBoomMonitorService({
     dbPath:path.join(paths.dataDir, 'boom-monitor.sqlite'),
     dataDir:path.join(paths.dataDir, 'boom-monitor'),
@@ -112,16 +132,13 @@ export function createBackgroundLifecycleComposition({
     services:Object.freeze({
       interruptedLocalExecutionReconciler,
       deliveryQualityReconciler,
-      paperclipRosterReconciler,
-      approvalExpiryReconciler,
-      xiaodReconciler,
-      paperclipRepairReconciler,
-      paperclipHermesTaskReconciler,
-      missionReconciler,
-      boomMonitor:features.boomMonitorEnabled ? boomMonitor : null,
-      technicalRepairWatchdog:roleExecution.technicalRepairWatchdog,
+      reconciliationCoordinator,
+      boomMonitor:features.boomMonitorEnabled && features.boomMonitorAutoScheduleEnabled
+        ? boomMonitor
+        : null,
     }),
     close() {
+      reconciliationCoordinator.stop();
       boomMonitor?.close();
     },
   });

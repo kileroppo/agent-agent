@@ -4,10 +4,18 @@ import path from 'node:path';
 import { queryTaskRecordsInMemory, taskRecordViewForTask } from './task-record-query.ts';
 import { applyApprovalPatch, applyTaskStatusPatch, applyWorkerTaskPatch, assertTaskIdempotencyMatch, claimTaskForWorker, holdTaskForApproval, initializeApprovalRecord, initializeTaskRecord, interruptedTaskExecutionPatch, isWorkerTaskClaimable, } from './task-lifecycle.ts';
 import { isExactLegacyMaturityContentBlock, isExactWaitingMaturityMissionRetry } from './maturity-legacy-content-retry.ts';
+import { applyWorkflowAcceptanceDecision } from './workflow-acceptance-record.ts';
 export class TaskStore {
     filePath: any;
     pendingMutation: any;
-    constructor(filePath: any) { this.filePath = filePath; this.pendingMutation = Promise.resolve(); }
+    mutationListeners: any;
+    constructor(filePath: any) { this.filePath = filePath; this.pendingMutation = Promise.resolve(); this.mutationListeners = new Set(); }
+    subscribe(listener: any): any {
+        if (typeof listener !== 'function')
+            return (): any => { };
+        this.mutationListeners.add(listener);
+        return (): any => this.mutationListeners.delete(listener);
+    }
     async list(): Promise<any> { await this.pendingMutation; return (await this.read()).tasks.sort((a: any, b: any): any => b.updatedAt.localeCompare(a.updatedAt)); }
     async getTask(taskId: any): Promise<any> {
         await this.pendingMutation;
@@ -16,6 +24,34 @@ export class TaskStore {
         return task ? { ...task, recordView: taskRecordViewForTask(task, tasks) } : null;
     }
     async queryTasks(query: any = {}): Promise<any> { await this.pendingMutation; return queryTaskRecordsInMemory((await this.read()).tasks, query); }
+    async listWorkflowTasks(workflowId: any): Promise<any> {
+        await this.pendingMutation;
+        return (await this.read()).tasks.filter((task: any): any => task?.workflow?.workflowId === workflowId);
+    }
+    async listWorkflowAcceptances(): Promise<any> {
+        await this.pendingMutation;
+        return (await this.read()).workflowAcceptances.sort((a: any, b: any): any => b.updatedAt.localeCompare(a.updatedAt));
+    }
+    async getWorkflowAcceptance(workflowId: any): Promise<any> {
+        await this.pendingMutation;
+        return (await this.read()).workflowAcceptances.find((item: any): any => item.workflowId === workflowId) || null;
+    }
+    async recordWorkflowAcceptance(input: any): Promise<any> {
+        return this.mutate(async (): Promise<any> => {
+            const data: any = await this.read();
+            const index: any = data.workflowAcceptances.findIndex((item: any): any => item.workflowId === input.workflowId);
+            const current: any = index >= 0 ? data.workflowAcceptances[index] : null;
+            const result: any = applyWorkflowAcceptanceDecision(current, input, new Date().toISOString());
+            if (!result.duplicate) {
+                if (index >= 0)
+                    data.workflowAcceptances[index] = result.acceptance;
+                else
+                    data.workflowAcceptances.push(result.acceptance);
+                await this.write(data);
+            }
+            return result;
+        });
+    }
     async listApprovals(): Promise<any> { await this.pendingMutation; return (await this.read()).approvals.sort((a: any, b: any): any => b.createdAt.localeCompare(a.createdAt)); }
     async listProposals(): Promise<any> { await this.pendingMutation; return (await this.read()).proposals.sort((a: any, b: any): any => b.updatedAt.localeCompare(a.updatedAt)); }
     async listTestInstances(): Promise<any> { await this.pendingMutation; return (await this.read()).testInstances.sort((a: any, b: any): any => b.updatedAt.localeCompare(a.updatedAt)); }
@@ -285,20 +321,30 @@ export class TaskStore {
         this.pendingMutation = new Promise((resolve: any): any => { release = resolve; });
         await previous;
         try {
-            return await operation();
+            const result: any = await operation();
+            this.#notifyMutation();
+            return result;
         }
         finally {
             release();
         }
     }
+    #notifyMutation(): any {
+        for (const listener of this.mutationListeners) {
+            try {
+                listener({ kind: 'mutation' });
+            }
+            catch { }
+        }
+    }
     async read(): Promise<any> {
         try {
             const data: any = JSON.parse(await fs.readFile(this.filePath, 'utf8'));
-            return { tasks: [], approvals: [], proposals: [], testInstances: [], conversationContexts: {}, ...data };
+            return { tasks: [], approvals: [], proposals: [], testInstances: [], workflowAcceptances: [], conversationContexts: {}, ...data };
         }
         catch (error: any) {
             if (error.code === 'ENOENT')
-                return { tasks: [], approvals: [], proposals: [], testInstances: [], conversationContexts: {} };
+                return { tasks: [], approvals: [], proposals: [], testInstances: [], workflowAcceptances: [], conversationContexts: {} };
             throw error;
         }
     }

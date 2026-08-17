@@ -25,6 +25,11 @@ import { dispatchBoomSignal } from '@agent-army/boom-monitor';
 import { routeBoomMonitorApi } from './boom-monitor/index.ts';
 import { isPaperclipHttpError, routePaperclipHttp } from './runtime-http-paperclip.ts';
 import { routeProductMaturityApi } from './runtime-http-product-maturity.ts';
+import { routeRuntimeHealthApi } from './runtime-http-health.ts';
+import { hasSameOriginRequest, routeOwnerControlApi } from './runtime-http-owner-control.ts';
+import { routeWorkflowAcceptanceApi, workflowAcceptanceErrorStatus } from './runtime-http-workflow-acceptance.ts';
+import { routeTaskRecoveryApi } from './runtime-http-task-recovery.ts';
+import { routeLocalAiApi } from './runtime-http-local-ai.ts';
 import { bearerToken, isBoomLegacyIntegrationAuthorized, isBoomLegacyIntegrationPath } from './runtime-http-boom-legacy.ts';
 import { parseUsageRange } from './task-overview.ts';
 export { isBoomLegacyIntegrationAuthorized, isBoomLegacyIntegrationPath } from './runtime-http-boom-legacy.ts';
@@ -32,23 +37,28 @@ const MAX_JSON_BODY_BYTES: any = 1024 * 1024;
 const OWNER_ACTION_NONCE_TTL_MS: any = 10 * 60 * 1000;
 export function createAjunHttpHandler({ environment, publicDir, dataDir, detailBaseUrl, development = {}, network, paperclip, work, connections, localAi, feishu, m5, runtimeRelease, }: any): any {
     const { deploymentMode, lanEnabled, lanAccess, } = network;
-    const { tasks, store, proposals, missions, macWorker, xiaod, boomMonitor, boomMonitorEnabled, taskTimeline, productMaturity, } = work;
+    const { tasks, store, proposals, missions, macWorker, xiaod, boomMonitor, boomMonitorEnabled, boomMonitorAutoScheduleEnabled, taskTimeline, productMaturity, } = work;
     const { employeeFeishuConnections, employeeModelSetup, modelPolicy, accessConnections, publicWebFetch, } = connections;
     const { commander, officialFeishuChannel, hermesNativeCompletionWatcher, resolveFeishuApproval, } = feishu;
     const { campaigns } = m5;
     const ownerActionSession: any = createOwnerActionSession();
     return async function ajunHttpHandler(request: any, response: any): Promise<any> {
         try {
-            if (request.method === 'GET' && request.url === '/api/dev/hot-reload') {
-                if (!development.hotReload?.enabled)
-                    return sendJson(response, 404, { error: '开发热更新未启用。' });
-                if (!isLocalAddress(request.socket.remoteAddress))
-                    return sendJson(response, 403, { error: '开发热更新只能在本机使用。' });
-                return sendJson(response, 200, {
-                    enabled: true,
-                    revision: development.hotReload.revision,
-                });
-            }
+            const healthResult: any = await routeRuntimeHealthApi({
+                request,
+                tasks,
+                optional:{ m5RuntimeEnabled:Boolean(productMaturity), boomMonitorEnabled:Boolean(boomMonitorEnabled), boomMonitorAutoScheduleEnabled:Boolean(boomMonitorAutoScheduleEnabled), productMaturityEnabled:Boolean(productMaturity) },
+            });
+            if (healthResult)
+                return sendJson(response, healthResult.status, healthResult.payload);
+            const ownerControlResult: any = await routeOwnerControlApi({
+                request, ownerActionSession, runtimeRelease, development,
+                local:isLocalAddress(request.socket.remoteAddress),
+                hasConsoleProof:hasRuntimeReleaseConsoleProof(request),
+                readBody:(): any => readJsonBody(request),
+            });
+            if (ownerControlResult)
+                return sendJson(response, ownerControlResult.status, ownerControlResult.payload);
             const paperclipResult: any = await routePaperclipHttp({
                 request,
                 paperclip,
@@ -86,61 +96,33 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 lanAccess.key = await rotateLanShareKey(path.join(dataDir, 'lan-share-key'), lanEnabled);
                 return sendJson(response, 200, { enabled: lanEnabled, addresses: lanEnabled ? lanAddresses() : [], accessKey: lanAccess.key });
             }
-            if (request.method === 'GET' && request.url === '/api/owner-action-session') {
-                if (!isLocalAddress(request.socket.remoteAddress))
-                    return sendJson(response, 403, { error: '本机动作会话只能由老板在这台设备上获取。' });
-                return sendJson(response, 200, ownerActionSession.issue());
-            }
-            if (request.method === 'GET' && request.url === '/api/runtime-release/status') {
-                if (!isLocalAddress(request.socket.remoteAddress))
-                    return sendJson(response, 403, { error: '版本管理只能由老板在本机查看。' });
-                if (!runtimeRelease)
-                    return sendJson(response, 503, { error: '发布助手尚未接入。' });
-                return sendJson(response, 200, { status:await runtimeRelease.status() });
-            }
-            const runtimeReleaseAction: any = request.url?.match(/^\/api\/runtime-release\/(check|publish|rollback)$/)?.[1];
-            if (request.method === 'POST' && runtimeReleaseAction) {
-                if (!isLocalAddress(request.socket.remoteAddress))
-                    return sendJson(response, 403, { error: '版本管理只能由老板在本机操作。' });
-                if (!String(request.headers['content-type'] || '').toLowerCase().startsWith('application/json'))
-                    return sendJson(response, 415, { error: '版本操作必须使用 application/json。' });
-                if (!hasRuntimeReleaseConsoleProof(request))
-                    return sendJson(response, 403, { error: '版本操作必须来自当前 A君 控制台。' });
-                if (!ownerActionSession.authorize(request.headers['x-ajun-owner-action']))
-                    return sendJson(response, 403, { error: '本机动作会话无效或已过期，请重新打开版本管理。' });
-                if (!runtimeRelease)
-                    return sendJson(response, 503, { error: '发布助手尚未接入。' });
-                return sendJson(response, 202, await runtimeRelease.action(runtimeReleaseAction, await readJsonBody(request)));
-            }
             const productMaturityResult: any = await routeProductMaturityApi({
                 request, service: productMaturity, local: isLocalAddress(request.socket.remoteAddress),
-                sameOrigin: hasSameOrigin(request),
+                sameOrigin: hasSameOriginRequest(request),
                 authorize: ownerActionSession.authorize(request.headers['x-ajun-owner-action']),
                 readBody: (): any => readJsonBody(request),
             });
             if (productMaturityResult)
                 return sendJson(response, productMaturityResult.status, productMaturityResult.payload);
-            const recoveryRequestMatch: any = request.url?.match(/^\/api\/tasks\/([0-9a-f-]+)\/recovery-actions\/(resume_approved_mission|use_confirmed_transcript_only|request_safe_recovery|request_read_only_diagnosis|retry_visual_analysis_after_recovery)$/i);
-            if (request.method === 'POST' && recoveryRequestMatch) {
-                if (!isLocalAddress(request.socket.remoteAddress))
-                    return sendJson(response, 403, { error: '任务恢复只能由老板在本机发起。' });
-                if (!String(request.headers['content-type'] || '').toLowerCase().startsWith('application/json')) {
-                    return sendJson(response, 415, { error: '任务恢复请求必须使用 application/json。' });
-                }
-                if (!hasSameOrigin(request))
-                    return sendJson(response, 403, { error: '任务恢复请求必须来自当前 A君 控制台。' });
-                if (!ownerActionSession.authorize(request.headers['x-ajun-owner-action'])) {
-                    return sendJson(response, 403, { error: '本机动作会话无效或已过期，请刷新任务详情后重试。' });
-                }
-                const input: any = await readJsonBody(request);
-                const requestId: any = String(request.headers['idempotency-key'] || '').trim();
-                const result: any = await tasks.requestRecovery(recoveryRequestMatch[1], {
-                    actionKey: recoveryRequestMatch[2],
-                    expectedUpdatedAt: input.expectedUpdatedAt,
-                    requestId,
-                }, { kind: 'local-owner', ref: 'A君' });
-                return sendJson(response, result.status === 'accepted' ? 202 : 200, result);
-            }
+            const workflowAcceptanceResult: any = await routeWorkflowAcceptanceApi({
+                request,
+                tasks,
+                local:isLocalAddress(request.socket.remoteAddress),
+                sameOrigin:hasSameOriginRequest(request),
+                authorize:ownerActionSession.authorize(request.headers['x-ajun-owner-action']),
+                readBody:(): any => readJsonBody(request),
+            });
+            if (workflowAcceptanceResult)
+                return sendJson(response, workflowAcceptanceResult.status, workflowAcceptanceResult.payload);
+            const recoveryResult: any = await routeTaskRecoveryApi({
+                request, tasks,
+                local:isLocalAddress(request.socket.remoteAddress),
+                sameOrigin:hasSameOriginRequest(request),
+                authorize:ownerActionSession.authorize(request.headers['x-ajun-owner-action']),
+                readBody:(): any => readJsonBody(request),
+            });
+            if (recoveryResult)
+                return sendJson(response, recoveryResult.status, recoveryResult.payload);
             if (request.url?.startsWith('/api/')
                 && !isBoomLegacyIntegrationPath(request.url)
                 && !canAccessApi(request, lanAccess))
@@ -185,29 +167,12 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                     filters: taskTimelineUrl.searchParams.getAll('filter'),
                 }));
             }
-            if (request.method === 'GET' && request.url === '/api/local-ai/control') {
-                if (!isLocalAddress(request.socket.remoteAddress))
-                    return sendJson(response, 403, { error: 'AI 能力控制只能由老板在本机查看。' });
-                if (!localAi)
-                    return sendJson(response, 503, { error: '本机 AI 控制入口尚未接入。' });
-                return sendJson(response, 200, await localAi.controlOverview());
-            }
-            const localAiActionMatch: any = request.url?.match(/^\/api\/local-ai\/services\/([a-z0-9-]+)\/(start|stop|restart|reconnect)$/);
-            if (request.method === 'POST' && localAiActionMatch) {
-                if (!isLocalAddress(request.socket.remoteAddress))
-                    return sendJson(response, 403, { error: 'AI 服务只能由老板在本机控制。' });
-                if (!localAi)
-                    return sendJson(response, 503, { error: '本机 AI 控制入口尚未接入。' });
-                return sendJson(response, 200, await localAi.controlService(localAiActionMatch[1], localAiActionMatch[2]));
-            }
-            const localAiPolicyMatch: any = request.url?.match(/^\/api\/local-ai\/services\/([a-z0-9-]+)\/policy$/);
-            if (request.method === 'PUT' && localAiPolicyMatch) {
-                if (!isLocalAddress(request.socket.remoteAddress))
-                    return sendJson(response, 403, { error: 'AI 服务策略只能由老板在本机修改。' });
-                if (!localAi)
-                    return sendJson(response, 503, { error: '本机 AI 控制入口尚未接入。' });
-                return sendJson(response, 200, await localAi.updateServicePolicy(localAiPolicyMatch[1], await readJsonBody(request)));
-            }
+            const localAiResult: any = await routeLocalAiApi({
+                request, localAi, local:isLocalAddress(request.socket.remoteAddress),
+                readBody:(): any => readJsonBody(request),
+            });
+            if (localAiResult)
+                return sendJson(response, localAiResult.status, localAiResult.payload);
             const taskDetailMatch: any = request.url?.match(/^\/api\/tasks\/([0-9a-f-]{36})$/i);
             if (request.method === 'GET' && taskDetailMatch) {
                 const audience: any = isLocalAddress(request.socket.remoteAddress) ? 'local-owner' : 'lan';
@@ -220,7 +185,7 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
             if (request.method === 'GET' && transcriptRevisionMatch) {
                 if (!isLocalAddress(request.socket.remoteAddress))
                     return sendJson(response, 403, { error: '任务字幕只能由老板在本机查看。' });
-                if (!hasSameOrigin(request))
+                if (!hasSameOriginRequest(request))
                     return sendJson(response, 403, { error: '字幕读取请求必须来自当前 A君 控制台。' });
                 if (!ownerActionSession.authorize(request.headers['x-ajun-owner-action'])) {
                     return sendJson(response, 403, { error: '本机动作会话无效或已过期，请刷新任务详情后重试。' });
@@ -234,7 +199,7 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 if (!String(request.headers['content-type'] || '').toLowerCase().startsWith('application/json')) {
                     return sendJson(response, 415, { error: '字幕补正请求必须使用 application/json。' });
                 }
-                if (!hasSameOrigin(request))
+                if (!hasSameOriginRequest(request))
                     return sendJson(response, 403, { error: '字幕补正请求必须来自当前 A君 控制台。' });
                 if (!ownerActionSession.authorize(request.headers['x-ajun-owner-action'])) {
                     return sendJson(response, 403, { error: '本机动作会话无效或已过期，请刷新任务详情后重试。' });
@@ -641,6 +606,8 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 return sendFile(response, publicDir, 'billing-entry-filter.js', 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && publicPath === '/billing-ledger-workbench.js')
                 return sendFile(response, publicDir, 'billing-ledger-workbench.js', 'text/javascript; charset=utf-8');
+            if (request.method === 'GET' && (publicPath === '/billing-usage-cache.js' || publicPath === '/console-labels.js'))
+                return sendFile(response, publicDir, publicPath.slice(1), 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && publicPath === '/console-navigation.js')
                 return sendFile(response, publicDir, 'console-navigation.js', 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && publicPath === '/disclosure-state.js')
@@ -696,16 +663,8 @@ export function createOwnerActionSession({ clock = (): any => Date.now(), ttlMs 
     }
     return Object.freeze({ issue, authorize });
 }
-function hasSameOrigin(request: any): any {
-    const origin: any = String(request.headers.origin || '').trim();
-    const host: any = String(request.headers.host || '').trim();
-    if (!origin || !host)
-        return false;
-    const scheme: any = request.socket.encrypted ? 'https' : 'http';
-    return origin === `${scheme}://${host}`;
-}
 function hasRuntimeReleaseConsoleProof(request: any): any {
-    if (hasSameOrigin(request))
+    if (hasSameOriginRequest(request))
         return true;
     const consoleOrigin: any = String(request.headers['x-ajun-console-origin'] || '').trim();
     const host: any = String(request.headers.host || '').trim();
@@ -758,7 +717,7 @@ function sendJson(response: any, status: any, data: any): any {
 function errorStatus(error: any): any {
     if (Number.isInteger(error?.httpStatus) && error.httpStatus >= 400 && error.httpStatus <= 599)
         return error.httpStatus;
-    return error instanceof ValidationError
+    return workflowAcceptanceErrorStatus(error) || (error instanceof ValidationError
         || error instanceof ProposalValidationError
         || error instanceof PublicWebFetchError
         || error instanceof FeishuCommanderValidationError
@@ -777,5 +736,5 @@ function errorStatus(error: any): any {
         || error?.isM5ToolExecutionError === true
         || error?.code === 'worker_lease_mismatch'
         ? 422
-        : 500;
+        : 500);
 }
