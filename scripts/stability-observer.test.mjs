@@ -11,6 +11,7 @@ import {
   backupStateDatabases,
   buildPublicRunResult,
   buildRuntimeReliabilitySnapshot,
+  calculateObservationDurationProgress,
   calculateObservedDurationMs,
   collectFileSnapshot,
   collectHermesProfileSnapshots,
@@ -535,6 +536,37 @@ test('累计观察时长会先排序去重，大 gap 按 interval 截断且乱�
     intervalSeconds:30,
   });
   assert.equal(observedMs, 120_000);
+});
+
+test('跨数小时墙钟 gap 不会提前完成，只有有效观测累计满才完成', () => {
+  const options = {
+    startedAt:'2026-08-17T00:00:00.000Z',
+    intervalSeconds:30,
+    durationSeconds:90,
+  };
+  const afterWallClockGap = calculateObservationDurationProgress([
+    { observedAt:'2026-08-17T05:00:00.000Z' },
+  ], options);
+  assert.equal(afterWallClockGap.effectiveObservedMs, 30_000);
+  assert.equal(afterWallClockGap.remainingDurationMs, 60_000);
+  assert.equal(afterWallClockGap.complete, false);
+
+  const stillIncomplete = calculateObservationDurationProgress([
+    { observedAt:'2026-08-17T05:00:00.000Z' },
+    { observedAt:'2026-08-17T05:00:30.000Z' },
+  ], options);
+  assert.equal(stillIncomplete.effectiveObservedMs, 60_000);
+  assert.equal(stillIncomplete.remainingDurationMs, 30_000);
+  assert.equal(stillIncomplete.complete, false);
+
+  const complete = calculateObservationDurationProgress([
+    { observedAt:'2026-08-17T05:00:00.000Z' },
+    { observedAt:'2026-08-17T05:00:30.000Z' },
+    { observedAt:'2026-08-17T05:01:00.000Z' },
+  ], options);
+  assert.equal(complete.effectiveObservedMs, 90_000);
+  assert.equal(complete.remainingDurationMs, 0);
+  assert.equal(complete.complete, true);
 });
 
 test('cost CLI 只把 referenceSha256 落到 ledger，不保存原始 reference', async (context) => {

@@ -397,6 +397,21 @@ export function calculateObservedDurationMs(observations, {
   return totalMs;
 }
 
+export function calculateObservationDurationProgress(observations, {
+  startedAt = null,
+  intervalSeconds,
+  durationSeconds,
+} = {}) {
+  const targetDurationSeconds = positiveInteger(durationSeconds, 72 * 60 * 60, 'duration-seconds');
+  const effectiveObservedMs = calculateObservedDurationMs(observations, { startedAt, intervalSeconds });
+  const targetDurationMs = targetDurationSeconds * 1_000;
+  return Object.freeze({
+    effectiveObservedMs,
+    remainingDurationMs:Math.max(0, targetDurationMs - effectiveObservedMs),
+    complete:effectiveObservedMs >= targetDurationMs,
+  });
+}
+
 export async function acquireObserveLock(runDirectory) {
   const lockPath = path.join(runDirectory, 'observe.lock');
   let handle;
@@ -461,11 +476,12 @@ export async function prepareObserveRunState({
   const resumeCount = existingManifest
     ? (existingManifest.resumeCount ?? 0) + (resume ? 1 : 0)
     : 0;
-  const effectiveObservedMs = calculateObservedDurationMs(observations, {
+  const durationProgress = calculateObservationDurationProgress(observations, {
     startedAt,
     intervalSeconds:normalizedIntervalSeconds,
+    durationSeconds:normalizedDurationSeconds,
   });
-  const remainingDurationMs = Math.max(0, normalizedDurationSeconds * 1_000 - effectiveObservedMs);
+  const { effectiveObservedMs, remainingDurationMs } = durationProgress;
   const manifest = Object.freeze({
     schemaVersion:'agent.army/stability-run/v1',
     runId,
@@ -506,10 +522,11 @@ export async function summarizeRunDirectory(runDirectory) {
   const observationPath = path.join(runDirectory, 'observations.jsonl');
   const observations = await readObservationRecords(observationPath);
   const summary = await summarizeObservationFile(observationPath);
-  const effectiveObservedMs = manifest
-    ? calculateObservedDurationMs(observations, {
+  const durationProgress = manifest
+    ? calculateObservationDurationProgress(observations, {
       startedAt:manifest.startedAt,
       intervalSeconds:manifest.intervalSeconds,
+      durationSeconds:manifest.durationSeconds,
     })
     : null;
   return Object.freeze({
@@ -530,10 +547,12 @@ export async function summarizeRunDirectory(runDirectory) {
       requiresExternalConfirmation:manifest.requiresExternalConfirmation === true,
       resumeCount:manifest.resumeCount ?? 0,
       expected:manifest.expected || null,
-      effectiveObservedSeconds:effectiveObservedMs === null ? null : roundMillis(effectiveObservedMs / 1_000),
-      remainingDurationSeconds:effectiveObservedMs === null || manifest.durationSeconds === undefined
+      effectiveObservedSeconds:durationProgress === null
         ? null
-        : roundMillis(Math.max(0, manifest.durationSeconds - (effectiveObservedMs / 1_000))),
+        : roundMillis(durationProgress.effectiveObservedMs / 1_000),
+      remainingDurationSeconds:durationProgress === null || manifest.durationSeconds === undefined
+        ? null
+        : roundMillis(durationProgress.remainingDurationMs / 1_000),
     }) : null,
   });
 }
@@ -1145,8 +1164,9 @@ async function observeCommand({ root, runId, acceptanceRoot, options }) {
       expected,
       resume,
     });
-    const { manifest, manifestPath, observationPath, remainingDurationMs } = state;
+    const { manifest, manifestPath, observationPath } = state;
     await writePrivateJson(manifestPath, manifest);
+    const observations = [...state.observations];
     let stopRequested = false;
     let wakeIntervalWait = null;
     const requestStop = () => {
@@ -1169,18 +1189,29 @@ async function observeCommand({ root, runId, acceptanceRoot, options }) {
     process.once('SIGINT', requestStop);
     process.once('SIGTERM', requestStop);
     try {
-      const deadline = Date.now() + remainingDurationMs;
       let identityFailure = null;
-      if (remainingDurationMs > 0) {
+      let durationProgress = calculateObservationDurationProgress(observations, {
+        startedAt:manifest.startedAt,
+        intervalSeconds:manifest.intervalSeconds,
+        durationSeconds:manifest.durationSeconds,
+      });
+      if (!durationProgress.complete) {
         do {
           const observation = await collectObservation({ root });
           const identityGate = evaluateIdentityGate(observation, manifest.expected);
-          await appendPrivateJsonLine(observationPath, { ...observation, identityGate });
+          const observationWithGate = { ...observation, identityGate };
+          await appendPrivateJsonLine(observationPath, observationWithGate);
+          observations.push(observationWithGate);
           if (!identityGate.passed) {
             identityFailure = identityGate;
             break;
           }
-          if (Date.now() >= deadline || stopRequested) break;
+          durationProgress = calculateObservationDurationProgress(observations, {
+            startedAt:manifest.startedAt,
+            intervalSeconds:manifest.intervalSeconds,
+            durationSeconds:manifest.durationSeconds,
+          });
+          if (durationProgress.complete || stopRequested) break;
           await waitForNextInterval();
         } while (!stopRequested);
       } else {
