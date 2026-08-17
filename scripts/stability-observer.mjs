@@ -46,6 +46,9 @@ const RSS_GROWTH_RATIO_THRESHOLD = 1.25;
 const RUNTIME_RELIABILITY_SNAPSHOT_FILE = 'runtime-reliability.json';
 const LONG_SOAK_DURATION_SECONDS = 72 * 60 * 60;
 const AJUN_IDLE_CPU_P95_PERCENT_THRESHOLD = 5;
+const AJUN_CPU_METRIC_VERSION = 'agent.army/ajun-cpu-interval-percent/v2';
+const AJUN_CPU_MIN_INTERVAL_SAMPLE_COUNT = 5;
+const AJUN_CPU_INTERVAL_COVERAGE_THRESHOLD = 0.995;
 const RELIABILITY_ENDPOINT_P95_MS = Object.freeze({
   'ajun-health':300,
   'ajun-console-overview':1_000,
@@ -240,7 +243,11 @@ export async function summarizeObservationFile(filePath) {
   const ajunProcesses = observations.map((observation) => observation.processes?.ajun).filter(Boolean);
   const rssValues = ajunProcesses.map((sample) => sample.rssBytes).filter(Number.isFinite);
   const openFdValues = ajunProcesses.map((sample) => sample.openFileDescriptorCount).filter(Number.isFinite);
-  const cpuValues = ajunProcesses.map((sample) => sample.cpuPercent).filter(Number.isFinite).sort((a, b) => a - b);
+  const cpuDiagnosticValues = ajunProcesses
+    .map((sample) => sample.cpuPercent)
+    .filter(Number.isFinite)
+    .sort((a, b) => a - b);
+  const cpuIntervals = summarizeCpuTimeIntervals(observations);
   const requiredEndpointSuccessRate = requiredSamples.length ? roundRatio(requiredSuccess / requiredSamples.length) : null;
   const rssTrend = summarizeResourceTrend(rssValues);
   const openFdTrend = summarizeResourceTrend(openFdValues);
@@ -259,7 +266,14 @@ export async function summarizeObservationFile(filePath) {
     }),
     endpoints:summarizeEndpointSamples(endpointSamples),
     ajun:Object.freeze({
-      cpuP95Percent:percentile(cpuValues, 0.95),
+      cpuMetricVersion:AJUN_CPU_METRIC_VERSION,
+      cpuExpectedAdjacentIntervalCount:cpuIntervals.expectedAdjacentIntervalCount,
+      cpuValidIntervalCount:cpuIntervals.validIntervalCount,
+      cpuIntervalCoverageRatio:cpuIntervals.coverageRatio,
+      cpuIntervalSampleCount:cpuIntervals.sampleCount,
+      cpuP95Percent:cpuIntervals.p95Percent,
+      cpuGate:Object.freeze(evaluateCpuGate(cpuIntervals)),
+      cpuPercentDiagnosticP95:percentile(cpuDiagnosticValues, 0.95),
       initialRssBytes:rssTrend.initialValue,
       finalRssBytes:rssTrend.finalValue,
       maxRssBytes:rssTrend.maxValue,
@@ -272,6 +286,56 @@ export async function summarizeObservationFile(filePath) {
       finalToInitialOpenFileDescriptorRatio:openFdTrend.finalToInitialRatio,
       monotonicallyGrowingOpenFileDescriptorCount:openFdTrend.monotonicallyGrowing,
     }),
+  });
+}
+
+/**
+ * Derive single-core-equivalent CPU percentages from cumulative process CPU time.
+ * Only adjacent v2 samples for the same PID are comparable. Legacy samples, PID
+ * transitions, invalid wall-clock deltas and counter regressions are boundaries,
+ * never values that may be blended into the percentile.
+ */
+export function summarizeCpuTimeIntervals(observations = []) {
+  const intervalCpuPercents = [];
+  for (let index = 1; index < observations.length; index += 1) {
+    const previousObservation = observations[index - 1];
+    const currentObservation = observations[index];
+    const previous = previousObservation?.processes?.ajun;
+    const current = currentObservation?.processes?.ajun;
+    if (
+      previous?.cpuTimeMetricVersion !== AJUN_CPU_METRIC_VERSION
+      || current?.cpuTimeMetricVersion !== AJUN_CPU_METRIC_VERSION
+    ) continue;
+    const previousPid = Number(previous.pid);
+    const currentPid = Number(current.pid);
+    if (!Number.isSafeInteger(previousPid) || previousPid <= 0 || currentPid !== previousPid) continue;
+    const previousCpuSeconds = previous.cpuTimeSeconds;
+    const currentCpuSeconds = current.cpuTimeSeconds;
+    if (!Number.isFinite(previousCpuSeconds) || !Number.isFinite(currentCpuSeconds)) continue;
+    const cpuDeltaSeconds = currentCpuSeconds - previousCpuSeconds;
+    if (cpuDeltaSeconds < 0) continue;
+    const previousObservedMs = Date.parse(previousObservation?.observedAt || '');
+    const currentObservedMs = Date.parse(currentObservation?.observedAt || '');
+    const wallDeltaSeconds = (currentObservedMs - previousObservedMs) / 1_000;
+    if (!Number.isFinite(wallDeltaSeconds) || wallDeltaSeconds <= 0) continue;
+    const intervalCpuPercent = (cpuDeltaSeconds / wallDeltaSeconds) * 100;
+    if (Number.isFinite(intervalCpuPercent) && intervalCpuPercent >= 0) {
+      intervalCpuPercents.push(intervalCpuPercent);
+    }
+  }
+  intervalCpuPercents.sort((left, right) => left - right);
+  const expectedAdjacentIntervalCount = Math.max(0, observations.length - 1);
+  const validIntervalCount = intervalCpuPercents.length;
+  return Object.freeze({
+    metricVersion:AJUN_CPU_METRIC_VERSION,
+    expectedAdjacentIntervalCount,
+    validIntervalCount,
+    coverageRatio:expectedAdjacentIntervalCount > 0
+      ? roundRatio(validIntervalCount / expectedAdjacentIntervalCount)
+      : null,
+    sampleCount:validIntervalCount,
+    p95Percent:percentile(intervalCpuPercents, 0.95),
+    intervalCpuPercents:Object.freeze(intervalCpuPercents.map(roundMillis)),
   });
 }
 
@@ -384,6 +448,13 @@ export async function prepareObserveRunState({
   )) {
     throw new Error('resume 的身份期望值必须与既有 soak-manifest.json 一致。');
   }
+  if (
+    resume
+    && observationCount > 0
+    && existingManifest?.cpuMetric?.version !== AJUN_CPU_METRIC_VERSION
+  ) {
+    throw new Error('旧 run 不具备 CPU metric v2 契约，不能与 v2 样本混跑；请创建新 run。');
+  }
   const startedAt = existingManifest?.startedAt || now().toISOString();
   const normalizedDurationSeconds = existingManifest?.durationSeconds ?? durationSeconds;
   const normalizedIntervalSeconds = existingManifest?.intervalSeconds ?? intervalSeconds;
@@ -402,7 +473,15 @@ export async function prepareObserveRunState({
     startedAt,
     durationSeconds:normalizedDurationSeconds,
     intervalSeconds:normalizedIntervalSeconds,
-    resourceSamplingCadenceNote:'当前 30 秒采样比 1 分钟更密，暂保留 30 秒并仅在 summary 输出 CPU P95。',
+    resourceSamplingCadenceNote:'当前 30 秒采样比 1 分钟更密；CPU P95 使用相邻同 PID 累计 CPU 时间差计算。',
+    cpuMetric:Object.freeze({
+      version:AJUN_CPU_METRIC_VERSION,
+      source:'macos_ps_time',
+      aggregation:'adjacent_same_pid_cpu_time_delta_over_observed_time_delta_percent',
+      percentile:'nearest_rank_p95',
+      minimumIntervalSampleCount:AJUN_CPU_MIN_INTERVAL_SAMPLE_COUNT,
+      minimumIntervalCoverageRatio:AJUN_CPU_INTERVAL_COVERAGE_THRESHOLD,
+    }),
     manualResearchProbeMilestones:[24, 48, 72],
     requiresExternalConfirmation:true,
     expected:existingManifest?.expected || expected,
@@ -442,6 +521,9 @@ export async function summarizeRunDirectory(runDirectory) {
       durationSeconds:manifest.durationSeconds ?? null,
       intervalSeconds:manifest.intervalSeconds ?? null,
       resourceSamplingCadenceNote:manifest.resourceSamplingCadenceNote || null,
+      cpuMetric:manifest.cpuMetric?.version === AJUN_CPU_METRIC_VERSION
+        ? Object.freeze({ ...manifest.cpuMetric })
+        : null,
       manualResearchProbeMilestones:Array.isArray(manifest.manualResearchProbeMilestones)
         ? Object.freeze([...manifest.manualResearchProbeMilestones])
         : null,
@@ -474,7 +556,25 @@ export function buildRuntimeReliabilitySnapshot(summary = {}) {
   const durationSeconds = Number(summary?.run?.durationSeconds);
   const isLongSoak = Number.isFinite(durationSeconds) && durationSeconds >= LONG_SOAK_DURATION_SECONDS;
   const cpuP95Percent = summary?.ajun?.cpuP95Percent;
-  const longSoakCpuP95 = completion !== 'passed' || !Number.isFinite(cpuP95Percent)
+  const cpuMetricVersion = summary?.ajun?.cpuMetricVersion;
+  const runCpuMetricVersion = summary?.run?.cpuMetric?.version;
+  const cpuExpectedAdjacentIntervalCount = summary?.ajun?.cpuExpectedAdjacentIntervalCount;
+  const cpuValidIntervalCount = summary?.ajun?.cpuValidIntervalCount;
+  const cpuCoverageRatio = Number.isSafeInteger(cpuExpectedAdjacentIntervalCount)
+    && cpuExpectedAdjacentIntervalCount > 0
+    && Number.isSafeInteger(cpuValidIntervalCount)
+    && cpuValidIntervalCount >= 0
+    && cpuValidIntervalCount <= cpuExpectedAdjacentIntervalCount
+    ? cpuValidIntervalCount / cpuExpectedAdjacentIntervalCount
+    : null;
+  const longSoakCpuP95 = completion !== 'passed'
+    || runCpuMetricVersion !== AJUN_CPU_METRIC_VERSION
+    || cpuMetricVersion !== AJUN_CPU_METRIC_VERSION
+    || !Number.isSafeInteger(cpuValidIntervalCount)
+    || cpuValidIntervalCount < AJUN_CPU_MIN_INTERVAL_SAMPLE_COUNT
+    || !Number.isFinite(cpuCoverageRatio)
+    || cpuCoverageRatio < AJUN_CPU_INTERVAL_COVERAGE_THRESHOLD
+    || !Number.isFinite(cpuP95Percent)
     ? 'unknown'
     : cpuP95Percent <= AJUN_IDLE_CPU_P95_PERCENT_THRESHOLD ? 'passed' : 'failed';
   const gates = {
@@ -741,23 +841,52 @@ function metadataSha256(value) {
   return crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
+/** Parse macOS ps `time=` values: MM:SS, HH:MM:SS, or DD-HH:MM:SS. */
+export function parsePsCpuTime(value) {
+  const text = String(value ?? '').trim();
+  const match = text.match(/^(?:(\d+)-)?(\d+):(\d{2})(?::(\d{2}))?(\.\d+)?$/);
+  if (!match) return null;
+  const days = match[1] === undefined ? 0 : Number(match[1]);
+  const first = Number(match[2]);
+  const second = Number(match[3]);
+  const hasHours = match[4] !== undefined;
+  const third = hasHours ? Number(match[4]) : 0;
+  const fraction = match[5] ? Number(match[5]) : 0;
+  if (![days, first, second, third].every(Number.isSafeInteger) || !Number.isFinite(fraction)) return null;
+  if (days > 0 && !hasHours) return null;
+  if (hasHours && second >= 60) return null;
+  if (hasHours && days > 0 && first >= 24) return null;
+  const seconds = hasHours
+    ? (((days * 24) + first) * 60 * 60) + (second * 60) + third + fraction
+    : (first * 60) + second + fraction;
+  if (
+    (hasHours ? third : second) >= 60
+    || !Number.isFinite(seconds)
+    || seconds < 0
+    || seconds > Number.MAX_SAFE_INTEGER
+  ) return null;
+  return seconds;
+}
+
 async function sampleProcesses(services) {
   const entries = await Promise.all(Object.entries(services).map(async ([name, service]) => {
     const pid = Number(service?.pid);
     if (!Number.isSafeInteger(pid) || pid <= 0) return [name, null];
     try {
       const [{ stdout:psOutput }, { stdout:lsofOutput }] = await Promise.all([
-        execFileAsync('ps', ['-p', String(pid), '-o', 'pid=,pcpu=,rss=,etime='], { encoding:'utf8' }),
+        execFileAsync('ps', ['-p', String(pid), '-o', 'pid=,pcpu=,rss=,time=,etime='], { encoding:'utf8' }),
         execFileAsync('lsof', ['-p', String(pid), '-Fn'], { encoding:'utf8', maxBuffer:8 * 1024 * 1024 }),
       ]);
-      const match = psOutput.trim().match(/^(\d+)\s+([0-9.]+)\s+(\d+)\s+(.+)$/);
+      const match = psOutput.trim().match(/^(\d+)\s+([0-9.]+)\s+(\d+)\s+(\S+)\s+(.+)$/);
       if (!match) return [name, Object.freeze({ pid, status:'unparsed' })];
       return [name, Object.freeze({
         pid,
         status:'observed',
         cpuPercent:Number(match[2]),
         rssBytes:Number(match[3]) * 1024,
-        elapsed:String(match[4]).trim(),
+        cpuTimeSeconds:parsePsCpuTime(match[4]),
+        cpuTimeMetricVersion:AJUN_CPU_METRIC_VERSION,
+        elapsed:String(match[5]).trim(),
         openFileDescriptorCount:lsofOutput.split(/\r?\n/).filter((line) => line.startsWith('f')).length,
       })];
     } catch {
@@ -813,6 +942,53 @@ function describeObservationWindow(durationSeconds) {
   if (seconds % 3600 === 0) return `${seconds / 3600}小时`;
   if (seconds % 60 === 0) return `${seconds / 60}分钟`;
   return `${roundMillis(seconds)} 秒`;
+}
+
+function evaluateCpuGate(intervalSummary) {
+  const expectedAdjacentIntervalCount = intervalSummary?.expectedAdjacentIntervalCount;
+  const validIntervalCount = intervalSummary?.validIntervalCount;
+  const exactCoverageRatio = Number.isSafeInteger(expectedAdjacentIntervalCount)
+    && expectedAdjacentIntervalCount > 0
+    && Number.isSafeInteger(validIntervalCount)
+    && validIntervalCount >= 0
+    && validIntervalCount <= expectedAdjacentIntervalCount
+    ? validIntervalCount / expectedAdjacentIntervalCount
+    : null;
+  const coverageSufficient = Number.isFinite(exactCoverageRatio)
+    && exactCoverageRatio >= AJUN_CPU_INTERVAL_COVERAGE_THRESHOLD;
+  if (
+    intervalSummary?.metricVersion !== AJUN_CPU_METRIC_VERSION
+    || (intervalSummary?.sampleCount || 0) < AJUN_CPU_MIN_INTERVAL_SAMPLE_COUNT
+    || !coverageSufficient
+    || !Number.isFinite(intervalSummary?.p95Percent)
+  ) {
+    return Object.freeze({
+      metricVersion:AJUN_CPU_METRIC_VERSION,
+      thresholdPercent:AJUN_IDLE_CPU_P95_PERCENT_THRESHOLD,
+      minimumIntervalSampleCount:AJUN_CPU_MIN_INTERVAL_SAMPLE_COUNT,
+      minimumIntervalCoverageRatio:AJUN_CPU_INTERVAL_COVERAGE_THRESHOLD,
+      expectedAdjacentIntervalCount:intervalSummary?.expectedAdjacentIntervalCount ?? null,
+      validIntervalCount:intervalSummary?.validIntervalCount ?? null,
+      coverageRatio:intervalSummary?.coverageRatio ?? null,
+      status:'unknown',
+      reason:(intervalSummary?.sampleCount || 0) < AJUN_CPU_MIN_INTERVAL_SAMPLE_COUNT
+        ? 'insufficient_v2_interval_samples'
+        : 'insufficient_v2_interval_coverage',
+    });
+  }
+  return Object.freeze({
+    metricVersion:AJUN_CPU_METRIC_VERSION,
+    thresholdPercent:AJUN_IDLE_CPU_P95_PERCENT_THRESHOLD,
+    minimumIntervalSampleCount:AJUN_CPU_MIN_INTERVAL_SAMPLE_COUNT,
+    minimumIntervalCoverageRatio:AJUN_CPU_INTERVAL_COVERAGE_THRESHOLD,
+    expectedAdjacentIntervalCount:intervalSummary.expectedAdjacentIntervalCount,
+    validIntervalCount:intervalSummary.validIntervalCount,
+    coverageRatio:intervalSummary.coverageRatio,
+    status:intervalSummary.p95Percent <= AJUN_IDLE_CPU_P95_PERCENT_THRESHOLD ? 'passed' : 'failed',
+    reason:intervalSummary.p95Percent <= AJUN_IDLE_CPU_P95_PERCENT_THRESHOLD
+      ? 'within_threshold'
+      : 'p95_above_threshold',
+  });
 }
 
 function evaluateRssGate(trend) {

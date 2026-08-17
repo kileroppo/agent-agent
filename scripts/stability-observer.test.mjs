@@ -18,6 +18,7 @@ import {
   evaluateBudget,
   evaluateIdentityGate,
   hashEvidenceReference,
+  parsePsCpuTime,
   parseBooleanOption,
   preparePrivateRunDirectory,
   prepareObserveRunState,
@@ -27,6 +28,7 @@ import {
   runEndpointLoad,
   summarizeRunDirectory,
   summarizeEndpointSamples,
+  summarizeCpuTimeIntervals,
   summarizeObservationFile,
   writeRuntimeReliabilitySnapshot,
 } from './stability-observer.mjs';
@@ -34,6 +36,7 @@ import {
 const scriptsDirectory = path.dirname(fileURLToPath(import.meta.url));
 const observerScriptPath = path.join(scriptsDirectory, 'stability-observer.mjs');
 const phase1ScriptPath = path.join(scriptsDirectory, 'run-stability-phase1.mjs');
+const CPU_METRIC_V2 = 'agent.army/ajun-cpu-interval-percent/v2';
 
 async function seedSoakRun(root, {
   runId = 'stability-seeded-run',
@@ -133,10 +136,22 @@ test('未完成 summarize 不降级覆盖同身份结论，但身份变化和新
       lastObservedAt:remainingDurationSeconds === 0
         ? '2026-08-17T01:00:00.000Z'
         : '2026-08-17T00:10:00.000Z',
-      run:{ durationSeconds:259_200, remainingDurationSeconds, expected:identity },
+      run:{
+        durationSeconds:259_200,
+        remainingDurationSeconds,
+        expected:identity,
+        cpuMetric:{ version:CPU_METRIC_V2 },
+      },
       identityGate:{ status:'passed' },
       requiredEndpointAvailabilityGate:{ status:'passed' },
-      ajun:{ cpuP95Percent:1, rssGate:{ status:'passed' } },
+      ajun:{
+        cpuMetricVersion:CPU_METRIC_V2,
+        cpuExpectedAdjacentIntervalCount:5,
+        cpuValidIntervalCount:5,
+        cpuIntervalSampleCount:5,
+        cpuP95Percent:1,
+        rssGate:{ status:'passed' },
+      },
       endpoints:{ 'ajun-health':{ p95Ms }, 'ajun-console-overview':{ p95Ms:600 } },
     })
   );
@@ -177,31 +192,117 @@ test('72 小时快照纳入 A君 CPU P95 门禁，未完成与样本缺失保持
     endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
   });
   const longPending = buildRuntimeReliabilitySnapshot({
-    run:{ durationSeconds:259_200, remainingDurationSeconds:258_000, expected:identity },
+    run:{
+      durationSeconds:259_200,
+      remainingDurationSeconds:258_000,
+      expected:identity,
+      cpuMetric:{ version:CPU_METRIC_V2 },
+    },
     identityGate:{ status:'passed' },
     requiredEndpointAvailabilityGate:{ status:'passed' },
-    ajun:{ cpuP95Percent:99, rssGate:{ status:'passed' } },
+    ajun:{
+      cpuMetricVersion:CPU_METRIC_V2,
+      cpuExpectedAdjacentIntervalCount:5,
+      cpuValidIntervalCount:5,
+      cpuIntervalSampleCount:5,
+      cpuP95Percent:99,
+      rssGate:{ status:'passed' },
+    },
     endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
   });
   const longHealthy = buildRuntimeReliabilitySnapshot({
-    run:{ durationSeconds:259_200, remainingDurationSeconds:0, expected:identity },
+    run:{
+      durationSeconds:259_200,
+      remainingDurationSeconds:0,
+      expected:identity,
+      cpuMetric:{ version:CPU_METRIC_V2 },
+    },
     identityGate:{ status:'passed' },
     requiredEndpointAvailabilityGate:{ status:'passed' },
-    ajun:{ cpuP95Percent:5, rssGate:{ status:'passed' } },
+    ajun:{
+      cpuMetricVersion:CPU_METRIC_V2,
+      cpuExpectedAdjacentIntervalCount:5,
+      cpuValidIntervalCount:5,
+      cpuIntervalSampleCount:5,
+      cpuP95Percent:5,
+      rssGate:{ status:'passed' },
+    },
     endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
   });
   const longCpuFailed = buildRuntimeReliabilitySnapshot({
-    run:{ durationSeconds:259_200, remainingDurationSeconds:0, expected:identity },
+    run:{
+      durationSeconds:259_200,
+      remainingDurationSeconds:0,
+      expected:identity,
+      cpuMetric:{ version:CPU_METRIC_V2 },
+    },
     identityGate:{ status:'passed' },
     requiredEndpointAvailabilityGate:{ status:'passed' },
-    ajun:{ cpuP95Percent:5.01, rssGate:{ status:'passed' } },
+    ajun:{
+      cpuMetricVersion:CPU_METRIC_V2,
+      cpuExpectedAdjacentIntervalCount:5,
+      cpuValidIntervalCount:5,
+      cpuIntervalSampleCount:5,
+      cpuP95Percent:5.01,
+      rssGate:{ status:'passed' },
+    },
     endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
   });
   const longCpuUnknown = buildRuntimeReliabilitySnapshot({
-    run:{ durationSeconds:259_200, remainingDurationSeconds:0, expected:identity },
+    run:{
+      durationSeconds:259_200,
+      remainingDurationSeconds:0,
+      expected:identity,
+      cpuMetric:{ version:CPU_METRIC_V2 },
+    },
     identityGate:{ status:'passed' },
     requiredEndpointAvailabilityGate:{ status:'passed' },
-    ajun:{ cpuP95Percent:null, rssGate:{ status:'passed' } },
+    ajun:{
+      cpuMetricVersion:CPU_METRIC_V2,
+      cpuExpectedAdjacentIntervalCount:5,
+      cpuValidIntervalCount:4,
+      cpuIntervalSampleCount:4,
+      cpuP95Percent:5,
+      rssGate:{ status:'passed' },
+    },
+    endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
+  });
+  const longLegacyManifest = buildRuntimeReliabilitySnapshot({
+    run:{
+      durationSeconds:259_200,
+      remainingDurationSeconds:0,
+      expected:identity,
+      cpuMetric:{ version:'legacy' },
+    },
+    identityGate:{ status:'passed' },
+    requiredEndpointAvailabilityGate:{ status:'passed' },
+    ajun:{
+      cpuMetricVersion:CPU_METRIC_V2,
+      cpuExpectedAdjacentIntervalCount:5,
+      cpuValidIntervalCount:5,
+      cpuIntervalSampleCount:5,
+      cpuP95Percent:1,
+      rssGate:{ status:'passed' },
+    },
+    endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
+  });
+  const longLowCoverage = buildRuntimeReliabilitySnapshot({
+    run:{
+      durationSeconds:259_200,
+      remainingDurationSeconds:0,
+      expected:identity,
+      cpuMetric:{ version:CPU_METRIC_V2 },
+    },
+    identityGate:{ status:'passed' },
+    requiredEndpointAvailabilityGate:{ status:'passed' },
+    ajun:{
+      cpuMetricVersion:CPU_METRIC_V2,
+      cpuExpectedAdjacentIntervalCount:100,
+      cpuValidIntervalCount:5,
+      cpuIntervalSampleCount:5,
+      cpuP95Percent:1,
+      rssGate:{ status:'passed' },
+    },
     endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
   });
 
@@ -218,6 +319,45 @@ test('72 小时快照纳入 A君 CPU P95 门禁，未完成与样本缺失保持
   assert.match(longCpuFailed.detail, /A君 CPU P95（阈值 5%）/);
   assert.equal(longCpuUnknown.status, 'unknown');
   assert.match(longCpuUnknown.detail, /尚不完整/);
+  assert.equal(longLegacyManifest.status, 'unknown');
+  assert.equal(longLowCoverage.status, 'unknown');
+});
+
+test('macOS ps 累计 CPU time 支持分钟、小时、天格式并拒绝歧义值', () => {
+  assert.equal(parsePsCpuTime('00:01.25'), 1.25);
+  assert.equal(parsePsCpuTime('12:34.50'), 754.5);
+  assert.equal(parsePsCpuTime('01:02:03.75'), 3_723.75);
+  assert.equal(parsePsCpuTime('2-03:04:05.50'), 183_845.5);
+  for (const invalid of ['', '1', '-1:00', '1:60', '1:60:00', '1-24:00:00', 'abc']) {
+    assert.equal(parsePsCpuTime(invalid), null);
+  }
+});
+
+test('CPU metric v2 只计算相邻同 PID 样本，并隔离旧样本、PID 漂移与负差', () => {
+  const observation = (observedAt, pid, cpuTimeSeconds, version = CPU_METRIC_V2) => ({
+    observedAt,
+    processes:{ ajun:{ pid, cpuTimeSeconds, cpuTimeMetricVersion:version, cpuPercent:99 } },
+  });
+  const summary = summarizeCpuTimeIntervals([
+    observation('2026-08-17T00:00:00.000Z', 10, 100),
+    observation('2026-08-17T00:00:10.000Z', 10, 100.1), // 1%
+    observation('2026-08-17T00:00:20.000Z', 11, 200), // PID boundary
+    observation('2026-08-17T00:00:30.000Z', 11, 201), // 10%
+    observation('2026-08-17T00:00:40.000Z', 11, 200), // counter regression
+    observation('2026-08-17T00:00:50.000Z', 11, 200.2), // 2%
+    observation('2026-08-17T00:01:00.000Z', 11, 200.3, 'legacy'), // legacy boundary
+    observation('2026-08-17T00:01:10.000Z', 11, 200.4), // cannot bridge legacy
+    observation('2026-08-17T00:01:20.000Z', 11, undefined), // missing counter boundary
+    observation('2026-08-17T00:01:30.000Z', 11, 200.5), // cannot bridge missing field
+    observation('invalid', 11, 200.6),
+  ]);
+  assert.equal(summary.metricVersion, CPU_METRIC_V2);
+  assert.deepEqual(summary.intervalCpuPercents, [1, 2, 10]);
+  assert.equal(summary.expectedAdjacentIntervalCount, 10);
+  assert.equal(summary.validIntervalCount, 3);
+  assert.equal(summary.coverageRatio, 0.3);
+  assert.equal(summary.sampleCount, 3);
+  assert.equal(summary.p95Percent, 10);
 });
 
 test('可靠性快照拒绝符号链接和非普通目标且不触碰链接外部文件', async (context) => {
@@ -502,6 +642,36 @@ test('resume 时身份期望值必须与既有 manifest 一致，否则直接拒
   }), /身份期望值必须与既有 soak-manifest\.json 一致/);
 });
 
+test('旧 run 缺少 CPU metric v2 契约时拒绝 resume，防止新旧样本混算', async (context) => {
+  const homeRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-observe-cpu-v1-'));
+  context.after(() => fsp.rm(homeRoot, { recursive:true, force:true }));
+  const runId = 'stability-observe-cpu-v1';
+  const expected = { gitHead:'a'.repeat(40), releaseHash:'b'.repeat(64) };
+  const runDirectory = await seedSoakRun(homeRoot, {
+    runId,
+    manifest:{
+      schemaVersion:'agent.army/stability-run/v1',
+      runId,
+      startedAt:'2026-08-17T00:00:00.000Z',
+      durationSeconds:259_200,
+      intervalSeconds:30,
+      expected,
+    },
+    observations:[{
+      observedAt:'2026-08-17T00:00:00.000Z',
+      processes:{ ajun:{ pid:10, cpuPercent:1 } },
+    }],
+  });
+  await assert.rejects(() => prepareObserveRunState({
+    runId,
+    runDirectory,
+    durationSeconds:259_200,
+    intervalSeconds:30,
+    expected,
+    resume:true,
+  }), /旧 run 不具备 CPU metric v2 契约/);
+});
+
 test('resume 会保留 startedAt、累加 resumeCount，并按整 run 汇总剩余时长', async (context) => {
   const homeRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-observe-resume-'));
   context.after(() => fsp.rm(homeRoot, { recursive:true, force:true }));
@@ -514,6 +684,7 @@ test('resume 会保留 startedAt、累加 resumeCount，并按整 run 汇总剩�
     durationSeconds:90,
     intervalSeconds:30,
     expected:{ gitHead:'a'.repeat(40), releaseHash:'b'.repeat(64) },
+    cpuMetric:{ version:CPU_METRIC_V2 },
     resumeCount:0,
     safety:{ readOnly:true, secretsRead:false, externalEffects:false, servicesMutated:false },
   };
@@ -534,6 +705,8 @@ test('resume 会保留 startedAt、累加 resumeCount，并按整 run 汇总剩�
   });
   assert.equal(prepared.manifest.startedAt, manifest.startedAt);
   assert.equal(prepared.manifest.resumeCount, 1);
+  assert.equal(prepared.manifest.cpuMetric.version, CPU_METRIC_V2);
+  assert.equal(prepared.manifest.cpuMetric.minimumIntervalCoverageRatio, 0.995);
   assert.equal(prepared.remainingDurationMs, 0);
   assert.equal((await readObservationRecords(path.join(runDirectory, 'observations.jsonl'))).length, 4);
 
@@ -568,7 +741,7 @@ test('resume 会保留 startedAt、累加 resumeCount，并按整 run 汇总剩�
   assert.doesNotMatch(stdout, /\/Users\/|runDirectory/);
 });
 
-test('旧 manifest 缺少 resumeCount 时，resume 仍兼容并从 1 开始累计', async (context) => {
+test('v2 manifest 缺少 resumeCount 时，resume 仍兼容并从 1 开始累计', async (context) => {
   const homeRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-observe-legacy-manifest-'));
   context.after(() => fsp.rm(homeRoot, { recursive:true, force:true }));
   const runId = 'stability-observe-legacy-manifest';
@@ -580,6 +753,7 @@ test('旧 manifest 缺少 resumeCount 时，resume 仍兼容并从 1 开始累�
     durationSeconds:60,
     intervalSeconds:30,
     expected:{ gitHead:'a'.repeat(40), releaseHash:'b'.repeat(64) },
+    cpuMetric:{ version:CPU_METRIC_V2 },
     safety:{ readOnly:true, secretsRead:false, externalEffects:false, servicesMutated:false },
   };
   const observations = [
@@ -728,6 +902,14 @@ test('72小时 JSONL 汇总可区分可用率、P95 和单调内存增长', asyn
   assert.equal(summary.requiredEndpointSuccessRate, 0.8);
   assert.equal(summary.requiredEndpointAvailabilityGate.status, 'failed');
   assert.equal(summary.endpoints.health.p95Ms, 14);
+  assert.equal(summary.ajun.cpuMetricVersion, CPU_METRIC_V2);
+  assert.equal(summary.ajun.cpuExpectedAdjacentIntervalCount, 4);
+  assert.equal(summary.ajun.cpuValidIntervalCount, 0);
+  assert.equal(summary.ajun.cpuIntervalCoverageRatio, 0);
+  assert.equal(summary.ajun.cpuIntervalSampleCount, 0);
+  assert.equal(summary.ajun.cpuP95Percent, null);
+  assert.equal(summary.ajun.cpuPercentDiagnosticP95, 4);
+  assert.equal(summary.ajun.cpuGate.status, 'unknown');
   assert.equal(summary.ajun.monotonicallyGrowingRss, true);
   assert.equal(summary.ajun.finalToInitialRssRatio, 1.04);
   assert.equal(summary.ajun.rssGate.status, 'failed');
@@ -737,6 +919,72 @@ test('72小时 JSONL 汇总可区分可用率、P95 和单调内存增长', asyn
   assert.equal(summary.ajun.maxOpenFileDescriptorCount, 24);
   assert.equal(summary.ajun.finalToInitialOpenFileDescriptorRatio, 1.2);
   assert.equal(summary.ajun.monotonicallyGrowingOpenFileDescriptorCount, true);
+});
+
+test('summary 的 CPU P95 使用 v2 区间值和 nearest-rank，不使用瞬时 cpuPercent', async (context) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-summary-cpu-v2-'));
+  context.after(() => fsp.rm(root, { recursive:true, force:true }));
+  const file = path.join(root, 'observations.jsonl');
+  const cumulativeCpuSeconds = [100, 101, 103, 106, 110, 115];
+  const lines = cumulativeCpuSeconds.map((cpuTimeSeconds, index) => JSON.stringify({
+    observedAt:new Date(Date.parse('2026-08-17T00:00:00.000Z') + (index * 100_000)).toISOString(),
+    endpoints:[],
+    processes:{ ajun:{
+      pid:42,
+      cpuTimeSeconds,
+      cpuTimeMetricVersion:CPU_METRIC_V2,
+      cpuPercent:99,
+      rssBytes:100 + index,
+    } },
+  }));
+  await fsp.writeFile(file, `${lines.join('\n')}\n`);
+  const summary = await summarizeObservationFile(file);
+  assert.equal(summary.ajun.cpuExpectedAdjacentIntervalCount, 5);
+  assert.equal(summary.ajun.cpuValidIntervalCount, 5);
+  assert.equal(summary.ajun.cpuIntervalCoverageRatio, 1);
+  assert.equal(summary.ajun.cpuIntervalSampleCount, 5);
+  assert.equal(summary.ajun.cpuP95Percent, 5);
+  assert.equal(summary.ajun.cpuPercentDiagnosticP95, 99);
+  assert.equal(summary.ajun.cpuGate.status, 'passed');
+});
+
+test('完整长测即使有 5 个有效 CPU 区间，覆盖率不足 99.5% 仍保持 unknown', async (context) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-summary-cpu-coverage-'));
+  context.after(() => fsp.rm(root, { recursive:true, force:true }));
+  const file = path.join(root, 'observations.jsonl');
+  const lines = Array.from({ length:101 }, (_, index) => JSON.stringify({
+    observedAt:new Date(Date.parse('2026-08-17T00:00:00.000Z') + (index * 30_000)).toISOString(),
+    endpoints:[],
+    processes:index <= 5 ? { ajun:{
+      pid:42,
+      cpuTimeSeconds:100 + (index * 0.3),
+      cpuTimeMetricVersion:CPU_METRIC_V2,
+      cpuPercent:1,
+      rssBytes:100,
+    } } : {},
+  }));
+  await fsp.writeFile(file, `${lines.join('\n')}\n`);
+  const summary = await summarizeObservationFile(file);
+  assert.equal(summary.ajun.cpuExpectedAdjacentIntervalCount, 100);
+  assert.equal(summary.ajun.cpuValidIntervalCount, 5);
+  assert.equal(summary.ajun.cpuIntervalCoverageRatio, 0.05);
+  assert.equal(summary.ajun.cpuGate.status, 'unknown');
+
+  const identity = { gitHead:'a'.repeat(40), releaseHash:'b'.repeat(64) };
+  const snapshot = buildRuntimeReliabilitySnapshot({
+    ...summary,
+    run:{
+      durationSeconds:259_200,
+      remainingDurationSeconds:0,
+      expected:identity,
+      cpuMetric:{ version:CPU_METRIC_V2 },
+    },
+    identityGate:{ status:'passed' },
+    requiredEndpointAvailabilityGate:{ status:'passed' },
+    ajun:{ ...summary.ajun, rssGate:{ status:'passed' } },
+    endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
+  });
+  assert.equal(snapshot.status, 'unknown');
 });
 
 test('summary 在高可用且 RSS 样本不足时分别给 passed 和 unknown', async (context) => {
