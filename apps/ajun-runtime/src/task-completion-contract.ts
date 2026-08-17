@@ -93,11 +93,21 @@ export function validateTaskCompletion(task: any, artifactRefs: any[] = task?.ar
       break;
     }
     case 'media.transcribe-and-refine': {
-      expectedArtifactTypes = ['xiaod_media_delivery'];
       const delivery = readableArtifact(artifacts, 'xiaod_media_delivery')?.data;
-      valid = Boolean(delivery?.larkUrl
-        && delivery.larkPermissionGranted === true
-        && delivery.currentTranscriptDelivered !== false);
+      if (delivery?.deliveryMode === 'local_only') {
+        expectedArtifactTypes = ['xiaod_media_delivery', 'confirmed_transcript'];
+        const transcript = readableArtifact(artifacts, 'confirmed_transcript');
+        valid = Boolean(delivery.currentTranscriptDelivered !== false
+          && transcript?.validation?.qualityGatePassed === true
+          && (transcript.validation.humanConfirmed === true
+            || transcript.validation.automaticConfirmed === true)
+          && Number(transcript.validation.transcriptVersion) > 0);
+      } else {
+        expectedArtifactTypes = ['xiaod_media_delivery'];
+        valid = Boolean(delivery?.larkUrl
+          && delivery.larkPermissionGranted === true
+          && delivery.currentTranscriptDelivered !== false);
+      }
       break;
     }
     default:

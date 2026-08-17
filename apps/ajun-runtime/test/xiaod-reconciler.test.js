@@ -41,6 +41,32 @@ test('central reconciler settles a persisted running task after restart', async 
   assert.equal(delivery.data.larkPermissionGranted, true);
 });
 
+test('本地交付在确认稿通过质量门禁后直接闭环', async () => {
+  const { task, reconciler } = setup({ getJob:async () => ({
+    id:'xiaod-1',
+    status:'completed',
+    title:'本地素材',
+    deliveryMode:'local_only',
+    output:{
+      deliveryMode:'local_only',
+      markdownPath:'/tmp/result.md',
+      confirmedTranscriptPath:'/tmp/confirmed.md',
+      confirmedTranscriptVersion:1,
+      confirmationMode:'automatic',
+      confirmationAttestationPath:'/tmp/attestation.json',
+      evidenceLevel:'timed_machine_transcript',
+    },
+    quality:{ passed:false },
+  }) });
+
+  await reconciler.reconcile();
+
+  assert.equal(task.status, 'succeeded');
+  const delivery = task.artifactRefs.find((artifact) => artifact.type === 'xiaod_media_delivery');
+  assert.equal(delivery.data.deliveryMode, 'local_only');
+  assert.equal(delivery.data.larkUrl, null);
+});
+
 test('小D异步成功先扣留为质量复核并交给 DeliveryQualityRuntime 创建复核', async () => {
   const continued = [];
   const deliveryQuality = {

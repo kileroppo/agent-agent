@@ -262,11 +262,14 @@ export function xiaodArtifactsFor(task: any, job: any, baseUrl: any): any {
     const createdAt: any = new Date().toISOString();
     const common: Record<string, any> = { taskId: task.taskId, accessScope: 'local-owner', createdAt };
     const larkRevisionStatus: any = String(job.output?.larkRevisionStatus || (job.output?.larkUrl ? 'current' : 'not_delivered'));
+    const deliveryMode: any = job.deliveryMode === 'local_only' || job.output?.deliveryMode === 'local_only'
+        ? 'local_only'
+        : 'lark';
     const artifacts: any[] = [
         { ...common, artifactId: `source-evidence:${job.id}`, type: 'source_evidence_record', title: `${job.title}｜来源证据`, location: `file://${job.output?.sourceEvidencePath}`, mimeType: 'application/json', validation: { exists: Boolean(job.output?.sourceEvidencePath), readable: true, nonEmpty: true } },
         { ...common, artifactId: `raw-transcript:${job.id}`, type: 'raw_asr_transcript', title: `${job.title}｜机器原始转录`, location: `file://${job.output?.rawTranscriptPath}`, mimeType: 'text/plain', checksum: job.output?.transcriptChecksum || null, validation: { exists: Boolean(job.output?.rawTranscriptPath), readable: true, nonEmpty: true, immutable: true } },
         { ...common, artifactId: `transcript-quality:${job.id}`, type: 'transcript_quality_report', title: `${job.title}｜转录质量报告`, location: `file://${job.output?.qualityReportPath}`, mimeType: 'application/json', validation: { exists: Boolean(job.output?.qualityReportPath), readable: true, nonEmpty: true } },
-        { ...common, artifactId: `xiaod-job:${job.id}`, type: 'xiaod_media_delivery', title: job.title, location: `${baseUrl}/api/jobs/${job.id}`, mimeType: 'application/json', validation: { exists: true, readable: true, nonEmpty: Boolean(job.output?.markdownPath), qualityPassed: Boolean(job.quality?.passed), currentTranscriptDelivered: larkRevisionStatus !== 'stale' }, data: { larkUrl: typeof job.output?.larkUrl === 'string' ? job.output.larkUrl : null, larkPermissionGranted: job.output?.larkPermissionGranted === true, larkRevisionStatus, currentTranscriptDelivered: larkRevisionStatus !== 'stale', transcriptVersion: Number(job.output?.confirmedTranscriptVersion) || null } }
+        { ...common, artifactId: `xiaod-job:${job.id}`, type: 'xiaod_media_delivery', title: job.title, location: `${baseUrl}/api/jobs/${job.id}`, mimeType: 'application/json', validation: { exists: true, readable: true, nonEmpty: Boolean(job.output?.markdownPath), qualityPassed: Boolean(job.quality?.passed), currentTranscriptDelivered: larkRevisionStatus !== 'stale', deliveryMode }, data: { deliveryMode, larkUrl: typeof job.output?.larkUrl === 'string' ? job.output.larkUrl : null, larkPermissionGranted: job.output?.larkPermissionGranted === true, larkRevisionStatus, currentTranscriptDelivered: larkRevisionStatus !== 'stale', transcriptVersion: Number(job.output?.confirmedTranscriptVersion) || null } }
     ];
     if (job.output?.visualEvidencePath) {
         artifacts.push({

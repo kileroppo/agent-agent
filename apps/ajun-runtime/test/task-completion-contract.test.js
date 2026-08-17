@@ -149,3 +149,29 @@ test('字幕补正后旧飞书文档不能继续充当最新交付', () => {
   assert.equal(validateTaskCompletion(task, [current]).valid, true);
   assert.equal(validateTaskCompletion(task, [stale]).valid, false);
 });
+
+test('本地交付用通过质量门禁的确认稿闭环，不要求伪造飞书文档', () => {
+  const task = { taskType:'media.transcribe-and-refine' };
+  const delivery = readable('xiaod_media_delivery', {
+    deliveryMode:'local_only',
+    larkUrl:null,
+    larkPermissionGranted:false,
+    currentTranscriptDelivered:true,
+  });
+  const confirmed = readable('confirmed_transcript', {
+    confirmationMode:'automatic',
+    transcriptVersion:1,
+  }, { validation:{
+    automaticConfirmed:true,
+    humanConfirmed:false,
+    qualityGatePassed:true,
+    transcriptVersion:1,
+  } });
+
+  assert.equal(validateTaskCompletion(task, [delivery, confirmed]).valid, true);
+  assert.equal(validateTaskCompletion(task, [delivery]).valid, false);
+  assert.equal(validateTaskCompletion(task, [delivery, {
+    ...confirmed,
+    validation:{ ...confirmed.validation, qualityGatePassed:false },
+  }]).valid, false);
+});
