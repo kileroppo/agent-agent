@@ -121,6 +121,10 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         elements.loadMore.addEventListener('click', async () => loadRecords({ append: true }));
         elements.newItems.addEventListener('click', async () => loadRecords());
         elements.list.addEventListener('click', async (event) => {
+            if (event.target.closest('[data-record-retry]')) {
+                await loadRecords();
+                return;
+            }
             const emptyView = event.target.closest('[data-empty-view]');
             if (emptyView) {
                 state.view = emptyView.dataset.emptyView;
@@ -349,7 +353,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             <span>${taskView === 'completed' ? '运行结果' : taskView === 'active' ? '当前进度' : needsAction ? '需要你处理' : '记录摘要'}</span>
             <h3>${escapeHtml(summary)}</h3>
             ${result && result.text !== summary ? `<p><strong>${escapeHtml(result.label)}</strong>${escapeHtml(result.text)}</p>` : ''}
-            ${showNextAction ? `<div class="record-primary-next"><strong>下一步</strong><p>${escapeHtml(presentation.nextAction || '等待新的进度。')}</p></div>` : ''}
+            ${showNextAction ? `<div class="record-primary-next"><strong>下一步</strong><p>${escapeHtml(presentation.nextAction || missingNextActionMessage(taskView))}</p></div>` : ''}
           </section>
           ${task.pendingApproval?.reason ? `<details class="record-detail-section record-context-details"><summary>为什么需要确认</summary><p>${escapeHtml(task.pendingApproval.reason)}</p></details>` : ''}`}
       ${artifacts.length ? `<section class="record-detail-section"><h3>交付与证据</h3><ul class="record-artifact-list">${artifacts.map(renderArtifact).join('')}</ul></section>` : ''}
@@ -603,10 +607,13 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
     }
     function renderError(error) {
         elements.count.textContent = '读取失败';
-        elements.list.innerHTML = `<div class="record-list-error"><strong>暂时无法读取任务记录</strong><p>${escapeHtml(error.message || '请稍后重试。')}</p></div>`;
+        elements.list.innerHTML = `<div class="record-list-error"><strong>暂时无法读取任务记录</strong><p>${escapeHtml(error.message || '本次读取没有完成。')}</p><button class="text-action" type="button" data-record-retry>重新读取</button></div>`;
     }
     function renderDetailError(error) {
-        elements.detail.innerHTML = `<div class="record-list-error"><strong>无法打开这条记录</strong><p>${escapeHtml(error.message || '任务可能已经不存在。')}</p></div>`;
+        elements.detail.innerHTML = `<div class="record-list-error"><strong>无法打开这条记录</strong><p>${escapeHtml(error.message || '本次读取没有完成，任务记录没有被更改。')}</p><button class="text-action" type="button" data-record-detail-retry>重新读取</button></div>`;
+        elements.detail.querySelector('[data-record-detail-retry]')?.addEventListener('click', () => {
+            loadSelectedDetail({ revealDetail: false, quiet: false });
+        });
     }
     function emptyCountLabel() {
         return state.backlogCategory ? `${BACKLOG_CATEGORY_LABELS[state.backlogCategory]} · 0` : state.view === 'needs_action' ? '无需处理' : '0 条记录';
@@ -614,6 +621,11 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
     function emptyDetailLabel() {
         return state.view === 'needs_action' ? '目前没有需要你处理的事' : '当前条件下没有记录';
     }
+}
+function missingNextActionMessage(taskView) {
+    if (taskView === 'needs_action')
+        return '当前记录没有给出可执行动作；请在飞书补充信息或联系负责人核对，不要盲目重试。';
+    return '系统正在处理；有新进度时会更新，无需重复提交。';
 }
 function compactAttentionReason(task) {
     const attention = taskAttentionView(task);

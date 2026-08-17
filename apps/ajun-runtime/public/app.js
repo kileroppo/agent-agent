@@ -12,7 +12,7 @@ import { createRuntimeReleaseConsole } from './runtime-release-console.js';
 import { canRefreshConsole } from './refresh-scheduler.js';
 import { statusLabel, taskTypeLabel as presentTaskTypeLabel } from './console-labels.js';
 import { createBillingUsageCache } from './billing-usage-cache.js';
-import { businessDebtPresentation, capabilityPresentation, capabilitySummaryText, countCapabilityTiers, managerFirstEmployees, reliabilityPresentation } from './overview-presentation.js';
+import { businessDebtPresentation, capabilityPresentation, capabilitySummaryText, countCapabilityTiers, isOwnerActionFocus, managerFirstEmployees, reliabilityPresentation } from './overview-presentation.js';
 const capabilityList = document.querySelector('#capability-list');
 const agentList = document.querySelector('#agent-list');
 const recentTaskList = document.querySelector('#recent-task-list');
@@ -504,8 +504,7 @@ function renderFocus(focus) {
         return;
     }
     const current = focus.next;
-    const ownerStatuses = new Set(['waiting_approval', 'waiting_acceptance', 'needs_input', 'paused', 'failed', 'waiting_test', 'succeeded']);
-    const needsOwner = Boolean(current && ownerStatuses.has(current.status));
+    const needsOwner = isOwnerActionFocus(focus, current);
     const title = current ? escapeHtml(current.title) : '没有新的负责人动作';
     const action = current
         ? escapeHtml(current.action)

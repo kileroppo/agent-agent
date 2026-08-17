@@ -57,6 +57,17 @@ export function managerFirstEmployees(manager, agents) {
         return true;
     });
 }
+export function isOwnerActionFocus(focus, current) {
+    const taskId = String(current?.taskId || '').trim();
+    if (!taskId || !Array.isArray(focus?.actions))
+        return false;
+    const workflowId = String(current?.workflowId || '').trim();
+    return focus.actions.some((action) => {
+        if (String(action?.taskId || '').trim() !== taskId)
+            return false;
+        return !workflowId || String(action?.workflowId || '').trim() === workflowId;
+    });
+}
 function safeCount(value, fallback = 0) {
     return Number.isFinite(value) ? Math.max(0, value) : Number.isFinite(fallback) ? Math.max(0, fallback) : 0;
 }

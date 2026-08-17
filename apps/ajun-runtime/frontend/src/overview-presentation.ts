@@ -57,6 +57,16 @@ export function managerFirstEmployees(manager: any, agents: any[]): any[] {
   });
 }
 
+export function isOwnerActionFocus(focus: any, current: any): boolean {
+  const taskId = String(current?.taskId || '').trim();
+  if (!taskId || !Array.isArray(focus?.actions)) return false;
+  const workflowId = String(current?.workflowId || '').trim();
+  return focus.actions.some((action: any): boolean => {
+    if (String(action?.taskId || '').trim() !== taskId) return false;
+    return !workflowId || String(action?.workflowId || '').trim() === workflowId;
+  });
+}
+
 function safeCount(value: any, fallback: any = 0): any {
   return Number.isFinite(value) ? Math.max(0, value) : Number.isFinite(fallback) ? Math.max(0, fallback) : 0;
 }

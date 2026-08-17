@@ -17,6 +17,7 @@ import {
   capabilityPresentation,
   capabilitySummaryText,
   countCapabilityTiers,
+  isOwnerActionFocus,
   managerFirstEmployees,
   reliabilityPresentation,
 } from '../public/overview-presentation.js';
@@ -69,6 +70,19 @@ test('首页把负责人动作、运行、系统可靠性和业务质量债分�
   assert.equal(reliabilityPresentation({ coreOnline:'online', reliability:'healthy' }, (category) => `#${category}`).value, '观测通过');
   assert.doesNotMatch(script, /负责人暂不需处理.*一切正常/);
   assert.match(styles, /\.focus-primary-action,[\s\S]*min-height: 44px/);
+  assert.equal(isOwnerActionFocus({ actions:[] }, { taskId:'legacy', status:'waiting_test' }), false);
+  assert.equal(isOwnerActionFocus({
+    actions:[{ taskId:'acceptance', workflowId:'workflow-1', status:'waiting_acceptance' }],
+  }, { taskId:'acceptance', workflowId:'workflow-1', status:'waiting_acceptance' }), true);
+});
+
+test('任务记录读取失败可原地恢复，缺失下一步时不让用户空等或盲重试', async () => {
+  const script = await readFile(new URL('task-record-workbench.js', publicRoot), 'utf8');
+
+  assert.match(script, /data-record-retry/);
+  assert.match(script, /data-record-detail-retry/);
+  assert.match(script, /当前记录没有给出可执行动作；请在飞书补充信息或联系负责人核对，不要盲目重试/);
+  assert.match(script, /系统正在处理；有新进度时会更新，无需重复提交/);
 });
 
 test('员工与能力默认减噪：业务入口在前，后台和待验收能力折叠并如实标注', async () => {
