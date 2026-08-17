@@ -1072,6 +1072,7 @@ function defaultRuntimePolicy() {
   return {
     agent:{ maxTurns:500, reasoningEffort:'medium', apiMaxRetries:3 },
     toolLoopGuardrails:{ hardStopEnabled:false },
+    tools:{ toolSearch:{ enabled:'auto' } },
     compression:{ enabled:true, threshold:0.5, targetRatio:0.2, protectFirstN:3, protectLastN:20 },
     memory:{ writeApproval:true, nudgeInterval:0 },
     sessions:{ autoPrune:false, retentionDays:90 },
@@ -1142,6 +1143,7 @@ function applyFakeRuntimeSetting(state, key, rawValue) {
     'agent.reasoning_effort':['agent', 'reasoningEffort', String],
     'agent.api_max_retries':['agent', 'apiMaxRetries', Number],
     'tool_loop_guardrails.hard_stop_enabled':['toolLoopGuardrails', 'hardStopEnabled', booleanValue],
+    'tools.tool_search.enabled':['tools', 'toolSearch', 'enabled', String],
     'compression.enabled':['compression', 'enabled', booleanValue],
     'compression.threshold':['compression', 'threshold', Number],
     'compression.target_ratio':['compression', 'targetRatio', Number],
@@ -1158,7 +1160,11 @@ function applyFakeRuntimeSetting(state, key, rawValue) {
   const mapping = paths[key];
   if (!mapping) return;
   state.runtimePolicy ||= defaultRuntimePolicy();
-  state.runtimePolicy[mapping[0]][mapping[1]] = mapping[2](rawValue);
+  if (mapping.length === 3) {
+    state.runtimePolicy[mapping[0]][mapping[1]] = mapping[2](rawValue);
+    return;
+  }
+  state.runtimePolicy[mapping[0]][mapping[1]][mapping[2]] = mapping[3](rawValue);
 }
 
 function booleanValue(value) {

@@ -558,6 +558,9 @@ function renderTechnicalDetails(task, presentation, attention, escapeHtml) {
     };
     const rows = [
         ['完整编号', values.taskId],
+        ['Paperclip 运行', task.paperclipRun?.runId
+                ? `${cleanAttentionText(task.paperclipRun.status, 40)} · ${cleanAttentionText(task.paperclipRun.runId, 80)}`
+                : ''],
         ['原始状态', values.status],
         ['当前阶段', values.stage],
         ['错误代码', values.errorCode],

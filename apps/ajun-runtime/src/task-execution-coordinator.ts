@@ -66,6 +66,7 @@ export class TaskExecutionCoordinator {
       }
     }
     if (!maturityAuthorization && usesPaperclipHermesExecution(agent)
+      && task.taskType !== 'army.cross-agent-mission'
       && !isTrustedReadOnlyDiagnosisTask(task)
       && task.status !== 'waiting_approval') {
       return this.delegateToPaperclip(task, agent);

@@ -118,6 +118,7 @@ test('恢复动作固定走本机安全路径并带并发与幂等保护', async
   assert.match(script, /task-record-detail-view\.js/);
   assert.match(script, /data-attention-confirm/);
   assert.match(script, /data-attention-cancel/);
+  assert.match(script, /Paperclip 运行/);
   assert.doesNotMatch(script, /window\.confirm\(confirmation\)/);
 });
 

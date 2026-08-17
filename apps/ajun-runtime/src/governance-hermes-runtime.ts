@@ -65,7 +65,11 @@ export function paperclipHermesAdapterConfig(manifest: any): any {
         throw new Error('员工 Prompt 路径越界。');
     assertM5HermesExecutionManifest(manifest);
     assertM5HermesExecutionPrompt(manifest, fs.readFileSync(promptPath, 'utf8'));
-    const paperclipToolsets: any = safeStringList(manifest.runtimeCapabilities?.paperclipToolsets);
+    // Paperclip runs are headless. Interactive clarification can wait until a
+    // timeout and still leave an apparently successful process record, so it
+    // must not be exposed on this surface.
+    const paperclipToolsets: any = safeStringList(manifest.runtimeCapabilities?.paperclipToolsets)
+        .filter((toolset: any): any => toolset !== 'clarify');
     const modelSelection: any = safeModelSelection(manifest.runtimeCapabilities?.modelSelection);
     const fallbackModels: any = safeFallbackModels(manifest.runtimeCapabilities?.fallbackModels);
     if (fallbackModels.length && !modelSelection.provider)
@@ -119,6 +123,7 @@ export function hermesRuntimePolicyForManifest(manifest: any): any {
     return Object.freeze({
         agent: Object.freeze({ maxTurns, reasoningEffort, apiMaxRetries }),
         toolLoopGuardrails: Object.freeze({ hardStopEnabled: true }),
+        tools: Object.freeze({ toolSearch: Object.freeze({ enabled: 'off' }) }),
         compression: Object.freeze({
             enabled: true,
             threshold: 0.5,

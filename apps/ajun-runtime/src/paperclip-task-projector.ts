@@ -13,7 +13,10 @@ export class PaperclipTaskProjector {
     async project(task: any, approval: any): Promise<any> {
         try {
             const company: any = await this.companyForRuntime();
-            const deterministicPresentation: any = task.taskType === 'office.presentation-package';
+            const deterministicLocalExecution: any = [
+                'army.cross-agent-mission',
+                'office.presentation-package',
+            ].includes(task.taskType);
             const managedAgent: any = task.assigneeAgentId
                 ? await this.managedAgent(task.assigneeAgentId, company.id)
                 : null;
@@ -28,7 +31,7 @@ export class PaperclipTaskProjector {
                 allowDuplicate: true,
                 status: approval
                     ? 'blocked'
-                    : deterministicPresentation
+                    : deterministicLocalExecution
                         ? 'backlog'
                         : managedAgent
                             ? 'todo'
@@ -37,13 +40,13 @@ export class PaperclipTaskProjector {
                 ...(task.taskType === 'operations.technical-repair' && managedAgent?.metadata?.paperclipProjectId
                     ? { projectId: managedAgent.metadata.paperclipProjectId }
                     : {}),
-                ...(managedAgent && !deterministicPresentation ? { assigneeAgentId: managedAgent.id } : {}),
+                ...(managedAgent && !deterministicLocalExecution ? { assigneeAgentId: managedAgent.id } : {}),
             });
             const result: Record<string, any> = {
                 status: 'synced',
                 paperclipIssueId: issue.id,
                 paperclipIssueIdentifier: issue.identifier,
-                ...(managedAgent && !deterministicPresentation ? {
+                ...(managedAgent && !deterministicLocalExecution ? {
                     paperclipAssigneeAgentId: managedAgent.id,
                     paperclipAssigneeName: managedAgent.name,
                 } : {}),
@@ -132,6 +135,13 @@ function describeTask(task: any): any {
     if (task.input.description)
         parts.push(`说明：${task.input.description}`);
     const context: any = task.input?.context;
+    const missionItems: any = safeBusinessMissionItems(context?.businessMissionItems);
+    if (task.taskType === 'army.cross-agent-mission' && missionItems.length) {
+        parts.push([
+            '受控业务分工（Paperclip 用于审计；A君本机生成依赖计划）：',
+            JSON.stringify(missionItems),
+        ].join('\n'));
+    }
     if (task.taskType === 'governance.approval-review') {
         const reviewSubject: any = safeReviewSubject(context);
         if (reviewSubject)
@@ -150,6 +160,45 @@ function describeTask(task: any): any {
         parts.push('工程要求：先复现和定位；只能修改当前项目；必须运行相关测试；没有证据不得宣称修好；禁止读取凭据、登录、外发、付费、扩权或发布。');
     }
     return parts.join('\n\n');
+}
+function safeBusinessMissionItems(value: any): any {
+    if (!Array.isArray(value))
+        return [];
+    return value.slice(0, 11).flatMap((item: any, index: any): any => {
+        if (!item || typeof item !== 'object')
+            return [];
+        const agentId: any = safeText(item.agentId, 80);
+        const taskType: any = safeText(item.taskType, 120);
+        const title: any = safeText(item.title, 300);
+        if (!agentId || !taskType || !title)
+            return [];
+        return [{
+                key: safeText(item.key, 80) || `work-${index + 1}`,
+                agentId,
+                taskType,
+                title,
+                acceptance: safeText(item.acceptance, 500) || null,
+                sourceUrls: safePublicUrls(item.sourceUrls),
+                dependsOn: Array.isArray(item.dependsOn)
+                    ? item.dependsOn.map((child: any): any => safeText(child, 80)).filter(Boolean).slice(0, 10)
+                    : [],
+            }];
+    });
+}
+function safePublicUrls(value: any): any {
+    if (!Array.isArray(value))
+        return [];
+    return value.slice(0, 5).flatMap((item: any): any => {
+        try {
+            const url: any = new URL(String(item || '').trim());
+            if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password)
+                return [];
+            return [url.toString().slice(0, 1000)];
+        }
+        catch {
+            return [];
+        }
+    });
 }
 function safeReviewSubject(context: any): any {
     const root: any = plainObject(context);

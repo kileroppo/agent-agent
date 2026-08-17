@@ -340,6 +340,8 @@ def _safe_mcp_state(config: dict) -> dict | None:
 def _safe_runtime_policy(config: dict) -> dict:
     agent = config.get("agent") if isinstance(config.get("agent"), dict) else {}
     guardrails = config.get("tool_loop_guardrails") if isinstance(config.get("tool_loop_guardrails"), dict) else {}
+    tools = config.get("tools") if isinstance(config.get("tools"), dict) else {}
+    tool_search = tools.get("tool_search") if isinstance(tools.get("tool_search"), dict) else {}
     compression = config.get("compression") if isinstance(config.get("compression"), dict) else {}
     memory = config.get("memory") if isinstance(config.get("memory"), dict) else {}
     sessions = config.get("sessions") if isinstance(config.get("sessions"), dict) else {}
@@ -354,6 +356,11 @@ def _safe_runtime_policy(config: dict) -> dict:
         },
         "toolLoopGuardrails": {
             "hardStopEnabled": guardrails.get("hard_stop_enabled") is True,
+        },
+        "tools": {
+            "toolSearch": {
+                "enabled": str(tool_search.get("enabled") or "auto"),
+            },
         },
         "compression": {
             "enabled": compression.get("enabled") is not False,

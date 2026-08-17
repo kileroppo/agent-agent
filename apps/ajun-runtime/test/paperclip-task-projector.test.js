@@ -66,6 +66,36 @@ test('结构化 PPT 投影为留痕 Issue 但不唤醒模型执行', async () =>
   assert.equal(issueCall.body.assigneeAgentId, undefined);
 });
 
+test('A君多人总任务只投影父 Issue，保留受控公开来源但不唤醒模型规划', async () => {
+  const calls = [];
+  const endpoint = {
+    async request(method, path, { body } = {}) {
+      calls.push({ method, path, body });
+      if (path === '/api/companies') return [{ id:'company-1', name:'Agent军团' }];
+      if (path.endsWith('/agents')) return [{ id:'ajun-1', name:'A君', status:'idle', metadata:{ agentArmyId:'ajun' } }];
+      if (path.endsWith('/issues')) return { id:'issue-1', identifier:'AGE-1' };
+      throw new Error(`unexpected ${method} ${path}`);
+    },
+  };
+  const projector = new PaperclipTaskProjector({ endpoint });
+  await projector.project({
+    taskId:'mission-1', taskType:'army.cross-agent-mission', status:'queued', priority:'normal', assigneeAgentId:'ajun',
+    input:{
+      title:'小D到小办联动',
+      context:{ businessMissionItems:[
+        { key:'media', agentId:'xiaod', taskType:'media.transcribe-and-refine', title:'获取公开视频', sourceUrls:['https://www.douyin.com/video/123', 'file:///private/input'] },
+        { key:'brief', agentId:'office-assistant', taskType:'office.briefing-package', title:'生成汇报', dependsOn:['media'] },
+      ] },
+    },
+  });
+  const issue = calls.find((call) => call.path.endsWith('/issues')).body;
+  assert.equal(issue.status, 'backlog');
+  assert.equal(issue.assigneeAgentId, undefined);
+  assert.match(issue.description, /https:\/\/www\.douyin\.com\/video\/123/);
+  assert.match(issue.description, /"dependsOn":\["media"\]/);
+  assert.doesNotMatch(issue.description, /file:\/\/\/private/);
+});
+
 test('审核任务只把结构化范围白名单投影给 Paperclip，不泄露未知上下文', async () => {
   const calls = [];
   const endpoint = {

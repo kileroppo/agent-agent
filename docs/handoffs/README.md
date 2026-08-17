@@ -72,6 +72,7 @@
 - [能力 Plan B 与运行事件](./current/capability-plan-b-and-run-events-handoff.md)：机器闭环完成，仅余负责人可选的浏览器体验抽查。
 - [上下文、记忆与成本治理](./current/context-memory-cost-governance-handoff.md)：在下一条正常业务任务中记录成本对比，不为验收额外制造付费调用。
 - [历史能力验证批次业务 E2E](./current/validation-campaign-business-e2e-handoff.md)：自动化已闭环，仅保留可选人工内容质量结论。
+- [A君 / Paperclip 三岗位真实业务链复验](./current/ajun-paperclip-business-chain-live-validation-handoff.md)：已复现运行假成功并完成代码回归；等待负责人授权三个 Profile 配置、A君不可变 release 与 4321 重启后执行新鲜 live 复验。
 - [M5 高权限内容自治](./current/m5-high-autonomy-content-operations-handoff.md)：冻结；Campaign、Cron、Publisher 和外部写入保持关闭，只有负责人明确重开后才做新鲜 readiness 预检。
 
 已关闭且被新总交接接管，或已被后续里程碑替代的资料统一放在

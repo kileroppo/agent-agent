@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PaperclipHermesTaskReconciler } from '../src/paperclip-hermes-task-reconciler.ts';
 
-function setup({ issueStatus, artifactRefs = [], taskType = 'governance.architecture-review', input = {}, error = null, issueError = null, fallback = null, taskPatch = {} }) {
+function setup({ issueStatus, artifactRefs = [], taskType = 'governance.architecture-review', input = {}, error = null, issueError = null, fallback = null, runs = null, taskPatch = {} }) {
   let task = {
     taskId:'task-1',
     taskType,
@@ -21,13 +21,14 @@ function setup({ issueStatus, artifactRefs = [], taskType = 'governance.architec
       assert.equal(taskId, task.taskId);
       task = { ...task, ...patch };
       return task;
-    }
+    },
   };
   const governance = {
     async getPaperclipIssue() {
       if (issueError) throw issueError;
       return { status:issueStatus };
-    }
+    },
+    ...(runs ? { async getPaperclipIssueRuns() { return runs; } } : {}),
   };
   const reconciler = new PaperclipHermesTaskReconciler({
     store,
@@ -54,7 +55,31 @@ test('Paperclip 已阻塞且没有本地产物时如实记为失败', async () =
   assert.equal(fixture.task.error.code, 'paperclip_hermes_failed');
   assert.equal(fixture.task.error.category, 'configuration');
   assert.equal(fixture.task.error.retryable, true);
-  assert.match(fixture.task.error.userMessage, /401/);
+  assert.match(fixture.task.error.userMessage, /最后一次运行原因/);
+});
+
+test('Paperclip 进程退出成功但没有岗位回写时记录为业务未闭环', async () => {
+  const fixture = setup({
+    issueStatus:'blocked',
+    runs:[{
+      runId:'run-process-only-1',
+      status:'succeeded',
+      startedAt:'2026-07-28T09:58:00.000Z',
+      finishedAt:'2026-07-28T09:59:00.000Z',
+    }],
+  });
+  await fixture.reconciler.reconcile();
+  assert.equal(fixture.task.status, 'failed');
+  assert.equal(fixture.task.execution.outcome, 'paperclip_process_exited_without_completion');
+  assert.equal(fixture.task.execution.paperclipRunId, 'run-process-only-1');
+  assert.deepEqual(fixture.task.execution.paperclipRun, {
+    runId:'run-process-only-1',
+    status:'succeeded',
+    startedAt:'2026-07-28T09:58:00.000Z',
+    finishedAt:'2026-07-28T09:59:00.000Z',
+  });
+  assert.equal(fixture.task.error.code, 'paperclip_process_exited_without_completion');
+  assert.match(fixture.task.error.userMessage, /不能把运行成功当成交付成功/);
 });
 
 test('视频分析的 Hermes 外层失败时只接受本机证据化报告兜底', async () => {

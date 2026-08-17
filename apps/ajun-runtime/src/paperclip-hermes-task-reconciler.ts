@@ -68,21 +68,31 @@ export class PaperclipHermesTaskReconciler {
             const hasArtifact: any = hasReadableArtifact(task);
             if (await this.tryLocalEvidenceFallback(task, issue))
                 return;
+            const latestRun: any = await this.latestRun(task);
+            const processExitedWithoutCompletion: any = latestRun?.status === 'succeeded' && !hasArtifact;
             await this.settle(task, hasArtifact ? {
                 status: 'waiting_test',
                 currentStage: 'paperclip_hermes_waiting_test',
                 outcome: 'artifact_requires_review',
-                error: task.error || taskFailure('paperclip_hermes_requires_review', 'Paperclip 已结束本次运行，但本机保留了可读产物；需要人工核对后再决定是否采用。', this.now())
+                error: task.error || taskFailure('paperclip_hermes_requires_review', 'Paperclip 已结束本次运行，但本机保留了可读产物；需要人工核对后再决定是否采用。', this.now()),
+                latestRun,
             } : {
                 status: 'failed',
                 currentStage: 'paperclip_hermes_failed',
-                outcome: 'paperclip_hermes_failed',
+                outcome: processExitedWithoutCompletion
+                    ? 'paperclip_process_exited_without_completion'
+                    : 'paperclip_hermes_failed',
                 error: task.error || taskFailure(
-                    'paperclip_hermes_failed',
-                    'Paperclip 执行器本轮失败，没有生成可验证产物。请打开关联的 Paperclip 任务查看最后一次运行；如果显示 401，请重新授权对应模型账号后再重试。',
+                    processExitedWithoutCompletion
+                        ? 'paperclip_process_exited_without_completion'
+                        : 'paperclip_hermes_failed',
+                    processExitedWithoutCompletion
+                        ? 'Paperclip 进程显示已退出，但岗位没有完成指派，也没有回写可验证产物；本轮业务仍未完成，不能把运行成功当成交付成功。'
+                        : 'Paperclip 执行器本轮没有生成可验证产物。请打开关联的 Paperclip 任务查看最后一次运行原因。',
                     this.now(),
                     { category:'configuration', retryable:true },
-                )
+                ),
+                latestRun,
             });
             return;
         }
@@ -145,12 +155,37 @@ export class PaperclipHermesTaskReconciler {
         });
         return true;
     }
-    async settle(task: any, { status, currentStage, outcome, error }: any): Promise<any> {
+    async latestRun(task: any): Promise<any> {
+        if (typeof this.governance?.getPaperclipIssueRuns !== 'function')
+            return null;
+        try {
+            const runs: any = await this.governance.getPaperclipIssueRuns(task.governance.paperclipIssueId);
+            const run: any = Array.isArray(runs) ? runs[0] : null;
+            const runId: any = String(run?.runId || run?.id || '').trim();
+            if (!runId)
+                return null;
+            return {
+                runId,
+                status: String(run?.status || 'unknown').trim().slice(0, 80),
+                startedAt: validDate(run?.startedAt),
+                finishedAt: validDate(run?.finishedAt),
+            };
+        }
+        catch {
+            return null;
+        }
+    }
+    async settle(task: any, { status, currentStage, outcome, error, latestRun = null }: any): Promise<any> {
         const finishedAt: any = new Date(this.now()).toISOString();
         await this.store.updateTask(task.taskId, {
             status,
             currentStage,
-            execution: { ...(task.execution || {}), finishedAt, outcome },
+            execution: {
+                ...(task.execution || {}),
+                ...(latestRun ? { paperclipRunId:latestRun.runId, paperclipRun:latestRun } : {}),
+                finishedAt,
+                outcome,
+            },
             error
         });
     }
@@ -161,6 +196,10 @@ export class PaperclipHermesTaskReconciler {
             now: (): any => new Date(this.now()).toISOString(),
         });
     }
+}
+function validDate(value: any): any {
+    const text: any = String(value || '').trim();
+    return text && Number.isFinite(Date.parse(text)) ? new Date(text).toISOString() : null;
 }
 function mergeArtifactRefs(existing: any = [], added: any = []): any {
     const merged: any = new Map();

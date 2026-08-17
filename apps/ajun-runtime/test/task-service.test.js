@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { ValidationError } from '../src/task-service.ts';
+import { LocalAjunCoordinator } from '../src/local-ajun-coordinator.ts';
 import {
   agentFixture,
   coordinator,
@@ -876,6 +877,46 @@ test('Paperclip Hermes 员工只等待同一张 heartbeat 任务，不再调用 
   assert.equal(task.currentStage, 'waiting_paperclip_heartbeat');
   assert.equal(task.execution.owner, 'paperclip-hermes');
   assert.equal(localExecutions, 0);
+});
+
+test('A君多人总任务本机确定性生成计划，Paperclip 只保留父 Issue 不代替规划', async () => {
+  const ajun = hermesAgentFixture('ajun', 'A君', ['army.cross-agent-mission'], {
+    interaction:{ directFeishu:'required' },
+  });
+  const governanceUpdates = [];
+  const governance = {
+    async project() {
+      return { status:'synced', paperclipIssueId:'paperclip-mission-1' };
+    },
+    async update(task) {
+      governanceUpdates.push([task.status, task.currentStage]);
+      return task.governance;
+    },
+  };
+  const { service } = setup({
+    agents:[ajun],
+    governance,
+    executors:{ ajun:new LocalAjunCoordinator({ now:() => new Date('2026-08-17T00:00:00.000Z') }) },
+  });
+  const task = await service.create({
+    title:'小D到小办联动',
+    taskType:'army.cross-agent-mission',
+    agentId:'ajun',
+    context:{
+      businessMissionItems:[
+        { key:'media', agentId:'xiaod', taskType:'media.transcribe-and-refine', title:'取证', sourceUrls:['https://example.com/video'] },
+        { key:'brief', agentId:'office-assistant', taskType:'office.briefing-package', title:'汇报', dependsOn:['media'] },
+      ],
+    },
+  });
+  assert.equal(task.status, 'running');
+  assert.equal(task.currentStage, 'mission_planned');
+  assert.equal(task.execution.owner, undefined);
+  assert.equal(task.artifactRefs.some((item) => item.type === 'cross_agent_mission_plan'), true);
+  assert.deepEqual(governanceUpdates, [
+    ['running', 'starting'],
+    ['running', 'mission_planned'],
+  ]);
 });
 
 test('Paperclip Hermes heartbeat 会关联原 A君任务并幂等回写同一终态', async () => {

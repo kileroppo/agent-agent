@@ -38,6 +38,7 @@ test('Manifest 预算生成有界 Hermes 运行、压缩、记忆和会话策略
   });
   assert.deepEqual(policy.agent, { maxTurns:8, reasoningEffort:'none', apiMaxRetries:1 });
   assert.equal(policy.toolLoopGuardrails.hardStopEnabled, true);
+  assert.deepEqual(policy.tools, { toolSearch:{ enabled:'off' } });
   assert.equal(policy.compression.protectLastN, 8);
   assert.deepEqual(policy.memory, { writeApproval:true, nudgeInterval:0 });
   assert.deepEqual(policy.sessions, { autoPrune:true, retentionDays:30 });
@@ -123,6 +124,13 @@ test('Paperclip Hermes 员工统一选择 StepFun 固定模型且不配置文本
   assert.equal(config.model, 'step-3.7-flash');
   assert.deepEqual(config.extraArgs, []);
   assert.deepEqual(config.fallbackModels, []);
+});
+
+test('Paperclip Hermes 无人值守运行不开放交互追问工具集', () => {
+  const manifest = readJson(new URL('../../../agents/ajun/manifest.json', import.meta.url));
+  const config = paperclipHermesAdapterConfig(manifest);
+  assert.equal(config.toolsets, 'agent-army');
+  assert.doesNotMatch(config.toolsets, /clarify/);
 });
 
 test('Paperclip Hermes 适配器拒绝 Manifest 中未授权的 Provider', () => {

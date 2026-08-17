@@ -970,6 +970,7 @@ async function applyRuntimePolicy({ profileHome, target, run }) {
     ['agent.reasoning_effort', target.agent.reasoningEffort],
     ['agent.api_max_retries', target.agent.apiMaxRetries],
     ['tool_loop_guardrails.hard_stop_enabled', target.toolLoopGuardrails.hardStopEnabled],
+    ['tools.tool_search.enabled', target.tools.toolSearch.enabled],
     ['compression.enabled', target.compression.enabled],
     ['compression.threshold', target.compression.threshold],
     ['compression.target_ratio', target.compression.targetRatio],
@@ -1133,6 +1134,13 @@ function normalizeRuntimePolicy(value = {}) {
       apiMaxRetries:Number(value?.agent?.apiMaxRetries ?? 3),
     },
     toolLoopGuardrails:{ hardStopEnabled:value?.toolLoopGuardrails?.hardStopEnabled === true },
+    tools:{
+      toolSearch:{
+        enabled:['auto', 'on', 'off'].includes(value?.tools?.toolSearch?.enabled)
+          ? value.tools.toolSearch.enabled
+          : 'auto',
+      },
+    },
     compression:{
       enabled:value?.compression?.enabled !== false,
       threshold:Number(value?.compression?.threshold ?? 0.5),
@@ -1160,6 +1168,7 @@ function runtimePolicyDiff(current, target) {
   const paths = [
     'agent.maxTurns', 'agent.reasoningEffort', 'agent.apiMaxRetries',
     'toolLoopGuardrails.hardStopEnabled',
+    'tools.toolSearch.enabled',
     'compression.enabled', 'compression.threshold', 'compression.targetRatio',
     'compression.protectFirstN', 'compression.protectLastN',
     'memory.writeApproval', 'memory.nudgeInterval',

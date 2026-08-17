@@ -200,3 +200,30 @@ test('本机负责人详情只投影可直接打开的 Paperclip Issue 链接', 
   const lanDetail = await service.detail(linkedTask.taskId, { audience:'lan' });
   assert.equal(Object.hasOwn(lanDetail, 'paperclipIssue'), false);
 });
+
+test('本机负责人详情展示脱敏 Paperclip 运行结果，局域网详情不返回', async () => {
+  const linkedTask = {
+    ...task,
+    execution:{
+      paperclipRun:{
+        runId:'run-process-only-1',
+        status:'succeeded',
+        startedAt:'2026-08-17T00:00:00.000Z',
+        finishedAt:'2026-08-17T00:01:00.000Z',
+        rawLog:'不能返回',
+      },
+    },
+  };
+  const service = new TaskRecordService({
+    store:{ getTask:async () => linkedTask, listApprovals:async () => [] },
+  });
+  const owner = await service.detail(linkedTask.taskId, { audience:'local-owner' });
+  assert.deepEqual(owner.paperclipRun, {
+    runId:'run-process-only-1',
+    status:'succeeded',
+    startedAt:'2026-08-17T00:00:00.000Z',
+    finishedAt:'2026-08-17T00:01:00.000Z',
+  });
+  const lan = await service.detail(linkedTask.taskId, { audience:'lan' });
+  assert.equal(Object.hasOwn(lan, 'paperclipRun'), false);
+});

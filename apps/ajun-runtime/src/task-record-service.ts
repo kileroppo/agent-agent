@@ -87,6 +87,20 @@ function presentRecord(task: any, approvals: any, detailBaseUrl: any, recoveryVi
         input: safeOwnerInput(task.input),
         error: safeOwnerError(task.error),
         recovery: safeOwnerRecovery(task.recovery),
+        paperclipRun: safePaperclipRun(task.execution?.paperclipRun),
+    };
+}
+function safePaperclipRun(value: any): any {
+    if (!value || typeof value !== 'object')
+        return null;
+    const runId: any = cleanText(value.runId, 120);
+    if (!/^[a-z0-9][a-z0-9-]{0,119}$/i.test(runId))
+        return null;
+    return {
+        runId,
+        status: cleanText(value.status, 80) || 'unknown',
+        startedAt: safeDate(value.startedAt),
+        finishedAt: safeDate(value.finishedAt),
     };
 }
 function safePaperclipIssue(task: any, baseUrl: any): any {
