@@ -212,6 +212,35 @@ test('两次语义校验都失败时保留最后一次模型数据供受控证�
   );
 });
 
+test('语义校验失败后的网关错误不会覆盖可受控修复的模型数据', async () => {
+  let calls = 0;
+  const advisor = new HermesContentGrowthAdvisor({
+    hermesHome:'/tmp/hermes/profiles/video-content-analyst',
+    run:async () => {
+      calls += 1;
+      if (calls === 1) return JSON.stringify({ summary:'可修复但结构不完整', modules:[] });
+      throw Object.assign(new Error('gateway connection failed'), { code:'500' });
+    }
+  });
+
+  await assert.rejects(
+    () => advisor.analyze({
+      title:'保留可修复结果',
+      transcript:'[00:00] 仅用于受控修复测试。',
+      depth:'full',
+      evidenceMode:'formal',
+      validate:() => false
+    }),
+    (error) => {
+      assert.equal(error.code, 'content_analysis_semantic_validation_failed');
+      assert.equal(error.data.summary, '可修复但结构不完整');
+      assert.equal(error.executionBudget.attempts, 2);
+      return true;
+    }
+  );
+  assert.equal(calls, 2);
+});
+
 test('故事板没有 confirmed Provider 观察时在启动 Hermes 前 fail closed', async () => {
   let calls = 0;
   const advisor = new HermesContentGrowthAdvisor({

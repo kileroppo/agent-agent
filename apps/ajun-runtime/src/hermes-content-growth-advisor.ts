@@ -81,6 +81,7 @@ export class HermesContentGrowthAdvisor {
         let usage: any = null;
         let lastError: any = null;
         let lastInvalidData: any = null;
+        let lastSemanticError: any = null;
         while (attempts < maxAttempts) {
             const elapsedMs: any = Math.max(0, this.nowMs() - startedAt);
             const remainingMs: any = maxRuntimeMs - elapsedMs;
@@ -106,6 +107,7 @@ export class HermesContentGrowthAdvisor {
                 usage = mergeUsage(usage, error?.usage);
                 if (error?.code === 'content_analysis_semantic_validation_failed' && error?.data) {
                     lastInvalidData = error.data;
+                    lastSemanticError = error;
                 }
                 lastError = error;
                 if (!safeHermesRetry(error)) {
@@ -114,7 +116,13 @@ export class HermesContentGrowthAdvisor {
                 }
             }
         }
-        const failure: any = lastError instanceof Error ? lastError : new Error('Hermes 内容执行预算已耗尽。');
+        // A later transport failure must not discard an earlier model result that
+        // failed only the semantic gate.  The caller can deterministically repair
+        // that evidence-linked result, while a bare transport error has no data to
+        // recover from.
+        const failure: any = lastSemanticError instanceof Error
+            ? lastSemanticError
+            : lastError instanceof Error ? lastError : new Error('Hermes 内容执行预算已耗尽。');
         failure.usage = usage;
         if (!failure.data && lastInvalidData)
             failure.data = lastInvalidData;
