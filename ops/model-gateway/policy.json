@@ -14,7 +14,7 @@
     "operator": { "maxBudgetUsd": 0.10, "rpm": 30, "tpm": 1000000, "maxParallel": 2 },
     "reviewer": { "maxBudgetUsd": 0.50, "rpm": 30, "tpm": 1000000, "maxParallel": 2 },
     "technical-expert": { "maxBudgetUsd": 0.10, "rpm": 30, "tpm": 1000000, "maxParallel": 2 },
-    "video-content-analyst": { "maxBudgetUsd": 1.00, "rpm": 30, "tpm": 1000000, "maxParallel": 2 },
+    "video-content-analyst": { "maxBudgetUsd": 0.50, "rpm": 30, "tpm": 1000000, "maxParallel": 2 },
     "xiaod": { "maxBudgetUsd": 0.10, "rpm": 30, "tpm": 1000000, "maxParallel": 2 }
   }
 }
