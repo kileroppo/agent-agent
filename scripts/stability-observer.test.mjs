@@ -83,6 +83,87 @@ test('完整且同身份的稳定性结论以 0600 原子快照供运行台读�
   assert.deepEqual((await fsp.readdir(dataDir)).sort(), ['runtime-reliability.json']);
 });
 
+test('未完成 summarize 不降级覆盖同身份结论，但身份变化和新完整结论仍更新', async (context) => {
+  const dataDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-runtime-non-regression-'));
+  context.after(() => fsp.rm(dataDir, { recursive:true, force:true }));
+  const firstIdentity = { gitHead:'a'.repeat(40), releaseHash:'b'.repeat(64) };
+  const secondIdentity = { gitHead:'c'.repeat(40), releaseHash:'d'.repeat(64) };
+  const snapshot = ({ identity = firstIdentity, remainingDurationSeconds = 0, p95Ms = 120 } = {}) => (
+    buildRuntimeReliabilitySnapshot({
+      generatedAt:'2026-08-17T00:00:00.000Z',
+      lastObservedAt:remainingDurationSeconds === 0
+        ? '2026-08-17T01:00:00.000Z'
+        : '2026-08-17T00:10:00.000Z',
+      run:{ remainingDurationSeconds, expected:identity },
+      identityGate:{ status:'passed' },
+      requiredEndpointAvailabilityGate:{ status:'passed' },
+      ajun:{ rssGate:{ status:'passed' } },
+      endpoints:{ 'ajun-health':{ p95Ms }, 'ajun-console-overview':{ p95Ms:600 } },
+    })
+  );
+  const readSnapshot = async () => JSON.parse(
+    await fsp.readFile(path.join(dataDir, 'runtime-reliability.json'), 'utf8'),
+  );
+
+  for (const completed of [snapshot(), snapshot({ p95Ms:301 })]) {
+    assert.match(completed.status, /^(healthy|degraded)$/);
+    await writeRuntimeReliabilitySnapshot(completed, { dataDir });
+    const unfinishedSameIdentity = snapshot({ remainingDurationSeconds:2_400 });
+    assert.equal(unfinishedSameIdentity.status, 'unknown');
+    await writeRuntimeReliabilitySnapshot(unfinishedSameIdentity, { dataDir });
+    assert.deepEqual(await readSnapshot(), completed);
+  }
+
+  const unfinishedNewIdentity = snapshot({
+    identity:secondIdentity,
+    remainingDurationSeconds:2_400,
+  });
+  await writeRuntimeReliabilitySnapshot(unfinishedNewIdentity, { dataDir });
+  assert.deepEqual(await readSnapshot(), unfinishedNewIdentity);
+
+  const completedNewIdentity = snapshot({ identity:secondIdentity, p95Ms:301 });
+  assert.equal(completedNewIdentity.status, 'degraded');
+  await writeRuntimeReliabilitySnapshot(completedNewIdentity, { dataDir });
+  assert.deepEqual(await readSnapshot(), completedNewIdentity);
+  assert.equal((await fsp.stat(path.join(dataDir, 'runtime-reliability.json'))).mode & 0o777, 0o600);
+});
+
+test('可靠性快照拒绝符号链接和非普通目标且不触碰链接外部文件', async (context) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-runtime-symlink-'));
+  context.after(() => fsp.rm(root, { recursive:true, force:true }));
+  const dataDir = path.join(root, 'runtime-data');
+  const target = path.join(dataDir, 'runtime-reliability.json');
+  const external = path.join(root, 'external.json');
+  const externalContent = '{"outside":"must-not-change"}\n';
+  await fsp.mkdir(dataDir, { mode:0o700 });
+  await fsp.writeFile(external, externalContent, { mode:0o644 });
+  await fsp.chmod(external, 0o644);
+  await fsp.symlink(external, target);
+  const externalMode = (await fsp.stat(external)).mode & 0o777;
+  const candidate = buildRuntimeReliabilitySnapshot({
+    run:{
+      remainingDurationSeconds:3_600,
+      expected:{ gitHead:'a'.repeat(40), releaseHash:'b'.repeat(64) },
+    },
+  });
+
+  await assert.rejects(
+    writeRuntimeReliabilitySnapshot(candidate, { dataDir }),
+    /不是普通文件，拒绝更新/,
+  );
+  assert.equal((await fsp.lstat(target)).isSymbolicLink(), true);
+  assert.equal(await fsp.readFile(external, 'utf8'), externalContent);
+  assert.equal((await fsp.stat(external)).mode & 0o777, externalMode);
+
+  await fsp.unlink(target);
+  await fsp.mkdir(target);
+  await assert.rejects(
+    writeRuntimeReliabilitySnapshot(candidate, { dataDir }),
+    /不是普通文件，拒绝更新/,
+  );
+  assert.equal((await fsp.lstat(target)).isDirectory(), true);
+});
+
 test('WAL 源库在线备份后可按 immutable 静态快照校验', async (context) => {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'stability-sqlite-'));
   context.after(() => fsp.rm(root, { recursive:true, force:true }));

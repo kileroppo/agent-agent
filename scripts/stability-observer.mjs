@@ -498,15 +498,71 @@ export async function writeRuntimeReliabilitySnapshot(snapshot, {
   await fsp.mkdir(directory, { recursive:true, mode:0o700 });
   await fsp.chmod(directory, 0o700);
   const target = path.join(directory, RUNTIME_RELIABILITY_SNAPSHOT_FILE);
+  const existing = await openRuntimeReliabilitySnapshotForUpdate(target);
+  try {
+    if (shouldPreserveRuntimeReliabilitySnapshot(existing.snapshot, snapshot)) {
+      await existing.handle.chmod(0o600);
+      return target;
+    }
+  } finally {
+    await existing.handle?.close();
+  }
   const temporary = path.join(directory, `.${RUNTIME_RELIABILITY_SNAPSHOT_FILE}.${process.pid}.${crypto.randomUUID()}.tmp`);
   try {
     await fsp.writeFile(temporary, `${JSON.stringify(snapshot)}\n`, { mode:0o600, flag:'wx' });
     await fsp.chmod(temporary, 0o600);
     await fsp.rename(temporary, target);
-    await fsp.chmod(target, 0o600);
     return target;
   } finally {
     await fsp.unlink(temporary).catch(() => {});
+  }
+}
+
+function shouldPreserveRuntimeReliabilitySnapshot(existing, candidate) {
+  if (!['healthy', 'degraded'].includes(existing?.status) || candidate?.status !== 'unknown') return false;
+  const existingIdentity = normalizedRuntimeIdentity(existing?.runtimeIdentity);
+  const candidateIdentity = normalizedRuntimeIdentity(candidate?.runtimeIdentity);
+  return Boolean(
+    existingIdentity
+    && candidateIdentity
+    && existingIdentity.gitHead === candidateIdentity.gitHead
+    && existingIdentity.releaseHash === candidateIdentity.releaseHash
+  );
+}
+
+function normalizedRuntimeIdentity(identity) {
+  const gitHead = normalizedGitHead(identity?.gitHead);
+  const releaseHash = normalizedSha256(identity?.releaseHash);
+  return gitHead && releaseHash ? { gitHead, releaseHash } : null;
+}
+
+async function openRuntimeReliabilitySnapshotForUpdate(filePath) {
+  let linkStat;
+  try {
+    linkStat = await fsp.lstat(filePath);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { snapshot:null, handle:null };
+    throw error;
+  }
+  if (!linkStat.isFile()) throw new Error(`${RUNTIME_RELIABILITY_SNAPSHOT_FILE} 已存在但不是普通文件，拒绝更新。`);
+
+  let handle;
+  try {
+    handle = await fsp.open(filePath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    const fileStat = await handle.stat();
+    if (!fileStat.isFile() || fileStat.dev !== linkStat.dev || fileStat.ino !== linkStat.ino) {
+      throw new Error(`${RUNTIME_RELIABILITY_SNAPSHOT_FILE} 在安全检查期间发生变化，拒绝更新。`);
+    }
+    let snapshot = null;
+    try {
+      snapshot = JSON.parse(await handle.readFile('utf8'));
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error;
+    }
+    return { snapshot, handle };
+  } catch (error) {
+    await handle?.close();
+    throw error;
   }
 }
 
