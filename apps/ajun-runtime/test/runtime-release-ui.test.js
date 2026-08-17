@@ -51,3 +51,14 @@ test('发布进度来自真实助手状态，没有伪造百分比', async () =>
   assert.match(styles, /@keyframes release-status-pulse/);
   assert.match(styles, /prefers-reduced-motion:\s*reduce/);
 });
+
+test('版本操作满足最小触控高度，移动底栏不会遮住最后内容', async () => {
+  const styles = await readFile(new URL('styles.css', publicRoot), 'utf8');
+
+  assert.match(styles, /\.release-actions button\s*\{[^}]*min-height:\s*44px;/s);
+  assert.match(styles, /@media \(max-width:\s*820px\)[\s\S]*?\.module-nav\s*\{[^}]*bottom:\s*max\(10px,\s*env\(safe-area-inset-bottom,\s*0px\)\);/);
+  assert.match(styles, /@media \(max-width:\s*820px\)[\s\S]*?html,\s*body\s*\{[^}]*overflow:\s*hidden;/);
+  assert.match(styles, /@media \(max-width:\s*820px\)[\s\S]*?\.app-shell\s*\{[^}]*height:\s*calc\(100dvh - 60px\);[^}]*overflow:\s*hidden;/);
+  assert.match(styles, /@media \(max-width:\s*820px\)[\s\S]*?#app-main\s*\{[^}]*height:\s*calc\(100dvh - 134px - max\(10px,\s*env\(safe-area-inset-bottom,\s*0px\)\)\);[^}]*overflow-y:\s*auto;/);
+  assert.match(styles, /@media \(max-width:\s*820px\)[\s\S]*?#app-main\s*\{[^}]*overscroll-behavior-y:\s*contain;[^}]*scroll-padding:\s*36px 0 40px;/);
+});

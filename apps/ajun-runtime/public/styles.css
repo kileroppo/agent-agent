@@ -653,6 +653,10 @@ h3 {
   gap: 10px;
 }
 
+.release-actions button {
+  min-height: 44px;
+}
+
 .release-boundary {
   margin: 14px 0 0;
 }
@@ -4709,6 +4713,17 @@ textarea:focus {
 }
 
 @media (max-width: 820px) {
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    height: 100vh;
+    height: 100dvh;
+  }
+
   .topbar {
     height: 60px;
     padding: 0 18px;
@@ -4720,16 +4735,19 @@ textarea:focus {
 
   .app-shell {
     display: block;
-    min-height: calc(100vh - 60px);
+    height: calc(100vh - 60px);
+    height: calc(100dvh - 60px);
+    min-height: 0;
+    overflow: hidden;
   }
 
   .module-nav {
     position: fixed;
     z-index: 40;
     top: auto;
-    right: 12px;
-    bottom: 10px;
-    left: 12px;
+    right: max(12px, env(safe-area-inset-right, 0px));
+    bottom: max(10px, env(safe-area-inset-bottom, 0px));
+    left: max(12px, env(safe-area-inset-left, 0px));
     display: flex;
     width: auto;
     height: 66px;
@@ -4755,7 +4773,13 @@ textarea:focus {
   }
 
   #app-main {
-    padding: 36px 22px 110px;
+    height: calc(100vh - 134px - max(10px, env(safe-area-inset-bottom, 0px)));
+    height: calc(100dvh - 134px - max(10px, env(safe-area-inset-bottom, 0px)));
+    padding: 36px 22px 40px;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scroll-padding: 36px 0 40px;
+    -webkit-overflow-scrolling: touch;
   }
 
   .module-heading {
