@@ -45,6 +45,7 @@ const REQUIRED_ENDPOINT_AVAILABILITY_THRESHOLD = 0.995;
 const RSS_GROWTH_RATIO_THRESHOLD = 1.25;
 const RUNTIME_RELIABILITY_SNAPSHOT_FILE = 'runtime-reliability.json';
 const LONG_SOAK_DURATION_SECONDS = 72 * 60 * 60;
+const AJUN_IDLE_CPU_P95_PERCENT_THRESHOLD = 5;
 const RELIABILITY_ENDPOINT_P95_MS = Object.freeze({
   'ajun-health':300,
   'ajun-console-overview':1_000,
@@ -470,7 +471,20 @@ export function buildRuntimeReliabilitySnapshot(summary = {}) {
     : summary?.requiredEndpointAvailabilityGate?.status === 'failed' ? 'failed' : 'unknown';
   const rss = summary?.ajun?.rssGate?.status === 'passed' ? 'passed'
     : summary?.ajun?.rssGate?.status === 'failed' ? 'failed' : 'unknown';
-  const gates = { completion, identity, availability, rss, ...endpointP95 };
+  const durationSeconds = Number(summary?.run?.durationSeconds);
+  const isLongSoak = Number.isFinite(durationSeconds) && durationSeconds >= LONG_SOAK_DURATION_SECONDS;
+  const cpuP95Percent = summary?.ajun?.cpuP95Percent;
+  const longSoakCpuP95 = completion !== 'passed' || !Number.isFinite(cpuP95Percent)
+    ? 'unknown'
+    : cpuP95Percent <= AJUN_IDLE_CPU_P95_PERCENT_THRESHOLD ? 'passed' : 'failed';
+  const gates = {
+    completion,
+    identity,
+    availability,
+    rss,
+    ...endpointP95,
+    ...(isLongSoak ? { 'ajun-cpu-p95':longSoakCpuP95 } : {}),
+  };
   const failed = Object.entries(gates).filter(([, status]) => status === 'failed').map(([id]) => id);
   const unknown = Object.entries(gates).filter(([, status]) => status === 'unknown').map(([id]) => id);
   const expected = summary?.run?.expected || {};
@@ -480,7 +494,7 @@ export function buildRuntimeReliabilitySnapshot(summary = {}) {
   };
   const identityComplete = Boolean(runtimeIdentity.gitHead && runtimeIdentity.releaseHash);
   const status = failed.length ? 'degraded' : unknown.length || !identityComplete ? 'unknown' : 'healthy';
-  const observationWindow = describeObservationWindow(summary?.run?.durationSeconds);
+  const observationWindow = describeObservationWindow(durationSeconds);
   const observationLabel = observationWindow
     ? `当前 git/release 的${observationWindow}稳定性观测`
     : '当前 git/release 的稳定性观测';
@@ -488,12 +502,18 @@ export function buildRuntimeReliabilitySnapshot(summary = {}) {
     && Number(summary.run.durationSeconds) < LONG_SOAK_DURATION_SECONDS
     ? '长期稳定仍以更长观测为准。'
     : '';
+  const passedGateDescription = isLongSoak
+    ? '所有可用率、端点 P95、A君 CPU P95 和 RSS 门禁通过。'
+    : '所有可用率、端点 P95 和 RSS 门禁通过。';
+  const failedGateDescription = failed.map((id) => id === 'ajun-cpu-p95'
+    ? `A君 CPU P95（阈值 ${AJUN_IDLE_CPU_P95_PERCENT_THRESHOLD}%）`
+    : id);
   return Object.freeze({
     status,
     detail:status === 'healthy'
-      ? [ `${observationLabel}已完成，所有可用率、端点 P95 和 RSS 门禁通过。`, scopeQualifier ].filter(Boolean).join(' ')
+      ? [ `${observationLabel}已完成，${passedGateDescription}`, scopeQualifier ].filter(Boolean).join(' ')
       : status === 'degraded'
-        ? `${observationLabel}存在失败门禁：${failed.join('、')}。`
+        ? `${observationLabel}存在失败门禁：${failedGateDescription.join('、')}。`
         : `${observationLabel}尚不完整，不能显示为稳定。`,
     observedAt:summary?.lastObservedAt || summary?.generatedAt || null,
     runtimeIdentity:Object.freeze(runtimeIdentity),

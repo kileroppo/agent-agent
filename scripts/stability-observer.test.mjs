@@ -136,7 +136,7 @@ test('未完成 summarize 不降级覆盖同身份结论，但身份变化和新
       run:{ durationSeconds:259_200, remainingDurationSeconds, expected:identity },
       identityGate:{ status:'passed' },
       requiredEndpointAvailabilityGate:{ status:'passed' },
-      ajun:{ rssGate:{ status:'passed' } },
+      ajun:{ cpuP95Percent:1, rssGate:{ status:'passed' } },
       endpoints:{ 'ajun-health':{ p95Ms }, 'ajun-console-overview':{ p95Ms:600 } },
     })
   );
@@ -167,35 +167,57 @@ test('未完成 summarize 不降级覆盖同身份结论，但身份变化和新
   assert.equal((await fsp.stat(path.join(dataDir, 'runtime-reliability.json'))).mode & 0o777, 0o600);
 });
 
-test('快照 detail 会区分短期门禁与 72 小时长观测', () => {
+test('72 小时快照纳入 A君 CPU P95 门禁，未完成与样本缺失保持 unknown，30 分钟不受影响', () => {
   const identity = { gitHead:'a'.repeat(40), releaseHash:'b'.repeat(64) };
   const shortHealthy = buildRuntimeReliabilitySnapshot({
     run:{ durationSeconds:1_800, remainingDurationSeconds:0, expected:identity },
     identityGate:{ status:'passed' },
     requiredEndpointAvailabilityGate:{ status:'passed' },
-    ajun:{ rssGate:{ status:'passed' } },
+    ajun:{ cpuP95Percent:99, rssGate:{ status:'passed' } },
     endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
   });
   const longPending = buildRuntimeReliabilitySnapshot({
     run:{ durationSeconds:259_200, remainingDurationSeconds:258_000, expected:identity },
     identityGate:{ status:'passed' },
     requiredEndpointAvailabilityGate:{ status:'passed' },
-    ajun:{ rssGate:{ status:'passed' } },
+    ajun:{ cpuP95Percent:99, rssGate:{ status:'passed' } },
     endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
   });
   const longHealthy = buildRuntimeReliabilitySnapshot({
     run:{ durationSeconds:259_200, remainingDurationSeconds:0, expected:identity },
     identityGate:{ status:'passed' },
     requiredEndpointAvailabilityGate:{ status:'passed' },
-    ajun:{ rssGate:{ status:'passed' } },
+    ajun:{ cpuP95Percent:5, rssGate:{ status:'passed' } },
+    endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
+  });
+  const longCpuFailed = buildRuntimeReliabilitySnapshot({
+    run:{ durationSeconds:259_200, remainingDurationSeconds:0, expected:identity },
+    identityGate:{ status:'passed' },
+    requiredEndpointAvailabilityGate:{ status:'passed' },
+    ajun:{ cpuP95Percent:5.01, rssGate:{ status:'passed' } },
+    endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
+  });
+  const longCpuUnknown = buildRuntimeReliabilitySnapshot({
+    run:{ durationSeconds:259_200, remainingDurationSeconds:0, expected:identity },
+    identityGate:{ status:'passed' },
+    requiredEndpointAvailabilityGate:{ status:'passed' },
+    ajun:{ cpuP95Percent:null, rssGate:{ status:'passed' } },
     endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
   });
 
+  assert.equal(shortHealthy.status, 'healthy');
   assert.match(shortHealthy.detail, /30分钟稳定性观测已完成/);
   assert.match(shortHealthy.detail, /长期稳定仍以更长观测为准/);
+  assert.equal(longPending.status, 'unknown');
   assert.match(longPending.detail, /72小时稳定性观测尚不完整/);
+  assert.equal(longHealthy.status, 'healthy');
   assert.match(longHealthy.detail, /72小时稳定性观测已完成/);
+  assert.match(longHealthy.detail, /A君 CPU P95/);
   assert.doesNotMatch(longHealthy.detail, /长期稳定仍以更长观测为准/);
+  assert.equal(longCpuFailed.status, 'degraded');
+  assert.match(longCpuFailed.detail, /A君 CPU P95（阈值 5%）/);
+  assert.equal(longCpuUnknown.status, 'unknown');
+  assert.match(longCpuUnknown.detail, /尚不完整/);
 });
 
 test('可靠性快照拒绝符号链接和非普通目标且不触碰链接外部文件', async (context) => {
