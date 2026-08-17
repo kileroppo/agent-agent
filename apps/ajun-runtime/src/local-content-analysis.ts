@@ -122,13 +122,23 @@ export class LocalVideoContentAnalyst {
                     visualEvidence,
                     providerVisionObservation: controlledVision?.observation || null,
                     priorRuntimeMs: Number(visualEvidence?.selection?.processingDurationMs) || 0,
-                    validate: (value: any): any => validAdvisedAnalysis(normalizeAdvisedAnalysis(value, transcript, visualEvidence), transcript, depth, visualEvidence)
+                    validate: (value: any): any => {
+                        const normalized: any = normalizeAdvisedAnalysis(value, transcript, visualEvidence);
+                        if (validAdvisedAnalysis(normalized, transcript, depth, visualEvidence))
+                            return true;
+                        const repaired: any = repairAdvisedAnalysis(normalized, fallback, transcript, depth, visualEvidence);
+                        return validAdvisedAnalysis(repaired, transcript, depth, visualEvidence);
+                    }
                 });
                 const advised: any = normalizeAdvisedAnalysis(advisedResult?.data || advisedResult, transcript, visualEvidence);
                 modelUsage = advisedResult?.usage || null;
-                if (validAdvisedAnalysis(advised, transcript, depth, visualEvidence)) {
-                    report = mergeAdvisedModeReport(fallback, advised, analysisIntent, transcript);
+                const accepted: any = validAdvisedAnalysis(advised, transcript, depth, visualEvidence)
+                    ? advised
+                    : repairAdvisedAnalysis(advised, fallback, transcript, depth, visualEvidence);
+                if (validAdvisedAnalysis(accepted, transcript, depth, visualEvidence)) {
+                    report = mergeAdvisedModeReport(fallback, accepted, analysisIntent, transcript);
                     advisorApplied = true;
+                    semanticRepairApplied = accepted !== advised;
                 }
                 else {
                     advisorFailure = 'content_analysis_semantic_validation_failed';
@@ -598,16 +608,21 @@ function repairAdvisedAnalysis(value: any, fallback: any, transcript: any, depth
     const modules: any = expected.map((name: any): any => {
         const advised: any = advisedByName.get(name);
         const safeFallback: any = fallbackByName.get(name);
-        if (!advised || !validAdvisedModuleCore(advised, transcript, depth))
+        if (!advised)
+            return safeFallback;
+        const accepted: any = validAdvisedModuleCore(advised, transcript, depth)
+            ? advised
+            : repairCompactAdvisedModule(advised, safeFallback, transcript);
+        if (!accepted)
             return safeFallback;
         contributedModules += 1;
         if (name !== '全文逐句作用拆解')
-            return advised;
-        if (!validSentenceBreakdown(advised.sentenceBreakdown, transcript, { requireCoverage: false }))
-            return safeFallback;
-        if (validSentenceBreakdown(advised.sentenceBreakdown, transcript, { requireCoverage: true }))
-            return advised;
-        return { ...advised, sentenceBreakdown: safeFallback?.sentenceBreakdown || [] };
+            return accepted;
+        if (!validSentenceBreakdown(accepted.sentenceBreakdown, transcript, { requireCoverage: false }))
+            return { ...accepted, sentenceBreakdown: safeFallback?.sentenceBreakdown || [] };
+        if (validSentenceBreakdown(accepted.sentenceBreakdown, transcript, { requireCoverage: true }))
+            return accepted;
+        return { ...accepted, sentenceBreakdown: safeFallback?.sentenceBreakdown || [] };
     });
     const minimumContribution: any = depth === 'full' ? 7 : 3;
     if (contributedModules < minimumContribution)
@@ -626,6 +641,21 @@ function repairAdvisedAnalysis(value: any, fallback: any, transcript: any, depth
             minFindings: visualEvidence ? depth === 'full' ? 5 : 3 : 0,
             minCategories: visualEvidence ? depth === 'full' ? 3 : 2 : 0
         }) ? value.visualFindings : []
+    };
+}
+function repairCompactAdvisedModule(advised: any, fallback: any, transcript: any): any {
+    const finding: any = clean(advised?.finding, 1000);
+    const evidence: any = advised?.evidence;
+    if (!finding || !fallback || !evidenceMatches(transcript, evidence))
+        return null;
+    return {
+        ...fallback,
+        finding,
+        evidence,
+        confidence: ['high', 'medium', 'low'].includes(advised?.confidence)
+            ? advised.confidence
+            : fallback.confidence,
+        originalAnalysis: [{ claim:finding, evidence }],
     };
 }
 function normalizeAdvisedAnalysis(value: any, transcript: any, visualEvidence: any): any {

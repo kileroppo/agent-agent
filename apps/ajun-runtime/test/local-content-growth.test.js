@@ -827,6 +827,50 @@ test('Hermes 深度内容充足但逐句覆盖不完整时只修复证据结构�
   assert.equal(result.usage.model.apiCalls, 2);
 });
 
+test('Hermes 深度拆解接受短语义模块并确定性补齐长证据结构', async (t) => {
+  const root = await sandbox(t);
+  const transcriptPath = path.join(root, 'confirmed-compact-advisor.md');
+  await fs.writeFile(transcriptPath, '[00:00] 开场直接提出确定论问题。\n[00:08] 中段讨论自由意志是否存在。\n');
+  const sourceTask = taskWithArtifact('source-task-compact-advisor', confirmedArtifact(transcriptPath));
+  const names = [
+    '基本信息', '标题诊断', '开头诊断', '爆点拆解', '全文逐句作用拆解', '结构分析',
+    '话术技巧与文字洁癖', '表达效率检测', '认知落差检测', '素材盘点',
+    'AI辅助创作建议', '可模仿点 Top3', '爆款结构模板'
+  ];
+  const evidence = { timestamp:'00:00', fragment:'开场直接提出确定论问题。' };
+  const analyst = new LocalVideoContentAnalyst({
+    store:{ list:async () => [sourceTask] },
+    artifactsDir:path.join(root, 'out'),
+    allowedArtifactRoots:[root],
+    advisor:{ async analyze(input) {
+      const data = {
+        summary:'模型以短结构完成 13 个语义判断。',
+        modules:names.map((name) => ({ name, finding:`模型对${name}的判断`, evidence, confidence:'high' })),
+        visualFindings:[],
+        reusablePatterns:['先提出问题再展开边界'],
+        actionItems:['保留原问题并补充论证'],
+      };
+      assert.equal(input.validate(data), true);
+      return { data, usage:{ model:{ provider:'openai-codex', model:'gpt-5.6-terra', apiCalls:1 } } };
+    } },
+  });
+
+  const result = await analyst.execute({
+    taskId:'analysis-task-compact-advisor',
+    taskType:'content.video-benchmark-analysis',
+    input:{ title:'短结构深度拆解', evidenceMode:'formal', depth:'full', context:{ sourceTaskIds:[sourceTask.taskId] } },
+  });
+
+  const artifact = result.artifactRefs[0];
+  assert.equal(artifact.validation.advisorApplied, true);
+  assert.equal(artifact.validation.semanticRepairApplied, true);
+  assert.equal(artifact.validation.semanticValidationPassed, true);
+  assert.equal(artifact.data.generationMode, 'hermes_advisor_evidence_repaired');
+  assert.match(artifact.data.modules[0].finding, /模型对基本信息/);
+  assert.equal(artifact.data.modules[0].originalAnalysis[0].claim, artifact.data.modules[0].finding);
+  assert.equal(artifact.data.modules.find((item) => item.name === '全文逐句作用拆解').sentenceBreakdown.length, 2);
+});
+
 test('确认稿的时间点缺失系统标记不会让逐字原文引用被误判为无来源', async (t) => {
   const root = await sandbox(t);
   const transcriptPath = path.join(root, 'confirmed-untimed.md');
