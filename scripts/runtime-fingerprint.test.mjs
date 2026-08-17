@@ -83,7 +83,7 @@ test('完整指纹区分当前源码与 live release Git 身份', async () => {
     return '';
   };
   const request = async (url) => {
-    if (url.includes(':4321')) return { httpStatus:200, body:{ agents:[], alwaysOnAgents:[], onDemandAgents:[], taskFocus:{ total:0, inProgress:0, backgroundInProgress:0, waitingApproval:0 }, capabilities:[] } };
+    if (url.includes(':4321')) return { httpStatus:200, body:{ schemaVersion:'agent.army/runtime-health/v1', status:'healthy', core:{ status:'healthy' }, optional:{ components:[{ id:'boom-monitor', status:'disabled' }] }, summary:{ employeeCount:7 } } };
     if (url.includes(':3100')) return { httpStatus:200, body:{ status:'ok', version:'1.0.0' } };
     if (url.includes(':4318')) return { httpStatus:200, body:{ ok:true, capabilities:{ asr:true } } };
     return { httpStatus:200, body:{ status:'disabled', mode:'disabled', hardStop:false, realConnectorsConfigured:false } };
@@ -114,9 +114,9 @@ test('源码身份缺失或任一关键服务不可达时不伪报已观察到�
     return '';
   };
   const request = async (url) => {
-    if (url.includes(':4321')) return { httpStatus:200, body:{ agents:[], alwaysOnAgents:[], onDemandAgents:[], taskFocus:{} } };
+    if (url.includes(':4321')) return { httpStatus:200, body:{ schemaVersion:'agent.army/runtime-health/v1', status:'healthy', core:{ status:'healthy' }, optional:{ components:[] }, summary:{ employeeCount:7 } } };
     if (url.includes(':3100')) return { httpStatus:200, body:{ status:'ok' } };
-    if (url.includes(':4318')) return { httpStatus:200, body:{ ok:true } };
+    if (url.includes(':4318')) return { httpStatus:null, body:{} };
     return { httpStatus:null, body:{} };
   };
   const result = await collectRuntimeFingerprint({
@@ -128,4 +128,24 @@ test('源码身份缺失或任一关键服务不可达时不伪报已观察到�
   assert.equal(result.status, 'degraded');
   assert.equal(result.live.sourceRelationship, 'unproven');
   assert.equal(result.live.services.publisher.reachable, false);
+});
+
+test('可选 Publisher 不可达不再把核心运行指纹判为 degraded', async () => {
+  const command = (file, args) => {
+    if (file === 'git' && args[0] === 'rev-parse') return `${'1'.repeat(40)}\n`;
+    if (file === 'git' && args[0] === 'branch') return 'main\n';
+    if (file === 'git' && args[0] === 'status') return '';
+    return '';
+  };
+  const request = async (url) => {
+    if (url.includes(':4321')) return { httpStatus:200, body:{ status:'healthy', core:{ status:'healthy' }, optional:{ components:[{ id:'publisher', status:'disabled' }] }, summary:{ employeeCount:2 } } };
+    if (url.includes(':4318')) return { httpStatus:200, body:{ ok:true } };
+    if (url.includes(':3100')) return { httpStatus:200, body:{ status:'ok' } };
+    return { httpStatus:null, body:{} };
+  };
+  const result = await collectRuntimeFingerprint({ root:'/repo', command, request });
+
+  assert.equal(result.status, 'observed');
+  assert.equal(result.live.services.publisher.reachable, false);
+  assert.deepEqual(result.live.services.ajun.optional, [{ id:'publisher', status:'disabled' }]);
 });

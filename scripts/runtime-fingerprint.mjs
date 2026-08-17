@@ -5,10 +5,10 @@ import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 
 const SERVICES = Object.freeze({
-  ajun:Object.freeze({ port:4321, endpoint:'/api/overview' }),
-  xiaod:Object.freeze({ port:4318, endpoint:'/api/health' }),
-  paperclip:Object.freeze({ port:3100, endpoint:'/api/health' }),
-  publisher:Object.freeze({ port:4390, endpoint:'/health' }),
+  ajun:Object.freeze({ port:4321, endpoint:'/api/health', required:true }),
+  xiaod:Object.freeze({ port:4318, endpoint:'/api/health', required:true }),
+  paperclip:Object.freeze({ port:3100, endpoint:'/api/health', required:true }),
+  publisher:Object.freeze({ port:4390, endpoint:'/health', required:false }),
 });
 
 export function parseGitStatusPorcelain(output = '') {
@@ -78,17 +78,11 @@ export function summarizeServiceHealth(service, response) {
   if (service === 'ajun') {
     return Object.freeze({
       ...base,
-      agentCount:Array.isArray(body.agents) ? body.agents.length : null,
-      alwaysOnCount:Array.isArray(body.alwaysOnAgents) ? body.alwaysOnAgents.length : null,
-      onDemandCount:Array.isArray(body.onDemandAgents) ? body.onDemandAgents.length : null,
-      taskFocus:body.taskFocus ? Object.freeze({
-        total:safeInteger(body.taskFocus.total),
-        inProgress:safeInteger(body.taskFocus.inProgress),
-        backgroundInProgress:safeInteger(body.taskFocus.backgroundInProgress),
-        waitingApproval:safeInteger(body.taskFocus.waitingApproval),
-      }) : null,
-      capabilities:Array.isArray(body.capabilities)
-        ? Object.freeze(body.capabilities.map((item) => Object.freeze({
+      status:String(body.status || 'unknown'),
+      coreStatus:String(body.core?.status || 'unknown'),
+      employeeCount:safeInteger(body.summary?.employeeCount),
+      optional:Array.isArray(body.optional?.components)
+        ? Object.freeze(body.optional.components.map((item) => Object.freeze({
           id:String(item?.id || ''),
           status:String(item?.status || 'unknown'),
         })).filter((item) => item.id))
@@ -152,7 +146,9 @@ export async function collectRuntimeFingerprint({
   const sourceLiveRelationship = source.gitHead && liveGitHead
     ? (liveGitHead === source.gitHead ? 'same_git_head' : 'different_git_head')
     : 'unproven';
-  const requiredReachable = Object.keys(SERVICES).every((name) => services[name].reachable);
+  const requiredReachable = Object.entries(SERVICES)
+    .filter(([, config]) => config.required)
+    .every(([name]) => serviceIsHealthy(name, services[name]));
   return Object.freeze({
     schemaVersion:'agent.army/runtime-fingerprint/v1',
     generatedAt:now().toISOString(),
@@ -164,6 +160,14 @@ export async function collectRuntimeFingerprint({
       services,
     }),
   });
+}
+
+function serviceIsHealthy(name, service) {
+  if (!service?.reachable) return false;
+  if (name === 'ajun') return service.status === 'healthy' && service.coreStatus === 'healthy';
+  if (name === 'xiaod') return service.ok === true;
+  if (name === 'paperclip') return ['ok', 'healthy', 'ready'].includes(service.status);
+  return true;
 }
 
 function collectSourceIdentity(root, command) {

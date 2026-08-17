@@ -81,7 +81,8 @@
       "path": "integrations/boom-monitor",
       "name": "@agent-army/boom-monitor",
       "classification": "compatibility-adapter",
-      "lifecycle": "active",
+      "lifecycle": "on-demand",
+      "runtimeMode": "disabled-by-default",
       "workspace": true,
       "deployable": false,
       "entrypoint": "integrations/boom-monitor/ajun-intake.ts"
@@ -99,7 +100,8 @@
       "path": "integrations/m5-kernel",
       "name": "@agent-army/m5-kernel",
       "classification": "domain-kernel",
-      "lifecycle": "active",
+      "lifecycle": "on-demand",
+      "runtimeMode": "disabled-by-default",
       "workspace": true,
       "deployable": false,
       "entrypoint": "integrations/m5-kernel/src/index.ts"
@@ -108,7 +110,8 @@
       "path": "integrations/paperclip/m5-content-pipeline",
       "name": "@agent-army/m5-content-pipeline",
       "classification": "workflow-adapter",
-      "lifecycle": "active",
+      "lifecycle": "on-demand",
+      "runtimeMode": "disabled-by-default",
       "workspace": true,
       "deployable": false,
       "entrypoint": "integrations/paperclip/m5-content-pipeline/src/index.ts"
@@ -117,7 +120,8 @@
       "path": "integrations/paperclip/plugins/content-autonomy",
       "name": "@agent-army/paperclip-content-autonomy",
       "classification": "platform-plugin",
-      "lifecycle": "active",
+      "lifecycle": "on-demand",
+      "runtimeMode": "disabled-by-default",
       "workspace": true,
       "deployable": true,
       "entrypoint": "integrations/paperclip/plugins/content-autonomy/src/worker.ts"
@@ -126,7 +130,7 @@
       "path": "integrations/publishing/m5-publisher-gateway",
       "name": "@agent-army/m5-publisher-gateway",
       "classification": "external-write-gateway",
-      "lifecycle": "active",
+      "lifecycle": "on-demand",
       "runtimeMode": "disabled-by-default",
       "workspace": true,
       "deployable": true,
