@@ -189,6 +189,12 @@ function analysisPrompt({ title, transcript, analysisIntent, depth, evidenceMode
         depth === 'full'
             ? '每个模块必须同时包含 originalAnalysis、diagnosis、optimization 三个非空数组；每项判断都要带 evidence。给定转录已整理为最多 30 个连续证据段落；全文逐句作用拆解必须让 sentenceBreakdown 逐项覆盖每个段落且不遗漏，逐项格式为 {"original":"段落原文","role":"作用","explanation":"解释","evidence":{"timestamp":"00:00或null","fragment":"与该段落逐字一致的完整原文"}}。'
             : '快速模式每个模块包含 finding、evidence 和 confidence。',
+        depth === 'full'
+            ? '严格控制输出长度：summary 不超过 160 字；每个模块的 finding 不超过 120 字，originalAnalysis、diagnosis、optimization 各只输出 1 项且文字字段各不超过 120 字；sentenceBreakdown 的 role 和 explanation 各不超过 60 字；reusablePatterns 与 actionItems 各只输出 3 项且每项不超过 100 字。不要输出示例之外的解释、Markdown 或重复字段。'
+            : '严格控制输出长度：summary 和每个 finding 不超过 160 字，不输出 Markdown 或重复字段。',
+        providerObservation
+            ? `visualFindings 只输出 ${depth === 'full' ? '5' : '3'} 项，至少覆盖 ${depth === 'full' ? '3' : '2'} 种 category；每项 finding 不超过 120 字。`
+            : '',
         'modules 必须按“必须覆盖模块”的顺序逐项输出，不得改名、合并或遗漏。',
         `当前分析模式：${JSON.stringify(analysisIntent || (depth === 'full' ? 'deep' : 'digest'))}。精华提炼要突出最少信息量；深度拆解要区分观察事实与机制推断；模板学习只复用结构作用；风格探索不得改变事实或编造数据。`,
         analysisModeOutputInstruction(analysisIntent || (depth === 'full' ? 'deep' : 'digest')),
