@@ -366,7 +366,7 @@ cua-driver doctor
 | 下游与发布边界 | PASS | 验收任务之后只出现该分析任务；小创、审核、Publisher 任务为 0；`AJUN_M5_PUBLISHER_MODE`、Campaign 和 Cron 启用项均未设置 | 不批准真实发布或活动启用 |
 | 外部飞书 | NOT CHECKED | 本地解析与字段透传测试通过 | 必须由负责人在 A君 真实飞书会话发送一条带模式的视频任务 |
 
-当前唯一外部下一步见 [视频分析四模式飞书验收交接](../../handoffs/current/video-analysis-modes-feishu-acceptance-handoff.md)。
+该项未完成人工验收，历史边界见[已归档的视频分析四模式飞书验收交接](../../archive/handoffs/video-analysis-modes-feishu-acceptance-handoff.md)；它不再是当前产品唯一下一步，如需继续应基于新鲜事实创建新交接。
 
 ## 2026-08-08 当前活动与只读 readiness 复核
 

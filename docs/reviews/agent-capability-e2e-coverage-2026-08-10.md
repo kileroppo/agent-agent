@@ -2,7 +2,7 @@
 
 检查时间：2026-08-10 20:38 CST（Asia/Shanghai）
 
-> 2026-08-11 后续更正：本文下表是 2026-08-10 时点快照，不得继续当作当前 freshness 真相。固定第二批已登记 `revision_required`；审核官后续已有新鲜合格成功；小R最新受控任务 `b614bb54…` 虽为技术 `succeeded`，但报告自述核心正文与三条建议未交付，业务验收为 FAIL CLOSED。当前只以[产品成熟度总交接](../handoffs/current/agent-army-product-maturity-handoff.md)为继续入口。
+> 2026-08-11 后续更正：本文下表是 2026-08-10 时点快照，不得继续当作当前 freshness 真相。固定第二批已登记 `revision_required`；审核官后续已有新鲜合格成功；小R最新受控任务 `b614bb54…` 虽为技术 `succeeded`，但报告自述核心正文与三条建议未交付，业务验收为 FAIL CLOSED。最终事实见已关闭的[产品成熟度总交接](../archive/handoffs/agent-army-product-maturity-handoff.md)。
 
 ## 结论
 

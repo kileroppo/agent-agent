@@ -34,36 +34,21 @@ agent-agent/
 
 ## 当前状态
 
-### 当前机器事实（2026-08-16）
+### 当前产品结论（2026-08-17）
 
-- A君 `4321` 的模型页已支持直接保存主模型、岗位覆盖和能力专用模型；默认文本/视觉为 `step-3.7-flash`，语音识别可在 `stepaudio-2.5-asr` 与本机 Whisper 之间切换，生图/改图为 `step-image-edit-2`，配音为 `stepaudio-2.5-tts`。新任务冻结选择，正在执行的任务不换模型。
-- 小D `4318` 已接入共享能力策略；StepFun ASR 结果不明时记为 `ambiguous`，不自动重试或改投本机。Paperclip `3100` 内容插件 live 为不可变 `0.5.0`、`ready/healthy`，视觉工具回读为 `step-3.7-flash`。Publisher `4390` 未运行，Campaign 为 `stopped`、M5 Cron 关闭；本轮没有触发飞书、Publisher 或 StepFun 媒体 Provider 工作流。
-- Business Workflow、能力真相、并列否定策略和人工评价写回已进入 `4321` live；飞书任务 `#167203DF` 完成一条真实只读 Workflow，并将 `useful` / `accepted` 写回任务账本。
-- 本地 AI 已从仓库 `work/` 迁到项目外的内容哈希插件运行时；A君只依赖回环 `18082` Interface，插件代码、Python 环境、模型、日志和索引不再随 A君或项目发布包滚版。当前机器迁移与新启动链路已通过状态、文本和 Embedding smoke。
+- A君与小D是当前产品运行面；飞书负责日常派活和交付，A君运行台只负责当前状态、唯一下一步、授权、验收和恢复。
+- 当前改进主线是“减负与闭环”：只让真实业务工作流进入负责人待办，任务执行状态与人工验收决定分开保存；验证任务和系统任务不再冒充用户待办。
+- M5、Boom Radar 自动扫描和产品成熟度批次保留代码与历史数据，但默认按需或冻结，不参与核心启动和核心健康判定。Campaign、Cron、Publisher 与外部写入继续关闭，重开必须重新授权。
+- `/api/health` 是轻量核心健康入口，`/api/console-overview` 是运行台紧凑读模型；账单和完整清单按页读取。`/api/overview` 只作短期兼容，不再作为探活、首页刷新或当前任务真相入口。
+- 历史任务终态、产品成熟度第二批的 `revision_required` 决定及既有验收证据保持不变；历史运行快照见[产品收口运行账本](./docs/reviews/operations-health/product-closure-2026-08-08.md)和[历史运行状态](./docs/archive/product-state-history-2026-08-08.md)。
 
-### 当前产品结论
+### 唯一下一步
 
-- M0–M3 已完成；M4 本地岗位质量与模型回归已完成，剩余项均为明确的外部或人工验收；M5 仍为 **PARTIAL**。
-- 产品成熟度固定第二批已以 `revision_required` 结束，不得再刷新或重开。审核官新鲜 E2E 已通过；小R显式交付覆盖门禁已经以 release `530d86bf…` 进入 live。新门禁下的真实任务 `2cb79a68…` 正确停在 `waiting_test`：只读到一条来源，缺 `process.env`，建议数为 1/3；调用增量 7、估算费用 0.005862007 USD。门禁有效，但小R业务能力仍未通过。当前停止反复修复/部署/重试，唯一继续口径见[产品成熟度总交接](./docs/handoffs/current/agent-army-product-maturity-handoff.md)。
-- 生产业务源码已统一为严格 TypeScript：当前候选工作树业务源清单为 `446 TS / 0 JS`，A君架构门禁为 `293/293 = 100%`。测试、运维脚本和浏览器构建产物可保留 JavaScript/MJS；浏览器 TypeScript 源码与生成物分目录管理。此前版本已完成 `4318` / `4321` 本机切换；本轮爆款雷达稳定性候选尚未切换 `4321`，也不授权重开产品成熟度批次或任何外部动作。
-- Business Workflow 已作为新任务主对象，TypeScript Policy、CapabilityAdapter、ExecutionReceipt、Evaluation 和五层能力真相已在 live 生效；历史任务只读分类，不改写旧终态。
-- 任务与待办数量以 live `/api/overview.taskFocus` 为准，README 不再固化会持续变化的计数。真正的 `waiting_acceptance` Workflow 会进入 `ownerActionable`；等待自动验证的 `waiting_test` 或产物门禁未通过会显示为 `waiting_validation`，不再冒充老板待办。历史分类仍只读，不改写旧任务终态。
-- live `agent.army/validation-campaign/v1` 已收敛为 `taskCount=0`、`groupCount=0`。首次真实小拆 `#716FA2E8` 的任务终态仍保留为 `waiting_test`，Workflow 正确呈现为 `waiting_validation` 且不产生负责人动作；修复后的 `#B5403CD9` 以 `paperclip_hermes_completed` 成功，其 Workflow 为 `waiting_acceptance`，结构校验由 `false` 经一次 deterministic repair 变为 `true`，生成 7077 bytes、194 字摘要报告。
-- 两条真实小拆均各调用 DeepSeek 1 次：首次 5218/13466 tokens、估算 0.004501 USD；成功任务 3043/8809 tokens、估算 0.0028986328 USD。两次都未调用视觉 Provider。任务账本未报告外部写入，也没有独立外写回执，因此不能断言外部写入为零；Paperclip 本机 completion sync 不等于外部发布。
-- 真实 `runtime.sqlite` 只读回放复用了任务 `#10E4F814` 的实际确认稿、10 帧和 1 个故事板，在无 Advisor、无视觉 Provider 时生成 13 模块 `deterministic_fallback` 报告，并正确标记 `partial` / `unavailable`；数据库写入、live 任务写入、Provider 调用和付费调用均为 0，临时目录已清理。M3 无 Provider 本机纵向验收同样通过。
-- 模型账本以 live `/api/overview.billing` 的滚动窗口为准，不再在 README 固化过期 API 次数。账本分开 `task`、`system`、`agent_session` 和真正 `unattributed`；仅有可对账的 Hermes session 才绑定具体任务/Workflow，其余会话不再被笼统说成“未归属”。历史窗口分析见[产品收口运行账本](./docs/reviews/operations-health/product-closure-2026-08-08.md)。
-
-### 当前边界与下一步
-
-- 爆款雷达“链接 → 评分 → 小D → 质量复核 → 小拆 → 总任务汇总”的三批稳定性加固已进入候选源码和无外部副作用端到端测试；当前 `4321` live 尚未切换。构建不可变 release、重启和 live API/PID 回读必须另行授权，不能把候选测试冒充线上生效。
-- M5 活动 `8dd29a3b…` 当前已经 `stopped`，不是旧文档中的 `paused`；旧 Profile lease 已过期。重新运行必须创建新授权草案，不能恢复旧授权。
-- 先维护只读 readiness、任务恢复和审计质量；恢复 Campaign、启动 Publisher 或平台写入仍需独立授权。模型型验证必须先通过现有预算 Policy；历史真实小拆曾产生两次有账本的 DeepSeek 调用，当前 StepFun 3.7 切换本身未调用文本或视觉 Provider。
-- 新任务通过 `Model → Agent Runtime → Skills/Workflow → Policy/Permission → MCP/Tool Gateway → Provider` 执行；Model 不得自批权限。已登记同机只读能力可自动恢复一次并重试一次，仍失败才提示负责人。
-- 当前主线已完成 StepFun 3.7 不可变部署、Workflow/能力证据/用量归因修复和 Paperclip 本机完成同步；既有 DeepSeek 小拆终态继续作为历史任务证据。自动结构通过只证明产物满足机器门禁，不等于负责人已经采用内容。
-- 当前不得重复执行审核官，也不得继续创建小R重试。防冒充成功门禁已随 `64d5476… / 530d86bf…` 进入 live，并用一条真实 E2E 证明会如实拒绝不完整交付。后续只可把“两条来源读取 + 三条具体建议”作为独立产品问题重新立项；负责人未明确重开前保持现状。新成熟度批次仍需独立授权。
-- 历史能力验证批次的自动化闭环已完成，该批次仅保留可选人工内容质量抽查：如需形成最终采用结论，可对 `#B5403CD9` 登记 `accepted` 或 `revision_required`。项目其他外部/人工验收仍以[当前交接](./docs/handoffs/README.md#当前交接)为准，不将某一批次的闭环误说成整个项目只剩一件事。
-- 仍需负责人参与的真实验收统一见[当前交接](./docs/handoffs/README.md#当前交接)；已经完成或被替代的事项不得继续占用当前状态。
-- 2026-08-08 以前的详细运行快照已移至[历史运行状态](./docs/archive/product-state-history-2026-08-08.md)，不再作为当前 PID、版本或唯一下一步依据。
+- A君 已运行在不可变 release `ecc98c2eecb4e8a347c27d4eaab0142169dd51d20243778751682c1c760fdfcb`，小D 已运行在不可变 release `433c3e5386b5cd7736f810c2abf42a5ed7be3ef755afcd9c8ee8df1b39e144ef`；两者均已核对单一 PID、端口、cwd、argv 与真实 HTTP 回读。
+- 唯一真实业务待办已由负责人在运行台选择“有用”，工作流决定持久化为 `accepted`，首页负责人待办回到 0；验证任务与系统任务没有进入负责人队列。
+- A君 最终 10 分钟空闲采样通过：CPU median `0%`、P95 `0.4%`，RSS median `203MB`、max `209.6MB`；没有全表扫描或重复岗位同步日志刷屏。
+- 当前没有需要负责人继续处理的产品待办；保持 M5、Boom 自动扫描和成熟度复验关闭，只有出现新的真实业务需求或故障时再建立下一步。
+- 本轮证据已归档到[产品成熟度总交接](./docs/archive/handoffs/agent-army-product-maturity-handoff.md)；已关闭、冻结或仅剩可选人工抽查的交接不与当前工作竞争优先级。
 
 ## 正式文档入口
 

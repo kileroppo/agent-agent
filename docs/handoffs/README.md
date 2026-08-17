@@ -55,26 +55,11 @@
 
 ## 当前交接
 
-`current/` 不是自动待办队列。产品级继续工作只从
-[Agent 军团产品成熟度总交接](./current/agent-army-product-maturity-handoff.md)开始；它当前为
-`revision_required` / 暂停，唯一下一步是保持现状，不执行命令、不创建任务。小R真实任务已证明
-门禁会拒绝不完整交付，但业务交付仍未通过；除非负责人把它重新立为独立产品问题，否则不得继续
-自动诊断、修复、部署或重试。
+`current/` 当前没有未完成交接。“减负与闭环”已经完成真实业务验收并归档到
+[Agent 军团产品成熟度总交接](../archive/handoffs/agent-army-product-maturity-handoff.md)。没有新的真实需求或故障时，不创建占位交接，不恢复 M5、
+启动 Publisher、创建成熟度批次或执行外部写入。
 
-下面各项只有被负责人明确选中，或在自然业务工作流中出现其验收机会时才执行；它们不与总交接
-竞争“唯一下一步”：
-
-- [本地 AI 插件运行时迁移](./current/local-ai-plugin-runtime-migration-handoff.md)：已关闭；项目内运行物已迁出，另一台 Mac 只需按插件 README 重建，不是当前待办。
-
-- [视频分析四模式飞书验收](./current/video-analysis-modes-feishu-acceptance-handoff.md)：等待负责人用已授权视频触发一次指定模式验收。
-- [Agent 使用说明书问答验收](./current/agent-manual-query-handoff.md)：小D路径已通过，仅余负责人按需核对 A君与独立岗位权限边界。
-- [Agent 人性化体验验收](./current/m2-agent-experience-polish-handoff.md)：等待自然出现的持续任务，顺手核对手机端详情、长内容和任务链接；不另造任务。
-- [能力 Plan B 与运行事件](./current/capability-plan-b-and-run-events-handoff.md)：机器闭环完成，仅余负责人可选的浏览器体验抽查。
-- [上下文、记忆与成本治理](./current/context-memory-cost-governance-handoff.md)：在下一条正常业务任务中记录成本对比，不为验收额外制造付费调用。
-- [历史能力验证批次业务 E2E](./current/validation-campaign-business-e2e-handoff.md)：自动化已闭环，仅保留可选人工内容质量结论。
-- [A君 / Paperclip 三岗位真实业务链复验](./current/ajun-paperclip-business-chain-live-validation-handoff.md)：已关闭；小D、小拆、小办和两次独立复核均完成，A君详情可回读 Paperclip Issue 与 Run，最终内容是否采用由负责人按需抽查。
-- [M5 高权限内容自治](./current/m5-high-autonomy-content-operations-handoff.md)：冻结；Campaign、Cron、Publisher 和外部写入保持关闭，只有负责人明确重开后才做新鲜 readiness 预检。
-
-已关闭且被新总交接接管，或已被后续里程碑替代的资料统一放在
-[`docs/archive/handoffs/`](../archive/handoffs/)。小R专项交接已归档，其暂停决定、失败证据和重开
-门槛由产品总交接统一维护；历史 PID、release 和一次性授权均不再作为当前事实。
+已关闭、冻结、等待自然机会或只剩可选人工抽查的交接统一放在
+[`docs/archive/handoffs/`](../archive/handoffs/)。归档不等于补做了人工验收：文件中保留原始
+PASS、PARTIAL、NOT CHECKED、`revision_required` 和重开门槛；如负责人重新选择其中一个产品问题，
+应基于当前事实创建新交接并链接历史文件，而不是把归档文件移回 `current/`。

@@ -1,8 +1,10 @@
 # M5 高权限内容自治交接
 
+> 2026-08-17 归档并继续冻结：历史 PARTIAL 结论不变；只有负责人明确重开后才创建新交接，最终事实见[产品成熟度总交接](./agent-army-product-maturity-handoff.md)。
+
 | 字段 | 内容 |
 | --- | --- |
-| 状态 | 冻结；M5 未完成，Campaign 已停止，旧 Profile lease 已过期，Publisher 与 Cron 保持关闭 |
+| 状态 | 已归档 / 冻结；M5 未完成，Campaign 已停止，旧 Profile lease 已过期，Publisher 与 Cron 保持关闭 |
 | 创建时间 | 2026-07-31（Asia/Shanghai） |
 | 最近收敛 | 2026-08-13（Asia/Shanghai） |
 | 接手者 | 项目负责人 / 下一位受控发布执行者 |

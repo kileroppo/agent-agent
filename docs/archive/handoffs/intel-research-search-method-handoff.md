@@ -7,7 +7,7 @@
 | 交出者 | Codex |
 | 接手者 | A君运行时维护者 / 负责人 |
 | 关联任务 | [M2 第一批 Agent PRD](../../../tasks/prd-m2-first-batch-agent-governance.md)、[核心契约](../../contracts/core-contracts.md) |
-| 截止条件 | 由 [`agent-army-product-maturity-handoff.md`](../../handoffs/current/agent-army-product-maturity-handoff.md) 统一维护；本文件只保留历史专项证据 |
+| 截止条件 | 最终事实见 [`agent-army-product-maturity-handoff.md`](./agent-army-product-maturity-handoff.md)；本文件只保留历史专项证据 |
 
 ## 1. 接手目标
 
