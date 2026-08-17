@@ -69,6 +69,8 @@ export async function createRoleContentExecutionComposition({
   });
   const videoContentAdvisor = new HermesContentGrowthAdvisor({
     hermesHome:path.join(paths.hermesProfileRoot, 'video-content-analyst'),
+    provider:'openai-codex',
+    model:'gpt-5.6-terra',
     timeoutMs:720_000,
   });
   const contentCreatorAdvisor = new HermesContentGrowthAdvisor({

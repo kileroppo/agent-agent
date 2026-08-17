@@ -7,11 +7,15 @@ export class HermesContentGrowthAdvisor {
     command: any;
     hermesHome: any;
     nowMs: any;
+    model: any;
+    provider: any;
     run: any;
     timeoutMs: any;
-    constructor({ command = process.env.AJUN_HERMES_COMMAND || path.join(os.homedir(), '.local', 'bin', 'hermes'), hermesHome = '', timeoutMs = 240000, run = runCommand, nowMs = (): any => Date.now() }: any = {}) {
+    constructor({ command = process.env.AJUN_HERMES_COMMAND || path.join(os.homedir(), '.local', 'bin', 'hermes'), hermesHome = '', provider = '', model = '', timeoutMs = 240000, run = runCommand, nowMs = (): any => Date.now() }: any = {}) {
         this.command = command;
         this.hermesHome = hermesHome;
+        this.provider = String(provider || '').trim();
+        this.model = String(model || '').trim();
         this.timeoutMs = timeoutMs;
         this.run = run;
         this.nowMs = nowMs;
@@ -138,7 +142,12 @@ export class HermesContentGrowthAdvisor {
         const usageDirectory: any = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-army-hermes-usage-'));
         const usagePath: any = path.join(usageDirectory, 'usage.json');
         try {
-            const args: any[] = [...NO_SIDE_EFFECT_HERMES_ARGS, '--usage-file', usagePath];
+            const args: any[] = [
+                ...NO_SIDE_EFFECT_HERMES_ARGS,
+                ...(this.provider ? ['--provider', this.provider] : []),
+                ...(this.model ? ['--model', this.model] : []),
+                '--usage-file', usagePath,
+            ];
             args.push('--oneshot', prompt);
             const output: any = await this.run(this.command, args, {
                 timeoutMs,

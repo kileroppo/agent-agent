@@ -54,6 +54,27 @@ test('Hermes 内容执行器使用隔离 Profile、写入用量并在读取后�
   await assert.rejects(() => fs.access(usagePath));
 });
 
+test('内容执行器可冻结单次推理模型且不改写岗位 Profile', async () => {
+  let invokedArgs;
+  const advisor = new HermesContentGrowthAdvisor({
+    hermesHome:'/tmp/hermes/profiles/video-content-analyst',
+    provider:'openai-codex',
+    model:'gpt-5.6-terra',
+    run:async (_command, args) => {
+      invokedArgs = args;
+      return JSON.stringify({ summary:'已分析', modules:[] });
+    },
+  });
+
+  await advisor.analyze({ transcript:'[00:00] 测试。', depth:'fast' });
+
+  assert.deepEqual(invokedArgs.slice(0, 6), [
+    '--toolsets', 'clarify',
+    '--provider', 'openai-codex',
+    '--model', 'gpt-5.6-terra',
+  ]);
+});
+
 test('快速拆解在五分钟总预算内最多尝试两次并合并失败调用用量', async () => {
   let now = 0;
   const timeouts = [];

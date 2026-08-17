@@ -120,6 +120,37 @@ test('Paperclip 新 Run 会重新打开失败信封并按新岗位和任务类�
   assert.equal(records.tasks.length, 1);
 });
 
+test('Paperclip 故障恢复接管人不能覆盖仍在执行的原任务身份', async () => {
+  const analyst = hermesAgentFixture('video-content-analyst', '小拆', ['content.video-benchmark-analysis']);
+  const architect = hermesAgentFixture('architect', '架构师', ['governance.architecture-review']);
+  const firstIdentity = paperclipIdentityFixture('recovery-owner-guard', 'video-content-analyst', '小拆', {
+    title:'基于确认稿拆解视频',
+    description:'只基于确认稿完成深度拆解。',
+  }, { runId:'paperclip-run-analysis', paperclipAgentId:'paperclip-agent-analyst' });
+  let identity = firstIdentity;
+  const governance = paperclipAssignmentGovernanceFixture(firstIdentity, {
+    async verifyHermesAssignment() { return identity; },
+  });
+  const { service, records } = setup({ agents:[analyst, architect], governance });
+  const first = await service.getPaperclipAssignment(firstIdentity);
+  identity = {
+    ...firstIdentity,
+    run:{ id:'paperclip-run-recovery' },
+    paperclipAgent:{ id:'paperclip-agent-architect', name:'架构师' },
+    agentArmyId:'architect',
+  };
+
+  await assert.rejects(
+    service.getPaperclipAssignment(identity),
+    /故障恢复接管人.*拒绝覆盖/,
+  );
+
+  assert.equal(records.tasks[0].taskId, first.task.taskId);
+  assert.equal(records.tasks[0].taskType, 'content.video-benchmark-analysis');
+  assert.equal(records.tasks[0].assigneeAgentId, 'video-content-analyst');
+  assert.equal(records.tasks[0].execution.paperclipRunId, 'paperclip-run-analysis');
+});
+
 test('Paperclip 终态同步明确失败后可重放，failed 与 waiting_test 不会永久卡在两套真相', async (t) => {
   for (const { label, reportedStatus, preciseError } of [
     { label:'failed-precise-error', reportedStatus:'failed', preciseError:true },

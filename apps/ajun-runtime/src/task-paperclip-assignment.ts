@@ -18,6 +18,12 @@ export const taskPaperclipAssignmentMethods: Record<string, any> = {
             throw new ValidationError('当前岗位未启用 Paperclip Hermes 执行。');
         const storedTasks: any = await this.store.list();
         let task: any = storedTasks.find((item: any): any => item.governance?.paperclipIssueId === identity.issue.id);
+        if (task
+            && task.assigneeAgentId
+            && task.assigneeAgentId !== agent.agentId
+            && !isTerminalTask(task)) {
+            throw new ValidationError('Paperclip 当前岗位是故障恢复接管人，不是原业务任务承接人；A君已拒绝覆盖正在执行的任务身份。');
+        }
         let assignmentTask: any;
         try {
             assignmentTask = resolvePaperclipAssignmentTaskType({
