@@ -56,7 +56,7 @@ test('当前启动目录缺少可信 manifest 时失败关闭', async (context) 
   await fs.chmod(path.join(fixture.releaseRoot, 'release-manifest.json'), 0o644);
   await fs.writeFile(path.join(fixture.releaseRoot, 'release-manifest.json'), '{}');
   await fs.chmod(fixture.releaseRoot, 0o555);
-  await assert.rejects(() => fixture.adapter.inspect(), /manifest/);
+  await assert.rejects(() => fixture.adapter.inspect(), /release清单/);
 });
 
 test('上线核对必须同时证明 launchd PID 就是 4321 listener、cwd、argv、release/payload/Git 和控制台 API', async (context) => {
@@ -219,7 +219,129 @@ test('复用同名部署 release 时复核只读普通文件、manifest、payloa
   await fs.chmod(server, 0o644);
   await fs.writeFile(server, 'tampered\n');
   await fs.chmod(server, 0o444);
-  await assert.rejects(() => fixture.adapter.deployCandidateRelease(frozen), /payload hash|文件清单/);
+  await assert.rejects(() => fixture.adapter.deployCandidateRelease(frozen), /内容哈希|文件清单/);
+});
+
+test('正式冻结契约的 release 内部 workspace 软链可复制、复用并保持内容寻址', async (context) => {
+  const fixture = await createFixture(context);
+  const frozen = await createImmutableRelease(
+    path.join(fixture.root, 'frozen-candidates'),
+    fixture.newHead,
+    { internalWorkspaceLink:true },
+  );
+
+  const deployed = await fixture.adapter.deployCandidateRelease(frozen);
+  assert.equal(deployed.releaseHash, frozen.releaseHash);
+  assert.equal(deployed.payloadHash, frozen.payloadHash);
+  const link = path.join(deployed.releaseRoot, 'node_modules', '@agent-army', 'm5-contracts');
+  assert.equal((await fs.lstat(link)).isSymbolicLink(), true);
+  assert.equal(await fs.readlink(link), '../../packages/m5-contracts');
+
+  const reused = await fixture.adapter.deployCandidateRelease(frozen);
+  assert.deepEqual(reused, deployed);
+});
+
+test('release 内 workspace 软链拒绝绝对、上跳越界、外部真实目标、环形和清单篡改', async (context) => {
+  const fixture = await createFixture(context);
+  const cases = [
+    { name:'absolute', target:path.join(fixture.root, 'outside-package'), message:/绝对软链/ },
+    { name:'traversal', target:'../../../../../../outside-package', message:/目标越出/ },
+    { name:'external-chain', target:'../../packages/external-chain', message:/真实目标.*越出/ },
+    { name:'cycle', target:'m5-contracts', message:/环形软链|too many symbolic links|ELOOP/i },
+  ];
+  await fs.mkdir(path.join(fixture.root, 'outside-package'), { recursive:true });
+  for (const item of cases) {
+    const frozen = await createImmutableRelease(
+      path.join(fixture.root, `invalid-${item.name}`),
+      fixture.newHead,
+      { internalWorkspaceLink:true },
+    );
+    const link = path.join(frozen.releaseRoot, 'node_modules', '@agent-army', 'm5-contracts');
+    await chmodMutable(frozen.releaseRoot);
+    await fs.rm(link);
+    if (item.name === 'external-chain') {
+      const bridge = path.join(frozen.releaseRoot, 'packages', 'external-chain');
+      await fs.symlink(path.join(fixture.root, 'outside-package'), bridge);
+      await fs.symlink('../../packages/external-chain', link);
+    } else {
+      await fs.symlink(item.target, link);
+    }
+    await chmodReadonly(frozen.releaseRoot);
+    await assert.rejects(() => fixture.adapter.deployCandidateRelease(frozen), item.message);
+  }
+
+  const tamperedLink = await createImmutableRelease(
+    path.join(fixture.root, 'tampered-link'),
+    fixture.newHead,
+    { internalWorkspaceLink:true },
+  );
+  const linkPath = path.join(tamperedLink.releaseRoot, 'node_modules', '@agent-army', 'm5-contracts');
+  await chmodMutable(tamperedLink.releaseRoot);
+  await fs.rm(linkPath);
+  await fs.symlink('../../packages', linkPath);
+  await chmodReadonly(tamperedLink.releaseRoot);
+  await assert.rejects(
+    () => fixture.adapter.deployCandidateRelease(tamperedLink),
+    /内容哈希|文件清单/,
+  );
+
+  const tampered = await createImmutableRelease(
+    path.join(fixture.root, 'tampered-manifest'),
+    fixture.newHead,
+    { internalWorkspaceLink:true },
+  );
+  const manifestPath = path.join(tampered.releaseRoot, 'release-manifest.json');
+  await chmodMutable(tampered.releaseRoot);
+  const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+  manifest.entries.find((entry) => entry.type === 'symlink').target = '../../packages/other';
+  await fs.writeFile(manifestPath, `${JSON.stringify(manifest)}\n`);
+  await chmodReadonly(tampered.releaseRoot);
+  await assert.rejects(
+    () => fixture.adapter.deployCandidateRelease(tampered),
+    /release元数据未绑定内容哈希|文件清单/,
+  );
+});
+
+test('正式 validator 拒绝精确 manifest 漂移、硬链接和读取路径替换', async (context) => {
+  const fixture = await createFixture(context);
+  const drifted = await createImmutableRelease(
+    path.join(fixture.root, 'manifest-drift'),
+    fixture.newHead,
+    { manifestMutator:(manifest) => { manifest.sourceAllowlist = ['z-last', 'a-first']; } },
+  );
+  await assert.rejects(
+    () => fixture.adapter.deployCandidateRelease(drifted),
+    /sourceAllowlist不合法/,
+  );
+
+  const hardlinked = await createImmutableRelease(
+    path.join(fixture.root, 'hardlinked'),
+    fixture.newHead,
+  );
+  await fs.link(
+    path.join(hardlinked.releaseRoot, 'apps', 'ajun-runtime', 'src', 'server.ts'),
+    path.join(fixture.root, 'server-hardlink-alias.ts'),
+  );
+  await assert.rejects(
+    () => fixture.adapter.deployCandidateRelease(hardlinked),
+    /不允许硬链接文件/,
+  );
+
+  const replaced = await createImmutableRelease(
+    path.join(fixture.root, 'manifest-replaced'),
+    fixture.newHead,
+  );
+  const manifestPath = path.join(replaced.releaseRoot, 'release-manifest.json');
+  const displacedManifest = path.join(fixture.root, 'displaced-release-manifest.json');
+  await chmodMutable(replaced.releaseRoot);
+  await fs.rename(manifestPath, displacedManifest);
+  await fs.chmod(displacedManifest, 0o444);
+  await fs.symlink(displacedManifest, manifestPath);
+  await chmodReadonly(replaced.releaseRoot);
+  await assert.rejects(
+    () => fixture.adapter.deployCandidateRelease(replaced),
+    /release清单不是普通文件/,
+  );
 });
 
 test('复用部署目录拒绝软链，即使 manifest releaseHash 恰好相同', async (context) => {
@@ -240,7 +362,7 @@ test('复用部署目录拒绝软链，即使 manifest releaseHash 恰好相同'
     path.join(frozen.releaseRoot, 'apps'),
     frozen.releaseRoot,
   ]) await fs.chmod(directory, 0o555);
-  await assert.rejects(() => fixture.adapter.deployCandidateRelease(frozen), /含软链/);
+  await assert.rejects(() => fixture.adapter.deployCandidateRelease(frozen), /含非node_modules软链/);
 });
 
 test('线上 release payload 被篡改而 manifest 不变时，verifyLive 在 HTTP 前失败关闭', async (context) => {
@@ -255,7 +377,7 @@ test('线上 release payload 被篡改而 manifest 不变时，verifyLive 在 HT
       releaseHash:fixture.oldReleaseHash, payloadHash:fixture.oldPayloadHash,
       gitHead:fixture.oldHead, releaseRoot:fixture.releaseRoot,
     }),
-    /payload hash|文件清单/,
+    /内容哈希|文件清单/,
   );
 });
 
@@ -331,16 +453,60 @@ async function createFixture(context, options = {}) {
   };
 }
 
-async function createImmutableRelease(deployRoot, gitHead) {
+async function createImmutableRelease(deployRoot, gitHead, {
+  internalWorkspaceLink = false,
+  manifestMutator = null,
+} = {}) {
   const staging = path.join(deployRoot, 'staging');
   const workdir = path.join(staging, 'apps', 'ajun-runtime', 'src');
   await fs.mkdir(workdir, { recursive:true });
   await fs.writeFile(path.join(workdir, 'server.ts'), 'export {};\n');
+  if (internalWorkspaceLink) {
+    const packageRoot = path.join(staging, 'packages', 'm5-contracts');
+    const linkParent = path.join(staging, 'node_modules', '@agent-army');
+    await fs.mkdir(packageRoot, { recursive:true });
+    await fs.writeFile(path.join(packageRoot, 'package.json'), '{"name":"@agent-army/m5-contracts"}\n');
+    await fs.mkdir(linkParent, { recursive:true });
+    await fs.symlink('../../packages/m5-contracts', path.join(linkParent, 'm5-contracts'));
+  }
   const snapshot = await fixtureSnapshot(staging);
   const manifestWithoutReleaseHash = {
+    schemaVersion:1,
     kind:'agent-army/ajun-immutable-runtime-release', payloadHash:snapshot.payloadHash,
-    git:{ gitHead }, entries:snapshot.entries,
+    workingTreeSnapshot:snapshot.payloadHash,
+    git:{ gitHead, worktreeState:'clean' },
+    runtimeAbi:{ node:process.version, modules:process.versions.modules, platform:process.platform, arch:process.arch },
+    entrypoint:'apps/ajun-runtime/src/server.ts',
+    sourceAllowlist:['apps/ajun-runtime'],
+    sourceExclusions:[
+      'apps/ajun-runtime/data/**',
+      'apps/ajun-runtime/test/**',
+      'apps/ajun-runtime/scripts/**',
+      '**/.env',
+      '**/.env.*',
+      '**/*credential*.json',
+      '**/*secrets*.json',
+      '**/*.pem',
+      '**/*.key',
+      '**/*.log',
+      '**/node_modules/**/.cache/**',
+    ],
+    externalState:[
+      'AGENT_ARMY_DATA_DIR',
+      'AGENT_ARMY_TASK_STORE',
+      'AGENT_ARMY_CONTENT_WORKSPACE_DIR',
+      'AGENT_ARMY_HERMES_PROFILE_ROOT',
+      'AGENT_ARMY_PRIVATE_DIR',
+      'AJUN_HERMES_HOME',
+      'AUTO_WORK_ROOT',
+      'XIAOD_ARTIFACT_ROOT',
+      'PAPERCLIP_REPAIR_WORKTREE_PARENT',
+      'AGENT_ARMY_SOURCE_PROJECT_ROOT',
+    ],
+    verification:{ requested:false, commands:[] },
+    entries:snapshot.entries,
   };
+  if (manifestMutator) manifestMutator(manifestWithoutReleaseHash);
   const releaseHash = canonicalHash(manifestWithoutReleaseHash);
   const manifest = { ...manifestWithoutReleaseHash, releaseHash };
   await fs.writeFile(path.join(staging, 'release-manifest.json'), `${JSON.stringify(manifest)}\n`);
@@ -358,7 +524,9 @@ async function fixtureSnapshot(root) {
       const relative = path.relative(root, absolute).split(path.sep).join('/');
       if (relative === 'release-manifest.json') continue;
       const stat = await fs.lstat(absolute);
-      if (stat.isDirectory()) {
+      if (stat.isSymbolicLink()) {
+        entries.push({ type:'symlink', path:relative, target:await fs.readlink(absolute) });
+      } else if (stat.isDirectory()) {
         entries.push({ type:'directory', path:relative, mode:'0555' });
         await walk(absolute);
       } else {
@@ -385,6 +553,7 @@ function canonicalHash(value) {
 
 async function chmodReadonly(root) {
   const stat = await fs.lstat(root);
+  if (stat.isSymbolicLink()) return;
   if (stat.isDirectory()) {
     for (const name of await fs.readdir(root)) await chmodReadonly(path.join(root, name));
     await fs.chmod(root, 0o555);
@@ -396,6 +565,7 @@ async function chmodReadonly(root) {
 async function chmodMutable(root) {
   const stat = await fs.lstat(root).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
   if (!stat) return;
+  if (stat.isSymbolicLink()) return;
   if (stat.isDirectory()) {
     await fs.chmod(root, 0o755);
     for (const name of await fs.readdir(root)) await chmodMutable(path.join(root, name));

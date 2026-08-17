@@ -1,10 +1,12 @@
 import { spawn } from 'node:child_process';
-import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
+import {
+  AJUN_RELEASE_PREFIX,
+  validateAjunRuntimeRelease,
+} from '../../apps/ajun-runtime/scripts/manage-immutable-runtime-release.mjs';
 
-const RELEASE_MANIFEST = 'release-manifest.json';
 const ENTRYPOINT_SUFFIX = path.join('apps', 'ajun-runtime', 'src', 'server.ts');
 const WORKDIR_SUFFIX = path.join('apps', 'ajun-runtime');
 
@@ -210,17 +212,22 @@ export class AjunReleaseSystemAdapter {
     } catch (error) {
       if (error?.code !== 'ENOENT') throw error;
     }
-    const temporary = path.join(this.deployRoot, `.deploy-${process.pid}-${Date.now()}.tmp`);
-    await fs.cp(frozen.releaseRoot, temporary, { recursive:true, errorOnExist:true, force:false, verbatimSymlinks:true });
-    const copied = await validateImmutableRelease(temporary, frozen.releaseHash, {
-      requireReleaseDirectoryName:false,
-      deployRoot:this.deployRoot,
-    });
-    if (copied.releaseHash !== frozen.releaseHash || copied.payloadHash !== frozen.payloadHash) {
+    const source = await validateImmutableRelease(frozen.releaseRoot, frozen.releaseHash);
+    if (source.payloadHash !== frozen.payloadHash) {
+      throw new Error('冻结 release 身份与候选不一致。');
+    }
+    const temporary = await fs.mkdtemp(path.join(this.deployRoot, `.deploy-${process.pid}-`));
+    const temporaryIdentity = await directoryIdentity(temporary, '部署暂存目录');
+    await fs.cp(frozen.releaseRoot, temporary, { recursive:true, force:false, verbatimSymlinks:true });
+    await fs.chmod(temporary, 0o555);
+    await assertDirectoryIdentity(temporaryIdentity);
+    await validateImmutableRelease(frozen.releaseRoot, frozen.releaseHash);
+    await fs.rename(temporary, target);
+    const deployed = await validateImmutableRelease(target, frozen.releaseHash, { deployRoot:this.deployRoot });
+    if (deployed.payloadHash !== frozen.payloadHash) {
       throw new Error('部署副本身份与冻结 release 不一致。');
     }
-    await fs.rename(temporary, target);
-    return { ...copied, releaseRoot:target };
+    return deployed;
   }
 
   async activateCandidate({ candidate, sourceRoot, previous, onBackupPrepared }) {
@@ -493,14 +500,16 @@ export async function defaultRunCommand(command, args, { cwd, env = process.env 
 }
 
 async function readReleaseManifest(releaseRoot) {
-  const manifest = JSON.parse(await fs.readFile(path.join(releaseRoot, RELEASE_MANIFEST), 'utf8'));
-  if (manifest?.kind !== 'agent-army/ajun-immutable-runtime-release') throw new Error('当前运行目录缺少可信 release manifest。');
-  if (!manifest.releaseHash || !manifest.git?.gitHead) throw new Error('当前 release manifest 身份不完整。');
-  return { releaseHash:manifest.releaseHash, payloadHash:manifest.payloadHash, gitHead:manifest.git.gitHead };
+  const releaseHash = releaseHashFromDirectory(releaseRoot);
+  const validated = await validateAjunRuntimeRelease(releaseRoot, releaseHash);
+  return {
+    releaseHash:validated.releaseHash,
+    payloadHash:validated.payloadHash,
+    gitHead:validated.manifest.git.gitHead,
+  };
 }
 
 async function validateImmutableRelease(releaseRoot, expectedReleaseHash, {
-  requireReleaseDirectoryName = true,
   deployRoot,
 } = {}) {
   const canonicalRoot = deployRoot
@@ -509,36 +518,48 @@ async function validateImmutableRelease(releaseRoot, expectedReleaseHash, {
   const rootStat = await fs.lstat(canonicalRoot);
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error('部署 release 根目录不是普通目录。');
   if ((rootStat.mode & 0o777) !== 0o555) throw new Error('部署 release 根目录不是只读模式。');
-  const manifestPath = path.join(canonicalRoot, RELEASE_MANIFEST);
-  const manifestStat = await fs.lstat(manifestPath);
-  if (!manifestStat.isFile() || manifestStat.isSymbolicLink()) throw new Error('部署 release manifest 不是普通文件。');
-  if ((manifestStat.mode & 0o777) !== 0o444) throw new Error('部署 release manifest 不是只读模式。');
-  const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
-  if (
-    manifest?.kind !== 'agent-army/ajun-immutable-runtime-release'
-    || !Array.isArray(manifest.entries)
-    || typeof manifest.payloadHash !== 'string'
-    || typeof manifest.releaseHash !== 'string'
-    || !manifest.git?.gitHead
-  ) throw new Error('部署 release manifest 身份或文件清单不完整。');
-  if (expectedReleaseHash && manifest.releaseHash !== expectedReleaseHash) throw new Error('部署 release manifest hash 与候选不一致。');
-  if (requireReleaseDirectoryName && path.basename(canonicalRoot) !== `ajun-runtime-release-v1-${manifest.releaseHash}`) {
-    throw new Error('部署 release 目录名没有绑定 release hash。');
-  }
-  const { releaseHash, ...withoutReleaseHash } = manifest;
-  if (sha256Canonical(withoutReleaseHash) !== releaseHash) throw new Error('部署 release manifest 未绑定内容。');
-  const snapshot = await snapshotImmutablePayload(canonicalRoot);
-  if (snapshot.payloadHash !== manifest.payloadHash) throw new Error('部署 release payload hash 不匹配。');
-  if (JSON.stringify(snapshot.entries) !== JSON.stringify(manifest.entries)) throw new Error('部署 release 文件清单与内容不匹配。');
+  const releaseHash = expectedReleaseHash || releaseHashFromDirectory(canonicalRoot);
+  const validated = await validateAjunRuntimeRelease(canonicalRoot, releaseHash);
   return {
-    releaseHash:manifest.releaseHash,
-    payloadHash:manifest.payloadHash,
-    gitHead:manifest.git.gitHead,
+    releaseHash:validated.releaseHash,
+    payloadHash:validated.payloadHash,
+    gitHead:validated.manifest.git.gitHead,
     // Keep the configured spelling for launchd cwd/argv comparison.  The
     // containment decision above was made with real paths and every segment
     // below deployRoot has already been proved to be a plain directory.
     releaseRoot:path.resolve(releaseRoot),
   };
+}
+
+function releaseHashFromDirectory(releaseRoot) {
+  const name = path.basename(path.resolve(releaseRoot));
+  const releaseHash = name.startsWith(AJUN_RELEASE_PREFIX)
+    ? name.slice(AJUN_RELEASE_PREFIX.length)
+    : '';
+  if (!/^[a-f0-9]{64}$/.test(releaseHash)) {
+    throw new Error('部署 release 目录名没有绑定完整 release hash。');
+  }
+  return releaseHash;
+}
+
+async function directoryIdentity(directory, label) {
+  const stat = await fs.lstat(directory);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw new Error(`${label}必须是普通目录。`);
+  }
+  return { root:directory, dev:stat.dev, ino:stat.ino, label };
+}
+
+async function assertDirectoryIdentity(identity) {
+  const stat = await fs.lstat(identity.root);
+  if (
+    !stat.isDirectory()
+    || stat.isSymbolicLink()
+    || stat.dev !== identity.dev
+    || stat.ino !== identity.ino
+  ) {
+    throw new Error(`${identity.label}身份发生漂移。`);
+  }
 }
 
 async function assertPlainContainedReleaseRoot(deployRoot, releaseRoot) {
@@ -565,56 +586,6 @@ async function assertPlainContainedReleaseRoot(deployRoot, releaseRoot) {
     throw new Error('release 根目录真实路径不在受信任部署目录内。');
   }
   return canonicalReleaseRoot;
-}
-
-async function snapshotImmutablePayload(root) {
-  const entries = [];
-  await collectImmutableEntries(root, root, entries);
-  entries.sort((left, right) => Buffer.compare(Buffer.from(left.path), Buffer.from(right.path)));
-  const hasher = crypto.createHash('sha256');
-  for (const entry of entries) hasher.update(`${JSON.stringify(entry)}\n`);
-  return { payloadHash:hasher.digest('hex'), entries };
-}
-
-async function collectImmutableEntries(root, current, entries) {
-  for (const name of (await fs.readdir(current)).sort((left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right)))) {
-    const absolute = path.join(current, name);
-    const relative = path.relative(root, absolute).split(path.sep).join('/');
-    if (relative === RELEASE_MANIFEST) continue;
-    const stat = await fs.lstat(absolute);
-    if (stat.isSymbolicLink()) throw new Error(`部署 release 含软链: ${relative}`);
-    if (stat.isDirectory()) {
-      if ((stat.mode & 0o777) !== 0o555) throw new Error(`部署 release 目录不是只读模式: ${relative}`);
-      entries.push({ type:'directory', path:relative, mode:'0555' });
-      await collectImmutableEntries(root, absolute, entries);
-      continue;
-    }
-    if (stat.isFile()) {
-      const executable = (stat.mode & 0o111) !== 0;
-      const mode = executable ? 0o555 : 0o444;
-      if ((stat.mode & 0o777) !== mode) throw new Error(`部署 release 文件不是只读模式: ${relative}`);
-      const bytes = await fs.readFile(absolute);
-      entries.push({
-        type:'file', path:relative, mode:executable ? '0555' : '0444', size:bytes.length,
-        sha256:crypto.createHash('sha256').update(bytes).digest('hex'),
-      });
-      continue;
-    }
-    throw new Error(`部署 release 含不支持条目: ${relative}`);
-  }
-}
-
-function sha256Canonical(value) {
-  return crypto.createHash('sha256').update(stableCanonical(value)).digest('hex');
-}
-
-function stableCanonical(value) {
-  if (Array.isArray(value)) return `[${value.map(stableCanonical).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.keys(value).sort((left, right) => Buffer.compare(Buffer.from(left), Buffer.from(right)))
-      .map((key) => `${JSON.stringify(key)}:${stableCanonical(value[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
 }
 
 function activationRecovery({ candidate, previous, backupPlist }) {
