@@ -87,26 +87,31 @@ function presentRecord(task: any, approvals: any, detailBaseUrl: any, recoveryVi
         input: safeOwnerInput(task.input),
         error: safeOwnerError(task.error),
         recovery: safeOwnerRecovery(task.recovery),
-        paperclipRun: safePaperclipRun(task.execution?.paperclipRun, task.execution),
+        paperclipRun: safePaperclipRun(task.execution?.paperclipRun, task.execution, task),
     };
 }
-function safePaperclipRun(value: any, execution: any = {}): any {
+function safePaperclipRun(value: any, execution: any = {}, task: any = {}): any {
     const run = value && typeof value === 'object' ? value : {};
     const runId: any = cleanText(run.runId || execution?.paperclipRunId, 120);
     if (!/^[a-z0-9][a-z0-9-]{0,119}$/i.test(runId))
         return null;
     return {
         runId,
-        status: cleanText(run.status, 80) || paperclipRunStatusFromExecution(execution),
+        status: cleanText(run.status, 80) || paperclipRunStatusFromExecution(execution, task.status),
         startedAt: safeDate(run.startedAt),
-        finishedAt: safeDate(run.finishedAt || execution?.finishedAt),
+        finishedAt: safeDate(run.finishedAt || execution?.finishedAt || task.completedAt),
     };
 }
-function paperclipRunStatusFromExecution(execution: any): any {
+function paperclipRunStatusFromExecution(execution: any, taskStatus: any): any {
     const outcome = cleanText(execution?.outcome, 80);
     if (['succeeded', 'verified_artifact_ready'].includes(outcome))
         return 'succeeded';
     if (['failed', 'paperclip_hermes_failed', 'paperclip_process_exited_without_completion'].includes(outcome))
+        return 'failed';
+    const status = cleanText(taskStatus, 80);
+    if (status === 'succeeded')
+        return 'succeeded';
+    if (['failed', 'cancelled', 'expired'].includes(status))
         return 'failed';
     return execution?.finishedAt ? 'unknown' : 'running';
 }

@@ -248,3 +248,22 @@ test('本机负责人详情从正式执行字段补回已完成的 Paperclip Run
     finishedAt:'2026-08-17T00:01:00.000Z',
   });
 });
+
+test('小D等终态任务即使执行器没有 outcome 也不会把关联 Run 错显成运行中', async () => {
+  const linkedTask = {
+    ...task,
+    status:'succeeded',
+    completedAt:'2026-08-17T00:02:00.000Z',
+    execution:{ paperclipRunId:'run-xiaod-1' },
+  };
+  const service = new TaskRecordService({
+    store:{ getTask:async () => linkedTask, listApprovals:async () => [] },
+  });
+  const owner = await service.detail(linkedTask.taskId, { audience:'local-owner' });
+  assert.deepEqual(owner.paperclipRun, {
+    runId:'run-xiaod-1',
+    status:'succeeded',
+    startedAt:null,
+    finishedAt:'2026-08-17T00:02:00.000Z',
+  });
+});
