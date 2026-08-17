@@ -242,7 +242,7 @@ test('正式冻结契约的 release 内部 workspace 软链可复制、复用并
   assert.deepEqual(reused, deployed);
 });
 
-test('坏部署副本最终校验失败后只隔离本次 inode，同 hash 下次可恢复', async (context) => {
+test('坏部署副本在 staging 预校验失败，正式 target 从未出现且同 hash 可重试', async (context) => {
   let corruptNextCopy = true;
   const fixture = await createFixture(context, {
     copyRelease:async (source, destination, options) => {
@@ -264,17 +264,21 @@ test('坏部署副本最终校验失败后只隔离本次 inode，同 hash 下�
 
   await assert.rejects(
     () => fixture.adapter.deployCandidateRelease(frozen),
-    /最终校验失败；坏副本已隔离.*release内容哈希不匹配/,
+    /release内容哈希不匹配/,
   );
   await assert.rejects(() => fs.lstat(target), { code:'ENOENT' });
-  const rejected = (await fs.readdir(fixture.deployRoot))
-    .filter((name) => name.startsWith(`.rejected-${path.basename(target)}-`));
-  assert.equal(rejected.length, 1);
-  assert.equal((await fs.lstat(path.join(fixture.deployRoot, rejected[0]))).isDirectory(), true);
+  const retainedStaging = (await fs.readdir(fixture.deployRoot))
+    .filter((name) => name.startsWith('.staging-'));
+  assert.equal(retainedStaging.length, 1);
+  assert.equal((await fs.readdir(path.join(fixture.deployRoot, retainedStaging[0]))).length, 1);
 
   const recovered = await fixture.adapter.deployCandidateRelease(frozen);
   assert.equal(recovered.releaseHash, frozen.releaseHash);
   assert.equal(recovered.releaseRoot, target);
+  assert.deepEqual(
+    (await fs.readdir(fixture.deployRoot)).filter((name) => name.startsWith('.staging-')),
+    retainedStaging,
+  );
 });
 
 test('最终校验期间目标被等价目录替换时不误隔离别人目录，并可在下次复用', async (context) => {
@@ -302,20 +306,59 @@ test('最终校验期间目标被等价目录替换时不误隔离别人目录�
     return validated;
   };
 
+  let failure;
   await assert.rejects(
     () => fixture.adapter.deployCandidateRelease(frozen),
-    /正式目标已被其他目录替换，未自动移动或删除.*injected target replacement/,
+    (error) => {
+      failure = error;
+      return /最终校验失败；正式目标需人工核验，未自动移动或删除.*injected target replacement/
+        .test(error.message);
+    },
   );
+  assert.equal(failure.cause?.message, 'injected target replacement');
   assert.equal((await fs.lstat(target)).ino, replacementInode);
   assert.equal(
     (await fs.readdir(fixture.deployRoot))
-      .some((name) => name.startsWith(`.rejected-${path.basename(target)}-`)),
+      .some((name) => name.startsWith('.staging-')),
     false,
   );
 
   const reused = await fixture.adapter.deployCandidateRelease(frozen);
   assert.equal(reused.releaseHash, frozen.releaseHash);
   assert.equal((await fs.lstat(target)).ino, replacementInode);
+});
+
+test('staging 清理前目录身份被替换时不误删替代目录', async (context) => {
+  const fixture = await createFixture(context);
+  const frozen = await createImmutableRelease(
+    path.join(fixture.root, 'staging-cleanup-race'),
+    fixture.newHead,
+    { internalWorkspaceLink:true },
+  );
+  const target = path.join(fixture.deployRoot, path.basename(frozen.releaseRoot));
+  let replacementPath = null;
+  let replacementInode = null;
+  let injected = false;
+  fixture.adapter.validateRelease = async (releaseRoot, expectedHash) => {
+    const validated = await validateAjunRuntimeRelease(releaseRoot, expectedHash);
+    const isFinalTarget = path.basename(releaseRoot) === path.basename(target)
+      && await fs.realpath(path.dirname(releaseRoot)) === await fs.realpath(fixture.deployRoot);
+    if (!injected && isFinalTarget) {
+      injected = true;
+      const stagingName = (await fs.readdir(fixture.deployRoot))
+        .find((name) => name.startsWith('.staging-'));
+      replacementPath = path.join(fixture.deployRoot, stagingName);
+      await fs.rename(replacementPath, `${replacementPath}.original`);
+      await fs.mkdir(replacementPath, { mode:0o700 });
+      replacementInode = (await fs.lstat(replacementPath)).ino;
+    }
+    return validated;
+  };
+
+  const deployed = await fixture.adapter.deployCandidateRelease(frozen);
+  assert.equal(deployed.releaseRoot, target);
+  assert.equal((await fs.lstat(replacementPath)).ino, replacementInode);
+  assert.deepEqual(await fs.readdir(replacementPath), []);
 });
 
 test('release 内 workspace 软链拒绝绝对、上跳越界、外部真实目标、环形和清单篡改', async (context) => {
