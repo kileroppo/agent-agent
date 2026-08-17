@@ -1,4 +1,5 @@
 import { createOperationsHealthIncidentDispatcher, PaperclipHeartbeatHandler } from '../paperclip-heartbeat.ts';
+import { OperationsHealthTransitionState, operationsHealthTransitionPath } from '../operations-health-transition-state.ts';
 import { M5RuntimeDisabledError } from './content-campaign-composition.ts';
 import { createEnabledM5PaperclipSystemControl } from './m5-paperclip-system-control-composition.ts';
 
@@ -18,6 +19,7 @@ export type PaperclipSystemControlCompositionInput = Readonly<{
   campaigns(): Promise<PaperclipControlCampaigns>;
   publisherBindings: Readonly<{ publisher: unknown }>;
   paperclipCurrentRunScope: unknown;
+  dataDir?: string | null;
 }>;
 
 export async function createPaperclipSystemControlComposition({
@@ -28,11 +30,15 @@ export async function createPaperclipSystemControlComposition({
   campaigns,
   publisherBindings,
   paperclipCurrentRunScope,
+  dataDir = null,
 }: PaperclipSystemControlCompositionInput) {
   const paperclipHeartbeat = new PaperclipHeartbeatHandler({
     operator,
     governance,
     incidentDispatcher:createOperationsHealthIncidentDispatcher({ tasks }),
+    healthTransitionState:new OperationsHealthTransitionState({
+      filePath:operationsHealthTransitionPath(dataDir),
+    }),
   });
   if (!m5RuntimeEnabled) {
     return disabledM5ControlPlane(paperclipHeartbeat);

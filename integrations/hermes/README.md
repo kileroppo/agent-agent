@@ -158,13 +158,32 @@ node apps/ajun-runtime/scripts/configure-governance-hermes-runtime.mjs \
 ## 岗位技能白名单
 
 `scripts/reconcile-hermes-skill-whitelist.mjs` 以所有 `active + hermes-profile`
-岗位的 `runtimeCapabilities.skills` 为唯一真相，自动发现新增岗位。命令默认
+岗位的 `runtimeCapabilities.gatewaySkills`（显式存在时）或 `runtimeCapabilities.skills`
+为 Gateway 白名单唯一真相，自动发现新增岗位。`gatewaySkills` 用于像 A君这样“任务
+Profile 可用技能”和“线上常驻 Gateway 技能”不同的已登记边界，不能由启动命令临时扩大。命令默认
 只读检查漂移，适合启动前预检；只有显式传入 `--apply` 才会把当前仍处于
 enabled 状态的未声明技能加入 Hermes 的全局 disabled 集合。
 
 收敛器不会安装、卸载、删除或启用任何技能，也不会读取或输出 Secret。
 声明技能尚未安装或已被禁用时只报告，不会替创建官、架构师或其他岗位扩权。
 共享技能包仍保留原位。
+
+`--apply` 是一次 Profile 事务：先为本次会修改的每个 Profile 精确复制
+`config.yaml` 到权限为 `0700/0600` 的 Profile 内备份目录，再写入 disabled
+集合；任一写入或复查失败会从全部备份逆序恢复。备份不包含 `.env`，命令也不会
+打印配置内容；发生中断留下事务标记时，下一次 apply 会拒绝覆盖，必须先核对并
+恢复对应备份。
+
+当前 Hermes 仅提供 `skills.disabled` 黑名单，不提供原生 skills allowlist。
+这里用两层保护实现默认拒绝：`--apply` 会写入 `.no-bundled-skills`，阻止安装器、
+更新器和直接同步再自动注入技能；正式 Gateway 则必须通过下方受控入口启动，启动前
+发现任何未声明 enabled 技能即失败关闭。每次安装/更新技能先只读检查，确认后才对
+指定岗位显式 `--apply`。
+
+A君线上飞书 Gateway 仍由 Hermes default Profile（`~/.hermes`）承载，因此白名单
+脚本对 `ajun` 核对这个真实运行 Profile，并使用 Manifest 中显式为空的
+`gatewaySkills`；`~/.hermes/profiles/ajun` 的 `paperclip` 是隔离任务/回退身份，不能替
+线上 A君通过门禁。其他岗位继续核对各自的 `profiles/<agentId>`。
 
 ```bash
 # 全岗位启动前只读检查；发现漂移时退出码为 2
@@ -175,6 +194,41 @@ node integrations/hermes/scripts/reconcile-hermes-skill-whitelist.mjs --agent xi
 
 # 维护窗口人工核对 dry-run 后，才可显式执行；不会安装缺失技能
 node integrations/hermes/scripts/reconcile-hermes-skill-whitelist.mjs --agent xiaod --apply
+```
+
+正式 Gateway 必须从受控入口启动：
+
+```bash
+node integrations/hermes/scripts/start-hermes-gateway-guarded.mjs --agent xiaod
+```
+
+它只允许固定的 `gateway run --replace`，并在进程生成前要求该岗位白名单为
+`clean` 且 `.no-bundled-skills` 已存在。现有 launchd/手工启动项的切换属于运行
+变更，必须在维护窗口由负责人把 ProgramArguments 改为这个入口并复验；本仓库的
+受控启动器不会暗中修改本机 launchd。
+
+维护窗口可使用受控迁移器逐个替换已有 launchd 项；它不读取、显示或写入
+`EnvironmentVariables`，并且拒绝目录外、符号链接、label 不匹配或不是 Hermes
+`gateway run` 的 plist。launchd 不应直接执行 `~/Documents` 中的可变源码（后台
+进程可能被 macOS 隐私权限拒绝）；`--guard-script` 应显式指向已经验证的 A君不可变
+release 内入口：
+
+```bash
+node integrations/hermes/scripts/migrate-hermes-gateway-launchd.mjs \
+  --apply --agent xiaod --label com.xiaod.hermes.gateway \
+  --plist "$HOME/Library/LaunchAgents/com.xiaod.hermes.gateway.plist" \
+  --guard-script <当前已验证不可变release>/integrations/hermes/scripts/start-hermes-gateway-guarded.mjs
+```
+
+它会建立权限为 `0600` 的精确 plist 备份、在临时文件写入 wrapper 的固定参数并执行
+`plutil -lint`，然后原子替换。迁移后由负责人逐个 `launchctl bootout/bootstrap` 并
+验证；恢复时必须携带同一岗位、label、plist 和命令返回的精确备份路径：
+
+```bash
+node integrations/hermes/scripts/migrate-hermes-gateway-launchd.mjs \
+  --rollback --agent xiaod --label com.xiaod.hermes.gateway \
+  --plist "$HOME/Library/LaunchAgents/com.xiaod.hermes.gateway.plist" \
+  --backup <迁移命令返回的备份路径>
 ```
 
 ## Agent Army MCP

@@ -61,6 +61,7 @@ export async function createRuntime({
     const roleExecution = await createRoleExecutionComposition({
       environment,
       paths:{
+        runtimeRoot:paths.root,
         dataDir:paths.dataDir,
         sourceProjectRoot,
         repairWorktreeParent:paths.repairWorktreeParent,
@@ -136,6 +137,7 @@ export async function createRuntime({
       campaigns,
       publisherBindings:m5PublisherBindings,
       paperclipCurrentRunScope,
+      dataDir:paths.dataDir,
     });
     const lanEnabled = network.lanEnabled;
     const lanAccess = {

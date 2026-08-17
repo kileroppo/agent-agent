@@ -205,6 +205,41 @@ test('同一天的同类健康异常复用同一事故幂等键', async () => {
   ]);
 });
 
+test('持续异常巡检只记录证据，不重复派发事故；恢复后再次异常才派发', async () => {
+  const incidents = [];
+  let status = 'degraded';
+  const transitionState = {
+    previous:'unknown',
+    async observe({ status:current }) {
+      const previous = this.previous;
+      this.previous = current;
+      return { previous, current, changed:previous !== current, enteredDegraded:current === 'degraded' && previous !== 'degraded' };
+    },
+  };
+  const handler = new PaperclipHeartbeatHandler({
+    operator:{ async execute() {
+      return { status:'succeeded', currentStage:'health_report_ready', artifactRefs:[{
+        type:'health_report', data:{ overall:status, checkedAt:new Date().toISOString(), components:[{ id:'ajun', status }] },
+      }] };
+    } },
+    governance:{
+      async verifySystemAssignment() { return { issue:{ status:'in_progress', description:'[agent-army:operations-health:routine]' } }; },
+      async completePaperclipIssue() {},
+    },
+    healthTransitionState:transitionState,
+    async incidentDispatcher(input) { incidents.push(input); return { taskId:`incident-${incidents.length}` }; },
+  });
+
+  await handler.handle({ runId:'run-1', agentId:'controller', context:{ taskId:'issue-1' } });
+  await handler.handle({ runId:'run-2', agentId:'controller', context:{ taskId:'issue-2' } });
+  status = 'healthy';
+  await handler.handle({ runId:'run-3', agentId:'controller', context:{ taskId:'issue-3' } });
+  status = 'degraded';
+  await handler.handle({ runId:'run-4', agentId:'controller', context:{ taskId:'issue-4' } });
+
+  assert.equal(incidents.length, 2);
+});
+
 test('Paperclip heartbeat 没有任务时不生成本地队列', async () => {
   const handler = new PaperclipHeartbeatHandler({ operator:{ async execute() { throw new Error('不应执行'); } }, governance:{} });
   const result = await handler.handle({ runId:'run-1', agentId:'agent-1', context:{} });

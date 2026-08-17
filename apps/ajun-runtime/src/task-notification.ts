@@ -4,6 +4,7 @@ import { ValidationError } from './task-service-execution-support.ts';
 import { validateTaskCompletion } from './task-completion-contract.ts';
 import { wasVisualAnalysisUsed } from './local-content-artifacts.ts';
 import { isTaskNotificationTerminalStatus, taskStatusLabel, } from './task-status-policy.ts';
+import { taskDeliveryNotification } from './task-delivery-notification.ts';
 export class TaskNotification {
     executors: any;
     registry: any;
@@ -53,6 +54,9 @@ export class TaskNotification {
         return unfinishedStatus(root, current);
     }
     async succeededStatus(root: any, current: any, retried: any): Promise<any> {
+        const deliveryNotice: any = taskDeliveryNotification(current, shortTaskTitle(root));
+        if (deliveryNotice)
+            return status(root, deliveryNotice.status, true, deliveryNotice.message, current, { deliveryReceipt:deliveryNotice.deliveryReceipt });
         const result: any = verifiedDelivery(current, root);
         if (result)
             return result;
@@ -190,8 +194,8 @@ function unfinishedStatus(root: any, current: any): any {
         return status(root, 'failed', true, `“${title}”没有完成：${current.error?.userMessage || '处理时遇到问题。'}`, current);
     return status(root, current.status || 'unknown', isTaskNotificationTerminalStatus(current.status), `“${title}”已经登记，等待新的进度。`, current);
 }
-function status(root: any, state: any, terminal: any, message: any, sourceTask: any = root): any {
-    const result: Record<string, any> = { terminal, status: state, taskId: root.taskId, message };
+function status(root: any, state: any, terminal: any, message: any, sourceTask: any = root, extensions: any = {}): any {
+    const result: Record<string, any> = { terminal, status: state, taskId: root.taskId, message, ...(extensions && typeof extensions === 'object' ? extensions : {}) };
     if (!sourceTask?.taskId || sourceTask.taskId === root.taskId)
         return result;
     return {

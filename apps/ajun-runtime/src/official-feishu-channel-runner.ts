@@ -82,7 +82,7 @@ export class OfficialFeishuChannelRunner {
     snapshot(): any {
         const delivery: any = this.completionWatcher?.snapshot?.();
         return delivery?.status === 'delivery_uncertain'
-            ? { status: 'delivery_uncertain', message: delivery.message, uncertainDeliveries: delivery.uncertainDeliveries }
+            ? { status: 'delivery_uncertain', ...delivery }
             : { ...this.state };
     }
     setState(status: any, message: any): any {

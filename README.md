@@ -44,7 +44,7 @@ agent-agent/
 
 ### 唯一下一步
 
-- A君 已运行在不可变 release `ecc98c2eecb4e8a347c27d4eaab0142169dd51d20243778751682c1c760fdfcb`，小D 已运行在不可变 release `433c3e5386b5cd7736f810c2abf42a5ed7be3ef755afcd9c8ee8df1b39e144ef`；两者均已核对单一 PID、端口、cwd、argv 与真实 HTTP 回读。
+- A君、小D 的线上 release、PID、cwd、argv 与 HTTP 回读都是实时事实，**不在 README 手写 hash**。需要确认时运行 `npm run runtime:fingerprint`；A君页面“系统 → 版本”会区分线上版本、候选提交、候选验证/可发布状态和可回滚版本。历史快照只以带时间戳的验收记录为准。
 - 唯一真实业务待办已由负责人在运行台选择“有用”，工作流决定持久化为 `accepted`，首页负责人待办回到 0；验证任务与系统任务没有进入负责人队列。
 - A君 最终 10 分钟空闲采样通过：CPU median `0%`、P95 `0.4%`，RSS median `203MB`、max `209.6MB`；没有全表扫描或重复岗位同步日志刷屏。
 - 当前没有需要负责人继续处理的产品待办；保持 M5、Boom 自动扫描和成熟度复验关闭，只有出现新的真实业务需求或故障时再建立下一步。

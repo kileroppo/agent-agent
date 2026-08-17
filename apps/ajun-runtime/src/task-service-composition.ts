@@ -16,6 +16,7 @@ import { TaskApprovalLifecycle } from './task-approval-lifecycle.ts';
 import { MissionApprovalInheritance } from './mission-approval-inheritance.ts';
 import { TaskFeedback } from './task-feedback.ts';
 import { WorkflowAcceptanceService } from './workflow-acceptance-service.ts';
+import { readRuntimeReliabilitySnapshot, readRuntimeReleaseIdentity } from './runtime-reliability-snapshot.ts';
 
 /**
  * Builds TaskService's collaborators in one place. TaskService remains the public
@@ -45,6 +46,8 @@ export function composeTaskService(host: any, input: any): Record<string, any> {
         usageLedger = null,
         taskRunEvents = null,
         missionChildPolicy = null,
+        runtimeDataDir = null,
+        runtimeRoot = null,
     } = input;
     const localAiStatus = typeof localAiCapabilityStatus === 'function' ? localAiCapabilityStatus : null;
     const taskLifecycleEvents = new TaskLifecycleEventRecorder({ eventStore: taskRunEvents });
@@ -89,6 +92,8 @@ export function composeTaskService(host: any, input: any): Record<string, any> {
         getFeishuChannelStatus: (): any => host.feishuChannelStatus,
         getAgentChannelStates: (): any => host.agentChannelStates,
         getWorkerStatus: (): any => host.workerStatus,
+        getReliabilitySnapshot:(): any => readRuntimeReliabilitySnapshot(runtimeDataDir),
+        getRuntimeIdentity:(): any => readRuntimeReleaseIdentity(runtimeRoot),
     });
     const deliveryQuality = new DeliveryQualityRuntime({
         store,

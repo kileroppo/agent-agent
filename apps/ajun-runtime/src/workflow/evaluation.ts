@@ -1,8 +1,10 @@
 import {
   deriveWorkflowType,
   workflowWorkKindForTasks,
+  type WorkflowAcceptanceDecision,
   type WorkflowEvaluation,
   type WorkflowStepEvaluation,
+  type WorkflowTaskInput,
 } from './contracts.ts';
 import {
   ownerActionForWorkflowOutcome,
@@ -10,10 +12,10 @@ import {
   workflowStatusForTaskOutcome,
 } from '../task-status-policy.ts';
 
-export function evaluateWorkflowTasks(tasks: readonly any[], acceptances: readonly any[] = []): WorkflowEvaluation[] {
-  const groups = new Map<string, any[]>();
+export function evaluateWorkflowTasks(tasks: readonly unknown[], acceptances: readonly unknown[] = []): WorkflowEvaluation[] {
+  const groups = new Map<string, unknown[]>();
   for (const task of tasks || []) {
-    const workflowId = String(task?.workflow?.workflowId || '').trim();
+    const workflowId = text(asRecord(asRecord(task)?.workflow)?.workflowId);
     if (!workflowId) continue;
     const group = groups.get(workflowId) || [];
     group.push(task);
@@ -23,17 +25,18 @@ export function evaluateWorkflowTasks(tasks: readonly any[], acceptances: readon
     .map(([workflowId, group]) => evaluateWorkflow(
       workflowId,
       group,
-      acceptances.find((item) => item?.workflowId === workflowId) || null,
+      acceptances.find((item) => asRecord(item)?.workflowId === workflowId) || null,
     ))
     .sort((left, right) => right.steps.length - left.steps.length || left.workflowId.localeCompare(right.workflowId));
 }
 
-export function evaluateWorkflow(workflowId: string, tasks: readonly any[], acceptance: any = null): WorkflowEvaluation {
+export function evaluateWorkflow(workflowId: string, tasks: readonly unknown[], acceptance: unknown = null): WorkflowEvaluation {
   const steps = tasks.map(evaluateStep);
   const required = steps.filter((step) => step.required);
   const requiredStepsComplete = required.length > 0 && required.every((step) => step.verified);
   const workKind = workflowWorkKindForTasks(tasks);
-  const acceptanceDecision = normalizedAcceptanceDecision(acceptance?.decision);
+  const acceptanceRecord = asRecord(acceptance);
+  const acceptanceDecision = normalizedAcceptanceDecision(acceptanceRecord?.decision);
   const humanAcceptanceRequired = workKind === 'business' && steps.some((step) => qualityTask(step.taskType));
   const legacyHumanAccepted = steps.filter((step) => qualityTask(step.taskType)).every((step) => step.humanAccepted);
   const humanAccepted = !humanAcceptanceRequired || acceptanceDecision === 'accepted' || (!acceptanceDecision && legacyHumanAccepted);
@@ -46,10 +49,13 @@ export function evaluateWorkflow(workflowId: string, tasks: readonly any[], acce
     ? 'succeeded'
     : evaluatedStatus;
   const acceptanceTaskId = acceptanceTargetStep(steps)?.taskId || null;
+  const acceptanceVersion = typeof acceptanceRecord?.version === 'number' && Number.isSafeInteger(acceptanceRecord.version)
+    ? acceptanceRecord.version
+    : 0;
   return Object.freeze({
     schemaVersion:'agent.army/workflow-evaluation/v1',
     workflowId,
-    workflowType:tasks[0]?.workflow?.workflowType || deriveWorkflowType(tasks[0]?.taskType),
+    workflowType:workflowTypeForTask(tasks[0]),
     status,
     steps,
     requiredStepsComplete,
@@ -58,7 +64,7 @@ export function evaluateWorkflow(workflowId: string, tasks: readonly any[], acce
     humanAccepted,
     workKind,
     acceptanceDecision,
-    acceptanceVersion:Number.isSafeInteger(acceptance?.version) ? acceptance.version : 0,
+    acceptanceVersion,
     acceptanceTaskId,
     ownerAction:workKind === 'business' && !acceptanceDecision
       ? ownerActionForWorkflowOutcome(steps, status)
@@ -74,44 +80,48 @@ export function acceptanceTargetStep(steps: readonly WorkflowStepEvaluation[]): 
     || null;
 }
 
-export function evaluateStep(task: any): WorkflowStepEvaluation {
-  const artifacts = (Array.isArray(task?.artifactRefs) ? task.artifactRefs : []).map((artifact: any) => Object.freeze({
-    artifactId:String(artifact?.artifactId || ''),
-    type:String(artifact?.type || ''),
+export function evaluateStep(task: unknown): WorkflowStepEvaluation {
+  const record = asRecord(task);
+  const artifacts = array(record?.artifactRefs).map((artifact) => Object.freeze({
+    artifactId:text(asRecord(artifact)?.artifactId),
+    type:text(asRecord(artifact)?.type),
     verified:verifiedArtifact(task, artifact),
     humanAccepted:humanAcceptedArtifact(artifact),
   }));
-  const verified = task?.status === 'succeeded' && artifacts.some((artifact: any) => artifact.verified);
-  const humanAccepted = task?.evaluation?.humanAcceptance?.status === 'accepted'
-    || artifacts.some((artifact: any) => artifact.humanAccepted);
+  const evaluation = asRecord(record?.evaluation);
+  const humanAcceptance = asRecord(evaluation?.humanAcceptance);
+  const verified = record?.status === 'succeeded' && artifacts.some((artifact) => artifact.verified);
+  const humanAccepted = humanAcceptance?.status === 'accepted' || artifacts.some((artifact) => artifact.humanAccepted);
   return Object.freeze({
-    stepId:String(task?.workflow?.step?.stepId || task?.taskId || ''),
-    taskId:String(task?.taskId || ''),
-    agentId:String(task?.assigneeAgentId || '').trim() || null,
-    taskType:String(task?.taskType || ''),
+    stepId:text(asRecord(asRecord(record?.workflow)?.step)?.stepId) || text(record?.taskId),
+    taskId:text(record?.taskId),
+    agentId:text(record?.assigneeAgentId) || null,
+    taskType:text(record?.taskType),
     status:workflowStatusForTaskOutcome({
-      taskStatus:task?.status,
+      taskStatus:record?.status,
       verified,
       partial:artifactIsPartial(task),
-      requiresAcceptance:qualityTask(task?.taskType),
+      requiresAcceptance:qualityTask(record?.taskType),
       humanAccepted,
-      recoveryPending:task?.recovery?.coordination?.status === 'pending',
+      recoveryPending:asRecord(asRecord(record?.recovery)?.coordination)?.status === 'pending',
     }),
-    required:task?.workflow?.step?.required !== false,
+    required:asRecord(asRecord(record?.workflow)?.step)?.required !== false,
     artifacts,
     verified,
     humanAccepted,
-    failureCode:String(task?.error?.code || '').trim() || null,
+    failureCode:text(asRecord(record?.error)?.code) || null,
   });
 }
 
-function verifiedArtifact(task: any, artifact: any): boolean {
-  const generallyVerified = artifact?.validation?.exists === true
-    && artifact?.validation?.readable === true
-    && artifact?.validation?.nonEmpty !== false
-    && criticalValidationPassed(artifact?.validation);
+function verifiedArtifact(task: unknown, artifact: unknown): boolean {
+  const artifactRecord = asRecord(artifact);
+  const validation = asRecord(artifactRecord?.validation);
+  const generallyVerified = validation?.exists === true
+    && validation?.readable === true
+    && validation?.nonEmpty !== false
+    && criticalValidationPassed(validation);
   if (!generallyVerified) return false;
-  return artifact?.type !== 'video_script_package'
+  return artifactRecord?.type !== 'video_script_package'
     || verifiedVideoScriptPackage(task, artifact);
 }
 
@@ -123,37 +133,38 @@ const VIDEO_SCRIPT_PACKAGE_FILES = Object.freeze([
   'manifest',
 ]);
 
-function verifiedVideoScriptPackage(task: any, artifact: any): boolean {
-  if (artifact?.validation?.nonEmpty !== true) return false;
-  const files = Array.isArray(artifact?.data?.productionFiles)
-    ? artifact.data.productionFiles
-    : [];
+function verifiedVideoScriptPackage(task: unknown, artifact: unknown): boolean {
+  const artifactRecord = asRecord(artifact);
+  const validation = asRecord(artifactRecord?.validation);
+  const data = asRecord(artifactRecord?.data);
+  if (validation?.nonEmpty !== true) return false;
+  const files = array(data?.productionFiles);
   const fileIds = new Set(files
-    .map((file: any) => String(file?.id || '').trim())
+    .map((file) => text(asRecord(file)?.id))
     .filter(Boolean));
   if (
-    artifact?.validation?.fileCount !== VIDEO_SCRIPT_PACKAGE_FILES.length
-    || artifact?.validation?.onePrimaryDraft !== true
+    validation?.fileCount !== VIDEO_SCRIPT_PACKAGE_FILES.length
+    || validation?.onePrimaryDraft !== true
     || files.length !== VIDEO_SCRIPT_PACKAGE_FILES.length
     || fileIds.size !== VIDEO_SCRIPT_PACKAGE_FILES.length
     || !VIDEO_SCRIPT_PACKAGE_FILES.every((fileId) => fileIds.has(fileId))
   ) return false;
-  if (typeof artifact?.data?.fullScript !== 'string' || !artifact.data.fullScript.trim()) return false;
-  if (artifact?.data?.publishingStatus !== 'draft_only') return false;
-  if (artifact?.validation?.externalSideEffects !== 0) return false;
+  if (typeof data?.fullScript !== 'string' || !data.fullScript.trim()) return false;
+  if (data?.publishingStatus !== 'draft_only') return false;
+  if (validation?.externalSideEffects !== 0) return false;
 
-  const requiredSourceTaskIds = normalizedIds(task?.input?.context?.requiredSourceTaskIds);
+  const taskRecord = asRecord(task);
+  const requiredSourceTaskIds = normalizedIds(asRecord(asRecord(taskRecord?.input)?.context)?.requiredSourceTaskIds);
   if (!requiredSourceTaskIds.length) return true;
-  const sourceTaskIds = new Set(normalizedIds(artifact?.data?.sourceTaskIds));
+  const sourceTaskIds = new Set(normalizedIds(data?.sourceTaskIds));
   if (!requiredSourceTaskIds.every((taskId) => sourceTaskIds.has(taskId))) return false;
-  const sourceRefs = new Set(normalizedIds(artifact?.sourceRefs));
+  const sourceRefs = new Set(normalizedIds(artifactRecord?.sourceRefs));
   if (sourceRefs.size < Math.max(2, requiredSourceTaskIds.length)) return false;
-  const bindings = Array.isArray(artifact?.data?.sourceTaskBindings)
-    ? artifact.data.sourceTaskBindings
-    : [];
-  return requiredSourceTaskIds.every((taskId) => bindings.some((binding: any) => {
-    if (String(binding?.taskId || '').trim() !== taskId) return false;
-    const artifactIds = normalizedIds(binding?.artifactIds);
+  const bindings = array(data?.sourceTaskBindings);
+  return requiredSourceTaskIds.every((taskId) => bindings.some((binding) => {
+    const bindingRecord = asRecord(binding);
+    if (text(bindingRecord?.taskId) !== taskId) return false;
+    const artifactIds = normalizedIds(bindingRecord?.artifactIds);
     return artifactIds.length > 0 && artifactIds.every((artifactId) => sourceRefs.has(artifactId));
   }));
 }
@@ -163,7 +174,8 @@ function normalizedIds(value: unknown): string[] {
   return [...new Set(value.map((item) => String(item || '').trim()).filter(Boolean))];
 }
 
-function criticalValidationPassed(validation: any): boolean {
+function criticalValidationPassed(validation: unknown): boolean {
+  const record = asRecord(validation);
   return [
     'claimEvidenceBound',
     'minimumSourcesMet',
@@ -172,19 +184,18 @@ function criticalValidationPassed(validation: any): boolean {
     'modeStructurePassed',
     'formalSourceConfirmed',
     'visualClaimsEvidenceLinked',
-  ].every((key) => validation?.[key] !== false);
+  ].every((key) => record?.[key] !== false);
 }
 
-function humanAcceptedArtifact(artifact: any): boolean {
-  return artifact?.validation?.humanAccepted === true
-    || artifact?.validation?.ownerAccepted === true
-    || Boolean(artifact?.validation?.humanAcceptedAt);
+function humanAcceptedArtifact(artifact: unknown): boolean {
+  const validation = asRecord(asRecord(artifact)?.validation);
+  return validation?.humanAccepted === true || validation?.ownerAccepted === true || Boolean(validation?.humanAcceptedAt);
 }
 
-function artifactIsPartial(task: any): boolean {
-  return (task?.artifactRefs || []).some((artifact: any) => (
-    artifact?.validation?.completeness === 'partial'
-    || artifact?.data?.completeness === 'partial'
+function artifactIsPartial(task: unknown): boolean {
+  return array(asRecord(task)?.artifactRefs).some((artifact) => (
+    asRecord(asRecord(artifact)?.validation)?.completeness === 'partial'
+    || asRecord(asRecord(artifact)?.data)?.completeness === 'partial'
   ));
 }
 
@@ -195,6 +206,18 @@ function qualityTask(taskType: unknown): boolean {
     || value.startsWith('office.');
 }
 
-function normalizedAcceptanceDecision(value: unknown): 'accepted' | 'revision_required' | null {
+function normalizedAcceptanceDecision(value: unknown): WorkflowAcceptanceDecision {
   return value === 'accepted' || value === 'revision_required' ? value : null;
 }
+
+function workflowTypeForTask(task: unknown): WorkflowEvaluation['workflowType'] {
+  const record = asRecord(task);
+  const workflowType = asRecord(record?.workflow)?.workflowType;
+  return workflowType === 'content-production' || workflowType === 'technical-repair' || workflowType === 'agent-governance' || workflowType === 'private-read' || workflowType === 'single-task'
+    ? workflowType
+    : deriveWorkflowType(record?.taskType);
+}
+
+function asRecord(value: unknown): WorkflowTaskInput | null { return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as WorkflowTaskInput : null; }
+function array(value: unknown): readonly unknown[] { return Array.isArray(value) ? value : []; }
+function text(value: unknown): string { return String(value || '').trim(); }

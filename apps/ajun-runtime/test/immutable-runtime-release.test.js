@@ -50,6 +50,13 @@ test('按运行时白名单冻结内容寻址只读包，并排除data、测试�
     )).profileId,
     'ajun',
   );
+  assert.equal(
+    (await fs.stat(path.join(
+      result.releaseRoot,
+      'integrations/hermes/scripts/start-hermes-gateway-guarded.mjs',
+    ))).isFile(),
+    true,
+  );
   await assert.rejects(
     fs.stat(path.join(result.releaseRoot, 'apps/ajun-runtime/data/runtime.json')),
     { code: 'ENOENT' },
@@ -994,6 +1001,7 @@ async function createFixture(context, suffix) {
     'apps/ajun-runtime/scripts',
     'agents/ajun',
     'integrations/hermes/profiles',
+    'integrations/hermes/scripts',
     'integrations/paperclip/m5-content-pipeline/config',
     'integrations/paperclip/m5-content-pipeline/src',
     'integrations/paperclip/m5-content-pipeline/node_modules/zod',
@@ -1034,6 +1042,9 @@ async function createFixture(context, suffix) {
     ['agents/ajun/prompts/system.md', '# A君\n'],
     ['agents/ajun/prompts/task-guides/check.md', '# 检查\n'],
     ['integrations/hermes/profiles/ajun.profile.json', '{"profileId":"ajun"}\n'],
+    ['integrations/hermes/scripts/hermes-skill-state.py', '# fixture\n'],
+    ['integrations/hermes/scripts/reconcile-hermes-skill-whitelist.mjs', 'export class HermesSkillWhitelistError extends Error {}\n'],
+    ['integrations/hermes/scripts/start-hermes-gateway-guarded.mjs', "import './reconcile-hermes-skill-whitelist.mjs';\n"],
     ['integrations/paperclip/m5-content-pipeline/package.json', '{"name":"@agent-army/m5-content-pipeline","type":"module","exports":"./src/index.ts"}\n'],
     ['integrations/paperclip/m5-content-pipeline/package-lock.json', '{"lockfileVersion":3}\n'],
     ['integrations/paperclip/m5-content-pipeline/config/definition.json', '{"key":"fixture"}\n'],

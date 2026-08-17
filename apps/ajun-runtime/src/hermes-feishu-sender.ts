@@ -57,16 +57,29 @@ export class HermesFeishuSender {
             child.stdin.once('error', (): any => undefined);
             child.stdin.end(message);
         });
-        return { success: true };
+        const observedAt: any = new Date().toISOString();
+        // Hermes has acknowledged the hand-off.  Keep the evidence deliberately
+        // compact: chat contents and provider output must never enter receipt logs.
+        return {
+            success: true,
+            deliveryState:'delivered',
+            deliveryEvidence:{
+                type:'hermes_send_acknowledged',
+                observedAt,
+                reference:String(payload.deliveryId || payload.idempotencyKey || '').trim() || undefined,
+            },
+        };
     }
 }
 export class HermesFeishuSenderError extends Error {
+    code: any;
     deliveryState: any;
     name: any;
-    constructor(message: any, { deliveryState = 'unknown' }: any = {}) {
+    constructor(message: any, { deliveryState = 'unknown', code = null }: any = {}) {
         super(message);
         this.name = 'HermesFeishuSenderError';
         this.deliveryState = deliveryState;
+        this.code = code || (deliveryState === 'not_started' ? 'hermes_send_not_started' : 'hermes_send_unconfirmed');
     }
 }
 function safeChatId(value: any): any {

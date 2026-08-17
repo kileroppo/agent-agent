@@ -6,6 +6,7 @@ const ALLOWED_STATES = new Set([
   'idle', 'checking', 'ready', 'blocked', 'up_to_date', 'preparing_source', 'verifying',
   'freezing', 'activating', 'verifying_live', 'rolling_back', 'rolled_back', 'succeeded', 'failed',
 ]);
+const ALLOWED_VALIDATION_STATES = new Set(['not_checked', 'running', 'passed', 'not_completed']);
 
 export class RuntimeReleaseClient {
   readonly socketPath: string;
@@ -97,6 +98,10 @@ function projectStatus(value: any) {
       gitHead:String(value.candidate.gitHead || ''),
       branch:String(value.candidate.branch || ''),
       clean:value.candidate.clean === true,
+      committed:value.candidate.committed === true,
+      publishable:value.candidate.publishable === true,
+      undeployed:value.candidate.undeployed === true,
+      validation:projectValidation(value.candidate.validation),
     } : null,
     rollback:projectRelease(value.rollback),
   };
@@ -107,7 +112,35 @@ function projectRelease(value: any) {
     releaseHash:String(value.releaseHash || ''),
     payloadHash:value.payloadHash ? String(value.payloadHash) : null,
     gitHead:String(value.gitHead || ''),
+    verification:projectVerification(value.verification),
   } : null;
+}
+
+function projectValidation(value: any) {
+  const status = String(value?.status || 'not_checked');
+  return {
+    status:ALLOWED_VALIDATION_STATES.has(status) ? status : 'not_checked',
+    verifiedAt:stringOrNull(value?.verifiedAt),
+  };
+}
+
+function projectVerification(value: any) {
+  if (!value || typeof value !== 'object') return null;
+  const checks = value.checks && typeof value.checks === 'object' ? value.checks : {};
+  return {
+    verifiedAt:stringOrNull(value.verifiedAt),
+    pid:Number.isInteger(value.pid) && value.pid > 0 ? value.pid : null,
+    checks:{
+      pid:checks.pid === true,
+      cwd:checks.cwd === true,
+      argv:checks.argv === true,
+      releaseHash:checks.releaseHash === true,
+      payloadHash:checks.payloadHash === true,
+      gitHead:checks.gitHead === true,
+      api:checks.api === true,
+      rollbackAvailable:checks.rollbackAvailable === true,
+    },
+  };
 }
 
 function stringOrNull(value: unknown) {

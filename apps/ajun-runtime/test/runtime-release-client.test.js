@@ -9,11 +9,21 @@ import { RuntimeReleaseClient, RuntimeReleaseClientError } from '../src/runtime-
 
 test('发布客户端只投影白名单状态字段', async (context) => {
   const fixture = await startSocketServer(context, (_request, response) => send(response, 200, {
-    status:statusFixture({ secret:'must-not-pass', current:{ releaseHash:'release-1', gitHead:'a'.repeat(40), releaseRoot:'/private/path' } }),
+    status:statusFixture({
+      secret:'must-not-pass',
+      current:{
+        releaseHash:'release-1', gitHead:'a'.repeat(40), releaseRoot:'/private/path',
+        verification:{ pid:42, cwd:'/private/path', argv:'node private', verifiedAt:'2026-08-17T00:00:00.000Z', checks:{ pid:true, cwd:true, argv:true, releaseHash:true, payloadHash:true, gitHead:true, api:true, rollbackAvailable:true } },
+      },
+      candidate:{ gitHead:'b'.repeat(40), branch:'main', clean:true, committed:true, publishable:true, undeployed:true, validation:{ status:'passed', verifiedAt:'2026-08-17T00:00:00.000Z' } },
+    }),
   }));
   const status = await new RuntimeReleaseClient({ socketPath:fixture.socketPath }).status();
   assert.equal(status.current.releaseHash, 'release-1');
   assert.equal('releaseRoot' in status.current, false);
+  assert.equal('cwd' in status.current.verification, false);
+  assert.equal(status.current.verification.checks.argv, true);
+  assert.equal(status.candidate.validation.status, 'passed');
   assert.equal('secret' in status, false);
 });
 

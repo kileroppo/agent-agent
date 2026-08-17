@@ -7,7 +7,7 @@ import { buildTaskValidationOverview } from './task-validation-overview.ts';
 import { buildCapabilities } from './task-capability-overview.ts';
 import { ValidationError } from './task-validation-error.ts';
 import { consoleOverviewReadView } from './console-overview-read-model.ts';
-import { buildRuntimeHealth } from './runtime-health.ts';
+import { buildConsoleHealthTruth, buildRuntimeHealth, reliabilityForCurrentRuntime } from './runtime-health.ts';
 import { TaskOverviewRuntimeProjection } from './task-overview-runtime-projection.ts';
 const MAX_USAGE_RANGE_MS: any = 366 * 24 * 60 * 60 * 1000;
 
@@ -39,7 +39,12 @@ export class TaskOverview {
     usageLedger: any;
     providerUsageLedger: any;
     runtimeProjection: any;
-    constructor({ registry, store, governance = null, executors = {}, capabilityCatalog, skillExecutionRegistry, localAiCapabilityStatus = null, usageLedger = null, providerUsageLedger = null, taskDetailBaseUrl = '', getFeishuChannelStatus = (): any => null, getAgentChannelStates = (): any => null, getWorkerStatus = (): any => null, }: any) {
+    consoleSnapshot: any;
+    consoleSnapshotUnsubscribe: any;
+    governanceHealthInFlight: any;
+    getReliabilitySnapshot: any;
+    getRuntimeIdentity: any;
+    constructor({ registry, store, governance = null, executors = {}, capabilityCatalog, skillExecutionRegistry, localAiCapabilityStatus = null, usageLedger = null, providerUsageLedger = null, taskDetailBaseUrl = '', getFeishuChannelStatus = (): any => null, getAgentChannelStates = (): any => null, getWorkerStatus = (): any => null, getReliabilitySnapshot = null, getRuntimeIdentity = null, }: any) {
         this.registry = registry;
         this.store = store;
         this.governance = governance;
@@ -49,6 +54,13 @@ export class TaskOverview {
         this.usageLedger = usageLedger;
         this.providerUsageLedger = providerUsageLedger;
         this.taskDetailBaseUrl = taskDetailBaseUrl;
+        this.getReliabilitySnapshot = getReliabilitySnapshot;
+        this.getRuntimeIdentity = getRuntimeIdentity;
+        this.consoleSnapshot = null;
+        this.governanceHealthInFlight = null;
+        this.consoleSnapshotUnsubscribe = typeof this.store?.subscribe === 'function'
+            ? this.store.subscribe((): any => { this.consoleSnapshot = null; })
+            : null;
         this.runtimeProjection = new TaskOverviewRuntimeProjection({
             executors,
             getFeishuChannelStatus,
@@ -62,7 +74,7 @@ export class TaskOverview {
             this.registry.get('ajun'),
             this.store.list(),
             this.store.listApprovals(),
-            this.governance?.health() || { status: 'planned', version: null },
+            this.readGovernanceHealth(),
             this.skillExecutionRegistry.overview(),
             this.localAiCapabilityStatus?.() || null,
         ]);
@@ -81,8 +93,15 @@ export class TaskOverview {
             tasks,
             approvals,
         });
-        const taskValidation: any = await buildTaskValidationOverview({ tasks, approvals, store: this.store, capabilityCatalog: this.capabilityCatalog });
+        const taskValidation: any = await buildTaskValidationOverview({
+            tasks,
+            approvals,
+            store: this.store,
+            capabilityCatalog: this.capabilityCatalog,
+            includeValidationCampaign:includeTasks,
+        });
         return {
+            manager:manager || null,
             agents: visibleAgents,
             alwaysOnAgents: [
                 ...(manager ? [manager] : []),
@@ -105,13 +124,33 @@ export class TaskOverview {
         };
     }
     async readConsole(): Promise<any> {
-        return consoleOverviewReadView(await this.read({ includeTasks: false, includeBilling: false }));
+        const [overview, runtimeHealth, reliability] = await Promise.all([
+            this.readConsoleSnapshot(),
+            this.health(),
+            this.readReliability(),
+        ]);
+        return consoleOverviewReadView({
+            ...overview,
+            health:buildConsoleHealthTruth({ runtimeHealth, reliability, taskFocus:overview.taskFocus }),
+        });
+    }
+    async readConsoleSnapshot(): Promise<any> {
+        // 精确 backlog/workflow 规则需要全量关系，但不能随着首页轮询重复扫描。
+        // SQLite/JSON store 的事务通知会立即失效这份快照；不支持通知的兼容 store 不缓存。
+        if (!this.consoleSnapshotUnsubscribe)
+            return this.read({ includeTasks: false, includeBilling: false });
+        if (!this.consoleSnapshot) {
+            const pending: any = this.read({ includeTasks: false, includeBilling: false });
+            this.consoleSnapshot = pending;
+            pending.catch((): any => {
+                if (this.consoleSnapshot === pending)
+                    this.consoleSnapshot = null;
+            });
+        }
+        return this.consoleSnapshot;
     }
     async health({ optionalModules = [] }: any = {}): Promise<any> {
-        const [agents, governance] = await Promise.all([
-            this.registry.list(),
-            safeGovernanceHealth(this.governance),
-        ]);
+        const governance = await this.readGovernanceHealth();
         return buildRuntimeHealth({
             core: [
                 { id: 'runtime', name: 'A君运行台', status: 'healthy', detail: '核心 HTTP 运行时可响应。' },
@@ -125,8 +164,36 @@ export class TaskOverview {
                 },
             ],
             optional: optionalModules,
-            summary: { employeeCount: Array.isArray(agents) ? agents.length : 0, version: governance.version },
+            // /api/health 是存活探针，不为员工人数读取完整注册表或任务账本。
+            summary: { version: governance.version },
         });
+    }
+    async readGovernanceHealth(): Promise<any> {
+        // 同一轮并发的 /api/health 和 /api/console-overview 共享一次 Paperclip 探测；
+        // 结果不持久缓存，下一次请求仍重新探测。
+        if (!this.governanceHealthInFlight) {
+            const pending: any = safeGovernanceHealth(this.governance);
+            this.governanceHealthInFlight = pending;
+            pending.finally((): any => {
+                if (this.governanceHealthInFlight === pending)
+                    this.governanceHealthInFlight = null;
+            });
+        }
+        return this.governanceHealthInFlight;
+    }
+    async readReliability(): Promise<any> {
+        if (typeof this.getReliabilitySnapshot !== 'function' || typeof this.getRuntimeIdentity !== 'function')
+            return null;
+        try {
+            const [snapshot, identity] = await Promise.all([
+                this.getReliabilitySnapshot(),
+                this.getRuntimeIdentity(),
+            ]);
+            return reliabilityForCurrentRuntime(snapshot, identity);
+        }
+        catch {
+            return { status:'unknown', detail:'暂时无法读取当前版本的稳定性观测，不能显示为稳定。', observedAt:null };
+        }
     }
     async usage({ since = startOfToday(), until = null }: any = {}): Promise<any> {
         const [tasks, agents, manager]: any = await Promise.all([

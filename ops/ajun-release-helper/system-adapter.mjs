@@ -17,6 +17,7 @@ export class AjunReleaseSystemAdapter {
     label = 'ai.agent-army.ajun-runtime',
     appPort = 4321,
     runCommand = defaultRunCommand,
+    fetchFn = fetch,
   } = {}) {
     for (const [name, value] of Object.entries({ repositoryRoot, mainPlist, stateDir, deployRoot, sourceParent })) {
       if (!value) throw new Error(`缺少${name}`);
@@ -30,6 +31,7 @@ export class AjunReleaseSystemAdapter {
     this.label = label;
     this.appPort = Number(appPort);
     this.runCommand = runCommand;
+    this.fetchFn = fetchFn;
   }
 
   async inspect() {
@@ -43,11 +45,20 @@ export class AjunReleaseSystemAdapter {
     const clean = dirty === '';
     const updateAvailable = gitHead !== current.gitHead;
     const branchReady = branch === 'main';
-    const canPublish = clean && branchReady && updateAvailable;
+    let verification;
+    try {
+      verification = await this.verifyLive(current);
+    } catch {
+      verification = publicVerification(null);
+    }
+    const liveVerified = requiredVerificationPassed(verification);
+    const canPublish = clean && branchReady && updateAvailable && liveVerified;
     const message = !clean
       ? '正式仓库有未提交改动；这些内容不会发布，请先整理成正式版本。'
       : !branchReady
         ? '正式仓库当前不在 main，不能从页面发布。'
+        : !liveVerified
+          ? '线上运行身份未通过核对；先恢复当前服务，不能冒险切换新版。'
         : !updateAvailable
           ? '当前已经是最新版。'
           : `发现新版 ${shortHash(gitHead)}，可以发布。`;
@@ -55,8 +66,11 @@ export class AjunReleaseSystemAdapter {
       canPublish,
       updateAvailable,
       message,
-      current:publicRelease(current),
-      candidate:{ gitHead, branch, clean },
+      current:publicRelease({
+        ...current,
+        verification:{ ...verification, rollbackAvailable:Boolean(history?.previous) },
+      }),
+      candidate:publicCandidate({ gitHead, branch, clean, canPublish, updateAvailable }),
       rollback:history?.previous ? publicRelease(history.previous) : null,
     };
   }
@@ -74,7 +88,7 @@ export class AjunReleaseSystemAdapter {
     await onStage('activating', '已备份旧版，正在切换 A君。');
     const backupPlist = await this.activateCandidate({ candidate:deployed, sourceRoot, previous:current });
     await onStage('verifying_live', '新版已启动，正在核对 PID、版本和 4321。');
-    await this.verifyLive(deployed);
+    const verification = await this.verifyLive(deployed);
     await this.writeHistory({
       schemaVersion:'agent.army/self-service-release-history/v1',
       activatedAt:new Date().toISOString(),
@@ -82,7 +96,10 @@ export class AjunReleaseSystemAdapter {
       previous:current,
       backupPlist,
     });
-    return { current:publicRelease(deployed), rollback:publicRelease(current) };
+    return {
+      current:publicRelease({ ...deployed, verification:{ ...verification, rollbackAvailable:true } }),
+      rollback:publicRelease(current),
+    };
   }
 
   async rollback({ onStage }) {
@@ -93,20 +110,23 @@ export class AjunReleaseSystemAdapter {
     const currentBackup = await this.backupMainPlist(`rollback-${Date.now()}`);
     try {
       await this.replaceMainPlist(history.backupPlist);
-      await this.restartAndVerify(history.previous);
+      const verification = await this.restartAndVerify(history.previous);
+      await this.writeHistory({
+        schemaVersion:'agent.army/self-service-release-history/v1',
+        rolledBackAt:new Date().toISOString(),
+        current:history.previous,
+        previous:null,
+        backupPlist:null,
+      });
+      return {
+        current:publicRelease({ ...history.previous, verification:{ ...verification, rollbackAvailable:false } }),
+        rollback:null,
+      };
     } catch (error) {
       await this.replaceMainPlist(currentBackup);
       await this.restartAndVerify(current);
       throw new Error(`退回失败，当前版本已恢复：${error.message}`);
     }
-    await this.writeHistory({
-      schemaVersion:'agent.army/self-service-release-history/v1',
-      rolledBackAt:new Date().toISOString(),
-      current:history.previous,
-      previous:null,
-      backupPlist:null,
-    });
-    return { current:publicRelease(history.previous), rollback:null };
   }
 
   async prepareCandidateSource(gitHead) {
@@ -221,14 +241,16 @@ export class AjunReleaseSystemAdapter {
     await waitUntil(async () => !(await this.serviceLoaded(domain)) && !(await portOpen(this.appPort)), 20_000);
     await this.runCommand('launchctl', ['bootstrap', domain, this.mainPlist]);
     await this.runCommand('launchctl', ['kickstart', `${domain}/${this.label}`]);
+    let verification = null;
     await waitUntil(async () => {
       try {
-        await this.verifyLive(expected);
+        verification = await this.verifyLive(expected);
         return true;
       } catch {
         return false;
       }
     }, 60_000);
+    return verification;
   }
 
   async verifyLive(expected) {
@@ -237,13 +259,40 @@ export class AjunReleaseSystemAdapter {
     const expectedWorkingDirectory = expected.workingDirectory || path.join(expected.releaseRoot, WORKDIR_SUFFIX);
     if (!printed.stdout.includes(`working directory = ${expectedWorkingDirectory}`)) throw new Error('launchd 工作目录不是目标 release。');
     if (!/\bpid = \d+/.test(printed.stdout)) throw new Error('launchd 没有活动 PID。');
-    const response = await fetch(`http://127.0.0.1:${this.appPort}/api/overview`, { signal:AbortSignal.timeout(3_000) });
+    const pid = launchdPid(printed.stdout);
+    if (!pid) throw new Error('launchd 没有活动 PID。');
+    const cwd = await this.processCwd(pid);
+    if (cwd !== expectedWorkingDirectory) throw new Error('A君实际工作目录不是目标 release。');
+    const argv = await this.processArgv(pid);
+    const expectedEntrypoint = path.join(expected.releaseRoot, ENTRYPOINT_SUFFIX);
+    if (!argv.includes(expectedEntrypoint)) throw new Error('A君实际启动参数不是目标 release。');
+    const response = await this.fetchFn(`http://127.0.0.1:${this.appPort}/api/console-overview`, { signal:AbortSignal.timeout(3_000) });
     if (!response.ok) throw new Error(`4321 返回 HTTP ${response.status}。`);
     const overview = await response.json();
-    if (!Array.isArray(overview?.tasks)) throw new Error('4321 响应不符合 A君概览契约。');
+    if (overview?.schemaVersion !== 'agent.army/console-overview/v2') throw new Error('4321 响应不符合 A君控制台概览契约。');
     const liveManifest = await readReleaseManifest(expected.releaseRoot);
-    if (liveManifest.releaseHash !== expected.releaseHash || liveManifest.gitHead !== expected.gitHead) throw new Error('线上 release manifest 身份不匹配。');
-    return { ok:true };
+    if (liveManifest.releaseHash !== expected.releaseHash) throw new Error('线上 release hash 身份不匹配。');
+    if (liveManifest.payloadHash !== expected.payloadHash) throw new Error('线上 payload hash 身份不匹配。');
+    if (liveManifest.gitHead !== expected.gitHead) throw new Error('线上 Git HEAD 身份不匹配。');
+    return publicVerification({
+      pid,
+      verifiedAt:new Date().toISOString(),
+      checks:{ pid:true, cwd:true, argv:true, releaseHash:true, payloadHash:true, gitHead:true, api:true },
+    });
+  }
+
+  async processCwd(pid) {
+    const result = await this.runCommand('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn']);
+    const cwd = result.stdout.split(/\r?\n/).find((line) => line.startsWith('n'))?.slice(1) || '';
+    if (!cwd) throw new Error('无法读取 A君实际工作目录。');
+    return cwd;
+  }
+
+  async processArgv(pid) {
+    const result = await this.runCommand('ps', ['-p', String(pid), '-o', 'command=']);
+    const argv = result.stdout.trim();
+    if (!argv) throw new Error('无法读取 A君实际启动参数。');
+    return argv;
   }
 
   async serviceLoaded(domain) {
@@ -348,7 +397,59 @@ async function portOpen(port) {
 }
 
 function publicRelease(value) {
-  return value ? { releaseHash:value.releaseHash, payloadHash:value.payloadHash || null, gitHead:value.gitHead } : null;
+  return value ? {
+    releaseHash:value.releaseHash,
+    payloadHash:value.payloadHash || null,
+    gitHead:value.gitHead,
+    verification:value.verification ? publicVerification(value.verification) : null,
+  } : null;
+}
+
+function publicCandidate({ gitHead, branch, clean, canPublish, updateAvailable }) {
+  return {
+    gitHead,
+    branch,
+    clean,
+    committed:/^[0-9a-f]{40}$/i.test(gitHead),
+    validation:{ status:'not_checked', verifiedAt:null },
+    publishable:canPublish === true,
+    undeployed:updateAvailable === true,
+  };
+}
+
+function publicVerification(value) {
+  const checks = value?.checks && typeof value.checks === 'object' ? value.checks : {};
+  return {
+    verifiedAt:validIso(value?.verifiedAt),
+    pid:Number.isInteger(value?.pid) && value.pid > 0 ? value.pid : null,
+    checks:{
+      pid:checks.pid === true,
+      cwd:checks.cwd === true,
+      argv:checks.argv === true,
+      releaseHash:checks.releaseHash === true,
+      payloadHash:checks.payloadHash === true,
+      gitHead:checks.gitHead === true,
+      api:checks.api === true,
+      rollbackAvailable:value?.rollbackAvailable === true,
+    },
+  };
+}
+
+function requiredVerificationPassed(value) {
+  const checks = value?.checks || {};
+  return ['pid', 'cwd', 'argv', 'releaseHash', 'payloadHash', 'gitHead', 'api']
+    .every((name) => checks[name] === true);
+}
+
+function launchdPid(printed) {
+  const match = String(printed || '').match(/\bpid = (\d+)/);
+  const pid = Number.parseInt(match?.[1] || '', 10);
+  return Number.isInteger(pid) && pid > 0 ? pid : null;
+}
+
+function validIso(value) {
+  const text = String(value || '').trim();
+  return Number.isNaN(Date.parse(text)) ? null : text;
 }
 
 function shortHash(value) {

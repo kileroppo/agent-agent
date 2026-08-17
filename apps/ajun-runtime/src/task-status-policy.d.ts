@@ -1,7 +1,9 @@
 import type { WorkflowStatus, WorkflowStepEvaluation } from './workflow/contracts.ts';
+import type { TaskStatus } from './task-lifecycle.ts';
+import type { TaskOutcome } from './task-status-policy-contracts.ts';
 
 export type TaskStatusProjection = Readonly<{
-  status: string;
+  status: TaskStatus | string;
   label: string;
   terminal: boolean;
   blocked: boolean;
@@ -34,8 +36,8 @@ export function taskLifecycleEventPolicy(status: unknown): Readonly<{
 
 export type TaskOutcomeProjection = Readonly<{
   outcome: string;
-  taskStatus: string | null;
-  executionOutcome: string | null;
+  taskStatus: TaskStatus | null;
+  executionOutcome: TaskOutcome | null;
   workflowStatus: WorkflowStatus;
   ownerAction: string | null;
   ownerActionable: boolean;

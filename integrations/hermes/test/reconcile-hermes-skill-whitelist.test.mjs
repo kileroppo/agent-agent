@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
+  backupHermesSkillProfile,
   discoverHermesSkillPolicies,
   parseReconcileArgs,
   reconcileHermesSkillWhitelists
@@ -107,6 +108,25 @@ test('自动发现新增 active Hermes Agent，不依赖第二份岗位名单', 
   }
 });
 
+test('默认运行中的 A君检查 Hermes default Profile，不拿隔离回退 Profile 冒充线上', async () => {
+  const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-army-hermes-ajun-'));
+  try {
+    await writeManifest(temporaryRoot, 'ajun', ['paperclip']);
+    const [policy] = await discoverHermesSkillPolicies({ agentsRoot:temporaryRoot, agentIds:['ajun'] });
+    assert.equal(policy.profileHome, path.join(os.homedir(), '.hermes'));
+  } finally {
+    await fs.rm(temporaryRoot, { recursive:true, force:true });
+  }
+});
+
+test('岗位可为常驻 Gateway 显式声明比任务 Profile 更窄的技能白名单', async () => {
+  const fixture = multiAgentFixture([['ajun', ['paperclip']]], {
+    manifestOverrides:{ ajun:{ runtimeCapabilities:{ skills:['paperclip'], gatewaySkills:[] } } },
+  });
+  const [policy] = await discoverHermesSkillPolicies(fixture);
+  assert.deepEqual(policy.allowedSkills, []);
+});
+
 test('A君本机执行且 Profile 尚未创建的隐私岗位不进入 Hermes 技能白名单检查', async () => {
   const fixture = multiAgentFixture([
     ['xiaod', ['paperclip']],
@@ -151,6 +171,115 @@ test('apply 可重复运行：首次收敛，第二次不再写入', async () =>
   assert.equal(first[0].status, 'applied');
   assert.equal(second[0].status, 'clean');
   assert.deepEqual(second[0].newlyDisabledSkills, []);
+});
+
+test('apply 先建立 config.yaml 的精确备份，成功后移除事务标记', async () => {
+  const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-army-hermes-skills-'));
+  const profileHome = path.join(temporaryRoot, 'profile');
+  const configPath = path.join(profileHome, 'config.yaml');
+  const original = 'model:\n  provider: fixture\nskills:\n  disabled: []\n';
+  try {
+    await writeManifest(temporaryRoot, 'xiaod', ['paperclip']);
+    await fs.mkdir(profileHome);
+    await fs.writeFile(configPath, original, { mode:0o640 });
+    let state = skillState({
+      visible:['paperclip', 'newly-installed-skill'],
+      enabled:['paperclip', 'newly-installed-skill']
+    });
+    const [result] = await reconcileHermesSkillWhitelists({
+      agentsRoot:temporaryRoot,
+      agentIds:['xiaod'],
+      apply:true,
+      profileHomeFor:() => profileHome,
+      inspectSkillState:async () => state,
+      disableSkills:async (_policy, skills) => {
+        state = skillState({
+          visible:state.visibleSkills,
+          enabled:state.enabledSkills.filter((name) => !skills.includes(name)),
+          disabled:[...state.disabledSkills, ...skills]
+        });
+        return { ...state, newlyDisabled:skills };
+      }
+    });
+
+    assert.equal(result.status, 'applied');
+    assert.equal(result.bundledSkillSeedingOptOut, true);
+    assert.match(result.backupPath, /\.agent-army-skill-whitelist-backups/);
+    assert.equal(await fs.readFile(path.join(result.backupPath, 'config.yaml'), 'utf8'), original);
+    await fs.stat(path.join(profileHome, '.no-bundled-skills'));
+    await assert.rejects(fs.stat(path.join(profileHome, '.agent-army-skill-whitelist-transaction.json')));
+  } finally {
+    await fs.rm(temporaryRoot, { recursive:true, force:true });
+  }
+});
+
+test('apply 发生写入或复查错误时，从精确备份回滚 config.yaml', async () => {
+  const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-army-hermes-skills-'));
+  const profileHome = path.join(temporaryRoot, 'profile');
+  const configPath = path.join(profileHome, 'config.yaml');
+  const original = 'skills:\n  disabled: []\nmodel:\n  provider: fixture\n';
+  try {
+    await writeManifest(temporaryRoot, 'xiaod', ['paperclip']);
+    await fs.mkdir(profileHome);
+    await fs.writeFile(configPath, original, { mode:0o640 });
+    await assert.rejects(
+      () => reconcileHermesSkillWhitelists({
+        agentsRoot:temporaryRoot,
+        agentIds:['xiaod'],
+        apply:true,
+        profileHomeFor:() => profileHome,
+        inspectSkillState:async () => skillState({
+          visible:['paperclip', 'newly-installed-skill'],
+          enabled:['paperclip', 'newly-installed-skill']
+        }),
+        disableSkills:async () => {
+          await fs.writeFile(configPath, 'partially-written: true\n');
+          throw new Error('simulated write failure');
+        }
+      }),
+      /已从精确 config\.yaml 备份回滚/
+    );
+    assert.equal(await fs.readFile(configPath, 'utf8'), original);
+    await assert.rejects(fs.stat(path.join(profileHome, '.agent-army-skill-whitelist-transaction.json')));
+  } finally {
+    await fs.rm(temporaryRoot, { recursive:true, force:true });
+  }
+});
+
+test('disable 命令静默成功但越权技能仍启用时，复查失败并回滚全部候选', async () => {
+  const restored = [];
+  const completed = [];
+  const state = skillState({ visible:['paperclip', 'unknown-skill'], enabled:['paperclip', 'unknown-skill'] });
+  await assert.rejects(
+    () => reconcileHermesSkillWhitelists({
+      ...singleAgentFixture('xiaod', ['paperclip']),
+      apply:true,
+      inspectSkillState:async () => state,
+      disableSkills:async () => ({ ...state, newlyDisabled:['unknown-skill'] }),
+      restoreProfileBackup:async (backup) => { restored.push(backup.agentId); },
+      completeProfileBackup:async (backup) => { completed.push(backup.agentId); },
+    }),
+    /精确 config\.yaml 备份回滚/,
+  );
+  assert.deepEqual(restored, ['xiaod']);
+  assert.deepEqual(completed, []);
+});
+
+test('备份拒绝符号链接 Profile 或 config，避免越界覆盖', async () => {
+  const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'agent-army-hermes-skills-'));
+  try {
+    const target = path.join(temporaryRoot, 'target');
+    const linked = path.join(temporaryRoot, 'linked-profile');
+    await fs.mkdir(target);
+    await fs.writeFile(path.join(target, 'config.yaml'), 'skills: {}\n');
+    await fs.symlink(target, linked);
+    await assert.rejects(
+      () => backupHermesSkillProfile({ agentId:'xiaod', profileHome:linked }),
+      /不是安全目录/
+    );
+  } finally {
+    await fs.rm(temporaryRoot, { recursive:true, force:true });
+  }
 });
 
 test('额外 Agent 的 Profile 不可检查时 apply 整体失败关闭，不产生部分写入', async () => {
@@ -200,7 +329,17 @@ function multiAgentFixture(definitions, { manifestOverrides = {} } = {}) {
       isDirectory:() => true
     })),
     readFile:async (filePath) => manifests.get(filePath),
-    profileHomeFor:(agentId) => `/profiles/${agentId}`
+    profileHomeFor:(agentId) => `/profiles/${agentId}`,
+    inspectProfileSafeguards:async () => ({ bundledSkillSeedingOptOut:true }),
+    enableBundledSkillOptOut:async () => true,
+    backupProfile:async (policy) => ({
+      agentId:policy.agentId,
+      profileHome:policy.profileHome,
+      root:`/backups/${policy.agentId}`,
+      markerPath:`/markers/${policy.agentId}`
+    }),
+    restoreProfileBackup:async () => {},
+    completeProfileBackup:async () => {}
   };
 }
 

@@ -109,6 +109,14 @@ const COMPONENT_RULES = [
     root:'integrations/hermes/profiles',
   },
   {
+    root:'integrations/hermes/scripts',
+    files:[
+      'hermes-skill-state.py',
+      'reconcile-hermes-skill-whitelist.mjs',
+      'start-hermes-gateway-guarded.mjs',
+    ],
+  },
+  {
     root:'integrations/paperclip/m5-content-pipeline',
     files:['package.json', 'package-lock.json'],
     directories:['src', 'config'],

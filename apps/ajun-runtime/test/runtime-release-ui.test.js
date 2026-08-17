@@ -39,5 +39,15 @@ test('发布进度来自真实助手状态，没有伪造百分比', async () =>
   assert.match(script, /publish_current_commit/);
   assert.match(script, /rollback_previous_release/);
   assert.match(script, /A君正在重启，等待重新连接/);
+  assert.match(script, /aria-current/);
+  assert.match(script, /release-stage-live/);
+  assert.match(script, />进行中</);
+  assert.match(script, /已提交/);
+  assert.match(script, /尚未部署/);
+  assert.match(script, /运行身份已核对/);
   assert.doesNotMatch(script, /percent|progress\s*=/i);
+
+  const styles = await readFile(new URL('styles.css', publicRoot), 'utf8');
+  assert.match(styles, /@keyframes release-status-pulse/);
+  assert.match(styles, /prefers-reduced-motion:\s*reduce/);
 });

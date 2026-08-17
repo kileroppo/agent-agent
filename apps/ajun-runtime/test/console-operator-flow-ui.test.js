@@ -12,6 +12,14 @@ import {
   renderAttentionDetail,
   taskAttentionView,
 } from '../public/task-record-detail-view.js';
+import {
+  businessDebtPresentation,
+  capabilityPresentation,
+  capabilitySummaryText,
+  countCapabilityTiers,
+  managerFirstEmployees,
+  reliabilityPresentation,
+} from '../public/overview-presentation.js';
 
 const publicRoot = new URL('../public/', import.meta.url);
 const taskId = '11111111-1111-4111-8111-111111111111';
@@ -41,6 +49,56 @@ test('AI 能力中心按节点分层，并保留状态检查安全说明', async
   assert.match(script, /本机 Mac/);
   assert.match(script, /4070 图形节点/);
   assert.match(styles, /\.ai-node-service-list\s*\{[\s\S]*grid-template-columns: repeat\(2/);
+});
+
+test('首页把负责人动作、运行、系统可靠性和业务质量债分开，未知观测不冒充正常', async () => {
+  const [html, script, styles] = await Promise.all([
+    readFile(new URL('index.html', publicRoot), 'utf8'),
+    readFile(new URL('app.js', publicRoot), 'utf8'),
+    readFile(new URL('styles.css', publicRoot), 'utf8'),
+  ]);
+
+  assert.match(html, /负责人下一步/);
+  assert.match(html, /正在运行、系统风险与质量债/);
+  assert.match(script, /statCard\('系统可靠性'/);
+  assert.match(script, /statCard\('业务质量债'/);
+  assert.deepEqual(reliabilityPresentation({ coreOnline:{ status:'online' }, reliability:{ status:'unknown', observedAt:null } }, (category) => `#${category}`), {
+    value:'待核对', note:'核心服务在线；尚无有效稳定性观测，不能把核心在线当作一切正常', icon:'alert', attention:true, href:'',
+  });
+  assert.equal(businessDebtPresentation({ status:'needs_attention', verificationBacklog:3, unresolvedFailures:2 }, {}, (category) => `#${category}`).value, '3 待复验 · 2 仍失败');
+  assert.equal(reliabilityPresentation({ coreOnline:'online', reliability:'healthy' }, (category) => `#${category}`).value, '观测通过');
+  assert.doesNotMatch(script, /负责人暂不需处理.*一切正常/);
+  assert.match(styles, /\.focus-primary-action,[\s\S]*min-height: 44px/);
+});
+
+test('员工与能力默认减噪：业务入口在前，后台和待验收能力折叠并如实标注', async () => {
+  const [html, script, styles] = await Promise.all([
+    readFile(new URL('index.html', publicRoot), 'utf8'),
+    readFile(new URL('app.js', publicRoot), 'utf8'),
+    readFile(new URL('styles.css', publicRoot), 'utf8'),
+  ]);
+
+  assert.match(html, /默认只放可直接交付业务结果的入口/);
+  assert.match(script, /agent\.agentId === 'ajun' \|\| isDirectEmployee\(agent\) \|\| agent\.capabilityTruth\?\.overall === 'human_accepted'/);
+  assert.deepEqual(managerFirstEmployees({ agentId:'ajun', name:'A君' }, [{ agentId:'xiaod', name:'小D' }, { agentId:'ajun', name:'重复的A君' }]).map((item) => item.agentId), ['ajun', 'xiaod']);
+  assert.deepEqual(managerFirstEmployees(null, [{ agentId:'xiaod', name:'小D' }]).map((item) => item.agentId), ['xiaod']);
+  assert.match(script, /后台岗位与待人工验收/);
+  assert.equal(capabilityPresentation({ truth:{ overall:'human_accepted' } }).label, '已人工验收');
+  assert.equal(capabilityPresentation({ truth:{ overall:'verified' } }).label, '真实任务已验证');
+  assert.equal(capabilityPresentation({ truth:{ overall:'partial' } }).label, '部分完成');
+  assert.equal(capabilityPresentation({ truth:{ overall:'planned' } }).label, '待准备');
+  assert.equal(capabilitySummaryText(countCapabilityTiers([{ truth:{ overall:'human_accepted' } }, { truth:{ overall:'verified' } }, { truth:{ overall:'partial' } }, { truth:{ overall:'planned' } }])), '1 项人工验收 · 1 项真实验证待人工验收 · 1 项受限 · 1 项待准备');
+  assert.match(styles, /\.background-employees-disclosure/);
+});
+
+test('版本页用线上、候选和回滚三种真实身份，不把候选叫当前版本', async () => {
+  const html = await readFile(new URL('index.html', publicRoot), 'utf8');
+
+  assert.match(html, /线上运行版本/);
+  assert.match(html, /候选版本/);
+  assert.match(html, /回滚版本/);
+  assert.doesNotMatch(html, /<span>当前版本<\/span>/);
+  assert.doesNotMatch(html, /<span>可发布版本<\/span>/);
 });
 
 test('任务 pathname 是详情真相，切往其他 hash 时清除详情 pathname', () => {

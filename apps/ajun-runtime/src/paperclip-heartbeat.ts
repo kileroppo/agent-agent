@@ -6,11 +6,13 @@ export class PaperclipHeartbeatHandler {
     incidentDispatcher: any;
     now: any;
     operator: any;
+    healthTransitionState: any;
     recentCompletions: any;
-    constructor({ operator, governance, incidentDispatcher = null, now = (): any => new Date() }: any = {}) {
+    constructor({ operator, governance, incidentDispatcher = null, healthTransitionState = null, now = (): any => new Date() }: any = {}) {
         this.operator = operator;
         this.governance = governance;
         this.incidentDispatcher = incidentDispatcher;
+        this.healthTransitionState = healthTransitionState;
         this.now = now;
         this.inFlightIssues = new Map();
         this.recentCompletions = new Map();
@@ -78,7 +80,13 @@ export class PaperclipHeartbeatHandler {
             const result: any = await this.operator.execute(task);
             const healthReport: any = result.artifactRefs?.find((item: any): any => item.type === 'health_report')?.data;
             const health: any = healthReport?.overall === 'healthy' ? 'healthy' : 'degraded';
-            const incident: any = health === 'degraded' && typeof this.incidentDispatcher === 'function'
+            const transition: any = this.healthTransitionState?.observe
+                ? await this.healthTransitionState.observe({
+                    status: health,
+                    checkedAt: String(healthReport?.checkedAt || this.now().toISOString()),
+                })
+                : { previous: 'unknown', current: health, changed: true, enteredDegraded: health === 'degraded' };
+            const incident: any = transition.enteredDegraded && typeof this.incidentDispatcher === 'function'
                 ? await this.incidentDispatcher({
                     sourceIssueId: issueId,
                     sourceRunId: runId,

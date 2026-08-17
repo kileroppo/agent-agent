@@ -7,6 +7,8 @@ export async function buildTaskValidationOverview({
   approvals,
   store,
   capabilityCatalog,
+  includeValidationCampaign = true,
+  buildCampaign = buildValidationCampaign,
 }: {
   tasks: readonly any[];
   approvals: readonly any[];
@@ -15,6 +17,8 @@ export async function buildTaskValidationOverview({
     listWorkflowAcceptances?: () => Promise<readonly any[]>;
   };
   capabilityCatalog?: { openTaskDelegates?: () => Readonly<Record<string, string>> } | null;
+  includeValidationCampaign?: boolean;
+  buildCampaign?: typeof buildValidationCampaign;
 }) {
   const evidenceContext = {
     proposals:await store.listProposals?.() || [],
@@ -24,9 +28,11 @@ export async function buildTaskValidationOverview({
     tasks,
     await store.listWorkflowAcceptances?.() || [],
   );
-  return Object.freeze({
+  const overview = {
     workflows,
     taskFocus:buildTaskFocus(tasks, approvals, evidenceContext, workflows),
-    validationCampaign:buildValidationCampaign(tasks, evidenceContext),
-  });
+  };
+  return Object.freeze(includeValidationCampaign
+    ? { ...overview, validationCampaign:buildCampaign(tasks, evidenceContext) }
+    : overview);
 }

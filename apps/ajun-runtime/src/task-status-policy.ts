@@ -1,39 +1,39 @@
-import { TASK_STATUSES, TERMINAL_TASK_STATUSES } from './task-lifecycle.ts';
+import { isKnownTaskStatus, TASK_STATUSES, TERMINAL_TASK_STATUSES, type TaskStatus } from './task-lifecycle.ts';
 import type { WorkflowStatus } from './workflow/contracts.ts';
 import {
   ACCEPTANCE_OWNER_ACTION,
   BLOCKED_TASK_STATUSES,
-  DELIVERY_OUTCOME_PROJECTIONS,
+  deliveryProjectionForOutcome,
   EXECUTION_CLOSED_TASK_STATUSES,
   NOTIFICATION_TERMINAL_TASK_STATUSES,
   PAPERCLIP_COMPLETION_TASK_STATUSES,
   STATUS_DETAILS,
   TASK_CARD_TERMINAL_TASK_STATUSES,
-  TERMINAL_FAILURE_TASK_STATUSES,
   WORKFLOW_OUTCOME_STATUSES,
   type TaskStatusPolicy,
+  type TaskOutcomeProjection,
+  taskLifecycleEventForPolicy,
   type WorkflowStepOutcome,
 } from './task-status-policy-contracts.ts';
 
-const TERMINAL_STATUS_SET = new Set<string>(TERMINAL_TASK_STATUSES);
-const BLOCKED_STATUS_SET = new Set<string>(BLOCKED_TASK_STATUSES);
-const NOTIFICATION_TERMINAL_STATUS_SET = new Set<string>([
+const TERMINAL_STATUS_SET = new Set<TaskStatus>(TERMINAL_TASK_STATUSES);
+const BLOCKED_STATUS_SET = new Set<TaskStatus>(BLOCKED_TASK_STATUSES);
+const NOTIFICATION_TERMINAL_STATUS_SET = new Set<TaskStatus>([
   ...TERMINAL_TASK_STATUSES,
   ...NOTIFICATION_TERMINAL_TASK_STATUSES,
 ]);
-const EXECUTION_CLOSED_STATUS_SET = new Set<string>(EXECUTION_CLOSED_TASK_STATUSES);
+const EXECUTION_CLOSED_STATUS_SET = new Set<TaskStatus>(EXECUTION_CLOSED_TASK_STATUSES);
 export { PAPERCLIP_COMPLETION_TASK_STATUSES } from './task-status-policy-contracts.ts';
-const PAPERCLIP_COMPLETION_STATUS_SET = new Set<string>(PAPERCLIP_COMPLETION_TASK_STATUSES);
-const TASK_CARD_TERMINAL_STATUS_SET = new Set<string>(TASK_CARD_TERMINAL_TASK_STATUSES);
-const TERMINAL_FAILURE_TASK_STATUS_SET = new Set<string>(TERMINAL_FAILURE_TASK_STATUSES);
+const PAPERCLIP_COMPLETION_STATUS_SET = new Set<TaskStatus>(PAPERCLIP_COMPLETION_TASK_STATUSES);
+const TASK_CARD_TERMINAL_STATUS_SET = new Set<TaskStatus>(TASK_CARD_TERMINAL_TASK_STATUSES);
 const WORKFLOW_OUTCOME_STATUS_SET = new Set<WorkflowStatus>(WORKFLOW_OUTCOME_STATUSES);
 
-export const TASK_BLOCKED_STATUSES: readonly string[] = Object.freeze(
-  (TASK_STATUSES as readonly string[]).filter((status: string) => BLOCKED_STATUS_SET.has(status)),
+export const TASK_BLOCKED_STATUSES: readonly TaskStatus[] = Object.freeze(
+  TASK_STATUSES.filter((status) => BLOCKED_STATUS_SET.has(status)),
 );
 
-export const TASK_STATUS_POLICIES: Readonly<Record<string, TaskStatusPolicy>> = Object.freeze(Object.fromEntries(
-  (TASK_STATUSES as readonly string[]).map((status: string) => {
+export const TASK_STATUS_POLICIES: Readonly<Record<TaskStatus, TaskStatusPolicy>> = Object.freeze(Object.fromEntries(
+  TASK_STATUSES.map((status) => {
     const detail = STATUS_DETAILS[status];
     if (!detail) throw new Error(`任务状态策略缺少状态：${status}`);
     return [status, Object.freeze({
@@ -49,11 +49,11 @@ export const TASK_STATUS_POLICIES: Readonly<Record<string, TaskStatusPolicy>> = 
       paperclipCompletionEligible:PAPERCLIP_COMPLETION_STATUS_SET.has(status),
     })];
   }),
-));
+)) as Readonly<Record<TaskStatus, TaskStatusPolicy>>;
 
 export function taskStatusPolicy(status: unknown): TaskStatusPolicy {
   const value = String(status || '').trim();
-  return TASK_STATUS_POLICIES[value] || Object.freeze({
+  return (isKnownTaskStatus(value) ? TASK_STATUS_POLICIES[value] : null) || Object.freeze({
     status:value || 'unknown',
     label:value || '未知',
     terminal:false,
@@ -70,12 +70,12 @@ export function taskStatusPolicy(status: unknown): TaskStatusPolicy {
 export function taskOutcomePolicy(
   outcome: unknown,
   { hasUsableArtifact = false }: Readonly<{ hasUsableArtifact?: boolean }> = {},
-) {
+): TaskOutcomeProjection {
   const value = String(outcome || '').trim();
   const workflowOutcome = WORKFLOW_OUTCOME_STATUS_SET.has(value as WorkflowStatus)
     ? value as WorkflowStatus
     : 'running';
-  const projection = DELIVERY_OUTCOME_PROJECTIONS[value] || [null, workflowOutcome, null];
+  const projection = deliveryProjectionForOutcome(value) || [null, workflowOutcome, null] as const;
   const workflowStatus = value === 'delivery_quality_stopped' && hasUsableArtifact ? 'partial' : projection[1];
   const ownerActionable = workflowStatus === 'waiting_acceptance';
   return Object.freeze({
@@ -103,15 +103,21 @@ export function workflowStatusForTaskOutcome({
   humanAccepted?: boolean;
   recoveryPending?: boolean;
 }> = {}): WorkflowStatus {
-  const currentTaskStatus = String(taskStatus || '');
+  const currentTaskStatus = isKnownTaskStatus(taskStatus) ? taskStatus : null;
   if (verified && requiresAcceptance && !humanAccepted) return 'waiting_acceptance';
   if (verified) return partial ? 'partial' : 'succeeded';
   if (currentTaskStatus === 'needs_input' || currentTaskStatus === 'waiting_approval') return 'waiting_user';
   if (recoveryPending) return 'recovering';
-  if (TERMINAL_FAILURE_TASK_STATUS_SET.has(currentTaskStatus)) return currentTaskStatus === 'cancelled' ? 'cancelled' : 'failed';
-  if (currentTaskStatus === 'waiting_test' || currentTaskStatus === 'succeeded') return 'waiting_validation';
-  if (currentTaskStatus === 'received') return 'received';
-  return currentTaskStatus === 'queued' ? 'planning' : 'running';
+  if (currentTaskStatus === null) return 'running';
+  switch (currentTaskStatus) {
+    case 'failed': case 'expired': return 'failed';
+    case 'cancelled': return 'cancelled';
+    case 'waiting_test': case 'succeeded': return 'waiting_validation';
+    case 'received': return 'received';
+    case 'queued': return 'planning';
+    case 'running': case 'waiting_worker': case 'pausing': case 'paused': return 'running';
+    default: return assertNever(currentTaskStatus);
+  }
 }
 
 export function workflowStatusForStepOutcomes(steps: readonly WorkflowStepOutcome[], {
@@ -161,14 +167,8 @@ export const taskStatusPriority = (status: unknown) => taskStatusPolicy(status).
 export const paperclipIssueStatusForTaskStatus = (status: unknown) => taskStatusPolicy(status).paperclipIssueStatus;
 export const isPaperclipCompletionTaskStatus = (status: unknown) => taskStatusPolicy(status).paperclipCompletionEligible;
 
-export function taskLifecycleEventPolicy(status: unknown) {
-  const policy = taskStatusPolicy(status);
-  return Object.freeze({
-    eventType:status === 'succeeded'
-      ? 'workflow_completed'
-      : policy.blocked
-        ? 'workflow_blocked'
-        : 'workflow_state_changed',
-    retentionClass:status === 'succeeded' || policy.blocked ? 'audit' : 'transient',
-  });
+export const taskLifecycleEventPolicy = (status: unknown) => taskLifecycleEventForPolicy(status, taskStatusPolicy(status));
+
+function assertNever(value: never): never {
+  throw new Error(`未处理的任务状态：${value}`);
 }

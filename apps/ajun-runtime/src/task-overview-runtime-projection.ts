@@ -75,7 +75,12 @@ function channelCapability(source: any): any {
     if (state?.status === 'connected')
         return { status: 'ready', detail: '官方飞书入口已连接；消息、审批卡会回到原聊天，现有 A君入口仍可保留。' };
     if (state?.status === 'delivery_uncertain')
-        return { status: 'partial', detail: state.message || '飞书投递结果不确定；任务事实已保留，可安全重试跟进。' };
+        return {
+            status: 'partial',
+            detail:state.message || (state.failedDeliveries
+                ? '飞书投递明确失败；任务事实已保留，需显式恢复交付。'
+                : '飞书投递结果不确定；任务事实已保留，必须先核对再决定是否恢复。'),
+        };
     if (state?.status === 'connecting')
         return { status: 'partial', detail: '官方飞书入口正在连接；现有 A君入口仍可用。' };
     if (state?.status === 'failed')

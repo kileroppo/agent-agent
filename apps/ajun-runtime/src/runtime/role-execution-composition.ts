@@ -111,6 +111,8 @@ export async function createRoleExecutionComposition({
     localAiCapabilityStatus:() => localAi.health(),
     taskRunEvents,
     missionChildPolicy,
+    runtimeDataDir:paths.dataDir,
+    runtimeRoot:paths.runtimeRoot || null,
   });
   const maturityExecutionGuard = missionChildPolicy
     ? new MaturityExecutionGuard({ store, policy:missionChildPolicy })

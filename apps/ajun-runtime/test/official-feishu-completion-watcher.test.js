@@ -16,7 +16,7 @@ function setup({ status = { terminal:false, status:'running', message:'正在处
   return { watcher, records, sent, setStatus(value) { status = value; } };
 }
 
-test('长任务会在完成时只回到原聊天一次，并清掉本机跟进记录', async () => {
+test('长任务会在完成时只回到原聊天一次，并保留脱敏的已送达回执', async () => {
   const state = setup();
   await state.watcher.watch({ taskId:'task-a', chatId:'chat-a' });
   state.setStatus({ terminal:true, status:'succeeded', message:'工作已经完成。' });
@@ -25,7 +25,10 @@ test('长任务会在完成时只回到原聊天一次，并清掉本机跟进�
   assert.equal(state.sent[0].chatId, 'chat-a');
   assert.equal(state.sent[0].content.markdown, '工作已经完成。');
   assert.match(state.sent[0].content.deliveryId, /^[0-9a-f-]{36}$/);
-  assert.deepEqual(state.records, []);
+  assert.equal(state.records.length, 1);
+  assert.equal(state.records[0].delivery.status, 'delivered');
+  assert.equal(state.records[0].delivery.idempotencyKey, state.sent[0].content.deliveryId);
+  assert.equal(state.records[0].delivery.evidence.type, 'channel_send_acknowledged');
 });
 
 test('终态发送较慢时并发检查也只回到原聊天一次', async () => {
@@ -43,7 +46,7 @@ test('终态发送较慢时并发检查也只回到原聊天一次', async () =>
   assert.equal(state.sent.length, 1);
   releaseSend();
   await Promise.all(checks);
-  assert.deepEqual(state.records, []);
+  assert.equal(state.records[0].delivery.status, 'delivered');
 });
 
 test('配置运行台地址后，飞书进度会带可点击的短任务编号', async () => {
@@ -99,13 +102,14 @@ test('发送结果不确定时停止盲目重发，并要求本机明确选择�
   await state.watcher.check();
   await state.watcher.check();
   assert.equal(attempts, 1);
-  assert.equal(state.records[0].delivery.state, 'uncertain');
+  assert.equal(state.records[0].delivery.status, 'delivery_unknown');
+  assert.equal(state.records[0].delivery.errorCode, 'delivery_outcome_unknown');
   assert.equal(state.watcher.snapshot().status, 'delivery_uncertain');
 
   await state.watcher.resolveDelivery({ taskId:'task-uncertain', chatId:'chat-uncertain', outcome:'retry' });
   await state.watcher.check();
   assert.equal(attempts, 2);
-  assert.deepEqual(state.records, []);
+  assert.equal(state.records[0].delivery.status, 'delivered');
 });
 
 test('进程重启读到发送中记录时标记投递不确定，不会再次调用外部发送', async () => {
@@ -117,7 +121,7 @@ test('进程重启读到发送中记录时标记投递不确定，不会再次�
 
   await state.watcher.check();
   assert.equal(state.sent.length, 0);
-  assert.equal(state.records[0].delivery.state, 'uncertain');
+  assert.equal(state.records[0].delivery.status, 'delivery_unknown');
 });
 
 test('明确未启动发送进程时保留自动重试能力', async () => {
@@ -130,10 +134,69 @@ test('明确未启动发送进程时保留自动重试能力', async () => {
   await state.watcher.watch({ taskId:'task-not-started', chatId:'chat-not-started' });
 
   await state.watcher.check();
-  assert.equal(state.records[0].delivery, null);
+  assert.equal(state.records[0].delivery.status, 'failed');
   await state.watcher.check();
   assert.equal(attempts, 2);
-  assert.deepEqual(state.records, []);
+  assert.equal(state.records[0].delivery.status, 'delivered');
+});
+
+test('明确失败最多自动尝试两次，第三次检查冻结并等待人工恢复', async () => {
+  const state = setup({ status:{ terminal:true, status:'failed', message:'工作没有完成。' } });
+  let attempts = 0;
+  state.watcher.send = async () => {
+    attempts += 1;
+    throw Object.assign(new Error('spawn failed'), { deliveryState:'not_started' });
+  };
+  await state.watcher.watch({ taskId:'task-auto-cap', chatId:'chat-auto-cap' });
+
+  await state.watcher.check();
+  const idempotencyKey = state.records[0].delivery.idempotencyKey;
+  await state.watcher.check();
+  await state.watcher.check();
+
+  assert.equal(attempts, 2);
+  assert.equal(state.records[0].delivery.status, 'failed');
+  assert.equal(state.records[0].delivery.attempt, 2);
+  assert.equal(state.records[0].delivery.idempotencyKey, idempotencyKey);
+  assert.equal(state.watcher.snapshot().status, 'delivery_uncertain');
+  assert.equal(state.watcher.snapshot().failedDeliveries, 1);
+  assert.deepEqual(state.watcher.snapshot().actions.map((item) => item.action), ['retry_delivery']);
+});
+
+test('冻结的 failed 回执只有人工 retry 才能恢复，并保持同一幂等键', async () => {
+  const state = setup({ status:{ terminal:true, status:'succeeded', message:'工作已经完成。' } });
+  let attempts = 0;
+  state.watcher.send = async () => {
+    attempts += 1;
+    if (attempts < 3) throw Object.assign(new Error('spawn failed'), { deliveryState:'not_started' });
+  };
+  await state.watcher.watch({ taskId:'task-manual-retry', chatId:'chat-manual-retry' });
+  await state.watcher.check();
+  const idempotencyKey = state.records[0].delivery.idempotencyKey;
+  await state.watcher.check();
+  await state.watcher.check();
+  assert.equal(attempts, 2);
+
+  await state.watcher.resolveDelivery({ taskId:'task-manual-retry', chatId:'chat-manual-retry', outcome:'retry' });
+  await state.watcher.check();
+  assert.equal(attempts, 3);
+  assert.equal(state.records[0].delivery.status, 'delivered');
+  assert.equal(state.records[0].delivery.idempotencyKey, idempotencyKey);
+});
+
+test('旧 uncertain 记录会迁移为正式 delivery_unknown，并只暴露一个核对动作', async () => {
+  const state = setup({ status:{ terminal:true, status:'succeeded', message:'工作已经完成。' } });
+  await state.watcher.watch({ taskId:'task-old', chatId:'chat-old' });
+  state.records[0].delivery = {
+    deliveryId:'11111111-1111-5111-a111-111111111111', kind:'terminal', targetStatus:'succeeded',
+    state:'uncertain', startedAt:'2026-08-17T00:00:00.000Z', uncertainAt:'2026-08-17T00:01:00.000Z',
+    reason:'token=should-not-be-shown'
+  };
+  await state.watcher.check();
+  assert.equal(state.sent.length, 0);
+  assert.equal(state.records[0].delivery.status, 'delivery_unknown');
+  assert.equal(state.records[0].delivery.errorCode, 'delivery_outcome_unknown');
+  assert.deepEqual(state.watcher.snapshot().actions.map((item) => item.action), ['verify_delivery']);
 });
 
 test('原会话跟进记录只保存任务号和会话号且文件权限为 0600', async () => {

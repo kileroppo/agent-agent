@@ -4,10 +4,39 @@ export function consoleOverviewReadView(overview: any) {
   return Object.freeze({
     schemaVersion:'agent.army/console-overview/v2',
     taskFocus:taskFocusView(overview?.taskFocus),
+    manager:employeeView(overview?.manager),
     agents:Object.freeze((Array.isArray(overview?.agents) ? overview.agents : []).slice(0, 80).map(employeeView)),
     capabilities:Object.freeze((Array.isArray(overview?.capabilities) ? overview.capabilities : []).slice(0, 40).map(capabilityView)),
     recentTasks:Object.freeze((Array.isArray(overview?.recentTasks) ? overview.recentTasks : []).slice(0, 3).map(recentTaskView)),
     usage:usageView(overview?.usage),
+    health:healthView(overview?.health),
+  });
+}
+
+function healthView(value: any) {
+  return Object.freeze({
+    schemaVersion:safeText(value?.schemaVersion, 100) || 'agent.army/console-health/v1',
+    checkedAt:safeText(value?.checkedAt, 40) || null,
+    coreOnline:healthTier(value?.coreOnline, ['online', 'degraded', 'offline', 'unknown']),
+    reliability:Object.freeze({
+      ...healthTier(value?.reliability, ['healthy', 'degraded', 'unavailable', 'unknown']),
+      observedAt:safeText(value?.reliability?.observedAt, 40) || null,
+    }),
+    businessDebt:Object.freeze({
+      ...healthTier(value?.businessDebt, ['clear', 'needs_attention', 'unknown']),
+      reviewBacklog:safeNullableCount(value?.businessDebt?.reviewBacklog),
+      verificationBacklog:safeNullableCount(value?.businessDebt?.verificationBacklog),
+      unresolvedFailures:safeNullableCount(value?.businessDebt?.unresolvedFailures),
+      ownerActionable:safeNullableCount(value?.businessDebt?.ownerActionable),
+    }),
+  });
+}
+
+function healthTier(value: any, allowed: readonly string[]) {
+  const requested = safeText(value?.status, 40);
+  return Object.freeze({
+    status:allowed.includes(requested) ? requested : 'unknown',
+    detail:safeText(value?.detail, 240) || '尚无有效状态。',
   });
 }
 
@@ -36,6 +65,7 @@ function focusItemView(value: any) {
 }
 
 function employeeView(value: any) {
+  if (!value) return null;
   return Object.freeze({
     agentId:safeText(value?.agentId, 100),
     name:safeText(value?.name || value?.agentId, 120),
@@ -111,6 +141,11 @@ function safeStringList(value: unknown, maxItems: number, maxChars: number): rea
 function safeCount(value: unknown): number {
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function safeNullableCount(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function safeNumber(value: unknown): number {

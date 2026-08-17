@@ -44,6 +44,7 @@
     },
     "fallbackModels": [],
     "skills": ["paperclip"],
+    "gatewaySkills": [],
     "mcpTools": [
       "agent_manual",
       "status",

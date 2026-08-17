@@ -13,6 +13,11 @@ test('只读检查识别 main 上的干净新提交', async (context) => {
   assert.equal(result.updateAvailable, true);
   assert.equal(result.current.gitHead, fixture.oldHead);
   assert.equal(result.candidate.gitHead, fixture.newHead);
+  assert.equal(result.candidate.committed, true);
+  assert.equal(result.candidate.validation.status, 'not_checked');
+  assert.equal(result.candidate.publishable, true);
+  assert.equal(result.candidate.undeployed, true);
+  assert.equal(result.current.verification.checks.api, true);
   assert.match(result.message, /发现新版/);
 });
 
@@ -21,6 +26,18 @@ test('未提交改动阻止发布且不隐藏原因', async (context) => {
   const result = await fixture.adapter.inspect();
   assert.equal(result.canPublish, false);
   assert.match(result.message, /未提交改动/);
+});
+
+test('线上身份未核对时仍返回当前与候选真相，但阻止发布', async (context) => {
+  const fixture = await createFixture(context);
+  fixture.adapter.verifyLive = async () => { throw new Error('transient detail must stay private'); };
+  const result = await fixture.adapter.inspect();
+  assert.equal(result.canPublish, false);
+  assert.equal(result.current.gitHead, fixture.oldHead);
+  assert.equal(result.candidate.gitHead, fixture.newHead);
+  assert.equal(result.current.verification.checks.api, false);
+  assert.match(result.message, /线上运行身份未通过核对/);
+  assert.doesNotMatch(result.message, /transient detail/);
 });
 
 test('非 main 分支和相同版本都不能从页面发布', async (context) => {
@@ -36,6 +53,38 @@ test('当前启动目录缺少可信 manifest 时失败关闭', async (context) 
   const fixture = await createFixture(context);
   await fs.writeFile(path.join(fixture.releaseRoot, 'release-manifest.json'), '{}');
   await assert.rejects(() => fixture.adapter.inspect(), /可信 release manifest/);
+});
+
+test('上线核对必须同时证明 PID、cwd、argv、release/payload/Git 和控制台 API', async (context) => {
+  const fixture = await createFixture(context, { realLiveVerification:true });
+  const expected = {
+    releaseHash:'release-old',
+    payloadHash:'payload-old',
+    gitHead:fixture.oldHead,
+    releaseRoot:fixture.releaseRoot,
+  };
+  const workingDirectory = path.join(fixture.releaseRoot, 'apps', 'ajun-runtime');
+  fixture.adapter.runCommand = async (command, args) => {
+    if (command === 'launchctl') return { code:0, stdout:`pid = 4242\nworking directory = ${workingDirectory}\n`, stderr:'' };
+    if (command === 'lsof') return { code:0, stdout:`p4242\nfcwd\nn${workingDirectory}\n`, stderr:'' };
+    if (command === 'ps') return { code:0, stdout:`node ${path.join(workingDirectory, 'src', 'server.ts')}\n`, stderr:'' };
+    throw new Error(`unexpected command ${command} ${args.join(' ')}`);
+  };
+  fixture.adapter.fetchFn = async () => ({ ok:true, status:200, json:async () => ({ schemaVersion:'agent.army/console-overview/v2' }) });
+
+  const proof = await fixture.adapter.verifyLive(expected);
+  assert.equal(proof.pid, 4242);
+  assert.deepEqual(proof.checks, {
+    pid:true, cwd:true, argv:true, releaseHash:true, payloadHash:true, gitHead:true, api:true, rollbackAvailable:false,
+  });
+
+  fixture.adapter.runCommand = async (command, args) => {
+    if (command === 'launchctl') return { code:0, stdout:`pid = 4242\nworking directory = ${workingDirectory}\n`, stderr:'' };
+    if (command === 'lsof') return { code:0, stdout:`p4242\nfcwd\nn${workingDirectory}\n`, stderr:'' };
+    if (command === 'ps') return { code:0, stdout:'node /wrong/server.ts\n', stderr:'' };
+    throw new Error(`unexpected command ${command} ${args.join(' ')}`);
+  };
+  await assert.rejects(() => fixture.adapter.verifyLive(expected), /启动参数/);
 });
 
 test('发布严格按准备、验证、冻结、切换和线上回读推进', async (context) => {
@@ -97,10 +146,14 @@ test('手动回滚恢复上一版并清空连续回滚入口', async (context) =
   fixture.adapter.readCurrentRelease = async () => ({ releaseHash:'release-new', gitHead:fixture.newHead, releaseRoot:path.join(fixture.root, 'new') });
   fixture.adapter.backupMainPlist = async () => path.join(fixture.root, 'current.plist');
   fixture.adapter.replaceMainPlist = async (source) => calls.push(['replace', source]);
-  fixture.adapter.restartAndVerify = async (expected) => calls.push(['restart', expected.releaseHash]);
+  fixture.adapter.restartAndVerify = async (expected) => {
+    calls.push(['restart', expected.releaseHash]);
+    return { pid:77, verifiedAt:'2026-08-17T00:00:00.000Z', checks:{ pid:true, cwd:true, argv:true, releaseHash:true, payloadHash:true, gitHead:true, api:true } };
+  };
   fixture.adapter.writeHistory = async (value) => calls.push(['history', value]);
   const result = await fixture.adapter.rollback({ onStage:async (stage) => calls.push(['stage', stage]) });
   assert.equal(result.current.releaseHash, 'release-old');
+  assert.equal(result.current.verification.checks.api, true);
   assert.equal(result.rollback, null);
   assert.deepEqual(calls.slice(0, 3), [
     ['stage', 'rolling_back'],
@@ -143,5 +196,12 @@ async function createFixture(context, options = {}) {
     sourceParent:path.join(root, 'sources'),
     runCommand,
   });
+  if (!options.realLiveVerification) {
+    adapter.verifyLive = async () => ({
+      verifiedAt:'2026-08-17T00:00:00.000Z',
+      pid:1234,
+      checks:{ pid:true, cwd:true, argv:true, releaseHash:true, payloadHash:true, gitHead:true, api:true, rollbackAvailable:false },
+    });
+  }
   return { adapter, root, releaseRoot, oldHead, newHead };
 }

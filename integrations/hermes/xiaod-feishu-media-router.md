@@ -21,9 +21,12 @@
 只启动隔离的小D网关时使用：
 
 ```sh
-HERMES_HOME=/Users/pengaro/.hermes/profiles/xiaod \
 XIAOD_MEDIA_INGRESS_URL=http://127.0.0.1:4318/api/internal/feishu-media \
-/Users/pengaro/.local/bin/hermes gateway run
+node integrations/hermes/scripts/start-hermes-gateway-guarded.mjs --agent xiaod
 ```
+
+这个入口会先检查小D的 Manifest 技能白名单、已启用技能和
+`.no-bundled-skills` 自动注入保护；任一项漂移就拒绝启动，不会带着新出现的
+未声明技能继续运行。不要再直接执行 `hermes gateway run` 绕过该门禁。
 
 该变量不是凭据，不写入仓库或模型提示词。Hermes 升级可能覆盖本机适配器补丁；升级后按本文核对强制路由是否仍存在，再恢复运行。

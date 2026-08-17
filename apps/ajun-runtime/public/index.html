@@ -87,20 +87,25 @@
 
         <section class="focus" aria-labelledby="focus-title">
           <div class="section-head compact-head">
-            <h2 id="focus-title">下一步</h2>
+            <h2 id="focus-title">负责人下一步</h2>
           </div>
           <div id="focus-panel" class="focus-panel skeleton-panel" aria-live="polite"></div>
         </section>
 
-        <div id="overview-stats" class="stat-grid" aria-label="运行状态概览">
-          <div class="stat-card skeleton"></div>
-          <div class="stat-card skeleton"></div>
-          <div class="stat-card skeleton"></div>
-        </div>
+        <section class="overview-truth" aria-labelledby="overview-truth-title">
+          <div class="section-head compact-head">
+            <h2 id="overview-truth-title">正在运行、系统风险与质量债</h2>
+          </div>
+          <div id="overview-stats" class="stat-grid" aria-label="正在运行、系统风险与业务质量债">
+            <div class="stat-card skeleton"></div>
+            <div class="stat-card skeleton"></div>
+            <div class="stat-card skeleton"></div>
+          </div>
+        </section>
 
         <details class="capabilities capabilities-disclosure">
           <summary class="section-head capability-summary">
-            <h2 id="capabilities-title">可用能力</h2>
+            <h2 id="capabilities-title">能力状态</h2>
             <span class="capability-summary-state"><span id="capability-summary">正在核对…</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></span>
           </summary>
           <div id="capability-list" class="capability-grid"></div>
@@ -136,7 +141,7 @@
         <div class="module-heading">
           <div>
             <h1 id="employees-title">谁能帮你</h1>
-            <p class="subtle">按常用与按需分组；展开员工可看具体职责和接入状态。</p>
+            <p class="subtle">默认只放可直接交付业务结果的入口；后台岗位和待人工验收能力按需展开。</p>
           </div>
           <nav class="context-nav" aria-label="系统与接入">
             <a href="#employees" data-context-page="employees">员工</a>
@@ -339,9 +344,9 @@
         </div>
         <section class="surface-section release-console" aria-live="polite">
           <div class="release-version-grid">
-            <div><span>当前版本</span><strong id="release-current">尚未读取</strong></div>
-            <div><span>可发布版本</span><strong id="release-candidate">先检查新版</strong></div>
-            <div><span>可退回版本</span><strong id="release-rollback">暂无可退回版本</strong></div>
+            <div><span>线上运行版本</span><strong id="release-current">尚未读取</strong></div>
+            <div><span>候选版本</span><strong id="release-candidate">先检查新版</strong></div>
+            <div><span>回滚版本</span><strong id="release-rollback">暂无可退回版本</strong></div>
           </div>
           <p id="release-message" class="release-message" role="status">正在读取版本状态…</p>
           <ol id="release-stages" class="release-stages" aria-label="发布进度"></ol>

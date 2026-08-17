@@ -12,18 +12,14 @@ export type WorkflowType =
   | 'private-read'
   | 'single-task';
 
-export type WorkflowStatus =
-  | 'received'
-  | 'planning'
-  | 'running'
-  | 'recovering'
-  | 'waiting_user'
-  | 'waiting_validation'
-  | 'waiting_acceptance'
-  | 'partial'
-  | 'succeeded'
-  | 'failed'
-  | 'cancelled';
+export const WORKFLOW_STATUSES = [
+  'received', 'planning', 'running', 'recovering', 'waiting_user', 'waiting_validation',
+  'waiting_acceptance', 'partial', 'succeeded', 'failed', 'cancelled',
+] as const;
+
+export type WorkflowStatus = typeof WORKFLOW_STATUSES[number];
+export type WorkflowAcceptanceDecision = 'accepted' | 'revision_required' | null;
+export type WorkflowTaskInput = Readonly<Record<string, unknown>>;
 
 export type WorkflowLink = Readonly<{
   schemaVersion: typeof WORKFLOW_SCHEMA_VERSION;
@@ -69,7 +65,7 @@ export type WorkflowEvaluation = Readonly<{
   humanAcceptanceRequired: boolean;
   humanAccepted: boolean;
   workKind: WorkflowWorkKind;
-  acceptanceDecision: 'accepted' | 'revision_required' | null;
+  acceptanceDecision: WorkflowAcceptanceDecision;
   acceptanceVersion: number;
   acceptanceTaskId: string | null;
   ownerAction: string | null;
@@ -145,23 +141,26 @@ export function createWorkflowLink({
   });
 }
 
-export function deriveWorkflowWorkKind(task: any): WorkflowWorkKind {
-  const explicit = task?.workflow?.workKind || task?.workKind || task?.input?.context?.workKind;
+export function deriveWorkflowWorkKind(task: unknown): WorkflowWorkKind {
+  const record = asRecord(task);
+  const workflow = asRecord(record?.workflow);
+  const input = asRecord(record?.input);
+  const context = asRecord(input?.context);
+  const explicit = workflow?.workKind || record?.workKind || context?.workKind;
   const source = [
-    task?.source?.channel,
-    task?.source?.originChannel,
-    task?.source?.eventRef,
-    task?.idempotencyKey,
+    asRecord(record?.source)?.channel,
+    asRecord(record?.source)?.originChannel,
+    asRecord(record?.source)?.eventRef,
+    record?.idempotencyKey,
   ].map((value) => clean(value, 500).toLowerCase()).join('\n');
-  const context = task?.input?.context || {};
-  const historicalPurpose = [task?.input?.title, task?.input?.description]
+  const historicalPurpose = [input?.title, input?.description]
     .map((value) => clean(value, 1200))
     .join('\n');
   if (
     source.includes('product-maturity-validation')
     || source.includes('real-business-e2e')
     || historicalPurpose.includes('业务复验')
-    || context?.productMaturityAuthorization?.kind === 'product-maturity-validation'
+    || asRecord(context?.productMaturityAuthorization)?.kind === 'product-maturity-validation'
     || Boolean(context?.productMaturityBatchId)
     || Boolean(context?.validationPurpose)
     || Boolean(context?.validationRun)
@@ -169,7 +168,7 @@ export function deriveWorkflowWorkKind(task: any): WorkflowWorkKind {
     || Boolean(context?.realBusinessE2e)
   ) return 'validation';
   if (isWorkflowWorkKind(explicit)) return explicit;
-  const taskType = clean(task?.taskType, 160);
+  const taskType = clean(record?.taskType, 160);
   if (
     taskType === 'operations.health-review'
     || (taskType === 'operations.failure-recovery' && source.includes('internal-recovery'))
@@ -177,7 +176,7 @@ export function deriveWorkflowWorkKind(task: any): WorkflowWorkKind {
   return 'business';
 }
 
-export function workflowWorkKindForTasks(tasks: readonly any[]): WorkflowWorkKind {
+export function workflowWorkKindForTasks(tasks: readonly unknown[]): WorkflowWorkKind {
   const kinds = tasks.map(deriveWorkflowWorkKind);
   if (kinds.includes('validation')) return 'validation';
   return kinds.length > 0 && kinds.every((kind) => kind === 'system') ? 'system' : 'business';
@@ -216,6 +215,10 @@ function clean(value: unknown, limit: number): string {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit);
 }
 
-function isRecord(value: unknown): value is Record<string, any> {
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }

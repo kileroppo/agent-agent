@@ -94,16 +94,38 @@ export class ReleaseCoordinator {
       }
       if (action === 'publish') {
         if (!inspection.canPublish) throw new Error(inspection.message || '当前版本不能发布。');
-        const result = await this.adapter.publish({ inspection, onStage:(stage, message) => this.update({ state:stage, message }) });
-        await this.update({ ...result, state:'succeeded', message:'新版已发布并通过运行检查。', finishedAt:this.clock().toISOString() });
+        const result = await this.adapter.publish({ inspection, onStage:(stage, message) => this.update({
+          state:stage,
+          message,
+          candidate:stage === 'verifying' || stage === 'freezing'
+            ? candidateValidation(this.state.candidate, 'running')
+            : this.state.candidate,
+        }) });
+        await this.update({
+          ...result,
+          candidate:candidateForLiveRelease(this.state.candidate, result.current, {
+            validationStatus:'passed',
+            verifiedAt:this.clock().toISOString(),
+          }),
+          state:'succeeded',
+          message:'新版已发布，并已核对运行身份和恢复入口。',
+          finishedAt:this.clock().toISOString(),
+        });
         return;
       }
       const result = await this.adapter.rollback({ inspection, onStage:(stage, message) => this.update({ state:stage, message }) });
-      await this.update({ ...result, state:'succeeded', message:'已退回上一版并通过运行检查。', finishedAt:this.clock().toISOString() });
+      await this.update({
+        ...result,
+        candidate:candidateForLiveRelease(this.state.candidate, result.current),
+        state:'succeeded',
+        message:'已退回上一版并通过运行检查。',
+        finishedAt:this.clock().toISOString(),
+      });
     } catch (error) {
       const rolledBack = error?.rolledBack === true;
       await this.update({
         state:rolledBack ? 'rolled_back' : 'failed',
+        candidate:candidateValidation(this.state.candidate, ACTIVE_STATES.has(this.state.state) ? 'not_completed' : undefined),
         message:rolledBack ? '新版未通过检查，已自动恢复旧版。' : publicError(error),
         finishedAt:this.clock().toISOString(),
       });
@@ -151,4 +173,33 @@ function idleState(now) {
 function publicError(error) {
   const message = String(error?.message || '发布助手执行失败。').replace(/[\r\n]+/g, ' ').trim();
   return message.slice(0, 240) || '发布助手执行失败。';
+}
+
+function candidateValidation(candidate, status, verifiedAt = null) {
+  if (!candidate || !status) return candidate || null;
+  return {
+    ...candidate,
+    validation:{
+      status,
+      verifiedAt:status === 'passed' ? verifiedAt : null,
+    },
+  };
+}
+
+function candidateForLiveRelease(candidate, current, { validationStatus, verifiedAt = null } = {}) {
+  if (!candidate) return null;
+  const gitHead = String(candidate.gitHead || '');
+  const liveGitHead = String(current?.gitHead || '');
+  const comparisonAvailable = Boolean(gitHead && liveGitHead);
+  const onLiveRelease = comparisonAvailable && gitHead === liveGitHead;
+  const publishable = comparisonAvailable && candidate.clean === true && candidate.branch === 'main' && !onLiveRelease;
+  return {
+    ...candidate,
+    committed:candidate.committed === true || /^[0-9a-f]{40}$/i.test(gitHead),
+    publishable,
+    undeployed:comparisonAvailable && !onLiveRelease,
+    validation:validationStatus
+      ? { status:validationStatus, verifiedAt:validationStatus === 'passed' ? verifiedAt : null }
+      : candidate.validation || { status:'not_checked', verifiedAt:null },
+  };
 }

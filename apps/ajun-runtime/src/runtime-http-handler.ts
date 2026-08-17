@@ -588,6 +588,8 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 return sendFile(response, publicDir, 'index.html', 'text/html; charset=utf-8');
             if (request.method === 'GET' && publicPath === '/app.js')
                 return sendFile(response, publicDir, 'app.js', 'text/javascript; charset=utf-8');
+            if (request.method === 'GET' && publicPath === '/overview-presentation.js')
+                return sendFile(response, publicDir, 'overview-presentation.js', 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && publicPath === '/hot-reload-client.js')
                 return sendFile(response, publicDir, 'hot-reload-client.js', 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && publicPath === '/app-access-views.js')

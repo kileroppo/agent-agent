@@ -58,20 +58,36 @@ export function createRuntimeReleaseConsole({ root, api, confirmAction = window.
     return text ? text.slice(0, 8) : '未知';
   }
 
+  function candidateTruth(value: any): string {
+    if (!value?.gitHead) return '先检查新版';
+    const validation = ({
+      not_checked:'未验证', running:'验证中', passed:'已通过验证', not_completed:'验证未完成',
+    } as Record<string, string>)[value.validation?.status] || '未验证';
+    return `${shortHash(value.gitHead)} · ${value.committed ? '已提交' : '提交未知'} · ${validation} · ${value.publishable ? '可发布' : '不可发布'} · ${value.undeployed ? '尚未部署' : '已在运行'}`;
+  }
+
+  function liveTruth(value: any): string {
+    if (!value?.releaseHash) return '尚未读取';
+    const checks = value.verification?.checks || {};
+    const verified = ['pid', 'cwd', 'argv', 'releaseHash', 'payloadHash', 'gitHead', 'api'].every((name) => checks[name] === true);
+    return `线上 · ${shortHash(value.releaseHash)} · ${verified ? '运行身份已核对' : '运行身份未核对'}`;
+  }
+
   function render(next: any): any {
     status = next;
     const actions = releaseActionAvailability(status);
-    current.textContent = status?.current?.releaseHash ? shortHash(status.current.releaseHash) : '尚未读取';
-    candidate.textContent = status?.candidate?.gitHead
-      ? status.state === 'up_to_date' ? '当前已是最新版' : shortHash(status.candidate.gitHead)
-      : '先检查新版';
-    rollback.textContent = status?.rollback?.releaseHash ? shortHash(status.rollback.releaseHash) : '暂无可退回版本';
+    current.textContent = liveTruth(status?.current);
+    candidate.textContent = candidateTruth(status?.candidate);
+    rollback.textContent = status?.rollback?.releaseHash
+      ? `可退回 · ${shortHash(status.rollback.releaseHash)}`
+      : '暂无可退回版本';
     message.textContent = status?.message || '尚未检查新版。';
     message.dataset.state = status?.state || 'idle';
     stages.replaceChildren(...releaseStageView(status).map((item: any): any => {
       const li = document.createElement('li');
       li.className = `release-stage is-${item.state}`;
-      li.innerHTML = `<span aria-hidden="true">${item.state === 'done' ? '✓' : item.state === 'active' ? '•' : ''}</span><strong>${item.label}</strong>`;
+      if (item.state === 'active') li.setAttribute('aria-current', 'step');
+      li.innerHTML = `<span class="release-stage-symbol" aria-hidden="true">${item.state === 'done' ? '✓' : ''}</span><strong>${item.label}</strong>${item.state === 'active' ? '<span class="release-stage-live"><i aria-hidden="true"></i>进行中</span>' : ''}`;
       return li;
     }));
     checkButton.disabled = actions.checking;

@@ -15,6 +15,8 @@ test('检查新版只记录真实候选，不触发发布', async (context) => {
   const status = await fixture.coordinator.wait();
   assert.equal(status.state, 'ready');
   assert.equal(status.candidate.gitHead, 'abcdef1234567890');
+  assert.equal(status.candidate.validation.status, 'not_checked');
+  assert.equal(status.candidate.committed, true);
   assert.equal(fixture.calls.publish, 0);
   assert.equal((await fs.stat(path.join(fixture.root, 'status.json'))).mode & 0o777, 0o600);
 });
@@ -61,14 +63,54 @@ test('发布按适配器真实阶段推进并保存结果', async (context) => {
     publish:async ({ onStage }) => {
       await onStage('verifying', '正在运行完整验证。');
       await onStage('activating', '正在切换。');
-      return { current:{ releaseHash:'new-release', gitHead:'abcdef1234567890' } };
+      return {
+        current:{
+          releaseHash:'new-release', gitHead:'abcdef1234567890',
+          verification:{ pid:123, verifiedAt:'2026-08-17T00:00:00.000Z', checks:{ pid:true, cwd:true, argv:true, releaseHash:true, payloadHash:true, gitHead:true, api:true, rollbackAvailable:true } },
+        },
+      };
     },
   });
   await fixture.coordinator.start('publish', { confirm:'publish_current_commit' });
   const status = await fixture.coordinator.wait();
   assert.equal(status.state, 'succeeded');
   assert.equal(status.current.releaseHash, 'new-release');
+  assert.equal(status.candidate.validation.status, 'passed');
+  assert.equal(status.candidate.committed, true);
+  assert.equal(status.candidate.publishable, false);
+  assert.equal(status.candidate.undeployed, false);
+  assert.equal(status.current.verification.checks.rollbackAvailable, true);
   assert.equal(fixture.calls.publish, 1);
+});
+
+test('手动回滚后候选仍以源码 main 对比恢复后的线上版本', async (context) => {
+  const fixture = await createFixture(context, {
+    rollback:async () => ({ current:{ releaseHash:'old-release', gitHead:'0'.repeat(40) }, rollback:null }),
+  });
+  await fixture.coordinator.start('rollback', { confirm:'rollback_previous_release' });
+  const status = await fixture.coordinator.wait();
+  assert.equal(status.state, 'succeeded');
+  assert.equal(status.current.gitHead, '0'.repeat(40));
+  assert.equal(status.candidate.gitHead, 'abcdef1234567890');
+  assert.equal(status.candidate.publishable, true);
+  assert.equal(status.candidate.undeployed, true);
+  assert.equal(status.candidate.validation.status, 'not_checked');
+});
+
+test('自动恢复旧版时候选保持未部署且不会伪装验证通过', async (context) => {
+  const fixture = await createFixture(context, {
+    publish:async () => {
+      const error = new Error('新版未通过启动检查。');
+      error.rolledBack = true;
+      throw error;
+    },
+  });
+  await fixture.coordinator.start('publish', { confirm:'publish_current_commit' });
+  const status = await fixture.coordinator.wait();
+  assert.equal(status.state, 'rolled_back');
+  assert.equal(status.candidate.publishable, true);
+  assert.equal(status.candidate.undeployed, true);
+  assert.equal(status.candidate.validation.status, 'not_completed');
 });
 
 async function createFixture(context, overrides = {}) {
@@ -97,7 +139,11 @@ function inspection({ canPublish, updateAvailable, message }) {
     updateAvailable,
     message,
     current:{ releaseHash:'old-release', gitHead:'0000000000000000' },
-    candidate:{ gitHead:'abcdef1234567890', branch:'main', clean:canPublish || !updateAvailable },
+    candidate:{
+      gitHead:'abcdef1234567890', branch:'main', clean:canPublish || !updateAvailable,
+      committed:true, publishable:canPublish, undeployed:updateAvailable,
+      validation:{ status:'not_checked', verifiedAt:null },
+    },
     rollback:null,
   };
 }

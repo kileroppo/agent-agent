@@ -12,6 +12,7 @@ import { createRuntimeReleaseConsole } from './runtime-release-console.js';
 import { canRefreshConsole } from './refresh-scheduler.js';
 import { statusLabel, taskTypeLabel as presentTaskTypeLabel } from './console-labels.js';
 import { createBillingUsageCache } from './billing-usage-cache.js';
+import { businessDebtPresentation, capabilityPresentation, capabilitySummaryText, countCapabilityTiers, managerFirstEmployees, reliabilityPresentation } from './overview-presentation.js';
 const capabilityList: any = document.querySelector('#capability-list');
 const agentList: any = document.querySelector('#agent-list');
 const recentTaskList: any = document.querySelector('#recent-task-list');
@@ -229,16 +230,15 @@ function render(): any {
     renderFocus(state.overview.taskFocus);
     renderOverviewStats();
     capabilityList.replaceChildren(...state.overview.capabilities.map((item: any): any => capabilityCard(item)));
-    const readyCapabilities: any = state.overview.capabilities.filter((item: any): any => ['verified', 'human_accepted'].includes(item.truth?.overall)).length;
-    const limitedCapabilities: any = state.overview.capabilities.length - readyCapabilities;
-    capabilitySummary.textContent = `${readyCapabilities} 项有真实任务证据${limitedCapabilities ? ` · ${limitedCapabilities} 项待验证或受限` : ''}`;
-    const directEmployees: any = state.overview.alwaysOnAgents?.length ? state.overview.alwaysOnAgents : state.overview.agents.filter(isDirectEmployee);
-    const supportEmployees: any = state.overview.onDemandAgents?.length ? state.overview.onDemandAgents : state.overview.agents.filter((agent: any): any => !isDirectEmployee(agent));
+    const capabilityTiers: any = countCapabilityTiers(state.overview.capabilities);
+    capabilitySummary.textContent = capabilitySummaryText(capabilityTiers);
+    const employees: any = managerFirstEmployees(state.overview.manager, state.overview.agents);
+    const directEmployees: any = employees.filter(isPrimaryEmployee);
+    const supportEmployees: any = employees.filter((agent: any): any => !isPrimaryEmployee(agent));
     replaceChildrenPreservingDisclosureState(agentList, [
-        agentGroupTitle('常驻员工', '保持飞书入口或后台巡检常驻'),
+        agentGroupTitle('业务结果入口', '日常派活去飞书；这里查看状态、验收和恢复'),
         ...directEmployees.map((agent: any): any => agentCard(agent, false)),
-        agentGroupTitle('后台按需能力', '不常驻飞书入口，由 A君或 Paperclip 按任务唤醒'),
-        ...supportEmployees.map((agent: any): any => agentCard(agent, true))
+        ...(supportEmployees.length ? [backgroundEmployeeDisclosure(supportEmployees)] : [])
     ]);
     renderRecentTasks(state.overview.recentTasks || []);
 }
@@ -448,26 +448,20 @@ function formatUsd(value: any): any {
 }
 function renderOverviewStats(): any {
     const focus: any = state.overview.taskFocus || {};
+    const health: any = state.overview.health || {};
     const active: any = Number.isFinite(focus.inProgress) ? focus.inProgress : 0;
     const ownerActionable: any = Number.isFinite(focus.ownerActionable) ? focus.ownerActionable : (focus.next ? 1 : 0);
-    const verificationBacklog: any = Number.isFinite(focus.verificationBacklog) ? focus.verificationBacklog : 0;
-    const unresolvedFailures: any = Number.isFinite(focus.unresolvedFailures) ? focus.unresolvedFailures : 0;
-    const historicalArchived: any = Number.isFinite(focus.historicalArchived) ? focus.historicalArchived : 0;
-    const validatedByLaterEvidence: any = Number.isFinite(focus.validatedByLaterEvidence) ? focus.validatedByLaterEvidence : 0;
-    const unavailableAgents: any = state.overview.agents.filter((agent: any): any => ['not_declared', 'declared', 'unknown'].includes(agent.capabilityTruth?.overall)).length;
+    const reliability: any = reliabilityPresentation(health, recordCategoryHref);
+    const debt: any = businessDebtPresentation(health.businessDebt, focus, recordCategoryHref);
     overviewSummary.textContent = ownerActionable
         ? `${ownerActionable} 件事需要你决定。`
         : active
-            ? `${active} 项工作正在推进，你暂时不用处理。`
-            : '当前没有必须处理的事。';
+            ? `${active} 项工作正在推进；你暂时不需操作，仍请留意下方风险与质量债。`
+            : '负责人当前没有待办；系统风险与业务质量债仍需分别核对。';
     const cards: any = [
-        statCard('待处理', ownerActionable, ownerActionable ? '打开对应事项处理' : '目前无需决定', 'target', ownerActionable > 0, recordCategoryHref('owner_actionable')),
-        statCard('运行中', active, active ? '查看系统正在推进的工作' : '当前没有执行中的工作', 'clock', false, recordCategoryHref('business_active')),
-        ...(verificationBacklog ? [statCard('待复验', verificationBacklog, '需要按业务优先级重新跑验收', 'records', true, recordCategoryHref('needs_reverification'))] : []),
-        ...(unresolvedFailures ? [statCard('仍失败', unresolvedFailures, '保留错误证据，不会自动重试', 'alert', true, recordCategoryHref('unresolved_failures'))] : []),
-        ...(validatedByLaterEvidence ? [statCard('已有新证据', validatedByLaterEvidence, '同岗位同能力的后续成功产物已通过校验', 'target', false, recordCategoryHref('validated_by_later_evidence'))] : []),
-        ...(historicalArchived ? [statCard('历史归档', historicalArchived, '包含取消、验收样例和已被成功结果替代的记录', 'records', false, recordCategoryHref('historical_archived'))] : []),
-        ...(unavailableAgents ? [statCard('接入异常', unavailableAgents, '前往系统页检查员工与连接', 'alert', true, '/#system')] : []),
+        statCard('运行中', active, active ? '系统正在推进的业务工作' : '当前没有执行中的业务工作', 'clock', false, recordCategoryHref('business_active')),
+        statCard('系统可靠性', reliability.value, reliability.note, reliability.icon, reliability.attention, reliability.href),
+        statCard('业务质量债', debt.value, debt.note, debt.icon, debt.attention, debt.href),
     ];
     overviewStats.replaceChildren(...cards);
 }
@@ -506,13 +500,13 @@ function renderRecentTasks(tasks: any): any {
 function renderFocus(focus: any): any {
     focusPanel.classList.remove('skeleton-panel');
     if (!focus?.total) {
-        focusPanel.innerHTML = '<div class="focus-copy"><p class="focus-state is-clear">无需处理</p><h3>还没有任务记录</h3><p>请在飞书交办，A君会在这里同步下一步。</p></div><div class="focus-guard"><span>对外发布关闭</span><span>不会静默执行</span></div>';
+        focusPanel.innerHTML = '<div class="focus-copy"><p class="focus-state is-clear">负责人暂不需处理</p><h3>还没有任务记录</h3><p>请在飞书交办，A君会在这里同步下一步；这不表示系统风险已排除。</p></div><div class="focus-guard"><span>对外发布关闭</span><span>不会静默执行</span></div>';
         return;
     }
     const current: any = focus.next;
     const ownerStatuses: any = new Set(['waiting_approval', 'waiting_acceptance', 'needs_input', 'paused', 'failed', 'waiting_test', 'succeeded']);
     const needsOwner: any = Boolean(current && ownerStatuses.has(current.status));
-    const title: any = current ? escapeHtml(current.title) : '现在没有必须处理的事';
+    const title: any = current ? escapeHtml(current.title) : '没有新的负责人动作';
     const action: any = current
         ? escapeHtml(current.action)
         : '历史失败和待验证记录都留在“记录”中，不会自动重试或对外发布。';
@@ -522,7 +516,7 @@ function renderFocus(focus: any): any {
             ? '这件事需要你的输入或确认，系统不会替你决定。'
             : current
                 ? '系统正在推进，你可以查看进度，不需要一直盯着。'
-                : '当前没有任务在执行，也没有等待你的审批。';
+                : '当前没有任务等待你的操作；系统可靠性和质量债请看下方独立状态。';
     const primaryAction: any = current
         ? `<a class="focus-primary-action" href="/tasks/${encodeURIComponent(current.taskId)}">${current.status === 'succeeded' ? '查看这条建议' : needsOwner ? '查看并处理' : '查看进度'}</a>`
         : '<a class="focus-primary-action secondary" href="#records">打开任务记录</a>';
@@ -531,7 +525,7 @@ function renderFocus(focus: any): any {
     const costText: any = usageCostText(state.overview.usage);
     focusPanel.innerHTML = `
     <div class="focus-copy">
-      <p class="focus-state ${needsOwner ? 'needs-owner' : current ? 'is-running' : 'is-clear'}">${needsOwner ? '需要你决定' : current ? '系统正在处理' : '无需处理'}</p>
+      <p class="focus-state ${needsOwner ? 'needs-owner' : current ? 'is-running' : 'is-clear'}">${needsOwner ? '需要你决定' : current ? '系统正在处理' : '负责人暂不需处理'}</p>
       <h3>${title}</h3>
       <p class="focus-action-copy">${action}</p>
       <p class="focus-reason">${escapeHtml(reason)}</p>
@@ -551,7 +545,10 @@ function usageCostText(usage: any): any {
     return `今日已上报费用 ${totals.map((item: any): any => `${item.amount} ${item.currency}`).join(' · ')}`;
 }
 function isDirectEmployee(agent: any): any {
-    return agent.acceptedTaskTypes.some((type: any): any => directEmployeeTaskTypes.includes(type));
+    return agent.acceptedTaskTypes?.some((type: any): any => directEmployeeTaskTypes.includes(type));
+}
+function isPrimaryEmployee(agent: any): any {
+    return agent.agentId === 'ajun' || isDirectEmployee(agent) || agent.capabilityTruth?.overall === 'human_accepted';
 }
 function agentGroupTitle(title: any, detail: any): any {
     const node: any = document.createElement('div');
@@ -585,10 +582,22 @@ function agentCard(agent: any, support: any): any {
     </details>`;
     return node;
 }
+function backgroundEmployeeDisclosure(agents: any): any {
+    const node: any = document.createElement('details');
+    node.className = 'background-employees-disclosure';
+    node.dataset.disclosureKey = 'employees:background';
+    const title: any = agents.some((agent: any): any => agent.capabilityTruth?.overall !== 'human_accepted')
+        ? '后台岗位与待人工验收'
+        : '后台岗位';
+    node.innerHTML = `<summary><span><strong>${escapeHtml(title)}</strong><small>${agents.length} 位，不是日常派活入口</small></span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><div class="agent-grid background-agent-grid"></div>`;
+    node.querySelector('.background-agent-grid')?.replaceChildren(...agents.map((agent: any): any => agentCard(agent, true)));
+    return node;
+}
 function capabilityCard(item: any): any {
     const node: any = document.createElement('article');
-    node.className = 'capability-card';
-    node.innerHTML = `<span class="capability-icon"><svg aria-hidden="true"><use href="#icon-spark"></use></svg></span><h3>${escapeHtml(item.name)}</h3><p title="${escapeHtml(item.detail)}">${escapeHtml(item.detail)}</p>`;
+    const truth: any = capabilityPresentation(item);
+    node.className = `capability-card capability-${truth.level}`;
+    node.innerHTML = `<span class="capability-icon"><svg aria-hidden="true"><use href="#icon-spark"></use></svg></span><span class="capability-truth ${truth.level}">${escapeHtml(truth.label)}</span><h3>${escapeHtml(item.name)}</h3><p title="${escapeHtml(item.detail)}">${escapeHtml(item.detail)}</p><small>${escapeHtml(truth.note)}</small>`;
     return node;
 }
 function capabilityTruthLabel(value: any): any {

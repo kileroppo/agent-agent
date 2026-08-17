@@ -74,7 +74,8 @@ export type RoleExecutionCompositionInput = Readonly<{
     AGENT_ARMY_GROK_ACCESS?: string;
   }>;
   paths: RoleContentExecutionCompositionInput['paths']
-    & RoleTechnicalExecutionCompositionInput['paths'];
+    & RoleTechnicalExecutionCompositionInput['paths']
+    & Readonly<{ runtimeRoot?: string }>;
   runtimeSource: RuntimeSource;
   registry: RoleContentExecutionCompositionInput['registry'];
   store: Readonly<{ list(): Promise<Array<Record<string, any>>> }>;
