@@ -567,7 +567,10 @@ function renderTechnicalDetails(task: any, presentation: any, attention: any, es
     ].filter(([, value]: any): any => value);
     if (!rows.length)
         return '';
-    return `<details class="record-technical"><summary>技术与审计信息</summary><dl>${rows.map(([label, value]: any): any => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl><button class="text-action record-copy-id" type="button">复制完整编号</button></details>`;
+    const paperclipIssue: any = task.paperclipIssue?.detailUrl
+        ? `<a class="record-paperclip-link" href="${escapeHtml(task.paperclipIssue.detailUrl)}" target="_blank" rel="noopener">打开 Paperclip ${escapeHtml(task.paperclipIssue.identifier || '任务')}</a>`
+        : '';
+    return `<details class="record-technical"><summary>技术与审计信息</summary><dl>${rows.map(([label, value]: any): any => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}</dl>${paperclipIssue}<button class="text-action record-copy-id" type="button">复制完整编号</button></details>`;
 }
 function newIdempotencyKey(taskId: any, actionKey: any): any {
     const random: any = globalThis.crypto?.randomUUID?.()
