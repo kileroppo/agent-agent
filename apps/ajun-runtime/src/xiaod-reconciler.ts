@@ -79,7 +79,12 @@ export class XiaodReconciler {
                 updatedAt: new Date(this.now()).toISOString(),
                 polling: { state: ['running', 'pausing'].includes(status) ? 'watching' : 'settled', consecutiveFailures: 0, nextPollAt: ['running', 'pausing'].includes(status) ? new Date(this.now() + this.intervalMs).toISOString() : null }
             };
-            let patch: Record<string, any> = { status, currentStage: `xiaod_${job.status}`, execution };
+            let patch: Record<string, any> = {
+                status,
+                currentStage: `xiaod_${job.status}`,
+                execution,
+                error: null,
+            };
             if (job.status === 'awaiting_review') {
                 const approvals: any = await this.store.listApprovals();
                 let approval: any = approvals.find((item: any): any => item.taskId === task.taskId && item.action === 'confirm-transcript-after-complete-listen' && item.status === 'pending');

@@ -42,7 +42,11 @@ test('central reconciler settles a persisted running task after restart', async 
 });
 
 test('本地交付在确认稿通过质量门禁后直接闭环', async () => {
-  const { task, reconciler } = setup({ getJob:async () => ({
+  const { task, reconciler } = setup({
+    taskPatch:{
+      error:{ code:'xiaod_status_unavailable', message:'先前瞬断' },
+    },
+    getJob:async () => ({
     id:'xiaod-1',
     status:'completed',
     title:'本地素材',
@@ -57,7 +61,8 @@ test('本地交付在确认稿通过质量门禁后直接闭环', async () => {
       evidenceLevel:'timed_machine_transcript',
     },
     quality:{ passed:false },
-  }) });
+    }),
+  });
 
   await reconciler.reconcile();
 
@@ -65,6 +70,7 @@ test('本地交付在确认稿通过质量门禁后直接闭环', async () => {
   const delivery = task.artifactRefs.find((artifact) => artifact.type === 'xiaod_media_delivery');
   assert.equal(delivery.data.deliveryMode, 'local_only');
   assert.equal(delivery.data.larkUrl, null);
+  assert.equal(task.error, null);
 });
 
 test('小D异步成功先扣留为质量复核并交给 DeliveryQualityRuntime 创建复核', async () => {
