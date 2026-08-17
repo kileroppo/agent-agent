@@ -37,7 +37,7 @@ test('TypeScript声明完整覆盖运行时状态策略Interface', () => {
 test('状态策略声明保留已知状态全覆盖，并把未知字符串隔离在运行时边界', () => {
   execFileSync(process.execPath, [
     fileURLToPath(new URL('../../../node_modules/typescript/bin/tsc', import.meta.url)),
-    '-p', fileURLToPath(new URL('./task-status-policy.typecheck.json', import.meta.url)),
+    '-p', fileURLToPath(new URL('../type-tests/task-status-policy.typecheck.json', import.meta.url)),
   ], { stdio:'pipe' });
 });
 
