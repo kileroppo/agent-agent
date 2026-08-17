@@ -32,7 +32,7 @@ cp ops/launchd/ai.agent-army.xiaod.plist ~/Library/LaunchAgents/
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.agent-army.xiaod.plist
 ```
 
-若该启动项已存在，先用 `launchctl bootout gui/$(id -u)/ai.agent-army.xiaod`，再重新 `bootstrap`。日志写入小D应用 `data/`，不得提交或复制其中的私密任务内容。
+若该启动项已存在，先用 `launchctl bootout gui/$(id -u)/ai.agent-army.xiaod`，再重新 `bootstrap`。任务产物和日志统一写入 `~/.agent-army/state/xiaod-media-transcriber-data/`，不得提交或复制其中的私密任务内容；A君的 `XIAOD_ARTIFACT_ROOT` 必须指向同一目录，否则小拆会因产物路径越界而闭锁。
 
 ## Paperclip 常驻运行
 

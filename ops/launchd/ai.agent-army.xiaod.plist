@@ -7,12 +7,14 @@
   <key>ProgramArguments</key>
   <array>
     <string>/Users/pengaro/.local/bin/node</string>
-    <string>/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/apps/xiaod-media-transcriber/src/server.js</string>
+    <string>/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/apps/xiaod-media-transcriber/src/server.ts</string>
   </array>
   <key>WorkingDirectory</key>
   <string>/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/apps/xiaod-media-transcriber</string>
   <key>EnvironmentVariables</key>
   <dict>
+    <key>AGENT_ARMY_DATA_DIR</key>
+    <string>/Users/pengaro/.agent-army/state/ajun-runtime-data</string>
     <key>HERMES_HOME</key>
     <string>/Users/pengaro/.hermes/profiles/xiaod</string>
     <key>HOST</key>
@@ -21,14 +23,16 @@
     <string>/Users/pengaro/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     <key>PORT</key>
     <string>4318</string>
+    <key>WORK_DIR</key>
+    <string>/Users/pengaro/.agent-army/state/xiaod-media-transcriber-data</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/apps/xiaod-media-transcriber/data/xiaod.launchd.log</string>
+  <string>/Users/pengaro/.agent-army/state/xiaod-media-transcriber-data/xiaod.launchd.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/apps/xiaod-media-transcriber/data/xiaod.launchd.error.log</string>
+  <string>/Users/pengaro/.agent-army/state/xiaod-media-transcriber-data/xiaod.launchd.error.log</string>
 </dict>
 </plist>
