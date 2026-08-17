@@ -916,7 +916,7 @@ test('AgentArmyClient returns a compact Paperclip assignment without the full ta
   assert.equal(JSON.stringify(assignment).includes('large internal task envelope'), false);
 });
 
-test('质量复核指派只透传可读取的原任务编号，不暴露完整复核上下文', async () => {
+test('质量复核指派透传已声明标准但不暴露完整复核上下文', async () => {
   const client = new AgentArmyClient({ fetchImpl:fakeFetch({
     'POST /api/mcp/paperclip-assignment':{
       assignment:{
@@ -928,7 +928,16 @@ test('质量复核指派只透传可读取的原任务编号，不暴露完整�
         currentStage:'paperclip_hermes_running',
         input:{ context:{
           sourceTaskId:'source-task-1234',
-          criteria:[{ key:'secret-detail', label:'must-not-leak' }],
+          reviewKind:'delivery_quality',
+          qualityTier:'important',
+          deliveryBrief:{
+            purpose:'核对深度拆解', audience:'内容负责人', usageScenario:'决定是否进入简报',
+            deliverables:['正式分析报告'],
+            acceptanceCriteria:['13 个模块均有证据', '主产物可读'],
+            constraints:['不得发布'], readiness:'ready',
+            privateNotes:'must-not-leak',
+          },
+          criteria:[{ key:'artifact_usable', label:'主产物真实存在且可读', required:true, internal:'must-not-leak' }],
           artifactRefs:[{ location:'/private/path' }],
         } },
       },
@@ -936,7 +945,18 @@ test('质量复核指派只透传可读取的原任务编号，不暴露完整�
   }) });
 
   const result = await client.getPaperclipAssignment({});
-  assert.deepEqual(result.task.context, { sourceTaskId:'source-task-1234' });
+  assert.deepEqual(result.task.context, {
+    sourceTaskId:'source-task-1234',
+    reviewKind:'delivery_quality',
+    qualityTier:'important',
+    deliveryBrief:{
+      purpose:'核对深度拆解', audience:'内容负责人', usageScenario:'决定是否进入简报',
+      deliverables:['正式分析报告'],
+      acceptanceCriteria:['13 个模块均有证据', '主产物可读'],
+      constraints:['不得发布'], readiness:'ready',
+    },
+    criteria:[{ key:'artifact_usable', label:'主产物真实存在且可读', required:true }],
+  });
   assert.equal(JSON.stringify(result).includes('must-not-leak'), false);
   assert.equal(JSON.stringify(result).includes('/private/path'), false);
 });

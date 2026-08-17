@@ -274,7 +274,7 @@ export class AgentArmyClient {
                     : {}),
                 ...(response.task?.taskType === 'governance.assurance-review'
                     && safeText(response.task?.input?.context?.sourceTaskId, 128)
-                    ? { context:{ sourceTaskId:safeText(response.task.input.context.sourceTaskId, 128) } }
+                    ? { context:qualityReviewAssignmentContextView(response.task.input.context) }
                     : {}),
                 ...(response.assignment?.agentId === 'technical-expert'
                     ? {
@@ -442,6 +442,34 @@ function taskContextCapsuleView(value: any = {}): any {
         nextAction: safeText(value.nextAction, 300),
         evidenceRefs: safeStringList(value.evidenceRefs, 10, 240),
         updatedAt: safeText(value.updatedAt, 80) || null,
+    };
+}
+function qualityReviewAssignmentContextView(value: any = {}): any {
+    const deliveryBrief: any = value?.deliveryBrief && typeof value.deliveryBrief === 'object'
+        && !Array.isArray(value.deliveryBrief)
+        ? {
+            purpose: safeText(value.deliveryBrief.purpose, 500),
+            audience: safeText(value.deliveryBrief.audience, 300),
+            usageScenario: safeText(value.deliveryBrief.usageScenario, 500),
+            deliverables: safeStringList(value.deliveryBrief.deliverables, 12, 500),
+            acceptanceCriteria: safeStringList(value.deliveryBrief.acceptanceCriteria, 20, 500),
+            constraints: safeStringList(value.deliveryBrief.constraints, 20, 500),
+            readiness: safeText(value.deliveryBrief.readiness, 40),
+        }
+        : null;
+    const criteria: any = (Array.isArray(value?.criteria) ? value.criteria : []).slice(0, 20)
+        .map((criterion: any): any => ({
+            key: safeText(criterion?.key, 120),
+            label: safeText(criterion?.label, 500),
+            required: criterion?.required === true,
+        }))
+        .filter((criterion: any): any => criterion.key && criterion.label);
+    return {
+        sourceTaskId: safeText(value.sourceTaskId, 128),
+        ...(safeText(value.reviewKind, 80) ? { reviewKind:safeText(value.reviewKind, 80) } : {}),
+        ...(safeText(value.qualityTier, 40) ? { qualityTier:safeText(value.qualityTier, 40) } : {}),
+        ...(deliveryBrief ? { deliveryBrief } : {}),
+        ...(criteria.length ? { criteria } : {}),
     };
 }
 export class AgentArmyClientError extends Error {
