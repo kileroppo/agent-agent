@@ -486,12 +486,12 @@ export function buildRuntimeReliabilitySnapshot(summary = {}) {
     : '当前 git/release 的稳定性观测';
   const scopeQualifier = Number(summary?.run?.durationSeconds) > 0
     && Number(summary.run.durationSeconds) < LONG_SOAK_DURATION_SECONDS
-    ? '；长期稳定仍以更长观测为准。'
+    ? '长期稳定仍以更长观测为准。'
     : '';
   return Object.freeze({
     status,
     detail:status === 'healthy'
-      ? `${observationLabel}已完成，所有可用率、端点 P95 和 RSS 门禁通过。${scopeQualifier}`
+      ? [ `${observationLabel}已完成，所有可用率、端点 P95 和 RSS 门禁通过。`, scopeQualifier ].filter(Boolean).join(' ')
       : status === 'degraded'
         ? `${observationLabel}存在失败门禁：${failed.join('、')}。`
         : `${observationLabel}尚不完整，不能显示为稳定。`,
@@ -790,8 +790,8 @@ function summarizeResourceTrend(values) {
 function describeObservationWindow(durationSeconds) {
   const seconds = Number(durationSeconds);
   if (!Number.isFinite(seconds) || seconds <= 0) return '';
-  if (seconds % 3600 === 0) return `${seconds / 3600} 小时`;
-  if (seconds % 60 === 0) return `${seconds / 60} 分钟`;
+  if (seconds % 3600 === 0) return `${seconds / 3600}小时`;
+  if (seconds % 60 === 0) return `${seconds / 60}分钟`;
   return `${roundMillis(seconds)} 秒`;
 }
 

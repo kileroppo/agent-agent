@@ -115,7 +115,7 @@ test('完整且同身份的稳定性结论以 0600 原子快照供运行台读�
   });
   const filePath = await writeRuntimeReliabilitySnapshot(snapshot, { dataDir });
   assert.equal(snapshot.status, 'healthy');
-  assert.match(snapshot.detail, /30 分钟稳定性观测已完成/);
+  assert.match(snapshot.detail, /30分钟稳定性观测已完成/);
   assert.match(snapshot.detail, /长期稳定仍以更长观测为准/);
   assert.deepEqual(JSON.parse(await fsp.readFile(filePath, 'utf8')), snapshot);
   assert.equal((await fsp.stat(filePath)).mode & 0o777, 0o600);
@@ -191,10 +191,10 @@ test('快照 detail 会区分短期门禁与 72 小时长观测', () => {
     endpoints:{ 'ajun-health':{ p95Ms:120 }, 'ajun-console-overview':{ p95Ms:600 } },
   });
 
-  assert.match(shortHealthy.detail, /30 分钟稳定性观测已完成/);
+  assert.match(shortHealthy.detail, /30分钟稳定性观测已完成/);
   assert.match(shortHealthy.detail, /长期稳定仍以更长观测为准/);
-  assert.match(longPending.detail, /72 小时稳定性观测尚不完整/);
-  assert.match(longHealthy.detail, /72 小时稳定性观测已完成/);
+  assert.match(longPending.detail, /72小时稳定性观测尚不完整/);
+  assert.match(longHealthy.detail, /72小时稳定性观测已完成/);
   assert.doesNotMatch(longHealthy.detail, /长期稳定仍以更长观测为准/);
 });
 
