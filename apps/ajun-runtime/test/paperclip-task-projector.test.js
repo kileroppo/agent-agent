@@ -96,6 +96,32 @@ test('A君多人总任务只投影父 Issue，保留受控公开来源但不唤�
   assert.doesNotMatch(issue.description, /file:\/\/\/private/);
 });
 
+test('Paperclip 子 Issue 显式携带经过过滤的公开来源', async () => {
+  const calls = [];
+  const endpoint = {
+    async request(method, path, { body } = {}) {
+      calls.push({ method, path, body });
+      if (path === '/api/companies') return [{ id:'company-1', name:'Agent军团' }];
+      if (path.endsWith('/agents')) return [{ id:'xiaod-1', name:'小D', status:'active', metadata:{ agentArmyId:'xiaod' } }];
+      if (path === '/api/issues/parent-1/children') return { id:'child-1', identifier:'AGE-2' };
+      throw new Error(`unexpected ${method} ${path}`);
+    },
+  };
+  const projector = new PaperclipTaskProjector({ endpoint });
+  await projector.projectChild({
+    taskId:'media-1', taskType:'media.transcribe-and-refine', status:'queued', priority:'normal', assigneeAgentId:'xiaod',
+    input:{
+      title:'获取公开视频',
+      description:'完成取证与转录。',
+      sourceUrl:'https://www.douyin.com/video/123',
+      sourceUrls:['https://www.douyin.com/video/123', 'file:///private/input'],
+    },
+  }, 'parent-1');
+  const issue = calls.find((call) => call.path === '/api/issues/parent-1/children').body;
+  assert.match(issue.description, /公开来源：\["https:\/\/www\.douyin\.com\/video\/123"\]/);
+  assert.doesNotMatch(issue.description, /file:\/\/\/private/);
+});
+
 test('审核任务只把结构化范围白名单投影给 Paperclip，不泄露未知上下文', async () => {
   const calls = [];
   const endpoint = {

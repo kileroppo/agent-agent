@@ -134,6 +134,12 @@ function describeTask(task: any): any {
     ];
     if (task.input.description)
         parts.push(`说明：${task.input.description}`);
+    const publicSourceUrls: any = safePublicUrls([
+        task.input?.sourceUrl,
+        ...(Array.isArray(task.input?.sourceUrls) ? task.input.sourceUrls : []),
+    ]);
+    if (publicSourceUrls.length)
+        parts.push(`公开来源：${JSON.stringify([...new Set(publicSourceUrls)])}`);
     const context: any = task.input?.context;
     const missionItems: any = safeBusinessMissionItems(context?.businessMissionItems);
     if (task.taskType === 'army.cross-agent-mission' && missionItems.length) {
