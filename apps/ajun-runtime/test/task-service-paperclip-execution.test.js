@@ -151,6 +151,44 @@ test('Paperclip 故障恢复接管人不能覆盖仍在执行的原任务身份'
   assert.equal(records.tasks[0].execution.paperclipRunId, 'paperclip-run-analysis');
 });
 
+test('小办本机 Markdown 简报不要求伪造 Paperclip execution workspace', async () => {
+  const toolAllowlist = ['army.task.read', 'office.artifact.write'];
+  const office = hermesAgentFixture('office-assistant', '小办', ['office.briefing-package'], {
+    toolAllowlist,
+    runtimeProfile:{
+      profileId:'office-assistant',
+      agentManifestRef:'agents/office-assistant/manifest.json',
+      toolAllowlist,
+    },
+    toolExecutionPolicy:{
+      unknownToolDecision:'deny',
+      workspace:{ scope:'paperclip-execution-workspace', pathMode:'relative-only' },
+      grants:{
+        'army.task.read':{ adapter:'ajun-task-store', access:'read', externalSideEffect:'none' },
+        'office.artifact.write':{ adapter:'ajun-office-markdown', access:'write', externalSideEffect:'none' },
+      },
+    },
+  });
+  const identity = paperclipIdentityFixture('office-runtime-artifact', 'office-assistant', '小办', {
+    id:'11111111-1111-4111-8111-111111111111',
+    title:'汇总本机任务形成 Markdown 简报',
+    description:'只生成 A君 私有数据目录中的本机 Markdown，不写项目仓库。',
+  }, {
+    runId:'22222222-2222-4222-8222-222222222222',
+    paperclipAgentId:'33333333-3333-4333-8333-333333333333',
+  });
+  const { service } = setup({
+    agents:[office],
+    governance:paperclipAssignmentGovernanceFixture(identity),
+  });
+
+  const assigned = await service.getPaperclipAssignment(identity);
+
+  assert.equal(assigned.task.taskType, 'office.briefing-package');
+  assert.equal(assigned.task.assigneeAgentId, 'office-assistant');
+  assert.equal(assigned.assignment.runId, '22222222-2222-4222-8222-222222222222');
+});
+
 test('Paperclip 终态同步明确失败后可重放，failed 与 waiting_test 不会永久卡在两套真相', async (t) => {
   for (const { label, reportedStatus, preciseError } of [
     { label:'failed-precise-error', reportedStatus:'failed', preciseError:true },

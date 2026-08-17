@@ -67,13 +67,15 @@ export const taskPaperclipAssignmentMethods: Record<string, any> = {
                 pipelineCase,
             })
             : null;
-        const baseRoleToolGrant: any = await this.compilePaperclipRoleToolGrant({
-            agent,
-            identity,
-            pipelineCase,
-            requireProjectId: Boolean(m5Contract),
-            requireExecutionWorkspaceId: Boolean(m5Contract) || rolePolicyWritesWorkspace(agent),
-        });
+        const baseRoleToolGrant: any = usesRuntimeOwnedArtifactWorkspace(assignmentTask)
+            ? null
+            : await this.compilePaperclipRoleToolGrant({
+                agent,
+                identity,
+                pipelineCase,
+                requireProjectId: Boolean(m5Contract),
+                requireExecutionWorkspaceId: Boolean(m5Contract) || rolePolicyWritesWorkspace(agent),
+            });
         const assignmentContext: any = await preparePaperclipAssignmentContext({
             governance: this.governance,
             tasks: storedTasks,
@@ -306,6 +308,10 @@ function contractedOpenResearchExecutionPolicy(task: any): any {
 function rolePolicyWritesWorkspace(agent: any): any {
     return Object.values(agent?.toolExecutionPolicy?.grants || {})
         .some((declaration: any): any => declaration?.access === 'write');
+}
+function usesRuntimeOwnedArtifactWorkspace(assignmentTask: any): any {
+    return assignmentTask?.taskType === 'office.briefing-package'
+        && !assignmentTask?.routineKey;
 }
 function paperclipRunId(task: any): any {
     return String(task?.execution?.paperclipRunId
