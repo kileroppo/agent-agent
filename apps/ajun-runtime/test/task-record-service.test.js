@@ -227,3 +227,24 @@ test('本机负责人详情展示脱敏 Paperclip 运行结果，局域网详情
   const lan = await service.detail(linkedTask.taskId, { audience:'lan' });
   assert.equal(Object.hasOwn(lan, 'paperclipRun'), false);
 });
+
+test('本机负责人详情从正式执行字段补回已完成的 Paperclip Run', async () => {
+  const linkedTask = {
+    ...task,
+    execution:{
+      paperclipRunId:'run-flat-1',
+      outcome:'succeeded',
+      finishedAt:'2026-08-17T00:01:00.000Z',
+    },
+  };
+  const service = new TaskRecordService({
+    store:{ getTask:async () => linkedTask, listApprovals:async () => [] },
+  });
+  const owner = await service.detail(linkedTask.taskId, { audience:'local-owner' });
+  assert.deepEqual(owner.paperclipRun, {
+    runId:'run-flat-1',
+    status:'succeeded',
+    startedAt:null,
+    finishedAt:'2026-08-17T00:01:00.000Z',
+  });
+});

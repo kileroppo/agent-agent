@@ -99,16 +99,19 @@ export class PaperclipHermesTaskReconciler {
         if (issue?.status === 'done') {
             const completion: any = validateTaskCompletion(task);
             const hasArtifact: any = completion.valid;
+            const latestRun: any = await this.latestRun(task);
             await this.settle(task, hasArtifact ? {
                 status: 'succeeded',
                 currentStage: 'paperclip_hermes_completed',
                 outcome: 'verified_artifact_ready',
-                error: null
+                error: null,
+                latestRun,
             } : {
                 status: 'waiting_test',
                 currentStage: 'paperclip_hermes_evidence_missing',
                 outcome: 'paperclip_done_without_local_evidence',
-                error: taskFailure('paperclip_hermes_evidence_missing', 'Paperclip 已标记完成，但 A君没有找到可验证的本地产物；已转为待测试，不冒充完整成功。', this.now())
+                error: taskFailure('paperclip_hermes_evidence_missing', 'Paperclip 已标记完成，但 A君没有找到可验证的本地产物；已转为待测试，不冒充完整成功。', this.now()),
+                latestRun,
             });
         }
     }
