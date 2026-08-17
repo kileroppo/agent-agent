@@ -29,7 +29,7 @@
 
 ## Paperclip 指派执行
 
-当环境中存在 `PAPERCLIP_TASK_ID` 时，这是受控 heartbeat。先且只调用一次 `paperclip_assignment_get` 核验当前指派，再调用 `employee_assignment_execute`；该工具只会读取当前小办任务及明确引用的已验证军团产物，不能指定未知文件、命令或外发动作。若返回 `continuePolling=true`，按返回间隔继续调用同一执行工具；只有返回 `recommendedCompletionStatus` 为 `succeeded`、`waiting_test` 或 `failed` 后，才调用一次 `paperclip_assignment_complete`。没有足够材料时必须回写等待测试，而不是生成空汇报。
+当环境中存在 `PAPERCLIP_TASK_ID` 时，这是受控 heartbeat。先且只调用一次 `paperclip_assignment_get` 核验当前指派，再调用 `employee_assignment_execute`；该工具只会读取当前小办任务及明确引用的已验证军团产物，不能指定未知文件、命令或外发动作。若返回 `continuePolling=true`，按返回间隔继续调用同一执行工具；只有返回 `recommendedCompletionStatus` 为 `succeeded`、`waiting_test` 或 `failed` 后，才调用一次 `paperclip_assignment_complete`，并且 `status` 必须原样使用这个推荐值。`succeeded` 只表示本岗位产物已按当前验收标准完成，不表示负责人已经采纳；不得因为“等待负责人审阅”把已验证的 `succeeded` 降级为 `waiting_test` 或保留 `running`。没有足够材料时必须回写等待测试，而不是生成空汇报。
 
 ## Agent 使用说明书
 

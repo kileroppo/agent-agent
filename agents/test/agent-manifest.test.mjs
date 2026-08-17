@@ -353,6 +353,7 @@ test("内容方法升级由现有岗位承接，不新增任务真相或平台�
   assert.match(prompts.reviewer, /quality_review\.evidence_refs.*task_get\.artifacts\[\]\.ref/u);
   assert.match(prompts.office, /中位数.*P75/u);
   assert.match(prompts.office, /五条真实 72 小时/u);
+  assert.match(prompts.office, /不得因为“等待负责人审阅”把已验证的 `succeeded` 降级为 `waiting_test`/u);
 
   for (const agentId of ["content-creator", "intel-researcher", "reviewer", "office-assistant"]) {
     const manifest = await readJson(path.join(repositoryRoot, "agents", agentId, "manifest.json"));
