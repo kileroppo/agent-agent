@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { validateAjunRuntimeRelease } from '../../apps/ajun-runtime/scripts/manage-immutable-runtime-release.mjs';
 import { AjunReleaseSystemAdapter } from './system-adapter.mjs';
 
 test('只读检查识别 main 上的干净新提交', async (context) => {
@@ -241,6 +242,82 @@ test('正式冻结契约的 release 内部 workspace 软链可复制、复用并
   assert.deepEqual(reused, deployed);
 });
 
+test('坏部署副本最终校验失败后只隔离本次 inode，同 hash 下次可恢复', async (context) => {
+  let corruptNextCopy = true;
+  const fixture = await createFixture(context, {
+    copyRelease:async (source, destination, options) => {
+      await fs.cp(source, destination, options);
+      if (!corruptNextCopy) return;
+      corruptNextCopy = false;
+      const server = path.join(destination, 'apps', 'ajun-runtime', 'src', 'server.ts');
+      await fs.chmod(server, 0o644);
+      await fs.writeFile(server, 'corrupted during copy\n');
+      await fs.chmod(server, 0o444);
+    },
+  });
+  const frozen = await createImmutableRelease(
+    path.join(fixture.root, 'bad-copy-candidate'),
+    fixture.newHead,
+    { internalWorkspaceLink:true },
+  );
+  const target = path.join(fixture.deployRoot, path.basename(frozen.releaseRoot));
+
+  await assert.rejects(
+    () => fixture.adapter.deployCandidateRelease(frozen),
+    /最终校验失败；坏副本已隔离.*release内容哈希不匹配/,
+  );
+  await assert.rejects(() => fs.lstat(target), { code:'ENOENT' });
+  const rejected = (await fs.readdir(fixture.deployRoot))
+    .filter((name) => name.startsWith(`.rejected-${path.basename(target)}-`));
+  assert.equal(rejected.length, 1);
+  assert.equal((await fs.lstat(path.join(fixture.deployRoot, rejected[0]))).isDirectory(), true);
+
+  const recovered = await fixture.adapter.deployCandidateRelease(frozen);
+  assert.equal(recovered.releaseHash, frozen.releaseHash);
+  assert.equal(recovered.releaseRoot, target);
+});
+
+test('最终校验期间目标被等价目录替换时不误隔离别人目录，并可在下次复用', async (context) => {
+  const fixture = await createFixture(context);
+  const frozen = await createImmutableRelease(
+    path.join(fixture.root, 'replacement-candidate'),
+    fixture.newHead,
+    { internalWorkspaceLink:true },
+  );
+  const target = path.join(fixture.deployRoot, path.basename(frozen.releaseRoot));
+  const displaced = path.join(fixture.deployRoot, '.injected-owned-target');
+  let replacementInode = null;
+  let injected = false;
+  fixture.adapter.validateRelease = async (releaseRoot, expectedHash) => {
+    const validated = await validateAjunRuntimeRelease(releaseRoot, expectedHash);
+    const isFinalTarget = path.basename(releaseRoot) === path.basename(target)
+      && await fs.realpath(path.dirname(releaseRoot)) === await fs.realpath(fixture.deployRoot);
+    if (!injected && isFinalTarget) {
+      injected = true;
+      await fs.rename(target, displaced);
+      await fs.cp(displaced, target, { recursive:true, force:false, verbatimSymlinks:true });
+      replacementInode = (await fs.lstat(target)).ino;
+      throw new Error('injected target replacement');
+    }
+    return validated;
+  };
+
+  await assert.rejects(
+    () => fixture.adapter.deployCandidateRelease(frozen),
+    /正式目标已被其他目录替换，未自动移动或删除.*injected target replacement/,
+  );
+  assert.equal((await fs.lstat(target)).ino, replacementInode);
+  assert.equal(
+    (await fs.readdir(fixture.deployRoot))
+      .some((name) => name.startsWith(`.rejected-${path.basename(target)}-`)),
+    false,
+  );
+
+  const reused = await fixture.adapter.deployCandidateRelease(frozen);
+  assert.equal(reused.releaseHash, frozen.releaseHash);
+  assert.equal((await fs.lstat(target)).ino, replacementInode);
+});
+
 test('release 内 workspace 软链拒绝绝对、上跳越界、外部真实目标、环形和清单篡改', async (context) => {
   const fixture = await createFixture(context);
   const cases = [
@@ -439,6 +516,8 @@ async function createFixture(context, options = {}) {
     deployRoot,
     sourceParent:path.join(root, 'sources'),
     runCommand,
+    validateRelease:options.validateRelease,
+    copyRelease:options.copyRelease,
   });
   if (!options.realLiveVerification) {
     adapter.verifyLive = async () => ({

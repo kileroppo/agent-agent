@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
@@ -22,6 +23,8 @@ export class AjunReleaseSystemAdapter {
     runCommand = defaultRunCommand,
     fetchFn = fetch,
     listenerPidsForPort,
+    validateRelease = validateAjunRuntimeRelease,
+    copyRelease = (source, destination, options) => fs.cp(source, destination, options),
   } = {}) {
     for (const [name, value] of Object.entries({ repositoryRoot, mainPlist, stateDir, deployRoot, sourceParent })) {
       if (!value) throw new Error(`缺少${name}`);
@@ -40,6 +43,8 @@ export class AjunReleaseSystemAdapter {
     this.appPort = Number(appPort);
     this.runCommand = runCommand;
     this.fetchFn = fetchFn;
+    this.validateRelease = validateRelease;
+    this.copyRelease = copyRelease;
     this.listenerPidsForPort = listenerPidsForPort || ((port) => this.defaultListenerPidsForPort(port));
   }
 
@@ -195,7 +200,7 @@ export class AjunReleaseSystemAdapter {
     for (const name of await fs.readdir(outputParent)) {
       if (!name.startsWith('ajun-runtime-release-v1-')) continue;
       const root = path.join(outputParent, name);
-      const manifest = await readReleaseManifest(root);
+      const manifest = await readReleaseManifest(root, this.validateRelease);
       if (manifest.gitHead === expectedGitHead) candidates.push({ ...manifest, releaseRoot:root });
     }
     if (candidates.length !== 1) throw new Error('完整验证后没有得到唯一候选 release。');
@@ -206,28 +211,54 @@ export class AjunReleaseSystemAdapter {
     await fs.mkdir(this.deployRoot, { recursive:true, mode:0o700 });
     const target = path.join(this.deployRoot, path.basename(frozen.releaseRoot));
     try {
-      const existing = await validateImmutableRelease(target, frozen.releaseHash, { deployRoot:this.deployRoot });
+      const existing = await validateImmutableRelease(target, frozen.releaseHash, {
+        deployRoot:this.deployRoot,
+        validator:this.validateRelease,
+      });
       if (existing.releaseHash !== frozen.releaseHash) throw new Error('部署目录已有不同身份的同名 release。');
       return { ...existing, releaseRoot:target };
     } catch (error) {
       if (error?.code !== 'ENOENT') throw error;
     }
-    const source = await validateImmutableRelease(frozen.releaseRoot, frozen.releaseHash);
+    const source = await validateImmutableRelease(frozen.releaseRoot, frozen.releaseHash, {
+      validator:this.validateRelease,
+    });
     if (source.payloadHash !== frozen.payloadHash) {
       throw new Error('冻结 release 身份与候选不一致。');
     }
     const temporary = await fs.mkdtemp(path.join(this.deployRoot, `.deploy-${process.pid}-`));
     const temporaryIdentity = await directoryIdentity(temporary, '部署暂存目录');
-    await fs.cp(frozen.releaseRoot, temporary, { recursive:true, force:false, verbatimSymlinks:true });
+    await this.copyRelease(frozen.releaseRoot, temporary, {
+      recursive:true, force:false, verbatimSymlinks:true,
+    });
     await fs.chmod(temporary, 0o555);
     await assertDirectoryIdentity(temporaryIdentity);
-    await validateImmutableRelease(frozen.releaseRoot, frozen.releaseHash);
+    await validateImmutableRelease(frozen.releaseRoot, frozen.releaseHash, {
+      validator:this.validateRelease,
+    });
     await fs.rename(temporary, target);
-    const deployed = await validateImmutableRelease(target, frozen.releaseHash, { deployRoot:this.deployRoot });
-    if (deployed.payloadHash !== frozen.payloadHash) {
-      throw new Error('部署副本身份与冻结 release 不一致。');
+    try {
+      const deployed = await validateImmutableRelease(target, frozen.releaseHash, {
+        deployRoot:this.deployRoot,
+        validator:this.validateRelease,
+      });
+      if (deployed.payloadHash !== frozen.payloadHash) {
+        throw new Error('部署副本身份与冻结 release 不一致。');
+      }
+      return deployed;
+    } catch (error) {
+      const isolation = await quarantineOwnedRejectedDeployment({
+        target,
+        deployRoot:this.deployRoot,
+        expectedIdentity:temporaryIdentity,
+      });
+      const detail = isolation.status === 'quarantined'
+        ? `坏副本已隔离到 ${path.basename(isolation.quarantine)}。`
+        : isolation.status === 'replaced'
+          ? '正式目标已被其他目录替换，未自动移动或删除。'
+          : '正式目标已不存在。';
+      throw new Error(`部署副本最终校验失败；${detail} ${error.message}`, { cause:error });
     }
-    return deployed;
   }
 
   async activateCandidate({ candidate, sourceRoot, previous, onBackupPrepared }) {
@@ -303,6 +334,7 @@ export class AjunReleaseSystemAdapter {
     const domain = `gui/${process.getuid()}`;
     const liveManifest = await validateImmutableRelease(expected.releaseRoot, expected.releaseHash, {
       deployRoot:this.deployRoot,
+      validator:this.validateRelease,
     });
     const printed = await this.runCommand('launchctl', ['print', `${domain}/${this.label}`]);
     const expectedWorkingDirectory = expected.workingDirectory || path.join(liveManifest.releaseRoot, WORKDIR_SUFFIX);
@@ -405,7 +437,10 @@ export class AjunReleaseSystemAdapter {
       throw new Error('A君启动入口与工作目录不一致。');
     }
     const releaseRoot = workingDirectory.slice(0, -WORKDIR_SUFFIX.length).replace(/[\\/]$/, '');
-    const manifest = await validateImmutableRelease(releaseRoot, undefined, { deployRoot:this.deployRoot });
+    const manifest = await validateImmutableRelease(releaseRoot, undefined, {
+      deployRoot:this.deployRoot,
+      validator:this.validateRelease,
+    });
     return { ...manifest, sourceRoot, entrypoint, workingDirectory };
   }
 
@@ -499,9 +534,9 @@ export async function defaultRunCommand(command, args, { cwd, env = process.env 
   });
 }
 
-async function readReleaseManifest(releaseRoot) {
+async function readReleaseManifest(releaseRoot, validator = validateAjunRuntimeRelease) {
   const releaseHash = releaseHashFromDirectory(releaseRoot);
-  const validated = await validateAjunRuntimeRelease(releaseRoot, releaseHash);
+  const validated = await validator(releaseRoot, releaseHash);
   return {
     releaseHash:validated.releaseHash,
     payloadHash:validated.payloadHash,
@@ -511,6 +546,7 @@ async function readReleaseManifest(releaseRoot) {
 
 async function validateImmutableRelease(releaseRoot, expectedReleaseHash, {
   deployRoot,
+  validator = validateAjunRuntimeRelease,
 } = {}) {
   const canonicalRoot = deployRoot
     ? await assertPlainContainedReleaseRoot(deployRoot, releaseRoot)
@@ -519,7 +555,7 @@ async function validateImmutableRelease(releaseRoot, expectedReleaseHash, {
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error('部署 release 根目录不是普通目录。');
   if ((rootStat.mode & 0o777) !== 0o555) throw new Error('部署 release 根目录不是只读模式。');
   const releaseHash = expectedReleaseHash || releaseHashFromDirectory(canonicalRoot);
-  const validated = await validateAjunRuntimeRelease(canonicalRoot, releaseHash);
+  const validated = await validator(canonicalRoot, releaseHash);
   return {
     releaseHash:validated.releaseHash,
     payloadHash:validated.payloadHash,
@@ -560,6 +596,41 @@ async function assertDirectoryIdentity(identity) {
   ) {
     throw new Error(`${identity.label}身份发生漂移。`);
   }
+}
+
+async function quarantineOwnedRejectedDeployment({ target, deployRoot, expectedIdentity }) {
+  const current = await fs.lstat(target).catch((error) => {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (!current) return { status:'missing' };
+  if (
+    !current.isDirectory()
+    || current.isSymbolicLink()
+    || current.dev !== expectedIdentity.dev
+    || current.ino !== expectedIdentity.ino
+  ) return { status:'replaced' };
+
+  const quarantine = path.join(
+    deployRoot,
+    `.rejected-${path.basename(target)}-${randomUUID()}`,
+  );
+  await fs.rename(target, quarantine);
+  const quarantined = await fs.lstat(quarantine);
+  if (
+    !quarantined.isDirectory()
+    || quarantined.isSymbolicLink()
+    || quarantined.dev !== expectedIdentity.dev
+    || quarantined.ino !== expectedIdentity.ino
+  ) {
+    const targetAfter = await fs.lstat(target).catch((error) => {
+      if (error?.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (!targetAfter) await fs.rename(quarantine, target);
+    throw new Error('隔离坏副本时目录身份发生漂移，已停止自动处理。');
+  }
+  return { status:'quarantined', quarantine };
 }
 
 async function assertPlainContainedReleaseRoot(deployRoot, releaseRoot) {
