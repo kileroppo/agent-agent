@@ -31,6 +31,65 @@ export function taskAttentionView(task: any = {}): any {
         technical: attentionTechnical(source.technical),
     };
 }
+
+export function acceptanceTargetView(task: any = {}): any {
+    const source: any = task?.acceptanceTarget;
+    if (!source || typeof source !== 'object')
+        return null;
+    const workflowId: any = cleanAttentionText(source.workflowId, 160);
+    if (!workflowId)
+        return null;
+    const decision: any = ['accepted', 'revision_required'].includes(source.decision)
+        ? source.decision
+        : null;
+    const sourceRevision: any = source.revision ?? source.version;
+    const revision: any = typeof sourceRevision === 'number' && Number.isFinite(sourceRevision)
+        ? sourceRevision
+        : cleanAttentionText(sourceRevision, 120) || null;
+    return {
+        workflowId,
+        title: cleanAttentionText(source.title, 240) || cleanAttentionText(task?.input?.title, 240) || '本次业务结果',
+        status: cleanAttentionText(source.status || source.workflowStatus, 80) || (decision ? 'decided' : 'waiting_acceptance'),
+        decision,
+        revision,
+        actionable: source.actionable === true && !decision,
+    };
+}
+
+export function renderAcceptanceDetail(target: any, submission: any, escapeHtml: any): any {
+    if (!target || (!target.actionable && !target.decision))
+        return '';
+    const submitting: any = submission?.status === 'submitting';
+    const decision: any = submission?.status === 'saved' ? submission.decision : target.decision;
+    const closed: any = decision === 'accepted' || decision === 'revision_required';
+    const headline: any = decision === 'accepted'
+        ? '你已确认这次结果有用'
+        : decision === 'revision_required'
+            ? '你已标记这次结果需要改进'
+            : '这次结果需要你验收';
+    const description: any = decision === 'accepted'
+        ? '本轮工作已经闭环，不需要继续处理。'
+        : decision === 'revision_required'
+            ? '本轮决定已经记录，系统不会把它伪装成成功，也不会自动反复重试。'
+            : '请选择一个结果。无论选择哪项，本轮都会留下明确结论。';
+    const feedback: any = submission?.message
+        ? `<p class="record-acceptance-message ${submission.status === 'failed' ? 'is-failed' : ''}" role="status">${escapeHtml(submission.message)}</p>`
+        : '';
+    const controls: any = target.actionable && !closed
+        ? `<label class="record-acceptance-note">补充说明（可选）<textarea rows="2" maxlength="1000" data-acceptance-note placeholder="例如：哪里有用，或下一次需要改进什么"${submitting ? ' disabled' : ''}>${escapeHtml(submission?.note || '')}</textarea></label>
+        <div class="record-acceptance-actions">
+          <button type="button" data-acceptance-decision="accepted"${submitting ? ' disabled' : ''}>${submitting && submission?.decision === 'accepted' ? '正在保存…' : '有用'}</button>
+          <button type="button" class="secondary-action" data-acceptance-decision="revision_required"${submitting ? ' disabled' : ''}>${submitting && submission?.decision === 'revision_required' ? '正在保存…' : '需改进'}</button>
+        </div>`
+        : '';
+    return `<section class="record-acceptance${closed ? ' is-closed' : ''}" aria-label="业务结果验收">
+      <span>${closed ? '验收结果' : '需要你决定'}</span>
+      <h3>${escapeHtml(headline)}</h3>
+      <p><strong>${escapeHtml(target.title)}</strong></p>
+      <p>${escapeHtml(description)}</p>
+      ${controls}${feedback}
+    </section>`;
+}
 export function renderAttentionDetail(attention: any, actionState: any, escapeHtml: any): any {
     const recovery: any = actionState?.status === 'confirming' ? attention.verification : actionState || attention.verification;
     const diagnosis: any = actionState?.status === 'confirming' ? null : recoveryDiagnosis(recovery?.diagnosis);

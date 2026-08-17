@@ -1,4 +1,4 @@
-import { cleanAttentionText, recoverySubmissionView, renderAttentionDetail, taskAttentionView, } from './task-record-detail-view.js';
+import { acceptanceTargetView, cleanAttentionText, recoverySubmissionView, renderAcceptanceDetail, renderAttentionDetail, taskAttentionView, } from './task-record-detail-view.js';
 import { createTaskTimelineLoader } from './task-timeline-view.js';
 export { taskAttentionView } from './task-record-detail-view.js';
 const VIEW_LABELS = Object.freeze({
@@ -40,6 +40,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         selectedDetailLoaded: false,
         autoExpanded: false,
         actionState: new Map(),
+        acceptanceState: new Map(),
         timelineHtml: '',
     };
     let searchTimer;
@@ -213,14 +214,18 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             return;
         try {
             const payload = await api(`/api/tasks/${encodeURIComponent(state.selectedTaskId)}`);
-            if (quiet && state.selectedDetailLoaded && payload.task.updatedAt === state.selectedTask?.updatedAt && payload.task.status === state.selectedTask?.status)
+            const nextTask = withAcceptanceTarget(payload);
+            if (quiet && state.selectedDetailLoaded && nextTask.updatedAt === state.selectedTask?.updatedAt && nextTask.status === state.selectedTask?.status
+                && acceptanceRevision(nextTask) === acceptanceRevision(state.selectedTask))
                 return;
             const detailScrollTop = quiet ? elements.detail.scrollTop : 0;
-            state.selectedTask = payload.task;
+            state.selectedTask = nextTask;
             state.selectedDetailLoaded = true;
-            if (!payload.task?.presentation?.attention || payload.task.presentation.attention.verification) {
-                state.actionState.delete(payload.task.taskId);
+            if (!nextTask?.presentation?.attention || nextTask.presentation.attention.verification) {
+                state.actionState.delete(nextTask.taskId);
             }
+            if (!acceptanceTargetView(nextTask)?.actionable)
+                state.acceptanceState.delete(nextTask.taskId);
             if (!quiet)
                 renderList();
             renderDetail();
@@ -323,9 +328,11 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const taskView = task.recordView || stateForTask(task.status);
         const needsAction = taskView === 'needs_action';
         const attention = taskAttentionView(task);
+        const acceptanceTarget = acceptanceTargetView(task);
         const result = resultSummary(task);
         const artifacts = artifactItems(task.artifactRefs || [], { hideEmployeeReport: Boolean(attention) });
         const actionState = state.actionState.get(task.taskId) || null;
+        const acceptanceState = state.acceptanceState.get(task.taskId) || null;
         const summary = presentation.summary || `${displayTaskTitle(task)}状态已更新。`;
         const showNextAction = needsAction || taskView === 'active';
         elements.detail.innerHTML = `
@@ -335,6 +342,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         <h2>${escapeHtml(displayTaskTitle(task))}</h2>
         <div class="record-detail-meta"><span>${escapeHtml(agentName(task.assigneeAgentId))}</span><span>更新于 ${escapeHtml(relativeTime(task.updatedAt || task.createdAt))}</span></div>
       </header>
+      ${renderAcceptanceDetail(acceptanceTarget, acceptanceState, escapeHtml)}
       ${attention
             ? renderAttentionDetail(attention, actionState, escapeHtml)
             : `<section class="record-primary-summary${needsAction ? ' needs-action' : ''}">
@@ -368,6 +376,9 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             state.actionState.delete(task.taskId);
             renderDetail();
         });
+        for (const button of elements.detail.querySelectorAll('[data-acceptance-decision]')) {
+            button.addEventListener('click', () => executeAcceptanceDecision(task, button.dataset.acceptanceDecision));
+        }
         const timelineShell = elements.detail.querySelector('[data-task-timeline-shell]');
         timelineShell?.addEventListener('toggle', async () => {
             if (!timelineShell.open || state.timelineHtml)
@@ -446,6 +457,71 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             });
             renderDetail();
         }
+    }
+    async function executeAcceptanceDecision(task, decision) {
+        const target = acceptanceTargetView(task);
+        if (!target?.actionable || !['accepted', 'revision_required'].includes(decision)
+            || state.acceptanceState.get(task.taskId)?.status === 'submitting')
+            return;
+        const note = cleanAttentionText(elements.detail.querySelector('[data-acceptance-note]')?.value, 1000);
+        const previous = state.acceptanceState.get(task.taskId);
+        const idempotencyKey = previous?.status === 'failed'
+            && previous.decision === decision
+            && previous.note === note
+            && previous.revision === target.revision
+            ? previous.idempotencyKey
+            : newIdempotencyKey(target.workflowId, decision);
+        state.acceptanceState.set(task.taskId, { status: 'submitting', decision, note, revision: target.revision, idempotencyKey });
+        renderDetail();
+        try {
+            const payload = await submitAcceptance({ target, decision, note, idempotencyKey });
+            state.acceptanceState.set(task.taskId, {
+                status: 'saved',
+                decision,
+                message: decision === 'accepted' ? '已记录为有用，这件事已经闭环。' : '已记录为需要改进，本轮决定已经闭环。',
+            });
+            if (payload?.task)
+                state.selectedTask = withAcceptanceTarget(payload);
+            await loadRecords();
+        }
+        catch (error) {
+            state.acceptanceState.set(task.taskId, {
+                status: 'failed',
+                decision,
+                note,
+                revision: target.revision,
+                idempotencyKey,
+                message: acceptanceErrorMessage(error),
+            });
+            renderDetail();
+        }
+    }
+    async function submitAcceptance({ target, decision, note, idempotencyKey }) {
+        const url = `/api/workflows/${encodeURIComponent(target.workflowId)}/acceptance`;
+        const body = JSON.stringify({ decision, note: note || undefined, expectedRevision: target.revision });
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            const session = await api('/api/owner-action-session');
+            const nonce = String(session?.nonce || '').trim();
+            if (!nonce)
+                throw new Error('暂时无法取得本机操作授权，请重新打开任务详情后重试。');
+            try {
+                return await api(url, {
+                    method: 'POST',
+                    headers: {
+                        'content-type': 'application/json',
+                        'Idempotency-Key': idempotencyKey,
+                        'X-Ajun-Owner-Action': nonce,
+                    },
+                    body,
+                });
+            }
+            catch (error) {
+                const expired = error?.status === 403 && /动作会话.*(?:无效|过期)/.test(String(error?.message || ''));
+                if (!expired || attempt > 0)
+                    throw error;
+            }
+        }
+        throw new Error('本机操作授权刷新失败，请重新打开任务详情后重试。');
     }
     function renderFilters() {
         const chips = [];
@@ -576,6 +652,28 @@ function newIdempotencyKey(taskId, actionKey) {
     const random = globalThis.crypto?.randomUUID?.()
         || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
     return `ajun-console:${String(taskId).slice(0, 36)}:${String(actionKey).slice(0, 40)}:${random}`;
+}
+function withAcceptanceTarget(payload) {
+    const task = payload?.task && typeof payload.task === 'object' ? payload.task : {};
+    const acceptanceTarget = task.acceptanceTarget || payload?.acceptanceTarget || null;
+    return acceptanceTarget ? { ...task, acceptanceTarget } : task;
+}
+function acceptanceRevision(task) {
+    const target = acceptanceTargetView(task);
+    return target
+        ? `${String(target.revision ?? '')}:${String(target.decision || '')}:${String(target.actionable)}`
+        : '';
+}
+function acceptanceErrorMessage(error) {
+    if (error?.status === 409)
+        return '这项结果刚刚在其他入口被处理了。你的选择没有覆盖新结果，请刷新后查看最新状态。';
+    if (error?.status === 401)
+        return '当前页面缺少运行台访问授权。这项待办仍然保留，请重新打开运行台后重试。';
+    if (error?.status === 403)
+        return `${cleanAttentionText(error?.message, 400) || '本机操作授权刷新失败。'} 这项待办仍然保留，请重新打开任务详情后重试。`;
+    if (error?.status === 404 || error?.status === 501)
+        return '当前运行版本还不能在运行台保存验收。这项待办没有被更改，你仍可在飞书完成验收。';
+    return cleanAttentionText(error?.message, 500) || '验收结果没有保存。这项待办仍然保留，请稍后重试。';
 }
 function recordElements() {
     return {

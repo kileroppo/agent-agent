@@ -27,6 +27,20 @@
     "frontend/src/app.ts": {
       "lineLimit": 750
     },
+    "frontend/src/billing-usage-cache.ts": {
+      "affectedTests": [
+        "test/billing-usage-cache.test.js",
+        "test/cost-billing-ui.test.js"
+      ],
+      "lineLimit": 80
+    },
+    "frontend/src/console-labels.ts": {
+      "affectedTests": [
+        "test/console-boundary.test.js",
+        "test/cost-billing-ui.test.js"
+      ],
+      "lineLimit": 100
+    },
     "frontend/src/console-navigation.ts": {
       "affectedTests": [
         "test/console-navigation.test.js"
@@ -127,6 +141,12 @@
         "test/local-content-growth.test.js"
       ],
       "lineLimit": 750
+    },
+    "src/local-content-evidence.ts": {
+      "affectedTests": [
+        "test/local-content-growth.test.js"
+      ],
+      "lineLimit": 120
     },
     "src/local-content-artifacts.ts": {
       "affectedTests": [
@@ -287,6 +307,13 @@
         "test/open-task-runtime-wiring.test.js"
       ]
     },
+    "src/open-research-discovery-policy.ts": {
+      "lineLimit": 250,
+      "affectedTests": [
+        "test/local-intel-researcher.test.js",
+        "test/open-task-runtime-wiring.test.js"
+      ]
+    },
     "src/open-task-research-execution.ts": {
       "affectedTests": [
         "test/open-task-routing.test.js",
@@ -436,6 +463,29 @@
         "test/content-campaign-service.test.js",
         "test/m5-role-tool-execution.test.js",
         "test/m5-server-publisher-composition.test.js",
+        "test/runtime-start.test.js"
+      ]
+    },
+    "src/runtime/m5-content-campaign-composition.ts": {
+      "lineLimit": 120,
+      "affectedTests": [
+        "test/content-campaign-service.test.js",
+        "test/m5-role-tool-execution.test.js",
+        "test/m5-server-publisher-composition.test.js",
+        "test/runtime-composition-modules.test.js",
+        "test/runtime-start.test.js"
+      ]
+    },
+    "src/runtime/m5-paperclip-system-control-composition.ts": {
+      "lineLimit": 100,
+      "affectedTests": [
+        "test/paperclip-heartbeat.test.js",
+        "test/paperclip-learning-lifecycle.test.js",
+        "test/paperclip-metric-monitor.test.js",
+        "test/paperclip-publisher-controller.test.js",
+        "test/paperclip-publisher-run-context.test.js",
+        "test/paperclip-retrospective.test.js",
+        "test/runtime-composition-modules.test.js",
         "test/runtime-start.test.js"
       ]
     },
@@ -678,6 +728,14 @@
       ],
       "lineLimit": 275
     },
+    "src/task-overview-runtime-projection.ts": {
+      "lineLimit": 150,
+      "importLimit": 2,
+      "affectedTests": [
+        "test/task-service-runtime-presentation.test.js",
+        "test/runtime-start.test.js"
+      ]
+    },
     "src/task-paperclip-assignment.ts": {
       "affectedTests": [
         "test/task-service-paperclip-execution.test.js",
@@ -701,6 +759,20 @@
         "test/task-recovery.test.js",
         "test/task-service.test.js"
       ]
+    },
+    "src/task-recovery-mission.ts": {
+      "affectedTests": [
+        "test/task-recovery.test.js",
+        "test/task-service.test.js"
+      ],
+      "lineLimit": 80
+    },
+    "src/task-recovery-view.ts": {
+      "affectedTests": [
+        "test/task-recovery.test.js",
+        "test/task-service.test.js"
+      ],
+      "lineLimit": 60
     },
     "src/task-recovery.ts": {
       "affectedTests": [
@@ -739,6 +811,15 @@
         "test/task-service-m5-recovery.test.js",
         "test/task-service-paperclip-execution.test.js",
         "test/task-service.test.js"
+      ]
+    },
+    "src/task-service-composition.ts": {
+      "lineLimit": 220,
+      "importLimit": 20,
+      "affectedTests": [
+        "test/task-service.test.js",
+        "test/task-service-runtime-presentation.test.js",
+        "test/runtime-start.test.js"
       ]
     },
     "src/task-service-m5-execution-context-support.ts": {

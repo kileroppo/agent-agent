@@ -7,8 +7,8 @@ import { assertTypeScriptRatio, measureTypeScriptRatio } from '../scripts/check-
 
 test('当前生产源码 TypeScript 文件数与比例不低于版本化基线', async () => {
   const result = await assertTypeScriptRatio();
-  assert.equal(result.counts.typescript, result.baseline.recordedCounts.typescript);
-  assert.equal(result.counts.total, result.baseline.recordedCounts.total);
+  assert.ok(result.counts.typescript >= result.baseline.recordedCounts.typescript);
+  assert.ok(result.counts.total >= result.baseline.recordedCounts.total);
   assert.ok(result.ratio >= result.baseline.minimumRatio);
 });
 

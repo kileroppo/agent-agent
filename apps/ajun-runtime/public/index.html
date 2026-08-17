@@ -163,17 +163,26 @@
         </div>
 
         <section id="ai-control" class="surface-section ai-control" hidden>
-          <div class="section-head">
-            <div>
-              <h2>AI 能力中心</h2>
-              <p class="section-intro">模型默认按需启动；状态检查不会偷偷拉起重服务。</p>
+          <div class="ai-control-hero">
+            <div class="ai-control-title">
+              <span class="ai-control-mark" aria-hidden="true"><svg><use href="#icon-spark"></use></svg></span>
+              <div>
+                <p class="ai-control-kicker">LOCAL AI · 运行控制</p>
+                <h2>AI 能力中心</h2>
+                <p class="section-intro">统一查看本机与 4070 的模型服务；默认按任务唤醒，不让重服务无事常驻。</p>
+              </div>
             </div>
-            <button id="refresh-ai-control" type="button" class="secondary-action">重新检测</button>
+            <button id="refresh-ai-control" type="button" class="ai-refresh-action"><svg aria-hidden="true"><use href="#icon-radar"></use></svg>重新检测</button>
+            <span class="ai-control-orb ai-control-orb-one" aria-hidden="true"></span>
+            <span class="ai-control-orb ai-control-orb-two" aria-hidden="true"></span>
           </div>
-          <p id="ai-control-message" class="connection-message" role="status"></p>
+          <div class="ai-control-overview">
+            <p id="ai-control-message" class="connection-message" role="status">正在读取服务状态…</p>
+            <span class="ai-control-boundary"><svg aria-hidden="true"><use href="#icon-shield"></use></svg>状态检查不会启动模型</span>
+          </div>
           <div id="ai-service-list" class="ai-service-grid"></div>
           <details class="ai-routing-disclosure">
-            <summary>查看能力替代路线</summary>
+            <summary><span><svg aria-hidden="true"><use href="#icon-connections"></use></svg>能力替代路线</span><small>仅在授权且已登记的服务间切换</small><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary>
             <div id="ai-routing-list" class="ai-routing-list"></div>
           </details>
         </section>

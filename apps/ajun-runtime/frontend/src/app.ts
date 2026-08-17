@@ -10,6 +10,8 @@ import { createTaskRecordWorkbench } from './task-record-workbench.js';
 import { createStepFunModelPolicyConsole } from './stepfun-model-policy-console.js';
 import { createRuntimeReleaseConsole } from './runtime-release-console.js';
 import { canRefreshConsole } from './refresh-scheduler.js';
+import { statusLabel, taskTypeLabel as presentTaskTypeLabel } from './console-labels.js';
+import { createBillingUsageCache } from './billing-usage-cache.js';
 const capabilityList: any = document.querySelector('#capability-list');
 const agentList: any = document.querySelector('#agent-list');
 const recentTaskList: any = document.querySelector('#recent-task-list');
@@ -71,62 +73,6 @@ const accessStepNext2: any = document.querySelector('#access-step-next-2');
 const accessStepNext3: any = document.querySelector('#access-step-next-3');
 const accessStepBack1: any = document.querySelector('#access-step-back-1');
 const accessStepBack2: any = document.querySelector('#access-step-back-2');
-const taskLabels: any = {
-    'army.intake': '先让 A君判断下一步',
-    'army.route-task': '任务路由',
-    'army.cross-agent-mission': 'A君：多人任务统筹',
-    'media.transcribe-and-refine': '小D：转录并整理素材',
-    'report.public-material': '小R：公开网页摘要',
-    'research.github-search': '小R：公开 GitHub 检索',
-    'research.intel-report': '小R：公开资料研究',
-    'office.briefing-package': '办公执行助理：汇报包',
-    'office.presentation-package': '小办：演示文稿',
-    'office.knowledge-summary': '小办：知识归档',
-    'content.video-benchmark-analysis': '小拆：视频内容拆解',
-    'content.performance-review': '小拆：内容表现复盘',
-    'content.platform-draft': '小创：平台内容草稿',
-    'content.video-script-package': '小创：可拍视频脚本',
-    'operations.health-review': '运维官：本机健康检查',
-    'governance.approval-review': '审核官：范围与风险审查',
-    'governance.architecture-review': '架构师：能力评估'
-};
-const statusLabels: any = {
-    active: '可用',
-    ready: '可用',
-    local: '本机可用',
-    waiting: '等待连接',
-    blocked: '尚未配置',
-    not_configured: '未接线',
-    not_ready: '未就绪',
-    pending_authorization: '待授权',
-    verified: '已验证',
-    connected: '已连接',
-    external: 'Hermes 已接管',
-    connecting: '连接中',
-    disabled: '未启用',
-    expiring: '即将到期',
-    expired: '已到期',
-    revoked: '已撤销',
-    error: '需检查',
-    unavailable: '暂不可用',
-    partial: '部分完成',
-    planned: '待准备',
-    draft: '草案中',
-    pending_approval: '等待审核',
-    waiting_approval: '等待确认',
-    waiting_worker: '等待 Mac',
-    waiting_test: '待测试',
-    queued: '等待开始',
-    running: '处理中',
-    pausing: '正在暂停',
-    paused: '已暂停',
-    succeeded: '已完成',
-    failed: '未完成',
-    needs_input: '等待补充',
-    cancelled: '已关闭',
-    rejected: '已拒绝',
-    stopped: '已停止'
-};
 const directEmployeeTaskTypes: any = [
     'media.transcribe-and-refine',
     'report.public-material',
@@ -139,6 +85,7 @@ let boomMonitor: any;
 let recordWorkbench: any;
 let runtimeReleaseConsole: any;
 const billingLedgerWorkbench: any = createBillingLedgerWorkbench({ agentName, formatDate, formatNumber, formatUsd, escapeHtml });
+const billingUsageCache: any = createBillingUsageCache({ load: (): any => api('/api/usage') });
 function taskIdFromPath(pathname: any): any {
     return pathname.match(/^\/tasks\/([0-9a-f-]{36})$/i)?.[1] || '';
 }
@@ -263,6 +210,10 @@ function activateModule(name: any, { navigationGroup = '', replaceHash = false }
     document.title = `${moduleTitle(selected)} · A君运行台`;
     if (selected === 'boom-monitor')
         boomMonitor?.activate();
+    if (selected === 'campaigns')
+        accessViews?.renderContentCampaigns().catch((error: any): any => setSyncStatus(error.message, 'error'));
+    if (selected === 'billing')
+        loadBilling().catch((error: any): any => setSyncStatus(error.message, 'error'));
     if (selected === 'release')
         runtimeReleaseConsole?.activate();
     else
@@ -289,13 +240,23 @@ function render(): any {
         agentGroupTitle('后台按需能力', '不常驻飞书入口，由 A君或 Paperclip 按任务唤醒'),
         ...supportEmployees.map((agent: any): any => agentCard(agent, true))
     ]);
-    renderBilling();
     renderRecentTasks(state.overview.recentTasks || []);
 }
-function renderBilling(): any {
+async function loadBilling({ force = false }: any = {}): Promise<any> {
+    try {
+        renderBilling(await billingUsageCache.read({ force }));
+    }
+    catch (error: any) {
+        const cached: any = billingUsageCache.peek();
+        renderBilling(cached || { status: 'unavailable' });
+        if (cached && billingDateMessage)
+            billingDateMessage.textContent = '刷新失败，仍显示上次成功读取的账本。';
+        throw error;
+    }
+}
+function renderBilling(billing: any): any {
     if (!billingSummary || !billingStats || !billingCostHealth || !billingAttribution || !billingProfileList)
         return;
-    const billing: any = state.overview.billing;
     if (!billing || billing.status === 'unavailable') {
         billingSummary.textContent = 'Hermes 用量库暂时不可读；缺失数据不会显示成 0。';
         billingStats.replaceChildren(statCard('可核金额', '未知', '等待用量库恢复', 'cost', true), statCard('模型请求', '未知', '暂时无法读取', 'clock'), statCard('Token', '未知', '暂时无法读取', 'records'));
@@ -433,8 +394,8 @@ async function loadBillingDateRange(): Promise<any> {
     billingDateMessage.textContent = '正在查询…';
     try {
         const usage: any = await api(`/api/usage?since=${encodeURIComponent(since.toISOString())}&until=${encodeURIComponent(until.toISOString())}`);
-        state.overview.billing = usage.billing;
-        renderBilling();
+        billingUsageCache.replace(usage.billing);
+        renderBilling(usage.billing);
         billingDateMessage.textContent = '已更新';
     }
     catch (error: any) {
@@ -549,7 +510,7 @@ function renderFocus(focus: any): any {
         return;
     }
     const current: any = focus.next;
-    const ownerStatuses: any = new Set(['waiting_approval', 'needs_input', 'paused', 'failed', 'waiting_test', 'succeeded']);
+    const ownerStatuses: any = new Set(['waiting_approval', 'waiting_acceptance', 'needs_input', 'paused', 'failed', 'waiting_test', 'succeeded']);
     const needsOwner: any = Boolean(current && ownerStatuses.has(current.status));
     const title: any = current ? escapeHtml(current.title) : '现在没有必须处理的事';
     const action: any = current
@@ -665,12 +626,7 @@ function independentRuntimeLabel(agent: any): any {
     } as Record<string, string>)[state] || (agent.source === 'approved-proposal' ? '通过限定试用，由 A君统一代管' : '状态待核对');
 }
 function taskTypeLabel(type: any): any {
-    const agent: any = state.overview?.agents.find((item: any): any => item.acceptedTaskTypes.includes(type));
-    const suffix: any = agent?.status === 'draft' ? '（准备中）' : '';
-    return `${taskLabels[type] || agent?.name || '待分配工作'}${suffix}`;
-}
-function statusLabel(status: any): any {
-    return statusLabels[String(status || '')] || '状态待确认';
+    return presentTaskTypeLabel(type, state.overview?.agents || []);
 }
 function formatDate(value: any): any {
     const date: any = new Date(value);

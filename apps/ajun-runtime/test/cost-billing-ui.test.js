@@ -26,7 +26,9 @@ test('运行台提供只对本机所有者可见的 AI 成本账本和任务归�
   assert.match(html, /id="billing-workbench" class="record-workbench billing-workbench"/);
   assert.match(html, /id="billing-entry-detail" class="record-detail billing-entry-detail"/);
   assert.match(html, /id="billing-cost-health"[^>]*role="status"/);
-  assert.match(script, /function renderBilling\(\)/);
+  assert.match(script, /function renderBilling\(billing\)/);
+  assert.match(script, /api\('\/api\/usage'\)/);
+  assert.doesNotMatch(script, /overview\.billing/);
   assert.match(script, /function renderBillingCostHealth\(health\)/);
   assert.match(script, /缓存命中、调用量、推理占比和费用覆盖/);
   assert.doesNotMatch(script, /成本需要处理/);

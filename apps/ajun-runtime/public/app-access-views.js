@@ -25,7 +25,6 @@ export function createAccessViews({ elements, state, api, escapeHtml, statusLabe
                 renderAccessConnections(),
                 renderAccessLoginOptions(),
                 renderAiControl(),
-                renderContentCampaigns(),
                 modelPolicyConsole.load()
             ]);
         }
@@ -44,7 +43,7 @@ export function createAccessViews({ elements, state, api, escapeHtml, statusLabe
         aiControl.hidden = false;
         try {
             const payload = await api('/api/local-ai/control');
-            replaceChildrenPreservingDisclosureState(aiServiceList, payload.services.map(aiServiceCard));
+            replaceChildrenPreservingDisclosureState(aiServiceList, aiServiceGroups(payload.services));
             aiRoutingList.replaceChildren(...payload.routing.map((route) => {
                 const row = document.createElement('p');
                 row.innerHTML = `<strong>${escapeHtml(route.capability)}</strong><span>${escapeHtml(route.providers.join(' → '))}</span>`;
@@ -52,12 +51,39 @@ export function createAccessViews({ elements, state, api, escapeHtml, statusLabe
             }));
             const running = payload.services.filter((service) => service.state === 'running').length;
             const stopped = payload.services.filter((service) => service.state === 'stopped').length;
-            aiControlMessage.textContent = `${running} 个运行中 · ${stopped} 个已停止/等待任务 · 所有项目服务都在此登记`;
+            const attention = payload.services.filter((service) => ['offline', 'unknown'].includes(service.state)).length;
+            aiControlMessage.innerHTML = `<span class="ai-metric"><strong>${payload.services.length}</strong><small>已纳管</small></span><span class="ai-metric"><strong>${running}</strong><small>运行中</small></span><span class="ai-metric"><strong>${stopped}</strong><small>等待任务</small></span>${attention ? `<span class="ai-metric is-attention"><strong>${attention}</strong><small>需要处理</small></span>` : '<span class="ai-metric is-healthy"><strong>✓</strong><small>状态稳定</small></span>'}`;
         }
         catch (error) {
             aiControlMessage.textContent = error.message;
             aiServiceList.replaceChildren();
         }
+    }
+    function aiServiceGroups(services) {
+        const groups = new Map();
+        for (const service of services) {
+            const key = service.node === 'windows' ? 'windows' : 'mac';
+            if (!groups.has(key))
+                groups.set(key, []);
+            groups.get(key).push(service);
+        }
+        return ['mac', 'windows']
+            .filter((key) => groups.has(key))
+            .map((key) => aiNodeGroup(key, groups.get(key)));
+    }
+    function aiNodeGroup(nodeKey, services) {
+        const node = document.createElement('section');
+        node.className = `ai-node-group ai-node-${escapeHtml(nodeKey)}`;
+        const running = services.filter((service) => service.state === 'running').length;
+        const attention = services.some((service) => ['offline', 'unknown'].includes(service.state));
+        const title = nodeKey === 'windows' ? '4070 图形节点' : '本机 Mac';
+        const detail = nodeKey === 'windows' ? '高性能图片生成与编辑' : '日常文本、语音、视觉与检索';
+        node.innerHTML = `<header class="ai-node-head"><span class="ai-node-mark">${nodeKey === 'windows' ? 'GPU' : 'MAC'}</span><div><h3>${title}</h3><p>${detail}</p></div><span class="ai-node-status${attention ? ' is-attention' : ''}">${attention ? '需要检查' : `${running} 个运行中`}</span></header>`;
+        const list = document.createElement('div');
+        list.className = 'ai-node-service-list';
+        list.replaceChildren(...services.map(aiServiceCard));
+        node.append(list);
+        return node;
     }
     function aiServiceCard(service) {
         const node = document.createElement('article');
@@ -69,8 +95,8 @@ export function createAccessViews({ elements, state, api, escapeHtml, statusLabe
       </select></label>`;
         const actions = service.actions.map((action) => `<button type="button" class="${action === 'stop' ? 'secondary-action danger-action' : 'secondary-action'}" data-ai-service="${escapeHtml(service.id)}" data-ai-action="${escapeHtml(action)}">${escapeHtml(aiActionLabel(action))}</button>`).join('');
         node.innerHTML = `
-    <div class="ai-service-head"><div><strong>${escapeHtml(service.name)}</strong><small>${escapeHtml(service.node === 'windows' ? 'Windows 4070' : 'Mac')} · ${escapeHtml(service.endpoint)}</small></div><span class="status ${escapeHtml(service.state)}">${escapeHtml(aiStateLabel(service.state))}</span></div>
-    <p>${escapeHtml(service.detail)}</p>
+    <div class="ai-service-head"><div><strong>${escapeHtml(service.name)}</strong><small>${escapeHtml(service.endpoint)}</small></div><span class="status ${escapeHtml(service.state)}">${escapeHtml(aiStateLabel(service.state))}</span></div>
+    <p class="ai-service-detail">${escapeHtml(service.detail)}</p>
     ${service.managed === false && service.state === 'running' ? '<p class="ai-ownership-note">这是外部启动的进程，A君不会停止它。</p>' : ''}
     <div class="ai-service-controls">${modes}<div class="connection-actions">${actions || '<span class="connection-final-state">无需常驻控制</span>'}</div></div>`;
         return node;

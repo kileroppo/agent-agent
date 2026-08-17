@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const root = new URL('../public/', import.meta.url);
+const handlerPath = new URL('../src/runtime-http-handler.ts', import.meta.url);
 
 async function readConsoleScripts() {
   return (await Promise.all([
@@ -10,6 +11,7 @@ async function readConsoleScripts() {
     'app-access-views.js',
     'app-interactions.js',
     'billing-entry-filter.js',
+    'console-labels.js',
     'task-record-detail-view.js',
     'task-record-workbench.js',
   ].map((name) => readFile(new URL(name, root), 'utf8')))).join('\n');
@@ -147,7 +149,8 @@ test('记录页后台自动同步不重排当前列表，并单独刷新选中�
   assert.match(script, /if \(page\.revision !== state\.revision\)/);
   assert.match(script, /有新的记录，点击更新/);
   assert.match(script, /if \(state\.selectedTaskId\)\s*await loadSelectedDetail/);
-  assert.match(script, /if \(quiet && state\.selectedDetailLoaded && payload\.task\.updatedAt === state\.selectedTask\?\.updatedAt/);
+  assert.match(script, /if \(quiet && state\.selectedDetailLoaded && nextTask\.updatedAt === state\.selectedTask\?\.updatedAt/);
+  assert.match(script, /acceptanceRevision\(nextTask\) === acceptanceRevision\(state\.selectedTask\)/);
   assert.match(script, /if \(!quiet\)\s*renderList\(\)/);
   assert.match(script, /history\.replaceState\(null, '', `\/tasks\//);
   assert.match(script, /record-detail-back/);
@@ -161,4 +164,32 @@ test('控制台刷新由可测试 scheduler 管理，生产间隔保持十五秒
   assert.match(script, /import \{ canRefreshConsole, startRefreshScheduler \} from '\.\/refresh-scheduler\.js'/);
   assert.match(script, /startRefreshScheduler\(\{[\s\S]*refresh:\s*load,[\s\S]*canRefresh:\s*\(\) => canRefreshConsole\(\{[\s\S]*page:\s*document,[\s\S]*accessGate,[\s\S]*forms:\s*\[accessForm, accessLoginForm\][\s\S]*intervalMs:\s*15_?000/);
   assert.doesNotMatch(script, /setInterval\(/);
+});
+
+test('控制台首页依赖的本地模块都能被运行时静态路由提供', async () => {
+  const [appScript, handler] = await Promise.all([
+    readFile(new URL('app.js', root), 'utf8'),
+    readFile(handlerPath, 'utf8'),
+  ]);
+  const moduleImports = [...appScript.matchAll(/from '(\.\/[^']+\.js)'/g)]
+    .map((match) => match[1].replace('./', '/'));
+  for (const modulePath of moduleImports) {
+    const escaped = modulePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    assert.match(
+      handler,
+      new RegExp(`publicPath === '${escaped}'`),
+      `缺少静态路由：${modulePath}`,
+    );
+  }
+});
+
+test('首页不提前读取已关闭的发布活动，只有打开活动页才按需加载', async () => {
+  const [app, accessViews] = await Promise.all([
+    readFile(new URL('app.js', root), 'utf8'),
+    readFile(new URL('app-access-views.js', root), 'utf8'),
+  ]);
+  const ownerBootstrap = accessViews.match(/async function renderLocalShare\(\)[\s\S]*?async function renderAiControl/)?.[0] || '';
+
+  assert.doesNotMatch(ownerBootstrap, /renderContentCampaigns\(\)/);
+  assert.match(app, /if \(selected === 'campaigns'\)\s*accessViews\?\.renderContentCampaigns\(\)/);
 });
