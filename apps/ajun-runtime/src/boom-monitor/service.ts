@@ -108,6 +108,7 @@ export class BoomMonitorService {
             ['douyin', 20, 0],
             ['xiaohongshu', 20, 10],
             ['youtube', 20, 20],
+            ['bilibili', 20, 30],
         ];
         const day: any = `${parts.year}-${parts.month}-${parts.day}`;
         for (const [platform, hour, minute] of schedules) {

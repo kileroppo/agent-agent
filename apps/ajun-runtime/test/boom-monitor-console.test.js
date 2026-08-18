@@ -31,6 +31,9 @@ test('爆款雷达主界面只保留判断、最近作品、需要处理和设�
   assert.match(html, /id="boom-collect-form"/);
   assert.match(html, /id="boom-source-url" type="text" inputmode="url"/);
   assert.match(html, /placeholder="粘贴作品链接或整段分享文案"/);
+  assert.match(html, /支持小红书、抖音、B站、YouTube/);
+  assert.match(html, /value="bilibili">B站/);
+  assert.match(html, /value="youtube">YouTube/);
   assert.match(html, /id="boom-work-list"/);
   assert.match(html, /id="boom-analysis-list"/);
   assert.match(html, /id="boom-scan-run"/);
@@ -46,6 +49,8 @@ test('爆款雷达主界面只保留判断、最近作品、需要处理和设�
   assert.match(consoleSource, /\/works\/\$\{workId\}/);
   assert.match(consoleSource, /\/import/);
   assert.match(consoleSource, /analysis_daily_limit:\s*dailyLimit/);
+  assert.match(consoleSource, /bilibili:\s*'B站'/);
+  assert.match(consoleSource, /youtube:\s*'YouTube'/);
 });
 
 test('自动派发默认关闭，启用和手动派发都需明确确认', async () => {

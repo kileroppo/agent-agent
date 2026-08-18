@@ -538,7 +538,7 @@ function gradeReason(grade) {
     }[grade] || '评分依据待确认。';
 }
 function platformLabel(platform) {
-    return { douyin: '抖音', xiaohongshu: '小红书', youtube: 'YouTube', manual: '手动' }[platform] || platform || '未知平台';
+    return { douyin: '抖音', xiaohongshu: '小红书', bilibili: 'B站', youtube: 'YouTube', manual: '手动' }[platform] || platform || '未知平台';
 }
 function queueStatusLabel(status) {
     return { queued: '等待处理', submitted: '已受理', planning: '规划中', acquiring: '取证中', analyzing: '分析中', waiting_approval: '等待确认', needs_input: '需要处理', completed: '已完成', failed: '失败', dispatching: '正在创建任务', dispatch_failed: '任务创建失败', waiting_source: '等待来源', cancelled: '已关闭' }[status] || status || '未入队';

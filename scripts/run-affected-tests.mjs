@@ -8,11 +8,18 @@ import { loadAjunModulePolicy } from './ajun-module-policy.mjs';
 const DEFAULT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ROOT_WIDE_PREFIXES = Object.freeze(['scripts/']);
 const AJUN_SHARED_PREFIXES = Object.freeze(['agents/', 'docs/contracts/']);
-const REPOSITORY_TEST_ROUTES = Object.freeze([Object.freeze({
-  changedPrefix:'integrations/hermes/',
-  testDirectory:'integrations/hermes/test',
-  testPattern:/^patch-.*\.test\.mjs$/,
-})]);
+const REPOSITORY_TEST_ROUTES = Object.freeze([
+  Object.freeze({
+    changedPrefix:'integrations/hermes/',
+    testDirectory:'integrations/hermes/test',
+    testPattern:/^(?:patch-.*|install-xiaod-public-video-bridge-v2)\.test\.mjs$/,
+  }),
+  Object.freeze({
+    changedPrefix:'scripts/',
+    testDirectory:'scripts',
+    testPattern:/\.test\.mjs$/,
+  }),
+]);
 const AJUN_POLICY = loadAjunModulePolicy(DEFAULT_ROOT);
 
 export function discoverWorkspaces(root = DEFAULT_ROOT) {

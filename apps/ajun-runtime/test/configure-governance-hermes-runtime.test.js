@@ -424,6 +424,8 @@ test('Profile 最小同步 apply 必须显式确认并在写入前备份非 secr
   assert.ok(commands.some((args) =>
     args.includes('AGENT_ARMY_PROFILE_ID=content-creator')));
   assert.ok(commands.some((args) => args.includes('agent-army:m5_stage_execute')));
+  assert.ok(commands.some((args) =>
+    args.includes('model.max_tokens') && args.includes('8192')));
   assert.ok(commands.some(
     (args) => String(args[0] || '').endsWith('set-feishu-toolsets.py')
       && args[1] === 'apply-toolsets',
@@ -499,9 +501,14 @@ test('Profile apply 发现 stale transaction marker 时整批拒绝并只提示�
   );
 });
 
-test('Profile 检查器把缺失 MCP 和 Feishu toolsets 安全归一为空状态', async () => {
+test('Profile 检查器把缺失 MCP、Feishu toolsets 和输出上限安全归一', async () => {
   const state = await readCurrentProfileState('/tmp/fixture-profile', {
     run:async (_command, args, options) => {
+      if (args[0] === 'config' && args[1] === 'get') {
+        assert.deepEqual(args, ['config', 'get', 'model.max_tokens']);
+        assert.equal(options.env.HERMES_HOME, '/tmp/fixture-profile');
+        return { code:0, stdout:'8192\n' };
+      }
       assert.equal(args[1], 'inspect');
       assert.equal(options.env.HERMES_HOME, '/tmp/fixture-profile');
       return {
@@ -575,7 +582,7 @@ test('Hermes helper 只在临时 Profile 精确写 Feishu 白名单并阻止 TOC
     feishuToolsets:[],
     mcp:null,
     runtimePolicy:{
-      ...defaultRuntimePolicy(),
+      ...helperRuntimePolicy(),
       memory:{ nudgeInterval:0, writeApproval:false },
     },
   });
@@ -1070,6 +1077,7 @@ function legacyProfileState(agentId) {
 
 function defaultRuntimePolicy() {
   return {
+    model:{ maxTokens:8192 },
     agent:{ maxTurns:500, reasoningEffort:'medium', apiMaxRetries:3 },
     toolLoopGuardrails:{ hardStopEnabled:false },
     tools:{ toolSearch:{ enabled:'auto' } },
@@ -1078,6 +1086,11 @@ function defaultRuntimePolicy() {
     sessions:{ autoPrune:false, retentionDays:90 },
     sessionReset:{ mode:'none', idleMinutes:1440, notify:true },
   };
+}
+
+function helperRuntimePolicy() {
+  const { model, ...policy } = defaultRuntimePolicy();
+  return policy;
 }
 
 function applyFakeHermesConfig(state, args, options = {}) {
@@ -1139,6 +1152,7 @@ function applyFakeHermesConfig(state, args, options = {}) {
 
 function applyFakeRuntimeSetting(state, key, rawValue) {
   const paths = {
+    'model.max_tokens':['model', 'maxTokens', Number],
     'agent.max_turns':['agent', 'maxTurns', Number],
     'agent.reasoning_effort':['agent', 'reasoningEffort', String],
     'agent.api_max_retries':['agent', 'apiMaxRetries', Number],

@@ -55,9 +55,9 @@
 
 ## 当前交接
 
-`current/` 当前没有未完成交接。“减负与闭环”已经完成真实业务验收并归档到
-[Agent 军团产品成熟度总交接](../archive/handoffs/agent-army-product-maturity-handoff.md)。没有新的真实需求或故障时，不创建占位交接，不恢复 M5、
-启动 Publisher、创建成熟度批次或执行外部写入。
+`current/` 以当前实际未关闭交接为准；目前 [Agent军团全方位稳定性测试交接单](./current/system-stability-2026-08-17.md) 与 [用户体验与稳定性 1–7 收口交接单](./current/ux-stability-1-7-2026-08-18.md) 仍在进行中。没有新的真实需求或故障时，不创建占位交接，不恢复 M5、
+启动 Publisher、创建成熟度批次或执行外部写入；已完成真实业务验收并归档的历史总交接见
+[Agent 军团产品成熟度总交接](../archive/handoffs/agent-army-product-maturity-handoff.md)。
 
 已关闭、冻结、等待自然机会或只剩可选人工抽查的交接统一放在
 [`docs/archive/handoffs/`](../archive/handoffs/)。归档不等于补做了人工验收：文件中保留原始

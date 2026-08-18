@@ -36,7 +36,7 @@ test('普通应用变更只选择所属 workspace', () => {
   );
 });
 
-test('Hermes-only 变更选择仓库级 patch 测试，不再依赖 workspace 归属', () => {
+test('Hermes-only 变更选择仓库级 patch 与小D公开视频桥安装器测试，不再依赖 workspace 归属', () => {
   const changed = ['integrations/hermes/scripts/feishu-commander-ingress-protocol.mjs'];
   assert.deepEqual(selectAffectedWorkspaces(changed, graph), []);
   const selected = selectRepositoryTestFiles(changed);
@@ -44,9 +44,18 @@ test('Hermes-only 变更选择仓库级 patch 测试，不再依赖 workspace �
     selected.includes('integrations/hermes/test/patch-feishu-agent-proposal-router.test.mjs'),
     true,
   );
+  assert.equal(
+    selected.includes('integrations/hermes/test/install-xiaod-public-video-bridge-v2.test.mjs'),
+    true,
+  );
   assert.equal(selected.length > 1, true);
   assert.equal(
-    selected.every((file) => /^integrations\/hermes\/test\/patch-.*\.test\.mjs$/.test(file)),
+    selected.every((file) => /^integrations\/hermes\/test\/(?:patch-.*|install-xiaod-public-video-bridge-v2)\.test\.mjs$/.test(file)),
+    true,
+  );
+  assert.equal(
+    selectRepositoryTestFiles(['integrations/hermes/test/install-xiaod-public-video-bridge-v2.test.mjs'])
+      .includes('integrations/hermes/test/install-xiaod-public-video-bridge-v2.test.mjs'),
     true,
   );
   assert.deepEqual(selectRepositoryTestFiles(['apps/ajun-runtime/src/task.js']), []);
@@ -65,6 +74,10 @@ test('根脚本和仓库目录清单变更选择全部 workspace，docs/contract
     selectAffectedWorkspaces(['repository-catalog.json'], graph),
     ['@agent-army/client', '@agent-army/contracts', '@agent-army/pipeline', 'ajun-runtime'],
   );
+  const repositoryTests = selectRepositoryTestFiles(['scripts/stability-observer.mjs']);
+  assert.equal(repositoryTests.includes('scripts/stability-observer.test.mjs'), true);
+  assert.equal(repositoryTests.includes('scripts/run-affected-tests.test.mjs'), true);
+  assert.equal(repositoryTests.every((file) => /^scripts\/.*\.test\.mjs$/.test(file)), true);
 });
 
 test('A君深层模块变更只选择该模块及 TaskService 接缝测试', () => {

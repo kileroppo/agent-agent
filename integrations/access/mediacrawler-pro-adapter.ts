@@ -137,8 +137,8 @@ export class MediaCrawlerProAdapter implements ContentAcquisitionAdapter {
 
   async collectMetrics({ source, connectionUse, historyLimit = 20 }: AdapterMetricsInput): Promise<unknown> {
     const provider = this.providerFor(source);
-    if (provider !== 'xhs' && provider !== 'dy') {
-      throw codedError('当前只支持读取小红书和抖音作品指标。', 'capability_not_available');
+    if (provider !== 'xhs' && provider !== 'dy' && provider !== 'bili') {
+      throw codedError('当前深度指标通道只支持小红书、抖音和 B站作品。', 'capability_not_available');
     }
     assertCookieBridgeConnection(connectionUse);
     const limit = Math.max(5, Math.min(Number(historyLimit) || 20, 20));
@@ -271,7 +271,7 @@ export class MediaCrawlerProAdapter implements ContentAcquisitionAdapter {
   }
 
   async enrichHistoryMetrics(provider: Provider, historyWorks: readonly MetricWork[], cookies: string, parentSignal: AbortSignal | null = null): Promise<MetricWork[]> {
-    if (provider !== 'xhs') return [...historyWorks];
+    if (provider !== 'xhs' && provider !== 'bili') return [...historyWorks];
     const enriched = [...historyWorks];
     let nextIndex = 0;
     const worker = async () => {
@@ -399,19 +399,25 @@ function isXhsContentHost(hostname: string): boolean {
   return host === 'xiaohongshu.com' || host.endsWith('.xiaohongshu.com');
 }
 
-function publicPlatform(provider: 'xhs' | 'dy'): string {
-  return provider === 'xhs' ? 'xiaohongshu' : 'douyin';
+function publicPlatform(provider: 'xhs' | 'dy' | 'bili'): string {
+  return provider === 'xhs' ? 'xiaohongshu' : provider === 'bili' ? 'bilibili' : 'douyin';
 }
 
-function normalizeMetricAuthor(value: unknown, provider: 'xhs' | 'dy') {
+function normalizeMetricAuthor(value: unknown, provider: 'xhs' | 'dy' | 'bili') {
   const author: JsonObject = value && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : {};
-  const id = String(provider === 'dy' ? author.sec_uid || author.user_id || '' : author.user_id || '').trim();
+  const id = String(provider === 'dy'
+    ? author.sec_uid || author.user_id || ''
+    : provider === 'bili'
+      ? author.mid || author.user_id || author.id || ''
+      : author.user_id || '').trim();
   const profileUrl = isPublicHttpUrl(author.profile_url)
     ? author.profile_url
     : id
       ? provider === 'dy'
         ? `https://www.douyin.com/user/${encodeURIComponent(id)}`
-        : `https://www.xiaohongshu.com/user/profile/${encodeURIComponent(id)}`
+        : provider === 'bili'
+          ? `https://space.bilibili.com/${encodeURIComponent(id)}`
+          : `https://www.xiaohongshu.com/user/profile/${encodeURIComponent(id)}`
       : null;
   return {
     id:id || null,

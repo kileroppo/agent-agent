@@ -5,6 +5,7 @@ import type { ConnectionUse } from './connection-broker.ts';
 import type {
   AdapterAcquireInput,
   AdapterAcquireResult,
+  AdapterMetricsInput,
   ContentAcquisitionAdapter,
 } from './content-acquisition-contracts.ts';
 
@@ -93,11 +94,93 @@ export class YtDlpGeneralMediaAdapter implements ContentAcquisitionAdapter {
     return result(contentItems, { kind: 'audio', path: normalized }, accessValidation(authArgs));
   }
 
-  async readMetadata(source: string, authArgs: readonly string[]): Promise<Record<string, unknown> | null> {
+  async collectMetrics({ source, connectionUse, historyLimit = 20 }: AdapterMetricsInput): Promise<unknown> {
+    if (this.providerFor(source) !== 'youtube') {
+      throw codedError('当前通用指标通道只支持 YouTube 作品链接。', 'capability_not_available');
+    }
+    const authArgs = browserSessionArgs(connectionUse);
+    const currentPayload = await this.readRawMetadata(source, authArgs);
+    if (!currentPayload?.id) {
+      throw codedError('YouTube 没有返回可识别的作品信息。', 'adapter_unavailable');
+    }
+    const currentWork = youtubeMetricWork(currentPayload, source);
+    const creator = youtubeMetricCreator(currentPayload);
+    const limit = Math.max(5, Math.min(Number(historyLimit) || 20, 20));
+    const historyWorks = await this.readYoutubeHistory({
+      currentId:currentWork.id,
+      channelUrl:creator.profileUrl,
+      authArgs,
+      limit,
+    });
+    const unavailableReasons: string[] = [];
+    if (!creator.id) unavailableReasons.push('creator_identity_unavailable');
+    if (!creator.followerCount || creator.followerCount <= 0) unavailableReasons.push('follower_count_unavailable');
+    if (!Number.isInteger(currentWork.likes)) unavailableReasons.push('current_work_metric_unavailable');
+    return {
+      schemaVersion:'agent.army/boom-metrics-bundle/v1',
+      status:unavailableReasons.length ? 'metrics_unavailable' : historyWorks.length < 5 ? 'insufficient_history' : 'collected',
+      ...(unavailableReasons.length ? { unavailableReasons } : {}),
+      platform:'youtube',
+      sourceUrl:currentWork.sourceUrl || source,
+      observedAt:new Date().toISOString(),
+      creator,
+      currentWork,
+      historyWorks,
+      historyOrder:'creator_feed_desc',
+      sampleCount:historyWorks.length,
+      acquisition:{
+        adapterId:this.id,
+        versionRef:this.versionRef,
+        source:'yt-dlp-public-metadata',
+      },
+    };
+  }
+
+  private async readYoutubeHistory({ currentId, channelUrl, authArgs, limit }: Readonly<{
+    currentId: string | null;
+    channelUrl: string | null;
+    authArgs: readonly string[];
+    limit: number;
+  }>): Promise<Array<ReturnType<typeof youtubeMetricWork>>> {
+    if (!channelUrl) return [];
+    const playlistUrl = youtubeVideosUrl(channelUrl);
+    const candidateLimit = Math.min(limit, 12);
+    const output = await this.runCommand('yt-dlp', [
+      ...authArgs,
+      '--flat-playlist',
+      '--playlist-end', String(candidateLimit + 1),
+      '--dump-single-json',
+      playlistUrl,
+    ], { allowFailure:true });
+    const playlist = parseJsonObject(output);
+    const candidates = (Array.isArray(playlist?.entries) ? playlist.entries : [])
+      .filter((entry) => !entry || typeof entry !== 'object' || String((entry as Record<string, any>).id || '') !== currentId)
+      .map((entry) => youtubeEntryUrl(entry))
+      .filter((url): url is string => Boolean(url))
+      .slice(0, candidateLimit + 1);
+    const works: Array<ReturnType<typeof youtubeMetricWork>> = [];
+    for (let offset = 0; offset < candidates.length && works.length < candidateLimit; offset += 4) {
+      const beforeBatch = works.length;
+      const payloads = await Promise.all(candidates.slice(offset, offset + 4)
+        .map((url) => this.readRawMetadata(url, authArgs)));
+      for (const payload of payloads) {
+        if (!payload?.id || String(payload.id) === currentId) continue;
+        const work = youtubeMetricWork(payload, youtubeEntryUrl(payload));
+        if (Number.isInteger(work.likes)) works.push(work);
+        if (works.length >= candidateLimit) break;
+      }
+      if (works.length === beforeBatch) break;
+    }
+    return works;
+  }
+
+  private async readRawMetadata(source: string, authArgs: readonly string[]): Promise<Record<string, any> | null> {
     const output = await this.runCommand('yt-dlp', [...authArgs, '--no-playlist', '--skip-download', '--dump-single-json', source], { allowFailure: true });
-    if (!output) return null;
-    let payload: Record<string, unknown> | null = null;
-    try { payload = JSON.parse(String(output)) as Record<string, unknown>; } catch { payload = null; }
+    return parseJsonObject(output);
+  }
+
+  async readMetadata(source: string, authArgs: readonly string[]): Promise<Record<string, unknown> | null> {
+    const payload = await this.readRawMetadata(source, authArgs);
     if (!payload?.title) return null;
     const timestamp = Number(payload.timestamp || payload.release_timestamp);
     return {
@@ -109,6 +192,106 @@ export class YtDlpGeneralMediaAdapter implements ContentAcquisitionAdapter {
       ...(Number.isFinite(timestamp) && timestamp > 0 ? { publishedAt:new Date(timestamp * 1000).toISOString() } : {})
     };
   }
+}
+
+function youtubeMetricCreator(payload: Record<string, any>): Readonly<{
+  id: string | null;
+  name: string | null;
+  followerCount: number | null;
+  profileUrl: string | null;
+}> {
+  const id = cleanString(payload.channel_id || payload.uploader_id);
+  const profileUrl = publicHttpUrl(payload.channel_url || payload.uploader_url)
+    || (id ? `https://www.youtube.com/channel/${encodeURIComponent(id)}` : null);
+  return {
+    id,
+    name:cleanString(payload.channel || payload.uploader || payload.creator),
+    followerCount:exactCount(payload.channel_follower_count),
+    profileUrl,
+  };
+}
+
+function youtubeMetricWork(payload: Record<string, any>, sourceFallback: string | null): Readonly<{
+  id: string | null;
+  title: string;
+  sourceUrl: string | null;
+  publishedAt?: string;
+  likes: number | null;
+  favorites: number;
+  plays: number | null;
+  comments: number | null;
+  shares: null;
+}> {
+  const timestamp = Number(payload.timestamp || payload.release_timestamp);
+  const publishedAt = Number.isFinite(timestamp) && timestamp > 0
+    ? new Date(timestamp * 1000).toISOString()
+    : null;
+  return {
+    id:cleanString(payload.id),
+    title:String(payload.title || '').trim().slice(0, 500),
+    sourceUrl:publicHttpUrl(payload.webpage_url || payload.original_url || payload.url) || publicHttpUrl(sourceFallback),
+    ...(publishedAt ? { publishedAt } : {}),
+    likes:exactCount(payload.like_count),
+    favorites:0,
+    plays:exactCount(payload.view_count),
+    comments:exactCount(payload.comment_count),
+    shares:null,
+  };
+}
+
+function youtubeVideosUrl(value: string): string {
+  const parsed = new URL(value);
+  parsed.search = '';
+  parsed.hash = '';
+  parsed.pathname = `${parsed.pathname.replace(/\/$/, '')}/videos`;
+  return parsed.toString();
+}
+
+function youtubeEntryUrl(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const entry = value as Record<string, any>;
+  const direct = publicHttpUrl(entry.webpage_url || entry.original_url || entry.url);
+  if (direct) return direct;
+  const id = cleanString(entry.id);
+  return id ? `https://www.youtube.com/watch?v=${encodeURIComponent(id)}` : null;
+}
+
+function parseJsonObject(value: unknown): Record<string, any> | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function publicHttpUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    const parsed = new URL(value);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return null;
+    parsed.username = '';
+    parsed.password = '';
+    const youtubeVideoId = (parsed.hostname === 'youtube.com' || parsed.hostname.endsWith('.youtube.com'))
+      ? parsed.searchParams.get('v')
+      : null;
+    parsed.search = '';
+    if (youtubeVideoId) parsed.searchParams.set('v', youtubeVideoId);
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function exactCount(value: unknown): number | null {
+  return Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : null;
+}
+
+function cleanString(value: unknown): string | null {
+  const normalized = typeof value === 'string' || typeof value === 'number' ? String(value).trim() : '';
+  return normalized || null;
 }
 
 function result(

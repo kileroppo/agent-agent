@@ -121,6 +121,9 @@ export function hermesRuntimePolicyForManifest(manifest: any): any {
         throw new Error('模型调用预算不能小于 Hermes 最大轮次。');
     }
     return Object.freeze({
+        // LiteLLM 曾在转发层统一限制输出；直连 Provider 后由 Hermes
+        // 自己传递同一上限，避免单次回复无限增长。
+        model: Object.freeze({ maxTokens: 8_192 }),
         agent: Object.freeze({ maxTurns, reasoningEffort, apiMaxRetries }),
         toolLoopGuardrails: Object.freeze({ hardStopEnabled: true }),
         tools: Object.freeze({ toolSearch: Object.freeze({ enabled: 'off' }) }),

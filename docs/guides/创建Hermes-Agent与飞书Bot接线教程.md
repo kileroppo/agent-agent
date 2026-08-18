@@ -91,9 +91,14 @@ HERMES_HOME="$HOME/.hermes/profiles/<profile-id>" hermes config get model.defaul
 ## 6. 启动 Gateway 并确认平台连接
 
 ```bash
-HERMES_HOME="$HOME/.hermes/profiles/<profile-id>" \
-  hermes gateway run --replace
+node integrations/hermes/scripts/start-hermes-gateway-guarded.mjs \
+  --agent <profile-id>
 ```
+
+这不是普通的命令别名：它会在启动前按 AgentManifest 检查技能白名单，并确认
+Profile 已关闭 Hermes 的 bundled skills 自动注入。检查不通过即拒绝启动；先运行
+`reconcile-hermes-skill-whitelist.mjs --agent <profile-id>` 只读定位，再在维护窗口
+显式 `--apply`，不要直接执行 `hermes gateway run` 绕过门禁。
 
 第一层只看进程和飞书长连接：
 

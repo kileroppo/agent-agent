@@ -180,7 +180,7 @@ function optionalIsoDate(value: any): string {
 export function validateBundle(bundle: any): any {
     if (!isPlainObject(bundle) || bundle.schemaVersion !== METRICS_SCHEMA_VERSION)
         throw new Error('指标包版本不受支持。');
-    if (!['douyin', 'xiaohongshu'].includes(bundle.platform))
+    if (!['douyin', 'xiaohongshu', 'bilibili', 'youtube'].includes(bundle.platform))
         throw new Error('指标包平台不受支持。');
     if (!isPlainObject(bundle.currentWork) || !String(bundle.currentWork.id ?? '').trim())
         throw new Error('指标包缺少当前作品标识。');

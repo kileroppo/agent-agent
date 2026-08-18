@@ -217,6 +217,56 @@ test('公开视频先只请求常用中英文字幕，避免为所有翻译版�
   assert.deepEqual(acquired.providedCapabilities, ['basic_content', 'subtitles']);
 });
 
+test('YouTube 公开指标通道读取当前作品和作者近期作品且不读取浏览器 Cookie', async () => {
+  const calls = [];
+  const history = Array.from({ length:6 }, (_, index) => ({
+    id:`history-${index + 1}`,
+    title:`历史视频 ${index + 1}`,
+    webpage_url:`https://www.youtube.com/watch?v=history-${index + 1}`,
+    timestamp:1_785_300_000 - index,
+    like_count:100 + index,
+    view_count:1_000 + index,
+    comment_count:10 + index,
+  }));
+  const adapter = new YtDlpGeneralMediaAdapter({
+    runCommand:async (command, args) => {
+      calls.push({ command, args });
+      assert.equal(args.includes('--cookies-from-browser'), false);
+      const source = args.at(-1);
+      if (args.includes('--flat-playlist')) {
+        return JSON.stringify({ entries:[{ id:'target' }, ...history.map(({ id }) => ({ id }))] });
+      }
+      if (source.endsWith('v=target')) return JSON.stringify({
+        id:'target', title:'当前视频', webpage_url:'https://www.youtube.com/watch?v=target&feature=share',
+        timestamp:1_785_400_000, like_count:8_600, view_count:100_000, comment_count:90,
+        channel_id:'channel-1', channel:'作者', channel_url:'https://www.youtube.com/channel/channel-1',
+        channel_follower_count:120_000,
+      });
+      const item = history.find((entry) => source.endsWith(`v=${entry.id}`));
+      return item ? JSON.stringify(item) : '';
+    },
+  });
+
+  const result = await adapter.collectMetrics({
+    source:'https://www.youtube.com/watch?v=target',
+    connectionUse:null,
+    historyLimit:20,
+  });
+
+  assert.equal(result.status, 'collected');
+  assert.equal(result.platform, 'youtube');
+  assert.deepEqual(result.creator, {
+    id:'channel-1', name:'作者', followerCount:120000,
+    profileUrl:'https://www.youtube.com/channel/channel-1',
+  });
+  assert.equal(result.currentWork.sourceUrl, 'https://www.youtube.com/watch?v=target');
+  assert.equal(result.currentWork.likes, 8600);
+  assert.deepEqual(result.historyWorks.map((work) => work.id), history.map((work) => work.id));
+  assert.equal(result.sampleCount, 6);
+  assert.equal(result.acquisition.source, 'yt-dlp-public-metadata');
+  assert.equal(calls.every((call) => call.command === 'yt-dlp'), true);
+});
+
 test('视觉分析通过内容获取中心单独取得视频，不重复请求字幕或误取纯音频', async (t) => {
   const { root } = await sandbox(t);
   const calls = [];
@@ -760,6 +810,63 @@ test('MediaCrawlerPro preserves Douyin publish time and recovers it from an awem
 
   assert.equal(result.currentWork.publishedAt, '2026-07-30T05:04:56.000Z');
   assert.equal(result.historyWorks[0].publishedAt, '2026-07-29T04:40:00.000Z');
+});
+
+test('MediaCrawlerPro 把 B站作品、作者粉丝和近期投稿规范成雷达指标包', async () => {
+  const adapter = new MediaCrawlerProAdapter({
+    cookieBridgeUrl:'http://127.0.0.1:8274',
+    downloadServerUrl:'http://127.0.0.1:8205',
+    fetchImpl:async (url, options = {}) => {
+      const pathname = new URL(url).pathname;
+      if (pathname === '/api/cookies/bili') return jsonResponse({ isok:true, data:{ cookies:'local-bili-cookie' } });
+      const body = JSON.parse(options.body);
+      assert.equal(body.platform, 'bili');
+      if (pathname === '/api/v1/content_detail') {
+        const id = body.content_url.split('/').filter(Boolean).at(-1);
+        return jsonResponse({ isok:true, data:{ content:{
+          id, title:id === 'BV1TARGET' ? '当前 B站视频' : `历史投稿 ${id}`,
+          url:`https://www.bilibili.com/video/${id}`,
+          author:{ user_id:'12345', nickname:'UP主' },
+          interaction:{
+            liked_count:id === 'BV1TARGET' ? '8600' : '100',
+            collected_count:id === 'BV1TARGET' ? '1000' : '',
+            play_count:id === 'BV1TARGET' ? '100000' : '1000',
+            comment_count:id === 'BV1TARGET' ? '90' : '10',
+            share_count:id === 'BV1TARGET' ? '30' : '2',
+          },
+        } } });
+      }
+      if (pathname === '/api/v1/creator_query') return jsonResponse({ isok:true, data:{
+        user_id:'12345', nickname:'UP主', follower_count:'120000',
+      } });
+      if (pathname === '/api/v1/creator_contents') return jsonResponse({ isok:true, data:{
+        contents:Array.from({ length:6 }, (_, index) => ({
+          id:`BV1HISTORY${index}`, title:`历史投稿 ${index}`,
+          url:`https://www.bilibili.com/video/BV1HISTORY${index}`,
+          interaction:{ play_count:String(1000 + index), comment_count:String(10 + index) },
+        })),
+        has_more:false,
+      } });
+      throw new Error(`unexpected ${pathname}`);
+    },
+  });
+
+  const result = await adapter.collectMetrics({
+    source:'https://www.bilibili.com/video/BV1TARGET',
+    connectionUse:{ credentialKind:'cookie_bridge', cookieBridgeClientId:'local_bili_account_1' },
+    historyLimit:20,
+  });
+
+  assert.equal(result.status, 'collected');
+  assert.equal(result.platform, 'bilibili');
+  assert.deepEqual(result.creator, {
+    id:'12345', name:'UP主', followerCount:120000,
+    profileUrl:'https://space.bilibili.com/12345',
+  });
+  assert.equal(result.currentWork.likes, 8600);
+  assert.equal(result.historyWorks.length, 6);
+  assert.deepEqual(result.historyWorks.map((work) => work.likes), [100, 100, 100, 100, 100, 100]);
+  assert.equal(JSON.stringify(result).includes('local-bili-cookie'), false);
 });
 
 test('MediaCrawlerPro reports insufficient history without inventing missing metrics', async () => {

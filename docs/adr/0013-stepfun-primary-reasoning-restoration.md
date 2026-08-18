@@ -54,6 +54,27 @@ Provider 调用与费用。M5 的 StepFun 视觉、生图、图片编辑和 TTS 
   不允许误选为 Hermes 主对话模型；
 - 配置、进程和 API 回读只证明切换已加载，不证明季度套餐、真实传输或业务质量可用。
 
+## 2026-08-17：退役本地模型网关
+
+LiteLLM + PostgreSQL 的本地 Docker 栈已退役，12 个 Hermes Profile 恢复为直接使用
+StepFun 官方入口。该变更只收回中间转发层，不改变本 ADR 的主模型
+`stepfun/step-3.7-flash`、空文本回退链，或微信私密只读检索岗位的本机模型边界。
+
+保留的限制与治理：
+
+- Hermes Profile 的单次 `max_tokens`、最大轮次与会话压缩继续生效；
+- Paperclip 继续是组织级预算、审批和审计的唯一真相；
+- 外部 Provider 后台账单仍是费用的最终依据。
+
+随网关退役而失去的能力：每岗位独立 LiteLLM 虚拟钥匙、普通直聊的每日美元硬停、统一的
+4 万输入 Token 预拒绝，以及 LiteLLM 的调用/Token/估算费用聚合报表。不得把 Paperclip
+组织级预算或 Hermes 的本地参数限制表述为这些能力仍存在。
+
+本次不以付费模型探针作为切换门槛。退役后的 `PASS` 仅表示 12 个 Profile 的配置已回到
+官方入口、运行中的 Hermes Gateway 已加载该配置，并且 LiteLLM/PostgreSQL/本地 `4000`
+监听已退出；这不证明真实 StepFun 传输、套餐额度或业务产物质量。真实模型调用需在另有
+费用授权时单独记账和验收。
+
 ## 2026-08-14 live 证据
 
 - 默认 Hermes 与 11 个隔离 Profile 均回读为 `custom:sstefun / step-3.7-flash`，

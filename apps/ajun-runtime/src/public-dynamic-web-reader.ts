@@ -161,9 +161,16 @@ async function createPinnedOriginProxy({ hostname, port, resolvedAddress }: any)
 function dynamicError(message: any, code: any): any {
     return new PublicDynamicWebReaderError(message, code);
 }
-export async function runControlledChrome(command: any, args: any, { timeoutMs, maxBuffer, sourceUrl }: any = {}): Promise<any> {
+export async function runControlledChrome(command: any, args: any, {
+    timeoutMs,
+    maxBuffer,
+    sourceUrl,
+    spawnImpl = spawn,
+    pageTargetWebsocketUrlImpl = pageTargetWebsocketUrl,
+    connectImpl = CdpConnection.connect,
+}: any = {}): Promise<any> {
     const initialUrl: any = args.at(-1);
-    const child: any = spawn(command, [
+    const child: any = spawnImpl(command, [
         ...args.slice(0, -1),
         '--remote-debugging-port=0',
         initialUrl,
@@ -194,8 +201,8 @@ export async function runControlledChrome(command: any, args: any, { timeoutMs, 
     });
     let protocol: any;
     try {
-        const targetWebsocketUrl: any = await pageTargetWebsocketUrl(websocketUrl);
-        protocol = await CdpConnection.connect(targetWebsocketUrl, timeoutMs);
+        const targetWebsocketUrl: any = await pageTargetWebsocketUrlImpl(websocketUrl);
+        protocol = await connectImpl(targetWebsocketUrl, timeoutMs);
         const origin: any = new URL(sourceUrl);
         protocol.onEvent('Fetch.requestPaused', (params: any): any => {
             const method: any = String(params?.request?.method || '').toUpperCase();
@@ -221,9 +228,13 @@ export async function runControlledChrome(command: any, args: any, { timeoutMs, 
         await protocol.command('Fetch.enable', {
             patterns: [{ urlPattern: '*', requestStage: 'Request' }],
         });
-        const loaded: any = protocol.waitForEvent('Page.loadEventFired', null, Math.max(2000, timeoutMs - 4000));
+        // Page.navigate can itself be delayed under process pressure. Convert the
+        // optional load signal to a settled result immediately so its timeout
+        // cannot become an unhandled rejection while navigation is pending.
+        const loaded: any = protocol.waitForEvent('Page.loadEventFired', null, Math.max(2000, timeoutMs - 4000))
+            .then((): any => true, (): any => false);
         await protocol.command('Page.navigate', { url: sourceUrl });
-        await loaded.catch((): any => null);
+        await loaded;
         await new Promise((resolve: any): any => setTimeout(resolve, 500));
         const evaluated: any = await protocol.command('Runtime.evaluate', {
             expression: 'document.documentElement ? document.documentElement.outerHTML : ""',

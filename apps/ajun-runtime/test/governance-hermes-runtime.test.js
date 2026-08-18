@@ -36,6 +36,7 @@ test('Manifest 预算生成有界 Hermes 运行、压缩、记忆和会话策略
       toolLoopHardStop:true,
     },
   });
+  assert.deepEqual(policy.model, { maxTokens:8192 });
   assert.deepEqual(policy.agent, { maxTurns:8, reasoningEffort:'none', apiMaxRetries:1 });
   assert.equal(policy.toolLoopGuardrails.hardStopEnabled, true);
   assert.deepEqual(policy.tools, { toolSearch:{ enabled:'off' } });

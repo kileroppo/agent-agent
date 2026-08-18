@@ -1,16 +1,10 @@
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
-import http from 'node:http';
-import os from 'node:os';
-import path from 'node:path';
+import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import {
   PublicDynamicWebReader,
   runControlledChrome,
 } from '../src/public-dynamic-web-reader.ts';
-
-const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 test('动态公开页只给固定 Chrome 参数、临时 Profile 和单一受控 URL', async () => {
   const calls = [];
@@ -44,54 +38,88 @@ test('动态公开页在启动 Chrome 前拒绝本机和内网 URL', async () =>
   assert.equal(runs, 0);
 });
 
-test('Chrome CDP 门禁在发出网络请求前拦截 POST 和跨源 GET', {
-  skip:!existsSync(CHROME),
-}, async () => {
-  let postCount = 0;
-  let crossOriginCount = 0;
-  const otherOrigin = await listen((request, response) => {
-    crossOriginCount += 1;
-    response.end('outside');
+test('隔离 fake CDP 在页面加载后只放行同源只读请求', async () => {
+  const child = fakeChromeChild();
+  const protocol = fakeProtocol();
+  const html = await runControlledChrome('fake-chrome', ['--headless=new', 'about:blank'], {
+    timeoutMs:100,
+    maxBuffer:1024 * 1024,
+    sourceUrl:'https://example.com/app',
+    spawnImpl:() => child,
+    pageTargetWebsocketUrlImpl:async () => 'ws://fake-page',
+    connectImpl:async () => protocol,
   });
-  const origin = await listen((request, response) => {
-    if (request.method === 'POST') postCount += 1;
-    response.setHeader('content-type', 'text/html; charset=utf-8');
-    response.end(`<body>safe<script>
-      fetch('/write', { method:'POST', body:'no' }).catch(() => {});
-      fetch('http://127.0.0.1:${otherOrigin.port}/outside').catch(() => {});
-    </script></body>`);
-  });
-  const profileDirectory = await mkdtemp(path.join(os.tmpdir(), 'agent-army-cdp-test-'));
-  try {
-    const html = await runControlledChrome(CHROME, [
-      '--headless=new',
-      '--disable-background-networking',
-      '--no-first-run',
-      `--user-data-dir=${profileDirectory}`,
-      'about:blank',
-    ], {
-      timeoutMs:10_000,
-      maxBuffer:1024 * 1024,
-      sourceUrl:`http://127.0.0.1:${origin.port}/`,
-    });
-    assert.match(html, /safe/);
-    assert.equal(postCount, 0);
-    assert.equal(crossOriginCount, 0);
-  } finally {
-    await origin.close();
-    await otherOrigin.close();
-    await rm(profileDirectory, { recursive:true, force:true });
-  }
+  assert.match(html, /safe/);
+  assert.deepEqual(protocol.calls.filter(({ method }) => method.startsWith('Fetch.')), [
+    { method:'Fetch.enable', params:{ patterns:[{ urlPattern:'*', requestStage:'Request' }] } },
+    { method:'Fetch.continueRequest', params:{ requestId:'same-origin-get' } },
+    { method:'Fetch.failRequest', params:{ requestId:'write', errorReason:'BlockedByClient' } },
+    { method:'Fetch.failRequest', params:{ requestId:'cross-origin', errorReason:'BlockedByClient' } },
+  ]);
+  assert.equal(child.killed, true);
+  assert.equal(protocol.closed, true);
 });
 
-async function listen(handler) {
-  const server = http.createServer(handler);
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
+test('隔离 fake CDP 的加载信号超时不会在导航等待时泄漏 rejection', async () => {
+  const child = fakeChromeChild();
+  const protocol = fakeProtocol({ loadEvent:false, delayedNavigation:true });
+  const html = await runControlledChrome('fake-chrome', ['--headless=new', 'about:blank'], {
+    timeoutMs:100,
+    maxBuffer:1024 * 1024,
+    sourceUrl:'https://example.com/app',
+    spawnImpl:() => child,
+    pageTargetWebsocketUrlImpl:async () => 'ws://fake-page',
+    connectImpl:async () => protocol,
   });
+  assert.match(html, /safe/);
+  assert.equal(child.killed, true);
+  assert.equal(protocol.closed, true);
+});
+
+function fakeChromeChild() {
+  const child = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.exitCode = null;
+  child.killed = false;
+  child.kill = () => {
+    child.killed = true;
+    child.exitCode = 0;
+    queueMicrotask(() => child.emit('exit', 0));
+    return true;
+  };
+  queueMicrotask(() => child.stderr.emit('data', 'DevTools listening on ws://fake-browser/devtools/browser/fake'));
+  return child;
+}
+
+function fakeProtocol({ loadEvent = true, delayedNavigation = false } = {}) {
+  const listeners = new Map();
   return {
-    port:server.address().port,
-    close:() => new Promise((resolve) => server.close(resolve)),
+    calls:[],
+    closed:false,
+    onEvent(method, handler) {
+      listeners.set(method, handler);
+    },
+    waitForEvent(method) {
+      if (method === 'Page.loadEventFired' && !loadEvent) {
+        return Promise.reject(new Error('simulated load event timeout'));
+      }
+      return new Promise((resolve) => listeners.set(method, resolve));
+    },
+    async command(method, params = {}) {
+      this.calls.push({ method, params });
+      if (method === 'Page.navigate') {
+        if (delayedNavigation) await new Promise((resolve) => setImmediate(resolve));
+        const paused = listeners.get('Fetch.requestPaused');
+        paused({ request:{ method:'GET', url:'https://example.com/app/data' }, requestId:'same-origin-get' });
+        paused({ request:{ method:'POST', url:'https://example.com/app/write' }, requestId:'write' });
+        paused({ request:{ method:'GET', url:'https://outside.example/data' }, requestId:'cross-origin' });
+        if (loadEvent) listeners.get('Page.loadEventFired')({});
+      }
+      if (method === 'Runtime.evaluate') return { result:{ value:'<html><body>safe</body></html>' } };
+      return {};
+    },
+    close() {
+      this.closed = true;
+    },
   };
 }

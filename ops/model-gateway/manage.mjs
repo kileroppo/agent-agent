@@ -14,8 +14,25 @@ const RUNTIME_ROOT = path.join(os.homedir(), '.config', 'agent-army', 'model-gat
 const RUNTIME_ENV = path.join(RUNTIME_ROOT, 'gateway.env');
 const VIRTUAL_KEYS_FILE = path.join(RUNTIME_ROOT, 'virtual-keys.json');
 const CUTOVERS_FILE = path.join(RUNTIME_ROOT, 'cutovers.json');
+const DIRECT_CUTOVERS_FILE = path.join(RUNTIME_ROOT, 'direct-cutovers.json');
 const BACKUP_ROOT = path.join(RUNTIME_ROOT, 'backups');
 const HERMES_ROOT = path.join(os.homedir(), '.hermes');
+const FLEET_PROFILES = Object.freeze([
+  'default',
+  'ajun',
+  'architect',
+  'content-creator',
+  'creator',
+  'intel-researcher',
+  'office-assistant',
+  'operator',
+  'reviewer',
+  'technical-expert',
+  'video-content-analyst',
+  'xiaod',
+]);
+const OFFICIAL_STEPFUN_BASE = 'https://api.stepfun.com/step_plan/v1';
+const OFFICIAL_STEPFUN_ROUTER_BASE = 'https://api.stepfun.com/step_plan';
 const OFFICIAL_STEPFUN_BASES = new Set([
   'https://api.stepfun.com/step_plan/v1',
   'https://api.stepfun.ai/step_plan/v1',
@@ -35,6 +52,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     else if (command === 'provision') await provision();
     else if (command === 'cutover') await cutover(requireProfile(args));
     else if (command === 'rollback') await rollback(requireProfile(args));
+    else if (command === 'direct') await direct(requireAll(args));
+    else if (command === 'restore-gateway') await restoreGateway(requireNoArgs(command, args));
+    else if (command === 'retire') await retire(requireNoArgs(command, args));
     else if (command === 'probe') await probe(requireProfile(args));
     else if (command === 'status') await status();
     else if (command === 'usage') await usage(requireDate(args));
@@ -184,6 +204,81 @@ async function rollback(profile) {
   process.stdout.write(`${profile} 已恢复到切换前配置；重启该 Hermes 进程后生效。\n`);
 }
 
+async function direct() {
+  const policy = await readPolicy();
+  const profiles = requireFleetProfiles(policy);
+  const runtime = parseEnv(await readPrivateFile(RUNTIME_ENV));
+  const upstreamKey = String(runtime.STEPFUN_UPSTREAM_API_KEY || '');
+  if (!upstreamKey) throw safeError('模型入口运行文件缺少上游 StepFun 凭据。');
+  const keys = await readPrivateJson(VIRTUAL_KEYS_FILE, { profiles:{} });
+  const snapshots = await readProfileSnapshots(profiles);
+  assertAllProfilesOnRoute(snapshots, keys, runtime, 'gateway', '全军直连迁移');
+  const plans = snapshots.map((snapshot) => ({
+    ...snapshot,
+    nextEnv:replaceEnvValues(snapshot.envContent, {
+      STEPFUN_API_KEY:upstreamKey,
+      STEPFUN_BASE_URL:OFFICIAL_STEPFUN_BASE,
+    }),
+    nextConfig:setModelMaxTokens(rewriteStepfunProvidersForDirect(snapshot.configContent), 8192),
+  }));
+  const backupDirectory = await createDirectMigrationBackup(plans);
+  try {
+    await applyProfileContents(plans, 'next');
+    await recordDirectCutover(backupDirectory, plans.map(({ profile }) => profile));
+  } catch (error) {
+    const restoreError = await restoreProfileContents(plans, 'original');
+    if (restoreError) throw safeError(`全军直连迁移未完成，且自动恢复失败：${restoreError}`);
+    throw safeError('全军直连迁移未完成；已恢复全部岗位原配置。');
+  }
+  process.stdout.write(`全军 ${plans.length} 个 Hermes Profile 已改为 StepFun 直连；已创建私密网关恢复备份。重启对应 Hermes 进程后生效。\n`);
+}
+
+async function restoreGateway() {
+  const record = await readPrivateJson(DIRECT_CUTOVERS_FILE);
+  const migration = record?.latest;
+  if (!migration?.backupDirectory || !Array.isArray(migration?.profiles) || !migration.profiles.length) {
+    throw safeError('没有可恢复的全军网关迁移备份。');
+  }
+  assertFleetProfileList(migration.profiles, '全军网关迁移备份');
+  const backupDirectory = controlledBackupDirectory(migration.backupDirectory);
+  const backups = await readVerifiedDirectMigrationBackup(backupDirectory, migration.profiles);
+  const current = await readProfileSnapshots(migration.profiles);
+  const plans = [];
+  for (const profile of migration.profiles) {
+    const backup = backups.get(profile);
+    plans.push({
+      profile,
+      envFile:path.join(hermesProfileHome(profile), '.env'),
+      configFile:path.join(hermesProfileHome(profile), 'config.yaml'),
+      envContent:backup.envContent,
+      configContent:backup.configContent,
+      currentEnv:current.find((item) => item.profile === profile)?.envContent,
+      currentConfig:current.find((item) => item.profile === profile)?.configContent,
+    });
+  }
+  try {
+    await applyProfileContents(plans, 'backup');
+  } catch (error) {
+    const restoreError = await restoreProfileContents(plans, 'current');
+    if (restoreError) throw safeError(`恢复统一入口未完成，且自动恢复失败：${restoreError}`);
+    throw safeError('恢复统一入口未完成；已恢复全军直连前的当前配置。');
+  }
+  record.latest.restoredAt = new Date().toISOString();
+  await writePrivateJson(DIRECT_CUTOVERS_FILE, record);
+  process.stdout.write(`全军 ${plans.length} 个 Hermes Profile 已恢复到本次迁移前的统一入口配置。重启对应 Hermes 进程后生效。\n`);
+}
+
+async function retire() {
+  const policy = await readPolicy();
+  const profiles = requireFleetProfiles(policy);
+  const runtime = parseEnv(await readPrivateFile(RUNTIME_ENV));
+  const keys = await readPrivateJson(VIRTUAL_KEYS_FILE, { profiles:{} });
+  const snapshots = await readProfileSnapshots(profiles);
+  assertAllProfilesOnRoute(snapshots, keys, runtime, 'direct', '退役模型网关');
+  runDocker(['compose', '--env-file', RUNTIME_ENV, '-f', COMPOSE_FILE, 'down']);
+  process.stdout.write('模型网关 Compose 已停止；未删除 PostgreSQL 数据卷。\n');
+}
+
 async function probe(profile) {
   const policy = await readPolicy();
   if (!policy.profiles[profile]) throw safeError(`策略中没有岗位：${profile}`);
@@ -217,7 +312,6 @@ async function probe(profile) {
 async function status() {
   const policy = await readPolicy();
   const keys = await readPrivateJson(VIRTUAL_KEYS_FILE, { profiles:{} });
-  const cutovers = await readPrivateJson(CUTOVERS_FILE, { profiles:{} });
   const runtime = parseEnv(await readPrivateFile(RUNTIME_ENV));
   let gateway = 'down';
   try {
@@ -231,16 +325,25 @@ async function status() {
     const profileHome = hermesProfileHome(profile);
     const env = parseEnv(await readPrivateFile(path.join(profileHome, '.env')));
     const config = await readOwnedRegularFile(path.join(profileHome, 'config.yaml'));
-    const expectedKey = String(keys?.profiles?.[profile]?.key || '');
     const observedKey = String(env.STEPFUN_API_KEY || '');
     if (observedKey) observedKeys.add(observedKey);
     if (observedKey === runtime.STEPFUN_UPSTREAM_API_KEY) sharedUpstreamCredentials += 1;
+    const sstefunBaseUrl = providerBaseUrl(config, 'sstefun');
+    const stepfunBaseUrl = providerBaseUrl(config, 'stepfun');
+    const route = classifyProfileRoute({
+      envBaseUrl:String(env.STEPFUN_BASE_URL || ''),
+      sstefunBaseUrl,
+      stepfunBaseUrl,
+      observedKey,
+      expectedVirtualKey:String(keys?.profiles?.[profile]?.key || ''),
+      upstreamKey:String(runtime.STEPFUN_UPSTREAM_API_KEY || ''),
+    });
     rows.push({
       profile,
-      key:validVirtualKey(expectedKey) && observedKey === expectedKey ? 'active_unique' : 'missing_or_drifted',
-      route:cutovers?.profiles?.[profile] ? 'gateway' : 'direct_or_unused',
-      envBaseUrl:env.STEPFUN_BASE_URL === policy.gatewayBaseUrl ? 'gateway' : 'other',
-      configBaseUrl:config.includes(`base_url: ${policy.gatewayBaseUrl}`) ? 'gateway' : 'other',
+      credential:route === 'gateway' ? 'active_unique' : route === 'direct' ? 'shared_upstream' : 'mixed_or_drifted',
+      route,
+      envBaseUrl:routeForEnvBaseUrl(String(env.STEPFUN_BASE_URL || '')),
+      configBaseUrl:routeForConfigBases(sstefunBaseUrl, stepfunBaseUrl),
     });
   }
   process.stdout.write(`${JSON.stringify({
@@ -317,7 +420,7 @@ export function rewriteSstefunProvider(content, gatewayBaseUrl) {
     const base = /^    base_url:\s*(.+)\s*$/.exec(lines[index]);
     if (base) {
       const current = base[1].trim().replace(/^['"]|['"]$/g, '');
-      if (!OFFICIAL_STEPFUN_BASES.has(current) && current !== gatewayBaseUrl) {
+      if (!OFFICIAL_STEPFUN_BASES.has(current) && current !== gatewayBaseUrl && current !== 'http://127.0.0.1:4000') {
         throw safeError(`sstefun base_url 不是已知官方地址或目标网关：${current}`);
       }
       lines[index] = `    base_url: ${gatewayBaseUrl}`;
@@ -333,7 +436,21 @@ export function rewriteSstefunProvider(content, gatewayBaseUrl) {
 }
 
 export function rewriteStepfunProviders(content, gatewayBaseUrl) {
-  const primary = rewriteSstefunProvider(content, gatewayBaseUrl);
+  return rewriteStepfunProviderTargets(content, {
+    sstefunBaseUrl:gatewayBaseUrl,
+    stepfunBaseUrl:gatewayBaseUrl,
+  });
+}
+
+export function rewriteStepfunProvidersForDirect(content) {
+  return rewriteStepfunProviderTargets(content, {
+    sstefunBaseUrl:OFFICIAL_STEPFUN_BASE,
+    stepfunBaseUrl:OFFICIAL_STEPFUN_ROUTER_BASE,
+  });
+}
+
+function rewriteStepfunProviderTargets(content, { sstefunBaseUrl, stepfunBaseUrl }) {
+  const primary = rewriteSstefunProvider(content, sstefunBaseUrl);
   const lines = primary.split(/\r?\n/);
   for (let start = 0; start < lines.length; start += 1) {
     if (!/^  - name:\s*stepfun\s*$/.test(lines[start])) continue;
@@ -348,14 +465,90 @@ export function rewriteStepfunProviders(content, gatewayBaseUrl) {
       index > start && index < end && /^    base_url:\s*/.test(line));
     if (baseIndex < 0) continue;
     const current = lines[baseIndex].replace(/^    base_url:\s*/, '').trim().replace(/^['"]|['"]$/g, '');
-    if (!OFFICIAL_STEPFUN_ROUTER_BASES.has(current) && current !== gatewayBaseUrl) continue;
-    lines[baseIndex] = `    base_url: ${gatewayBaseUrl}`;
+    if (!OFFICIAL_STEPFUN_ROUTER_BASES.has(current) && current !== 'http://127.0.0.1:4000') continue;
+    lines[baseIndex] = `    base_url: ${stepfunBaseUrl}`;
     const keyIndex = lines.findIndex((line, index) => index > start && index < end && /^    api_key:\s*/.test(line));
     if (keyIndex >= 0) lines[keyIndex] = '    api_key: ${STEPFUN_API_KEY}';
     else lines.splice(baseIndex + 1, 0, '    api_key: ${STEPFUN_API_KEY}');
     break;
   }
   return `${lines.join('\n').replace(/\n+$/, '')}\n`;
+}
+
+export function setModelMaxTokens(content, maxTokens) {
+  if (!Number.isInteger(maxTokens) || maxTokens <= 0) throw safeError('model.max_tokens 必须是正整数。');
+  const lines = String(content).split(/\r?\n/);
+  const start = lines.findIndex((line) => /^model:\s*$/.test(line));
+  if (start < 0) throw safeError('config.yaml 缺少顶层 model 配置。');
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^[A-Za-z_][A-Za-z0-9_-]*:\s*$/.test(lines[index])) {
+      end = index;
+      break;
+    }
+  }
+  const matches = [];
+  for (let index = start + 1; index < end; index += 1) {
+    if (/^  max_tokens:\s*/.test(lines[index])) matches.push(index);
+  }
+  if (matches.length > 1) throw safeError('model.max_tokens 重复，拒绝覆盖。');
+  if (matches.length === 1) lines[matches[0]] = `  max_tokens: ${maxTokens}`;
+  else lines.splice(start + 1, 0, `  max_tokens: ${maxTokens}`);
+  return `${lines.join('\n').replace(/\n+$/, '')}\n`;
+}
+
+export function classifyProfileRoute({
+  envBaseUrl,
+  sstefunBaseUrl,
+  stepfunBaseUrl,
+  observedKey,
+  expectedVirtualKey,
+  upstreamKey,
+}) {
+  const envRoute = routeForEnvBaseUrl(envBaseUrl);
+  const configRoute = routeForConfigBases(sstefunBaseUrl, stepfunBaseUrl);
+  const credentialRoute = validVirtualKey(expectedVirtualKey) && observedKey === expectedVirtualKey
+    ? 'gateway'
+    : upstreamKey && observedKey === upstreamKey
+      ? 'direct'
+      : 'mixed';
+  if (envRoute === 'gateway' && configRoute === 'gateway' && credentialRoute === 'gateway') return 'gateway';
+  if (envRoute === 'direct' && configRoute === 'direct' && credentialRoute === 'direct') return 'direct';
+  return 'mixed';
+}
+
+function routeForEnvBaseUrl(baseUrl) {
+  if (baseUrl === 'http://127.0.0.1:4000') return 'gateway';
+  if (OFFICIAL_STEPFUN_BASES.has(baseUrl)) return 'direct';
+  return 'mixed';
+}
+
+function routeForConfigBases(sstefunBaseUrl, stepfunBaseUrl) {
+  const chatRoute = sstefunBaseUrl === 'http://127.0.0.1:4000'
+    ? 'gateway'
+    : OFFICIAL_STEPFUN_BASES.has(sstefunBaseUrl)
+      ? 'direct'
+      : 'mixed';
+  const anthropicRoute = stepfunBaseUrl === null
+    ? chatRoute
+    : stepfunBaseUrl === 'http://127.0.0.1:4000'
+      ? 'gateway'
+      : OFFICIAL_STEPFUN_ROUTER_BASES.has(stepfunBaseUrl)
+        ? 'direct'
+        : 'mixed';
+  return chatRoute === anthropicRoute ? chatRoute : 'mixed';
+}
+
+function providerBaseUrl(content, providerName) {
+  const lines = String(content).split(/\r?\n/);
+  const start = lines.findIndex((line) => new RegExp(`^  - name:\\s*${escapeRegExp(providerName)}\\s*$`).test(line));
+  if (start < 0) return null;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^  - name:\s*/.test(lines[index]) || /^[A-Za-z_][A-Za-z0-9_-]*:\s*$/.test(lines[index])) break;
+    const match = /^    base_url:\s*(.+)\s*$/.exec(lines[index]);
+    if (match) return match[1].trim().replace(/^['"]|['"]$/g, '');
+  }
+  return null;
 }
 
 async function createBackup(profile, files) {
@@ -374,6 +567,179 @@ async function createBackup(profile, files) {
     },
   });
   return directory;
+}
+
+async function readProfileSnapshots(profiles) {
+  const uniqueProfiles = [...new Set(profiles)];
+  if (uniqueProfiles.length !== profiles.length || !uniqueProfiles.length) throw safeError('全军迁移岗位清单无效。');
+  const snapshots = [];
+  for (const profile of uniqueProfiles) {
+    const profileHome = hermesProfileHome(profile);
+    const envFile = path.join(profileHome, '.env');
+    const configFile = path.join(profileHome, 'config.yaml');
+    snapshots.push({
+      profile,
+      envFile,
+      configFile,
+      envContent:await readPrivateFile(envFile),
+      configContent:await readOwnedRegularFile(configFile),
+    });
+  }
+  return snapshots;
+}
+
+async function createDirectMigrationBackup(plans) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const directory = path.join(BACKUP_ROOT, `${stamp}-gateway-before-direct-all`);
+  await ensurePrivateDirectory(directory);
+  const profiles = {};
+  for (const plan of plans) {
+    const profileDirectory = path.join(directory, plan.profile);
+    await ensurePrivateDirectory(profileDirectory);
+    await writePrivateAtomic(path.join(profileDirectory, '.env'), plan.envContent);
+    await writePrivateAtomic(path.join(profileDirectory, 'config.yaml'), plan.configContent);
+    profiles[plan.profile] = {
+      '.env':sha256(plan.envContent),
+      'config.yaml':sha256(plan.configContent),
+    };
+  }
+  await writePrivateJson(path.join(directory, 'manifest.json'), {
+    schemaVersion:'agent.army/model-gateway-direct-backup/v1',
+    createdAt:new Date().toISOString(),
+    profiles,
+  });
+  return directory;
+}
+
+async function recordDirectCutover(backupDirectory, profiles) {
+  await writePrivateJson(DIRECT_CUTOVERS_FILE, {
+    schemaVersion:'agent.army/model-gateway-direct-cutovers/v1',
+    latest:{
+      backupDirectory,
+      profiles,
+      directAt:new Date().toISOString(),
+      directBaseUrl:OFFICIAL_STEPFUN_BASE,
+      directMaxTokens:8192,
+    },
+  });
+}
+
+async function applyProfileContents(plans, source) {
+  for (const plan of plans) {
+    const contents = contentsForPlan(plan, source);
+    await writePrivateAtomic(plan.envFile, contents.env);
+    await writePrivateAtomic(plan.configFile, contents.config);
+  }
+}
+
+async function restoreProfileContents(plans, source) {
+  try {
+    await applyProfileContents(plans, source);
+    return null;
+  } catch {
+    return '无法写回至少一个 Profile 的原配置';
+  }
+}
+
+function contentsForPlan(plan, source) {
+  if (source === 'next') return { env:plan.nextEnv, config:plan.nextConfig };
+  if (source === 'original' || source === 'backup') return { env:plan.envContent, config:plan.configContent };
+  if (source === 'current') return { env:plan.currentEnv, config:plan.currentConfig };
+  throw safeError('迁移内容来源无效。');
+}
+
+function controlledBackupDirectory(directory) {
+  const resolved = path.resolve(directory);
+  if (!resolved.startsWith(`${path.resolve(BACKUP_ROOT)}${path.sep}`)) {
+    throw safeError('备份目录不在受控范围内。');
+  }
+  return resolved;
+}
+
+async function readVerifiedDirectMigrationBackup(backupDirectory, profiles) {
+  const manifest = await readPrivateJson(path.join(backupDirectory, 'manifest.json'));
+  validateDirectBackupManifest(manifest, profiles);
+  const backups = new Map();
+  for (const profile of profiles) {
+    const profileDirectory = path.join(backupDirectory, profile);
+    backups.set(profile, {
+      envContent:await readPrivateFile(path.join(profileDirectory, '.env')),
+      configContent:await readPrivateFile(path.join(profileDirectory, 'config.yaml')),
+    });
+  }
+  verifyDirectBackupContents(manifest, backups, profiles);
+  return backups;
+}
+
+export function validateDirectBackupManifest(manifest, profiles, expectedProfiles = FLEET_PROFILES) {
+  if (manifest?.schemaVersion !== 'agent.army/model-gateway-direct-backup/v1') {
+    throw safeError('全军网关迁移备份 manifest schema 无效。');
+  }
+  if (!sameProfileSet(profiles, expectedProfiles) || !sameProfileSet(Object.keys(manifest?.profiles || {}), expectedProfiles)) {
+    throw safeError('全军网关迁移备份的 Profile 集合不完整或不匹配。');
+  }
+  for (const profile of expectedProfiles) {
+    const files = manifest.profiles?.[profile];
+    if (!validSha256(files?.['.env']) || !validSha256(files?.['config.yaml'])) {
+      throw safeError(`全军网关迁移备份缺少 ${profile} 的完整性校验。`);
+    }
+  }
+  return true;
+}
+
+export function verifyDirectBackupContents(manifest, backups, profiles) {
+  for (const profile of profiles) {
+    const backup = backups.get(profile);
+    if (!backup || sha256(backup.envContent) !== manifest.profiles[profile]['.env']
+      || sha256(backup.configContent) !== manifest.profiles[profile]['config.yaml']) {
+      throw safeError(`全军网关迁移备份 ${profile} 的内容校验失败。`);
+    }
+  }
+  return true;
+}
+
+function requireFleetProfiles(policy) {
+  const profiles = Object.keys(policy?.profiles || {});
+  assertFleetProfileList(profiles, '模型入口策略');
+  return FLEET_PROFILES;
+}
+
+export function assertFleetProfileList(profiles, label) {
+  if (!sameProfileSet(profiles, FLEET_PROFILES)) {
+    throw safeError(`${label} 必须精确包含 12 个正式 Hermes Profile。`);
+  }
+}
+
+function sameProfileSet(left, right) {
+  const normalizedLeft = [...new Set(left)].sort();
+  const normalizedRight = [...new Set(right)].sort();
+  return normalizedLeft.length === left.length
+    && normalizedRight.length === right.length
+    && normalizedLeft.length === normalizedRight.length
+    && normalizedLeft.every((profile, index) => profile === normalizedRight[index]);
+}
+
+function assertAllProfilesOnRoute(snapshots, keys, runtime, expectedRoute, action) {
+  const mismatched = snapshots.filter((snapshot) => profileRouteForSnapshot(snapshot, keys, runtime) !== expectedRoute);
+  if (mismatched.length) {
+    throw safeError(`${action}要求 12 个 Profile 全部处于 ${expectedRoute} 路由；当前不符合：${mismatched.map(({ profile }) => profile).join(', ')}。`);
+  }
+}
+
+function profileRouteForSnapshot(snapshot, keys, runtime) {
+  const env = parseEnv(snapshot.envContent);
+  return classifyProfileRoute({
+    envBaseUrl:String(env.STEPFUN_BASE_URL || ''),
+    sstefunBaseUrl:providerBaseUrl(snapshot.configContent, 'sstefun'),
+    stepfunBaseUrl:providerBaseUrl(snapshot.configContent, 'stepfun'),
+    observedKey:String(env.STEPFUN_API_KEY || ''),
+    expectedVirtualKey:String(keys?.profiles?.[snapshot.profile]?.key || ''),
+    upstreamKey:String(runtime?.STEPFUN_UPSTREAM_API_KEY || ''),
+  });
+}
+
+function validSha256(value) {
+  return /^[a-f0-9]{64}$/.test(String(value || ''));
 }
 
 async function gatewayJson(route, { method = 'GET', masterKey, body } = {}) {
@@ -539,6 +905,16 @@ function requireProfile(args) {
 
 export function resolvePrepareProfile(args) {
   return args.length === 0 ? 'default' : requireProfile(args);
+}
+
+export function requireAll(args) {
+  if (args.length !== 1 || args[0] !== '--all') throw safeError('全军直连必须使用 direct --all。');
+  return true;
+}
+
+function requireNoArgs(command, args) {
+  if (args.length) throw safeError(`${command} 不接受参数。`);
+  return true;
 }
 
 function requireDate(args) {

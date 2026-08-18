@@ -966,6 +966,7 @@ async function applyProfileSyncPlan({ plan, run, fileSystem }) {
 
 async function applyRuntimePolicy({ profileHome, target, run }) {
   const settings = [
+    ['model.max_tokens', target.model.maxTokens],
     ['agent.max_turns', target.agent.maxTurns],
     ['agent.reasoning_effort', target.agent.reasoningEffort],
     ['agent.api_max_retries', target.agent.apiMaxRetries],
@@ -1090,10 +1091,13 @@ export async function readCurrentProfileState(profileHome, {
   pythonCommand = hermesPythonCommand,
   helperPath = feishuToolsetHelperPath,
 } = {}) {
-  const result = await run(pythonCommand, [helperPath, 'inspect'], {
-    allowFailure:true,
-    env:{ HERMES_HOME:profileHome },
-  });
+  const [result, modelMaxTokens] = await Promise.all([
+    run(pythonCommand, [helperPath, 'inspect'], {
+      allowFailure:true,
+      env:{ HERMES_HOME:profileHome },
+    }),
+    readModelMaxTokens(profileHome, { run }),
+  ]);
   let response;
   try {
     response = JSON.parse(String(result?.stdout || '').trim());
@@ -1122,12 +1126,28 @@ export async function readCurrentProfileState(profileHome, {
   return {
     mcp:state.mcp,
     feishuToolsets,
-    runtimePolicy:normalizeRuntimePolicy(state.runtimePolicy),
+    runtimePolicy:normalizeRuntimePolicy({
+      ...state.runtimePolicy,
+      model:{ ...state.runtimePolicy?.model, maxTokens:modelMaxTokens },
+    }),
   };
+}
+
+async function readModelMaxTokens(profileHome, { run }) {
+  const result = await run(hermesCommand, ['config', 'get', 'model.max_tokens'], {
+    allowFailure:true,
+    env:{ HERMES_HOME:profileHome },
+  });
+  // Hermes `config get` uses a nonzero exit status for an unset key. Treat
+  // that exact absence as drift so the regular sync writes the standard cap.
+  if (result?.code !== 0) return 0;
+  const value = Number(String(result?.stdout || '').trim());
+  return Number.isSafeInteger(value) && value > 0 ? value : 0;
 }
 
 function normalizeRuntimePolicy(value = {}) {
   return {
+    model:{ maxTokens:Number(value?.model?.maxTokens || 0) },
     agent:{
       maxTurns:Number(value?.agent?.maxTurns || 500),
       reasoningEffort:String(value?.agent?.reasoningEffort || 'medium'),
@@ -1166,6 +1186,7 @@ function normalizeRuntimePolicy(value = {}) {
 
 function runtimePolicyDiff(current, target) {
   const paths = [
+    'model.maxTokens',
     'agent.maxTurns', 'agent.reasoningEffort', 'agent.apiMaxRetries',
     'toolLoopGuardrails.hardStopEnabled',
     'tools.toolSearch.enabled',

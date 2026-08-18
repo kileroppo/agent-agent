@@ -80,3 +80,16 @@ test('collected record preserves a valid platform publish time', () => {
   const record = bundleToRecord(value);
   assert.equal(record.publish_at, '2026-08-14T13:41:00.000Z');
 });
+
+test('v2 scorer accepts B站和 YouTube 的标准指标包', () => {
+  for (const platform of ['bilibili', 'youtube']) {
+    const value = bundle();
+    value.platform = platform;
+    value.currentWork.favorites = 0;
+    value.historyWorks = value.historyWorks.map((work) => ({ ...work, favorites:0 }));
+    const result = buildV2Score(value);
+    assert.equal(result.version, 'v2');
+    assert.equal(result.controls_dispatch, true);
+    assert.equal(bundleToRecord(value).platform, platform);
+  }
+});

@@ -15,6 +15,8 @@ docs/reviews/
 
 当前记录：
 
+- [用户体验与稳定性 1–7 验收](./ux-stability-1-7-2026-08-17/acceptance.md)：代码、发布/回滚、Hermes 白名单、送达真相和真实 UI 已验证；最终版 30 分钟观测通过，72 小时有效观测仍在进行，不提前宣称长期稳定。
+- [模型网关退役验收](./model-gateway-retirement/acceptance.md)：LiteLLM + PostgreSQL Docker 栈退役，12 个 Hermes Profile 恢复 StepFun 官方直连；未执行付费模型探针，仅记录配置和运行验收边界。
 - [11 岗位能力 E2E 覆盖矩阵](./agent-capability-e2e-coverage-2026-08-10.md)：按 `declared/configured/live/verified/humanAccepted` 盘点当前 11 个正式岗位；只选出一条需另行授权的小创本地待审脚本验证，没有创建任务或调用 Provider。
 - [Boom Monitor 收敛到 A君验收](./boom-monitor-ajun-convergence/acceptance.md)：原生服务、同源页面、历史数据迁移、在线备份、唯一 writer、Docker 退役和受控回滚门禁均已完成真实本机验收。
 - [M0 文档与设计基线验收](./m0-documentation-baseline/acceptance.md)

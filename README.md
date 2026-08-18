@@ -34,9 +34,10 @@ agent-agent/
 
 ## 当前状态
 
-### 当前产品结论（2026-08-17）
+### 当前产品结论（2026-08-18）
 
 - A君与小D是当前产品运行面；飞书负责日常派活和交付，A君运行台只负责当前状态、唯一下一步、授权、验收和恢复。
+- Hermes 的 12 个正式 Profile 直接使用 StepFun 官方入口；此前用于虚拟钥匙、逐岗位日美元硬停和统一用量报表的 LiteLLM + PostgreSQL 本地 Docker 栈已退役。Hermes 的单次 `max_tokens`、轮次/压缩控制与 Paperclip 组织级预算仍保留；没有付费探针前，这只证明配置和运行切换，不证明真实模型传输或业务质量。
 - 当前改进主线是“减负与闭环”：只让真实业务工作流进入负责人待办，任务执行状态与人工验收决定分开保存；验证任务和系统任务不再冒充用户待办。
 - M5、Boom Radar 自动扫描和产品成熟度批次保留代码与历史数据，但默认按需或冻结，不参与核心启动和核心健康判定。Campaign、Cron、Publisher 与外部写入继续关闭，重开必须重新授权。
 - `/api/health` 是轻量核心健康入口，`/api/console-overview` 是运行台紧凑读模型；账单和完整清单按页读取。`/api/overview` 只作短期兼容，不再作为探活、首页刷新或当前任务真相入口。
@@ -46,8 +47,8 @@ agent-agent/
 
 - A君、小D 的线上 release、PID、cwd、argv 与 HTTP 回读都是实时事实，**不在 README 手写 hash**。需要确认时运行 `npm run runtime:fingerprint`；A君页面“系统 → 版本”会区分线上版本、候选提交、候选验证/可发布状态和可回滚版本。历史快照只以带时间戳的验收记录为准。
 - 唯一真实业务待办已由负责人在运行台选择“有用”，工作流决定持久化为 `accepted`，首页负责人待办回到 0；验证任务与系统任务没有进入负责人队列。
-- A君 最终 10 分钟空闲采样通过：CPU median `0%`、P95 `0.4%`，RSS median `203MB`、max `209.6MB`；没有全表扫描或重复岗位同步日志刷屏。
-- 当前没有需要负责人继续处理的产品待办；保持 M5、Boom 自动扫描和成熟度复验关闭，只有出现新的真实业务需求或故障时再建立下一步。
+- A君 当前线上版本的 30 分钟观测已自然完成并通过；72 小时有效观测仍在进行，不能用旧版 10 分钟或当前短测证据提前宣称长期稳定。进度与机器门禁见[用户体验与稳定性 1–7 验收账本](./docs/reviews/ux-stability-1-7-2026-08-17/acceptance.md)。
+- 当前没有需要负责人处理的业务待办；唯一工程收口项是等待上述 72 小时观测自然完成并做最终运行态、版本真相与真实页面回读。保持 M5、Boom 自动扫描和成熟度复验关闭，只有出现新的真实业务需求或故障时再建立新的业务下一步。
 - 本轮证据已归档到[产品成熟度总交接](./docs/archive/handoffs/agent-army-product-maturity-handoff.md)；已关闭、冻结或仅剩可选人工抽查的交接不与当前工作竞争优先级。
 
 ## 正式文档入口
@@ -97,6 +98,7 @@ agent-agent/
 - [ADR-0004：通用账号连接、内容获取与运维观察边界](./docs/adr/0004-common-access-foundation.md)
 - [ADR-0005：飞书手机总管与审批分流边界](./docs/adr/0005-feishu-mobile-command-and-approval-boundary.md)
 - [ADR-0012：以业务工作流为主对象的能力治理与验收架构](./docs/adr/0012-workflow-first-capability-policy-and-evaluation.md)
+- [ADR-0013：正式岗位主推理模型切回 StepFun](./docs/adr/0013-stepfun-primary-reasoning-restoration.md)
 - [ADR-0014：本地 AI 插件运行时与项目发布隔离](./docs/adr/0014-local-ai-plugin-runtime-isolation.md)
 - [本地 AI 插件安装与迁移说明](./ops/local-ai/README.md)
 - [现成能力复用调研与采用边界](./docs/research/2026-07-agent-army-reuse-landscape.md)
@@ -106,6 +108,7 @@ agent-agent/
 - [文档迭代与治理规范](./docs/governance/document-lifecycle.md)
 - [项目交接与闭环](./docs/handoffs/README.md)
 - [验收记录入口](./docs/reviews/README.md)
+- [模型网关退役验收](./docs/reviews/model-gateway-retirement/acceptance.md)
 - [Claude 交叉 AI 审核任务书](./docs/reviews/cross-ai-audit-prompt.md)
 - [AI 推测内容评估与采纳](./docs/standards/AI推测内容评估与采纳.md)
 - [仓库协作规则](./AGENTS.md)

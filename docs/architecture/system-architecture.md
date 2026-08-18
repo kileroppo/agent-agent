@@ -4,8 +4,8 @@
 | --- | --- |
 | 状态 | 生效；M5 并行 v2 已 live apply，发布活动仍关闭 |
 | 负责人 | 技术负责人 / Codex 工作台 |
-| 版本 | v1.14 |
-| 最后更新 | 2026-08-10 |
+| 版本 | v1.15 |
+| 最后更新 | 2026-08-17 |
 | 更新触发 | 核心组件、数据真相、部署边界或平台选型变化 |
 
 ## 1. 架构目标
@@ -103,6 +103,8 @@ JSON、校验备份和 plist 回滚备份保留。运行包与技术修复源码
 
 飞书中的“ A君·军团总管”是主要日常总管入口。A君、小D、小R、小办和运维官保持独立 Hermes Gateway 常驻；创建官、审核官、架构师和技术专家保留独立 Profile、岗位边界和 Paperclip `hermes_local` 按需执行能力，但不再拥有常驻 Gateway 或独立飞书入口。任务接收、路由和多人总任务由 A君承担；GitHub 公开研究由小R承担。飞书适配层不保存业务执行 checkpoint，也不自行判断任务完整成功。仓库 Profile/配置器、实际 `~/.hermes` 配置、Paperclip Adapter 和 A君不可变 release 必须分别对账；当前 11 个正式岗位已按 ADR-0013 切到 `stepfun/step-3.7-flash` 且回退链为空，5 个常驻 Gateway 和 A君 fresh runtime 已重启。配置对账不替代真实 StepFun 3.7 调用证据。
 
+文本模型不再经过 LiteLLM + PostgreSQL Docker 网关。12 个 Hermes Profile 直接使用 StepFun 官方入口；仓库不再把本地 `4000` 端口、虚拟钥匙或 LiteLLM 用量库作为运行依赖。Hermes 继续负责 Profile 级 `max_tokens`、最大轮次和会话压缩；Paperclip 继续是组织级预算、审批和审计真相。相应地，系统不再提供每个岗位独立虚拟钥匙、普通直聊的每日美元硬停、4 万输入 Token 的统一预拒绝或 LiteLLM 聚合报表。Provider 后台账单是外部费用的最终依据。
+
 ### 3.2 Paperclip 军团总控
 
 Paperclip 是军团唯一的组织级控制面和任务总控：维护公司目标、组织树、岗位与汇报关系、组织级任务及其依赖、heartbeat 唤醒、预算、组织级审批、暂停/恢复和审计。它可通过适配器管理 Hermes、Codex、Claude Code、Cursor、OpenClaw、脚本或 HTTP 服务等不同运行时。它不替代业务 Agent 对产物质量的验证，也不接管普通一次性审批。
@@ -119,7 +121,7 @@ Paperclip 不可访问时，前两类日常请求不被额外阻塞；组织级�
 
 ### 3.5 Hermes 与其他执行运行时适配层
 
-Hermes 或其他执行运行时负责其 Agent Profile、模型、短期会话、压缩摘要、长期用户偏好、工具选择、单次运行、取消、恢复和运行历史。Hermes 通过 loopback `stdio` Agent Army MCP 读取 A君能力与任务真相；MCP 不保存凭据、会话或第二套队列。Paperclip 发起或管理 heartbeat；运行时不得自行形成脱离 Paperclip 的长期军团任务队列。业务 checkpoint 和产物仍属于业务 Agent/A君的持久化边界。
+Hermes 或其他执行运行时负责其 Agent Profile、模型、短期会话、压缩摘要、长期用户偏好、工具选择、单次运行、取消、恢复和运行历史。12 个 Hermes Profile 直接调用 StepFun 官方入口；`max_tokens`、轮次限制和压缩策略仍在 Hermes Profile 生效。Hermes 通过 loopback `stdio` Agent Army MCP 读取 A君能力与任务真相；MCP 不保存凭据、会话或第二套队列。Paperclip 发起或管理 heartbeat，并继续保存组织级预算、审批和审计；运行时不得自行形成脱离 Paperclip 的长期军团任务队列。业务 checkpoint 和产物仍属于业务 Agent/A君的持久化边界。
 
 老板一次提出多项清晰交付物时，A君可通过 `mission_create` 创建一个父任务和最多十一个受限子任务。每项以唯一 `key` 标识并可通过 `depends_on` 构成无环依赖图；没有依赖且仍有执行槽位的员工同时开始，活动并发不超过四项。汇总类员工必须等所依赖的来源任务进入终态后再工作；父任务只按实际子任务状态和已验证产物形成统一汇报。每名员工使用独立 Hermes Profile，并由 Manifest 驱动岗位 Prompt、Skill、飞书与 Paperclip Toolset；MCP 环境作用域限制可见员工、可创建任务类型和是否允许再次组建任务，不能只靠 Prompt 约束。Paperclip 通过官方 `hermes_local` Adapter 唤醒同一员工 Profile，Profile 只读取一次当前指派并把结果回写同一 run。任务、审批与产物真相仍在 A君/Paperclip 和业务存储，Profile 只保存各自会话、记忆与运行配置。
 

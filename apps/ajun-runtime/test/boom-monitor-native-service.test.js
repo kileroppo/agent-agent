@@ -289,7 +289,7 @@ test('manual import is queued, scanned, persisted, and scored in-process', async
   assert.equal(fx.service.listWorks().works[0].work_id, 'work-import');
 });
 
-test('background lifecycle is idempotent and preserves three daily platform schedules', async (t) => {
+test('background lifecycle is idempotent and preserves four daily platform schedules', async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), 'boom-native-schedule-'));
   t.after(() => rm(directory, { recursive:true, force:true }));
   const service = createBoomMonitorService({
@@ -306,7 +306,8 @@ test('background lifecycle is idempotent and preserves three daily platform sche
   assert.equal(service.listScanJobs().jobs.length, 1);
   service.tickSchedules(new Date('2026-08-07T12:10:15Z'));
   service.tickSchedules(new Date('2026-08-07T12:20:15Z'));
-  assert.deepEqual(service.listScanJobs().jobs.map((job) => job.creator_ref).sort(), ['douyin', 'xiaohongshu', 'youtube']);
+  service.tickSchedules(new Date('2026-08-07T12:30:15Z'));
+  assert.deepEqual(service.listScanJobs().jobs.map((job) => job.creator_ref).sort(), ['bilibili', 'douyin', 'xiaohongshu', 'youtube']);
   await service.startupBackupPromise;
   service.stop();
   service.stop();
