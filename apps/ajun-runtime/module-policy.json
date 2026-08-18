@@ -109,6 +109,30 @@
       ],
       "lineLimit": 600
     },
+    "src/feishu-commander-chain-diagnosis.ts": {
+      "affectedTests": [
+        "test/feishu-commander-chain-cli.test.js",
+        "test/feishu-commander-chain-diagnosis.test.js",
+        "test/feishu-commander-chain-exploration.test.js"
+      ],
+      "lineLimit": 700
+    },
+    "src/feishu-commander-chain-evidence.ts": {
+      "affectedTests": [
+        "test/feishu-commander-chain-cli.test.js",
+        "test/feishu-commander-chain-evidence.test.js",
+        "test/feishu-commander-chain-exploration.test.js",
+        "test/feishu-commander-ingress-preservation.test.js"
+      ],
+      "lineLimit": 320
+    },
+    "src/feishu-commander-chain-observations.ts": {
+      "affectedTests": [
+        "test/feishu-commander-chain-cli.test.js",
+        "test/feishu-commander-chain-observations.test.js"
+      ],
+      "lineLimit": 500
+    },
     "src/feishu-commander-context.ts": {
       "affectedTests": [
         "test/feishu-commander.test.js"
@@ -436,6 +460,8 @@
     "src/runtime-http-handler.ts": {
       "lineLimit": 750,
       "affectedTests": [
+        "test/feishu-commander-chain-exploration.test.js",
+        "test/feishu-commander-ingress-preservation.test.js",
         "test/production-control-plane-boundary.test.js",
         "test/runtime-http-feishu.test.js",
         "test/runtime-http-paperclip.test.js",

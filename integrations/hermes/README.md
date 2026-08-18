@@ -125,6 +125,34 @@ Python 名字作用域回归：平台通知逻辑不得在 `run_sync()` 后半�
 `UnboundLocalError`。补丁会把该导入固定到 `run_sync()` 入口并可重复执行；
 升级 Hermes 后须先运行对应测试，再重放补丁和重启 Gateway。
 
+### 总管链路静默失败证据
+
+`AGENT_ARMY_FEISHU_COMMANDER_SILENT_FAILURE_EVIDENCE_V1` 是总管路由的可归因性补丁单元。
+本机 A君 4321 不可达时运行时侧写不了任何东西，只有 Hermes 侧能留证据，因此该单元只改
+`_route_ajun_commander_event` 的 `except` 异常分支与降级发送块：原 `logger.warning` 一字不改，
+其后追加一次证据记录；降级文案的 `self.send` 包进 `try/except`，发出记 `degraded_notice_sent`、
+未发出记 `degraded_notice_send_failed`。**`AGENT_ARMY_FEISHU_COMMANDER_DIRECT_REPLY_V1` 分支
+（`handled:false` 交回普通聊天）一字不改**，`handled:false` 的语义不受本单元影响。
+
+`runtime/agent_army_feishu_commander_evidence.py` 是该单元依赖的独立 Runtime Module，随
+`patch-feishu-agent-proposal-router.mjs` 原子安装为 adapter 同目录的
+`agent_army_commander_evidence.py`（补丁命令清单条数不变）。它是纯标准库、永不抛异常：任何失败
+只返回 `False`，绝不成为新的故障模式；不写消息正文，`chat_ref` / `requester_ref` 只写 sha256 前
+12 位，`sourceEventRef` 保留 `feishu:<message_id>` 以便与某条飞书消息对齐。
+
+证据按日切分追加到各 Profile 私有的 `0600` 账本：
+
+| 侧 | 路径 | `kind` |
+| --- | --- | --- |
+| Hermes Gateway | `$HERMES_HOME/agent_army_commander_evidence-<YYYY-MM-DD>.jsonl` | `ingress_unreachable`、`ingress_http_error`、`ingress_bad_response`、`degraded_notice_sent`、`degraded_notice_send_failed` |
+| A君运行时 | `${AGENT_ARMY_DATA_DIR:-apps/ajun-runtime/data}/feishu-commander-chain/runtime-evidence-<YYYY-MM-DD>.jsonl` | `ingress_rejected_non_local`、`no_task_by_design`、`diagnosis_completed` |
+
+两侧同用 schema `agent.army/feishu-commander-chain-evidence/v1`，由仓库根
+`npm run diagnose:feishu-chain` 合并读取并按 `recordedAt` 排序展示；诊断只读被诊断对象，
+留痕只写运行时侧 `dataDir`，不写任何 `HERMES_HOME`。已完整迁移（带正式 Adapter Seam）的
+adapter 也会在重跑补丁时收到该单元 —— `feishu-commander-router-patches.mjs` 的 terminal 分支
+执行 post-seam 幂等升级，标记恰好出现一次，重复执行逐字节相等。
+
 `patch-feishu-agent-proposal-router.mjs` 还会保留处理图标的兼容请求体，并把
 飞书拒绝添加或删除图标的结果提升为脱敏警告，只记录错误码和归类，不记录消息、
 用户或授权链接。`patch-hermes-business-error-envelope.mjs` 同时覆盖 Agent 结果层

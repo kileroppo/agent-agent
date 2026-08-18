@@ -137,13 +137,34 @@ npm run dev
 
 ## 运行 A君运行台
 
+A君运行台有**两个不同实例**，飞书链路只在正式实例上生效。混淆这两个地址会让人在开发实例上「验证成功」，却始终收不到飞书回复。
+
+| 实例 | 地址 | 启动方式 | 飞书链路 |
+| --- | --- | --- | --- |
+| **正式** | `http://127.0.0.1:4321` | launchd 受控启动项 `ai.agent-army.ajun-runtime`，跑**不可变 release** | **在此生效** |
+| **开发** | `http://127.0.0.1:4322` | `cd apps/ajun-runtime && npm run dev`（`AJUN_DISABLE_BACKGROUND_SERVICES=true`） | **不通** |
+
+- **正式 4321**：由 launchd 拉起，加载的是已发布的不可变 release，**改工作树代码不会影响它**；要让改动上线必须走 `npm run release:immutable`。实时的 release 身份、PID、cwd 用 `npm run runtime:fingerprint` 读取，不要在文档里手写 release hash。
+- **开发 4322**：`npm run dev` 关闭了 Paperclip、飞书、小D 等后台协调服务，因此**「本机能收到飞书消息」这件事在 4322 上验证不了**。
+
 ```bash
 cd apps/ajun-runtime
-npm test
-npm run dev
+npm test          # 原生 node --test
+npm run dev       # 开发实例，http://127.0.0.1:4322
 ```
 
-默认访问地址：`http://127.0.0.1:4321`。它是本机连接授权、组件健康、恢复和脱敏诊断页；已能作为本机 Paperclip HTTP Agent 的执行适配端，完成低风险健康任务并回报同一 Paperclip 任务单。日常派活、结果交付和用户审批在飞书完成；A君不维护第二套军团队列。小D任务仅调用本机 `4318` 服务，公开链接以外的外部账号、飞书和 Hermes 不由运行台直接调用。
+运行台是本机连接授权、组件健康、恢复和脱敏诊断页；已能作为本机 Paperclip HTTP Agent 的执行适配端，完成低风险健康任务并回报同一 Paperclip 任务单。日常派活、结果交付和用户审批在飞书完成；A君不维护第二套军团队列。小D任务仅调用本机 `4318` 服务，公开链接以外的外部账号、飞书和 Hermes 不由运行台直接调用。
+
+### 飞书里没有收到回复时
+
+在仓库根执行**唯一自检入口**（只读、零外部副作用，4321 未监听时也能跑完）：
+
+```bash
+npm run diagnose:feishu-chain              # 中文逐项结论 + 唯一下一步
+npm run diagnose:feishu-chain -- --json    # 机器可读 agent.army/feishu-commander-chain-diagnosis/v1
+```
+
+它逐项判定 Gateway 进程、`adapter.py` 补丁是否在位、必需环境变量是否注入、4321 是否可达且为预期 release、Profile guard 是否匹配、飞书准入白名单，并标注每项结论所处的能力真相层级。退出码：`0` 未发现本机缺口、`1` 存在阻断缺口、`2` 诊断自身无法完成。**全部通过不等于飞书可用**，仍需在飞书私聊发一条真实文本消息完成真机验证；完整步骤见[真机验证清单](./.kiro/specs/feishu-commander-no-reply-fix/real-machine-verification.md)。
 
 ## 安装本地 AI 插件
 

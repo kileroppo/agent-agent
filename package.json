@@ -28,6 +28,7 @@
     "test:contracts": "npm test --workspace=@agent-army/m5-contracts --if-present && npm test --workspace=@agent-army/paperclip-client --if-present",
     "test:core": "npm test --workspace=ajun-runtime && npm test --workspace=@agent-army/m5-content-pipeline && npm test --workspace=@agent-army/paperclip-content-autonomy && npm test --workspace=@agent-army/m5-publisher-gateway",
     "runtime:fingerprint": "node scripts/runtime-fingerprint.mjs",
+    "diagnose:feishu-chain": "node apps/ajun-runtime/scripts/diagnose-feishu-commander-chain.mjs",
     "stability:baseline": "node scripts/stability-observer.mjs baseline",
     "stability:phase1": "node scripts/run-stability-phase1.mjs",
     "stability:load": "node scripts/stability-observer.mjs load",
