@@ -15,6 +15,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { CHAIN_CHECK_IDS } from '../src/feishu-commander-chain-diagnosis.ts';
+import { createFeishuCommanderChainEvidenceLedger } from '../src/feishu-commander-chain-evidence.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const runtimeRoot = path.resolve(here, '..');
@@ -36,6 +37,9 @@ async function makeHermesFixture(context, { patched = false } = {}) {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'chain-cli-home-'));
   const hermesHome = path.join(home, '.hermes');
   await fs.mkdir(hermesHome, { recursive: true });
+  // 运行时侧账本目录与 HERMES_HOME 夹具分开：CLI 的 diagnosis_completed 只允许写这里（需求 3.8）。
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'chain-cli-data-'));
+  context.after(() => fs.rm(dataDir, { recursive: true, force: true }));
   if (patched) {
     const adapterDir = path.join(hermesHome, 'hermes-agent', 'plugins', 'platforms', 'feishu');
     await fs.mkdir(adapterDir, { recursive: true });
@@ -48,15 +52,33 @@ async function makeHermesFixture(context, { patched = false } = {}) {
     );
   }
   context.after(() => fs.rm(home, { recursive: true, force: true }));
-  return { home, hermesHome };
+  return { home, hermesHome, dataDir };
 }
 
-function runCli(args, { home, hermesHome }) {
+function runCli(args, { home, hermesHome, dataDir }) {
   return spawnSync(process.execPath, [CLI_PATH, ...args], {
     cwd: repoRoot,
     encoding: 'utf8',
-    env: { ...process.env, HOME: home, HERMES_HOME: hermesHome },
+    env: { ...process.env, HOME: home, HERMES_HOME: hermesHome, AGENT_ARMY_DATA_DIR: dataDir },
   });
+}
+
+async function readEvidence(directory) {
+  const records = [];
+  let entries;
+  try {
+    entries = (await fs.readdir(directory)).sort();
+  } catch {
+    return records;
+  }
+  for (const entry of entries) {
+    if (!entry.endsWith('.jsonl')) continue;
+    const content = await fs.readFile(path.join(directory, entry), 'utf8');
+    for (const line of content.split('\n')) {
+      if (line.trim()) records.push(JSON.parse(line));
+    }
+  }
+  return records;
 }
 
 async function snapshotTree(root) {
@@ -80,7 +102,7 @@ async function snapshotTree(root) {
 test('3.6 最坏环境（HERMES_HOME 不存在 + 4321 未监听 + launchd 标签不存在）下 CLI 仍跑完并输出六项', async (context) => {
   const fixture = await makeHermesFixture(context);
   const missingHermesHome = path.join(fixture.home, 'absent-hermes-home');
-  const run = runCli(['--json'], { home: fixture.home, hermesHome: missingHermesHome });
+  const run = runCli(['--json'], { ...fixture, hermesHome: missingHermesHome });
 
   assert.ok([0, 1].includes(run.status), `退出码应 ∈ {0,1}，实际 ${run.status}；stderr=${run.stderr}`);
   assert.equal(run.stderr.trim(), '', `不得出现未捕获异常或告警：${run.stderr}`);
@@ -90,7 +112,7 @@ test('3.6 最坏环境（HERMES_HOME 不存在 + 4321 未监听 + launchd 标签
   assert.equal(payload.safety.readOnly, true);
   assert.equal(payload.safety.secretsRead, false);
   assert.equal(payload.safety.externalEffects, false);
-  // 切片 B 未落地时最近证据为空数组（切片 A 独立交付判据）。
+  // 两侧账本都为空时最近证据必须是空数组（切片 A 的独立交付判据在切片 B 之后依然成立）。
   assert.deepEqual(payload.recentEvidence, []);
   assert.equal(payload.verdict, 'blocking_gap');
   assert.ok(payload.uniqueNextStep);
@@ -128,12 +150,79 @@ test('3.6 打过补丁的 adapter 夹具让 adapter-patch 转 pass，但层级�
   assert.equal(run.status, 1);
 });
 
-test('3.6 CLI 只读：夹具目录在诊断前后逐字节不变', async (context) => {
+test('4.7 CLI 对被诊断对象只读：HERMES_HOME 夹具逐字节不变，留痕只落在 dataDir', async (context) => {
   const fixture = await makeHermesFixture(context, { patched: true });
   const before = await snapshotTree(fixture.home);
   runCli(['--json'], fixture);
   runCli([], fixture);
-  assert.deepEqual(await snapshotTree(fixture.home), before, 'CLI 写入了本机文件（必须只读）。');
+
+  // 收紧（任务 4.7）：诊断对 Hermes 侧与 launchd 侧仍是纯只读 —— 夹具目录逐字节不变；
+  // 唯一允许的写入是运行时侧 dataDir 里的 diagnosis_completed 留痕。
+  assert.deepEqual(await snapshotTree(fixture.home), before, 'CLI 写入了被诊断对象（对 HERMES_HOME 必须只读）。');
+  const records = await readEvidence(path.join(fixture.dataDir, 'feishu-commander-chain'));
+  assert.equal(records.length, 2, '两次诊断应各留一条痕迹。');
+  for (const record of records) {
+    assert.equal(record.kind, 'diagnosis_completed');
+    assert.equal(record.side, 'ajun-runtime');
+    assert.equal(record.externalActionStarted, false);
+    assert.equal(record.reason, 'blocking_gap');
+  }
+});
+
+test('4.7 两侧账本按 recordedAt 合并，同一 sourceEventRef 可关联（需求 2.4 / 2.5 / 2.8）', async (context) => {
+  const fixture = await makeHermesFixture(context, { patched: true });
+  const sourceEventRef = 'feishu:om_cli_merge_1';
+  const runtimeLedger = createFeishuCommanderChainEvidenceLedger({
+    dataDir: fixture.dataDir,
+    now: () => new Date('2026-08-18T02:00:00.000Z'),
+  });
+  await runtimeLedger.record({ kind: 'no_task_by_design', sourceEventRef, reason: 'explicit_direct_reply_without_task' });
+  await fs.writeFile(
+    path.join(fixture.hermesHome, `agent_army_commander_evidence-${new Date().toISOString().slice(0, 10)}.jsonl`),
+    `${JSON.stringify({
+      schemaVersion: 'agent.army/feishu-commander-chain-evidence/v1',
+      recordedAt: '2026-08-18T01:00:00.000Z',
+      side: 'hermes-gateway',
+      kind: 'ingress_unreachable',
+      sourceEventRef,
+      chatRefDigest: 'sha256:0123456789ab',
+      outcome: '本机 A君 总管入口不可达；未启动任何外部动作。',
+      externalActionStarted: false,
+    })}\n`,
+    'utf8',
+  );
+
+  const payload = JSON.parse(runCli(['--json'], fixture).stdout);
+  assert.deepEqual(
+    payload.recentEvidence.map((record) => `${record.recordedAt}:${record.side}`),
+    ['2026-08-18T01:00:00.000Z:hermes-gateway', '2026-08-18T02:00:00.000Z:ajun-runtime'],
+    '两侧账本必须按 recordedAt 合并排序。',
+  );
+  assert.equal(new Set(payload.recentEvidence.map((record) => record.sourceEventRef)).size, 1, '同一事件必须可关联。');
+  assert.ok(!SECRET_SHAPES.test(JSON.stringify(payload.recentEvidence)));
+
+  const humanReadable = runCli([], fixture).stdout;
+  assert.match(humanReadable, /最近证据：\d+ 条（已脱敏，两侧账本按时间合并）/);
+  assert.match(humanReadable, /hermes-gateway ingress_unreachable 事件=feishu:om_cli_merge_1/);
+  assert.match(humanReadable, /诊断留痕：已写入/);
+});
+
+test('4.7 adapter-patch 由 gap 变 pass 后层级仍不超过 configured（不因刚打完补丁就冒充运行可达）', async (context) => {
+  const unpatched = await makeHermesFixture(context);
+  const before = JSON.parse(runCli(['--json'], unpatched).stdout)
+    .checks.find((check) => check.id === 'adapter-patch');
+  assert.equal(before.status, 'gap');
+  assert.equal(before.blocking, true);
+  assert.match(before.nextStep, /patch-feishu-agent-proposal-router\.mjs/);
+
+  const patched = await makeHermesFixture(context, { patched: true });
+  const after = JSON.parse(runCli(['--json'], patched).stdout)
+    .checks.find((check) => check.id === 'adapter-patch');
+  assert.equal(after.status, 'pass');
+  assert.equal(after.truthLayer, 'configured');
+  assert.equal(after.truthLayerCeiling, 'configured');
+  assert.equal(after.requiresRealMachineVerification, true);
+  assert.equal(after.evidence.loadedByGatewayProcess, 'unproven');
 });
 
 test('3.6 人类可读输出每项固定四行并打印总判定与告示', async (context) => {

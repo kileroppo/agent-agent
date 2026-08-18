@@ -15,8 +15,127 @@ export function upgradeFeishuCommanderIngressProtocol(source, { precedence = fal
   let result = upgradeCommanderIngressTimeout(source);
   if (precedence) result = upgradeCommanderIngressPrecedence(result);
   result = upgradeCommanderProfileGuard(result);
-  return upgradeCommanderDirectReplyBypass(result);
+  result = upgradeCommanderDirectReplyBypass(result);
+  // 末位：锚点 C 必须是 AJUN_COMMANDER_INGRESS_TIMEOUT_V1 升级后的降级文案。
+  return upgradeCommanderSilentFailureEvidence(result);
 }
+
+export const silentFailureEvidenceMarker = 'AGENT_ARMY_FEISHU_COMMANDER_SILENT_FAILURE_EVIDENCE_V1';
+export const silentFailureEvidenceImport = 'from .agent_army_commander_evidence import record_commander_chain_evidence';
+
+// 只校验本次升级**应当**注入的内容：没有总管路由的旧安装不会被误报失败关闭。
+export function assertCommanderSilentFailureEvidenceInstalled(source) {
+  if (!source.includes('AJUN_FEISHU_COMMANDER_INGRESS_URL')) return;
+  if (!source.includes(silentFailureEvidenceImport) || !source.includes(silentFailureEvidenceMarker)) {
+    throw new Error('Hermes 总管静默失败证据单元缺失或不完整；拒绝继续。');
+  }
+}
+
+// 需求 2.4：4321 不可达时只有 Hermes 侧能留证据；降级文案发送失败时飞书会话内彻底无声。
+// 本单元只改 `except` 异常分支与降级发送块，**绝不触碰 AGENT_ARMY_FEISHU_COMMANDER_DIRECT_REPLY_V1 分支**
+// —— 这是需求 3.1（handled:false 原样交回 Hermes 普通聊天）的结构性保证。
+export function upgradeCommanderSilentFailureEvidence(source) {
+  // 已注入过也要确认单元完整（缺 import 的半成品必须失败关闭，不得静默放过）。
+  if (source.includes(silentFailureEvidenceMarker)) {
+    assertCommanderSilentFailureEvidenceInstalled(source);
+    return source;
+  }
+  // 未安装总管路由的适配器与本单元无关，直接跳过。
+  if (!source.includes('AJUN_FEISHU_COMMANDER_INGRESS_URL')) return source;
+  const withImport = insertCommanderEvidenceImport(source);
+  const upgraded = transformPythonMethod(withImport, '_route_ajun_commander_event', (body) => {
+    const withExceptEvidence = replaceRequired(
+      body,
+      commanderExceptAnchor,
+      commanderExceptWithEvidence,
+      'Hermes 当前 Feishu 适配器结构不匹配，找不到总管路由异常锚点',
+    );
+    return replaceRequired(
+      withExceptEvidence,
+      commanderDegradedSendAnchor,
+      commanderDegradedSendWithEvidence,
+      'Hermes 当前 Feishu 适配器结构不匹配，找不到降级发送锚点',
+    );
+  });
+  assertCommanderSilentFailureEvidenceInstalled(upgraded);
+  return upgraded;
+}
+
+// 锚点 A：正式 Adapter Seam 的 task card 导入之后。安装流程里 Seam 由
+// feishu-experience-patches 在本单元之后追加，因此该锚点尚不存在时退回追加到文件末尾
+// （Python 在调用期解析全局名，模块级导入位置不影响路由运行）。
+function insertCommanderEvidenceImport(source) {
+  const seamImport = 'from .agent_army_task_card import install_agent_army_feishu_task_card_adapter';
+  if (source.includes(seamImport)) {
+    return source.replace(seamImport, `${seamImport}\n${commanderEvidenceImportBlock}`);
+  }
+  return `${source.trimEnd()}\n\n${commanderEvidenceImportBlock}`;
+}
+
+const commanderEvidenceImportBlock = `# ${silentFailureEvidenceMarker}: silent commander failures stay locally decidable.
+try:
+    from .agent_army_commander_evidence import record_commander_chain_evidence
+except Exception:  # pragma: no cover - evidence must never break adapter import
+    def record_commander_chain_evidence(**_kwargs) -> bool:
+        return False
+
+
+def _agent_army_note_commander_evidence(**kwargs) -> bool:
+    """Record one commander-chain fact. Never raises: evidence is not a new failure mode."""
+    try:
+        home = kwargs.pop("hermes_home", None)
+        if home is None:
+            try:
+                home = get_hermes_home()
+            except Exception:
+                home = None
+        return record_commander_chain_evidence(hermes_home=home, **kwargs)
+    except Exception:
+        return False
+`;
+
+const commanderExceptAnchor = `        except (HTTPError, URLError, OSError, ValueError, json.JSONDecodeError) as exc:
+            logger.warning("[Feishu] A君 commander ingress failed: %s", exc)
+`;
+
+const commanderExceptWithEvidence = `        except (HTTPError, URLError, OSError, ValueError, json.JSONDecodeError) as exc:
+            logger.warning("[Feishu] A君 commander ingress failed: %s", exc)
+            # Commander silent-failure evidence (unit marker declared at module import):
+            # a warning-only log cannot be aligned to one Feishu message.
+            _agent_army_note_commander_evidence(
+                kind="ingress_http_error" if isinstance(exc, HTTPError) else "ingress_bad_response" if isinstance(exc, ValueError) else "ingress_unreachable",
+                source_event_ref=f"feishu:{event.message_id or ''}",
+                chat_ref=chat_id,
+                requester_ref=sender,
+                http_status=getattr(exc, "code", None),
+                reason=type(exc).__name__,
+                profile_agent_id=os.getenv("AGENT_ARMY_FEISHU_AGENT_ID", "").strip() or "ajun",
+            )
+`;
+
+const commanderDegradedSendAnchor = `        if chat_id:
+            await self.send(chat_id, "我这次没能及时理解完这句话，也没有启动任何动作。请直接再说一次你想要的结果。", reply_to=event.message_id)
+        return True`;
+
+const commanderDegradedSendWithEvidence = `        if chat_id:
+            # Commander silent-failure evidence (unit marker declared at module import):
+            # a degraded notice that never lands must still leave evidence.
+            try:
+                degraded_result = await self.send(chat_id, "我这次没能及时理解完这句话，也没有启动任何动作。请直接再说一次你想要的结果。", reply_to=event.message_id)
+                degraded_kind = "degraded_notice_sent" if getattr(degraded_result, "success", True) else "degraded_notice_send_failed"
+                degraded_reason = None if degraded_kind == "degraded_notice_sent" else str(getattr(degraded_result, "error", "") or "")[:200]
+            except Exception as send_exc:
+                degraded_kind = "degraded_notice_send_failed"
+                degraded_reason = type(send_exc).__name__
+            _agent_army_note_commander_evidence(
+                kind=degraded_kind,
+                source_event_ref=f"feishu:{event.message_id or ''}",
+                chat_ref=chat_id,
+                requester_ref=sender,
+                reason=degraded_reason,
+                profile_agent_id=os.getenv("AGENT_ARMY_FEISHU_AGENT_ID", "").strip() or "ajun",
+            )
+        return True`;
 
 function transformPythonMethod(source, methodName, transform) {
   const marker = `    async def ${methodName}(`;

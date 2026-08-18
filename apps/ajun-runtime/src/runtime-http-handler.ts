@@ -7,6 +7,7 @@ import { ContentCampaignError } from './content-campaign-service.ts';
 import { EmployeeFeishuConnectionError } from './employee-feishu-connection-service.ts';
 import { FeishuChannelBridgeError } from './feishu-channel-bridge.ts';
 import { FeishuCommanderValidationError } from './feishu-commander.ts';
+import { recordCommanderChainEvidence } from './feishu-commander-chain-evidence.ts';
 import { HermesModelSetupError } from './hermes-model-setup-service.ts';
 import { StepFunModelPolicyError } from './stepfun-model-policy-service.ts';
 import { canAccessApi, isLocalAddress, lanAddresses, rotateLanShareKey, } from './lan-access.ts';
@@ -39,7 +40,7 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
     const { deploymentMode, lanEnabled, lanAccess, } = network;
     const { tasks, store, proposals, missions, macWorker, xiaod, boomMonitor, boomMonitorEnabled, boomMonitorAutoScheduleEnabled, taskTimeline, productMaturity, } = work;
     const { employeeFeishuConnections, employeeModelSetup, modelPolicy, accessConnections, publicWebFetch, } = connections;
-    const { commander, officialFeishuChannel, hermesNativeCompletionWatcher, resolveFeishuApproval, } = feishu;
+    const { commander, officialFeishuChannel, hermesNativeCompletionWatcher, resolveFeishuApproval, commanderChainEvidence = null, } = feishu;
     const { campaigns } = m5;
     const ownerActionSession: any = createOwnerActionSession();
     return async function ajunHttpHandler(request: any, response: any): Promise<any> {
@@ -300,14 +301,19 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 return sendJson(response, 202, { proposal: proposal.status === 'draft' ? await proposals.submit(proposal.proposalId) : proposal, reply: '已生成岗位草案并提交审核；通过受限测试前不会上线。' });
             }
             if (request.method === 'POST' && request.url === '/api/feishu/commander') {
-                if (!isLocalAddress(request.socket.remoteAddress))
+                if (!isLocalAddress(request.socket.remoteAddress)) {
+                    await recordCommanderChainEvidence({ ledger:commanderChainEvidence, dataDir }, await readJsonBody(request).catch((): any => ({})), { kind:'ingress_rejected_non_local', httpStatus:403 });
                     return sendJson(response, 403, { error: '飞书军团总管入口只能由本机 Hermes 适配器调用。' });
-                const result: any = await commander.handle(await readJsonBody(request));
+                }
+                const commanderInput: any = await readJsonBody(request);
+                const result: any = await commander.handle(commanderInput);
                 const task: any = result?.task || result?.mission || null;
                 const taskCardContext: any = task?.taskId
                     ? await loadTaskCardContext({ store, tasks }, task)
                     : {};
-                return sendJson(response, 202, presentCommanderReply(result, detailBaseUrl, taskCardContext));
+                const commanderReply: any = presentCommanderReply(result, detailBaseUrl, taskCardContext);
+                if (result?.handled === false) await recordCommanderChainEvidence({ ledger:commanderChainEvidence, dataDir }, commanderInput, { kind:'no_task_by_design', httpStatus:202, reason:result?.reason });
+                return sendJson(response, 202, commanderReply);
             }
             if (request.method === 'POST' && request.url === '/api/feishu/channel/messages') {
                 if (!isLocalAddress(request.socket.remoteAddress))

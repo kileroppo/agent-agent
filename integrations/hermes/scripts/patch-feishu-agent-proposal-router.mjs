@@ -30,6 +30,7 @@ const adapterRelativePath = path.join('plugins', 'platforms', 'feishu', 'adapter
 const defaultAdapter = defaultHermesTarget(adapterRelativePath);
 const semanticLayoutSource = fileURLToPath(new URL('../runtime/agent_army_feishu_layout.py', import.meta.url));
 const taskCardRuntimeSource = fileURLToPath(new URL('../runtime/agent_army_feishu_task_card.py', import.meta.url));
+const commanderEvidenceSource = fileURLToPath(new URL('../runtime/agent_army_feishu_commander_evidence.py', import.meta.url));
 
 export async function installFeishuAgentProposalRouterPatch(input = defaultAdapter) {
   const { filePath } = await resolveAndVerifyHermesTarget(input, adapterRelativePath);
@@ -37,20 +38,23 @@ export async function installFeishuAgentProposalRouterPatch(input = defaultAdapt
   const patched = applyPatch(original);
   const semanticLayoutTarget = path.join(path.dirname(filePath), 'agent_army_layout.py');
   const taskCardRuntimeTarget = path.join(path.dirname(filePath), 'agent_army_task_card.py');
-  const [semanticLayout, taskCardRuntime] = await Promise.all([
+  const commanderEvidenceTarget = path.join(path.dirname(filePath), 'agent_army_commander_evidence.py');
+  const [semanticLayout, taskCardRuntime, commanderEvidence] = await Promise.all([
     fs.readFile(semanticLayoutSource),
     fs.readFile(taskCardRuntimeSource),
+    fs.readFile(commanderEvidenceSource),
   ]);
   const semanticLayoutChanged = await atomicWriteFile(semanticLayoutTarget, semanticLayout);
   const taskCardRuntimeChanged = await atomicWriteFile(taskCardRuntimeTarget, taskCardRuntime);
+  const commanderEvidenceChanged = await atomicWriteFile(commanderEvidenceTarget, commanderEvidence);
   const adapterChanged = await atomicWriteFile(filePath, patched);
-  const changed = semanticLayoutChanged || taskCardRuntimeChanged || adapterChanged;
+  const changed = semanticLayoutChanged || taskCardRuntimeChanged || commanderEvidenceChanged || adapterChanged;
   return {
     filePath,
     changed,
     message: changed
-      ? `已安装 Hermes 飞书智能布局、动态任务卡与军团总管路由：${filePath}`
-      : `Hermes 飞书智能布局与动态任务卡已存在：${filePath}`,
+      ? `已安装 Hermes 飞书智能布局、动态任务卡、链路证据与军团总管路由：${filePath}`
+      : `Hermes 飞书智能布局、动态任务卡与链路证据已存在：${filePath}`,
   };
 }
 

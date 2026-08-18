@@ -27,6 +27,11 @@ import {
   diagnoseFeishuCommanderChain,
 } from '../src/feishu-commander-chain-diagnosis.ts';
 import { digestRef, observeFeishuCommanderChain, resolveHermesAgentRoot } from '../src/feishu-commander-chain-observations.ts';
+import {
+  EVIDENCE_DIRECTORY_NAME,
+  createFeishuCommanderChainEvidenceLedger,
+  readCommanderChainEvidenceFiles,
+} from '../src/feishu-commander-chain-evidence.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const runtimeRoot = path.resolve(here, '..');
@@ -184,6 +189,29 @@ async function requestJsonOnce(url) {
   }
 }
 
+// 与 src/runtime/runtime-configuration.ts 同一解析：AGENT_ARMY_DATA_DIR || <repoRoot>/apps/ajun-runtime/data。
+// CLI 必须在依赖未安装时也能跑完，因此这里直接推导而不 import 运行时装配层。
+export function resolveDataDir(environment = process.env) {
+  return path.resolve(String(environment.AGENT_ARMY_DATA_DIR || '').trim()
+    || path.join(repositoryRoot, 'apps/ajun-runtime/data'));
+}
+
+// Hermes 侧账本只读解析（agent_army_commander_evidence-<YYYY-MM-DD>.jsonl，见
+// integrations/hermes/runtime/agent_army_feishu_commander_evidence.py）。读不到就返回空数组。
+async function readHermesSideEvidence(hermesHome) {
+  return readCommanderChainEvidenceFiles(hermesHome, { filePrefix:'agent_army_commander_evidence-' });
+}
+
+async function collectRecentEvidence({ dataDir, hermesHome }) {
+  const [runtimeSide, hermesSide] = await Promise.all([
+    createFeishuCommanderChainEvidenceLedger({ dataDir }).readRecent(),
+    readHermesSideEvidence(hermesHome),
+  ]);
+  // 两侧同一 sourceEventRef 的记录按时间排在一起，使一条飞书消息可被关联。
+  return [...runtimeSide, ...hermesSide]
+    .sort((left, right) => String(left?.recordedAt || '').localeCompare(String(right?.recordedAt || '')));
+}
+
 export async function runDiagnosis({ requesterRef = null } = {}) {
   const [runCommand, paths, fingerprint] = await Promise.all([
     createCommandRunner(),
@@ -212,8 +240,26 @@ export async function runDiagnosis({ requesterRef = null } = {}) {
     requesterRef,
     devPort:4322,
   });
-  // 切片 A 不依赖证据账本：recentEvidence 保持空数组（切片 B 才合并两侧账本）。
-  return diagnoseFeishuCommanderChain(observations, { recentEvidence:[] });
+  // 合并读取两侧账本：运行时侧在 dataDir，Hermes 侧在 HERMES_HOME；缺任一侧都不影响诊断跑完。
+  const dataDir = resolveDataDir();
+  const recentEvidence = await collectRecentEvidence({ dataDir, hermesHome:paths.hermesHome });
+  return diagnoseFeishuCommanderChain(observations, { recentEvidence });
+}
+
+// 诊断结束后**尽力**留痕：只写运行时侧 dataDir，绝不写 HERMES_HOME 或其他 Profile 的账本（需求 3.8）。
+// 失败只提示，不改变输出与退出码。
+async function noteDiagnosisCompleted(diagnosis) {
+  const dataDir = resolveDataDir();
+  const record = await createFeishuCommanderChainEvidenceLedger({ dataDir }).record({
+    kind:'diagnosis_completed',
+    reason:diagnosis.verdict,
+    outcome:`本机链路诊断已跑完：${diagnosis.verdict}；只读判定，未启动任何外部动作。`,
+    truthLayer:'configured',
+    nextStep:diagnosis.uniqueNextStep,
+  });
+  return record
+    ? `诊断留痕：已写入 ${path.join(dataDir, EVIDENCE_DIRECTORY_NAME)}。`
+    : `诊断留痕未写入（${path.join(dataDir, EVIDENCE_DIRECTORY_NAME)} 不可写）；诊断结论本身不受影响。`;
 }
 
 export function renderHumanReadable(diagnosis, { requesterRef = null } = {}) {
@@ -237,8 +283,13 @@ export function renderHumanReadable(diagnosis, { requesterRef = null } = {}) {
   lines.push(`唯一下一步：${diagnosis.uniqueNextStep ?? '无需动作'}`);
   lines.push(diagnosis.verdictCaveat);
   lines.push(diagnosis.recentEvidence.length
-    ? `最近证据：${diagnosis.recentEvidence.length} 条`
+    ? `最近证据：${diagnosis.recentEvidence.length} 条（已脱敏，两侧账本按时间合并）`
     : '最近证据：本机暂无链路证据记录。');
+  // 只打印最近 5 条摘要：记录本身已脱敏，这里不做任何反向还原。
+  for (const record of diagnosis.recentEvidence.slice(-5)) {
+    lines.push(`   ${record.recordedAt} ${record.side} ${record.kind}`
+      + ` 事件=${record.sourceEventRef ?? '未记录'} 结论=${record.outcome ?? ''}`);
+  }
   return lines.join('\n');
 }
 
@@ -263,9 +314,10 @@ async function main(argv) {
       + `唯一下一步：确认仓库路径与 HERMES_HOME 可读后重跑 npm run diagnose:feishu-chain。\n`);
     return 2;
   }
+  const noticeLine = await noteDiagnosisCompleted(diagnosis);
   process.stdout.write(options.json
     ? `${JSON.stringify(diagnosis, null, 2)}\n`
-    : `${renderHumanReadable(diagnosis, { requesterRef:options.requesterRef })}\n`);
+    : `${renderHumanReadable(diagnosis, { requesterRef:options.requesterRef })}\n${noticeLine}\n`);
   if (!options.json && diagnosis.checks.length !== CHAIN_CHECK_IDS.length) {
     process.stderr.write('诊断输出的检查项数量异常。\n');
     return 2;

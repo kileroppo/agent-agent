@@ -5,10 +5,15 @@ import {
 } from './patch-support.mjs';
 import {
   installFeishuCommanderIngress,
+  upgradeCommanderSilentFailureEvidence,
   upgradeFeishuCommanderIngressProtocol,
 } from './feishu-commander-ingress-protocol.mjs';
 
 const adapterSeamMarker = 'AGENT_ARMY_HERMES_FEISHU_ADAPTER_SEAM_V1';
+
+// 已完整迁移的 adapter（真机最可能的状态）命中 terminal 分支；这些单元必须在该分支也执行，
+// 否则新补丁永远分发不到。每个单元自带 `_V1` 标记短路，重复执行逐字节幂等（需求 3.5）。
+const POST_SEAM_IDEMPOTENT_UPGRADES = Object.freeze([upgradeCommanderSilentFailureEvidence]);
 
 const FEATURE_PATCH_UNITS = Object.freeze({
   completion: upgradeCommanderCompletionPatch,
@@ -37,7 +42,8 @@ export function migrateFeishuCommanderRouter(source) {
   const migration = LEGACY_MIGRATION_MATRIX.find(({ marker }) => !marker || source.includes(marker));
   if (migration.terminal) {
     assertInstalledAdapterSeam(source);
-    return { source, terminal: true, migration: migration.name };
+    const upgraded = POST_SEAM_IDEMPOTENT_UPGRADES.reduce((current, upgrade) => upgrade(current), source);
+    return { source: upgraded, terminal: true, migration: migration.name };
   }
   let result = migration.prepare ? migration.prepare(source) : source;
   result = FEATURE_PATCH_PLANS[migration.plan]

@@ -13,6 +13,7 @@ import { HermesModelSetupService } from '../hermes-model-setup-service.ts';
 import { createHermesModelProfileResolver } from '../hermes-model-profile-resolver.ts';
 import { taskDetailBaseUrl } from '../task-presentation.ts';
 import { createFeishuApprovalResolver } from '../runtime-http-feishu.ts';
+import { createFeishuCommanderChainEvidenceLedger } from '../feishu-commander-chain-evidence.ts';
 import type { FeishuCommandCompositionInput } from './composition-contracts.ts';
 
 type LarkChannelOptions = Parameters<
@@ -124,6 +125,8 @@ export async function createFeishuCommandComposition({
       officialFeishuChannel,
       hermesNativeCompletionWatcher,
       resolveFeishuApproval:resolveApproval,
+      // 403 拒绝与「有意不建任务」的本机可判定证据（需求 2.5 / 2.8）。
+      commanderChainEvidence:createFeishuCommanderChainEvidenceLedger({ dataDir }),
     }),
     connections:Object.freeze({
       employeeFeishuConnections,

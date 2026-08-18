@@ -196,9 +196,9 @@
 
 ### 阶段三：切片 B —— 可归因性兜底
 
-- [ ] 4. 切片 B：两侧证据账本、补丁分发与文档修正
+- [x] 4. 切片 B：两侧证据账本、补丁分发与文档修正
 
-  - [ ] 4.1 实现运行时侧证据账本
+  - [x] 4.1 实现运行时侧证据账本
     - 新建 `apps/ajun-runtime/src/feishu-commander-chain-evidence.ts`：`FEISHU_COMMANDER_CHAIN_EVIDENCE_SCHEMA = 'agent.army/feishu-commander-chain-evidence/v1'`、`CommanderChainEvidenceKind`（`ingress_rejected_non_local` / `no_task_by_design` / `diagnosis_completed`）、`CommanderChainEvidenceRecord`、`createFeishuCommanderChainEvidenceLedger(options)`、`digestRef(value)`
     - 落盘 `${dataDir}/feishu-commander-chain/runtime-evidence-<YYYY-MM-DD>.jsonl`；`dataDir` 沿用 `src/runtime/runtime-configuration.ts` 既有解析（`AGENT_ARMY_DATA_DIR || <repoRoot>/apps/ajun-runtime/data`）
     - 目录 `0700`、文件 `0600`；路径经既有 `prepareWorkspaceFile()` 越界与符号链接守卫；解析后不在 `dataDir` 内即拒写
@@ -213,7 +213,7 @@
     - 【沙箱可验证】
     - _Requirements: 2.4, 2.5, 2.8, 2.11_
 
-  - [ ] 4.2 在 403 与 202 分支之后追加证据落盘（返回体逐字节不变）
+  - [x] 4.2 在 403 与 202 分支之后追加证据落盘（返回体逐字节不变）
     - 改 `apps/ajun-runtime/src/runtime-http-handler.ts`，**只在两处已存在的分支之后追加一次 `await evidence.record(...)`**
     - **403 分支**（现 `runtime-http-handler.ts:302-304`）：`isLocalAddress` 判定与 `sendJson(response, 403, { error: '飞书军团总管入口只能由本机 Hermes 适配器调用。' })` **逐字节保留**；在 `sendJson` 之前追加 `ingress_rejected_non_local` 证据，`nextStep` 指向 `npm run diagnose:feishu-chain`
     - **202 分支**（现 `runtime-http-handler.ts:305-311`）：在既有 `presentCommanderReply(...)` 之后、`sendJson` 之前，若 `result?.handled === false` 追加 `no_task_by_design` 证据（含 `reason`，来自 `feishu-commander-routing.ts:28` 的 `explicit_direct_reply_without_task`）。**`presentCommanderReply` 返回值不做任何修改**，`reply` / `taskCard` 原样返回
@@ -227,7 +227,7 @@
     - 【沙箱可验证】
     - _Requirements: 2.5, 2.8_
 
-  - [ ] 4.3 实现 Hermes 侧证据模块（纯 stdlib，永不抛异常）
+  - [x] 4.3 实现 Hermes 侧证据模块（纯 stdlib，永不抛异常）
     - 新建 `integrations/hermes/runtime/agent_army_feishu_commander_evidence.py`，对齐既有 `agent_army_feishu_layout.py` / `agent_army_feishu_task_card.py` 的 Module 模式
     - 导出 `EVIDENCE_SCHEMA = "agent.army/feishu-commander-chain-evidence/v1"` 与 `record_commander_chain_evidence(*, hermes_home, kind, source_event_ref, chat_ref=None, requester_ref=None, http_status=None, reason=None, profile_agent_id=None, now=None) -> bool`
     - 追加到 `hermes_home/agent_army_commander_evidence-<YYYY-MM-DD>.jsonl`，文件 `0600`，目录沿用 `get_hermes_home()`
@@ -242,7 +242,7 @@
     - 【沙箱可验证（python3 单测）】+ 【需真机验证：Hermes venv 内的实际写入与权限】
     - _Requirements: 2.4_
 
-  - [ ] 4.4 新增 Hermes 补丁单元 `AGENT_ARMY_FEISHU_COMMANDER_SILENT_FAILURE_EVIDENCE_V1`
+  - [x] 4.4 新增 Hermes 补丁单元 `AGENT_ARMY_FEISHU_COMMANDER_SILENT_FAILURE_EVIDENCE_V1`
     - 改 `integrations/hermes/scripts/feishu-commander-ingress-protocol.mjs`，新增 `upgradeCommanderSilentFailureEvidence(source)`，写法对齐既有 `upgradeCommanderDirectReplyBypass` / `upgradeCommanderProfileGuard`，复用同文件 `transformPythonMethod` 与 `patch-support.mjs` 的 `replaceRequired`
     - 首行标记短路：已含 `AGENT_ARMY_FEISHU_COMMANDER_SILENT_FAILURE_EVIDENCE_V1` 直接返回；未含 `AJUN_FEISHU_COMMANDER_INGRESS_URL` 直接返回（未安装总管路由则跳过）
     - 三个锚点：**A 模块导入**（在 `from .agent_army_task_card import install_agent_army_feishu_task_card_adapter` 后追加 evidence import）；**B 异常处理**（保留原 `logger.warning` 一字不改，其后追加带标记注释的 `record_commander_chain_evidence(...)`，`kind` 由异常类型派生）；**C 降级发送**（把 `self.send` 包进 `try/except`，成功记 `degraded_notice_sent`、异常记 `degraded_notice_send_failed` 后吞掉，`return True` 保留）
@@ -256,7 +256,7 @@
     - 【沙箱可验证（纯字符串变换）】
     - _Requirements: 2.4_
 
-  - [ ] 4.5 修补丁分发缺口：terminal 分支执行 post-seam 幂等升级
+  - [x] 4.5 修补丁分发缺口：terminal 分支执行 post-seam 幂等升级
     - 改 `integrations/hermes/scripts/feishu-commander-router-patches.mjs`
     - 新增 `POST_SEAM_IDEMPOTENT_UPGRADES = Object.freeze([upgradeCommanderSilentFailureEvidence])`
     - `migrateFeishuCommanderRouter` 命中 `terminal: true`（`installed-adapter-seam-v1`）时，先 `assertInstalledAdapterSeam(source)`，再 `reduce` 应用 `POST_SEAM_IDEMPOTENT_UPGRADES`，返回 `{ source: upgraded, terminal: true, migration: migration.name }`；其余分支不变
@@ -269,7 +269,7 @@
     - 【沙箱可验证】
     - _Requirements: 2.3, 2.4_
 
-  - [ ] 4.6 原子安装第三个 py module
+  - [x] 4.6 原子安装第三个 py module
     - 改 `integrations/hermes/scripts/patch-feishu-agent-proposal-router.mjs`，按既有 `semanticLayoutSource` / `taskCardRuntimeSource` 模式新增 `commanderEvidenceSource` → 安装为 adapter 同目录的 `agent_army_commander_evidence.py`
     - 纳入既有 `Promise.all` 读取与 `atomicWriteFile` 的 `changed` 聚合；内容相等时短路，不改文件 mtime
     - 补丁命令清单条数不变（新单元随本脚本一起分发）
@@ -281,7 +281,7 @@
     - 【沙箱可验证（变换与安装逻辑）】+ 【需真机验证：真实 Hermes 安装的写入与版本门禁】
     - _Requirements: 2.3_
 
-  - [ ] 4.7 诊断 CLI 合并读取两侧账本并留痕
+  - [x] 4.7 诊断 CLI 合并读取两侧账本并留痕
     - 在 `diagnose-feishu-commander-chain.mjs` 中接入 `readRecent()`（运行时侧）与 Hermes 侧 `agent_army_commander_evidence-*.jsonl` 只读解析，合并后按 `recordedAt` 排序注入 `options.recentEvidence`
     - 输出末尾打印最近证据摘要（已脱敏）
     - 诊断结束后**尽力**写一条 `diagnosis_completed` 证据；写入失败仅提示，不影响输出与退出码
@@ -293,7 +293,7 @@
     - 【沙箱可验证】
     - _Requirements: 2.4, 2.5, 2.8, 2.9, 2.11_
 
-  - [ ] 4.8 修正文档中的 4321 / 4322 表述
+  - [x] 4.8 修正文档中的 4321 / 4322 表述
     - 改根 `README.md`「运行 A君运行台」段落（现 `README.md:138-146`，其中 `README.md:146` 把开发地址错写为 4321），区分两个实例：
       - **正式 4321**：launchd 受控（`ai.agent-army.ajun-runtime`），跑不可变 release，**飞书链路在此生效**；改工作树代码不影响它，需走 `npm run release:immutable`；实时事实用 `npm run runtime:fingerprint` 读取，不手写 release hash
       - **开发 4322**：`npm run dev`，`AJUN_DISABLE_BACKGROUND_SERVICES=true`，关闭 Paperclip / 飞书 / 小D 后台协调服务，**飞书链路不通**，「本机能收到飞书消息」在 4322 上验证不了
@@ -306,7 +306,7 @@
     - 【沙箱可验证】
     - _Requirements: 1.10, 2.10_
 
-  - [ ] 4.9 验证 Bug 条件探索测试全部通过
+  - [x] 4.9 验证 Bug 条件探索测试全部通过
     - **Property 1: Expected Behavior** - 静默失败必须可归因且可自检（全量）
     - **IMPORTANT**: 重新运行任务 1 的**同一批测试**，不要写新测试
     - 运行 `node --test apps/ajun-runtime/test/feishu-commander-chain-exploration.test.js integrations/hermes/test/feishu-commander-router-distribution.test.mjs`
@@ -315,7 +315,7 @@
     - _Requirements: Expected Behavior Properties from design（2.1 – 2.9, 2.11, 2.12）_
     - 【沙箱可验证】
 
-  - [ ] 4.10 验证保持性测试在切片 B 后仍全部通过
+  - [x] 4.10 验证保持性测试在切片 B 后仍全部通过
     - **Property 2: Preservation** - 非缺陷输入行为逐字节不变（全量）
     - **IMPORTANT**: 重新运行任务 2 的**同一批测试**，不要写新测试；把 P2-1 / P2-3 / P2-9 的宽松形式收紧为「落盘存在**且**对外行为逐字节不变」
     - 运行 `node --test apps/ajun-runtime/test/feishu-commander-ingress-preservation.test.js`
@@ -330,14 +330,14 @@
 
 ### 阶段四：收尾
 
-- [ ] 5. Checkpoint - 确保全部测试通过
+- [x] 5. Checkpoint - 确保全部测试通过
   - 运行 `npm run check` 与 `npm test`，确保全部测试通过；有问题时向用户提问，不要自行放宽断言
   - 运行 `npm run diagnose:feishu-chain -- --json | grep -Ei 'sk-|bearer|token|cookie|password'`，确认无匹配（2.11）
   - 确认未新增目录（`repository-catalog.json` 无需改动）、未改 `.gitignore`、未改前端
   - 【沙箱可验证】
   - _Requirements: 2.11, 3.7, 3.9_
 
-- [ ] 6. 整理真机验证清单交付给用户
+- [x] 6. 整理真机验证清单交付给用户
   - 把 design.md《真机验证账本》的 7 步整理为用户可直接照做的清单，输出到 `.kiro/specs/feishu-commander-no-reply-fix/real-machine-verification.md`（**只写 markdown，不含代码改动**），并在 PR 描述中同步
   - 每步必须包含：要执行的命令、预期输出、判定标准、失败时的唯一下一步
   - 七步：① `npm run diagnose:feishu-chain`（4321 未起也必须跑完）；② `--json | grep` 确认零凭据；③ 报补丁不在位则重跑两个补丁脚本（维护窗口内，幂等）；④ 报环境变量未注入则写 launchd 后 `launchctl kickstart -k` 重载再复跑；⑤ `npm run runtime:fingerprint` 核对 4321 为 `immutable_release` 而非 4322 开发实例；⑥ 在飞书私聊「A君·军团总管」发一条真实文本消息（**唯一能证明「飞书可用」的一步**）；⑦ 可选地 bootout 运行时制造一次失败，确认 `$HERMES_HOME/agent_army_commander_evidence-*.jsonl` 权限 `0600`、含 `sourceEventRef`、不含消息正文与凭据，然后 bootstrap 恢复
@@ -526,3 +526,25 @@
 - **`AGENT_ARMY_FEISHU_AGENT_ID` 为空串或未设置是正常状态，不是缺口**：Hermes 侧读取时带 `or "ajun"` 回退并做 `.strip()`，因此空值等价于 `ajun`。诊断的 `required-env` 判定不得把该变量的空值报成 `gap`。
 - **`migrateFeishuCommanderRouter` 单独调用在最小未打补丁夹具上不是逐字节幂等的**：需求 3.5 的幂等性由脚本入口 `applyPatch` 保证（其上游会先补齐前置单元），保持性测试的幂等断言应针对 `applyPatch` 而非单独的 migrate 函数。
 - **飞书准入白名单在 `config.yaml` 中的真实字段名未在真机验证**：候选字段路径全部不命中时，`feishu-admission` 检查必须报 `status: 'unknown'`（不是 `pass` 也不是 `gap`、`truthLayer: 'declared'`），不得猜字段名、不得输出 `hit`。
+
+
+切片 B 执行过程中新增的实测事实（与 design.md 的偏离，均为实测所迫）：
+
+- **403 分支必须读请求体**：design.md §5 只说「在 `sendJson` 之前追加一次落盘」，但任务 1 的探索用例 ②
+  断言 403 证据的 `sourceEventRef === 'feishu:exploration-403-1'`，因此 403 分支必须先
+  `readJsonBody(request).catch(() => ({}))` 才能拿到事件引用。落盘与读体的任何失败都被吞掉，
+  403 状态码与错误文案逐字节不变（P2-3 已收紧验证）。请求体读取沿用既有 1 MiB 上限。
+- **证据 import 锚点有回退路径**：`patch-feishu-agent-proposal-router.mjs` 的安装顺序里，正式 Adapter Seam
+  的 `from .agent_army_task_card import ...` 在本单元**之后**才追加，因此 design.md 的锚点 A 在首次安装时
+  尚不存在；实现改为「锚点存在则插其后，否则追加到模块末尾」（Python 在调用期解析全局名，
+  模块级导入位置不影响路由运行），并把 import 包进 `try/except` + 兜底 no-op，保证 evidence 模块缺失
+  也不会让 adapter 导入失败。
+- **`assertInstalledAdapterSeam` 的 `required` 列表未改**：design.md 提到把新 import 加进该列表「但仅在
+  已注入之后校验」。实测该函数在 post-seam 升级**之前**执行，加进去会对旧安装误报失败关闭；改为在升级
+  单元内部用 `assertCommanderSilentFailureEvidenceInstalled(source)` 做同等强度的注入后校验。
+- **`AGENT_ARMY_FEISHU_COMMANDER_SILENT_FAILURE_EVIDENCE_V1` 只对装了总管路由的源码出现一次**：
+  只含迁移标记的最小夹具（notifyV3 / notifyV4 / precedence）没有 `AJUN_FEISHU_COMMANDER_INGRESS_URL`，
+  本单元整体跳过（标记 0 次）；P2-5 的「标记恰好一次」断言按此条件化。
+- **诊断留痕的写入边界**：`diagnosis_completed` 只写运行时侧 `dataDir`，**绝不写 `HERMES_HOME`**。
+  切片 A 的 CLI 只读断言因此是**收紧**而非放宽：`HERMES_HOME` 夹具仍逐字节不变，
+  `recentEvidence` 在两侧账本都为空时仍必须是空数组。

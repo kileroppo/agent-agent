@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
   applyPatch,
   assertSupportedHermesCompatibility,
+  atomicWriteFile,
   installFeishuAgentProposalRouterPatch,
   SUPPORTED_HERMES_GIT_COMMIT,
   SUPPORTED_HERMES_VERSION,
@@ -14,6 +16,7 @@ import {
   upgradeFeishuSenderIdentityPatch,
 } from '../scripts/patch-feishu-agent-proposal-router.mjs';
 import { migrateFeishuCommanderRouter } from '../scripts/feishu-commander-router-patches.mjs';
+import { upgradeCommanderSilentFailureEvidence } from '../scripts/feishu-commander-ingress-protocol.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const patchCli = readFileSync(path.resolve(here, '../scripts/patch-feishu-agent-proposal-router.mjs'), 'utf8');
@@ -751,4 +754,156 @@ _APPROVAL_LABEL_MAP: Dict[str, str] = {
   assert.match(upgraded, /需要你确认一次操作/);
   assert.doesNotMatch(upgraded, /Approved once|Allow Once|Command Approval Required|by \{user_name\}/);
   assert.equal(applyPatch(upgraded), upgraded);
+});
+
+
+test('总管静默失败证据单元只改异常分支与降级发送，且 DIRECT_REPLY_V1 分支逐字符不变（需求 2.4 / 3.1）', () => {
+  const patched = applyPatch(fixture);
+
+  // 锚点 A：证据模块导入（失败关闭的守卫导入，模块缺失时不得拖垮 adapter 导入）。
+  assert.match(patched, /from \.agent_army_commander_evidence import record_commander_chain_evidence/);
+  assert.match(patched, /def _agent_army_note_commander_evidence\(\*\*kwargs\) -> bool:/);
+  assert.equal(patched.split('AGENT_ARMY_FEISHU_COMMANDER_SILENT_FAILURE_EVIDENCE_V1').length - 1, 1);
+
+  // 锚点 B：原 logger.warning 一字不改，其后追加证据调用，kind 由异常类型派生。
+  assert.match(
+    patched,
+    /except \(HTTPError, URLError, OSError, ValueError, json\.JSONDecodeError\) as exc:\n {12}logger\.warning\("\[Feishu\] A君 commander ingress failed: %s", exc\)\n/,
+  );
+  assert.match(patched, /kind="ingress_http_error" if isinstance\(exc, HTTPError\) else "ingress_bad_response" if isinstance\(exc, ValueError\) else "ingress_unreachable"/);
+  assert.match(patched, /http_status=getattr\(exc, "code", None\)/);
+
+  // 锚点 C：降级发送包进 try/except，成功与失败分别留证据，return True 保留。
+  assert.match(patched, /degraded_result = await self\.send\(chat_id, "我这次没能及时理解完这句话，也没有启动任何动作。请直接再说一次你想要的结果。", reply_to=event\.message_id\)/);
+  assert.match(patched, /degraded_kind = "degraded_notice_sent" if getattr\(degraded_result, "success", True\) else "degraded_notice_send_failed"/);
+  assert.match(patched, /except Exception as send_exc:\n {16}degraded_kind = "degraded_notice_send_failed"/);
+  assert.match(patched, /kind=degraded_kind,[\s\S]{0,320}\n {8}return True/);
+
+  // 需求 3.1 的结构性保证：handled:false 分支一字不改。
+  const directReplyBlock = (source) => {
+    const start = source.indexOf('            # AGENT_ARMY_FEISHU_COMMANDER_DIRECT_REPLY_V1');
+    const end = source.indexOf('            reply = body.get("reply") if isinstance(body, dict) else None', start);
+    assert.ok(start >= 0 && end > start, '找不到 DIRECT_REPLY_V1 分支锚点。');
+    return source.slice(start, end);
+  };
+  const withoutEvidence = patched
+    .replace(/\n {12}# Commander silent-failure evidence[\s\S]*?\n {12}\)\n/g, '\n');
+  assert.equal(directReplyBlock(patched), directReplyBlock(withoutEvidence));
+  assert.equal(
+    directReplyBlock(patched),
+    '            # AGENT_ARMY_FEISHU_COMMANDER_DIRECT_REPLY_V1: explicit no-task messages stay in normal Hermes chat.\n'
+    + '            if status in {200, 201, 202} and isinstance(body, dict) and body.get("handled") is False:\n'
+    + '                # Explicit no-task/direct-reply messages belong to the normal\n'
+    + '                # Hermes conversation path with its own Profile and memory.\n'
+    + '                setattr(event, "_ajun_commander_routed", False)\n'
+    + '                return False\n',
+  );
+
+  // 幂等：连续 3 次逐字节相等（需求 3.5）。
+  const second = applyPatch(patched);
+  assert.equal(second, patched);
+  assert.equal(applyPatch(second), patched);
+
+  // 注入后的适配器仍是合法 Python。
+  const syntaxSource = patched.replace('    def __init__(self):', 'class Adapter:\n    def __init__(self):');
+  const syntax = spawnSync('python3', ['-c', 'import ast,sys; ast.parse(sys.stdin.read())'], { input: syntaxSource, encoding: 'utf8' });
+  assert.equal(syntax.status, 0, syntax.stderr);
+});
+
+test('总管静默失败证据单元在锚点缺失或半成品安装时失败关闭，不静默放过', () => {
+  const patched = applyPatch(fixture);
+  assert.throws(
+    () => upgradeCommanderSilentFailureEvidence(
+      patched
+        .replaceAll('AGENT_ARMY_FEISHU_COMMANDER_SILENT_FAILURE_EVIDENCE_V1', 'REMOVED_MARKER')
+        .replace('        except (HTTPError, URLError, OSError, ValueError, json.JSONDecodeError) as exc:\n            logger.warning("[Feishu] A君 commander ingress failed: %s", exc)\n', '        except Exception as exc:\n            pass\n'),
+    ),
+    /找不到总管路由异常锚点/,
+  );
+  assert.throws(
+    () => upgradeCommanderSilentFailureEvidence(patched.replace('from .agent_army_commander_evidence import record_commander_chain_evidence', 'pass')),
+    /静默失败证据单元缺失或不完整/,
+  );
+  // 未安装总管路由的源码与本单元无关：原样返回，不误报。
+  assert.equal(upgradeCommanderSilentFailureEvidence('AJUN_COMMANDER_TASK_NOTIFY_V3'), 'AJUN_COMMANDER_TASK_NOTIFY_V3');
+});
+
+test('链路证据 py Module 随补丁一起原子安装，重复写入幂等且为纯 stdlib（需求 2.3 / 3.5）', async () => {
+  // 安装编排引用独立 Runtime Module，而不是把业务逻辑内嵌成字符串补丁。
+  assert.match(patchCli, /commanderEvidenceSource/);
+  assert.match(patchCli, /agent_army_commander_evidence\.py/);
+  assert.match(patchCli, /agent_army_feishu_commander_evidence\.py/);
+  assert.match(patchCli, /commanderEvidenceChanged/);
+
+  const evidenceRuntimePath = path.resolve(here, '../runtime/agent_army_feishu_commander_evidence.py');
+  const evidenceRuntime = readFileSync(evidenceRuntimePath, 'utf8');
+  assert.match(evidenceRuntime, /def record_commander_chain_evidence\(/);
+  assert.match(evidenceRuntime, /EVIDENCE_SCHEMA = "agent\.army\/feishu-commander-chain-evidence\/v1"/);
+  // 纯 stdlib：任何第三方导入都会让 adapter 在 Hermes venv 内导入失败。
+  for (const line of evidenceRuntime.split('\n')) {
+    const imported = line.match(/^(?:import|from)\s+([A-Za-z0-9_.]+)/)?.[1];
+    if (!imported) continue;
+    assert.ok(
+      ['hashlib', 'json', 'os', 're', 'datetime', 'pathlib'].includes(imported.split('.')[0]),
+      `链路证据 Module 只能依赖标准库，实际导入：${imported}`,
+    );
+  }
+
+  const directory = mkdtempSync(path.join(tmpdir(), 'commander-evidence-install-'));
+  try {
+    const target = path.join(directory, 'agent_army_commander_evidence.py');
+    const payload = readFileSync(evidenceRuntimePath);
+    assert.equal(await atomicWriteFile(target, payload), true);
+    const first = statSync(target);
+    assert.equal(await atomicWriteFile(target, payload), false, '第 2 次安装必须短路。');
+    assert.equal(await atomicWriteFile(target, payload), false, '第 3 次安装必须短路。');
+    assert.equal(statSync(target).mtimeMs, first.mtimeMs, '内容相等时不得改动文件 mtime。');
+    assert.ok(readFileSync(target).equals(payload));
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+
+test('已带正式 Seam 但未带证据单元的 adapter（真机最可能状态）在 Seam 导入之后收到证据导入', () => {
+  // 真机上 adapter 已完整迁移，正式 Seam 的 task card 导入即锚点 A。
+  const installedWithoutEvidence = [
+    'class FeishuAdapter:',
+    '    async def _route_ajun_commander_event(self, event: MessageEvent) -> bool:',
+    '        ingress_url = os.getenv("AJUN_FEISHU_COMMANDER_INGRESS_URL", "").strip()',
+    '        chat_id = getattr(event.source, "chat_id", "") if event.source else ""',
+    '        sender = getattr(event.source, "sender_id", "") if event.source else ""',
+    '        try:',
+    '            status, body = await self._run_blocking(_post_to_ajun)',
+    '            return True',
+    '        except (HTTPError, URLError, OSError, ValueError, json.JSONDecodeError) as exc:',
+    '            logger.warning("[Feishu] A君 commander ingress failed: %s", exc)',
+    '        if chat_id:',
+    '            await self.send(chat_id, "我这次没能及时理解完这句话，也没有启动任何动作。请直接再说一次你想要的结果。", reply_to=event.message_id)',
+    '        return True',
+    '',
+    '',
+    '# AGENT_ARMY_HERMES_FEISHU_ADAPTER_SEAM_V1: pinned, validated plugin installation only.',
+    'from .agent_army_task_card import install_agent_army_feishu_task_card_adapter',
+    '',
+    'install_agent_army_feishu_task_card_adapter(',
+    '    FeishuAdapter,',
+    '    host_symbols=globals(),',
+    ')',
+    '',
+  ].join('\n');
+
+  const upgraded = upgradeCommanderSilentFailureEvidence(installedWithoutEvidence);
+  assert.match(
+    upgraded,
+    /from \.agent_army_task_card import install_agent_army_feishu_task_card_adapter\n# AGENT_ARMY_FEISHU_COMMANDER_SILENT_FAILURE_EVIDENCE_V1/,
+  );
+  assert.match(upgraded, /from \.agent_army_commander_evidence import record_commander_chain_evidence/);
+  assert.match(upgraded, /kind=degraded_kind,/);
+  assert.equal(upgraded.split('AGENT_ARMY_FEISHU_COMMANDER_SILENT_FAILURE_EVIDENCE_V1').length - 1, 1);
+  // 幂等：第 2、3 次逐字节相等。
+  assert.equal(upgradeCommanderSilentFailureEvidence(upgraded), upgraded);
+  assert.equal(upgradeCommanderSilentFailureEvidence(upgradeCommanderSilentFailureEvidence(upgraded)), upgraded);
+  const syntax = spawnSync('python3', ['-c', 'import ast,sys; ast.parse(sys.stdin.read())'], { input: upgraded, encoding: 'utf8' });
+  assert.equal(syntax.status, 0, syntax.stderr);
 });

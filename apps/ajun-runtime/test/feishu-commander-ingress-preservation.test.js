@@ -7,8 +7,9 @@
 // 属性式测试用原生 `node --test` 的「确定性输入枚举 + 固定种子伪随机生成器」实现，
 // 种子写死在 PRNG_SEED 并在断言失败时打印，保证反例可复现；不引入 Jest / Vitest / fast-check（需求 3.9）。
 //
-// P2-1 / P2-3 / P2-9 中涉及**新增证据落盘**的断言，此阶段以「账本为空即视为满足」的宽松形式写，
-// 使本文件能在未修复代码上通过；修复后由任务 4.10 收紧为「落盘存在且对外行为仍不变」。
+// P2-1 / P2-3 / P2-9 中涉及**新增证据落盘**的断言，阶段一以「账本为空即视为满足」的宽松形式写，
+// 使本文件能在未修复代码上通过；切片 B 落地后（任务 4.10）已**收紧**为「落盘确实存在**且**对外行为
+// 逐字节不变」。收紧只加强、不放宽：基线响应体、状态码与文案的断言一字未改。
 //
 // **Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9**
 
@@ -196,12 +197,27 @@ test('P2-1（需求 3.1，最高优先）handled:false 直答分支的响应体�
     }
   }
 
-  // 宽松形式（未修复代码上账本为空即视为满足）：落盘不得改变上面的对外行为。
+  // 收紧（任务 4.10）：落盘**确实存在**，且上面的对外行为逐字节不变。
   const evidence = await readChainEvidence(dataDir);
-  assert.ok(
-    evidence.length === 0 || evidence.some((record) => record.kind === 'no_task_by_design'),
-    `账本非空时必须只包含本次判定证据，实际：${JSON.stringify(evidence)}`,
+  assert.equal(evidence.length, 24, `每条直答消息都必须留下一条判定证据，实际：${evidence.length}`);
+  assert.deepEqual(
+    evidence.map((record) => record.sourceEventRef).sort(),
+    Array.from({ length: 24 }, (_unused, index) => `feishu:preservation-direct-${index}`).sort(),
+    '每条飞书消息都必须能按 sourceEventRef 对齐到一条证据。',
   );
+  for (const record of evidence) {
+    assert.equal(record.kind, 'no_task_by_design');
+    assert.equal(record.side, 'ajun-runtime');
+    assert.equal(record.httpStatus, 202);
+    assert.equal(record.reason, 'explicit_direct_reply_without_task', '证据必须带 reason，使有意静默与链路故障可区分。');
+    assert.equal(record.externalActionStarted, false);
+    // 只出摘要：原始 chatRef / requesterRef 不得出现在证据里（需求 2.11）。
+    assert.match(record.chatRefDigest, /^sha256:[0-9a-f]{12}$/);
+    assert.match(record.requesterRefDigest, /^sha256:[0-9a-f]{12}$/);
+    const serializedRecord = JSON.stringify(record);
+    assert.ok(!serializedRecord.includes('chat-preservation-direct'));
+    assert.ok(!serializedRecord.includes('preservation-user'));
+  }
 });
 
 test('P2-1（需求 3.1）Hermes 侧 DIRECT_REPLY_V1 代码块在补丁变换前后逐字符相等', () => {
@@ -300,12 +316,22 @@ test('P2-3（需求 3.3）随机非本机来源恒为 403，错误文案逐字�
     assert.equal(result.body.error, FORBIDDEN_BASELINE.body.error, trace);
   }
 
-  // 宽松形式：未修复代码上账本为空即视为满足。
+  // 收紧（任务 4.10）：每次 403 都确实落了一条同一事件的证据，且 403 的对外行为逐字节不变。
   const evidence = await readChainEvidence(dataDir);
-  assert.ok(
-    evidence.length === 0 || evidence.every((record) => record.kind === 'ingress_rejected_non_local'),
-    `账本非空时必须只包含 403 拒绝证据，实际：${JSON.stringify(evidence)}`,
+  assert.equal(evidence.length, addresses.length, `每次 403 拒绝都必须留下一条证据，实际：${evidence.length}`);
+  assert.deepEqual(
+    evidence.map((record) => record.sourceEventRef).sort(),
+    addresses.map((_unused, index) => `feishu:preservation-403-${index}`).sort(),
   );
+  for (const record of evidence) {
+    assert.equal(record.kind, 'ingress_rejected_non_local');
+    assert.equal(record.side, 'ajun-runtime');
+    assert.equal(record.httpStatus, 403);
+    assert.equal(record.externalActionStarted, false);
+    assert.match(record.nextStep, /npm run diagnose:feishu-chain/);
+    // 证据里不得出现来源 IP 之外的任何原文，也不得出现被拒绝请求的正文。
+    assert.ok(!JSON.stringify(record).includes('帮我看一下这周的公开资料'));
+  }
 });
 
 test('P2-4（需求 3.4）非 ajun Profile 的 guard 恒不进入总管路由', () => {
@@ -368,6 +394,14 @@ test('P2-5（需求 3.5）5 类 adapter 夹具连续应用补丁 3 次逐字节�
     const third = applyPatch(second);
     assert.equal(second, first, `${name}：第 2 次应用补丁与第 1 次不相等（幂等被破坏）。`);
     assert.equal(third, first, `${name}：第 3 次应用补丁与第 1 次不相等（幂等被破坏）。`);
+    // 收紧（任务 4.10）：装上了总管路由的源码里，新标记恰好出现一次；
+    // 只含迁移标记的最小夹具本来就没有总管路由，因此该单元跳过（0 次）。
+    const markerCount = third.split('AGENT_ARMY_FEISHU_COMMANDER_SILENT_FAILURE_EVIDENCE_V1').length - 1;
+    assert.equal(
+      markerCount,
+      third.includes('AJUN_FEISHU_COMMANDER_INGRESS_URL') ? 1 : 0,
+      `${name}：静默失败证据标记出现 ${markerCount} 次（应恰好一次或整体跳过）。`,
+    );
   }
 
   // 观测记录：已安装 Adapter Seam 的源码在 migrateFeishuCommanderRouter 上恒为 terminal 且原样返回。
@@ -456,8 +490,11 @@ test('P2-8（需求 3.8）账本路径只由 dataDir 决定，其他四个 Gatew
 });
 
 test('P2-9 证据写入不得成为新故障模式：账本抛异常或 dataDir 不可写时 403/202 不变', async (context) => {
+  // 收紧（任务 4.10）：不仅响应体不变，还要证明落盘接缝**确实被调用过** ——
+  // 否则「响应体不变」可能只是因为这条路径根本没接上证据写入。
+  const recordCalls = [];
   const throwingLedger = {
-    async record() { throw new Error('证据写入故意失败'); },
+    async record(input) { recordCalls.push(input?.kind); throw new Error('证据写入故意失败'); },
     async readRecent() { throw new Error('证据读取故意失败'); },
   };
 
@@ -497,6 +534,25 @@ test('P2-9 证据写入不得成为新故障模式：账本抛异常或 dataDir 
   });
   assert.equal(forbidden.status, FORBIDDEN_BASELINE.status);
   assert.deepEqual(forbidden.body, FORBIDDEN_BASELINE.body);
+
+  // 两处接缝都被调用过、都抛了异常，而对外行为一字未变。
+  assert.deepEqual(recordCalls, ['no_task_by_design', 'ingress_rejected_non_local']);
+  // dataDir 不可写时也没有任何文件被创建（写入失败只是「这次没留下证据」）。
+  assert.deepEqual(await readChainEvidence(path.dirname(blockingFile)), []);
+
+  // Hermes 侧同一约束：目录不可创建时 record_commander_chain_evidence 返回 False 且不抛异常。
+  const pythonModule = path.resolve(here, '../../../integrations/hermes/runtime/agent_army_feishu_commander_evidence.py');
+  const pythonRun = spawnSync('python3', ['-c', [
+    'import importlib.util, json, sys',
+    'spec = importlib.util.spec_from_file_location("evidence", sys.argv[1])',
+    'module = importlib.util.module_from_spec(spec)',
+    'spec.loader.exec_module(module)',
+    'result = module.record_commander_chain_evidence(',
+    '    hermes_home=sys.argv[2], kind="ingress_unreachable", source_event_ref="feishu:p29")',
+    'print(json.dumps({"result": result}))',
+  ].join('\n'), pythonModule, path.join(blockingFile, 'nested-hermes-home')], { encoding: 'utf8' });
+  assert.equal(pythonRun.status, 0, `Python 侧不得抛异常：${pythonRun.stderr}`);
+  assert.equal(JSON.parse(pythonRun.stdout).result, false, 'Python 侧写入失败必须返回 False。');
 });
 
 // --- 固定种子伪随机生成器（mulberry32；不引入 PBT 库） ---
