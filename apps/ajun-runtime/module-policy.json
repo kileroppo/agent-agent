@@ -109,6 +109,21 @@
       ],
       "lineLimit": 600
     },
+    "src/feishu-commander-chain-diagnosis.ts": {
+      "affectedTests": [
+        "test/feishu-commander-chain-cli.test.js",
+        "test/feishu-commander-chain-diagnosis.test.js",
+        "test/feishu-commander-chain-exploration.test.js"
+      ],
+      "lineLimit": 700
+    },
+    "src/feishu-commander-chain-observations.ts": {
+      "affectedTests": [
+        "test/feishu-commander-chain-cli.test.js",
+        "test/feishu-commander-chain-observations.test.js"
+      ],
+      "lineLimit": 500
+    },
     "src/feishu-commander-context.ts": {
       "affectedTests": [
         "test/feishu-commander.test.js"

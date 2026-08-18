@@ -1,0 +1,14 @@
+{
+  "pbtResults": {
+    "1. 在未修复代码上写并运行 Bug 条件探索测试": {
+      "status": "passed",
+      "failingExample": "探索测试如预期在未修复代码上全部 FAIL（6/6），失败即证明缺陷存在。反例：\n① 根 package.json 无 \"diagnose:feishu-chain\"（现有 scripts 仅 test/check/check:architecture/test:affected/test:contracts/test:core/runtime:fingerprint/stability:*/local-ai:*）；\n② 403 正确返回 {\"error\":\"飞书军团总管入口只能由本机 Hermes 适配器调用。\"}，但 dataDir 下证据记录为 []；\n③ 202 正确返回 {\"handled\":false,\"reason\":\"explicit_direct_reply_without_task\"}，但 dataDir 下证据记录为 []；\n④ src/feishu-commander-chain-diagnosis.ts 不存在（ERR_MODULE_NOT_FOUND），补丁存活性无任何只读判定；\n⑤ migrateFeishuCommanderRouter(已 seam 源码) 实际返回 migration=installed-adapter-seam-v1、terminal=true、source 与入参逐字符相等=true、含 record_commander_chain_evidence=false，且不含 AGENT_ARMY_FEISHU_COMMANDER_SILENT_FAILURE_EVIDENCE_V1（新标记计数 0，期望 1）；\n⑥ ENOENT: apps/ajun-runtime/scripts/diagnose-feishu-commander-chain.mjs 不存在。",
+      "lastRunTimestamp": 1787047927241
+    },
+    "2. 在未修复代码上写并运行保持性测试（**先于任何实现**）": {
+      "status": "passed",
+      "lastRunTimestamp": 1787047928263
+    }
+  },
+  "executionHistory": {}
+}
