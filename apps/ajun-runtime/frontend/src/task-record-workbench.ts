@@ -241,6 +241,8 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         catch (error: any) {
             if (!quiet)
                 renderDetailError(error);
+            if (revealDetail)
+                elements.workbench.classList.add('is-detail-open');
         }
     }
     async function selectTask(task: any, { updateUrl, revealDetail }: any): Promise<any> {
@@ -607,10 +609,10 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
     }
     function renderError(error: any): any {
         elements.count.textContent = '读取失败';
-        elements.list.innerHTML = `<div class="record-list-error"><strong>暂时无法读取任务记录</strong><p>${escapeHtml(error.message || '本次读取没有完成。')}</p><button class="text-action" type="button" data-record-retry>重新读取</button></div>`;
+        elements.list.innerHTML = `<div class="record-list-error"><strong>暂时无法读取任务记录</strong><p>${escapeHtml(error.message || '本次读取没有完成。')}</p><button class="focus-primary-action" type="button" data-record-retry>重新读取</button></div>`;
     }
     function renderDetailError(error: any): any {
-        elements.detail.innerHTML = `<div class="record-list-error"><strong>无法打开这条记录</strong><p>${escapeHtml(error.message || '本次读取没有完成，任务记录没有被更改。')}</p><button class="text-action" type="button" data-record-detail-retry>重新读取</button></div>`;
+        elements.detail.innerHTML = `<div class="record-list-error"><strong>无法打开这条记录</strong><p>${escapeHtml(error.message || '本次读取没有完成，任务记录没有被更改。')}</p><button class="focus-primary-action" type="button" data-record-detail-retry>重新读取</button></div>`;
         elements.detail.querySelector('[data-record-detail-retry]')?.addEventListener('click', (): any => {
             loadSelectedDetail({ revealDetail: false, quiet: false });
         });
