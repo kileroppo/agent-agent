@@ -21,6 +21,48 @@
 
 飞书、Hermes、StepFun 均为外部能力，本 spec 内所有涉及它们的结论在真机验证前**显式标记未验证**。
 
+### 真机验证证据（已实测 · 切片 A+B）
+
+用户已在本机执行 `npm run diagnose:feishu-chain`，六项检查全部跑完，总判定 `blocking_gap`、退出码 `1`，
+零凭据检查（`--json` 输出 grep `sk-|bearer|token|cookie|password`）通过。以下六项判定结果为**真机实测**：
+
+| # | 检查项 | 结果 | 关键证据 |
+|---|---|---|---|
+| 1 | `gateway-process` | **pass**（实测） | `loaded:true`、`pid` 存活、`state:"running"` |
+| 2 | `adapter-patch` | **gap · 阻断**（实测） | `adapterFileExists:true`、`hasCommanderRoute:false`；五个补丁标记（`PROFILE_GUARD_V1` / `INGRESS_TIMEOUT_V1` / `DIRECT_REPLY_V1` / `ADAPTER_SEAM_V1` / `SILENT_FAILURE_EVIDENCE_V1`）**全部 false**；`hermesVersion:"0.20.1"`、`hermesVersionMatchesBaseline:false` |
+| 3 | `required-env` | **pass**（实测） | `ingressUrlClassification:"expected_loopback"`；`agentIdPresent:false` —— 空值回退 `ajun`，属正常状态 |
+| 4 | `runtime-ingress` | **pass**（实测） | `reachable:true`、`healthStatus:"healthy"`、`releaseStatus:"immutable_release"`、`sourceRelationship:"different_git_head"` |
+| 5 | `profile-guard` | **unknown**（实测） | `guardMarkerPresent:false` —— 第 2 项补丁丢失的连带结果 |
+| 6 | `feishu-admission` | **unknown**（实测） | `errorCode:"admission_field_not_found"` |
+
+诊断留痕已写入运行时侧证据账本（相对路径 `<repo-root>/apps/ajun-runtime/data/feishu-commander-chain/runtime-evidence-*.jsonl`），
+证明切片 B 的落盘路径在真机工作正常。
+
+**根因确认**：Hermes 从 `0.19.0` 升级到 `0.20.1`，升级把 Agent Army 的全部补丁从 `adapter.py` 整体冲掉，
+飞书文本消息因此不进入 A君总管链。这是 design.md《Hypothesized Root Cause》**假设 2（补丁存活性无人校验）
+在真机上的确认**，也是需求 1.3 的实测坐实；该假设未被推翻。
+
+仍然**未验证**的部分：飞书会话内是否出现回复（真机验证清单步骤 6 尚未通过）、Hermes 模型侧是否正常、
+飞书应用事件订阅是否有效、准入白名单是否命中。
+
+### 已知约束（附带事实，不构成新缺陷条款）
+
+- **运行中的 4321 是旧 release**：第 4 项证据 `sourceRelationship:"different_git_head"` 表明当前不可变
+  release 的 git HEAD 与工作树不同，因此切片 B 的**运行时侧**证据落盘在正式 4321 上尚未生效，
+  需执行 `npm run release:immutable` 重新发布后才启用。Hermes 侧证据不受此影响。
+- **诊断结论只覆盖本机**：六项检查的层级上限最高为 `configured` / `reachable`，任一项 `pass`
+  都不能证明「飞书可用」。
+
+### 尚未排除的开放项
+
+**「零回复」症状未被第 2 项完全解释。** 补丁丢失后，飞书文本消息会落回 Hermes 普通聊天
+（`handle_message`），而普通聊天本应仍然产生回复；用户报告的是**完全无回复**。因此很可能存在第二个原因，
+候选为需求 1.8 的 Hermes 模型侧异常（模型入口、密钥、预算、轮次上限），或飞书应用事件订阅侧
+（未订阅消息事件、事件回调地址失效、应用被停用）。这两处**均未在真机关闭，标记未验证**。
+
+据此重申：design.md 的推翻条件仍然完全有效。**不得因为定位到第 2 项就宣布 bug 已修复** ——
+只有真机验证清单步骤 6（飞书会话内出现业务回复或可归因中文说明）通过，才可判定本 spec 的验收目标达成。
+
 ## Bug Analysis
 
 ### Current Behavior (Defect)
@@ -37,6 +79,13 @@
 1.8 WHEN A君返回 `handled:false` 而 Hermes 模型侧异常（入口、密钥、预算或轮次上限）THEN 飞书会话内没有回复，用户无法区分「有意静默」与「链路故障」
 1.9 WHEN 用户想自行定位无回复原因 THEN 系统没有任何本机一次性诊断入口，只能逐个环节猜测
 1.10 WHEN 用户按根 `README.md` 的「运行 A君运行台」段落启动服务 THEN 系统实际在 4322 以关闭飞书后台协调服务的开发实例运行，而文档标注为 4321，使用户误判飞书链路已就绪
+
+以下四条由真机验证新发现（缺陷 A：1.11–1.13；缺陷 B：1.14）：
+
+1.11 WHEN `adapter-patch` 判定为 `gap` 且证据中 `hermesVersionMatchesBaseline` 为 `false` THEN 系统仍输出「重跑补丁脚本 `patch-feishu-agent-proposal-router.mjs`」作为唯一下一步，而该脚本会被版本锁定校验拒绝执行，用户按指令操作只会得到版本门禁错误，「唯一下一步必须可执行」的初衷落空
+1.12 WHEN `profile-guard` 因 `guardMarkerPresent` 为 `false` 判定为 `unknown` 且 `hermesVersionMatchesBaseline` 为 `false` THEN 系统同样输出「重跑补丁脚本恢复 guard 标记」作为下一步，该指令在版本漂移下同样无法执行
+1.13 WHEN 观测层计算 `hermesVersionMatchesBaseline` THEN 系统只比对 `pyproject.toml` 的 version 与基线版本号，不比对 Hermes 安装的 git HEAD；而版本锁定校验要求版本号与 git commit **两者同时匹配**，因此该字段为 `true` 时补丁脚本仍可能被门禁拒绝，判定与门禁不同源
+1.14 WHEN 飞书准入白名单在 Hermes `config.yaml` 中使用的字段名不在硬编码候选列表内 THEN 系统报 `errorCode:"admission_field_not_found"`、`configured:false`，`feishu-admission` 一项永远给不出结论，且用户无法在不改代码的情况下让该项判定生效
 
 ### Expected Behavior (Correct)
 
@@ -55,6 +104,16 @@
 2.11 WHEN 诊断入口输出任何结论 THEN 系统 SHALL NOT 回显 secret、token、Cookie、授权链接或真实 `.env` 内容
 2.12 WHEN 需要实现上述诊断能力 THEN 系统 SHALL 复用既有 `deterministic-local-health-probe.ts`、`/api/health`、`scripts/runtime-fingerprint.mjs` 与 `ops/ajun-release-helper/`，SHALL NOT 新建平行的诊断或控制面实现
 
+以下七条对应真机新发现的缺陷（缺陷 A：2.13–2.17；缺陷 B：2.18–2.19）：
+
+2.13 WHEN `adapter-patch` 判定为 `gap` 且 `hermesVersionMatchesBaseline` 为 `false` THEN 该项的唯一下一步 SHALL 说明补丁脚本已被版本锁定校验挡住（并给出实际版本与基线版本），且 SHALL 指向「补丁锚点需针对当前 Hermes 版本重新适配」，SHALL NOT 把「直接重跑补丁脚本」作为唯一下一步
+2.14 WHEN `profile-guard` 因 `guardMarkerPresent` 为 `false` 判定为 `unknown` 且 `hermesVersionMatchesBaseline` 为 `false` THEN 该项的下一步 SHALL 同样说明版本锁定原因并指向锚点重新适配，SHALL NOT 建议直接重跑补丁脚本
+2.15 WHEN 诊断因版本漂移调整下一步 THEN 系统 SHALL NOT 建议降低、绕过、放宽或删除版本锁定校验；该门禁挡住的正是「锚点对不上却硬打补丁」，SHALL 在结论中把它表述为保护而非障碍
+2.16 WHEN `hermesVersionMatchesBaseline` 为 `null`（基线版本未注入、或 `pyproject.toml` 读不出）THEN 系统 SHALL 把它原样报为观测事实并说明版本无法判定，SHALL NOT 冒充「匹配」或「不匹配」，且 SHALL NOT 因此使诊断失败退出
+2.17 WHEN 判定补丁脚本是否可执行 THEN 版本基线比对 SHALL 与版本锁定校验同源（版本号与 git commit 两者），或在只比对到版本号时 SHALL 明确标注该结论不足以证明门禁会放行
+2.18 WHEN 用户需要让 `feishu-admission` 一项给出结论 THEN 准入白名单的候选字段路径 SHALL 可由调用方通过 CLI 参数或环境变量配置，使用户无需改动代码即可完成该项判定
+2.19 WHEN 使用调用方提供的候选字段路径 THEN 系统 SHALL 只把配置值当作字段名使用，SHALL NOT 把 Hermes `config.yaml` 的字段值回显到输出，现有脱敏与摘要化处理 SHALL NOT 因可配置而放宽
+
 ### Unchanged Behavior (Regression Prevention)
 
 3.1 WHEN A君返回 `handled:false`（`explicit_direct_reply_without_task`）且 Hermes 模型侧正常 THEN 系统 SHALL CONTINUE TO 由 Hermes 普通聊天路径回复，不插入任何诊断或降级文案
@@ -66,3 +125,10 @@
 3.7 WHEN 调用既有 `/api/health` 与 `runtime-fingerprint` THEN 系统 SHALL CONTINUE TO 满足 `agent.army/runtime-health/v1` 与现有 fingerprint 输出契约
 3.8 WHEN 其他四个常驻 Gateway（非 `ajun` 标签）处理各自 Profile 的消息 THEN 系统 SHALL CONTINUE TO 使用其独立 `HERMES_HOME`、launchd 环境与卡片账本，不受本次修复影响
 3.9 WHEN 运行既有测试 THEN 系统 SHALL CONTINUE TO 使用原生 `node --test`，不引入新测试框架
+
+以下四条对应真机新发现缺陷的保持性要求：
+
+3.10 WHEN `hermesVersionMatchesBaseline` 为 `true` THEN `adapter-patch` 与 `profile-guard` SHALL CONTINUE TO 输出原有的「重跑补丁脚本并重载 Gateway」下一步，不得因新增版本分支而回归
+3.11 WHEN 配置了候选字段路径后仍读不出准入白名单字段 THEN `feishu-admission` SHALL CONTINUE TO 报 `status:'unknown'`（既不是 `pass` 也不是 `gap`）、`truthLayer:'declared'`，且 SHALL CONTINUE TO 不输出 `hit`；不得因字段可配置而退化成猜字段
+3.12 WHEN 诊断入口运行 THEN 系统 SHALL CONTINUE TO 保持只读、不读 `.env`、不产生外部副作用，且六项检查的 id、顺序、`truthLayerCeiling` 与退出码语义（`0` / `1` / `2`）保持不变
+3.13 WHEN 版本锁定校验被补丁脚本调用 THEN `assertSupportedHermesCompatibility` SHALL CONTINUE TO 在版本号或 git commit 任一不匹配时拒绝执行并抛出中文错误，不为诊断可执行性放宽
