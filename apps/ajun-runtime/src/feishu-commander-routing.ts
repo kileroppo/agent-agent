@@ -27,7 +27,7 @@ export const feishuCommanderRoutingMethods: Record<string, any> = {
         if (isDirectReplyWithoutTask(text)) {
             return { handled: false, reason: 'explicit_direct_reply_without_task' };
         }
-        const direct: any = await this.handleDirectAgent(targetAgentId, { text, sourceEventRef, source, requester });
+        const direct: any = await this.handleDirectAgent(targetAgentId, { text, sourceEventRef, source, requester, profileId });
         if (direct)
             return direct;
         if (USE_THIS_VERSION_RE.test(text))
@@ -73,11 +73,26 @@ export const feishuCommanderRoutingMethods: Record<string, any> = {
         const plan: any = await this.intentFor(text);
         return this.handlePlannedIntent(plan, { text, sourceEventRef, source, requester, targetAgentId });
     },
-    async handleDirectAgent(agentId: any, { text, sourceEventRef, source, requester }: any): Promise<any> {
+    async handleDirectAgent(agentId: any, { text, sourceEventRef, source, requester, profileId }: any): Promise<any> {
         if (!agentId || agentId === 'ajun')
             return null;
         if (agentId === 'reviewer' && isRegisteredDraftReviewRequest(text))
             return this.reviewRegisteredDrafts(text);
+        // 小D专用飞书应用收到一条纯受支持公开视频 URL 时，按岗位默认任务
+        // 直接建单。这里不能先问 planner，否则链接会退回普通聊天而无法进入媒体链路。
+        const directTaskType: any = DEFAULT_TASK_DEFINITION_REGISTRY.directTaskType(agentId);
+        if (agentId === 'xiaod' && profileId === 'xiaod' && isSupportedXiaodVideoUrl(text) && directTaskType === 'media.transcribe-and-refine') {
+            const task: any = await this.tasks.create({
+                title: text,
+                description: '',
+                taskType: directTaskType,
+                requester,
+                source,
+                agentId,
+                idempotencyKey: `feishu:${sourceEventRef}`
+            });
+            return this.completionWatchFor(replyFor(task, directTaskType));
+        }
         const directPlan: any = await this.directAgentIntent(agentId, text);
         if (directPlan?.intent === 'identity')
             return directAgentIdentity(agentId);
@@ -93,10 +108,10 @@ export const feishuCommanderRoutingMethods: Record<string, any> = {
                 ? this.technicalTriage(taskId)
                 : this.clarify('我是技术专家。请发故障任务号和现象；我会先限定排查范围，不会直接改动生产环境。');
         }
-        const directTaskType: any = agentId === 'office-assistant' && /(?:pptx?|幻灯片|演示文稿)/i.test(text)
+        const fallbackDirectTaskType: any = agentId === 'office-assistant' && /(?:pptx?|幻灯片|演示文稿)/i.test(text)
             ? 'office.presentation-package'
-            : DEFAULT_TASK_DEFINITION_REGISTRY.directTaskType(agentId);
-        const taskType: any = directPlan?.intent === 'route_task' && directPlan.agentId === agentId ? directPlan.taskType : directTaskType;
+            : directTaskType;
+        const taskType: any = directPlan?.intent === 'route_task' && directPlan.agentId === agentId ? directPlan.taskType : fallbackDirectTaskType;
         if (!taskType)
             return null;
         const task: any = await this.tasks.create({
@@ -325,4 +340,32 @@ export const feishuCommanderRoutingMethods: Record<string, any> = {
 function safeTaskCardPolicy(value: any): any {
     const policy: any = String(value || '').trim();
     return ['disabled', 'routed-task', 'durable-task', 'incident-only'].includes(policy) ? policy : '';
+}
+function isSupportedXiaodVideoUrl(value: any): any {
+    const text: any = String(value || '').trim();
+    let url: URL;
+    try {
+        url = new URL(text);
+    }
+    catch {
+        return false;
+    }
+    if (!['http:', 'https:'].includes(url.protocol))
+        return false;
+    const hostname: any = url.hostname.toLowerCase().replace(/^www\./, '');
+    const pathname: any = url.pathname;
+    if (hostname === 'bilibili.com')
+        return /^\/video\/(?:BV|av)[a-z0-9]+/i.test(pathname);
+    if (hostname === 'b23.tv')
+        return pathname.length > 1;
+    if (hostname === 'youtube.com')
+        return (pathname === '/watch' && Boolean(url.searchParams.get('v')))
+            || /^\/(?:shorts|live)\/[^/]+/i.test(pathname);
+    if (hostname === 'youtu.be')
+        return pathname.length > 1;
+    if (hostname === 'douyin.com')
+        return /^\/(?:video|note)\/[^/]+/i.test(pathname);
+    if (hostname === 'v.douyin.com')
+        return pathname.length > 1;
+    return false;
 }

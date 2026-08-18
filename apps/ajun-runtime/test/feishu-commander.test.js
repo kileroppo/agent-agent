@@ -5,6 +5,7 @@ import {
   TASK_ROUTING_DECISION_SCHEMA_VERSION,
   taskRoutingDecision,
 } from '../src/feishu-commander-replies.ts';
+import { agentFixture, setupTaskService } from './support/task-service-fixture.js';
 
 const readableValidation = { exists:true, readable:true, nonEmpty:true };
 const completeVideoScriptArtifact = (data = {}) => ({
@@ -959,6 +960,157 @@ test('飞书军团总管把优先级安排交给多人协作，而不是回复�
   assert.equal(calls.tasks.length, 0);
   assert.equal(missionCalls.length, 1);
   assert.match(result.reply, /运维官、架构师/);
+});
+
+test('小D专用飞书收到纯 B 站视频链接时不经 planner，按同一事件幂等建立媒体任务', async () => {
+  const submitted = [];
+  const tasksByIdempotencyKey = new Map();
+  let plannerCalls = 0;
+  const commander = new FeishuCommander({
+    tasks: {
+      async create(input) {
+        submitted.push(input);
+        const existing = tasksByIdempotencyKey.get(input.idempotencyKey);
+        if (existing) return existing;
+        const task = {
+          taskId:`media-${tasksByIdempotencyKey.size + 1}`,
+          taskType:input.taskType,
+          status:'queued',
+          assigneeAgentId:input.agentId,
+          input:{ sourceUrl:input.title, sourceUrls:[input.title] },
+          artifactRefs:[],
+        };
+        tasksByIdempotencyKey.set(input.idempotencyKey, task);
+        return task;
+      }
+    },
+    proposals:{},
+    planner:{ async decide() { plannerCalls += 1; throw new Error('纯视频链接不应调用 planner'); } },
+    ajunBaseUrl:'http://127.0.0.1:4321',
+  });
+  const event = {
+    text:'https://www.bilibili.com/video/BV1ymux6BEFU/?spm_id_from=333.337.search-card.all.click&vd_source=04269541aceb1b422d2a1b6bcdd2ffcd',
+    sourceEventRef:'feishu:bilibili-direct-1',
+    chatRef:'chat-xiaod-direct',
+    targetAgentId:'xiaod',
+    profileId:'xiaod',
+  };
+  const first = await commander.handle(event);
+  const second = await commander.handle(event);
+  assert.equal(plannerCalls, 0);
+  assert.equal(submitted.length, 2);
+  assert.equal(tasksByIdempotencyKey.size, 1);
+  assert.equal(first.task.taskId, second.task.taskId);
+  assert.deepEqual(submitted.map((input) => input.idempotencyKey), ['feishu:feishu:bilibili-direct-1', 'feishu:feishu:bilibili-direct-1']);
+  assert.equal(submitted[0].taskType, 'media.transcribe-and-refine');
+  assert.equal(submitted[0].agentId, 'xiaod');
+  assert.equal(first.task.input.sourceUrl, event.text);
+  assert.deepEqual(first.completionWatch, { kind:'ajun_task', taskId:'media-1', baseUrl:'http://127.0.0.1:4321' });
+  assert.deepEqual(second.completionWatch, first.completionWatch);
+});
+
+test('小D纯视频快速入口用真实任务服务拒绝同事件的不同 URL，且不重复执行', async () => {
+  const xiaod = agentFixture('xiaod', '小D', ['media.transcribe-and-refine']);
+  let executionCalls = 0;
+  const { service, records } = setupTaskService({
+    agents:[xiaod],
+    executors:{
+      xiaod:{
+        async execute(task) {
+          executionCalls += 1;
+          return { status:'running', currentStage:'delegated_to_xiaod', execution:{ xiaodJobId:'local-test-job' } };
+        }
+      }
+    }
+  });
+  let plannerCalls = 0;
+  const commander = new FeishuCommander({
+    tasks:service,
+    proposals:{},
+    planner:{ async decide() { plannerCalls += 1; throw new Error('纯视频链接不应调用 planner'); } },
+    ajunBaseUrl:'http://127.0.0.1:4321',
+  });
+  const event = {
+    text:'https://www.bilibili.com/video/BV1ymux6BEFU/',
+    sourceEventRef:'feishu:bilibili-conflict-1',
+    chatRef:'chat-xiaod-conflict',
+    targetAgentId:'xiaod',
+    profileId:'xiaod',
+  };
+  const first = await commander.handle(event);
+  const duplicate = await commander.handle(event);
+  await assert.rejects(
+    commander.handle({ ...event, text:'https://www.bilibili.com/video/BV1different/' }),
+    (error) => error.code === 'task_idempotency_conflict',
+  );
+  assert.equal(plannerCalls, 0);
+  assert.equal(first.task.taskId, duplicate.task.taskId);
+  assert.equal(records.tasks.length, 1);
+  assert.equal(executionCalls, 1);
+  assert.equal(records.tasks[0].input.sourceUrl, event.text);
+});
+
+test('小D带文字的链接请求仍走原有 planner 路径', async () => {
+  let plannerCalls = 0;
+  const commander = new FeishuCommander({
+    tasks:{ async create() { throw new Error('本例 planner 应先要求澄清'); } },
+    proposals:{},
+    planner:{ async decide() { plannerCalls += 1; return { intent:'clarify', reply:'请确认要转录还是只归档。' }; } }
+  });
+  const result = await commander.handle({
+    text:'请转录 https://www.bilibili.com/video/BV1ymux6BEFU/',
+    sourceEventRef:'feishu:bilibili-text-1',
+    targetAgentId:'xiaod',
+    profileId:'xiaod',
+  });
+  assert.equal(plannerCalls, 1);
+  assert.equal(result.kind, 'clarify');
+});
+
+test('纯视频链接不在小D专用 profile 时不触发快速入口', async () => {
+  let plannerCalls = 0;
+  const commander = new FeishuCommander({
+    tasks:{ async create() { throw new Error('非小D专用 profile 不应跳过 planner'); } },
+    proposals:{},
+    planner:{ async decide() { plannerCalls += 1; return { intent:'clarify', reply:'请说明要如何处理链接。' }; } }
+  });
+  const result = await commander.handle({
+    text:'https://www.youtube.com/watch?v=video-id',
+    sourceEventRef:'feishu:youtube-wrong-profile-1',
+    targetAgentId:'xiaod',
+    profileId:'ajun',
+  });
+  assert.equal(plannerCalls, 1);
+  assert.equal(result.kind, 'clarify');
+});
+
+test('小D快速入口只接受有效 YouTube v 参数或 shorts/live 路径', async () => {
+  const created = [];
+  let plannerCalls = 0;
+  const commander = new FeishuCommander({
+    tasks:{ async create(input) {
+      created.push(input);
+      return { taskId:`youtube-${created.length}`, taskType:input.taskType, status:'queued', input:{ sourceUrl:input.title }, artifactRefs:[] };
+    } },
+    proposals:{},
+    planner:{ async decide() { plannerCalls += 1; return { intent:'clarify', reply:'请说明要如何处理链接。' }; } }
+  });
+  for (const [index, text] of [
+    'https://www.youtube.com/watch?v=video-id',
+    'https://www.youtube.com/shorts/video-id',
+    'https://www.youtube.com/live/video-id',
+  ].entries()) {
+    const result = await commander.handle({
+      text, sourceEventRef:`feishu:youtube-fastpath-${index}`, targetAgentId:'xiaod', profileId:'xiaod',
+    });
+    assert.equal(result.kind, 'media_task');
+  }
+  const invalid = await commander.handle({
+    text:'https://www.youtube.com/watch?v=', sourceEventRef:'feishu:youtube-empty-v-1', targetAgentId:'xiaod', profileId:'xiaod',
+  });
+  assert.equal(created.length, 3);
+  assert.equal(plannerCalls, 1);
+  assert.equal(invalid.kind, 'clarify');
 });
 
 test('A君派给小D后返回受限完成监听信息，供原飞书会话主动收结果', async () => {

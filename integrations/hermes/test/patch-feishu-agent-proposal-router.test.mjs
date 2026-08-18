@@ -92,6 +92,8 @@ test('Hermes 飞书补丁 CLI 只保留安装 Interface，迁移与特性编排�
   assert.match(commanderIngressProtocol, /AGENT_ARMY_FEISHU_COMMANDER_DIRECT_REPLY_V1/);
   assert.match(commanderIngressProtocol, /AJUN_COMMANDER_INGRESS_TIMEOUT_V1/);
   assert.match(commanderIngressProtocol, /AJUN_COMMANDER_INGRESS_PRECEDENCE_V1/);
+  assert.match(taskCardRuntime, /route_xiaod_public_video_event/);
+  assert.match(taskCardRuntime, /original_handle_message/);
   assert.match(experiencePatches, /installTaskCardAdapterSeam/);
   assert.ok(experiencePatches.split('\n').length < 750);
   assert.match(experiencePatches, /upgradeFeishuMobilePresentationPatch/);
@@ -626,6 +628,86 @@ test('已安装 V4 补丁时，文本链接先进入 A君任务链，避免直�
   assert.match(upgraded, /AJUN_COMMANDER_INGRESS_PRECEDENCE_V1/);
   assert.match(upgraded, /AJUN_COMMANDER_INGRESS_PRECEDENCE_V1:[\s\S]*?_route_ajun_commander_event[\s\S]*?_route_xiaod_url_event/);
   assert.equal(applyPatch(upgraded), upgraded);
+});
+
+test('正式 Adapter Seam 在当前 Hermes 入站形态中，于批处理和会话锁之后桥接小D纯公开视频', () => {
+  assert.match(taskCardRuntime, /# The host calls handle_message from _handle_message_with_guards/);
+  assert.match(taskCardRuntime, /if await adapter_for\(instance\)\.route_xiaod_public_video_event\(event\):/);
+  assert.match(taskCardRuntime, /agent_id == "xiaod" and profile_id == "xiaod"/);
+  assert.match(taskCardRuntime, /_is_supported_xiaod_video_url\(text\)/);
+  assert.match(taskCardRuntime, /"sourceEventRef": source_event_ref/);
+  assert.match(taskCardRuntime, /"targetAgentId": "xiaod"/);
+  assert.match(taskCardRuntime, /"profileId": "xiaod"/);
+  assert.match(taskCardRuntime, /def _strict_loopback_http_url/);
+  assert.match(taskCardRuntime, /parsed\.hostname != "127\.0\.0\.1"/);
+  assert.match(taskCardRuntime, /parsed\.path != expected_path/);
+  assert.match(taskCardRuntime, /asyncio\.create_task\(complete_route\(\)\)/);
+  assert.match(taskCardRuntime, /stop_xiaod_public_video_routes/);
+  assert.doesNotMatch(taskCardRuntime, /subprocess|os\.system|shell=True/);
+});
+
+test('当前 Hermes 入站结构经正式 Seam 保持锁和批处理，再以原 messageId 投递小D公开视频任务', () => {
+  const runtimePath = path.resolve(here, '../runtime/agent_army_feishu_task_card.py');
+  const python = [
+    'import asyncio, importlib.util, json, os, sys, tempfile',
+    'from types import SimpleNamespace',
+    'runtime_path = sys.argv[1]',
+    'spec = importlib.util.spec_from_file_location("agent_army_task_card", runtime_path)',
+    'module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)',
+    'class Response:',
+    '  status = 202',
+    '  def read(self): return json.dumps({"task":{"taskId":"task-video-1", "taskType":"media.transcribe-and-refine", "assigneeAgentId":"xiaod", "source":{"channel":"feishu", "eventRef":"feishu:om_video_1", "chatRef":"chat-1", "targetAgentId":"xiaod", "profileId":"xiaod"}, "requester":{"kind":"feishu-user", "ref":"tenant-user-1"}}, "taskCard":{"schemaVersion":"agent.army/task-card/v1", "taskId":"task-video-1", "state":"queued", "agentId":"xiaod", "profileId":"xiaod", "chatId":"chat-1", "taskKind":"media.transcribe-and-refine"}, "completionWatch":{"kind":"ajun_task", "taskId":"task-video-1", "baseUrl":"http://127.0.0.1:4321"}, "reply":"任务已创建"}).encode()',
+    '  def __enter__(self): return self',
+    '  def __exit__(self, *args): return False',
+    'requests = []',
+    'def fake_urlopen(request, timeout=0): requests.append((request, timeout)); return Response()',
+    'module.urlopen = fake_urlopen',
+    'class SendResult:',
+    '  def __init__(self, success=True, **kwargs): self.success = success',
+    'class Host:',
+    '  def __init__(self):',
+    '    self._client = SimpleNamespace(im=SimpleNamespace(v1=SimpleNamespace(message=SimpleNamespace(patch=lambda *a, **k: None))))',
+    '    self._chat_lock = asyncio.Lock(); self.fallback = 0; self.messages = []',
+    '  async def connect(self): return True',
+    '  async def send(self, chat_id, content, *args, **kwargs): self.messages.append((chat_id, content, kwargs.get("reply_to"))); return SendResult()',
+    '  async def handle_message(self, event): self.fallback += 1',
+    '  async def _handle_message_with_guards(self, event):',
+    '    async with self._chat_lock: await self.handle_message(event)',
+    '  def _on_card_action_trigger(self, data): return None',
+    '  async def _run_blocking(self, fn): await asyncio.sleep(0.01); return fn()',
+    '  async def _feishu_send_with_retry(self, **kwargs): return SendResult()',
+    '  def _finalize_send_result(self, result, _message): return result',
+    '  def _is_interactive_operator_authorized(self, _open_id): return True',
+    'symbols = {"CallBackCard": lambda: object(), "P2CardActionTriggerResponse": lambda: object(), "SendResult": SendResult, "get_hermes_home": lambda: tempfile.gettempdir()}',
+    'module.install_agent_army_feishu_task_card_adapter(Host, hermes_version=module.SUPPORTED_HERMES_VERSION, hermes_git_commit=module.SUPPORTED_HERMES_GIT_COMMIT, host_symbols=symbols)',
+    'os.environ.update({"AGENT_ARMY_FEISHU_AGENT_ID":"xiaod", "AGENT_ARMY_PROFILE_ID":"xiaod", "AJUN_FEISHU_COMMANDER_INGRESS_URL":"http://127.0.0.1:4321/api/feishu/commander"})',
+    'host = Host()',
+    'event = SimpleNamespace(text="https://www.bilibili.com/video/BV1ymux6BEFU/?spm_id_from=333.337.search-card.all.click&vd_source=04269541aceb1b422d2a1b6bcdd2ffcd", message_id="om_video_1", message_type="text", media_urls=[], media_types=[], source=SimpleNamespace(chat_id="chat-1", user_id="tenant-user-1", user_id_alt="union-user-1", sender_id="untrusted"), is_command=lambda: False)',
+    'async def main():',
+    '  await host._handle_message_with_guards(event)',
+    '  await host._handle_message_with_guards(event)',
+    '  assert host.fallback == 0',
+    '  assert not host._chat_lock.locked()',
+    '  await asyncio.sleep(0.03)',
+    '  assert len(requests) == 1',
+    '  request, timeout = requests[0]; body = json.loads(request.data.decode())',
+    '  assert timeout == 25 and request.full_url == "http://127.0.0.1:4321/api/feishu/commander"',
+    '  assert body["sourceEventRef"] == "feishu:om_video_1" and body["targetAgentId"] == body["profileId"] == "xiaod"',
+    '  assert body["requesterRef"] == "tenant-user-1"',
+    '  ordinary = SimpleNamespace(**{**event.__dict__, "text":"帮我看看 https://www.bilibili.com/video/BV1ymux6BEFU/"})',
+    '  await host._handle_message_with_guards(ordinary)',
+    '  assert host.fallback == 1 and len(requests) == 1',
+    '  retry_host = Host(); os.environ["AJUN_FEISHU_COMMANDER_INGRESS_URL"] = "http://not-loopback/api/feishu/commander"',
+    '  await retry_host._handle_message_with_guards(event)',
+    '  assert retry_host.fallback == 0 and len(requests) == 1',
+    '  os.environ["AJUN_FEISHU_COMMANDER_INGRESS_URL"] = "http://127.0.0.1:4321/api/feishu/commander"',
+    '  await retry_host._handle_message_with_guards(event)',
+    '  await asyncio.sleep(0.03)',
+    '  assert len(requests) == 2',
+    'asyncio.run(main())',
+  ].join('\n');
+  const result = spawnSync('python3', ['-c', python, runtimePath], { encoding:'utf8' });
+  assert.equal(result.status, 0, result.stderr);
 });
 
 test('飞书原生操作授权卡使用中文业务文案且不显示操作者内部标识', () => {

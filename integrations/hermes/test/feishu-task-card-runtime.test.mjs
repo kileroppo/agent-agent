@@ -14,6 +14,7 @@ function runPython(lines) {
   const script = [
     'import json, sys',
     `sys.path.insert(0, ${JSON.stringify(moduleDirectory)})`,
+    'import agent_army_feishu_task_card as task_card_runtime',
     'from agent_army_feishu_task_card import AgentArmyFeishuTaskCardAdapter, HermesTaskCardCompatibilityError, SUPERVISOR_MAX_CONCURRENCY, SUPPORTED_HERMES_GIT_COMMIT, SUPPORTED_HERMES_VERSION, TASK_CARD_ADAPTER_SEAM, decide_task_card_delivery, install_agent_army_feishu_task_card_adapter, is_trusted_task_card_event, poll_interval_seconds, render_task_card, task_card_policy_decision, trusted_task_card_handler',
     ...lines,
   ].join('\n');
@@ -328,6 +329,7 @@ test('单 supervisor 的轮询退避为 2 秒、15 秒、60 秒', () => {
 
 test('正式 Adapter Seam 校验 Host Interface、版本并保持幂等', () => {
   const result = runPython([
+    'import asyncio',
     'class MessageApi:',
     '  def patch(self, request): return None',
     'class V1: message = MessageApi()',
@@ -336,9 +338,11 @@ test('正式 Adapter Seam 校验 Host Interface、版本并保持幂等', () => 
     'class SymbolType:',
     '  def __init__(self, *args, **kwargs): pass',
     'class Host:',
-    '  def __init__(self): self._client = Client()',
+    '  def __init__(self): self._client = Client(); self.disconnected = False',
     '  async def connect(self): return True',
+    '  async def disconnect(self): self.disconnected = True',
     '  async def send(self, chat_id, content, *args, **kwargs): return None',
+    '  async def handle_message(self, event, *args, **kwargs): return None',
     '  def _on_card_action_trigger(self, data): return None',
     '  async def _feishu_send_with_retry(self, **kwargs): return None',
     '  def _finalize_send_result(self, response, message): return response',
@@ -364,7 +368,15 @@ test('正式 Adapter Seam 校验 Host Interface、版本并保持幂等', () => 
     '  install_agent_army_feishu_task_card_adapter(type("MissingSymbolHost", (Host,), {}), hermes_version=SUPPORTED_HERMES_VERSION, hermes_git_commit=SUPPORTED_HERMES_GIT_COMMIT, host_symbols=incomplete)',
     'except HermesTaskCardCompatibilityError:',
     '  symbol_closed = True',
-    'print(json.dumps({"same": first is second, "seam": Host.__agent_army_task_card_seam__, "versionClosed": version_closed, "gitClosed": git_closed, "symbolClosed": symbol_closed, "hasHandler": callable(Host.handle_agent_army_task_result)}))',
+    'async def verify_disconnect():',
+    '  host = Host(); adapter = host._agent_army_task_card_adapter',
+    '  route = asyncio.create_task(asyncio.sleep(10))',
+    '  adapter._xiaod_public_video_route_tasks["feishu:pending"] = route',
+    '  adapter._xiaod_public_video_inflight_refs.add("feishu:pending")',
+    '  await host.disconnect()',
+    '  return {"disconnected":host.disconnected, "routeCancelled":route.cancelled(), "tracked":len(adapter._xiaod_public_video_route_tasks)}',
+    'disconnect = asyncio.run(verify_disconnect())',
+    'print(json.dumps({"same": first is second, "seam": Host.__agent_army_task_card_seam__, "versionClosed": version_closed, "gitClosed": git_closed, "symbolClosed": symbol_closed, "hasHandler": callable(Host.handle_agent_army_task_result), "disconnect":disconnect}))',
   ]);
   assert.equal(result.same, true);
   assert.equal(result.seam, 'agent.army/hermes-feishu-task-card-adapter/v1');
@@ -372,6 +384,136 @@ test('正式 Adapter Seam 校验 Host Interface、版本并保持幂等', () => 
   assert.equal(result.gitClosed, true);
   assert.equal(result.symbolClosed, true);
   assert.equal(result.hasHandler, true);
+  assert.deepEqual(result.disconnect, { disconnected:true, routeCancelled:true, tracked:0 });
+});
+
+test('小D公开视频入口只接受精确的本机回环 commander URL', () => {
+  const result = runPython([
+    'urls = [',
+    '  "http://127.0.0.1:4321/api/feishu/commander",',
+    '  "https://127.0.0.1:4321/api/feishu/commander",',
+    '  "http://127.0.0.1:0/api/feishu/commander",',
+    '  "http://127.0.0.1:4321/api/feishu/commander/",',
+    '  "http://127.0.0.1:4321/api/feishu/commander?next=/other",',
+    '  "http://127.0.0.1:4321/api/feishu/commander#fragment",',
+    '  "http://owner@127.0.0.1:4321/api/feishu/commander",',
+    '  "http://127.0.0.1.attacker.invalid:4321/api/feishu/commander",',
+    ']',
+    'print(json.dumps([task_card_runtime._strict_loopback_http_url(url, expected_path="/api/feishu/commander") for url in urls]))',
+  ]);
+  assert.deepEqual(result, [
+    'http://127.0.0.1:4321/api/feishu/commander', '', '', '', '', '', '', '',
+  ]);
+});
+
+test('小D公开视频链接识别与 A君 fast path 对齐', () => {
+  const result = runPython([
+    'urls = {',
+    '  "youtube_watch_without_v": "https://www.youtube.com/watch?feature=share",',
+    '  "youtube_watch_empty_v": "https://www.youtube.com/watch?v=",',
+    '  "youtube_watch_with_v": "https://www.youtube.com/watch?feature=share&v=video-1",',
+    '  "youtube_shorts": "https://www.youtube.com/shorts/short-1",',
+    '  "youtube_live": "https://www.youtube.com/live/live-1?feature=share",',
+    '  "bilibili_path": "https://www.bilibili.com/video/BV1abc/extra",',
+    '  "douyin_note": "https://www.douyin.com/note/not-a-numeric-id",',
+    '}',
+    'print(json.dumps({name: task_card_runtime._is_supported_xiaod_video_url(url) for name, url in urls.items()}))',
+  ]);
+  assert.deepEqual(result, {
+    youtube_watch_without_v: false,
+    youtube_watch_empty_v: false,
+    youtube_watch_with_v: true,
+    youtube_shorts: true,
+    youtube_live: true,
+    bilibili_path: true,
+    douyin_note: true,
+  });
+});
+
+test('小D公开视频注册使用 Hermes SessionSource 身份，并对澄清、失败、超时保持可恢复', () => {
+  const result = runPython([
+    'import asyncio, os',
+    'from types import SimpleNamespace',
+    'class Response:',
+    '  def __init__(self, status, body): self.status = status; self._body = body',
+    '  def read(self): return json.dumps(self._body).encode("utf-8")',
+    '  def __enter__(self): return self',
+    '  def __exit__(self, *args): return False',
+    'def receipt(task_id, payload, completion_watch=True):',
+    '  body = {"task":{"taskId":task_id, "taskType":"media.transcribe-and-refine", "assigneeAgentId":"xiaod", "source":{"channel":"feishu", "eventRef":payload["sourceEventRef"], "chatRef":payload["chatRef"], "targetAgentId":"xiaod", "profileId":"xiaod"}, "requester":{"kind":"feishu-user", "ref":payload["requesterRef"]}}, "taskCard":{"schemaVersion":"agent.army/task-card/v1", "taskId":task_id, "state":"queued", "agentId":"xiaod", "profileId":"xiaod", "chatId":payload["chatRef"], "taskKind":"media.transcribe-and-refine"}, "reply":"已登记"}',
+    '  if completion_watch: body["completionWatch"] = {"kind":"ajun_task", "taskId":task_id, "baseUrl":"http://127.0.0.1:4321"}',
+    '  else: body["task"]["state"] = body["taskCard"]["state"] = "succeeded"; body["task"]["terminal"] = body["taskCard"]["terminal"] = True',
+    '  return body',
+    'requests = []',
+    'def fake_urlopen(request, timeout=0):',
+    '  payload = json.loads(request.data.decode("utf-8")); requests.append({"payload":payload, "timeout":timeout})',
+    '  text = payload["text"]',
+    '  if "mode=clarify" in text: return Response(202, {"reply":"请选择处理方式"})',
+    '  if "mode=failure" in text: return Response(503, {"error":"temporary"})',
+    '  if "mode=mismatch" in text:',
+    '    body = receipt("task-good", payload); body["taskCard"]["taskId"] = "task-other"; return Response(202, body)',
+    '  if "mode=source-mismatch" in text:',
+    '    body = receipt("task-good", payload); body["task"]["source"]["eventRef"] = "feishu:wrong"; return Response(202, body)',
+    '  if "mode=bad-watch" in text:',
+    '    body = receipt("task-good", payload); body["completionWatch"]["baseUrl"] = "http://127.0.0.1:4321/?proxy=1"; return Response(202, body)',
+    '  return Response(202, receipt("task-" + payload["sourceEventRef"].split(":", 1)[1], payload, completion_watch="mode=sync-terminal" not in text))',
+    'task_card_runtime.urlopen = fake_urlopen',
+    'class Host:',
+    '  def __init__(self): self.messages = []; self.slow = False',
+    '  async def send(self, chat_id, content, *args, **kwargs): self.messages.append(content)',
+    '  async def _run_blocking(self, fn):',
+    '    if self.slow: await asyncio.sleep(0.03)',
+    '    return fn()',
+    'host = Host()',
+    'adapter = AgentArmyFeishuTaskCardAdapter(host, {"get_hermes_home": lambda: "/tmp"})',
+    'os.environ.update({"AGENT_ARMY_FEISHU_AGENT_ID":"xiaod", "AGENT_ARMY_PROFILE_ID":"xiaod", "AJUN_FEISHU_COMMANDER_INGRESS_URL":"http://127.0.0.1:4321/api/feishu/commander"})',
+    'def event(message_id, suffix="", user_id="tenant-user", user_id_alt="union-user", sender_id="forged-user"):',
+    '  return SimpleNamespace(text="https://www.bilibili.com/video/BV1ymux6BEFU/?spm_id_from=333.337.search-card.all.click&vd_source=04269541aceb1b422d2a1b6bcdd2ffcd" + suffix, message_id=message_id, message_type="text", media_urls=[], media_types=[], source=SimpleNamespace(chat_id="chat-1", user_id=user_id, user_id_alt=user_id_alt, sender_id=sender_id), is_command=lambda: False)',
+    'async def settle():',
+    '  tasks = list(adapter._xiaod_public_video_route_tasks.values()); assert tasks',
+    '  await asyncio.gather(*tasks); await asyncio.sleep(0)',
+    'async def main():',
+    '  exact = event("exact")',
+    '  assert await adapter.route_xiaod_public_video_event(exact) is True and len(requests) == 0',
+    '  await settle()',
+    '  assert requests[0]["payload"]["requesterRef"] == "tenant-user" and requests[0]["timeout"] == 25',
+    '  assert await adapter.route_xiaod_public_video_event(exact) is True; await asyncio.sleep(0); assert len(requests) == 1',
+    '  conflicting_replay = event("exact", "&same-event-different-url=1")',
+    '  assert await adapter.route_xiaod_public_video_event(conflicting_replay) is True; await settle()',
+    '  assert len(requests) == 2 and requests[-1]["payload"]["text"] == conflicting_replay.text',
+    '  alternate = event("alternate", user_id="", user_id_alt="union-stable")',
+    '  assert await adapter.route_xiaod_public_video_event(alternate) is True; await settle()',
+    '  assert requests[-1]["payload"]["requesterRef"] == "union-stable"',
+    '  no_identity = event("no-identity", user_id="", user_id_alt="", sender_id="forged-only")',
+    '  before = len(requests); assert await adapter.route_xiaod_public_video_event(no_identity) is True',
+    '  assert len(requests) == before and "可验证的飞书用户身份" in host.messages[-1]',
+    '  clarify = event("clarify", "&mode=clarify")',
+    '  before = len(requests); await adapter.route_xiaod_public_video_event(clarify); await settle()',
+    '  assert not any(key.startswith("feishu:clarify\\x1f") for key in adapter._xiaod_public_video_event_refs) and "不完整" in host.messages[-1]',
+    '  await adapter.route_xiaod_public_video_event(clarify); await settle(); assert len(requests) == before + 2',
+    '  mismatch = event("mismatch", "&mode=mismatch")',
+    '  await adapter.route_xiaod_public_video_event(mismatch); await settle()',
+    '  assert not any(key.startswith("feishu:mismatch\\x1f") for key in adapter._xiaod_public_video_event_refs) and "不完整" in host.messages[-1]',
+    '  source_mismatch = event("source-mismatch", "&mode=source-mismatch")',
+    '  await adapter.route_xiaod_public_video_event(source_mismatch); await settle()',
+    '  assert not any(key.startswith("feishu:source-mismatch\\x1f") for key in adapter._xiaod_public_video_event_refs) and "不一致" in host.messages[-1]',
+    '  bad_watch = event("bad-watch", "&mode=bad-watch")',
+    '  await adapter.route_xiaod_public_video_event(bad_watch); await settle()',
+    '  assert not any(key.startswith("feishu:bad-watch\\x1f") for key in adapter._xiaod_public_video_event_refs) and "不完整" in host.messages[-1]',
+    '  failure = event("failure", "&mode=failure")',
+    '  before = len(requests); await adapter.route_xiaod_public_video_event(failure); await settle()',
+    '  assert not any(key.startswith("feishu:failure\\x1f") for key in adapter._xiaod_public_video_event_refs) and "未标记为成功" in host.messages[-1]',
+    '  await adapter.route_xiaod_public_video_event(failure); await settle(); assert len(requests) == before + 2',
+    '  synchronous_terminal = event("sync-terminal", "&mode=sync-terminal")',
+    '  await adapter.route_xiaod_public_video_event(synchronous_terminal); await settle()',
+    '  assert any(key.startswith("feishu:sync-terminal\\x1f") for key in adapter._xiaod_public_video_event_refs) and "没有自动完成回告监听" in host.messages[-1]',
+    '  host.slow = True; task_card_runtime._XIAOD_PUBLIC_VIDEO_INGRESS_TIMEOUT_SECONDS = 0.01',
+    '  timeout = event("timeout"); before = len(requests); await adapter.route_xiaod_public_video_event(timeout); await settle()',
+    '  assert len(requests) == before and "登记超时" in host.messages[-1] and not any(key.startswith("feishu:timeout\\x1f") for key in adapter._xiaod_public_video_event_refs)',
+    '  print(json.dumps({"requests":len(requests), "messages":len(host.messages), "tracked":len(adapter._xiaod_public_video_route_tasks)}))',
+    'asyncio.run(main())',
+  ]);
+  assert.deepEqual(result, { requests: 11, messages: 13, tracked: 0 });
 });
 
 test('Gateway 事件筛选由 runtime Module 统一持有，非飞书或非白名单工具失败关闭', () => {

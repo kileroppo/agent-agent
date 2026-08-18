@@ -13,6 +13,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
 import time
 import uuid
@@ -21,7 +22,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Mapping, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 from zoneinfo import ZoneInfo
 
 
@@ -36,6 +37,8 @@ TRUSTED_TASK_CARD_TOOL_NAMES = frozenset({
 ALLOWED_ACTIONS = frozenset({"approve", "reject", "pause", "resume"})
 SUPERVISOR_MAX_CONCURRENCY = 3
 TASK_CARD_POLICIES = frozenset({"routed-task", "durable-task", "incident-only", "disabled"})
+_XIAOD_PUBLIC_VIDEO_INGRESS_PATH = "/api/feishu/commander"
+_XIAOD_PUBLIC_VIDEO_INGRESS_TIMEOUT_SECONDS = 25
 
 _ACTION_PRESENTATION = {
     "approve": ("批准", "primary"),
@@ -66,6 +69,10 @@ _INCIDENT_TASK_KINDS = frozenset({
 })
 _ROUTINE_HEALTH_TASK_KINDS = frozenset({"operations.health-review"})
 _TRUSTED_FEISHU_LINK_HOSTS = frozenset({"feishu.cn", "feishu.com", "larksuite.com"})
+# This is deliberately only a lexical pre-filter. Platform-specific routing
+# semantics live in ``_is_supported_xiaod_video_url`` below so they stay in
+# lock-step with A君's URL parser (notably YouTube's required non-empty ``v``).
+_XIAOD_PUBLIC_VIDEO_URL_RE = re.compile(r"https?://[^\s<>]+", re.IGNORECASE)
 _STATE_LABELS = {
     "queued": "排队中",
     "running": "处理中",
@@ -154,6 +161,89 @@ def _trusted_delivery_url(value: Any) -> str:
         return url
     except (TypeError, ValueError):
         return ""
+
+
+def _strict_loopback_http_url(value: Any, *, expected_path: str) -> str:
+    """Accept exactly one non-proxyable local HTTP endpoint.
+
+    ``startswith('http://127.0.0.1:')`` is insufficient: it accepts
+    credentials, suffix paths and query/fragment forms whose final destination
+    is not the fixed local API contract.  Keep this parser deliberately narrow
+    because this URL is used for a privileged local task-registration hop.
+    """
+    raw_url = str(value or "")
+    if (
+        not raw_url
+        or raw_url != raw_url.strip()
+        or len(raw_url) > 500
+        or any(character.isspace() for character in raw_url)
+        or "?" in raw_url
+        or "#" in raw_url
+    ):
+        return ""
+    try:
+        parsed = urlsplit(raw_url)
+        port = parsed.port
+    except (TypeError, ValueError):
+        return ""
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname != "127.0.0.1"
+        or port is None
+        or not 1 <= port <= 65535
+        or parsed.netloc != f"127.0.0.1:{port}"
+        or parsed.path != expected_path
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        return ""
+    return f"http://127.0.0.1:{port}{expected_path}"
+
+
+def _is_supported_xiaod_video_url(value: Any) -> bool:
+    """Mirror A君's dedicated 小D public-video fast-path exactly.
+
+    Hermes consumes recognised bare links, so a wider matcher here would hide
+    a link from generic chat only for A君 to reject it and fall back to a
+    planner/provider. Keep URL parsing and every accepted host/path aligned
+    with ``isSupportedXiaodVideoUrl`` in the A君 commander router.
+    """
+    text = str(value or "").strip()
+    if not _XIAOD_PUBLIC_VIDEO_URL_RE.fullmatch(text):
+        return False
+    try:
+        parsed = urlsplit(text)
+        # Accessing ``port`` rejects malformed authority values that a URL
+        # constructor would reject rather than treating them as a valid host.
+        parsed.port
+    except (TypeError, ValueError):
+        return False
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return False
+    hostname = (parsed.hostname or "").lower()
+    if hostname.startswith("www."):
+        hostname = hostname[4:]
+    pathname = parsed.path
+    if hostname == "bilibili.com":
+        return bool(re.match(r"^/video/(?:BV|av)[a-z0-9]+", pathname, re.IGNORECASE))
+    if hostname == "b23.tv":
+        return len(pathname) > 1
+    if hostname == "youtube.com":
+        if pathname == "/watch":
+            for name, candidate in parse_qsl(parsed.query, keep_blank_values=True):
+                if name == "v":
+                    return bool(candidate)
+            return False
+        return bool(re.match(r"^/(?:shorts|live)/[^/]+", pathname, re.IGNORECASE))
+    if hostname == "youtu.be":
+        return len(pathname) > 1
+    if hostname == "douyin.com":
+        return bool(re.match(r"^/(?:video|note)/[^/]+", pathname, re.IGNORECASE))
+    if hostname == "v.douyin.com":
+        return len(pathname) > 1
+    return False
 
 
 def _markdown_link_label(value: str) -> str:
@@ -543,6 +633,14 @@ class AgentArmyFeishuTaskCardAdapter:
         self._supervisor_task: Optional[asyncio.Task[Any]] = None
         self._wake = asyncio.Event()
         self._suppress_final_by_chat: Dict[str, float] = {}
+        self._xiaod_public_video_event_refs: set[str] = set()
+        self._xiaod_public_video_inflight_refs: set[str] = set()
+        # ``handle_message`` is invoked under Hermes' per-chat lock.  A public
+        # video registration can legitimately wait for a bounded local HTTP
+        # call, so retain its task here and release that lock before waiting.
+        # The map also gives disconnect a lifecycle-owned cancellation point;
+        # never leave a fire-and-forget task that can fail silently.
+        self._xiaod_public_video_route_tasks: Dict[str, asyncio.Task[Any]] = {}
 
     def policy(self) -> str:
         policy = (
@@ -590,6 +688,283 @@ class AgentArmyFeishuTaskCardAdapter:
 
     def enabled(self) -> bool:
         return self.policy() != "disabled"
+
+    @staticmethod
+    def _xiaod_public_video_profile() -> bool:
+        agent_id = (
+            os.getenv("AGENT_ARMY_FEISHU_AGENT_ID", "")
+            or os.getenv("AJUN_FEISHU_ENTRY_AGENT_ID", "")
+        ).strip()
+        profile_id = (
+            os.getenv("AGENT_ARMY_PROFILE_ID", "")
+            or os.getenv("AGENT_ARMY_FEISHU_PROFILE_ID", "")
+        ).strip()
+        return agent_id == "xiaod" and profile_id == "xiaod"
+
+    @staticmethod
+    def _xiaod_public_video_ingress_url() -> str:
+        return _strict_loopback_http_url(
+            os.getenv("AJUN_FEISHU_COMMANDER_INGRESS_URL", ""),
+            expected_path=_XIAOD_PUBLIC_VIDEO_INGRESS_PATH,
+        )
+
+    @staticmethod
+    def _xiaod_public_video_receipt(
+        body: Mapping[str, Any],
+        *,
+        source_event_ref: str,
+        chat_id: str,
+        requester_ref: str,
+    ) -> Optional[str]:
+        """Return the one verified task ID in an accepted A君 response.
+
+        A 2xx alone is not a task acknowledgement: a clarification response
+        also uses that status.  Require the task and card to identify the same
+        dedicated 小D task *and* bind it to this Feishu source.  A synchronous
+        terminal response may correctly omit ``completionWatch``; when it is
+        present it is nevertheless fully validated before it can be trusted.
+        """
+        if not isinstance(body, Mapping):
+            return None
+        task = body.get("task")
+        task_card = body.get("taskCard")
+        completion_watch = body.get("completionWatch")
+        if not isinstance(task, Mapping) or not isinstance(task_card, Mapping):
+            return None
+        if task_card.get("schemaVersion") != TASK_CARD_SCHEMA:
+            return None
+        task_id = _text(task.get("taskId"), 160)
+        if not task_id or _text(task_card.get("taskId"), 160) != task_id:
+            return None
+        response_task_id = _text(body.get("taskId"), 160)
+        if response_task_id and response_task_id != task_id:
+            return None
+        if (
+            _text(task.get("taskType"), 80) != "media.transcribe-and-refine"
+            or _text(task.get("assigneeAgentId"), 80) != "xiaod"
+        ):
+            return None
+        source = task.get("source")
+        requester = task.get("requester")
+        if not isinstance(source, Mapping) or not isinstance(requester, Mapping):
+            return None
+        if (
+            _text(source.get("channel"), 80) != "feishu"
+            or _text(source.get("eventRef"), 320) != source_event_ref
+            or _text(source.get("chatRef"), 320) != chat_id
+            or _text(source.get("targetAgentId"), 80) != "xiaod"
+            or _text(source.get("profileId"), 80) != "xiaod"
+            or _text(requester.get("kind"), 80) != "feishu-user"
+            or _text(requester.get("ref"), 320) != requester_ref
+        ):
+            return None
+        if (
+            _text(task_card.get("agentId"), 80) != "xiaod"
+            or _text(task_card.get("profileId"), 80) != "xiaod"
+            or _text(task_card.get("chatId"), 320) != chat_id
+            or _text(task_card.get("taskKind"), 80) != "media.transcribe-and-refine"
+        ):
+            return None
+        if completion_watch is not None:
+            if not isinstance(completion_watch, Mapping):
+                return None
+            if (
+                _text(completion_watch.get("kind"), 80) != "ajun_task"
+                or _text(completion_watch.get("taskId"), 160) != task_id
+                or not _strict_loopback_http_url(
+                    f"{completion_watch.get('baseUrl') or ''}/api/feishu/task-status",
+                    expected_path="/api/feishu/task-status",
+                )
+            ):
+                return None
+        return task_id
+
+    @staticmethod
+    def _xiaod_public_video_route_key(source_event_ref: str, text: str) -> str:
+        """Keep exact redelivery idempotent without hiding changed content.
+
+        A Feishu delivery retry has the same event ID *and* body.  A malformed
+        or conflicting replay with the same event ID but a different URL must
+        still reach A君, whose durable idempotency layer can reject or reconcile
+        that conflict instead of Hermes silently treating it as delivered.
+        """
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        return f"{source_event_ref}\x1f{digest}"
+
+    def _mark_xiaod_public_video_event_delivered(self, route_key: str) -> None:
+        with self._lock:
+            if len(self._xiaod_public_video_event_refs) >= 2048:
+                self._xiaod_public_video_event_refs.clear()
+            self._xiaod_public_video_event_refs.add(route_key)
+
+    def _finish_xiaod_public_video_route(
+        self, route_key: str, task: asyncio.Task[Any]
+    ) -> None:
+        """Collect a background route result so exceptions cannot be orphaned."""
+        with self._lock:
+            if self._xiaod_public_video_route_tasks.get(route_key) is task:
+                self._xiaod_public_video_route_tasks.pop(route_key, None)
+            self._xiaod_public_video_inflight_refs.discard(route_key)
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            self._logger.debug("[Feishu] 小D public-video registration cancelled")
+        except Exception:
+            self._logger.exception("[Feishu] 小D public-video registration crashed")
+
+    async def stop_xiaod_public_video_routes(self) -> None:
+        """Cancel lifecycle-owned public-video registration work on disconnect."""
+        with self._lock:
+            tasks = list(self._xiaod_public_video_route_tasks.values())
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        with self._lock:
+            self._xiaod_public_video_route_tasks.clear()
+            self._xiaod_public_video_inflight_refs.clear()
+
+    @staticmethod
+    def _is_plain_text_event(event: Any) -> bool:
+        if getattr(event, "media_urls", None) or getattr(event, "media_types", None):
+            return False
+        is_command = getattr(event, "is_command", None)
+        if callable(is_command) and is_command():
+            return False
+        message_type = str(getattr(event, "message_type", "") or "").lower()
+        return not message_type or message_type.endswith("text")
+
+    async def route_xiaod_public_video_event(self, event: Any) -> bool:
+        """Handle only the dedicated 小D bare-public-video ingress.
+
+        This wrapper runs inside Hermes' existing ``handle_message`` call, so
+        text batching and the host's per-chat lock already happened.  Returning
+        ``True`` consumes recognised intake even if local routing is unavailable;
+        it must never fall through to generic model chat after a failed route.
+        """
+        if not self._xiaod_public_video_profile() or not self._is_plain_text_event(event):
+            return False
+        text = str(getattr(event, "text", "") or "").strip()
+        if not _is_supported_xiaod_video_url(text):
+            return False
+        source = getattr(event, "source", None)
+        chat_id = str(getattr(source, "chat_id", "") or "").strip()
+        # The normalized Hermes SessionSource is the one identity that already
+        # passed Feishu admission.  Do not trust ad-hoc event ``sender_id``
+        # fields, which are absent on real MessageEvent and can be spoofed by
+        # synthetic/test event shapes.
+        requester_ref = str(
+            getattr(source, "user_id", "") or getattr(source, "user_id_alt", "") or ""
+        ).strip()
+        message_id = str(getattr(event, "message_id", "") or "").strip()
+
+        async def reply(message: str) -> None:
+            if chat_id:
+                await self.host.send(chat_id, message, reply_to=message_id or None)
+
+        if not message_id:
+            await reply("小D无法登记这条公开视频链接：缺少稳定消息编号；没有启动下载、转录或外部动作。")
+            return True
+        if not requester_ref:
+            await reply("小D无法登记这条公开视频链接：缺少可验证的飞书用户身份；没有启动下载、转录或外部动作。")
+            return True
+        ingress_url = self._xiaod_public_video_ingress_url()
+        if not ingress_url:
+            await reply("小D的公开视频任务入口未配置或不符合本机回环安全规则；没有启动下载、转录或外部动作。")
+            return True
+        source_event_ref = f"feishu:{message_id}"
+        route_key = self._xiaod_public_video_route_key(source_event_ref, text)
+        with self._lock:
+            if (
+                route_key in self._xiaod_public_video_event_refs
+                or route_key in self._xiaod_public_video_inflight_refs
+            ):
+                return True
+            self._xiaod_public_video_inflight_refs.add(route_key)
+
+        async def complete_route() -> None:
+            payload = json.dumps({
+                # A君 uses this original Feishu event reference as its durable
+                # idempotency key, including when Hermes restarts and redelivers it.
+                "sourceEventRef": source_event_ref,
+                "text": text,
+                "chatRef": chat_id,
+                "requesterRef": requester_ref,
+                "targetAgentId": "xiaod",
+                "profileId": "xiaod",
+                "taskCardPolicy": (
+                    os.getenv("AGENT_ARMY_TASK_CARD_POLICY", "")
+                    or os.getenv("AGENT_ARMY_FEISHU_TASK_CARD_POLICY", "")
+                ).strip(),
+            }, ensure_ascii=False).encode("utf-8")
+
+            def post_to_ajun() -> tuple[int, Dict[str, Any]]:
+                request = Request(
+                    ingress_url,
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urlopen(request, timeout=_XIAOD_PUBLIC_VIDEO_INGRESS_TIMEOUT_SECONDS) as response:
+                    body = json.loads(response.read().decode("utf-8"))
+                    return int(response.status), body if isinstance(body, dict) else {}
+
+            try:
+                status, body = await asyncio.wait_for(
+                    self.host._run_blocking(post_to_ajun),
+                    timeout=_XIAOD_PUBLIC_VIDEO_INGRESS_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                await reply("小D等待本机任务登记超时，不能确认任务是否建立；这条消息未标记为成功，可按原链接稍后重试。")
+                return
+            except (HTTPError, URLError, OSError, ValueError, json.JSONDecodeError) as exc:
+                self._logger.warning("[Feishu] 小D public-video A君 ingress failed: %s", exc)
+                await reply("小D暂时没有收到可验证的任务登记回执，不能确认任务是否建立；这条消息未标记为成功，可按原链接稍后重试。")
+                return
+            if status not in {200, 201, 202}:
+                self._logger.warning("[Feishu] 小D public-video A君 ingress returned status=%s", status)
+                await reply("小D暂时没有收到可验证的任务登记回执，不能确认任务是否建立；这条消息未标记为成功，可按原链接稍后重试。")
+                return
+            task_id = self._xiaod_public_video_receipt(
+                body,
+                source_event_ref=source_event_ref,
+                chat_id=chat_id,
+                requester_ref=requester_ref,
+            )
+            if not task_id:
+                self._logger.warning("[Feishu] 小D public-video A君 ingress returned an unverifiable receipt")
+                await reply("小D收到的登记回执与本条飞书来源不一致或不完整，不能确认任务已建立；这条消息未标记为成功，可按原链接稍后重试。")
+                return
+            self._mark_xiaod_public_video_event_delivered(route_key)
+            delivered = await self.handle_trusted_task_result(
+                type("FeishuTaskSource", (), {"chat_id": chat_id, "message_id": message_id})(),
+                {"structuredContent": body},
+            )
+            if not delivered:
+                acknowledgement = body.get("reply") if isinstance(body, dict) else None
+                response = (
+                    acknowledgement
+                    if isinstance(acknowledgement, str) and acknowledgement.strip()
+                    else "小D已登记这条公开视频链接，正在按任务链处理。"
+                )
+                if body.get("completionWatch") is None:
+                    response += "\n\n说明：本次回执没有自动完成回告监听；请以任务状态为准。"
+                await reply(response)
+
+        try:
+            task = asyncio.create_task(complete_route())
+            with self._lock:
+                self._xiaod_public_video_route_tasks[route_key] = task
+            task.add_done_callback(
+                lambda completed: self._finish_xiaod_public_video_route(route_key, completed)
+            )
+        except RuntimeError as exc:
+            with self._lock:
+                self._xiaod_public_video_inflight_refs.discard(route_key)
+            self._logger.warning("[Feishu] 小D public-video route could not start: %s", exc)
+            await reply("小D暂时无法开始本机任务登记；没有启动下载、转录或外部动作，请稍后重试。")
+        return True
 
     def _save(self, records: Mapping[str, Mapping[str, Any]]) -> None:
         with self._lock:
@@ -1251,7 +1626,7 @@ def install_agent_army_feishu_task_card_adapter(
         for name in AgentArmyFeishuTaskCardAdapter.REQUIRED_HOST_INTERFACE
         if not callable(getattr(host_class, name, None))
     ]
-    for lifecycle_method in ("__init__", "connect", "send", "_on_card_action_trigger"):
+    for lifecycle_method in ("__init__", "connect", "send", "handle_message", "_on_card_action_trigger"):
         if not callable(getattr(host_class, lifecycle_method, None)):
             missing.append(lifecycle_method)
     if missing:
@@ -1262,7 +1637,9 @@ def install_agent_army_feishu_task_card_adapter(
     original_init = host_class.__init__
     original_connect = host_class.connect
     original_send = host_class.send
+    original_handle_message = host_class.handle_message
     original_card_action = host_class._on_card_action_trigger
+    original_disconnect = getattr(host_class, "disconnect", None)
 
     def adapter_for(instance: Any) -> AgentArmyFeishuTaskCardAdapter:
         adapter = getattr(instance, "_agent_army_task_card_adapter", None)
@@ -1314,6 +1691,24 @@ def install_agent_army_feishu_task_card_adapter(
                 return result_type(success=True)
         return await original_send(instance, chat_id, content, *args, **kwargs)
 
+    async def patched_disconnect(instance: Any, *args: Any, **kwargs: Any) -> Any:
+        # Hermes' real Feishu adapter awaits its owned background maps during
+        # disconnect.  Do the same for the small route map added by this seam
+        # before the transport/executor is torn down.
+        await adapter_for(instance).stop_xiaod_public_video_routes()
+        if callable(original_disconnect):
+            return await original_disconnect(instance, *args, **kwargs)
+        return None
+
+    async def patched_handle_message(instance: Any, event: Any, *args: Any, **kwargs: Any) -> Any:
+        # The host calls handle_message from _handle_message_with_guards, after
+        # Feishu text batching and under its per-chat lock.  The recognised
+        # route only schedules its bounded, lifecycle-owned local request here;
+        # no 25-second local HTTP wait holds that lock.
+        if await adapter_for(instance).route_xiaod_public_video_event(event):
+            return None
+        return await original_handle_message(instance, event, *args, **kwargs)
+
     def patched_card_action(instance: Any, data: Any) -> Any:
         event = getattr(data, "event", None)
         action = getattr(event, "action", None)
@@ -1343,6 +1738,9 @@ def install_agent_army_feishu_task_card_adapter(
     host_class.__init__ = patched_init
     host_class.connect = patched_connect
     host_class.send = patched_send
+    if callable(original_disconnect):
+        host_class.disconnect = patched_disconnect
+    host_class.handle_message = patched_handle_message
     host_class._on_card_action_trigger = patched_card_action
     for name, implementation in delegates.items():
         setattr(host_class, name, implementation)

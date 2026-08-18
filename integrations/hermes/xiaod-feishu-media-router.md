@@ -2,7 +2,7 @@
 
 ## 目的
 
-飞书的 `.mp3`、`.m4a`、`.mp4` 等附件是小D业务任务，不允许先进入通用模型会话再由模型自行决定是否下载模型、运行命令或改用其他转写工具。
+飞书的 `.mp3`、`.m4a`、`.mp4` 等附件，以及单独发送的受支持公开视频链接，都是小D业务任务，不允许先进入通用模型会话再由模型自行决定是否下载模型、运行命令或改用其他转写工具。
 
 ## 实现边界
 
@@ -15,6 +15,8 @@
 - 小D媒体事件必须在通用媒体批处理之前直接路由。否则用户紧接着发送状态询问时，任务尚未创建而文本会先落入旧模型会话，造成无关的历史回复。
 - 小D HTTP 服务默认只绑定 `127.0.0.1`；该内部入口不作为局域网或公网 API 使用。
 - 未设置该变量时，Hermes保持原有通用附件处理行为。这是避免影响其他 Hermes Profile 的显式开关。
+- 小D专用飞书应用收到**纯** B站、YouTube 或抖音公开视频 URL 时，适配器只在 `AGENT_ARMY_FEISHU_AGENT_ID=xiaod` 且 `AGENT_ARMY_PROFILE_ID=xiaod` 时，把原消息的 `messageId` 作为 `sourceEventRef` 转发至本机 A君 `POST /api/feishu/commander`。A君以该事件引用去重；重复投递仍指向同一任务。混有文字、非公开视频链接、普通聊天和其他 Profile 一律不走此入口。
+- URL 入口只接受精确的 `http://127.0.0.1:<port>/api/feishu/commander`；不会执行 shell，也不会把链接下载行为暴露为 HTTP API。入口不可用时会在原会话明确说明“未启动下载、转录或外部动作”，不会回退给通用模型假装已处理。
 
 ## 启动方式
 
@@ -22,6 +24,9 @@
 
 ```sh
 XIAOD_MEDIA_INGRESS_URL=http://127.0.0.1:4318/api/internal/feishu-media \
+AJUN_FEISHU_COMMANDER_INGRESS_URL=http://127.0.0.1:4321/api/feishu/commander \
+AGENT_ARMY_FEISHU_AGENT_ID=xiaod \
+AGENT_ARMY_PROFILE_ID=xiaod \
 node integrations/hermes/scripts/start-hermes-gateway-guarded.mjs --agent xiaod
 ```
 

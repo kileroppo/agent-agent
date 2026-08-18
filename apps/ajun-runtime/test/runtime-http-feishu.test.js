@@ -4,6 +4,8 @@ import test from 'node:test';
 import { presentCommanderReply, presentTaskStatus, resolveTaskCardAction } from '../src/runtime-http-feishu.ts';
 import { createAjunHttpHandler } from '../src/runtime-http-handler.ts';
 import { projectTaskNotification } from '../src/task-notification-projection.ts';
+import { FeishuCommander } from '../src/feishu-commander.ts';
+import { agentFixture, setupTaskService } from './support/task-service-fixture.js';
 
 const taskId = '7df3c85a-1111-2222-3333-444444444444';
 
@@ -163,6 +165,72 @@ test('Commander 与任务状态 HTTP API 返回相同版本的权威卡片投影
   assert.equal(status.body.taskCard.taskId, commander.body.taskCard.taskId);
   assert.equal(status.body.taskCard.contentHash, commander.body.taskCard.contentHash);
   assert.equal(status.body.message, '正在整理公开资料。');
+});
+
+test('小D纯 B 站链接经 HTTP Commander 快速入口后，完成监听与任务卡保持同一真实身份', async (context) => {
+  const xiaod = agentFixture('xiaod', '小D', ['media.transcribe-and-refine']);
+  let plannerCalls = 0;
+  const { service, records } = setupTaskService({
+    agents:[xiaod],
+    executors:{
+      xiaod:{
+        async execute() {
+          return { status:'running', currentStage:'delegated_to_xiaod', execution:{ xiaodJobId:'http-fastpath-job' } };
+        }
+      }
+    }
+  });
+  const commander = new FeishuCommander({
+    tasks:service,
+    proposals:{},
+    planner:{ async decide() { plannerCalls += 1; throw new Error('纯视频链接不应调用 planner'); } },
+    ajunBaseUrl:'http://127.0.0.1:4321',
+  });
+  const fixture = await startFeishuHandler(context, {
+    work:{ store:service.store, tasks:service },
+    feishu:{ commander },
+  });
+  const input = {
+    text:'https://www.bilibili.com/video/BV1ymux6BEFU/?spm_id_from=333.337.search-card.all.click&vd_source=04269541aceb1b422d2a1b6bcdd2ffcd',
+    sourceEventRef:'feishu:http-bilibili-fastpath-1',
+    chatRef:'chat-xiaod-http-fastpath',
+    requesterRef:'test-user',
+    targetAgentId:'xiaod',
+    profileId:'xiaod',
+  };
+  const created = await postJson(`${fixture.baseUrl}/api/feishu/commander`, input);
+  assert.equal(created.response.status, 202);
+  assert.equal(plannerCalls, 0);
+  assert.equal(records.tasks.length, 1);
+  assert.equal(created.body.task.taskType, 'media.transcribe-and-refine');
+  assert.equal(created.body.task.input.sourceUrl, input.text);
+  assert.deepEqual(created.body.completionWatch, {
+    kind:'ajun_task', taskId:created.body.task.taskId, baseUrl:'http://127.0.0.1:4321'
+  });
+  assert.deepEqual(
+    {
+      taskId:created.body.taskCard.taskId,
+      agentId:created.body.taskCard.agentId,
+      profileId:created.body.taskCard.profileId,
+      chatId:created.body.taskCard.chatId,
+      state:created.body.taskCard.state,
+      taskKind:created.body.taskCard.taskKind,
+    },
+    {
+      taskId:created.body.task.taskId,
+      agentId:'xiaod', profileId:'xiaod', chatId:input.chatRef,
+      state:'running', taskKind:'media.transcribe-and-refine',
+    },
+  );
+
+  const status = await postJson(`${fixture.baseUrl}/api/feishu/task-status`, {
+    taskId:created.body.task.taskId,
+    agentId:'xiaod', profileId:'xiaod', chatId:input.chatRef,
+  });
+  assert.equal(status.response.status, 200);
+  assert.equal(status.body.taskCard.taskId, created.body.taskCard.taskId);
+  assert.equal(status.body.taskCard.contentHash, created.body.taskCard.contentHash);
+  assert.equal(status.body.taskCard.profileId, 'xiaod');
 });
 
 test('非 A君任务卡状态严格绑定 Agent Profile 和原飞书会话', async (context) => {
