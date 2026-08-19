@@ -35,6 +35,7 @@ import { routeLocalAiApi } from './runtime-http-local-ai.ts';
 import { routeCustomAiApi } from './runtime-http-custom-ai.ts';
 import { CustomAiCapabilityStore } from './custom-ai-capability-store.ts';
 import { routeAgentHealthProbeApi } from './runtime-http-agent-health.ts';
+import { routeTaskSubmitApi } from './runtime-http-task-submit.ts';
 import { bearerToken, isBoomLegacyIntegrationAuthorized, isBoomLegacyIntegrationPath } from './runtime-http-boom-legacy.ts';
 import { parseUsageRange } from './task-overview.ts';
 export { isBoomLegacyIntegrationAuthorized, isBoomLegacyIntegrationPath } from './runtime-http-boom-legacy.ts';
@@ -175,6 +176,7 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
             }
             { const r: any = await routeLocalAiApi({ request, localAi, local:isLocalAddress(request.socket.remoteAddress), readBody:(): any => readJsonBody(request), customAiStore }); if (r) return sendJson(response, r.status, r.payload); }
             { const r: any = await routeCustomAiApi({ request, local:isLocalAddress(request.socket.remoteAddress), store:customAiStore, readBody:(): any => readJsonBody(request) }); if (r) return sendJson(response, r.status, r.payload); } { const r: any = await routeAgentHealthProbeApi({ request, local:isLocalAddress(request.socket.remoteAddress), manifests:[] }); if (r) return sendJson(response, r.status, r.payload); }
+            { const r: any = await routeTaskSubmitApi({ request, local:isLocalAddress(request.socket.remoteAddress), tasks, registry:modelPolicy?.registry, readBody:(): any => readJsonBody(request) }); if (r) return sendJson(response, r.status, r.payload); }
             const taskDetailMatch: any = request.url?.match(/^\/api\/tasks\/([0-9a-f-]{36})$/i);
             if (request.method === 'GET' && taskDetailMatch) {
                 const audience: any = isLocalAddress(request.socket.remoteAddress) ? 'local-owner' : 'lan';

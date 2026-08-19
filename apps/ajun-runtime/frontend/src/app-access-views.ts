@@ -417,6 +417,22 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
     function isLoopbackLocation(): any {
         return ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(location.hostname.toLowerCase());
     }
+    async function renderTaskSubmitForm(): Promise<any> {
+        if (!state.localOwner) return;
+        const container: any = document.querySelector('#task-submit-section');
+        if (!container) return;
+        container.hidden = false;
+        container.innerHTML = html`<details class="task-submit-disclosure" data-disclosure-key="task-submit"><summary><strong>提交任务（飞书备用入口）</strong><small>当飞书不可用时，在此直接提交任务</small><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><div class="task-submit-body"><form id="task-submit-form" data-refresh-protected><label>任务标题（必填）<input name="title" required placeholder="请描述要完成什么"></label><label>补充说明<textarea name="description" rows="3" placeholder="可选：更多上下文或要求"></textarea></label><label>指定岗位<select name="agentId"><option value="">自动路由</option></select></label><button type="submit">提交任务</button><p class="task-submit-message" role="status"></p></form></div></details>`;
+        try {
+            const options: any = await api('/api/tasks/submit/options');
+            const select: any = container.querySelector('select[name="agentId"]');
+            if (select && options.agents) {
+                for (const agent of options.agents) {
+                    select.append(new Option(`${agent.name} - ${agent.taskLabel}`, agent.agentId));
+                }
+            }
+        } catch { /* options are optional enhancement */ }
+    }
     return {
         renderLocalShare,
         renderAiControl,
@@ -428,5 +444,6 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
         renderAccessLoginAccounts,
         setAccessStep,
         resetAccessReauthorization,
+        renderTaskSubmitForm,
     };
 }

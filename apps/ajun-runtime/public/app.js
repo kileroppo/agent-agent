@@ -144,6 +144,7 @@ async function load({ background = false } = {}) {
         accessGate.hidden = true;
         document.body.classList.remove('access-required');
         await accessViews.renderLocalShare();
+        await accessViews.renderTaskSubmitForm();
         render();
         recordWorkbench?.updateFilterOptions();
         updateOwnerNavigation();

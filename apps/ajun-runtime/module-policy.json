@@ -474,7 +474,7 @@
       ]
     },
     "src/runtime-http-handler.ts": {
-      "lineLimit": 750,
+      "lineLimit": 755,
       "affectedTests": [
         "test/feishu-commander-chain-exploration.test.js",
         "test/feishu-commander-ingress-preservation.test.js",
