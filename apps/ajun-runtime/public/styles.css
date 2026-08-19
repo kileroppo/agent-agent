@@ -3,7 +3,7 @@
    App-specific overrides and extensions below. */
 
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
   --canvas: #f6f7f2;
   --canvas-deep: #eef2eb;
   --surface: #ffffff;
@@ -398,22 +398,6 @@ h3 {
 
 .campaign-empty {
   border-style: dashed;
-}
-
-@media (max-width: 760px) {
-  .campaign-facts {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
-@media (max-width: 430px) {
-  .campaign-facts {
-    grid-template-columns: 1fr;
-  }
-
-  .campaign-actions button {
-    width: 100%;
-  }
 }
 
 .module-heading {
@@ -2142,13 +2126,6 @@ button:disabled {
 .fleet-hermes-advanced { border-top: 1px solid var(--line); padding-top: 14px; }
 .fleet-hermes-advanced > summary { cursor: pointer; color: var(--muted); }
 .fleet-hermes-advanced .connection-actions { margin-top: 12px; }
-
-@media (max-width: 820px) {
-  .fleet-role-row { align-items: stretch; flex-direction: column; }
-  .fleet-role-row label { min-width: 0; }
-  .fleet-model-lead,
-  .fleet-model-section-head { align-items: flex-start; flex-direction: column; }
-}
 
 .summary-icon {
   display: grid;
@@ -4703,6 +4680,54 @@ textarea:focus {
 
 /* Responsive */
 
+/* ==========================================================================
+   Responsive Breakpoints
+   --------------------------------------------------------------------------
+   Breakpoint tokens (largest to smallest):
+   1080px  - compact desktop / large tablet
+    820px  - tablet
+    760px  - small tablet / large phone landscape
+    600px  - phone landscape / small tablet portrait
+    430px  - standard phone
+    390px  - compact phone
+   --------------------------------------------------------------------------
+   Also includes: prefers-color-scheme, prefers-reduced-motion
+   ========================================================================== */
+
+/* --- @media (prefers-color-scheme: dark) --- */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #121a16;
+    --canvas-deep: #0e1512;
+    --surface: #1c2a22;
+    --surface-soft: #1f2e25;
+    --surface-mint: #162c23;
+    --ink: #e3ebe6;
+    --ink-soft: #c4d0c8;
+    --muted: #7a8a80;
+    --muted-light: #5f6f64;
+    --line: #2d3d34;
+    --line-strong: #3a4d42;
+    --mint: #3dd4a0;
+    --mint-deep: #5aeab8;
+    --mint-soft: #162c23;
+    --mint-line: #1f4435;
+    --amber: #e5a03d;
+    --amber-soft: #2a2210;
+    --amber-line: #4a3a1a;
+    --rose: #ef7a74;
+    --rose-soft: #2a1614;
+    --rose-line: #4a2220;
+    --blue: #6fa0e0;
+    --blue-soft: #16222e;
+    --shadow-sm: 0 2px 8px rgba(0, 0, 0, .2);
+    --shadow-md: 0 18px 45px rgba(0, 0, 0, .3);
+  }
+}
+
+/* --- @media (max-width: 1080px) --- */
+
 @media (max-width: 1080px) {
   #app-main {
     padding-right: 34px;
@@ -4720,6 +4745,15 @@ textarea:focus {
   .boom-stat-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+}
+
+/* --- @media (max-width: 820px) --- */
+
+@media (max-width: 820px) {
+  .fleet-role-row { align-items: stretch; flex-direction: column; }
+  .fleet-role-row label { min-width: 0; }
+  .fleet-model-lead,
+  .fleet-model-section-head { align-items: flex-start; flex-direction: column; }
 }
 
 @media (max-width: 820px) {
@@ -4884,6 +4918,32 @@ textarea:focus {
     display: inline-flex;
   }
 }
+
+/* --- @media (max-width: 760px) --- */
+
+@media (max-width: 760px) {
+  .campaign-facts {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .release-version-grid,
+  .release-stages {
+    grid-template-columns: 1fr;
+  }
+
+  .release-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .release-actions button {
+    width: 100%;
+  }
+}
+
+/* --- @media (max-width: 600px) --- */
 
 @media (max-width: 600px) {
   h1 {
@@ -5309,6 +5369,20 @@ textarea:focus {
   }
 }
 
+/* --- @media (max-width: 430px) --- */
+
+@media (max-width: 430px) {
+  .campaign-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .campaign-actions button {
+    width: 100%;
+  }
+}
+
+/* --- @media (max-width: 390px) --- */
+
 @media (max-width: 390px) {
   .capability-grid,
   .agent-grid {
@@ -5320,21 +5394,7 @@ textarea:focus {
   }
 }
 
-@media (max-width: 760px) {
-  .release-version-grid,
-  .release-stages {
-    grid-template-columns: 1fr;
-  }
-
-  .release-actions {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .release-actions button {
-    width: 100%;
-  }
-}
+/* --- @media (prefers-reduced-motion: reduce) --- */
 
 @media (prefers-reduced-motion: reduce) {
   html {

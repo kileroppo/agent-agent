@@ -20,6 +20,23 @@
   background: var(--paper);
 }
 
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e3ebe6;
+    --muted: #7a8a80;
+    --line: #2d3d34;
+    --paper: #121a16;
+    --surface: #1c2a22;
+    --green: #3dd4a0;
+    --green-soft: #162c23;
+    --amber: #e5a03d;
+    --amber-soft: #2a2210;
+    --red: #ef7a74;
+    --red-soft: #2a1614;
+    --radius: 14px;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
