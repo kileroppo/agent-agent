@@ -1,0 +1,22 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Environment setup - install dependencies and verify baseline builds/tests pass",
+  "status": "completed",
+  "steps": [
+    "Run `npm ci` in /projects/sandbox/agent-agent to install all workspace dependencies",
+    "Run `npm run check` to verify tsc + architecture boundaries + frontend build all pass",
+    "Run `npm test` to verify full test suite passes (or at minimum npm run test:affected)",
+    "Record baseline state - confirm no pre-existing failures"
+  ],
+  "acceptance_criteria": [
+    "npm ci completes successfully",
+    "npm run check passes (exit 0)",
+    "npm test passes (exit 0) or failures are pre-existing and documented"
+  ],
+  "verification": [
+    "npm ci && npm run check && npm test"
+  ],
+  "blocked_reason": null,
+  "findings": "All commands pass with exit code 0. Pre-existing test failures: ajun-runtime has 3 failing tests out of 1950 (1944 pass), media-transcriber-agent has 1 failing test out of 95 (94 pass). These failures exist on the main branch baseline with no code changes. The overall npm test exits 0, so the project tolerates these. Architecture check warns about repository-catalog.json area but does not fail. Node.js 22.23.2, npm 11.4.2, TypeScript 5.9.3 all working."
+}
