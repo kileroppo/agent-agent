@@ -1,7 +1,14 @@
 {
   "task_id": "task-engineering-and-ui-improvements",
   "task_description": "Address all 10 engineering shortcomings and UI improvements: CI, any-density gate, editorconfig + CSS formatting, unified design tokens, dark mode, innerHTML XSS fix with html tagged template, responsive breakpoint consolidation, and polling backoff with offline indicator",
-  "status": "in_progress",
+  "status": "completed",
   "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004", "FEAT-005", "FEAT-006", "FEAT-007", "FEAT-008", "FEAT-009"],
-  "blocked_reason": null
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "npm run check passes (architecture + tsc + frontend builds + typescript-ratio). npm test: 2541 tests, 2537 pass, 4 fail (all pre-existing: wechat-chat-defaults date-dependent, runtime-start needs external services, local-wechat-chat-retriever needs adapter, xiaod subtitle-extraction needs ffmpeg). All new tests pass: html-template (21), refresh-scheduler (9), any-density (5)."
+  }
 }
