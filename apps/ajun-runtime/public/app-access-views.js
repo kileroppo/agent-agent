@@ -44,7 +44,7 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
         aiControl.hidden = false;
         try {
             const payload = await api('/api/local-ai/control');
-            replaceChildrenPreservingDisclosureState(aiServiceList, aiServiceGroups(payload.services));
+            replaceChildrenPreservingDisclosureState(aiServiceList, aiServiceGroups(payload.services, payload.categories));
             aiRoutingList.replaceChildren(...payload.routing.map((route) => {
                 const row = document.createElement('p');
                 row.innerHTML = html `<strong>${route.capability}</strong><span>${route.providers.join(' → ')}</span>`;
@@ -60,26 +60,34 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
             aiServiceList.replaceChildren();
         }
     }
-    function aiServiceGroups(services) {
-        const groups = new Map();
-        for (const service of services) {
-            const key = service.node === 'windows' ? 'windows' : 'mac';
-            if (!groups.has(key))
-                groups.set(key, []);
-            groups.get(key).push(service);
+    function aiServiceGroups(services, categories = []) {
+        if (!categories.length) {
+            return services.map(aiServiceCard);
         }
-        return ['mac', 'windows']
-            .filter((key) => groups.has(key))
-            .map((key) => aiNodeGroup(key, groups.get(key)));
+        const serviceMap = new Map(services.map((service) => [service.id, service]));
+        const assigned = new Set();
+        return categories.map((category) => {
+            const categoryServices = (category.serviceIds || [])
+                .filter((id) => serviceMap.has(id) && !assigned.has(id))
+                .map((id) => { assigned.add(id); return serviceMap.get(id); });
+            const unmatched = services.filter((service) => !assigned.has(service.id) && serviceBelongsToCategory(service, category, services, categories));
+            for (const service of unmatched) {
+                assigned.add(service.id);
+                categoryServices.push(service);
+            }
+            return aiCategoryGroup(category, categoryServices);
+        }).filter((node) => node !== null);
     }
-    function aiNodeGroup(nodeKey, services) {
-        const node = document.createElement('section');
-        node.className = `ai-node-group ai-node-${nodeKey}`;
-        const running = services.filter((service) => service.state === 'running').length;
-        const attention = services.some((service) => ['offline', 'unknown'].includes(service.state));
-        const title = nodeKey === 'windows' ? '4070 图形节点' : '本机 Mac';
-        const detail = nodeKey === 'windows' ? '高性能图片生成与编辑' : '日常文本、语音、视觉与检索';
-        node.innerHTML = html `<header class="ai-node-head"><span class="ai-node-mark">${nodeKey === 'windows' ? 'GPU' : 'MAC'}</span><div><h3>${title}</h3><p>${detail}</p></div><span class="ai-node-status${attention ? ' is-attention' : ''}">${attention ? '需要检查' : `${running} 个运行中`}</span></header>`;
+    function serviceBelongsToCategory(_service, _category, _services, _categories) {
+        return false;
+    }
+    function aiCategoryGroup(category, services) {
+        const node = document.createElement('details');
+        node.className = 'ai-category-group';
+        node.dataset.disclosureKey = `ai-category:${category.id}`;
+        node.open = true;
+        const badgeClass = category.readyCount === category.totalCount ? 'is-healthy' : category.readyCount > 0 ? '' : 'is-attention';
+        node.innerHTML = html `<summary class="ai-category-header"><strong>${category.label}</strong><span class="ai-category-badge${badgeClass ? ' ' + badgeClass : ''}">${category.readyCount}/${category.totalCount} ready</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary>`;
         const list = document.createElement('div');
         list.className = 'ai-node-service-list';
         list.replaceChildren(...services.map(aiServiceCard));

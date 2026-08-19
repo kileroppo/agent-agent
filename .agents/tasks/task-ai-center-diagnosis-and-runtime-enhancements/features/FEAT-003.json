@@ -1,0 +1,32 @@
+{
+  "id": "FEAT-003",
+  "type": "feat",
+  "description": "Custom third-party AI capability registration - add ability to register external AI capabilities (TTS, ASR, image gen, etc.) with endpoint URL and health check path, persisted to disk, integrated into capability routing and health detection.",
+  "status": "pending",
+  "steps": [
+    "Create apps/ajun-runtime/src/custom-ai-capability-store.ts following the CapabilityGrantStore disk persistence pattern. It stores registered custom capabilities as JSON files in dataDir/custom-ai-capabilities/. Each entry has: id (auto-generated), capabilityType (e.g. 'tts', 'asr', 'image.generate'), label (user-given name), endpointUrl, healthCheckPath, healthCheckMethod (GET default), registeredAt, lastHealthCheck, lastHealthStatus. Provide methods: list(), register(input), remove(id), checkHealth(id).",
+    "Create HTTP routes in apps/ajun-runtime/src/runtime-http-custom-ai.ts: (1) GET /api/custom-ai/capabilities returns list of registered custom capabilities with their health status, (2) POST /api/custom-ai/capabilities registers a new one (validate input: capabilityType required, endpointUrl required valid URL, healthCheckPath optional), (3) DELETE /api/custom-ai/capabilities/:id removes one, (4) POST /api/custom-ai/capabilities/:id/health-check triggers a health probe. All require local access.",
+    "Wire routeCustomAiApi into runtime-http-handler.ts similar to routeLocalAiApi.",
+    "Integrate with the existing AI control overview: when rendering /api/local-ai/control, include custom capabilities in the response alongside built-in ones. They appear in the category view from FEAT-002 under their respective category (or a 'custom/third-party' category if no match).",
+    "Add frontend UI in app-access-views.ts: add an 'Add Capability' button in the AI control section. Clicking it shows a form with: capability type (dropdown: TTS, ASR, Image Generation, Text Generation, Other), label (text input), endpoint URL (text input), health check path (text input, optional). Submit calls POST /api/custom-ai/capabilities. After success, re-render the AI control view. Also show a remove button on each custom capability card.",
+    "Write test in apps/ajun-runtime/test/custom-ai-capability-store.test.js verifying: (1) register creates entry, (2) list returns registered entries, (3) remove deletes entry, (4) health check calls the endpoint and updates status, (5) validation rejects missing fields. Use tmp directory for dataDir.",
+    "Write test in apps/ajun-runtime/test/runtime-http-custom-ai.test.js verifying HTTP routes work correctly: POST creates, GET lists, DELETE removes, non-local gets 403."
+  ],
+  "acceptance_criteria": [
+    "POST /api/custom-ai/capabilities with valid input creates and persists a custom capability",
+    "GET /api/custom-ai/capabilities returns all registered custom capabilities",
+    "DELETE /api/custom-ai/capabilities/:id removes a capability",
+    "Health check probe hits the registered endpoint URL + health check path",
+    "Custom capabilities appear in the AI control overview response",
+    "Frontend shows an 'Add Capability' form and remove buttons",
+    "Data persists to disk in dataDir/custom-ai-capabilities/",
+    "Non-local requests get 403"
+  ],
+  "verification": [
+    "npm run check (at repo root)",
+    "npm test --workspace=ajun-runtime",
+    "npm run build:frontend --workspace=ajun-runtime && git diff --exit-code apps/ajun-runtime/public/"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

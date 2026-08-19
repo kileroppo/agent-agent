@@ -1,0 +1,7 @@
+{
+  "task_id": "task-ai-center-diagnosis-and-runtime-enhancements",
+  "task_description": "Implement 8 runtime enhancements: (1) self-diagnosis HTTP endpoint, (2) agent manifest runtime validation, (3) M5 test isolation, (4) task cost attribution in detail page, (5) workflow breadcrumb, (6) runtime task submission form (Feishu Plan B), (7) AI capability center category view, (8) custom third-party AI capability registration",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004", "FEAT-005"],
+  "blocked_reason": null
+}

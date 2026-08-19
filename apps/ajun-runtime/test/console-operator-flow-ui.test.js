@@ -46,9 +46,9 @@ test('AI 能力中心按节点分层，并保留状态检查安全说明', async
 
   assert.match(html, /ai-control-hero[\s\S]*LOCAL AI · 运行控制/);
   assert.match(html, /状态检查不会启动模型/);
-  assert.match(script, /aiServiceGroups\(payload\.services\)/);
-  assert.match(script, /本机 Mac/);
-  assert.match(script, /4070 图形节点/);
+  assert.match(script, /aiServiceGroups\(payload\.services, payload\.categories\)/);
+  assert.match(script, /ai-category-group/);
+  assert.match(script, /ai-category-header/);
   assert.match(styles, /\.ai-node-service-list\s*\{[\s\S]*grid-template-columns: repeat\(2/);
 });
 
