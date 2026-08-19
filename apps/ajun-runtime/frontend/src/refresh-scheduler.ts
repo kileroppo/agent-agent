@@ -55,6 +55,7 @@ export function startRefreshScheduler({ refresh, canRefresh = (): any => true, i
     }
     function scheduleNext(): any {
         if (stopped) return;
+        cancel(timer);
         timer = schedule((): any => { void refreshNow(); }, computeDelay());
     }
     const refreshNow: any = async (): Promise<any> => {

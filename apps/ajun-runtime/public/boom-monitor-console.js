@@ -188,20 +188,20 @@ export function createBoomMonitorConsole({ root, api, formatDate }) {
             const pendingApprovalId = String(task?.pendingApproval?.approvalId || '');
             const status = workStatusLabel(analysisStatus, autoHandlesWork, task);
             const progressAction = pendingApprovalId
-                ? `<button type="button" data-boom-approve="${pendingApprovalId}">确认并继续</button>`
+                ? html `<button type="button" data-boom-approve="${pendingApprovalId}">确认并继续</button>`
                 : taskId
-                    ? `<a class="boom-task-link" href="/tasks/${encodeURIComponent(taskId)}">查看拆解进度</a>`
+                    ? html `<a class="boom-task-link" href="/tasks/${encodeURIComponent(taskId)}">查看拆解进度</a>`
                     : '';
-            return `
+            return html `
       <article class="boom-list-item">
         <div class="boom-item-head">
           <span class="boom-item-copy"><strong>${workTitle}</strong><small>${platformLabel(work.platform)} · ${formatDate(work.publish_at)}${status}</small></span>
-          ${gradeBadge(work.grade)}
+          ${raw(gradeBadge(work.grade))}
         </div>
         <p class="boom-item-reason">${gradeReason(work.grade)}</p>
         <div class="boom-item-actions">
-          <button type="button" class="secondary-action" data-boom-detail="${work.id}" aria-label="查看“${workTitle}”的判断依据" aria-controls="${detailId}" aria-expanded="false">查看判断依据</button>
-          ${canDispatch ? `<button type="button" data-boom-dispatch-work="${work.id}" aria-label="开始拆解“${workTitle}”">开始拆解</button>` : progressAction}
+          <button type="button" class="secondary-action" data-boom-detail="${work.id}" aria-label="${'查看“' + workTitle + '”的判断依据'}" aria-controls="${detailId}" aria-expanded="false">查看判断依据</button>
+          ${raw(canDispatch ? html `<button type="button" data-boom-dispatch-work="${work.id}" aria-label="${'开始拆解“' + workTitle + '”'}">开始拆解</button>` : progressAction)}
         </div>
         <div id="${detailId}" class="boom-score-detail" data-boom-detail-output="${work.id}" role="status" aria-live="polite" aria-atomic="true" hidden></div>
       </article>`;
@@ -328,13 +328,13 @@ export function createBoomMonitorConsole({ root, api, formatDate }) {
         const action = status === 'waiting_source'
             ? '<button type="button" class="secondary-action" data-boom-focus-intake>补充链接</button>'
             : taskId && ['waiting_approval', 'needs_input', 'failed'].includes(status)
-                ? `<a class="boom-task-link" href="/tasks/${encodeURIComponent(taskId)}">查看并处理</a>`
+                ? html `<a class="boom-task-link" href="/tasks/${encodeURIComponent(taskId)}">查看并处理</a>`
                 : status === 'queued' && Number(budgetState.remaining_today) <= 0
                     ? '<button type="button" class="secondary-action" data-boom-open-settings>调整今日上限</button>'
                     : workId
-                        ? `<button type="button" data-boom-dispatch-work="${workId}">重试</button>`
+                        ? html `<button type="button" data-boom-dispatch-work="${workId}">重试</button>`
                         : '';
-        return `<article class="boom-queue-item"><strong>${title}</strong><span>${summary}</span>${taskId ? `<small>任务编号 ${taskId}</small>` : ''}<div class="boom-item-actions">${action}</div>${failure ? `<details class="boom-technical-detail"><summary>查看技术原因</summary><small class="is-error">${failure}</small></details>` : ''}</article>`;
+        return html `<article class="boom-queue-item"><strong>${title}</strong><span>${summary}</span>${raw(taskId ? html `<small>任务编号 ${taskId}</small>` : '')}<div class="boom-item-actions">${raw(action)}</div>${raw(failure ? html `<details class="boom-technical-detail"><summary>查看技术原因</summary><small class="is-error">${failure}</small></details>` : '')}</article>`;
     }
     function actionableAnalysisItems(items) {
         return items.filter((item) => {
@@ -370,10 +370,10 @@ export function createBoomMonitorConsole({ root, api, formatDate }) {
     function renderCollectResult(payload) {
         const score = payload.score;
         elements.collectResult.hidden = false;
-        elements.collectResult.innerHTML = score ? `
-      <div class="boom-result-head"><strong>${payload.message || '已完成采集和评分'}</strong>${gradeBadge(score.grade)}</div>
+        elements.collectResult.innerHTML = score ? html `
+      <div class="boom-result-head"><strong>${payload.message || '已完成采集和评分'}</strong>${raw(gradeBadge(score.grade))}</div>
       <p>${gradeReason(score.grade)}</p>
-      <small>详细指标和样本依据已保留在最近作品的“查看判断依据”中。</small>` : `<strong>${payload.message || '已完成采集。'}</strong>`;
+      <small>详细指标和样本依据已保留在最近作品的“查看判断依据”中。</small>` : html `<strong>${payload.message || '已完成采集。'}</strong>`;
     }
     async function parseImportInput() {
         const file = elements.importFile.files?.[0];

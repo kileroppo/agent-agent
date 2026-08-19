@@ -53,7 +53,7 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
             const running = payload.services.filter((service) => service.state === 'running').length;
             const stopped = payload.services.filter((service) => service.state === 'stopped').length;
             const attention = payload.services.filter((service) => ['offline', 'unknown'].includes(service.state)).length;
-            aiControlMessage.innerHTML = html `<span class="ai-metric"><strong>${payload.services.length}</strong><small>已纳管</small></span><span class="ai-metric"><strong>${running}</strong><small>运行中</small></span><span class="ai-metric"><strong>${stopped}</strong><small>等待任务</small></span>${attention ? `<span class="ai-metric is-attention"><strong>${attention}</strong><small>需要处理</small></span>` : '<span class="ai-metric is-healthy"><strong>✓</strong><small>状态稳定</small></span>'}`;
+            aiControlMessage.innerHTML = html `<span class="ai-metric"><strong>${payload.services.length}</strong><small>已纳管</small></span><span class="ai-metric"><strong>${running}</strong><small>运行中</small></span><span class="ai-metric"><strong>${stopped}</strong><small>等待任务</small></span>${raw(attention ? `<span class="ai-metric is-attention"><strong>${attention}</strong><small>需要处理</small></span>` : '<span class="ai-metric is-healthy"><strong>✓</strong><small>状态稳定</small></span>')}`;
         }
         catch (error) {
             aiControlMessage.textContent = error.message;
@@ -91,15 +91,15 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
         node.className = `ai-service-card ${service.state}`;
         const modes = service.mode === 'per_request'
             ? '<span class="ai-mode-static">每次任务启动</span>'
-            : `<label>启动方式<select data-ai-policy="${service.id}"${['gateway', 'desktop-node'].includes(service.id) ? ' disabled' : ''}>
-        ${[['on_demand', '按需启动'], ['always_on', '保持运行'], ['disabled', '禁用']].map(([value, label]) => `<option value="${value}"${service.mode === value ? ' selected' : ''}>${label}</option>`).join('')}
+            : `<label>启动方式<select data-ai-policy="${escapeHtml(service.id)}"${['gateway', 'desktop-node'].includes(service.id) ? ' disabled' : ''}>
+        ${[['on_demand', '按需启动'], ['always_on', '保持运行'], ['disabled', '禁用']].map(([value, label]) => `<option value="${escapeHtml(value)}"${service.mode === value ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('')}
       </select></label>`;
-        const actions = service.actions.map((action) => `<button type="button" class="${action === 'stop' ? 'secondary-action danger-action' : 'secondary-action'}" data-ai-service="${service.id}" data-ai-action="${action}">${aiActionLabel(action)}</button>`).join('');
+        const actions = service.actions.map((action) => `<button type="button" class="${action === 'stop' ? 'secondary-action danger-action' : 'secondary-action'}" data-ai-service="${escapeHtml(service.id)}" data-ai-action="${escapeHtml(action)}">${escapeHtml(aiActionLabel(action))}</button>`).join('');
         node.innerHTML = html `
     <div class="ai-service-head"><div><strong>${service.name}</strong><small>${service.endpoint}</small></div><span class="status ${service.state}">${aiStateLabel(service.state)}</span></div>
     <p class="ai-service-detail">${service.detail}</p>
-    ${service.managed === false && service.state === 'running' ? '<p class="ai-ownership-note">这是外部启动的进程，A君不会停止它。</p>' : ''}
-    <div class="ai-service-controls">${modes}<div class="connection-actions">${actions || '<span class="connection-final-state">无需常驻控制</span>'}</div></div>`;
+    ${raw(service.managed === false && service.state === 'running' ? '<p class="ai-ownership-note">这是外部启动的进程，A君不会停止它。</p>' : '')}
+    <div class="ai-service-controls">${raw(modes)}<div class="connection-actions">${raw(actions || '<span class="connection-final-state">无需常驻控制</span>')}</div></div>`;
         return node;
     }
     function aiActionLabel(action) {
@@ -132,7 +132,7 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
         const approvalAllowed = campaign.status === 'draft' && campaign.approval?.allowed === true;
         const approvalReason = campaign.approval?.reason || '尚未完成活动启动前检查。';
         const actions = campaign.status === 'draft'
-            ? `<button type="button" data-campaign-action="approve"${approvalAllowed ? '' : ' disabled'} title="${approvalReason}">确认活动授权</button>`
+            ? `<button type="button" data-campaign-action="approve"${approvalAllowed ? '' : ' disabled'} title="${escapeHtml(approvalReason)}">确认活动授权</button>`
             : campaign.status === 'active'
                 ? '<button type="button" class="secondary-action" data-campaign-action="pause">暂停活动</button><button type="button" class="secondary-action danger-action" data-campaign-action="stop">停止活动</button>'
                 : campaign.status === 'paused'
@@ -153,11 +153,11 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
       <p><strong>实际费用</strong>${cost}</p>
       <p><strong>授权到期</strong>${campaign.grant?.expiresAt ? formatDate(campaign.grant.expiresAt) : '待批准'}</p>
     </div>
-    ${campaign.pauseReason ? `<p class="campaign-alert"><strong>暂停原因</strong>${campaign.pauseReason}</p>` : ''}
+    ${raw(campaign.pauseReason ? `<p class="campaign-alert"><strong>暂停原因</strong>${escapeHtml(campaign.pauseReason)}</p>` : '')}
     <p class="campaign-next"><strong>下一步</strong>${campaign.nextAction || '查看 Paperclip 活动记录。'}</p>
     <p class="subtle"><strong>当前恢复步骤</strong>${campaign.recoveryStep || `从“${campaign.recoverFrom || '当前阶段'}”继续；已验证产物不会重新生成。`}</p>
-    ${campaign.status === 'draft' ? `<p class="${approvalAllowed ? 'subtle' : 'campaign-alert'}"><strong>启动前检查</strong>${approvalReason}</p>` : ''}
-    <div class="campaign-actions">${actions}</div>`;
+    ${raw(campaign.status === 'draft' ? `<p class="${approvalAllowed ? 'subtle' : 'campaign-alert'}"><strong>启动前检查</strong>${escapeHtml(approvalReason)}</p>` : '')}
+    <div class="campaign-actions">${raw(actions)}</div>`;
         return node;
     }
     function emptyCampaignCard(message) {
@@ -177,13 +177,13 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
             const status = employee.channel?.status || (employee.configured ? 'connecting' : 'not_configured');
             const modelAction = `
       <div class="connection-actions" data-model-setup-scope>
-        <button type="button" class="model-setup-button secondary-action" data-model-setup-agent-id="${employee.agentId}" data-model-setup-target="models">管理模型</button>
-        <button type="button" class="model-setup-button secondary-action" data-model-setup-agent-id="${employee.agentId}" data-model-setup-target="keys">管理 API 与 Key</button>
+        <button type="button" class="model-setup-button secondary-action" data-model-setup-agent-id="${escapeHtml(employee.agentId)}" data-model-setup-target="models">管理模型</button>
+        <button type="button" class="model-setup-button secondary-action" data-model-setup-agent-id="${escapeHtml(employee.agentId)}" data-model-setup-target="keys">管理 API 与 Key</button>
         <p class="model-setup-message connection-message" role="status">使用 Hermes 官方页面，并锁定到这名员工的 Profile。</p>
       </div>`;
             const connectionControls = status === 'external'
                 ? '<div class="connection-managed"><strong>独立员工入口已启用</strong><p>由员工自己的 Hermes 档案和飞书入口承接。</p></div>'
-                : `<details class="connection-form-disclosure" data-disclosure-key="employee-form:${employee.agentId}"><summary>${employee.configured ? '更新接线配置' : '配置飞书入口'}</summary><form data-agent-id="${employee.agentId}" data-refresh-protected><label>飞书 App ID<input name="appId" autocomplete="off" placeholder="cli_..." required></label><label>App Secret<input name="appSecret" type="password" autocomplete="new-password" required></label><label>允许老板的 open_id<input name="allowedUserId" autocomplete="off" placeholder="ou_..." required></label><button>${employee.configured ? '更新并重新连接' : '保存并连接'}</button><p class="connection-message" role="status">${employee.channel?.message || '尚未接线。'}</p></form></details>`;
+                : `<details class="connection-form-disclosure" data-disclosure-key="employee-form:${escapeHtml(employee.agentId)}"><summary>${employee.configured ? '更新接线配置' : '配置飞书入口'}</summary><form data-agent-id="${escapeHtml(employee.agentId)}" data-refresh-protected><label>飞书 App ID<input name="appId" autocomplete="off" placeholder="cli_..." required></label><label>App Secret<input name="appSecret" type="password" autocomplete="new-password" required></label><label>允许老板的 open_id<input name="allowedUserId" autocomplete="off" placeholder="ou_..." required></label><button>${employee.configured ? '更新并重新连接' : '保存并连接'}</button><p class="connection-message" role="status">${escapeHtml(employee.channel?.message || '尚未接线。')}</p></form></details>`;
             node.innerHTML = html `
       <details class="connection-disclosure" data-disclosure-key="employee:${employee.agentId}">
         <summary>
@@ -198,11 +198,11 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
         <div class="connection-body">
           <div class="connection-facts">
             <p class="readiness-row"><strong>模型：</strong><span class="status ${employee.model?.status || 'not_ready'}">${statusLabel(employee.model?.status || 'not_ready')}</span> ${employee.model?.message || '模型状态待核对。'}</p>
-            ${modelAction}
+            ${raw(modelAction)}
             <p class="readiness-row"><strong>飞书：</strong>${employee.channel?.message || '尚未接线。'}</p>
             <small>事件：${employee.requiredEvents.join('、')}<br>权限：${employee.requiredScopes.join('、')}</small>
           </div>
-          ${connectionControls}
+          ${raw(connectionControls)}
         </div>
       </details>`;
             return node;
@@ -282,14 +282,14 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
                 : { className: 'failed', label: '读取失败' }
             : { className: connection.status, label: statusLabel(connection.status) };
         const managementActions = [
-            canReauthorize ? `<button type="button" class="secondary-action" data-connection-action="reauthorize" data-connection-id="${connection.connectionId}" data-provider="${connection.provider}" data-alias="${connection.accountAlias}">${connection.status === 'active' ? '续期/重新授权' : '重新授权'}</button>` : '',
-            canDisable ? `<button type="button" class="secondary-action" data-connection-action="disable" data-connection-id="${connection.connectionId}">暂时禁用</button>` : '',
-            canRevoke ? `<button type="button" class="secondary-action danger-action" data-connection-action="revoke" data-connection-id="${connection.connectionId}">永久撤销</button>` : ''
+            canReauthorize ? `<button type="button" class="secondary-action" data-connection-action="reauthorize" data-connection-id="${escapeHtml(connection.connectionId)}" data-provider="${escapeHtml(connection.provider)}" data-alias="${escapeHtml(connection.accountAlias)}">${connection.status === 'active' ? '续期/重新授权' : '重新授权'}</button>` : '',
+            canDisable ? `<button type="button" class="secondary-action" data-connection-action="disable" data-connection-id="${escapeHtml(connection.connectionId)}">暂时禁用</button>` : '',
+            canRevoke ? `<button type="button" class="secondary-action danger-action" data-connection-action="revoke" data-connection-id="${escapeHtml(connection.connectionId)}">永久撤销</button>` : ''
         ].filter(Boolean).join('');
         const primaryAction = connection.status === 'active'
             ? connection.isDefault
                 ? '<span class="connection-default-note">任务默认使用这个账号</span>'
-                : `<button type="button" data-connection-action="default" data-connection-id="${connection.connectionId}">设为${providerLabel(connection.provider)}默认账号</button>`
+                : `<button type="button" data-connection-action="default" data-connection-id="${escapeHtml(connection.connectionId)}">设为${escapeHtml(providerLabel(connection.provider))}默认账号</button>`
             : '';
         node.innerHTML = html `
     <details class="connection-disclosure" data-disclosure-key="account:${connection.connectionId}">
@@ -310,8 +310,8 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
           <p><strong>数据范围：</strong>${scopeText}</p>
           <small>${verification}<br>${timing}<br>${health}<br>${connection.hasCredentialReference ? '受控凭据引用已登记' : '未登记受控凭据引用'}</small>
         </div>
-        ${primaryAction}
-        ${managementActions ? `<details class="action-menu" data-disclosure-key="account-actions:${connection.connectionId}"><summary><svg aria-hidden="true"><use href="#icon-more"></use></svg>管理连接</summary><div class="connection-actions">${managementActions}</div></details>` : '<span class="connection-final-state">无需操作</span>'}
+        ${raw(primaryAction)}
+        ${raw(managementActions ? `<details class="action-menu" data-disclosure-key="account-actions:${escapeHtml(connection.connectionId)}"><summary><svg aria-hidden="true"><use href="#icon-more"></use></svg>管理连接</summary><div class="connection-actions">${managementActions}</div></details>` : '<span class="connection-final-state">无需操作</span>')}
       </div>
     </details>`;
         return node;

@@ -33,6 +33,10 @@ jobs:
         run: |
           npm run build:frontend --workspace=ajun-runtime
           git diff --exit-code apps/ajun-runtime/public/
+          npm run build:frontend --workspace=project-progress-board
+          git diff --exit-code apps/project-progress-board/public/
+          npm run build:frontend --workspace=xiaod-media-transcriber
+          git diff --exit-code apps/xiaod-media-transcriber/public/
 
       - name: Check any-density gate
         run: node scripts/check-any-density.mjs
