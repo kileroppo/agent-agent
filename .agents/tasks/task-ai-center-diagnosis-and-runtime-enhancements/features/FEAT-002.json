@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "feat",
   "description": "AI capability center category view - reorganize the flat AI service list into categorized collapsible groups by capability type (text generation, voice, vision, knowledge retrieval, etc.) with ready/total counts per category.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "In apps/ajun-runtime/src/runtime-http-local-ai.ts, extend the GET /api/local-ai/control response to include a 'categories' field that groups capabilities by type. Define categories: text (text.generate), voice (audio.transcribe, audio.synthesize, audio.clone_authorized), vision (vision.analyze, video.analyze, video.generate), image (image.generate, image.edit), knowledge (embedding.create, rerank.score, knowledge.index, knowledge.search). Each category has: id, label (Chinese), capabilities (with their health status from the gateway), readyCount, totalCount.",
     "Update the LocalAiCapabilityClient.controlOverview() method (or create a wrapper) to produce categorized output. The existing health() method already returns capabilities with healthy/e2eVerified status. Map each capability to its category.",
@@ -23,5 +23,5 @@
     "npm run build:frontend --workspace=ajun-runtime && git diff --exit-code apps/ajun-runtime/public/"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "Updated console-operator-flow-ui.test.js to match new category-based pattern (was checking for node-based 'aiServiceGroups(payload.services)' and node labels). Pre-existing failures: 3 tests as documented in FEAT-001 findings still fail on base state."
 }
