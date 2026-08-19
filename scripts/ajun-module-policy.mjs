@@ -3,7 +3,7 @@ import path from 'node:path';
 
 const SCHEMA_VERSION = 'agent.army/ajun-module-policy/v1';
 const POLICY_FIELDS = new Set(['schemaVersion', 'modules', 'testGroups']);
-const MODULE_RULE_FIELDS = new Set(['lineLimit', 'importLimit', 'affectedTests']);
+const MODULE_RULE_FIELDS = new Set(['lineLimit', 'importLimit', 'affectedTests', 'defaultEnabled']);
 const TEST_GROUP_FIELDS = new Set(['label', 'lineLimit', 'files']);
 const TEST_FILE_RULE_FIELDS = new Set(['lineLimit']);
 const AJUN_DIRECTORY = 'apps/ajun-runtime';

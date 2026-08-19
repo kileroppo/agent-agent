@@ -250,7 +250,8 @@
         "test/m5-learning-lifecycle.test.js"
       ],
       "lineLimit": 300,
-      "importLimit": 8
+      "importLimit": 8,
+      "defaultEnabled": false
     },
     "src/m5-learning-lifecycle.ts": {
       "affectedTests": [
@@ -258,53 +259,62 @@
         "test/paperclip-learning-lifecycle.test.js"
       ],
       "lineLimit": 500,
-      "importLimit": 8
+      "importLimit": 8,
+      "defaultEnabled": false
     },
     "src/m5-local-chaos-acceptance.ts": {
-      "lineLimit": 450
+      "lineLimit": 450,
+      "defaultEnabled": false
     },
     "src/m5-local-chaos-adapters.ts": {
       "affectedTests": [
         "test/m5-local-chaos-acceptance.test.js"
       ],
-      "lineLimit": 350
+      "lineLimit": 350,
+      "defaultEnabled": false
     },
     "src/m5-local-chaos-fixtures.ts": {
       "affectedTests": [
         "test/m5-local-chaos-acceptance.test.js"
       ],
-      "lineLimit": 250
+      "lineLimit": 250,
+      "defaultEnabled": false
     },
     "src/m5-local-chaos-journey.ts": {
       "affectedTests": [
         "test/m5-local-chaos-acceptance.test.js"
       ],
-      "lineLimit": 400
+      "lineLimit": 400,
+      "defaultEnabled": false
     },
     "src/m5-local-chaos-ledger.ts": {
       "affectedTests": [
         "test/m5-local-chaos-acceptance.test.js"
       ],
-      "lineLimit": 250
+      "lineLimit": 250,
+      "defaultEnabled": false
     },
     "src/m5-publisher-bindings.ts": {
       "lineLimit": 450,
       "affectedTests": [
         "test/m5-publisher-bindings.test.js"
-      ]
+      ],
+      "defaultEnabled": false
     },
     "src/m5-publisher-runtime-lease.ts": {
       "lineLimit": 500,
       "affectedTests": [
         "test/m5-publisher-bindings.test.js"
-      ]
+      ],
+      "defaultEnabled": false
     },
     "src/m5-work-product-trust.ts": {
       "lineLimit": 100,
       "affectedTests": [
         "test/m5-learning-lifecycle.test.js",
         "test/paperclip-retrospective.test.js"
-      ]
+      ],
+      "defaultEnabled": false
     },
     "src/metric-checkpoint-execution.ts": {
       "lineLimit": 630,

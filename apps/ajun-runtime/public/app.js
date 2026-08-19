@@ -18,6 +18,7 @@ const capabilityList = document.querySelector('#capability-list');
 const agentList = document.querySelector('#agent-list');
 const recentTaskList = document.querySelector('#recent-task-list');
 const overviewStats = document.querySelector('#overview-stats');
+const chainDiagnosis = document.querySelector('#chain-diagnosis');
 const overviewSummary = document.querySelector('#overview-summary');
 const billingSummary = document.querySelector('#billing-summary');
 const billingStats = document.querySelector('#billing-stats');
@@ -465,6 +466,38 @@ function renderOverviewStats() {
         statCard('业务质量债', debt.value, debt.note, debt.icon, debt.attention, debt.href),
     ];
     overviewStats.replaceChildren(...cards);
+    renderChainDiagnosis(health);
+}
+function renderChainDiagnosis(health) {
+    if (!chainDiagnosis)
+        return;
+    const coreStatus = typeof health?.coreOnline === 'string' ? health.coreOnline : (health?.coreOnline?.status || 'unknown');
+    const isHealthy = coreStatus === 'online' && (health?.reliability === 'healthy' || health?.reliability?.status === 'healthy');
+    if (isHealthy) {
+        chainDiagnosis.hidden = true;
+        chainDiagnosis.replaceChildren();
+        return;
+    }
+    chainDiagnosis.hidden = false;
+    chainDiagnosis.innerHTML = html `<details class="chain-diagnosis-disclosure" data-disclosure-key="chain-diagnosis"><summary><strong>飞书总管链路诊断</strong><small>系统状态非健康时自动展示</small><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><div class="chain-diagnosis-body"><p>正在加载链路诊断…</p></div></details>`;
+    fetchChainDiagnosis();
+}
+async function fetchChainDiagnosis() {
+    if (!chainDiagnosis)
+        return;
+    const body = chainDiagnosis.querySelector('.chain-diagnosis-body');
+    if (!body)
+        return;
+    try {
+        const diagnosis = await api('/api/diagnose/feishu-chain');
+        const checks = Array.isArray(diagnosis.checks) ? diagnosis.checks : [];
+        const checkItems = checks.map((check) => html `<li class="chain-check-item ${check.status}"><strong>${check.title}</strong><span class="chain-check-conclusion">${check.conclusion}</span><small>真相层级：${check.truthLayer}</small></li>`).join('');
+        const nextStep = diagnosis.uniqueNextStep ? html `<div class="chain-next-step"><strong>唯一下一步：</strong><span>${diagnosis.uniqueNextStep}</span></div>` : '';
+        body.innerHTML = html `<p class="chain-verdict">判定：${diagnosis.verdict}${raw(diagnosis.verdictCaveat ? ` - ${escapeHtml(diagnosis.verdictCaveat)}` : '')}</p><ul class="chain-check-list">${raw(checkItems)}</ul>${raw(nextStep)}`;
+    }
+    catch (error) {
+        body.innerHTML = html `<p class="chain-diagnosis-error">链路诊断加载失败：${error.message || '未知错误'}</p>`;
+    }
 }
 function recordCategoryHref(category) {
     const params = new URLSearchParams({ recordView: 'all', recordCategory: category, recordTime: 'all' });

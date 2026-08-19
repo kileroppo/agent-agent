@@ -26,6 +26,7 @@ import { dispatchBoomSignal } from '@agent-army/boom-monitor';
 import { routeBoomMonitorApi } from './boom-monitor/index.ts';
 import { isPaperclipHttpError, routePaperclipHttp } from './runtime-http-paperclip.ts';
 import { routeProductMaturityApi } from './runtime-http-product-maturity.ts';
+import { routeDiagnosisApi, EMPTY_OBSERVATIONS } from './runtime-http-diagnosis.ts';
 import { routeRuntimeHealthApi } from './runtime-http-health.ts';
 import { hasSameOriginRequest, routeOwnerControlApi } from './runtime-http-owner-control.ts';
 import { routeWorkflowAcceptanceApi, workflowAcceptanceErrorStatus } from './runtime-http-workflow-acceptance.ts';
@@ -50,8 +51,8 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 tasks,
                 optional:{ m5RuntimeEnabled:Boolean(productMaturity), boomMonitorEnabled:Boolean(boomMonitorEnabled), boomMonitorAutoScheduleEnabled:Boolean(boomMonitorAutoScheduleEnabled), productMaturityEnabled:Boolean(productMaturity) },
             });
-            if (healthResult)
-                return sendJson(response, healthResult.status, healthResult.payload);
+            if (healthResult) return sendJson(response, healthResult.status, healthResult.payload);
+            { const r: any = await routeDiagnosisApi({ request, local:isLocalAddress(request.socket.remoteAddress), observeChain:(): any => commanderChainEvidence?.observe?.() ?? Promise.resolve(EMPTY_OBSERVATIONS) }); if (r) return sendJson(response, r.status, r.payload); }
             const ownerControlResult: any = await routeOwnerControlApi({
                 request, ownerActionSession, runtimeRelease, development,
                 local:isLocalAddress(request.socket.remoteAddress),
