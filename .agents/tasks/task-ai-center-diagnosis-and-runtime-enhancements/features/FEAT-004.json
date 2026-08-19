@@ -2,7 +2,7 @@
   "id": "FEAT-004",
   "type": "feat",
   "description": "Task cost attribution in detail page + Workflow breadcrumb in task detail + Agent Manifest runtime validation (Hermes Profile online probe during operations-health).",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "In apps/ajun-runtime/src/task-record-service.ts, extend the detail() method to include a 'costAttribution' field when returning a task record. Query task usage data (from task.usage which uses the task-usage.ts recordTaskUsage schema) to build: totalCostDisplay (formatted string), modelInputTokens, modelOutputTokens, durationMs, executor. The data already exists in task.usage per the recordTaskUsage function - just project it into the detail response.",
     "In frontend/src/task-record-detail-view.ts, add a renderCostSection(detail) function that renders a section 'This cost' showing: executor agent name, duration, token counts, total cost. Use the html tagged template. Render it after the main task detail content. Only show if costAttribution has data.",
@@ -29,5 +29,5 @@
     "npm run build:frontend --workspace=ajun-runtime && git diff --exit-code apps/ajun-runtime/public/"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "Handler file at exactly 750 split-lines (the limit); agent health probe route merged onto same line as custom AI route. Pre-existing 3 test failures unchanged. costAttribution uses cost.amount directly (already a dollar float in task-usage normalizeCost). workflowBreadcrumb siblings exclude the current task itself."
 }
