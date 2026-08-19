@@ -160,6 +160,12 @@
     "src/feishu-commander.ts": {
       "lineLimit": 100
     },
+    "src/hermes-log-attribution.ts": {
+      "affectedTests": [
+        "test/hermes-log-attribution.test.js"
+      ],
+      "lineLimit": 950
+    },
     "src/local-content-analysis.ts": {
       "affectedTests": [
         "test/local-content-growth.test.js"
