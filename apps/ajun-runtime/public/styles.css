@@ -1,3 +1,7 @@
+/* Design tokens: shared source of truth is packages/ui-tokens/tokens.css
+   Loaded via <link href="/tokens.css"> before this file.
+   App-specific overrides and extensions below. */
+
 :root {
   color-scheme: light;
   --canvas: #f6f7f2;
@@ -219,6 +223,12 @@ h3 {
   border-color: transparent;
   background: transparent;
   color: color-mix(in srgb, var(--muted) 72%, transparent);
+}
+
+.sync-badge.is-degraded {
+  border-color: var(--rose);
+  background: color-mix(in srgb, var(--rose) 8%, transparent);
+  color: var(--rose);
 }
 
 .sync-indicator {

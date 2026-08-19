@@ -1,0 +1,13 @@
+{
+  "name": "@agent-army/ui-tokens",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared CSS design tokens for all agent-army frontend apps",
+  "main": "tokens.css",
+  "scripts": {
+    "distribute": "node distribute.mjs"
+  },
+  "files": [
+    "tokens.css"
+  ]
+}

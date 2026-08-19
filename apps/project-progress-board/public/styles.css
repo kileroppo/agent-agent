@@ -1,3 +1,7 @@
+/* Design tokens: shared source of truth is packages/ui-tokens/tokens.css
+   Loaded via <link href="/tokens.css"> before this file.
+   App-specific overrides and extensions below. */
+
 :root {
   --bg: #f6f8f5;
   --surface: #fff;
