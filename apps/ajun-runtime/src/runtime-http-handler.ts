@@ -32,6 +32,8 @@ import { hasSameOriginRequest, routeOwnerControlApi } from './runtime-http-owner
 import { routeWorkflowAcceptanceApi, workflowAcceptanceErrorStatus } from './runtime-http-workflow-acceptance.ts';
 import { routeTaskRecoveryApi } from './runtime-http-task-recovery.ts';
 import { routeLocalAiApi } from './runtime-http-local-ai.ts';
+import { routeCustomAiApi } from './runtime-http-custom-ai.ts';
+import { CustomAiCapabilityStore } from './custom-ai-capability-store.ts';
 import { bearerToken, isBoomLegacyIntegrationAuthorized, isBoomLegacyIntegrationPath } from './runtime-http-boom-legacy.ts';
 import { parseUsageRange } from './task-overview.ts';
 export { isBoomLegacyIntegrationAuthorized, isBoomLegacyIntegrationPath } from './runtime-http-boom-legacy.ts';
@@ -44,6 +46,7 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
     const { commander, officialFeishuChannel, hermesNativeCompletionWatcher, resolveFeishuApproval, commanderChainEvidence = null, } = feishu;
     const { campaigns } = m5;
     const ownerActionSession: any = createOwnerActionSession();
+    const customAiStore: any = new CustomAiCapabilityStore({ dataDir });
     return async function ajunHttpHandler(request: any, response: any): Promise<any> {
         try {
             const healthResult: any = await routeRuntimeHealthApi({
@@ -169,12 +172,8 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                     filters: taskTimelineUrl.searchParams.getAll('filter'),
                 }));
             }
-            const localAiResult: any = await routeLocalAiApi({
-                request, localAi, local:isLocalAddress(request.socket.remoteAddress),
-                readBody:(): any => readJsonBody(request),
-            });
-            if (localAiResult)
-                return sendJson(response, localAiResult.status, localAiResult.payload);
+            { const r: any = await routeLocalAiApi({ request, localAi, local:isLocalAddress(request.socket.remoteAddress), readBody:(): any => readJsonBody(request), customAiStore }); if (r) return sendJson(response, r.status, r.payload); }
+            { const r: any = await routeCustomAiApi({ request, local:isLocalAddress(request.socket.remoteAddress), store:customAiStore, readBody:(): any => readJsonBody(request) }); if (r) return sendJson(response, r.status, r.payload); }
             const taskDetailMatch: any = request.url?.match(/^\/api\/tasks\/([0-9a-f-]{36})$/i);
             if (request.method === 'GET' && taskDetailMatch) {
                 const audience: any = isLocalAddress(request.socket.remoteAddress) ? 'local-owner' : 'lan';

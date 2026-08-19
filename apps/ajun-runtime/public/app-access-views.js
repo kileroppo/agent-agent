@@ -54,11 +54,36 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
             const stopped = payload.services.filter((service) => service.state === 'stopped').length;
             const attention = payload.services.filter((service) => ['offline', 'unknown'].includes(service.state)).length;
             aiControlMessage.innerHTML = html `<span class="ai-metric"><strong>${payload.services.length}</strong><small>已纳管</small></span><span class="ai-metric"><strong>${running}</strong><small>运行中</small></span><span class="ai-metric"><strong>${stopped}</strong><small>等待任务</small></span>${raw(attention ? `<span class="ai-metric is-attention"><strong>${attention}</strong><small>需要处理</small></span>` : '<span class="ai-metric is-healthy"><strong>✓</strong><small>状态稳定</small></span>')}`;
+            renderCustomCapabilities(payload.customCapabilities || []);
         }
         catch (error) {
             aiControlMessage.textContent = error.message;
             aiServiceList.replaceChildren();
         }
+    }
+    function renderCustomCapabilities(customs) {
+        let container = aiServiceList.parentElement?.querySelector('.custom-ai-section');
+        if (!container) {
+            container = document.createElement('div');
+            container.className = 'custom-ai-section';
+            aiServiceList.parentElement?.appendChild(container);
+        }
+        const cards = customs.map((cap) => {
+            const node = document.createElement('article');
+            node.className = `ai-service-card ${cap.lastHealthStatus === 'healthy' ? 'running' : 'unknown'}`;
+            node.innerHTML = html `<div class="ai-service-head"><div><strong>${cap.label}</strong><small>${cap.capabilityType} · ${cap.endpointUrl}</small></div><span class="status ${cap.lastHealthStatus}">${cap.lastHealthStatus === 'healthy' ? '健康' : cap.lastHealthStatus === 'unhealthy' ? '异常' : '待检测'}</span></div><div class="ai-service-controls"><div class="connection-actions"><button type="button" class="secondary-action" data-custom-ai-health="${escapeHtml(cap.id)}">健康检查</button><button type="button" class="secondary-action danger-action" data-custom-ai-remove="${escapeHtml(cap.id)}">移除</button></div></div>`;
+            return node;
+        });
+        const addBtn = document.createElement('button');
+        addBtn.type = 'button';
+        addBtn.className = 'secondary-action';
+        addBtn.dataset.customAiAdd = 'true';
+        addBtn.textContent = '+ 添加第三方能力';
+        const form = document.createElement('div');
+        form.className = 'custom-ai-form';
+        form.hidden = true;
+        form.innerHTML = raw(`<label>能力类型<input name="capabilityType" placeholder="tts, asr, image.generate" required></label><label>名称<input name="label" placeholder="例：Azure TTS" required></label><label>端点 URL<input name="endpointUrl" type="url" placeholder="http://..." required></label><label>健康检查路径<input name="healthCheckPath" placeholder="/health"></label><button type="button" data-custom-ai-submit>确认添加</button><button type="button" data-custom-ai-cancel class="secondary-action">取消</button>`).value;
+        container.replaceChildren(...cards, addBtn, form);
     }
     function aiServiceGroups(services, categories = []) {
         if (!categories.length) {

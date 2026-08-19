@@ -80,6 +80,59 @@ export function bindConsoleInteractions({ elements, state, api, load, setSyncSta
             await accessViews.renderAiControl();
         }
     });
+    document.addEventListener('click', async (event) => {
+        const addBtn = event.target.closest('[data-custom-ai-add]');
+        if (addBtn) {
+            const form = addBtn.parentElement?.querySelector('.custom-ai-form');
+            if (form)
+                form.hidden = false;
+            return;
+        }
+        const cancelBtn = event.target.closest('[data-custom-ai-cancel]');
+        if (cancelBtn) {
+            const form = cancelBtn.closest('.custom-ai-form');
+            if (form)
+                form.hidden = true;
+            return;
+        }
+        const submitBtn = event.target.closest('[data-custom-ai-submit]');
+        if (submitBtn) {
+            const form = submitBtn.closest('.custom-ai-form');
+            if (!form)
+                return;
+            const inputs = Object.fromEntries([...form.querySelectorAll('input')].map((i) => [i.name, i.value]));
+            try {
+                await api('/api/custom-ai/capabilities', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(inputs) });
+                await accessViews.renderAiControl();
+            }
+            catch (e) {
+                aiControlMessage.textContent = e.message;
+            }
+            return;
+        }
+        const removeBtn = event.target.closest('[data-custom-ai-remove]');
+        if (removeBtn) {
+            try {
+                await api(`/api/custom-ai/capabilities/${removeBtn.dataset.customAiRemove}`, { method: 'DELETE' });
+                await accessViews.renderAiControl();
+            }
+            catch (e) {
+                aiControlMessage.textContent = e.message;
+            }
+            return;
+        }
+        const healthBtn = event.target.closest('[data-custom-ai-health]');
+        if (healthBtn) {
+            try {
+                await api(`/api/custom-ai/capabilities/${healthBtn.dataset.customAiHealth}/health-check`, { method: 'POST' });
+                await accessViews.renderAiControl();
+            }
+            catch (e) {
+                aiControlMessage.textContent = e.message;
+            }
+            return;
+        }
+    });
     employeeConnectionList.addEventListener('submit', async (event) => {
         event.preventDefault();
         const form = event.target.closest('form[data-agent-id]');

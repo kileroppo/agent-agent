@@ -2,7 +2,7 @@
   "id": "FEAT-003",
   "type": "feat",
   "description": "Custom third-party AI capability registration - add ability to register external AI capabilities (TTS, ASR, image gen, etc.) with endpoint URL and health check path, persisted to disk, integrated into capability routing and health detection.",
-  "status": "pending",
+  "status": "in_progress",
   "steps": [
     "Create apps/ajun-runtime/src/custom-ai-capability-store.ts following the CapabilityGrantStore disk persistence pattern. It stores registered custom capabilities as JSON files in dataDir/custom-ai-capabilities/. Each entry has: id (auto-generated), capabilityType (e.g. 'tts', 'asr', 'image.generate'), label (user-given name), endpointUrl, healthCheckPath, healthCheckMethod (GET default), registeredAt, lastHealthCheck, lastHealthStatus. Provide methods: list(), register(input), remove(id), checkHealth(id).",
     "Create HTTP routes in apps/ajun-runtime/src/runtime-http-custom-ai.ts: (1) GET /api/custom-ai/capabilities returns list of registered custom capabilities with their health status, (2) POST /api/custom-ai/capabilities registers a new one (validate input: capabilityType required, endpointUrl required valid URL, healthCheckPath optional), (3) DELETE /api/custom-ai/capabilities/:id removes one, (4) POST /api/custom-ai/capabilities/:id/health-check triggers a health probe. All require local access.",
