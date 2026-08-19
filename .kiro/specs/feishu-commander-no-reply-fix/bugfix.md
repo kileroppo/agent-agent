@@ -227,8 +227,13 @@ DeepSeek 文本回退」，并规定「没有当前凭据调用证据前，Profi
 **本轮修正 · 旧关键词判定不成立，本项仍未排除。** 真机 `gateway.log` 的 `policy=0`（**已实测**）证明
 `dm_policy_rejected` 这一措辞在 Hermes `0.20.1` 的日志里根本不存在 —— 它取自上述 2026-07-19 的 0.19 时代记录，
 且该记录本身未登记当时的 Hermes 版本（已核实）。因此上一轮的 `dm_policy=0` / `no_llm=0`**不构成「白名单正常」
-或「模型配置正常」的证据**，只说明这两个旧关键词未出现；其中 `no llm provider` 在本仓库任何文件中都检索不到，
-**来源无据**（已核实，上一轮把它描述为「0.19 时代针对 provider 未选择的措辞」并无仓库内依据）。
+或「模型配置正常」的证据**，只说明这两个旧关键词未出现。其中 `no llm provider` 的**来源为
+`docs/reviews/m1-xiaod-feishu-closure/acceptance.md:92`**，该处以 `RuntimeError: No LLM provider configured`
+的形式记录（2026-07-19，同样**未登记当时的 Hermes 版本**）。**此处更正上一轮的事实错误**：上一轮称该措辞
+「在本仓库任何文件中都检索不到、**来源无据**」并标注「已核实」，实为用小写 `no llm provider` 检索导致的
+**大小写敏感漏检**，该未经证实的结论被**误标为「已核实」**。该更正**加强**原论点 —— 该措辞正是 0.19 时代
+针对「Profile 未在 `config.yaml` 选择模型 Provider」这一**不同故障**的措辞，用它匹配 0.20.1 的零回复故障
+本就不成立。
 这与本 spec 已记录的 `config.yaml` 字段名猜测（缺陷 D）是**同一类错误**。实测事实为 `reject=7`（低但非零）
 与 `feishu=1223`（飞书事件大量到达）；`reject` 那 7 次的性质**未确认**，白名单是否命中**仍未验证**。
 （对应新增条款 1.26、2.35。）
@@ -330,7 +335,7 @@ MCP 是从 Hermes 模型通往「A君本机任务与能力适配」的**唯一�
 以下五条由本轮真机日志实证新发现（缺陷 G 诊断不读 Hermes 自身日志：1.25；缺陷 H 标识符猜测被实证：1.26；缺陷 I MCP 腿活性无判定：1.27；缺陷 J 无回退状态不被告知：1.28；缺陷 K 错误日志无轮转：1.29）：
 
 1.25 WHEN 六项诊断执行完毕 THEN 系统完全不读取 Hermes 自身的日志（`apps/ajun-runtime/src/feishu-commander-chain-diagnosis.ts` 与 `feishu-commander-chain-observations.ts` 内不存在任何日志读取路径，已核实），而真机 `gateway.error.log` 尾部 20000 行的异常类名直方图为 `ConnectError` 974 / `Error` 357 / `NetworkError` 349 / `RemoteProtocolError` 80 / `ConnectTimeout` 34 / `ReadError` 2 / `CancelledError` 2（**已实测**，仅提取类名未读消息正文），全部属 httpx 出站异常族，即**出站 HTTP 连接正在持续失败**；该决定性信号在诊断输出中完全不可见，使当前最强活跃阻断点无法被任何一项检查发现
-1.26 WHEN 排查依据来自外部系统的标识符 THEN 系统用旧版本措辞匹配当前版本并把失配表述为「未命中」：真机 `gateway.log` 全量计数中 `policy=0`（**已实测**）证明 `dm_policy_rejected` 这一措辞在 Hermes `0.20.1` 的日志里根本不出现，而该措辞取自 `docs/reviews/m1-xiaod-feishu-closure/acceptance.md`（日期 2026-07-19，该记录**未登记当时的 Hermes 版本**，已核实）；另一个曾被用作判据的 `no llm provider` 在本仓库任何文件中都检索不到，**来源无据**（已核实）；仓库内另有被标记「已验证」的正向签名（`Inbound dm message received` / `inbound message: platform=feishu` / `response ready: platform=feishu` / `[Feishu] Sending response`，见 `docs/guides/创建Hermes-Agent与飞书Bot接线教程.md` 与 `docs/archive/handoffs/av-transcriber-feishu-provisioning-handoff.md`）同样**未登记适用版本**且诊断未使用；因此「旧关键词计数为 0」既不构成「白名单正常」也不构成「模型配置正常」，只说明旧关键词未出现，与缺陷 D（`config.yaml` 字段名猜测）属**同一类错误**：失配时返回「未命中」而非「该标识符在当前版本不适用」，使排查者把「没匹配到」误读成「该故障不存在」
+1.26 WHEN 排查依据来自外部系统的标识符 THEN 系统用旧版本措辞匹配当前版本并把失配表述为「未命中」：真机 `gateway.log` 全量计数中 `policy=0`（**已实测**）证明 `dm_policy_rejected` 这一措辞在 Hermes `0.20.1` 的日志里根本不出现，而该措辞取自 `docs/reviews/m1-xiaod-feishu-closure/acceptance.md`（日期 2026-07-19，该记录**未登记当时的 Hermes 版本**，已核实）；另一个曾被用作判据的 `no llm provider`，其**来源为 `docs/reviews/m1-xiaod-feishu-closure/acceptance.md:92`**，该处以 `RuntimeError: No LLM provider configured` 的形式记录（日期 2026-07-19，该记录**同样未登记当时的 Hermes 版本**）；**此处更正上一轮的事实错误** —— 上一轮称该措辞「在本仓库任何文件中都检索不到、**来源无据**」并标注「已核实」，这是用小写 `no llm provider` 检索导致的**大小写敏感漏检**，属检索方法失误，且该未经证实的结论被**误标为「已核实」**；该更正**加强而非削弱本条论点**：该措辞恰恰是 0.19 时代针对「Profile 未在 `config.yaml` 选择模型 Provider」这一**与本 spec 完全不同的故障**的措辞，因此用它匹配 0.20.1 的零回复故障本就不成立，其计数为 0 更不构成「模型配置正常」的证据；同时这次漏检本身又是一次「未溯源即断言」，正是本条所批评的错误类型；仓库内另有被标记「已验证」的正向签名（`Inbound dm message received` / `inbound message: platform=feishu` / `response ready: platform=feishu` / `[Feishu] Sending response`，见 `docs/guides/创建Hermes-Agent与飞书Bot接线教程.md` 与 `docs/archive/handoffs/av-transcriber-feishu-provisioning-handoff.md`）同样**未登记适用版本**且诊断未使用；因此「旧关键词计数为 0」既不构成「白名单正常」也不构成「模型配置正常」，只说明旧关键词未出现，与缺陷 D（`config.yaml` 字段名猜测）属**同一类错误**：失配时返回「未命中」而非「该标识符在当前版本不适用」，使排查者把「没匹配到」误读成「该故障不存在」
 1.27 WHEN 诊断给出链路结论 THEN 系统对 Agent Army MCP 这条腿的活性无任何判定，而真机上该腿已呈失联迹象：`mcp-stderr.log` 与 `gateway-exit-diag.log` 的 mtime 停在 08-18 23:57，而 `gateway.log` / `gateway.error.log` / `errors.log` / `agent.log` 持续写到 08-19 11:21（约 11.5 小时落差，**已实测**），且 `gateway.log` 全部 25741 行内 `mcp|agent-army` 仅出现 **1 次**（**已实测**）；ADR-0007 决定 3 规定「A君以本机 MCP Server 向 Hermes 暴露军团工具」，其《对话与任务边界》拓扑中 MCP 是从 Hermes 模型通往「A君本机任务与能力适配」的**唯一被描述的通道**，且「查询状态先调用只读 MCP 工具，不能凭模型记忆编造」；MCP 不被调用意味着即使模型可用，军团能力在飞书侧也拿不到
 1.28 WHEN 出站连接失败而 `fallbackModels` 按 `docs/adr/0013-stepfun-primary-reasoning-restoration.md` 显式为空 THEN 结果必然是完全静默（无业务回复、无错误提示、无降级说明），而系统不在任何地方报告「当前处于无回退状态、一旦出站失败即静默」这一事实，用户与运维无法预先知道该风险，也无法在故障发生时把静默归因到它
 1.29 WHEN Hermes gateway 错误日志持续增长 THEN 无任何轮转或规模约定对其生效：真机 `gateway.error.log` 已达 460144 行且仍在写入（**已实测**），而仓库内检索不到任何针对 Hermes gateway 日志的轮转约定、规模阈值或校验（`logrotate` / `max_size` / `backup_count` / 「轮转」在仓库内零命中；`rotate` 的命中仅为 LAN 共享密钥轮换与 `boom-monitor` 备份保留，与 Hermes 日志无关，已核实）；46 万行错误日志本身既使故障信号被淹没，也构成运维负担
