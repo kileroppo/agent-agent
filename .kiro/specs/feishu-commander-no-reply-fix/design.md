@@ -39,6 +39,9 @@
 - **层级上限（Truth Layer Ceiling）**：某项检查在本机**最多**能证明到哪一层。超出上限的结论一律标 `unproven` + `requiresRealMachineVerification: true`。
 - **`_route_ajun_commander_event`**：`~/.hermes/hermes-agent/plugins/platforms/feishu/adapter.py` 中由 `integrations/hermes/scripts/patch-feishu-agent-proposal-router.mjs` 注入的总管路由方法。**该文件不在本仓库，Hermes 升级会覆盖它。**
 - **证据账本（Evidence Ledger）**：按日切分的 JSONL 追加文件，`0600`。运行时侧在 `dataDir` 下，Hermes 侧在 `HERMES_HOME` 下。
+- **非异常型拒绝记录（Rejection Record）**：Hermes 日志里**不带 traceback** 的单行结构化拒绝/丢弃记录，典型为用户准入拒绝。与 traceback 相对，它没有栈帧，因此不能用「最深非第三方栈帧」归属。
+- **措辞溯源（Signature Provenance）**：每条拒绝措辞必须登记的三元组 —— 仓库内来源位置、适用的 Hermes 版本、适用性判定（`current_version` / `other_version` / `unknown`）。来源未登记版本时适用性恒为 `unknown`，按 2.35 不得表述为「未命中」。
+- **窗口覆盖（Scan Window Coverage）**：本次扫描实际覆盖的行范围与时间范围。用于把「该措辞未出现」与「窗口没覆盖到事发时间」区分开。
 
 ---
 
@@ -131,7 +134,45 @@ END FUNCTION
 
 ## Hypothesized Root Cause
 
-本 bug 是**架构级可观测性缺口**，不是单点逻辑错误。按可能性排序：
+### 已确认根因（第四轮 · 已实测）
+
+**Hermes 网关侧用户准入白名单拒绝了发送者。** 飞书消息到达网关后被当作未授权用户丢弃，且不产生任何用户可见说明。日志签名形状为「`Unauthorized user:` + 账号标识 + 姓名 + `on feishu`」（涉及三条消息）。**本文档只记录签名形状，不记录任何真实取值。**
+
+- **来源限制**：该结论由**外部直连诊断**实测取得，**不是**由本 spec 交付的诊断入口取得。本 spec 的诊断入口在真机上把 `feishu-admission` 一项报为 `unknown`（`errorCode:"admission_field_not_found"`），即按 1.19 预期在安全边界内结构上不可判定。
+- **交付归属（必须如实记录）**：真机上「飞书已能正常回复」（真机验证清单步骤 6 通过）是由**配置变更**（两套白名单对齐）达成的，**不是由本 spec 交付的代码达成**。因此 **Property 1（Fix Checking）在真机上未被本 spec 的代码满足** —— 诊断入口对已确认的准入拒绝这一项仍报 `unknown`。这一差距是第四轮新增条款 2.38–2.45 的直接动因，不得记为「已修复」。
+- **确认的既有条款**：1.7 / 2.7（发送者不在白名单内 → 消息被丢弃、用户收不到说明）。历史先例见 `docs/reviews/m1-xiaod-feishu-closure/acceptance.md`（2026-07-19，当时措辞为 `dm_policy_rejected`；**该记录未登记当时的 Hermes 版本**）。
+
+### 假设迁移（四轮）
+
+| 轮次 | 主导假设 | 结局 |
+|---|---|---|
+| 第一轮 | 假设 2 · adapter 补丁存活性无人校验（1.3） | **充分性被证伪** —— 补丁缺口是真实缺口，但消息会落回路径 B，不足以解释完全零回复 |
+| 第二轮 | 出站 HTTP 连接持续失败 + 回退链按 ADR-0013 显式为空 → 必然静默 | **已撤回** —— 归属于 Telegram 平台插件，与飞书链路及模型 provider 均无关 |
+| 第三轮 | （方法修正轮，未提出新根因） | 按子系统归属后证伪第二轮，交付 `hermes-log-attribution`（PR #12） |
+| 第四轮 | Hermes 网关侧准入白名单拒绝发送者 | **已确认为直接原因**（外部直连诊断实测） |
+
+**第二轮出站失败假设已撤回**：`ConnectError` 974 / `NetworkError` 349 / `ConnectTimeout` 34 经模块名与主机名直方图归属于 **Telegram 平台插件**（已实测），与飞书链路无关；该批证据不再构成任何候选的依据。
+
+**三次连续证伪的共同原因是同一个方法缺陷：依赖猜测的外部标识符 + 缺少证据归属。** 第三轮交付的归属工具修掉了「缺少归属」这一半，但它自身仍犯了「标识符只覆盖单一形状」这另一半 —— 见下方 §10。
+
+**本轮复核更正一条 bugfix.md 的事实**：bugfix.md 1.26 与第二轮记录称 `no llm provider`「在本仓库任何文件中都检索不到，来源无据（已核实）」。**该结论不成立** —— 该措辞以 `RuntimeError: No LLM provider configured` 的形式记录在 `docs/reviews/m1-xiaod-feishu-closure/acceptance.md:92`（2026-07-19，同样**未登记 Hermes 版本**）。原判断应为大小写敏感检索造成的漏检。这不改变 1.26 的结论方向（旧措辞计数为 0 仍不构成「模型配置正常」的证据），但它本身又是一次「未溯源即断言」，正是 2.35 / 2.45 要消除的错误类型。bugfix.md 属本轮范围外，不改动；此处留档，供下一次进入需求阶段时更正。
+
+### 本轮（第四轮）待修缺陷的根因假设
+
+本轮修复范围只含 1.34–1.36 / 2.43–2.45 / 3.24–3.27，即 PR #12 交付物自身的缺陷。根因**已在代码中定位，不是假设**：
+
+`apps/ajun-runtime/src/hermes-log-attribution.ts:188` 的解析由 `TRACEBACK_HEADER`（`/Traceback \(most recent call last\):\s*$/`）门控 —— 只有匹配该行才会新开一个 `MutableGroup`。非 traceback 行只做两件事：喂 `loggerNameCounts`（`LOGGER_TOKEN`，且要求 `plugins|gateway|hermes|integrations` 前缀）与更新 `lastHeaderLine`。因此**不带 traceback 的结构化准入拒绝行永远不进入 `subsystems` 与 `feishuChainTracebacks`**，而 `renderAttributionVerdict()` 与 `decideExitCode()` 只读这两者，`loggerNameCounts` 对结论零影响。
+
+后果链（已核实为既有行为）：`feishuChainTracebacks` 为空 → `renderAttributionVerdict()` 走 `feishuRelated.length === 0` 分支（`hermes-log-attribution.ts:429-434`）输出「扫描窗口内**没有任何**归属到飞书链路的 traceback…飞书侧的失败根本没有被记录到错误日志…这本身是一个证据缺口」→ `decideExitCode()`（`scripts/attribute-hermes-logs.mjs:223-229`）返回 `1`。**而真机上失败被记录得非常明确。** 为消除误导而建的工具在主动误导。
+
+**另有两个独立放大该缺陷的事实（本轮一并修）**：
+
+1. **默认扫描文件集不含 `gateway.log`**：`DEFAULT_LOG_NAME = 'gateway.error.log'`（`attribute-hermes-logs.mjs:29`），而准入拒绝是 WARNING 级记录，最可能只写在 `gateway.log`。即使解析修好，默认调用仍扫不到该行。
+2. **窗口覆盖范围不可见**：默认只读尾部 8 MiB（`DEFAULT_TAIL_BYTES`），真机 `gateway.error.log` 46 万行远超该窗口，而输出不报告窗口覆盖的时间范围。「未命中」因此无法与「窗口未覆盖」区分 —— 这正是 2.35 所禁止的表述混淆。
+
+### 初始七条假设（历史记录，覆盖 1.1–1.10，未删除）
+
+本 bug 的可观测性缺口部分仍由以下假设解释；第一轮真机验证确认了假设 2，其余未被推翻也未被逐项关闭：
 
 1. **失败路径全部走「静默 return False」**：`_route_ajun_commander_event` 在缺 `ingress_url`、Profile guard 不匹配、非 TEXT 三处直接 `return False`，语义上等于「本路由不处理」，无法与「本该处理但配置缺失」区分。这是 1.1 / 1.2 的直接成因。
 2. **补丁存活性无人校验**：`adapter.py` 不在仓库内且会被 Hermes 升级覆盖；仓库有 8 个补丁脚本但**没有只读的「补丁是否还在位」判定**，只能靠人记得重跑。这是 1.3 的直接成因。
@@ -156,6 +197,20 @@ Property 2: Preservation - 非缺陷输入行为逐字节不变
 _For any_ input where the bug condition does NOT hold (`isBugCondition` returns false), the fixed system SHALL 产出与修复前完全相同的对外结果：`handled:false`（`explicit_direct_reply_without_task`）继续原样交回 Hermes 普通聊天且回复文本不含任何诊断或降级文案；成功建任务继续返回 202 与相同的 `presentCommanderReply()` 投影；非本机调用继续 403 且错误文案不变；非 `ajun` Profile 继续被拒；非 TEXT 消息继续不进入路由；补丁脚本继续按 `_V1` 幂等。
 
 **Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9**
+
+Property 3: Bug Condition - 非异常型飞书拒绝记录必须被归属并如实报为已定位证据
+
+_For any_ Hermes 日志文本，若其中存在至少一条可归属到飞书链路的非 traceback 拒绝记录（`isRejectionBugCondition` 返回 true），则修复后的 `attributeHermesLog()` SHALL 把该记录归属到 `feishu-platform` 并计入 `feishuChainRejections`；`renderAttributionVerdict()` SHALL NOT 输出「失败根本没有被记录」或任何等价表述，SHALL 把它报为**已定位的失败证据**并给出对应的唯一下一步；`decideExitCode()` SHALL 返回「已找到飞书归属证据」的退出码；且输出中 SHALL NOT 出现该记录的账号标识、真实姓名、`open_id` 或其任何片段与日志正文，只出现签名类型、计数、时间与行范围。
+
+**Validates: Requirements 2.43, 2.44, 2.45**
+
+Property 4: Preservation - traceback 归属与安全边界逐字节不变
+
+_For any_ 不含任何可归属飞书拒绝记录的日志文本（`isRejectionBugCondition` 返回 false），修复后的 `attributeHermesLog()` SHALL 产出与修复前完全相同的 `scanned.tracebackCount`、`subsystems[].tracebackCount` / `exceptionClassCounts` / `ownedFrameCounts`、`feishuChainTracebacks`、`loggerNameCounts` 与 `redactedFieldCount`；`summarizeSignatures()` 的入参与返回形状不变；`renderAttributionVerdict()` 在无任何飞书证据时 SHALL CONTINUE TO 把「失败未被记录」本身报为证据缺口；归属到无关子系统的主导签名 SHALL CONTINUE TO 被明确判为与本 bug 无关；只读文件尾部、不整体载入内存、不读 `.env`、零外部副作用、零第三方 npm 依赖、形状白名单失败关闭（形状不符即丢弃并计入 `redactedFieldCount`）SHALL CONTINUE TO 全部保持。
+
+**Validates: Requirements 3.24, 3.25, 3.26, 3.27**
+
+**与 Property 1 / 2 的关系**：Property 3 是 Property 1（Fix Checking）在本轮增量上的具体实例化，Property 4 是 Property 2（Preservation）的实例化。本轮只验证 Property 3 / 4；Property 1 在真机上仍未被本 spec 代码满足（见《Hypothesized Root Cause》的交付归属声明）。
 
 ---
 
@@ -493,6 +548,254 @@ npm run diagnose:feishu-chain -- --requester <open_id>   # 额外判定白名单
 
 ---
 
+### 10. 本轮修复：非异常型拒绝记录的归属（1.34–1.36 / 2.43–2.45 / 3.24–3.27）
+
+**范围**：只修 PR #12（分支 `fix/hermes-log-subsystem-attribution`）已交付的三个文件。其余 30 余条缺陷留档不做。**不新增文件、不新增目录、不新增依赖。**
+
+| 文件 | 变更性质 |
+|---|---|
+| `apps/ajun-runtime/src/hermes-log-attribution.ts` | 改：新增非 traceback 记录识别、归属、措辞溯源与结论渲染分支。**保持纯解析、零 I/O。** |
+| `apps/ajun-runtime/scripts/attribute-hermes-logs.mjs` | 改：默认文件集、退出码判定式、人类可读渲染 |
+| `apps/ajun-runtime/test/hermes-log-attribution.test.js` | 改：新增用例与夹具；既有 13 项断言的处置见《Testing Strategy》 |
+
+#### 10.1 识别哪些非异常型记录 · 措辞溯源（2.45）
+
+措辞表是**唯一**的识别来源，每条必须登记来源位置与适用版本。**表内不含任何真实取值。**
+
+```ts
+export type RejectionSignatureId =
+  | 'admission-unauthorized-user'      // Hermes 0.20.1 形状
+  | 'admission-dm-policy-rejected'     // 0.19 时代形状
+  | 'feishu-inbound-received'          // 正向签名（入站到达）
+  | 'feishu-response-ready'            // 正向签名（回复就绪）
+  | 'feishu-response-sending';         // 正向签名（出站发送）
+
+export type SignatureApplicability = 'current_version' | 'other_version' | 'unknown';
+
+export type RejectionSignatureSpec = Readonly<{
+  id: RejectionSignatureId;
+  kind: 'admission_rejection' | 'positive_milestone';
+  /** 仓库内来源位置。用于 2.35 的溯源，不含真实取值。 */
+  source: string;
+  /** 来源登记的适用 Hermes 版本；null = 来源未登记版本 ⇒ 适用性只能是 'unknown'。 */
+  sourceHermesVersion: string | null;
+  /** 只判定是否匹配的形状正则。零捕获组。 */
+  pattern: RegExp;
+  /** 签名自带的平台归属线索（措辞里含 `feishu` 时为 'feishu-platform'）。 */
+  platformHint: SubsystemId | null;
+}>;
+
+export const REJECTION_SIGNATURES: readonly RejectionSignatureSpec[];
+```
+
+登记内容（`source` / `sourceHermesVersion` 逐条取自仓库，已核实）：
+
+| id | 形状（占位符表示） | `source` | `sourceHermesVersion` |
+|---|---|---|---|
+| `admission-unauthorized-user` | `Unauthorized user:` … `on feishu` | `.kiro/specs/feishu-commander-no-reply-fix/bugfix.md`《第四轮外部直连诊断实测》 | `0.20.1` |
+| `admission-dm-policy-rejected` | `dm_policy_rejected` | `docs/reviews/m1-xiaod-feishu-closure/acceptance.md`（2026-07-19） | `null`（该记录未登记 Hermes 版本） |
+| `feishu-inbound-received` | `[Feishu] Inbound dm message received` / `inbound message: platform=feishu` | `docs/guides/创建Hermes-Agent与飞书Bot接线教程.md`、`docs/archive/handoffs/av-transcriber-feishu-provisioning-handoff.md` | `null`（两处均未登记版本） |
+| `feishu-response-ready` | `response ready: platform=feishu` | 同上 | `null` |
+| `feishu-response-sending` | `[Feishu] Sending response` | 同上 | `null` |
+
+正向签名一并纳入的理由：真机上「入站到达但被拒绝」与「入站根本没到」是两个不同结论，只有同时看正向里程碑签名才能区分；且它们已在仓库内被标记「已验证」，属现成可复用事实。
+
+**适用性判定与表述规则（2.45 / 2.35）**：
+
+```ts
+export function classifyApplicability(
+  spec: RejectionSignatureSpec,
+  runningHermesVersion: string | null,
+): SignatureApplicability;
+// sourceHermesVersion === null           → 'unknown'
+// runningHermesVersion === null          → 'unknown'
+// 两者相等                                → 'current_version'
+// 两者不等                                → 'other_version'
+```
+
+- `runningHermesVersion` 由**调用方注入**（CLI 从既有观测层取，纯解析模块不做 I/O）。未注入时全部为 `unknown`。
+- 渲染时每条措辞固定输出「来源位置 + 适用版本 + 适用性」。
+- 某措辞**未命中**时 SHALL 输出「该措辞在当前版本不适用」（`other_version`）或「适用性未知」（`unknown`），**SHALL NOT 输出「未发生该类拒绝」**。
+- 若窗口未覆盖事发时间，SHALL 优先输出窗口覆盖范围这一事实（见 10.5），不得把「窗口外」表述为「未命中」。
+
+#### 10.2 PII 硬约束（2.43 / 2.40）—— 最重要
+
+拒绝日志行**本身就含真实姓名与账号标识**，因此识别与输出必须彻底解耦。
+
+**正则：零捕获组，只用于 `test()`。**
+
+```ts
+// 每条 pattern 均满足：不含任何 `(` 捕获组，只用 `(?:…)`；不含反向引用；长度有界。
+const ADMISSION_UNAUTHORIZED_USER =
+  /Unauthorized user:[^\n]{1,200}?\bon\s+feishu\b/i;
+const ADMISSION_DM_POLICY_REJECTED =
+  /\bdm_policy_rejected\b/;
+const FEISHU_INBOUND_RECEIVED =
+  /(?:\[Feishu\]\s+Inbound\s+(?:dm|group)\s+message\s+received|inbound\s+message:\s*platform=feishu)/i;
+const FEISHU_RESPONSE_READY =
+  /response\s+ready:\s*platform=feishu/i;
+const FEISHU_RESPONSE_SENDING =
+  /\[Feishu\]\s+Sending\s+response/i;
+```
+
+`Unauthorized user:` 与 `on feishu` 之间的账号标识与姓名落在 `[^\n]{1,200}?` 内，该片段**既无捕获组，也从不被读取**。
+
+**实现约束（逐条写入单测）**：
+
+1. **只判定是否匹配，不保留捕获组**：识别函数只允许调用 `spec.pattern.test(line)`。**禁止** `String.prototype.match` / `RegExp.prototype.exec` / `matchAll` / 替换回调作用于拒绝行。
+2. **零捕获组自证**：单测对每条 `pattern` 断言 `new RegExp(spec.pattern.source + '|').exec('')!.length - 1 === 0`（捕获组数为 0）。任何后续新增措辞若带捕获组，该断言立即失败。
+3. **日志行文本不进入任何返回值**：识别函数的返回类型里没有 `string` 字段承载行内容。行本身只在函数内作为参数存在。
+4. **只输出「签名类型 + 计数 + 时间 + 行范围」**，与既有 traceback 输出的字段粒度一致。
+5. **时间戳沿用既有形状白名单并加严**：先 `line.match(TIMESTAMP)?.[0]`（`TIMESTAMP` 本身零捕获组，`[0]` 是固定形状的整段），再用锚定的 `SAFE_TIMESTAMP = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$/` 全量校验；不通过即**丢弃并 `redactedFieldCount += 1`**（失败关闭，沿用既有 `SAFE_*` 模式，3.25 要求不放宽）。
+6. **归属线索也走白名单**：日志器名沿用既有 `extractLoggerName()` + `SAFE_LOGGER_NAME`，不新增取值通道。
+7. **不进入摘要**：`summarizeRejectionSignatures()` 的折叠键只由 `subsystem` + `signatureId` 组成，**不含任何来自日志行的取值**，因此摘要在结构上不可能承载 PII。
+
+#### 10.3 数据结构变更（保持既有字段语义不动）
+
+**判断：新增字段，不改造 `feishuChainTracebacks`。** 理由 —— 该字段的元素类型 `TracebackGroup` 含 `ownedFrames` / `exceptionChain` 等 traceback 专有语义，非 traceback 记录塞不进去；且既有 4 项测试直接依赖该字段名与元素形状（见《Testing Strategy》影响表）。统一抽象会同时破坏语义与测试，收益为零。
+
+```ts
+export type RejectionRecord = Readonly<{
+  subsystem: SubsystemId;
+  /** 归属依据。非 traceback 记录没有栈帧，因此不能用 owning_frame。 */
+  attributionBasis: 'signature_platform' | 'logger_name' | 'none';
+  /** 日志器名与签名自带平台线索冲突时为 true，不得静默吞掉。 */
+  attributionConflict: boolean;
+  signatureId: RejectionSignatureId;
+  kind: RejectionSignatureSpec['kind'];
+  applicability: SignatureApplicability;
+  loggerName: string | null;
+  timestamp: string | null;
+  line: number;
+}>;
+```
+
+归属顺序：签名自带 `platformHint`（如措辞含 `on feishu` / `platform=feishu`）优先 → 否则 `classifyLoggerName(extractLoggerName(line))` → 否则 `'unattributed'` + `basis:'none'`。两者都存在且不一致时取 `platformHint`，并置 `attributionConflict:true`。
+
+**`SubsystemReport` 新增三个字段**（既有字段一个不改，`tracebackCount` **保持 traceback-only**）：
+
+```ts
+  rejectionRecordCount: number;
+  rejectionSignatureCounts: readonly Readonly<{ signatureId: RejectionSignatureId; count: number }>[];
+  /** 该子系统内非 traceback 记录的最近时间；与既有 lastTimestamp 分开，避免改变既有字段语义。 */
+  lastRejectionTimestamp: string | null;
+```
+
+- `subsystems` 的排序键由 `tracebackCount` 改为 `tracebackCount + rejectionRecordCount`（降序），tiebreak 仍为 `subsystem.localeCompare`。
+- `firstLine` / `lastLine` 扩展为同时覆盖 traceback 与拒绝记录。**必须加空集合守卫**：既有实现用 `Math.min(...bucket.map(...))`，当某子系统只有拒绝记录、无 traceback 时展开空数组会得到 `Infinity` / `-Infinity`。
+- 只有拒绝记录、无 traceback 的子系统**也要生成 `SubsystemReport` 条目**（`tracebackCount:0`）。
+
+**`HermesLogAttribution` 新增四个顶层字段**：
+
+```ts
+  /** 归属到飞书链路的非 traceback 记录明细。与 feishuChainTracebacks 平行。 */
+  feishuChainRejections: readonly RejectionRecord[];
+  /** 每条登记措辞的溯源与本次是否命中。未命中也必须出现在这里（2.45）。 */
+  signatureProvenance: readonly Readonly<{
+    signatureId: RejectionSignatureId;
+    source: string;
+    sourceHermesVersion: string | null;
+    applicability: SignatureApplicability;
+    matchCount: number;
+  }>[];
+  /** 证据类别，使退出码 0 的两种情形在机器可读输出里可区分。 */
+  evidenceClass: 'traceback' | 'rejection' | 'both' | 'none';
+```
+
+`scanned` 新增（既有三个字段不动）：
+
+```ts
+    rejectionRecordCount: number;
+    /** 窗口覆盖的时间范围，用于把「未命中」与「窗口未覆盖」区分开。 */
+    windowFirstTimestamp: string | null;
+    windowLastTimestamp: string | null;
+```
+
+**`summarizeSignatures()` 不改**（签名、入参类型 `readonly TracebackGroup[]`、返回 `SignatureSummary[]` 全部不动）。新增平行函数：
+
+```ts
+export type RejectionSignatureSummary = Readonly<{
+  subsystem: SubsystemId;
+  signatureId: RejectionSignatureId;
+  applicability: SignatureApplicability;
+  count: number;
+  firstTimestamp: string | null;
+  lastTimestamp: string | null;
+  firstLine: number;
+  lastLine: number;
+}>;
+
+export function summarizeRejectionSignatures(
+  records: readonly RejectionRecord[],
+): readonly RejectionSignatureSummary[];
+```
+
+**`loggerNameCounts` 元素形状严禁增删字段** —— 既有测试用 `assert.deepEqual` 全量比对（见影响表第 7 项）。
+
+**Schema 版本：保持 `agent.army/hermes-log-attribution/v1`，不升版。** 判据：本轮变更**纯追加** —— 没有删除任何字段，没有改变任何既有字段的含义（`tracebackCount` 仍只计 traceback，`feishuChainTracebacks` 仍只装 traceback，`loggerNameCounts` 形状不变）。仓库内该 schema 的消费方只有 `attribute-hermes-logs.mjs` 与其单测（已核实：`git grep` 无其他引用），无外部契约。若后续需要改变既有字段语义，届时才升 `v2`。
+
+#### 10.4 结论渲染与退出码（2.44）
+
+**`renderAttributionVerdict()` 的分支改造**：
+
+| 条件 | 结论 | 唯一下一步 |
+|---|---|---|
+| 无 traceback **且** 无拒绝记录 | 保留既有文案（含子串 `没有解析到任何 traceback`），并补充「非异常型拒绝记录同样为零」 | 扩大 `--tail-mb` 窗口 / 用 `--all` 覆盖 `gateway.log` 后重跑 |
+| 有飞书拒绝记录（`feishuChainRejections.length > 0`） | **报为已定位的失败证据**：逐条给出签名类型、计数、时间、行范围与措辞溯源 | 命中准入拒绝签名时：核对两套白名单（军团侧 store 与 Hermes Profile 环境文件）是否对齐，对齐后重启 Gateway。**不输出任何取值。** |
+| 有飞书 traceback、无拒绝记录 | 保留既有文案（归属到飞书链路的 traceback 共 N 条…） | 不变 |
+| 无飞书 traceback **且**无飞书拒绝记录，但存在无关子系统主导签名 | 保留既有两段文案 | 不变 |
+
+**关键约束**：既有「失败根本没有被记录…这本身是一个证据缺口」这一段的触发条件，从 `feishuRelated.length === 0` **收紧**为 `飞书 traceback 数 === 0 && 飞书拒绝记录数 === 0`。文案本身保留（该夹具下结论仍然正确），只收紧触发条件 —— 这样既满足 2.44，也让既有测试的断言无需改写。
+
+同时保留既有 3.25 要求的两段措辞不变：`与「飞书消息无回复」无关` 与 `不得据此推导飞书侧根因`（含 `无回退链`）。
+
+**退出码语义扩展**（`decideExitCode()`）：仍是三个码，**不新增码**。只把「找到证据」的判定式从 traceback 扩为 traceback ∪ 拒绝记录。
+
+| 码 | 修复前 | 修复后 |
+|---|---|---|
+| `0` | 找到飞书归属 **traceback** | 找到飞书归属证据（**traceback 或非 traceback 拒绝记录**） |
+| `1` | 未找到飞书归属 traceback（报为证据缺口） | 未找到**任何**飞书归属证据（两类都为零，才是真正的证据缺口） |
+| `2` | 日志读不出，工具自身无法完成 | 不变 |
+
+判定式：
+
+```js
+export function decideExitCode(result) {
+  if (!result.ok) return 2;
+  const found = result.reports.some((report) =>
+    (report.attribution?.feishuChainTracebacks.length ?? 0) > 0
+    || (report.attribution?.feishuChainRejections.length ?? 0) > 0);
+  return found ? 0 : 1;
+}
+```
+
+「0 覆盖两种情形」这一信息损失由 `evidenceClass` 在 `--json` 输出里补齐，不靠新增退出码解决 —— 保持三码可避免调用方脚本改造，也与既有 13 项测试的退出码断言兼容。
+
+#### 10.5 CLI 侧改动（`attribute-hermes-logs.mjs`）
+
+1. **默认文件集**：`DEFAULT_LOG_NAME`（单值）改为 `DEFAULT_LOG_NAMES = Object.freeze(['gateway.error.log', 'gateway.log'])`。理由见《Hypothesized Root Cause》：准入拒绝是 WARNING 级，最可能只在 `gateway.log`；不改这一项，解析修好也扫不到。`selectFiles()` 相应返回两个路径；单个文件缺失沿用既有 `log_absent` 逐文件报错，不影响 `ok`。
+2. **注入运行版本**：新增 `--hermes-version <x.y.z>` 可选参数，透传给 `attributeHermesLog(text, { tailWindow, hermesVersion })` 以驱动 `classifyApplicability`。未提供时全部措辞报「适用性未知」。**不新增任何自动探测 I/O**（保持零第三方依赖与只读边界）。
+3. **窗口覆盖输出**：人类可读输出新增一行「本次窗口覆盖时间：`windowFirstTimestamp` → `windowLastTimestamp`」，并在未命中任何飞书证据时提示该窗口可能未覆盖事发时间。
+4. **措辞溯源输出**：新增「措辞溯源」块，逐条打印 `signatureId`、来源位置、适用版本、适用性、命中计数。未命中的措辞照样打印，标注「该措辞在当前版本不适用 / 适用性未知」。
+5. **拒绝记录明细**：新增「飞书链路非 traceback 拒绝记录」块，输出 `summarizeRejectionSignatures()` 的折叠结果（签名类型 ×计数、首次/最近时间、覆盖行范围）。**不输出任何行内容。**
+6. `--help` 文案与文件头注释里的退出码说明同步为 10.4 的表述。
+
+#### 10.6 必须保持不变（3.24–3.27）
+
+| 保持项 | 保证方式 |
+|---|---|
+| traceback 子系统归属逻辑（最深非第三方栈帧 / 日志器名） | `sealGroup()`、`classifyOwningPath()`、`classifyLoggerName()`、`LIBRARY_FRAME` **一字不改**；拒绝记录走完全独立的代码路径 |
+| 归属到无关子系统的主导签名继续判为与本 bug 无关 | `renderAttributionVerdict()` 的 `!dominant.feishuChainRelated` 分支两段文案不改；`FEISHU_CHAIN_SUBSYSTEMS` 与 `isFeishuChainRelated()` 不改 |
+| 只读文件尾部、不整体载入内存 | `readTail()` 不改；默认文件集变为两个，仍按文件逐个尾读，窗口大小仍由 `--tail-mb` 控制 |
+| 零第三方 npm 依赖 | 只新增纯正则与纯函数，无 import 变化 |
+| 只读、不读 `.env`、零外部副作用、输出零凭据 | 纯解析模块仍零 I/O；CLI 仍只 `fs.open` + `read`；新增参数是版本号字符串，不引入任何配置读取 |
+| 既有形状白名单与失败关闭语义不放宽 | 新增 `SAFE_TIMESTAMP` 沿用同一模式；不通过即丢弃并 `redactedFieldCount += 1`；`SAFE_CLASS_NAME` / `SAFE_PY_BASENAME` / `SAFE_FUNC_NAME` / `SAFE_LOGGER_NAME` 全部不改 |
+| 既有 13 项测试中不涉及本次变更的断言继续通过 | 逐项影响见《Testing Strategy》影响表；设计已按「保留字段名、保留字段语义、保留被断言的文案子串」倒推 |
+
+**顺带记录（不在本轮范围，留档）**：`apps/ajun-runtime/module-policy.json` 内**没有** `src/hermes-log-attribution.ts` 的条目（已核实）。该文件是选择性登记表（现登记 122 项），未登记不必然违规，但与本设计 §模块边界「登记新模块 + affectedTests」的既有约定不一致。本轮按范围约束不处理。
+
+---
+
 ## Testing Strategy
 
 ### Validation Approach
@@ -604,6 +907,121 @@ END FOR
 - **诊断入口端到端（沙箱）**：以临时 `HERMES_HOME` 夹具与关闭的 4321 执行 CLI，断言六项齐全、退出码正确、`--json` 输出符合 `agent.army/feishu-commander-chain-diagnosis/v1`；
 - **证据链对齐**：同一 `sourceEventRef` 分别由运行时侧与 Hermes 侧写入，断言 CLI 合并读取后按 `recordedAt` 排序、同一事件可关联；
 - **补丁 → 诊断闭环**：对未打补丁的 adapter 夹具运行补丁，再运行诊断，断言 `adapter-patch` 由 `gap` 变 `pass`，且 `truthLayer` 仍不超过 `configured`（不因为刚打完补丁就冒充运行可达）。
+
+### 本轮（第四轮）增量测试策略 —— 非异常型拒绝记录归属
+
+被测对象是 `apps/ajun-runtime/test/hermes-log-attribution.test.js`，仍用原生 `node --test`（3.9）。
+
+#### 夹具（占位符，零真实取值）
+
+三份新夹具，全部只用占位符，**不得写入任何真实姓名、`open_id`、账号标识或其片段**：
+
+```
+ADMISSION_REJECTION_LINE   = '2026-08-19 14:42:01 WARNING plugins.platforms.feishu Unauthorized user: <account-placeholder> <name-placeholder> on feishu'
+LEGACY_REJECTION_LINE      = '2026-07-19 11:19:02 WARNING gateway.platforms.feishu dm_policy_rejected'
+POSITIVE_MILESTONE_LINES   = '[Feishu] Inbound dm message received' / 'inbound message: platform=feishu' / 'response ready: platform=feishu' / '[Feishu] Sending response'
+```
+
+真机形态复刻：`ADMISSION_REJECTION_LINE` **单行、不带 traceback**，且与既有 `TELEGRAM_TRACEBACK` 混排 —— 这正是真机上 46 万行被 Telegram 噪音主导、飞书证据只有一行的形态。
+
+#### 探索性检查（Property 3）—— 必须先在未修复代码上跑出反例
+
+**Goal**：用含准入拒绝行的夹具，在**未修复代码**上证明当前工具会把「已明确记录的失败」误报为「失败未被记录」。反例跑不出来则说明缺陷描述有误，必须回到需求重新假设，**不得直接实现修复**。
+
+**执行顺序（强制）**：先在 `fix/hermes-log-subsystem-attribution` 的**当前**代码上运行下列三条断言并观察失败，再改代码。
+
+| # | 反例断言 | 未修复代码上的预期观测 |
+|---|---|---|
+| E1 | `attributeHermesLog(TELEGRAM_TRACEBACK + ADMISSION_REJECTION_LINE).feishuChainRejections.length === 1` | **失败**：`feishuChainRejections` 字段不存在（`undefined`）—— 直接证明 `TRACEBACK_HEADER` 门控漏掉该记录 |
+| E2 | `renderAttributionVerdict(...)` **不匹配** `/失败根本没有被记录/` | **失败**：仍输出「飞书侧的失败根本没有被记录到错误日志…这本身是一个证据缺口」—— 即主动误导 |
+| E3 | `decideExitCode({ ok:true, reports:[{ attribution: attributeHermesLog(ADMISSION_REJECTION_LINE) }] }) === 0` | **失败**：返回 `1`（未找到）—— 证据存在却报「未找到」，违反 2.44 |
+
+**补充反例（证明放大缺陷同样存在）**：
+
+| # | 反例断言 | 未修复代码上的预期观测 |
+|---|---|---|
+| E4 | 默认文件集包含 `gateway.log` | **失败**：`DEFAULT_LOG_NAME` 为单值 `'gateway.error.log'` |
+| E5 | `signatureProvenance` 逐条给出来源与适用版本 | **失败**：无任何措辞登记结构 |
+| E6 | 未命中措辞被表述为「不适用 / 适用性未知」而非「未发生该类拒绝」 | **失败**：无该表述通道 |
+
+**若反例未按预期失败**（例如 E2 在未修复代码上竟然通过），则说明对 `renderAttributionVerdict()` 触发条件的理解有误，SHALL 回到《Hypothesized Root Cause》重新核对代码，**SHALL NOT** 继续实现。
+
+#### Fix Checking（Property 3）
+
+```
+FOR ALL logText WHERE isRejectionBugCondition(logText) DO
+  result := attributeHermesLog(logText, { hermesVersion })
+  ASSERT result.feishuChainRejections.length > 0
+  ASSERT result.evidenceClass IN {'rejection', 'both'}
+  ASSERT NOT matches(renderAttributionVerdict(result), /失败根本没有被记录|没有任何.*归属到飞书链路/)
+  ASSERT decideExitCode(wrap(result)) == 0
+  ASSERT containsNoPlaceholderValue(result)   // 账号/姓名占位符不出现在任何字段
+END FOR
+```
+
+覆盖矩阵：`{当前版本措辞, 0.19 措辞, 正向签名} × {单独出现, 与 Telegram 噪音混排, 与飞书 traceback 并存} × {注入版本号, 未注入}`。
+
+#### Preservation Checking（Property 4）—— observation-first
+
+**Goal**：Bug_Condition 不成立的输入（不含任何可归属飞书拒绝记录的日志），修复后输出与修复前完全一致。
+
+**执行顺序（强制）**：先在**未修复代码**上对既有两份夹具（`TELEGRAM_TRACEBACK` / `FEISHU_TRACEBACK`）跑基线并**确认通过**，把 `attributeHermesLog()` 的完整返回值序列化落为基线夹具；修复后逐字段比对既有字段。
+
+```
+FOR ALL logText WHERE NOT isRejectionBugCondition(logText) DO
+  before := baselineFixture(logText)          // 未修复代码上采集
+  after  := attributeHermesLog(logText)
+  ASSERT after.scanned.tracebackCount        == before.scanned.tracebackCount
+  ASSERT after.feishuChainTracebacks         DEEP_EQUALS before.feishuChainTracebacks
+  ASSERT after.loggerNameCounts              DEEP_EQUALS before.loggerNameCounts
+  ASSERT after.redactedFieldCount            == before.redactedFieldCount
+  ASSERT projectExistingFields(after.subsystems) DEEP_EQUALS before.subsystems
+  ASSERT summarizeSignatures(after.feishuChainTracebacks)
+           DEEP_EQUALS summarizeSignatures(before.feishuChainTracebacks)
+END FOR
+```
+
+`projectExistingFields()` 只投影修复前已存在的 `SubsystemReport` 字段，使新增三字段不影响比对 —— 这是本轮唯一允许的差异。
+
+#### 既有 13 项测试的影响（逐项）
+
+**直接受影响（4 项）**：
+
+| # | 用例（行号） | 影响与处置 |
+|---|---|---|
+| 4 | 输出零凭据：不含消息正文、URL、IP、open_id 与绝对路径（`:86`） | **既有 7 条禁词断言全部不改**，但夹具与禁词表**必须扩展**：加入 `ADMISSION_REJECTION_LINE`，并把账号/姓名占位符加入禁词。否则新代码路径完全没有 PII 覆盖 |
+| 6 | 没有任何飞书归属签名时，把「失败未被记录」本身报为证据缺口（`:104`） | **被测条件改，断言不改**。触发条件收紧为「飞书 traceback 与拒绝记录都为零」。该夹具（telegram-only，确无飞书证据）下结论仍正确，故 `/没有任何.*归属到飞书链路/` 与 `/「没有错误记录」不等于「飞书侧正常」/` 两条断言原样通过 —— 前提是改写文案时**保留这两段子串**。另需**新增**一条对照用例：同一夹具追加 `ADMISSION_REJECTION_LINE` 后，该文案不得出现 |
+| 8 | 空日志与无 traceback 日志都不抛异常（`:123`） | **两处约束**：（a）`attributeHermesLog('普通一行日志\n').subsystems.length === 0` 要求非匹配的普通行不得生成 `SubsystemReport` 条目；（b）`renderAttributionVerdict(attributeHermesLog(''))` 匹配 `/没有解析到任何 traceback/`，要求改写后的空日志文案**保留该子串**。同时空日志早退条件须从 `!dominant` 扩为「无 subsystems **且**无拒绝记录」。断言不改 |
+| 13 | CLI 参数解析与退出码语义（`:180`） | `decideExitCode` 判定式扩展。两条既有退出码断言在扩展后仍成立（telegram-only → `1`；`FEISHU_TRACEBACK` → `0`），**断言不改**；需**新增**「只含 `ADMISSION_REJECTION_LINE` → `0`」与「`evidenceClass` 取值正确」两条断言。`parseArguments` 新增 `--hermes-version`，既有 6 条参数断言不受影响 |
+
+**未直接受影响，但对设计构成硬约束（6 项）** —— 这些断言正是 10.3 各项设计决定的倒推来源：
+
+| # | 用例（行号） | 施加的约束 |
+|---|---|---|
+| 1 | 按子系统归属（`:48`） | `scanned.tracebackCount` 与 `subsystems[].tracebackCount` **必须保持 traceback-only**；`subsystems` 排序键改为 traceback+拒绝记录总数后，该夹具下顺序不变（telegram 2 > feishu 1），故 `subsystems[0] === 'telegram-platform'` 仍成立 |
+| 3 | 飞书链路 traceback 逐条（`:74`） | `feishuChainTracebacks` **不得改名、不得混入非 traceback 记录**；`TracebackGroup` 不得删字段 |
+| 5 | 主导签名无关时禁止套用无回退说明（`:97`） | `与「飞书消息无回复」无关` / `不得据此推导飞书侧根因` / `无回退链` 三段措辞**不得改动** |
+| 7 | 日志器名体量按子系统归属（`:110`） | `assert.deepEqual` 全量比对数组元素 ⇒ **严禁给 `loggerNameCounts` 元素增删任何字段** |
+| 9 | 同签名折叠（`:129`） | `summarizeSignatures()` 的入参类型与返回形状**不得改动**；非 traceback 折叠另立 `summarizeRejectionSignatures()` |
+| 10 | 栈帧位置不同即不同签名（`:146`） | 同上 |
+
+**完全不受影响（3 项）**：#2 异常类名与归属依据（`:62`）、#11 飞书链路子系统集合（`:154`，不新增 `SubsystemId`）、#12 尾部窗口读取（`:163`，`readTail()` 不改）。
+
+#### 新增用例（本轮）
+
+1. **非 traceback 准入拒绝被归属到 `feishu-platform`**，`attributionBasis === 'signature_platform'`，`tracebackCount` 不变。
+2. **Telegram 噪音混排下拒绝记录仍被找到**：主导子系统仍是 Telegram 且判为无关，同时飞书拒绝记录数为 1 —— 这是真机形态的直接复刻。
+3. **结论不得再说「失败未被记录」**（Property 3 的核心断言）。
+4. **退出码语义**：拒绝记录存在 → `0`；两类证据都为零 → `1`；读不出 → `2`。
+5. **措辞溯源**：每条登记措辞都出现在 `signatureProvenance`，含来源位置与适用版本；`dm_policy_rejected` 与四条正向签名的 `sourceHermesVersion` 为 `null` ⇒ `applicability === 'unknown'`。
+6. **未命中的表述**：`0.19` 措辞未命中时输出「不适用 / 适用性未知」，**不得**出现「未发生该类拒绝」。
+7. **零捕获组自证**：逐条断言 `REJECTION_SIGNATURES` 的 `pattern` 捕获组数为 `0`。
+8. **PII 不外泄**：含占位符账号与姓名的拒绝行，序列化输出中占位符零出现；`summarizeRejectionSignatures()` 折叠键不含行内取值。
+9. **时间戳失败关闭**：畸形时间戳的拒绝行 → `timestamp === null` 且 `redactedFieldCount` 递增。
+10. **窗口覆盖**：`scanned.windowFirstTimestamp` / `windowLastTimestamp` 正确；无飞书证据时结论包含窗口范围提示。
+11. **只有拒绝记录、无 traceback**：`SubsystemReport` 条目正常生成，`firstLine` / `lastLine` 为有限值（回归守卫：空集合 `Math.min(...[])` 会得到 `Infinity`）。
+12. **默认文件集含 `gateway.log`**。
+13. **归属冲突**：日志器名指向 Telegram 而签名含 `on feishu` 时，`attributionConflict === true` 且不被静默吞掉。
 
 ### 真机验证账本（用户在自己 Mac 上执行）
 
