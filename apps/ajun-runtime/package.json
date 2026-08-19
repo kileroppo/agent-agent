@@ -18,6 +18,7 @@
     "acceptance:m4-role-quality": "node scripts/verify-m4-role-quality.mjs",
     "benchmark:hotspots": "node scripts/benchmark-runtime-hotspots.mjs",
     "diagnose:feishu-chain": "node scripts/diagnose-feishu-commander-chain.mjs",
+    "diagnose:hermes-logs": "node scripts/attribute-hermes-logs.mjs",
     "verify:office-presentation": "node scripts/verify-office-presentation.mjs",
     "verify:video-analysis-local-fallback": "NODE_NO_WARNINGS=1 node scripts/verify-video-analysis-local-fallback.mjs",
     "test:video-analysis-local-fallback": "NODE_NO_WARNINGS=1 node --test test/video-analysis-local-fallback.test.js",
