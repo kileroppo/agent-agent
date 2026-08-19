@@ -53,6 +53,7 @@ export class TaskRecordService {
             ? await this.taskRecovery.view(task, { audience })
             : null;
         let acceptanceTarget: any = null;
+        let workflowSiblings: any[] = [];
         if (audience === 'local-owner' && task?.workflow?.workflowId) {
             const workflowId: any = task.workflow.workflowId;
             const [workflowTasks, acceptance] = await Promise.all([
@@ -64,8 +65,15 @@ export class TaskRecordService {
                     : null,
             ]);
             acceptanceTarget = buildWorkflowAcceptanceTarget(task, workflowTasks, acceptance);
+            workflowSiblings = (Array.isArray(workflowTasks) ? workflowTasks : [])
+                .filter((sibling: any): any => sibling?.taskId && sibling.taskId !== task.taskId)
+                .map((sibling: any): any => ({
+                    taskId: String(sibling.taskId || '').slice(0, 120),
+                    title: String(sibling.input?.title || sibling.title || '').replace(/\s+/g, ' ').trim().slice(0, 200),
+                    status: String(sibling.status || '').slice(0, 80),
+                }));
         }
-        return presentRecord(task, approvals, this.taskDetailBaseUrl, recoveryView, audience, this.paperclipBaseUrl, acceptanceTarget);
+        return presentRecord(task, approvals, this.taskDetailBaseUrl, recoveryView, audience, this.paperclipBaseUrl, acceptanceTarget, workflowSiblings);
     }
 }
 function presentRecordSummary(task: any, approvals: any, detailBaseUrl: any, tasks: any[] = [], acceptances: any[] = []): any {
@@ -88,7 +96,7 @@ function presentRecordSummary(task: any, approvals: any, detailBaseUrl: any, tas
         ...(acceptanceTarget ? { acceptanceTarget } : {}),
     };
 }
-function presentRecord(task: any, approvals: any, detailBaseUrl: any, recoveryView: any = null, audience: any = 'lan', paperclipBaseUrl: any = '', acceptanceTarget: any = null): any {
+function presentRecord(task: any, approvals: any, detailBaseUrl: any, recoveryView: any = null, audience: any = 'lan', paperclipBaseUrl: any = '', acceptanceTarget: any = null, workflowSiblings: any[] = []): any {
     const pendingApproval: any = approvals.find((approval: any): any => approval?.status === 'pending' && (task.approvalRefs || []).includes(approval.approvalId));
     const common: Record<string, any> = {
         taskId: cleanText(task.taskId, 120),
@@ -116,6 +124,8 @@ function presentRecord(task: any, approvals: any, detailBaseUrl: any, recoveryVi
         recovery: safeOwnerRecovery(task.recovery),
         paperclipRun: safePaperclipRun(task.execution?.paperclipRun, task.execution, task),
         acceptanceTarget,
+        costAttribution: buildCostAttribution(task),
+        workflowBreadcrumb: buildWorkflowBreadcrumb(task, workflowSiblings),
     };
 }
 function safePaperclipRun(value: any, execution: any = {}, task: any = {}): any {
@@ -283,4 +293,38 @@ function cleanText(value: any, limit: any): any {
 function safeDate(value: any): any {
     const text: any = String(value || '').trim();
     return text && Number.isFinite(Date.parse(text)) ? new Date(text).toISOString() : null;
+}
+function buildCostAttribution(task: any): any {
+    const usage: any = task?.usage;
+    if (!usage || typeof usage !== 'object')
+        return null;
+    const hasModel: any = usage.model && usage.model.status === 'reported';
+    const hasCost: any = usage.cost && usage.cost.status === 'reported';
+    if (!hasModel && !hasCost)
+        return null;
+    const cents: any = hasCost && typeof usage.cost.amount === 'number' ? usage.cost.amount * 100 : null;
+    const totalDisplay: any = hasCost
+        ? `$${Number(usage.cost.amount).toFixed(2)}`
+        : null;
+    return {
+        executor: cleanText(usage.execution?.executor, 120) || cleanText(task.assigneeAgentId, 120) || null,
+        durationMs: typeof usage.execution?.durationMs === 'number' && Number.isFinite(usage.execution.durationMs)
+            ? usage.execution.durationMs : null,
+        inputTokens: hasModel ? Number(usage.model.inputTokens || 0) : 0,
+        outputTokens: hasModel ? Number(usage.model.outputTokens || 0) : 0,
+        totalCost: totalDisplay,
+        currency: hasCost ? String(usage.cost.currency || 'USD') : 'USD',
+        recordedAt: safeDate(usage.recordedAt),
+    };
+}
+function buildWorkflowBreadcrumb(task: any, siblings: any[]): any {
+    const workflowId: any = String(task?.workflow?.workflowId || '').trim();
+    if (!workflowId)
+        return null;
+    return {
+        workflowId,
+        currentStepId: String(task.workflow.step?.stepId || '').trim() || null,
+        parentWorkflowId: String(task.workflow.parentWorkflowId || '').trim() || null,
+        siblings: Array.isArray(siblings) ? siblings.slice(0, 50) : [],
+    };
 }
