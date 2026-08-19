@@ -88,11 +88,18 @@ test('飞书链路 traceback 逐条给出异常链与自有栈帧', () => {
 });
 
 test('输出零凭据：不含消息正文、URL、IP、open_id 与绝对路径', () => {
-  const attribution = attributeHermesLog(`${TELEGRAM_TRACEBACK}\n${FEISHU_TRACEBACK}\n`);
+  // 夹具扩展为含准入拒绝行：否则新代码路径完全没有 PII 覆盖。
+  // 准入拒绝行本身含账号标识与姓名，是本轮 PII 风险最高的输入。
+  const attribution = attributeHermesLog(
+    `${TELEGRAM_TRACEBACK}\n${FEISHU_TRACEBACK}\n${ADMISSION_REJECTION_LINE}\n`,
+    { hermesVersion: '0.20.1' },
+  );
   const serialized = JSON.stringify(attribution);
   for (const forbidden of [
     'api.telegram.org', '149.154.167.220', 'ou_9f8e7d6c5b4a3210',
     '/Users/', 'secret', 'Operation timed out', 'Errno',
+    // 本轮新增禁词：账号占位符与姓名占位符代表真机上的真实取值。
+    ACCOUNT_PLACEHOLDER, NAME_PLACEHOLDER, 'Unauthorized user',
   ]) {
     assert.equal(serialized.includes(forbidden), false, `输出泄露了 ${forbidden}`);
   }
@@ -188,6 +195,11 @@ test('CLI 参数解析与退出码语义', () => {
   assert.deepEqual(parseArguments(['--file', 'a.log', '--file=b.log']).files, ['a.log', 'b.log']);
   assert.throws(() => parseArguments(['--nope']), /无法识别的参数/);
   assert.throws(() => parseArguments(['--tail-mb', '0']), /正数/);
+  // 本轮新增参数：运行版本由调用方注入，不提供时为 null（全部措辞报「适用性未知」）。
+  assert.equal(parseArguments([]).hermesVersion, null);
+  assert.equal(parseArguments(['--hermes-version', '0.20.1']).hermesVersion, '0.20.1');
+  assert.equal(parseArguments(['--hermes-version=0.19.0']).hermesVersion, '0.19.0');
+  assert.throws(() => parseArguments(['--hermes-version']), /需要一个参数/);
 
   // 0 = 找到飞书归属签名；1 = 未找到（证据缺口）；2 = 日志读不出。
   assert.equal(decideExitCode({ ok: false, errorCode: 'log_directory_not_found', reports: [] }), 2);
@@ -600,5 +612,308 @@ test('P4-10 本轮零改动的正向确认：诊断六项检查与准入安全�
   for (const source of [attributionSource, fleetSource, connectionSource]) {
     assert.equal(/FEISHU_ALLOW_ALL_USERS\s*[:=]\s*true|allowAllUsers\s*[:=]\s*true/.test(source), false,
       '不得引入「允许全部用户」旁路');
+  }
+});
+
+
+// ===========================================================================
+// 阶段五 · 新增用例（1.34–1.36 / 2.43–2.45）
+// ===========================================================================
+
+/** 账号与姓名占位符不得出现在任何字段里（2.43）。占位符代表真机上的真实取值。 */
+function containsNoPlaceholderValue(result) {
+  const serialized = JSON.stringify(result);
+  return !serialized.includes(ACCOUNT_PLACEHOLDER) && !serialized.includes(NAME_PLACEHOLDER);
+}
+
+test('新增①非 traceback 准入拒绝被归属到 feishu-platform，tracebackCount 不变', () => {
+  const result = attributeHermesLog(ADMISSION_REJECTION_LINE, { hermesVersion: '0.20.1' });
+  assert.equal(result.feishuChainRejections.length, 1);
+  const [record] = result.feishuChainRejections;
+  assert.equal(record.subsystem, 'feishu-platform');
+  assert.equal(record.attributionBasis, 'signature_platform');
+  assert.equal(record.signatureId, 'admission-unauthorized-user');
+  assert.equal(record.kind, 'admission_rejection');
+  assert.equal(record.applicability, 'current_version');
+  assert.equal(record.attributionConflict, false);
+  assert.equal(record.timestamp, '2026-08-19 14:42:01');
+  // tracebackCount 保持 traceback-only：拒绝记录另计。
+  assert.equal(result.scanned.tracebackCount, 0);
+  assert.equal(result.scanned.rejectionRecordCount, 1);
+  assert.equal(result.evidenceClass, 'rejection');
+  assert.equal(containsNoPlaceholderValue(result), true);
+});
+
+test('新增②Telegram 噪音混排下拒绝记录仍被找到，主导子系统仍是 Telegram 且判为无关', () => {
+  // 真机形态：Telegram 噪音体量压倒性主导，飞书证据只有一行。
+  const result = attributeHermesLog(
+    `${TELEGRAM_TRACEBACK}\n${TELEGRAM_TRACEBACK}\n${ADMISSION_REJECTION_LINE}`,
+    { hermesVersion: '0.20.1' },
+  );
+  assert.equal(result.subsystems[0].subsystem, 'telegram-platform', '主导子系统仍是 Telegram');
+  assert.equal(result.subsystems[0].feishuChainRelated, false);
+  assert.equal(result.feishuChainRejections.length, 1, '飞书拒绝记录不得被噪音淹没');
+  assert.equal(result.scanned.tracebackCount, 2);
+  const verdict = renderAttributionVerdict(result);
+  // 主导签名仍被明确判为无关（3.25），但飞书证据必须同时被报出来。
+  assert.match(verdict, /与「飞书消息无回复」无关/);
+  assert.match(verdict, /已定位的失败证据/);
+});
+
+test('新增③结论不得再说「失败未被记录」（Property 3 核心断言）', () => {
+  for (const text of [
+    ADMISSION_REJECTION_LINE,
+    `${TELEGRAM_TRACEBACK}\n${ADMISSION_REJECTION_LINE}`,
+    `${FEISHU_TRACEBACK}\n${ADMISSION_REJECTION_LINE}`,
+    LEGACY_REJECTION_LINE,
+  ]) {
+    const verdict = renderAttributionVerdict(attributeHermesLog(text, { hermesVersion: '0.20.1' }));
+    assert.doesNotMatch(verdict, /失败根本没有被记录/, `输入：${text.slice(0, 40)}`);
+    assert.doesNotMatch(verdict, /没有任何.*归属到飞书链路/, `输入：${text.slice(0, 40)}`);
+  }
+});
+
+test('新增④退出码语义：拒绝记录存在→0；两类证据都为零→1；读不出→2', () => {
+  const wrap = (attribution) => ({ ok: true, reports: [{ attribution }] });
+  assert.equal(decideExitCode(wrap(attributeHermesLog(ADMISSION_REJECTION_LINE, { hermesVersion: '0.20.1' }))), 0);
+  assert.equal(decideExitCode(wrap(attributeHermesLog(LEGACY_REJECTION_LINE))), 0);
+  assert.equal(decideExitCode(wrap(attributeHermesLog(FEISHU_TRACEBACK))), 0);
+  assert.equal(decideExitCode(wrap(attributeHermesLog(TELEGRAM_TRACEBACK))), 1, '两类证据都为零才是真正的证据缺口');
+  assert.equal(decideExitCode(wrap(attributeHermesLog(''))), 1);
+  assert.equal(decideExitCode({ ok: false, errorCode: 'log_directory_not_found', reports: [] }), 2);
+  // evidenceClass 补齐「0 覆盖两种情形」的信息损失。
+  assert.equal(attributeHermesLog(FEISHU_TRACEBACK).evidenceClass, 'traceback');
+  assert.equal(attributeHermesLog(ADMISSION_REJECTION_LINE).evidenceClass, 'rejection');
+  assert.equal(attributeHermesLog(`${FEISHU_TRACEBACK}\n${ADMISSION_REJECTION_LINE}`).evidenceClass, 'both');
+  assert.equal(attributeHermesLog(TELEGRAM_TRACEBACK).evidenceClass, 'none');
+});
+
+test('新增⑤措辞溯源：每条登记措辞都有来源与适用版本，来源未登记版本者适用性为 unknown', () => {
+  const result = attributeHermesLog(ADMISSION_REJECTION_LINE, { hermesVersion: '0.20.1' });
+  const byId = new Map(result.signatureProvenance.map((entry) => [entry.signatureId, entry]));
+  assert.deepEqual([...byId.keys()], [
+    'admission-unauthorized-user', 'admission-dm-policy-rejected',
+    'feishu-inbound-received', 'feishu-response-ready', 'feishu-response-sending',
+  ]);
+  // 当前版本措辞：来源登记了 0.20.1，注入版本一致 ⇒ current_version。
+  assert.equal(byId.get('admission-unauthorized-user').sourceHermesVersion, '0.20.1');
+  assert.equal(byId.get('admission-unauthorized-user').applicability, 'current_version');
+  assert.equal(byId.get('admission-unauthorized-user').matchCount, 1);
+  // dm_policy_rejected 与四条正向签名的来源未登记版本 ⇒ 只能是 unknown。
+  for (const id of ['admission-dm-policy-rejected', 'feishu-inbound-received',
+    'feishu-response-ready', 'feishu-response-sending']) {
+    assert.equal(byId.get(id).sourceHermesVersion, null, id);
+    assert.equal(byId.get(id).applicability, 'unknown', id);
+    assert.equal(byId.get(id).matchCount, 0, `${id} 未命中也必须出现在溯源里`);
+  }
+  // 未注入运行版本时全部为 unknown。
+  for (const entry of attributeHermesLog(ADMISSION_REJECTION_LINE).signatureProvenance) {
+    assert.equal(entry.applicability, 'unknown', entry.signatureId);
+  }
+  // 注入不同版本时，登记了版本的那条变为 other_version。
+  const otherVersion = attributeHermesLog(ADMISSION_REJECTION_LINE, { hermesVersion: '0.19.0' });
+  assert.equal(otherVersion.signatureProvenance
+    .find((entry) => entry.signatureId === 'admission-unauthorized-user').applicability, 'other_version');
+});
+
+test('新增⑥未命中的表述只能是「不适用 / 适用性未知」，不得说「未发生该类拒绝」', () => {
+  for (const version of ['0.20.1', '0.19.0', null]) {
+    const verdict = renderAttributionVerdict(
+      attributeHermesLog(ADMISSION_REJECTION_LINE, { hermesVersion: version }),
+    );
+    assert.doesNotMatch(verdict, /未发生该类拒绝/, `版本 ${version}`);
+    assert.match(verdict, /该措辞在当前版本不适用|适用性未知/, `版本 ${version}`);
+  }
+});
+
+test('新增⑦零捕获组自证：五条 pattern 的捕获组数都必须为 0', () => {
+  assert.equal(attributionModule.REJECTION_SIGNATURES.length, 5);
+  for (const spec of attributionModule.REJECTION_SIGNATURES) {
+    // 加一个空的择一分支，exec('') 必然匹配，返回数组长度 - 1 即捕获组数。
+    const groupCount = new RegExp(`${spec.pattern.source}|`).exec('').length - 1;
+    assert.equal(groupCount, 0,
+      `${spec.id} 的 pattern 含 ${groupCount} 个捕获组：拒绝行含真实姓名与账号标识，只允许零捕获组的 test()`);
+    assert.equal(/\\\d/.test(spec.pattern.source), false, `${spec.id} 不得含反向引用`);
+  }
+});
+
+test('新增⑧PII 不外泄：注入凭据形状的拒绝行，输出恒不含原文', () => {
+  const random = makeRandom(0x9e3779b9);
+  const secretShapes = [
+    () => `sk-${Math.floor(random() * 1e15).toString(36).repeat(2)}`,
+    () => `Bearer ${Math.floor(random() * 1e15).toString(36)}`,
+    () => `?token=${Math.floor(random() * 1e15).toString(16)}`,
+    () => Buffer.from(`payload-${Math.floor(random() * 1e12)}`).toString('base64'),
+    () => `姓名${'\u4f60\u597d'.repeat(1 + Math.floor(random() * 8))}`,
+  ];
+  for (let iteration = 0; iteration < 120; iteration += 1) {
+    const secret = secretShapes[Math.floor(random() * secretShapes.length)]();
+    const line = `2026-08-19 14:42:01 WARNING plugins.platforms.feishu Unauthorized user: ${secret} on feishu`;
+    const result = attributeHermesLog(line, { hermesVersion: '0.20.1' });
+    const context = `seed=0x9e3779b9 iteration=${iteration} secret=${secret}`;
+    assert.equal(result.feishuChainRejections.length, 1, `注入后仍应识别。${context}`);
+    const serialized = JSON.stringify(result);
+    assert.equal(serialized.includes(secret), false, `输出泄露了注入的凭据形状。${context}`);
+    // 折叠键只由 subsystem + signatureId 组成，结构上不可能承载行内取值。
+    const summaries = attributionModule.summarizeRejectionSignatures(result.feishuChainRejections);
+    assert.equal(JSON.stringify(summaries).includes(secret), false, `折叠结果泄露了取值。${context}`);
+    assert.equal(renderAttributionVerdict(result).includes(secret), false, `结论文本泄露了取值。${context}`);
+  }
+  // 识别函数只做 test()：返回类型里没有任何承载行内容的字段。
+  const record = attributeHermesLog(ADMISSION_REJECTION_LINE, { hermesVersion: '0.20.1' }).feishuChainRejections[0];
+  assert.deepEqual(Object.keys(record).sort(), ['applicability', 'attributionBasis', 'attributionConflict',
+    'kind', 'line', 'loggerName', 'signatureId', 'subsystem', 'timestamp']);
+});
+
+test('新增⑨时间戳失败关闭：畸形时间戳的拒绝行 → timestamp 为 null 且 redactedFieldCount 递增', () => {
+  const malformed = '2026-8-9 1:2:3 WARNING plugins.platforms.feishu '
+    + `Unauthorized user: ${ACCOUNT_PLACEHOLDER} ${NAME_PLACEHOLDER} on feishu`;
+  const result = attributeHermesLog(malformed, { hermesVersion: '0.20.1' });
+  assert.equal(result.feishuChainRejections.length, 1, '时间戳畸形不影响记录本身被识别');
+  assert.equal(result.feishuChainRejections[0].timestamp, null, '形状不符即丢弃，绝不原样输出');
+  assert.equal(result.redactedFieldCount, 1, '失败关闭必须计入 redactedFieldCount');
+  // 对照：形状正确的时间戳不计入。
+  assert.equal(attributeHermesLog(ADMISSION_REJECTION_LINE, { hermesVersion: '0.20.1' }).redactedFieldCount, 0);
+});
+
+test('新增⑩窗口覆盖：windowFirstTimestamp / windowLastTimestamp 正确，且无证据时结论提示窗口范围', () => {
+  const result = attributeHermesLog([
+    '2026-08-19 10:00:00 INFO gateway.platforms.base plugin ready',
+    '2026-08-19 12:34:56 INFO gateway.platforms.base heartbeat',
+  ].join('\n'));
+  assert.equal(result.scanned.windowFirstTimestamp, '2026-08-19 10:00:00');
+  assert.equal(result.scanned.windowLastTimestamp, '2026-08-19 12:34:56');
+  // 无任何证据时，结论必须给出窗口范围，使「未命中」与「窗口未覆盖」可区分。
+  const verdict = renderAttributionVerdict(result);
+  assert.match(verdict, /本次窗口覆盖时间/);
+  assert.match(verdict, /窗口未覆盖/);
+  // 窗口内没有可解析时间戳时，不得假装知道覆盖范围。
+  const noTimestamp = attributeHermesLog('普通一行日志\n');
+  assert.equal(noTimestamp.scanned.windowFirstTimestamp, null);
+  assert.equal(noTimestamp.scanned.windowLastTimestamp, null);
+  assert.match(renderAttributionVerdict(noTimestamp), /无法判定/);
+});
+
+test('新增⑪只有拒绝记录、无 traceback 时，SubsystemReport 条目正常生成且行范围为有限值', () => {
+  const result = attributeHermesLog(ADMISSION_REJECTION_LINE, { hermesVersion: '0.20.1' });
+  assert.equal(result.subsystems.length, 1, '只有拒绝记录的子系统也要生成条目');
+  const [report] = result.subsystems;
+  assert.equal(report.subsystem, 'feishu-platform');
+  assert.equal(report.tracebackCount, 0);
+  assert.equal(report.rejectionRecordCount, 1);
+  assert.deepEqual(report.rejectionSignatureCounts, [{ signatureId: 'admission-unauthorized-user', count: 1 }]);
+  assert.equal(report.lastRejectionTimestamp, '2026-08-19 14:42:01');
+  // 回归守卫：空集合展开 Math.min(...[]) 会得到 Infinity / -Infinity。
+  assert.equal(Number.isFinite(report.firstLine), true, 'firstLine 必须是有限值');
+  assert.equal(Number.isFinite(report.lastLine), true, 'lastLine 必须是有限值');
+  assert.equal(report.exceptionClassCounts.length, 0);
+  assert.equal(report.ownedFrameCounts.length, 0);
+  assert.equal(report.lastTimestamp, null, '既有 lastTimestamp 仍是 traceback 口径');
+});
+
+test('新增⑫默认日志文件集含 gateway.log（准入拒绝是 WARNING 级）', () => {
+  assert.deepEqual([...cliModule.DEFAULT_LOG_NAMES], ['gateway.error.log', 'gateway.log']);
+  assert.equal(Object.isFrozen(cliModule.DEFAULT_LOG_NAMES), true);
+  assert.match(cliModule.renderUsage(), /gateway\.log/);
+});
+
+test('新增⑬归属冲突：日志器名指向 Telegram 而签名含 on feishu 时必须留痕', () => {
+  const conflicting = '2026-08-19 14:42:01 WARNING plugins.platforms.telegram '
+    + `Unauthorized user: ${ACCOUNT_PLACEHOLDER} ${NAME_PLACEHOLDER} on feishu`;
+  const result = attributeHermesLog(conflicting, { hermesVersion: '0.20.1' });
+  assert.equal(result.scanned.rejectionRecordCount, 1);
+  const [record] = result.feishuChainRejections;
+  // 取 platformHint，但冲突必须留痕，不得静默吞掉。
+  assert.equal(record.subsystem, 'feishu-platform');
+  assert.equal(record.attributionBasis, 'signature_platform');
+  assert.equal(record.attributionConflict, true);
+  assert.equal(record.loggerName, 'plugins.platforms.telegram');
+  assert.match(renderAttributionVerdict(result), /不一致/);
+});
+
+// --- 复核 F5 / F2 要求的补充用例 ---
+
+test('补充（F5）拒绝行紧跟 traceback 末行时仍被识别', () => {
+  // 识别若写在 `if (!current)` 之后，这个形态会漏掉整条记录。
+  const result = attributeHermesLog(`${TELEGRAM_TRACEBACK}\n${ADMISSION_REJECTION_LINE}`,
+    { hermesVersion: '0.20.1' });
+  assert.equal(result.feishuChainRejections.length, 1, '拒绝行紧跟 traceback 末行时必须被识别');
+  assert.equal(result.scanned.tracebackCount, 1, 'traceback 计数不受影响');
+  // 也覆盖「夹在两个 traceback 之间」的形态。
+  const sandwiched = attributeHermesLog(
+    `${TELEGRAM_TRACEBACK}\n${ADMISSION_REJECTION_LINE}\n${FEISHU_TRACEBACK}`,
+    { hermesVersion: '0.20.1' },
+  );
+  assert.equal(sandwiched.feishuChainRejections.length, 1);
+  assert.equal(sandwiched.scanned.tracebackCount, 2);
+  assert.equal(sandwiched.evidenceClass, 'both');
+});
+
+test('补充（F2）只含正向里程碑的输入不得被渲染为「已定位的失败证据」', () => {
+  const result = attributeHermesLog(POSITIVE_MILESTONE_LINES.join('\n'), { hermesVersion: '0.20.1' });
+  assert.equal(result.feishuChainRejections.length, 4);
+  assert.equal(result.feishuChainRejections.every((record) => record.kind === 'positive_milestone'), true);
+  const verdict = renderAttributionVerdict(result);
+  // 正向里程碑不是失败：把「回复已发出」报成失败证据与本轮目的正好相反。
+  assert.doesNotMatch(verdict, /已定位的失败证据/);
+  assert.doesNotMatch(verdict, /核对两套白名单/);
+  assert.match(verdict, /正向里程碑/);
+  assert.match(verdict, /窗口内无飞书失败记录/);
+  // 但正向签名仍是「归属证据」，退出码为 0（2.44）。
+  assert.equal(decideExitCode({ ok: true, reports: [{ attribution: result }] }), 0);
+  assert.equal(result.evidenceClass, 'rejection');
+});
+
+test('补充 0.19 时代措辞（dm_policy_rejected）与当前版本措辞并存时都被识别', () => {
+  const result = attributeHermesLog(`${LEGACY_REJECTION_LINE}\n${ADMISSION_REJECTION_LINE}`,
+    { hermesVersion: '0.20.1' });
+  assert.equal(result.feishuChainRejections.length, 2, '两个版本的措辞必须并存容纳');
+  const ids = result.feishuChainRejections.map((record) => record.signatureId).sort();
+  assert.deepEqual(ids, ['admission-dm-policy-rejected', 'admission-unauthorized-user']);
+  // dm_policy_rejected 没有 platformHint，靠日志器名归属。
+  const legacy = result.feishuChainRejections.find((r) => r.signatureId === 'admission-dm-policy-rejected');
+  assert.equal(legacy.attributionBasis, 'logger_name');
+  assert.equal(legacy.subsystem, 'feishu-platform');
+  assert.equal(legacy.applicability, 'unknown', '来源未登记版本 ⇒ 只能是 unknown');
+});
+
+test('补充 对照用例：telegram-only 追加拒绝行后，证据缺口文案不得再出现', () => {
+  // 既有用例 #6 的夹具（telegram-only）下结论仍正确；追加拒绝行后必须翻转。
+  const withoutRejection = renderAttributionVerdict(attributeHermesLog(TELEGRAM_TRACEBACK));
+  assert.match(withoutRejection, /没有任何.*归属到飞书链路/);
+  const withRejection = renderAttributionVerdict(
+    attributeHermesLog(`${TELEGRAM_TRACEBACK}\n${ADMISSION_REJECTION_LINE}`, { hermesVersion: '0.20.1' }),
+  );
+  assert.doesNotMatch(withRejection, /失败根本没有被记录/);
+  assert.doesNotMatch(withRejection, /没有任何.*归属到飞书链路/);
+});
+
+test('补充 覆盖矩阵：三类措辞 × 三种混排 × 是否注入版本，恒不泄露占位符且退出码一致', () => {
+  const wordings = [
+    { name: '当前版本措辞', line: ADMISSION_REJECTION_LINE },
+    { name: '0.19 措辞', line: LEGACY_REJECTION_LINE },
+    { name: '正向签名', line: POSITIVE_MILESTONE_LINES[0] },
+  ];
+  const arrangements = [
+    { name: '单独出现', wrap: (line) => line },
+    { name: '与 Telegram 噪音混排', wrap: (line) => `${TELEGRAM_TRACEBACK}\n${line}` },
+    { name: '与飞书 traceback 并存', wrap: (line) => `${FEISHU_TRACEBACK}\n${line}` },
+  ];
+  for (const wording of wordings) {
+    for (const arrangement of arrangements) {
+      for (const hermesVersion of ['0.20.1', null]) {
+        const label = `${wording.name} / ${arrangement.name} / 版本=${hermesVersion}`;
+        const result = attributeHermesLog(arrangement.wrap(wording.line), { hermesVersion });
+        assert.equal(result.feishuChainRejections.length, 1, label);
+        assert.equal(containsNoPlaceholderValue(result), true, `${label} 泄露了占位符`);
+        assert.equal(decideExitCode({ ok: true, reports: [{ attribution: result }] }), 0, label);
+        assert.equal(['rejection', 'both'].includes(result.evidenceClass), true, label);
+        const verdict = renderAttributionVerdict(result);
+        assert.doesNotMatch(verdict, /失败根本没有被记录/, label);
+        assert.doesNotMatch(verdict, /未发生该类拒绝/, label);
+        assert.equal(verdict.includes(ACCOUNT_PLACEHOLDER), false, label);
+        assert.equal(verdict.includes(NAME_PLACEHOLDER), false, label);
+      }
+    }
   }
 });
