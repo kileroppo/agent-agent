@@ -337,6 +337,18 @@ export function bindConsoleInteractions({ elements, state, api, load, setSyncSta
             forms: [accessForm, accessLoginForm],
         }),
         intervalMs: 15000,
+        onDegraded: (failures: any): any => {
+            const syncBadge: any = document.querySelector('.sync-badge');
+            const syncIndicator: any = document.querySelector('#sync-indicator');
+            const syncStatus: any = document.querySelector('#sync-status');
+            syncBadge?.classList.add('is-degraded');
+            if (syncIndicator) syncIndicator.className = 'sync-indicator error';
+            if (syncStatus) syncStatus.textContent = '连接不稳定';
+        },
+        onRecovered: (): any => {
+            const syncBadge: any = document.querySelector('.sync-badge');
+            syncBadge?.classList.remove('is-degraded');
+        },
     });
     accessViews.setAccessStep(1);
     load().catch((error: any): any => {
