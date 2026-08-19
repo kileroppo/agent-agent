@@ -83,6 +83,68 @@
 **未验证**：出站失败的目标主机（异常类名不能证明目标是 StepFun endpoint 或任何具体 provider）、MCP server
 的实际进程状态、`reject=7` 那 7 次的性质、飞书准入白名单是否命中。
 
+### 真机日志实证（已实测 · 第三轮 · 主机名/模块名直方图 → 证伪第二轮结论）
+
+第二轮把「出站 HTTP 连接持续失败」当作与飞书链路相关的证据，是错的。本轮对同一份
+`gateway.error.log` 补做**子系统归属**（统计模块名与主机名，而非只统计异常类名），取得以下**实测计数**：
+
+| 归属线索 | 计数 | 含义 |
+|---|---|---|
+| `plugins.platforms.telegram` | 1199 | 模块名归属：Telegram 平台插件 |
+| `api.telegram.org` | 455 | 出站目标主机名 |
+| `telegram.error` | 191 | Telegram SDK 异常模块 |
+| `telegram.ext` | 167 | Telegram SDK 扩展模块 |
+| `self.bot` | 168 | Telegram SDK 调用点 |
+
+**结论（已实测）**：第二轮记录的 `ConnectError` 974 / `NetworkError` 349 / `ConnectTimeout` 34
+**归属于 Telegram 平台插件**，与飞书链路、与模型 provider 调用**均无关**。
+另有两个 `149.154.*` 网段 IP 出现在出站失败记录中；「该网段属 Telegram」这一判断来自**通用网络知识，
+仓库内无依据**，据此标记为未验证，不作为归属依据（归属已由上表模块名与主机名独立成立）。
+
+**这是本 spec 第三次连续证伪，且本次错误源于分析方法本身**：把**聚合日志签名**（异常类名的全局总计数）
+直接当作与飞书链路相关的证据，**未先做子系统归属**。46 万行错误日志被单一无关插件的重试噪音主导时，
+任何全局计数都只反映噪音体量。该方法缺陷已在本分支交付修复（`apps/ajun-runtime/src/hermes-log-attribution.ts`，
+PR #12：按最深的非第三方栈帧或日志器名归属子系统，主导签名归属到无关子系统时明确判为与本 bug 无关）。
+
+### 真机诊断实证（已实测 · 第四轮 · 外部直连诊断 → 确认网关侧准入拒绝）
+
+用户改用另一个可直接访问本机的工具做诊断，取得以下**真机实测**结论。
+**须如实标注的来源限制：这四项结论不是由本 spec 交付的诊断入口取得的**，而是由外部直连诊断取得；
+本 spec 的诊断入口在真机上把准入一项报为 `unknown`（`errorCode:"admission_field_not_found"`），
+即已按 1.19 预期在安全边界内**结构上不可判定**。
+
+1. **A君 进程健康、4321 在监听**（已实测）—— 与本 spec 第一轮六项判定的第 1、4 项一致，互相印证。
+2. **飞书消息确实到达了 Hermes 网关，但被当作未授权用户丢弃，因此不回复**（已实测）。
+   日志签名形状为「`Unauthorized user:` + 账号标识 + 姓名 + `on feishu`」，涉及三条消息
+   （当天 14:42 一条、前一日 17:06 两条）。**本文档只描述签名形状，不记录任何真实姓名、账号标识或
+   `open_id` 及其片段。**
+3. **两套用户准入白名单未对齐**（已实测）—— 军团配置里 A君 允许该用户的飞书 `open_id`，而 Hermes 网关
+   另有一套独立白名单，两边不同步：军团侧允许，网关侧拒绝。
+4. **A君 运行台显示飞书通道为空，且模型状态仍为 `model_transport_pending`**（已实测）—— 即使白名单
+   修好，回复能力仍可能不完整。
+
+**仓库侧核实结果（本轮已核实，用以判定「两套白名单」是否为仓库事实而非仅外部诊断说法）**：
+该说法在仓库内**可以证实**，两套配置各有独立存储与独立写入路径 ——
+
+- **军团侧**：`<AGENT_ARMY_PRIVATE_DIR>/feishu-agent-apps.json` 的 `apps[].allowedUserIds`
+  （`apps/ajun-runtime/src/agent-feishu-app-store.ts`，schema `agent.army/feishu-agent-apps/v1`），
+  经 `agent-feishu-channel-fleet.ts` 的 `agentChannelOptions()` 成为军团自有飞书通道的
+  `policy.dmAllowlist`（`dmMode:'allowlist'`）。
+- **Hermes 网关侧**：Hermes Profile 本地环境文件中的 `FEISHU_ALLOWED_USERS`，由
+  `apps/ajun-runtime/scripts/provision-hermes-employee-feishu.mjs` 写入；A君 对应的 profileDir
+  即 `HERMES_HOME`（default Profile），与 `ajun.profile.json` 的 `gateway.runtimeProfile:"default"` 一致。
+- **同步是单向且仅发生在 provision 时刻的一次性拷贝**：`provisionHermesEmployeeFeishu` 在仓库内只有
+  定义处与自身 CLI 两处引用；运行台接线路径 `EmployeeFeishuConnectionService.connect()` 只写军团侧 store
+  并调用 `fleet.startApp(app)`，**不触发 provision**。因此军团侧更新后网关侧保持旧值。
+- **无任何漂移检测**：仓库内 `allowlistDrift` / `whitelistDrift` 零命中；既有「漂移」校验全部属 release、
+  技能审计与治理同步，与准入白名单无关。
+- `ajun.profile.json` 的 `gateway` 块**不声明**准入来源，而 `xiaod.profile.json` 声明了
+  `allowedUsersSource:"environment:FEISHU_ALLOWED_USERS"` —— 即「A君 的准入以哪一侧为准」在仓库内
+  连声明都没有。
+
+**未验证**：两套白名单在真机上的具体取值与差异条目（属凭据/PII 范围，本 spec 不读取）、
+网关侧拒绝是否为三条消息的**唯一**原因、模型侧是否真的不可用。
+
 ### 已知约束（附带事实，不构成新缺陷条款）
 
 - **运行中的 4321 是旧 release**：第 4 项证据 `sourceRelationship:"different_git_head"` 表明当前不可变
@@ -91,13 +153,43 @@
 - **诊断结论只覆盖本机**：六项检查的层级上限最高为 `configured` / `reachable`，任一项 `pass`
   都不能证明「飞书可用」。
 
-### 尚未排除的开放项（本轮重排：路径 B 侧升为最强候选）
+### 根因已确认（第四轮）
+
+**零回复的直接原因是 Hermes 网关侧用户准入白名单拒绝了发送者**：消息在到达网关后被丢弃，
+且**不向用户产生任何可见说明**。这是本 spec 首次取得的**确认级**结论（已实测，来源为外部直连诊断）。
+
+该结论**确认了既有条款 1.7 与 2.7**（发送者不在白名单内 → 消息被丢弃、用户收不到说明），
+也确认了下方「候选 2」以及 `docs/reviews/m1-xiaod-feishu-closure/acceptance.md` 记录的 2026-07-19
+同类故障模式（当时签名为 `dm_policy_rejected`）在当前版本以**不同措辞**复现。
+
+**根因已定位，但验收仍未达成。** 判定本 spec 验收目标达成仍须同时满足：
+（a）两套白名单对齐后，在飞书私聊发出真实文本消息并**收到回复**（真机验证清单步骤 6）；
+（b）模型侧独立验证通过 —— 见下方「候选 1」，它可能构成**第二道独立阻断**。
+因此**不得因根因已定位就宣布 bug 已修复**。
+
+### 尚未排除的开放项（第四轮重排：候选 2 升为已确认；候选 1 依据部分撤回）
 
 **「零回复」症状未被第 2 项完全解释。** 补丁丢失后，飞书文本消息会落回路径 B 的 Hermes 原生会话
 （`handle_message`），而原生会话本应仍然产生回复；用户报告的是**完全无回复**。因此缺口一定在路径 B 侧或飞书应用侧。
-按候选强度重排如下（三项**全部未在真机关闭，一律标记未验证**）：
 
-**候选 1（当前最强 · 机制已按第二轮实证修正）· 出站 HTTP 连接持续失败 + 回退链按 ADR 决策显式为空 → 必然完全静默。**
+**第四轮状态更新（覆盖下方各候选的强度排序）**：候选 2 已确认为直接原因，不再是候选；候选 1 的第二轮出站失败
+依据已撤回，降为「开放项 · 依据回到制度性状态」，但作为**第二道可能阻断**仍需独立验证；候选 3、4、5 保持开放，
+均**未在真机关闭，一律标记未验证**。各候选原文保留于下，以完整记录判断迁移过程。
+
+**候选 1（第四轮改判 · 仍是开放项 · 依据回到「制度性状态」，出站失败证据已撤回）· 模型侧回复能力可能仍不完整。**
+**本项的第二轮机制认定（出站 HTTP 连接持续失败 → 必然完全静默）在本轮被撤回**：第三轮主机名/模块名直方图
+已证伪该证据归属（`ConnectError` 974 / `NetworkError` 349 / `ConnectTimeout` 34 全部归属 Telegram 平台插件，
+与飞书链路和模型 provider 均无关，**已实测**）。那批 `ConnectError` 证据**不再属于本项依据**。
+本项的现有依据回到**制度性状态**：外部直连诊断实测 A君 模型状态仍为 `model_transport_pending`、
+运行台飞书通道显示为空（**已实测**）；`ajun.profile.json` 的
+`credentialedTransportVerification.status` 为 `model-transport-pending`、`fallbackModels` 为 `[]`（已核实）。
+**含义**：**白名单修复后仍可能无回复**，模型侧须独立验证。
+**边界**：`model-transport-pending` 按 ADR-0013 是「缺少凭据调用证据」的制度性状态，
+**不等于「模型已确认不可用」**；模型侧是否真的不可用属**未验证**。
+
+以下为第二轮原文，**整体保留作为已撤回记录，不再作为当前依据**：
+
+**候选 1（第二轮记录 · 已撤回）· 出站 HTTP 连接持续失败 + 回退链按 ADR 决策显式为空 → 必然完全静默。**
 上一轮把本项的机制写为「主模型传输未验证（`credentialedTransportVerified:false`）」这一**制度性状态**，本轮真机日志证明
 实际机制不同且更强：`gateway.error.log` 尾部 20000 行内 `ConnectError` 974 次（另有 `NetworkError` 349、
 `RemoteProtocolError` 80、`ConnectTimeout` 34、`ReadError` 2，均为 httpx 出站异常族，**已实测**），即出站连接正在
@@ -121,7 +213,14 @@ DeepSeek 文本回退」，并规定「没有当前凭据调用证据前，Profi
 外部策略文件 `stepfun-model-policy.json` 与实际 Profile 回读为准，仓库 Manifest 只是发布初始值 —— 因此
 「实际生效的 provider/model」同样未验证。
 
-**候选 2 · 飞书用户准入白名单不命中。** 该机制在本仓库有**已确认的历史真机先例**：
+**候选 2（第四轮：已确认为直接原因，不再是候选）· Hermes 网关侧飞书用户准入白名单拒绝发送者。**
+第四轮外部直连诊断已实测确认：消息到达网关后被当作未授权用户丢弃，签名形状为
+「`Unauthorized user:` + 账号标识 + 姓名 + `on feishu`」（三条消息），且不产生任何用户可见说明。
+本项由此从「未排除的候选」升为**已确认的直接原因**，详见上方「根因已确认（第四轮）」。
+新发现的结构性缺陷是**两套白名单无单一真相、无漂移检测**（军团侧允许、网关侧拒绝，见新增条款
+1.30–1.33、2.38–2.42）。以下为本项此前的记录，保留其历史先例与判定边界：
+
+该机制在本仓库有**已确认的历史真机先例**：
 `docs/reviews/m1-xiaod-feishu-closure/acceptance.md` 记录 2026-07-19 的诊断结论为「飞书投递与 Hermes WebSocket
 适配器正常，阻塞点是 `FEISHU_ALLOWED_USERS` 未匹配发送者的用户 `open_id`」，入站事件全部为 `dm_policy_rejected`，
 修正白名单并重启 Gateway 后恢复。该症状同样是**完全零回复**。（对应新增条款 1.18。）
@@ -171,8 +270,25 @@ MCP 是从 Hermes 模型通往「A君本机任务与能力适配」的**唯一�
 据此，design.md 的《Hypothesized Root Cause》与《Testing Strategy》在下一次进入 design 阶段时须同步修订
 —— 本轮按约束**只更新 bugfix.md**，未改动 design.md / tasks.md / real-machine-verification.md。
 
+**本轮（第四轮）该推翻条件第三次被实质触发，且本轮同时给出确认级结论。** 根因假设的完整迁移过程如下：
+
+| 轮次 | 主导假设 | 结局 |
+|---|---|---|
+| 第一轮 | 假设 2 · adapter 补丁存活性无人校验（1.3） | **证伪其充分性** —— 补丁缺口是真实缺口，但消息会落回路径 B，不足以解释完全零回复 |
+| 第二轮 | 出站 HTTP 连接持续失败 + 回退链为空 → 必然静默 | **已撤回** —— 第三轮证明该批异常归属 Telegram 插件，与飞书链路无关 |
+| 第三轮 | （方法修正轮，未提出新根因） | 按子系统归属后证伪第二轮，并交付 `hermes-log-attribution`（PR #12） |
+| 第四轮 | Hermes 网关侧准入白名单拒绝发送者 | **已确认为直接原因**（外部直连诊断实测） |
+
+**连续三次证伪的共同原因不是任何单个候选，而是同一个方法缺陷：依赖猜测的外部标识符 + 缺少证据归属。**
+三次分别表现为：猜 `config.yaml` 字段名（缺陷 D）、用 0.19 时代的日志措辞匹配 0.20.1（缺陷 H）、
+把无子系统归属的聚合异常计数当作飞书链路证据（第三轮所证伪者）。**既有条款 2.35 正是针对这一缺陷设立的**
+—— 它要求任何依赖外部标识符的判定必须标注来源与适用版本、失配时报「不适用」而非「未命中」——
+**但本 spec 自身的排查过程未遵守它**。这比任何单个候选根因都更根本，也是本轮新增条款 2.43–2.45
+（日志归属必须覆盖非异常型拒绝记录、多版本措辞并标注适用范围）的直接动因。
+
 据此重申：**不得因为定位到第 2 项就宣布 bug 已修复** ——
 只有真机验证清单步骤 6（飞书会话内出现业务回复或可归因中文说明）通过，才可判定本 spec 的验收目标达成。
+本轮根因已定位，该重申**仍然成立**：白名单对齐只解除第一道阻断，模型侧可能构成第二道。
 
 ## Bug Analysis
 
@@ -218,6 +334,24 @@ MCP 是从 Hermes 模型通往「A君本机任务与能力适配」的**唯一�
 1.27 WHEN 诊断给出链路结论 THEN 系统对 Agent Army MCP 这条腿的活性无任何判定，而真机上该腿已呈失联迹象：`mcp-stderr.log` 与 `gateway-exit-diag.log` 的 mtime 停在 08-18 23:57，而 `gateway.log` / `gateway.error.log` / `errors.log` / `agent.log` 持续写到 08-19 11:21（约 11.5 小时落差，**已实测**），且 `gateway.log` 全部 25741 行内 `mcp|agent-army` 仅出现 **1 次**（**已实测**）；ADR-0007 决定 3 规定「A君以本机 MCP Server 向 Hermes 暴露军团工具」，其《对话与任务边界》拓扑中 MCP 是从 Hermes 模型通往「A君本机任务与能力适配」的**唯一被描述的通道**，且「查询状态先调用只读 MCP 工具，不能凭模型记忆编造」；MCP 不被调用意味着即使模型可用，军团能力在飞书侧也拿不到
 1.28 WHEN 出站连接失败而 `fallbackModels` 按 `docs/adr/0013-stepfun-primary-reasoning-restoration.md` 显式为空 THEN 结果必然是完全静默（无业务回复、无错误提示、无降级说明），而系统不在任何地方报告「当前处于无回退状态、一旦出站失败即静默」这一事实，用户与运维无法预先知道该风险，也无法在故障发生时把静默归因到它
 1.29 WHEN Hermes gateway 错误日志持续增长 THEN 无任何轮转或规模约定对其生效：真机 `gateway.error.log` 已达 460144 行且仍在写入（**已实测**），而仓库内检索不到任何针对 Hermes gateway 日志的轮转约定、规模阈值或校验（`logrotate` / `max_size` / `backup_count` / 「轮转」在仓库内零命中；`rotate` 的命中仅为 LAN 共享密钥轮换与 `boom-monitor` 备份保留，与 Hermes 日志无关，已核实）；46 万行错误日志本身既使故障信号被淹没，也构成运维负担
+
+以下八条由第四轮外部直连诊断确认根因后新发现（缺陷 L 两套准入白名单无单一真相：1.30–1.33；缺陷 M 日志归属漏掉非异常型拒绝记录：1.34–1.36；缺陷 N 第二道阻断不被告知：1.37）：
+
+1.30 WHEN 飞书用户准入被配置 THEN 系统并存两套互不校验的准入白名单：军团侧 `<AGENT_ARMY_PRIVATE_DIR>/feishu-agent-apps.json` 的 `apps[].allowedUserIds`（`apps/ajun-runtime/src/agent-feishu-app-store.ts`，schema `agent.army/feishu-agent-apps/v1`，经 `agent-feishu-channel-fleet.ts` 的 `agentChannelOptions()` 成为军团自有飞书通道的 `policy.dmAllowlist`）与 Hermes 网关侧 Profile 本地环境文件中的 `FEISHU_ALLOWED_USERS`（由 `apps/ajun-runtime/scripts/provision-hermes-employee-feishu.mjs` 写入，A君 对应 profileDir 即 `HERMES_HOME`）；两者可以不一致，而系统没有任何单一真相、对齐校验或漂移检测（已核实：仓库内 `allowlistDrift` / `whitelistDrift` 零命中，既有「漂移」校验全部属 release、技能审计与治理同步，与准入白名单无关）
+
+1.31 WHEN 用户从运行台更新某员工的飞书准入人员 THEN `EmployeeFeishuConnectionService.connect()` 只写军团侧 store 并调用 `fleet.startApp(app)`，不调用 `provisionHermesEmployeeFeishu`（已核实：该函数在仓库内只有定义处与自身 CLI 两处引用），因此 Hermes 网关侧 `FEISHU_ALLOWED_USERS` 保持上一次 provision 时刻的取值；两套白名单的同步是**单向且仅发生在 provision 时刻**的一次性拷贝，此后各自漂移无人发现，且 `integrations/feishu/README.md` 已记录白名单变化后必须重启 Gateway 才生效这一额外前提
+
+1.32 WHEN 军团侧白名单允许某发送者而 Hermes 网关侧白名单不允许（第四轮真机即为此状态，**已实测**）THEN 消息在到达网关后被静默丢弃，军团侧看起来「已授权」，**两侧都不向用户产生任何可见说明**，用户只观察到完全零回复，且无法区分「未获准入」与「链路故障」
+
+1.33 WHEN 需要判定 A君 的准入白名单以哪一侧为准 THEN `ajun.profile.json` 的 `gateway` 块内不声明准入来源（对比 `xiaod.profile.json` 声明了 `allowedUsersSource:"environment:FEISHU_ALLOWED_USERS"`，已核实），因此连「哪一套白名单是 A君 飞书准入的真相」这一事实在仓库内都没有可核对的声明，排查者只能靠猜
+
+1.34 WHEN 本分支已交付的日志归属工具（`apps/ajun-runtime/src/hermes-log-attribution.ts` 与 `apps/ajun-runtime/scripts/attribute-hermes-logs.mjs`，PR #12）扫描 Hermes 错误日志 THEN 它只识别以 `Traceback (most recent call last):` 开头的异常块（已核实：解析由 `TRACEBACK_HEADER` 门控，归属依据为最深的非第三方栈帧或日志器名），而用户准入拒绝在真机上是一条**不带 traceback 的结构化日志行**（签名形状为「`Unauthorized user:` + 账号标识 + 姓名 + `on feishu`」，本文档只描述形状不记录任何真实取值），因此该类飞书相关拒绝记录被完全漏掉
+
+1.35 WHEN 飞书侧的失败全部以非异常型拒绝记录存在（第四轮真机即为此情形）THEN `feishuChainTracebacks` 为空，`renderAttributionVerdict()` 输出「扫描窗口内没有任何归属到飞书链路的 traceback…飞书侧的失败根本没有被记录到错误日志…这本身是一个证据缺口」，CLI 退出码为 `1`（已核实为该函数与 CLI 的既有行为），**而真机上失败被记录得非常明确**；该工具因此会把「已明确记录的失败」主动误报为「失败未被记录」，是一个会主动误导排查者的缺陷，且恰好发生在为消除误导而建的工具上
+
+1.36 WHEN 归属工具需要识别飞书侧拒绝记录 THEN 它没有任何拒绝措辞的来源与适用版本登记：当前 Hermes 版本的准入拒绝签名形状与 `docs/reviews/m1-xiaod-feishu-closure/acceptance.md` 记录的 0.19 时代 `dm_policy_rejected` **措辞不同**（已实测：两种措辞并存于不同版本），而工具既不容纳多版本措辞、也不标注各措辞的适用范围，构成既有条款 2.35 所确立原则在新工具上的未落实
+
+1.37 WHEN 网关侧准入白名单缺口被修复 THEN 系统不告知「回复能力可能仍不完整」这一并存阻断：`ajun.profile.json` 的 `credentialedTransportVerification.status` 仍为 `model-transport-pending`（已核实），运行台按 `agent-registry.ts` 与 `employee-feishu-connection-service.ts` 把该状态呈现为 `model_transport_pending`「独立身份已建立，模型授权和真实调用仍待完成」（已核实），且第四轮外部直连诊断实测 A君 运行台飞书通道显示为空（**已实测**）；用户可能在准入修好后仍收不到回复，而没有任何地方预先说明这是第二道独立阻断（模型侧是否真的不可用属**未验证**）
 
 ### Expected Behavior (Correct)
 
@@ -270,6 +404,26 @@ MCP 是从 Hermes 模型通往「A君本机任务与能力适配」的**唯一�
 2.36 WHEN 诊断入口运行 THEN 系统 SHALL 判定 Agent Army MCP 腿的活性，至少含：（a）MCP stderr 日志的最近写入时间相对 Gateway 其他日志的最近写入时间是否显著滞后（报告滞后量，不报告日志内容）；（b）`config.yaml` 的 `mcp_servers.agent-army` 是否存在且未被 `enabled:false` 关闭；并 SHALL 显式标注层级限制「无 stderr 输出且 Gateway 侧极少提及，不等于 MCP server 已崩溃或未加载」，SHALL NOT 由此断言 MCP 已失效
 2.37 WHEN 诊断入口运行 THEN 系统 SHALL 报告 Hermes 日志的规模与轮转状态（至少：错误日志行数或字节量、最近写入时间、是否存在生效的轮转约定），使「信号被淹没」这一状态本身可被发现；SHALL 只报告规模与时间等元数据，SHALL NOT 输出日志内容
 
+以下九条对应第四轮新发现的缺陷（缺陷 L 白名单单一真相与漂移检测：2.38–2.42；缺陷 M 日志归属覆盖非异常型记录：2.43–2.45；缺陷 N 第二道阻断告知：2.46）。**既有 2.32 与 2.34 在本轮被修正**：它们要求把「主导出站失败签名 + 无回退链」报为最强候选根因，而该批签名已被证伪为无关子系统噪音；修正以本轮新条款表达，既有条款文字不变，design 阶段须显式说明 2.32 / 2.34 的处置方式（判定保留，但结论 SHALL 先通过子系统归属，且 SHALL NOT 在归属为无关子系统时报为本 bug 的候选根因）：
+
+2.38 WHEN 系统内并存两套飞书用户准入白名单 THEN 系统 SHALL 存在单一真相，或提供显式的对齐校验，使「两套白名单不一致」这一状态本身可被检测并报告；SHALL 报告比对所依据的两侧位置（军团侧 store 与 Hermes Profile 环境文件）与该结论所处的能力真相层级，SHALL NOT 仅凭任一侧取值单独给出准入结论
+
+2.39 WHEN 两侧白名单不一致 THEN 系统 SHALL 把该状态报为**阻断性缺口**并给出唯一下一步，SHALL NOT 因军团侧允许发送者就判定准入正常，SHALL NOT 把军团侧的「已授权」表述为消息可被 Hermes 网关接受
+
+2.40 WHEN 输出任何准入或对齐结论 THEN 系统 SHALL NOT 输出 `open_id` 原值或其片段、真实姓名或其片段、`.env` 键值、日志正文；引用发送者身份时 SHALL CONTINUE TO 只用既有摘要（`requesterRefDigest`）表达；比对两侧集合时 SHALL 只输出「是否一致 / 差异条目数 / 摘要」，SHALL NOT 输出条目原值
+
+2.41 WHEN 对齐校验需要取得网关侧取值 THEN 该校验 SHALL 在不读取 `.env` 的前提下完成；若确实需要读取受保护配置才能取得该取值 THEN 系统 SHALL 明确报「按安全约束不可判定」这一结构性结论（与 2.24 同一表述层级，区别于「字段找不到」），并 SHALL 给出不涉及凭据的人工核对步骤
+
+2.42 WHEN 军团侧准入白名单被更新（运行台接线或 CLI 路径）THEN 系统 SHALL 使 Hermes 网关侧的对应取值要么同步更新、要么被报为「待同步」状态，并 SHALL 说明 `integrations/feishu/README.md` 已记录的「白名单变化后必须重启 Gateway 才生效」这一前提；SHALL NOT 依赖「人记得手动重跑 provision 脚本」
+
+2.43 WHEN 日志归属工具扫描 Hermes 日志 THEN 它 SHALL 同时覆盖**非异常型的结构化拒绝/丢弃记录**（至少含用户准入拒绝），SHALL NOT 只解析 traceback；该类记录 SHALL 与 traceback 一样先归属到子系统再报告，且 SHALL 只输出签名形状、计数、时间与行范围，SHALL NOT 输出日志正文、账号标识、真实姓名、`open_id` 或其片段
+
+2.44 WHEN 存在归属到飞书链路的非 traceback 失败记录 THEN 系统 SHALL NOT 输出「失败未被记录到任何可判定位置」或任何等价表述，SHALL 把该类记录报为**已定位的失败证据**并给出对应的唯一下一步；CLI 退出码语义 SHALL 与「是否找到飞书归属证据」保持一致，SHALL NOT 在证据实际存在时返回「未找到」
+
+2.45 WHEN 归属依据某条拒绝措辞 THEN 该措辞 SHALL 按 2.35 标注来源（仓库内具体文档或代码位置）与适用版本，并 SHALL 同时容纳多版本措辞（至少含当前版本的准入拒绝签名形状与 0.19 时代的 `dm_policy_rejected`）、分别标注各自适用范围；某版本措辞未命中 SHALL 报「该措辞在当前版本不适用 / 适用性未知」，SHALL NOT 表述为「未发生该类拒绝」
+
+2.46 WHEN 准入白名单缺口被修复 THEN 系统 SHALL 独立判定并单独报告模型侧回复能力（至少：`credentialedTransportVerification.status` 是否仍为 `model-transport-pending`、运行台飞书通道是否为空），并 SHALL 说明「准入修好后仍可能无回复、模型侧构成第二道独立阻断」；SHALL NOT 把准入修复表述为本 spec 验收达成，SHALL NOT 把 `model-transport-pending` 表述为「模型已确认不可用」
+
 ### Unchanged Behavior (Regression Prevention)
 
 3.1 WHEN A君返回 `handled:false`（`explicit_direct_reply_without_task`）且 Hermes 模型侧正常 THEN 系统 SHALL CONTINUE TO 由 Hermes 普通聊天路径回复，不插入任何诊断或降级文案
@@ -305,3 +459,14 @@ MCP 是从 Hermes 模型通往「A君本机任务与能力适配」的**唯一�
 3.21 WHEN 新增出站失败签名判定、MCP 腿活性判定与日志规模判定 THEN 系统 SHALL CONTINUE TO 不发起任何 provider 网络调用、不刷新账号模型目录、不产生任何计费；3.20 的边界 SHALL CONTINUE TO 不因新增判定而放宽、放行或例外
 3.22 WHEN 新增判定读取 Hermes 日志 THEN 系统 SHALL CONTINUE TO 保持只读、不读取 `.env`、不产生任何外部副作用、输出中零凭据；新增的日志读取 SHALL CONTINUE TO 只输出异常类名、计数与时间/规模等元数据，SHALL CONTINUE TO 不输出日志消息正文、URL、endpoint、`open_id` 原值或任何消息内容
 3.23 WHEN 本轮新增判定被加入诊断 THEN 既有六项（`gateway-process` / `adapter-patch` / `required-env` / `runtime-ingress` / `profile-guard` / `feishu-admission`）的 id、顺序、`truthLayerCeiling` 与退出码语义（`0` / `1` / `2`）SHALL CONTINUE TO 不变；新增项为扩展而非替换，其对 `CHAIN_CHECK_IDS` 与既有以六项齐全为断言的测试的影响 SHALL 在 design 中说明迁移方式（与 3.14 同一处置）
+
+
+以下四条对应第四轮新增准入对齐校验与非 traceback 日志归属的保持性要求：
+
+3.24 WHEN 新增准入对齐校验与非 traceback 日志归属 THEN 系统 SHALL CONTINUE TO 保持只读、不读取 `.env`、不产生任何外部副作用、输出中零凭据，且 SHALL CONTINUE TO 不发起任何 provider 网络调用、不刷新账号模型目录、不产生任何计费；3.20 与 3.21 的边界 SHALL CONTINUE TO 不因新增判定而放宽、放行或例外
+
+3.25 WHEN 日志归属扩展到非 traceback 记录 THEN 既有按子系统归属的判定 SHALL CONTINUE TO 生效：归属到与飞书链路无关子系统（如其他平台插件）的主导签名 SHALL CONTINUE TO 被明确判为与本 bug 无关，且 SHALL CONTINUE TO 不得据此推导飞书侧根因；既有形状白名单与失败关闭语义（形状不符即丢弃并计入 `redactedFieldCount`）SHALL CONTINUE TO 不被放宽，只读文件尾部、不整体载入内存与零第三方 npm 依赖属性 SHALL CONTINUE TO 保持
+
+3.26 WHEN 准入对齐校验被加入诊断 THEN 既有六项检查的 id、顺序、`truthLayerCeiling` 与退出码语义（`0` / `1` / `2`）SHALL CONTINUE TO 不变；`feishu-admission` 在按安全约束或结构原因无法判定时 SHALL CONTINUE TO 报 `status:'unknown'`（既不是 `pass` 也不是 `gap`）而非猜测（与 3.11、3.23 同一处置）
+
+3.27 WHEN 网关侧准入白名单被修正或对齐 THEN 军团侧既有的 `ou_` 前缀格式校验、密钥本地存储权限（`0o600`）与 `dmMode:'allowlist'` 默认拒绝语义 SHALL CONTINUE TO 不被放宽；对齐校验 SHALL CONTINUE TO 不引入「允许全部用户」旁路（`FEISHU_ALLOW_ALL_USERS` 保持 `false`、`FEISHU_GROUP_POLICY` 保持 `allowlist`）
