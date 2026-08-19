@@ -383,7 +383,7 @@
 
 ---
 
-- [ ] 7. 在未修复代码上写并运行非异常型拒绝记录的 Bug 条件探索测试
+- [x] 7. 在未修复代码上写并运行非异常型拒绝记录的 Bug 条件探索测试
   - **Property 3: Bug Condition** - 已明确记录的失败被误报为「失败未被记录」
   - **CRITICAL**: 本测试 MUST 在 `fix/hermes-log-subsystem-attribution` 的**当前（未修复）**代码上 **FAIL** —— 失败即证明缺陷存在
   - **DO NOT** 在它失败时去修测试或改代码；本任务的产出是**反例记录**，不是绿灯
@@ -406,7 +406,7 @@
   - 【沙箱可验证】
   - _Requirements: 1.34, 1.35, 1.36_
 
-- [ ] 8. 在未修复代码上写并运行拒绝记录归属的保持性基线（**先于任何实现**）
+- [x] 8. 在未修复代码上写并运行拒绝记录归属的保持性基线（**先于任何实现**）
   - **Property 4: Preservation** - Bug_Condition 不成立的输入，既有字段输出完全一致
   - **IMPORTANT**: 严格遵循**观测优先（observation-first）**方法：先在**未修复代码**上对既有两份夹具（`TELEGRAM_TRACEBACK` / `FEISHU_TRACEBACK`）跑基线并**确认通过**，把 `attributeHermesLog()` 的完整返回值序列化落为基线夹具，再写断言。不得凭假设写期望值
   - **观测步骤（在未修复代码上执行并记录实际输出）**：
@@ -432,9 +432,9 @@
   - 【沙箱可验证】
   - _Requirements: 3.24, 3.25, 3.26, 3.27_
 
-- [ ] 9. 修复：日志归属工具覆盖非异常型拒绝记录
+- [x] 9. 修复：日志归属工具覆盖非异常型拒绝记录
 
-  - [ ] 9.1 措辞登记表：多版本容纳、来源溯源与适用性判定
+  - [x] 9.1 措辞登记表：多版本容纳、来源溯源与适用性判定
     - 改 `apps/ajun-runtime/src/hermes-log-attribution.ts`，新增 `RejectionSignatureId`（5 条：`admission-unauthorized-user` / `admission-dm-policy-rejected` / `feishu-inbound-received` / `feishu-response-ready` / `feishu-response-sending`）、`SignatureApplicability`、`RejectionSignatureSpec`、`REJECTION_SIGNATURES`
     - 每条 `spec` 必须登记 `source`（仓库内具体位置）与 `sourceHermesVersion`，取值按 design.md §10.1 表格：`admission-unauthorized-user` → `0.20.1`；`admission-dm-policy-rejected` → `null`（`docs/reviews/m1-xiaod-feishu-closure/acceptance.md` 未登记版本）；三条正向签名 → `null`。**表内不含任何真实取值**
     - 实现 `classifyApplicability(spec, runningHermesVersion)`：`sourceHermesVersion === null` 或 `runningHermesVersion === null` → `'unknown'`；相等 → `'current_version'`；不等 → `'other_version'`
@@ -446,7 +446,7 @@
     - 【沙箱可验证】
     - _Requirements: 1.36, 2.45_
 
-  - [ ] 9.2 识别、归属与数据结构追加（含 PII 硬约束与两个放大缺陷之一）
+  - [x] 9.2 识别、归属与数据结构追加（含 PII 硬约束与两个放大缺陷之一）
     - **识别位置（复核 F5，强制）**：拒绝行识别写在主循环**每行的前置段**，与既有 `LOGGER_TOKEN` 计数同一位置，**无条件对每行执行**，与 `current`（是否处在 traceback 内）状态无关；否则 E1 夹具（拒绝行紧跟 traceback 末行）会漏识别。单测钉住该场景
     - **只判定不提取（2.43，最高优先）**：识别函数只允许 `spec.pattern.test(line)`。**禁止** `String.prototype.match` / `RegExp.prototype.exec` / `matchAll` / 替换回调作用于拒绝行。日志行文本**不进入任何返回值**（返回类型里没有承载行内容的 `string` 字段），行本身只在函数内作为参数存在
     - 新增 `RejectionRecord`：`subsystem` / `attributionBasis: 'signature_platform' | 'logger_name' | 'none'` / `attributionConflict: boolean` / `signatureId` / `kind` / `applicability` / `loggerName` / `timestamp` / `line`。**只输出签名类型、计数、时间与行范围**，与既有 traceback 输出的字段粒度一致
@@ -467,7 +467,7 @@
     - 【沙箱可验证】
     - _Requirements: 1.34, 2.43_
 
-  - [ ] 9.3 结论渲染与退出码：证据存在时不得再说「失败未被记录」
+  - [x] 9.3 结论渲染与退出码：证据存在时不得再说「失败未被记录」
     - **`renderAttributionVerdict()` 四条分支改造（触发条件收紧，被断言的文案子串一字不改）**：
       - **提前 return 分支**（复核 F4）：条件从 `!dominant` 收紧为「无 `subsystems` **且**无拒绝记录」；文案**必须保留** `/没有解析到任何 traceback/` 子串（既有测试 #8 依赖），可追加「非异常型拒绝记录同样为零」与扩大窗口的下一步
       - **证据缺口分支**（2.44 核心）：条件从 `feishuRelated.length === 0` 收紧为「飞书 traceback 数 `=== 0` **且**飞书拒绝记录数 `=== 0`」；文案**必须保留** `/没有任何.*归属到飞书链路/` 与 `/「没有错误记录」不等于「飞书侧正常」/` 两段子串（既有测试 #6 依赖）
@@ -484,7 +484,7 @@
     - 【沙箱可验证】
     - _Requirements: 1.35, 2.44, 2.45_
 
-  - [ ] 9.4 CLI 侧：默认文件集补 `gateway.log`、注入运行版本、窗口与溯源输出
+  - [x] 9.4 CLI 侧：默认文件集补 `gateway.log`、注入运行版本、窗口与溯源输出
     - 改 `apps/ajun-runtime/scripts/attribute-hermes-logs.mjs`
     - **放大缺陷①（必须与解析一起修）**：`DEFAULT_LOG_NAME`（单值）改为 `DEFAULT_LOG_NAMES = Object.freeze(['gateway.error.log', 'gateway.log'])`，`selectFiles()` 相应返回两个路径。理由：准入拒绝是 **WARNING 级**，最可能只在 `gateway.log`；**不改这一项，解析修好也扫不到**。单个文件缺失沿用既有 `log_absent` 逐文件报错，不影响 `ok`
     - 新增 `--hermes-version <x.y.z>` 可选参数，透传 `attributeHermesLog(text, { tailWindow, hermesVersion })` 驱动 `classifyApplicability`。**由调用方注入，纯解析模块不做任何版本 I/O 探测**；未提供时全部措辞报「适用性未知」
@@ -499,7 +499,7 @@
     - 【沙箱可验证（参数解析与渲染）】+ 【需真机验证：真机 `gateway.log` 内准入拒绝行的实际形状与 `--hermes-version` 注入后的适用性判定】
     - _Requirements: 1.34, 1.36, 2.43, 2.44, 2.45_
 
-  - [ ] 9.5 扩展既有 13 项测试并新增本轮用例
+  - [x] 9.5 扩展既有 13 项测试并新增本轮用例
     - **直接受影响的 4 项（被测条件改，既有断言不改）**：
       - **#4 输出零凭据（`:86`）**：既有 7 条禁词断言**全部不改**，但夹具与禁词表**必须扩展** —— 加入 `ADMISSION_REJECTION_LINE`，并把账号占位符与姓名占位符加入禁词。否则新代码路径完全没有 PII 覆盖
       - **#6 证据缺口（`:104`）**：触发条件收紧后该夹具（telegram-only，确无飞书证据）下结论仍正确，两条断言原样通过；**另新增一条对照用例** —— 同一夹具追加 `ADMISSION_REJECTION_LINE` 后，`/失败根本没有被记录/` 与 `/没有任何.*归属到飞书链路/` **均不得出现**
@@ -531,7 +531,7 @@
     - 【沙箱可验证】
     - _Requirements: 1.34, 1.35, 1.36, 2.43, 2.44, 2.45, 3.24, 3.25_
 
-  - [ ] 9.6 验证探索测试现在通过
+  - [x] 9.6 验证探索测试现在通过
     - **Property 3: Expected Behavior** - 已明确记录的失败被报为已定位的失败证据
     - **IMPORTANT**: 重新运行任务 7 的**同一批测试**，不要写新测试
     - 运行 `node --test apps/ajun-runtime/test/hermes-log-attribution.test.js`
@@ -540,7 +540,7 @@
     - _Requirements: Expected Behavior Properties from design（2.43, 2.44, 2.45）_
     - 【沙箱可验证】
 
-  - [ ] 9.7 验证保持性基线在修复后仍全部通过
+  - [x] 9.7 验证保持性基线在修复后仍全部通过
     - **Property 4: Preservation** - Bug_Condition 不成立的输入，既有字段输出完全一致
     - **IMPORTANT**: 重新运行任务 8 的**同一批测试**，不要写新测试
     - 运行 `node --test apps/ajun-runtime/test/hermes-log-attribution.test.js`
@@ -554,7 +554,7 @@
     - _Requirements: 3.24, 3.25, 3.26, 3.27_
     - 【沙箱可验证】
 
-- [ ] 10. 顺带项：登记 `src/hermes-log-attribution.ts` 到模块策略表
+- [x] 10. 顺带项：登记 `src/hermes-log-attribution.ts` 到模块策略表
   - 已核实 `apps/ajun-runtime/module-policy.json` 内**没有** `src/hermes-log-attribution.ts` 条目，与 design.md《模块边界》「登记新模块 + `affectedTests`」的既有约定不一致（同目录 `src/feishu-commander-chain-diagnosis.ts` / `-observations.ts` / `-evidence.ts` 均已登记）
   - 该文件是**选择性**登记表（现登记 122 项），未登记不必然违规，因此本项是一致性补登，不是阻断项
   - 新增条目：`"src/hermes-log-attribution.ts": { "affectedTests": ["test/hermes-log-attribution.test.js"], "lineLimit": 750 }`
@@ -567,7 +567,7 @@
   - 【沙箱可验证】
   - _Requirements: 3.25_
 
-- [ ] 11. Checkpoint - 阶段五全部测试通过
+- [x] 11. Checkpoint - 阶段五全部测试通过
   - 运行 `node --test apps/ajun-runtime/test/hermes-log-attribution.test.js`，确认既有 13 项 + 本轮新增用例全部通过；有问题时向用户提问，**不要自行放宽断言**
   - 运行 `npm run check` 与 `npm test`，确认无跨模块回归
   - 运行 `npm run diagnose:hermes-logs -- --json | grep -Ei 'sk-|bearer|token|cookie|password|unauthorized user'`，确认无匹配（2.43 零凭据）
