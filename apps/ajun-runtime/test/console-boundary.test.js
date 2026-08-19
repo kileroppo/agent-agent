@@ -60,7 +60,7 @@ test('员工页后台自动同步保留已展开的员工卡片', async () => {
   const script = await readFile(new URL('app.js', root), 'utf8');
 
   assert.match(script, /replaceChildrenPreservingDisclosureState\(agentList/);
-  assert.match(script, /data-disclosure-key="agent:\$\{escapeHtml\(agent\.agentId\)\}"/);
+  assert.match(script, /data-disclosure-key="agent:\$\{agent\.agentId\}"/);
 });
 
 test('A君控制台提供受控登录、续期、禁用和撤销，但不接收原始凭据', async () => {

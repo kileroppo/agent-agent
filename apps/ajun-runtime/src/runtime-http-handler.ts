@@ -614,7 +614,7 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 return sendFile(response, publicDir, 'billing-entry-filter.js', 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && publicPath === '/billing-ledger-workbench.js')
                 return sendFile(response, publicDir, 'billing-ledger-workbench.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && (publicPath === '/billing-usage-cache.js' || publicPath === '/console-labels.js'))
+            if (request.method === 'GET' && (publicPath === '/billing-usage-cache.js' || publicPath === '/console-labels.js' || publicPath === '/html.js'))
                 return sendFile(response, publicDir, publicPath.slice(1), 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && publicPath === '/console-navigation.js')
                 return sendFile(response, publicDir, 'console-navigation.js', 'text/javascript; charset=utf-8');

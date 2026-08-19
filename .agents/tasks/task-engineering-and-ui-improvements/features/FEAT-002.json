@@ -1,0 +1,24 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Add GitHub Actions CI workflow with npm ci, architecture check, test suite, and frontend build drift check",
+  "status": "completed",
+  "steps": [
+    "Create `.github/workflows/ci.yml` with a workflow triggered on push and pull_request to main",
+    "Use Node.js 22.x in the workflow (matching engines requirement >=22.18.0)",
+    "Steps: checkout, setup-node with cache npm, npm ci, npm run check:architecture, npm test, frontend build drift check",
+    "Frontend build drift check: run `npm run build:frontend --workspace=ajun-runtime` then `git diff --exit-code apps/ajun-runtime/public/` to fail if compiled JS is stale",
+    "Also add the any-density gate script as a step (will be created in FEAT-003)"
+  ],
+  "acceptance_criteria": [
+    ".github/workflows/ci.yml exists with valid GitHub Actions syntax",
+    "Workflow includes steps: checkout, setup-node, npm ci, architecture check, tests, frontend drift check",
+    "The drift check step runs build:frontend then git diff --exit-code on public/ directory"
+  ],
+  "verification": [
+    "Validate YAML syntax by reading the file",
+    "npm run check passes (CI file doesn't break existing build)"
+  ],
+  "blocked_reason": null,
+  "findings": "CI workflow created successfully. npm run check and npm test both pass. Note: FEAT-003 (check-any-density.mjs) was being developed concurrently - the CI workflow references the script which will exist by the time CI runs. The package.json already has a check:any-density script added by another agent."
+}

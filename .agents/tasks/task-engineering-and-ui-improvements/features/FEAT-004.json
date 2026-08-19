@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-004",
+  "type": "chore",
+  "description": "Add .editorconfig for consistent formatting across all editors and reformat minified CSS in xiaod-media-transcriber and project-progress-board",
+  "status": "completed",
+  "steps": [
+    "Create `.editorconfig` at repo root with: root=true, indent_style=space, indent_size=2, end_of_line=lf, charset=utf-8, trim_trailing_whitespace=true, insert_final_newline=true, max_line_length for .md files",
+    "Reformat `apps/xiaod-media-transcriber/public/styles.css` (13 lines minified) to human-readable multi-line CSS with proper indentation. Keep all rules identical, just format them properly.",
+    "Reformat `apps/project-progress-board/public/styles.css` (24 lines minified) to human-readable multi-line CSS with proper indentation. Keep all rules identical, just format them properly.",
+    "Rebuild both frontends to ensure public JS files are not affected: `npm run build:frontend --workspace=media-transcriber-agent` and `npm run build:frontend --workspace=project-progress-board`"
+  ],
+  "acceptance_criteria": [
+    ".editorconfig exists at repo root with reasonable defaults",
+    "apps/xiaod-media-transcriber/public/styles.css is properly formatted (readable, multi-line, indented)",
+    "apps/project-progress-board/public/styles.css is properly formatted (readable, multi-line, indented)",
+    "No logic changes to any CSS - same selectors, same properties, same values",
+    "npm run check still passes"
+  ],
+  "verification": [
+    "npm run check",
+    "Visually inspect formatted CSS files for readability"
+  ],
+  "blocked_reason": null,
+  "findings": "Pre-existing check:architecture failure (repository-catalog.json area validation) unrelated to CSS changes. All workspace checks and frontend builds pass successfully."
+}

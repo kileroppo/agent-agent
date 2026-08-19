@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-003",
+  "type": "feat",
+  "description": "Create any-density baseline gate script that counts `: any` occurrences and prevents regression",
+  "status": "completed",
+  "steps": [
+    "Create `scripts/check-any-density.mjs` that: (1) scans all .ts files under configured directories (apps/ajun-runtime/src, apps/ajun-runtime/frontend/src, other workspaces), (2) counts `: any` occurrences per directory, (3) compares to baseline JSON, (4) fails if density increases",
+    "Create `any-density-baseline.json` at repo root with current counts: apps/ajun-runtime/src: ~10616, apps/ajun-runtime/frontend/src: ~1002. Use per-directory structure so it can track multiple workspaces.",
+    "Add `check:any-density` script to root package.json: `node scripts/check-any-density.mjs`",
+    "Add the check:any-density step to the CI workflow (.github/workflows/ci.yml)",
+    "Write a test for the script in scripts/check-any-density.test.mjs using node:test"
+  ],
+  "acceptance_criteria": [
+    "Running `node scripts/check-any-density.mjs` passes against current codebase (baseline matches)",
+    "If a new `: any` is added, the script would fail (verify by explaining the logic)",
+    "Baseline JSON has schemaVersion and per-directory counts",
+    "Script is referenced in CI workflow"
+  ],
+  "verification": [
+    "node scripts/check-any-density.mjs (should exit 0 with current codebase)",
+    "node --test scripts/check-any-density.test.mjs"
+  ],
+  "blocked_reason": null,
+  "findings": "Counting uses per-line matching (one match per line max) with /:\\s*any\\b/ which gives 10616 for apps/ajun-runtime/src and 1002 for apps/ajun-runtime/frontend/src. The CI workflow (.github/workflows/ci.yml) already had the check:any-density step defined. Pre-existing issue: npm run check fails due to repository-catalog.json area validation (unrelated to this feature)."
+}

@@ -73,8 +73,8 @@ test('自动派发默认关闭，启用和手动派发都需明确确认', async
 test('单作品操作具有作品上下文、动态详情状态和请求防重入', async () => {
   const consoleSource = await readFile(new URL('boom-monitor-console.js', publicRoot), 'utf8');
 
-  assert.match(consoleSource, /aria-label="查看“\$\{escapeHtml\(workTitle\)\}”的判断依据"/);
-  assert.match(consoleSource, /aria-label="开始拆解“\$\{escapeHtml\(workTitle\)\}”"/);
+  assert.match(consoleSource, /aria-label="查看“\$\{workTitle\}”的判断依据"/);
+  assert.match(consoleSource, /aria-label="开始拆解“\$\{workTitle\}”"/);
   assert.match(consoleSource, /data-boom-approve=/);
   assert.match(consoleSource, /确认并继续/);
   assert.match(consoleSource, /\/api\/approvals\/\$\{encodeURIComponent\(approvalId\)\}\/approve/);

@@ -69,7 +69,8 @@ function renderTechnical(technical) {
     const quality = technical.qualityResult
         ? html `<div><dt>质量门</dt><dd>${technical.qualityResult.status || technical.qualityResult.gateId || '已记录'}${raw(technical.qualityResult.failedCriteria?.length ? html ` · ${technical.qualityResult.failedCriteria.join('；')}` : '')}</dd></div>`
         : '';
-    return html `<details class="record-technical task-timeline-technical"><summary>技术详情</summary><dl>${rows.map(([label, value]) => html `<div><dt>${label}</dt><dd>${value}</dd></div>`).join('')}${raw(quality)}</dl>${raw(artifacts ? `<strong>产物引用</strong><ul>${artifacts}</ul>` : '')}</details>`;
+    const rowsHtml = rows.map(([label, value]) => html `<div><dt>${label}</dt><dd>${value}</dd></div>`).join('');
+    return html `<details class="record-technical task-timeline-technical"><summary>技术详情</summary><dl>${raw(rowsHtml)}${raw(quality)}</dl>${raw(artifacts ? `<strong>产物引用</strong><ul>${artifacts}</ul>` : '')}</details>`;
 }
 function renderActiveFilters(filters) {
     const labels = normalizeFilters(filters).map((filter) => FILTER_LABELS[filter]).filter(Boolean);
