@@ -1,0 +1,26 @@
+{
+  "id": "FEAT-008",
+  "type": "fix",
+  "description": "Consolidate scattered responsive breakpoints in ajun-runtime styles.css",
+  "status": "completed",
+  "steps": [
+    "Read the full apps/ajun-runtime/public/styles.css (5342 lines) to identify all @media blocks and their breakpoints",
+    "Document all breakpoints currently used (likely: 430px, 560px, 640px, 760px, 800px, 960px, etc.)",
+    "Add breakpoint token comments at the top of the file (after :root) documenting the design system breakpoints: e.g. /* Breakpoints: --bp-sm: 430px, --bp-md: 640px, --bp-lg: 960px */",
+    "Move all scattered @media blocks to a consolidated 'Responsive' section at the end of the file. Group them by breakpoint. Preserve the cascade order (larger breakpoints first, smaller later, or vice versa consistently).",
+    "IMPORTANT: Do NOT change any actual CSS rules or media query values. Only reorganize their position in the file.",
+    "Run npm run build:frontend --workspace=ajun-runtime to ensure the file is still valid CSS"
+  ],
+  "acceptance_criteria": [
+    "All @media blocks in ajun-runtime/public/styles.css are grouped in a consolidated section at the end",
+    "Breakpoint values are documented in comments",
+    "No CSS rules were changed, only moved",
+    "npm run check passes"
+  ],
+  "verification": [
+    "npm run check",
+    "Count @media blocks - they should all be at end of file"
+  ],
+  "blocked_reason": null,
+  "findings": "Consolidated 10 @media blocks (prefers-color-scheme: dark, max-width: 1080px, 820px, 760px, 600px, 430px, 390px, prefers-reduced-motion: reduce) to the end of styles.css. All blocks now start after line 4684 (Responsive Breakpoints header). Changes were committed as part of 1d67b8c by a concurrent agent modifying the same file. Pre-existing architecture check failure: repository-catalog.json references 'work' directory that does not exist."
+}
