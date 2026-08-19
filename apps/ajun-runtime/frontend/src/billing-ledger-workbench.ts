@@ -1,3 +1,4 @@
+import { html, raw, escapeHtml } from './html.js';
 import { BILLING_PAGE_SIZE, filterBillingEntries } from './billing-entry-filter.js';
 
 const VIEW_LABELS: Record<string, string> = {
@@ -9,7 +10,7 @@ const VIEW_LABELS: Record<string, string> = {
     unknown_cost: '费用未知',
 };
 
-export function createBillingLedgerWorkbench({ agentName, formatDate, formatNumber, formatUsd, escapeHtml }: any): any {
+export function createBillingLedgerWorkbench({ agentName, formatDate, formatNumber, formatUsd }: any): any {
     const elements: any = {
         root: document.querySelector('#billing-workbench'),
         list: document.querySelector('#billing-entry-list'),
@@ -112,7 +113,7 @@ export function createBillingLedgerWorkbench({ agentName, formatDate, formatNumb
         node.dataset.billingEntryRef = entry.ledgerRef;
         node.setAttribute('role', 'option');
         node.setAttribute('aria-selected', String(selected));
-        node.innerHTML = `<span class="billing-entry-main"><span>${escapeHtml(formatDate(entry.occurredAt))}</span><strong>${escapeHtml(agentName(entry.agentId))} · ${escapeHtml(entry.model || '未知模型')}</strong><small>${formatNumber(entry.apiCalls)} 次请求 · ${formatNumber(tokenTotal(entry))} Token</small><span class="billing-attribution-label ${status}">${escapeHtml(attributionLabel(status))}</span></span><b>${escapeHtml(costLabel(entry))}</b>`;
+        node.innerHTML = html`<span class="billing-entry-main"><span>${formatDate(entry.occurredAt)}</span><strong>${agentName(entry.agentId)} · ${entry.model || '未知模型'}</strong><small>${formatNumber(entry.apiCalls)} 次请求 · ${formatNumber(tokenTotal(entry))} Token</small><span class="billing-attribution-label ${status}">${attributionLabel(status)}</span></span><b>${costLabel(entry)}</b>`;
         return node;
     }
 
@@ -125,16 +126,16 @@ export function createBillingLedgerWorkbench({ agentName, formatDate, formatNumb
         const tokens: any = entry.tokens || {};
         const attribution: any = entry.attribution || {};
         const source: any = status === 'task'
-            ? `<a class="billing-task-link" href="/tasks/${encodeURIComponent(attribution.taskId)}">${escapeHtml(attribution.taskRef || '任务')} · ${escapeHtml(attribution.taskTitle || '未命名任务')}</a>`
-            : `<p>${escapeHtml(attributionDescription(status))}</p>`;
-        elements.detail.innerHTML = `
+            ? `<a class="billing-task-link" href="/tasks/${encodeURIComponent(attribution.taskId)}">${attribution.taskRef || '任务'} · ${attribution.taskTitle || '未命名任务'}</a>`
+            : `<p>${attributionDescription(status)}</p>`;
+        elements.detail.innerHTML = html`
           <button class="record-detail-back" type="button">← 返回流水</button>
           <header class="record-detail-header">
-            <div class="record-detail-kicker"><span class="record-row-status ${status === 'unattributed' ? 'attention' : 'success'}">${escapeHtml(attributionLabel(status))}</span><span>${escapeHtml(formatDate(entry.occurredAt))}</span></div>
-            <h2>${escapeHtml(agentName(entry.agentId))} · ${escapeHtml(entry.model || '未知模型')}</h2>
-            <div class="record-detail-meta"><span>${escapeHtml(entry.provider || 'Provider 未记录')}</span><span>${escapeHtml(entry.usageClass || 'main')}</span></div>
+            <div class="record-detail-kicker"><span class="record-row-status ${status === 'unattributed' ? 'attention' : 'success'}">${attributionLabel(status)}</span><span>${formatDate(entry.occurredAt)}</span></div>
+            <h2>${agentName(entry.agentId)} · ${entry.model || '未知模型'}</h2>
+            <div class="record-detail-meta"><span>${entry.provider || 'Provider 未记录'}</span><span>${entry.usageClass || 'main'}</span></div>
           </header>
-          <div class="record-decision"><span>本条费用</span><strong>${escapeHtml(costLabel(entry))}</strong></div>
+          <div class="record-decision"><span>本条费用</span><strong>${costLabel(entry)}</strong></div>
           <section class="record-detail-section"><h3>本次用量</h3><dl class="billing-detail-metrics">
             ${metric('请求', `${formatNumber(entry.apiCalls)} 次`)}${metric('输入', `${formatNumber(tokens.input)} Token`)}${metric('输出', `${formatNumber(tokens.output)} Token`)}${metric('缓存', `${formatNumber(Number(tokens.cacheRead || 0) + Number(tokens.cacheWrite || 0))} Token`)}${metric('推理', `${formatNumber(tokens.reasoning)} Token`)}${metric('合计', `${formatNumber(tokenTotal(entry))} Token`)}
           </dl></section>
@@ -149,10 +150,10 @@ export function createBillingLedgerWorkbench({ agentName, formatDate, formatNumb
     }
 
     function metric(label: any, value: any): any {
-        return `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`;
+        return `<div><dt>${label}</dt><dd>${value}</dd></div>`;
     }
     function technical(label: any, value: any): any {
-        return `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value || '未记录')}</dd></div>`;
+        return `<div><dt>${label}</dt><dd>${value || '未记录'}</dd></div>`;
     }
     function costLabel(entry: any): any {
         return entry.cost?.status === 'actual' ? `${formatUsd(entry.cost.amountUsd)} 实际`

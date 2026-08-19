@@ -13,6 +13,7 @@ import { canRefreshConsole } from './refresh-scheduler.js';
 import { statusLabel, taskTypeLabel as presentTaskTypeLabel } from './console-labels.js';
 import { createBillingUsageCache } from './billing-usage-cache.js';
 import { businessDebtPresentation, capabilityPresentation, capabilitySummaryText, countCapabilityTiers, isOwnerActionFocus, managerFirstEmployees, reliabilityPresentation } from './overview-presentation.js';
+import { html, raw, escapeHtml } from './html.js';
 const capabilityList = document.querySelector('#capability-list');
 const agentList = document.querySelector('#agent-list');
 const recentTaskList = document.querySelector('#recent-task-list');
@@ -85,7 +86,7 @@ const ownerOnlyModules = new Set(['connections', 'campaigns', 'billing', 'releas
 let boomMonitor;
 let recordWorkbench;
 let runtimeReleaseConsole;
-const billingLedgerWorkbench = createBillingLedgerWorkbench({ agentName, formatDate, formatNumber, formatUsd, escapeHtml });
+const billingLedgerWorkbench = createBillingLedgerWorkbench({ agentName, formatDate, formatNumber, formatUsd });
 const billingUsageCache = createBillingUsageCache({ load: () => api('/api/usage') });
 function taskIdFromPath(pathname) {
     return pathname.match(/^\/tasks\/([0-9a-f-]{36})$/i)?.[1] || '';
@@ -347,7 +348,7 @@ function billingProfileRow(profile) {
     const node = document.createElement('article');
     node.className = 'billing-profile-row';
     const knownCostCount = Number(profile.cost?.actualEntryCount || 0) + Number(profile.cost?.estimatedEntryCount || 0);
-    node.innerHTML = `<div><strong>${escapeHtml(agentName(profile.agentId))}</strong><span>${formatNumber(profile.apiCalls)} 次请求 · ${formatCompactNumber(profile.tokens?.total)} Token · ${formatNumber(profile.sessionCount)} 个会话</span></div><div class="billing-profile-actions"><b>${knownCostCount ? formatUsd(profile.cost?.knownUsd) : '金额未知'}</b><button type="button" class="text-action">看流水</button></div>`;
+    node.innerHTML = html `<div><strong>${agentName(profile.agentId)}</strong><span>${formatNumber(profile.apiCalls)} 次请求 · ${formatCompactNumber(profile.tokens?.total)} Token · ${formatNumber(profile.sessionCount)} 个会话</span></div><div class="billing-profile-actions"><b>${knownCostCount ? formatUsd(profile.cost?.knownUsd) : '金额未知'}</b><button type="button" class="text-action">看流水</button></div>`;
     node.querySelector('button')?.addEventListener('click', () => focusBillingLedger({ agentId: profile.agentId }));
     return node;
 }
@@ -476,7 +477,7 @@ function statCard(label, value, note, icon, attention = false, href = '') {
         node.href = href;
         node.setAttribute('aria-label', `${label} ${value}，${note}`);
     }
-    node.innerHTML = `<div class="stat-card-head"><span>${escapeHtml(label)}</span><span class="stat-icon"><svg aria-hidden="true"><use href="#icon-${icon}"></use></svg></span></div><strong class="stat-value">${escapeHtml(value)}</strong><span class="stat-note">${escapeHtml(note)}</span>`;
+    node.innerHTML = html `<div class="stat-card-head"><span>${label}</span><span class="stat-icon"><svg aria-hidden="true"><use href="#icon-${icon}"></use></svg></span></div><strong class="stat-value">${value}</strong><span class="stat-note">${note}</span>`;
     return node;
 }
 function renderRecentTasks(tasks) {
@@ -493,7 +494,7 @@ function renderRecentTasks(tasks) {
         item.className = 'recent-task';
         item.href = `/tasks/${encodeURIComponent(task.taskId)}`;
         const attention = taskStatusGroup(task.status) === 'attention';
-        item.innerHTML = `<span class="recent-task-dot${attention ? ' attention' : ''}"></span><span class="recent-task-title">${escapeHtml(task.input.title)}</span><span class="recent-task-status">${escapeHtml(statusLabel(task.status))}</span>`;
+        item.innerHTML = html `<span class="recent-task-dot${raw(attention ? ' attention' : '')}"></span><span class="recent-task-title">${task.input.title}</span><span class="recent-task-status">${statusLabel(task.status)}</span>`;
         return item;
     }));
 }
@@ -505,9 +506,9 @@ function renderFocus(focus) {
     }
     const current = focus.next;
     const needsOwner = isOwnerActionFocus(focus, current);
-    const title = current ? escapeHtml(current.title) : '没有新的负责人动作';
+    const title = current ? current.title : '没有新的负责人动作';
     const action = current
-        ? escapeHtml(current.action)
+        ? current.action
         : '历史失败和待验证记录都留在“记录”中，不会自动重试或对外发布。';
     const reason = current?.status === 'succeeded'
         ? '这是建议，不会自动创建后续任务。'
@@ -522,19 +523,19 @@ function renderFocus(focus) {
     const governanceReady = state.overview.capabilities.some((item) => item.id === 'governance' && item.status === 'ready');
     const externalWriteReady = state.overview.capabilities.some((item) => item.id === 'external-execution' && item.status === 'ready');
     const costText = usageCostText(state.overview.usage);
-    focusPanel.innerHTML = `
+    focusPanel.innerHTML = html `
     <div class="focus-copy">
-      <p class="focus-state ${needsOwner ? 'needs-owner' : current ? 'is-running' : 'is-clear'}">${needsOwner ? '需要你决定' : current ? '系统正在处理' : '负责人暂不需处理'}</p>
+      <p class="focus-state ${raw(needsOwner ? 'needs-owner' : current ? 'is-running' : 'is-clear')}">${needsOwner ? '需要你决定' : current ? '系统正在处理' : '负责人暂不需处理'}</p>
       <h3>${title}</h3>
       <p class="focus-action-copy">${action}</p>
-      <p class="focus-reason">${escapeHtml(reason)}</p>
-      <div class="focus-actions">${primaryAction}</div>
+      <p class="focus-reason">${reason}</p>
+      <div class="focus-actions">${raw(primaryAction)}</div>
     </div>
     <div class="focus-guard">
       <span>${governanceReady ? 'Paperclip 已连接' : '治理连接待恢复'}</span>
       <span>${externalWriteReady ? '对外写入按审批开放' : '对外发布关闭'}</span>
       <span>${focus.inProgress ? `${focus.inProgress} 项正在推进` : '没有执行中任务'}</span>
-      <span>${escapeHtml(costText)}</span>
+      <span>${costText}</span>
     </div>`;
 }
 function usageCostText(usage) {
@@ -552,7 +553,7 @@ function isPrimaryEmployee(agent) {
 function agentGroupTitle(title, detail) {
     const node = document.createElement('div');
     node.className = 'agent-group-title';
-    node.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span>`;
+    node.innerHTML = html `<strong>${title}</strong><span>${detail}</span>`;
     return node;
 }
 function agentCard(agent, support) {
@@ -562,21 +563,21 @@ function agentCard(agent, support) {
     const summaryTypes = agent.acceptedTaskTypes.slice(0, 2).map(taskTypeLabel).join(' · ') || '职责待核对';
     const independent = independentRuntimeLabel(agent);
     const truth = capabilityTruthLabel(agent.capabilityTruth);
-    node.innerHTML = `
-    <details class="agent-disclosure" data-disclosure-key="agent:${escapeHtml(agent.agentId)}">
+    node.innerHTML = html `
+    <details class="agent-disclosure" data-disclosure-key="agent:${agent.agentId}">
       <summary>
-        <span class="agent-avatar">${escapeHtml(agent.name.slice(0, 1))}</span>
+        <span class="agent-avatar">${agent.name.slice(0, 1)}</span>
         <span class="agent-summary-copy">
-          <strong>${escapeHtml(agent.name)}</strong>
-          <small>${escapeHtml(summaryTypes)}</small>
+          <strong>${agent.name}</strong>
+          <small>${summaryTypes}</small>
         </span>
-        <span class="status ${escapeHtml(agent.status)}">${escapeHtml(truth)}</span>
+        <span class="status ${agent.status}">${truth}</span>
         <svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg>
       </summary>
       <div class="agent-body">
-        <p>${escapeHtml(agent.role)}</p>
-        <p>${escapeHtml(types)}</p>
-        <p>${escapeHtml(independent)}</p>
+        <p>${agent.role}</p>
+        <p>${types}</p>
+        <p>${independent}</p>
       </div>
     </details>`;
     return node;
@@ -588,7 +589,7 @@ function backgroundEmployeeDisclosure(agents) {
     const title = agents.some((agent) => agent.capabilityTruth?.overall !== 'human_accepted')
         ? '后台岗位与待人工验收'
         : '后台岗位';
-    node.innerHTML = `<summary><span><strong>${escapeHtml(title)}</strong><small>${agents.length} 位，不是日常派活入口</small></span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><div class="agent-grid background-agent-grid"></div>`;
+    node.innerHTML = html `<summary><span><strong>${title}</strong><small>${agents.length} 位，不是日常派活入口</small></span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><div class="agent-grid background-agent-grid"></div>`;
     node.querySelector('.background-agent-grid')?.replaceChildren(...agents.map((agent) => agentCard(agent, true)));
     return node;
 }
@@ -596,7 +597,7 @@ function capabilityCard(item) {
     const node = document.createElement('article');
     const truth = capabilityPresentation(item);
     node.className = `capability-card capability-${truth.level}`;
-    node.innerHTML = `<span class="capability-icon"><svg aria-hidden="true"><use href="#icon-spark"></use></svg></span><span class="capability-truth ${truth.level}">${escapeHtml(truth.label)}</span><h3>${escapeHtml(item.name)}</h3><p title="${escapeHtml(item.detail)}">${escapeHtml(item.detail)}</p><small>${escapeHtml(truth.note)}</small>`;
+    node.innerHTML = html `<span class="capability-icon"><svg aria-hidden="true"><use href="#icon-spark"></use></svg></span><span class="capability-truth ${truth.level}">${truth.label}</span><h3>${item.name}</h3><p title="${item.detail}">${item.detail}</p><small>${truth.note}</small>`;
     return node;
 }
 function capabilityTruthLabel(value) {
@@ -652,15 +653,6 @@ function providerLabel(provider) {
         youtube: 'YouTube'
     }[provider] || provider || '未知平台';
 }
-function escapeHtml(value) {
-    return String(value).replace(/[&<>"']/g, (char) => ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#39;'
-    }[char]));
-}
 const elements = {
     capabilityList, agentList, recentTaskList, overviewStats, overviewSummary,
     focusPanel, capabilitySummary, accessGate,
@@ -678,27 +670,24 @@ const accessViews = createAccessViews({
     elements,
     state,
     api,
-    escapeHtml,
     statusLabel,
     formatDate,
     providerLabel,
     agentName,
     replaceChildrenPreservingDisclosureState,
     setTextIfChanged,
-    modelPolicyConsole: createStepFunModelPolicyConsole({ root: modelPolicyRoot, api, escapeHtml }),
+    modelPolicyConsole: createStepFunModelPolicyConsole({ root: modelPolicyRoot, api }),
 });
 recordWorkbench = createTaskRecordWorkbench({
     api,
     getAgents: () => state.overview?.agents || [],
     taskTypeLabel,
     agentName,
-    escapeHtml,
     initialTaskId: state.selectedTaskId,
 });
 boomMonitor = createBoomMonitorConsole({
     root: document.querySelector('#module-boom-monitor'),
     api,
-    escapeHtml,
     formatDate,
 });
 runtimeReleaseConsole = createRuntimeReleaseConsole({

@@ -1,3 +1,4 @@
+import { html, raw, escapeHtml } from './html.js';
 const API_ROOT: any = '/api/boom-monitor';
 const numericCsvFields: any = new Set([
     'follower_count', 'likes', 'favorites', 'shares', 'comments', 'plays', 'views', 'history_limit'
@@ -71,7 +72,7 @@ export function buildBoomImportRequest(value: any): any {
         works,
     };
 }
-export function createBoomMonitorConsole({ root, api, escapeHtml, formatDate }: any): any {
+export function createBoomMonitorConsole({ root, api, formatDate }: any): any {
     const element: any = (selector: any): any => root.querySelector(selector);
     const elements: any = {
         refresh: element('#boom-refresh'),
@@ -143,7 +144,7 @@ export function createBoomMonitorConsole({ root, api, escapeHtml, formatDate }: 
         ];
         elements.stats.hidden = false;
         elements.stats.classList.toggle('is-warning', unhealthy);
-        elements.stats.innerHTML = `${unhealthy ? '<strong>雷达状态待确认</strong>' : ''}<span>${escapeHtml(items.join(' · '))}</span>`;
+        elements.stats.innerHTML = html`${unhealthy ? '<strong>雷达状态待确认</strong>' : ''}<span>${items.join(' · ')}</span>`;
     }
     async function loadOverview(): Promise<any> {
         if (loading)
@@ -167,7 +168,7 @@ export function createBoomMonitorConsole({ root, api, escapeHtml, formatDate }: 
     }
     function gradeBadge(grade: any): any {
         const normalized: any = ['T1', 'T2', 'T3'].includes(grade) ? grade : 'N0';
-        return `<span class="boom-grade ${normalized.toLowerCase()}">${escapeHtml(normalized)}</span>`;
+        return `<span class="boom-grade ${normalized.toLowerCase()}">${normalized}</span>`;
     }
     function renderWorks(works: any, taskProgress: Map<string, any> = new Map()): any {
         if (!works.length) {
@@ -187,20 +188,20 @@ export function createBoomMonitorConsole({ root, api, escapeHtml, formatDate }: 
             const pendingApprovalId: any = String(task?.pendingApproval?.approvalId || '');
             const status: any = workStatusLabel(analysisStatus, autoHandlesWork, task);
             const progressAction: any = pendingApprovalId
-                ? `<button type="button" data-boom-approve="${escapeHtml(pendingApprovalId)}">确认并继续</button>`
+                ? `<button type="button" data-boom-approve="${pendingApprovalId}">确认并继续</button>`
                 : taskId
                     ? `<a class="boom-task-link" href="/tasks/${encodeURIComponent(taskId)}">查看拆解进度</a>`
                     : '';
             return `
       <article class="boom-list-item">
         <div class="boom-item-head">
-          <span class="boom-item-copy"><strong>${escapeHtml(workTitle)}</strong><small>${escapeHtml(platformLabel(work.platform))} · ${escapeHtml(formatDate(work.publish_at))}${escapeHtml(status)}</small></span>
+          <span class="boom-item-copy"><strong>${workTitle}</strong><small>${platformLabel(work.platform)} · ${formatDate(work.publish_at)}${status}</small></span>
           ${gradeBadge(work.grade)}
         </div>
-        <p class="boom-item-reason">${escapeHtml(gradeReason(work.grade))}</p>
+        <p class="boom-item-reason">${gradeReason(work.grade)}</p>
         <div class="boom-item-actions">
-          <button type="button" class="secondary-action" data-boom-detail="${work.id}" aria-label="查看“${escapeHtml(workTitle)}”的判断依据" aria-controls="${detailId}" aria-expanded="false">查看判断依据</button>
-          ${canDispatch ? `<button type="button" data-boom-dispatch-work="${work.id}" aria-label="开始拆解“${escapeHtml(workTitle)}”">开始拆解</button>` : progressAction}
+          <button type="button" class="secondary-action" data-boom-detail="${work.id}" aria-label="查看“${workTitle}”的判断依据" aria-controls="${detailId}" aria-expanded="false">查看判断依据</button>
+          ${canDispatch ? `<button type="button" data-boom-dispatch-work="${work.id}" aria-label="开始拆解“${workTitle}”">开始拆解</button>` : progressAction}
         </div>
         <div id="${detailId}" class="boom-score-detail" data-boom-detail-output="${work.id}" role="status" aria-live="polite" aria-atomic="true" hidden></div>
       </article>`;
@@ -218,7 +219,7 @@ export function createBoomMonitorConsole({ root, api, escapeHtml, formatDate }: 
             const payload: any = await api(`${API_ROOT}/works/${workId}`);
             const official: any = payload.score_details;
             const sampleCount: any = Number(official?.sample_count || 0);
-            output.innerHTML = `
+            output.innerHTML = html`
         <strong>判断依据</strong>
         <p>当前等级：${official ? gradeBadge(official.grade) : '暂无'}</p>
         <p>判断可信度：${official ? (sampleCount >= 5 ? `已有 ${sampleCount} 条历史样本支撑` : `历史样本不足（${sampleCount}/5）`) : '暂无'}</p>
@@ -331,9 +332,9 @@ export function createBoomMonitorConsole({ root, api, escapeHtml, formatDate }: 
             : status === 'queued' && Number(budgetState.remaining_today) <= 0
                 ? '<button type="button" class="secondary-action" data-boom-open-settings>调整今日上限</button>'
                 : workId
-                    ? `<button type="button" data-boom-dispatch-work="${escapeHtml(workId)}">重试</button>`
+                    ? `<button type="button" data-boom-dispatch-work="${workId}">重试</button>`
                     : '';
-        return `<article class="boom-queue-item"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(summary)}</span>${taskId ? `<small>任务编号 ${escapeHtml(taskId)}</small>` : ''}<div class="boom-item-actions">${action}</div>${failure ? `<details class="boom-technical-detail"><summary>查看技术原因</summary><small class="is-error">${escapeHtml(failure)}</small></details>` : ''}</article>`;
+        return `<article class="boom-queue-item"><strong>${title}</strong><span>${summary}</span>${taskId ? `<small>任务编号 ${taskId}</small>` : ''}<div class="boom-item-actions">${action}</div>${failure ? `<details class="boom-technical-detail"><summary>查看技术原因</summary><small class="is-error">${failure}</small></details>` : ''}</article>`;
     }
     function actionableAnalysisItems(items: any[]): any[] {
         return items.filter((item: any): any => {
@@ -370,9 +371,9 @@ export function createBoomMonitorConsole({ root, api, escapeHtml, formatDate }: 
         const score: any = payload.score;
         elements.collectResult.hidden = false;
         elements.collectResult.innerHTML = score ? `
-      <div class="boom-result-head"><strong>${escapeHtml(payload.message || '已完成采集和评分')}</strong>${gradeBadge(score.grade)}</div>
-      <p>${escapeHtml(gradeReason(score.grade))}</p>
-      <small>详细指标和样本依据已保留在最近作品的“查看判断依据”中。</small>` : `<strong>${escapeHtml(payload.message || '已完成采集。')}</strong>`;
+      <div class="boom-result-head"><strong>${payload.message || '已完成采集和评分'}</strong>${gradeBadge(score.grade)}</div>
+      <p>${gradeReason(score.grade)}</p>
+      <small>详细指标和样本依据已保留在最近作品的“查看判断依据”中。</small>` : `<strong>${payload.message || '已完成采集。'}</strong>`;
     }
     async function parseImportInput(): Promise<any> {
         const file: any = elements.importFile.files?.[0];
