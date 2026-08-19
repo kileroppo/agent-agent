@@ -3,5 +3,22 @@
   "task_description": "Implement 8 runtime enhancements: (1) self-diagnosis HTTP endpoint, (2) agent manifest runtime validation, (3) M5 test isolation, (4) task cost attribution in detail page, (5) workflow breadcrumb, (6) runtime task submission form (Feishu Plan B), (7) AI capability center category view, (8) custom third-party AI capability registration",
   "status": "in_progress",
   "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004", "FEAT-005"],
-  "blocked_reason": null
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "npm run check passes. All new/updated tests pass (20/20 for modified test files). 3 pre-existing failures remain (wechat, runtime-start). Frontend build produces expected diff. Review fixes applied: SSRF prevention, null guard, agent health probe wiring, raw()->html conversion."
+  },
+  "review_fixes": {
+    "status": "completed",
+    "fixes_applied": [
+      "SSRF: validateEndpointUrl blocks non-http/https, loopback (127.x), link-local (169.254.x), cloud metadata IPs",
+      "Null guard: registry undefined returns {agents:[]} instead of crashing",
+      "Agent health probe: manifests sourced from modelPolicy?.registry?.list() instead of hardcoded []",
+      "Frontend: raw() replaced with html tagged template in custom AI form",
+      "Protocol restriction: part of SSRF fix, only http: and https: allowed"
+    ]
+  }
 }

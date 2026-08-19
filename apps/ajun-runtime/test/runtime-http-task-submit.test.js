@@ -124,3 +124,15 @@ test('unrelated URL returns null', async () => {
     });
     assert.equal(result, null);
 });
+
+test('GET /api/tasks/submit/options returns empty list when registry is undefined', async () => {
+    const result = await routeTaskSubmitApi({
+        request: fakeRequest('GET', '/api/tasks/submit/options'),
+        local: true,
+        tasks: fakeTasks(),
+        registry: undefined,
+        readBody: async () => ({}),
+    });
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.payload.agents, []);
+});

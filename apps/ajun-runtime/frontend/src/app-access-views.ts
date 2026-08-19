@@ -82,7 +82,7 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
         const form: any = document.createElement('div');
         form.className = 'custom-ai-form';
         form.hidden = true;
-        form.innerHTML = raw(`<label>能力类型<input name="capabilityType" placeholder="tts, asr, image.generate" required></label><label>名称<input name="label" placeholder="例：Azure TTS" required></label><label>端点 URL<input name="endpointUrl" type="url" placeholder="http://..." required></label><label>健康检查路径<input name="healthCheckPath" placeholder="/health"></label><button type="button" data-custom-ai-submit>确认添加</button><button type="button" data-custom-ai-cancel class="secondary-action">取消</button>`).value;
+        form.innerHTML = html`<label>能力类型<input name="capabilityType" placeholder="tts, asr, image.generate" required></label><label>名称<input name="label" placeholder="例：Azure TTS" required></label><label>端点 URL<input name="endpointUrl" type="url" placeholder="http://..." required></label><label>健康检查路径<input name="healthCheckPath" placeholder="/health"></label><button type="button" data-custom-ai-submit>确认添加</button><button type="button" data-custom-ai-cancel class="secondary-action">取消</button>`;
         container.replaceChildren(...cards, addBtn, form);
     }
     function aiServiceGroups(services: any[], categories: any[] = []): any[] {

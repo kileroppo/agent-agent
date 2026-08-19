@@ -3,6 +3,7 @@ export async function routeTaskSubmitApi({ request, local, tasks, registry, read
     if (!url.startsWith('/api/tasks/submit')) return null;
     if (!local) return { status: 403, payload: { error: '任务提交只能由老板在本机操作。' } };
     if (request.method === 'GET' && url === '/api/tasks/submit/options') {
+        if (!registry) return { status: 200, payload: { agents: [] } };
         const agents: any = await registry.list();
         const options: any = agents
             .filter((agent: any): any => agent.entryCategories?.length || agent.entryDefault === true)

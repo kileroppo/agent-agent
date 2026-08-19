@@ -93,7 +93,7 @@ test('returns null for unrelated routes', async () => {
 test('POST health-check triggers probe for an entry', async () => {
     const dataDir = tmpDir();
     const store = new CustomAiCapabilityStore({ dataDir });
-    const entry = await store.register({ capabilityType: 'tts', label: 'TTS', endpointUrl: 'http://127.0.0.1:1' });
+    const entry = await store.register({ capabilityType: 'tts', label: 'TTS', endpointUrl: 'http://192.0.2.1:1' });
     const result = await routeCustomAiApi({
         request: request('POST', `/api/custom-ai/capabilities/${entry.id}/health-check`),
         local: true,

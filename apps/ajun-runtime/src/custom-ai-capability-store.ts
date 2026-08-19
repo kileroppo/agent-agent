@@ -4,6 +4,24 @@ import crypto from 'node:crypto';
 
 const STORE_DIR: any = 'custom-ai-capabilities';
 
+const BLOCKED_HOSTS: any = new Set(['169.254.169.254', '100.100.100.200', 'metadata.google.internal']);
+
+function validateEndpointUrl(endpointUrl: any): void {
+    let parsed: any;
+    try { parsed = new URL(endpointUrl); } catch { throw validationError('endpointUrl 不是有效的 URL。'); }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
+        throw validationError('endpointUrl 只允许 http 或 https 协议。');
+    const hostname: any = parsed.hostname.replace(/^\[/, '').replace(/\]$/, '');
+    if (hostname === '::1' || hostname === '0:0:0:0:0:0:0:1')
+        throw validationError('endpointUrl 不允许指向回环地址。');
+    if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname))
+        throw validationError('endpointUrl 不允许指向回环地址。');
+    if (/^169\.254\.\d{1,3}\.\d{1,3}$/.test(hostname))
+        throw validationError('endpointUrl 不允许指向链路本地地址。');
+    if (BLOCKED_HOSTS.has(hostname))
+        throw validationError('endpointUrl 不允许指向云元数据服务。');
+}
+
 export class CustomAiCapabilityStore {
     dir: any;
     constructor({ dataDir }: any) {
@@ -29,7 +47,7 @@ export class CustomAiCapabilityStore {
         if (!label) throw validationError('label 不能为空。');
         const endpointUrl: any = String(input?.endpointUrl || '').trim();
         if (!endpointUrl) throw validationError('endpointUrl 不能为空。');
-        try { new URL(endpointUrl); } catch { throw validationError('endpointUrl 不是有效的 URL。'); }
+        validateEndpointUrl(endpointUrl);
         const entry: any = {
             id: crypto.randomUUID(),
             capabilityType,
@@ -56,6 +74,7 @@ export class CustomAiCapabilityStore {
         const filePath: any = path.join(this.dir, `${safeId}.json`);
         let entry: any;
         try { entry = JSON.parse(await fs.readFile(filePath, 'utf8')); } catch { throw validationError('找不到指定的自定义能力。'); }
+        validateEndpointUrl(entry.endpointUrl);
         const url: any = entry.endpointUrl.replace(/\/+$/, '') + entry.healthCheckPath;
         let status: any = 'unhealthy';
         try {

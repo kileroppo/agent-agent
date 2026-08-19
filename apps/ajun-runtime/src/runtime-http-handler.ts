@@ -175,7 +175,7 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 }));
             }
             { const r: any = await routeLocalAiApi({ request, localAi, local:isLocalAddress(request.socket.remoteAddress), readBody:(): any => readJsonBody(request), customAiStore }); if (r) return sendJson(response, r.status, r.payload); }
-            { const r: any = await routeCustomAiApi({ request, local:isLocalAddress(request.socket.remoteAddress), store:customAiStore, readBody:(): any => readJsonBody(request) }); if (r) return sendJson(response, r.status, r.payload); } { const r: any = await routeAgentHealthProbeApi({ request, local:isLocalAddress(request.socket.remoteAddress), manifests:[] }); if (r) return sendJson(response, r.status, r.payload); }
+            { const r: any = await routeCustomAiApi({ request, local:isLocalAddress(request.socket.remoteAddress), store:customAiStore, readBody:(): any => readJsonBody(request) }); if (r) return sendJson(response, r.status, r.payload); } { const r: any = await routeAgentHealthProbeApi({ request, local:isLocalAddress(request.socket.remoteAddress), manifests: await (modelPolicy?.registry?.list() ?? Promise.resolve([])) }); if (r) return sendJson(response, r.status, r.payload); }
             { const r: any = await routeTaskSubmitApi({ request, local:isLocalAddress(request.socket.remoteAddress), tasks, registry:modelPolicy?.registry, readBody:(): any => readJsonBody(request) }); if (r) return sendJson(response, r.status, r.payload); }
             const taskDetailMatch: any = request.url?.match(/^\/api\/tasks\/([0-9a-f-]{36})$/i);
             if (request.method === 'GET' && taskDetailMatch) {
