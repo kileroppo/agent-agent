@@ -60,6 +60,29 @@
 仍然**未验证**的部分：飞书会话内是否出现回复（真机验证清单步骤 6 尚未通过）、Hermes 模型侧是否正常、
 飞书应用事件订阅是否有效、准入白名单是否命中。
 
+### 真机日志实证（已实测 · 第二轮 · Hermes default Profile）
+
+用户在本机读取 Hermes 日志目录后取得以下**实测事实**（只提取异常类名、计数、行数与 mtime，未读消息正文）：
+
+| 日志 | 行数 | 最近写入 | 状态 |
+|---|---|---|---|
+| `gateway.log` | 25741 | 08-19 11:21 | 当前 |
+| `gateway.error.log` | 460144 | 08-19 11:21 | 当前 |
+| `errors.log` | 3298 | 08-19 11:21 | 当前 |
+| `agent.log` | 57838 | 08-19 11:21 | 当前 |
+| `mcp-stderr.log` | 138773 | 08-18 23:57 | **停止写入约 11.5 小时** |
+| `gateway-exit-diag.log` | 369 | 08-18 23:57 | **同样停止** |
+
+`gateway.error.log` 尾部 20000 行异常类名直方图：`ConnectError` 974 / `Error` 357 / `NetworkError` 349 /
+`RemoteProtocolError` 80 / `ConnectTimeout` 34 / `ReadError` 2 / `CancelledError` 2 —— 除 `Error` 外均为 httpx
+出站异常族，即**出站 HTTP 连接持续失败**。
+
+`gateway.log` 通用词计数：`feishu=1223`、`reject=7`、`policy=0`、`mcp=1`、尾部 500 行内 `feishu=0`。
+
+**已实测**：上述行数、mtime、异常类名与计数、通用词计数。
+**未验证**：出站失败的目标主机（异常类名不能证明目标是 StepFun endpoint 或任何具体 provider）、MCP server
+的实际进程状态、`reject=7` 那 7 次的性质、飞书准入白名单是否命中。
+
 ### 已知约束（附带事实，不构成新缺陷条款）
 
 - **运行中的 4321 是旧 release**：第 4 项证据 `sourceRelationship:"different_git_head"` 表明当前不可变
@@ -74,7 +97,18 @@
 （`handle_message`），而原生会话本应仍然产生回复；用户报告的是**完全无回复**。因此缺口一定在路径 B 侧或飞书应用侧。
 按候选强度重排如下（三项**全部未在真机关闭，一律标记未验证**）：
 
-**候选 1（当前最强）· 主模型传输从未验证且回退链为空 → 静默无回复。** 仓库内可核实的事实：
+**候选 1（当前最强 · 机制已按第二轮实证修正）· 出站 HTTP 连接持续失败 + 回退链按 ADR 决策显式为空 → 必然完全静默。**
+上一轮把本项的机制写为「主模型传输未验证（`credentialedTransportVerified:false`）」这一**制度性状态**，本轮真机日志证明
+实际机制不同且更强：`gateway.error.log` 尾部 20000 行内 `ConnectError` 974 次（另有 `NetworkError` 349、
+`RemoteProtocolError` 80、`ConnectTimeout` 34、`ReadError` 2，均为 httpx 出站异常族，**已实测**），即出站连接正在
+持续失败。结合 `docs/adr/0013-stepfun-primary-reasoning-restoration.md` 两条已逐字核实的原文 —— 第 81 行
+「endpoint 为 `api.stepfun.com/step_plan/v1`，凭据存在且 fallback 为空」，第 33–34 行「本次不恢复历史 DeepSeek
+文本回退，避免 StepFun 不可用时静默产生另一家 Provider 调用与费用」—— 可得：**出站连不上 + 回退链按 ADR 决策
+显式为空 = 必然完全静默**。这与用户报告的「完全无回复」症状完全吻合，且与路径 A 的 adapter 补丁无关。
+**必须同时写明的限制（不得 overclaim）**：异常类名只能证明「出站连接在失败」，**不能证明失败目标就是 StepFun
+endpoint**；目标主机未经确认，属**未验证**；也可能同时或另有其他出站目标在失败。因此本项状态为
+「**已实测出站失败，目标主机未确认**」，是当前最强候选，仍不构成结论。（对应新增条款 1.28、2.32–2.34。）
+上一轮记录的制度性事实仍然成立并作为背景保留：
 `integrations/hermes/profiles/ajun.profile.json` 的 `localProfile.credentialedTransportVerified` 为 `false`，
 `credentialedTransportVerification.status` 为 `model-transport-pending`、`primary` 为 `stepfun / step-3.7-flash / verified:false`、
 `fallback` 为 `null`；顶层 `fallbackModels` 为 `[]`。`docs/adr/0013-...md` 明确「回退链保持为空」「本次不恢复历史
@@ -91,8 +125,33 @@ DeepSeek 文本回退」，并规定「没有当前凭据调用证据前，Profi
 `docs/reviews/m1-xiaod-feishu-closure/acceptance.md` 记录 2026-07-19 的诊断结论为「飞书投递与 Hermes WebSocket
 适配器正常，阻塞点是 `FEISHU_ALLOWED_USERS` 未匹配发送者的用户 `open_id`」，入站事件全部为 `dm_policy_rejected`，
 修正白名单并重启 Gateway 后恢复。该症状同样是**完全零回复**。（对应新增条款 1.18。）
+**本轮修正 · 旧关键词判定不成立，本项仍未排除。** 真机 `gateway.log` 的 `policy=0`（**已实测**）证明
+`dm_policy_rejected` 这一措辞在 Hermes `0.20.1` 的日志里根本不存在 —— 它取自上述 2026-07-19 的 0.19 时代记录，
+且该记录本身未登记当时的 Hermes 版本（已核实）。因此上一轮的 `dm_policy=0` / `no_llm=0`**不构成「白名单正常」
+或「模型配置正常」的证据**，只说明这两个旧关键词未出现；其中 `no llm provider` 在本仓库任何文件中都检索不到，
+**来源无据**（已核实，上一轮把它描述为「0.19 时代针对 provider 未选择的措辞」并无仓库内依据）。
+这与本 spec 已记录的 `config.yaml` 字段名猜测（缺陷 D）是**同一类错误**。实测事实为 `reject=7`（低但非零）
+与 `feishu=1223`（飞书事件大量到达）；`reject` 那 7 次的性质**未确认**，白名单是否命中**仍未验证**。
+（对应新增条款 1.26、2.35。）
 
-**候选 3 · 飞书应用事件订阅侧**（未订阅消息事件、事件回调地址失效、应用被停用）—— 与上一轮相同，仍未关闭。
+**候选 3（本轮降级，不删除）· 飞书应用事件订阅侧**（未订阅消息事件、事件回调地址失效、应用被停用）。
+降级依据：`gateway.log` 的 `feishu=1223` 且该日志写到当前时间（**已实测**），说明飞书事件确实在到达 Hermes。
+本项不删除 —— 仍未在真机逐项关闭，且尾部 500 行内 `feishu=0` 的含义未确认。
+
+**候选 4（本轮新增开放项）· Agent Army MCP 这条腿失联，且诊断对此无任何判定。**
+`mcp-stderr.log` 与 `gateway-exit-diag.log` 自 08-18 23:57 起停止写入，而 Gateway 其余日志持续到 08-19 11:21
+（约 11.5 小时落差，**已实测**）；`gateway.log` 全部 25741 行内 `mcp|agent-army` 仅出现 **1 次**（**已实测**）。
+`docs/adr/0007-...md` 决定 3 规定「A君以本机 MCP Server 向 Hermes 暴露军团工具」，其《对话与任务边界》拓扑中
+MCP 是从 Hermes 模型通往「A君本机任务与能力适配」的**唯一被描述的通道**，并规定「查询状态先调用只读 MCP 工具，
+不能凭模型记忆编造」；MCP 不被调用意味着即使模型可用，军团能力在飞书侧也拿不到。
+**限制**：日志停止写入与出现次数少**不能证明 MCP server 已崩溃或未加载**，只能证明「近 11.5 小时无 stderr 输出
+且 Gateway 侧极少提及」，具体状态属**未验证**。（对应新增条款 1.27、2.36。）
+
+**候选 5（附带开放项）· Hermes 错误日志无人管理，信号被淹没。**
+`gateway.error.log` 已达 460144 行且持续增长（**已实测**）。用户真机 `config.yaml` 存在 `logging.max_size_mb` /
+`logging.backup_count` 键（用户实测所报，属真机侧事实），而仓库内检索不到任何对 Hermes gateway 日志轮转的约定
+或校验（已核实：`logrotate` / `max_size` / `backup_count` / 「轮转」零命中）。46 万行错误日志既是故障信号被淹没
+的原因，也是运维负担。（对应新增条款 1.29、2.37。）
 
 **A君 Profile 的承载事实**：`ajun.profile.json` 的 `gateway.runtimeProfile` 为 `"default"`，
 `reason` 记为「当前 A君飞书应用由 Hermes default Profile 常驻 Gateway 承载；独立 ajun Profile 保留为隔离与回退身份」。
@@ -103,6 +162,14 @@ DeepSeek 文本回退」，并规定「没有当前凭据调用证据前，Profi
 **字面前提不成立，故字面条件未被触发**；但它要保护的实质推理（症状未被已定位项解释即须回到需求重新假设）
 已被真机症状触发。按实质处理：**根因假设需要修订** —— 路径 A 缺口从「主线根因」降为「真实缺口但非充分原因」，
 路径 B 的模型传输未验证 + 无回退升为最强候选。
+
+**本轮（第二轮）该推翻条件再次被实质触发。** 真机日志实证使根因假设从「adapter 补丁缺口」进一步修正到
+「**出站 HTTP 连接持续失败 + 回退链按 ADR-0013 显式为空 → 必然完全静默**」。字面推翻条件依旧不成立
+（第 2 项仍为 `gap`），但实质推理已第二次触发：症状的主导解释再次落在六项检查完全看不到的地方。
+明确记录本轮的假设迁移路径：**假设 2（补丁存活性无人校验）→ 已在真机确认为真实缺口，但非零回复的充分原因；
+新主导假设 = 出站失败 + 无回退**（目标主机未确认）；并新增独立开放项 **MCP 腿失联**（状态未验证）。
+据此，design.md 的《Hypothesized Root Cause》与《Testing Strategy》在下一次进入 design 阶段时须同步修订
+—— 本轮按约束**只更新 bugfix.md**，未改动 design.md / tasks.md / real-machine-verification.md。
 
 据此重申：**不得因为定位到第 2 项就宣布 bug 已修复** ——
 只有真机验证清单步骤 6（飞书会话内出现业务回复或可归因中文说明）通过，才可判定本 spec 的验收目标达成。
@@ -143,6 +210,14 @@ DeepSeek 文本回退」，并规定「没有当前凭据调用证据前，Profi
 1.22 WHEN 诊断计算版本基线 THEN 它从 `integrations/hermes/scripts/patch-support.mjs` 取 `SUPPORTED_HERMES_VERSION`（`0.19.0`），而仓库内版本基线已三处重复且已漂移：`patch-support.mjs` 为 `0.19.0`、`integrations/hermes/runtime/agent_army_feishu_task_card.py` 为 `0.19.0`、`integrations/hermes/scripts/install-xiaod-public-video-bridge-v2.mjs` 已适配 `0.20.1`（含独立 commit pin）；真机 `0.20.1` 因此必然判为不匹配，且没有任何地方报出「基线自身漂移」这一事实
 1.23 WHEN Hermes 升级覆盖 `adapter.py` 后 Gateway 重新启动 THEN 启动门禁 `integrations/hermes/scripts/start-hermes-gateway-guarded.mjs` 只校验技能白名单收敛与 bundled skills 退出，不校验补丁是否在位、也不校验版本/commit 是否仍在基线，Gateway 照常启动，故障只能在用户发出飞书消息且收不到回复时才被发现，同一缺陷会在每次升级后重复发生
 1.24 WHEN 记录长期方向 THEN 现状与 ADR-0007 的既有结论相反：该 ADR 已决定「业务工具不再写入 Hermes 安装目录补丁」，而飞书总管链目前仍依赖十余个写入 Hermes 安装目录的补丁脚本，且仓库没有记录「哪些补丁是必需的、哪些可由原生能力 + MCP 替代」，使每次升级都必须重新适配整包补丁
+
+以下五条由本轮真机日志实证新发现（缺陷 G 诊断不读 Hermes 自身日志：1.25；缺陷 H 标识符猜测被实证：1.26；缺陷 I MCP 腿活性无判定：1.27；缺陷 J 无回退状态不被告知：1.28；缺陷 K 错误日志无轮转：1.29）：
+
+1.25 WHEN 六项诊断执行完毕 THEN 系统完全不读取 Hermes 自身的日志（`apps/ajun-runtime/src/feishu-commander-chain-diagnosis.ts` 与 `feishu-commander-chain-observations.ts` 内不存在任何日志读取路径，已核实），而真机 `gateway.error.log` 尾部 20000 行的异常类名直方图为 `ConnectError` 974 / `Error` 357 / `NetworkError` 349 / `RemoteProtocolError` 80 / `ConnectTimeout` 34 / `ReadError` 2 / `CancelledError` 2（**已实测**，仅提取类名未读消息正文），全部属 httpx 出站异常族，即**出站 HTTP 连接正在持续失败**；该决定性信号在诊断输出中完全不可见，使当前最强活跃阻断点无法被任何一项检查发现
+1.26 WHEN 排查依据来自外部系统的标识符 THEN 系统用旧版本措辞匹配当前版本并把失配表述为「未命中」：真机 `gateway.log` 全量计数中 `policy=0`（**已实测**）证明 `dm_policy_rejected` 这一措辞在 Hermes `0.20.1` 的日志里根本不出现，而该措辞取自 `docs/reviews/m1-xiaod-feishu-closure/acceptance.md`（日期 2026-07-19，该记录**未登记当时的 Hermes 版本**，已核实）；另一个曾被用作判据的 `no llm provider` 在本仓库任何文件中都检索不到，**来源无据**（已核实）；仓库内另有被标记「已验证」的正向签名（`Inbound dm message received` / `inbound message: platform=feishu` / `response ready: platform=feishu` / `[Feishu] Sending response`，见 `docs/guides/创建Hermes-Agent与飞书Bot接线教程.md` 与 `docs/archive/handoffs/av-transcriber-feishu-provisioning-handoff.md`）同样**未登记适用版本**且诊断未使用；因此「旧关键词计数为 0」既不构成「白名单正常」也不构成「模型配置正常」，只说明旧关键词未出现，与缺陷 D（`config.yaml` 字段名猜测）属**同一类错误**：失配时返回「未命中」而非「该标识符在当前版本不适用」，使排查者把「没匹配到」误读成「该故障不存在」
+1.27 WHEN 诊断给出链路结论 THEN 系统对 Agent Army MCP 这条腿的活性无任何判定，而真机上该腿已呈失联迹象：`mcp-stderr.log` 与 `gateway-exit-diag.log` 的 mtime 停在 08-18 23:57，而 `gateway.log` / `gateway.error.log` / `errors.log` / `agent.log` 持续写到 08-19 11:21（约 11.5 小时落差，**已实测**），且 `gateway.log` 全部 25741 行内 `mcp|agent-army` 仅出现 **1 次**（**已实测**）；ADR-0007 决定 3 规定「A君以本机 MCP Server 向 Hermes 暴露军团工具」，其《对话与任务边界》拓扑中 MCP 是从 Hermes 模型通往「A君本机任务与能力适配」的**唯一被描述的通道**，且「查询状态先调用只读 MCP 工具，不能凭模型记忆编造」；MCP 不被调用意味着即使模型可用，军团能力在飞书侧也拿不到
+1.28 WHEN 出站连接失败而 `fallbackModels` 按 `docs/adr/0013-stepfun-primary-reasoning-restoration.md` 显式为空 THEN 结果必然是完全静默（无业务回复、无错误提示、无降级说明），而系统不在任何地方报告「当前处于无回退状态、一旦出站失败即静默」这一事实，用户与运维无法预先知道该风险，也无法在故障发生时把静默归因到它
+1.29 WHEN Hermes gateway 错误日志持续增长 THEN 无任何轮转或规模约定对其生效：真机 `gateway.error.log` 已达 460144 行且仍在写入（**已实测**），而仓库内检索不到任何针对 Hermes gateway 日志的轮转约定、规模阈值或校验（`logrotate` / `max_size` / `backup_count` / 「轮转」在仓库内零命中；`rotate` 的命中仅为 LAN 共享密钥轮换与 `boom-monitor` 备份保留，与 Hermes 日志无关，已核实）；46 万行错误日志本身既使故障信号被淹没，也构成运维负担
 
 ### Expected Behavior (Correct)
 
@@ -186,6 +261,15 @@ DeepSeek 文本回退」，并规定「没有当前凭据调用证据前，Profi
 2.30 WHEN 需要为新 Hermes 版本重新适配补丁 THEN 系统 SHALL 复用仓库内已验证的适配模式（`install-xiaod-public-video-bridge-v2.mjs` 针对 `0.20.1` 的显式锚点拓扑断言 + 本机源码只读 dry-run + 版本与 commit 双锁），并 SHALL 使版本基线单一来源化、在多处 pin 漂移时报出漂移本身；SHALL NOT 降低锚点校验强度、SHALL NOT 改为模糊匹配、SHALL NOT 绕过双锁
 2.31 WHEN 记录长期升级韧性方向 THEN 系统 SHALL 按 ADR-0007「业务工具不再写入 Hermes 安装目录补丁」的既有结论，记录当前每个补丁标记「必需 / 可由原生能力 + MCP 替代」的判定，以缩小写入 Hermes 安装目录的补丁面；SHALL NOT 在本 spec 范围内删除任何既有补丁能力（属独立决策）
 
+以下六条对应本轮真机日志实证新发现的缺陷（缺陷 G：2.32–2.33；缺陷 I 无回退告知：2.34；缺陷 H 标识符溯源：2.35；缺陷 I MCP 腿：2.36；缺陷 K 日志规模：2.37）：
+
+2.32 WHEN 诊断入口运行 THEN 系统 SHALL 读取 Hermes 自身的错误日志并报告主导出站失败签名，至少含：异常类名、出现计数、最近发生时间、统计所覆盖的行范围；SHALL 只提取异常类名与计数，SHALL NOT 输出日志消息正文、URL、endpoint、凭据、请求头或任何消息内容；该项 SHALL 标注其能力真相层级并 SHALL NOT 超过其上限
+2.33 WHEN 实现 2.32 的判定 THEN 该判定 SHALL 通过读取 Hermes 既有日志实现，SHALL NOT 通过发起 provider 网络调用或探针实现。**此为本条的关键设计约束与显式取舍**：读日志既能暴露真实活跃阻断点，又不触碰 3.20（不发起任何 provider 网络调用、不刷新账号模型目录、不产生任何计费）与 2.28（不回显 `api_key` / `base_url` / token）；反之，若改用主动探针实现同一判定，就必然违反 3.20，因此 SHALL NOT 采用
+2.34 WHEN 检测到主导出站失败签名且 `fallbackModels` 为空 THEN 系统 SHALL 说明「出站连接正在失败且没有任何回退链，结果会是直接静默、飞书会话内不产生任何回复」，并 SHALL 把它报为当前最强候选根因；SHALL NOT 声称已确认失败目标为某具体 provider（异常类名只证明出站连接在失败，不证明目标主机是哪一个），除非该目标已被独立证据确认；SHALL 在结论中标注「失败目标主机未确认」这一层级限制
+2.35 WHEN 任何判定依赖外部系统的标识符（Hermes `config.yaml` 字段名、日志关键词、异常类名措辞、日志文件名）THEN 系统 SHALL 标注该标识符的来源（仓库内具体文档或代码位置）与其适用版本，并在当前运行版本与来源版本不一致或来源未登记版本时报「该标识符在当前版本不适用 / 适用性未知」；SHALL NOT 以「未命中」表述失配，也 SHALL NOT 把「计数为 0」表述为「该故障不存在」。本条与既有 2.16（`null` 不得冒充「匹配」或「不匹配」）为同一原则，从取值层面扩展到标识符层面
+2.36 WHEN 诊断入口运行 THEN 系统 SHALL 判定 Agent Army MCP 腿的活性，至少含：（a）MCP stderr 日志的最近写入时间相对 Gateway 其他日志的最近写入时间是否显著滞后（报告滞后量，不报告日志内容）；（b）`config.yaml` 的 `mcp_servers.agent-army` 是否存在且未被 `enabled:false` 关闭；并 SHALL 显式标注层级限制「无 stderr 输出且 Gateway 侧极少提及，不等于 MCP server 已崩溃或未加载」，SHALL NOT 由此断言 MCP 已失效
+2.37 WHEN 诊断入口运行 THEN 系统 SHALL 报告 Hermes 日志的规模与轮转状态（至少：错误日志行数或字节量、最近写入时间、是否存在生效的轮转约定），使「信号被淹没」这一状态本身可被发现；SHALL 只报告规模与时间等元数据，SHALL NOT 输出日志内容
+
 ### Unchanged Behavior (Regression Prevention)
 
 3.1 WHEN A君返回 `handled:false`（`explicit_direct_reply_without_task`）且 Hermes 模型侧正常 THEN 系统 SHALL CONTINUE TO 由 Hermes 普通聊天路径回复，不插入任何诊断或降级文案
@@ -214,3 +298,10 @@ DeepSeek 文本回退」，并规定「没有当前凭据调用证据前，Profi
 3.18 WHEN 复用 Hermes 侧既有安全解析能力 THEN 其既有凭据审计与失败关闭语义（如检出疑似明文凭据、解析失败、结构不安全时拒绝继续）SHALL CONTINUE TO 不被放宽，且诊断 SHALL CONTINUE TO 只读不写 `config.yaml`
 3.19 WHEN Gateway 启动门禁新增补丁在位与版本基线校验 THEN 既有的技能白名单收敛校验与 bundled skills 自动注入退出校验 SHALL CONTINUE TO 原样生效，不得被新增校验弱化、跳过或改为告警
 3.20 WHEN 判定实际生效的主模型 provider/model THEN 系统 SHALL CONTINUE TO 只做本机只读回读（运行期模型策略文件与 Profile 映射），SHALL CONTINUE TO 不发起任何 provider 网络调用、不刷新账号模型目录、不产生任何计费
+
+
+以下三条对应本轮新增日志读取与出站失败判定的保持性要求：
+
+3.21 WHEN 新增出站失败签名判定、MCP 腿活性判定与日志规模判定 THEN 系统 SHALL CONTINUE TO 不发起任何 provider 网络调用、不刷新账号模型目录、不产生任何计费；3.20 的边界 SHALL CONTINUE TO 不因新增判定而放宽、放行或例外
+3.22 WHEN 新增判定读取 Hermes 日志 THEN 系统 SHALL CONTINUE TO 保持只读、不读取 `.env`、不产生任何外部副作用、输出中零凭据；新增的日志读取 SHALL CONTINUE TO 只输出异常类名、计数与时间/规模等元数据，SHALL CONTINUE TO 不输出日志消息正文、URL、endpoint、`open_id` 原值或任何消息内容
+3.23 WHEN 本轮新增判定被加入诊断 THEN 既有六项（`gateway-process` / `adapter-patch` / `required-env` / `runtime-ingress` / `profile-guard` / `feishu-admission`）的 id、顺序、`truthLayerCeiling` 与退出码语义（`0` / `1` / `2`）SHALL CONTINUE TO 不变；新增项为扩展而非替换，其对 `CHAIN_CHECK_IDS` 与既有以六项齐全为断言的测试的影响 SHALL 在 design 中说明迁移方式（与 3.14 同一处置）
