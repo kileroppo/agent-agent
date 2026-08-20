@@ -1,0 +1,36 @@
+{
+  "id": "FEAT-007",
+  "type": "feat",
+  "description": "Create auto-escaping tagged template literal html utility and migrate all innerHTML usages in ajun-runtime and project-progress-board frontends",
+  "status": "completed",
+  "steps": [
+    "Create `apps/ajun-runtime/frontend/src/html.ts` with: (1) a tagged template literal function `html` that auto-escapes interpolated values via the existing escapeHtml logic, (2) a `raw()` wrapper function that marks a string as pre-sanitized (returns object with __html_raw symbol), (3) the html tag checks for raw-marked values and passes them through, all others get escaped. Export html, raw, and escapeHtml.",
+    "Update `apps/ajun-runtime/frontend/src/app.ts`: import { html, raw, escapeHtml } from './html.js'. Remove the local escapeHtml function. Replace all innerHTML assignments that use template literals with escapeHtml calls to use the html tagged template instead. For example: `node.innerHTML = html`<div>${label}</div>``; For pre-sanitized HTML fragments (like SVG icons or previously-escaped content), wrap in raw().",
+    "Update `apps/ajun-runtime/frontend/src/app-access-views.ts`: import html and raw from './html.js', receive them from the factory params or import directly. Migrate innerHTML usages.",
+    "Update `apps/ajun-runtime/frontend/src/boom-monitor-console.ts`: same migration pattern.",
+    "Update `apps/ajun-runtime/frontend/src/task-record-workbench.ts`: same migration pattern.",
+    "Update `apps/ajun-runtime/frontend/src/task-record-detail-view.ts`: same migration pattern.",
+    "Update `apps/ajun-runtime/frontend/src/billing-ledger-workbench.ts`: same migration pattern.",
+    "Update `apps/ajun-runtime/frontend/src/stepfun-model-policy-console.ts`: same migration pattern.",
+    "Update `apps/ajun-runtime/frontend/src/task-timeline-view.ts`: replace defaultEscapeHtml with the html utility or keep escapeHtml from html.ts.",
+    "Create `apps/ajun-runtime/test/html-template.test.js` testing: auto-escape of <script> tags, raw() bypass, nested templates, null/undefined handling.",
+    "Run `npm run build:frontend --workspace=ajun-runtime` to compile and update public/*.js files.",
+    "Also create a similar utility for project-progress-board: `apps/project-progress-board/frontend/src/html.ts` and migrate apps/project-progress-board/frontend/src/app.ts to use it. Then build frontend."
+  ],
+  "acceptance_criteria": [
+    "html.ts exists in ajun-runtime/frontend/src/ with html tagged template, raw() function, and escapeHtml export",
+    "All innerHTML usages in ajun-runtime frontend files use the html tagged template (no more manual escapeHtml + template literal pattern)",
+    "raw() is used for pre-sanitized content only",
+    "Test file apps/ajun-runtime/test/html-template.test.js passes with meaningful coverage of escaping behavior",
+    "npm run build:frontend --workspace=ajun-runtime succeeds",
+    "npm run check passes",
+    "project-progress-board frontend also migrated"
+  ],
+  "verification": [
+    "npm run check",
+    "node --test apps/ajun-runtime/test/html-template.test.js",
+    "npm run build:frontend --workspace=ajun-runtime && git diff --stat apps/ajun-runtime/public/"
+  ],
+  "blocked_reason": null,
+  "findings": "The check:architecture script has a pre-existing failure (repository-catalog.json area issue) unrelated to this feature. npm run check --workspace=ajun-runtime passes successfully (tsc + frontend build + typescript-ratio gate). All 21 tests in html-template.test.js pass. The escapeHtml function is still exported from html.ts for use in helper functions that receive it as a parameter (renderAcceptanceDetail, renderAttentionDetail, renderTechnicalDetails)."
+}

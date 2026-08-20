@@ -34,7 +34,7 @@ export function clearRefreshDraft(form) {
     delete form.dataset.refreshDirty;
     return wasDirty;
 }
-export function startRefreshScheduler({ refresh, canRefresh = () => true, intervalMs = 15000, schedule = globalThis.setInterval, cancel = globalThis.clearInterval, visibilityTarget = globalThis.document, } = {}) {
+export function startRefreshScheduler({ refresh, canRefresh = () => true, intervalMs = 15000, schedule = globalThis.setTimeout, cancel = globalThis.clearTimeout, visibilityTarget = globalThis.document, failureThreshold = 3, onDegraded, onRecovered, } = {}) {
     if (typeof refresh !== 'function')
         throw new TypeError('refresh 必须是函数。');
     if (typeof canRefresh !== 'function')
@@ -43,27 +43,51 @@ export function startRefreshScheduler({ refresh, canRefresh = () => true, interv
         throw new TypeError('intervalMs 必须是正数。');
     let stopped = false;
     let running = false;
+    let consecutiveFailures = 0;
+    let timer = null;
+    const maxBackoffMs = 60000;
+    function computeDelay() {
+        if (consecutiveFailures === 0)
+            return intervalMs;
+        const exponent = Math.min(consecutiveFailures, 5);
+        return Math.min(intervalMs * Math.pow(2, exponent), maxBackoffMs);
+    }
+    function scheduleNext() {
+        if (stopped)
+            return;
+        cancel(timer);
+        timer = schedule(() => { void refreshNow(); }, computeDelay());
+    }
     const refreshNow = async () => {
         if (stopped || running || !canRefresh())
             return false;
         running = true;
         try {
             await refresh({ background: true });
+            const wasDegraded = consecutiveFailures >= failureThreshold;
+            consecutiveFailures = 0;
+            if (wasDegraded && typeof onRecovered === 'function')
+                onRecovered();
             return true;
         }
         catch {
+            consecutiveFailures += 1;
+            if (consecutiveFailures >= failureThreshold && typeof onDegraded === 'function')
+                onDegraded(consecutiveFailures);
             return false;
         }
         finally {
             running = false;
+            scheduleNext();
         }
     };
     const onVisibilityChange = () => { void refreshNow(); };
-    const timer = schedule(() => { void refreshNow(); }, intervalMs);
+    timer = schedule(() => { void refreshNow(); }, intervalMs);
     visibilityTarget?.addEventListener?.('visibilitychange', onVisibilityChange);
     return Object.freeze({
         intervalMs,
         refreshNow,
+        get consecutiveFailures() { return consecutiveFailures; },
         stop() {
             if (stopped)
                 return;

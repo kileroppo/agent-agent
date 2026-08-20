@@ -1,0 +1,27 @@
+{
+  "id": "FEAT-005",
+  "type": "feat",
+  "description": "Create packages/ui-tokens with unified CSS custom properties (design tokens) and integrate into all three apps",
+  "status": "completed",
+  "steps": [
+    "Create `packages/ui-tokens/` directory with package.json (name: @agent-army/ui-tokens, private: true)",
+    "Create `packages/ui-tokens/tokens.css` with unified CSS custom properties that are a superset of the three apps' existing tokens. Map them as follows: keep ajun-runtime's mint palette as the primary accent; normalize naming (--color-canvas, --color-surface, --color-ink, --color-muted, --color-line, --color-accent, --color-accent-soft, --color-danger, --color-danger-soft, --color-warning, --color-warning-soft, --color-info, --color-info-soft, --radius-sm, --radius, --radius-lg, --font-sans, --font-mono, --shadow-sm, --shadow-md). Include the app-specific aliases too (e.g. --mint maps to --color-accent for ajun).",
+    "Add `@import` or `<link>` to shared tokens in each app's HTML: apps/ajun-runtime/public/index.html, apps/project-progress-board/public/index.html, apps/xiaod-media-transcriber/public/index.html",
+    "Each app's styles.css :root block should reference the shared tokens where variable names overlap, but do NOT rewrite existing variable usage throughout all files - just add the import and map new token names to old. The apps continue working with their existing variable names.",
+    "Add ui-tokens to root package.json workspaces array: 'packages/*' already covers it",
+    "Verify with npm run check that nothing breaks"
+  ],
+  "acceptance_criteria": [
+    "packages/ui-tokens/tokens.css exists with unified design tokens",
+    "packages/ui-tokens/package.json exists",
+    "All three app index.html files link to or import the shared tokens CSS",
+    "Existing app styles still work (no visual regressions from variable rename)",
+    "npm run check passes"
+  ],
+  "verification": [
+    "npm run check",
+    "Confirm tokens.css has comprehensive variable definitions"
+  ],
+  "blocked_reason": null,
+  "findings": "Architecture check (npm run check) exits 1 due to pre-existing repository-catalog.json area issue (area 'work' does not exist). This was already failing before the feature. All TypeScript compilation, frontend builds, and workspace checks pass. The runtime-http-handler.ts was at 748 lines (limit 750), so tokens.css route was combined with styles.css route to avoid exceeding the limit. The distribute:tokens script was added to the check pipeline to automatically copy tokens.css to each app's public/ before builds."
+}

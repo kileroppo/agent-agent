@@ -83,8 +83,8 @@ test('任务记录读取失败可原地恢复，缺失下一步时不让用户�
   assert.match(script, /event\.target\.closest\('\[data-record-retry\]'\)[\s\S]*await loadRecords\(\)/);
   assert.match(script, /querySelector\('\[data-record-detail-retry\]'\)\?\.addEventListener\('click'[\s\S]*loadSelectedDetail\(\{ revealDetail: false, quiet: false \}\)/);
   assert.match(detailLoader, /catch \(error\)[\s\S]*renderDetailError\(error\)[\s\S]*if \(revealDetail\)[\s\S]*elements\.workbench\.classList\.add\('is-detail-open'\)/);
-  assert.match(script, /record-list-error[\s\S]*escapeHtml\(error\.message \|\| '本次读取没有完成。'\)/);
-  assert.match(script, /无法打开这条记录[\s\S]*escapeHtml\(error\.message \|\| '本次读取没有完成，任务记录没有被更改。'\)/);
+  assert.match(script, /record-list-error[\s\S]*\$\{error\.message \|\| '本次读取没有完成。'\}/);
+  assert.match(script, /无法打开这条记录[\s\S]*\$\{error\.message \|\| '本次读取没有完成，任务记录没有被更改。'\}/);
   assert.match(script, /class="focus-primary-action" type="button" data-record-retry/);
   assert.match(script, /class="focus-primary-action" type="button" data-record-detail-retry/);
   assert.match(script, /当前记录没有给出可执行动作；请在飞书补充信息或联系负责人核对，不要盲目重试/);

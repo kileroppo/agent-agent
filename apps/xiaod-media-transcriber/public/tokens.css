@@ -1,0 +1,161 @@
+/* ============================================================
+   Agent Army — Shared Design Tokens
+   Canonical source: packages/ui-tokens/tokens.css
+   Distributed to each app's public/ directory via `npm run distribute:tokens`
+   ============================================================ */
+
+:root {
+  /* ─── Canvas & Backgrounds ─── */
+  --color-canvas: #f6f7f2;
+  --color-canvas-deep: #eef2eb;
+  --color-surface: #ffffff;
+  --color-surface-soft: #f8faf7;
+  --color-paper: #fbfcfa;
+
+  /* ─── Text ─── */
+  --color-ink: #18231d;
+  --color-ink-soft: #3f5048;
+  --color-muted: #75827b;
+  --color-muted-light: #9aa59f;
+
+  /* ─── Borders & Lines ─── */
+  --color-line: #dce5dd;
+  --color-line-strong: #d3ddd6;
+
+  /* ─── Accent (Mint / Green) ─── */
+  --color-accent: #25b887;
+  --color-accent-deep: #138764;
+  --color-accent-soft: #e2f7ef;
+  --color-accent-line: #b8e8d6;
+
+  /* ─── Green (project-progress-board & xiaod) ─── */
+  --color-green: #28724c;
+  --color-green-soft: #e4f1e8;
+
+  /* ─── Danger (Rose / Red) ─── */
+  --color-danger: #c9524d;
+  --color-danger-soft: #fff0ee;
+  --color-danger-line: #efc4c0;
+  --color-red: #a23831;
+  --color-red-soft: #fff0ee;
+
+  /* ─── Warning (Amber) ─── */
+  --color-warning: #b97819;
+  --color-warning-soft: #fff3dc;
+  --color-warning-line: #f1d5a2;
+  --color-amber: #9a5c12;
+  --color-amber-soft: #fff4df;
+
+  /* ─── Info (Blue) ─── */
+  --color-info: #4979b8;
+  --color-info-soft: #edf4fd;
+  --color-blue: #3c6f8d;
+  --color-blue-soft: #e7f0f5;
+
+  /* ─── Border Radius ─── */
+  --radius-sm: 11px;
+  --radius: 16px;
+  --radius-lg: 22px;
+
+  /* ─── Shadows ─── */
+  --shadow-sm: 0 2px 8px rgba(40, 66, 53, .045);
+  --shadow-md: 0 18px 45px rgba(40, 66, 53, .09);
+
+  /* ─── Typography ─── */
+  --font-sans: "PingFang SC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+
+  /* ─── Motion ─── */
+  --ease: cubic-bezier(.22, .75, .25, 1);
+
+  /* ───────────────────────────────────────────────────────────
+     App-specific aliases
+     Each app may continue using its own variable names.
+     These aliases map the unified tokens back to per-app names.
+     ─────────────────────────────────────────────────────────── */
+
+  /* ajun-runtime aliases */
+  --canvas: var(--color-canvas);
+  --surface: var(--color-surface);
+  --ink: var(--color-ink);
+  --muted: var(--color-muted);
+  --mint: var(--color-accent);
+  --mint-deep: var(--color-accent-deep);
+  --mint-soft: var(--color-accent-soft);
+  --mint-line: var(--color-accent-line);
+  --amber: var(--color-warning);
+  --rose: var(--color-danger);
+  --rose-soft: var(--color-danger-soft);
+  --blue: var(--color-info);
+  --blue-soft: var(--color-info-soft);
+  --font: var(--font-sans);
+  --mono: var(--font-mono);
+
+  /* xiaod-media-transcriber & project-progress-board aliases */
+  --line: var(--color-line);
+  --paper: var(--color-paper);
+  --green: var(--color-green);
+  --green-soft: var(--color-green-soft);
+  --amber-soft: var(--color-warning-soft);
+  --red: var(--color-red);
+  --red-soft: var(--color-red-soft);
+
+  /* project-progress-board aliases */
+  --bg: var(--color-canvas);
+}
+
+/* ─── Dark Mode ─── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* ─── Canvas & Backgrounds ─── */
+    --color-canvas: #121a16;
+    --color-canvas-deep: #0e1512;
+    --color-surface: #1c2a22;
+    --color-surface-soft: #1f2e25;
+    --color-paper: #121a16;
+
+    /* ─── Text ─── */
+    --color-ink: #e3ebe6;
+    --color-ink-soft: #c4d0c8;
+    --color-muted: #7a8a80;
+    --color-muted-light: #5f6f64;
+
+    /* ─── Borders & Lines ─── */
+    --color-line: #2d3d34;
+    --color-line-strong: #3a4d42;
+
+    /* ─── Accent (Mint / Green) ─── */
+    --color-accent: #3dd4a0;
+    --color-accent-deep: #5aeab8;
+    --color-accent-soft: #162c23;
+    --color-accent-line: #1f4435;
+
+    /* ─── Green (project-progress-board & xiaod) ─── */
+    --color-green: #3dd4a0;
+    --color-green-soft: #162c23;
+
+    /* ─── Danger (Rose / Red) ─── */
+    --color-danger: #ef7a74;
+    --color-danger-soft: #2a1614;
+    --color-danger-line: #4a2220;
+    --color-red: #ef7a74;
+    --color-red-soft: #2a1614;
+
+    /* ─── Warning (Amber) ─── */
+    --color-warning: #e5a03d;
+    --color-warning-soft: #2a2210;
+    --color-warning-line: #4a3a1a;
+    --color-amber: #e5a03d;
+    --color-amber-soft: #2a2210;
+
+    /* ─── Info (Blue) ─── */
+    --color-info: #6fa0e0;
+    --color-info-soft: #16222e;
+    --color-blue: #6fa0e0;
+    --color-blue-soft: #16222e;
+
+    /* ─── Shadows ─── */
+    --shadow-sm: 0 2px 8px rgba(0, 0, 0, .2);
+    --shadow-md: 0 18px 45px rgba(0, 0, 0, .3);
+  }
+}

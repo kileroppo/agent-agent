@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-006",
+  "type": "feat",
+  "description": "Add dark mode support via prefers-color-scheme: dark in the shared tokens file and each app's styles",
+  "status": "completed",
+  "steps": [
+    "Add a `@media (prefers-color-scheme: dark)` block in `packages/ui-tokens/tokens.css` that remaps the CSS custom properties to dark palette values. Invert canvas/surface/ink while keeping accent colors recognizable. Dark palette: canvas=#1a2420, surface=#222d28, ink=#e8ede9, muted=#9ca8a1, line=#3a4a42, accent/mint stays similar but slightly lighter for contrast.",
+    "In `apps/ajun-runtime/public/styles.css`, add a @media (prefers-color-scheme: dark) :root block that remaps the existing variables (--canvas, --surface, --ink, --muted, --line, --mint-soft, etc.) to dark equivalents. This is needed because ajun-runtime uses its own extensive variable set.",
+    "In `apps/project-progress-board/public/styles.css` (now reformatted), add dark mode variable overrides for --bg, --surface, --ink, --muted, --line, --green, --green-soft, etc.",
+    "In `apps/xiaod-media-transcriber/public/styles.css` (now reformatted), add dark mode variable overrides for --ink, --muted, --line, --paper, --surface, --green, --green-soft, etc.",
+    "Add `color-scheme: light dark;` to the :root of each app that supports it (ajun-runtime already has color-scheme: light - change to `light dark`)"
+  ],
+  "acceptance_criteria": [
+    "packages/ui-tokens/tokens.css has a @media (prefers-color-scheme: dark) block with inverted palette",
+    "All three app stylesheets have dark mode CSS variable overrides",
+    "color-scheme property updated to `light dark` in apps that previously had `color-scheme: light`",
+    "npm run check passes"
+  ],
+  "verification": [
+    "npm run check",
+    "Inspect CSS for well-structured dark mode variables"
+  ],
+  "blocked_reason": null,
+  "findings": "Pre-existing architecture check failure (repository-catalog.json area boundary issue) unrelated to dark mode changes. All TypeScript compilation and workspace checks pass. Token distribution works correctly."
+}

@@ -153,6 +153,15 @@
       "workspace": true,
       "deployable": false,
       "entrypoint": "packages/paperclip-client/src/index.ts"
+    },
+    {
+      "path": "packages/ui-tokens",
+      "name": "@agent-army/ui-tokens",
+      "classification": "shared-contract",
+      "lifecycle": "active",
+      "workspace": true,
+      "deployable": false,
+      "entrypoint": "packages/ui-tokens/tokens.css"
     }
   ]
 }

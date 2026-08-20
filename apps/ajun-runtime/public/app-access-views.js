@@ -1,4 +1,5 @@
-export function createAccessViews({ elements, state, api, escapeHtml, statusLabel, formatDate, providerLabel, agentName, replaceChildrenPreservingDisclosureState, setTextIfChanged, modelPolicyConsole, }) {
+import { html, raw, escapeHtml } from './html.js';
+export function createAccessViews({ elements, state, api, statusLabel, formatDate, providerLabel, agentName, replaceChildrenPreservingDisclosureState, setTextIfChanged, modelPolicyConsole, }) {
     const { shareInfo, employeeConnections, accessConnections, aiControl, aiServiceList, aiControlMessage, aiRoutingList, campaignList, campaignMessage, employeeConnectionList, accessConnectionList, accessConnectionMessage, contentAccessSummary, accessLoginDisclosure, accessLoginForm, accessLoginProvider, accessLoginAlias, accessLoginAccount, accessLoginMessage, saveAccessConnection, cancelAccessReauthorize, accessStepPanels, accessStepIndicators, } = elements;
     async function renderLocalShare() {
         if (!isLoopbackLocation()) {
@@ -46,13 +47,13 @@ export function createAccessViews({ elements, state, api, escapeHtml, statusLabe
             replaceChildrenPreservingDisclosureState(aiServiceList, aiServiceGroups(payload.services));
             aiRoutingList.replaceChildren(...payload.routing.map((route) => {
                 const row = document.createElement('p');
-                row.innerHTML = `<strong>${escapeHtml(route.capability)}</strong><span>${escapeHtml(route.providers.join(' → '))}</span>`;
+                row.innerHTML = html `<strong>${route.capability}</strong><span>${route.providers.join(' → ')}</span>`;
                 return row;
             }));
             const running = payload.services.filter((service) => service.state === 'running').length;
             const stopped = payload.services.filter((service) => service.state === 'stopped').length;
             const attention = payload.services.filter((service) => ['offline', 'unknown'].includes(service.state)).length;
-            aiControlMessage.innerHTML = `<span class="ai-metric"><strong>${payload.services.length}</strong><small>已纳管</small></span><span class="ai-metric"><strong>${running}</strong><small>运行中</small></span><span class="ai-metric"><strong>${stopped}</strong><small>等待任务</small></span>${attention ? `<span class="ai-metric is-attention"><strong>${attention}</strong><small>需要处理</small></span>` : '<span class="ai-metric is-healthy"><strong>✓</strong><small>状态稳定</small></span>'}`;
+            aiControlMessage.innerHTML = html `<span class="ai-metric"><strong>${payload.services.length}</strong><small>已纳管</small></span><span class="ai-metric"><strong>${running}</strong><small>运行中</small></span><span class="ai-metric"><strong>${stopped}</strong><small>等待任务</small></span>${raw(attention ? `<span class="ai-metric is-attention"><strong>${attention}</strong><small>需要处理</small></span>` : '<span class="ai-metric is-healthy"><strong>✓</strong><small>状态稳定</small></span>')}`;
         }
         catch (error) {
             aiControlMessage.textContent = error.message;
@@ -73,12 +74,12 @@ export function createAccessViews({ elements, state, api, escapeHtml, statusLabe
     }
     function aiNodeGroup(nodeKey, services) {
         const node = document.createElement('section');
-        node.className = `ai-node-group ai-node-${escapeHtml(nodeKey)}`;
+        node.className = `ai-node-group ai-node-${nodeKey}`;
         const running = services.filter((service) => service.state === 'running').length;
         const attention = services.some((service) => ['offline', 'unknown'].includes(service.state));
         const title = nodeKey === 'windows' ? '4070 图形节点' : '本机 Mac';
         const detail = nodeKey === 'windows' ? '高性能图片生成与编辑' : '日常文本、语音、视觉与检索';
-        node.innerHTML = `<header class="ai-node-head"><span class="ai-node-mark">${nodeKey === 'windows' ? 'GPU' : 'MAC'}</span><div><h3>${title}</h3><p>${detail}</p></div><span class="ai-node-status${attention ? ' is-attention' : ''}">${attention ? '需要检查' : `${running} 个运行中`}</span></header>`;
+        node.innerHTML = html `<header class="ai-node-head"><span class="ai-node-mark">${nodeKey === 'windows' ? 'GPU' : 'MAC'}</span><div><h3>${title}</h3><p>${detail}</p></div><span class="ai-node-status${attention ? ' is-attention' : ''}">${attention ? '需要检查' : `${running} 个运行中`}</span></header>`;
         const list = document.createElement('div');
         list.className = 'ai-node-service-list';
         list.replaceChildren(...services.map(aiServiceCard));
@@ -87,18 +88,18 @@ export function createAccessViews({ elements, state, api, escapeHtml, statusLabe
     }
     function aiServiceCard(service) {
         const node = document.createElement('article');
-        node.className = `ai-service-card ${escapeHtml(service.state)}`;
+        node.className = `ai-service-card ${service.state}`;
         const modes = service.mode === 'per_request'
             ? '<span class="ai-mode-static">每次任务启动</span>'
             : `<label>启动方式<select data-ai-policy="${escapeHtml(service.id)}"${['gateway', 'desktop-node'].includes(service.id) ? ' disabled' : ''}>
-        ${[['on_demand', '按需启动'], ['always_on', '保持运行'], ['disabled', '禁用']].map(([value, label]) => `<option value="${value}"${service.mode === value ? ' selected' : ''}>${label}</option>`).join('')}
+        ${[['on_demand', '按需启动'], ['always_on', '保持运行'], ['disabled', '禁用']].map(([value, label]) => `<option value="${escapeHtml(value)}"${service.mode === value ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('')}
       </select></label>`;
         const actions = service.actions.map((action) => `<button type="button" class="${action === 'stop' ? 'secondary-action danger-action' : 'secondary-action'}" data-ai-service="${escapeHtml(service.id)}" data-ai-action="${escapeHtml(action)}">${escapeHtml(aiActionLabel(action))}</button>`).join('');
-        node.innerHTML = `
-    <div class="ai-service-head"><div><strong>${escapeHtml(service.name)}</strong><small>${escapeHtml(service.endpoint)}</small></div><span class="status ${escapeHtml(service.state)}">${escapeHtml(aiStateLabel(service.state))}</span></div>
-    <p class="ai-service-detail">${escapeHtml(service.detail)}</p>
-    ${service.managed === false && service.state === 'running' ? '<p class="ai-ownership-note">这是外部启动的进程，A君不会停止它。</p>' : ''}
-    <div class="ai-service-controls">${modes}<div class="connection-actions">${actions || '<span class="connection-final-state">无需常驻控制</span>'}</div></div>`;
+        node.innerHTML = html `
+    <div class="ai-service-head"><div><strong>${service.name}</strong><small>${service.endpoint}</small></div><span class="status ${service.state}">${aiStateLabel(service.state)}</span></div>
+    <p class="ai-service-detail">${service.detail}</p>
+    ${raw(service.managed === false && service.state === 'running' ? '<p class="ai-ownership-note">这是外部启动的进程，A君不会停止它。</p>' : '')}
+    <div class="ai-service-controls">${raw(modes)}<div class="connection-actions">${raw(actions || '<span class="connection-final-state">无需常驻控制</span>')}</div></div>`;
         return node;
     }
     function aiActionLabel(action) {
@@ -140,29 +141,29 @@ export function createAccessViews({ elements, state, api, escapeHtml, statusLabe
         node.dataset.campaignId = campaign.campaignId;
         node.dataset.campaignBudgetCents = String(Number(campaign.grant?.budgetCents || 0));
         node.dataset.campaignApprovalAllowed = String(approvalAllowed);
-        node.innerHTML = `
+        node.innerHTML = html `
     <div class="campaign-card-head">
-      <div><p class="eyebrow">${escapeHtml(campaign.caseKey || 'M5')}</p><h3>${escapeHtml(campaign.title)}</h3></div>
-      <span class="status ${escapeHtml(campaign.status)}">${escapeHtml(statusLabel(campaign.status))}</span>
+      <div><p class="eyebrow">${campaign.caseKey || 'M5'}</p><h3>${campaign.title}</h3></div>
+      <span class="status ${campaign.status}">${statusLabel(campaign.status)}</span>
     </div>
     <div class="campaign-facts">
-      <p><strong>当前阶段</strong>${escapeHtml(campaign.currentStage || '尚未开始')}</p>
-      <p><strong>当前负责人</strong>${escapeHtml(campaign.currentOwner?.label || 'Paperclip 当前未指派')}</p>
+      <p><strong>当前阶段</strong>${campaign.currentStage || '尚未开始'}</p>
+      <p><strong>当前负责人</strong>${campaign.currentOwner?.label || 'Paperclip 当前未指派'}</p>
       <p><strong>发布进度</strong>${progress.completedPlatformCases}/${progress.totalPlatformCases}</p>
-      <p><strong>实际费用</strong>${escapeHtml(cost)}</p>
-      <p><strong>授权到期</strong>${escapeHtml(campaign.grant?.expiresAt ? formatDate(campaign.grant.expiresAt) : '待批准')}</p>
+      <p><strong>实际费用</strong>${cost}</p>
+      <p><strong>授权到期</strong>${campaign.grant?.expiresAt ? formatDate(campaign.grant.expiresAt) : '待批准'}</p>
     </div>
-    ${campaign.pauseReason ? `<p class="campaign-alert"><strong>暂停原因</strong>${escapeHtml(campaign.pauseReason)}</p>` : ''}
-    <p class="campaign-next"><strong>下一步</strong>${escapeHtml(campaign.nextAction || '查看 Paperclip 活动记录。')}</p>
-    <p class="subtle"><strong>当前恢复步骤</strong>${escapeHtml(campaign.recoveryStep || `从“${campaign.recoverFrom || '当前阶段'}”继续；已验证产物不会重新生成。`)}</p>
-    ${campaign.status === 'draft' ? `<p class="${approvalAllowed ? 'subtle' : 'campaign-alert'}"><strong>启动前检查</strong>${escapeHtml(approvalReason)}</p>` : ''}
-    <div class="campaign-actions">${actions}</div>`;
+    ${raw(campaign.pauseReason ? `<p class="campaign-alert"><strong>暂停原因</strong>${escapeHtml(campaign.pauseReason)}</p>` : '')}
+    <p class="campaign-next"><strong>下一步</strong>${campaign.nextAction || '查看 Paperclip 活动记录。'}</p>
+    <p class="subtle"><strong>当前恢复步骤</strong>${campaign.recoveryStep || `从“${campaign.recoverFrom || '当前阶段'}”继续；已验证产物不会重新生成。`}</p>
+    ${raw(campaign.status === 'draft' ? `<p class="${approvalAllowed ? 'subtle' : 'campaign-alert'}"><strong>启动前检查</strong>${escapeHtml(approvalReason)}</p>` : '')}
+    <div class="campaign-actions">${raw(actions)}</div>`;
         return node;
     }
     function emptyCampaignCard(message) {
         const node = document.createElement('article');
         node.className = 'campaign-card campaign-empty';
-        node.innerHTML = `<h3>当前没有可运行活动</h3><p>${escapeHtml(message)}</p><small>先完成 Pipeline dry-run、岗位绑定、预算和插件审计；不会在此页面静默安装或发布。</small>`;
+        node.innerHTML = html `<h3>当前没有可运行活动</h3><p>${message}</p><small>先完成 Pipeline dry-run、岗位绑定、预算和插件审计；不会在此页面静默安装或发布。</small>`;
         return node;
     }
     async function renderEmployeeConnections() {
@@ -183,25 +184,25 @@ export function createAccessViews({ elements, state, api, escapeHtml, statusLabe
             const connectionControls = status === 'external'
                 ? '<div class="connection-managed"><strong>独立员工入口已启用</strong><p>由员工自己的 Hermes 档案和飞书入口承接。</p></div>'
                 : `<details class="connection-form-disclosure" data-disclosure-key="employee-form:${escapeHtml(employee.agentId)}"><summary>${employee.configured ? '更新接线配置' : '配置飞书入口'}</summary><form data-agent-id="${escapeHtml(employee.agentId)}" data-refresh-protected><label>飞书 App ID<input name="appId" autocomplete="off" placeholder="cli_..." required></label><label>App Secret<input name="appSecret" type="password" autocomplete="new-password" required></label><label>允许老板的 open_id<input name="allowedUserId" autocomplete="off" placeholder="ou_..." required></label><button>${employee.configured ? '更新并重新连接' : '保存并连接'}</button><p class="connection-message" role="status">${escapeHtml(employee.channel?.message || '尚未接线。')}</p></form></details>`;
-            node.innerHTML = `
-      <details class="connection-disclosure" data-disclosure-key="employee:${escapeHtml(employee.agentId)}">
+            node.innerHTML = html `
+      <details class="connection-disclosure" data-disclosure-key="employee:${employee.agentId}">
         <summary>
           <span class="summary-icon"><svg aria-hidden="true"><use href="#icon-employees"></use></svg></span>
           <span class="connection-summary-copy">
-            <strong>${escapeHtml(employee.name)}</strong>
-            <small>${escapeHtml(employee.role)}</small>
+            <strong>${employee.name}</strong>
+            <small>${employee.role}</small>
           </span>
-          <span class="status ${escapeHtml(status)}">${escapeHtml(statusLabel(status))}</span>
+          <span class="status ${status}">${statusLabel(status)}</span>
           <svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg>
         </summary>
         <div class="connection-body">
           <div class="connection-facts">
-            <p class="readiness-row"><strong>模型：</strong><span class="status ${escapeHtml(employee.model?.status || 'not_ready')}">${escapeHtml(statusLabel(employee.model?.status || 'not_ready'))}</span> ${escapeHtml(employee.model?.message || '模型状态待核对。')}</p>
-            ${modelAction}
-            <p class="readiness-row"><strong>飞书：</strong>${escapeHtml(employee.channel?.message || '尚未接线。')}</p>
-            <small>事件：${escapeHtml(employee.requiredEvents.join('、'))}<br>权限：${escapeHtml(employee.requiredScopes.join('、'))}</small>
+            <p class="readiness-row"><strong>模型：</strong><span class="status ${employee.model?.status || 'not_ready'}">${statusLabel(employee.model?.status || 'not_ready')}</span> ${employee.model?.message || '模型状态待核对。'}</p>
+            ${raw(modelAction)}
+            <p class="readiness-row"><strong>飞书：</strong>${employee.channel?.message || '尚未接线。'}</p>
+            <small>事件：${employee.requiredEvents.join('、')}<br>权限：${employee.requiredScopes.join('、')}</small>
           </div>
-          ${connectionControls}
+          ${raw(connectionControls)}
         </div>
       </details>`;
             return node;
@@ -256,7 +257,7 @@ export function createAccessViews({ elements, state, api, escapeHtml, statusLabe
     function accessSummaryCard(label, value, detail, tone) {
         const node = document.createElement('article');
         node.className = `access-summary-card ${tone}`;
-        node.innerHTML = `<span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small>`;
+        node.innerHTML = html `<span>${label}</span><strong>${value}</strong><small>${detail}</small>`;
         return node;
     }
     function accountConnectionCard(connection) {
@@ -290,27 +291,27 @@ export function createAccessViews({ elements, state, api, escapeHtml, statusLabe
                 ? '<span class="connection-default-note">任务默认使用这个账号</span>'
                 : `<button type="button" data-connection-action="default" data-connection-id="${escapeHtml(connection.connectionId)}">设为${escapeHtml(providerLabel(connection.provider))}默认账号</button>`
             : '';
-        node.innerHTML = `
-    <details class="connection-disclosure" data-disclosure-key="account:${escapeHtml(connection.connectionId)}">
+        node.innerHTML = html `
+    <details class="connection-disclosure" data-disclosure-key="account:${connection.connectionId}">
       <summary>
         <span class="summary-icon"><svg aria-hidden="true"><use href="#icon-shield"></use></svg></span>
         <span class="connection-summary-copy">
-          <strong>${escapeHtml(connection.accountAlias || connection.provider || '未命名连接')}</strong>
-          <small>${escapeHtml(providerLabel(connection.provider))}${connection.isDefault ? ' · 默认账号' : ''}</small>
+          <strong>${connection.accountAlias || connection.provider || '未命名连接'}</strong>
+          <small>${providerLabel(connection.provider)}${connection.isDefault ? ' · 默认账号' : ''}</small>
         </span>
-        <span class="status ${escapeHtml(summaryState.className)}">${escapeHtml(summaryState.label)}</span>
+        <span class="status ${summaryState.className}">${summaryState.label}</span>
         <svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg>
       </summary>
       <div class="connection-body">
         <div class="connection-facts">
-          <p><strong>连接状态：</strong>${escapeHtml(statusLabel(connection.status))}</p>
-          <p><strong>可用员工：</strong>${escapeHtml(employeeText)}</p>
-          <p><strong>允许动作：</strong>${escapeHtml(operationText)}</p>
-          <p><strong>数据范围：</strong>${escapeHtml(scopeText)}</p>
-          <small>${escapeHtml(verification)}<br>${escapeHtml(timing)}<br>${escapeHtml(health)}<br>${connection.hasCredentialReference ? '受控凭据引用已登记' : '未登记受控凭据引用'}</small>
+          <p><strong>连接状态：</strong>${statusLabel(connection.status)}</p>
+          <p><strong>可用员工：</strong>${employeeText}</p>
+          <p><strong>允许动作：</strong>${operationText}</p>
+          <p><strong>数据范围：</strong>${scopeText}</p>
+          <small>${verification}<br>${timing}<br>${health}<br>${connection.hasCredentialReference ? '受控凭据引用已登记' : '未登记受控凭据引用'}</small>
         </div>
-        ${primaryAction}
-        ${managementActions ? `<details class="action-menu" data-disclosure-key="account-actions:${escapeHtml(connection.connectionId)}"><summary><svg aria-hidden="true"><use href="#icon-more"></use></svg>管理连接</summary><div class="connection-actions">${managementActions}</div></details>` : '<span class="connection-final-state">无需操作</span>'}
+        ${raw(primaryAction)}
+        ${raw(managementActions ? `<details class="action-menu" data-disclosure-key="account-actions:${escapeHtml(connection.connectionId)}"><summary><svg aria-hidden="true"><use href="#icon-more"></use></svg>管理连接</summary><div class="connection-actions">${managementActions}</div></details>` : '<span class="connection-final-state">无需操作</span>')}
       </div>
     </details>`;
         return node;
@@ -319,7 +320,7 @@ export function createAccessViews({ elements, state, api, escapeHtml, statusLabe
         const node = document.createElement('details');
         node.className = 'connection-history';
         node.dataset.disclosureKey = 'account-history';
-        node.innerHTML = `<summary><span>历史连接</span><small>${connections.length} 条已撤销、停用或过期记录</small><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><div class="connection-grid"></div>`;
+        node.innerHTML = html `<summary><span>历史连接</span><small>${connections.length} 条已撤销、停用或过期记录</small><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><div class="connection-grid"></div>`;
         node.querySelector('.connection-grid').replaceChildren(...connections.map(accountConnectionCard));
         return node;
     }

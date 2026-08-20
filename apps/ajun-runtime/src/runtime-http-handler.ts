@@ -614,7 +614,7 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 return sendFile(response, publicDir, 'billing-entry-filter.js', 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && publicPath === '/billing-ledger-workbench.js')
                 return sendFile(response, publicDir, 'billing-ledger-workbench.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && (publicPath === '/billing-usage-cache.js' || publicPath === '/console-labels.js'))
+            if (request.method === 'GET' && (publicPath === '/billing-usage-cache.js' || publicPath === '/console-labels.js' || publicPath === '/html.js'))
                 return sendFile(response, publicDir, publicPath.slice(1), 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && publicPath === '/console-navigation.js')
                 return sendFile(response, publicDir, 'console-navigation.js', 'text/javascript; charset=utf-8');
@@ -628,8 +628,8 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 return sendFile(response, publicDir, 'task-record-workbench.js', 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && publicPath === '/task-timeline-view.js')
                 return sendFile(response, publicDir, 'task-timeline-view.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/styles.css')
-                return sendFile(response, publicDir, 'styles.css', 'text/css; charset=utf-8');
+            if (request.method === 'GET' && (publicPath === '/styles.css' || publicPath === '/tokens.css'))
+                return sendFile(response, publicDir, publicPath.slice(1), 'text/css; charset=utf-8');
             return sendJson(response, 404, { error: '未找到该入口。' });
         }
         catch (error: any) {

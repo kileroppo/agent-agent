@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Architecture check
+        run: npm run check:architecture
+
+      - name: Full check (tsc + frontend build + typescript-ratio)
+        run: npm run check
+
+      - name: Run tests
+        run: npm test
+
+      - name: Frontend build drift check
+        run: |
+          npm run build:frontend --workspace=ajun-runtime
+          git diff --exit-code apps/ajun-runtime/public/
+          npm run build:frontend --workspace=project-progress-board
+          git diff --exit-code apps/project-progress-board/public/
+          npm run build:frontend --workspace=xiaod-media-transcriber
+          git diff --exit-code apps/xiaod-media-transcriber/public/
+
+      - name: Check any-density gate
+        run: node scripts/check-any-density.mjs

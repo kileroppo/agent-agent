@@ -1,0 +1,7 @@
+{
+  "schemaVersion": "agent.army/any-density-baseline/v1",
+  "directories": {
+    "apps/ajun-runtime/src": { "maxCount": 10616, "recordedLines": 62704 },
+    "apps/ajun-runtime/frontend/src": { "maxCount": 1018, "recordedLines": 4242 }
+  }
+}

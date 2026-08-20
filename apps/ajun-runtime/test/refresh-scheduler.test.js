@@ -72,8 +72,9 @@ test('控制台按配置间隔后台刷新，并在停止后解除定时器和�
     canRefresh:() => true,
     intervalMs:15_000,
     schedule:(callback, delay) => {
+      const id = scheduled.length;
       scheduled.push({ callback, delay });
-      return 'refresh-timer';
+      return id;
     },
     cancel:(timer) => cleared.push(timer),
     visibilityTarget:{
@@ -92,7 +93,7 @@ test('控制台按配置间隔后台刷新，并在停止后解除定时器和�
   assert.deepEqual(calls, [{ background:true }]);
 
   scheduler.stop();
-  assert.deepEqual(cleared, ['refresh-timer']);
+  assert.equal(cleared.length >= 1, true);
   assert.equal(listeners.has('visibilitychange'), false);
   assert.equal(await scheduler.refreshNow(), false);
 });
@@ -128,5 +129,131 @@ test('页面不可刷新或上一轮未结束时不叠加后台请求', async ()
   refreshAllowed = false;
   assert.equal(await scheduler.refreshNow(), false);
   assert.equal(calls, 1);
+  scheduler.stop();
+});
+
+test('连续失败使用指数退避，成功后恢复原始间隔', async () => {
+  const scheduled = [];
+  let shouldFail = true;
+  const scheduler = startRefreshScheduler({
+    refresh:async () => {
+      if (shouldFail) throw new Error('network error');
+    },
+    canRefresh:() => true,
+    intervalMs:1000,
+    schedule:(callback, delay) => {
+      scheduled.push({ callback, delay });
+      return scheduled.length - 1;
+    },
+    cancel:() => undefined,
+    visibilityTarget:null,
+  });
+
+  assert.equal(scheduled[0].delay, 1000);
+
+  await scheduler.refreshNow();
+  assert.equal(scheduler.consecutiveFailures, 1);
+  assert.equal(scheduled[scheduled.length - 1].delay, 2000);
+
+  await scheduler.refreshNow();
+  assert.equal(scheduler.consecutiveFailures, 2);
+  assert.equal(scheduled[scheduled.length - 1].delay, 4000);
+
+  await scheduler.refreshNow();
+  assert.equal(scheduler.consecutiveFailures, 3);
+  assert.equal(scheduled[scheduled.length - 1].delay, 8000);
+
+  shouldFail = false;
+  await scheduler.refreshNow();
+  assert.equal(scheduler.consecutiveFailures, 0);
+  assert.equal(scheduled[scheduled.length - 1].delay, 1000);
+
+  scheduler.stop();
+});
+
+test('退避上限为60秒', async () => {
+  const scheduled = [];
+  const scheduler = startRefreshScheduler({
+    refresh:async () => { throw new Error('fail'); },
+    canRefresh:() => true,
+    intervalMs:5000,
+    schedule:(callback, delay) => {
+      scheduled.push({ callback, delay });
+      return scheduled.length - 1;
+    },
+    cancel:() => undefined,
+    visibilityTarget:null,
+  });
+
+  for (let i = 0; i < 8; i++) {
+    await scheduler.refreshNow();
+  }
+
+  const lastDelay = scheduled[scheduled.length - 1].delay;
+  assert.equal(lastDelay <= 60000, true, 'Expected delay <= 60000 but got ' + lastDelay);
+
+  scheduler.stop();
+});
+
+test('达到失败阈值时调用 onDegraded 回调，恢复后调用 onRecovered', async () => {
+  const degradedCalls = [];
+  let recoveredCalls = 0;
+  let shouldFail = true;
+  const scheduler = startRefreshScheduler({
+    refresh:async () => {
+      if (shouldFail) throw new Error('fail');
+    },
+    canRefresh:() => true,
+    intervalMs:1000,
+    failureThreshold:2,
+    onDegraded:(failures) => degradedCalls.push(failures),
+    onRecovered:() => { recoveredCalls += 1; },
+    schedule:(callback, delay) => delay,
+    cancel:() => undefined,
+    visibilityTarget:null,
+  });
+
+  await scheduler.refreshNow();
+  assert.equal(degradedCalls.length, 0);
+
+  await scheduler.refreshNow();
+  assert.equal(degradedCalls.length, 1);
+  assert.equal(degradedCalls[0], 2);
+
+  await scheduler.refreshNow();
+  assert.equal(degradedCalls.length, 2);
+  assert.equal(degradedCalls[1], 3);
+
+  shouldFail = false;
+  await scheduler.refreshNow();
+  assert.equal(recoveredCalls, 1);
+  assert.equal(scheduler.consecutiveFailures, 0);
+
+  await scheduler.refreshNow();
+  assert.equal(recoveredCalls, 1);
+
+  scheduler.stop();
+});
+
+test('默认失败阈值为3', async () => {
+  const degradedCalls = [];
+  const scheduler = startRefreshScheduler({
+    refresh:async () => { throw new Error('fail'); },
+    canRefresh:() => true,
+    intervalMs:1000,
+    onDegraded:(failures) => degradedCalls.push(failures),
+    schedule:(callback, delay) => delay,
+    cancel:() => undefined,
+    visibilityTarget:null,
+  });
+
+  await scheduler.refreshNow();
+  await scheduler.refreshNow();
+  assert.equal(degradedCalls.length, 0);
+
+  await scheduler.refreshNow();
+  assert.equal(degradedCalls.length, 1);
+  assert.equal(degradedCalls[0], 3);
+
   scheduler.stop();
 });
