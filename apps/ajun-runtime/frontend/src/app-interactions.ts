@@ -80,6 +80,24 @@ export function bindConsoleInteractions({ elements, state, api, load, setSyncSta
             await accessViews.renderAiControl();
         }
     });
+    document.addEventListener('click', async (event: any): Promise<any> => {
+        const addBtn: any = (event.target as any).closest('[data-custom-ai-add]');
+        if (addBtn) { const form: any = addBtn.parentElement?.querySelector('.custom-ai-form'); if (form) form.hidden = false; return; }
+        const cancelBtn: any = (event.target as any).closest('[data-custom-ai-cancel]');
+        if (cancelBtn) { const form: any = cancelBtn.closest('.custom-ai-form'); if (form) form.hidden = true; return; }
+        const submitBtn: any = (event.target as any).closest('[data-custom-ai-submit]');
+        if (submitBtn) {
+            const form: any = submitBtn.closest('.custom-ai-form');
+            if (!form) return;
+            const inputs: any = Object.fromEntries([...form.querySelectorAll('input')].map((i: any): any => [i.name, i.value]));
+            try { await api('/api/custom-ai/capabilities', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(inputs) }); await accessViews.renderAiControl(); } catch (e: any) { aiControlMessage.textContent = e.message; }
+            return;
+        }
+        const removeBtn: any = (event.target as any).closest('[data-custom-ai-remove]');
+        if (removeBtn) { try { await api(`/api/custom-ai/capabilities/${removeBtn.dataset.customAiRemove}`, { method:'DELETE' }); await accessViews.renderAiControl(); } catch (e: any) { aiControlMessage.textContent = e.message; } return; }
+        const healthBtn: any = (event.target as any).closest('[data-custom-ai-health]');
+        if (healthBtn) { try { await api(`/api/custom-ai/capabilities/${healthBtn.dataset.customAiHealth}/health-check`, { method:'POST' }); await accessViews.renderAiControl(); } catch (e: any) { aiControlMessage.textContent = e.message; } return; }
+    });
     employeeConnectionList.addEventListener('submit', async (event: any): Promise<any> => {
         event.preventDefault();
         const form: any = event.target.closest('form[data-agent-id]');
@@ -326,6 +344,27 @@ export function bindConsoleInteractions({ elements, state, api, load, setSyncSta
         finally {
             button.disabled = failedClosed;
         }
+    });
+    document.addEventListener('submit', async (event: any): Promise<any> => {
+        const form: any = (event.target as any).closest('#task-submit-form');
+        if (!form) return;
+        event.preventDefault();
+        const message: any = form.querySelector('.task-submit-message');
+        const title: any = form.querySelector('input[name="title"]')?.value?.trim();
+        const description: any = form.querySelector('textarea[name="description"]')?.value?.trim();
+        const agentId: any = form.querySelector('select[name="agentId"]')?.value?.trim();
+        if (!title) { if (message) message.textContent = '请填写任务标题。'; return; }
+        const submitBtn: any = form.querySelector('button[type="submit"]');
+        if (submitBtn) submitBtn.disabled = true;
+        if (message) message.textContent = '正在提交…';
+        try {
+            await api('/api/tasks/submit', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ title, description:description||undefined, agentId:agentId||undefined }) });
+            if (message) message.textContent = '任务已提交，正在刷新列表…';
+            form.reset();
+            await load({ background:true });
+            if (message) message.textContent = '任务提交成功。';
+        } catch (error: any) { if (message) message.textContent = error.message; }
+        finally { if (submitBtn) submitBtn.disabled = false; }
     });
     window.addEventListener('hashchange', moduleNavigation.locationChanged);
     bindRefreshProtectedForms({ page: document });

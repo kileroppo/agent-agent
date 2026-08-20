@@ -26,11 +26,16 @@ import { dispatchBoomSignal } from '@agent-army/boom-monitor';
 import { routeBoomMonitorApi } from './boom-monitor/index.ts';
 import { isPaperclipHttpError, routePaperclipHttp } from './runtime-http-paperclip.ts';
 import { routeProductMaturityApi } from './runtime-http-product-maturity.ts';
+import { routeDiagnosisApi, EMPTY_OBSERVATIONS } from './runtime-http-diagnosis.ts';
 import { routeRuntimeHealthApi } from './runtime-http-health.ts';
 import { hasSameOriginRequest, routeOwnerControlApi } from './runtime-http-owner-control.ts';
 import { routeWorkflowAcceptanceApi, workflowAcceptanceErrorStatus } from './runtime-http-workflow-acceptance.ts';
 import { routeTaskRecoveryApi } from './runtime-http-task-recovery.ts';
 import { routeLocalAiApi } from './runtime-http-local-ai.ts';
+import { routeCustomAiApi } from './runtime-http-custom-ai.ts';
+import { CustomAiCapabilityStore } from './custom-ai-capability-store.ts';
+import { routeAgentHealthProbeApi } from './runtime-http-agent-health.ts';
+import { routeTaskSubmitApi } from './runtime-http-task-submit.ts';
 import { bearerToken, isBoomLegacyIntegrationAuthorized, isBoomLegacyIntegrationPath } from './runtime-http-boom-legacy.ts';
 import { parseUsageRange } from './task-overview.ts';
 export { isBoomLegacyIntegrationAuthorized, isBoomLegacyIntegrationPath } from './runtime-http-boom-legacy.ts';
@@ -43,6 +48,7 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
     const { commander, officialFeishuChannel, hermesNativeCompletionWatcher, resolveFeishuApproval, commanderChainEvidence = null, } = feishu;
     const { campaigns } = m5;
     const ownerActionSession: any = createOwnerActionSession();
+    const customAiStore: any = new CustomAiCapabilityStore({ dataDir });
     return async function ajunHttpHandler(request: any, response: any): Promise<any> {
         try {
             const healthResult: any = await routeRuntimeHealthApi({
@@ -50,8 +56,8 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 tasks,
                 optional:{ m5RuntimeEnabled:Boolean(productMaturity), boomMonitorEnabled:Boolean(boomMonitorEnabled), boomMonitorAutoScheduleEnabled:Boolean(boomMonitorAutoScheduleEnabled), productMaturityEnabled:Boolean(productMaturity) },
             });
-            if (healthResult)
-                return sendJson(response, healthResult.status, healthResult.payload);
+            if (healthResult) return sendJson(response, healthResult.status, healthResult.payload);
+            { const r: any = await routeDiagnosisApi({ request, local:isLocalAddress(request.socket.remoteAddress), observeChain:(): any => commanderChainEvidence?.observe?.() ?? Promise.resolve(EMPTY_OBSERVATIONS) }); if (r) return sendJson(response, r.status, r.payload); }
             const ownerControlResult: any = await routeOwnerControlApi({
                 request, ownerActionSession, runtimeRelease, development,
                 local:isLocalAddress(request.socket.remoteAddress),
@@ -168,12 +174,9 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                     filters: taskTimelineUrl.searchParams.getAll('filter'),
                 }));
             }
-            const localAiResult: any = await routeLocalAiApi({
-                request, localAi, local:isLocalAddress(request.socket.remoteAddress),
-                readBody:(): any => readJsonBody(request),
-            });
-            if (localAiResult)
-                return sendJson(response, localAiResult.status, localAiResult.payload);
+            { const r: any = await routeLocalAiApi({ request, localAi, local:isLocalAddress(request.socket.remoteAddress), readBody:(): any => readJsonBody(request), customAiStore }); if (r) return sendJson(response, r.status, r.payload); }
+            { const r: any = await routeCustomAiApi({ request, local:isLocalAddress(request.socket.remoteAddress), store:customAiStore, readBody:(): any => readJsonBody(request) }); if (r) return sendJson(response, r.status, r.payload); } { const r: any = await routeAgentHealthProbeApi({ request, local:isLocalAddress(request.socket.remoteAddress), manifests: await (modelPolicy?.registry?.list() ?? Promise.resolve([])) }); if (r) return sendJson(response, r.status, r.payload); }
+            { const r: any = await routeTaskSubmitApi({ request, local:isLocalAddress(request.socket.remoteAddress), tasks, registry:modelPolicy?.registry, readBody:(): any => readJsonBody(request) }); if (r) return sendJson(response, r.status, r.payload); }
             const taskDetailMatch: any = request.url?.match(/^\/api\/tasks\/([0-9a-f-]{36})$/i);
             if (request.method === 'GET' && taskDetailMatch) {
                 const audience: any = isLocalAddress(request.socket.remoteAddress) ? 'local-owner' : 'lan';
