@@ -1,0 +1,33 @@
+{
+  "id": "FEAT-004",
+  "type": "feat",
+  "description": "Task cost attribution in detail page + Workflow breadcrumb in task detail + Agent Manifest runtime validation (Hermes Profile online probe during operations-health).",
+  "status": "completed",
+  "steps": [
+    "In apps/ajun-runtime/src/task-record-service.ts, extend the detail() method to include a 'costAttribution' field when returning a task record. Query task usage data (from task.usage which uses the task-usage.ts recordTaskUsage schema) to build: totalCostDisplay (formatted string), modelInputTokens, modelOutputTokens, durationMs, executor. The data already exists in task.usage per the recordTaskUsage function - just project it into the detail response.",
+    "In frontend/src/task-record-detail-view.ts, add a renderCostSection(detail) function that renders a section 'This cost' showing: executor agent name, duration, token counts, total cost. Use the html tagged template. Render it after the main task detail content. Only show if costAttribution has data.",
+    "In apps/ajun-runtime/src/task-record-service.ts detail(), also include workflow breadcrumb data: parentWorkflowId (from task.workflow.parentWorkflowId or parent ref), current workflowId + stepId, childTaskIds (query store for tasks with workflow.parentWorkflowId matching current). Return as 'workflowBreadcrumb' field.",
+    "In frontend/src/task-record-detail-view.ts, add a renderWorkflowBreadcrumb(detail) function that renders a breadcrumb navigation showing parent > current > children links. Each item shows taskId (short ref) and title. Use the html tagged template.",
+    "For Agent Manifest runtime validation: In apps/ajun-runtime/src/agent-manifest-health-probe.ts, create a probe function that takes a list of active agent manifests and the LocalAiCapabilityClient, then for each agent checks if its Hermes Profile is online by doing a read-only probe to the local AI gateway health endpoint (GET /health on port 18082). Map the result to update capability status (reachable vs configured). This is a pure read-only probe.",
+    "Integrate the agent manifest probe into the operations-health flow: In paperclip-heartbeat.ts or deterministic-local-health-probe.ts, call the probe during health checks and include results in the health overview response.",
+    "Write test in apps/ajun-runtime/test/task-cost-attribution.test.js verifying: (1) detail response includes costAttribution when task has usage data, (2) costAttribution has expected fields, (3) missing usage returns null costAttribution.",
+    "Write test in apps/ajun-runtime/test/workflow-breadcrumb.test.js verifying: (1) detail includes workflowBreadcrumb when task has workflow data, (2) breadcrumb contains parent/current/children structure, (3) no workflow data returns null.",
+    "Write test in apps/ajun-runtime/test/agent-manifest-health-probe.test.js verifying the probe returns online/offline status per agent based on mocked gateway responses."
+  ],
+  "acceptance_criteria": [
+    "Task detail API response includes costAttribution with cost/token/duration data when available",
+    "Task detail API response includes workflowBreadcrumb with parent/current/children when task has workflow context",
+    "Frontend renders cost section in task detail page",
+    "Frontend renders workflow breadcrumb in task detail page",
+    "Agent manifest probe correctly checks gateway health endpoint",
+    "Probe results appear in health overview",
+    "All existing tests continue to pass"
+  ],
+  "verification": [
+    "npm run check (at repo root)",
+    "npm test --workspace=ajun-runtime",
+    "npm run build:frontend --workspace=ajun-runtime && git diff --exit-code apps/ajun-runtime/public/"
+  ],
+  "blocked_reason": null,
+  "findings": "Handler file at exactly 750 split-lines (the limit); agent health probe route merged onto same line as custom AI route. Pre-existing 3 test failures unchanged. costAttribution uses cost.amount directly (already a dollar float in task-usage normalizeCost). workflowBreadcrumb siblings exclude the current task itself."
+}

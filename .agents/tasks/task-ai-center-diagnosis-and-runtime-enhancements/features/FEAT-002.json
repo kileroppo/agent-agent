@@ -1,0 +1,27 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "AI capability center category view - reorganize the flat AI service list into categorized collapsible groups by capability type (text generation, voice, vision, knowledge retrieval, etc.) with ready/total counts per category.",
+  "status": "completed",
+  "steps": [
+    "In apps/ajun-runtime/src/runtime-http-local-ai.ts, extend the GET /api/local-ai/control response to include a 'categories' field that groups capabilities by type. Define categories: text (text.generate), voice (audio.transcribe, audio.synthesize, audio.clone_authorized), vision (vision.analyze, video.analyze, video.generate), image (image.generate, image.edit), knowledge (embedding.create, rerank.score, knowledge.index, knowledge.search). Each category has: id, label (Chinese), capabilities (with their health status from the gateway), readyCount, totalCount.",
+    "Update the LocalAiCapabilityClient.controlOverview() method (or create a wrapper) to produce categorized output. The existing health() method already returns capabilities with healthy/e2eVerified status. Map each capability to its category.",
+    "Rewrite the aiServiceGroups function in frontend/src/app-access-views.ts to render by capability category instead of by node. Each category becomes a collapsible section (using a details/summary HTML pattern or the existing disclosure-state.ts pattern). Show category label, ready/total badge, and list services that provide capabilities in that category. Keep per-service cards with their existing controls (start/stop/restart/policy).",
+    "Add CSS classes for .ai-category-group, .ai-category-header, .ai-category-badge in the existing tokens/styles. The badge shows 'N/M ready' format.",
+    "Write test in apps/ajun-runtime/test/ai-capability-categories.test.js verifying: (1) controlOverview returns categories array, (2) each category has id, label, readyCount, totalCount, (3) capabilities are correctly grouped."
+  ],
+  "acceptance_criteria": [
+    "GET /api/local-ai/control returns a 'categories' array with capability groupings",
+    "Frontend renders AI capabilities in collapsible category sections instead of flat node groups",
+    "Each category shows ready/total count badge",
+    "Existing service controls (start/stop/restart/policy) still work within categories",
+    "All existing AI control tests pass"
+  ],
+  "verification": [
+    "npm run check (at repo root)",
+    "npm test --workspace=ajun-runtime",
+    "npm run build:frontend --workspace=ajun-runtime && git diff --exit-code apps/ajun-runtime/public/"
+  ],
+  "blocked_reason": null,
+  "findings": "Updated console-operator-flow-ui.test.js to match new category-based pattern (was checking for node-based 'aiServiceGroups(payload.services)' and node labels). Pre-existing failures: 3 tests as documented in FEAT-001 findings still fail on base state."
+}

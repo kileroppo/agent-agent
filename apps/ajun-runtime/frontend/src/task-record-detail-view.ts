@@ -273,3 +273,49 @@ function safeTaskDetailPath(detailPath: any, taskId: any): any {
     const normalizedTaskId: any = cleanAttentionText(taskId, 80);
     return /^[0-9a-f-]{36}$/i.test(normalizedTaskId) ? `/tasks/${normalizedTaskId}` : null;
 }
+
+export function renderCostSection(detail: any): any {
+    const cost: any = detail?.costAttribution;
+    if (!cost)
+        return '';
+    const executor: any = cost.executor || '未知执行者';
+    const duration: any = typeof cost.durationMs === 'number'
+        ? cost.durationMs >= 60000
+            ? `${(cost.durationMs / 60000).toFixed(1)} 分钟`
+            : `${(cost.durationMs / 1000).toFixed(1)} 秒`
+        : null;
+    const tokens: any = (cost.inputTokens || cost.outputTokens)
+        ? `输入 ${cost.inputTokens} / 输出 ${cost.outputTokens}`
+        : null;
+    const totalCost: any = cost.totalCost || null;
+    return html`<section class="record-cost" aria-label="任务开销">
+    <span>这次花了多少</span>
+    <dl>
+      <dt>执行者</dt><dd>${executor}</dd>
+      ${raw(duration ? html`<dt>耗时</dt><dd>${duration}</dd>` : '')}
+      ${raw(tokens ? html`<dt>Token</dt><dd>${tokens}</dd>` : '')}
+      ${raw(totalCost ? html`<dt>费用</dt><dd>${totalCost} ${cost.currency || 'USD'}</dd>` : '')}
+    </dl>
+  </section>`;
+}
+
+export function renderWorkflowBreadcrumb(detail: any): any {
+    const breadcrumb: any = detail?.workflowBreadcrumb;
+    if (!breadcrumb)
+        return '';
+    const workflowLabel: any = breadcrumb.workflowId.slice(0, 8).toUpperCase();
+    const stepLabel: any = breadcrumb.currentStepId || '';
+    const parentLabel: any = breadcrumb.parentWorkflowId
+        ? breadcrumb.parentWorkflowId.slice(0, 8).toUpperCase()
+        : '';
+    const siblings: any = Array.isArray(breadcrumb.siblings) ? breadcrumb.siblings.slice(0, 10) : [];
+    const siblingItems: any = siblings.map((sibling: any): any => {
+        const ref: any = String(sibling.taskId || '').replace(/[^0-9a-z]/gi, '').slice(0, 8).toUpperCase();
+        return html`<li><span class="breadcrumb-ref">#${ref}</span> ${sibling.title || '未命名'} <small>${sibling.status || ''}</small></li>`;
+    }).join('');
+    return html`<nav class="record-workflow-breadcrumb" aria-label="工作流上下文">
+    ${raw(parentLabel ? html`<span class="breadcrumb-parent">#${parentLabel}</span> → ` : '')}
+    <strong class="breadcrumb-current">#${workflowLabel}${raw(stepLabel ? html` / ${stepLabel}` : '')}</strong>
+    ${raw(siblingItems ? html`<ul class="breadcrumb-siblings">${raw(siblingItems)}</ul>` : '')}
+  </nav>`;
+}

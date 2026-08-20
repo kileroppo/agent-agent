@@ -44,7 +44,7 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
         aiControl.hidden = false;
         try {
             const payload = await api('/api/local-ai/control');
-            replaceChildrenPreservingDisclosureState(aiServiceList, aiServiceGroups(payload.services));
+            replaceChildrenPreservingDisclosureState(aiServiceList, aiServiceGroups(payload.services, payload.categories));
             aiRoutingList.replaceChildren(...payload.routing.map((route) => {
                 const row = document.createElement('p');
                 row.innerHTML = html `<strong>${route.capability}</strong><span>${route.providers.join(' → ')}</span>`;
@@ -54,32 +54,65 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
             const stopped = payload.services.filter((service) => service.state === 'stopped').length;
             const attention = payload.services.filter((service) => ['offline', 'unknown'].includes(service.state)).length;
             aiControlMessage.innerHTML = html `<span class="ai-metric"><strong>${payload.services.length}</strong><small>已纳管</small></span><span class="ai-metric"><strong>${running}</strong><small>运行中</small></span><span class="ai-metric"><strong>${stopped}</strong><small>等待任务</small></span>${raw(attention ? `<span class="ai-metric is-attention"><strong>${attention}</strong><small>需要处理</small></span>` : '<span class="ai-metric is-healthy"><strong>✓</strong><small>状态稳定</small></span>')}`;
+            renderCustomCapabilities(payload.customCapabilities || []);
         }
         catch (error) {
             aiControlMessage.textContent = error.message;
             aiServiceList.replaceChildren();
         }
     }
-    function aiServiceGroups(services) {
-        const groups = new Map();
-        for (const service of services) {
-            const key = service.node === 'windows' ? 'windows' : 'mac';
-            if (!groups.has(key))
-                groups.set(key, []);
-            groups.get(key).push(service);
+    function renderCustomCapabilities(customs) {
+        let container = aiServiceList.parentElement?.querySelector('.custom-ai-section');
+        if (!container) {
+            container = document.createElement('div');
+            container.className = 'custom-ai-section';
+            aiServiceList.parentElement?.appendChild(container);
         }
-        return ['mac', 'windows']
-            .filter((key) => groups.has(key))
-            .map((key) => aiNodeGroup(key, groups.get(key)));
+        const cards = customs.map((cap) => {
+            const node = document.createElement('article');
+            node.className = `ai-service-card ${cap.lastHealthStatus === 'healthy' ? 'running' : 'unknown'}`;
+            node.innerHTML = html `<div class="ai-service-head"><div><strong>${cap.label}</strong><small>${cap.capabilityType} · ${cap.endpointUrl}</small></div><span class="status ${cap.lastHealthStatus}">${cap.lastHealthStatus === 'healthy' ? '健康' : cap.lastHealthStatus === 'unhealthy' ? '异常' : '待检测'}</span></div><div class="ai-service-controls"><div class="connection-actions"><button type="button" class="secondary-action" data-custom-ai-health="${escapeHtml(cap.id)}">健康检查</button><button type="button" class="secondary-action danger-action" data-custom-ai-remove="${escapeHtml(cap.id)}">移除</button></div></div>`;
+            return node;
+        });
+        const addBtn = document.createElement('button');
+        addBtn.type = 'button';
+        addBtn.className = 'secondary-action';
+        addBtn.dataset.customAiAdd = 'true';
+        addBtn.textContent = '+ 添加第三方能力';
+        const form = document.createElement('div');
+        form.className = 'custom-ai-form';
+        form.hidden = true;
+        form.innerHTML = html `<label>能力类型<input name="capabilityType" placeholder="tts, asr, image.generate" required></label><label>名称<input name="label" placeholder="例：Azure TTS" required></label><label>端点 URL<input name="endpointUrl" type="url" placeholder="http://..." required></label><label>健康检查路径<input name="healthCheckPath" placeholder="/health"></label><button type="button" data-custom-ai-submit>确认添加</button><button type="button" data-custom-ai-cancel class="secondary-action">取消</button>`;
+        container.replaceChildren(...cards, addBtn, form);
     }
-    function aiNodeGroup(nodeKey, services) {
-        const node = document.createElement('section');
-        node.className = `ai-node-group ai-node-${nodeKey}`;
-        const running = services.filter((service) => service.state === 'running').length;
-        const attention = services.some((service) => ['offline', 'unknown'].includes(service.state));
-        const title = nodeKey === 'windows' ? '4070 图形节点' : '本机 Mac';
-        const detail = nodeKey === 'windows' ? '高性能图片生成与编辑' : '日常文本、语音、视觉与检索';
-        node.innerHTML = html `<header class="ai-node-head"><span class="ai-node-mark">${nodeKey === 'windows' ? 'GPU' : 'MAC'}</span><div><h3>${title}</h3><p>${detail}</p></div><span class="ai-node-status${attention ? ' is-attention' : ''}">${attention ? '需要检查' : `${running} 个运行中`}</span></header>`;
+    function aiServiceGroups(services, categories = []) {
+        if (!categories.length) {
+            return services.map(aiServiceCard);
+        }
+        const serviceMap = new Map(services.map((service) => [service.id, service]));
+        const assigned = new Set();
+        return categories.map((category) => {
+            const categoryServices = (category.serviceIds || [])
+                .filter((id) => serviceMap.has(id) && !assigned.has(id))
+                .map((id) => { assigned.add(id); return serviceMap.get(id); });
+            const unmatched = services.filter((service) => !assigned.has(service.id) && serviceBelongsToCategory(service, category, services, categories));
+            for (const service of unmatched) {
+                assigned.add(service.id);
+                categoryServices.push(service);
+            }
+            return aiCategoryGroup(category, categoryServices);
+        }).filter((node) => node !== null);
+    }
+    function serviceBelongsToCategory(_service, _category, _services, _categories) {
+        return false;
+    }
+    function aiCategoryGroup(category, services) {
+        const node = document.createElement('details');
+        node.className = 'ai-category-group';
+        node.dataset.disclosureKey = `ai-category:${category.id}`;
+        node.open = true;
+        const badgeClass = category.readyCount === category.totalCount ? 'is-healthy' : category.readyCount > 0 ? '' : 'is-attention';
+        node.innerHTML = html `<summary class="ai-category-header"><strong>${category.label}</strong><span class="ai-category-badge${badgeClass ? ' ' + badgeClass : ''}">${category.readyCount}/${category.totalCount} ready</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary>`;
         const list = document.createElement('div');
         list.className = 'ai-node-service-list';
         list.replaceChildren(...services.map(aiServiceCard));
@@ -387,6 +420,25 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
     function isLoopbackLocation() {
         return ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(location.hostname.toLowerCase());
     }
+    async function renderTaskSubmitForm() {
+        if (!state.localOwner)
+            return;
+        const container = document.querySelector('#task-submit-section');
+        if (!container)
+            return;
+        container.hidden = false;
+        container.innerHTML = html `<details class="task-submit-disclosure" data-disclosure-key="task-submit"><summary><strong>提交任务（飞书备用入口）</strong><small>当飞书不可用时，在此直接提交任务</small><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><div class="task-submit-body"><form id="task-submit-form" data-refresh-protected><label>任务标题（必填）<input name="title" required placeholder="请描述要完成什么"></label><label>补充说明<textarea name="description" rows="3" placeholder="可选：更多上下文或要求"></textarea></label><label>指定岗位<select name="agentId"><option value="">自动路由</option></select></label><button type="submit">提交任务</button><p class="task-submit-message" role="status"></p></form></div></details>`;
+        try {
+            const options = await api('/api/tasks/submit/options');
+            const select = container.querySelector('select[name="agentId"]');
+            if (select && options.agents) {
+                for (const agent of options.agents) {
+                    select.append(new Option(`${agent.name} - ${agent.taskLabel}`, agent.agentId));
+                }
+            }
+        }
+        catch { /* options are optional enhancement */ }
+    }
     return {
         renderLocalShare,
         renderAiControl,
@@ -398,5 +450,6 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
         renderAccessLoginAccounts,
         setAccessStep,
         resetAccessReauthorization,
+        renderTaskSubmitForm,
     };
 }

@@ -13,6 +13,13 @@ const CAPABILITIES: any = new Set([
     'audio.clone_authorized',
     'video.generate',
 ]);
+export const CAPABILITY_CATEGORIES: any = [
+    { id: 'text', label: '\u6587\u672C\u751F\u6210', capabilities: ['text.generate'] },
+    { id: 'voice', label: '\u8BED\u97F3', capabilities: ['audio.transcribe', 'audio.synthesize', 'audio.clone_authorized'] },
+    { id: 'vision', label: '\u89C6\u89C9', capabilities: ['vision.analyze', 'video.analyze', 'video.generate'] },
+    { id: 'image', label: '\u56FE\u7247', capabilities: ['image.generate', 'image.edit'] },
+    { id: 'knowledge', label: '\u77E5\u8BC6\u68C0\u7D22', capabilities: ['embedding.create', 'rerank.score', 'knowledge.index', 'knowledge.search'] },
+];
 const SERVICE_IDS: any = new Set(['gateway', 'qwen35', 'qwen36-candidate', 'embedding', 'reranker', 'speech-tools', 'mflux', 'desktop-node', 'comfyui']);
 const SERVICE_ACTIONS: any = new Set(['start', 'stop', 'restart', 'reconnect']);
 const SERVICE_MODES: any = new Set(['on_demand', 'always_on', 'disabled', 'per_request']);
@@ -88,13 +95,17 @@ export class LocalAiCapabilityClient {
         catch {
             return unavailableControl();
         }
+        const services: any = (Array.isArray(body?.services) ? body.services : []).map(sanitizeService).filter(Boolean);
+        const routing: any = (Array.isArray(body?.routing) ? body.routing : []).map((route: any): any => ({
+            capability: String(route?.capability || '').slice(0, 100),
+            providers: (Array.isArray(route?.providers) ? route.providers : []).map((item: any): any => String(item).slice(0, 120)).slice(0, 5),
+        })).filter((route: any): any => route.capability);
+        const categories: any = buildCategories(routing, services);
         return {
             status: body?.status === 'ready' ? 'ready' : 'degraded',
-            services: (Array.isArray(body?.services) ? body.services : []).map(sanitizeService).filter(Boolean),
-            routing: (Array.isArray(body?.routing) ? body.routing : []).map((route: any): any => ({
-                capability: String(route?.capability || '').slice(0, 100),
-                providers: (Array.isArray(route?.providers) ? route.providers : []).map((item: any): any => String(item).slice(0, 120)).slice(0, 5),
-            })).filter((route: any): any => route.capability),
+            services,
+            routing,
+            categories,
         };
     }
     async controlService(serviceId: any, action: any): Promise<any> {
@@ -173,6 +184,28 @@ function sanitizeService(item: any): any {
         managed: item?.managed === true ? true : item?.managed === false ? false : null,
     };
 }
+function buildCategories(routing: any[], services: any[]): any[] {
+    return CAPABILITY_CATEGORIES.map((category: any): any => {
+        const capSet: any = new Set(category.capabilities);
+        const matchedRoutes: any = routing.filter((route: any): any => capSet.has(route.capability));
+        const ready: any = matchedRoutes.filter((route: any): any => route.providers.length > 0).length;
+        const serviceIds: any = new Set();
+        for (const route of matchedRoutes) {
+            for (const provider of route.providers) {
+                const id: any = provider.split('/')[0];
+                if (SERVICE_IDS.has(id)) serviceIds.add(id);
+            }
+        }
+        return {
+            id: category.id,
+            label: category.label,
+            capabilities: category.capabilities,
+            readyCount: ready,
+            totalCount: category.capabilities.length,
+            serviceIds: [...serviceIds],
+        };
+    });
+}
 function unavailableControl(): any {
     return {
         status: 'degraded',
@@ -189,6 +222,7 @@ function unavailableControl(): any {
                 managed: null,
             }],
         routing: [],
+        categories: buildCategories([], []),
     };
 }
 async function controlGatewayLaunchAgent(action: any): Promise<any> {
