@@ -27,6 +27,8 @@
     <symbol id="icon-shield" viewBox="0 0 24 24"><path d="m12 3 7 3v5.5c0 4.3-2.9 8.1-7 9.5-4.1-1.4-7-5.2-7-9.5V6l7-3Z"/><path d="m9 12 2 2 4-4"/></symbol>
     <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m8 10 4 4 4-4"/></symbol>
     <symbol id="icon-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+    <symbol id="icon-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></symbol>
+    <symbol id="icon-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></symbol>
   </svg>
 
   <header class="topbar">
@@ -34,6 +36,10 @@
       <span class="brand-mark">A</span>
       <span>A君运行台</span>
     </a>
+    <button id="night-mode-toggle" class="night-mode-toggle" type="button" aria-label="切换夜间模式" title="切换夜间模式">
+      <svg class="night-mode-icon moon" aria-hidden="true"><use href="#icon-moon"></use></svg>
+      <svg class="night-mode-icon sun" aria-hidden="true" hidden><use href="#icon-sun"></use></svg>
+    </button>
     <div class="sync-badge" role="status" aria-live="polite">
       <span id="sync-indicator" class="sync-indicator syncing" aria-hidden="true"></span>
       <span id="sync-status">正在同步…</span>

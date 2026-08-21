@@ -254,6 +254,34 @@ h3 {
   animation: status-arrive .5s var(--ease);
 }
 
+.night-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background .2s ease, color .2s ease, border-color .2s ease;
+}
+.night-mode-toggle:hover {
+  background: var(--surface-soft);
+  color: var(--ink);
+}
+.night-mode-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+.night-mode-toggle .sun {
+  display: none;
+}
+.night-mode-toggle .moon {
+  display: block;
+}
+
 .app-shell {
   display: grid;
   min-height: calc(100vh - 64px);
@@ -4724,6 +4752,101 @@ textarea:focus {
     --shadow-sm: 0 2px 8px rgba(0, 0, 0, .2);
     --shadow-md: 0 18px 45px rgba(0, 0, 0, .3);
   }
+}
+
+/* --- Manual night mode toggle (class on <html>) --- */
+
+html.night-mode {
+  --canvas: #121a16;
+  --canvas-deep: #0e1512;
+  --surface: #1c2a22;
+  --surface-soft: #1f2e25;
+  --surface-mint: #162c23;
+  --ink: #e3ebe6;
+  --ink-soft: #c4d0c8;
+  --muted: #7a8a80;
+  --muted-light: #5f6f64;
+  --line: #2d3d34;
+  --line-strong: #3a4d42;
+  --mint: #3dd4a0;
+  --mint-deep: #5aeab8;
+  --mint-soft: #162c23;
+  --mint-line: #1f4435;
+  --amber: #e5a03d;
+  --amber-soft: #2a2210;
+  --amber-line: #4a3a1a;
+  --rose: #ef7a74;
+  --rose-soft: #2a1614;
+  --rose-line: #4a2220;
+  --blue: #6fa0e0;
+  --blue-soft: #16222e;
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, .2);
+  --shadow-md: 0 18px 45px rgba(0, 0, 0, .3);
+  color-scheme: dark;
+}
+html.night-mode .night-mode-toggle .moon {
+  display: none;
+}
+html.night-mode .night-mode-toggle .sun {
+  display: block;
+}
+html.night-mode .topbar {
+  background: rgba(18, 26, 22, .86);
+  border-bottom-color: rgba(45, 61, 52, .82);
+}
+html.night-mode .module-nav {
+  background: rgba(28, 42, 34, .78);
+}
+html.night-mode .sync-badge {
+  background: rgba(28, 42, 34, .72);
+  border-color: var(--line);
+}
+html.night-mode .module-nav {
+  border-right-color: var(--line);
+}
+html.night-mode .capability-truth.verified {
+  color: #6fa0e0;
+  background: #16222e;
+}
+html.night-mode .capability-truth.partial,
+html.night-mode .capability-truth.planned {
+  color: #e5a03d;
+  background: #2a2210;
+}
+html.night-mode .ai-control {
+  --ai-bg: #1c2a22;
+  --ai-panel: rgba(28, 42, 34, .66);
+  --ai-panel-raised: rgba(28, 42, 34, .84);
+  --ai-line: rgba(255, 255, 255, .08);
+  --ai-text: #e3ebe6;
+  --ai-muted: #7a8a80;
+  --ai-accent: #3dd4a0;
+  background:
+    radial-gradient(circle at 86% 6%, rgba(92, 180, 142, .09), transparent 24%),
+    linear-gradient(145deg, #1c2a22, var(--ai-bg));
+  border-color: rgba(255, 255, 255, .06);
+  box-shadow: 0 34px 76px rgba(0, 0, 0, .24), 0 2px 7px rgba(0, 0, 0, .1);
+}
+html.night-mode .ai-control-hero .section-intro {
+  color: #7a8a80;
+}
+html.night-mode .ai-refresh-action {
+  background: rgba(28, 42, 34, .62);
+  color: #c4d0c8;
+  border-color: rgba(255, 255, 255, .08);
+  box-shadow: inset 0 1px rgba(255, 255, 255, .06), 0 10px 24px rgba(0, 0, 0, .12);
+}
+html.night-mode .ai-refresh-action:hover {
+  background: rgba(39, 58, 47, .82);
+}
+html.night-mode .ai-control-overview .connection-message strong {
+  color: #e3ebe6;
+}
+html.night-mode .module-link.is-active::before {
+  background: var(--mint);
+}
+html.night-mode .module-link:hover {
+  background: var(--surface-soft);
 }
 
 /* --- @media (max-width: 1080px) --- */

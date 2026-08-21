@@ -159,3 +159,57 @@
     --shadow-md: 0 18px 45px rgba(0, 0, 0, .3);
   }
 }
+
+/* ─── Manual Night Mode ─── */
+html.night-mode {
+  /* ─── Canvas & Backgrounds ─── */
+  --color-canvas: #121a16;
+  --color-canvas-deep: #0e1512;
+  --color-surface: #1c2a22;
+  --color-surface-soft: #1f2e25;
+  --color-paper: #121a16;
+
+  /* ─── Text ─── */
+  --color-ink: #e3ebe6;
+  --color-ink-soft: #c4d0c8;
+  --color-muted: #7a8a80;
+  --color-muted-light: #5f6f64;
+
+  /* ─── Borders & Lines ─── */
+  --color-line: #2d3d34;
+  --color-line-strong: #3a4d42;
+
+  /* ─── Accent (Mint / Green) ─── */
+  --color-accent: #3dd4a0;
+  --color-accent-deep: #5aeab8;
+  --color-accent-soft: #162c23;
+  --color-accent-line: #1f4435;
+
+  /* ─── Green (project-progress-board & xiaod) ─── */
+  --color-green: #3dd4a0;
+  --color-green-soft: #162c23;
+
+  /* ─── Danger (Rose / Red) ─── */
+  --color-danger: #ef7a74;
+  --color-danger-soft: #2a1614;
+  --color-danger-line: #4a2220;
+  --color-red: #ef7a74;
+  --color-red-soft: #2a1614;
+
+  /* ─── Warning (Amber) ─── */
+  --color-warning: #e5a03d;
+  --color-warning-soft: #2a2210;
+  --color-warning-line: #4a3a1a;
+  --color-amber: #e5a03d;
+  --color-amber-soft: #2a2210;
+
+  /* ─── Info (Blue) ─── */
+  --color-info: #6fa0e0;
+  --color-info-soft: #16222e;
+  --color-blue: #6fa0e0;
+  --color-blue-soft: #16222e;
+
+  /* ─── Shadows ─── */
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, .2);
+  --shadow-md: 0 18px 45px rgba(0, 0, 0, .3);
+}
