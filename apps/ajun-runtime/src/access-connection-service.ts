@@ -125,6 +125,15 @@ export class AccessConnectionService {
             throw new AccessConnectionError('账号连接服务返回了无效状态。');
         return connection;
     }
+
+    async verifyConnection(connectionId: any): Promise<any> {
+        const id: any = normalizeConnectionId(connectionId);
+        const payload: any = await this.request('/api/connections/' + encodeURIComponent(id) + '/verify', { method: 'POST' });
+        const connection: any = sanitizeConnection(payload.connection);
+        if (!connection)
+            throw new AccessConnectionError('账号连接服务返回了无效状态。');
+        return { ok: payload.ok, connection };
+    }
     async request(pathname: any, options: any = {}): Promise<any> {
         const response: any = await this.fetchImpl(new URL(pathname, this.baseUrl), {
             ...options,

@@ -241,6 +241,7 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
             return node;
         }));
     }
+    let verifying = false;
     async function renderAccessConnections() {
         if (!state.localOwner)
             return;
@@ -263,6 +264,13 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
             ...activeConnections.map(accountConnectionCard),
             ...(archivedConnections.length ? [archivedConnectionGroup(archivedConnections)] : [])
         ]);
+        const failedConnections = activeConnections.filter((connection) => connection.lastVerification?.status === 'failed');
+        if (failedConnections.length > 0 && !verifying) {
+            verifying = true;
+            await Promise.allSettled(failedConnections.map((connection) => api('/api/connections/' + connection.connectionId + '/verify', { method: 'POST' }).catch(() => null)));
+            verifying = false;
+            renderAccessConnections();
+        }
     }
     function renderContentAccessSummary(payload) {
         if (!contentAccessSummary)

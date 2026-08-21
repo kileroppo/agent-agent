@@ -207,6 +207,49 @@ app.post('/api/connections/:id/reauthorize', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.post('/api/connections/:id/verify', async (req, res, next) => {
+  try {
+    const connection = contentRuntime.connectionStore.get(req.params.id);
+    if (!connection) return res.status(404).json({ error: '账号连接不存在。' });
+
+    const provider = String(connection.provider || '');
+    let source = '';
+    if (provider === 'bili') source = 'https://www.bilibili.com/video/BV1xx411c7mD';
+    else if (provider === 'xhs') source = 'https://www.xiaohongshu.com/explore';
+    else if (provider === 'dy') source = 'https://www.douyin.com/';
+    else if (provider === 'ks') source = 'https://www.kuaishou.com/';
+    else return res.status(400).json({ error: '不支持的平台。' });
+
+    let result;
+    try {
+      result = await contentRuntime.contentCenter.fetch({
+        source,
+        requestedCapabilities: ['basic_content'],
+        connectionId: connection.connectionId,
+      });
+    } catch (error) {
+      await contentRuntime.connectionStore.recordVerification(connection.connectionId, {
+        status: 'failed',
+        adapterId: provider,
+        capabilities: ['basic_content'],
+        failureCode: String((error as any)?.code || 'verify_failed').slice(0, 120),
+      });
+      return res.json({ ok: false, connection: contentRuntime.connectionStore.get(connection.connectionId) });
+    }
+
+    await contentRuntime.connectionStore.recordVerification(connection.connectionId, {
+      status: result.ok ? 'succeeded' : 'failed',
+      adapterId: result.contentPackage?.adapterRef?.adapterId || provider,
+      capabilities: result.contentPackage?.providedCapabilities || ['basic_content'],
+      failureCode: result.failureCode || null,
+    });
+
+    res.json({ ok: result.ok, connection: contentRuntime.connectionStore.get(connection.connectionId) });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/jobs/upload', upload.single('media'), async (req, res, next) => {
   try {
     if (!req.file) return res.status(422).json({ error: '请选择一个音频或视频文件。' });

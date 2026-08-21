@@ -238,6 +238,7 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
             return node;
         }));
     }
+    let verifying = false;
     async function renderAccessConnections(): Promise<any> {
         if (!state.localOwner)
             return;
@@ -260,6 +261,17 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
             ...activeConnections.map(accountConnectionCard),
             ...(archivedConnections.length ? [archivedConnectionGroup(archivedConnections)] : [])
         ]);
+        const failedConnections = activeConnections.filter((connection: any): any => connection.lastVerification?.status === 'failed');
+        if (failedConnections.length > 0 && !verifying) {
+            verifying = true;
+            await Promise.allSettled(
+                failedConnections.map((connection: any): any =>
+                    api('/api/connections/' + connection.connectionId + '/verify', { method: 'POST' }).catch(() => null)
+                )
+            );
+            verifying = false;
+            renderAccessConnections();
+        }
     }
     function renderContentAccessSummary(payload: any): any {
         if (!contentAccessSummary)

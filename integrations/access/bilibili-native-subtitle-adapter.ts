@@ -72,6 +72,10 @@ export class BilibiliNativeSubtitleAdapter implements ContentAcquisitionAdapter 
       return metadataOnly(basicContent, Boolean(cookie));
     }
 
+    if (!cookie) {
+      return metadataOnly(basicContent, false);
+    }
+
     await onProgress?.({ stage: 'acquiring', progress: 18, message: '正在优先读取 B站原生字幕' });
     const player = await this.fetchApiJson(
       `https://api.bilibili.com/x/player/v2?bvid=${encodeURIComponent(bvid)}&cid=${encodeURIComponent(page.cid)}`,
