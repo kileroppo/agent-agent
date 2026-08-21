@@ -172,16 +172,20 @@ test('4.7 CLI 对被诊断对象只读：HERMES_HOME 夹具逐字节不变，留
 test('4.7 两侧账本按 recordedAt 合并，同一 sourceEventRef 可关联（需求 2.4 / 2.5 / 2.8）', async (context) => {
   const fixture = await makeHermesFixture(context, { patched: true });
   const sourceEventRef = 'feishu:om_cli_merge_1';
+  const runtimeNow = new Date();
+  runtimeNow.setHours(2, 0, 0, 0);
+  const runtimeNowIso = runtimeNow.toISOString();
+  const runtimeDateStr = runtimeNowIso.slice(0, 10);
   const runtimeLedger = createFeishuCommanderChainEvidenceLedger({
     dataDir: fixture.dataDir,
-    now: () => new Date('2026-08-18T02:00:00.000Z'),
+    now: () => runtimeNow,
   });
   await runtimeLedger.record({ kind: 'no_task_by_design', sourceEventRef, reason: 'explicit_direct_reply_without_task' });
   await fs.writeFile(
-    path.join(fixture.hermesHome, `agent_army_commander_evidence-${new Date().toISOString().slice(0, 10)}.jsonl`),
+    path.join(fixture.hermesHome, `agent_army_commander_evidence-${runtimeDateStr}.jsonl`),
     `${JSON.stringify({
       schemaVersion: 'agent.army/feishu-commander-chain-evidence/v1',
-      recordedAt: '2026-08-18T01:00:00.000Z',
+      recordedAt: `${runtimeDateStr}T01:00:00.000Z`,
       side: 'hermes-gateway',
       kind: 'ingress_unreachable',
       sourceEventRef,
@@ -195,7 +199,7 @@ test('4.7 两侧账本按 recordedAt 合并，同一 sourceEventRef 可关联（
   const payload = JSON.parse(runCli(['--json'], fixture).stdout);
   assert.deepEqual(
     payload.recentEvidence.map((record) => `${record.recordedAt}:${record.side}`),
-    ['2026-08-18T01:00:00.000Z:hermes-gateway', '2026-08-18T02:00:00.000Z:ajun-runtime'],
+    [`${runtimeDateStr}T01:00:00.000Z:hermes-gateway`, `${runtimeNowIso}:ajun-runtime`],
     '两侧账本必须按 recordedAt 合并排序。',
   );
   assert.equal(new Set(payload.recentEvidence.map((record) => record.sourceEventRef)).size, 1, '同一事件必须可关联。');

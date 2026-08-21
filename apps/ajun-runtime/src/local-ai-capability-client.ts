@@ -185,9 +185,10 @@ function sanitizeService(item: any): any {
     };
 }
 function buildCategories(routing: any[], services: any[]): any[] {
+    const normalized: any = normalizeRouting(routing);
     return CAPABILITY_CATEGORIES.map((category: any): any => {
         const capSet: any = new Set(category.capabilities);
-        const matchedRoutes: any = routing.filter((route: any): any => capSet.has(route.capability));
+        const matchedRoutes: any = normalized.filter((route: any): any => capSet.has(route.capability));
         const ready: any = matchedRoutes.filter((route: any): any => route.providers.length > 0).length;
         const serviceIds: any = new Set();
         for (const route of matchedRoutes) {
@@ -205,6 +206,41 @@ function buildCategories(routing: any[], services: any[]): any[] {
             serviceIds: [...serviceIds],
         };
     });
+}
+
+function normalizeRouting(routing: any[]): any[] {
+    const expanded: any[] = [];
+    const seen: any = new Set();
+    for (const route of routing) {
+        const capability: any = String(route?.capability || '').trim();
+        if (!capability) continue;
+        const parts: any = capability.split('/').map((part: any): any => part.trim()).filter(Boolean);
+        if (parts.length > 1) {
+            for (const part of parts) {
+                const mapped: any = mapCombinedCapability(part);
+                if (mapped && !seen.has(mapped)) {
+                    seen.add(mapped);
+                    expanded.push({ capability: mapped, providers: Array.isArray(route?.providers) ? route.providers : [] });
+                }
+            }
+        } else if (!seen.has(capability)) {
+            seen.add(capability);
+            expanded.push({ capability, providers: Array.isArray(route?.providers) ? route.providers : [] });
+        }
+    }
+    return expanded;
+}
+
+function mapCombinedCapability(part: any): any {
+    const text: any = String(part || '').toLowerCase();
+    if (text.includes('text') || text.includes('语言模型') || text.includes('模型')) return 'text.generate';
+    if (text.includes('vision') || text.includes('视觉')) return 'vision.analyze';
+    if (text.includes('video')) return 'video.analyze';
+    if (text.includes('audio') && text.includes('transcribe')) return 'audio.transcribe';
+    if (text.includes('audio') && text.includes('synthesize')) return 'audio.synthesize';
+    if (text.includes('image') && text.includes('generate')) return 'image.generate';
+    if (text.includes('image') && text.includes('edit')) return 'image.edit';
+    return null;
 }
 function unavailableControl(): any {
     return {
