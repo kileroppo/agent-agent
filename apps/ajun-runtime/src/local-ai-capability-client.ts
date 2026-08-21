@@ -186,6 +186,7 @@ function sanitizeService(item: any): any {
 }
 function buildCategories(routing: any[], services: any[]): any[] {
     const normalized: any = normalizeRouting(routing);
+    const serviceMap: any = new Map(services.map((service: any): any => [service.id, service]));
     return CAPABILITY_CATEGORIES.map((category: any): any => {
         const capSet: any = new Set(category.capabilities);
         const matchedRoutes: any = normalized.filter((route: any): any => capSet.has(route.capability));
@@ -193,8 +194,14 @@ function buildCategories(routing: any[], services: any[]): any[] {
         const serviceIds: any = new Set();
         for (const route of matchedRoutes) {
             for (const provider of route.providers) {
-                const id: any = provider.split('/')[0];
-                if (SERVICE_IDS.has(id)) serviceIds.add(id);
+                const mapped: any = providerToServiceId(provider);
+                if (mapped && SERVICE_IDS.has(mapped)) serviceIds.add(mapped);
+            }
+        }
+        const providers: any = new Set();
+        for (const route of matchedRoutes) {
+            for (const provider of route.providers) {
+                providers.add(provider);
             }
         }
         return {
@@ -204,8 +211,30 @@ function buildCategories(routing: any[], services: any[]): any[] {
             readyCount: ready,
             totalCount: category.capabilities.length,
             serviceIds: [...serviceIds],
+            providers: [...providers],
         };
     });
+}
+
+function providerToServiceId(provider: any): any {
+    const text: any = String(provider || '').trim();
+    const lower: any = text.toLowerCase();
+    // Handle "serviceId/capability" format (used in tests)
+    if (text.includes('/')) {
+        const id: any = text.split('/')[0]?.trim() || '';
+        if (id && SERVICE_IDS.has(id)) return id;
+    }
+    // Handle human-readable provider names from gateway
+    if (lower.includes('qwen3.5') || lower.includes('qwen35')) return 'qwen35';
+    if (lower.includes('qwen3.6') || lower.includes('qwen36')) return 'qwen36-candidate';
+    if (lower.includes('whisper') || lower.includes('asr')) return 'speech-tools';
+    if (lower.includes('tts')) return 'speech-tools';
+    if (lower.includes('mflux')) return 'mflux';
+    if (lower.includes('comfyui') || lower.includes('4070')) return 'comfyui';
+    if (lower.includes('embedding')) return 'embedding';
+    if (lower.includes('reranker')) return 'reranker';
+    if (lower.includes('desktop-node')) return 'desktop-node';
+    return null;
 }
 
 function normalizeRouting(routing: any[]): any[] {
