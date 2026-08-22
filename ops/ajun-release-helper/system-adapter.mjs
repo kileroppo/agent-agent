@@ -192,10 +192,14 @@ export class AjunReleaseSystemAdapter {
 
   async freezeCandidate(sourceRoot, expectedGitHead) {
     const outputParent = path.join(sourceRoot, 'work', 'runtime-releases');
-    await this.runCommand(process.execPath, [
-      path.join(sourceRoot, 'apps', 'ajun-runtime', 'scripts', 'manage-immutable-runtime-release.mjs'),
-      'freeze', '--repo-root', sourceRoot, '--output-parent', outputParent, '--verify',
-    ], { cwd:sourceRoot });
+    try {
+      await this.runCommand(process.execPath, [
+        path.join(sourceRoot, 'apps', 'ajun-runtime', 'scripts', 'manage-immutable-runtime-release.mjs'),
+        'freeze', '--repo-root', sourceRoot, '--output-parent', outputParent, '--verify',
+      ], { cwd:sourceRoot });
+    } catch {
+      throw new Error('完整验证未通过：A君测试或发布校验失败。请在候选源码运行 npm test 查看首个失败项；未生成新 release，也没有切换线上服务。');
+    }
     const candidates = [];
     for (const name of await fs.readdir(outputParent)) {
       if (!name.startsWith('ajun-runtime-release-v1-')) continue;

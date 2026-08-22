@@ -122,6 +122,16 @@ test('发布严格按准备、验证、冻结、切换和线上回读推进', as
   assert.equal(history[0].backupPlist, path.join(fixture.root, 'backup.plist'));
 });
 
+test('冻结阶段失败时说明是完整验证失败，不把原因笼统显示为 node 执行失败', async (context) => {
+  const fixture = await createFixture(context);
+  fixture.adapter.runCommand = async () => { throw new Error('node 执行失败（1）。'); };
+
+  await assert.rejects(
+    () => fixture.adapter.freezeCandidate(path.join(fixture.root, 'candidate'), fixture.newHead),
+    /完整验证未通过.*npm test/,
+  );
+});
+
 test('新版启动失败时恢复旧 plist 并标记自动回滚', async (context) => {
   const fixture = await createFixture(context);
   const mainPlist = path.join(fixture.root, 'main.plist');

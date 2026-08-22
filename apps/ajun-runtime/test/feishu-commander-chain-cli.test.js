@@ -116,7 +116,10 @@ test('3.6 最坏环境（HERMES_HOME 不存在 + 4321 未监听 + launchd 标签
   assert.deepEqual(payload.recentEvidence, []);
   assert.equal(payload.verdict, 'blocking_gap');
   assert.ok(payload.uniqueNextStep);
-  assert.match(payload.uniqueNextStep, /patch-feishu-agent-proposal-router\.mjs/);
+  // launchctl 属于当前登录用户的真实状态，不能假设测试机一定没有同名服务。
+  // 补丁缺失的恢复动作必须仍准确给出，不把它错误地绑到总判定的首个缺口。
+  const adapterPatch = payload.checks.find((check) => check.id === 'adapter-patch');
+  assert.match(adapterPatch.nextStep, /patch-feishu-agent-proposal-router\.mjs/);
   assert.equal(run.status, 1);
 });
 
