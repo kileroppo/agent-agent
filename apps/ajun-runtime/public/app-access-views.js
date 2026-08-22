@@ -91,9 +91,10 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
         }
         const serviceMap = new Map(services.map((service) => [service.id, service]));
         const assigned = new Set();
-        return categories.map((category) => {
+        const groups = categories.map((category) => {
+            // 能力路由可能共用同一个服务（如 Qwen3.5 同时承接文本与视觉），分组间不去重，避免后续分组被抽空。
             const categoryServices = (category.serviceIds || [])
-                .filter((id) => serviceMap.has(id) && !assigned.has(id))
+                .filter((id) => serviceMap.has(id))
                 .map((id) => { assigned.add(id); return serviceMap.get(id); });
             const unmatched = services.filter((service) => !assigned.has(service.id) && serviceBelongsToCategory(service, category, services, categories));
             for (const service of unmatched) {
@@ -102,6 +103,12 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
             }
             return aiCategoryGroup(category, categoryServices);
         }).filter((node) => node !== null);
+        const leftoverServices = services.filter((service) => !assigned.has(service.id));
+        if (leftoverServices.length) {
+            const readyCount = leftoverServices.filter((service) => service.state === 'running' || service.state === 'ready').length;
+            groups.push(aiCategoryGroup({ id: 'other', label: '其他服务', readyCount, totalCount: leftoverServices.length }, leftoverServices));
+        }
+        return groups;
     }
     function serviceBelongsToCategory(_service, _category, _services, _categories) {
         return false;

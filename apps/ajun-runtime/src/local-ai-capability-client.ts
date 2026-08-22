@@ -21,6 +21,10 @@ export const CAPABILITY_CATEGORIES: any = [
     { id: 'knowledge', label: '\u77E5\u8BC6\u68C0\u7D22', capabilities: ['embedding.create', 'rerank.score', 'knowledge.index', 'knowledge.search'] },
 ];
 const SERVICE_IDS: any = new Set(['gateway', 'qwen35', 'qwen36-candidate', 'embedding', 'reranker', 'speech-tools', 'mflux', 'desktop-node', 'comfyui']);
+// 网关路由未登记对应能力时，按服务本身回退到所属分组，避免分组丢失服务卡片。
+const CATEGORY_SERVICE_FALLBACK: any = {
+    knowledge: ['embedding', 'reranker'],
+};
 const SERVICE_ACTIONS: any = new Set(['start', 'stop', 'restart', 'reconnect']);
 const SERVICE_MODES: any = new Set(['on_demand', 'always_on', 'disabled', 'per_request']);
 export class LocalAiCapabilityClient {
@@ -197,6 +201,9 @@ function buildCategories(routing: any[], services: any[]): any[] {
                 const mapped: any = providerToServiceId(provider);
                 if (mapped && SERVICE_IDS.has(mapped)) serviceIds.add(mapped);
             }
+        }
+        for (const fallbackId of CATEGORY_SERVICE_FALLBACK[category.id] || []) {
+            if (serviceMap.has(fallbackId)) serviceIds.add(fallbackId);
         }
         const providers: any = new Set();
         for (const route of matchedRoutes) {
