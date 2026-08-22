@@ -86,6 +86,17 @@ test('飞书链路诊断默认收起，轮询不重建已展开内容或暴露�
   assert.doesNotMatch(script, /<strong>\$\{diagnosis\.verdict\}<\/strong>/);
 });
 
+test('暗色模式把顶栏、侧栏和同步状态与内容区切到同一套主题色', async () => {
+  const styles = await readFile(new URL('styles.css', publicRoot), 'utf8');
+
+  assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*--topbar-background: rgba\(18, 26, 22, \.86\)/);
+  assert.match(styles, /html\.night-mode\s*\{[\s\S]*--module-nav-background: rgba\(28, 42, 34, \.78\)/);
+  assert.match(styles, /\.topbar\s*\{[\s\S]*background: var\(--topbar-background\)/);
+  assert.match(styles, /\.module-nav\s*\{[\s\S]*background: var\(--module-nav-background\)/);
+  assert.match(styles, /\.sync-badge\s*\{[\s\S]*background: var\(--sync-badge-background\)/);
+  assert.match(styles, /@media \(prefers-color-scheme: dark\)[\s\S]*color-scheme: dark/);
+});
+
 test('任务记录读取失败可原地恢复，缺失下一步时不让用户空等或盲重试', async () => {
   const script = await readFile(new URL('task-record-workbench.js', publicRoot), 'utf8');
   const detailLoader = script.match(/async function loadSelectedDetail[\s\S]*?\n    async function selectTask/)?.[0] || '';
