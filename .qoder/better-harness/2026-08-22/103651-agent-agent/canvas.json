@@ -1,0 +1,117 @@
+{
+  "meta": {
+    "generatedFrom": "findings.json",
+    "canvasVersion": "1.0",
+    "layout": "grid",
+    "columns": 3,
+    "theme": "dark"
+  },
+  "sections": [
+    {
+      "id": "header",
+      "type": "header",
+      "colSpan": 3,
+      "content": {
+        "title": "Agent军团 Harness 分析",
+        "subtitle": "agent-agent · 2026-08-22",
+        "score": 72,
+        "scoreLabel": "综合评分"
+      }
+    },
+    {
+      "id": "score-breakdown",
+      "type": "radar",
+      "colSpan": 1,
+      "content": {
+        "title": "维度评分",
+        "axes": [
+          { "label": "规则清晰度", "value": 88 },
+          { "label": "领域建模", "value": 92 },
+          { "label": "跨 Harness 一致性", "value": 55 },
+          { "label": "自动生成质量", "value": 35 },
+          { "label": "安全对齐", "value": 78 },
+          { "label": "CI 门禁覆盖", "value": 70 },
+          { "label": "参考集就绪", "value": 0 }
+        ]
+      }
+    },
+    {
+      "id": "top-strengths",
+      "type": "list",
+      "colSpan": 1,
+      "content": {
+        "title": "核心优势",
+        "items": [
+          { "id": "S2", "label": "领域语言精确度 92", "detail": "CONTEXT.md 25+ 概念配 Avoid 反模式" },
+          { "id": "S1", "label": "四层入口优先级", "detail": "AGENTS → CLAUDE → CONTEXT → README" },
+          { "id": "S3", "label": "Manifest Schema 深度", "detail": "20+ 必填字段含预算与自治策略" },
+          { "id": "S4", "label": "能力真相五层模型", "detail": "禁止用前一层冒充后一层" }
+        ]
+      }
+    },
+    {
+      "id": "top-issues",
+      "type": "list",
+      "colSpan": 1,
+      "content": {
+        "title": "关键问题",
+        "items": [
+          { "id": "I1", "label": "SKILL.md 与实际代码严重不符", "severity": "high", "detail": "import/测试/后缀三项全错" },
+          { "id": "I4", "label": "Codex 安全模式矛盾", "severity": "high", "detail": "danger-full-access vs 审批原则" },
+          { "id": "I6", "label": "Hermes 补丁无自动检测", "severity": "high", "detail": "升级后静默失败" },
+          { "id": "I7", "label": "双白名单无漂移检测", "severity": "high", "detail": "军团侧允许、网关侧拒绝" }
+        ]
+      }
+    },
+    {
+      "id": "harness-topology",
+      "type": "table",
+      "colSpan": 2,
+      "content": {
+        "title": "Harness 拓扑",
+        "headers": ["Harness", "规则文件", "Skills/Commands", "独有配置"],
+        "rows": [
+          ["Claude Code", "AGENTS.md + CLAUDE.md + CONTEXT.md", "1 SKILL + 3 Commands + Instincts", "identity.json + ecc-tools.json"],
+          ["Codex", ".codex/AGENTS.md", "1 SKILL (mirror)", "config.toml + 3 agent TOMLs"],
+          ["Kiro", "—", "—", ".kiro/specs/ (bugfix design)"],
+          ["Serena", "—", "—", "project.yml + memories/"]
+        ]
+      }
+    },
+    {
+      "id": "priority-actions",
+      "type": "timeline",
+      "colSpan": 1,
+      "content": {
+        "title": "优先行动",
+        "items": [
+          { "order": 1, "label": "重生成/标记 SKILL.md 过时", "effort": "low" },
+          { "order": 2, "label": "对齐 Codex 安全配置", "effort": "low" },
+          { "order": 3, "label": "同步 CONTEXT.md 到 Codex", "effort": "medium" },
+          { "order": 4, "label": "Hermes 补丁在位校验", "effort": "medium" },
+          { "order": 5, "label": "白名单单一真相", "effort": "medium" },
+          { "order": 6, "label": "扩展 CI 覆盖", "effort": "low" }
+        ]
+      }
+    },
+    {
+      "id": "unique-practices",
+      "type": "tags",
+      "colSpan": 3,
+      "content": {
+        "title": "项目独有实践",
+        "tags": [
+          "能力真相五层模型",
+          "CONTEXT.md Avoid 反模式",
+          "Agent Manifest JSON Schema",
+          "autonomyBudgetPolicy",
+          "dynamicCapabilityPolicy",
+          "文档 6 态流转 + 4 道硬门禁",
+          "truthLayerCeiling 诊断分层",
+          "不可变 release 双端口分离",
+          "复用优先写入协作规则"
+        ]
+      }
+    }
+  ]
+}

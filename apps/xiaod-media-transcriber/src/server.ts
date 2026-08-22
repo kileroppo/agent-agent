@@ -226,6 +226,8 @@ app.post('/api/connections/:id/verify', async (req, res, next) => {
         source,
         requestedCapabilities: ['basic_content'],
         connectionId: connection.connectionId,
+        requestingAgentId: 'xiaod',
+        workspace: config.workDir,
       });
     } catch (error) {
       await contentRuntime.connectionStore.recordVerification(connection.connectionId, {
@@ -239,9 +241,9 @@ app.post('/api/connections/:id/verify', async (req, res, next) => {
 
     await contentRuntime.connectionStore.recordVerification(connection.connectionId, {
       status: result.ok ? 'succeeded' : 'failed',
-      adapterId: result.contentPackage?.adapterRef?.adapterId || provider,
-      capabilities: result.contentPackage?.providedCapabilities || ['basic_content'],
-      failureCode: result.failureCode || null,
+      adapterId: result.ok ? result.contentPackage.adapterRef.adapterId : provider,
+      capabilities: result.ok ? [...result.contentPackage.providedCapabilities] : ['basic_content'],
+      failureCode: result.ok ? null : String(result.code).slice(0, 120),
     });
 
     res.json({ ok: result.ok, connection: contentRuntime.connectionStore.get(connection.connectionId) });

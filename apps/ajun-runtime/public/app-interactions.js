@@ -292,13 +292,15 @@ export function bindConsoleInteractions({ elements, state, api, load, setSyncSta
         if (action === 'reauthorize') {
             state.reauthorizeConnectionId = button.dataset.connectionId;
             accessLoginProvider.value = button.dataset.provider;
+            // 续期时锁定平台，防止下拉框落到其他平台导致误开错误登录页、续期到错误连接。
+            accessLoginProvider.disabled = true;
             accessLoginAlias.value = button.dataset.alias;
             accessLoginDisclosure.open = true;
             accessViews.renderAccessLoginAccounts();
             accessViews.setAccessStep(1);
             saveAccessConnection.textContent = '3. 续期并恢复连接';
             cancelAccessReauthorize.hidden = false;
-            accessLoginMessage.textContent = '先确认平台登录，再选择账号完成续期。';
+            accessLoginMessage.textContent = `正在续期：${button.dataset.providerLabel || button.dataset.provider}「${button.dataset.alias}」。先确认平台登录，再选择账号完成续期。`;
             accessLoginForm.scrollIntoView({ behavior: 'smooth', block: 'center' });
             return;
         }

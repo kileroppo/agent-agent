@@ -273,7 +273,7 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
             verifying = true;
             await Promise.allSettled(
                 failedConnections.map((connection: any): any =>
-                    api('/api/connections/' + connection.connectionId + '/verify', { method: 'POST' }).catch(() => null)
+                    api('/api/access-connections/' + connection.connectionId + '/verify', { method: 'POST' }).catch(() => null)
                 )
             );
             verifying = false;
@@ -331,7 +331,7 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
                 : { className: 'failed', label: '读取失败' }
             : { className: connection.status, label: statusLabel(connection.status) };
         const managementActions: any = [
-            canReauthorize ? `<button type="button" class="secondary-action" data-connection-action="reauthorize" data-connection-id="${escapeHtml(connection.connectionId)}" data-provider="${escapeHtml(connection.provider)}" data-alias="${escapeHtml(connection.accountAlias)}">${connection.status === 'active' ? '续期/重新授权' : '重新授权'}</button>` : '',
+            canReauthorize ? `<button type="button" class="secondary-action" data-connection-action="reauthorize" data-connection-id="${escapeHtml(connection.connectionId)}" data-provider="${escapeHtml(connection.provider)}" data-provider-label="${escapeHtml(providerLabel(connection.provider))}" data-alias="${escapeHtml(connection.accountAlias)}">${connection.status === 'active' ? '续期/重新授权' : '重新授权'}</button>` : '',
             canDisable ? `<button type="button" class="secondary-action" data-connection-action="disable" data-connection-id="${escapeHtml(connection.connectionId)}">暂时禁用</button>` : '',
             canRevoke ? `<button type="button" class="secondary-action danger-action" data-connection-action="revoke" data-connection-id="${escapeHtml(connection.connectionId)}">永久撤销</button>` : ''
         ].filter(Boolean).join('');
@@ -431,6 +431,7 @@ export function createAccessViews({ elements, state, api, statusLabel, formatDat
         state.reauthorizeConnectionId = '';
         saveAccessConnection.textContent = '3. 授权给小D';
         cancelAccessReauthorize.hidden = true;
+        accessLoginProvider.disabled = false;
         setAccessStep(1);
     }
     function isLoopbackLocation(): any {

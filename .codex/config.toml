@@ -1,8 +1,10 @@
 #:schema https://developers.openai.com/codex/config-schema.json
 
 # ECC Tools generated Codex baseline
-approval_policy = "never"
-sandbox_mode = "danger-full-access"
+# 2026-08-22 corrected: sandbox_mode and approval_policy aligned with AGENTS.md security rules.
+# AGENTS.md requires explicit approval for external writes, sensitive access, and high-cost actions.
+approval_policy = "auto-edit"
+sandbox_mode = "workspace-write"
 web_search = "live"
 
 model_verbosity = "low"

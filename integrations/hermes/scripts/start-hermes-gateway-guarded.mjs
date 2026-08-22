@@ -5,11 +5,52 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { reconcileHermesSkillWhitelists, HermesSkillWhitelistError } from './reconcile-hermes-skill-whitelist.mjs';
+import fs from 'node:fs/promises';
 
 const scriptPath = fileURLToPath(import.meta.url);
 const scriptDirectory = path.dirname(scriptPath);
 const repositoryRoot = path.resolve(scriptDirectory, '../../..');
 const defaultAgentsRoot = path.join(repositoryRoot, 'agents');
+
+// Adapter patch markers — if any is missing, Hermes upgrade has overwritten the patches.
+// See .kiro/specs/feishu-commander-no-reply-fix/bugfix.md §1.3, §1.22–1.24.
+const REQUIRED_ADAPTER_MARKERS = [
+  '_route_ajun_commander_event',
+  'AGENT_ARMY_FEISHU_COMMANDER_PROFILE_GUARD_V1',
+  'AGENT_ARMY_FEISHU_COMMANDER_DIRECT_REPLY_V1',
+  'AJUN_COMMANDER_INGRESS_TIMEOUT_V1',
+  'AGENT_ARMY_HERMES_FEISHU_ADAPTER_SEAM_V1',
+  'AGENT_ARMY_FEISHU_COMMANDER_SILENT_FAILURE_EVIDENCE_V1',
+];
+
+export async function assertAdapterPatchInPlace({
+  profileHomeFor,
+  adapterRelativePath = path.join('plugins', 'platforms', 'feishu', 'adapter.py')
+} = {}) {
+  const hermesHome = typeof profileHomeFor === 'function'
+    ? profileHomeFor('ajun')
+    : process.env.HERMES_HOME || path.join(process.env.HOME || '', '.hermes');
+  const adapterPath = path.join(hermesHome, 'hermes-agent', adapterRelativePath);
+  let source;
+  try {
+    source = await fs.readFile(adapterPath, 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      throw new HermesSkillWhitelistError(
+        `adapter.py 不存在：${adapterPath}；Hermes 可能未安装或路径已变更。拒绝启动 Gateway。`
+      );
+    }
+    throw error;
+  }
+  const missing = REQUIRED_ADAPTER_MARKERS.filter((marker) => !source.includes(marker));
+  if (missing.length > 0) {
+    throw new HermesSkillWhitelistError(
+      `adapter.py 缺少 ${missing.length} 个军团补丁标记（${missing.join(', ')}）；`
+      + `Hermes 升级可能已覆盖补丁。请先运行 integrations/hermes/scripts/patch-feishu-agent-proposal-router.mjs 并重启 Gateway。`
+    );
+  }
+  return { adapterPath, markersChecked: REQUIRED_ADAPTER_MARKERS.length };
+}
 
 export async function assertHermesGatewayStartAllowed({
   agentId,
@@ -18,6 +59,10 @@ export async function assertHermesGatewayStartAllowed({
   reconcile = reconcileHermesSkillWhitelists
 } = {}) {
   const normalizedAgentId = normalizeAgentId(agentId);
+
+  // Check adapter patch before skill whitelist reconciliation.
+  await assertAdapterPatchInPlace({ profileHomeFor });
+
   const results = await reconcile({
     agentsRoot,
     agentIds:[normalizedAgentId],

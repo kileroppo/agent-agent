@@ -259,6 +259,12 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                     return sendJson(response, 403, { error: '账号连接只能由老板在本机重新授权。' });
                 return sendJson(response, 200, { connection: await accessConnections.reauthorize(accessConnectionReauthorizeMatch[1], await readJsonBody(request)) });
             }
+            const accessConnectionVerifyMatch: any = request.url?.match(/^\/api\/access-connections\/([0-9a-f-]{36})\/verify$/i);
+            if (request.method === 'POST' && accessConnectionVerifyMatch) {
+                if (!isLocalAddress(request.socket.remoteAddress))
+                    return sendJson(response, 403, { error: '账号连接只能由老板在本机验证。' });
+                return sendJson(response, 200, await accessConnections.verifyConnection(accessConnectionVerifyMatch[1]));
+            }
             const employeeFeishuConnectionMatch: any = request.url?.match(/^\/api\/employee-feishu-connections\/([a-z][a-z0-9-]{0,63})$/);
             if (request.method === 'POST' && employeeFeishuConnectionMatch) {
                 if (!isLocalAddress(request.socket.remoteAddress))
