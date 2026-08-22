@@ -13,8 +13,9 @@ export type ReleaseProtection = 'live' | 'rollback' | 'xiaod-live' | null;
 export function runtimeReleasesRoot(): string {
   if (process.env.AGENT_ARMY_RELEASES_DIR)
     return path.resolve(process.env.AGENT_ARMY_RELEASES_DIR);
-  const privateDir = process.env.AGENT_ARMY_PRIVATE_DIR || path.join(os.homedir(), '.agent-army');
-  return path.join(privateDir, 'runtime-releases');
+  // 与发布助手的部署目录保持一致（install.mjs 固定为 ~/.agent-army/runtime-releases）。
+  // 不跟随 AGENT_ARMY_PRIVATE_DIR：线上进程的私有目录是另一处子目录，会导致清单读空。
+  return path.join(os.homedir(), '.agent-army', 'runtime-releases');
 }
 
 /** 汇总发布助手状态与 launchd 现状，得到所有不可删除的版本号。 */
