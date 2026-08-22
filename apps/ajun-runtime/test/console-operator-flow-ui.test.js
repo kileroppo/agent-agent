@@ -76,6 +76,16 @@ test('首页把负责人动作、运行、系统可靠性和业务质量债分�
   }, { taskId:'acceptance', workflowId:'workflow-1', status:'waiting_acceptance' }), true);
 });
 
+test('飞书链路诊断默认收起，轮询不重建已展开内容或暴露内部枚举', async () => {
+  const script = await readFile(new URL('app.js', publicRoot), 'utf8');
+
+  assert.match(script, /const existing = chainDiagnosis\.querySelector\('\.chain-diagnosis-disclosure'\)/);
+  assert.match(script, /if \(existing\.open\)\s*fetchChainDiagnosis\(\)/);
+  assert.match(script, /展开看下一步/);
+  assert.match(script, /diagnosis_incomplete: '本机信息不足，暂无法确认'/);
+  assert.doesNotMatch(script, /<strong>\$\{diagnosis\.verdict\}<\/strong>/);
+});
+
 test('任务记录读取失败可原地恢复，缺失下一步时不让用户空等或盲重试', async () => {
   const script = await readFile(new URL('task-record-workbench.js', publicRoot), 'utf8');
   const detailLoader = script.match(/async function loadSelectedDetail[\s\S]*?\n    async function selectTask/)?.[0] || '';

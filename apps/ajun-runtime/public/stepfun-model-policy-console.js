@@ -95,7 +95,9 @@ export function createStepFunModelPolicyConsole({ root, api }) {
     function roleRow(employee, reasoning) {
         const modelOptions = reasoning.map((model) => html `<option value="${model.id}"${model.id === employee.model ? ' selected' : ''}>${model.name}</option>`).join('');
         const model = reasoning.find((item) => item.id === employee.model) || reasoning[0];
-        const effortOptions = (model?.efforts || []).map((effort) => html `<option value="${effort}"${effort === employee.reasoningEffort ? ' selected' : ''}>${effortLabel(effort)}</option>`).join('');
+        const efforts = (model?.efforts || []).filter((effort) => effort !== 'none');
+        const selectedEffort = efforts.includes(employee.reasoningEffort) ? employee.reasoningEffort : (model?.recommendedEffort || efforts[0]);
+        const effortOptions = efforts.map((effort) => html `<option value="${effort}"${effort === selectedEffort ? ' selected' : ''}>${effortLabel(effort)}</option>`).join('');
         return html `<article class="fleet-role-row" data-fleet-agent="${employee.agentId}">
       <div class="fleet-role-head"><strong>${employee.name}</strong><small>${employee.role}</small><span class="fleet-role-badge" hidden>已覆盖</span></div>
       <div class="fleet-role-controls">
@@ -126,14 +128,12 @@ export function createStepFunModelPolicyConsole({ root, api }) {
         const selectedValue = capabilityValue(selected);
         const options = (route.options || []).map((model) => {
             const value = capabilityValue(model);
-            const unavailable = model.available === false ? ' · 当前账号未返回' : '';
-            return html `<option value="${value}"${value === selectedValue ? ' selected' : ''}>${model.name} · ${model.badge || model.provider}${unavailable}</option>`;
+            const unavailable = model.available === false ? '（当前账号未返回）' : '';
+            return html `<option value="${value}"${value === selectedValue ? ' selected' : ''}>${model.name}${unavailable}</option>`;
         }).join('');
         return html `<article class="capability-model-card">
       <span>${route.capability} · ${route.owner}</span>
       <label><strong>执行模型</strong><select data-capability-key="${route.key}">${raw(options)}</select></label>
-      <small data-capability-description>${capabilityDescription(route, selectedValue)}</small>
-      <small class="capability-model-badge">${route.summary || ''}</small>
     </article>`;
     }
     function capabilityDescription(route, value) {
@@ -151,8 +151,9 @@ export function createStepFunModelPolicyConsole({ root, api }) {
             return;
         const model = payload.catalog.reasoning.find((item) => item.id === modelSelect.value);
         const current = preferred || effortSelect.value || model?.recommendedEffort;
-        effortSelect.replaceChildren(...(model?.efforts || []).map((effort) => option(effort, effortLabel(effort))));
-        effortSelect.value = model?.efforts.includes(current) ? current : model?.recommendedEffort;
+        const efforts = (model?.efforts || []).filter((effort) => effort !== 'none');
+        effortSelect.replaceChildren(...efforts.map((effort) => option(effort, effortLabel(effort))));
+        effortSelect.value = efforts.includes(current) ? current : (efforts.includes(model?.recommendedEffort) ? model.recommendedEffort : efforts[0]);
     }
     async function save({ clearOverrides }) {
         if (!payload || busy)
@@ -245,7 +246,7 @@ export function createStepFunModelPolicyConsole({ root, api }) {
     return { load, setVisible };
 }
 function effortLabel(value) {
-    return { none: '关闭额外推理', low: '低 · 简单任务', medium: '中 · 默认推荐', high: '高 · 复杂任务最强' }[value] || value;
+    return { low: '低', medium: '中', high: '高' }[value] || value;
 }
 function cssEscape(value) {
     return window.CSS?.escape ? window.CSS.escape(value) : value.replace(/[^a-zA-Z0-9_-]/g, '');

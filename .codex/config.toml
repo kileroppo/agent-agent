@@ -3,7 +3,7 @@
 # ECC Tools generated Codex baseline
 # 2026-08-22 corrected: sandbox_mode and approval_policy aligned with AGENTS.md security rules.
 # AGENTS.md requires explicit approval for external writes, sensitive access, and high-cost actions.
-approval_policy = "auto-edit"
+approval_policy = "never"
 sandbox_mode = "workspace-write"
 web_search = "live"
 

@@ -511,12 +511,21 @@ function renderChainDiagnosis(health: any): any {
         return;
     }
     chainDiagnosis.hidden = false;
-    // 用保留展开状态的方式替换：节点内容不变时不重建，用户展开后不会被轮询自动折叠。
+    // 诊断已创建后不再随首页轮询重建，避免展开内容短暂回到“正在加载”。
+    const existing: any = chainDiagnosis.querySelector('.chain-diagnosis-disclosure');
+    if (existing) {
+        if (existing.open)
+            fetchChainDiagnosis();
+        return;
+    }
     const holder: any = document.createElement('div');
-    holder.innerHTML = html`<details class="chain-diagnosis-disclosure" data-disclosure-key="chain-diagnosis"><summary><strong>飞书总管链路诊断</strong><small>自动展示 · 可展开查看</small><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><div class="chain-diagnosis-body"><p>正在加载链路诊断…</p></div></details>`;
-    const replaced: any = replaceChildrenPreservingDisclosureState(chainDiagnosis, [holder.firstElementChild]);
-    if (replaced)
-        fetchChainDiagnosis();
+    holder.innerHTML = html`<details class="chain-diagnosis-disclosure" data-disclosure-key="chain-diagnosis"><summary><strong>飞书链路需要检查</strong><small>展开看下一步</small><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><div class="chain-diagnosis-body"><p>展开后读取本机诊断。</p></div></details>`;
+    const disclosure: any = holder.firstElementChild;
+    disclosure.addEventListener('toggle', () => {
+        if (disclosure.open)
+            fetchChainDiagnosis();
+    });
+    chainDiagnosis.replaceChildren(disclosure);
 }
 async function fetchChainDiagnosis(): Promise<any> {
     if (!chainDiagnosis) return;
@@ -533,11 +542,18 @@ async function fetchChainDiagnosis(): Promise<any> {
         const caveat: any = diagnosis.verdictCaveat ? html`<small>${diagnosis.verdictCaveat}</small>` : '';
         const nextStep: any = diagnosis.uniqueNextStep ? html`<p class="chain-next-step"><strong>唯一下一步：</strong>${diagnosis.uniqueNextStep}</p>` : '';
         body.dataset.loaded = 'true';
-        body.innerHTML = html`<p class="chain-verdict"><strong>${diagnosis.verdict}</strong>${raw(caveat)}</p><ul class="chain-check-list">${raw(checkItems)}</ul>${raw(nextStep)}`;
+        body.innerHTML = html`<p class="chain-verdict"><strong>${chainVerdictLabel(diagnosis.verdict)}</strong>${raw(caveat)}</p><ul class="chain-check-list">${raw(checkItems)}</ul>${raw(nextStep)}`;
     }
     catch (error: any) {
         body.innerHTML = html`<p class="chain-diagnosis-error">链路诊断加载失败：${error.message || '未知错误'}</p>`;
     }
+}
+function chainVerdictLabel(verdict: string): string {
+    return {
+        blocking_gap:'发现阻断问题',
+        no_local_gap_found:'本机检查通过',
+        diagnosis_incomplete:'本机信息不足，暂无法确认',
+    }[verdict] || '暂无法确认';
 }
 function recordCategoryHref(category: any): any {
     const params: any = new URLSearchParams({ recordView: 'all', recordCategory: category, recordTime: 'all' });
