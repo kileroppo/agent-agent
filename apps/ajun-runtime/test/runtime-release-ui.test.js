@@ -52,6 +52,23 @@ test('发布进度来自真实助手状态，没有伪造百分比', async () =>
   assert.match(styles, /prefers-reduced-motion:\s*reduce/);
 });
 
+test('版本页提供历史版本清单和受保护的删除入口', async () => {
+  const [html, script] = await Promise.all([
+    readFile(new URL('index.html', publicRoot), 'utf8'),
+    readFile(new URL('runtime-release-console.js', publicRoot), 'utf8'),
+  ]);
+
+  assert.match(html, /历史版本/);
+  assert.match(html, /id="release-history-list"/);
+  assert.match(html, /id="release-history-summary"/);
+  assert.match(script, /api\('\/api\/runtime-release\/listing'\)/);
+  assert.match(script, /\/api\/runtime-release\/delete/);
+  assert.match(script, /delete_release_snapshot/);
+  assert.match(script, /运行中和回滚目标不可删除/);
+  assert.match(script, /发布助手离线，无法确认运行中版本，删除已停用/);
+  assert.doesNotMatch(script, /<input|<textarea|<select/);
+});
+
 test('版本操作满足最小触控高度，移动底栏不会遮住最后内容', async () => {
   const styles = await readFile(new URL('styles.css', publicRoot), 'utf8');
 

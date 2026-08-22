@@ -222,10 +222,18 @@ export function createBoomMonitorConsole({ root, api, formatDate }: any): any {
         const output: any = elements.workList.querySelector(`[data-boom-detail-output="${workId}"]`);
         if (!output)
             return;
+        // 已展开时再次点击即收起，避免只能展开不能折叠。
+        if (!output.hidden) {
+            output.hidden = true;
+            triggerButton?.setAttribute('aria-expanded', 'false');
+            if (triggerButton) triggerButton.textContent = '查看判断依据';
+            return;
+        }
         output.hidden = false;
         output.classList.remove('is-error');
         output.textContent = '正在读取判断依据…';
         triggerButton?.setAttribute('aria-expanded', 'true');
+        if (triggerButton) triggerButton.textContent = '收起判断依据';
         try {
             const payload: any = await api(`${API_ROOT}/works/${workId}`);
             const official: any = payload.score_details;
@@ -237,6 +245,7 @@ export function createBoomMonitorConsole({ root, api, formatDate }: any): any {
         catch (error: any) {
             output.classList.add('is-error');
             output.textContent = `判断依据读取失败：${error.message}`;
+            if (triggerButton?.isConnected) triggerButton.textContent = '查看判断依据';
             throw error;
         }
     }

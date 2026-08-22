@@ -45,10 +45,14 @@ export function createRuntimeReleaseConsole({ root, api, confirmAction = window.
     const checkButton = root.querySelector('#release-check');
     const publishButton = root.querySelector('#release-publish');
     const rollbackButton = root.querySelector('#release-rollback-action');
+    const historyList = root.querySelector('#release-history-list');
+    const historySummary = root.querySelector('#release-history-summary');
     let status = null;
     let timer = null;
     let active = false;
     let disconnectedDuringAction = false;
+    let helperOnline = false;
+    let wasActive = false;
     function shortHash(value) {
         const text = String(value || '').trim();
         return text ? text.slice(0, 8) : '未知';
@@ -89,6 +93,95 @@ export function createRuntimeReleaseConsole({ root, api, confirmAction = window.
         checkButton.disabled = actions.checking;
         publishButton.disabled = !actions.canPublish;
         rollbackButton.disabled = !actions.canRollback;
+        const nowActive = ACTIVE_STATES.has(status?.state);
+        // 发布或回滚跑完后，历史清单里的“运行中/回滚目标”标记会变化，需要重新读取。
+        if (wasActive && !nowActive)
+            loadHistory();
+        wasActive = nowActive;
+    }
+    const PROTECTION_LABELS = { live: '运行中', rollback: '回滚目标', 'xiaod-live': '小D运行中' };
+    const PRODUCT_LABELS = { ajun: 'A君', xiaod: '小D' };
+    function renderHistory(releases) {
+        historySummary.textContent = helperOnline
+            ? `共 ${releases.length} 个版本快照；运行中和回滚目标不可删除。`
+            : `共 ${releases.length} 个版本快照；发布助手离线，暂不能核对运行中版本，删除已停用。`;
+        historyList.replaceChildren(...releases.map((release) => {
+            const li = document.createElement('li');
+            li.className = 'release-history-item';
+            const date = release.createdAt
+                ? new Date(release.createdAt).toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+                : '时间未知';
+            const meta = document.createElement('span');
+            meta.className = 'release-history-meta';
+            meta.textContent = `${PRODUCT_LABELS[release.product] || release.product} · ${date}${release.gitHead ? ` · 提交 ${shortHash(release.gitHead)}` : ''}`;
+            const id = document.createElement('code');
+            id.className = 'release-history-id';
+            id.textContent = shortHash(release.releaseHash);
+            li.append(id, meta);
+            const protection = PROTECTION_LABELS[release.protection];
+            if (protection) {
+                const badge = document.createElement('span');
+                badge.className = 'release-history-protected';
+                badge.textContent = protection;
+                li.appendChild(badge);
+            }
+            else {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'secondary-action danger-action';
+                button.textContent = '删除';
+                button.disabled = !helperOnline;
+                if (!helperOnline)
+                    button.title = '发布助手离线，无法确认运行中版本，删除已停用。';
+                button.addEventListener('click', () => deleteRelease(release.releaseHash, button).catch((error) => { message.textContent = error.message; }));
+                li.appendChild(button);
+            }
+            return li;
+        }));
+    }
+    async function loadHistory() {
+        if (!active)
+            return;
+        try {
+            const payload = await api('/api/runtime-release/listing');
+            helperOnline = payload?.helperOnline === true;
+            renderHistory(payload?.releases || []);
+        }
+        catch (error) {
+            historySummary.textContent = error.message || '暂时无法读取版本库。';
+            historyList.replaceChildren();
+        }
+    }
+    async function deleteRelease(releaseHash, triggerButton) {
+        if (triggerButton?.disabled)
+            return;
+        if (!confirmAction(`删除版本 ${shortHash(releaseHash)}？删除后无法恢复，但不会影响正在运行的版本。`))
+            return;
+        const session = await api('/api/owner-action-session');
+        const nonce = String(session?.nonce || '').trim();
+        if (!nonce)
+            throw new Error('暂时无法取得本机操作授权，请刷新后重试。');
+        triggerButton.disabled = true;
+        triggerButton.textContent = '正在删除…';
+        try {
+            await api('/api/runtime-release/delete', {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/json',
+                    'X-Ajun-Owner-Action': nonce,
+                    'X-Ajun-Console-Origin': location.origin,
+                },
+                body: JSON.stringify({ releaseHash, confirm: 'delete_release_snapshot' }),
+            });
+            message.textContent = '已删除该版本快照。';
+            await loadHistory();
+        }
+        finally {
+            if (triggerButton?.isConnected) {
+                triggerButton.disabled = false;
+                triggerButton.textContent = '删除';
+            }
+        }
     }
     function schedulePoll(delay = 1500) {
         clearTimeout(timer);
@@ -164,6 +257,7 @@ export function createRuntimeReleaseConsole({ root, api, confirmAction = window.
         activate() {
             active = true;
             refresh();
+            loadHistory();
         },
         deactivate() {
             active = false;
