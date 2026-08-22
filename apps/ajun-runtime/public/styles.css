@@ -3534,12 +3534,20 @@ button:disabled {
 }
 
 .boom-item-head {
-  display: grid;
-  min-height: 64px;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  flex-wrap: wrap;
+  min-height: 56px;
   align-items: center;
   gap: 12px;
-  padding: 13px 15px;
+  padding: 11px 15px;
+}
+
+.boom-item-head .boom-item-copy {
+  flex: 1 1 220px;
+}
+
+.boom-item-head .boom-item-actions {
+  padding: 0;
 }
 
 .boom-item-copy,
@@ -3588,6 +3596,51 @@ button:disabled {
   color: #fff;
 }
 
+/* 判决行：一眼看懂“爆没爆、爆多大”，无需解读单项指标。 */
+.boom-verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.boom-verdict b {
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.boom-verdict-icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+.boom-verdict.t3 {
+  color: #ff2d55;
+}
+
+.boom-verdict.t2 {
+  color: #ff8a00;
+}
+
+.boom-verdict.t1 {
+  color: #2f6bff;
+}
+
+.boom-verdict.n0 {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.boom-verdict.t3 .boom-verdict-icon,
+.boom-verdict.t2 .boom-verdict-icon {
+  animation: boom-metric-pulse 2.2s ease-in-out infinite;
+}
+
 .boom-facts {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3620,97 +3673,11 @@ button:disabled {
   font-weight: 700;
 }
 
-.boom-item-reason {
-  margin: 0;
-  padding: 0 15px 13px;
-  color: var(--ink-soft);
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-/* 展开判断依据后隐藏卡片上的一句话结论，避免与门槛表重复。 */
-.boom-list-item:has(.boom-score-detail:not([hidden])) .boom-item-reason {
-  display: none;
-}
-
-.boom-item-metrics {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 0 15px 12px;
-}
-
-.boom-item-metrics .boom-item-actions {
-  margin-left: auto;
-  padding: 0;
-}
-
-.boom-metric {
-  position: relative;
-  display: inline-flex;
-  overflow: hidden;
-  align-items: center;
-  gap: 7px;
-  min-height: 34px;
-  padding: 5px 10px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  background: var(--surface);
-  color: var(--ink-soft);
-}
-
 .boom-metric-icon {
   flex: none;
   width: 15px;
   height: 15px;
   color: var(--muted);
-}
-
-.boom-metric-copy {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
-}
-
-.boom-metric-copy b {
-  color: var(--ink);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.boom-metric-copy small {
-  color: var(--muted);
-  font-size: 10.5px;
-}
-
-.boom-metric-fill {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 3px;
-  background: color-mix(in srgb, var(--blue) 45%, transparent);
-  transform-origin: left center;
-  animation: boom-metric-grow .7s ease-out;
-}
-
-.boom-metric.is-pass {
-  border-color: #86efac;
-  background: color-mix(in srgb, #dcfce7 72%, var(--surface));
-}
-
-.boom-metric.is-pass .boom-metric-icon,
-.boom-metric.is-pass .boom-metric-copy b {
-  color: #16a34a;
-}
-
-.boom-metric.is-pass .boom-metric-icon {
-  animation: boom-metric-pulse 2.2s ease-in-out infinite;
-}
-
-.boom-metric.is-pass .boom-metric-fill {
-  background: color-mix(in srgb, #22c55e 65%, transparent);
 }
 
 .boom-detail-head {
@@ -3920,12 +3887,6 @@ button:disabled {
 
 .boom-legend-gates .li {
   color: var(--muted);
-}
-
-@keyframes boom-metric-grow {
-  from {
-    transform: scaleX(0);
-  }
 }
 
 @keyframes boom-metric-pulse {

@@ -170,17 +170,16 @@ export function createBoomMonitorConsole({ root, api, formatDate }) {
         const normalized = ['T1', 'T2', 'T3'].includes(grade) ? grade : 'N0';
         return `<span class="boom-grade ${normalized.toLowerCase()}">${normalized}</span>`;
     }
-    function workMetricChips(work) {
+    function workVerdict(work) {
+        const grade = ['T1', 'T2', 'T3'].includes(work.grade) ? work.grade : 'N0';
         const rValue = Number(work.r_value);
-        const mValue = Number(work.m_value);
-        const likes = Number(work.likes);
-        const mThreshold = boomMThreshold(work.tier);
-        const volumeFloor = boomVolumeFloor(work.platform);
-        return [
-            metricChip({ icon: 'trend', value: ratioText(work.r_value), label: '相对历史', title: '相对历史表现：当前核心互动 ÷ 作者历史作品中位数，≥2× 达标', fill: Number.isFinite(rValue) ? rValue / 3 : 0, pass: rValue >= 2 }),
-            metricChip({ icon: 'heart', value: percentText(work.m_value), label: '互动率', title: `粉丝互动率：点赞数 ÷ 粉丝数，≥${Math.round(mThreshold * 100)}% 达标`, fill: Number.isFinite(mValue) ? mValue * 20 : 0, pass: Number.isFinite(mValue) && mValue >= mThreshold }),
-            metricChip({ icon: 'thumb', value: formatCompact(work.likes), label: '点赞', title: `当前累计点赞数，≥${volumeFloor} 达到基础量级`, fill: likes > 0 ? Math.max(0.08, Math.min(1, Math.log10(likes + 1) / 5)) : 0, pass: likes >= volumeFloor }),
-        ].join('');
+        const multiplier = Number.isFinite(rValue) ? `${rValue.toFixed(1)}×` : '';
+        const label = { T3: '大爆', T2: '小爆', T1: '跑赢历史', N0: '未达爆款门槛' }[grade];
+        const icon = { T3: 'fire', T2: 'spark', T1: 'trend' }[grade] || '';
+        return `<span class="boom-verdict ${grade.toLowerCase()}" title="${escapeHtml(gradeReason(work.grade))}">`
+            + (icon ? `<svg class="boom-verdict-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${boomMetricIcons[icon]}</svg>` : '')
+            + (multiplier ? `<b>${multiplier} 历史中位 · </b>` : '')
+            + `<span>${label}</span></span>`;
     }
     function renderWorks(works, taskProgress = new Map()) {
         if (!works.length) {
@@ -207,17 +206,14 @@ export function createBoomMonitorConsole({ root, api, formatDate }) {
             return html `
       <article class="boom-list-item">
         <div class="boom-item-head">
-          <span class="boom-item-copy"><strong>${workTitle}</strong><small>${platformLabel(work.platform)} · ${formatDate(work.publish_at)}${status}</small></span>
           ${raw(gradeBadge(work.grade))}
-        </div>
-        <div class="boom-item-metrics">
-          ${raw(workMetricChips(work))}
+          <span class="boom-item-copy"><strong>${workTitle}</strong><small>${platformLabel(work.platform)} · ${formatDate(work.publish_at)}${status} · ${formatCompact(work.likes)} 赞</small></span>
+          ${raw(workVerdict(work))}
           <div class="boom-item-actions">
             <button type="button" class="secondary-action" data-boom-detail="${work.id}" aria-label="${'查看“' + workTitle + '”的判断依据'}" aria-controls="${detailId}" aria-expanded="false">查看判断依据</button>
             ${raw(canDispatch ? html `<button type="button" data-boom-dispatch-work="${work.id}" aria-label="${'开始拆解“' + workTitle + '”'}">开始拆解</button>` : progressAction)}
           </div>
         </div>
-        <p class="boom-item-reason">${gradeReason(work.grade)}</p>
         <div id="${detailId}" class="boom-score-detail" data-boom-detail-output="${work.id}" role="status" aria-live="polite" aria-atomic="true" hidden></div>
       </article>`;
         }).join('');
@@ -612,14 +608,8 @@ const boomMetricIcons = {
     thumb: '<path d="M5 7.2 7 2.9a1.3 1.3 0 0 1 1.6 1.3V6h3.4a1.6 1.6 0 0 1 1.6 2l-.9 3.9a1.6 1.6 0 0 1-1.6 1.3H5z"/><path d="M5 7.2H2.6V13H5"/>',
     samples: '<path d="M8 2.2 13.6 5 8 7.8 2.4 5z"/><path d="m2.4 8.2 5.6 2.8 5.6-2.8"/><path d="m2.4 11 5.6 2.8 5.6-2.8"/>',
     spark: '<path d="M8 1.8 9.5 6 13.8 7.5 9.5 9 8 13.2 6.5 9 2.2 7.5 6.5 6z"/>',
+    fire: '<path d="M8.6 1.6c.3 2.3 3 3.5 3 6.5a3.6 3.6 0 0 1-7.2 0c0-1.1.4-2 1.1-2.9.2.9.7 1.5 1.5 1.9-.3-2 .1-3.9 1.6-5.5z"/>',
 };
-function metricChip({ icon, value, label, title, fill, pass }) {
-    const percent = Math.round(Math.max(0, Math.min(1, Number(fill) || 0)) * 100);
-    return `<span class="boom-metric${pass ? ' is-pass' : ''}" title="${escapeHtml(title)}">`
-        + `<svg class="boom-metric-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${boomMetricIcons[icon] || ''}</svg>`
-        + `<span class="boom-metric-copy"><b>${escapeHtml(value)}</b><small>${escapeHtml(label)}</small></span>`
-        + `<i class="boom-metric-fill" style="width:${percent}%"></i></span>`;
-}
 // 与后端 boom-monitor/scoring.ts 的门槛保持一致：互动率门槛随粉丝量级递减，量级门槛按平台区分。
 const BOOM_M_THRESHOLDS = { high: 0.04, mid: 0.08, mid_small: 0.15, low: 0.3 };
 const BOOM_VOLUME_FLOORS = { xiaohongshu: { T1: 100, T2: 500, T3: 5000 }, default: { T1: 500, T2: 3000, T3: 10000 } };
@@ -656,17 +646,17 @@ function gateRows(score) {
     const reachPassed = Number.isFinite(mValue) && mValue >= mThreshold;
     const qualityPassed = quality.passed === true;
     const reasonChips = (quality.reasons || []).map((reason) => `<span class="boom-quality-chip">${escapeHtml(BOOM_QUALITY_REASON_LABELS[reason] || reason)}</span>`).join('');
-    const gateRow = (icon, label, gate, value, passed, extra = '') => `<div class="boom-gate-row${passed ? ' is-pass' : ''}">`
+    const gateRow = (icon, label, gate, value, passed, extra = '', title = '') => `<div class="boom-gate-row${passed ? ' is-pass' : ''}"${title ? ` title="${escapeHtml(title)}"` : ''}>`
         + `<svg class="boom-metric-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${boomMetricIcons[icon] || ''}</svg>`
         + `<span class="boom-gate-label">${escapeHtml(label)}</span>`
         + `<span class="boom-gate-gate">${escapeHtml(gate)}</span>`
         + `<span class="boom-gate-value">${escapeHtml(value)}</span>`
         + `${extra}${gateMark(passed)}</div>`;
     return `<div class="boom-gate-list">`
-        + gateRow('trend', '相对表现', '≥2×', ratioText(score.r_value), relativePassed)
-        + gateRow('heart', '触达粉丝', `≥${(mThreshold * 100).toFixed(0)}%`, percentText(score.m_value), reachPassed)
-        + gateRow('thumb', '绝对量级', `≥${formatCompact(floors.T1)}`, formatCompact(volume), volumePassed)
-        + gateRow('spark', '质量信号', '任一突出', reasonChips ? '' : '—', qualityPassed, reasonChips)
+        + gateRow('trend', '相对表现', '≥2×', ratioText(score.r_value), relativePassed, '', '相对历史表现：当前核心互动 ÷ 作者历史作品中位数')
+        + gateRow('heart', '触达粉丝', `≥${(mThreshold * 100).toFixed(0)}%`, percentText(score.m_value), reachPassed, '', '粉丝互动率：点赞数 ÷ 粉丝数')
+        + gateRow('thumb', '绝对量级', `≥${formatCompact(floors.T1)}`, formatCompact(volume), volumePassed, '', '累计核心互动量级，过滤小样本偶然波动')
+        + gateRow('spark', '质量信号', '任一突出', reasonChips ? '' : '—', qualityPassed, reasonChips, '藏率、转发、评论中是否有任一项显著突出')
         + `</div>`
         + `<p class="boom-gate-meta">`
         + `<span title="判断可信度：历史样本数"><b>${sampleCount}</b>/5 样本</span>`
