@@ -1090,6 +1090,129 @@ h3 {
   background: #fff7e6;
 }
 
+.capability-accept-link {
+  display: inline-block;
+  margin-top: 5px;
+  color: var(--mint-deep);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.capability-accept-link:hover {
+  text-decoration: underline;
+}
+
+.chain-diagnosis-disclosure {
+  margin-top: 14px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-glass-soft);
+  font-size: 12px;
+}
+
+.chain-diagnosis-disclosure > summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 15px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.chain-diagnosis-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.chain-diagnosis-disclosure > summary strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.chain-diagnosis-disclosure > summary small {
+  color: var(--muted);
+}
+
+.chain-diagnosis-body {
+  display: grid;
+  gap: 10px;
+  padding: 0 15px 14px;
+}
+
+.chain-verdict {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+.chain-verdict strong {
+  color: var(--ink);
+}
+
+.chain-verdict small {
+  color: var(--muted);
+}
+
+.chain-check-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chain-check-item {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.chain-check-icon {
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  color: var(--muted-light);
+}
+
+.chain-check-item.passing .chain-check-icon { color: var(--mint-deep); }
+.chain-check-item.failed .chain-check-icon { color: var(--rose); }
+.chain-check-item.unknown .chain-check-icon { color: var(--amber); }
+
+.chain-check-copy {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.chain-check-copy strong {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.chain-check-copy small {
+  color: var(--muted);
+}
+
+.chain-next-step {
+  margin: 0;
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-mint);
+  color: var(--ink-soft);
+}
+
+.chain-next-step strong {
+  color: var(--mint-deep);
+}
+
+.chain-diagnosis-error {
+  margin: 0;
+  color: var(--rose);
+}
+
 .capability-card p {
   display: -webkit-box;
   margin: 0;
@@ -5083,21 +5206,23 @@ textarea:focus {
 
 .task-timeline-item {
   display: grid;
-  grid-template-columns: 10px minmax(0, 1fr);
+  grid-template-columns: 16px minmax(0, 1fr);
   gap: 9px;
 }
 
-.task-timeline-dot {
-  width: 8px;
-  height: 8px;
-  margin-top: 4px;
-  border-radius: 50%;
-  background: var(--blue);
+.task-timeline-icon {
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  color: var(--blue);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
 }
 
-.task-timeline-item.success .task-timeline-dot { background: var(--mint-deep); }
-.task-timeline-item.warning .task-timeline-dot { background: var(--amber); }
-.task-timeline-item.danger .task-timeline-dot { background: var(--rose); }
+.task-timeline-item.success .task-timeline-icon { color: var(--mint-deep); }
+.task-timeline-item.warning .task-timeline-icon { color: var(--amber); }
+.task-timeline-item.danger .task-timeline-icon { color: var(--rose); }
 .task-timeline-title strong { color: var(--ink); font-size: 11px; }
 .task-timeline-item p { margin-top: 3px; }
 .task-timeline-technical { margin-top: 8px; }

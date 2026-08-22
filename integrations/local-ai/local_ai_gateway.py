@@ -444,8 +444,8 @@ class LocalAiRuntime:
                 service_row("gateway", "Mac AI 控制网关", "mac", "127.0.0.1:18082", "always_on", "running", [], "A君的轻量路由与控制入口"),
                 service_row("qwen35", "Qwen3.5 9B", "mac", "127.0.0.1:18081", self.control_policy["qwen35"]["mode"], "running" if qwen_running else "stopped", ["start", "stop", "restart"], "文本、视觉与视频理解", self.control_policy["qwen35"]["idleSeconds"]),
                 service_row("qwen36-candidate", "Qwen3.6 35B 候选", "mac", "127.0.0.1:18080", self.control_policy["qwen36-candidate"]["mode"], "running" if qwen36_running else "stopped", ["start", "stop", "restart"], "旧文本候选；不在任何 Agent 默认路由中", self.control_policy["qwen36-candidate"]["idleSeconds"]),
-                service_row("embedding", "Qwen3 Embedding 0.6B", "mac", "进程内", self.control_policy["embedding"]["mode"], "running" if self.retrieval.embedding_loaded else "stopped", ["stop"], "知识索引与检索", self.control_policy["embedding"]["idleSeconds"]),
-                service_row("reranker", "Qwen3 Reranker 0.6B", "mac", "进程内", self.control_policy["reranker"]["mode"], "running" if self.retrieval.reranker_loaded else "stopped", ["stop"], "检索结果重排", self.control_policy["reranker"]["idleSeconds"]),
+                service_row("embedding", "Qwen3 Embedding 0.6B", "mac", "进程内", self.control_policy["embedding"]["mode"], "running" if self.retrieval.embedding_loaded else "stopped", ["stop"] if self.retrieval.embedding_loaded else ["start"], "知识索引与检索；有检索任务时也会自动加载", self.control_policy["embedding"]["idleSeconds"]),
+                service_row("reranker", "Qwen3 Reranker 0.6B", "mac", "进程内", self.control_policy["reranker"]["mode"], "running" if self.retrieval.reranker_loaded else "stopped", ["stop"] if self.retrieval.reranker_loaded else ["start"], "检索结果重排；有检索任务时也会自动加载", self.control_policy["reranker"]["idleSeconds"]),
                 service_row("speech-tools", "Whisper / Qwen3-TTS", "mac", "每次任务", "per_request", "ready", [], "ASR 与语音合成，用完即退出"),
                 service_row("mflux", "MFLUX 图片能力", "mac", "每次任务", "per_request", "ready", [], "4070 不可用时的图片替代", None),
                 service_row("desktop-node", "4070 增强节点", "windows", "192.168.10.110:18083", "always_on", "running" if desktop.get("reachable") else "offline", ["reconnect"], "轻量检测节点；计划任务 \\AgentArmy\\RTX4070EnhancementNode"),
@@ -490,8 +490,18 @@ class LocalAiRuntime:
         if service_id == "embedding" and action == "stop":
             await asyncio.to_thread(self.retrieval.unload_embedding)
             return await self.control_snapshot()
+        if service_id == "embedding" and action == "start":
+            if self.control_policy["embedding"]["mode"] == "disabled":
+                raise HTTPException(409, detail={"code": "service_disabled", "message": "知识检索已在 A君中禁用。"})
+            await asyncio.to_thread(self.retrieval.load_embedding)
+            return await self.control_snapshot()
         if service_id == "reranker" and action == "stop":
             await asyncio.to_thread(self.retrieval.unload_reranker)
+            return await self.control_snapshot()
+        if service_id == "reranker" and action == "start":
+            if self.control_policy["reranker"]["mode"] == "disabled":
+                raise HTTPException(409, detail={"code": "service_disabled", "message": "检索重排已在 A君中禁用。"})
+            await asyncio.to_thread(self.retrieval.load_reranker)
             return await self.control_snapshot()
         if service_id == "desktop-node" and action == "reconnect":
             await self._refresh_desktop_health()

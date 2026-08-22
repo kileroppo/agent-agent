@@ -60,7 +60,7 @@ test('首页把负责人动作、运行、系统可靠性和业务质量债分�
   ]);
 
   assert.match(html, /负责人下一步/);
-  assert.match(html, /正在运行、系统风险与质量债/);
+  assert.match(html, /id="overview-truth-title">运行与风险</);
   assert.match(script, /statCard\('系统可靠性'/);
   assert.match(script, /statCard\('业务质量债'/);
   assert.deepEqual(reliabilityPresentation({ coreOnline:{ status:'online' }, reliability:{ status:'unknown', observedAt:null } }, (category) => `#${category}`), {

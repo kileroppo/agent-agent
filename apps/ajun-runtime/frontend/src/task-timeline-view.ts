@@ -42,8 +42,10 @@ function renderTimelineItem(item: any): any {
     const technical: any = item?.technical && typeof item.technical === 'object'
         ? renderTechnical(item.technical)
         : '';
-    return html`<li class="task-timeline-item ${safeTone(item?.tone)}">
-    <span class="task-timeline-dot" aria-hidden="true"></span>
+    const tone: any = safeTone(item?.tone);
+    const icon: any = ({ success: 'check', warning: 'alert', danger: 'alert', active: 'clock' } as Record<string, string>)[tone];
+    return html`<li class="task-timeline-item ${tone}">
+    <svg class="task-timeline-icon" aria-hidden="true"><use href="#icon-${icon}"></use></svg>
     <div><div class="task-timeline-title"><strong>${item?.title || '运行状态更新'}</strong>${raw(occurredAt ? html`<time datetime="${item.occurredAt}">${occurredAt}</time>` : '')}</div>
     <p>${item?.summary || '任务运行状态已经更新。'}</p>${raw(technical)}</div>
   </li>`;

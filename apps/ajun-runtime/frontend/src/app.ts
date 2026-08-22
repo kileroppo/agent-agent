@@ -491,8 +491,8 @@ function renderOverviewStats(): any {
     overviewSummary.textContent = ownerActionable
         ? `${ownerActionable} 件事需要你决定。`
         : active
-            ? `${active} 项工作正在推进；你暂时不需操作，仍请留意下方风险与质量债。`
-            : '负责人当前没有待办；系统风险与业务质量债仍需分别核对。';
+            ? `${active} 项工作正在推进，你暂时不需操作。`
+            : '负责人当前没有待办。';
     const cards: any = [
         statCard('运行中', active, active ? '系统正在推进的业务工作' : '当前没有执行中的业务工作', 'clock', false, recordCategoryHref('business_active')),
         statCard('系统可靠性', reliability.value, reliability.note, reliability.icon, reliability.attention, reliability.href),
@@ -511,19 +511,29 @@ function renderChainDiagnosis(health: any): any {
         return;
     }
     chainDiagnosis.hidden = false;
-    chainDiagnosis.innerHTML = html`<details class="chain-diagnosis-disclosure" data-disclosure-key="chain-diagnosis"><summary><strong>飞书总管链路诊断</strong><small>系统状态非健康时自动展示</small><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><div class="chain-diagnosis-body"><p>正在加载链路诊断…</p></div></details>`;
-    fetchChainDiagnosis();
+    // 用保留展开状态的方式替换：节点内容不变时不重建，用户展开后不会被轮询自动折叠。
+    const holder: any = document.createElement('div');
+    holder.innerHTML = html`<details class="chain-diagnosis-disclosure" data-disclosure-key="chain-diagnosis"><summary><strong>飞书总管链路诊断</strong><small>自动展示 · 可展开查看</small><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><div class="chain-diagnosis-body"><p>正在加载链路诊断…</p></div></details>`;
+    const replaced: any = replaceChildrenPreservingDisclosureState(chainDiagnosis, [holder.firstElementChild]);
+    if (replaced)
+        fetchChainDiagnosis();
 }
 async function fetchChainDiagnosis(): Promise<any> {
     if (!chainDiagnosis) return;
     const body: any = chainDiagnosis.querySelector('.chain-diagnosis-body');
-    if (!body) return;
+    if (!body || body.dataset.loaded === 'true') return;
     try {
         const diagnosis: any = await api('/api/diagnose/feishu-chain');
         const checks: any = Array.isArray(diagnosis.checks) ? diagnosis.checks : [];
-        const checkItems: any = checks.map((check: any): any => html`<li class="chain-check-item ${check.status}"><strong>${check.title}</strong><span class="chain-check-conclusion">${check.conclusion}</span><small>真相层级：${check.truthLayer}</small></li>`).join('');
-        const nextStep: any = diagnosis.uniqueNextStep ? html`<div class="chain-next-step"><strong>唯一下一步：</strong><span>${diagnosis.uniqueNextStep}</span></div>` : '';
-        body.innerHTML = html`<p class="chain-verdict">判定：${diagnosis.verdict}${raw(diagnosis.verdictCaveat ? ` - ${escapeHtml(diagnosis.verdictCaveat)}` : '')}</p><ul class="chain-check-list">${raw(checkItems)}</ul>${raw(nextStep)}`;
+        const checkItems: any = checks.map((check: any): any => {
+            const icon: any = check.status === 'passing' ? 'check' : check.status === 'failed' ? 'alert' : 'clock';
+            const conclusion: any = String(check.conclusion || '').trim();
+            return html`<li class="chain-check-item ${check.status}"><svg class="chain-check-icon" aria-hidden="true"><use href="#icon-${icon}"></use></svg><div class="chain-check-copy"><strong>${check.title}</strong>${raw(conclusion ? `<small title="真相层级：${escapeHtml(check.truthLayer)}">${conclusion}</small>` : '')}</div></li>`;
+        }).join('');
+        const caveat: any = diagnosis.verdictCaveat ? html`<small>${diagnosis.verdictCaveat}</small>` : '';
+        const nextStep: any = diagnosis.uniqueNextStep ? html`<p class="chain-next-step"><strong>唯一下一步：</strong>${diagnosis.uniqueNextStep}</p>` : '';
+        body.dataset.loaded = 'true';
+        body.innerHTML = html`<p class="chain-verdict"><strong>${diagnosis.verdict}</strong>${raw(caveat)}</p><ul class="chain-check-list">${raw(checkItems)}</ul>${raw(nextStep)}`;
     }
     catch (error: any) {
         body.innerHTML = html`<p class="chain-diagnosis-error">链路诊断加载失败：${error.message || '未知错误'}</p>`;
@@ -569,17 +579,18 @@ function renderFocus(focus: any): any {
     }
     const current: any = focus.next;
     const needsOwner: any = isOwnerActionFocus(focus, current);
-    const title: any = current ? current.title : '没有新的负责人动作';
+    const title: any = current ? current.title : '没有新动作';
     const action: any = current
         ? current.action
         : '历史失败和待验证记录都留在“记录”中，不会自动重试或对外发布。';
-    const reason: any = current?.status === 'succeeded'
-        ? '这是建议，不会自动创建后续任务。'
-        : needsOwner
-            ? '这件事需要你的输入或确认，系统不会替你决定。'
-            : current
-                ? '系统正在推进，你可以查看进度，不需要一直盯着。'
-                : '当前没有任务等待你的操作；系统可靠性和质量债请看下方独立状态。';
+    // 原因说明只在有具体任务时展示；无任务时一句话已经说清，不再重复堆叠。
+    const reason: any = current
+        ? (current.status === 'succeeded'
+            ? '这是建议，不会自动创建后续任务。'
+            : needsOwner
+                ? '这件事需要你的输入或确认，系统不会替你决定。'
+                : '系统正在推进，你可以查看进度，不需要一直盯着。')
+        : '';
     const primaryAction: any = current
         ? `<a class="focus-primary-action" href="/tasks/${encodeURIComponent(current.taskId)}">${current.status === 'succeeded' ? '查看这条建议' : needsOwner ? '查看并处理' : '查看进度'}</a>`
         : '<a class="focus-primary-action secondary" href="#records">打开任务记录</a>';
@@ -591,7 +602,7 @@ function renderFocus(focus: any): any {
       <p class="focus-state ${raw(needsOwner ? 'needs-owner' : current ? 'is-running' : 'is-clear')}">${needsOwner ? '需要你决定' : current ? '系统正在处理' : '负责人暂不需处理'}</p>
       <h3>${title}</h3>
       <p class="focus-action-copy">${action}</p>
-      <p class="focus-reason">${reason}</p>
+      ${raw(reason ? html`<p class="focus-reason">${reason}</p>` : '')}
       <div class="focus-actions">${raw(primaryAction)}</div>
     </div>
     <div class="focus-guard">
@@ -659,8 +670,13 @@ function backgroundEmployeeDisclosure(agents: any): any {
 function capabilityCard(item: any): any {
     const node: any = document.createElement('article');
     const truth: any = capabilityPresentation(item);
+    const evidenceTaskId: any = String(item?.truth?.evidenceTaskId || '').trim();
+    const note: any = truth.level === 'verified' && evidenceTaskId ? '打开证据任务核对结果，点“有用”即完成验收' : truth.note;
+    const acceptLink: any = truth.level === 'verified' && evidenceTaskId
+        ? html`<a class="capability-accept-link" href="/tasks/${encodeURIComponent(evidenceTaskId)}">去验收 →</a>`
+        : '';
     node.className = `capability-card capability-${truth.level}`;
-    node.innerHTML = html`<span class="capability-icon"><svg aria-hidden="true"><use href="#icon-spark"></use></svg></span><span class="capability-truth ${truth.level}">${truth.label}</span><h3>${item.name}</h3><p title="${item.detail}">${item.detail}</p><small>${truth.note}</small>`;
+    node.innerHTML = html`<span class="capability-icon"><svg aria-hidden="true"><use href="#icon-spark"></use></svg></span><span class="capability-truth ${truth.level}">${truth.label}</span><h3>${item.name}</h3><p title="${item.detail}">${item.detail}</p><small>${note}${raw(acceptLink)}</small>`;
     return node;
 }
 function capabilityTruthLabel(value: any): any {
