@@ -12,17 +12,23 @@ export function createStepFunModelPolicyConsole({ root, api }) {
     const saveRoles = root.querySelector('#fleet-model-save-roles');
     const saveCapabilities = root.querySelector('#fleet-capability-save');
     const refresh = root.querySelector('#fleet-model-refresh');
-    defaultModel.addEventListener('change', () => syncEffortOptions(defaultModel, defaultEffort));
+    const roleSummary = root.querySelector('#fleet-role-summary');
+    defaultModel.addEventListener('change', () => {
+        syncEffortOptions(defaultModel, defaultEffort);
+        syncOverrideBadges();
+    });
+    defaultEffort.addEventListener('change', () => syncOverrideBadges());
     applyAll.addEventListener('click', () => save({ clearOverrides: true }));
     saveRoles.addEventListener('click', () => save({ clearOverrides: false }));
     saveCapabilities.addEventListener('click', saveCapabilityPolicy);
     refresh.addEventListener('click', refreshCatalog);
     employeeList.addEventListener('change', (event) => {
         const modelSelect = event.target.closest('select[data-role-model]');
-        if (!modelSelect)
-            return;
-        const effortSelect = employeeList.querySelector(`select[data-role-effort="${cssEscape(modelSelect.dataset.roleModel)}"]`);
-        syncEffortOptions(modelSelect, effortSelect);
+        if (modelSelect) {
+            const effortSelect = employeeList.querySelector(`select[data-role-effort="${cssEscape(modelSelect.dataset.roleModel)}"]`);
+            syncEffortOptions(modelSelect, effortSelect);
+        }
+        syncOverrideBadges();
     });
     capabilityList.addEventListener('change', (event) => {
         const select = event.target.closest('select[data-capability-key]');
@@ -53,6 +59,7 @@ export function createStepFunModelPolicyConsole({ root, api }) {
         syncEffortOptions(defaultModel, defaultEffort, payload.policy.default.reasoningEffort);
         employeeList.innerHTML = payload.employees.map((employee) => roleRow(employee, reasoning)).join('');
         capabilityList.innerHTML = (payload.catalog?.capabilityRoutes || []).map((route) => capabilityRow(route)).join('');
+        syncOverrideBadges();
         const updated = payload.policy.updatedAt
             ? `上次保存 ${new Date(payload.policy.updatedAt).toLocaleString('zh-CN')}`
             : '当前由岗位配置生成，尚未从本页保存';
@@ -90,10 +97,29 @@ export function createStepFunModelPolicyConsole({ root, api }) {
         const model = reasoning.find((item) => item.id === employee.model) || reasoning[0];
         const effortOptions = (model?.efforts || []).map((effort) => html `<option value="${effort}"${effort === employee.reasoningEffort ? ' selected' : ''}>${effortLabel(effort)}</option>`).join('');
         return html `<article class="fleet-role-row" data-fleet-agent="${employee.agentId}">
-      <div><strong>${employee.name}</strong><small>${employee.role}</small></div>
-      <label><span>主模型</span><select data-role-model="${employee.agentId}">${raw(modelOptions)}</select></label>
-      <label><span>推理</span><select data-role-effort="${employee.agentId}">${raw(effortOptions)}</select></label>
+      <div class="fleet-role-head"><strong>${employee.name}</strong><small>${employee.role}</small><span class="fleet-role-badge" hidden>已覆盖</span></div>
+      <div class="fleet-role-controls">
+        <label><span>主模型</span><select data-role-model="${employee.agentId}">${raw(modelOptions)}</select></label>
+        <label><span>推理</span><select data-role-effort="${employee.agentId}">${raw(effortOptions)}</select></label>
+      </div>
     </article>`;
+    }
+    function syncOverrideBadges() {
+        const rows = [...employeeList.querySelectorAll('[data-fleet-agent]')];
+        let overridden = 0;
+        for (const row of rows) {
+            const differs = row.querySelector('select[data-role-model]')?.value !== defaultModel.value
+                || row.querySelector('select[data-role-effort]')?.value !== defaultEffort.value;
+            if (differs)
+                overridden += 1;
+            row.classList.toggle('is-override', differs);
+            row.querySelector('.fleet-role-badge')?.toggleAttribute('hidden', !differs);
+        }
+        if (roleSummary) {
+            roleSummary.textContent = overridden
+                ? `${overridden}/${rows.length} 个岗位已单独覆盖，其余跟随全军默认。`
+                : '全部岗位跟随全军默认；只改有特殊需要的岗位。';
+        }
     }
     function capabilityRow(route) {
         const selected = payload.policy?.capabilities?.[route.key] || route.options?.[0] || {};

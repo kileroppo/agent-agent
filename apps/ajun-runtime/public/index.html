@@ -297,10 +297,26 @@
               <button id="fleet-model-apply-all" type="button">应用到全部岗位</button>
             </div>
             <p id="fleet-model-message" class="connection-message" role="status"></p>
-            <div class="fleet-model-section-head"><div><h3>岗位覆盖</h3><p>只改有特殊需要的岗位，其余跟随全军默认。</p></div><button id="fleet-model-save-roles" class="secondary-action" type="button">保存岗位配置</button></div>
-            <div id="fleet-model-employees" class="fleet-role-list"></div>
-            <div class="fleet-model-section-head"><div><h3>能力专用模型</h3><p>语音识别可在套餐与本机之间切换；其他能力会随官方可用模型扩展选项。</p></div><button id="fleet-capability-save" class="secondary-action" type="button">保存能力配置</button></div>
-            <div id="fleet-capability-models" class="capability-model-grid"></div>
+            <details class="fleet-subsection">
+              <summary>
+                <span><strong>岗位覆盖</strong><small id="fleet-role-summary">只改有特殊需要的岗位，其余跟随全军默认。</small></span>
+                <svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg>
+              </summary>
+              <div class="fleet-subsection-body">
+                <div id="fleet-model-employees" class="fleet-role-list"></div>
+                <div class="fleet-subsection-actions"><button id="fleet-model-save-roles" class="secondary-action" type="button">保存岗位配置</button></div>
+              </div>
+            </details>
+            <details class="fleet-subsection">
+              <summary>
+                <span><strong>能力专用模型</strong><small>语音识别可在套餐与本机之间切换；其他能力会随官方可用模型扩展选项。</small></span>
+                <svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg>
+              </summary>
+              <div class="fleet-subsection-body">
+                <div id="fleet-capability-models" class="capability-model-grid"></div>
+                <div class="fleet-subsection-actions"><button id="fleet-capability-save" class="secondary-action" type="button">保存能力配置</button></div>
+              </div>
+            </details>
             <details class="fleet-hermes-advanced">
               <summary>API Key 与 Hermes 高级设置</summary>
               <div class="connection-actions" data-model-setup-scope>
@@ -504,6 +520,17 @@
             <div>
               <h2>最近作品</h2>
             </div>
+            <span class="boom-legend">
+              <button type="button" class="boom-legend-trigger" aria-label="等级怎么判定？鼠标悬停查看说明">?</button>
+              <span class="boom-legend-popover" role="tooltip">
+                <strong>等级判定</strong>
+                <span class="boom-legend-row"><span class="boom-grade t3">T3</span><small><svg class="li" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 12l4-4 3 3 5-6"/><path d="M10 5h4v4"/></svg><b>≥8×</b><i>＋</i><svg class="li" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13.4S2.6 10 2.6 6.2A2.9 2.9 0 0 1 8 4.7a2.9 2.9 0 0 1 5.4 1.5c0 3.8-5.4 7.2-5.4 7.2z"/></svg>或量<i>＋</i>✨</small></span>
+                <span class="boom-legend-row"><span class="boom-grade t2">T2</span><small><svg class="li" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 12l4-4 3 3 5-6"/><path d="M10 5h4v4"/></svg><b>≥3×</b><i>＋</i><svg class="li" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13.4S2.6 10 2.6 6.2A2.9 2.9 0 0 1 8 4.7a2.9 2.9 0 0 1 5.4 1.5c0 3.8-5.4 7.2-5.4 7.2z"/></svg>或量<i>＋</i>✨</small></span>
+                <span class="boom-legend-row"><span class="boom-grade t1">T1</span><small><svg class="li" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 12l4-4 3 3 5-6"/><path d="M10 5h4v4"/></svg><b>≥2×</b><i>＋</i>任一达标</small></span>
+                <span class="boom-legend-row"><span class="boom-grade n0">N0</span><small>均未达标</small></span>
+                <span class="boom-legend-gates"><i><svg class="li" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 12l4-4 3 3 5-6"/><path d="M10 5h4v4"/></svg>当前 ÷ 历史中位</i><i><svg class="li" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 13.4S2.6 10 2.6 6.2A2.9 2.9 0 0 1 8 4.7a2.9 2.9 0 0 1 5.4 1.5c0 3.8-5.4 7.2-5.4 7.2z"/></svg>点赞 ÷ 粉丝，或点赞总量到档</i><i>✨ 藏·转·评任一突出</i></span>
+              </span>
+            </span>
           </div>
           <details class="boom-filter-tools">
             <summary>筛选作品</summary>
