@@ -47,6 +47,7 @@ export function createRuntimeReleaseConsole({ root, api, confirmAction = window.
     const rollbackButton = root.querySelector('#release-rollback-action');
     const historyList = root.querySelector('#release-history-list');
     const historySummary = root.querySelector('#release-history-summary');
+    const componentStatus = root.querySelector('#release-component-status');
     let status = null;
     let timer = null;
     let active = false;
@@ -99,8 +100,8 @@ export function createRuntimeReleaseConsole({ root, api, confirmAction = window.
             loadHistory();
         wasActive = nowActive;
     }
-    const PROTECTION_LABELS = { live: '运行中', rollback: '回滚目标', 'xiaod-live': '小D运行中' };
-    const PRODUCT_LABELS = { ajun: 'A君', xiaod: '小D' };
+    const PROTECTION_LABELS = { live: '运行中', rollback: '回滚目标' };
+    const PRODUCT_LABELS = { ajun: 'A君' };
     function renderHistory(releases) {
         historySummary.textContent = helperOnline
             ? `共 ${releases.length} 个版本快照；运行中和回滚目标不可删除。`
@@ -113,7 +114,7 @@ export function createRuntimeReleaseConsole({ root, api, confirmAction = window.
                 : '时间未知';
             const meta = document.createElement('span');
             meta.className = 'release-history-meta';
-            meta.textContent = `${PRODUCT_LABELS[release.product] || release.product} · ${date}${release.gitHead ? ` · 提交 ${shortHash(release.gitHead)}` : ''}`;
+            meta.textContent = `${PRODUCT_LABELS[release.product] || 'A君'} · ${date}${release.gitHead ? ` · 提交 ${shortHash(release.gitHead)}` : ''}`;
             const id = document.createElement('code');
             id.className = 'release-history-id';
             id.textContent = shortHash(release.releaseHash);
@@ -146,10 +147,15 @@ export function createRuntimeReleaseConsole({ root, api, confirmAction = window.
             const payload = await api('/api/runtime-release/listing');
             helperOnline = payload?.helperOnline === true;
             renderHistory(payload?.releases || []);
+            const xiaod = payload?.components?.xiaod;
+            componentStatus.textContent = xiaod?.releaseHash
+                ? `小D是独立运行组件，当前版本 ${shortHash(xiaod.releaseHash)} 已受保护；不在这里发布、回滚或清理。`
+                : '小D是独立运行组件；当前未读取到它的运行版本，不影响 A君版本管理。';
         }
         catch (error) {
             historySummary.textContent = error.message || '暂时无法读取版本库。';
             historyList.replaceChildren();
+            componentStatus.textContent = '暂时无法读取小D运行组件状态。';
         }
     }
     async function deleteRelease(releaseHash, triggerButton) {

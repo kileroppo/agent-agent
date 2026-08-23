@@ -61,10 +61,13 @@ test('版本页提供历史版本清单和受保护的删除入口', async () =>
   assert.match(html, /历史版本/);
   assert.match(html, /id="release-history-list"/);
   assert.match(html, /id="release-history-summary"/);
+  assert.match(html, /id="release-component-status"/);
   assert.match(script, /api\('\/api\/runtime-release\/listing'\)/);
   assert.match(script, /\/api\/runtime-release\/delete/);
   assert.match(script, /delete_release_snapshot/);
   assert.match(script, /运行中和回滚目标不可删除/);
+  assert.match(script, /小D是独立运行组件/);
+  assert.doesNotMatch(script, /xiaod-live/);
   assert.match(script, /发布助手离线，无法确认运行中版本，删除已停用/);
   assert.doesNotMatch(script, /<input|<textarea|<select/);
 });

@@ -30,8 +30,13 @@ export async function routeOwnerControlApi({
     if (runtimeRelease) {
       try { helperStatus = await runtimeRelease.status(); } catch { helperStatus = null; }
     }
-    const protectedHashes = releaseProtectionMap(helperStatus, await readXiaodLiveReleaseHash());
-    return { status:200, payload:{ releases:await listReleaseSnapshots(protectedHashes), helperOnline:Boolean(helperStatus) } };
+    const xiaodReleaseHash = await readXiaodLiveReleaseHash();
+    const protectedHashes = releaseProtectionMap(helperStatus, xiaodReleaseHash);
+    return { status:200, payload:{
+      releases:await listReleaseSnapshots(protectedHashes, 'ajun'),
+      helperOnline:Boolean(helperStatus),
+      components:{ xiaod:{ releaseHash:xiaodReleaseHash, protected:Boolean(xiaodReleaseHash) } },
+    } };
   }
   if (request.method === 'POST' && request.url === '/api/runtime-release/delete') {
     if (!local) return denied(403, '版本库只能由老板在本机操作。');
@@ -49,7 +54,7 @@ export async function routeOwnerControlApi({
     try { helperStatus = await runtimeRelease.status(); } catch { return denied(503, '无法核对运行中版本，已阻止删除。'); }
     const protectedHashes = releaseProtectionMap(helperStatus, await readXiaodLiveReleaseHash());
     try {
-      const removed = await deleteReleaseSnapshot(String(body.releaseHash || ''), protectedHashes);
+      const removed = await deleteReleaseSnapshot(String(body.releaseHash || ''), protectedHashes, 'ajun');
       return { status:200, payload:{ deleted:removed } };
     } catch (error:any) {
       return denied(400, error?.message || '删除失败。');

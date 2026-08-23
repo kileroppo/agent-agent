@@ -40,7 +40,7 @@ export async function readXiaodLiveReleaseHash(): Promise<string | null> {
   }
 }
 
-export async function listReleaseSnapshots(protectedHashes: Map<string, string>): Promise<any[]> {
+export async function listReleaseSnapshots(protectedHashes: Map<string, string>, selectedProduct?: 'ajun' | 'xiaod'): Promise<any[]> {
   const root = runtimeReleasesRoot();
   let entries: any[] = [];
   try {
@@ -54,6 +54,7 @@ export async function listReleaseSnapshots(protectedHashes: Map<string, string>)
     const match = entry.name.match(RELEASE_DIR_PATTERN);
     if (!match) continue;
     const [, product, releaseHash] = match;
+    if (selectedProduct && product !== selectedProduct) continue;
     let gitHead = '';
     try {
       const manifest = JSON.parse(await fs.readFile(path.join(root, entry.name, 'release-manifest.json'), 'utf8'));
@@ -74,14 +75,17 @@ export async function listReleaseSnapshots(protectedHashes: Map<string, string>)
   return releases;
 }
 
-export async function deleteReleaseSnapshot(releaseHash: string, protectedHashes: Map<string, string>): Promise<string> {
+export async function deleteReleaseSnapshot(releaseHash: string, protectedHashes: Map<string, string>, selectedProduct?: 'ajun' | 'xiaod'): Promise<string> {
   if (!/^[0-9a-f]{64}$/.test(releaseHash))
     throw new Error('版本号格式不正确。');
   if (protectedHashes.has(releaseHash))
     throw new Error('该版本正在运行或是回滚目标，不能删除。');
   const root = runtimeReleasesRoot();
   const names = await fs.readdir(root);
-  const dirName = names.find((name) => RELEASE_DIR_PATTERN.test(name) && name.endsWith(`-${releaseHash}`));
+  const dirName = names.find((name) => {
+    const match = name.match(RELEASE_DIR_PATTERN);
+    return Boolean(match && (!selectedProduct || match[1] === selectedProduct) && name.endsWith(`-${releaseHash}`));
+  });
   if (!dirName)
     throw new Error('版本库中已没有这个版本。');
   const target = path.join(root, dirName);

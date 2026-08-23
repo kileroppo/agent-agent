@@ -27,12 +27,11 @@ test('保护集合来自发布助手状态与小D运行版本', () => {
   assert.equal(releaseProtectionMap(null, null).size, 0);
 });
 
-test('清单只收录合法版本目录，按创建时间倒序并带保护标记', async (context) => {
+test('A君版本清单只收录 A君快照，按创建时间倒序并带保护标记', async (context) => {
   const root = await setupReleases(context);
   const releases = await listReleaseSnapshots(releaseProtectionMap({ current:{ releaseHash:LIVE_HASH }, rollback:{ releaseHash:ROLLBACK_HASH } }, XIAOD_HASH));
 
-  assert.deepEqual(releases.map((item) => [item.releaseHash, item.product, item.protection]), [
-    [XIAOD_HASH, 'xiaod', 'xiaod-live'],
+  assert.deepEqual((await listReleaseSnapshots(releaseProtectionMap({ current:{ releaseHash:LIVE_HASH }, rollback:{ releaseHash:ROLLBACK_HASH } }, XIAOD_HASH), 'ajun')).map((item) => [item.releaseHash, item.product, item.protection]), [
     [OLD_HASH, 'ajun', null],
     [ROLLBACK_HASH, 'ajun', 'rollback'],
     [LIVE_HASH, 'ajun', 'live'],
@@ -48,6 +47,15 @@ test('删除拒绝非法版本号和受保护版本', async (context) => {
   await assert.rejects(() => deleteReleaseSnapshot(LIVE_HASH, protectedHashes), /正在运行或是回滚目标/);
   await assert.rejects(() => deleteReleaseSnapshot('e'.repeat(64), protectedHashes), /已没有这个版本/);
   assert.equal((await fs.readdir(root)).filter((name) => name.startsWith('ajun-runtime-release')).length, 3);
+});
+
+test('A君版本管理不能删除小D的独立运行版本', async (context) => {
+  const root = await setupReleases(context);
+  await assert.rejects(
+    () => deleteReleaseSnapshot(XIAOD_HASH, new Map(), 'ajun'),
+    /已没有这个版本/,
+  );
+  await fs.access(path.join(root, `xiaod-runtime-release-v1-${XIAOD_HASH}`));
 });
 
 test('删除可清理只读快照目录本身', async (context) => {

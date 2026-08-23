@@ -18,3 +18,6 @@ __pycache__/
 ajun-runtime-key-source-*.zip
 work/
 docs/acceptance-fixtures/technical-repair-sandbox/paperclip-work-product.json
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
