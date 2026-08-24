@@ -3,10 +3,10 @@ import { acceptanceTargetView, cleanAttentionText, recoverySubmissionView, rende
 import { createTaskTimelineLoader } from './task-timeline-view.js';
 export { taskAttentionView } from './task-record-detail-view.js';
 const VIEW_LABELS = Object.freeze({
-    needs_action: '需要我处理',
-    active: '处理中',
+    needs_action: '待处理',
+    active: '进行中',
     completed: '已完成',
-    all: '全部记录',
+    all: '全部',
 });
 const BACKLOG_CATEGORY_LABELS = Object.freeze({
     owner_actionable: '待处理',
@@ -204,7 +204,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         try {
             const page = await api(recordQueryUrl(''));
             if (page.revision !== state.revision) {
-                elements.newItems.textContent = '有新的记录，点击更新';
+                elements.newItems.textContent = '有更新';
                 elements.newItems.hidden = false;
             }
             if (state.selectedTaskId)
@@ -267,7 +267,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         renderRoutineSummary(routineSummary);
         renderDetail();
         elements.loadMore.hidden = !state.nextCursor;
-        elements.loadMore.textContent = state.nextCursor ? `继续加载（已显示 ${state.items.length}/${state.total}）` : '已显示全部';
+        elements.loadMore.textContent = state.nextCursor ? `更多 ${state.items.length}/${state.total}` : '已全部显示';
     }
     function renderTabs() {
         for (const button of elements.viewButtons) {
@@ -280,22 +280,20 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             button.setAttribute('aria-pressed', String(active));
         }
         const activeLabel = BACKLOG_CATEGORY_LABELS[state.backlogCategory] || VIEW_LABELS[state.view];
-        elements.count.textContent = state.total ? `${activeLabel} · ${state.total}` : emptyCountLabel();
+        elements.count.textContent = state.total ? `${state.total}` : emptyCountLabel();
         elements.listContext.textContent = state.autoExpanded
-            ? '近 30 天未找到，已查询全部时间'
-            : state.items.length < state.total ? `当前 ${state.items.length} 条` : '';
+            ? '已扩到全部时间'
+            : state.backlogCategory ? activeLabel : '';
     }
     function renderList() {
         if (!state.items.length) {
             const filtered = Boolean(state.q || state.agentId || state.taskType || state.time !== '30d' || state.includeRoutine || state.backlogCategory);
-            const title = filtered ? '没有匹配的记录' : state.view === 'needs_action' ? '目前没有需要你处理的事' : '这个分类暂时没有记录';
-            const detail = filtered
-                ? '调整搜索词或筛选条件后再试。'
-                : state.view === 'needs_action' && state.counts.active ? `${state.counts.active} 项工作仍在处理中，你暂时不用操作。` : '新的记录出现后会自动提醒。';
+            const title = filtered ? '没有匹配' : state.view === 'needs_action' ? '没有待处理' : '暂无记录';
             const nextView = !filtered && state.view === 'needs_action'
                 ? state.counts.active ? 'active' : state.counts.completed ? 'completed' : state.counts.all ? 'all' : ''
                 : '';
-            elements.list.innerHTML = html `<div class="record-list-empty"><strong>${title}</strong><p>${detail}</p>${raw(nextView ? html `<button class="text-action" type="button" data-empty-view="${nextView}">${raw(nextView === 'active' ? '查看处理中' : nextView === 'completed' ? '查看最近完成' : '查看全部记录')}</button>` : '')}</div>`;
+            const nextLabel = nextView === 'active' ? `进行中 ${state.counts.active}` : nextView === 'completed' ? '看已完成' : nextView === 'all' ? '看全部' : '';
+            elements.list.innerHTML = html `<div class="record-list-empty"><strong>${title}</strong>${raw(nextView ? html `<button class="text-action" type="button" data-empty-view="${nextView}">${nextLabel}</button>` : '')}</div>`;
             return;
         }
         elements.list.innerHTML = state.items.map((task) => {
@@ -309,7 +307,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
           ${raw(reason ? html `<span class="record-row-reason">${reason}</span>` : '')}
           <span class="record-row-meta"><span>${agentName(task.assigneeAgentId)}</span><span>·</span><span>${relativeTime(task.updatedAt || task.createdAt)}</span></span>
         </span>
-        <span class="record-row-status ${tone}">${presentation.statusLabel || '状态更新'}</span>
+        <span class="record-row-status ${tone}">${presentation.statusLabel || ''}</span>
       </button>`;
         }).join('');
     }
@@ -328,7 +326,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
     function renderDetail() {
         const task = state.selectedTask;
         if (!task) {
-            elements.detail.innerHTML = html `<div class="record-detail-empty"><svg aria-hidden="true"><use href="#icon-records"></use></svg><p>${state.items.length ? '选择一条记录查看结果和下一步' : emptyDetailLabel()}</p></div>`;
+            elements.detail.innerHTML = html `<div class="record-detail-empty"><p>${state.items.length ? '选一条记录' : emptyDetailLabel()}</p></div>`;
             return;
         }
         const presentation = task.presentation || {};
@@ -340,27 +338,31 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const artifacts = artifactItems(task.artifactRefs || [], { hideEmployeeReport: Boolean(attention) });
         const actionState = state.actionState.get(task.taskId) || null;
         const acceptanceState = state.acceptanceState.get(task.taskId) || null;
-        const summary = presentation.summary || `${displayTaskTitle(task)}状态已更新。`;
-        const showNextAction = needsAction || taskView === 'active';
+        const summary = presentation.summary || '';
+        const showNextAction = (needsAction || taskView === 'active') && !attention;
+        const nextAction = showNextAction ? (presentation.nextAction || missingNextActionMessage(taskView)) : '';
+        const distinctResult = result && result.text && result.text !== summary ? result : null;
+        const outcomeLabel = taskView === 'completed' ? '结果' : taskView === 'active' ? '进度' : '下一步';
+        const outcomeHtml = attention
+            ? renderAttentionDetail(attention, actionState, escapeHtml)
+            : (summary || distinctResult || nextAction || task.pendingApproval?.reason)
+                ? html `<section class="record-primary-summary${needsAction ? ' needs-action' : ''}">
+            <span class="record-outcome-label">${outcomeLabel}</span>
+            ${raw(summary ? html `<p>${summary}</p>` : '')}
+            ${raw(distinctResult ? html `<p>${distinctResult.text}</p>` : '')}
+            ${raw(nextAction && nextAction !== summary ? html `<div class="record-primary-next"><strong>下一步</strong><p>${nextAction}</p></div>` : '')}
+          </section>${raw(task.pendingApproval?.reason ? html `<details class="record-detail-section record-context-details"><summary>待确认原因</summary><p>${task.pendingApproval.reason}</p></details>` : '')}`
+                : '';
         elements.detail.innerHTML = html `
-      <button class="record-detail-back" type="button">← 返回记录</button>
+      <button class="record-detail-back" type="button">返回</button>
       <header class="record-detail-header">
-        <div class="record-detail-kicker"><span class="record-row-status ${presentation.tone || 'active'}">${presentation.statusLabel || '状态更新'}</span><span>${presentation.taskRef || ''}</span></div>
-        <h2>${displayTaskTitle(task)}</h2>
-        <div class="record-detail-meta"><span>${agentName(task.assigneeAgentId)}</span><span>更新于 ${relativeTime(task.updatedAt || task.createdAt)}</span></div>
+        <div class="record-detail-title-row"><h2>${displayTaskTitle(task)}</h2><span class="record-row-status ${presentation.tone || 'active'}">${presentation.statusLabel || ''}</span></div>
+        <p class="record-detail-meta">${agentName(task.assigneeAgentId)} · ${relativeTime(task.updatedAt || task.createdAt)}${raw(presentation.taskRef ? html ` · ${presentation.taskRef}` : '')}</p>
       </header>
       ${raw(renderAcceptanceDetail(acceptanceTarget, acceptanceState, escapeHtml))}
-      ${raw(attention
-            ? renderAttentionDetail(attention, actionState, escapeHtml)
-            : html `<section class="record-primary-summary${needsAction ? ' needs-action' : ''}">
-            <span>${taskView === 'completed' ? '运行结果' : taskView === 'active' ? '当前进度' : needsAction ? '需要你处理' : '记录摘要'}</span>
-            <h3>${summary}</h3>
-            ${raw(result && result.text !== summary ? html `<p><strong>${result.label}</strong>${result.text}</p>` : '')}
-            ${raw(showNextAction ? html `<div class="record-primary-next"><strong>下一步</strong><p>${presentation.nextAction || missingNextActionMessage(taskView)}</p></div>` : '')}
-          </section>
-          ${raw(task.pendingApproval?.reason ? html `<details class="record-detail-section record-context-details"><summary>为什么需要确认</summary><p>${task.pendingApproval.reason}</p></details>` : '')}`)}
-      ${raw(artifacts.length ? `<section class="record-detail-section"><h3>交付与证据</h3><ul class="record-artifact-list">${artifacts.map(renderArtifact).join('')}</ul></section>` : '')}
-      ${raw(state.timelineHtml || '<details class="record-detail-section task-timeline" data-task-timeline-shell><summary><span>运行过程</span><small>按需查看</small></summary></details>')}
+      ${raw(outcomeHtml)}
+      ${raw(artifacts.length ? `<section class="record-deliverables"><h3>交付</h3><ul class="record-artifact-list">${artifacts.map(renderArtifact).join('')}</ul></section>` : '')}
+      ${raw(state.timelineHtml || '<details class="record-detail-section task-timeline" data-task-timeline-shell><summary>过程</summary></details>')}
       ${raw(renderTechnicalDetails(task, presentation, attention, escapeHtml))}`;
         elements.detail.querySelector('.record-detail-back')?.addEventListener('click', () => {
             elements.workbench.classList.remove('is-detail-open');
@@ -390,7 +392,9 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         timelineShell?.addEventListener('toggle', async () => {
             if (!timelineShell.open || state.timelineHtml)
                 return;
-            timelineShell.querySelector('small').textContent = '正在读取…';
+            const summaryNode = timelineShell.querySelector('summary');
+            if (summaryNode)
+                summaryNode.textContent = '读取中…';
             state.timelineHtml = await loadTimeline(task.taskId);
             renderDetail();
             elements.detail.querySelector('[data-task-timeline]')?.setAttribute('open', '');
@@ -409,7 +413,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             return await timeline.load(taskId);
         }
         catch {
-            return '<details class="record-detail-section task-timeline" data-task-timeline open><summary>运行过程</summary><p>运行记录暂时无法读取，不影响任务结果。</p></details>';
+            return '<details class="record-detail-section task-timeline" data-task-timeline open><summary>过程</summary><p>过程读不了，结果不受影响。</p></details>';
         }
     }
     function confirmAttentionAction(task, actionKey) {
@@ -420,7 +424,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         state.actionState.set(task.taskId, {
             status: 'confirming',
             actionKey: action.actionKey,
-            message: action.confirmation || `确认执行“${action.label}”？系统只会执行这条明确的恢复动作。`,
+            message: action.confirmation || `确认执行“${action.label}”？`,
         });
         renderDetail();
         elements.detail.querySelector('[data-attention-confirm]')?.focus();
@@ -485,7 +489,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             state.acceptanceState.set(task.taskId, {
                 status: 'saved',
                 decision,
-                message: decision === 'accepted' ? '已记录为有用，这件事已经闭环。' : '已记录为需要改进，本轮决定已经闭环。',
+                message: decision === 'accepted' ? '已记为有用' : '已记为需改进',
             });
             if (payload?.task)
                 state.selectedTask = withAcceptanceTarget(payload);
@@ -605,30 +609,30 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
     }
     function renderLoading() {
-        elements.count.textContent = '正在读取…';
-        elements.list.innerHTML = '<div class="record-list-empty"><strong>正在整理任务记录</strong><p>只读取当前需要的这一页。</p></div>';
+        elements.count.textContent = '读取中';
+        elements.list.innerHTML = '<div class="record-list-empty"><strong>读取中</strong></div>';
     }
     function renderError(error) {
         elements.count.textContent = '读取失败';
-        elements.list.innerHTML = html `<div class="record-list-error"><strong>暂时无法读取任务记录</strong><p>${error.message || '本次读取没有完成。'}</p><button class="focus-primary-action" type="button" data-record-retry>重新读取</button></div>`;
+        elements.list.innerHTML = html `<div class="record-list-error"><strong>读不到记录</strong><p>${error.message || '本次没有读完。'}</p><button class="focus-primary-action" type="button" data-record-retry>重试</button></div>`;
     }
     function renderDetailError(error) {
-        elements.detail.innerHTML = html `<div class="record-list-error"><strong>无法打开这条记录</strong><p>${error.message || '本次读取没有完成，任务记录没有被更改。'}</p><button class="focus-primary-action" type="button" data-record-detail-retry>重新读取</button></div>`;
+        elements.detail.innerHTML = html `<div class="record-list-error"><strong>打不开这条记录</strong><p>${error.message || '任务没有被更改。'}</p><button class="focus-primary-action" type="button" data-record-detail-retry>重试</button></div>`;
         elements.detail.querySelector('[data-record-detail-retry]')?.addEventListener('click', () => {
             loadSelectedDetail({ revealDetail: false, quiet: false });
         });
     }
     function emptyCountLabel() {
-        return state.backlogCategory ? `${BACKLOG_CATEGORY_LABELS[state.backlogCategory]} · 0` : state.view === 'needs_action' ? '无需处理' : '0 条记录';
+        return state.backlogCategory ? `${BACKLOG_CATEGORY_LABELS[state.backlogCategory]} · 0` : '0';
     }
     function emptyDetailLabel() {
-        return state.view === 'needs_action' ? '目前没有需要你处理的事' : '当前条件下没有记录';
+        return state.view === 'needs_action' ? '没有待处理' : '没有记录';
     }
 }
 function missingNextActionMessage(taskView) {
     if (taskView === 'needs_action')
-        return '当前记录没有给出可执行动作；请在飞书补充信息或联系负责人核对，不要盲目重试。';
-    return '系统正在处理；有新进度时会更新，无需重复提交。';
+        return '没有可执行动作，去飞书补充信息。';
+    return '处理中，有进度会更新。';
 }
 function compactAttentionReason(task) {
     const attention = taskAttentionView(task);
@@ -661,7 +665,7 @@ function renderTechnicalDetails(task, presentation, attention, escapeHtml) {
     const paperclipIssue = task.paperclipIssue?.detailUrl
         ? html `<a class="record-paperclip-link" href="${task.paperclipIssue.detailUrl}" target="_blank" rel="noopener">打开 Paperclip ${task.paperclipIssue.identifier || '任务'}</a>`
         : '';
-    return html `<details class="record-technical"><summary>技术与审计信息</summary><dl>${rows.map(([label, value]) => html `<div><dt>${label}</dt><dd>${value}</dd></div>`).join('')}</dl>${raw(paperclipIssue)}<button class="text-action record-copy-id" type="button">复制完整编号</button></details>`;
+    return html `<details class="record-technical"><summary>编号与审计</summary><dl>${rows.map(([label, value]) => html `<div><dt>${label}</dt><dd>${value}</dd></div>`).join('')}</dl>${raw(paperclipIssue)}<button class="text-action record-copy-id" type="button">复制编号</button></details>`;
 }
 function newIdempotencyKey(taskId, actionKey) {
     const random = globalThis.crypto?.randomUUID?.()
@@ -807,7 +811,9 @@ function artifactItems(artifacts, { hideEmployeeReport = false } = {}) {
     }).slice(0, 12);
 }
 function renderArtifact(artifact) {
-    return `<li><span>${escapeStatic(artifact.label)}</span>${artifact.url ? `<a href="${escapeStatic(artifact.url)}" target="_blank" rel="noopener noreferrer">打开</a>` : '<span>已记录</span>'}</li>`;
+    return artifact.url
+        ? `<li><a href="${escapeStatic(artifact.url)}" target="_blank" rel="noopener noreferrer">${escapeStatic(artifact.label)}</a></li>`
+        : `<li><span>${escapeStatic(artifact.label)}</span></li>`;
 }
 function escapeStatic(value) {
     return String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));

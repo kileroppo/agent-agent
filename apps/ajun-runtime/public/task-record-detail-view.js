@@ -62,30 +62,23 @@ export function renderAcceptanceDetail(target, submission, _escapeHtml) {
     const decision = submission?.status === 'saved' ? submission.decision : target.decision;
     const closed = decision === 'accepted' || decision === 'revision_required';
     const headline = decision === 'accepted'
-        ? '你已确认这次结果有用'
+        ? '已确认有用'
         : decision === 'revision_required'
-            ? '你已标记这次结果需要改进'
+            ? '已标记需改进'
             : '这次结果需要你验收';
-    const description = decision === 'accepted'
-        ? '本轮工作已经闭环，不需要继续处理。'
-        : decision === 'revision_required'
-            ? '本轮决定已经记录，系统不会把它伪装成成功，也不会自动反复重试。'
-            : '请选择一个结果。无论选择哪项，本轮都会留下明确结论。';
     const feedback = submission?.message
         ? html `<p class="record-acceptance-message ${submission.status === 'failed' ? 'is-failed' : ''}" role="status">${submission.message}</p>`
         : '';
     const controls = target.actionable && !closed
-        ? html `<label class="record-acceptance-note">补充说明（可选）<textarea rows="2" maxlength="1000" data-acceptance-note placeholder="例如：哪里有用，或下一次需要改进什么"${raw(submitting ? ' disabled' : '')}>${submission?.note || ''}</textarea></label>
+        ? html `<label class="record-acceptance-note">说明（可选）<textarea rows="2" maxlength="1000" data-acceptance-note placeholder="哪里有用，或下次改什么"${raw(submitting ? ' disabled' : '')}>${submission?.note || ''}</textarea></label>
         <div class="record-acceptance-actions">
-          <button type="button" data-acceptance-decision="accepted"${raw(submitting ? ' disabled' : '')}>${submitting && submission?.decision === 'accepted' ? '正在保存…' : '有用'}</button>
-          <button type="button" class="secondary-action" data-acceptance-decision="revision_required"${raw(submitting ? ' disabled' : '')}>${submitting && submission?.decision === 'revision_required' ? '正在保存…' : '需改进'}</button>
+          <button type="button" data-acceptance-decision="accepted"${raw(submitting ? ' disabled' : '')}>${submitting && submission?.decision === 'accepted' ? '保存中…' : '有用'}</button>
+          <button type="button" class="secondary-action" data-acceptance-decision="revision_required"${raw(submitting ? ' disabled' : '')}>${submitting && submission?.decision === 'revision_required' ? '保存中…' : '需改进'}</button>
         </div>`
         : '';
     return html `<section class="record-acceptance${raw(closed ? ' is-closed' : '')}" aria-label="业务结果验收">
-      <span>${closed ? '验收结果' : '需要你决定'}</span>
       <h3>${headline}</h3>
       <p><strong>${target.title}</strong></p>
-      <p>${description}</p>
       ${raw(controls)}${raw(feedback)}
     </section>`;
 }
@@ -104,32 +97,49 @@ export function renderAttentionDetail(attention, actionState, _escapeHtml) {
         return html `<button type="button" class="${className}" data-attention-action="${action.actionKey}"${raw(submitting ? ' disabled' : '')}>${action.label}</button>`;
     }).join('');
     const confirmation = confirmingAction
-        ? cleanAttentionText(actionState?.message, 500) || confirmingAction.confirmation || `确认执行“${confirmingAction.label}”？系统只会执行这条明确的恢复动作。`
+        ? cleanAttentionText(actionState?.message, 500) || confirmingAction.confirmation || `确认执行“${confirmingAction.label}”？`
+        : '';
+    const fallbackNext = attention.nextAction && attention.nextAction !== '请根据当前原因决定下一步。'
+        ? html `<p>${attention.nextAction}</p>`
         : '';
     const actionContent = confirmingAction
         ? html `<div class="record-attention-confirmation" role="alert"><p>${confirmation}</p><div class="record-attention-actions"><button type="button" class="record-attention-primary" data-attention-confirm="${confirmingAction.actionKey}">确认${confirmingAction.label}</button><button type="button" class="secondary-action" data-attention-cancel>取消</button></div></div>`
         : actions
             ? html `<div class="record-attention-actions">${raw(actions)}</div>`
-            : html `<p>${attention.nextAction}</p>`;
-    const evidence = attention.evidence
-        ? html `<details class="record-attention-evidence"><summary>查看判断依据</summary><p>${attention.evidence}</p></details>`
-        : '';
-    const risks = attention.remainingRisks
-        ? html `<details class="record-attention-evidence"><summary>查看剩余风险</summary><p>${attention.remainingRisks}</p></details>`
-        : '';
+            : fallbackNext;
+    const extras = [
+        attention.evidence ? html `<details class="record-attention-evidence"><summary>判断依据</summary><p>${attention.evidence}</p></details>` : '',
+        attention.remainingRisks ? html `<details class="record-attention-evidence"><summary>剩余风险</summary><p>${attention.remainingRisks}</p></details>` : '',
+        usefulAttentionImpact(attention) ? html `<p class="record-attention-impact-line">${attention.impact}</p>` : '',
+    ].filter(Boolean).join('');
     const recoveryPath = safeTaskDetailPath(recovery?.detailPath, recovery?.taskId);
     const recoveryLink = recoveryPath
-        ? html `<a class="record-recovery-link" href="${recoveryPath}">查看恢复进度</a>`
+        ? html `<a class="record-recovery-link" href="${recoveryPath}">恢复进度</a>`
         : '';
     const recoveryResult = recovery
-        ? html `<div class="record-recovery-status ${recoveryTone(recovery.status)}" role="status"><strong>处理进度</strong><p>${recovery.message}</p>${raw(recoveryLink)}</div>`
+        ? html `<div class="record-recovery-status ${recoveryTone(recovery.status)}" role="status"><p>${recovery.message}</p>${raw(recoveryLink)}</div>`
         : '';
+    const cause = usefulAttentionCause(attention);
     return html `<section class="record-attention" aria-label="任务处理说明">
-    <div class="record-attention-head"><span>需要你处理</span><h3>${attention.headline}</h3><p>${attention.cause}</p></div>
-    <div class="record-attention-impact"><strong>影响</strong><p>${attention.impact}</p>${raw(evidence)}${raw(risks)}</div>
-    <div class="record-attention-next"><strong>下一步</strong>${raw(actionContent)}</div>
+    <div class="record-attention-head"><h3>${attention.headline}</h3>${raw(cause ? html `<p>${cause}</p>` : '')}</div>
+    ${raw(actionContent ? html `<div class="record-attention-next">${raw(actionContent)}</div>` : '')}
+    ${raw(extras)}
     ${raw(recoveryResult)}
   </section>`;
+}
+function usefulAttentionCause(attention) {
+    const cause = String(attention?.cause || '').trim();
+    if (!cause || cause === attention.headline)
+        return '';
+    if (cause === '任务状态发生变化，但暂时没有更具体的用户可见原因。')
+        return '';
+    return cause;
+}
+function usefulAttentionImpact(attention) {
+    const impact = String(attention?.impact || '').trim();
+    if (!impact || impact === attention.headline || impact === attention.cause)
+        return false;
+    return impact !== '任务不会被视为已经完成。';
 }
 function renderDiagnosisOutcome(diagnosis, recovery, paperclipIssue, _escapeHtml) {
     const recoveryPath = safeTaskDetailPath(recovery?.detailPath, recovery?.taskId);

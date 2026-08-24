@@ -4332,36 +4332,47 @@ textarea:focus {
 
 /* Task record workbench */
 
-.record-heading {
-  margin-bottom: 12px;
+.records-page.is-active {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 168px);
+  min-height: calc(100dvh - 168px);
 }
 
-.record-toolbar {
+.records-page .record-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 12px;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.records-page .record-toolbar h1 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .record-view-tabs {
   display: flex;
   min-width: 0;
-  gap: 4px;
-  padding: 4px;
+  flex: 1;
+  gap: 2px;
+  padding: 3px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--surface);
 }
 
 .record-view-tab {
-  min-height: 36px;
-  padding: 7px 12px;
-  border-radius: 8px;
+  min-height: 32px;
+  padding: 5px 10px;
+  border-radius: 7px;
   background: transparent;
   color: var(--muted);
   box-shadow: none;
   white-space: nowrap;
+  font-size: 12px;
 }
 
 .record-view-tab:hover {
@@ -4377,7 +4388,7 @@ textarea:focus {
 
 .record-query-tools {
   display: flex;
-  width: min(420px, 42%);
+  width: min(280px, 32%);
   align-items: center;
   gap: 8px;
 }
@@ -4388,13 +4399,13 @@ textarea:focus {
 }
 
 .record-query-tools .task-search input {
-  min-height: 42px;
+  min-height: 36px;
   margin: 0;
 }
 
 .record-filter-toggle {
-  min-width: 68px;
-  min-height: 42px;
+  min-width: 56px;
+  min-height: 36px;
 }
 
 .record-filter-toggle.has-filters::after {
@@ -4488,9 +4499,10 @@ textarea:focus {
 
 .record-workbench {
   display: grid;
+  flex: 1;
   min-height: 560px;
-  height: min(720px, calc(100vh - 250px));
-  grid-template-columns: minmax(320px, 390px) minmax(0, 1fr);
+  height: auto;
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
@@ -4509,11 +4521,11 @@ textarea:focus {
 
 .record-list-summary {
   display: flex;
-  min-height: 48px;
+  min-height: 44px;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 10px 14px;
+  padding: 9px 16px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -4539,11 +4551,11 @@ textarea:focus {
 .record-row {
   display: grid;
   width: 100%;
-  min-height: 60px;
+  min-height: 64px;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
-  padding: 11px 14px;
+  gap: 10px;
+  padding: 12px 16px;
   border: 0;
   border-bottom: 1px solid var(--line);
   border-radius: 0;
@@ -4675,7 +4687,7 @@ textarea:focus {
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  padding: 22px 24px 30px;
+  padding: 28px 32px 36px;
 }
 
 .record-detail-empty {
@@ -4708,31 +4720,27 @@ textarea:focus {
 }
 
 .record-detail-header {
-  padding-bottom: 14px;
+  padding-bottom: 12px;
   border-bottom: 1px solid var(--line);
 }
 
-.record-detail-kicker {
+.record-detail-title-row {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .record-detail-header h2 {
-  margin: 7px 0 6px;
-  font-size: clamp(20px, 2vw, 26px);
-  line-height: 1.2;
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.3;
 }
 
 .record-detail-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 12px;
+  margin: 6px 0 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .record-decision {
@@ -4766,19 +4774,19 @@ textarea:focus {
 
 .record-primary-summary {
   display: grid;
-  gap: 9px;
-  margin: 18px 0 4px;
-  padding: 17px 18px;
+  gap: 7px;
+  margin: 20px 0 4px;
+  padding: 16px 18px;
   border-left: 3px solid var(--mint);
+  border-radius: 0 10px 10px 0;
   background: var(--surface-mint);
 }
 
 .record-primary-summary.needs-action {
-  border-left-color: var(--amber);
+  border-left: 3px solid var(--amber);
   background: var(--amber-soft);
 }
 
-.record-primary-summary > span,
 .record-outcome-label {
   color: var(--muted);
   font-size: 10px;
@@ -4786,21 +4794,19 @@ textarea:focus {
   letter-spacing: .05em;
 }
 
-.record-primary-summary h3 {
-  margin: 0;
-  font-size: 16px;
-  line-height: 1.5;
-}
-
 .record-primary-summary > p,
 .record-primary-next p {
   margin: 0;
   color: var(--ink-soft);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
-.record-primary-summary > p strong,
+.record-primary-next {
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--mint-deep) 16%, transparent);
+}
+
 .record-primary-next strong {
   display: block;
   margin-bottom: 3px;
@@ -4808,26 +4814,23 @@ textarea:focus {
   font-size: 11px;
 }
 
-.record-primary-next {
-  padding-top: 9px;
-  border-top: 1px solid color-mix(in srgb, var(--mint-deep) 16%, transparent);
+.record-deliverables {
+  margin: 20px 0 2px;
+}
+
+.record-deliverables h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
 }
 
 .record-acceptance {
   display: grid;
   gap: 8px;
-  margin: 20px 0 4px;
-  padding: 17px 18px;
+  margin: 16px 0 4px;
+  padding: 14px 16px;
   border: 1px solid color-mix(in srgb, var(--mint-deep) 32%, var(--line));
-  border-radius: 14px;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--mint-soft) 58%, var(--surface));
-}
-
-.record-acceptance > span {
-  color: var(--mint-deep);
-  font-size: 10px;
-  font-weight: 760;
-  letter-spacing: .06em;
 }
 
 .record-acceptance h3,
@@ -4836,7 +4839,7 @@ textarea:focus {
 }
 
 .record-acceptance h3 {
-  font-size: 18px;
+  font-size: 16px;
 }
 
 .record-acceptance p,
@@ -4899,28 +4902,20 @@ textarea:focus {
 }
 
 .record-attention {
-  margin: 20px 0 4px;
+  margin: 16px 0 4px;
   overflow: hidden;
   border: 1px solid var(--amber-line);
-  border-radius: 14px;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--amber-soft) 46%, var(--surface));
 }
 
 .record-attention-head {
-  padding: 17px 18px 14px;
-  border-bottom: 1px solid var(--amber-line);
-}
-
-.record-attention-head span {
-  color: var(--amber);
-  font-size: 10px;
-  font-weight: 760;
-  letter-spacing: .06em;
+  padding: 14px 16px 10px;
 }
 
 .record-attention-head h3 {
-  margin: 5px 0 0;
-  font-size: 18px;
+  margin: 0;
+  font-size: 16px;
 }
 
 .record-attention-head p,
@@ -4940,20 +4935,17 @@ textarea:focus {
 .record-attention-impact,
 .record-attention-next,
 .record-recovery-status {
-  padding: 13px 18px;
-  border-bottom: 1px solid color-mix(in srgb, var(--amber-line) 72%, transparent);
+  padding: 0 16px 14px;
 }
 
 .record-attention-impact > strong,
 .record-attention-next > strong,
 .record-recovery-status > strong {
-  display: block;
-  margin-bottom: 5px;
-  color: var(--ink);
-  font-size: 11px;
+  display: none;
 }
 
 .record-attention-next {
+  padding-bottom: 16px;
   background: var(--surface);
 }
 
@@ -4986,9 +4978,9 @@ textarea:focus {
 }
 
 .record-attention-evidence {
-  margin-top: 9px;
+  margin: 0 16px 12px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .record-attention-evidence summary {
@@ -5000,7 +4992,7 @@ textarea:focus {
   padding: 9px 10px;
   border-radius: 8px;
   background: var(--surface);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .record-recovery-status.is-running,

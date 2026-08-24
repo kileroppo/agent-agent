@@ -17,7 +17,7 @@ test('任务时间线默认展示业务过程并把排障信息折叠', () => {
     }],
   });
   assert.match(html, /<details class="record-detail-section task-timeline" data-task-timeline open>/);
-  assert.match(html, /运行过程[\s\S]*1 条/);
+  assert.match(html, /过程[\s\S]*1/);
   assert.match(html, /已切换备用能力/);
   assert.match(html, /仅看：切换/);
   assert.match(html, /<details class="record-technical task-timeline-technical"><summary>技术详情<\/summary>/);

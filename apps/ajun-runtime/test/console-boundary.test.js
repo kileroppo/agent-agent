@@ -88,10 +88,10 @@ test('A君控制台先说明当前状态和唯一下一步，并把历史噪音�
   ]);
   assert.match(html, /id="overview-title">现在/);
   assert.match(html, /下一步/);
-  assert.match(html, /需要我处理/);
+  assert.match(html, /待处理/);
   assert.match(html, /capabilities-disclosure/);
   assert.match(script, /需要你/);
-  assert.match(script, /无需处理/);
+  assert.match(script, /没有待处理/);
   assert.match(script, /对外发布关闭/);
   assert.match(script, /今日费用未上报/);
   assert.match(script, /正式岗位 Hermes 用量/);
@@ -147,7 +147,7 @@ test('记录页后台自动同步不重排当前列表，并单独刷新选中�
   const script = await readConsoleScripts();
 
   assert.match(script, /if \(page\.revision !== state\.revision\)/);
-  assert.match(script, /有新的记录，点击更新/);
+  assert.match(script, /有更新/);
   assert.match(script, /if \(state\.selectedTaskId\)\s*await loadSelectedDetail/);
   assert.match(script, /if \(quiet && state\.selectedDetailLoaded && nextTask\.updatedAt === state\.selectedTask\?\.updatedAt/);
   assert.match(script, /acceptanceRevision\(nextTask\) === acceptanceRevision\(state\.selectedTask\)/);

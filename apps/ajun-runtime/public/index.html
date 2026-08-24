@@ -601,22 +601,17 @@
         </section>
       </section>
 
-      <section id="module-records" class="module-page" data-module-page="records" aria-labelledby="records-title">
-        <div class="module-heading record-heading">
-          <div>
-            <h1 id="records-title">运行记录</h1>
-          </div>
-        </div>
-
+      <section id="module-records" class="module-page records-page" data-module-page="records" aria-labelledby="records-title">
         <div class="record-toolbar">
+          <h1 id="records-title">运行记录</h1>
           <div class="record-view-tabs" aria-label="按当前需要查看任务">
-            <button type="button" class="record-view-tab is-active" data-record-view="needs_action" aria-pressed="true">需要我处理</button>
-            <button type="button" class="record-view-tab" data-record-view="active" aria-pressed="false">处理中</button>
+            <button type="button" class="record-view-tab is-active" data-record-view="needs_action" aria-pressed="true">待处理</button>
+            <button type="button" class="record-view-tab" data-record-view="active" aria-pressed="false">进行中</button>
             <button type="button" class="record-view-tab" data-record-view="completed" aria-pressed="false">已完成</button>
-            <button type="button" class="record-view-tab" data-record-view="all" aria-pressed="false">全部记录</button>
+            <button type="button" class="record-view-tab" data-record-view="all" aria-pressed="false">全部</button>
           </div>
           <div class="record-query-tools">
-            <label class="task-search"><span class="visually-hidden">搜索任务</span><input id="task-search" type="search" autocomplete="off" placeholder="搜索任务名或编号"></label>
+            <label class="task-search"><span class="visually-hidden">搜索任务</span><input id="task-search" type="search" autocomplete="off" placeholder="搜索"></label>
             <button id="record-filter-toggle" class="record-filter-toggle secondary-action" type="button" aria-expanded="false" aria-controls="record-filter-panel">筛选</button>
           </div>
         </div>
@@ -632,13 +627,13 @@
           </div>
         </div>
         <div id="record-active-filters" class="record-active-filters" hidden></div>
-        <button id="record-new-items" class="record-new-items" type="button" hidden>有新的记录，点击更新</button>
+        <button id="record-new-items" class="record-new-items" type="button" hidden>有更新</button>
 
         <div id="record-workbench" class="record-workbench">
           <section class="record-list-panel" aria-label="任务记录列表">
             <div class="record-list-summary">
-              <strong id="task-count">正在读取…</strong>
-              <span id="record-list-context">按更新时间排列</span>
+              <strong id="task-count">读取中</strong>
+              <span id="record-list-context"></span>
             </div>
             <div id="task-list" class="task-list" role="listbox" aria-label="任务记录"></div>
             <button id="task-load-more" class="task-load-more secondary-action" type="button" hidden>加载更多</button>
@@ -647,7 +642,7 @@
           <aside id="record-detail" class="record-detail" aria-live="polite">
             <div class="record-detail-empty">
               <svg aria-hidden="true"><use href="#icon-records"></use></svg>
-              <p>选择一条记录查看结果和下一步</p>
+              <p>选一条记录</p>
             </div>
           </aside>
         </div>

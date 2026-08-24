@@ -5,10 +5,10 @@ const FILTER_LABELS: any = Object.freeze({
 export function renderTaskTimeline(payload: any, _options: any = {}): any {
     const items: any = Array.isArray(payload?.items) ? payload.items : [];
     if (!items.length) {
-        return '<details class="record-detail-section task-timeline" data-task-timeline open><summary>运行过程</summary><p class="task-timeline-empty">暂时没有可展示的运行记录。</p></details>';
+        return '<details class="record-detail-section task-timeline" data-task-timeline open><summary>过程</summary><p class="task-timeline-empty">没有过程记录。</p></details>';
     }
     return html`<details class="record-detail-section task-timeline" data-task-timeline open>
-    <summary><span>运行过程</span><small>${items.length} 条</small></summary>
+    <summary><span>过程</span><small>${items.length}</small></summary>
     ${raw(renderActiveFilters(payload?.filters))}
     <ol class="task-timeline-list">${raw(items.map((item: any): any => renderTimelineItem(item)).join(''))}</ol>
     ${raw(payload?.nextCursor ? '<button class="text-action task-timeline-more" type="button" data-task-timeline-more>继续加载</button>' : '')}
@@ -46,8 +46,8 @@ function renderTimelineItem(item: any): any {
     const icon: any = ({ success: 'check', warning: 'alert', danger: 'alert', active: 'clock' } as Record<string, string>)[tone];
     return html`<li class="task-timeline-item ${tone}">
     <svg class="task-timeline-icon" aria-hidden="true"><use href="#icon-${icon}"></use></svg>
-    <div><div class="task-timeline-title"><strong>${item?.title || '运行状态更新'}</strong>${raw(occurredAt ? html`<time datetime="${item.occurredAt}">${occurredAt}</time>` : '')}</div>
-    <p>${item?.summary || '任务运行状态已经更新。'}</p>${raw(technical)}</div>
+    <div><div class="task-timeline-title"><strong>${item?.title || '状态更新'}</strong>${raw(occurredAt ? html`<time datetime="${item.occurredAt}">${occurredAt}</time>` : '')}</div>
+    ${raw(item?.summary ? html`<p>${item.summary}</p>` : '')}${raw(technical)}</div>
   </li>`;
 }
 function renderTechnical(technical: any): any {
