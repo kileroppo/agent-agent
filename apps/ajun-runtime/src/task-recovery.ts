@@ -99,6 +99,9 @@ export class TaskRecovery {
             occurredAt: requestedAt,
         });
         try {
+            if (input.actionKey === 'accept_reviewed_artifact') {
+                return await this.#acceptReviewedArtifact(task, { requestId: input.requestId, requestedBy });
+            }
             const outcome: any = input.actionKey === 'resume_approved_mission'
                 ? await resumeApprovedMissionRecovery({
                     task, requestId: input.requestId, requestedBy,
@@ -291,5 +294,32 @@ export class TaskRecovery {
         return this.store.updateTask(taskId, {
             recovery: { ...(current.recovery || {}), coordination, events: events.slice(-50) },
         });
+    }
+    async #acceptReviewedArtifact(task: any, { requestId, requestedBy }: any): Promise<any> {
+        const completedAt: any = this.clock().toISOString();
+        const updatedTask: any = await this.store.updateTask(task.taskId, {
+            status: 'succeeded',
+            currentStage: 'paperclip_hermes_completed',
+            outcome: 'verified_artifact_accepted',
+            error: null,
+            recovery: {
+                ...(task.recovery || {}),
+                coordination: {
+                    status: 'succeeded',
+                    actionKey: 'accept_reviewed_artifact',
+                    requestId,
+                    completedAt,
+                    reason: '本机主人已确认采纳本次产物并完成业务闭环。',
+                },
+            },
+        });
+        return {
+            status: 'accepted',
+            taskId: task.taskId,
+            actionKey: 'accept_reviewed_artifact',
+            message: '已确认采纳本次产物，任务已标记为已完成。',
+            task: updatedTask,
+            recovery: view(updatedTask, { audience: 'local-owner', relatedTasks: await recoveryRelatedTasks(this.store, updatedTask) }),
+        };
     }
 }

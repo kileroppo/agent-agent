@@ -5003,6 +5003,27 @@ textarea:focus {
   color: #fff;
 }
 
+.record-attention-actions .record-paperclip-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.record-attention-actions .record-paperclip-link:hover {
+  background: var(--surface-soft);
+  border-color: var(--ink-soft);
+}
+
 .record-attention-tags {
   display: flex;
   flex-wrap: wrap;

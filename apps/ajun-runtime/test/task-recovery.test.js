@@ -529,6 +529,49 @@ test('非视觉能力失败不提供视觉恢复重跑', () => {
   );
 });
 
+test('待验证且保留可读产物的任务提供确认采纳动作，执行后直接标记为已完成', async () => {
+  const tasks = [{
+    taskId: '33333333-3333-4333-a333-333333333333',
+    taskType: 'office.briefing-package',
+    status: 'waiting_test',
+    updatedAt: '2026-08-17T12:00:00.000Z',
+    assigneeAgentId: 'office-assistant',
+    execution: { owner: 'paperclip-hermes' },
+    governance: { paperclipIssueId: 'paperclip-issue-briefing' },
+    input: { title: '小办汇总形成老板可读的本地简报' },
+    artifactRefs: [{
+      artifactId: 'briefing-package-1',
+      type: 'office_briefing_package',
+      title: '小办汇总形成老板可读的本地简报 | 办公汇报包',
+      validation: { exists: true, readable: true, nonEmpty: true },
+    }],
+    error: { code: 'paperclip_hermes_requires_review', userMessage: 'Paperclip 已结束本次运行，但本机保留了可读产物；需要人工核对后再决定是否采用。' },
+  }];
+
+  const store = memoryStore(tasks);
+  const recovery = new TaskRecovery({ store });
+  const recoveryView = await recovery.view(tasks[0].taskId, { audience: 'local-owner' });
+
+  assert.deepEqual(recoveryView.actions.map((item) => item.actionKey), ['accept_reviewed_artifact']);
+  assert.equal(recoveryView.actions[0].label, '确认采纳');
+
+  const current = await store.getTask(tasks[0].taskId);
+  const result = await recovery.request(tasks[0].taskId, {
+    actionKey: 'accept_reviewed_artifact',
+    requestId: 'accept-req-1',
+    expectedUpdatedAt: current.updatedAt,
+  }, { kind: 'local-owner', ref: 'A君' });
+
+  assert.equal(result.status, 'accepted');
+  assert.equal(result.task.status, 'succeeded');
+  assert.equal(result.task.currentStage, 'paperclip_hermes_completed');
+  assert.equal(result.task.error, null);
+
+  const updated = await store.getTask(tasks[0].taskId);
+  assert.equal(updated.status, 'succeeded');
+});
+
+
 function eligibleTasks() {
   return [
     {

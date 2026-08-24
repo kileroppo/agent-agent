@@ -29,6 +29,11 @@ export function view(task: any, { audience = 'local-owner', relatedTasks = [], a
         actions.push(action('request_read_only_diagnosis', '重新执行只读诊断', 'primary', '将替换被错误卡住的旧诊断；本次直接完成只读分类，不重跑原任务、不修改代码、不扩权、不外发。'));
         return { actions, verification };
     }
+    if (task?.status === 'waiting_test') {
+        if (reviewedArtifactAcceptanceEligible(task)) {
+            actions.push(action('accept_reviewed_artifact', '确认采纳', 'primary', '核对本次产物无误后，将直接标记为已完成并完成业务闭环。'));
+        }
+    }
     if (task?.status === 'failed') {
         if (confirmedTranscriptOnlyEligible(task, relatedTasks))
             actions.push(action('use_confirmed_transcript_only', '仅用确认稿继续', 'primary', '将关闭视觉分析，只使用已核验确认稿创建原 Paperclip 任务的子任务；不会重新抓取素材或调用视觉 Provider。'));
@@ -40,6 +45,13 @@ export function view(task: any, { audience = 'local-owner', relatedTasks = [], a
     if (visionCapabilityRecoveryEligible(task))
         actions.push(action('retry_visual_analysis_after_recovery', '恢复识图后重跑', actions.length ? 'secondary' : 'primary', '只有本机主人点击后才会先核验 vision.analyze 已配置、健康且通过端到端验证；余额或额度错误还必须有晚于本次失败的新端到端验证。能力未恢复时不创建任务、不消耗重跑次数。恢复后仅创建一次保留原视觉模式的子任务，子任务会调用识图能力，可能产生一次 Provider 费用。'));
     return { actions, verification };
+}
+export function reviewedArtifactAcceptanceEligible(task: any): any {
+    return task?.status === 'waiting_test'
+        && ((Array.isArray(task?.artifactRefs) && task.artifactRefs.length > 0)
+            || ['paperclip_hermes_requires_review', 'paperclip_hermes_waiting_test'].includes(task?.error?.code)
+            || ['paperclip_hermes_requires_review', 'paperclip_hermes_waiting_test'].includes(task?.currentStage)
+            || ['artifact_requires_review', 'paperclip_done_without_local_evidence'].includes(task?.outcome));
 }
 export function approvedMissionResumeEligible(task: any, approvals: any = []): any {
     if (task?.taskType !== 'army.cross-agent-mission'

@@ -5,6 +5,7 @@ const ACTION_KEYS: any = Object.freeze([
     'request_safe_recovery',
     'request_read_only_diagnosis',
     'retry_visual_analysis_after_recovery',
+    'accept_reviewed_artifact',
 ]);
 export class TaskRecoveryError extends Error {
     code: any;
