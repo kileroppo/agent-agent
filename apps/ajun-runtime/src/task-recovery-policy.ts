@@ -106,7 +106,7 @@ export function duplicateRecovery(task: any, input: any, attempt: any): any {
     if (duplicate)
         return duplicate;
     const coordination: any = task?.recovery?.coordination;
-    return coordination?.actionKey === input.actionKey && Number(coordination.attempt) === attempt ? coordination : null;
+    return coordination?.status !== 'failed' && coordination?.actionKey === input.actionKey && Number(coordination.attempt) === attempt ? coordination : null;
 }
 export function existingResult(task: any, event: any): any {
     const coordination: any = task.recovery?.coordination || {};
