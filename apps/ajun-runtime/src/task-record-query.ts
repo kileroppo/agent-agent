@@ -67,21 +67,24 @@ export function normalizeTaskRecordQuery(input: any = {}): any {
     const limit: any = Math.max(1, Math.min(Number.parseInt(input.limit, 10) || 24, 50));
     const since: any = validIso(input.since);
     const until: any = validIso(input.until);
-    return {
+    const result: any = {
         view,
-        backlogCategory: TASK_BACKLOG_CATEGORIES.includes(String(input.backlogCategory || '').trim())
-            ? String(input.backlogCategory).trim()
-            : '',
-        status: clean(input.status, 80),
         q: clean(input.q, 160).toLocaleLowerCase('zh-CN'),
         agentId: clean(input.agentId, 80),
         taskType: clean(input.taskType, 160),
+        backlogCategory: TASK_BACKLOG_CATEGORIES.includes(String(input.backlogCategory || '').trim())
+            ? String(input.backlogCategory).trim()
+            : '',
         since,
         until,
         includeRoutine: input.includeRoutine === true || input.includeRoutine === 'true' || input.includeRoutine === '1',
         limit,
         cursor: decodeTaskRecordCursor(input.cursor),
     };
+    if (input.status) {
+        result.status = clean(input.status, 80);
+    }
+    return result;
 }
 export function queryTaskRecordsInMemory(tasks: any, input: any = {}, evidenceContext: any = {}): any {
     const query: any = normalizeTaskRecordQuery(input);
