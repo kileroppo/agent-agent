@@ -18,7 +18,7 @@ export function view(task: any, { audience = 'local-owner', relatedTasks = [], a
     } : null;
     if (audience !== 'local-owner')
         return { actions: [], verification };
-    if (coordination && !legacyBlocked)
+    if (coordination && coordination.status !== 'failed' && !legacyBlocked)
         return { actions: [], verification };
     const actions: any[] = [];
     if (approvedMissionResumeEligible(task, approvals)) {
