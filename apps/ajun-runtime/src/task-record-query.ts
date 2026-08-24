@@ -237,6 +237,11 @@ function isAfterCursor(task: any, cursor: any): any {
     return updatedAt < cursor.updatedAt || (updatedAt === cursor.updatedAt && String(task.taskId || '') < cursor.taskId);
 }
 function compareTaskRecords(left: any, right: any): any {
+    const leftCompleted = ['succeeded', 'cancelled', 'rejected', 'stopped'].includes(left?.status) ? 1 : 0;
+    const rightCompleted = ['succeeded', 'cancelled', 'rejected', 'stopped'].includes(right?.status) ? 1 : 0;
+    if (leftCompleted !== rightCompleted) {
+        return leftCompleted - rightCompleted;
+    }
     const byTime: any = String(right.updatedAt || right.createdAt || '').localeCompare(String(left.updatedAt || left.createdAt || ''));
     return byTime || String(right.taskId || '').localeCompare(String(left.taskId || ''));
 }

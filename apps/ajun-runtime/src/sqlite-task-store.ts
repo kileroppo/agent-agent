@@ -76,7 +76,7 @@ export class SQLiteTaskStore {
         }
         const rows: any = this.database.prepare(`
       SELECT data_json, ${taskViewSql()} AS record_view FROM tasks${whereSql(selected)}
-      ORDER BY updated_at DESC, task_id DESC LIMIT ?
+      ORDER BY CASE WHEN ${taskViewSql()} = 'completed' THEN 1 ELSE 0 END ASC, updated_at DESC, task_id DESC LIMIT ?
     `).all(...selectedParams, query.limit + 1);
         const parsed: any = rows.map((row: any): any => ({ ...parseRecord(row.data_json), recordView: row.record_view }));
         const hasMore: any = parsed.length > query.limit;
