@@ -13,6 +13,9 @@ export function createStepFunModelPolicyConsole({ root, api }: any) {
   const saveCapabilities: any = root.querySelector('#fleet-capability-save');
   const refresh: any = root.querySelector('#fleet-model-refresh');
   const roleSummary: any = root.querySelector('#fleet-role-summary');
+  const defaultMaxTurns: any = root.querySelector('#fleet-default-max-turns');
+  const roleMaxTurns: any = root.querySelector('#fleet-role-max-turns');
+  const idleMinutes: any = root.querySelector('#fleet-session-idle-minutes');
 
   defaultModel.addEventListener('change', () => {
     syncEffortOptions(defaultModel, defaultEffort);
@@ -63,6 +66,9 @@ export function createStepFunModelPolicyConsole({ root, api }: any) {
     syncEffortOptions(defaultModel, defaultEffort, payload.policy.default.reasoningEffort);
     employeeList.innerHTML = payload.employees.map((employee: any) => roleRow(employee, reasoning)).join('');
     capabilityList.innerHTML = (payload.catalog?.capabilityRoutes || []).map((route: any) => capabilityRow(route)).join('');
+    defaultMaxTurns.value = payload.policy.runtime.defaultMaxTurns;
+    roleMaxTurns.value = payload.policy.runtime.roleMaxTurns;
+    idleMinutes.value = payload.policy.runtime.idleMinutes;
     syncOverrideBadges();
     const updated = payload.policy.updatedAt
       ? `上次保存 ${new Date(payload.policy.updatedAt).toLocaleString('zh-CN')}`
@@ -187,7 +193,7 @@ export function createStepFunModelPolicyConsole({ root, api }: any) {
       const result = await api('/api/model-policy', {
         method:'PUT',
         headers:{ 'content-type':'application/json' },
-        body:JSON.stringify({ default:defaultSelection, overrides, capabilities:capabilitySelections() }),
+        body:JSON.stringify({ default:defaultSelection, overrides, capabilities:capabilitySelections(), runtime:runtimePolicy() }),
       });
       render(result);
       message.textContent = result.reconciliation?.status === 'synced'
@@ -215,7 +221,7 @@ export function createStepFunModelPolicyConsole({ root, api }: any) {
         body:JSON.stringify({
           default:payload.policy.default,
           overrides:payload.policy.overrides,
-          capabilities:capabilitySelections(),
+          capabilities:capabilitySelections(), runtime:runtimePolicy(),
         }),
       });
       render(result);
@@ -233,6 +239,10 @@ export function createStepFunModelPolicyConsole({ root, api }: any) {
       const [provider, ...modelParts] = String(select.value).split(':');
       return [select.dataset.capabilityKey, { provider, model:modelParts.join(':') }];
     }));
+  }
+
+  function runtimePolicy() {
+    return { defaultMaxTurns:Number(defaultMaxTurns.value), roleMaxTurns:Number(roleMaxTurns.value), idleMinutes:Number(idleMinutes.value) };
   }
 
   function capabilityValue(selection: any) {

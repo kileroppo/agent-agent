@@ -11,6 +11,8 @@ test('A君运行台提供全军默认、岗位覆盖、能力专用模型和 Her
   assert.match(html, /军团模型策略/);
   assert.match(html, /应用到全部岗位/);
   assert.match(html, /保存岗位配置/);
+  assert.match(html, /普通对话最大轮次/);
+  assert.match(html, /空闲后新会话/);
   assert.match(html, /能力专用模型/);
   assert.match(html, /保存能力配置/);
   assert.match(html, /刷新账号模型/);
@@ -21,6 +23,7 @@ test('A君运行台提供全军默认、岗位覆盖、能力专用模型和 Her
   assert.match(consoleSource, /\/api\/model-policy\/refresh/);
   assert.match(consoleSource, /账号模型已刷新/);
   assert.match(consoleSource, /data-capability-key/);
+  assert.match(consoleSource, /runtimePolicy/);
   assert.match(consoleSource, /low: '低', medium: '中', high: '高'/);
   assert.doesNotMatch(consoleSource, /关闭额外推理/);
   assert.match(consoleSource, /正在执行的会话不变/);

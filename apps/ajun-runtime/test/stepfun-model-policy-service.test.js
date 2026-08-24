@@ -91,11 +91,15 @@ test('一次保存会更新默认 Profile、全部员工 Profile，并让 Paperc
   assert.equal(configClient.values.get(`${directory}:model.default`), 'step-3.7-flash');
   assert.equal(configClient.values.get(`${directory}/profiles/operator:model.default`), 'step-3.5-flash-2603');
   assert.equal(configClient.values.get(`${directory}/profiles/architect:agent.reasoning_effort`), 'high');
+  assert.equal(configClient.values.get(`${directory}:agent.max_turns`), '4');
+  assert.equal(configClient.values.get(`${directory}/profiles/operator:agent.max_turns`), '6');
+  assert.equal(configClient.values.get(`${directory}/profiles/operator:session_reset.idle_minutes`), '60');
   assert.equal(service.applyToManifest(manifests[1]).runtimeCapabilities.modelSelection.model, 'step-3.5-flash-2603');
   assert.deepEqual(service.capabilitySelection('asr'), { provider:'stepfun', model:'stepaudio-2.5-asr' });
   const stored = JSON.parse(await fs.readFile(path.join(directory, 'stepfun-model-policy.json'), 'utf8'));
   assert.equal(stored.overrides.operator.model, 'step-3.5-flash-2603');
-  assert.equal(stored.version, 2);
+  assert.equal(stored.version, 3);
+  assert.deepEqual(stored.runtime, { defaultMaxTurns:4, roleMaxTurns:6, idleMinutes:60 });
 });
 
 test('任一 Profile 写入失败时回滚此前修改且不落策略文件', async (t) => {
@@ -157,6 +161,14 @@ test('旧版策略读取时自动补齐能力模型，不改写凭据', async (t
     profileRoot:path.join(directory, 'profiles'),
     configClient:new FakeConfigClient(),
   });
-  assert.equal(service.snapshot([]).policy.version, 2);
+  assert.equal(service.snapshot([]).policy.version, 3);
   assert.deepEqual(service.capabilitySelection('asr'), { provider:'stepfun', model:'stepaudio-2.5-asr' });
+  assert.deepEqual(service.snapshot([]).policy.runtime, { defaultMaxTurns:4, roleMaxTurns:6, idleMinutes:60 });
+});
+
+test('拒绝超出范围的会话轮次和空闲时间', async (t) => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'stepfun-policy-'));
+  t.after(() => fs.rm(directory, { recursive:true, force:true }));
+  const service = await StepFunModelPolicyService.open({ dataDir:directory, profileRoot:path.join(directory, 'profiles'), configClient:new FakeConfigClient() });
+  await assert.rejects(() => service.update({ default:{ model:'step-3.7-flash', reasoningEffort:'medium' }, overrides:{}, runtime:{ defaultMaxTurns:21, roleMaxTurns:6, idleMinutes:60 } }, [manifest('architect')]), /普通对话最大轮次/);
 });

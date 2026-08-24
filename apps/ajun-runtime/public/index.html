@@ -297,6 +297,11 @@
               <label><span>推理强度</span><select id="fleet-default-effort"></select></label>
               <button id="fleet-model-apply-all" type="button">应用到全部岗位</button>
             </div>
+            <div class="fleet-default-controls" id="fleet-runtime-controls">
+              <label><span>普通对话最大轮次</span><input id="fleet-default-max-turns" type="number" min="1" max="20" step="1"></label>
+              <label><span>岗位任务最大轮次</span><input id="fleet-role-max-turns" type="number" min="1" max="20" step="1"></label>
+              <label><span>空闲后新会话（分钟）</span><input id="fleet-session-idle-minutes" type="number" min="15" max="1440" step="1"></label>
+            </div>
             <p id="fleet-model-message" class="connection-message" role="status"></p>
             <details class="fleet-subsection">
               <summary>

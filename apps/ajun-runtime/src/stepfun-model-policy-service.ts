@@ -238,11 +238,12 @@ export class StepFunModelPolicyService {
     const allowedAgentIds = new Set(employees.map((item: any) => item.agentId));
     const nextPolicy = normalizeInputPolicy(input, allowedAgentIds, this.clock());
     const targets = [
-      { id:'default', home:this.hermesHome, selection:nextPolicy.default },
+      { id:'default', home:this.hermesHome, selection:nextPolicy.default, maxTurns:nextPolicy.runtime.defaultMaxTurns },
       ...employees.map((manifest: any) => ({
         id:manifest.agentId,
         home:path.join(this.profileRoot, manifest.agentId),
         selection:nextPolicy.overrides[manifest.agentId] || nextPolicy.default,
+        maxTurns:nextPolicy.runtime.roleMaxTurns,
       })),
     ];
     const rollback: any[] = [];
@@ -251,6 +252,9 @@ export class StepFunModelPolicyService {
         await this.setConfig(target.home, 'model.default', target.selection.model, rollback);
         await this.setConfig(target.home, 'model.provider', 'custom:sstefun', rollback);
         await this.setConfig(target.home, 'agent.reasoning_effort', target.selection.reasoningEffort, rollback);
+        await this.setConfig(target.home, 'agent.max_turns', String(target.maxTurns), rollback);
+        await this.setConfig(target.home, 'session_reset.mode', 'idle', rollback);
+        await this.setConfig(target.home, 'session_reset.idle_minutes', String(nextPolicy.runtime.idleMinutes), rollback);
       }
       await writeJsonAtomic(this.filePath, nextPolicy);
       this.policy = nextPolicy;
@@ -337,11 +341,12 @@ function seedPolicy(manifests: any[]) {
     }
   }
   return {
-    version:2,
+    version:3,
     provider:'stepfun',
     default:defaultSelection,
     overrides,
     capabilities:seedCapabilityPolicy(),
+    runtime:{ defaultMaxTurns:4, roleMaxTurns:6, idleMinutes:60 },
     updatedAt:null,
   };
 }
@@ -380,13 +385,28 @@ function normalizeInputPolicy(input: any, allowedAgentIds: Set<string>, now: Dat
     }
   }
   return {
-    version:2,
+    version:3,
     provider:'stepfun',
     default:defaultSelection,
     overrides,
     capabilities:normalizeCapabilityPolicy(value?.capabilities),
+    runtime:normalizeRuntimePolicy(value?.runtime),
     updatedAt:now.toISOString(),
   };
+}
+
+function normalizeRuntimePolicy(value: any) {
+  const defaultMaxTurns = boundedInteger(value?.defaultMaxTurns, 4, 1, 20, '普通对话最大轮次');
+  const roleMaxTurns = boundedInteger(value?.roleMaxTurns, 6, 1, 20, '岗位任务最大轮次');
+  const idleMinutes = boundedInteger(value?.idleMinutes, 60, 15, 1440, '会话空闲分钟数');
+  return { defaultMaxTurns, roleMaxTurns, idleMinutes };
+}
+
+function boundedInteger(value: any, fallback: number, minimum: number, maximum: number, label: string) {
+  const number = value === undefined || value === null || value === '' ? fallback : Number(value);
+  if (!Number.isSafeInteger(number) || number < minimum || number > maximum)
+    throw new StepFunModelPolicyError(`${label}必须是 ${minimum} 到 ${maximum} 的整数。`);
+  return number;
 }
 
 function normalizeStoredPolicy(value: any) {

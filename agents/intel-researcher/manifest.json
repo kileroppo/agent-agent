@@ -158,8 +158,8 @@
   },
   "autonomyBudgetPolicy": {
     "maxRuntimeMinutes": 60,
-    "maxModelCalls": 16,
-    "maxTurns": 16,
+    "maxModelCalls": 6,
+    "maxTurns": 6,
     "reasoningEffort": "medium",
     "apiMaxRetries": 1,
     "toolLoopHardStop": true,

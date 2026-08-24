@@ -43,7 +43,7 @@ test('Manifest 预算生成有界 Hermes 运行、压缩、记忆和会话策略
   assert.equal(policy.compression.protectLastN, 8);
   assert.deepEqual(policy.memory, { writeApproval:true, nudgeInterval:0 });
   assert.deepEqual(policy.sessions, { autoPrune:true, retentionDays:30 });
-  assert.deepEqual(policy.sessionReset, { mode:'idle', idleMinutes:1440, notify:true });
+  assert.deepEqual(policy.sessionReset, { mode:'idle', idleMinutes:60, notify:true });
   assert.throws(() => hermesRuntimePolicyForManifest({ autonomyBudgetPolicy:{
     maxModelCalls:8, maxTurns:9, reasoningEffort:'high', apiMaxRetries:5, toolLoopHardStop:false,
   } }), /最大轮次|推理强度|重试次数|硬停止|模型调用预算/);

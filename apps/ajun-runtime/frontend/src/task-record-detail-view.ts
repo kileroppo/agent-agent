@@ -109,9 +109,11 @@ export function renderAttentionDetail(attention: any, actionState: any, _escapeH
         : actions
             ? html`<div class="record-attention-actions">${raw(actions)}</div>`
             : fallbackNext;
+    const cause: any = usefulAttentionCause(attention);
+    const evidence: string = usefulAttentionEvidence(attention.evidence, cause);
     const extras: any = [
-        attention.evidence ? html`<details class="record-attention-evidence"><summary>判断依据</summary><p>${attention.evidence}</p></details>` : '',
-        attention.remainingRisks ? html`<details class="record-attention-evidence"><summary>剩余风险</summary><p>${attention.remainingRisks}</p></details>` : '',
+        evidence ? html`<details class="record-attention-evidence"><summary><span>判断依据</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><p>${evidence}</p></details>` : '',
+        attention.remainingRisks ? html`<details class="record-attention-evidence"><summary><span>剩余风险</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><p>${attention.remainingRisks}</p></details>` : '',
         usefulAttentionImpact(attention) ? html`<p class="record-attention-impact-line">${attention.impact}</p>` : '',
     ].filter(Boolean).join('');
     const recoveryPath: any = safeTaskDetailPath(recovery?.detailPath, recovery?.taskId);
@@ -121,7 +123,6 @@ export function renderAttentionDetail(attention: any, actionState: any, _escapeH
     const recoveryResult: any = recovery
         ? html`<div class="record-recovery-status ${recoveryTone(recovery.status)}" role="status"><p>${recovery.message}</p>${raw(recoveryLink)}</div>`
         : '';
-    const cause: any = usefulAttentionCause(attention);
     return html`<section class="record-attention" aria-label="任务处理说明">
     <div class="record-attention-head"><h3>${attention.headline}</h3>${raw(cause ? html`<p>${cause}</p>` : '')}</div>
     ${raw(actionContent ? html`<div class="record-attention-next">${raw(actionContent)}</div>` : '')}
@@ -139,11 +140,31 @@ function usefulAttentionCause(attention: any): string {
     return cause;
 }
 
+const GENERIC_IMPACTS = new Set([
+    '任务不会被视为已经完成。',
+    '当前结果尚未通过完整验证，不能视为已经完成。',
+    '本轮任务没有完成；已有产物和审计记录仍会保留。',
+    '补充继续所需的信息前，任务不会继续执行。',
+    '确认完成前，任务不会继续执行受控步骤。',
+    '确认继续前，任务不会开始新的处理步骤。',
+    '目前还没有生成素材或拆解报告；继续处理也不会自动发布。',
+]);
+
 function usefulAttentionImpact(attention: any): boolean {
-    const impact: any = String(attention?.impact || '').trim();
+    const impact: string = String(attention?.impact || '').trim();
     if (!impact || impact === attention.headline || impact === attention.cause)
         return false;
-    return impact !== '任务不会被视为已经完成。';
+    return !GENERIC_IMPACTS.has(impact);
+}
+
+function usefulAttentionEvidence(evidence: any, cause: any): string {
+    const text: string = String(evidence || '').trim();
+    if (!text)
+        return '';
+    const cleanCause: string = String(cause || '').trim();
+    if (text === cleanCause)
+        return '';
+    return text;
 }
 
 function renderDiagnosisOutcome(diagnosis: any, recovery: any, paperclipIssue: any, _escapeHtml: any): any {

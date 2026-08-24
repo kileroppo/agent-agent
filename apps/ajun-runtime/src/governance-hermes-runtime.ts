@@ -136,7 +136,7 @@ export function hermesRuntimePolicyForManifest(manifest: any): any {
         }),
         memory: Object.freeze({ writeApproval: true, nudgeInterval: 0 }),
         sessions: Object.freeze({ autoPrune: true, retentionDays: 30 }),
-        sessionReset: Object.freeze({ mode: 'idle', idleMinutes: 1440, notify: true }),
+        sessionReset: Object.freeze({ mode: 'idle', idleMinutes: 60, notify: true }),
     });
 }
 export function taskCardPolicyForManifest(manifest: any): any {
