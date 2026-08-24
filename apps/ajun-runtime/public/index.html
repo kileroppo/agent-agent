@@ -623,6 +623,18 @@
 
         <div id="record-filter-panel" class="record-filter-panel" hidden>
           <label>员工<select id="record-agent-filter"><option value="">全部员工</option></select></label>
+          <label>任务状态<select id="record-status-filter">
+            <option value="">全部状态</option>
+            <option value="needs_action">待处理 / 需关注</option>
+            <option value="waiting_test">待验证</option>
+            <option value="needs_input">待补充信息</option>
+            <option value="waiting_approval">等待审批</option>
+            <option value="running">运行中</option>
+            <option value="queued">排队等待</option>
+            <option value="succeeded">已完成</option>
+            <option value="failed">未完成</option>
+            <option value="paused">已暂停</option>
+          </select></label>
           <label>任务类型<select id="record-type-filter"><option value="">全部类型</option></select></label>
           <label>时间范围<select id="record-time-filter"><option value="30d">近 30 天</option><option value="7d">近 7 天</option><option value="all">全部时间</option></select></label>
           <label class="record-routine-option"><input id="record-routine-filter" type="checkbox">显示例行巡检明细</label>

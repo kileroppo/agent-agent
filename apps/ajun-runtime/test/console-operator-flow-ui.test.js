@@ -16,6 +16,13 @@ import {
   renderTechnicalDetails,
 } from '../public/task-record-workbench.js';
 import {
+  taskTypeLabel,
+  statusLabel,
+} from '../public/console-labels.js';
+import {
+  queryTaskRecordsInMemory,
+} from '../src/task-record-query.ts';
+import {
   businessDebtPresentation,
   capabilityPresentation,
   capabilitySummaryText,
@@ -349,10 +356,73 @@ test('关注态卡片直接提供 Paperclip 处理入口与技术标签，并剔
   assert.doesNotMatch(html, /已有产物和审计记录仍会保留/);
 });
 
+test('任务类型标签为每种类型提供清晰中文且同一员工的不同任务类型不重复为员工名', () => {
+  const sampleAgents = [
+    {
+      agentId: 'operator',
+      name: '运维官',
+      acceptedTaskTypes: ['operations.health-review', 'operations.failure-recovery', 'operations.incident-response'],
+    },
+    {
+      agentId: 'content-creator',
+      name: '小创',
+      acceptedTaskTypes: ['content.platform-draft', 'content.video-script-package', 'content.article-adaptation'],
+    },
+  ];
+
+  const labels = [
+    taskTypeLabel('operations.health-review', sampleAgents),
+    taskTypeLabel('operations.failure-recovery', sampleAgents),
+    taskTypeLabel('operations.incident-response', sampleAgents),
+    taskTypeLabel('content.platform-draft', sampleAgents),
+    taskTypeLabel('content.video-script-package', sampleAgents),
+    taskTypeLabel('content.article-adaptation', sampleAgents),
+  ];
+
+  // All labels must be unique and descriptive
+  const uniqueLabels = new Set(labels);
+  assert.equal(uniqueLabels.size, labels.length);
+  assert.equal(labels[0], '运维官：本机健康检查');
+  assert.equal(labels[1], '运维官：故障恢复');
+  assert.equal(labels[2], '运维官：应急响应');
+  assert.equal(labels[3], '小创：平台内容草稿');
+  assert.equal(labels[4], '小创：可拍视频脚本');
+  assert.equal(labels[5], '小创：多平台图文改写');
+});
+
+test('任务记录查询支持按状态（包括待验证 waiting_test）进行精确筛选', () => {
+  const tasks = [
+    {
+      taskId: 'task-1',
+      status: 'waiting_test',
+      updatedAt: '2026-08-24T10:00:00.000Z',
+      input: { title: '待验证功能' },
+    },
+    {
+      taskId: 'task-2',
+      status: 'running',
+      updatedAt: '2026-08-24T11:00:00.000Z',
+      input: { title: '运行中任务' },
+    },
+    {
+      taskId: 'task-3',
+      status: 'succeeded',
+      updatedAt: '2026-08-24T12:00:00.000Z',
+      input: { title: '已完成任务' },
+    },
+  ];
+
+  const result = queryTaskRecordsInMemory(tasks, { status: 'waiting_test', view: 'all' });
+  assert.equal(result.items.length, 1);
+  assert.equal(result.items[0].taskId, 'task-1');
+  assert.equal(result.items[0].status, 'waiting_test');
+});
+
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (character) => ({
     '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;',
   })[character]);
 }
+
 
 

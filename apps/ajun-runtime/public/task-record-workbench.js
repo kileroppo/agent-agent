@@ -1,4 +1,5 @@
 import { html, raw, escapeHtml } from './html.js';
+import { statusLabel } from './console-labels.js';
 import { acceptanceTargetView, cleanAttentionText, recoverySubmissionView, renderAcceptanceDetail, renderAttentionDetail, taskAttentionView, } from './task-record-detail-view.js';
 import { createTaskTimelineLoader } from './task-timeline-view.js';
 export { taskAttentionView } from './task-record-detail-view.js';
@@ -27,6 +28,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         view: initialTaskId ? 'all' : urlState.view,
         q: urlState.q,
         agentId: urlState.agentId,
+        status: urlState.status,
         taskType: urlState.taskType,
         time: urlState.time,
         includeRoutine: urlState.includeRoutine,
@@ -101,6 +103,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         });
         elements.filterApply.addEventListener('click', async () => {
             state.agentId = elements.agentFilter.value;
+            state.status = elements.statusFilter?.value || '';
             state.taskType = elements.typeFilter.value;
             state.time = elements.timeFilter.value;
             state.includeRoutine = elements.routineFilter.checked;
@@ -114,7 +117,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             await loadRecords();
         });
         elements.filterReset.addEventListener('click', async () => {
-            Object.assign(state, { agentId: '', taskType: '', time: '30d', includeRoutine: false, backlogCategory: '', autoExpanded: false });
+            Object.assign(state, { agentId: '', status: '', taskType: '', time: '30d', includeRoutine: false, backlogCategory: '', autoExpanded: false });
             syncControls();
             replaceRecordUrl();
             await loadRecords();
@@ -548,6 +551,8 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             chips.push(`搜索：${state.q}`);
         if (state.agentId)
             chips.push(agentName(state.agentId));
+        if (state.status)
+            chips.push(`状态：${statusLabel(state.status)}`);
         if (state.taskType)
             chips.push(taskTypeLabel(state.taskType));
         if (state.time !== '30d')
@@ -558,22 +563,27 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             chips.unshift(`状态：${BACKLOG_CATEGORY_LABELS[state.backlogCategory]}`);
         elements.activeFilters.innerHTML = chips.map((chip) => html `<span class="record-filter-chip">${chip}</span>`).join('');
         elements.activeFilters.hidden = !chips.length;
-        const changed = Boolean(state.q || state.agentId || state.taskType || state.time !== '30d' || state.includeRoutine || state.backlogCategory);
+        const changed = Boolean(state.q || state.agentId || state.status || state.taskType || state.time !== '30d' || state.includeRoutine || state.backlogCategory);
         elements.filterToggle.classList.toggle('has-filters', changed);
     }
     function refreshFilterOptions() {
         const selectedAgent = state.agentId;
         const selectedType = state.taskType;
+        const selectedStatus = state.status;
         const agents = [...(getAgents() || [])].sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''), 'zh-CN'));
         elements.agentFilter.replaceChildren(option('', '全部员工'), ...agents.map((agent) => option(agent.agentId, agent.name || agent.agentId)));
         const types = [...new Set(agents.flatMap((agent) => agent.acceptedTaskTypes || []))].sort((left, right) => taskTypeLabel(left).localeCompare(taskTypeLabel(right), 'zh-CN'));
         elements.typeFilter.replaceChildren(option('', '全部类型'), ...types.map((type) => option(type, taskTypeLabel(type))));
         elements.agentFilter.value = selectedAgent;
         elements.typeFilter.value = selectedType;
+        if (elements.statusFilter)
+            elements.statusFilter.value = selectedStatus;
     }
     function syncControls() {
         elements.search.value = state.q;
         elements.agentFilter.value = state.agentId;
+        if (elements.statusFilter)
+            elements.statusFilter.value = state.status;
         elements.typeFilter.value = state.taskType;
         elements.timeFilter.value = state.time;
         elements.routineFilter.checked = state.includeRoutine;
@@ -587,6 +597,8 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             params.set('q', state.q);
         if (state.agentId)
             params.set('agentId', state.agentId);
+        if (state.status)
+            params.set('status', state.status);
         if (state.taskType)
             params.set('taskType', state.taskType);
         if (state.time !== 'all')
@@ -605,6 +617,8 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             url.searchParams.set('recordQuery', state.q);
         if (state.agentId)
             url.searchParams.set('recordAgent', state.agentId);
+        if (state.status)
+            url.searchParams.set('recordStatus', state.status);
         if (state.taskType)
             url.searchParams.set('recordType', state.taskType);
         if (state.time !== '30d')
@@ -711,6 +725,7 @@ function recordElements() {
         filterToggle: document.querySelector('#record-filter-toggle'),
         filterPanel: document.querySelector('#record-filter-panel'),
         agentFilter: document.querySelector('#record-agent-filter'),
+        statusFilter: document.querySelector('#record-status-filter'),
         typeFilter: document.querySelector('#record-type-filter'),
         timeFilter: document.querySelector('#record-time-filter'),
         routineFilter: document.querySelector('#record-routine-filter'),
@@ -734,6 +749,7 @@ function readUrlState() {
         view,
         q: String(params.get('recordQuery') || '').slice(0, 160),
         agentId: String(params.get('recordAgent') || '').slice(0, 80),
+        status: String(params.get('recordStatus') || '').slice(0, 80),
         taskType: String(params.get('recordType') || '').slice(0, 160),
         time,
         includeRoutine: params.get('recordRoutine') === '1',

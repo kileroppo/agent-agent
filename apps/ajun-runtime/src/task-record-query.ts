@@ -72,6 +72,7 @@ export function normalizeTaskRecordQuery(input: any = {}): any {
         backlogCategory: TASK_BACKLOG_CATEGORIES.includes(String(input.backlogCategory || '').trim())
             ? String(input.backlogCategory).trim()
             : '',
+        status: clean(input.status, 80),
         q: clean(input.q, 160).toLocaleLowerCase('zh-CN'),
         agentId: clean(input.agentId, 80),
         taskType: clean(input.taskType, 160),
@@ -208,6 +209,14 @@ function matchesBaseQuery(task: any, query: any): any {
         return false;
     if (query.taskType && String(task.taskType || '') !== query.taskType)
         return false;
+    if (query.status) {
+        if (query.status === 'needs_action') {
+            if (!['failed', 'needs_input', 'pending_approval', 'waiting_approval', 'waiting_test', 'paused', 'blocked', 'error'].includes(task.status))
+                return false;
+        } else if (String(task.status || '') !== query.status) {
+            return false;
+        }
+    }
     if (!query.q)
         return true;
     const haystack: any = [

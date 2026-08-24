@@ -322,11 +322,12 @@ export async function freezeAjunRuntimeRelease({
         git.gitHead,
         beforeVerification.payloadHash,
       );
-      for (const item of VERIFY_COMMANDS) {
-        await runCommand(item.command, item.args, {
-          cwd:path.join(canonicalRepoRoot, item.cwd),
-        });
-      }
+      await runCommandsConcurrent(
+        VERIFY_COMMANDS,
+        runCommand,
+        canonicalRepoRoot,
+        Math.min(4, os.cpus()?.length || 4),
+      );
       const sourceRecheckRoot = path.join(
         requestedOutput,
         `.ajun-source-recheck-${process.pid}-${crypto.randomUUID()}.tmp`,
@@ -1996,6 +1997,20 @@ function assertGitIdentityUnchanged(before, after, label) {
   ) {
     throw new Error(`${label}Git源码状态发生变化，拒绝冻结`);
   }
+}
+
+async function runCommandsConcurrent(commands, runCommand, canonicalRepoRoot, concurrency = 4) {
+  let index = 0;
+  async function worker() {
+    while (index < commands.length) {
+      const current = commands[index++];
+      await runCommand(current.command, current.args, {
+        cwd:path.join(canonicalRepoRoot, current.cwd),
+      });
+    }
+  }
+  const workerCount = Math.min(concurrency, commands.length);
+  await Promise.all(Array.from({ length:workerCount }, worker));
 }
 
 async function runCaptured(command, args, cwd) {

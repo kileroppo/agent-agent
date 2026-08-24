@@ -105,7 +105,21 @@ async function main(): Promise<any> {
     process.once('SIGTERM', stop);
     process.once('SIGINT', stop);
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+import fs from 'node:fs';
+
+function isMainModule(): boolean {
+    if (!process.argv[1]) return false;
+    try {
+        const rawHref = pathToFileURL(process.argv[1]).href;
+        if (import.meta.url === rawHref) return true;
+        const realHref = pathToFileURL(fs.realpathSync(process.argv[1])).href;
+        return import.meta.url === realHref;
+    } catch {
+        return false;
+    }
+}
+
+if (isMainModule()) {
     main().catch((error: any): any => {
         process.stderr.write(`${error.message}\n`);
         process.exitCode = 1;

@@ -189,7 +189,7 @@ export function createRuntimeReleaseConsole({ root, api, confirmAction = window.
     }
   }
 
-  function schedulePoll(delay = 1500): any {
+  function schedulePoll(delay = 600): any {
     clearTimeout(timer);
     if (!active) return;
     timer = setTimeout(refresh, delay);
@@ -200,12 +200,12 @@ export function createRuntimeReleaseConsole({ root, api, confirmAction = window.
       const payload = await api('/api/runtime-release/status');
       disconnectedDuringAction = false;
       render(payload.status);
-      if (ACTIVE_STATES.has(payload.status?.state)) schedulePoll();
+      if (ACTIVE_STATES.has(payload.status?.state)) schedulePoll(600);
     } catch (error: any) {
       if (ACTIVE_STATES.has(status?.state) || disconnectedDuringAction) {
         disconnectedDuringAction = true;
         message.textContent = 'A君正在重启，等待重新连接…';
-        schedulePoll(1800);
+        schedulePoll(1000);
         return;
       }
       message.textContent = error.message || '暂时无法读取版本状态。';
@@ -227,7 +227,7 @@ export function createRuntimeReleaseConsole({ root, api, confirmAction = window.
     });
     render(payload.status);
     disconnectedDuringAction = action !== 'check';
-    schedulePoll(500);
+    schedulePoll(300);
   }
 
   checkButton.addEventListener('click', async () => {

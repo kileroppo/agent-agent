@@ -532,6 +532,14 @@ function taskRecordBaseSql(query: any): any {
         clauses.push(`json_extract(data_json, '$.taskType') = ?`);
         params.push(query.taskType);
     }
+    if (query.status) {
+        if (query.status === 'needs_action') {
+            clauses.push(`json_extract(data_json, '$.status') IN ('failed', 'needs_input', 'pending_approval', 'waiting_approval', 'waiting_test', 'paused', 'blocked', 'error')`);
+        } else {
+            clauses.push(`json_extract(data_json, '$.status') = ?`);
+            params.push(query.status);
+        }
+    }
     if (query.since) {
         clauses.push('updated_at >= ?');
         params.push(query.since);

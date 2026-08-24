@@ -95,7 +95,7 @@ export class AjunReleaseSystemAdapter {
     await onStage('preparing_source', '正在准备独立、干净的候选源码。');
     const sourceRoot = await this.prepareCandidateSource(inspection.candidate.gitHead);
     await onStage('verifying', '正在安装锁定依赖并运行完整验证。');
-    await this.runCommand('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd:sourceRoot });
+    await this.runCommand('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--prefer-offline'], { cwd:sourceRoot });
     await onStage('freezing', '验证通过，正在生成不可变 release。');
     const frozen = await this.freezeCandidate(sourceRoot, inspection.candidate.gitHead);
     const deployed = await this.deployCandidateRelease(frozen);
