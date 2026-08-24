@@ -299,7 +299,14 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             elements.list.innerHTML = html `<div class="record-list-empty"><strong>${title}</strong>${raw(nextView ? html `<button class="text-action" type="button" data-empty-view="${nextView}">${nextLabel}</button>` : '')}</div>`;
             return;
         }
-        elements.list.innerHTML = state.items.map((task) => {
+        const displayItems = state.view === 'all'
+            ? [...state.items].sort((left, right) => {
+                const leftCompleted = ['succeeded', 'cancelled', 'rejected', 'stopped'].includes(left?.status) ? 1 : 0;
+                const rightCompleted = ['succeeded', 'cancelled', 'rejected', 'stopped'].includes(right?.status) ? 1 : 0;
+                return leftCompleted - rightCompleted;
+            })
+            : state.items;
+        elements.list.innerHTML = displayItems.map((task) => {
             const selected = state.selectedTaskId === task.taskId;
             const presentation = task.presentation || {};
             const tone = presentation.tone || 'active';
