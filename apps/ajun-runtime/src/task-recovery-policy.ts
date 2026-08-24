@@ -101,10 +101,9 @@ export function requestAttempt(task: any): any {
 }
 export function duplicateRecovery(task: any, input: any, attempt: any): any {
     const events: any = recoveryEvents(task);
-    const duplicate: any = events.find((event: any): any => event.requestId === input.requestId)
-        || events.find((event: any): any => event.event !== 'failed' && event.actionKey === input.actionKey && Number(event.attempt) === attempt);
-    if (duplicate)
-        return duplicate;
+    const matchingRequest: any = events.find((event: any): any => event.requestId === input.requestId);
+    if (matchingRequest && matchingRequest.event !== 'failed')
+        return matchingRequest;
     const coordination: any = task?.recovery?.coordination;
     return coordination?.status !== 'failed' && coordination?.actionKey === input.actionKey && Number(coordination.attempt) === attempt ? coordination : null;
 }
