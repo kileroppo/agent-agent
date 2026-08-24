@@ -176,6 +176,7 @@ test('完整状态迁移矩阵只允许契约路径、幂等更新和显式终�
     ['pausing', ['running', 'paused', 'waiting_test', 'failed', 'cancelled']],
     ['paused', ['queued', 'running', 'waiting_approval', 'failed', 'cancelled']],
     ['waiting_approval', ['queued', 'running', 'needs_input', 'failed', 'cancelled', 'expired']],
+    ['waiting_test', ['succeeded', 'failed', 'cancelled']],
   ]);
 
   for (const fromStatus of TASK_STATUSES) {

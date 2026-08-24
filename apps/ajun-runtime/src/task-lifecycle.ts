@@ -35,7 +35,8 @@ const TRANSITIONS: TaskTransitionMap = Object.freeze({
   pausing: ['running', 'paused', 'waiting_test', 'failed', 'cancelled'],
   paused: ['queued', 'running', 'waiting_approval', 'failed', 'cancelled'],
   waiting_approval: ['queued', 'running', 'needs_input', 'failed', 'cancelled', 'expired'],
-  waiting_test: [], succeeded: [], failed: [], cancelled: [], expired: [],
+  waiting_test: ['succeeded', 'failed', 'cancelled'],
+  succeeded: [], failed: [], cancelled: [], expired: [],
 });
 
 export class TaskLifecycleError extends Error {
@@ -151,6 +152,9 @@ export function validateTaskStatusPatch(task: unknown, patch: unknown, { approva
   if (fromStatus !== toStatus && toStatus === 'waiting_approval') assertTaskApprovalDecision(stableTask, patch, approvals, APPROVAL_STATUS_SET_FOR_PENDING);
   else if (fromStatus === 'waiting_approval' && fromStatus !== toStatus) assertTaskApprovalDecision(stableTask, patch, approvals, toStatus === 'queued' || toStatus === 'running' ? APPROVAL_CONTINUE_STATUS_SET : APPROVAL_STOP_STATUS_SET);
   if (fromStatus === toStatus) return { fromStatus, toStatus, changed: false, retry: false };
+  if (fromStatus === 'waiting_test' && ['succeeded', 'failed', 'cancelled'].includes(toStatus)) {
+    return { fromStatus, toStatus, changed: true, retry: false };
+  }
   if (isTerminalTaskStatus(fromStatus)) {
     if (!RETRY_ENTRY_STATUS_SET.has(toStatus)) throw lifecycleError(TASK_LIFECYCLE_ERROR_CODES.INVALID_TERMINAL_ROLLBACK, `终态“${fromStatus}”不能直接回退到“${toStatus}”。`, { fromStatus, toStatus });
     validateRetryAttempt(stableTask, patch, fromStatus, toStatus); return { fromStatus, toStatus, changed: true, retry: true };
