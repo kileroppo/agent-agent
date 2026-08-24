@@ -13,6 +13,9 @@ import {
   taskAttentionView,
 } from '../public/task-record-detail-view.js';
 import {
+  renderTechnicalDetails,
+} from '../public/task-record-workbench.js';
+import {
   businessDebtPresentation,
   capabilityPresentation,
   capabilitySummaryText,
@@ -285,8 +288,41 @@ test('运行台验收复用本机授权并提交版本、幂等键和用户说�
   assert.match(script, /这项待办仍然保留/);
 });
 
+test('编号与审计正常渲染 HTML 标签并不转义 dl 和 dt，提供复制与 Paperclip 入口', () => {
+  const sampleTask = {
+    taskId: '02fdc45e-56e6-4fd8-9104-6a97805cbdbf',
+    status: 'succeeded',
+    currentStage: 'completed',
+    paperclipRun: { runId: 'run-998877', status: 'succeeded' },
+    paperclipIssue: { identifier: 'AGE-2024', detailUrl: 'http://127.0.0.1:3100/issues/AGE-2024' },
+  };
+  const presentation = {
+    technical: {
+      taskId: '02fdc45e-56e6-4fd8-9104-6a97805cbdbf',
+      status: 'succeeded',
+      currentStage: 'completed',
+      errorCode: null,
+    },
+  };
+  const attention = null;
+  const html = renderTechnicalDetails(sampleTask, presentation, attention, escapeHtml);
+
+  assert.match(html, /<details class="record-technical"/);
+  assert.match(html, /<span>编号与审计<\/span>/);
+  assert.match(html, /<svg class="chevron"/);
+  assert.match(html, /<dl>[\s\S]*<div><dt>完整编号<\/dt><dd>02fdc45e-56e6-4fd8-9104-6a97805cbdbf<\/dd><\/div>/);
+  assert.match(html, /<div><dt>Paperclip 运行<\/dt><dd>succeeded · run-998877<\/dd><\/div>/);
+  assert.match(html, /<div><dt>原始状态<\/dt><dd>succeeded<\/dd><\/div>/);
+  assert.match(html, /<div><dt>当前阶段<\/dt><dd>completed<\/dd><\/div>/);
+  assert.match(html, /<a class="record-paperclip-link" href="http:\/\/127\.0\.0\.1:3100\/issues\/AGE-2024"/);
+  assert.match(html, /<button class="text-action record-copy-id" type="button">复制编号<\/button>/);
+  assert.doesNotMatch(html, /&lt;div&gt;&lt;dt&gt;/);
+  assert.doesNotMatch(html, /&lt;dl&gt;/);
+});
+
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (character) => ({
     '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;',
   })[character]);
 }
+

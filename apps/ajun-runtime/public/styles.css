@@ -5135,50 +5135,130 @@ textarea:focus {
 
 .record-technical {
   margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
   color: var(--muted);
 }
 
 .record-technical summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  user-select: none;
+  list-style: none;
+}
+
+.record-technical summary::-webkit-details-marker {
+  display: none;
+}
+
+.record-technical summary:hover {
+  color: var(--ink);
+}
+
+.record-technical summary .chevron {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+  transition: transform 0.18s var(--ease);
+}
+
+.record-technical[open] summary .chevron {
+  transform: rotate(180deg);
 }
 
 .record-technical dl {
   display: grid;
-  gap: 7px;
-  margin: 12px 0 0;
-  padding: 12px;
-  border-radius: 8px;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 12px 14px;
+  border-radius: 10px;
   background: var(--surface-soft);
+  border: 1px solid var(--line);
 }
 
 .record-technical dl div {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
+  grid-template-columns: 84px minmax(0, 1fr);
   gap: 10px;
+  align-items: baseline;
 }
 
 .record-technical dt,
 .record-technical dd {
   margin: 0;
   overflow-wrap: anywhere;
-  font-size: 10px;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .record-technical dt {
   color: var(--muted);
+  font-weight: 500;
 }
 
 .record-technical dd {
   color: var(--ink-soft);
+  font-family: var(--mono);
 }
 
+.record-technical-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.record-technical-actions .record-copy-id,
 .record-technical > .record-copy-id {
-  margin-top: 9px;
-  padding: 0;
-  background: transparent;
-  box-shadow: none;
-  font-size: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  margin-top: 0;
+  padding: 4px 12px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s var(--ease);
+}
+
+.record-technical-actions .record-copy-id:hover,
+.record-technical > .record-copy-id:hover {
+  background: var(--surface-soft);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+.record-technical-actions .record-paperclip-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  margin-top: 0;
+  padding: 4px 12px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all 0.15s var(--ease);
+}
+
+.record-technical-actions .record-paperclip-link:hover {
+  background: var(--surface-soft);
+  border-color: var(--line-strong);
 }
 
 .task-timeline-title {

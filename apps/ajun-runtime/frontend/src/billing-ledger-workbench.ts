@@ -128,6 +128,19 @@ export function createBillingLedgerWorkbench({ agentName, formatDate, formatNumb
         const source: any = status === 'task'
             ? `<a class="billing-task-link" href="/tasks/${encodeURIComponent(attribution.taskId)}">${attribution.taskRef || '任务'} · ${attribution.taskTitle || '未命名任务'}</a>`
             : `<p>${attributionDescription(status)}</p>`;
+        const metricsHtml: string = [
+            metric('请求', `${formatNumber(entry.apiCalls)} 次`),
+            metric('输入', `${formatNumber(tokens.input)} Token`),
+            metric('输出', `${formatNumber(tokens.output)} Token`),
+            metric('缓存', `${formatNumber(Number(tokens.cacheRead || 0) + Number(tokens.cacheWrite || 0))} Token`),
+            metric('推理', `${formatNumber(tokens.reasoning)} Token`),
+            metric('合计', `${formatNumber(tokenTotal(entry))} Token`),
+        ].join('');
+        const technicalHtml: string = [
+            technical('会话', entry.sessionId),
+            technical('账本编号', entry.ledgerRef),
+            technical('费用来源', entry.cost?.source || '未记录'),
+        ].join('');
         elements.detail.innerHTML = html`
           <button class="record-detail-back" type="button">← 返回流水</button>
           <header class="record-detail-header">
@@ -137,11 +150,11 @@ export function createBillingLedgerWorkbench({ agentName, formatDate, formatNumb
           </header>
           <div class="record-decision"><span>本条费用</span><strong>${costLabel(entry)}</strong></div>
           <section class="record-detail-section"><h3>本次用量</h3><dl class="billing-detail-metrics">
-            ${metric('请求', `${formatNumber(entry.apiCalls)} 次`)}${metric('输入', `${formatNumber(tokens.input)} Token`)}${metric('输出', `${formatNumber(tokens.output)} Token`)}${metric('缓存', `${formatNumber(Number(tokens.cacheRead || 0) + Number(tokens.cacheWrite || 0))} Token`)}${metric('推理', `${formatNumber(tokens.reasoning)} Token`)}${metric('合计', `${formatNumber(tokenTotal(entry))} Token`)}
+            ${raw(metricsHtml)}
           </dl></section>
-          <section class="record-detail-section"><h3>归属</h3>${source}</section>
-          <details class="record-technical"><summary>查看技术记录</summary><dl>
-            ${technical('会话', entry.sessionId)}${technical('账本编号', entry.ledgerRef)}${technical('费用来源', entry.cost?.source || '未记录')}
+          <section class="record-detail-section"><h3>归属</h3>${raw(source)}</section>
+          <details class="record-technical"><summary><span>查看技术记录</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><dl>
+            ${raw(technicalHtml)}
           </dl></details>`;
         elements.detail.querySelector('.record-detail-back')?.addEventListener('click', (): any => {
             state.detailOpen = false;

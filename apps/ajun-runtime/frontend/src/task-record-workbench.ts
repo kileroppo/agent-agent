@@ -371,7 +371,15 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         elements.detail.querySelector('.record-copy-id')?.addEventListener('click', async (event: any): Promise<any> => {
             try {
                 await navigator.clipboard.writeText(task.taskId);
-                event.currentTarget.textContent = '已复制';
+                const button: any = event.currentTarget;
+                if (button) {
+                    button.textContent = '已复制';
+                    setTimeout(() => {
+                        if (button && button.isConnected && button.textContent === '已复制') {
+                            button.textContent = '复制编号';
+                        }
+                    }, 2000);
+                }
             }
             catch {
                 event.currentTarget.textContent = '复制失败';
@@ -640,7 +648,7 @@ function compactAttentionReason(task: any): any {
         return '';
     return cleanAttentionText(attention.cause, 90);
 }
-function renderTechnicalDetails(task: any, presentation: any, attention: any, escapeHtml: any): any {
+export function renderTechnicalDetails(task: any, presentation: any, attention: any, escapeHtml: any): any {
     const attentionTechnicalView: any = attention?.technical || null;
     const presentationTechnical: any = presentation?.technical && typeof presentation.technical === 'object'
         ? presentation.technical
@@ -665,7 +673,8 @@ function renderTechnicalDetails(task: any, presentation: any, attention: any, es
     const paperclipIssue: any = task.paperclipIssue?.detailUrl
         ? html`<a class="record-paperclip-link" href="${task.paperclipIssue.detailUrl}" target="_blank" rel="noopener">打开 Paperclip ${task.paperclipIssue.identifier || '任务'}</a>`
         : '';
-    return html`<details class="record-technical"><summary>编号与审计</summary><dl>${rows.map(([label, value]: any): any => html`<div><dt>${label}</dt><dd>${value}</dd></div>`).join('')}</dl>${raw(paperclipIssue)}<button class="text-action record-copy-id" type="button">复制编号</button></details>`;
+    const rowsHtml: string = rows.map(([label, value]: any): any => html`<div><dt>${label}</dt><dd>${value}</dd></div>`).join('');
+    return html`<details class="record-technical" data-disclosure-key="record-technical:${values.taskId}"><summary><span>编号与审计</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><dl>${raw(rowsHtml)}</dl><div class="record-technical-actions">${raw(paperclipIssue)}<button class="text-action record-copy-id" type="button">复制编号</button></div></details>`;
 }
 function newIdempotencyKey(taskId: any, actionKey: any): any {
     const random: any = globalThis.crypto?.randomUUID?.()
