@@ -99,17 +99,28 @@ export function renderAttentionDetail(attention, actionState, _escapeHtml) {
     const confirmation = confirmingAction
         ? cleanAttentionText(actionState?.message, 500) || confirmingAction.confirmation || `确认执行“${confirmingAction.label}”？`
         : '';
-    const fallbackNext = attention.nextAction && attention.nextAction !== '请根据当前原因决定下一步。'
+    const paperclipLink = attention.paperclipIssue?.detailUrl
+        ? html `<a class="record-paperclip-link" href="${attention.paperclipIssue.detailUrl}" target="_blank" rel="noopener">打开 Paperclip ${attention.paperclipIssue.identifier || '任务'}</a>`
+        : '';
+    const hasActions = Boolean(actions || paperclipLink);
+    const isGeneric = isGenericNextAction(attention.nextAction);
+    const fallbackNext = !hasActions && !isGeneric && attention.nextAction
         ? html `<p>${attention.nextAction}</p>`
         : '';
     const actionContent = confirmingAction
         ? html `<div class="record-attention-confirmation" role="alert"><p>${confirmation}</p><div class="record-attention-actions"><button type="button" class="record-attention-primary" data-attention-confirm="${confirmingAction.actionKey}">确认${confirmingAction.label}</button><button type="button" class="secondary-action" data-attention-cancel>取消</button></div></div>`
-        : actions
-            ? html `<div class="record-attention-actions">${raw(actions)}</div>`
+        : hasActions
+            ? html `<div class="record-attention-actions">${raw(actions)}${raw(paperclipLink)}</div>`
             : fallbackNext;
     const cause = usefulAttentionCause(attention);
     const evidence = usefulAttentionEvidence(attention.evidence, cause);
+    const technicalTags = [
+        attention.technical?.code ? `<span class="record-attention-tag">错误代码: <code>${escapeHtml(attention.technical.code)}</code></span>` : '',
+        attention.technical?.stage ? `<span class="record-attention-tag">阶段: <code>${escapeHtml(attention.technical.stage)}</code></span>` : '',
+    ].filter(Boolean);
+    const tagsHtml = technicalTags.length ? `<div class="record-attention-tags">${technicalTags.join('')}</div>` : '';
     const extras = [
+        tagsHtml,
         evidence ? html `<details class="record-attention-evidence"><summary><span>判断依据</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><p>${evidence}</p></details>` : '',
         attention.remainingRisks ? html `<details class="record-attention-evidence"><summary><span>剩余风险</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><p>${attention.remainingRisks}</p></details>` : '',
         usefulAttentionImpact(attention) ? html `<p class="record-attention-impact-line">${attention.impact}</p>` : '',
@@ -135,6 +146,23 @@ function usefulAttentionCause(attention) {
     if (cause === '任务状态发生变化，但暂时没有更具体的用户可见原因。')
         return '';
     return cause;
+}
+const GENERIC_NEXT_ACTIONS = new Set([
+    '请根据当前原因决定下一步。',
+    '请根据失败原因决定补充信息、调整范围或暂不处理。',
+    '当前不应原样重试；请根据失败原因补充信息或调整范围。',
+    '请先确认相关依赖已经恢复，再决定是否重新尝试。',
+    '请查看任务详情。',
+    '请查看已有结果和验证缺口，再决定是否采用。',
+    '请核对范围并完成确认。',
+    '如需继续，请确认恢复任务。',
+    '请补充任务继续所需的信息。',
+]);
+function isGenericNextAction(text) {
+    const clean = String(text || '').trim();
+    if (!clean)
+        return true;
+    return GENERIC_NEXT_ACTIONS.has(clean);
 }
 const GENERIC_IMPACTS = new Set([
     '任务不会被视为已经完成。',

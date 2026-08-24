@@ -5003,6 +5003,33 @@ textarea:focus {
   color: #fff;
 }
 
+.record-attention-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 20px 14px;
+}
+
+.record-attention-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--amber-line);
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.record-attention-tag code {
+  font-family: var(--mono);
+  color: var(--amber);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .record-attention-evidence {
   margin: 0 20px 14px;
   color: var(--muted);
