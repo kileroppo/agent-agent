@@ -5,6 +5,8 @@ export function createBillingView({ elements, api, billingUsageCache, billingLed
     const { billingSummary, billingStats, billingCostHealth, billingAttribution, billingProfileList, billingDateFilter, billingDateFrom, billingDateTo, billingDateMessage } = elements;
     const { syncBadge } = elements;
 
+    const dismissedBillingAlerts = new Set<string>();
+
     async function loadBilling({ force = false }: any = {}): Promise<any> {
         try {
             renderBilling(await billingUsageCache.read({ force }));
@@ -25,7 +27,7 @@ export function createBillingView({ elements, api, billingUsageCache, billingLed
             billingStats.replaceChildren(overviewView.statCard('可核金额', '未知', '等待用量库恢复', 'cost', true), overviewView.statCard('模型请求', '未知', '暂时无法读取', 'clock'), overviewView.statCard('Token', '未知', '暂时无法读取', 'records'));
             renderBillingCostHealth(null);
             billingAttribution.hidden = false;
-            billingAttribution.innerHTML = '<strong>账本暂不可用</strong><span>任务记录仍保留，但暂时无法核对全部模型消耗。</span>';
+            billingAttribution.innerHTML = '<div><strong>账本暂不可用</strong><span>任务记录仍保留，但暂时无法核对全部模型消耗。</span></div>';
             billingProfileList.replaceChildren(billingEmpty('暂时无法读取岗位用量。'));
             billingLedgerWorkbench.setUnavailable();
             return;
@@ -50,16 +52,26 @@ export function createBillingView({ elements, api, billingUsageCache, billingLed
         const unattributed: any = Number(billing.attribution?.unattributedEntryCount || 0);
         const providerReconciliation: any = billing.providerReconciliation || { status: 'not_configured' };
         const providerCoverageMissing: any = providerReconciliation.status !== 'matched';
-        billingAttribution.hidden = unattributed === 0 && !providerCoverageMissing;
+        const healthAlerts: any[] = Array.isArray(billing.health?.alerts) ? billing.health.alerts : [];
+        const healthHasProviderNotice = healthAlerts.some((a: any): any => a.code === 'provider_total_not_reconciled' || a.code === 'provider_usage_gap');
+        const duplicateProviderNotice = !dismissedBillingAlerts.has('cost-health') && healthHasProviderNotice && providerCoverageMissing && unattributed === 0;
+        const shouldShowAttribution = !dismissedBillingAlerts.has('attribution') && (unattributed > 0 || (providerCoverageMissing && !duplicateProviderNotice));
+        billingAttribution.hidden = !shouldShowAttribution;
         billingAttribution.classList.toggle('attention', unattributed > 0 || providerCoverageMissing);
-        billingAttribution.innerHTML = providerReconciliation.status === 'gap'
-            ? `<div><strong>发现 ${formatNumber(providerReconciliation.untrackedApiCalls)} 次账外调用</strong><span>Provider 总账比本系统多 ${formatNumber(providerReconciliation.untrackedTokens)} Token；这些调用尚未归属到任务或岗位。</span></div><a class="secondary-action" href="https://platform.stepfun.com/" target="_blank" rel="noreferrer">打开 StepFun 后台核对</a>`
-            : providerCoverageMissing
-                ? '<div><strong>这里只是受管岗位的局部账本</strong><span>尚未接入 StepFun 全账号总量；这里显示 0 次，也不能说明账号今天没有调用。</span></div><a class="secondary-action" href="https://platform.stepfun.com/" target="_blank" rel="noreferrer">打开 StepFun 后台核对</a>'
-                : unattributed
-            ? `<div><strong>${unattributed} 条消费仍未识别来源</strong><span>${taskEntries} 条关联业务任务，${agentSessions} 条属于独立 Agent 会话，${systemEntries} 条属于系统调用。</span></div><button type="button" class="secondary-action">只看未识别</button>`
-            : '';
-        billingAttribution.querySelector('button')?.addEventListener('click', (): any => focusBillingLedger({ view: 'unattributed' }));
+        if (shouldShowAttribution) {
+            billingAttribution.innerHTML = providerReconciliation.status === 'gap'
+                ? `<div><strong>发现 ${formatNumber(providerReconciliation.untrackedApiCalls)} 次账外调用</strong><span>Provider 总账比本系统多 ${formatNumber(providerReconciliation.untrackedTokens)} Token；这些调用尚未归属到任务或岗位。</span></div><div class="billing-alert-actions"><a class="secondary-action" href="https://platform.stepfun.com/" target="_blank" rel="noreferrer">打开 StepFun 后台核对</a><button type="button" class="billing-alert-dismiss" aria-label="关闭提示" title="关闭">×</button></div>`
+                : providerCoverageMissing
+                    ? '<div><strong>这里只是受管岗位的局部账本</strong><span>尚未接入 StepFun 全账号总量；这里显示 0 次，也不能说明账号今天没有调用。</span></div><div class="billing-alert-actions"><a class="secondary-action" href="https://platform.stepfun.com/" target="_blank" rel="noreferrer">打开 StepFun 后台核对</a><button type="button" class="billing-alert-dismiss" aria-label="关闭提示" title="关闭">×</button></div>'
+                    : unattributed
+                ? `<div><strong>${unattributed} 条消费仍未识别来源</strong><span>${taskEntries} 条关联业务任务，${agentSessions} 条属于独立 Agent 会话，${systemEntries} 条属于系统调用。</span></div><div class="billing-alert-actions"><button type="button" class="secondary-action">只看未识别</button><button type="button" class="billing-alert-dismiss" aria-label="关闭提示" title="关闭">×</button></div>`
+                : '';
+            billingAttribution.querySelector('.billing-alert-dismiss')?.addEventListener('click', (): any => {
+                dismissedBillingAlerts.add('attribution');
+                billingAttribution.hidden = true;
+            });
+            billingAttribution.querySelector('button.secondary-action')?.addEventListener('click', (): any => focusBillingLedger({ view: 'unattributed' }));
+        }
         const profiles: any = Array.isArray(billing.profiles) ? billing.profiles : [];
         billingProfileList.replaceChildren(...(profiles.length ? profiles.map(billingProfileRow) : [billingEmpty('当前范围没有岗位模型用量。')]));
         billingLedgerWorkbench.setEntries(Array.isArray(billing.entries) ? billing.entries : []);
@@ -67,7 +79,7 @@ export function createBillingView({ elements, api, billingUsageCache, billingLed
     function renderBillingCostHealth(health: any): any {
         billingCostHealth.className = 'billing-cost-health';
         const alerts: any[] = Array.isArray(health?.alerts) ? health.alerts : [];
-        if (health?.status === 'healthy' && alerts.length === 0) {
+        if ((health?.status === 'healthy' && alerts.length === 0) || dismissedBillingAlerts.has('cost-health')) {
             billingCostHealth.hidden = true;
             billingCostHealth.replaceChildren();
             return;
@@ -103,6 +115,17 @@ export function createBillingView({ elements, api, billingUsageCache, billingLed
             if (providerGap || providerMissing)
                 actions.append(alertLink('打开 StepFun 后台', 'https://platform.stepfun.com/'));
         }
+        const dismissBtn: any = document.createElement('button');
+        dismissBtn.type = 'button';
+        dismissBtn.className = 'billing-alert-dismiss';
+        dismissBtn.setAttribute('aria-label', '关闭提示');
+        dismissBtn.setAttribute('title', '关闭');
+        dismissBtn.textContent = '×';
+        dismissBtn.addEventListener('click', (): any => {
+            dismissedBillingAlerts.add('cost-health');
+            billingCostHealth.hidden = true;
+        });
+        actions.append(dismissBtn);
         copy.append(title, detail);
         billingCostHealth.replaceChildren(copy, actions);
     }
