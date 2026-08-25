@@ -3275,27 +3275,31 @@ button:disabled {
   color: #fff;
 }
 
-.billing-entry-main a,
 .billing-attribution-label {
-  width: fit-content;
-  max-width: 100%;
-  overflow: hidden;
-  color: var(--mint-deep);
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 4px;
   font-size: 10px;
-  font-weight: 700;
-  text-overflow: ellipsis;
+  font-weight: 600;
+  background: var(--mint-soft);
+  color: var(--mint-deep);
+  line-height: 1.4;
   white-space: nowrap;
 }
 
 .billing-attribution-label.agent-session {
+  background: var(--mint-soft);
   color: var(--mint-deep);
 }
 
 .billing-attribution-label.system {
+  background: var(--canvas-deep);
   color: var(--muted);
 }
 
 .billing-attribution-label.unattributed {
+  background: var(--amber-soft);
   color: var(--amber);
 }
 
@@ -3322,10 +3326,10 @@ button:disabled {
   display: flex;
   width: 100%;
   min-width: 0;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 14px;
-  padding: 12px 14px;
+  gap: 12px;
+  padding: 12px 16px;
   border: 0;
   border-bottom: 1px solid var(--line);
   border-radius: 0;
@@ -3333,6 +3337,7 @@ button:disabled {
   color: inherit;
   text-align: left;
   box-shadow: none;
+  transition: background .15s ease;
 }
 
 .billing-entry-row:hover {
@@ -3343,6 +3348,107 @@ button:disabled {
 .billing-entry-row.is-selected {
   background: var(--mint-soft);
   box-shadow: inset 3px 0 0 var(--mint);
+}
+
+.billing-entry-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.billing-entry-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.billing-entry-agent {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.billing-entry-model {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--canvas-deep);
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-family: var(--mono);
+}
+
+.billing-entry-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+
+.billing-entry-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.billing-entry-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-start;
+  flex: none;
+}
+
+.billing-entry-cost {
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--mono);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.billing-entry-detail .record-decision {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  border-left: 3px solid var(--mint);
+  border-radius: 0 8px 8px 0;
+  background: var(--surface-mint);
+  margin: 16px 0;
+}
+
+.billing-entry-detail .record-decision-main {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.billing-entry-detail .record-decision-main span {
+  font-size: 12px;
+  color: var(--mint-deep);
+  font-weight: 600;
+  margin-bottom: 0;
+}
+
+.billing-entry-detail .record-decision-main strong {
+  font-size: 16px;
+  font-weight: 750;
+  font-family: var(--mono);
+  color: var(--ink);
+}
+
+.billing-entry-detail .record-decision-hint {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
 }
 
 .billing-entry-detail .record-detail-meta {

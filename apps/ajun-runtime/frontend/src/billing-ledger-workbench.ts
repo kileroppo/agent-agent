@@ -1,5 +1,6 @@
 import { html, raw, escapeHtml } from './html.js';
 import { BILLING_PAGE_SIZE, filterBillingEntries } from './billing-entry-filter.js';
+import { formatCompactNumber } from './format-utils.js';
 
 const VIEW_LABELS: Record<string, string> = {
     all: '全部',
@@ -113,7 +114,7 @@ export function createBillingLedgerWorkbench({ agentName, formatDate, formatNumb
         node.dataset.billingEntryRef = entry.ledgerRef;
         node.setAttribute('role', 'option');
         node.setAttribute('aria-selected', String(selected));
-        node.innerHTML = html`<span class="billing-entry-main"><span>${formatDate(entry.occurredAt)}</span><strong>${agentName(entry.agentId)} · ${entry.model || '未知模型'}</strong><small>${formatNumber(entry.apiCalls)} 次请求 · ${formatNumber(tokenTotal(entry))} Token</small><span class="billing-attribution-label ${status}">${attributionLabel(status)}</span></span><b>${costLabel(entry)}</b>`;
+        node.innerHTML = html`<div class="billing-entry-main"><div class="billing-entry-header"><strong class="billing-entry-agent">${agentName(entry.agentId)}</strong><span class="billing-entry-model">${entry.model || '未知模型'}</span></div><div class="billing-entry-meta"><span>${formatDate(entry.occurredAt)}</span><span>·</span><span>${formatNumber(entry.apiCalls)} 次请求</span><span>·</span><span>${formatCompactNumber(tokenTotal(entry))} Token</span></div><div class="billing-entry-tags"><span class="billing-attribution-label ${status}">${attributionLabel(status)}</span></div></div><div class="billing-entry-side"><b class="billing-entry-cost">${costLabel(entry)}</b></div>`;
         return node;
     }
 
@@ -148,7 +149,13 @@ export function createBillingLedgerWorkbench({ agentName, formatDate, formatNumb
             <h2>${agentName(entry.agentId)} · ${entry.model || '未知模型'}</h2>
             <div class="record-detail-meta"><span>${entry.provider || 'Provider 未记录'}</span><span>${entry.usageClass || 'main'}</span></div>
           </header>
-          <div class="record-decision"><span>本条费用</span><strong>${costLabel(entry)}</strong></div>
+          <div class="record-decision">
+            <div class="record-decision-main">
+              <span>本条费用</span>
+              <strong>${costLabel(entry)}</strong>
+            </div>
+            <span class="record-decision-hint">${entry.cost?.source || (entry.cost?.status === 'actual' ? 'Provider 官方返回精确费用' : '最终扣费以 StepFun 后台月结为准')}</span>
+          </div>
           <section class="record-detail-section"><h3>本次用量</h3><dl class="billing-detail-metrics">
             ${raw(metricsHtml)}
           </dl></section>

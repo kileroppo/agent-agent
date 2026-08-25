@@ -88,11 +88,59 @@ export class HermesUsageLedger {
         };
     }
 }
+const MODEL_PRICING_PER_MILLION: Record<string, { input: number; output: number; cacheRead?: number; reasoning?: number }> = {
+    'step-3.7-flash': { input: 0.15, output: 0.60, cacheRead: 0.03, reasoning: 0.60 },
+    'stepfun/step-3.7-flash': { input: 0.15, output: 0.60, cacheRead: 0.03, reasoning: 0.60 },
+    'step-2-16k': { input: 1.0, output: 4.0, cacheRead: 0.10, reasoning: 4.0 },
+    'step-1-flash': { input: 0.15, output: 0.60, cacheRead: 0.03, reasoning: 0.60 },
+    'step-1-8k': { input: 0.7, output: 2.8, cacheRead: 0.10, reasoning: 2.8 },
+    'step-1-32k': { input: 1.0, output: 4.0, cacheRead: 0.10, reasoning: 4.0 },
+    'gpt-4o-mini': { input: 0.15, output: 0.60, cacheRead: 0.075, reasoning: 0.60 },
+    'gpt-4o': { input: 2.50, output: 10.0, cacheRead: 1.25, reasoning: 10.0 },
+    'claude-3-5-sonnet': { input: 3.0, output: 15.0, cacheRead: 0.30, reasoning: 15.0 },
+    'claude-3-5-haiku': { input: 0.80, output: 4.0, cacheRead: 0.08, reasoning: 4.0 },
+};
+
+function calculateEstimatedCost(modelName: any, tokens: any): any {
+    const normalized: any = String(modelName || '').toLowerCase().trim();
+    const pricing: any = MODEL_PRICING_PER_MILLION[normalized] || (normalized.includes('flash') ? MODEL_PRICING_PER_MILLION['step-3.7-flash'] : null);
+    if (!pricing)
+        return null;
+    const inputCost: any = (tokens.input / 1000000) * pricing.input;
+    const outputCost: any = (tokens.output / 1000000) * pricing.output;
+    const cacheCost: any = ((tokens.cacheRead || 0) / 1000000) * (pricing.cacheRead || 0);
+    const reasoningCost: any = ((tokens.reasoning || 0) / 1000000) * (pricing.reasoning || pricing.output);
+    const total: any = roundUsd(inputCost + outputCost + cacheCost + reasoningCost);
+    return {
+        amountUsd: total,
+        source: `按 ${modelName} 费率估算`,
+    };
+}
+
 function normalizeEntry(agentId: any, row: any): any {
     const occurredAt: any = new Date(Number(row.occurred_at || row.session_started_at || 0) * 1000);
-    const costStatus: any = normalizeCostStatus(row.cost_status);
-    const actualUsd: any = nonNegativeNumber(row.actual_cost_usd);
-    const estimatedUsd: any = nonNegativeNumber(row.estimated_cost_usd);
+    let costStatus: any = normalizeCostStatus(row.cost_status);
+    let actualUsd: any = nonNegativeNumber(row.actual_cost_usd);
+    let estimatedUsd: any = nonNegativeNumber(row.estimated_cost_usd);
+    let costSource: any = String(row.cost_source || '').trim().slice(0, 80) || null;
+
+    const tokens: any = {
+        input: nonNegativeInteger(row.input_tokens),
+        output: nonNegativeInteger(row.output_tokens),
+        cacheRead: nonNegativeInteger(row.cache_read_tokens),
+        cacheWrite: nonNegativeInteger(row.cache_write_tokens),
+        reasoning: nonNegativeInteger(row.reasoning_tokens),
+    };
+
+    if (costStatus === 'unknown' && !actualUsd && !estimatedUsd) {
+        const calculated: any = calculateEstimatedCost(row.model, tokens);
+        if (calculated && calculated.amountUsd > 0) {
+            costStatus = 'estimated';
+            estimatedUsd = calculated.amountUsd;
+            costSource = calculated.source;
+        }
+    }
+
     const amountUsd: any = costStatus === 'actual' && actualUsd > 0
         ? actualUsd
         : costStatus === 'included' ? 0 : estimatedUsd;
@@ -107,19 +155,13 @@ function normalizeEntry(agentId: any, row: any): any {
         usageClass: String(row.usage_task || '').trim().slice(0, 80) || 'main',
         billingMode: String(row.billing_mode || '').trim().slice(0, 40) || null,
         apiCalls: nonNegativeInteger(row.api_call_count),
-        tokens: {
-            input: nonNegativeInteger(row.input_tokens),
-            output: nonNegativeInteger(row.output_tokens),
-            cacheRead: nonNegativeInteger(row.cache_read_tokens),
-            cacheWrite: nonNegativeInteger(row.cache_write_tokens),
-            reasoning: nonNegativeInteger(row.reasoning_tokens),
-        },
+        tokens,
         cost: {
             status: costStatus,
             amountUsd,
             actualUsd,
             estimatedUsd,
-            source: String(row.cost_source || '').trim().slice(0, 80) || null,
+            source: costSource,
         },
     };
 }
