@@ -6107,7 +6107,7 @@ textarea:focus {
 /* --- @media (prefers-color-scheme: dark) --- */
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not(.light-mode) {
     --canvas: #121a16;
     --canvas-deep: #0e1512;
     --surface: #1c2a22;
@@ -6143,6 +6143,13 @@ textarea:focus {
     --shadow-sm: 0 2px 8px rgba(0, 0, 0, .2);
     --shadow-md: 0 18px 45px rgba(0, 0, 0, .3);
     color-scheme: dark;
+  }
+
+  :root:not(.light-mode) .night-mode-toggle .moon {
+    display: none;
+  }
+  :root:not(.light-mode) .night-mode-toggle .sun {
+    display: block;
   }
 }
 
@@ -6190,6 +6197,13 @@ html.night-mode .night-mode-toggle .moon {
 }
 html.night-mode .night-mode-toggle .sun {
   display: block;
+}
+
+html.light-mode .night-mode-toggle .moon {
+  display: block !important;
+}
+html.light-mode .night-mode-toggle .sun {
+  display: none !important;
 }
 html.night-mode .topbar {
   background: var(--topbar-background);
