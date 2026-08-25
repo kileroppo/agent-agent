@@ -9,23 +9,16 @@ export function initNightMode() {
         html.classList.add('night-mode');
         if (meta)
             meta.setAttribute('content', '#121a16');
-        toggle?.querySelector('.moon')?.removeAttribute('hidden');
-        toggle?.querySelector('.sun')?.setAttribute('hidden', '');
+    }
+    else {
+        html.classList.remove('night-mode');
+        if (meta)
+            meta.setAttribute('content', '#f6f7f2');
     }
     toggle?.addEventListener('click', () => {
         const isNight = html.classList.toggle('night-mode');
         localStorage.setItem('ajun-night-mode', isNight ? '1' : '0');
         if (meta)
             meta.setAttribute('content', isNight ? '#121a16' : '#f6f7f2');
-        const moonIcon = toggle.querySelector('.moon');
-        const sunIcon = toggle.querySelector('.sun');
-        if (isNight) {
-            moonIcon?.setAttribute('hidden', '');
-            sunIcon?.removeAttribute('hidden');
-        }
-        else {
-            moonIcon?.removeAttribute('hidden');
-            sunIcon?.setAttribute('hidden', '');
-        }
     });
 }

@@ -955,13 +955,14 @@ h3 {
 }
 
 #release-component-status {
-  margin: 16px 0 0;
-  padding: 10px 14px;
-  border-radius: var(--radius-sm);
-  background: var(--canvas-deep);
+  margin: 14px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.5;
+  text-align: right;
 }
 
 .section-intro {
