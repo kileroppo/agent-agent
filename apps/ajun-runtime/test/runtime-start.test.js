@@ -119,6 +119,12 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
     'paperclip-hermes-task',
     'cross-agent-mission',
     'technical-repair-watchdog',
+    'task-liveness-watchdog',
+    'artifact-storage-gc',
+    'delivery-unknown',
+    'health-mesh',
+    'anomaly-alerting',
+    'feedback-eval-dataset',
   ]);
   assert.equal(Object.hasOwn(runtime.services, 'xiaodReconciler'), false);
   assert.equal(Object.hasOwn(runtime.services, 'missionReconciler'), false);

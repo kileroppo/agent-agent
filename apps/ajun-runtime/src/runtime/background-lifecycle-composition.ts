@@ -13,6 +13,7 @@ import { ReconciliationCoordinator, reconciliationJob } from '../reconciliation-
 import { TechnicalRepairEvidenceRelay } from '../technical-repair-evidence-relay.ts';
 import { XiaodReconciler } from '../xiaod-reconciler.ts';
 import { DeliveryQualityReconciler } from '../workflow/delivery-quality-reconciler.ts';
+import { createStabilityLifecycleComposition } from './stability-lifecycle-composition.ts';
 import type { BackgroundLifecycleCompositionInput } from './composition-contracts.ts';
 
 export function createBackgroundLifecycleComposition({
@@ -31,9 +32,7 @@ export function createBackgroundLifecycleComposition({
     store,
     bootedAt,
     onResult:(result: Readonly<{ status: string }>) => {
-      if (result.status !== 'reconciled') {
-        logger.warn('重启前中断的本地任务暂时无法整理，将保留原状态。');
-      }
+      if (result.status !== 'reconciled') logger.warn('重启前中断的本地任务暂时无法整理，将保留原状态。');
     },
   });
   const paperclipRosterReconciler = new PaperclipRosterReconciler({
@@ -73,9 +72,7 @@ export function createBackgroundLifecycleComposition({
     store,
     deliveryQuality:tasks.deliveryQuality,
     onResult:(result: Readonly<{ status: string }>) => {
-      if (result.status !== 'reconciled') {
-        logger.warn('待启动的交付质量复核暂未全部恢复，将在下个周期继续。');
-      }
+      if (result.status !== 'reconciled') logger.warn('待启动的交付质量复核暂未全部恢复，将在下个周期继续。');
     },
   });
   const macWorker = new MacWorkerTaskBridge({
@@ -91,6 +88,10 @@ export function createBackgroundLifecycleComposition({
   });
   const missions = new CrossAgentMissionService({ tasks, store, governance, missionChildPolicy });
   const missionReconciler = new CrossAgentMissionReconciler({ store, missions });
+
+  // 6大稳定性闭环组件
+  const stability = createStabilityLifecycleComposition({ store, paths, roleExecution });
+
   const reconciliationCoordinator = new ReconciliationCoordinator({
     mutationSource:store,
     jobs:[
@@ -103,6 +104,7 @@ export function createBackgroundLifecycleComposition({
       reconciliationJob('paperclip-hermes-task', paperclipHermesTaskReconciler, { maxIntervalMs:60_000 }),
       reconciliationJob('cross-agent-mission', missionReconciler, { maxIntervalMs:60_000 }),
       reconciliationJob('technical-repair-watchdog', roleExecution.technicalRepairWatchdog, { maxIntervalMs:60_000 }),
+      ...stability.stabilityJobs,
     ],
     onEvent:(event: any) => {
       if (event.type === 'reconciliation_failed') {
@@ -133,6 +135,7 @@ export function createBackgroundLifecycleComposition({
       interruptedLocalExecutionReconciler,
       deliveryQualityReconciler,
       reconciliationCoordinator,
+      ...stability,
       boomMonitor:features.boomMonitorEnabled && features.boomMonitorAutoScheduleEnabled
         ? boomMonitor
         : null,

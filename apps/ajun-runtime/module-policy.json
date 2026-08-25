@@ -915,6 +915,49 @@
         "test/delivery-quality-runtime.test.js",
         "test/task-lifecycle-event-recorder.test.js"
       ]
+    },
+    "src/runtime/stability-lifecycle-composition.ts": {
+      "lineLimit": 80,
+      "affectedTests": [
+        "test/runtime-composition-modules.test.js",
+        "test/runtime-start.test.js"
+      ]
+    },
+    "src/task-liveness-watchdog.ts": {
+      "lineLimit": 200,
+      "affectedTests": [
+        "test/task-liveness-watchdog.test.js"
+      ]
+    },
+    "src/artifact-storage-gc.ts": {
+      "lineLimit": 180,
+      "affectedTests": [
+        "test/artifact-storage-gc.test.js"
+      ]
+    },
+    "src/workflow/delivery-unknown-reconciler.ts": {
+      "lineLimit": 200,
+      "affectedTests": [
+        "test/delivery-unknown-reconciler.test.js"
+      ]
+    },
+    "src/cross-service-health-mesh.ts": {
+      "lineLimit": 220,
+      "affectedTests": [
+        "test/cross-service-health-mesh.test.js"
+      ]
+    },
+    "src/proactive-anomaly-alerting.ts": {
+      "lineLimit": 250,
+      "affectedTests": [
+        "test/proactive-anomaly-alerting.test.js"
+      ]
+    },
+    "src/feedback-eval-dataset.ts": {
+      "lineLimit": 220,
+      "affectedTests": [
+        "test/feedback-eval-dataset.test.js"
+      ]
     }
   },
   "testGroups": {
