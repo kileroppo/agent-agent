@@ -5141,6 +5141,12 @@ textarea:focus {
   border-bottom: 1px solid var(--line);
 }
 
+.record-summary-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .record-list-summary strong {
   color: var(--ink-soft);
   font-size: 12px;
@@ -5149,6 +5155,47 @@ textarea:focus {
 .record-list-summary span {
   color: var(--muted);
   font-size: 10px;
+}
+
+.record-batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.batch-accept-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: var(--mint);
+  border: 1px solid var(--mint-line);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(28, 126, 102, .2);
+  transition: all .15s ease;
+}
+
+.batch-accept-btn:hover:not(:disabled) {
+  background: var(--mint-deep);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(28, 126, 102, .3);
+}
+
+.batch-accept-btn:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.batch-accept-btn svg {
+  fill: currentColor;
 }
 
 .record-list-panel .task-list {

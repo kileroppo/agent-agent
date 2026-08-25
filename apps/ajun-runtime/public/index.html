@@ -650,8 +650,16 @@
         <div id="record-workbench" class="record-workbench">
           <section class="record-list-panel" aria-label="任务记录列表">
             <div class="record-list-summary">
-              <strong id="task-count">读取中</strong>
-              <span id="record-list-context"></span>
+              <div class="record-summary-left">
+                <strong id="task-count">读取中</strong>
+                <span id="record-list-context"></span>
+              </div>
+              <div id="record-batch-actions" class="record-batch-actions" hidden>
+                <button id="record-batch-accept" class="batch-accept-btn" type="button">
+                  <svg aria-hidden="true" width="12" height="12"><use href="#icon-shield"></use></svg>
+                  <span>批量采纳 (<b id="batch-adoptable-count">0</b>)</span>
+                </button>
+              </div>
             </div>
             <div id="task-list" class="task-list" role="listbox" aria-label="任务记录"></div>
             <button id="task-load-more" class="task-load-more secondary-action" type="button" hidden>加载更多</button>

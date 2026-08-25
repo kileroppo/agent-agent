@@ -42,6 +42,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         selectedTask: null,
         selectedDetailLoaded: false,
         autoExpanded: false,
+        batchSubmitting: false,
         actionState: new Map(),
         acceptanceState: new Map(),
         timelineHtml: '',
@@ -124,6 +125,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         });
         elements.loadMore.addEventListener('click', async () => loadRecords({ append: true }));
         elements.newItems.addEventListener('click', async () => loadRecords());
+        elements.batchAcceptBtn?.addEventListener('click', async () => handleBatchAccept());
         elements.list.addEventListener('click', async (event) => {
             if (event.target.closest('[data-record-retry]')) {
                 await loadRecords();
@@ -269,6 +271,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         renderList();
         renderRoutineSummary(routineSummary);
         renderDetail();
+        renderBatchActions();
         elements.loadMore.hidden = !state.nextCursor;
         elements.loadMore.textContent = state.nextCursor ? `更多 ${state.items.length}/${state.total}` : '已全部显示';
     }
@@ -552,6 +555,92 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         }
         throw new Error('本机操作授权刷新失败，请重新打开任务详情后重试。');
     }
+    function isTaskAdoptable(task) {
+        if (!task)
+            return false;
+        const attention = taskAttentionView(task);
+        if (attention?.actions?.some((a) => a.actionKey === 'accept_reviewed_artifact')) {
+            return true;
+        }
+        if (task.status === 'waiting_test') {
+            return true;
+        }
+        const target = acceptanceTargetView(task);
+        if (target?.actionable) {
+            return true;
+        }
+        return false;
+    }
+    function renderBatchActions() {
+        if (!elements.batchActions || !elements.batchAcceptBtn || !elements.batchCount)
+            return;
+        const adoptableTasks = state.items.filter((task) => isTaskAdoptable(task));
+        if (adoptableTasks.length > 0) {
+            elements.batchActions.hidden = false;
+            elements.batchCount.textContent = String(adoptableTasks.length);
+            if (!state.batchSubmitting) {
+                elements.batchAcceptBtn.disabled = false;
+                elements.batchAcceptBtn.innerHTML = `<svg aria-hidden="true" width="12" height="12"><use href="#icon-shield"></use></svg><span>批量采纳 (<b id="batch-adoptable-count">${adoptableTasks.length}</b>)</span>`;
+            }
+        }
+        else {
+            elements.batchActions.hidden = true;
+        }
+    }
+    async function handleBatchAccept() {
+        const adoptableTasks = state.items.filter((task) => isTaskAdoptable(task));
+        if (!adoptableTasks.length || state.batchSubmitting)
+            return;
+        const count = adoptableTasks.length;
+        if (typeof window !== 'undefined' && typeof window.confirm === 'function' && !window.confirm(`确认批量采纳当前 ${count} 项待采纳任务产物？`)) {
+            return;
+        }
+        state.batchSubmitting = true;
+        elements.batchAcceptBtn.disabled = true;
+        let success = 0;
+        let failed = 0;
+        for (let i = 0; i < adoptableTasks.length; i++) {
+            const task = adoptableTasks[i];
+            elements.batchAcceptBtn.innerHTML = `<span>正在采纳 (${i + 1}/${count})…</span>`;
+            try {
+                const target = acceptanceTargetView(task);
+                if (target?.actionable) {
+                    const idempotencyKey = newIdempotencyKey(target.workflowId, 'accepted');
+                    await submitAcceptance({ target, decision: 'accepted', idempotencyKey });
+                    success++;
+                }
+                else {
+                    const session = await api('/api/owner-action-session');
+                    const nonce = String(session?.nonce || '').trim();
+                    if (!nonce)
+                        throw new Error('暂时无法取得本机操作授权');
+                    const idempotencyKey = newIdempotencyKey(task.taskId, 'accept_reviewed_artifact');
+                    await api(`/api/tasks/${encodeURIComponent(task.taskId)}/recovery-actions/accept_reviewed_artifact`, {
+                        method: 'POST',
+                        headers: {
+                            'content-type': 'application/json',
+                            'Idempotency-Key': idempotencyKey,
+                            'X-Ajun-Owner-Action': nonce,
+                        },
+                        body: JSON.stringify({ expectedUpdatedAt: task.updatedAt || null }),
+                    });
+                    success++;
+                }
+            }
+            catch (err) {
+                console.error('Batch accept task error:', task.taskId, err);
+                failed++;
+            }
+        }
+        state.batchSubmitting = false;
+        await loadRecords();
+        if (elements.batchAcceptBtn) {
+            elements.batchAcceptBtn.innerHTML = `<svg aria-hidden="true" width="12" height="12"><use href="#icon-shield"></use></svg><span>${failed === 0 ? `已成功采纳 ${success} 项` : `完成：成功 ${success}，失败 ${failed}`}</span>`;
+            setTimeout(() => {
+                renderBatchActions();
+            }, 3000);
+        }
+    }
     function renderFilters() {
         const chips = [];
         if (state.q)
@@ -742,6 +831,9 @@ function recordElements() {
         newItems: document.querySelector('#record-new-items'),
         count: document.querySelector('#task-count'),
         listContext: document.querySelector('#record-list-context'),
+        batchActions: document.querySelector('#record-batch-actions'),
+        batchAcceptBtn: document.querySelector('#record-batch-accept'),
+        batchCount: document.querySelector('#batch-adoptable-count'),
         list: document.querySelector('#task-list'),
         loadMore: document.querySelector('#task-load-more'),
         routineSummary: document.querySelector('#record-routine-summary'),
