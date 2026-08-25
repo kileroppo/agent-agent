@@ -14,6 +14,17 @@ async function readConsoleScripts() {
     'console-labels.js',
     'task-record-detail-view.js',
     'task-record-workbench.js',
+    'overview-view.js',
+    'employee-view.js',
+    'billing-view.js',
+    'night-mode.js',
+    'format-utils.js',
+    'context-nav-injection.js',
+    'interactions/access-gate-interactions.js',
+    'interactions/ai-control-interactions.js',
+    'interactions/employee-interactions.js',
+    'interactions/access-connection-interactions.js',
+    'interactions/campaign-interactions.js',
   ].map((name) => readFile(new URL(name, root), 'utf8')))).join('\n');
 }
 
@@ -57,7 +68,11 @@ test('A君控制台只在本机提供员工接线，不把应用凭据写进页�
 });
 
 test('员工页后台自动同步保留已展开的员工卡片', async () => {
-  const script = await readFile(new URL('app.js', root), 'utf8');
+  const script = (await Promise.all([
+    'app.js',
+    'overview-view.js',
+    'employee-view.js',
+  ].map((name) => readFile(new URL(name, root), 'utf8')))).join('\n');
 
   assert.match(script, /replaceChildrenPreservingDisclosureState\(agentList/);
   assert.match(script, /data-disclosure-key="agent:\$\{agent\.agentId\}"/);

@@ -5,7 +5,7 @@ import test from 'node:test';
 test('运行台提供只对本机所有者可见的 AI 成本账本和任务归属提示', async () => {
   const [html, script, ledger] = await Promise.all([
     fs.readFile(new URL('../public/index.html', import.meta.url), 'utf8'),
-    fs.readFile(new URL('../public/app.js', import.meta.url), 'utf8'),
+    (await Promise.all(['../public/app.js', '../public/billing-view.js'].map((path) => fs.readFile(new URL(path, import.meta.url), 'utf8')))).join('\n'),
     fs.readFile(new URL('../public/billing-ledger-workbench.js', import.meta.url), 'utf8'),
   ]);
   assert.match(html, /href="#billing" data-context-page="billing" data-owner-only/);

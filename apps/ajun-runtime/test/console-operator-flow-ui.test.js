@@ -65,7 +65,7 @@ test('AI 能力中心按节点分层，并保留状态检查安全说明', async
 test('首页把负责人动作、运行、系统可靠性和业务质量债分开，未知观测不冒充正常', async () => {
   const [html, script, styles] = await Promise.all([
     readFile(new URL('index.html', publicRoot), 'utf8'),
-    readFile(new URL('app.js', publicRoot), 'utf8'),
+    readFile(new URL('overview-view.js', publicRoot), 'utf8'),
     readFile(new URL('styles.css', publicRoot), 'utf8'),
   ]);
 
@@ -87,7 +87,7 @@ test('首页把负责人动作、运行、系统可靠性和业务质量债分�
 });
 
 test('飞书链路诊断默认收起，轮询不重建已展开内容或暴露内部枚举', async () => {
-  const script = await readFile(new URL('app.js', publicRoot), 'utf8');
+  const script = await readFile(new URL('overview-view.js', publicRoot), 'utf8');
 
   assert.match(script, /const existing = chainDiagnosis\.querySelector\('\.chain-diagnosis-disclosure'\)/);
   assert.match(script, /if \(existing\.open\)\s*fetchChainDiagnosis\(\)/);
@@ -125,7 +125,7 @@ test('任务记录读取失败可原地恢复，缺失下一步时不让用户�
 test('员工与能力默认减噪：业务入口在前，后台和待验收能力折叠并如实标注', async () => {
   const [html, script, styles] = await Promise.all([
     readFile(new URL('index.html', publicRoot), 'utf8'),
-    readFile(new URL('app.js', publicRoot), 'utf8'),
+    readFile(new URL('employee-view.js', publicRoot), 'utf8'),
     readFile(new URL('styles.css', publicRoot), 'utf8'),
   ]);
 

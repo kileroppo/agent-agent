@@ -7,6 +7,7 @@ test('M5 控制台显示负责人和恢复步骤，并按服务端预检禁用�
     '../public/app.js',
     '../public/app-access-views.js',
     '../public/app-interactions.js',
+    '../public/interactions/campaign-interactions.js',
   ].map((path) => fs.readFile(new URL(path, import.meta.url), 'utf8')))).join('\n');
 
   assert.match(source, /<strong>当前负责人<\/strong>/);

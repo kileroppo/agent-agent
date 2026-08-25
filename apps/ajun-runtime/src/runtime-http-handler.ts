@@ -637,6 +637,28 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 return sendFile(response, publicDir, 'task-record-workbench.js', 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && publicPath === '/task-timeline-view.js')
                 return sendFile(response, publicDir, 'task-timeline-view.js', 'text/javascript; charset=utf-8');
+            if (request.method === 'GET' && publicPath === '/format-utils.js')
+                return sendFile(response, publicDir, 'format-utils.js', 'text/javascript; charset=utf-8');
+            if (request.method === 'GET' && publicPath === '/night-mode.js')
+                return sendFile(response, publicDir, 'night-mode.js', 'text/javascript; charset=utf-8');
+            if (request.method === 'GET' && publicPath === '/context-nav-injection.js')
+                return sendFile(response, publicDir, 'context-nav-injection.js', 'text/javascript; charset=utf-8');
+            if (request.method === 'GET' && publicPath === '/employee-view.js')
+                return sendFile(response, publicDir, 'employee-view.js', 'text/javascript; charset=utf-8');
+            if (request.method === 'GET' && publicPath === '/overview-view.js')
+                return sendFile(response, publicDir, 'overview-view.js', 'text/javascript; charset=utf-8');
+            if (request.method === 'GET' && publicPath === '/billing-view.js')
+                return sendFile(response, publicDir, 'billing-view.js', 'text/javascript; charset=utf-8');
+            if (request.method === 'GET' && publicPath === '/interactions/access-gate-interactions.js')
+                return sendFile(response, publicDir, 'interactions/access-gate-interactions.js', 'text/javascript; charset=utf-8');
+            if (request.method === 'GET' && publicPath === '/interactions/ai-control-interactions.js')
+                return sendFile(response, publicDir, 'interactions/ai-control-interactions.js', 'text/javascript; charset=utf-8');
+            if (request.method === 'GET' && publicPath === '/interactions/employee-interactions.js')
+                return sendFile(response, publicDir, 'interactions/employee-interactions.js', 'text/javascript; charset=utf-8');
+            if (request.method === 'GET' && publicPath === '/interactions/access-connection-interactions.js')
+                return sendFile(response, publicDir, 'interactions/access-connection-interactions.js', 'text/javascript; charset=utf-8');
+            if (request.method === 'GET' && publicPath === '/interactions/campaign-interactions.js')
+                return sendFile(response, publicDir, 'interactions/campaign-interactions.js', 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && (publicPath === '/styles.css' || publicPath === '/tokens.css'))
                 return sendFile(response, publicDir, publicPath.slice(1), 'text/css; charset=utf-8');
             return sendJson(response, 404, { error: '未找到该入口。' });
