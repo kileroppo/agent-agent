@@ -3089,13 +3089,25 @@ button:disabled {
   border-radius: var(--radius);
   background: var(--surface);
   box-shadow: var(--shadow-sm);
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .billing-section > .section-head {
   margin: 0;
-  padding: 18px 22px 14px;
+  padding: 12px 20px 10px;
   border-bottom: 1px solid var(--line);
+}
+
+.billing-section > .section-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 720;
+}
+
+.billing-section > .section-head p.section-intro {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .billing-toolbar {
@@ -3199,8 +3211,8 @@ button:disabled {
   min-width: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
-  padding: 14px 22px;
+  gap: 16px;
+  padding: 10px 20px;
   border-top: 1px solid var(--line);
   transition: background .15s ease;
 }

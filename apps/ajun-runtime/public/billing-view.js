@@ -3,7 +3,20 @@ import { formatNumber, formatCompactNumber, formatUsd, formatDate } from './form
 export function createBillingView({ elements, api, billingUsageCache, billingLedgerWorkbench, agentName, overviewView }) {
     const { billingSummary, billingStats, billingCostHealth, billingAttribution, billingProfileList, billingDateFilter, billingDateFrom, billingDateTo, billingDateMessage } = elements;
     const { syncBadge } = elements;
-    const dismissedBillingAlerts = new Set();
+    function isAlertDismissed(key) {
+        try {
+            return localStorage.getItem(`ajun_dismiss_billing_${key}`) === 'true';
+        }
+        catch {
+            return false;
+        }
+    }
+    function dismissAlert(key) {
+        try {
+            localStorage.setItem(`ajun_dismiss_billing_${key}`, 'true');
+        }
+        catch { }
+    }
     async function loadBilling({ force = false } = {}) {
         try {
             renderBilling(await billingUsageCache.read({ force }));
@@ -51,8 +64,8 @@ export function createBillingView({ elements, api, billingUsageCache, billingLed
         const providerCoverageMissing = providerReconciliation.status !== 'matched';
         const healthAlerts = Array.isArray(billing.health?.alerts) ? billing.health.alerts : [];
         const healthHasProviderNotice = healthAlerts.some((a) => a.code === 'provider_total_not_reconciled' || a.code === 'provider_usage_gap');
-        const duplicateProviderNotice = !dismissedBillingAlerts.has('cost-health') && healthHasProviderNotice && providerCoverageMissing && unattributed === 0;
-        const shouldShowAttribution = !dismissedBillingAlerts.has('attribution') && (unattributed > 0 || (providerCoverageMissing && !duplicateProviderNotice));
+        const duplicateProviderNotice = !isAlertDismissed('cost-health') && healthHasProviderNotice && providerCoverageMissing && unattributed === 0;
+        const shouldShowAttribution = !isAlertDismissed('attribution') && (unattributed > 0 || (providerCoverageMissing && !duplicateProviderNotice));
         billingAttribution.hidden = !shouldShowAttribution;
         billingAttribution.classList.toggle('attention', unattributed > 0 || providerCoverageMissing);
         if (shouldShowAttribution) {
@@ -64,7 +77,7 @@ export function createBillingView({ elements, api, billingUsageCache, billingLed
                         ? `<div><strong>${unattributed} 条消费仍未识别来源</strong><span>${taskEntries} 条关联业务任务，${agentSessions} 条属于独立 Agent 会话，${systemEntries} 条属于系统调用。</span></div><div class="billing-alert-actions"><button type="button" class="secondary-action">只看未识别</button><button type="button" class="billing-alert-dismiss" aria-label="关闭提示" title="关闭">×</button></div>`
                         : '';
             billingAttribution.querySelector('.billing-alert-dismiss')?.addEventListener('click', () => {
-                dismissedBillingAlerts.add('attribution');
+                dismissAlert('attribution');
                 billingAttribution.hidden = true;
             });
             billingAttribution.querySelector('button.secondary-action')?.addEventListener('click', () => focusBillingLedger({ view: 'unattributed' }));
@@ -76,7 +89,7 @@ export function createBillingView({ elements, api, billingUsageCache, billingLed
     function renderBillingCostHealth(health) {
         billingCostHealth.className = 'billing-cost-health';
         const alerts = Array.isArray(health?.alerts) ? health.alerts : [];
-        if ((health?.status === 'healthy' && alerts.length === 0) || dismissedBillingAlerts.has('cost-health')) {
+        if ((health?.status === 'healthy' && alerts.length === 0) || isAlertDismissed('cost-health')) {
             billingCostHealth.hidden = true;
             billingCostHealth.replaceChildren();
             return;
@@ -119,7 +132,7 @@ export function createBillingView({ elements, api, billingUsageCache, billingLed
         dismissBtn.setAttribute('title', '关闭');
         dismissBtn.textContent = '×';
         dismissBtn.addEventListener('click', () => {
-            dismissedBillingAlerts.add('cost-health');
+            dismissAlert('cost-health');
             billingCostHealth.hidden = true;
         });
         actions.append(dismissBtn);
