@@ -442,10 +442,28 @@ h3 {
 .module-heading {
   display: flex;
   min-height: 0;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 30px;
+  gap: 24px;
   margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.module-heading h1 {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.2;
+}
+
+.module-heading p.subtle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.4;
 }
 
 .module-heading-actions {
@@ -459,32 +477,38 @@ h3 {
 .context-nav {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   padding: 4px;
   border: 1px solid var(--line);
-  border-radius: 11px;
-  background: var(--surface);
+  border-radius: 12px;
+  background: var(--canvas-deep);
 }
 
 .context-nav a {
   min-height: 32px;
-  padding: 7px 10px;
-  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 14px;
+  border-radius: 9px;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 13px;
+  font-weight: 600;
   text-decoration: none;
   white-space: nowrap;
+  transition: all .15s var(--ease);
 }
 
 .context-nav a:hover {
-  background: var(--surface-soft);
-  color: var(--ink-soft);
+  background: var(--surface);
+  color: var(--ink);
 }
 
 .context-nav a.is-active {
-  background: var(--mint-soft);
+  background: var(--surface);
   color: var(--mint-deep);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .06);
+  font-weight: 700;
 }
 
 .module-summary {
@@ -2030,8 +2054,8 @@ h3 {
 
 .agent-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
 }
 
 .background-employees-disclosure {
@@ -2101,13 +2125,17 @@ h3 {
 
 .agent {
   overflow: hidden;
+  border: 1px solid var(--line);
   border-radius: var(--radius);
-  transition: transform .22s var(--ease), border-color .22s ease;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  transition: transform .18s var(--ease), border-color .18s ease, box-shadow .18s ease;
 }
 
 .agent:hover {
   transform: translateY(-2px);
   border-color: var(--mint-line);
+  box-shadow: var(--shadow-md);
 }
 
 .agent.support-agent {
@@ -2137,14 +2165,15 @@ h3 {
 
 .agent-avatar {
   display: grid;
-  width: 42px;
-  height: 42px;
+  width: 44px;
+  height: 44px;
   flex: none;
   place-items: center;
-  border-radius: 14px;
-  background: var(--mint-soft);
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--mint-soft), var(--surface));
+  border: 1px solid var(--mint-line);
   color: var(--mint-deep);
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 800;
 }
 

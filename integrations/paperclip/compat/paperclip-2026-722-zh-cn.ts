@@ -8,9 +8,9 @@ import {
 
 export const PAPERCLIP_VERSION: any = '2026.722.0';
 export const UI_ORIGINAL_SHA256: any = '2727ed6173751c5008df83e3d22c915c7b374945d0c655290c99dcc89e9001c9';
-export const UI_ZH_CN_SHA256: any = 'a121f1d5740c0557fcfdfdf7dd4e0be50b1328812b0402527e77c16b7fd614eb';
+export const UI_ZH_CN_SHA256: any = '3ca1e44fc3ad2ec8c6b0ec30923cb84e2def091b78fca6f5e7c2fba456ac7142';
 export const HTML_ORIGINAL_SHA256: any = '7ea7a85330bdbfcacbb1e57f738d0b59daa11ae4374c2aaa2ea396175930b429';
-export const HTML_ZH_CN_SHA256: any = 'a2311398ad314959afa240dad2b75b59459c978386b33934f0928d20806a49f8';
+export const HTML_ZH_CN_SHA256: any = '65db5c31aa1b4e982a0000b7c1d74ed036918c4ac961bf828c36b50145ae7c50';
 export const UI_BACKUP_SUFFIX: any = '.agent-army-paperclip-2026.722.0-zh-cn.bak';
 export const HTML_BACKUP_SUFFIX: any = '.agent-army-paperclip-2026.722.0-zh-cn-html.bak';
 
@@ -21,7 +21,7 @@ const ZH_CN_RESOURCE_ANCHOR: any = '"./locales/zh-CN.json"';
 const HTML_ROOT_ORIGINAL: any = '<html lang="en" class="dark">';
 const HTML_ROOT_ZH_CN: any = '<html lang="zh-CN" class="dark">';
 const HTML_SCRIPT_ORIGINAL: any = '<script type="module" crossorigin src="/assets/index-Cd3JwXvD.js"></script>';
-const HTML_SCRIPT_ZH_CN: any = '<script type="module" crossorigin src="/assets/index-Cd3JwXvD.js?agent-army-zh-cn=2026.722.0-v4"></script>';
+const HTML_SCRIPT_ZH_CN: any = '<script type="module" crossorigin src="/assets/index-Cd3JwXvD.js?agent-army-zh-cn=2026.722.0-v5"></script>';
 
 export const UI_TRANSLATIONS: any = Object.freeze({
     'Skip to Main Content':'跳到主要内容',
@@ -493,7 +493,7 @@ function browserTranslatorSource(): any {
 }
 
 function browserLanguageToggleSource(): any {
-    return `const aaLanguageKey="paperclip.ui.language";const aaZhEnabled=(()=>{try{return localStorage.getItem(aaLanguageKey)!=="en"}catch{return true}})();aaZhEnabled||aaZhObserver.disconnect();document.documentElement.lang=aaZhEnabled?"zh-CN":"en";const aaSetLanguage=e=>{if(!["zh-CN","en"].includes(e))return;try{localStorage.setItem(aaLanguageKey,e)}catch{}location.reload()};const aaMountLanguageToggle=()=>{if(typeof document==="undefined"||!document.body||document.getElementById("agent-army-language-toggle"))return;const t=document.createElement("button");t.id="agent-army-language-toggle";t.type="button";t.textContent=aaZhEnabled?"EN":"中文";t.title=aaZhEnabled?"切换到 English":"Switch to Chinese";t.setAttribute("aria-label",t.title);t.style.position="fixed";t.style.top=".75rem";t.style.right=".75rem";t.style.zIndex="9999";t.style.height="2rem";t.style.minWidth="2.5rem";t.style.padding="0 .5rem";t.style.border="1px solid #71717a";t.style.borderRadius=".375rem";t.style.backgroundColor="var(--background)";t.style.color="var(--foreground)";t.style.boxShadow="0 2px 8px rgba(0,0,0,.18)";t.style.fontSize=".75rem";t.style.fontWeight="600";t.style.lineHeight="1";t.style.cursor="pointer";t.addEventListener("click",()=>aaSetLanguage(aaZhEnabled?"en":"zh-CN"));document.body.appendChild(t)};const aaLanguageObserver=new MutationObserver(aaMountLanguageToggle);aaLanguageObserver.observe(document.documentElement,{subtree:true,childList:true});aaMountLanguageToggle();globalThis.__agentArmyPaperclipZhCn={language:aaZhEnabled?"zh-CN":"en",setLanguage:aaSetLanguage,translate:aaZhText};`;
+    return `const aaLanguageKey="paperclip.ui.language";const aaZhEnabled=(()=>{try{return localStorage.getItem(aaLanguageKey)!=="en"}catch{return true}})();aaZhEnabled||aaZhObserver.disconnect();document.documentElement.lang=aaZhEnabled?"zh-CN":"en";const aaSetLanguage=e=>{if(!["zh-CN","en"].includes(e))return;try{localStorage.setItem(aaLanguageKey,e)}catch{}location.reload()};const aaMountLanguageToggle=()=>{if(typeof document==="undefined"||!document.body||document.getElementById("agent-army-language-toggle"))return;const t=document.createElement("button");t.id="agent-army-language-toggle";t.type="button";t.textContent=aaZhEnabled?"EN":"中文";t.title=aaZhEnabled?"切换到 English":"Switch to Chinese";t.setAttribute("aria-label",t.title);t.style.position="fixed";t.style.top=".75rem";t.style.right=".75rem";t.style.zIndex="9999";t.style.height="2rem";t.style.minWidth="2.5rem";t.style.padding="0 .5rem";t.style.border="1px solid #71717a";t.style.borderRadius=".375rem";t.style.backgroundColor="var(--background)";t.style.color="var(--foreground)";t.style.boxShadow="0 2px 8px rgba(0,0,0,.18)";t.style.fontSize=".75rem";t.style.fontWeight="600";t.style.lineHeight="1";t.style.cursor="pointer";t.style.opacity="0";t.style.pointerEvents="none";t.style.transform="translateY(-4px)";t.style.transition="opacity .2s ease-in-out, transform .2s ease-in-out";const show=()=>{t.style.opacity="1";t.style.pointerEvents="auto";t.style.transform="translateY(0)"};const hide=()=>{if(document.activeElement!==t){t.style.opacity="0";t.style.pointerEvents="none";t.style.transform="translateY(-4px)"}};window.addEventListener("mousemove",e=>{e.clientX>=window.innerWidth-100&&e.clientY<=80?show():hide()},{passive:true});document.addEventListener("mouseleave",hide);t.addEventListener("focus",show);t.addEventListener("blur",hide);t.addEventListener("click",()=>aaSetLanguage(aaZhEnabled?"en":"zh-CN"));document.body.appendChild(t)};const aaLanguageObserver=new MutationObserver(aaMountLanguageToggle);aaLanguageObserver.observe(document.documentElement,{subtree:true,childList:true});aaMountLanguageToggle();globalThis.__agentArmyPaperclipZhCn={language:aaZhEnabled?"zh-CN":"en",setLanguage:aaSetLanguage,translate:aaZhText};`;
 }
 
 function effectiveHashes(hashes: SourceHashes): any {

@@ -37,7 +37,7 @@ test('简体中文补丁启用内置资源、主控制台翻译层和缓存隔�
   assert.match(UI_ZH_CN, /aaZhObserver\.disconnect/);
   assert.equal(patchHtmlSource(HTML_ORIGINAL, SOURCE_HASHES), HTML_ZH_CN);
   assert.match(HTML_ZH_CN, /lang="zh-CN"/);
-  assert.match(HTML_ZH_CN, /agent-army-zh-cn=2026\.722\.0-v4/);
+  assert.match(HTML_ZH_CN, /agent-army-zh-cn=2026\.722\.0-v5/);
   assert.equal(translateUiText('Dashboard'), '总览');
   assert.equal(translateUiText('Open actions for 小R'), '打开小R的操作菜单');
   assert.equal(translateUiText('updated 3h ago'), '更新于3小时前');

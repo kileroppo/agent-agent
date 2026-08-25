@@ -112,6 +112,14 @@
           <div id="task-submit-section" hidden data-owner-only></div>
         </section>
 
+        <div class="recent-records">
+          <div class="section-head">
+            <h2>刚刚发生</h2>
+            <a href="#records" class="text-link">打开记录</a>
+          </div>
+          <div id="recent-task-list" class="recent-task-list"></div>
+        </div>
+
         <details class="capabilities capabilities-disclosure">
           <summary class="section-head capability-summary">
             <h2 id="capabilities-title">能力状态</h2>
@@ -136,13 +144,6 @@
               </ul>
             </div>
           </details>
-          <div class="recent-records">
-            <div class="section-head">
-              <h2>刚刚发生</h2>
-              <a href="#records" class="text-link">打开记录</a>
-            </div>
-            <div id="recent-task-list" class="recent-task-list"></div>
-          </div>
         </section>
       </section>
 
@@ -160,6 +161,15 @@
           </nav>
         </div>
         <div id="agent-list" class="agent-grid"></div>
+
+        <details id="employee-connections" class="surface-section employee-connections advanced-settings" hidden>
+          <summary>
+            <span class="summary-icon"><svg aria-hidden="true"><use href="#icon-employees"></use></svg></span>
+            <span><strong>员工模型与飞书入口</strong><small>低频设置 · 查看或修复独立员工接线</small></span>
+            <svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg>
+          </summary>
+          <div id="employee-connection-list" class="connection-grid"></div>
+        </details>
       </section>
 
       <section id="module-connections" class="module-page" data-module-page="connections" data-owner-only aria-labelledby="connections-title">
@@ -332,15 +342,6 @@
               </div>
             </details>
           </div>
-        </details>
-
-        <details id="employee-connections" class="surface-section employee-connections advanced-settings" hidden>
-          <summary>
-            <span class="summary-icon"><svg aria-hidden="true"><use href="#icon-employees"></use></svg></span>
-            <span><strong>员工模型与飞书入口</strong><small>低频设置 · 查看或修复独立员工接线</small></span>
-            <svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg>
-          </summary>
-          <div id="employee-connection-list" class="connection-grid"></div>
         </details>
 
         <details id="share-info" class="surface-section share-info" hidden>
