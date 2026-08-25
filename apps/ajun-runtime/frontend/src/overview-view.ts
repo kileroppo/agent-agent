@@ -125,14 +125,24 @@ export function createOverviewView({ elements, state, api, employeeView, formatD
             item.className = 'recent-task';
             item.href = `/tasks/${encodeURIComponent(task.taskId)}`;
             const attention: any = taskStatusGroup(task.status) === 'attention';
-            item.innerHTML = html`<span class="recent-task-dot${raw(attention ? ' attention' : '')}"></span><span class="recent-task-title">${task.input.title}</span><span class="recent-task-status">${statusLabel(task.status)}</span>`;
+            const agent: any = employeeView?.agentName ? employeeView.agentName(task.assigneeAgentId || task.agentId || task.input?.agentId) : (task.assigneeAgentId || '');
+            const time: any = formatDate(task.updatedAt || task.createdAt);
+            item.innerHTML = html`
+              <div class="recent-task-left">
+                <span class="recent-task-dot${raw(attention ? ' attention' : '')}"></span>
+                <div class="recent-task-content">
+                  <strong class="recent-task-title">${task.input?.title || '未命名任务'}</strong>
+                  <span class="recent-task-sub">${agent ? `${agent} · ` : ''}${time}</span>
+                </div>
+              </div>
+              <span class="recent-task-status ${taskStatusGroup(task.status)}">${statusLabel(task.status)}</span>`;
             return item;
         }));
     }
     function renderFocus(focus: any): any {
         focusPanel.classList.remove('skeleton-panel');
         if (!focus?.total) {
-            focusPanel.innerHTML = '<div class="focus-copy"><p class="focus-state is-clear">负责人暂不需处理</p><h3>还没有任务记录</h3><p>请在飞书交办，A君会在这里同步下一步；这不表示系统风险已排除。</p></div><div class="focus-guard"><span>对外发布关闭</span><span>不会静默执行</span></div>';
+            focusPanel.innerHTML = '<div class="focus-copy"><p class="focus-state is-clear">负责人暂不需处理</p><h3>还没有任务记录</h3><p class="focus-action-copy">请在飞书交办，A君会在这里同步下一步；这不表示系统风险已排除。</p></div><div class="focus-guard"><span class="guard-pill">对外发布关闭</span><span class="guard-pill">不会静默执行</span></div>';
             return;
         }
         const current: any = focus.next;
@@ -157,17 +167,22 @@ export function createOverviewView({ elements, state, api, employeeView, formatD
         const costText: any = usageCostText(state.overview.usage);
         focusPanel.innerHTML = html`
     <div class="focus-copy">
-      <p class="focus-state ${raw(needsOwner ? 'needs-owner' : current ? 'is-running' : 'is-clear')}">${needsOwner ? '需要你决定' : current ? '系统正在处理' : '负责人暂不需处理'}</p>
-      <h3>${title}</h3>
+      <div class="focus-header-line">
+        <span class="focus-state ${raw(needsOwner ? 'needs-owner' : current ? 'is-running' : 'is-clear')}">
+          <i class="focus-dot"></i>
+          <span>${needsOwner ? '需要你决定' : current ? '系统正在处理' : '负责人暂不需处理'}</span>
+        </span>
+      </div>
+      <h3 class="focus-task-title">${title}</h3>
       <p class="focus-action-copy">${action}</p>
       ${raw(reason ? html`<p class="focus-reason">${reason}</p>` : '')}
       <div class="focus-actions">${raw(primaryAction)}</div>
     </div>
     <div class="focus-guard">
-      <span>${governanceReady ? 'Paperclip 已连接' : '治理连接待恢复'}</span>
-      <span>${externalWriteReady ? '对外写入按审批开放' : '对外发布关闭'}</span>
-      <span>${focus.inProgress ? `${focus.inProgress} 项正在推进` : '没有执行中任务'}</span>
-      <span>${costText}</span>
+      <span class="guard-pill"><i class="guard-dot ${governanceReady ? 'on' : 'off'}"></i>${governanceReady ? 'Paperclip 已连接' : '治理连接待恢复'}</span>
+      <span class="guard-pill"><i class="guard-dot ${externalWriteReady ? 'on' : 'off'}"></i>${externalWriteReady ? '对外写入按审批开放' : '对外发布关闭'}</span>
+      <span class="guard-pill"><i class="guard-dot on"></i>${focus.inProgress ? `${focus.inProgress} 项正在推进` : '没有执行中任务'}</span>
+      <span class="guard-pill"><i class="guard-dot on"></i>${costText}</span>
     </div>`;
     }
     function usageCostText(usage: any): any {
