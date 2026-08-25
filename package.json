@@ -19,7 +19,10 @@
     "packages/*"
   ],
   "scripts": {
-    "test": "npm test --workspaces --if-present && node --test scripts/*.test.mjs",
+    "test": "npm test --workspaces --if-present && node --test --test-concurrency=1 scripts/*.test.mjs",
+    "clean": "node scripts/clean.mjs",
+    "clean:work": "node scripts/clean.mjs --work",
+    "clean:dry-run": "node scripts/clean.mjs --dry-run",
     "build:boom-frontend": "tsc -p apps/boom-monitor/frontend/tsconfig.json",
     "check:paperclip-compat": "tsc -p integrations/paperclip/tsconfig.json",
     "distribute:tokens": "node packages/ui-tokens/distribute.mjs",

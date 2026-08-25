@@ -601,64 +601,16 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
             const publicPath: any = new URL(request.url || '/', 'http://127.0.0.1').pathname;
             if (request.method === 'GET' && (publicPath === '/' || publicPath === '/index.html' || /^\/tasks\/[0-9a-f-]{36}$/i.test(publicPath)))
                 return sendFile(response, publicDir, 'index.html', 'text/html; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/app.js')
-                return sendFile(response, publicDir, 'app.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/overview-presentation.js')
-                return sendFile(response, publicDir, 'overview-presentation.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/hot-reload-client.js')
-                return sendFile(response, publicDir, 'hot-reload-client.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/app-access-views.js')
-                return sendFile(response, publicDir, 'app-access-views.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/app-interactions.js')
-                return sendFile(response, publicDir, 'app-interactions.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/stepfun-model-policy-console.js')
-                return sendFile(response, publicDir, 'stepfun-model-policy-console.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/runtime-release-console.js')
-                return sendFile(response, publicDir, 'runtime-release-console.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/refresh-scheduler.js')
-                return sendFile(response, publicDir, 'refresh-scheduler.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/boom-monitor-console.js')
-                return sendFile(response, publicDir, 'boom-monitor-console.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/billing-entry-filter.js')
-                return sendFile(response, publicDir, 'billing-entry-filter.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/billing-ledger-workbench.js')
-                return sendFile(response, publicDir, 'billing-ledger-workbench.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && (publicPath === '/billing-usage-cache.js' || publicPath === '/console-labels.js' || publicPath === '/html.js'))
+            if (request.method === 'GET' && (publicPath === '/app.js' || publicPath === '/overview-presentation.js' || publicPath === '/hot-reload-client.js' || publicPath === '/app-access-views.js' || publicPath === '/app-interactions.js'))
                 return sendFile(response, publicDir, publicPath.slice(1), 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/console-navigation.js')
-                return sendFile(response, publicDir, 'console-navigation.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/disclosure-state.js')
-                return sendFile(response, publicDir, 'disclosure-state.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/task-record-filter.js')
-                return sendFile(response, publicDir, 'task-record-filter.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/task-record-detail-view.js')
-                return sendFile(response, publicDir, 'task-record-detail-view.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/task-record-workbench.js')
-                return sendFile(response, publicDir, 'task-record-workbench.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/task-timeline-view.js')
-                return sendFile(response, publicDir, 'task-timeline-view.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/format-utils.js')
-                return sendFile(response, publicDir, 'format-utils.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/night-mode.js')
-                return sendFile(response, publicDir, 'night-mode.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/context-nav-injection.js')
-                return sendFile(response, publicDir, 'context-nav-injection.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/employee-view.js')
-                return sendFile(response, publicDir, 'employee-view.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/overview-view.js')
-                return sendFile(response, publicDir, 'overview-view.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/billing-view.js')
-                return sendFile(response, publicDir, 'billing-view.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/interactions/access-gate-interactions.js')
-                return sendFile(response, publicDir, 'interactions/access-gate-interactions.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/interactions/ai-control-interactions.js')
-                return sendFile(response, publicDir, 'interactions/ai-control-interactions.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/interactions/employee-interactions.js')
-                return sendFile(response, publicDir, 'interactions/employee-interactions.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/interactions/access-connection-interactions.js')
-                return sendFile(response, publicDir, 'interactions/access-connection-interactions.js', 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && publicPath === '/interactions/campaign-interactions.js')
-                return sendFile(response, publicDir, 'interactions/campaign-interactions.js', 'text/javascript; charset=utf-8');
+            if (request.method === 'GET' && (publicPath === '/stepfun-model-policy-console.js' || publicPath === '/runtime-release-console.js' || publicPath === '/refresh-scheduler.js' || publicPath === '/boom-monitor-console.js' || publicPath === '/billing-entry-filter.js' || publicPath === '/billing-ledger-workbench.js'))
+                return sendFile(response, publicDir, publicPath.slice(1), 'text/javascript; charset=utf-8');
+            if (request.method === 'GET' && (publicPath === '/billing-usage-cache.js' || publicPath === '/console-labels.js' || publicPath === '/html.js' || publicPath === '/console-navigation.js' || publicPath === '/disclosure-state.js' || publicPath === '/task-record-filter.js' || publicPath === '/task-record-detail-view.js' || publicPath === '/task-record-workbench.js' || publicPath === '/task-timeline-view.js'))
+                return sendFile(response, publicDir, publicPath.slice(1), 'text/javascript; charset=utf-8');
+            if (request.method === 'GET' && (publicPath === '/format-utils.js' || publicPath === '/night-mode.js' || publicPath === '/context-nav-injection.js' || publicPath === '/employee-view.js' || publicPath === '/overview-view.js' || publicPath === '/billing-view.js'))
+                return sendFile(response, publicDir, publicPath.slice(1), 'text/javascript; charset=utf-8');
+            if (request.method === 'GET' && (publicPath === '/interactions/access-gate-interactions.js' || publicPath === '/interactions/ai-control-interactions.js' || publicPath === '/interactions/employee-interactions.js' || publicPath === '/interactions/access-connection-interactions.js' || publicPath === '/interactions/campaign-interactions.js'))
+                return sendFile(response, publicDir, publicPath.slice(1), 'text/javascript; charset=utf-8');
             if (request.method === 'GET' && (publicPath === '/styles.css' || publicPath === '/tokens.css'))
                 return sendFile(response, publicDir, publicPath.slice(1), 'text/css; charset=utf-8');
             return sendJson(response, 404, { error: '未找到该入口。' });

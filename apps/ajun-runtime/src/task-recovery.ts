@@ -1,8 +1,8 @@
-import { confirmedTranscriptFor, confirmedTranscriptOnlyEligible, duplicateRecovery, existingResult, failureClassification, ineligibleResult, legacyBlockedReadOnlyDiagnosis, recoveryEvents, recoveryRelatedTasks, requestAttempt, safeText, taskById, uniqueStrings, view, } from './task-recovery-policy.ts';
+import { duplicateRecovery, existingResult, failureClassification, ineligibleResult, legacyBlockedReadOnlyDiagnosis, recoveryEvents, recoveryRelatedTasks, requestAttempt, safeText, taskById, view } from './task-recovery-policy.ts';
 import { retryVisualAnalysis, visionCapabilityReadiness } from './task-visual-recovery.ts';
 import { cleanActionKey, cleanActor, cleanRequestId, recoveryError } from './task-recovery-input.ts';
 import { closeSupersededReadOnlyDiagnosis, hasVerifiedReadOnlyDiagnosis, readOnlyDiagnosisContext } from './read-only-diagnosis-contract.ts';
-import { resumeApprovedMissionRecovery } from './task-recovery-mission.ts';
+import { resumeApprovedMissionRecovery, useConfirmedTranscriptOnlyRecovery } from './task-recovery-mission.ts';
 import { loadTaskRecoveryView } from './task-recovery-view.ts';
 export { TaskRecoveryError } from './task-recovery-input.ts';
 export { failureClassification, view } from './task-recovery-policy.ts';
@@ -110,7 +110,12 @@ export class TaskRecovery {
                     clock: this.clock, errorFactory: recoveryError,
                 })
                 : input.actionKey === 'use_confirmed_transcript_only'
-                ? await this.#useConfirmedTranscriptOnly(task, relatedTasks, { requestId: input.requestId, requestedBy })
+                ? await useConfirmedTranscriptOnlyRecovery({
+                    task, tasks: relatedTasks, requestId: input.requestId, requestedBy,
+                    createTask: this.createTask,
+                    record: (...args: any): any => (this.#record as any)(...args),
+                    clock: this.clock, errorFactory: recoveryError,
+                })
                 : input.actionKey === 'request_read_only_diagnosis'
                     ? await this.#requestReadOnlyDiagnosis(task, { requestId: input.requestId, requestedBy, legacyDiagnosisTask })
                     : input.actionKey === 'retry_visual_analysis_after_recovery'
@@ -162,74 +167,6 @@ export class TaskRecovery {
             throw recoveryError('受控恢复暂不可用，未改变任务。', 'task_recovery_unavailable', 503);
         }
         return this.recover(task, input);
-    }
-    async #useConfirmedTranscriptOnly(task: any, tasks: any, { requestId, requestedBy }: any): Promise<any> {
-        if (typeof this.createTask !== 'function') {
-            throw recoveryError('确认稿恢复入口暂不可用，未创建子任务。', 'task_recovery_unavailable', 503);
-        }
-        const transcript: any = confirmedTranscriptFor(task, tasks);
-        if (!transcript || !confirmedTranscriptOnlyEligible(task, tasks)) {
-            throw recoveryError('没有找到可核验确认稿，或当前任务不允许关闭视觉后重试。', 'confirmed_transcript_recovery_not_allowed', 422);
-        }
-        const paperclipIssueId: any = String(task.governance?.paperclipIssueId || '').trim();
-        if (!paperclipIssueId) {
-            throw recoveryError('原 Paperclip 任务关联不存在，未创建无审计关联的重试。', 'paperclip_parent_issue_required', 503);
-        }
-        const sourceTaskIds: any = uniqueStrings([
-            ...(task.input?.context?.sourceTaskIds || []),
-            transcript.taskId,
-        ]);
-        const rootTaskId: any = task.recovery?.rootTaskId || task.taskId;
-        const retryTask: any = await this.createTask({
-            title: `${task.input?.title || '视频内容拆解'}（仅使用确认稿）`,
-            description: '按本机主人明确选择，仅使用已核验确认稿完成文本拆解；关闭视觉分析，不读取图片、不调用视觉 Provider。',
-            taskType: 'content.video-benchmark-analysis',
-            agentId: task.assigneeAgentId,
-            requester: { kind: 'local-owner', ref: requestedBy.ref },
-            source: { channel: 'internal-recovery', parentChannel: task.source?.channel || null, chatRef: task.source?.chatRef || null },
-            parentTaskId: task.taskId,
-            sourceUrl: task.input?.sourceUrl,
-            sourceUrls: task.input?.sourceUrls,
-            evidenceMode: 'formal',
-            analysisIntent: task.input?.analysisIntent,
-            depth: task.input?.depth,
-            focus: task.input?.focus,
-            visualMode: 'off',
-            context: {
-                ...(task.input?.context || {}),
-                sourceTaskIds,
-                parentPaperclipIssueId: paperclipIssueId,
-                recoveryFromTaskId: task.taskId,
-                confirmedTranscriptTaskId: transcript.taskId,
-                confirmedTranscriptArtifactId: transcript.artifact.artifactId || null,
-            },
-            idempotencyKey: `recovery-confirmed-transcript:${task.taskId}`,
-            recovery: {
-                rootTaskId,
-                attempt: Number(task.recovery?.attempt || 0) + 1,
-                triggeredByTaskId: task.taskId,
-                mode: 'confirmed_transcript_only',
-                requestId,
-            },
-        });
-        await this.#record(task.taskId, {
-            status: 'retrying',
-            actionKey: 'use_confirmed_transcript_only',
-            requestId,
-            requestedBy,
-            retryTaskId: retryTask.taskId,
-            attempt: Number(task.recovery?.attempt || 0) + 1,
-            reason: '已创建仅使用确认稿且 visualMode=off 的 Paperclip 子任务。',
-        }, {
-            event: 'child_created',
-            actionKey: 'use_confirmed_transcript_only',
-            requestId,
-            attempt: Number(task.recovery?.attempt || 0) + 1,
-            actor: requestedBy,
-            taskId: retryTask.taskId,
-            occurredAt: this.clock().toISOString(),
-        });
-        return { retryTask };
     }
     async #requestReadOnlyDiagnosis(task: any, { requestId, requestedBy, legacyDiagnosisTask = null }: any): Promise<any> {
         if (typeof this.createTask !== 'function') {
