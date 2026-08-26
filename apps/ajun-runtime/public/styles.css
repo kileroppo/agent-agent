@@ -6962,15 +6962,23 @@ textarea:focus {
 }
 
 .tree-artifact-leaf {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
   border-radius: 6px;
   background: var(--surface);
   border: 1px solid var(--line);
-  color: var(--ink-soft);
+  color: var(--ink);
   font-size: 12px;
+}
+
+.tree-art-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
 }
 
 .tree-leaf-icon {

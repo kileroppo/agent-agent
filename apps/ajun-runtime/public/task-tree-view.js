@@ -1,5 +1,6 @@
 import { html, raw, escapeHtml } from './html.js';
 import { formatFullDateTime, formatDuration } from './format-utils.js';
+import { displaySubtaskTitle } from './task-record-presentation.js';
 export function renderTaskWorkflowTree(task = {}, options = {}) {
     if (!task || !task.taskId) {
         return '<div class="task-tree-empty"><p>暂无任务协同数据</p></div>';
@@ -44,12 +45,14 @@ function renderMultiTaskWorkflowTree(task, breadcrumb, agentNameFn) {
         const statusLabel = statusToLabel(t.status);
         const agent = agentNameFn(t.assigneeAgentId);
         const duration = t.createdAt ? formatDuration(t.createdAt, t.completedAt) : '';
-        const artifacts = Array.isArray(t.artifactRefs) ? t.artifactRefs : [];
+        const rawArtifacts = Array.isArray(t.artifactRefs) ? t.artifactRefs : [];
+        const artifacts = rawArtifacts.filter((a) => a?.type !== 'employee_execution_report');
         const artifactsHtml = artifacts.map((art) => {
             const name = cleanTreeText(art?.title || art?.name || art?.type || '产物', 30);
             return `<div class="tree-artifact-leaf">
           <svg class="tree-leaf-icon" aria-hidden="true"><use href="#icon-records"></use></svg>
-          <span>${escapeHtml(name)}</span>
+          <span class="tree-art-name">${escapeHtml(name)}</span>
+          <span class="artifact-type-tag">交付产物</span>
         </div>`;
         }).join('');
         return html `
@@ -67,7 +70,7 @@ function renderMultiTaskWorkflowTree(task, breadcrumb, agentNameFn) {
             : `<button type="button" class="subtask-preview-btn" data-subtask-preview="${t.taskId}"><svg width="12" height="12" aria-hidden="true"><use href="#icon-records"></use></svg> 查看环节详情</button>`)}
             </div>
           </div>
-          <strong class="tree-task-title">${cleanTreeText(t.title, 60)}</strong>
+          <div class="tree-task-title">${raw(displaySubtaskTitle(t, task))}</div>
           ${raw(artifactsHtml ? `<div class="tree-task-artifacts">${artifactsHtml}</div>` : '')}
         </div>
       </div>

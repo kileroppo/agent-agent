@@ -1,5 +1,6 @@
 import { html, raw, escapeHtml } from './html.js';
 import { formatFullDateTime, formatDuration } from './format-utils.js';
+import { displaySubtaskTitle } from './task-record-presentation.js';
 
 export interface TaskTreeOptions {
   agentName?: (id: string) => string;
@@ -58,12 +59,14 @@ function renderMultiTaskWorkflowTree(task: any, breadcrumb: any, agentNameFn: (i
     const agent = agentNameFn(t.assigneeAgentId);
     const duration = t.createdAt ? formatDuration(t.createdAt, t.completedAt) : '';
 
-    const artifacts = Array.isArray(t.artifactRefs) ? t.artifactRefs : [];
+    const rawArtifacts = Array.isArray(t.artifactRefs) ? t.artifactRefs : [];
+    const artifacts = rawArtifacts.filter((a: any) => a?.type !== 'employee_execution_report');
     const artifactsHtml = artifacts.map((art: any) => {
       const name = cleanTreeText(art?.title || art?.name || art?.type || '产物', 30);
       return `<div class="tree-artifact-leaf">
           <svg class="tree-leaf-icon" aria-hidden="true"><use href="#icon-records"></use></svg>
-          <span>${escapeHtml(name)}</span>
+          <span class="tree-art-name">${escapeHtml(name)}</span>
+          <span class="artifact-type-tag">交付产物</span>
         </div>`;
     }).join('');
 
@@ -83,7 +86,7 @@ function renderMultiTaskWorkflowTree(task: any, breadcrumb: any, agentNameFn: (i
               )}
             </div>
           </div>
-          <strong class="tree-task-title">${cleanTreeText(t.title, 60)}</strong>
+          <div class="tree-task-title">${raw(displaySubtaskTitle(t, task))}</div>
           ${raw(artifactsHtml ? `<div class="tree-task-artifacts">${artifactsHtml}</div>` : '')}
         </div>
       </div>
