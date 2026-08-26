@@ -37,21 +37,42 @@ const TASK_LABELS: Record<string, string> = {
 };
 
 const STATUS_LABELS: Record<string, string> = {
-    active: '可用', ready: '可用', local: '本机可用', waiting: '等待连接',
-    blocked: '尚未配置', not_configured: '未接线', not_ready: '未就绪',
+    active: '进行中', ready: '可用', local: '本机可用', waiting: '等待连接',
+    blocked: '已阻塞', not_configured: '未接线', not_ready: '未就绪',
     pending_authorization: '待授权', verified: '已验证', connected: '已连接',
     external: 'Hermes 已接管', connecting: '连接中', disabled: '未启用',
     expiring: '即将到期', expired: '已到期', revoked: '已撤销', error: '需检查',
     unavailable: '暂不可用', partial: '部分完成', planned: '待准备', draft: '草案中',
-    pending_approval: '等待审核', waiting_approval: '等待确认', waiting_worker: '等待 Mac',
-    waiting_test: '待验证', queued: '等待开始', running: '处理中', pausing: '正在暂停',
-    paused: '已暂停', succeeded: '已完成', failed: '未完成', needs_input: '等待补充',
-    cancelled: '已关闭', rejected: '已拒绝', stopped: '已停止'
+    pending_approval: '等待审核', waiting_approval: '等待确认', waiting_worker: '等待资源',
+    waiting_test: '待验证', queued: '排队中', running: '正在处理', pausing: '正在暂停',
+    paused: '已暂停', succeeded: '已完成', completed: '已完成', failed: '执行未完成',
+    needs_input: '需要操作', cancelled: '已关闭', rejected: '已拒绝', stopped: '已停止',
+    paperclip_hermes_completed: '已同步交付',
+    paperclip_completed: '已同步工单',
+    delivered: '已交付',
+    diagnosed: '已完成诊断',
+    accepted: '已采纳',
+    revision_required: '已标记改进',
+};
+
+const STAGE_LABELS: Record<string, string> = {
+    paperclip_hermes_completed: '已完成并交付',
+    paperclip_completed: '已回写工单',
+    delivery_quality_revision_screen: '质量复核与定向返工',
+    quality_check: '质量复核',
+    executing: '正在执行',
+    preparing: '准备素材',
+    acquiring: '获取资料',
+    transcribing: '语音转录',
+    analyzing: '分析提纯',
+    delivering: '整理交付',
+    completed: '已结束',
+    idle: '就绪',
 };
 
 export function taskTypeLabel(type: unknown, agents: any[] = []): string {
     const typeStr = String(type || '').trim();
-    if (!typeStr) return '待分配工作';
+    if (!typeStr) return '通用任务';
     const mapped = TASK_LABELS[typeStr];
     const agent = Array.isArray(agents) ? agents.find((item: any) => item?.acceptedTaskTypes?.includes(typeStr)) : null;
     const suffix = agent?.status === 'draft' ? '（准备中）' : '';
@@ -61,5 +82,11 @@ export function taskTypeLabel(type: unknown, agents: any[] = []): string {
 }
 
 export function statusLabel(status: unknown): string {
-    return STATUS_LABELS[String(status || '')] || '状态待确认';
+    const key = String(status || '').trim().toLowerCase();
+    return STATUS_LABELS[key] || (key ? key.replace(/_/g, ' ') : '状态待确认');
+}
+
+export function stageLabel(stage: unknown): string {
+    const key = String(stage || '').trim().toLowerCase();
+    return STAGE_LABELS[key] || STATUS_LABELS[key] || (key ? key.replace(/_/g, ' ') : '处理中');
 }

@@ -1,5 +1,5 @@
 import { html, raw, escapeHtml } from './html.js';
-import { statusLabel } from './console-labels.js';
+import { statusLabel, stageLabel } from './console-labels.js';
 import {
     acceptanceTargetView,
     cleanAttentionText,
@@ -862,10 +862,12 @@ export function renderTechnicalDetails(task: any, presentation: any, attention: 
     const presentationTechnical: any = presentation?.technical && typeof presentation.technical === 'object'
         ? presentation.technical
         : {};
+    const rawStatus = cleanAttentionText(presentationTechnical.status, 80);
+    const rawStage = cleanAttentionText(attentionTechnicalView?.stage || presentationTechnical.currentStage, 120);
     const values: any = {
         taskId: cleanAttentionText(presentationTechnical.taskId || task.taskId, 80),
-        status: cleanAttentionText(presentationTechnical.status, 80),
-        stage: cleanAttentionText(attentionTechnicalView?.stage || presentationTechnical.currentStage, 120),
+        status: rawStatus ? statusLabel(rawStatus) : '',
+        stage: rawStage ? stageLabel(rawStage) : '',
         errorCode: cleanAttentionText(attentionTechnicalView?.code || presentationTechnical.errorCode, 120),
     };
     const rows: any = [
@@ -873,20 +875,21 @@ export function renderTechnicalDetails(task: any, presentation: any, attention: 
         ['创建时间', formatFullDateTime(task.createdAt)],
         ['更新时间', formatFullDateTime(task.updatedAt)],
         ['完成时间', formatFullDateTime(task.completedAt)],
+        ['Paperclip 工单', task.paperclipIssue?.identifier ? `#${task.paperclipIssue.identifier}` : ''],
         ['Paperclip 运行', task.paperclipRun?.runId
-            ? `${cleanAttentionText(task.paperclipRun.status, 40)} · ${cleanAttentionText(task.paperclipRun.runId, 80)}`
+            ? `${statusLabel(task.paperclipRun.status)} · ${cleanAttentionText(task.paperclipRun.runId, 80)}`
             : ''],
-        ['原始状态', values.status],
+        ['任务状态', values.status],
         ['当前阶段', values.stage],
-        ['错误代码', values.errorCode],
+        ['异常代码', values.errorCode],
     ].filter(([, value]: any): any => value);
     if (!rows.length)
         return '';
     const paperclipIssue: any = (!attention?.paperclipIssue && task.paperclipIssue?.detailUrl)
-        ? html`<a class="record-paperclip-link" href="${task.paperclipIssue.detailUrl}" target="_blank" rel="noopener">打开 Paperclip ${task.paperclipIssue.identifier || '任务'}</a>`
+        ? html`<a class="record-paperclip-link" href="${task.paperclipIssue.detailUrl}" target="_blank" rel="noopener">打开 Paperclip ${task.paperclipIssue.identifier || '工单'}</a>`
         : '';
     const rowsHtml: string = rows.map(([label, value]: any): any => html`<div><dt>${label}</dt><dd>${value}</dd></div>`).join('');
-    return html`<details class="record-technical" data-disclosure-key="record-technical:${values.taskId}"><summary><span>编号与审计</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><dl>${raw(rowsHtml)}</dl><div class="record-technical-actions">${raw(paperclipIssue)}<button class="text-action record-copy-id" type="button">复制编号</button></div></details>`;
+    return html`<details class="record-technical" data-disclosure-key="record-technical:${values.taskId}"><summary><span>编号与审计（技术底表）</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><dl>${raw(rowsHtml)}</dl><div class="record-technical-actions">${raw(paperclipIssue)}<button class="text-action record-copy-id" type="button">复制编号</button></div></details>`;
 }
 function newIdempotencyKey(taskId: any, actionKey: any): any {
     const random: any = globalThis.crypto?.randomUUID?.()
@@ -976,10 +979,62 @@ function stateForTask(status: any): any {
         return 'completed';
     return 'active';
 }
+export interface ParsedTaskTitle {
+    cleanTitle: string;
+    badges: Array<{ label: string; tone: string }>;
+}
+
+export function parseTaskTitle(rawTitle: string): ParsedTaskTitle {
+    let text = String(rawTitle || '未命名任务').trim();
+    const badges: Array<{ label: string; tone: string }> = [];
+
+    let matched = true;
+    while (matched) {
+        matched = false;
+        // 1. 定向返工
+        const reworkMatch = text.match(/^(?:第\s*(\d+)\s*轮)?定向返工[：:]\s*(.+)$/i);
+        if (reworkMatch) {
+            const round = reworkMatch[1] ? `#${reworkMatch[1]}` : '';
+            badges.push({ label: `返工 ${round}`.trim(), tone: 'rework' });
+            text = reworkMatch[2].trim();
+            matched = true;
+            continue;
+        }
+        // 2. 交付质量复核 / 质量审查
+        const qualityMatch = text.match(/^(?:交付)?质量(?:复核|审查|检查)[：:]\s*(.+)$/i);
+        if (qualityMatch) {
+            badges.push({ label: '质量复核', tone: 'quality' });
+            text = qualityMatch[1].trim();
+            matched = true;
+            continue;
+        }
+        // 3. 诊断任务故障 / 处理任务故障 / 故障恢复
+        const faultMatch = text.match(/^(?:诊断|处理)?(?:任务)?故障(?:恢复)?[：:]\s*(.+)$/i);
+        if (faultMatch) {
+            badges.push({ label: '故障处理', tone: 'fault' });
+            text = faultMatch[1].trim();
+            matched = true;
+            continue;
+        }
+        // 4. Paperclip 产能复盘
+        const productivity = text.match(/^Review productivity for (AGE-\d+)$/i);
+        if (productivity) {
+            badges.push({ label: productivity[1].toUpperCase(), tone: 'paperclip' });
+            text = '产能复盘';
+            matched = true;
+            continue;
+        }
+    }
+
+    return { cleanTitle: text || '未命名任务', badges };
+}
+
 function displayTaskTitle(task: any): any {
-    const title: any = String(task.input?.title || '未命名任务').trim();
-    const productivity: any = title.match(/^Review productivity for (AGE-\d+)$/i);
-    return productivity ? `${productivity[1].toUpperCase()} 产能复盘` : title;
+    const rawTitle: string = String(task.input?.title || task.title || '未命名任务').trim();
+    const parsed = parseTaskTitle(rawTitle);
+    if (!parsed.badges.length) return parsed.cleanTitle;
+    const badgeSpans = parsed.badges.map((b) => `<span class="task-badge-pill badge-${b.tone}">${b.label}</span>`).join('');
+    return `${badgeSpans}${parsed.cleanTitle}`;
 }
 function relativeTime(value: any): any {
     const timestamp: any = Date.parse(value || '');

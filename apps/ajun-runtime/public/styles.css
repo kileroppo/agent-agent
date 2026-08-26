@@ -5774,7 +5774,9 @@ textarea:focus {
 }
 
 .record-row-title {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   overflow: hidden;
   color: var(--ink);
   font-size: 14px;
@@ -5782,6 +5784,42 @@ textarea:focus {
   line-height: 1.45;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.task-badge-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.task-badge-pill.badge-rework {
+  background: var(--amber-soft);
+  color: var(--amber);
+  border: 1px solid rgba(182, 68, 0, 0.2);
+}
+
+.task-badge-pill.badge-quality {
+  background: var(--blue-soft);
+  color: var(--blue);
+  border: 1px solid rgba(0, 113, 227, 0.2);
+}
+
+.task-badge-pill.badge-fault {
+  background: var(--rose-soft);
+  color: var(--rose);
+  border: 1px solid rgba(217, 48, 37, 0.2);
+}
+
+.task-badge-pill.badge-paperclip {
+  background: var(--surface-soft);
+  color: var(--muted);
+  border: 1px solid var(--color-line);
 }
 
 .record-row-reason {

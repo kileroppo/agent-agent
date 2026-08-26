@@ -47,12 +47,10 @@ function renderMultiTaskWorkflowTree(task, breadcrumb, agentNameFn) {
         const artifacts = Array.isArray(t.artifactRefs) ? t.artifactRefs : [];
         const artifactsHtml = artifacts.map((art) => {
             const name = cleanTreeText(art?.title || art?.name || art?.type || '产物', 30);
-            return html `
-        <div class="tree-artifact-leaf">
+            return `<div class="tree-artifact-leaf">
           <svg class="tree-leaf-icon" aria-hidden="true"><use href="#icon-records"></use></svg>
-          <span>${name}</span>
-        </div>
-      `;
+          <span>${escapeHtml(name)}</span>
+        </div>`;
         }).join('');
         return html `
       <div class="tree-task-node ${isCurrent ? 'is-current-task' : ''} is-${statusTone}">
@@ -66,7 +64,7 @@ function renderMultiTaskWorkflowTree(task, breadcrumb, agentNameFn) {
           </div>
           <strong class="tree-task-title">${cleanTreeText(t.title, 50)}</strong>
         </div>
-        ${raw(artifactsHtml ? `<div class="tree-task-artifacts">${raw(artifactsHtml)}</div>` : '')}
+        ${raw(artifactsHtml ? `<div class="tree-task-artifacts">${artifactsHtml}</div>` : '')}
       </div>
     `;
     }).join('');
@@ -153,10 +151,10 @@ function renderSingleTaskBreakdownTree(task, agentNameFn) {
         <div class="tree-task-node ${artifacts.length ? 'is-completed' : 'is-muted'}">
           <div class="tree-branch-tag"><svg class="tree-leaf-icon" aria-hidden="true"><use href="#icon-records"></use></svg> 产物交付 (${artifacts.length})</div>
           <div class="tree-task-main">
-            ${raw(artifacts.length ? artifacts.map((a) => html `
+            ${raw(artifacts.length ? artifacts.map((a) => `
               <div class="tree-artifact-leaf">
                 <svg class="tree-leaf-icon" aria-hidden="true"><use href="#icon-check"></use></svg>
-                <span>${cleanTreeText(a.title || a.name || a.type || '交付文件', 40)}</span>
+                <span>${escapeHtml(cleanTreeText(a.title || a.name || a.type || '交付文件', 40))}</span>
               </div>
             `).join('') : '<p class="tree-node-empty">暂无产物生成</p>')}
           </div>
