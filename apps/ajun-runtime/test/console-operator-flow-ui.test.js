@@ -327,7 +327,7 @@ test('编号与审计正常渲染 HTML 标签并不转义 dl 和 dt，提供复�
   assert.doesNotMatch(html, /&lt;dl&gt;/);
 });
 
-test('关注态卡片直接提供 Paperclip 处理入口与技术标签，并剔除通用废话套话', () => {
+test('关注态卡片直接提供 Paperclip 处理入口与人话说明，剔除内部错误代码标签与通用废话套话', () => {
   const view = taskAttentionView({
     taskId: 'cadc227a-a377-421d-a42c-1dcbd726e1ec',
     paperclipIssue: { identifier: 'AGE-1531', detailUrl: 'http://127.0.0.1:3100/issues/AGE-1531' },
@@ -348,8 +348,8 @@ test('关注态卡片直接提供 Paperclip 处理入口与技术标签，并剔
   assert.match(html, /<section class="record-attention"/);
   assert.match(html, /<h3>本轮未完成<\/h3>/);
   assert.match(html, /<p>技术专家没有完成修复，故障和记录已保留，等待下一轮处理。<\/p>/);
-  assert.match(html, /<span class="record-attention-tag">错误代码: <code>paperclip_repair_failed<\/code><\/span>/);
-  assert.match(html, /<span class="record-attention-tag">阶段: <code>technical_repair<\/code><\/span>/);
+  assert.doesNotMatch(html, /<span class="record-attention-tag">错误代码/);
+  assert.doesNotMatch(html, /<span class="record-attention-tag">阶段/);
   assert.match(html, /<div class="record-attention-actions"><a class="record-paperclip-link" href="http:\/\/127\.0\.0\.1:3100\/issues\/AGE-1531"[^>]*>打开 Paperclip AGE-1531<\/a><\/div>/);
   // Generic template boilerplate must be filtered out
   assert.doesNotMatch(html, /请根据失败原因决定补充信息/);

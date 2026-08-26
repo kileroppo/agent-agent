@@ -779,7 +779,7 @@ export function renderTechnicalDetails(task: any, presentation: any, attention: 
     ].filter(([, value]: any): any => value);
     if (!rows.length)
         return '';
-    const paperclipIssue: any = task.paperclipIssue?.detailUrl
+    const paperclipIssue: any = (!attention?.paperclipIssue && task.paperclipIssue?.detailUrl)
         ? html`<a class="record-paperclip-link" href="${task.paperclipIssue.detailUrl}" target="_blank" rel="noopener">打开 Paperclip ${task.paperclipIssue.identifier || '任务'}</a>`
         : '';
     const rowsHtml: string = rows.map(([label, value]: any): any => html`<div><dt>${label}</dt><dd>${value}</dd></div>`).join('');

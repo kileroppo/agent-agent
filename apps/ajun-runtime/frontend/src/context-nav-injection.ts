@@ -1,9 +1,9 @@
 const NAV_GROUPS: Record<string, Array<{ href: string; page: string; label: string; ownerOnly?: boolean }>> = {
     system: [
-        { href: '#employees', page: 'employees', label: '员工' },
-        { href: '#connections', page: 'connections', label: '接入', ownerOnly: true },
-        { href: '#billing', page: 'billing', label: '用量诊断', ownerOnly: true },
-        { href: '#release', page: 'release', label: '版本', ownerOnly: true },
+        { href: '#employees', page: 'employees', label: '员工编队' },
+        { href: '#connections', page: 'connections', label: '账号接入', ownerOnly: true },
+        { href: '#billing', page: 'billing', label: 'AI 成本账本', ownerOnly: true },
+        { href: '#release', page: 'release', label: '版本管理', ownerOnly: true },
     ],
     tools: [
         { href: '#boom-monitor', page: 'boom-monitor', label: '爆款雷达' },

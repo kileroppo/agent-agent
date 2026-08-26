@@ -284,7 +284,16 @@ function activateModule(name, { navigationGroup = '', replaceHash = false } = {}
         history.replaceState(null, '', '#now');
 }
 function moduleTitle(name) {
-    return { overview: '现在', employees: '员工', connections: '账号与接入', campaigns: '发布活动', billing: 'AI 成本账本', release: '版本管理', 'boom-monitor': '爆款雷达', records: '运行记录' }[name] || '现在';
+    return {
+        overview: '总览',
+        employees: '员工编队',
+        connections: '账号接入',
+        campaigns: '发布活动',
+        billing: 'AI 成本账本',
+        release: '版本管理',
+        'boom-monitor': '爆款雷达',
+        records: '任务记录'
+    }[name] || '总览';
 }
 const elements = {
     capabilityList, agentList, recentTaskList, overviewStats, overviewSummary,

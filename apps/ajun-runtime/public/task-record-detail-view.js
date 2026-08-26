@@ -114,13 +114,7 @@ export function renderAttentionDetail(attention, actionState, _escapeHtml) {
             : fallbackNext;
     const cause = usefulAttentionCause(attention);
     const evidence = usefulAttentionEvidence(attention.evidence, cause);
-    const technicalTags = [
-        attention.technical?.code ? `<span class="record-attention-tag">错误代码: <code>${escapeHtml(attention.technical.code)}</code></span>` : '',
-        attention.technical?.stage ? `<span class="record-attention-tag">阶段: <code>${escapeHtml(attention.technical.stage)}</code></span>` : '',
-    ].filter(Boolean);
-    const tagsHtml = technicalTags.length ? `<div class="record-attention-tags">${technicalTags.join('')}</div>` : '';
     const extras = [
-        tagsHtml,
         evidence ? html `<details class="record-attention-evidence"><summary><span>判断依据</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><p>${evidence}</p></details>` : '',
         attention.remainingRisks ? html `<details class="record-attention-evidence"><summary><span>剩余风险</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><p>${attention.remainingRisks}</p></details>` : '',
         usefulAttentionImpact(attention) ? html `<p class="record-attention-impact-line">${attention.impact}</p>` : '',
