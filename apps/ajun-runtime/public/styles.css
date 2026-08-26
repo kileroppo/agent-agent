@@ -6868,6 +6868,59 @@ textarea:focus {
   font-weight: 700;
 }
 
+.record-primary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed color-mix(in srgb, var(--mint-deep) 20%, transparent);
+}
+
+.action-chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.16s var(--ease);
+  line-height: 1;
+}
+
+.action-chip-btn.primary {
+  background: var(--mint-deep);
+  color: #fff;
+  border: 1px solid var(--mint-deep);
+  box-shadow: 0 1px 3px rgba(37, 184, 135, 0.2);
+}
+
+.action-chip-btn.primary:hover {
+  background: color-mix(in srgb, var(--mint-deep) 85%, black);
+  transform: translateY(-1px);
+}
+
+.action-chip-btn.secondary {
+  background: var(--surface);
+  color: var(--ink-soft);
+  border: 1px solid var(--line);
+}
+
+.action-chip-btn.secondary:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
+  background: var(--surface-soft);
+  transform: translateY(-1px);
+}
+
+.action-chip-btn svg {
+  flex-shrink: 0;
+  fill: currentColor;
+}
+
 .record-deliverables {
   margin: 22px 0 16px;
 }
@@ -7257,36 +7310,143 @@ textarea:focus {
 
 .record-artifact-list {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.record-artifact-list li {
+.record-artifact-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.16s var(--ease), box-shadow 0.16s var(--ease);
+}
+
+.record-artifact-item:hover {
+  border-color: var(--mint);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.artifact-item-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.artifact-item-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 16px;
-  border-radius: 10px;
-  background: var(--surface-soft);
-  border: 1px solid var(--line);
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.artifact-icon {
+  width: 16px;
+  height: 16px;
+  fill: var(--mint-deep);
+  flex-shrink: 0;
+}
+
+.artifact-title {
+  font-size: 14px;
+  font-weight: 700;
   color: var(--ink);
-  font-size: 13px;
-  line-height: 1.55;
-  word-break: break-word;
+  line-height: 1.4;
 }
 
-.record-artifact-list li a {
-  color: var(--blue);
-  font-size: 13px;
+.artifact-type-tag {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--mint-soft);
+  color: var(--mint-deep);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.artifact-summary {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.artifact-path-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+}
+
+.artifact-path-label {
+  flex-shrink: 0;
+}
+
+.artifact-path {
+  font-family: var(--mono);
+  background: var(--surface-soft);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.artifact-item-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.artifact-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
   text-decoration: none;
-  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.16s var(--ease);
+  white-space: nowrap;
 }
 
-.record-artifact-list li a:hover {
-  text-decoration: underline;
+.artifact-action-btn.primary {
+  background: var(--blue);
+  color: #fff;
+  border: 1px solid var(--blue);
+}
+
+.artifact-action-btn.primary:hover {
+  background: color-mix(in srgb, var(--blue) 85%, black);
+  text-decoration: none;
+}
+
+.artifact-action-btn.secondary {
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+  border: 1px solid var(--line);
+}
+
+.artifact-action-btn.secondary:hover {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--line-strong);
 }
 
 .record-detail-actions {

@@ -344,7 +344,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             const timeDisplay: string = createdFull ? `${createdFull.slice(5, 16)} (${relativeTime(task.createdAt || task.updatedAt)})` : relativeTime(task.updatedAt || task.createdAt);
             return html`<button class="record-row${selected ? ' is-selected' : ''}" type="button" role="option" aria-selected="${selected}" data-record-task-id="${task.taskId}">
         <span class="record-row-main">
-          <span class="record-row-title">${displayTaskTitle(task)}</span>
+          <span class="record-row-title">${raw(displayTaskTitle(task))}</span>
           ${raw(reason ? html`<span class="record-row-reason">${reason}</span>` : '')}
           <span class="record-row-meta" title="${escapeHtml(timeHover)}"><span>${agentName(task.assigneeAgentId)}</span><span>·</span><span>${timeDisplay}</span></span>
         </span>
@@ -384,6 +384,56 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const nextAction: any = showNextAction ? (presentation.nextAction || missingNextActionMessage(taskView)) : '';
         const distinctResult: any = result && result.text && result.text !== summary ? result : null;
         const outcomeLabel: any = taskView === 'completed' ? '结果' : taskView === 'active' ? '进度' : '下一步';
+        let actionChipsHtml: string = '';
+        if (taskView === 'active') {
+            actionChipsHtml = html`
+                <div class="record-primary-actions">
+                    <button type="button" class="action-chip-btn primary" data-action-refresh>
+                        <svg width="13" height="13" aria-hidden="true"><use href="#icon-spark"></use></svg>
+                        <span>刷新最新进展</span>
+                    </button>
+                    <button type="button" class="action-chip-btn secondary" data-action-view-timeline>
+                        <svg width="13" height="13" aria-hidden="true"><use href="#icon-clock"></use></svg>
+                        <span>查看实时过程</span>
+                    </button>
+                    ${raw(artifacts.length ? html`
+                        <button type="button" class="action-chip-btn secondary" data-action-view-deliverables>
+                            <svg width="13" height="13" aria-hidden="true"><use href="#icon-target"></use></svg>
+                            <span>查看已产生交付物 (${artifacts.length})</span>
+                        </button>
+                    ` : '')}
+                </div>
+            `;
+        } else if (taskView === 'completed') {
+            actionChipsHtml = html`
+                <div class="record-primary-actions">
+                    ${raw(artifacts.length ? html`
+                        <button type="button" class="action-chip-btn primary" data-action-view-deliverables>
+                            <svg width="13" height="13" aria-hidden="true"><use href="#icon-target"></use></svg>
+                            <span>查看交付成果 (${artifacts.length})</span>
+                        </button>
+                    ` : '')}
+                    <button type="button" class="action-chip-btn secondary" data-action-view-timeline>
+                        <svg width="13" height="13" aria-hidden="true"><use href="#icon-clock"></use></svg>
+                        <span>查看执行全过程</span>
+                    </button>
+                </div>
+            `;
+        } else if (needsAction && !attention) {
+            actionChipsHtml = html`
+                <div class="record-primary-actions">
+                    <button type="button" class="action-chip-btn primary" data-action-refresh>
+                        <svg width="13" height="13" aria-hidden="true"><use href="#icon-spark"></use></svg>
+                        <span>检查最新状态</span>
+                    </button>
+                    <button type="button" class="action-chip-btn secondary" data-action-view-timeline>
+                        <svg width="13" height="13" aria-hidden="true"><use href="#icon-clock"></use></svg>
+                        <span>查看失败过程</span>
+                    </button>
+                </div>
+            `;
+        }
+
         const outcomeHtml: any = attention
             ? renderAttentionDetail(attention, actionState, escapeHtml)
             : (summary || distinctResult || nextAction || task.pendingApproval?.reason)
@@ -392,6 +442,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             ${raw(summary ? html`<p>${summary}</p>` : '')}
             ${raw(distinctResult ? html`<p>${distinctResult.text}</p>` : '')}
             ${raw(nextAction && nextAction !== summary ? html`<div class="record-primary-next"><strong>下一步</strong><p>${nextAction}</p></div>` : '')}
+            ${raw(actionChipsHtml)}
           </section>${raw(task.pendingApproval?.reason ? html`<details class="record-detail-section record-context-details"><summary>待确认原因</summary><p>${task.pendingApproval.reason}</p></details>` : '')}`
                 : '';
 
@@ -414,7 +465,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             ${raw(renderAcceptanceDetail(acceptanceTarget, acceptanceState, escapeHtml))}
             ${raw(outcomeHtml)}
             ${raw(renderOriginCard(task))}
-            ${raw(artifacts.length ? `<section class="record-deliverables"><h3>交付成果</h3><ul class="record-artifact-list">${artifacts.map(renderArtifact).join('')}</ul></section>` : '')}
+            ${raw(artifacts.length ? `<section class="record-deliverables"><h3>交付成果 (${artifacts.length})</h3><ul class="record-artifact-list">${artifacts.map(renderArtifact).join('')}</ul></section>` : '')}
             ${raw(renderDeliverySink(task))}
             ${raw(workflowTreeHtml)}
             ${raw(state.timelineHtml || '<details class="record-detail-section task-timeline" data-task-timeline-shell><summary>过程</summary></details>')}
@@ -427,7 +478,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
       <header class="record-detail-header">
         <div class="record-detail-title-row">
           <div class="record-detail-title-col">
-            <h2>${displayTaskTitle(task)}</h2>
+            <h2>${raw(displayTaskTitle(task))}</h2>
             <p class="record-detail-meta">
               <span class="meta-agent">${agentName(task.assigneeAgentId)}</span>
               <span>·</span>
@@ -447,6 +498,53 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             elements.workbench.classList.remove('is-detail-open');
             replaceRecordUrl();
         });
+
+        elements.detail.querySelector('[data-action-refresh]')?.addEventListener('click', async (e: any): Promise<any> => {
+            const btn = e.currentTarget;
+            if (btn) btn.disabled = true;
+            await loadSelectedDetail({ revealDetail: false, quiet: false });
+            if (btn) btn.disabled = false;
+        });
+
+        elements.detail.querySelector('[data-action-view-timeline]')?.addEventListener('click', async (): Promise<any> => {
+            const timelineShell = elements.detail.querySelector('[data-task-timeline-shell], [data-task-timeline]');
+            if (timelineShell) {
+                if (!timelineShell.open) {
+                    timelineShell.open = true;
+                    if (!state.timelineHtml) {
+                        state.timelineHtml = await loadTimeline(task.taskId);
+                        renderDetail();
+                        const openedTimeline = elements.detail.querySelector('[data-task-timeline]');
+                        openedTimeline?.setAttribute('open', '');
+                    }
+                }
+                timelineShell.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        });
+
+        elements.detail.querySelector('[data-action-view-deliverables]')?.addEventListener('click', (): any => {
+            const deliverables = elements.detail.querySelector('.record-deliverables');
+            deliverables?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        });
+
+        for (const copyBtn of elements.detail.querySelectorAll('[data-copy-path]')) {
+            copyBtn.addEventListener('click', async (event: any): Promise<any> => {
+                const path = event.currentTarget.dataset.copyPath;
+                if (!path) return;
+                try {
+                    await navigator.clipboard.writeText(path);
+                    const originalText = event.currentTarget.textContent;
+                    event.currentTarget.textContent = '已复制';
+                    setTimeout(() => {
+                        if (event.currentTarget && event.currentTarget.isConnected) {
+                            event.currentTarget.textContent = originalText;
+                        }
+                    }, 2000);
+                } catch {
+                    event.currentTarget.textContent = '复制失败';
+                }
+            });
+        }
 
 
         for (const switchBtn of elements.detail.querySelectorAll('.tree-switch-btn')) {
