@@ -322,6 +322,12 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                     : {};
                 const commanderReply: any = presentCommanderReply(result, detailBaseUrl, taskCardContext);
                 if (result?.handled === false) await recordCommanderChainEvidence({ ledger:commanderChainEvidence, dataDir }, commanderInput, { kind:'no_task_by_design', httpStatus:202, reason:result?.reason });
+                if (result?.completionWatch?.taskId && (commanderInput?.chatRef || task?.source?.chatRef)) {
+                    await hermesNativeCompletionWatcher?.watch?.({
+                        taskId: result.completionWatch.taskId,
+                        chatId: String(commanderInput?.chatRef || task?.source?.chatRef || '').trim(),
+                    })?.catch?.((): any => undefined);
+                }
                 return sendJson(response, 202, commanderReply);
             }
             if (request.method === 'POST' && request.url === '/api/feishu/channel/messages') {

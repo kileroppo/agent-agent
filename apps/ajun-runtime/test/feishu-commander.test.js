@@ -1599,3 +1599,37 @@ test('待审批飞书任务会返回可渲染的 local 审批卡摘要', async (
   assert.equal(result.approval.approvalId, 'approval-1');
   assert.equal(result.approval.governanceMode, 'local');
 });
+
+test('taskProgress 能够准确命中经历过 Paperclip 调度与执行的飞书原会话任务', async () => {
+  const task = {
+    taskId:'task-dispatched-1',
+    status:'succeeded',
+    taskType:'operations.health-review',
+    source:{
+      channel:'feishu',
+      eventRef:'feishu:om_msg123',
+      chatRef:'chat-followup-check',
+      paperclipIssueId:'issue-123',
+      paperclipRunId:'run-123',
+    },
+    input:{ title:'检查军团状态' },
+    artifactRefs:[{ type:'health_report', data:{ overall:'healthy' } }],
+    updatedAt:new Date().toISOString(),
+  };
+  const commander = new FeishuCommander({
+    tasks:{
+      async notificationStatus() {
+        return { taskId:task.taskId, status:'succeeded', terminal:true, message:'本地军团健康检查完成：无事故、无需恢复。' };
+      },
+    },
+    proposals:{},
+    store:{
+      async list() { return [task]; },
+    },
+  });
+
+  const progress = await commander.taskProgress('chat-followup-check');
+  assert.equal(progress.kind, 'task_progress');
+  assert.equal(progress.task.taskId, 'task-dispatched-1');
+  assert.match(progress.reply, /本地军团健康检查完成/);
+});

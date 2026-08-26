@@ -528,6 +528,47 @@ test('任务已经进入下一阶段时点击旧暂停按钮会刷新卡片而�
   assert.deepEqual(result.taskCard.actions, []);
 });
 
+test('POST /api/feishu/commander 创建任务时自动向 hermesNativeCompletionWatcher 登记跟进', async (context) => {
+  const watched = [];
+  const watcher = {
+    async watch(input) { watched.push(input); },
+  };
+  const task = {
+    taskId,
+    status:'running',
+    taskType:'operations.health-review',
+    source:{ channel:'feishu', chatRef:'chat-commander-watch' },
+  };
+  const fixture = await startFeishuHandler(context, {
+    work:{
+      store:{ async list() { return [task]; }, async listApprovals() { return []; } },
+      tasks:{ async recoveryView() { return { actions:[] }; } },
+    },
+    feishu:{
+      commander:{
+        async handle() {
+          return {
+            kind:'health_review',
+            task,
+            reply:'运维官已接手检查。',
+            completionWatch:{ kind:'ajun_task', taskId, baseUrl:'http://127.0.0.1:4321' },
+          };
+        },
+      },
+      hermesNativeCompletionWatcher:watcher,
+    },
+  });
+
+  const created = await postJson(`${fixture.baseUrl}/api/feishu/commander`, {
+    text:'检查军团状态',
+    chatRef:'chat-commander-watch',
+    sourceEventRef:'feishu:health-1',
+  });
+  assert.equal(created.response.status, 202);
+  assert.equal(watched.length, 1);
+  assert.deepEqual(watched[0], { taskId, chatId:'chat-commander-watch' });
+});
+
 async function startFeishuHandler(context, { work, feishu }) {
   const handler = createAjunHttpHandler({
     environment:{},

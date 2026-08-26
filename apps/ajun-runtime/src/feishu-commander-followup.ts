@@ -5,7 +5,7 @@ export const feishuCommanderFollowupMethods: Record<string, any> = {
         if (!this.store || !chatRef)
             return { kind: 'task_progress', reply: '我暂时找不到这条会话里的任务。请直接回复那条任务消息后再问“进度”。' };
         const tasks: any = await this.store.list();
-        const inThisChat: any = tasks.filter((task: any): any => task.source?.channel === 'feishu' && task.source?.chatRef === chatRef);
+        const inThisChat: any = tasks.filter((task: any): any => isTaskInFeishuChat(task, chatRef));
         const task: any = taskId
             ? inThisChat.find((item: any): any => item.taskId === taskId) || null
             : mostRecentTask(agentId ? inThisChat.filter((item: any): any => isTaskForAgent(item, agentId)) : inThisChat);
@@ -25,7 +25,7 @@ export const feishuCommanderFollowupMethods: Record<string, any> = {
         if (!this.store || !chatRef)
             return { kind: 'xiaod_retry', reply: '我暂时找不到当前会话里的小D任务。请回复原任务消息后再试。' };
         const tasks: any = await this.store.list();
-        const task: any = mostRecentTask(tasks.filter((item: any): any => item.source?.channel === 'feishu' && item.source?.chatRef === chatRef && item.taskType === 'media.transcribe-and-refine'));
+        const task: any = mostRecentTask(tasks.filter((item: any): any => isTaskInFeishuChat(item, chatRef) && item.taskType === 'media.transcribe-and-refine'));
         if (!task)
             return { kind: 'xiaod_retry', reply: '当前会话没有可继续的小D任务。请发送需要整理的公开视频链接。' };
         if (typeof this.tasks?.notificationStatus === 'function') {
@@ -38,7 +38,7 @@ export const feishuCommanderFollowupMethods: Record<string, any> = {
         if (!this.store || !chatRef)
             return { kind: 'xiaod_delivery', reply: '我暂时找不到当前会话里的小D任务。请回复原任务消息后再试。' };
         const tasks: any = await this.store.list();
-        const task: any = mostRecentTask(tasks.filter((item: any): any => item.source?.channel === 'feishu' && item.source?.chatRef === chatRef && item.taskType === 'media.transcribe-and-refine'));
+        const task: any = mostRecentTask(tasks.filter((item: any): any => isTaskInFeishuChat(item, chatRef) && item.taskType === 'media.transcribe-and-refine'));
         if (!task)
             return { kind: 'xiaod_delivery', reply: '当前会话没有可继续交付的小D任务。' };
         if (typeof this.tasks?.continueXiaodDelivery !== 'function')
@@ -96,7 +96,7 @@ export const feishuCommanderFollowupMethods: Record<string, any> = {
         if (!this.store || !chatRef)
             return { kind: 'follow_up', reply: '我暂时找不到当前聊天里的工作，不能假装已经继续处理。' };
         const tasks: any = await this.store.list();
-        const task: any = mostRelevantTask(tasks.filter((item: any): any => item.source?.channel === 'feishu' && item.source?.chatRef === chatRef && ['failed', 'needs_input', 'waiting_test'].includes(item.status)));
+        const task: any = mostRelevantTask(tasks.filter((item: any): any => isTaskInFeishuChat(item, chatRef) && ['failed', 'needs_input', 'waiting_test'].includes(item.status)));
         if (!task)
             return { kind: 'follow_up', task: null, reply: '当前聊天没有需要继续处理的工作。' };
         if (typeof this.tasks?.notificationStatus === 'function') {
@@ -111,7 +111,7 @@ export const feishuCommanderFollowupMethods: Record<string, any> = {
         }
         const tasks: any = await this.store.list();
         const task: any = [...tasks]
-            .filter((item: any): any => item.source?.channel === 'feishu' && item.source?.chatRef === chatRef && !item.parentTaskId && isTaskExecutionClosedStatus(item.status))
+            .filter((item: any): any => isTaskInFeishuChat(item, chatRef) && !item.parentTaskId && isTaskExecutionClosedStatus(item.status))
             .sort((left: any, right: any): any => taskTime(right) - taskTime(left))[0] || null;
         if (!task)
             return { kind: 'task_feedback', reply: '这条会话里暂时没有刚完成的工作可以评价，我没有新建任何任务。' };
@@ -167,7 +167,7 @@ export const feishuCommanderFollowupMethods: Record<string, any> = {
     async requestTaskControl(chatRef: any, action: any, { returnNothingWhenMissing = false }: any = {}): Promise<any> {
         if (!this.store || !chatRef)
             return { kind: 'task_control', reply: '我暂时找不到当前会话里的任务，不能直接暂停或继续。' };
-        const tasks: any = (await this.store.list()).filter((task: any): any => task.source?.channel === 'feishu' && task.source?.chatRef === chatRef);
+        const tasks: any = (await this.store.list()).filter((task: any): any => isTaskInFeishuChat(task, chatRef));
         const task: any = mostRelevantTask(tasks.filter((item: any): any => action === 'pause' ? ['queued', 'running', 'pausing'].includes(item.status) : item.status === 'paused'));
         if (!task) {
             if (action === 'resume') {
@@ -193,3 +193,11 @@ export const feishuCommanderFollowupMethods: Record<string, any> = {
         };
     }
 };
+function isTaskInFeishuChat(task: any, chatRef: any): boolean {
+    if (!task?.source || !chatRef) return false;
+    const taskChatRef = String(task.source.chatRef || '').trim();
+    if (taskChatRef !== String(chatRef).trim()) return false;
+    const channel = String(task.source.channel || '').trim();
+    const eventRef = String(task.source.eventRef || '').trim();
+    return channel === 'feishu' || eventRef.startsWith('feishu:') || (!channel && Boolean(taskChatRef));
+}

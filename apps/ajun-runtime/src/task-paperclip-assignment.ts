@@ -133,7 +133,7 @@ export const taskPaperclipAssignmentMethods: Record<string, any> = {
                 assigneeAgentId: agent.agentId,
                 source: {
                     ...(task.source || {}),
-                    channel: 'paperclip',
+                    channel: task.source?.channel || 'paperclip',
                     paperclipIssueId: identity.issue.id,
                     paperclipRunId: identity.run.id,
                 },
@@ -191,7 +191,7 @@ export const taskPaperclipAssignmentMethods: Record<string, any> = {
                 assigneeAgentId: agent.agentId,
                 source: {
                     ...(task.source || {}),
-                    channel: 'paperclip',
+                    channel: task.source?.channel || 'paperclip',
                     paperclipIssueId: identity.issue.id,
                     paperclipRunId: identity.run.id,
                 },
