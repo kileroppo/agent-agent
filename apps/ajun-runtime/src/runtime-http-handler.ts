@@ -622,24 +622,11 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                         const stat: any = await fs.stat(filePath);
                         if (stat.isFile()) {
                             const ext: any = path.extname(filePath).toLowerCase();
-                            const mimeMap: Record<string, string> = {
-                                '.html': 'text/html; charset=utf-8',
-                                '.js': 'text/javascript; charset=utf-8',
-                                '.mjs': 'text/javascript; charset=utf-8',
-                                '.css': 'text/css; charset=utf-8',
-                                '.svg': 'image/svg+xml',
-                                '.png': 'image/png',
-                                '.jpg': 'image/jpeg',
-                                '.jpeg': 'image/jpeg',
-                                '.ico': 'image/x-icon',
-                                '.json': 'application/json; charset=utf-8',
-                            };
+                            const mimeMap: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.ico': 'image/x-icon', '.json': 'application/json; charset=utf-8' };
                             return sendFile(response, publicDir, cleanRelative, mimeMap[ext] || 'application/octet-stream');
                         }
                     }
-                    catch {
-                        // ignore and return 404
-                    }
+                    catch { /* fall through to 404 */ }
                 }
             }
             return sendJson(response, 404, { error: '未找到该入口。' });
