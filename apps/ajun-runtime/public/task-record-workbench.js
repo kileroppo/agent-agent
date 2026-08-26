@@ -342,39 +342,16 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             const timeHover = `创建于 ${createdFull || '未记录'}${task.updatedAt && task.updatedAt !== task.createdAt ? ` · 更新于 ${updatedFull}` : ''}`;
             const timeDisplay = createdFull ? `${createdFull.slice(5, 16)} (${relativeTime(task.createdAt || task.updatedAt)})` : relativeTime(task.updatedAt || task.createdAt);
             const children = childrenMap.get(task.taskId) || [];
-            const childrenHtml = children.length ? html `
-                <div class="record-subtasks-tree">
-                    ${raw(children.map((child) => {
-                const childSelected = state.selectedTaskId === child.taskId;
-                const childPres = child.presentation || {};
-                const childTone = childPres.tone || 'active';
-                const childCreatedFull = formatFullDateTime(child.createdAt);
-                const childTimeDisplay = childCreatedFull ? `${childCreatedFull.slice(5, 16)} (${relativeTime(child.createdAt || child.updatedAt)})` : relativeTime(child.updatedAt || child.createdAt);
-                return html `
-                            <button class="record-row is-subtask${childSelected ? ' is-selected' : ''}" type="button" role="option" aria-selected="${childSelected}" data-record-task-id="${child.taskId}">
-                                <span class="subtask-tree-branch">↳</span>
-                                <span class="record-row-main">
-                                    <span class="record-row-title">${raw(displaySubtaskTitle(child, task))}</span>
-                                    <span class="record-row-meta"><span>${agentName(child.assigneeAgentId)}</span><span>·</span><span>${childTimeDisplay}</span></span>
-                                </span>
-                                <span class="record-row-status ${childTone}">${childPres.statusLabel || ''}</span>
-                            </button>
-                        `;
-            }).join(''))}
-                </div>
-            ` : '';
+            const retryBadgeHtml = children.length ? `<span class="task-badge-pill badge-rework" title="该任务共产生 ${children.length} 轮重试/协同环节">🔁 ${children.length} 轮重试</span>` : '';
             return html `
-                <div class="record-task-tree-node">
-                    <button class="record-row${selected ? ' is-selected' : ''}${children.length ? ' has-subtasks' : ''}" type="button" role="option" aria-selected="${selected}" data-record-task-id="${task.taskId}">
-                        <span class="record-row-main">
-                            <span class="record-row-title">${raw(displayTaskTitle(task))}</span>
-                            ${raw(reason ? html `<span class="record-row-reason">${reason}</span>` : '')}
-                            <span class="record-row-meta" title="${escapeHtml(timeHover)}"><span>${agentName(task.assigneeAgentId)}</span><span>·</span><span>${timeDisplay}</span></span>
-                        </span>
-                        <span class="record-row-status ${tone}">${presentation.statusLabel || ''}</span>
-                    </button>
-                    ${raw(childrenHtml)}
-                </div>
+                <button class="record-row${selected ? ' is-selected' : ''}" type="button" role="option" aria-selected="${selected}" data-record-task-id="${task.taskId}">
+                    <span class="record-row-main">
+                        <span class="record-row-title">${raw(displayTaskTitle(task))} ${raw(retryBadgeHtml)}</span>
+                        ${raw(reason ? html `<span class="record-row-reason">${reason}</span>` : '')}
+                        <span class="record-row-meta" title="${escapeHtml(timeHover)}"><span>${agentName(task.assigneeAgentId)}</span><span>·</span><span>${timeDisplay}</span></span>
+                    </span>
+                    <span class="record-row-status ${tone}">${presentation.statusLabel || ''}</span>
+                </button>
             `;
         }).join('');
     }

@@ -62,11 +62,15 @@ function renderMultiTaskWorkflowTree(task: any, breadcrumb: any, agentNameFn: (i
     const rawArtifacts = Array.isArray(t.artifactRefs) ? t.artifactRefs : [];
     const artifacts = rawArtifacts.filter((a: any) => a?.type !== 'employee_execution_report');
     const artifactsHtml = artifacts.map((art: any) => {
-      const name = cleanTreeText(art?.title || art?.name || art?.type || '产物', 30);
+      const name = cleanTreeText(art?.title || art?.name || art?.type || '交付产物', 35);
+      const url = art?.url || art?.downloadUrl || art?.location || art?.path || '';
       return `<div class="tree-artifact-leaf">
-          <svg class="tree-leaf-icon" aria-hidden="true"><use href="#icon-records"></use></svg>
-          <span class="tree-art-name">${escapeHtml(name)}</span>
-          <span class="artifact-type-tag">交付产物</span>
+          <div class="tree-art-name">
+            <svg class="tree-leaf-icon" aria-hidden="true"><use href="#icon-records"></use></svg>
+            <span>${escapeHtml(name)}</span>
+            <span class="artifact-type-tag">交付产物</span>
+          </div>
+          ${url ? `<button type="button" class="text-action" data-copy-path="${escapeHtml(url)}">复制路径</button>` : ''}
         </div>`;
     }).join('');
 

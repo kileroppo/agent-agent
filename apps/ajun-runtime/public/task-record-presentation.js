@@ -71,35 +71,31 @@ export function displayTaskTitle(task) {
     const badgeSpans = parsed.badges.map((b) => `<span class="task-badge-pill badge-${b.tone}" title="${escapeHtml(b.tooltip)}">${b.label}</span>`).join(' ');
     return `<span class="task-title-wrapper">${badgeSpans} <span class="task-title-text">${escapeHtml(parsed.cleanTitle)}</span></span>`;
 }
-export function displaySubtaskTitle(childTask, parentTask = null) {
+export function displaySubtaskTitle(childTask, _parentTask = null) {
     const rawTitle = String(childTask?.input?.title || childTask?.title || '子任务').trim();
-    const parentRawTitle = String(parentTask?.input?.title || parentTask?.title || '').trim();
     const parsed = parseTaskTitle(rawTitle);
-    const parentParsed = parseTaskTitle(parentRawTitle);
     const reworkBadge = parsed.badges.find((b) => b.tone === 'rework');
     const qualityBadge = parsed.badges.find((b) => b.tone === 'quality');
     const faultBadge = parsed.badges.find((b) => b.tone === 'fault');
-    // If it is a rework task, display clean round label and eliminate title duplication
+    // 1. 重试/返工任务：只显示“第 N 轮重试”，绝不带原任务标题
     if (reworkBadge) {
         const roundNumMatch = reworkBadge.label.match(/\d+/);
-        const roundText = roundNumMatch ? `第 ${roundNumMatch[0]} 轮质量返工` : '定向返工迭代';
+        const roundText = roundNumMatch ? `第 ${roundNumMatch[0]} 轮重试` : '定向返工重试';
         return `<span class="task-badge-pill badge-rework" title="${escapeHtml(reworkBadge.tooltip)}">${reworkBadge.label}</span> <span class="task-title-text">${roundText}</span>`;
     }
-    // If it is a quality review task
+    // 2. 质检复核
     if (qualityBadge) {
         return `<span class="task-badge-pill badge-quality" title="${escapeHtml(qualityBadge.tooltip)}">${qualityBadge.label}</span> <span class="task-title-text">交付质量复核</span>`;
     }
-    // If it is a fault recovery task
+    // 3. 故障自动恢复
     if (faultBadge) {
         return `<span class="task-badge-pill badge-fault" title="${escapeHtml(faultBadge.tooltip)}">${faultBadge.label}</span> <span class="task-title-text">故障自动恢复</span>`;
     }
-    // If title is identical to parent's clean title, don't repeat the long text!
-    if (parentParsed.cleanTitle && parsed.cleanTitle.toLowerCase() === parentParsed.cleanTitle.toLowerCase()) {
-        const badgeSpans = parsed.badges.map((b) => `<span class="task-badge-pill badge-${b.tone}" title="${escapeHtml(b.tooltip)}">${b.label}</span>`).join(' ');
-        return `${badgeSpans} <span class="task-title-text">衍生协同环节</span>`;
+    // 4. 原始初稿或其它协同环节
+    if (!childTask?.parentTaskId) {
+        return `<span class="task-badge-pill badge-quality">🌱 初稿</span> <span class="task-title-text">原始初稿生成</span>`;
     }
-    // Otherwise show its distinct title
-    return displayTaskTitle(childTask);
+    return `<span class="task-badge-pill badge-paperclip">🌱 协同</span> <span class="task-title-text">衍生协同环节</span>`;
 }
 export function relativeTime(value) {
     const timestamp = Date.parse(value || '');
