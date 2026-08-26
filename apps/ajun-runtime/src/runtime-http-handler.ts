@@ -599,20 +599,37 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 return sendJson(response, 200, { task: decision === 'approve' ? await tasks.approveApproval(approvalId, options) : await tasks.rejectApproval(approvalId, options) });
             }
             const publicPath: any = new URL(request.url || '/', 'http://127.0.0.1').pathname;
-            if (request.method === 'GET' && (publicPath === '/' || publicPath === '/index.html' || /^\/tasks\/[0-9a-f-]{36}$/i.test(publicPath)))
-                return sendFile(response, publicDir, 'index.html', 'text/html; charset=utf-8');
-            if (request.method === 'GET' && (publicPath === '/app.js' || publicPath === '/overview-presentation.js' || publicPath === '/hot-reload-client.js' || publicPath === '/app-access-views.js' || publicPath === '/app-interactions.js'))
-                return sendFile(response, publicDir, publicPath.slice(1), 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && (publicPath === '/stepfun-model-policy-console.js' || publicPath === '/runtime-release-console.js' || publicPath === '/refresh-scheduler.js' || publicPath === '/boom-monitor-console.js' || publicPath === '/billing-entry-filter.js' || publicPath === '/billing-ledger-workbench.js'))
-                return sendFile(response, publicDir, publicPath.slice(1), 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && (publicPath === '/billing-usage-cache.js' || publicPath === '/console-labels.js' || publicPath === '/html.js' || publicPath === '/console-navigation.js' || publicPath === '/disclosure-state.js' || publicPath === '/task-record-filter.js' || publicPath === '/task-record-detail-view.js' || publicPath === '/task-record-workbench.js' || publicPath === '/task-timeline-view.js' || publicPath === '/task-flow-view.js' || publicPath === '/task-tree-view.js'))
-                return sendFile(response, publicDir, publicPath.slice(1), 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && (publicPath === '/format-utils.js' || publicPath === '/night-mode.js' || publicPath === '/context-nav-injection.js' || publicPath === '/employee-view.js' || publicPath === '/overview-view.js' || publicPath === '/billing-view.js'))
-                return sendFile(response, publicDir, publicPath.slice(1), 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && (publicPath === '/interactions/access-gate-interactions.js' || publicPath === '/interactions/ai-control-interactions.js' || publicPath === '/interactions/employee-interactions.js' || publicPath === '/interactions/access-connection-interactions.js' || publicPath === '/interactions/campaign-interactions.js'))
-                return sendFile(response, publicDir, publicPath.slice(1), 'text/javascript; charset=utf-8');
-            if (request.method === 'GET' && (publicPath === '/styles.css' || publicPath === '/tokens.css'))
-                return sendFile(response, publicDir, publicPath.slice(1), 'text/css; charset=utf-8');
+            if (request.method === 'GET') {
+                if (publicPath === '/' || publicPath === '/index.html' || /^\/tasks\/[0-9a-f-]{36}$/i.test(publicPath))
+                    return sendFile(response, publicDir, 'index.html', 'text/html; charset=utf-8');
+                const cleanRelative: any = path.normalize(publicPath.replace(/^\/+/, '')).replace(/^(\.\.[\/\\])+/, '');
+                const filePath: any = path.join(publicDir, cleanRelative);
+                const rel: any = path.relative(publicDir, filePath);
+                if (!rel.startsWith('..') && !path.isAbsolute(rel)) {
+                    try {
+                        const stat: any = await fs.stat(filePath);
+                        if (stat.isFile()) {
+                            const ext: any = path.extname(filePath).toLowerCase();
+                            const mimeMap: Record<string, string> = {
+                                '.html': 'text/html; charset=utf-8',
+                                '.js': 'text/javascript; charset=utf-8',
+                                '.mjs': 'text/javascript; charset=utf-8',
+                                '.css': 'text/css; charset=utf-8',
+                                '.svg': 'image/svg+xml',
+                                '.png': 'image/png',
+                                '.jpg': 'image/jpeg',
+                                '.jpeg': 'image/jpeg',
+                                '.ico': 'image/x-icon',
+                                '.json': 'application/json; charset=utf-8',
+                            };
+                            return sendFile(response, publicDir, cleanRelative, mimeMap[ext] || 'application/octet-stream');
+                        }
+                    }
+                    catch {
+                        // ignore and return 404
+                    }
+                }
+            }
             return sendJson(response, 404, { error: '未找到该入口。' });
         }
         catch (error: any) {

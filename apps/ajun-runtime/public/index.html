@@ -8,6 +8,15 @@
   <title>A君运行台</title>
   <link rel="stylesheet" href="/tokens.css">
   <link rel="stylesheet" href="/styles.css">
+  <script>
+    window.addEventListener('error', function () {
+      var el = document.getElementById('sync-status');
+      var ind = document.getElementById('sync-indicator');
+      if (el && el.textContent === '正在同步…') el.textContent = '页面加载异常，请刷新';
+      if (ind) ind.className = 'sync-indicator error';
+      document.body.classList.remove('is-loading');
+    });
+  </script>
 </head>
 <body class="is-loading">
   <svg class="icon-sprite" aria-hidden="true">
