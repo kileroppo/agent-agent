@@ -51,12 +51,20 @@ function renderMultiTaskWorkflowTree(task: any, breadcrumb: any, agentNameFn: (i
     ? siblings.map((s: any) => s.taskId === task.taskId ? currentTaskItem : s)
     : [currentTaskItem, ...siblings];
 
+  const parentAssignee = task.assigneeAgentId ? agentNameFn(task.assigneeAgentId) : '';
+
   const tasksTreeHtml = allTasks.map((t: any, index: number) => {
     const isCurrent = t.isCurrent;
     const taskRef = String(t.taskId || '').replace(/[^0-9a-z]/gi, '').slice(0, 8).toUpperCase();
     const statusTone = statusToTone(t.status);
     const statusLabel = statusToLabel(t.status);
-    const agent = agentNameFn(t.assigneeAgentId);
+    const rawAgent = t.assigneeAgentId ? agentNameFn(t.assigneeAgentId) : '';
+    const isUnassigned = !rawAgent || rawAgent === '等待分配' || rawAgent === '未指派员工' || rawAgent === '未知员工';
+    const agent = !isUnassigned
+      ? rawAgent
+      : (parentAssignee && !['等待分配', '未指派员工', '未知员工'].includes(parentAssignee)
+          ? parentAssignee
+          : (['running', 'succeeded'].includes(t.status) ? '自动质检流水线' : '待指派员工'));
     const duration = t.createdAt ? formatDuration(t.createdAt, t.completedAt) : '';
 
     const rawArtifacts = Array.isArray(t.artifactRefs) ? t.artifactRefs : [];

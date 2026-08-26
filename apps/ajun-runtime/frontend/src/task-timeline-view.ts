@@ -13,127 +13,21 @@ export function renderTaskTimeline(payload: any, options: { showAllDetails?: boo
         return '<details class="record-detail-section task-timeline" data-task-timeline open><summary>过程</summary><p class="task-timeline-empty">没有过程记录。</p></details>';
     }
 
-    // 1. Identify key business milestones vs raw noisy trace events
-    const { milestones, rawTrace } = partitionTimelineItems(rawItems);
-
-    // If total items <= 3, render single unified flat timeline (No repetitive sections)
-    if (rawItems.length <= 3) {
-        const itemsHtml = rawItems.map((item) => renderTimelineItem(item)).join('');
-        return html`
-            <details class="record-detail-section task-timeline" data-task-timeline open>
-                <summary><span>实施过程</span><small>${rawItems.length} 个节点</small></summary>
-                ${raw(renderActiveFilters(payload?.filters))}
-                <ol class="task-timeline-list">
-                    ${raw(itemsHtml)}
-                </ol>
-                ${raw(payload?.nextCursor ? '<button class="text-action task-timeline-more" type="button" data-task-timeline-more>继续加载</button>' : '')}
-            </details>
-        `;
-    }
-
-    // When items > 3: Milestones on top, full trace collapsed in disclosure below
-    const milestonesHtml = html`
-        <div class="timeline-milestones-section">
-            <div class="timeline-section-header">
-                <div class="timeline-header-title">
-                    <svg class="timeline-header-icon" aria-hidden="true"><use href="#icon-spark"></use></svg>
-                    <strong>实施核心进展 (${milestones.length})</strong>
-                </div>
-                <span class="timeline-header-tip">已自动提炼关键节点</span>
-            </div>
-            <ol class="timeline-milestones-list">
-                ${raw(milestones.map((item, idx) => renderMilestoneItem(item, idx === milestones.length - 1)).join(''))}
-            </ol>
-        </div>
-    `;
-
-    const itemsHtml = rawTrace.map((item) => renderTimelineItem(item)).join('');
+    const itemsHtml = rawItems.map((item) => renderTimelineItem(item)).join('');
 
     return html`
         <details class="record-detail-section task-timeline" data-task-timeline open>
             <summary><span>过程</span><small>${rawItems.length}</small></summary>
             ${raw(renderActiveFilters(payload?.filters))}
-            ${raw(milestonesHtml)}
-            <details class="timeline-trace-disclosure">
-                <summary class="timeline-trace-summary">
-                    <span class="trace-summary-left">
-                        <svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg>
-                        <span>完整排障日志与技术追踪</span>
-                        <small class="trace-count">${rawItems.length} 条记录</small>
-                    </span>
-                </summary>
-                <div class="timeline-trace-content">
-                    <ol class="task-timeline-list">
-                        ${raw(itemsHtml)}
-                    </ol>
-                    ${raw(payload?.nextCursor ? '<button class="text-action task-timeline-more" type="button" data-task-timeline-more>继续加载</button>' : '')}
-                </div>
-            </details>
+            <ol class="task-timeline-list">
+                ${raw(itemsHtml)}
+            </ol>
+            ${raw(payload?.nextCursor ? '<button class="text-action task-timeline-more" type="button" data-task-timeline-more>继续加载</button>' : '')}
         </details>
     `;
 }
 
-function partitionTimelineItems(items: any[]): { milestones: any[]; rawTrace: any[] } {
-    const milestones: any[] = [];
-    const rawTrace: any[] = [];
-    let lastSummary = '';
 
-    for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        const isMilestone = isHighValueMilestone(item, i, items.length);
-
-        if (isMilestone) {
-            if (item.summary !== lastSummary) {
-                milestones.push(item);
-                lastSummary = item.summary;
-            }
-        }
-        rawTrace.push(item);
-    }
-
-    if (milestones.length === 0 && items.length > 0) {
-        milestones.push(items[0]);
-    }
-
-    return { milestones, rawTrace };
-}
-
-function isHighValueMilestone(item: any, index: number, total: number): boolean {
-    if (index === 0 || index === total - 1) return true;
-    if (item?.technical?.qualityResult || (item?.technical?.artifactRefs && item.technical.artifactRefs.length > 0)) {
-        return true;
-    }
-    if (['danger', 'warning'].includes(item?.tone)) {
-        return true;
-    }
-    const title = String(item?.title || '').toLowerCase();
-    const summary = String(item?.summary || '').toLowerCase();
-    const keywords = ['开始', '认领', '生成', '交付', '审核', '复核', '完成', '验收', '失败', '异常', '中断', '创建', '转录', '采纳'];
-    return keywords.some(k => title.includes(k) || summary.includes(k));
-}
-
-function renderMilestoneItem(item: any, isLatest: boolean): string {
-    const occurredAt = formatTime(item?.occurredAt);
-    const tone = safeTone(item?.tone);
-    const icon = ({ success: 'check', warning: 'alert', danger: 'alert', active: 'clock' } as Record<string, string>)[tone] || 'clock';
-
-    return html`
-        <li class="milestone-item is-${tone} ${isLatest ? 'is-latest' : ''}">
-            <div class="milestone-badge-wrapper">
-                <span class="milestone-dot">
-                    <svg class="milestone-icon" aria-hidden="true"><use href="#icon-${icon}"></use></svg>
-                </span>
-            </div>
-            <div class="milestone-body">
-                <div class="milestone-header">
-                    <strong class="milestone-title">${item?.title || '实施节点'}</strong>
-                    ${raw(occurredAt ? html`<time class="milestone-time" datetime="${item.occurredAt}">${occurredAt}</time>` : '')}
-                </div>
-                ${raw(item?.summary ? html`<p class="milestone-summary">${item.summary}</p>` : '')}
-            </div>
-        </li>
-    `;
-}
 
 function renderTimelineItem(item: any): string {
     const occurredAt = formatTime(item?.occurredAt);

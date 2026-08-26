@@ -114,7 +114,12 @@ const state: any = {
 };
 
 function agentName(agentId: any): any {
-    return state.overview?.agents.find((agent: any): any => agent.agentId === agentId)?.name || '等待分配';
+    if (!agentId) return '未指派员工';
+    const matched = state.overview?.agents.find((agent: any): any => agent.agentId === agentId)?.name;
+    if (matched) return matched;
+    if (agentId === 'reviewer') return '质检复核员';
+    if (agentId === 'rework_worker') return '返工专员';
+    return String(agentId);
 }
 
 // 5. Views and Workbenches Initialization

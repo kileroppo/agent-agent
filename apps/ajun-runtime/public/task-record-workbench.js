@@ -460,7 +460,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         `;
         // Drawer overlay for subtask preview
         const subtaskDrawerHtml = state.previewSubtaskData
-            ? renderSubtaskDrawer(state.previewSubtaskData, { agentName })
+            ? renderSubtaskDrawer(state.previewSubtaskData, { agentName, parentAgent: agentName(task.assigneeAgentId) })
             : '';
         elements.detail.innerHTML = html `
       <button class="record-detail-back" type="button">返回</button>
@@ -720,14 +720,37 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         state.acceptanceState.set(task.taskId, { status: 'submitting', decision, note, revision: target.revision, idempotencyKey });
         renderDetail();
         try {
-            const payload = await submitAcceptance({ target, decision, note, idempotencyKey });
+            if (target.workflowId && !target.workflowId.startsWith('WF-')) {
+                const payload = await submitAcceptance({ target, decision, note, idempotencyKey });
+                if (payload?.task)
+                    state.selectedTask = withAcceptanceTarget(payload);
+            }
+            else {
+                const session = await api('/api/owner-action-session');
+                const nonce = String(session?.nonce || '').trim();
+                if (!nonce)
+                    throw new Error('暂时无法取得本机操作授权');
+                const actionKey = decision === 'accepted' ? 'accept_reviewed_artifact' : 'retry_task';
+                try {
+                    await api(`/api/tasks/${encodeURIComponent(task.taskId)}/recovery-actions/${actionKey}`, {
+                        method: 'POST',
+                        headers: {
+                            'content-type': 'application/json',
+                            'Idempotency-Key': idempotencyKey,
+                            'X-Ajun-Owner-Action': nonce,
+                        },
+                        body: JSON.stringify({ expectedUpdatedAt: task.updatedAt || null, note }),
+                    });
+                }
+                catch {
+                    await submitAcceptance({ target, decision, note, idempotencyKey });
+                }
+            }
             state.acceptanceState.set(task.taskId, {
                 status: 'saved',
                 decision,
-                message: decision === 'accepted' ? '已记为有用' : '已记为需改进',
+                message: decision === 'accepted' ? '已记为有用，任务已满意闭环' : '已记为需改进，系统将发起修正',
             });
-            if (payload?.task)
-                state.selectedTask = withAcceptanceTarget(payload);
             await loadRecords();
         }
         catch (error) {

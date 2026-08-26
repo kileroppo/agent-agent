@@ -54,23 +54,50 @@ export class TaskRecordService {
             : null;
         let acceptanceTarget: any = null;
         let workflowSiblings: any[] = [];
-        if (audience === 'local-owner' && task?.workflow?.workflowId) {
-            const workflowId: any = task.workflow.workflowId;
-            const [workflowTasks, acceptance] = await Promise.all([
-                typeof this.store.listWorkflowTasks === 'function'
-                    ? this.store.listWorkflowTasks(workflowId)
-                    : this.store.list().then((items: any[]): any => items.filter((item: any): any => item?.workflow?.workflowId === workflowId)),
-                typeof this.store.getWorkflowAcceptance === 'function'
-                    ? this.store.getWorkflowAcceptance(workflowId)
-                    : null,
-            ]);
-            acceptanceTarget = buildWorkflowAcceptanceTarget(task, workflowTasks, acceptance);
-            workflowSiblings = (Array.isArray(workflowTasks) ? workflowTasks : [])
+        if (audience === 'local-owner') {
+            const workflowId: any = task?.workflow?.workflowId;
+            const allStoreTasks = typeof this.store.list === 'function' ? await this.store.list() : [];
+            let relatedTasks: any[] = [];
+
+            if (workflowId) {
+                if (typeof this.store.listWorkflowTasks === 'function') {
+                    relatedTasks = await this.store.listWorkflowTasks(workflowId);
+                } else {
+                    relatedTasks = allStoreTasks.filter((item: any): any => item?.workflow?.workflowId === workflowId);
+                }
+            }
+
+            // Also find all child rework tasks attached via parentTaskId or same rootTaskId
+            const rootId = task.parentTaskId || task.taskId;
+            const parentOrChildTasks = allStoreTasks.filter((item: any): any => {
+                if (!item || !item.taskId) return false;
+                if (item.parentTaskId === task.taskId || item.taskId === task.parentTaskId) return true;
+                if (rootId && (item.parentTaskId === rootId || item.taskId === rootId)) return true;
+                return false;
+            });
+
+            const mergedTasksMap = new Map<string, any>();
+            for (const t of [...relatedTasks, ...parentOrChildTasks]) {
+                if (t?.taskId) mergedTasksMap.set(t.taskId, t);
+            }
+            const allRelatedTasks = [...mergedTasksMap.values()];
+
+            const acceptance = workflowId && typeof this.store.getWorkflowAcceptance === 'function'
+                ? await this.store.getWorkflowAcceptance(workflowId)
+                : null;
+
+            acceptanceTarget = buildWorkflowAcceptanceTarget(task, allRelatedTasks, acceptance);
+            workflowSiblings = allRelatedTasks
                 .filter((sibling: any): any => sibling?.taskId && sibling.taskId !== task.taskId)
                 .map((sibling: any): any => ({
                     taskId: String(sibling.taskId || '').slice(0, 120),
                     title: String(sibling.input?.title || sibling.title || '').replace(/\s+/g, ' ').trim().slice(0, 200),
                     status: String(sibling.status || '').slice(0, 80),
+                    assigneeAgentId: String(sibling.assigneeAgentId || '').slice(0, 120) || null,
+                    createdAt: safeDate(sibling.createdAt),
+                    completedAt: safeDate(sibling.completedAt),
+                    artifactRefs: safeArtifactMetadata(sibling.artifactRefs, true),
+                    input: safeOwnerInput(sibling.input),
                 }));
         }
         return presentRecord(task, approvals, this.taskDetailBaseUrl, recoveryView, audience, this.paperclipBaseUrl, acceptanceTarget, workflowSiblings);
@@ -327,12 +354,12 @@ function buildCostAttribution(task: any): any {
 }
 function buildWorkflowBreadcrumb(task: any, siblings: any[]): any {
     const workflowId: any = String(task?.workflow?.workflowId || '').trim();
-    if (!workflowId)
+    if (!workflowId && (!siblings || siblings.length === 0))
         return null;
     return {
-        workflowId,
-        currentStepId: String(task.workflow.step?.stepId || '').trim() || null,
-        parentWorkflowId: String(task.workflow.parentWorkflowId || '').trim() || null,
+        workflowId: workflowId || (task.taskId ? `WF-${task.taskId.slice(0, 8)}` : 'WF-MAIN'),
+        currentStepId: String(task?.workflow?.step?.stepId || '').trim() || null,
+        parentWorkflowId: String(task?.workflow?.parentWorkflowId || '').trim() || null,
         siblings: Array.isArray(siblings) ? siblings.slice(0, 50) : [],
     };
 }

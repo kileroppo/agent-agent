@@ -38,26 +38,42 @@ export function taskAttentionView(task: any = {}): any {
 
 export function acceptanceTargetView(task: any = {}): any {
     const source: any = task?.acceptanceTarget;
-    if (!source || typeof source !== 'object')
-        return null;
-    const workflowId: any = cleanAttentionText(source.workflowId, 160);
-    if (!workflowId)
-        return null;
-    const decision: any = ['accepted', 'revision_required'].includes(source.decision)
-        ? source.decision
-        : null;
-    const sourceRevision: any = source.revision ?? source.version;
-    const revision: any = typeof sourceRevision === 'number' && Number.isFinite(sourceRevision)
-        ? sourceRevision
-        : cleanAttentionText(sourceRevision, 120) || null;
-    return {
-        workflowId,
-        title: cleanAttentionText(source.title, 240) || cleanAttentionText(task?.input?.title, 240) || '本次业务结果',
-        status: cleanAttentionText(source.status || source.workflowStatus, 80) || (decision ? 'decided' : 'waiting_acceptance'),
-        decision,
-        revision,
-        actionable: source.actionable === true && !decision,
-    };
+    const workflowId: any = cleanAttentionText(source?.workflowId || task?.workflow?.workflowId || (task?.taskId ? `WF-${task.taskId.slice(0, 8)}` : ''), 160);
+    const hasArtifacts = Array.isArray(task?.artifactRefs) && task.artifactRefs.length > 0;
+    const isUnsettled = ['running', 'waiting_test', 'waiting_acceptance', 'needs_action'].includes(task?.status);
+
+    if (source && typeof source === 'object') {
+        const decision: any = ['accepted', 'revision_required'].includes(source.decision)
+            ? source.decision
+            : null;
+        const sourceRevision: any = source.revision ?? source.version;
+        const revision: any = typeof sourceRevision === 'number' && Number.isFinite(sourceRevision)
+            ? sourceRevision
+            : cleanAttentionText(sourceRevision, 120) || null;
+        return {
+            workflowId: workflowId || (task?.taskId ? `WF-${task.taskId.slice(0, 8)}` : 'WF-MAIN'),
+            title: cleanAttentionText(source.title, 240) || cleanAttentionText(task?.input?.title, 240) || '本次业务结果',
+            status: cleanAttentionText(source.status || source.workflowStatus, 80) || (decision ? 'decided' : 'waiting_acceptance'),
+            decision,
+            revision,
+            actionable: (source.actionable === true || (hasArtifacts && isUnsettled)) && !decision,
+        };
+    }
+
+    // Fallback: If task has deliverables and is waiting for user acceptance or has completed
+    if (hasArtifacts && (isUnsettled || task?.status === 'succeeded')) {
+        const decision = task?.status === 'succeeded' ? 'accepted' : null;
+        return {
+            workflowId: workflowId || (task?.taskId ? `WF-${task.taskId.slice(0, 8)}` : 'WF-MAIN'),
+            title: cleanAttentionText(task?.input?.title || task?.title, 240) || '本次业务结果',
+            status: isUnsettled ? 'waiting_acceptance' : 'decided',
+            decision,
+            revision: 1,
+            actionable: isUnsettled,
+        };
+    }
+
+    return null;
 }
 
 export function renderAcceptanceDetail(target: any, submission: any, _escapeHtml: any): any {
@@ -77,16 +93,19 @@ export function renderAcceptanceDetail(target: any, submission: any, _escapeHtml
     const controls: any = target.actionable && !closed
         ? html`<label class="record-acceptance-note">说明（可选）<textarea rows="2" maxlength="1000" data-acceptance-note placeholder="哪里有用，或下次改什么"${raw(submitting ? ' disabled' : '')}>${submission?.note || ''}</textarea></label>
         <div class="record-acceptance-actions">
-          <button type="button" data-acceptance-decision="accepted"${raw(submitting ? ' disabled' : '')}>${submitting && submission?.decision === 'accepted' ? '保存中…' : '有用'}</button>
+          <button type="button" class="focus-primary-action" data-acceptance-decision="accepted"${raw(submitting ? ' disabled' : '')}>${submitting && submission?.decision === 'accepted' ? '保存中…' : '有用'}</button>
           <button type="button" class="secondary-action" data-acceptance-decision="revision_required"${raw(submitting ? ' disabled' : '')}>${submitting && submission?.decision === 'revision_required' ? '保存中…' : '需改进'}</button>
         </div>
         <div class="acceptance-actions-hints">
-          <span class="acceptance-hint">✓ 点击「有用」将满意闭环并归档</span>
+          <span class="acceptance-hint">✓ 点击「有用」将满意闭环并归档为已完成</span>
           <span class="acceptance-hint">🔁 点击「需改进」将自动调度 AI 发起下一轮针对性修正</span>
         </div>`
         : '';
     return html`<section class="record-acceptance${raw(closed ? ' is-closed' : '')}" aria-label="业务结果验收">
-      <h3>${headline}</h3>
+      <div class="acceptance-card-header">
+        <svg width="18" height="18" aria-hidden="true"><use href="#icon-shield"></use></svg>
+        <h3>${headline}</h3>
+      </div>
       <p><strong>${target.title}</strong></p>
       ${raw(controls)}${raw(feedback)}
     </section>`;
@@ -500,10 +519,16 @@ export function renderTaskLineageCard(task: any = {}, parsedTitle: any = null, a
     `;
 }
 
-export function renderSubtaskDrawer(subtask: any, options: { agentName?: (id: string) => string } = {}): string {
+export function renderSubtaskDrawer(subtask: any, options: { agentName?: (id: string) => string; parentAgent?: string } = {}): string {
     if (!subtask) return '';
-    const agentNameFn = options.agentName || ((id: string) => id || '未知员工');
-    const agent = agentNameFn(subtask.assigneeAgentId);
+    const agentNameFn = options.agentName || ((id: string) => id || '未指派员工');
+    const rawAgent = subtask.assigneeAgentId ? agentNameFn(subtask.assigneeAgentId) : '';
+    const isUnassigned = !rawAgent || rawAgent === '等待分配' || rawAgent === '未指派员工' || rawAgent === '未知员工';
+    const agent = !isUnassigned
+        ? rawAgent
+        : (options.parentAgent && !['等待分配', '未指派员工', '未知员工'].includes(options.parentAgent)
+            ? options.parentAgent
+            : (['running', 'succeeded'].includes(subtask.status) ? '自动质检流水线' : '待指派员工'));
     const created = formatFullDateTime(subtask.createdAt);
     const duration = subtask.createdAt ? formatDuration(subtask.createdAt, subtask.completedAt || subtask.updatedAt) : '';
     const rawArtifacts = Array.isArray(subtask.artifactRefs) ? subtask.artifactRefs : [];
