@@ -26,7 +26,7 @@
     "check:typescript-ratio": "node scripts/check-typescript-ratio.mjs",
     "check": "tsc -p tsconfig.json && npm run build:frontend && npm run check:typescript-ratio",
     "pretest": "npm run check",
-    "test": "node --test"
+    "test": "node --test 'test/*.test.js'"
   },
   "dependencies": {
     "@agent-army/m5-contracts": "0.1.0",
