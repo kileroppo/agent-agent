@@ -9,12 +9,10 @@ import {
     renderCostSection,
     renderDeliverySink,
     renderOriginCard,
-    renderViewModeSwitcher,
-    renderWorkflowBreadcrumb,
     taskAttentionView,
 } from './task-record-detail-view.js';
 import { createTaskTimelineLoader } from './task-timeline-view.js';
-import { renderTaskFlowPipeline } from './task-flow-view.js';
+import { renderTaskProgressBar } from './task-progress-bar.js';
 import { renderTaskWorkflowTree } from './task-tree-view.js';
 import { formatFullDateTime, formatDuration } from './format-utils.js';
 import {
@@ -51,8 +49,6 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         loaded: false,
         loading: false,
         view: initialTaskId ? 'all' : urlState.view,
-        detailViewMode: 'flow',
-        activeFlowNode: '',
         q: urlState.q,
         agentId: urlState.agentId,
         status: urlState.status,
@@ -400,42 +396,31 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
                 : '';
 
         const isWorkflow: boolean = Boolean(task.workflowBreadcrumb && (task.workflowBreadcrumb.workflowId || (task.workflowBreadcrumb.siblings && task.workflowBreadcrumb.siblings.length > 0)));
-        const detailViewMode: string = state.detailViewMode || 'flow';
         const createdFull: string = formatFullDateTime(task.createdAt);
         const durationText: string = task.createdAt ? formatDuration(task.createdAt, task.completedAt || (taskView === 'completed' ? task.updatedAt : null)) : '';
 
-        let mainViewContent: string = '';
-        if (detailViewMode === 'flow') {
-            mainViewContent = html`
-                ${raw(renderTaskFlowPipeline(task, { activeNode: state.activeFlowNode, agentName }))}
-                ${raw(renderAcceptanceDetail(acceptanceTarget, acceptanceState, escapeHtml))}
-                ${raw(outcomeHtml)}
-                ${raw(renderOriginCard(task))}
-                ${raw(artifacts.length ? `<section class="record-deliverables"><h3>交付成果</h3><ul class="record-artifact-list">${artifacts.map(renderArtifact).join('')}</ul></section>` : '')}
-                ${raw(renderDeliverySink(task))}
-                ${raw(renderTechnicalDetails(task, presentation, attention, escapeHtml))}
-            `;
-        } else if (detailViewMode === 'tree') {
-            mainViewContent = html`
-                ${raw(renderTaskWorkflowTree(task, { agentName }))}
-                ${raw(renderAcceptanceDetail(acceptanceTarget, acceptanceState, escapeHtml))}
-                ${raw(outcomeHtml)}
-                ${raw(renderDeliverySink(task))}
-                ${raw(renderTechnicalDetails(task, presentation, attention, escapeHtml))}
-            `;
-        } else {
-            mainViewContent = html`
-                ${raw(renderAcceptanceDetail(acceptanceTarget, acceptanceState, escapeHtml))}
-                ${raw(renderOriginCard(task))}
-                ${raw(renderWorkflowBreadcrumb(task))}
-                ${raw(renderCostSection(task))}
-                ${raw(outcomeHtml)}
-                ${raw(artifacts.length ? `<section class="record-deliverables"><h3>交付成果</h3><ul class="record-artifact-list">${artifacts.map(renderArtifact).join('')}</ul></section>` : '')}
-                ${raw(renderDeliverySink(task))}
-                ${raw(state.timelineHtml || '<details class="record-detail-section task-timeline" data-task-timeline-shell><summary>过程</summary></details>')}
-                ${raw(renderTechnicalDetails(task, presentation, attention, escapeHtml))}
-            `;
-        }
+        // Unified layout — all sections in priority order, no view mode switching
+        const workflowTreeHtml: string = isWorkflow
+            ? html`<details class="record-workflow-collapsible"><summary><span>工作流协同 (多Agent)</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary>${raw(renderTaskWorkflowTree(task, { agentName }))}</details>`
+            : '';
+
+        const costHtml: string = renderCostSection(task);
+        const costCollapsible: string = costHtml
+            ? html`<details class="record-cost-collapsible"><summary><span>执行开销</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary>${raw(costHtml)}</details>`
+            : '';
+
+        const mainViewContent: string = html`
+            ${raw(renderTaskProgressBar(task, { agentName }))}
+            ${raw(renderAcceptanceDetail(acceptanceTarget, acceptanceState, escapeHtml))}
+            ${raw(outcomeHtml)}
+            ${raw(renderOriginCard(task))}
+            ${raw(artifacts.length ? `<section class="record-deliverables"><h3>交付成果</h3><ul class="record-artifact-list">${artifacts.map(renderArtifact).join('')}</ul></section>` : '')}
+            ${raw(renderDeliverySink(task))}
+            ${raw(workflowTreeHtml)}
+            ${raw(state.timelineHtml || '<details class="record-detail-section task-timeline" data-task-timeline-shell><summary>过程</summary></details>')}
+            ${raw(costCollapsible)}
+            ${raw(renderTechnicalDetails(task, presentation, attention, escapeHtml))}
+        `;
 
         elements.detail.innerHTML = html`
       <button class="record-detail-back" type="button">返回</button>
@@ -453,7 +438,6 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
           </div>
           <div class="record-detail-header-actions">
             <span class="record-row-status ${presentation.tone || 'active'}">${presentation.statusLabel || ''}</span>
-            ${raw(renderViewModeSwitcher(detailViewMode, isWorkflow))}
           </div>
         </div>
       </header>
@@ -464,19 +448,6 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             replaceRecordUrl();
         });
 
-        for (const btn of elements.detail.querySelectorAll('[data-detail-view-mode]')) {
-            btn.addEventListener('click', (): any => {
-                state.detailViewMode = btn.dataset.detailViewMode || 'flow';
-                renderDetail();
-            });
-        }
-
-        for (const node of elements.detail.querySelectorAll('[data-flow-node]')) {
-            node.addEventListener('click', (): any => {
-                state.activeFlowNode = state.activeFlowNode === node.dataset.flowNode ? '' : node.dataset.flowNode;
-                renderDetail();
-            });
-        }
 
         for (const switchBtn of elements.detail.querySelectorAll('.tree-switch-btn')) {
             switchBtn.addEventListener('click', async (): Promise<any> => {
