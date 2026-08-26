@@ -498,11 +498,14 @@ export function renderSubtaskDrawer(subtask, options = {}) {
         const artTitle = cleanAttentionText(a.title || a.name || a.type || '交付成果', 50);
         const url = String(a.url || a.downloadUrl || a.location || a.path || a.detailUrl || '').trim();
         const isHttp = /^https?:\/\//i.test(url);
+        const isRuntimeVirtual = url.startsWith('runtime://');
+        const isRealFilePath = /^(?:\/|[a-zA-Z]:[/\\]|file:\/\/)/.test(url) && !isRuntimeVirtual;
         const rawSummary = a.summary || a.description || a.data?.summary || a.data?.conclusion || (typeof a.data?.text === 'string' ? a.data.text : '');
         const summary = typeof rawSummary === 'string' ? rawSummary.slice(0, 300).trim() : '';
         const rawInline = a.data?.markdown || a.data?.text || a.data?.content || a.content || '';
         const inlineContent = typeof rawInline === 'string' ? rawInline.trim() : '';
         const hasReadableContent = inlineContent.length > 20 && !inlineContent.startsWith('{') && inlineContent !== summary;
+        const copyContent = hasReadableContent ? inlineContent : summary;
         return html `
             <li class="subtask-artifact-item">
                 <div class="artifact-item-main">
@@ -518,13 +521,13 @@ export function renderSubtaskDrawer(subtask, options = {}) {
                             <div class="artifact-preview-body"><pre class="artifact-preview-text">${escapeHtml(inlineContent)}</pre></div>
                         </details>
                     ` : '')}
-                    ${raw(url && !isHttp ? html `<div class="subtask-artifact-path"><span class="path-label">路径：</span><code>${url}</code></div>` : '')}
+                    ${raw(isRealFilePath ? html `<div class="subtask-artifact-path"><span class="path-label">路径：</span><code>${url}</code></div>` : '')}
                 </div>
                 <div class="subtask-artifact-actions">
                     ${raw(isHttp ? html `<a href="${url}" target="_blank" rel="noopener noreferrer" class="artifact-action-btn primary">打开查看 ↗</a>` : '')}
-                    ${raw(url && !isHttp ? html `<button type="button" class="artifact-action-btn secondary" data-copy-path="${url}">复制路径</button>` : '')}
-                    ${raw(!url && summary ? html `<button type="button" class="artifact-action-btn secondary" data-copy-text="${escapeHtml(summary)}">复制内容</button>` : '')}
-                    ${raw(!url && !summary ? html `<button type="button" class="artifact-action-btn secondary" data-copy-text="${escapeHtml(artTitle)}">复制名称</button>` : '')}
+                    ${raw(isRealFilePath ? html `<button type="button" class="artifact-action-btn secondary" data-copy-path="${url}">复制路径</button>` : '')}
+                    ${raw(copyContent ? html `<button type="button" class="artifact-action-btn secondary" data-copy-text="${escapeHtml(copyContent)}">复制内容</button>` : '')}
+                    ${raw(!isRealFilePath && !copyContent ? html `<button type="button" class="artifact-action-btn secondary" data-copy-text="${escapeHtml(artTitle)}">复制名称</button>` : '')}
                 </div>
             </li>
         `;

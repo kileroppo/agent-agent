@@ -46,17 +46,30 @@ function renderMultiTaskWorkflowTree(task, breadcrumb, agentNameFn) {
         const agent = agentNameFn(t.assigneeAgentId);
         const duration = t.createdAt ? formatDuration(t.createdAt, t.completedAt) : '';
         const rawArtifacts = Array.isArray(t.artifactRefs) ? t.artifactRefs : [];
-        const artifacts = rawArtifacts.filter((a) => a?.type !== 'employee_execution_report');
+        const artifacts = rawArtifacts.filter((a) => {
+            const type = String(a?.type || '');
+            const title = String(a?.title || a?.name || '');
+            return !/employee_(?:execution_|role_)?report|agent_audit|role_draft/i.test(type)
+                && !/员工岗位回报|执行审计|岗位草案/i.test(title);
+        });
         const artifactsHtml = artifacts.map((art) => {
             const name = cleanTreeText(art?.title || art?.name || art?.type || '交付产物', 35);
-            const url = art?.url || art?.downloadUrl || art?.location || art?.path || '';
+            const url = String(art?.url || art?.downloadUrl || art?.location || art?.path || '').trim();
+            const isHttp = /^https?:\/\//i.test(url);
+            const isRealFilePath = /^(?:\/|[a-zA-Z]:[/\\]|file:\/\/)/.test(url) && !url.startsWith('runtime://');
+            const rawSummary = art?.summary || art?.description || art?.data?.summary || art?.data?.conclusion || (typeof art?.data?.text === 'string' ? art?.data.text : '');
+            const summary = typeof rawSummary === 'string' ? rawSummary.slice(0, 300).trim() : '';
             return `<div class="tree-artifact-leaf">
           <div class="tree-art-name">
             <svg class="tree-leaf-icon" aria-hidden="true"><use href="#icon-records"></use></svg>
             <span>${escapeHtml(name)}</span>
             <span class="artifact-type-tag">交付产物</span>
           </div>
-          ${url ? `<button type="button" class="text-action" data-copy-path="${escapeHtml(url)}">复制路径</button>` : ''}
+          <div class="tree-art-actions">
+            ${isHttp ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="text-action">打开查看 ↗</a>` : ''}
+            ${isRealFilePath ? `<button type="button" class="text-action" data-copy-path="${escapeHtml(url)}">复制路径</button>` : ''}
+            ${!isRealFilePath && summary ? `<button type="button" class="text-action" data-copy-text="${escapeHtml(summary)}">复制内容</button>` : ''}
+          </div>
         </div>`;
         }).join('');
         return html `

@@ -587,7 +587,26 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
                 try {
                     await navigator.clipboard.writeText(path);
                     const originalText = event.currentTarget.textContent;
-                    event.currentTarget.textContent = '已复制';
+                    event.currentTarget.textContent = '已复制路径';
+                    setTimeout(() => {
+                        if (event.currentTarget && event.currentTarget.isConnected) {
+                            event.currentTarget.textContent = originalText;
+                        }
+                    }, 2000);
+                } catch {
+                    event.currentTarget.textContent = '复制失败';
+                }
+            });
+        }
+
+        for (const copyTextBtn of elements.detail.querySelectorAll('[data-copy-text]')) {
+            copyTextBtn.addEventListener('click', async (event: any): Promise<any> => {
+                const text = event.currentTarget.dataset.copyText;
+                if (!text) return;
+                try {
+                    await navigator.clipboard.writeText(text);
+                    const originalText = event.currentTarget.textContent;
+                    event.currentTarget.textContent = '已复制内容';
                     setTimeout(() => {
                         if (event.currentTarget && event.currentTarget.isConnected) {
                             event.currentTarget.textContent = originalText;

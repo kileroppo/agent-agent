@@ -232,11 +232,15 @@ export function renderArtifact(artifact: any): any {
     const typeLabel = (artifact.type && ARTIFACT_TYPE_LABELS[artifact.type]) || (artifact.type ? String(artifact.type).replace(/[_-]/g, ' ') : '');
     const url = String(artifact.url || artifact.location || artifact.detailUrl || artifact.downloadUrl || artifact.path || '').trim();
     const isHttp = /^https?:\/\//i.test(url);
+    const isRuntimeVirtual = url.startsWith('runtime://');
+    const isRealFilePath = /^(?:\/|[a-zA-Z]:[/\\]|file:\/\/)/.test(url) && !isRuntimeVirtual;
+
     const rawSummary = artifact.summary || artifact.description || artifact.data?.summary || artifact.data?.conclusion || (typeof artifact.data?.text === 'string' ? artifact.data.text : '');
-    const summary = typeof rawSummary === 'string' ? rawSummary.slice(0, 240).trim() : '';
+    const summary = typeof rawSummary === 'string' ? rawSummary.slice(0, 400).trim() : '';
     const rawInline = artifact.data?.markdown || artifact.data?.text || artifact.data?.content || artifact.content || '';
     const inlineContent = typeof rawInline === 'string' ? rawInline.trim() : '';
     const isReadableText = inlineContent.length > 20 && !inlineContent.startsWith('{') && inlineContent !== summary;
+    const copyContent = isReadableText ? inlineContent : summary;
 
     return html`<li class="record-artifact-item">
         <div class="artifact-item-main">
@@ -254,11 +258,12 @@ export function renderArtifact(artifact: any): any {
                     </div>
                 </details>
             ` : '')}
-            ${raw(url && !isHttp ? html`<div class="artifact-path-row"><span class="artifact-path-label">存储路径：</span><code class="artifact-path" title="${escapeHtml(url)}">${url}</code></div>` : '')}
+            ${raw(isRealFilePath ? html`<div class="artifact-path-row"><span class="artifact-path-label">存储路径：</span><code class="artifact-path" title="${escapeHtml(url)}">${url}</code></div>` : '')}
         </div>
         <div class="artifact-item-actions">
             ${raw(isHttp ? html`<a href="${url}" target="_blank" rel="noopener noreferrer" class="artifact-action-btn primary">打开查看 ↗</a>` : '')}
-            ${raw(url && !isHttp ? html`<button type="button" class="artifact-action-btn secondary" data-copy-path="${url}">复制路径</button>` : '')}
+            ${raw(isRealFilePath ? html`<button type="button" class="artifact-action-btn secondary" data-copy-path="${url}">复制路径</button>` : '')}
+            ${raw(copyContent ? html`<button type="button" class="artifact-action-btn secondary" data-copy-text="${escapeHtml(copyContent)}">复制内容</button>` : '')}
         </div>
     </li>`;
 }
