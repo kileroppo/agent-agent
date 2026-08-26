@@ -243,6 +243,10 @@ export function renderArtifact(artifact: any): any {
     const isReadableText = inlineContent.length > 20 && !inlineContent.startsWith('{') && inlineContent !== summary;
     const copyContent = isReadableText ? inlineContent : summary;
 
+    const isOpsOrSystemArtifact = String(artifact?.type || '').startsWith('health_')
+        || String(artifact?.type || '').startsWith('operations_')
+        || /巡检|健康报告|执行审计/i.test(label || '');
+
     return html`<li class="record-artifact-item">
         <div class="artifact-item-main">
             <div class="artifact-item-header">
@@ -265,7 +269,7 @@ export function renderArtifact(artifact: any): any {
             ${raw(isHttp ? html`<a href="${url}" target="_blank" rel="noopener noreferrer" class="artifact-action-btn primary">打开查看 ↗</a>` : '')}
             ${raw(isRealFilePath ? html`<button type="button" class="artifact-action-btn secondary" data-copy-path="${url}">复制路径</button>` : '')}
             ${raw(copyContent ? html`<button type="button" class="artifact-action-btn secondary" data-copy-text="${escapeHtml(copyContent)}">复制完整报告</button>` : '')}
-            <button type="button" class="artifact-action-btn primary" data-acceptance-decision="accepted">✓ 采纳此产物</button>
+            ${raw(!isOpsOrSystemArtifact ? '<button type="button" class="artifact-action-btn primary" data-acceptance-decision="accepted">✓ 采纳此产物</button>' : '')}
         </div>
     </li>`;
 }

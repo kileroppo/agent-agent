@@ -35,6 +35,11 @@ export function taskAttentionView(task = {}) {
     };
 }
 export function acceptanceTargetView(task = {}) {
+    const taskType = String(task?.taskType || '').trim();
+    const isOpsOrSystem = taskType.startsWith('operations.') || taskType.startsWith('system.') || /运维|巡检|检查军团状态/i.test(task?.input?.title || task?.title || '');
+    if (isOpsOrSystem) {
+        return null; // 系统运维与巡检任务由自动化流水线闭环，无需人工业务验收
+    }
     const source = task?.acceptanceTarget;
     const workflowId = cleanAttentionText(source?.workflowId || task?.workflow?.workflowId || (task?.taskId ? `WF-${task.taskId.slice(0, 8)}` : ''), 160);
     const artifactsList = Array.isArray(task?.artifactRefs) ? task.artifactRefs : (Array.isArray(task?.artifacts) ? task.artifacts : []);
