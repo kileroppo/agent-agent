@@ -1,18 +1,127 @@
 import { html, raw, escapeHtml } from './html.js';
 const FILTER_LABELS = Object.freeze({
-    failure: '故障', fallback: '切换', cost: '费用', quality: '质量',
+    failure: '故障',
+    fallback: '切换',
+    cost: '费用',
+    quality: '质量',
 });
-export function renderTaskTimeline(payload, _options = {}) {
-    const items = Array.isArray(payload?.items) ? payload.items : [];
-    if (!items.length) {
+export function renderTaskTimeline(payload, options = {}) {
+    const rawItems = Array.isArray(payload?.items) ? payload.items : [];
+    if (!rawItems.length) {
         return '<details class="record-detail-section task-timeline" data-task-timeline open><summary>过程</summary><p class="task-timeline-empty">没有过程记录。</p></details>';
     }
-    return html `<details class="record-detail-section task-timeline" data-task-timeline open>
-    <summary><span>过程</span><small>${items.length}</small></summary>
-    ${raw(renderActiveFilters(payload?.filters))}
-    <ol class="task-timeline-list">${raw(items.map((item) => renderTimelineItem(item)).join(''))}</ol>
-    ${raw(payload?.nextCursor ? '<button class="text-action task-timeline-more" type="button" data-task-timeline-more>继续加载</button>' : '')}
-  </details>`;
+    // 1. Identify key business milestones vs raw noisy trace events
+    const { milestones, rawTrace } = partitionTimelineItems(rawItems);
+    // Render milestone highlights list (only when multiple items exist)
+    const showMilestoneSection = milestones.length > 0;
+    const milestonesHtml = showMilestoneSection
+        ? html `
+            <div class="timeline-milestones-section">
+                <div class="timeline-section-header">
+                    <div class="timeline-header-title">
+                        <svg class="timeline-header-icon" aria-hidden="true"><use href="#icon-spark"></use></svg>
+                        <strong>实施关键进展 (${milestones.length})</strong>
+                    </div>
+                    <span class="timeline-header-tip">已自动提炼业务节点</span>
+                </div>
+                <ol class="timeline-milestones-list">
+                    ${raw(milestones.map((item, idx) => renderMilestoneItem(item, idx === milestones.length - 1)).join(''))}
+                </ol>
+            </div>
+        `
+        : '';
+    // Render detailed items list
+    const itemsHtml = rawTrace.map((item) => renderTimelineItem(item)).join('');
+    return html `
+        <details class="record-detail-section task-timeline" data-task-timeline open>
+            <summary><span>过程</span><small>${rawItems.length}</small></summary>
+            ${raw(renderActiveFilters(payload?.filters))}
+            ${raw(showMilestoneSection ? milestonesHtml : '')}
+            <div class="timeline-full-trace-header">
+                <span class="trace-label">详细过程记录：</span>
+            </div>
+            <ol class="task-timeline-list">
+                ${raw(itemsHtml)}
+            </ol>
+            ${raw(payload?.nextCursor ? '<button class="text-action task-timeline-more" type="button" data-task-timeline-more>继续加载</button>' : '')}
+        </details>
+    `;
+}
+function partitionTimelineItems(items) {
+    const milestones = [];
+    const rawTrace = [];
+    let lastSummary = '';
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const isMilestone = isHighValueMilestone(item, i, items.length);
+        if (isMilestone) {
+            if (item.summary !== lastSummary) {
+                milestones.push(item);
+                lastSummary = item.summary;
+            }
+        }
+        rawTrace.push(item);
+    }
+    if (milestones.length === 0 && items.length > 0) {
+        milestones.push(items[0]);
+    }
+    return { milestones, rawTrace };
+}
+function isHighValueMilestone(item, index, total) {
+    if (index === 0 || index === total - 1)
+        return true;
+    if (item?.technical?.qualityResult || (item?.technical?.artifactRefs && item.technical.artifactRefs.length > 0)) {
+        return true;
+    }
+    if (['danger', 'warning'].includes(item?.tone)) {
+        return true;
+    }
+    const title = String(item?.title || '').toLowerCase();
+    const summary = String(item?.summary || '').toLowerCase();
+    const keywords = ['开始', '认领', '生成', '交付', '审核', '复核', '完成', '验收', '失败', '异常', '中断', '创建', '转录', '采纳'];
+    return keywords.some(k => title.includes(k) || summary.includes(k));
+}
+function renderMilestoneItem(item, isLatest) {
+    const occurredAt = formatTime(item?.occurredAt);
+    const tone = safeTone(item?.tone);
+    const icon = { success: 'check', warning: 'alert', danger: 'alert', active: 'clock' }[tone] || 'clock';
+    return html `
+        <li class="milestone-item is-${tone} ${isLatest ? 'is-latest' : ''}">
+            <div class="milestone-badge-wrapper">
+                <span class="milestone-dot">
+                    <svg class="milestone-icon" aria-hidden="true"><use href="#icon-${icon}"></use></svg>
+                </span>
+            </div>
+            <div class="milestone-body">
+                <div class="milestone-header">
+                    <strong class="milestone-title">${item?.title || '实施节点'}</strong>
+                    ${raw(occurredAt ? html `<time class="milestone-time" datetime="${item.occurredAt}">${occurredAt}</time>` : '')}
+                </div>
+                ${raw(item?.summary ? html `<p class="milestone-summary">${item.summary}</p>` : '')}
+            </div>
+        </li>
+    `;
+}
+function renderTimelineItem(item) {
+    const occurredAt = formatTime(item?.occurredAt);
+    const technical = item?.technical && typeof item.technical === 'object'
+        ? renderTechnical(item.technical)
+        : '';
+    const tone = safeTone(item?.tone);
+    const icon = { success: 'check', warning: 'alert', danger: 'alert', active: 'clock' }[tone] || 'clock';
+    return html `
+        <li class="task-timeline-item ${tone}">
+            <svg class="task-timeline-icon" aria-hidden="true"><use href="#icon-${icon}"></use></svg>
+            <div>
+                <div class="task-timeline-title">
+                    <strong>${item?.title || '状态更新'}</strong>
+                    ${raw(occurredAt ? html `<time datetime="${item.occurredAt}">${occurredAt}</time>` : '')}
+                </div>
+                ${raw(item?.summary ? html `<p>${item.summary}</p>` : '')}
+                ${raw(technical)}
+            </div>
+        </li>
+    `;
 }
 export function createTaskTimelineLoader({ api } = {}) {
     if (typeof api !== 'function')
@@ -36,19 +145,6 @@ export function createTaskTimelineLoader({ api } = {}) {
         },
         snapshot() { return structuredClone(page); },
     };
-}
-function renderTimelineItem(item) {
-    const occurredAt = formatTime(item?.occurredAt);
-    const technical = item?.technical && typeof item.technical === 'object'
-        ? renderTechnical(item.technical)
-        : '';
-    const tone = safeTone(item?.tone);
-    const icon = { success: 'check', warning: 'alert', danger: 'alert', active: 'clock' }[tone];
-    return html `<li class="task-timeline-item ${tone}">
-    <svg class="task-timeline-icon" aria-hidden="true"><use href="#icon-${icon}"></use></svg>
-    <div><div class="task-timeline-title"><strong>${item?.title || '状态更新'}</strong>${raw(occurredAt ? html `<time datetime="${item.occurredAt}">${occurredAt}</time>` : '')}</div>
-    ${raw(item?.summary ? html `<p>${item.summary}</p>` : '')}${raw(technical)}</div>
-  </li>`;
 }
 function renderTechnical(technical) {
     const rows = [

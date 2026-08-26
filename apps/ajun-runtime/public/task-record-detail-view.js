@@ -366,22 +366,23 @@ export function renderWorkflowBreadcrumb(detail) {
     ${raw(siblingItems ? html `<ul class="breadcrumb-siblings">${raw(siblingItems)}</ul>` : '')}
   </nav>`;
 }
-export function renderViewModeSwitcher(currentMode = 'flow', isWorkflow = false) {
-    const modes = [
-        { key: 'flow', label: '流程图', icon: 'spark' },
-        { key: 'tree', label: isWorkflow ? '协同树 (多Agent)' : '任务树', icon: 'connections' },
-        { key: 'detail', label: '详细卡片', icon: 'records' },
+export function renderDetailTabNav(activeTab = 'overview', counts = { deliverablesCount: 0, isWorkflow: false }) {
+    const tabs = [
+        { key: 'overview', label: '概览与结果', icon: 'spark', badge: '' },
+        { key: 'deliverables', label: '交付产物库', icon: 'records', badge: counts.deliverablesCount > 0 ? String(counts.deliverablesCount) : '' },
+        { key: 'collaboration', label: counts.isWorkflow ? '协作与过程 (多Agent)' : '实施过程与审计', icon: 'connections', badge: '' },
     ];
-    const buttons = modes.map((m) => {
-        const active = currentMode === m.key;
+    const buttons = tabs.map((tab) => {
+        const active = activeTab === tab.key;
         return html `
-            <button type="button" class="view-mode-btn ${active ? 'is-active' : ''}" data-detail-view-mode="${m.key}" aria-pressed="${active ? 'true' : 'false'}">
-                <svg aria-hidden="true"><use href="#icon-${m.icon}"></use></svg>
-                <span>${m.label}</span>
+            <button type="button" class="detail-tab-btn ${active ? 'is-active' : ''}" data-detail-tab="${tab.key}" aria-selected="${active ? 'true' : 'false'}" role="tab">
+                <svg width="14" height="14" aria-hidden="true"><use href="#icon-${tab.icon}"></use></svg>
+                <span>${tab.label}</span>
+                ${raw(tab.badge ? html `<span class="detail-tab-badge">${tab.badge}</span>` : '')}
             </button>
         `;
     }).join('');
-    return html `<div class="view-mode-switcher" role="radiogroup" aria-label="详情展现模式">${raw(buttons)}</div>`;
+    return html `<nav class="detail-tab-nav" role="tablist" aria-label="任务详情分类">${raw(buttons)}</nav>`;
 }
 export function renderOriginCard(task = {}) {
     const input = task?.input || {};
@@ -423,4 +424,80 @@ export function renderDeliverySink(task = {}) {
     }
     sinks.push(html `<span class="delivery-sink-item">✓ 已同步并可供飞书原会话回读</span>`);
     return html `<div class="record-delivery-sink"><div class="delivery-sink-title"><svg aria-hidden="true"><use href="#icon-share"></use></svg> 交付去向与下游</div><div class="delivery-sink-list">${raw(sinks.join(''))}</div></div>`;
+}
+export function renderSubtaskDrawer(subtask, options = {}) {
+    if (!subtask)
+        return '';
+    const agentNameFn = options.agentName || ((id) => id || '未知员工');
+    const agent = agentNameFn(subtask.assigneeAgentId);
+    const created = formatFullDateTime(subtask.createdAt);
+    const duration = subtask.createdAt ? formatDuration(subtask.createdAt, subtask.completedAt || subtask.updatedAt) : '';
+    const artifacts = Array.isArray(subtask.artifactRefs) ? subtask.artifactRefs : [];
+    const taskRef = String(subtask.taskId || '').replace(/[^0-9a-z]/gi, '').slice(0, 8).toUpperCase();
+    const inputDesc = cleanAttentionText(subtask.input?.description || subtask.input?.focus || subtask.input?.title, 200);
+    return html `
+        <div class="subtask-drawer-overlay" data-subtask-drawer-overlay>
+            <aside class="subtask-drawer" role="dialog" aria-label="协作任务预览">
+                <div class="subtask-drawer-header">
+                    <div>
+                        <span class="subtask-drawer-ref">协作环节 #${taskRef}</span>
+                        <h3 class="subtask-drawer-title">${cleanAttentionText(subtask.input?.title || subtask.title || '协作子任务', 80)}</h3>
+                    </div>
+                    <button type="button" class="subtask-drawer-close" data-subtask-drawer-close aria-label="关闭预览">✕</button>
+                </div>
+                <div class="subtask-drawer-body">
+                    <div class="subtask-meta-grid">
+                        <div class="subtask-meta-item">
+                            <span class="meta-label">负责员工</span>
+                            <strong>${agent}</strong>
+                        </div>
+                        <div class="subtask-meta-item">
+                            <span class="meta-label">当前状态</span>
+                            <span class="record-row-status ${subtask.status || 'active'}">${subtask.status || '执行中'}</span>
+                        </div>
+                        <div class="subtask-meta-item">
+                            <span class="meta-label">创建时间</span>
+                            <span>${created || '未记录'}</span>
+                        </div>
+                        <div class="subtask-meta-item">
+                            <span class="meta-label">执行耗时</span>
+                            <span>${duration || '计算中'}</span>
+                        </div>
+                    </div>
+
+                    ${raw(inputDesc ? html `
+                        <div class="subtask-section">
+                            <span class="subtask-section-title">环节诉求</span>
+                            <p class="subtask-section-text">${inputDesc}</p>
+                        </div>
+                    ` : '')}
+
+                    <div class="subtask-section">
+                        <span class="subtask-section-title">产生产物 (${artifacts.length})</span>
+                        ${raw(artifacts.length > 0 ? html `
+                            <ul class="subtask-artifacts-list">
+                                ${artifacts.map((a) => {
+        const artTitle = cleanAttentionText(a.title || a.name || a.type || '交付产物', 50);
+        const url = a.url || a.downloadUrl || a.location || a.path || '';
+        return html `
+                                        <li class="subtask-artifact-item">
+                                            <div class="artifact-item-main">
+                                                <svg width="14" height="14" aria-hidden="true"><use href="#icon-records"></use></svg>
+                                                <span>${artTitle}</span>
+                                            </div>
+                                            ${raw(url ? html `<button type="button" class="text-action" data-copy-path="${url}">复制路径</button>` : '')}
+                                        </li>
+                                    `;
+    }).join('')}
+                            </ul>
+                        ` : '<p class="subtask-empty-text">该环节暂未生成产物文件</p>')}
+                    </div>
+                </div>
+                <div class="subtask-drawer-footer">
+                    <button type="button" class="secondary-action" data-subtask-drawer-close>返回当前任务</button>
+                    <button type="button" class="focus-primary-action tree-switch-btn" data-record-task-id="${subtask.taskId}">设为主视角打开 ↗</button>
+                </div>
+            </aside>
+        </div>
+    `;
 }

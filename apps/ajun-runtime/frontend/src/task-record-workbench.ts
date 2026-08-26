@@ -8,7 +8,9 @@ import {
     renderAttentionDetail,
     renderCostSection,
     renderDeliverySink,
+    renderDetailTabNav,
     renderOriginCard,
+    renderSubtaskDrawer,
     taskAttentionView,
 } from './task-record-detail-view.js';
 import { createTaskTimelineLoader } from './task-timeline-view.js';
@@ -69,6 +71,8 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         actionState: new Map(),
         acceptanceState: new Map(),
         timelineHtml: '',
+        detailTab: 'overview' as 'overview' | 'deliverables' | 'collaboration',
+        previewSubtaskData: null as any | null,
     };
 
     let searchTimer: any;
@@ -279,6 +283,8 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         state.selectedTaskId = task.taskId;
         state.selectedTask = task;
         state.timelineHtml = '';
+        state.previewSubtaskData = null;
+        state.detailTab = 'overview';
         state.selectedDetailLoaded = task.recordSummary !== true;
         renderList();
         renderDetail();
@@ -384,6 +390,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const nextAction: any = showNextAction ? (presentation.nextAction || missingNextActionMessage(taskView)) : '';
         const distinctResult: any = result && result.text && result.text !== summary ? result : null;
         const outcomeLabel: any = taskView === 'completed' ? '结果' : taskView === 'active' ? '进度' : '下一步';
+        
         let actionChipsHtml: string = '';
         if (taskView === 'active') {
             actionChipsHtml = html`
@@ -450,28 +457,78 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const createdFull: string = formatFullDateTime(task.createdAt);
         const durationText: string = task.createdAt ? formatDuration(task.createdAt, task.completedAt || (taskView === 'completed' ? task.updatedAt : null)) : '';
 
-        // Unified layout — all sections in priority order, no view mode switching
-        const workflowTreeHtml: string = isWorkflow
-            ? html`<details class="record-workflow-collapsible"><summary><span>工作流协同 (多Agent)</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary>${raw(renderTaskWorkflowTree(task, { agentName }))}</details>`
-            : '';
+        // Tab Navigation
+        const tabNavHtml = renderDetailTabNav(state.detailTab, { deliverablesCount: artifacts.length, isWorkflow });
 
+        // Tab 1: Overview Panel
+        const previewArtifacts = artifacts.slice(0, 2);
+        const overviewTabHtml = html`
+            <div class="detail-tab-pane ${state.detailTab === 'overview' ? 'is-active' : ''}" data-pane="overview">
+                ${raw(renderTaskProgressBar(task, { agentName }))}
+                ${raw(renderAcceptanceDetail(acceptanceTarget, acceptanceState, escapeHtml))}
+                ${raw(outcomeHtml)}
+                ${raw(renderOriginCard(task))}
+                ${raw(artifacts.length ? html`
+                    <section class="record-deliverables-compact">
+                        <div class="deliverables-compact-header">
+                            <h3>核心交付成果 (${artifacts.length})</h3>
+                            <button type="button" class="text-action" data-action-view-deliverables>查看完整产物库 →</button>
+                        </div>
+                        <ul class="record-artifact-list">
+                            ${raw(previewArtifacts.map(renderArtifact).join(''))}
+                        </ul>
+                    </section>
+                ` : '')}
+            </div>
+        `;
+
+        // Tab 2: Deliverables Panel
+        const deliverablesTabHtml = html`
+            <div class="detail-tab-pane ${state.detailTab === 'deliverables' ? 'is-active' : ''}" data-pane="deliverables">
+                <section class="record-deliverables-full">
+                    <div class="deliverables-full-head">
+                        <div>
+                            <h3>交付产物展台</h3>
+                            <p class="deliverables-full-desc">汇集本次任务生成的全部交付物、拆解分析与证据文件：</p>
+                        </div>
+                    </div>
+                    ${raw(artifacts.length ? html`
+                        <ul class="record-artifact-list full-grid">
+                            ${raw(artifacts.map(renderArtifact).join(''))}
+                        </ul>
+                    ` : html`
+                        <div class="deliverables-empty">
+                            <svg width="24" height="24" aria-hidden="true"><use href="#icon-records"></use></svg>
+                            <p>本次任务暂未产生交付物文件</p>
+                        </div>
+                    `)}
+                    ${raw(renderDeliverySink(task))}
+                </section>
+            </div>
+        `;
+
+        // Tab 3: Collaboration & Trace Panel
         const costHtml: string = renderCostSection(task);
         const costCollapsible: string = costHtml
-            ? html`<details class="record-cost-collapsible"><summary><span>执行开销</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary>${raw(costHtml)}</details>`
+            ? html`<details class="record-cost-collapsible"><summary><span>执行开销与费用账本</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary>${raw(costHtml)}</details>`
             : '';
 
-        const mainViewContent: string = html`
-            ${raw(renderTaskProgressBar(task, { agentName }))}
-            ${raw(renderAcceptanceDetail(acceptanceTarget, acceptanceState, escapeHtml))}
-            ${raw(outcomeHtml)}
-            ${raw(renderOriginCard(task))}
-            ${raw(artifacts.length ? `<section class="record-deliverables"><h3>交付成果 (${artifacts.length})</h3><ul class="record-artifact-list">${artifacts.map(renderArtifact).join('')}</ul></section>` : '')}
-            ${raw(renderDeliverySink(task))}
-            ${raw(workflowTreeHtml)}
-            ${raw(state.timelineHtml || '<details class="record-detail-section task-timeline" data-task-timeline-shell><summary>过程</summary></details>')}
-            ${raw(costCollapsible)}
-            ${raw(renderTechnicalDetails(task, presentation, attention, escapeHtml))}
+        const collaborationTabHtml = html`
+            <div class="detail-tab-pane ${state.detailTab === 'collaboration' ? 'is-active' : ''}" data-pane="collaboration">
+                ${raw(renderTaskWorkflowTree(task, { agentName }))}
+                <section class="collaboration-timeline-section">
+                    <h3 class="collaboration-section-title">实施过程流水</h3>
+                    ${raw(state.timelineHtml || '<div class="timeline-loading-shell"><p>正在读取实施过程记录…</p></div>')}
+                </section>
+                ${raw(costCollapsible)}
+                ${raw(renderTechnicalDetails(task, presentation, attention, escapeHtml))}
+            </div>
         `;
+
+        // Drawer overlay for subtask preview
+        const subtaskDrawerHtml = state.previewSubtaskData
+            ? renderSubtaskDrawer(state.previewSubtaskData, { agentName })
+            : '';
 
         elements.detail.innerHTML = html`
       <button class="record-detail-back" type="button">返回</button>
@@ -492,7 +549,67 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
           </div>
         </div>
       </header>
-      ${raw(mainViewContent)}`;
+      ${raw(tabNavHtml)}
+      <div class="detail-tab-content">
+        ${raw(overviewTabHtml)}
+        ${raw(deliverablesTabHtml)}
+        ${raw(collaborationTabHtml)}
+      </div>
+      ${raw(subtaskDrawerHtml)}`;
+
+        // Tab Switching Handler
+        for (const tabBtn of elements.detail.querySelectorAll('[data-detail-tab]')) {
+            tabBtn.addEventListener('click', async (e: any): Promise<any> => {
+                const targetTab = e.currentTarget.dataset.detailTab;
+                if (targetTab && targetTab !== state.detailTab) {
+                    state.detailTab = targetTab;
+                    if (targetTab === 'collaboration' && !state.timelineHtml) {
+                        state.timelineHtml = await loadTimeline(task.taskId);
+                    }
+                    renderDetail();
+                }
+            });
+        }
+
+        // Subtask preview drawer handlers
+        for (const previewBtn of elements.detail.querySelectorAll('[data-subtask-preview]')) {
+            previewBtn.addEventListener('click', async (e: any): Promise<any> => {
+                const subtaskId = e.currentTarget.dataset.subtaskPreview;
+                if (!subtaskId) return;
+                try {
+                    previewBtn.disabled = true;
+                    const payload = await api(`/api/tasks/${encodeURIComponent(subtaskId)}`);
+                    state.previewSubtaskData = payload?.task || payload;
+                    renderDetail();
+                } catch (err: any) {
+                    console.error('Failed to preview subtask:', err);
+                } finally {
+                    previewBtn.disabled = false;
+                }
+            });
+        }
+
+        // Close drawer handlers
+        for (const closeBtn of elements.detail.querySelectorAll('[data-subtask-drawer-close]')) {
+            closeBtn.addEventListener('click', (): any => {
+                state.previewSubtaskData = null;
+                renderDetail();
+            });
+        }
+        elements.detail.querySelector('[data-subtask-drawer-overlay]')?.addEventListener('click', (e: any): any => {
+            if (e.target === e.currentTarget) {
+                state.previewSubtaskData = null;
+                renderDetail();
+            }
+        });
+
+        // Trigger timeline loading automatically when collaboration tab opens
+        if (state.detailTab === 'collaboration' && !state.timelineHtml) {
+            loadTimeline(task.taskId).then((htmlStr: string) => {
+                state.timelineHtml = htmlStr;
+                renderDetail();
+            });
+        }
 
         elements.detail.querySelector('.record-detail-back')?.addEventListener('click', (): any => {
             elements.workbench.classList.remove('is-detail-open');
@@ -507,24 +624,19 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         });
 
         elements.detail.querySelector('[data-action-view-timeline]')?.addEventListener('click', async (): Promise<any> => {
-            const timelineShell = elements.detail.querySelector('[data-task-timeline-shell], [data-task-timeline]');
-            if (timelineShell) {
-                if (!timelineShell.open) {
-                    timelineShell.open = true;
-                    if (!state.timelineHtml) {
-                        state.timelineHtml = await loadTimeline(task.taskId);
-                        renderDetail();
-                        const openedTimeline = elements.detail.querySelector('[data-task-timeline]');
-                        openedTimeline?.setAttribute('open', '');
-                    }
-                }
-                timelineShell.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            state.detailTab = 'collaboration';
+            if (!state.timelineHtml) {
+                state.timelineHtml = await loadTimeline(task.taskId);
             }
+            renderDetail();
+            const timelineSection = elements.detail.querySelector('.collaboration-timeline-section');
+            timelineSection?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         });
 
         elements.detail.querySelector('[data-action-view-deliverables]')?.addEventListener('click', (): any => {
-            const deliverables = elements.detail.querySelector('.record-deliverables');
-            deliverables?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            state.detailTab = 'deliverables';
+            renderDetail();
+            elements.detail.scrollTop = 0;
         });
 
         for (const copyBtn of elements.detail.querySelectorAll('[data-copy-path]')) {
@@ -546,13 +658,14 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             });
         }
 
-
         for (const switchBtn of elements.detail.querySelectorAll('.tree-switch-btn')) {
             switchBtn.addEventListener('click', async (): Promise<any> => {
                 const targetId: any = switchBtn.dataset.recordTaskId;
                 if (targetId && targetId !== state.selectedTaskId) {
                     state.selectedTaskId = targetId;
                     state.selectedTask = null;
+                    state.previewSubtaskData = null;
+                    state.detailTab = 'overview';
                     state.selectedDetailLoaded = false;
                     await loadSelectedDetail({ revealDetail: true });
                 }
@@ -596,7 +709,6 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
                 summaryNode.textContent = '读取中…';
             state.timelineHtml = await loadTimeline(task.taskId);
             renderDetail();
-            elements.detail.querySelector('[data-task-timeline]')?.setAttribute('open', '');
         });
         elements.detail.querySelector('[data-task-timeline-more]')?.addEventListener('click', async (): Promise<any> => {
             try {
@@ -604,7 +716,6 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             }
             catch { /* Keep the already loaded timeline page visible. */ }
             renderDetail();
-            elements.detail.querySelector('[data-task-timeline]')?.setAttribute('open', '');
         });
     }
     async function loadTimeline(taskId: any): Promise<any> {
@@ -612,7 +723,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             return await timeline.load(taskId);
         }
         catch {
-            return '<details class="record-detail-section task-timeline" data-task-timeline open><summary>过程</summary><p>过程读不了，结果不受影响。</p></details>';
+            return '<div class="timeline-empty-card"><p>过程读取失败，业务结果不受影响。</p></div>';
         }
     }
     function confirmAttentionAction(task: any, actionKey: any): any {

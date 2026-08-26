@@ -2,7 +2,7 @@ import { html, raw, escapeHtml } from './html.js';
 import { formatFullDateTime, formatDuration } from './format-utils.js';
 export function renderTaskWorkflowTree(task = {}, options = {}) {
     if (!task || !task.taskId) {
-        return '<div class="task-tree-empty"><p>暂无任务树数据</p></div>';
+        return '<div class="task-tree-empty"><p>暂无任务协同数据</p></div>';
     }
     const agentNameFn = options.agentName || ((id) => id || '未知员工');
     const breadcrumb = task.workflowBreadcrumb;
@@ -54,32 +54,38 @@ function renderMultiTaskWorkflowTree(task, breadcrumb, agentNameFn) {
         }).join('');
         return html `
       <div class="tree-task-node ${isCurrent ? 'is-current-task' : ''} is-${statusTone}">
+        <div class="tree-node-step-index">#${index + 1}</div>
         <div class="tree-task-main">
           <div class="tree-task-header">
             <span class="tree-task-ref">#${taskRef}</span>
-            <span class="tree-task-agent">${agent}</span>
+            <span class="tree-task-agent"><svg width="12" height="12" aria-hidden="true"><use href="#icon-employees"></use></svg> ${agent}</span>
             <span class="tree-task-status status-${statusTone}">${statusLabel}</span>
             ${raw(duration ? html `<span class="tree-task-time">${duration}</span>` : '')}
-            ${raw(isCurrent ? '<span class="tree-current-badge">正在查看</span>' : `<button type="button" class="tree-switch-btn" data-record-task-id="${t.taskId}">切换查看</button>`)}
+            <div class="tree-node-actions">
+              ${raw(isCurrent
+            ? '<span class="tree-current-badge">正在查看</span>'
+            : `<button type="button" class="subtask-preview-btn" data-subtask-preview="${t.taskId}"><svg width="12" height="12" aria-hidden="true"><use href="#icon-records"></use></svg> 预览</button><button type="button" class="tree-switch-btn" data-record-task-id="${t.taskId}">切换视角 ↗</button>`)}
+            </div>
           </div>
-          <strong class="tree-task-title">${cleanTreeText(t.title, 50)}</strong>
+          <strong class="tree-task-title">${cleanTreeText(t.title, 60)}</strong>
+          ${raw(artifactsHtml ? `<div class="tree-task-artifacts">${artifactsHtml}</div>` : '')}
         </div>
-        ${raw(artifactsHtml ? `<div class="tree-task-artifacts">${artifactsHtml}</div>` : '')}
       </div>
     `;
     }).join('');
     return html `
-    <section class="task-tree-container" aria-label="工作流协同拓扑树">
+    <section class="task-tree-container" aria-label="工作流协同链路">
       <div class="tree-root-header">
         <div class="tree-root-icon">
           <svg aria-hidden="true"><use href="#icon-connections"></use></svg>
         </div>
-        <div>
+        <div class="tree-root-info">
           <div class="tree-root-eyebrow">
             ${raw(parentWorkflow ? html `<span>父工作流 #${parentWorkflow}</span><span class="tree-arrow">➔</span>` : '')}
-            <span>工作流协同组</span>
+            <span>多 Agent 协作工作流</span>
           </div>
-          <h3 class="tree-root-title">#${workflowLabel} · 共 ${allTasks.length} 个协作步骤</h3>
+          <h3 class="tree-root-title">#${workflowLabel} · 共 ${allTasks.length} 个协作环节</h3>
+          <p class="tree-root-desc">本任务由团队中多位 AI 员工分工配合完成。点击<strong>「预览」</strong>可在右侧查看该步骤产物与详情（无需离开当前页面）。</p>
         </div>
       </div>
       <div class="tree-branches">
@@ -96,18 +102,14 @@ function renderSingleTaskBreakdownTree(task, agentNameFn) {
     const statusLabel = statusToLabel(status);
     const assignee = agentNameFn(task.assigneeAgentId);
     const duration = task.createdAt ? formatDuration(task.createdAt, task.completedAt || task.updatedAt) : '';
-    // 1. Source branch
     const input = task.input || {};
     const sourceUrl = input.sourceUrl || (Array.isArray(input.sourceUrls) ? input.sourceUrls[0] : null);
     const sourceTime = formatFullDateTime(task.createdAt);
-    // 2. Execution branch
     const cost = task.costAttribution || {};
     const tokens = (cost.inputTokens || cost.outputTokens)
         ? `输入 ${cost.inputTokens} / 输出 ${cost.outputTokens} Tokens`
         : '';
-    // 3. Artifact branch
     const artifacts = Array.isArray(task.artifactRefs) ? task.artifactRefs : [];
-    // 4. Acceptance branch
     const acceptance = task.acceptanceTarget || {};
     const decision = acceptance.decision;
     return html `
