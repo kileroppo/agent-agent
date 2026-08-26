@@ -143,10 +143,27 @@ export function resultSummary(task: any): any {
     return null;
 }
 
-export function artifactItems(artifacts: any, { hideEmployeeReport = false }: any = {}): any {
+const INTERNAL_MACHINE_TYPES = new Set([
+    'employee_execution_report',
+    'employee_role_report',
+    'employee_report',
+    'role_draft',
+    'role_definition',
+    'agent_audit',
+    'internal_review',
+]);
+
+export function artifactItems(artifacts: any, { hideEmployeeReport = true }: any = {}): any {
     return (Array.isArray(artifacts) ? artifacts : [])
         .filter((item: any): any => item && typeof item === 'object')
-        .filter((item: any): any => !(hideEmployeeReport && item.type === 'employee_execution_report'));
+        .filter((item: any): any => {
+            if (!hideEmployeeReport) return true;
+            const type = String(item.type || '').trim();
+            const title = String(item.title || item.name || '').trim();
+            if (INTERNAL_MACHINE_TYPES.has(type)) return false;
+            if (/员工岗位回报|执行审计|岗位草案/i.test(title)) return false;
+            return true;
+        });
 }
 
 export function renderTechnicalDetails(task: any, presentation: any, attention: any, escapeHtml: any): any {
@@ -179,6 +196,7 @@ export function renderTechnicalDetails(task: any, presentation: any, attention: 
 }
 
 const ARTIFACT_TYPE_LABELS: Record<string, string> = {
+    intel_research_report: '调研报告',
     video_content_analysis_report: '分析报告',
     platform_content_draft: '内容草稿',
     article_outline: '文章大纲',

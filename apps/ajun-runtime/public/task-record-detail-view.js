@@ -1,5 +1,6 @@
 import { html, raw, escapeHtml } from './html.js';
 import { formatFullDateTime, formatDuration } from './format-utils.js';
+import { displaySubtaskTitle } from './task-record-presentation.js';
 export function taskAttentionView(task = {}) {
     const source = task?.presentation?.attention;
     if (!source || typeof source !== 'object')
@@ -394,6 +395,9 @@ export function renderOriginCard(task = {}) {
     const channel = task?.paperclipIssue ? 'Paperclip 治理工单' : (input.channel || (sourceUrl ? '外部内容链接' : '飞书交互'));
     const createdAt = formatFullDateTime(task?.createdAt);
     const desc = cleanAttentionText(input.description || input.focus, 400);
+    if (!sourceUrl && !desc) {
+        return '';
+    }
     return html `
         <section class="record-origin-card" aria-label="源头诉求与输入">
             <div class="origin-card-head">
@@ -479,19 +483,26 @@ export function renderSubtaskDrawer(subtask, options = {}) {
     const created = formatFullDateTime(subtask.createdAt);
     const duration = subtask.createdAt ? formatDuration(subtask.createdAt, subtask.completedAt || subtask.updatedAt) : '';
     const rawArtifacts = Array.isArray(subtask.artifactRefs) ? subtask.artifactRefs : [];
-    // Filter out internal execution reports for cleaner presentation
-    const artifacts = rawArtifacts.filter((a) => a?.type !== 'employee_execution_report');
+    // Filter out internal execution and machine reports
+    const artifacts = rawArtifacts.filter((a) => {
+        const type = String(a?.type || '');
+        const title = String(a?.title || a?.name || '');
+        return !/employee_(?:execution_|role_)?report|agent_audit|role_draft/i.test(type)
+            && !/员工岗位回报|执行审计|岗位草案/i.test(title);
+    });
     const taskRef = String(subtask.taskId || '').replace(/[^0-9a-z]/gi, '').slice(0, 8).toUpperCase();
-    const inputDesc = cleanAttentionText(subtask.input?.description || subtask.input?.focus || subtask.input?.title, 200);
+    const rawInputDesc = String(subtask.input?.description || subtask.input?.focus || subtask.input?.title || '').trim();
+    const humanFocus = humanizeFocusText(rawInputDesc);
     const statusLabel = subtask.presentation?.statusLabel || statusToChinese(subtask.status);
     const artifactItemsHtml = artifacts.map((a) => {
         const artTitle = cleanAttentionText(a.title || a.name || a.type || '交付成果', 50);
-        const url = a.url || a.downloadUrl || a.location || a.path || '';
+        const url = String(a.url || a.downloadUrl || a.location || a.path || a.detailUrl || '').trim();
+        const isHttp = /^https?:\/\//i.test(url);
         const rawSummary = a.summary || a.description || a.data?.summary || a.data?.conclusion || (typeof a.data?.text === 'string' ? a.data.text : '');
-        const summary = typeof rawSummary === 'string' ? rawSummary.slice(0, 200).trim() : '';
-        const inlineContent = typeof a.data?.text === 'string' && a.data.text.trim().length > 0 && a.data.text.trim() !== summary
-            ? a.data.text.trim()
-            : (typeof a.content === 'string' && a.content.trim().length > 0 ? a.content.trim() : '');
+        const summary = typeof rawSummary === 'string' ? rawSummary.slice(0, 300).trim() : '';
+        const rawInline = a.data?.markdown || a.data?.text || a.data?.content || a.content || '';
+        const inlineContent = typeof rawInline === 'string' ? rawInline.trim() : '';
+        const hasReadableContent = inlineContent.length > 20 && !inlineContent.startsWith('{') && inlineContent !== summary;
         return html `
             <li class="subtask-artifact-item">
                 <div class="artifact-item-main">
@@ -501,14 +512,20 @@ export function renderSubtaskDrawer(subtask, options = {}) {
                         <span class="artifact-type-tag">交付产物</span>
                     </div>
                     ${raw(summary ? html `<p class="subtask-artifact-summary">${summary}</p>` : '')}
-                    ${raw(inlineContent ? html `
+                    ${raw(hasReadableContent ? html `
                         <details class="artifact-inline-preview">
-                            <summary><span>查看产物正文</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary>
+                            <summary><span>查看报告正文</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary>
                             <div class="artifact-preview-body"><pre class="artifact-preview-text">${escapeHtml(inlineContent)}</pre></div>
                         </details>
                     ` : '')}
+                    ${raw(url && !isHttp ? html `<div class="subtask-artifact-path"><span class="path-label">路径：</span><code>${url}</code></div>` : '')}
                 </div>
-                ${raw(url ? html `<div class="subtask-artifact-actions"><button type="button" class="text-action" data-copy-path="${url}">复制路径</button></div>` : '')}
+                <div class="subtask-artifact-actions">
+                    ${raw(isHttp ? html `<a href="${url}" target="_blank" rel="noopener noreferrer" class="artifact-action-btn primary">打开查看 ↗</a>` : '')}
+                    ${raw(url && !isHttp ? html `<button type="button" class="artifact-action-btn secondary" data-copy-path="${url}">复制路径</button>` : '')}
+                    ${raw(!url && summary ? html `<button type="button" class="artifact-action-btn secondary" data-copy-text="${escapeHtml(summary)}">复制内容</button>` : '')}
+                    ${raw(!url && !summary ? html `<button type="button" class="artifact-action-btn secondary" data-copy-text="${escapeHtml(artTitle)}">复制名称</button>` : '')}
+                </div>
             </li>
         `;
     }).join('');
@@ -518,7 +535,7 @@ export function renderSubtaskDrawer(subtask, options = {}) {
                 <div class="subtask-drawer-header">
                     <div>
                         <span class="subtask-drawer-ref">协作环节 #${taskRef}</span>
-                        <h3 class="subtask-drawer-title">${cleanAttentionText(subtask.input?.title || subtask.title || '协作子任务', 80)}</h3>
+                        <h3 class="subtask-drawer-title">${raw(displaySubtaskTitle(subtask))}</h3>
                     </div>
                     <button type="button" class="subtask-drawer-close" data-subtask-drawer-close aria-label="关闭预览">✕</button>
                 </div>
@@ -542,10 +559,10 @@ export function renderSubtaskDrawer(subtask, options = {}) {
                         </div>
                     </div>
 
-                    ${raw(inputDesc && !inputDesc.includes('{') && !inputDesc.includes('__') && inputDesc.length > 5 ? html `
+                    ${raw(humanFocus ? html `
                         <div class="subtask-section">
                             <span class="subtask-section-title">环节重点</span>
-                            <p class="subtask-section-text">${inputDesc}</p>
+                            <p class="subtask-section-text">${humanFocus}</p>
                         </div>
                     ` : '')}
 
@@ -558,7 +575,7 @@ export function renderSubtaskDrawer(subtask, options = {}) {
                             <ul class="subtask-artifacts-list">
                                 ${raw(artifactItemsHtml)}
                             </ul>
-                        ` : '<p class="subtask-empty-text">该环节暂未生成业务交付物（仅内部协调流转）</p>')}
+                        ` : '<p class="subtask-empty-text">该环节暂未生成独立交付物（数据流已并入主报告）</p>')}
                     </div>
                 </div>
                 <div class="subtask-drawer-footer">
@@ -569,6 +586,19 @@ export function renderSubtaskDrawer(subtask, options = {}) {
             </aside>
         </div>
     `;
+}
+function humanizeFocusText(text) {
+    if (!text || typeof text !== 'string')
+        return '';
+    const raw = text.trim();
+    if (raw.includes('{') || raw.includes('__schema') || raw.includes('taskType:'))
+        return '';
+    if (raw.includes('question_answered') || raw.includes('goal_coverage') || raw.includes('claims_evidence_bound') || raw.includes('counter_evidence_checked')) {
+        return '根据上一轮质量门禁复核发现的缺口，对核心结论与支撑证据进行定向补充完善。';
+    }
+    if (raw.length < 4)
+        return '';
+    return cleanAttentionText(raw, 240);
 }
 function statusToChinese(status) {
     const map = {

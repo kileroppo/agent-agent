@@ -127,10 +127,29 @@ export function resultSummary(task) {
         return { label: '完成情况', text: `任务已完成${artifacts.length ? `，留下 ${artifacts.length} 项交付或证据` : ''}。` };
     return null;
 }
-export function artifactItems(artifacts, { hideEmployeeReport = false } = {}) {
+const INTERNAL_MACHINE_TYPES = new Set([
+    'employee_execution_report',
+    'employee_role_report',
+    'employee_report',
+    'role_draft',
+    'role_definition',
+    'agent_audit',
+    'internal_review',
+]);
+export function artifactItems(artifacts, { hideEmployeeReport = true } = {}) {
     return (Array.isArray(artifacts) ? artifacts : [])
         .filter((item) => item && typeof item === 'object')
-        .filter((item) => !(hideEmployeeReport && item.type === 'employee_execution_report'));
+        .filter((item) => {
+        if (!hideEmployeeReport)
+            return true;
+        const type = String(item.type || '').trim();
+        const title = String(item.title || item.name || '').trim();
+        if (INTERNAL_MACHINE_TYPES.has(type))
+            return false;
+        if (/员工岗位回报|执行审计|岗位草案/i.test(title))
+            return false;
+        return true;
+    });
 }
 export function renderTechnicalDetails(task, presentation, attention, escapeHtml) {
     const attentionTechnicalView = attention?.technical || null;
@@ -161,6 +180,7 @@ export function renderTechnicalDetails(task, presentation, attention, escapeHtml
     return html `<details class="record-technical" data-disclosure-key="record-technical:${values.taskId}"><summary><span>编号与审计</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><dl>${raw(rowsHtml)}</dl><div class="record-technical-actions">${raw(paperclipIssue)}<button class="text-action record-copy-id" type="button">复制编号</button></div></details>`;
 }
 const ARTIFACT_TYPE_LABELS = {
+    intel_research_report: '调研报告',
     video_content_analysis_report: '分析报告',
     platform_content_draft: '内容草稿',
     article_outline: '文章大纲',

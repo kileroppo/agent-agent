@@ -106,7 +106,7 @@ function presentRecord(task: any, approvals: any, detailBaseUrl: any, recoveryVi
         createdAt: safeDate(task.createdAt),
         updatedAt: safeDate(task.updatedAt),
         completedAt: safeDate(task.completedAt || task.execution?.finishedAt),
-        artifactRefs: safeArtifactMetadata(task.artifactRefs),
+        artifactRefs: safeArtifactMetadata(task.artifactRefs, audience === 'local-owner'),
         presentation: presentTask(task, { approvals, detailBaseUrl, recoveryView }),
         pendingApproval: safePendingApproval(pendingApproval),
     };
@@ -183,21 +183,28 @@ function safeHttpBaseUrl(value: any): any {
         return '';
     }
 }
-function safeArtifactMetadata(value: any): any {
+function safeArtifactMetadata(value: any, isLocalOwner: boolean = false): any {
     if (!Array.isArray(value))
         return [];
     return value.flatMap((artifact: any): any => {
         if (!artifact || typeof artifact !== 'object')
             return [];
-        return [{
-                artifactId: cleanText(artifact.artifactId, 240) || null,
-                type: cleanText(artifact.type, 120) || null,
-                title: safeText(artifact.title, 300) || null,
-                mimeType: cleanText(artifact.mimeType, 120) || null,
-                accessScope: cleanText(artifact.accessScope, 80) || null,
-                createdAt: safeDate(artifact.createdAt),
-                validation: safeArtifactValidation(artifact.validation),
-            }];
+        const meta: any = {
+            artifactId: cleanText(artifact.artifactId, 240) || null,
+            type: cleanText(artifact.type, 120) || null,
+            title: safeText(artifact.title, 300) || null,
+            mimeType: cleanText(artifact.mimeType, 120) || null,
+            accessScope: cleanText(artifact.accessScope, 80) || null,
+            createdAt: safeDate(artifact.createdAt),
+            validation: safeArtifactValidation(artifact.validation),
+        };
+        if (isLocalOwner) {
+            const url = cleanText(artifact.url || artifact.location || artifact.path || artifact.downloadUrl || artifact.detailUrl, 500) || null;
+            const summary = safeText(artifact.summary || artifact.description || artifact.data?.summary || artifact.data?.conclusion || (typeof artifact.data?.text === 'string' ? artifact.data.text : ''), 1000) || null;
+            if (url) meta.url = url;
+            if (summary) meta.summary = summary;
+        }
+        return [meta];
     });
 }
 function safeArtifactValidation(value: any): any {

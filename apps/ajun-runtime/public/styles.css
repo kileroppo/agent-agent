@@ -6132,12 +6132,18 @@ textarea:focus {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 6px;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
   background: var(--surface);
   border: 1px solid var(--line);
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  transition: all 0.15s ease;
+}
+
+.subtask-artifact-item:hover {
+  border-color: color-mix(in srgb, var(--mint) 60%, var(--line));
+  box-shadow: var(--shadow-sm);
 }
 
 .subtask-artifact-item:last-child {
@@ -6145,10 +6151,63 @@ textarea:focus {
 }
 
 .subtask-artifact-summary {
-  margin: 4px 0 0;
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+.subtask-artifact-path {
+  margin-top: 4px;
   font-size: 11px;
   color: var(--muted);
-  line-height: 1.4;
+}
+
+.subtask-artifact-path code {
+  font-family: var(--font-mono);
+  background: var(--surface-soft);
+  padding: 2px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+}
+
+.subtask-artifact-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.artifact-action-btn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.artifact-action-btn.primary {
+  background: var(--mint);
+  color: #fff;
+}
+
+.artifact-action-btn.primary:hover {
+  background: var(--mint-deep);
+}
+
+.artifact-action-btn.secondary {
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+  border-color: var(--line);
+}
+
+.artifact-action-btn.secondary:hover {
+  background: var(--surface);
+  border-color: var(--mint);
+  color: var(--mint-deep);
 }
 
 .record-row-reason {
