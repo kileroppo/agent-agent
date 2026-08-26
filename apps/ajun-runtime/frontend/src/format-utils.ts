@@ -21,3 +21,29 @@ export function providerLabel(provider: any): any {
         youtube: 'YouTube'
     } as Record<string, string>)[provider] || provider || '未知平台';
 }
+
+export function formatFullDateTime(value: any): string {
+    const timestamp = Date.parse(value || '');
+    if (!Number.isFinite(timestamp)) return '';
+    const date = new Date(timestamp);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const y = date.getFullYear();
+    const m = pad(date.getMonth() + 1);
+    const d = pad(date.getDate());
+    const hh = pad(date.getHours());
+    const mm = pad(date.getMinutes());
+    const ss = pad(date.getSeconds());
+    return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
+}
+
+export function formatDuration(start: any, end: any): string {
+    const startTime = Date.parse(start || '');
+    const endTime = end ? Date.parse(end) : Date.now();
+    if (!Number.isFinite(startTime)) return '';
+    const diffMs = Math.max(0, endTime - startTime);
+    if (diffMs < 1000) return `${diffMs} ms`;
+    if (diffMs < 60000) return `${(diffMs / 1000).toFixed(1)} 秒`;
+    if (diffMs < 3600000) return `${Math.floor(diffMs / 60000)} 分 ${Math.round((diffMs % 60000) / 1000)} 秒`;
+    return `${(diffMs / 3600000).toFixed(1)} 小时`;
+}
+

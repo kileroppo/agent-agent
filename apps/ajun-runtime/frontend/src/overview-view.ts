@@ -36,9 +36,9 @@ export function createOverviewView({ elements, state, api, employeeView, formatD
                 ? `${active} 项工作正在推进，你暂时不需操作。`
                 : '负责人当前没有待办。';
         const cards: any = [
-            statCard('运行中', active, active ? '系统正在推进的业务工作' : '当前没有执行中的业务工作', 'clock', false, recordCategoryHref('business_active')),
-            statCard('系统可靠性', reliability.value, reliability.note, reliability.icon, reliability.attention, reliability.href),
-            statCard('业务质量债', debt.value, debt.note, debt.icon, debt.attention, debt.href),
+            statCard('运行工作', active, active ? '正在推进业务任务' : '无执行中任务', 'clock', active > 0 ? 'active' : 'normal', recordCategoryHref('business_active')),
+            statCard('系统可靠性', reliability.value, reliability.note, 'shield', reliability.attention ? 'warning' : 'success', reliability.href),
+            statCard('业务质量债', debt.value, debt.note, 'target', debt.attention ? 'warning' : 'normal', debt.href),
         ];
         overviewStats.replaceChildren(...cards);
         renderChainDiagnosis(health);
@@ -53,7 +53,6 @@ export function createOverviewView({ elements, state, api, employeeView, formatD
             return;
         }
         chainDiagnosis.hidden = false;
-        // 诊断已创建后不再随首页轮询重建，避免展开内容短暂回到“正在加载”。
         const existing: any = chainDiagnosis.querySelector('.chain-diagnosis-disclosure');
         if (existing) {
             if (existing.open)
@@ -101,22 +100,35 @@ export function createOverviewView({ elements, state, api, employeeView, formatD
         const params: any = new URLSearchParams({ recordView: 'all', recordCategory: category, recordTime: 'all' });
         return `/?${params}#records`;
     }
-    function statCard(label: any, value: any, note: any, icon: any, attention: any = false, href: any = ''): any {
+    function statCard(label: any, value: any, note: any, icon: any, statusTone: any = 'normal', href: any = ''): any {
         const node: any = document.createElement(href ? 'a' : 'article');
-        node.className = `stat-card${attention ? ' attention' : ''}${href ? ' is-link' : ''}`;
+        node.className = `stat-card is-${statusTone}${href ? ' is-link' : ''}`;
         if (href) {
             node.href = href;
             node.setAttribute('aria-label', `${label} ${value}，${note}`);
         }
-        node.innerHTML = html`<div class="stat-card-head"><span>${label}</span><span class="stat-icon"><svg aria-hidden="true"><use href="#icon-${icon}"></use></svg></span></div><strong class="stat-value">${value}</strong><span class="stat-note">${note}</span>`;
+        const statusPill = statusTone === 'success' ? '健康' : statusTone === 'warning' ? '需关注' : statusTone === 'active' ? '运行中' : '正常';
+        node.innerHTML = html`
+            <div class="stat-card-head">
+                <div class="stat-icon-badge is-${statusTone}">
+                    <svg aria-hidden="true"><use href="#icon-${icon}"></use></svg>
+                </div>
+                <span class="stat-tag is-${statusTone}">${statusPill}</span>
+            </div>
+            <div class="stat-card-body">
+                <span class="stat-label">${label}</span>
+                <strong class="stat-value">${value}</strong>
+                <span class="stat-note" title="${escapeHtml(note)}">${note}</span>
+            </div>
+        `;
         return node;
     }
     function renderRecentTasks(tasks: any): any {
         recentTaskList.replaceChildren();
         if (!tasks.length) {
-            const empty: any = document.createElement('p');
-            empty.className = 'subtle';
-            empty.textContent = '暂无记录';
+            const empty: any = document.createElement('div');
+            empty.className = 'recent-task-empty';
+            empty.innerHTML = '<svg aria-hidden="true"><use href="#icon-records"></use></svg><span>暂无最近任务记录</span>';
             recentTaskList.append(empty);
             return;
         }
@@ -127,12 +139,16 @@ export function createOverviewView({ elements, state, api, employeeView, formatD
             const attention: any = taskStatusGroup(task.status) === 'attention';
             const agent: any = employeeView?.agentName ? employeeView.agentName(task.assigneeAgentId || task.agentId || task.input?.agentId) : (task.assigneeAgentId || '');
             const time: any = formatDate(task.updatedAt || task.createdAt);
+            const isCompleted: boolean = ['succeeded', 'cancelled', 'rejected', 'stopped'].includes(task.status);
+            const icon = task.taskType?.includes('video') ? 'radar' : (task.taskType?.includes('presentation') ? 'target' : 'records');
             item.innerHTML = html`
               <div class="recent-task-left">
-                <span class="recent-task-dot${raw(attention ? ' attention' : '')}"></span>
+                <div class="recent-task-icon-wrapper ${raw(attention ? 'attention' : isCompleted ? 'success' : 'active')}">
+                  <svg aria-hidden="true"><use href="#icon-${icon}"></use></svg>
+                </div>
                 <div class="recent-task-content">
                   <strong class="recent-task-title">${task.input?.title || '未命名任务'}</strong>
-                  <span class="recent-task-sub">${agent ? `${agent} · ` : ''}${time}</span>
+                  <span class="recent-task-sub">${agent ? `<span class="recent-agent-tag">${agent}</span>` : ''}<span>${time}</span></span>
                 </div>
               </div>
               <span class="recent-task-status ${taskStatusGroup(task.status)}">${statusLabel(task.status)}</span>`;
@@ -141,8 +157,28 @@ export function createOverviewView({ elements, state, api, employeeView, formatD
     }
     function renderFocus(focus: any): any {
         focusPanel.classList.remove('skeleton-panel');
+        const governanceReady: any = state.overview.capabilities.some((item: any): any => item.id === 'governance' && item.status === 'ready');
+        const externalWriteReady: any = state.overview.capabilities.some((item: any): any => item.id === 'external-execution' && item.status === 'ready');
+        const costText: any = usageCostText(state.overview.usage);
+
         if (!focus?.total) {
-            focusPanel.innerHTML = '<div class="focus-copy"><p class="focus-state is-clear">负责人暂不需处理</p><h3>还没有任务记录</h3><p class="focus-action-copy">请在飞书交办，A君会在这里同步下一步；这不表示系统风险已排除。</p></div><div class="focus-guard"><span class="guard-pill">对外发布关闭</span><span class="guard-pill">不会静默执行</span></div>';
+            focusPanel.innerHTML = html`
+                <div class="focus-inner">
+                    <div class="focus-copy">
+                        <div class="focus-header-line">
+                            <span class="focus-state is-clear"><svg class="focus-icon" aria-hidden="true"><use href="#icon-check"></use></svg><span>负责人暂不需处理</span></span>
+                        </div>
+                        <h3 class="focus-task-title">没有待处理任务</h3>
+                        <p class="focus-action-copy">系统运行平稳；日常派活请在飞书交办，A君会在这里同步下一步；这不表示系统风险已排除。</p>
+                    </div>
+                    <div class="focus-guard-grid">
+                        <div class="guard-card is-active"><div class="guard-card-icon"><svg aria-hidden="true"><use href="#icon-shield"></use></svg></div><div class="guard-card-info"><span class="guard-card-label">治理总控</span><strong class="guard-card-val">Paperclip 已连接</strong></div></div>
+                        <div class="guard-card is-active"><div class="guard-card-icon"><svg aria-hidden="true"><use href="#icon-target"></use></svg></div><div class="guard-card-info"><span class="guard-card-label">发布权限</span><strong class="guard-card-val">对外发布关闭</strong></div></div>
+                        <div class="guard-card is-active"><div class="guard-card-icon"><svg aria-hidden="true"><use href="#icon-clock"></use></svg></div><div class="guard-card-info"><span class="guard-card-label">任务队列</span><strong class="guard-card-val">就绪</strong></div></div>
+                        <div class="guard-card is-active"><div class="guard-card-icon"><svg aria-hidden="true"><use href="#icon-cost"></use></svg></div><div class="guard-card-info"><span class="guard-card-label">今日费用</span><strong class="guard-card-val">${costText}</strong></div></div>
+                    </div>
+                </div>
+            `;
             return;
         }
         const current: any = focus.next;
@@ -150,40 +186,56 @@ export function createOverviewView({ elements, state, api, employeeView, formatD
         const title: any = current ? current.title : '没有新动作';
         const action: any = current
             ? current.action
-            : '历史失败和待验证记录都留在“记录”中，不会自动重试或对外发布。';
-        // 原因说明只在有具体任务时展示；无任务时一句话已经说清，不再重复堆叠。
-        const reason: any = current
-            ? (current.status === 'succeeded'
-                ? '这是建议，不会自动创建后续任务。'
-                : needsOwner
-                    ? '这件事需要你的输入或确认，系统不会替你决定。'
-                    : '系统正在推进，你可以查看进度，不需要一直盯着。')
-            : '';
+            : '历史记录已归档，不会自动重试或对外发布。';
         const primaryAction: any = current
-            ? `<a class="focus-primary-action" href="/tasks/${encodeURIComponent(current.taskId)}">${current.status === 'succeeded' ? '查看这条建议' : needsOwner ? '查看并处理' : '查看进度'}</a>`
-            : '<a class="focus-primary-action secondary" href="#records">打开任务记录</a>';
-        const governanceReady: any = state.overview.capabilities.some((item: any): any => item.id === 'governance' && item.status === 'ready');
-        const externalWriteReady: any = state.overview.capabilities.some((item: any): any => item.id === 'external-execution' && item.status === 'ready');
-        const costText: any = usageCostText(state.overview.usage);
+            ? `<a class="focus-primary-action" href="/tasks/${encodeURIComponent(current.taskId)}"><span>${current.status === 'succeeded' ? '查看建议' : needsOwner ? '查看并处理' : '查看进度'}</span><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></a>`
+            : '<a class="focus-primary-action secondary" href="#records"><span>打开任务记录</span></a>';
+
         focusPanel.innerHTML = html`
-    <div class="focus-copy">
-      <div class="focus-header-line">
-        <span class="focus-state ${raw(needsOwner ? 'needs-owner' : current ? 'is-running' : 'is-clear')}">
-          <i class="focus-dot"></i>
-          <span>${needsOwner ? '需要你决定' : current ? '系统正在处理' : '负责人暂不需处理'}</span>
-        </span>
-      </div>
-      <h3 class="focus-task-title">${title}</h3>
-      <p class="focus-action-copy">${action}</p>
-      ${raw(reason ? html`<p class="focus-reason">${reason}</p>` : '')}
-      <div class="focus-actions">${raw(primaryAction)}</div>
-    </div>
-    <div class="focus-guard">
-      <span class="guard-pill"><i class="guard-dot ${governanceReady ? 'on' : 'off'}"></i>${governanceReady ? 'Paperclip 已连接' : '治理连接待恢复'}</span>
-      <span class="guard-pill"><i class="guard-dot ${externalWriteReady ? 'on' : 'off'}"></i>${externalWriteReady ? '对外写入按审批开放' : '对外发布关闭'}</span>
-      <span class="guard-pill"><i class="guard-dot on"></i>${focus.inProgress ? `${focus.inProgress} 项正在推进` : '没有执行中任务'}</span>
-      <span class="guard-pill"><i class="guard-dot on"></i>${costText}</span>
-    </div>`;
+            <div class="focus-inner">
+                <div class="focus-copy">
+                    <div class="focus-header-line">
+                        <span class="focus-state ${raw(needsOwner ? 'needs-owner' : current ? 'is-running' : 'is-clear')}">
+                            <i class="focus-dot"></i>
+                            <span>${needsOwner ? '需要你决定' : current ? '正在处理中' : '暂不需处理'}</span>
+                        </span>
+                    </div>
+                    <h3 class="focus-task-title">${title}</h3>
+                    <p class="focus-action-copy">${action}</p>
+                    <div class="focus-actions">${raw(primaryAction)}</div>
+                </div>
+                <div class="focus-guard-grid">
+                    <div class="guard-card ${governanceReady ? 'is-active' : 'is-warning'}">
+                        <div class="guard-card-icon"><svg aria-hidden="true"><use href="#icon-shield"></use></svg></div>
+                        <div class="guard-card-info">
+                            <span class="guard-card-label">治理总控</span>
+                            <strong class="guard-card-val">${governanceReady ? 'Paperclip 已连接' : '治理连接待恢复'}</strong>
+                        </div>
+                    </div>
+                    <div class="guard-card is-active">
+                        <div class="guard-card-icon"><svg aria-hidden="true"><use href="#icon-target"></use></svg></div>
+                        <div class="guard-card-info">
+                            <span class="guard-card-label">发布权限</span>
+                            <strong class="guard-card-val">${externalWriteReady ? '对外写入按审批开放' : '对外发布关闭'}</strong>
+                        </div>
+                    </div>
+                    <div class="guard-card ${focus.inProgress ? 'is-active' : 'is-muted'}">
+                        <div class="guard-card-icon"><svg aria-hidden="true"><use href="#icon-clock"></use></svg></div>
+                        <div class="guard-card-info">
+                            <span class="guard-card-label">推进中任务</span>
+                            <strong class="guard-card-val">${focus.inProgress ? `${focus.inProgress} 项正在推进` : '没有执行中任务'}</strong>
+                        </div>
+                    </div>
+                    <div class="guard-card is-active">
+                        <div class="guard-card-icon"><svg aria-hidden="true"><use href="#icon-cost"></use></svg></div>
+                        <div class="guard-card-info">
+                            <span class="guard-card-label">今日费用</span>
+                            <strong class="guard-card-val">${costText}</strong>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
     }
     function usageCostText(usage: any): any {
         const totals: any = usage?.cost?.totals || [];
