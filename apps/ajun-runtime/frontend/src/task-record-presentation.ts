@@ -135,13 +135,59 @@ export function renderTechnicalDetails(task: any, presentation: any, attention: 
     return html`<details class="record-technical" data-disclosure-key="record-technical:${values.taskId}"><summary><span>编号与审计</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><dl>${raw(rowsHtml)}</dl><div class="record-technical-actions">${raw(paperclipIssue)}<button class="text-action record-copy-id" type="button">复制编号</button></div></details>`;
 }
 
-export function renderArtifact(artifact: any): any {
-    return artifact.url
-        ? `<li><a href="${escapeStatic(artifact.url)}" target="_blank" rel="noopener noreferrer">${escapeStatic(artifact.label)}</a></li>`
-        : `<li><span>${escapeStatic(artifact.label)}</span></li>`;
+const ARTIFACT_TYPE_LABELS: Record<string, string> = {
+    video_content_analysis_report: '分析报告',
+    platform_content_draft: '内容草稿',
+    article_outline: '文章大纲',
+    social_media_copy: '社媒文案',
+    health_report: '巡检报告',
+    review_report: '审核报告',
+    task_intake_record: '任务记录',
+    transcript_artifact: '转录文本',
+    public_web_report: '调研报告',
+    summary_report: '总结报告',
+    dataset: '数据集',
+    file: '交付文件',
+};
+
+export function formatArtifactLabel(artifact: any): string {
+    if (!artifact || typeof artifact !== 'object') return '交付产物';
+    const title = artifact.title || artifact.name || artifact.label;
+    if (typeof title === 'string' && title.trim()) {
+        return title.trim();
+    }
+    if (artifact.type && typeof artifact.type === 'string' && artifact.type.trim()) {
+        return ARTIFACT_TYPE_LABELS[artifact.type.trim()] || artifact.type.trim().replace(/[_-]/g, ' ');
+    }
+    if (artifact.artifactId && typeof artifact.artifactId === 'string' && artifact.artifactId.trim()) {
+        return `交付产物 #${artifact.artifactId.trim().slice(0, 8)}`;
+    }
+    return '交付产物';
 }
 
-function escapeStatic(value: any): any {
-    return String(value).replace(/[&<>"']/g, (char: any): any => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[char]);
+export function renderArtifact(artifact: any): any {
+    if (!artifact || typeof artifact !== 'object') return '';
+    const label = formatArtifactLabel(artifact);
+    const typeLabel = (artifact.type && ARTIFACT_TYPE_LABELS[artifact.type]) || (artifact.type ? String(artifact.type).replace(/[_-]/g, ' ') : '');
+    const url = String(artifact.url || artifact.location || artifact.detailUrl || artifact.downloadUrl || artifact.path || '').trim();
+    const isHttp = /^https?:\/\//i.test(url);
+    const rawSummary = artifact.summary || artifact.description || artifact.data?.summary || artifact.data?.conclusion || (typeof artifact.data?.text === 'string' ? artifact.data.text : '');
+    const summary = typeof rawSummary === 'string' ? rawSummary.slice(0, 240).trim() : '';
+
+    return html`<li class="record-artifact-item">
+        <div class="artifact-item-main">
+            <div class="artifact-item-header">
+                <svg class="artifact-icon" aria-hidden="true"><use href="#icon-records"></use></svg>
+                <strong class="artifact-title">${label}</strong>
+                ${raw(typeLabel ? html`<span class="artifact-type-tag">${typeLabel}</span>` : '')}
+            </div>
+            ${raw(summary ? html`<p class="artifact-summary">${summary}</p>` : '')}
+            ${raw(url && !isHttp ? html`<div class="artifact-path-row"><span class="artifact-path-label">存储路径：</span><code class="artifact-path" title="${escapeHtml(url)}">${url}</code></div>` : '')}
+        </div>
+        <div class="artifact-item-actions">
+            ${raw(isHttp ? html`<a href="${url}" target="_blank" rel="noopener noreferrer" class="artifact-action-btn primary">打开查看 ↗</a>` : '')}
+            ${raw(url && !isHttp ? html`<button type="button" class="artifact-action-btn secondary" data-copy-path="${url}">复制路径</button>` : '')}
+        </div>
+    </li>`;
 }
 
