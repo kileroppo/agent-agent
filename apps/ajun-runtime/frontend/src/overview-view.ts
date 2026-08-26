@@ -82,12 +82,92 @@ export function createOverviewView({ elements, state, api, employeeView, formatD
             }).join('');
             const caveat: any = diagnosis.verdictCaveat ? html`<small>${diagnosis.verdictCaveat}</small>` : '';
             const nextStep: any = diagnosis.uniqueNextStep ? html`<p class="chain-next-step"><strong>唯一下一步：</strong>${diagnosis.uniqueNextStep}</p>` : '';
+            const userGuide = getUserGuidance(diagnosis.verdict);
+
             body.dataset.loaded = 'true';
-            body.innerHTML = html`<p class="chain-verdict"><strong>${chainVerdictLabel(diagnosis.verdict)}</strong>${raw(caveat)}</p><ul class="chain-check-list">${raw(checkItems)}</ul>${raw(nextStep)}`;
+            body.innerHTML = html`
+                <div class="chain-user-card ${userGuide.statusTone}">
+                    <div class="chain-user-header">
+                        <span class="chain-status-badge ${userGuide.statusTone}">${userGuide.statusLabel}</span>
+                        <strong>${userGuide.headline}</strong>
+                    </div>
+                    <p class="chain-user-desc">${userGuide.desc}</p>
+                    <div class="chain-user-actions">
+                        <button type="button" class="chain-action-btn primary" data-copy-cmd="npm run diagnose:feishu-chain">
+                            <svg width="13" height="13" aria-hidden="true"><use href="#icon-records"></use></svg>
+                            <span>复制排查命令</span>
+                        </button>
+                        <button type="button" class="chain-action-btn secondary" data-reload-diagnosis>
+                            <svg width="13" height="13" aria-hidden="true"><use href="#icon-spark"></use></svg>
+                            <span>重新检测</span>
+                        </button>
+                    </div>
+                </div>
+                <details class="chain-tech-details">
+                    <summary>
+                        <span>底层诊断与环境自检（共 ${checks.length} 项）</span>
+                        <svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg>
+                    </summary>
+                    <div class="chain-tech-content">
+                        <p class="chain-verdict"><strong>${chainVerdictLabel(diagnosis.verdict)}</strong>${raw(caveat)}</p>
+                        <ul class="chain-check-list">${raw(checkItems)}</ul>
+                        ${raw(nextStep)}
+                    </div>
+                </details>
+            `;
+
+            body.querySelector('[data-copy-cmd]')?.addEventListener('click', async (e: any): Promise<any> => {
+                const cmd = e.currentTarget.dataset.copyCmd;
+                if (!cmd) return;
+                try {
+                    await navigator.clipboard.writeText(cmd);
+                    const span = e.currentTarget.querySelector('span');
+                    if (span) {
+                        const originalText = span.textContent;
+                        span.textContent = '已复制命令';
+                        setTimeout(() => {
+                            if (span && span.isConnected) span.textContent = originalText;
+                        }, 2000);
+                    }
+                } catch {
+                    const span = e.currentTarget.querySelector('span');
+                    if (span) span.textContent = '复制失败';
+                }
+            });
+
+            body.querySelector('[data-reload-diagnosis]')?.addEventListener('click', (): any => {
+                body.removeAttribute('data-loaded');
+                body.innerHTML = '<p>正在重新检测链路…</p>';
+                fetchChainDiagnosis();
+            });
         }
         catch (error: any) {
             body.innerHTML = html`<p class="chain-diagnosis-error">链路诊断加载失败：${error.message || '未知错误'}</p>`;
         }
+    }
+    function getUserGuidance(verdict: string): { statusTone: string; statusLabel: string; headline: string; desc: string } {
+        if (verdict === 'no_local_gap_found') {
+            return {
+                statusTone: 'passing',
+                statusLabel: '通道就绪',
+                headline: '飞书通道就绪 · 待真机验证',
+                desc: '本机检查通过。请在飞书私聊中向【A君·军团总管】或对应员工（如小R）发送一条测试消息即可开始使用。',
+            };
+        }
+        if (verdict === 'blocking_gap') {
+            return {
+                statusTone: 'failed',
+                statusLabel: '需要配置',
+                headline: '飞书连接通道需要配置',
+                desc: '检测到飞书网关服务或必要环境变量缺失。若需使用飞书日常派活，请点击下方复制排查命令交由技术人员配置。',
+            };
+        }
+        return {
+            statusTone: 'unknown',
+            statusLabel: '本地独立模式',
+            headline: '当前处于本地独立运行模式',
+            desc: '未检测到常驻飞书守护服务（不影响本地功能使用）。若要在飞书对话，可在飞书私聊中发一条消息测试连接，或复制排查命令排查。',
+        };
     }
     function chainVerdictLabel(verdict: string): string {
         return {
