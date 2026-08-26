@@ -86,6 +86,16 @@ app.get('/api/jobs/:id', (req, res) => {
   if (!job) return res.status(404).json({ error: '任务不存在' });
   res.json({ job });
 });
+app.get('/api/jobs/:id/events', (req, res) => {
+  const job = store.get(req.params.id);
+  if (!job) return res.status(404).json({ error: '任务不存在' });
+  try {
+    const result = taskRunEvents.queryTaskRunEvents({ taskId: req.params.id, limit: 100 });
+    res.json({ events: result.items || [] });
+  } catch {
+    res.json({ events: [] });
+  }
+});
 app.get('/api/jobs/:id/download', async (req, res, next) => {
   try {
     const job = store.get(req.params.id);

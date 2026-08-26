@@ -35,6 +35,15 @@
     --red-soft: #2a1614;
     --radius: 14px;
   }
+
+  .stage-dot {
+    background: #2d3d34;
+    border-color: #2d3d34;
+  }
+
+  .stage-connector {
+    background: #2d3d34;
+  }
 }
 
 * {
@@ -571,21 +580,250 @@ select:focus {
   color: var(--green);
 }
 
+/* ─── Stage Stepper ─── */
+
+.stage-stepper {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 14px 0 2px;
+  padding: 10px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.stage-stepper::-webkit-scrollbar {
+  display: none;
+}
+
+.stage-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.stage-dot {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--muted);
+  background: #eef1ee;
+  border: 2px solid #eef1ee;
+  transition: all .25s;
+}
+
+.stage-node.done .stage-dot {
+  color: #fff;
+  background: var(--green);
+  border-color: var(--green);
+  font-size: 10px;
+}
+
+.stage-node.active .stage-dot {
+  color: #fff;
+  background: #3c6f8d;
+  border-color: #3c6f8d;
+  animation: stage-pulse 1.8s ease-in-out infinite;
+}
+
+.stage-node.failed .stage-dot {
+  color: #fff;
+  background: var(--red);
+  border-color: var(--red);
+}
+
+@keyframes stage-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(60, 111, 141, .35); }
+  50% { box-shadow: 0 0 0 5px rgba(60, 111, 141, 0); }
+}
+
+.stage-label {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+  max-width: 48px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stage-node.done .stage-label {
+  color: var(--green);
+}
+
+.stage-node.active .stage-label {
+  color: #3c6f8d;
+  font-weight: 700;
+}
+
+.stage-node.failed .stage-label {
+  color: var(--red);
+  font-weight: 700;
+}
+
+.stage-connector {
+  display: block;
+  width: 18px;
+  height: 2px;
+  margin: 0 2px;
+  margin-bottom: 18px;
+  background: #dce4dc;
+  font-size: 0;
+  flex-shrink: 0;
+}
+
+.stage-connector.done {
+  background: var(--green);
+}
+
 .job-log {
   grid-column: 1 / -1;
   color: var(--muted);
   font-size: 12px;
+  margin-top: 8px;
 }
 
 .job-log summary {
   cursor: pointer;
+  font-weight: 600;
+  color: var(--ink);
+  padding: 4px 0;
 }
 
 .job-log ol {
-  padding-left: 18px;
-  margin: 9px 0 0;
+  padding-left: 0;
+  margin: 10px 0 0;
   display: grid;
-  gap: 4px;
+  gap: 8px;
+  list-style: none;
+}
+
+.log-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 10px;
+  background: #f8faf8;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+
+.log-dot {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.log-dot.log-success { background: var(--green-soft); color: var(--green); }
+.log-dot.log-info { background: #e7f0f5; color: #3c6f8d; }
+.log-dot.log-warning { background: var(--amber-soft); color: var(--amber); }
+.log-dot.log-danger { background: var(--red-soft); color: var(--red); }
+
+.log-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.log-stage {
+  font-weight: 650;
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.log-header time {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.log-message {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.telemetry-details {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: #f4f6f4;
+  border-radius: 8px;
+  border: 1px dashed var(--line);
+}
+
+.telemetry-details summary {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.telemetry-list {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.telemetry-item {
+  padding: 6px 8px;
+  background: var(--surface);
+  border-radius: 6px;
+  border-left: 3px solid #becabe;
+  font-size: 11px;
+}
+
+.telemetry-item.ok { border-left-color: var(--green); }
+.telemetry-item.warn { border-left-color: var(--amber); }
+.telemetry-item.err { border-left-color: var(--red); }
+
+.telemetry-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.telemetry-type {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.telemetry-route {
+  color: var(--muted);
+}
+
+.telemetry-head time {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.telemetry-meta {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.telemetry-summary {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 11px;
 }
 
 .revision-dialog {
@@ -792,5 +1030,18 @@ select:focus {
 
   .revision-actions .primary {
     margin-top: 0;
+  }
+
+  .stage-stepper {
+    gap: 0;
+  }
+
+  .stage-label {
+    font-size: 9px;
+    max-width: 36px;
+  }
+
+  .stage-connector {
+    width: 10px;
   }
 }

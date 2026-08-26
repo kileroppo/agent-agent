@@ -52,7 +52,20 @@ function renderDetail() {
     $('#edit-project').onclick = () => openProjectDialog(project);
     document.querySelectorAll('[data-task-id]').forEach((el) => el.addEventListener('click', () => openTaskDialog(el.dataset.taskId)));
 }
-function renderTask(task) { return html `<button class="task-card" data-task-id="${task.id}"><div class="task-card-top"><span class="tag ${statusClass(task.priority === 'high' ? 'high' : task.status)}">${task.priority === 'high' ? '重点' : statusLabels[task.status]}</span><span>${task.progress}%</span></div><strong>${task.title}</strong><small>${task.phase} · ${task.owner}</small>${raw(task.nextAction ? html `<p>下一步：${task.nextAction}</p>` : '')}${raw(task.blockedReason ? html `<p class="blocked-copy">${task.blockedReason}</p>` : '')}<div class="progress-track"><i style="width:${task.progress}%"></i></div></button>`; }
+function renderTask(task) {
+    const isBlocked = task.status === 'blocked' || Boolean(task.blockedReason);
+    return html `<button class="task-card ${isBlocked ? 'is-blocked-card' : ''}" data-task-id="${task.id}">
+      <div class="task-card-top">
+        <span class="tag ${statusClass(task.priority === 'high' ? 'high' : task.status)}">${task.priority === 'high' ? '重点' : statusLabels[task.status]}</span>
+        <span class="task-percent">${task.progress}%</span>
+      </div>
+      <strong class="task-title">${task.title}</strong>
+      <div class="task-meta-row"><small class="task-phase-badge">${task.phase}</small><small class="task-owner">${task.owner}</small></div>
+      ${raw(task.nextAction ? html `<div class="task-next-box"><span class="next-dot">→</span><span>${task.nextAction}</span></div>` : '')}
+      ${raw(task.blockedReason ? html `<div class="task-attention-banner"><span class="attention-badge">! 阻塞卡点</span><p>${task.blockedReason}</p></div>` : '')}
+      <div class="progress-track"><i style="width:${task.progress}%"></i></div>
+    </button>`;
+}
 function openTaskDialog(taskId) {
     state.editingTaskId = taskId ? Number(taskId) : null;
     const task = taskId ? state.project.tasks.find((item) => item.id === Number(taskId)) : null;

@@ -15,6 +15,58 @@ const revisionTranscript: any = query('#revision-transcript');
 const revisionVersion: any = query('#revision-version');
 const revisionMessage: any = query('#revision-message');
 const revisionReload: any = query('#revision-reload');
+const STAGES: any = [
+    ['queued', '等待'],
+    ['preparing', '素材'],
+    ['acquiring', '获取'],
+    ['transcribing', '转录'],
+    ['analyzing_visual', '关键帧'],
+    ['distilling', '整理'],
+    ['awaiting_review', '听审'],
+    ['delivering', '交付'],
+    ['awaiting_delivery', '飞书'],
+    ['completed', '完成'],
+];
+
+function renderStageStepper(job: any): any {
+    const currentIndex: any = STAGES.findIndex(([key]: any): any => key === job.status);
+    const isFailed: any = job.status === 'failed';
+    const el: any = document.createElement('div');
+    el.className = 'stage-stepper';
+    // Show a condensed subset: pick up to 5 relevant stages around the current one
+    const visibleStages: any = condenseStages(STAGES, currentIndex, isFailed);
+    visibleStages.forEach((stage: any, index: any): any => {
+        if (index > 0) {
+            const connector: any = document.createElement('span');
+            connector.className = `stage-connector ${stage.done ? 'done' : ''}`;
+            connector.textContent = '──';
+            el.append(connector);
+        }
+        const node: any = document.createElement('span');
+        node.className = `stage-node ${stage.done ? 'done' : ''} ${stage.active ? 'active' : ''} ${stage.failed ? 'failed' : ''}`;
+        node.title = stage.fullLabel;
+        const dot: any = document.createElement('span');
+        dot.className = 'stage-dot';
+        dot.textContent = stage.done ? '✓' : (stage.active ? '◉' : (stage.failed ? '✗' : '○'));
+        const label: any = document.createElement('span');
+        label.className = 'stage-label';
+        label.textContent = stage.label;
+        node.append(dot, label);
+        el.append(node);
+    });
+    return el;
+}
+
+function condenseStages(stages: any, currentIndex: any, isFailed: any): any {
+    return stages.map(([key, label]: any, index: any): any => ({
+        key,
+        label,
+        fullLabel: label,
+        done: currentIndex >= 0 && index < currentIndex,
+        active: !isFailed && index === currentIndex,
+        failed: isFailed && index === currentIndex,
+    }));
+}
 let activeRevisionJobId: any = null;
 let activeRevisionVersion: any = null;
 queryAll('.tab').forEach((button: any): any => button.addEventListener('click', (): any => {
@@ -56,11 +108,24 @@ async function submit(url: any, options: any): Promise<any> {
     }
 }
 async function loadJobs(): Promise<any> {
+    const expandedLogs: any = new Set();
+    jobsEl.querySelectorAll('.job-card[data-job-id]').forEach((card: any): any => {
+        const details: any = card.querySelector('.job-log');
+        if (details?.open) expandedLogs.add(card.dataset.jobId);
+    });
     const response: any = await fetch('/api/jobs');
     const { jobs }: any = await response.json();
     emptyEl.hidden = jobs.length > 0;
     jobsEl.replaceChildren();
     jobs.forEach(renderJob);
+    if (expandedLogs.size) {
+        jobsEl.querySelectorAll('.job-card[data-job-id]').forEach((card: any): any => {
+            if (expandedLogs.has(card.dataset.jobId)) {
+                const details: any = card.querySelector('.job-log');
+                if (details) details.open = true;
+            }
+        });
+    }
 }
 async function createCookieBridgeConnection(event: any): Promise<any> {
     event.preventDefault();
@@ -173,11 +238,13 @@ async function revokeConnection(id: any): Promise<any> {
 }
 function renderJob(job: any): any {
     const card: any = template.content.firstElementChild.cloneNode(true);
+    card.dataset.jobId = job.id;
     card.querySelector('.job-title').textContent = job.title;
     const status: any = card.querySelector('.status');
     status.textContent = job.failure?.category === 'needs_input' ? '需要授权或补充' : statusLabel(job.status);
     status.classList.add(job.failure?.category === 'needs_input' ? 'failed' : job.status);
     card.querySelector('.job-source').textContent = job.sourceType === 'upload' ? `本地文件 · ${job.originalName}` : `${job.sourceUrl}${job.connectionId ? ' · 已使用账号连接' : ''}`;
+    card.querySelector('.job-main').insertBefore(renderStageStepper(job), card.querySelector('.progress-track'));
     card.querySelector('.progress-bar').style.width = `${job.progress}%`;
     card.querySelector('.stage-message').textContent = job.stageMessage;
     const warnings: any = card.querySelector('.warnings');
@@ -247,9 +314,84 @@ function renderJob(job: any): any {
         redeliver.onclick = (): any => redeliverJob(job.id);
         actions.append(redeliver);
     }
-    const log: any = card.querySelector('.job-log ol');
-    job.log.slice().reverse().forEach((item: any): any => { const li: any = document.createElement('li'); li.textContent = `${new Date(item.at).toLocaleString()} · ${item.message}`; log.append(li); });
+    renderLogTimeline(job, card);
     jobsEl.append(card);
+}
+function renderLogTimeline(job: any, card: any): any {
+    const logDetails: any = card.querySelector('.job-log');
+    const logList: any = card.querySelector('.job-log ol');
+    if (!logList) return;
+    logList.replaceChildren();
+
+    const logs: any = Array.isArray(job.log) ? job.log.slice().reverse() : [];
+    logs.forEach((item: any): any => {
+        const li: any = document.createElement('li');
+        li.className = 'log-item';
+        const isSuccess: any = ['completed', 'delivering'].includes(item.stage) || item.message.includes('完成') || item.message.includes('成功');
+        const isWarning: any = item.message.includes('降级') || item.message.includes('重试') || item.message.includes('未配置');
+        const isError: any = item.stage === 'failed' || item.message.includes('失败') || item.message.includes('异常');
+        const toneClass: any = isError ? 'log-danger' : (isWarning ? 'log-warning' : (isSuccess ? 'log-success' : 'log-info'));
+        
+        const dot: any = document.createElement('span');
+        dot.className = `log-dot ${toneClass}`;
+        dot.textContent = isError ? '✗' : (isWarning ? '!' : (isSuccess ? '✓' : '•'));
+        
+        const content: any = document.createElement('div');
+        content.className = 'log-content';
+        
+        const header: any = document.createElement('div');
+        header.className = 'log-header';
+        const timeEl: any = document.createElement('time');
+        timeEl.textContent = new Date(item.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const stageEl: any = document.createElement('span');
+        stageEl.className = 'log-stage';
+        stageEl.textContent = statusLabel(item.stage) || item.stage;
+        header.append(stageEl, timeEl);
+        
+        const msgEl: any = document.createElement('p');
+        msgEl.className = 'log-message';
+        msgEl.textContent = item.message;
+        
+        content.append(header, msgEl);
+        li.append(dot, content);
+        logList.append(li);
+    });
+
+    if (logDetails) {
+        logDetails.addEventListener('toggle', async (): Promise<any> => {
+            if (!logDetails.open || card.dataset.eventsLoaded) return;
+            card.dataset.eventsLoaded = 'true';
+            try {
+                const res: any = await fetch(`/api/jobs/${job.id}/events`);
+                const { events }: any = await res.json();
+                if (Array.isArray(events) && events.length > 0) {
+                    const det: any = document.createElement('details');
+                    det.className = 'telemetry-details';
+                    const summary: any = document.createElement('summary');
+                    summary.textContent = `查看微观执行收据与遥测 (${events.length} 条记录)`;
+                    det.append(summary);
+                    
+                    const list: any = document.createElement('div');
+                    list.className = 'telemetry-list';
+                    events.forEach((ev: any): any => {
+                        const row: any = document.createElement('div');
+                        const isErr: any = ev.status === 'failed' || ev.status === 'error';
+                        const isWarn: any = ev.status === 'fallback';
+                        row.className = `telemetry-item ${isErr ? 'err' : (isWarn ? 'warn' : 'ok')}`;
+                        const time: any = ev.startedAt ? new Date(ev.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+                        const duration: any = Number.isFinite(ev.durationMs) ? `${ev.durationMs}ms` : '';
+                        const meta: any = [ev.provider, ev.model, duration].filter(Boolean).join(' · ');
+                        row.innerHTML = `<div class="telemetry-head"><span class="telemetry-type">${ev.eventType}</span><span class="telemetry-route">${ev.routeId || ev.capabilityId || ''}</span><time>${time}</time></div>${meta ? `<div class="telemetry-meta">${meta}</div>` : ''}${ev.safeSummary ? `<p class="telemetry-summary">${ev.safeSummary}</p>` : ''}`;
+                        list.append(row);
+                    });
+                    det.append(list);
+                    logDetails.append(det);
+                }
+            } catch {
+                // best-effort
+            }
+        });
+    }
 }
 async function openTranscriptRevision(jobId: any): Promise<any> {
     activeRevisionJobId = jobId;
@@ -338,7 +480,7 @@ async function redeliverJob(id: any): Promise<any> {
     setMessage('飞书交付状态已更新。');
     loadJobs();
 }
-function statusLabel(status: any): any { return ({ queued: '等待中', preparing: '检查素材', acquiring: '获取素材', transcribing: '转录中', distilling: '整理中', delivering: '交付中', awaiting_review: '等待听审', awaiting_delivery: '等待飞书交付', completed: '已完成', failed: '失败' } as Record<string, string>)[status] || status; }
+function statusLabel(status: any): any { return ({ queued: '等待中', preparing: '检查素材', acquiring: '获取素材', transcribing: '转录中', analyzing_visual: '提取关键帧', distilling: '整理中', delivering: '交付中', awaiting_review: '等待听审', awaiting_delivery: '等待飞书交付', completed: '已完成', failed: '失败' } as Record<string, string>)[status] || status; }
 function connectionStatusLabel(status: any): any { return ({ active: '已授权待验证', expiring: '即将过期', expired: '已过期', revoked: '已撤销', disabled: '已停用', error: '异常' } as Record<string, string>)[status] || status; }
 function setMessage(message: any, isError: any = false): any { messageEl.textContent = message; messageEl.classList.toggle('error', isError); }
 function setRevisionMessage(message: any, isError: any = false): any { revisionMessage.textContent = message; revisionMessage.classList.toggle('error', isError); }
