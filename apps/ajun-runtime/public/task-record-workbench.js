@@ -1,6 +1,6 @@
 import { html, raw, escapeHtml } from './html.js';
 import { statusLabel, stageLabel } from './console-labels.js';
-import { acceptanceTargetView, cleanAttentionText, recoverySubmissionView, renderAcceptanceDetail, renderAttentionDetail, renderCostSection, renderDeliverySink, renderDetailTabNav, renderOriginCard, renderSubtaskDrawer, taskAttentionView, } from './task-record-detail-view.js';
+import { acceptanceTargetView, cleanAttentionText, recoverySubmissionView, renderAcceptanceDetail, renderAttentionDetail, renderCostSection, renderDeliverySink, renderDetailTabNav, renderOriginCard, renderSubtaskDrawer, renderTaskLineageCard, taskAttentionView, } from './task-record-detail-view.js';
 import { createTaskTimelineLoader } from './task-timeline-view.js';
 import { renderTaskProgressBar } from './task-progress-bar.js';
 import { renderTaskWorkflowTree } from './task-tree-view.js';
@@ -361,7 +361,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const attention = taskAttentionView(task);
         const acceptanceTarget = acceptanceTargetView(task);
         const result = resultSummary(task);
-        const artifacts = artifactItems(task.artifactRefs || [], { hideEmployeeReport: Boolean(attention) });
+        const artifacts = artifactItems(task.artifactRefs || [], { hideEmployeeReport: true });
         const actionState = state.actionState.get(task.taskId) || null;
         const acceptanceState = state.acceptanceState.get(task.taskId) || null;
         const summary = presentation.summary || '';
@@ -369,6 +369,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const nextAction = showNextAction ? (presentation.nextAction || missingNextActionMessage(taskView)) : '';
         const distinctResult = result && result.text && result.text !== summary ? result : null;
         const outcomeLabel = taskView === 'completed' ? '结果' : taskView === 'active' ? '进度' : '下一步';
+        const parsedTitle = parseTaskTitle(task?.input?.title || task?.title || '');
         let actionChipsHtml = '';
         if (taskView === 'active') {
             actionChipsHtml = html `
@@ -440,6 +441,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const previewArtifacts = artifacts.slice(0, 2);
         const overviewTabHtml = html `
             <div class="detail-tab-pane ${state.detailTab === 'overview' ? 'is-active' : ''}" data-pane="overview">
+                ${raw(renderTaskLineageCard(task, parsedTitle))}
                 ${raw(renderTaskProgressBar(task, { agentName }))}
                 ${raw(renderAcceptanceDetail(acceptanceTarget, acceptanceState, escapeHtml))}
                 ${raw(outcomeHtml)}

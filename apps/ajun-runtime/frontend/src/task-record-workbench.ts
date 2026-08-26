@@ -11,6 +11,7 @@ import {
     renderDetailTabNav,
     renderOriginCard,
     renderSubtaskDrawer,
+    renderTaskLineageCard,
     taskAttentionView,
 } from './task-record-detail-view.js';
 import { createTaskTimelineLoader } from './task-timeline-view.js';
@@ -382,7 +383,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const attention: any = taskAttentionView(task);
         const acceptanceTarget: any = acceptanceTargetView(task);
         const result: any = resultSummary(task);
-        const artifacts: any = artifactItems(task.artifactRefs || [], { hideEmployeeReport: Boolean(attention) });
+        const artifacts: any = artifactItems(task.artifactRefs || [], { hideEmployeeReport: true });
         const actionState: any = state.actionState.get(task.taskId) || null;
         const acceptanceState: any = state.acceptanceState.get(task.taskId) || null;
         const summary: any = presentation.summary || '';
@@ -390,6 +391,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const nextAction: any = showNextAction ? (presentation.nextAction || missingNextActionMessage(taskView)) : '';
         const distinctResult: any = result && result.text && result.text !== summary ? result : null;
         const outcomeLabel: any = taskView === 'completed' ? '结果' : taskView === 'active' ? '进度' : '下一步';
+        const parsedTitle: any = parseTaskTitle(task?.input?.title || task?.title || '');
         
         let actionChipsHtml: string = '';
         if (taskView === 'active') {
@@ -464,6 +466,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const previewArtifacts = artifacts.slice(0, 2);
         const overviewTabHtml = html`
             <div class="detail-tab-pane ${state.detailTab === 'overview' ? 'is-active' : ''}" data-pane="overview">
+                ${raw(renderTaskLineageCard(task, parsedTitle))}
                 ${raw(renderTaskProgressBar(task, { agentName }))}
                 ${raw(renderAcceptanceDetail(acceptanceTarget, acceptanceState, escapeHtml))}
                 ${raw(outcomeHtml)}

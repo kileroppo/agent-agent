@@ -425,6 +425,37 @@ export function renderDeliverySink(task = {}) {
     sinks.push(html `<span class="delivery-sink-item">✓ 已同步并可供飞书原会话回读</span>`);
     return html `<div class="record-delivery-sink"><div class="delivery-sink-title"><svg aria-hidden="true"><use href="#icon-share"></use></svg> 交付去向与下游</div><div class="delivery-sink-list">${raw(sinks.join(''))}</div></div>`;
 }
+export function renderTaskLineageCard(task = {}, parsedTitle = null) {
+    const rawTitle = String(task?.input?.title || task?.title || '').trim();
+    const isRework = parsedTitle?.badges?.some((b) => b.tone === 'rework') || /定向返工/i.test(rawTitle);
+    const isQuality = parsedTitle?.badges?.some((b) => b.tone === 'quality') || /质量(?:复核|审查)/i.test(rawTitle);
+    const isFault = parsedTitle?.badges?.some((b) => b.tone === 'fault') || /故障(?:恢复|处理)/i.test(rawTitle);
+    if (!isRework && !isQuality && !isFault && !task?.parentTaskId) {
+        return '';
+    }
+    const reworkBadge = parsedTitle?.badges?.find((b) => b.tone === 'rework');
+    const roundLabel = reworkBadge ? reworkBadge.label : (isRework ? '定向返工' : isQuality ? '质量复核' : '衍生任务');
+    const mainGoal = parsedTitle?.cleanTitle || task?.input?.title || '原始任务诉求';
+    const reasonText = task?.input?.description || task?.pendingApproval?.reason || task?.error?.message
+        || (isRework ? '上一轮成果经质检或验收发现存在缺口，AI 员工正在针对性补充完善，以达成高质量最终交付。' : '本任务为主任务衍生出的专项协同环节。');
+    return html `
+        <section class="record-lineage-card" aria-label="任务衍生与返工脉络">
+            <div class="lineage-card-badge-row">
+                <span class="lineage-badge is-rework">
+                    <svg width="12" height="12" aria-hidden="true"><use href="#icon-spark"></use></svg>
+                    ${roundLabel}
+                </span>
+                <span class="lineage-goal-tag">主诉求目标：<strong>${mainGoal}</strong></span>
+            </div>
+            <div class="lineage-card-body">
+                <div class="lineage-reason-item">
+                    <span class="lineage-label">返工/衍生原因：</span>
+                    <p class="lineage-text">${cleanAttentionText(reasonText, 300)}</p>
+                </div>
+            </div>
+        </section>
+    `;
+}
 export function renderSubtaskDrawer(subtask, options = {}) {
     if (!subtask)
         return '';
@@ -432,9 +463,25 @@ export function renderSubtaskDrawer(subtask, options = {}) {
     const agent = agentNameFn(subtask.assigneeAgentId);
     const created = formatFullDateTime(subtask.createdAt);
     const duration = subtask.createdAt ? formatDuration(subtask.createdAt, subtask.completedAt || subtask.updatedAt) : '';
-    const artifacts = Array.isArray(subtask.artifactRefs) ? subtask.artifactRefs : [];
+    const rawArtifacts = Array.isArray(subtask.artifactRefs) ? subtask.artifactRefs : [];
+    // Filter out internal execution reports for cleaner presentation
+    const artifacts = rawArtifacts.filter((a) => a?.type !== 'employee_execution_report');
     const taskRef = String(subtask.taskId || '').replace(/[^0-9a-z]/gi, '').slice(0, 8).toUpperCase();
     const inputDesc = cleanAttentionText(subtask.input?.description || subtask.input?.focus || subtask.input?.title, 200);
+    const statusLabel = subtask.presentation?.statusLabel || statusToChinese(subtask.status);
+    const artifactItemsHtml = artifacts.map((a) => {
+        const artTitle = cleanAttentionText(a.title || a.name || a.type || '交付产物', 50);
+        const url = a.url || a.downloadUrl || a.location || a.path || '';
+        return html `
+            <li class="subtask-artifact-item">
+                <div class="artifact-item-main">
+                    <svg width="14" height="14" aria-hidden="true"><use href="#icon-records"></use></svg>
+                    <span>${artTitle}</span>
+                </div>
+                ${raw(url ? html `<button type="button" class="text-action" data-copy-path="${url}">复制路径</button>` : '')}
+            </li>
+        `;
+    }).join('');
     return html `
         <div class="subtask-drawer-overlay" data-subtask-drawer-overlay>
             <aside class="subtask-drawer" role="dialog" aria-label="协作任务预览">
@@ -453,7 +500,7 @@ export function renderSubtaskDrawer(subtask, options = {}) {
                         </div>
                         <div class="subtask-meta-item">
                             <span class="meta-label">当前状态</span>
-                            <span class="record-row-status ${subtask.status || 'active'}">${subtask.status || '执行中'}</span>
+                            <span class="record-row-status ${subtask.status || 'active'}">${statusLabel}</span>
                         </div>
                         <div class="subtask-meta-item">
                             <span class="meta-label">创建时间</span>
@@ -473,31 +520,34 @@ export function renderSubtaskDrawer(subtask, options = {}) {
                     ` : '')}
 
                     <div class="subtask-section">
-                        <span class="subtask-section-title">产生产物 (${artifacts.length})</span>
+                        <span class="subtask-section-title">交付产物 (${artifacts.length})</span>
                         ${raw(artifacts.length > 0 ? html `
                             <ul class="subtask-artifacts-list">
-                                ${artifacts.map((a) => {
-        const artTitle = cleanAttentionText(a.title || a.name || a.type || '交付产物', 50);
-        const url = a.url || a.downloadUrl || a.location || a.path || '';
-        return html `
-                                        <li class="subtask-artifact-item">
-                                            <div class="artifact-item-main">
-                                                <svg width="14" height="14" aria-hidden="true"><use href="#icon-records"></use></svg>
-                                                <span>${artTitle}</span>
-                                            </div>
-                                            ${raw(url ? html `<button type="button" class="text-action" data-copy-path="${url}">复制路径</button>` : '')}
-                                        </li>
-                                    `;
-    }).join('')}
+                                ${raw(artifactItemsHtml)}
                             </ul>
-                        ` : '<p class="subtask-empty-text">该环节暂未生成产物文件</p>')}
+                        ` : '<p class="subtask-empty-text">该环节暂未生成业务交付物（仅内部流转）</p>')}
                     </div>
                 </div>
                 <div class="subtask-drawer-footer">
-                    <button type="button" class="secondary-action" data-subtask-drawer-close>返回当前任务</button>
-                    <button type="button" class="focus-primary-action tree-switch-btn" data-record-task-id="${subtask.taskId}">设为主视角打开 ↗</button>
+                    <button type="button" class="secondary-action" data-subtask-drawer-close>返回当前主任务</button>
+                    <button type="button" class="focus-primary-action tree-switch-btn" data-record-task-id="${subtask.taskId}">查看此子任务详情 ➔</button>
                 </div>
             </aside>
         </div>
     `;
+}
+function statusToChinese(status) {
+    const map = {
+        running: '处理中',
+        succeeded: '已完成',
+        failed: '未完成',
+        queued: '排队中',
+        waiting_approval: '等待确认',
+        pending_approval: '等待确认',
+        waiting_test: '待验证',
+        needs_input: '等待补充',
+        paused: '已暂停',
+        cancelled: '已关闭',
+    };
+    return map[status] || status || '处理中';
 }

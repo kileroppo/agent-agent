@@ -12,38 +12,56 @@ export function renderTaskTimeline(payload, options = {}) {
     }
     // 1. Identify key business milestones vs raw noisy trace events
     const { milestones, rawTrace } = partitionTimelineItems(rawItems);
-    // Render milestone highlights list (only when multiple items exist)
-    const showMilestoneSection = milestones.length > 0;
-    const milestonesHtml = showMilestoneSection
-        ? html `
-            <div class="timeline-milestones-section">
-                <div class="timeline-section-header">
-                    <div class="timeline-header-title">
-                        <svg class="timeline-header-icon" aria-hidden="true"><use href="#icon-spark"></use></svg>
-                        <strong>实施关键进展 (${milestones.length})</strong>
-                    </div>
-                    <span class="timeline-header-tip">已自动提炼业务节点</span>
-                </div>
-                <ol class="timeline-milestones-list">
-                    ${raw(milestones.map((item, idx) => renderMilestoneItem(item, idx === milestones.length - 1)).join(''))}
+    // If total items <= 3, render single unified flat timeline (No repetitive sections)
+    if (rawItems.length <= 3) {
+        const itemsHtml = rawItems.map((item) => renderTimelineItem(item)).join('');
+        return html `
+            <details class="record-detail-section task-timeline" data-task-timeline open>
+                <summary><span>实施过程</span><small>${rawItems.length} 个节点</small></summary>
+                ${raw(renderActiveFilters(payload?.filters))}
+                <ol class="task-timeline-list">
+                    ${raw(itemsHtml)}
                 </ol>
+                ${raw(payload?.nextCursor ? '<button class="text-action task-timeline-more" type="button" data-task-timeline-more>继续加载</button>' : '')}
+            </details>
+        `;
+    }
+    // When items > 3: Milestones on top, full trace collapsed in disclosure below
+    const milestonesHtml = html `
+        <div class="timeline-milestones-section">
+            <div class="timeline-section-header">
+                <div class="timeline-header-title">
+                    <svg class="timeline-header-icon" aria-hidden="true"><use href="#icon-spark"></use></svg>
+                    <strong>实施核心进展 (${milestones.length})</strong>
+                </div>
+                <span class="timeline-header-tip">已自动提炼关键节点</span>
             </div>
-        `
-        : '';
-    // Render detailed items list
+            <ol class="timeline-milestones-list">
+                ${raw(milestones.map((item, idx) => renderMilestoneItem(item, idx === milestones.length - 1)).join(''))}
+            </ol>
+        </div>
+    `;
     const itemsHtml = rawTrace.map((item) => renderTimelineItem(item)).join('');
     return html `
         <details class="record-detail-section task-timeline" data-task-timeline open>
             <summary><span>过程</span><small>${rawItems.length}</small></summary>
             ${raw(renderActiveFilters(payload?.filters))}
-            ${raw(showMilestoneSection ? milestonesHtml : '')}
-            <div class="timeline-full-trace-header">
-                <span class="trace-label">详细过程记录：</span>
-            </div>
-            <ol class="task-timeline-list">
-                ${raw(itemsHtml)}
-            </ol>
-            ${raw(payload?.nextCursor ? '<button class="text-action task-timeline-more" type="button" data-task-timeline-more>继续加载</button>' : '')}
+            ${raw(milestonesHtml)}
+            <details class="timeline-trace-disclosure">
+                <summary class="timeline-trace-summary">
+                    <span class="trace-summary-left">
+                        <svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg>
+                        <span>完整排障日志与技术追踪</span>
+                        <small class="trace-count">${rawItems.length} 条记录</small>
+                    </span>
+                </summary>
+                <div class="timeline-trace-content">
+                    <ol class="task-timeline-list">
+                        ${raw(itemsHtml)}
+                    </ol>
+                    ${raw(payload?.nextCursor ? '<button class="text-action task-timeline-more" type="button" data-task-timeline-more>继续加载</button>' : '')}
+                </div>
+            </details>
         </details>
     `;
 }
