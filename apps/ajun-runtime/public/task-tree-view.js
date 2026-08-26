@@ -64,17 +64,15 @@ function renderMultiTaskWorkflowTree(task, breadcrumb, agentNameFn) {
         <div class="tree-node-step-index">#${index + 1}</div>
         <div class="tree-task-main">
           <div class="tree-task-header">
-            <span class="tree-task-ref">#${taskRef}</span>
+            ${raw(isCurrent
+            ? html `<span class="tree-task-ref is-current" title="当前环节编号">#${taskRef}</span>`
+            : html `<button type="button" class="tree-task-ref-btn" data-subtask-preview="${t.taskId}" title="点击编号直接查看该环节详情">#${taskRef} ↗</button>`)}
+            <span class="tree-task-title-badge">${raw(displaySubtaskTitle(t, task))}</span>
             <span class="tree-task-agent"><svg width="12" height="12" aria-hidden="true"><use href="#icon-employees"></use></svg> ${agent}</span>
             <span class="tree-task-status status-${statusTone}">${statusLabel}</span>
             ${raw(duration ? html `<span class="tree-task-time">${duration}</span>` : '')}
-            <div class="tree-node-actions">
-              ${raw(isCurrent
-            ? '<span class="tree-current-badge">当前环节</span>'
-            : `<button type="button" class="subtask-preview-btn" data-subtask-preview="${t.taskId}"><svg width="12" height="12" aria-hidden="true"><use href="#icon-records"></use></svg> 查看环节详情</button>`)}
-            </div>
+            ${raw(isCurrent ? '<span class="tree-current-badge">当前环节</span>' : '')}
           </div>
-          <div class="tree-task-title">${raw(displaySubtaskTitle(t, task))}</div>
           ${raw(artifactsHtml ? `<div class="tree-task-artifacts">${artifactsHtml}</div>` : '')}
         </div>
       </div>

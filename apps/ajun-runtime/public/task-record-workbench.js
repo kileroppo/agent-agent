@@ -402,23 +402,28 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const tabNavHtml = renderDetailTabNav(state.detailTab, { deliverablesCount: artifacts.length, isWorkflow });
         const isReworkTask = parsedTitle?.badges?.some((b) => b.tone === 'rework') || /定向返工/i.test(task?.input?.title || task?.title || '');
         const reworkArtifactsHtml = isReworkTask && artifacts.length ? artifacts.map(renderArtifact).join('') : '';
-        // Tab 1: Pure Overview Panel (No duplicate deliverables section)
+        const isWaitingTest = task.status === 'waiting_test';
+        const waitingTestGuideHtml = isWaitingTest ? html `
+            <div class="record-waiting-test-guide" role="status">
+                <svg width="16" height="16" aria-hidden="true"><use href="#icon-shield"></use></svg>
+                <div class="waiting-test-content">
+                    <strong>待人工核验确认</strong>
+                    <p>当前任务已执行完毕。请在下方交付产物中查验体验；核验满意后，点击下方「有用/采纳」完成任务验收闭环。</p>
+                </div>
+            </div>
+        ` : '';
+        // Tab 1: Combined Overview & Deliverables Panel
         const overviewTabHtml = html `
-            <div class="detail-tab-pane ${state.detailTab === 'overview' ? 'is-active' : ''}" data-pane="overview">
+            <div class="detail-tab-pane ${state.detailTab === 'overview' || state.detailTab === 'deliverables' ? 'is-active' : ''}" data-pane="overview">
+                ${raw(waitingTestGuideHtml)}
                 ${raw(renderTaskLineageCard(task, parsedTitle, reworkArtifactsHtml))}
                 ${raw(renderTaskProgressBar(task, { agentName }))}
                 ${raw(renderAcceptanceDetail(acceptanceTarget, acceptanceState, escapeHtml))}
                 ${raw(outcomeHtml)}
-                ${raw(renderOriginCard(task))}
-            </div>
-        `;
-        // Tab 2: Deliverables Panel
-        const deliverablesTabHtml = html `
-            <div class="detail-tab-pane ${state.detailTab === 'deliverables' ? 'is-active' : ''}" data-pane="deliverables">
                 <section class="record-deliverables-full">
                     <div class="deliverables-full-head">
                         <div>
-                            <h3>交付产物展台</h3>
+                            <h3>交付产物成果 (${artifacts.length})</h3>
                             <p class="deliverables-full-desc">汇集本次任务生成的全部交付物、拆解分析与证据文件：</p>
                         </div>
                     </div>
@@ -434,9 +439,10 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
                     `)}
                     ${raw(renderDeliverySink(task))}
                 </section>
+                ${raw(renderOriginCard(task))}
             </div>
         `;
-        // Tab 3: Collaboration & Trace Panel
+        // Tab 2: Collaboration & Trace Panel
         const costHtml = renderCostSection(task);
         const costCollapsible = costHtml
             ? html `<details class="record-cost-collapsible"><summary><span>执行开销与费用账本</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary>${raw(costHtml)}</details>`
@@ -478,7 +484,6 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
       ${raw(tabNavHtml)}
       <div class="detail-tab-content">
         ${raw(overviewTabHtml)}
-        ${raw(deliverablesTabHtml)}
         ${raw(collaborationTabHtml)}
       </div>
       ${raw(subtaskDrawerHtml)}`;

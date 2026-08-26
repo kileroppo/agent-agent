@@ -385,13 +385,14 @@ export function renderWorkflowBreadcrumb(detail: any): any {
 
 export function renderDetailTabNav(activeTab: string = 'overview', counts: { deliverablesCount: number; isWorkflow: boolean } = { deliverablesCount: 0, isWorkflow: false }): string {
     const tabs = [
-        { key: 'overview', label: '概览与结果', icon: 'spark', badge: '' },
-        { key: 'deliverables', label: '交付产物库', icon: 'records', badge: counts.deliverablesCount > 0 ? String(counts.deliverablesCount) : '' },
+        { key: 'overview', label: '概览与交付产物', icon: 'spark', badge: counts.deliverablesCount > 0 ? String(counts.deliverablesCount) : '' },
         { key: 'collaboration', label: counts.isWorkflow ? '协作与过程 (多Agent)' : '实施过程与审计', icon: 'connections', badge: '' },
     ];
 
+    const currentActiveTab = activeTab === 'deliverables' ? 'overview' : activeTab;
+
     const buttons = tabs.map((tab) => {
-        const active = activeTab === tab.key;
+        const active = currentActiveTab === tab.key;
         return html`
             <button type="button" class="detail-tab-btn ${active ? 'is-active' : ''}" data-detail-tab="${tab.key}" aria-selected="${active ? 'true' : 'false'}" role="tab">
                 <svg width="14" height="14" aria-hidden="true"><use href="#icon-${tab.icon}"></use></svg>
@@ -567,9 +568,9 @@ export function renderSubtaskDrawer(subtask: any, options: { agentName?: (id: st
                         </div>
                     </div>
 
-                    ${raw(inputDesc ? html`
+                    ${raw(inputDesc && !inputDesc.includes('{') && !inputDesc.includes('__') && inputDesc.length > 5 ? html`
                         <div class="subtask-section">
-                            <span class="subtask-section-title">环节诉求</span>
+                            <span class="subtask-section-title">环节重点</span>
                             <p class="subtask-section-text">${inputDesc}</p>
                         </div>
                     ` : '')}

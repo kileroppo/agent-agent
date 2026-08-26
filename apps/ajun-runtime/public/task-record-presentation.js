@@ -77,25 +77,20 @@ export function displaySubtaskTitle(childTask, _parentTask = null) {
     const reworkBadge = parsed.badges.find((b) => b.tone === 'rework');
     const qualityBadge = parsed.badges.find((b) => b.tone === 'quality');
     const faultBadge = parsed.badges.find((b) => b.tone === 'fault');
-    // 1. 重试/返工任务：只显示“第 N 轮重试”，绝不带原任务标题
+    // 只保留紧凑图标徽章，不加冗余汉字
     if (reworkBadge) {
-        const roundNumMatch = reworkBadge.label.match(/\d+/);
-        const roundText = roundNumMatch ? `第 ${roundNumMatch[0]} 轮重试` : '定向返工重试';
-        return `<span class="task-badge-pill badge-rework" title="${escapeHtml(reworkBadge.tooltip)}">${reworkBadge.label}</span> <span class="task-title-text">${roundText}</span>`;
+        return `<span class="task-badge-pill badge-rework" title="${escapeHtml(reworkBadge.tooltip)}">${reworkBadge.label}</span>`;
     }
-    // 2. 质检复核
     if (qualityBadge) {
-        return `<span class="task-badge-pill badge-quality" title="${escapeHtml(qualityBadge.tooltip)}">${qualityBadge.label}</span> <span class="task-title-text">交付质量复核</span>`;
+        return `<span class="task-badge-pill badge-quality" title="${escapeHtml(qualityBadge.tooltip)}">${qualityBadge.label}</span>`;
     }
-    // 3. 故障自动恢复
     if (faultBadge) {
-        return `<span class="task-badge-pill badge-fault" title="${escapeHtml(faultBadge.tooltip)}">${faultBadge.label}</span> <span class="task-title-text">故障自动恢复</span>`;
+        return `<span class="task-badge-pill badge-fault" title="${escapeHtml(faultBadge.tooltip)}">${faultBadge.label}</span>`;
     }
-    // 4. 原始初稿或其它协同环节
     if (!childTask?.parentTaskId) {
-        return `<span class="task-badge-pill badge-quality">🌱 初稿</span> <span class="task-title-text">原始初稿生成</span>`;
+        return `<span class="task-badge-pill badge-quality">🌱 初稿</span>`;
     }
-    return `<span class="task-badge-pill badge-paperclip">🌱 协同</span> <span class="task-title-text">衍生协同环节</span>`;
+    return `<span class="task-badge-pill badge-paperclip">🌱 协同</span>`;
 }
 export function relativeTime(value) {
     const timestamp = Date.parse(value || '');
@@ -150,22 +145,19 @@ export function renderTechnicalDetails(task, presentation, attention, escapeHtml
     };
     const rows = [
         ['完整编号', values.taskId],
+        ['技术状态', values.status],
+        ['执行阶段', values.stage],
+        ['错误代码', values.errorCode],
+        ['当前员工', cleanAttentionText(task.assigneeAgentId, 80)],
+        ['任务类型', cleanAttentionText(task.taskType, 80)],
         ['创建时间', formatFullDateTime(task.createdAt)],
         ['更新时间', formatFullDateTime(task.updatedAt)],
         ['完成时间', formatFullDateTime(task.completedAt)],
-        ['Paperclip 运行', task.paperclipRun?.runId
-                ? `${cleanAttentionText(task.paperclipRun.status, 40)} · ${cleanAttentionText(task.paperclipRun.runId, 80)}`
-                : ''],
-        ['原始状态', values.status],
-        ['当前阶段', values.stage],
-        ['错误代码', values.errorCode],
-    ].filter(([, value]) => value);
-    if (!rows.length)
-        return '';
-    const paperclipIssue = (!attention?.paperclipIssue && task.paperclipIssue?.detailUrl)
-        ? html `<a class="record-paperclip-link" href="${task.paperclipIssue.detailUrl}" target="_blank" rel="noopener">打开 Paperclip ${task.paperclipIssue.identifier || '任务'}</a>`
+    ].filter(([, value]) => Boolean(value));
+    const rowsHtml = rows.map(([label, value]) => html `<dt>${label}</dt><dd>${value}</dd>`).join('');
+    const paperclipIssue = presentationTechnical.paperclipIssueUrl
+        ? html `<a class="record-paperclip-link" href="${presentationTechnical.paperclipIssueUrl}" target="_blank" rel="noopener">打开 Paperclip</a>`
         : '';
-    const rowsHtml = rows.map(([label, value]) => html `<div><dt>${label}</dt><dd>${value}</dd></div>`).join('');
     return html `<details class="record-technical" data-disclosure-key="record-technical:${values.taskId}"><summary><span>编号与审计</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><dl>${raw(rowsHtml)}</dl><div class="record-technical-actions">${raw(paperclipIssue)}<button class="text-action record-copy-id" type="button">复制编号</button></div></details>`;
 }
 const ARTIFACT_TYPE_LABELS = {
@@ -206,9 +198,9 @@ export function renderArtifact(artifact) {
     const isHttp = /^https?:\/\//i.test(url);
     const rawSummary = artifact.summary || artifact.description || artifact.data?.summary || artifact.data?.conclusion || (typeof artifact.data?.text === 'string' ? artifact.data.text : '');
     const summary = typeof rawSummary === 'string' ? rawSummary.slice(0, 240).trim() : '';
-    const inlineContent = typeof artifact.data?.text === 'string' && artifact.data.text.trim().length > 0 && artifact.data.text.trim() !== summary
-        ? artifact.data.text.trim()
-        : (typeof artifact.content === 'string' && artifact.content.trim().length > 0 ? artifact.content.trim() : '');
+    const rawInline = artifact.data?.markdown || artifact.data?.text || artifact.data?.content || artifact.content || '';
+    const inlineContent = typeof rawInline === 'string' ? rawInline.trim() : '';
+    const isReadableText = inlineContent.length > 20 && !inlineContent.startsWith('{') && inlineContent !== summary;
     return html `<li class="record-artifact-item">
         <div class="artifact-item-main">
             <div class="artifact-item-header">
@@ -217,7 +209,7 @@ export function renderArtifact(artifact) {
                 ${raw(typeLabel ? html `<span class="artifact-type-tag">${typeLabel}</span>` : '')}
             </div>
             ${raw(summary ? html `<p class="artifact-summary">${summary}</p>` : '')}
-            ${raw(inlineContent ? html `
+            ${raw(isReadableText ? html `
                 <details class="artifact-inline-preview">
                     <summary><span>查看报告正文 / 内容详情</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary>
                     <div class="artifact-preview-body">
