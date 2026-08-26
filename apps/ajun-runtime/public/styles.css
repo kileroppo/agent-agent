@@ -5967,11 +5967,19 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: 6px;
-  overflow: hidden;
+  min-width: 0;
   color: var(--ink);
   font-size: 14px;
   font-weight: 680;
   line-height: 1.45;
+  white-space: nowrap;
+}
+
+.record-row-title-text,
+.record-row-title .task-title-wrapper,
+.record-row-title .task-title-text {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

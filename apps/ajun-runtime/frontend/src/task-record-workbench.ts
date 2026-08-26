@@ -367,12 +367,12 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             const timeHover: string = `创建于 ${createdFull || '未记录'}${task.updatedAt && task.updatedAt !== task.createdAt ? ` · 更新于 ${updatedFull}` : ''}`;
             const timeDisplay: string = createdFull ? `${createdFull.slice(5, 16)} (${relativeTime(task.createdAt || task.updatedAt)})` : relativeTime(task.updatedAt || task.createdAt);
             const children = childrenMap.get(task.taskId) || [];
-            const retryBadgeHtml = children.length ? `<span class="task-badge-pill badge-rework" title="该任务共产生 ${children.length} 轮重试/协同环节">🔁 ${children.length} 轮重试</span>` : '';
+            const retryBadgeHtml = children.length ? `<span class="task-badge-pill badge-rework" title="该任务共产生 ${children.length} 轮重试/协同环节">🔁 ${children.length}</span>` : '';
 
             return html`
                 <button class="record-row${selected ? ' is-selected' : ''}" type="button" role="option" aria-selected="${selected}" data-record-task-id="${task.taskId}">
                     <span class="record-row-main">
-                        <span class="record-row-title">${raw(displayTaskTitle(task))} ${raw(retryBadgeHtml)}</span>
+                        <span class="record-row-title"><span class="record-row-title-text">${raw(displayTaskTitle(task))}</span>${raw(retryBadgeHtml)}</span>
                         ${raw(reason ? html`<span class="record-row-reason">${reason}</span>` : '')}
                         <span class="record-row-meta" title="${escapeHtml(timeHover)}"><span>${agentName(task.assigneeAgentId)}</span><span>·</span><span>${timeDisplay}</span></span>
                     </span>
