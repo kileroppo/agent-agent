@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+import { chunkFeishuMarkdown } from './feishu-payload-chunker.ts';
 export class HermesFeishuSender {
     command: any;
     hermesHome: any;
@@ -130,8 +131,11 @@ function safeChatId(value: any): any {
     return chatId;
 }
 function safeMessage(value: any): any {
-    return String(value || '')
+    const raw = String(value || '')
         .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
-        .trim()
-        .slice(0, 8000);
+        .trim();
+    if (!raw) return '';
+    if (raw.length <= 8000) return raw;
+    const chunks = chunkFeishuMarkdown(raw, 7500);
+    return chunks[0] || raw.slice(0, 8000);
 }

@@ -6,6 +6,7 @@ import { encodeTaskRecordCursor, normalizeTaskRecordQuery, taskRecordStatusSets,
 import { applyApprovalPatch, applyTaskStatusPatch, applyWorkerTaskPatch, assertTaskIdempotencyMatch, claimTaskForWorker, holdTaskForApproval, initializeApprovalRecord, initializeTaskRecord, interruptedTaskExecutionPatch, isWorkerTaskClaimable, } from './task-lifecycle.ts';
 import { isExactLegacyMaturityContentBlock, isExactWaitingMaturityMissionRetry } from './maturity-legacy-content-retry.ts';
 import { applyWorkflowAcceptanceDecision } from './workflow-acceptance-record.ts';
+import { withBusyRetry } from './sqlite-wal-governor.ts';
 const SCHEMA_VERSION: any = 2;
 const COLLECTIONS: any = Object.freeze([
     { key: 'tasks', table: 'tasks', id: 'taskId', idColumn: 'task_id', created: 'createdAt', updated: 'updatedAt' },
@@ -447,18 +448,20 @@ export class SQLiteTaskStore {
             this.database.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
     }
     #transaction(operation: any): any {
-        this.database.exec('BEGIN IMMEDIATE');
-        try {
-            const result: any = operation();
-            this.database.exec('COMMIT');
-            this.#secureFiles();
-            this.#notifyMutation();
-            return result;
-        }
-        catch (error: any) {
-            this.database.exec('ROLLBACK');
-            throw error;
-        }
+        return withBusyRetry((): any => {
+            this.database.exec('BEGIN IMMEDIATE');
+            try {
+                const result: any = operation();
+                this.database.exec('COMMIT');
+                this.#secureFiles();
+                this.#notifyMutation();
+                return result;
+            }
+            catch (error: any) {
+                try { this.database.exec('ROLLBACK'); } catch {}
+                throw error;
+            }
+        });
     }
     #notifyMutation(): any {
         for (const listener of this.mutationListeners) {

@@ -1,4 +1,15 @@
+import { PanoramicSystemHealthInspector } from './panoramic-system-health.ts';
+
+const defaultPanoramicInspector = new PanoramicSystemHealthInspector();
+
 export async function routeRuntimeHealthApi({ request, tasks, optional }: any) {
+  if (request.method === 'GET' && (request.url === '/api/panoramic-health' || request.url?.startsWith('/api/panoramic-health?'))) {
+    const report = await defaultPanoramicInspector.inspectAll();
+    return {
+      status: 200,
+      payload: report,
+    };
+  }
   if (request.method !== 'GET' || request.url !== '/api/health') return null;
   if (typeof tasks?.healthOverview !== 'function') {
     return {

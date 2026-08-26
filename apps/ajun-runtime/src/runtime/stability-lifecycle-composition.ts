@@ -1,9 +1,12 @@
 import path from 'node:path';
+import { ApprovalEscalationGovernor } from '../approval-escalation-governor.ts';
 import { ArtifactStorageGcReconciler } from '../artifact-storage-gc.ts';
+import { CredentialDecayWarner } from '../credential-decay-warner.ts';
 import { CrossServiceHealthMesh } from '../cross-service-health-mesh.ts';
 import { FeedbackEvalDatasetService } from '../feedback-eval-dataset.ts';
 import { ProactiveAnomalyAlerting } from '../proactive-anomaly-alerting.ts';
 import { reconciliationJob } from '../reconciliation-coordinator.ts';
+import { SqliteWalGovernorReconciler } from '../sqlite-wal-governor.ts';
 import { TaskLivenessWatchdog } from '../task-liveness-watchdog.ts';
 import { DeliveryUnknownReconciler } from '../workflow/delivery-unknown-reconciler.ts';
 
@@ -31,6 +34,9 @@ export function createStabilityLifecycleComposition({
     store,
     datasetFilePath: path.join(paths.dataDir, 'eval-cases.json'),
   });
+  const sqliteWalGovernor = new SqliteWalGovernorReconciler({ database: store?.database });
+  const credentialDecayWarner = new CredentialDecayWarner();
+  const approvalEscalationGovernor = new ApprovalEscalationGovernor({ store });
 
   const stabilityJobs = [
     reconciliationJob('task-liveness-watchdog', taskLivenessWatchdog, { maxIntervalMs: 60_000 }),
@@ -39,6 +45,9 @@ export function createStabilityLifecycleComposition({
     reconciliationJob('health-mesh', healthMesh, { maxIntervalMs: 30_000 }),
     reconciliationJob('anomaly-alerting', anomalyAlerting, { maxIntervalMs: 60_000 }),
     reconciliationJob('feedback-eval-dataset', feedbackEvalDataset, { maxIntervalMs: 15 * 60_000 }),
+    reconciliationJob('sqlite-wal-governor', sqliteWalGovernor, { maxIntervalMs: 5 * 60_000 }),
+    reconciliationJob('credential-decay-warner', credentialDecayWarner, { maxIntervalMs: 60 * 60_000 }),
+    reconciliationJob('approval-escalation', approvalEscalationGovernor, { maxIntervalMs: 60_000 }),
   ];
 
   return Object.freeze({
@@ -48,6 +57,9 @@ export function createStabilityLifecycleComposition({
     healthMesh,
     anomalyAlerting,
     feedbackEvalDataset,
+    sqliteWalGovernor,
+    credentialDecayWarner,
+    approvalEscalationGovernor,
     stabilityJobs,
   });
 }

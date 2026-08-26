@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { coded, publishIdempotencyKey, receiptId, STOP_REASONS, validatePublishRequest, } from './policy.ts';
+import { PublisherAccountQuotaGovernor } from './publisher-account-quota-governor.ts';
 const IMMEDIATE_PAUSE_REASONS = new Set(STOP_REASONS);
 export class PublishExecution {
     assertConnectorApproval: any;
@@ -14,7 +15,8 @@ export class PublishExecution {
     pauseInPaperclip: any;
     publishTail: any;
     repository: any;
-    constructor({ repository, connectors, getArtifactVerifier, paperclipControl, costRecorder, mode, clock, assertOperational, assertConnectorApproval, pauseInPaperclip, }: any) {
+    quotaGovernor: PublisherAccountQuotaGovernor;
+    constructor({ repository, connectors, getArtifactVerifier, paperclipControl, costRecorder, mode, clock, assertOperational, assertConnectorApproval, pauseInPaperclip, quotaGovernor }: any) {
         this.repository = repository;
         this.connectors = connectors;
         this.getArtifactVerifier = getArtifactVerifier;
@@ -25,6 +27,7 @@ export class PublishExecution {
         this.assertOperational = assertOperational;
         this.assertConnectorApproval = assertConnectorApproval;
         this.pauseInPaperclip = pauseInPaperclip;
+        this.quotaGovernor = quotaGovernor || new PublisherAccountQuotaGovernor();
         this.inflight = new Map();
         this.publishTail = Promise.resolve();
     }
@@ -49,6 +52,15 @@ export class PublishExecution {
         const preflight = validatePublishRequest(request, now);
         if (!preflight.passed)
             throw coded('publish_preflight_failed', preflight.errors.join(' '));
+        const quota = this.quotaGovernor?.checkAndConsume?.(
+            request.platform,
+            request.accountId || request.channelId || 'default',
+            'publish',
+            typeof now === 'number' ? now : (now?.getTime ? now.getTime() : Date.now())
+        );
+        if (quota && !quota.allowed) {
+            throw coded('account_quota_exceeded', quota.reason || '该账号单日发稿配额已达上限。');
+        }
         await this.assertConnectorApproval(request.platform, 'publish', now);
         const mediaLease = await this.#acquireMediaLease(request.mediaPath, request.contentChecksum);
         try {

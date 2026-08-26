@@ -958,6 +958,84 @@
       "affectedTests": [
         "test/feedback-eval-dataset.test.js"
       ]
+    },
+    "src/feishu-payload-chunker.ts": {
+      "lineLimit": 200,
+      "affectedTests": [
+        "test/feishu-payload-chunker.test.js"
+      ]
+    },
+    "src/resilient-provider-call.ts": {
+      "lineLimit": 200,
+      "affectedTests": [
+        "test/resilient-provider-call.test.js"
+      ]
+    },
+    "src/workflow/mission-partial-success.ts": {
+      "lineLimit": 200,
+      "affectedTests": [
+        "test/mission-partial-success.test.js"
+      ]
+    },
+    "src/sqlite-wal-governor.ts": {
+      "lineLimit": 200,
+      "affectedTests": [
+        "test/sqlite-wal-governor.test.js"
+      ]
+    },
+    "src/feishu-ingress-deduplicator.ts": {
+      "lineLimit": 200,
+      "affectedTests": [
+        "test/feishu-ingress-deduplicator.test.js"
+      ]
+    },
+    "src/adapter-circuit-breaker.ts": {
+      "lineLimit": 200,
+      "affectedTests": [
+        "test/adapter-circuit-breaker.test.js"
+      ]
+    },
+    "src/credential-decay-warner.ts": {
+      "lineLimit": 200,
+      "affectedTests": [
+        "test/credential-decay-warner.test.js"
+      ]
+    },
+    "src/event-stream-governor.ts": {
+      "lineLimit": 200,
+      "affectedTests": [
+        "test/event-stream-governor.test.js"
+      ]
+    },
+    "src/feishu-card-action-engine.ts": {
+      "lineLimit": 200,
+      "affectedTests": [
+        "test/feishu-card-action-engine.test.js"
+      ]
+    },
+    "src/task-recovery-budget-governor.ts": {
+      "lineLimit": 200,
+      "affectedTests": [
+        "test/task-recovery-budget-governor.test.js"
+      ]
+    },
+    "src/content-pipeline-handoff.ts": {
+      "lineLimit": 200,
+      "affectedTests": [
+        "test/content-pipeline-handoff.test.js"
+      ]
+    },
+    "src/approval-escalation-governor.ts": {
+      "lineLimit": 200,
+      "affectedTests": [
+        "test/approval-escalation-governor.test.js"
+      ]
+    },
+    "src/panoramic-system-health.ts": {
+      "lineLimit": 200,
+      "affectedTests": [
+        "test/panoramic-system-health.test.js"
+      ]
     }
   },
   "testGroups": {

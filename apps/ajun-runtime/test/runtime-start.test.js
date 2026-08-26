@@ -125,6 +125,9 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
     'health-mesh',
     'anomaly-alerting',
     'feedback-eval-dataset',
+    'sqlite-wal-governor',
+    'credential-decay-warner',
+    'approval-escalation',
   ]);
   assert.equal(Object.hasOwn(runtime.services, 'xiaodReconciler'), false);
   assert.equal(Object.hasOwn(runtime.services, 'missionReconciler'), false);

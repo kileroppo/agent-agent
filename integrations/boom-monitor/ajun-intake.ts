@@ -1,3 +1,7 @@
+import { BoomSignalDedupGovernor } from './boom-signal-dedup-governor.ts';
+
+const defaultGovernor = new BoomSignalDedupGovernor();
+
 export function normalizeBoomSignal(input: any = {}) {
     const sourceUrl = publicHttpUrl(input.sourceUrl);
     const grade = ['T1', 'T2', 'T3'].includes(String(input.grade || '').toUpperCase())
@@ -44,10 +48,18 @@ export function normalizeBoomSignal(input: any = {}) {
         depth: input.depth === 'full' || grade === 'T3' ? 'full' : 'fast',
     };
 }
-export async function dispatchBoomSignal(input: any, { missions }: any = {}) {
+export async function dispatchBoomSignal(input: any, { missions, dedupGovernor = null }: any = {}) {
     if (!missions?.createBusinessMission)
         throw new Error('军团任务入口不可用。');
     const signal = normalizeBoomSignal(input);
+    const decision = dedupGovernor?.evaluate(signal);
+    if (decision && decision.action === 'suppress_duplicate') {
+        return {
+            status: 'suppressed_duplicate',
+            reason: decision.reason,
+            existingMissionId: decision.record?.missionId || null,
+        };
+    }
     const metricSummary = [
         `命中 ${signal.grade}，R=${signal.rValue.toFixed(4)}，M=${signal.mValue.toFixed(4)}`,
         `点赞=${signal.observedMetrics.likes}，收藏=${signal.observedMetrics.favorites}，播放=${signal.observedMetrics.plays}，粉丝快照=${signal.observedMetrics.followers}`,
@@ -55,7 +67,7 @@ export async function dispatchBoomSignal(input: any, { missions }: any = {}) {
         `指标证据：${signal.evidenceKind}，来源 ${signal.sourceRef}，观察时间 ${signal.observedAt || '未提供'}`,
         '该评分只用于筛选和排序，不构成传播因果判断。',
     ].join('；');
-    return missions.createBusinessMission({
+    const result = await missions.createBusinessMission({
         title: `爆款候选拆解｜${signal.title}`,
         requester: { kind: 'local-owner', ref: 'A君' },
         source: { channel: 'boom-monitor', originChannel: 'boom-monitor', workRef: signal.workRef },
@@ -91,6 +103,8 @@ export async function dispatchBoomSignal(input: any, { missions }: any = {}) {
             },
         ],
     });
+    dedupGovernor?.record(signal, { missionId: result?.mission?.taskId || result?.taskId });
+    return result;
 }
 function publicHttpUrl(value: any) {
     try {

@@ -104,12 +104,21 @@ export class MacWorker {
             await this.stateStore.save(state);
             return { status: 'failed', taskId: job.taskId };
         }
-        await this.cloud.heartbeat(job.taskId, {
-            workerId: this.workerId,
-            leaseId: job.leaseId,
-            stage: String(local.status || 'working').slice(0, 120),
-            progress: Number(local.progress || 0)
-        });
+        try {
+            await this.cloud.heartbeat(job.taskId, {
+                workerId: this.workerId,
+                leaseId: job.leaseId,
+                stage: String(local.status || 'working').slice(0, 120),
+                progress: Number(local.progress || 0)
+            });
+        } catch (error) {
+            if (error instanceof WorkerHttpError && error.status === 422) {
+                state.activeLease = null;
+                await this.stateStore.save(state);
+                return { status: 'lease_lost', nextPollAfterMs: 5000 };
+            }
+            // 瞬时网络错误容忍并继续追踪本地任务
+        }
         state.jobs[job.taskId] = { ...mapping, status: 'working', updatedAt: new Date(this.now()).toISOString() };
         await this.stateStore.save(state);
         return { status: 'working', taskId: job.taskId };
