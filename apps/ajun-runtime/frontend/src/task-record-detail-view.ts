@@ -78,6 +78,10 @@ export function renderAcceptanceDetail(target: any, submission: any, _escapeHtml
         <div class="record-acceptance-actions">
           <button type="button" data-acceptance-decision="accepted"${raw(submitting ? ' disabled' : '')}>${submitting && submission?.decision === 'accepted' ? '保存中…' : '有用'}</button>
           <button type="button" class="secondary-action" data-acceptance-decision="revision_required"${raw(submitting ? ' disabled' : '')}>${submitting && submission?.decision === 'revision_required' ? '保存中…' : '需改进'}</button>
+        </div>
+        <div class="acceptance-actions-hints">
+          <span class="acceptance-hint">✓ 点击「有用」将满意闭环并归档</span>
+          <span class="acceptance-hint">🔁 点击「需改进」将自动调度 AI 发起下一轮针对性修正</span>
         </div>`
         : '';
     return html`<section class="record-acceptance${raw(closed ? ' is-closed' : '')}" aria-label="业务结果验收">
@@ -553,8 +557,9 @@ export function renderSubtaskDrawer(subtask: any, options: { agentName?: (id: st
                     </div>
                 </div>
                 <div class="subtask-drawer-footer">
-                    <button type="button" class="secondary-action" data-subtask-drawer-close>返回当前主任务</button>
-                    <button type="button" class="focus-primary-action tree-switch-btn" data-record-task-id="${subtask.taskId}">查看此子任务详情 ➔</button>
+                    <button type="button" class="focus-primary-action subtask-drawer-done-btn" data-subtask-drawer-close>
+                        ✓ 完成查看，返回主任务
+                    </button>
                 </div>
             </aside>
         </div>

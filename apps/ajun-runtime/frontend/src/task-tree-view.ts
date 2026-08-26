@@ -78,8 +78,8 @@ function renderMultiTaskWorkflowTree(task: any, breadcrumb: any, agentNameFn: (i
             ${raw(duration ? html`<span class="tree-task-time">${duration}</span>` : '')}
             <div class="tree-node-actions">
               ${raw(isCurrent 
-                ? '<span class="tree-current-badge">正在查看</span>' 
-                : `<button type="button" class="subtask-preview-btn" data-subtask-preview="${t.taskId}"><svg width="12" height="12" aria-hidden="true"><use href="#icon-records"></use></svg> 预览</button><button type="button" class="tree-switch-btn" data-record-task-id="${t.taskId}">切换视角 ↗</button>`
+                ? '<span class="tree-current-badge">当前环节</span>' 
+                : `<button type="button" class="subtask-preview-btn" data-subtask-preview="${t.taskId}"><svg width="12" height="12" aria-hidden="true"><use href="#icon-records"></use></svg> 查看环节详情</button>`
               )}
             </div>
           </div>
@@ -102,7 +102,7 @@ function renderMultiTaskWorkflowTree(task: any, breadcrumb: any, agentNameFn: (i
             <span>多 Agent 协作工作流</span>
           </div>
           <h3 class="tree-root-title">#${workflowLabel} · 共 ${allTasks.length} 个协作环节</h3>
-          <p class="tree-root-desc">本任务由团队中多位 AI 员工分工配合完成。点击<strong>「预览」</strong>可在右侧查看该步骤产物与详情（无需离开当前页面）。</p>
+          <p class="tree-root-desc">本任务由团队中多位 AI 员工分工配合完成。点击任意环节的<strong>「查看环节详情」</strong>即可在右侧查看该步骤成果与诉求，无需离开当前页面。</p>
         </div>
       </div>
       <div class="tree-branches">
@@ -130,7 +130,8 @@ function renderSingleTaskBreakdownTree(task: any, agentNameFn: (id: string) => s
     ? `输入 ${cost.inputTokens} / 输出 ${cost.outputTokens} Tokens`
     : '';
 
-  const artifacts = Array.isArray(task.artifactRefs) ? task.artifactRefs : [];
+  const rawArtifacts = Array.isArray(task.artifactRefs) ? task.artifactRefs : [];
+  const artifacts = rawArtifacts.filter((a: any) => a?.type !== 'employee_execution_report');
   const acceptance = task.acceptanceTarget || {};
   const decision = acceptance.decision;
 

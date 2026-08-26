@@ -7,11 +7,17 @@ export function parseTaskTitle(rawTitle) {
     let matched = true;
     while (matched) {
         matched = false;
-        // 1. 定向返工
+        // 1. 定向返工 (第 N 轮定向返工：xxx 或 定向返工：xxx)
         const reworkMatch = text.match(/^(?:第\s*(\d+)\s*轮)?定向返工[：:]\s*(.+)$/i);
         if (reworkMatch) {
-            const round = reworkMatch[1] ? `#${reworkMatch[1]}` : '';
-            badges.push({ label: `返工 ${round}`.trim(), tone: 'rework' });
+            const roundNum = reworkMatch[1] ? `#${reworkMatch[1]}` : '';
+            const roundTooltip = reworkMatch[1] ? `第 ${reworkMatch[1]} 轮质量改进迭代` : '定向返工迭代';
+            badges.push({
+                label: `🔁 ${roundNum}`.trim(),
+                tone: 'rework',
+                tooltip: roundTooltip,
+                icon: 'spark'
+            });
             text = reworkMatch[2].trim();
             matched = true;
             continue;
@@ -19,7 +25,12 @@ export function parseTaskTitle(rawTitle) {
         // 2. 交付质量复核 / 质量审查
         const qualityMatch = text.match(/^(?:交付)?质量(?:复核|审查|检查)[：:]\s*(.+)$/i);
         if (qualityMatch) {
-            badges.push({ label: '质量复核', tone: 'quality' });
+            badges.push({
+                label: '🛡️ 质检',
+                tone: 'quality',
+                tooltip: '交付质量复核',
+                icon: 'check'
+            });
             text = qualityMatch[1].trim();
             matched = true;
             continue;
@@ -27,7 +38,12 @@ export function parseTaskTitle(rawTitle) {
         // 3. 诊断任务故障 / 处理任务故障 / 故障恢复
         const faultMatch = text.match(/^(?:诊断|处理)?(?:任务)?故障(?:恢复)?[：:]\s*(.+)$/i);
         if (faultMatch) {
-            badges.push({ label: '故障处理', tone: 'fault' });
+            badges.push({
+                label: '⚡ 恢复',
+                tone: 'fault',
+                tooltip: '任务故障自动恢复',
+                icon: 'alert'
+            });
             text = faultMatch[1].trim();
             matched = true;
             continue;
@@ -35,7 +51,11 @@ export function parseTaskTitle(rawTitle) {
         // 4. Paperclip 产能复盘
         const productivity = text.match(/^Review productivity for (AGE-\d+)$/i);
         if (productivity) {
-            badges.push({ label: productivity[1].toUpperCase(), tone: 'paperclip' });
+            badges.push({
+                label: productivity[1].toUpperCase(),
+                tone: 'paperclip',
+                tooltip: `Paperclip 产能复盘 · ${productivity[1].toUpperCase()}`
+            });
             text = '产能复盘';
             matched = true;
             continue;
@@ -48,8 +68,8 @@ export function displayTaskTitle(task) {
     const parsed = parseTaskTitle(rawTitle);
     if (!parsed.badges.length)
         return parsed.cleanTitle;
-    const badgeSpans = parsed.badges.map((b) => `<span class="task-badge-pill badge-${b.tone}">${b.label}</span>`).join('');
-    return `${badgeSpans}${parsed.cleanTitle}`;
+    const badgeSpans = parsed.badges.map((b) => `<span class="task-badge-pill badge-${b.tone}" title="${escapeHtml(b.tooltip)}">${b.label}</span>`).join(' ');
+    return `<span class="task-title-wrapper">${badgeSpans} <span class="task-title-text">${escapeHtml(parsed.cleanTitle)}</span></span>`;
 }
 export function relativeTime(value) {
     const timestamp = Date.parse(value || '');
@@ -160,6 +180,9 @@ export function renderArtifact(artifact) {
     const isHttp = /^https?:\/\//i.test(url);
     const rawSummary = artifact.summary || artifact.description || artifact.data?.summary || artifact.data?.conclusion || (typeof artifact.data?.text === 'string' ? artifact.data.text : '');
     const summary = typeof rawSummary === 'string' ? rawSummary.slice(0, 240).trim() : '';
+    const inlineContent = typeof artifact.data?.text === 'string' && artifact.data.text.trim().length > 0 && artifact.data.text.trim() !== summary
+        ? artifact.data.text.trim()
+        : (typeof artifact.content === 'string' && artifact.content.trim().length > 0 ? artifact.content.trim() : '');
     return html `<li class="record-artifact-item">
         <div class="artifact-item-main">
             <div class="artifact-item-header">
@@ -168,6 +191,14 @@ export function renderArtifact(artifact) {
                 ${raw(typeLabel ? html `<span class="artifact-type-tag">${typeLabel}</span>` : '')}
             </div>
             ${raw(summary ? html `<p class="artifact-summary">${summary}</p>` : '')}
+            ${raw(inlineContent ? html `
+                <details class="artifact-inline-preview">
+                    <summary><span>查看报告正文 / 内容详情</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary>
+                    <div class="artifact-preview-body">
+                        <pre class="artifact-preview-text">${escapeHtml(inlineContent)}</pre>
+                    </div>
+                </details>
+            ` : '')}
             ${raw(url && !isHttp ? html `<div class="artifact-path-row"><span class="artifact-path-label">存储路径：</span><code class="artifact-path" title="${escapeHtml(url)}">${url}</code></div>` : '')}
         </div>
         <div class="artifact-item-actions">

@@ -59,7 +59,7 @@ export function renderTaskProgressBar(task: any = {}, options: TaskProgressOptio
   const stages = [
     { label: '源头诉求', status: 'completed' as string, tooltip: originTooltip },
     { label: '指派执行', status: isRunning ? 'active' : 'completed', tooltip: routingTooltip },
-    { label: '过程开销', status: isFailed ? 'danger' : (isRunning ? 'active' : 'completed'), tooltip: executionTooltip },
+    { label: '分析与生成', status: isFailed ? 'danger' : (isRunning ? 'active' : 'completed'), tooltip: executionTooltip },
     { label: '交付成果', status: artifactCount > 0 ? 'completed' : (isSucceeded ? 'completed' : (isRunning ? 'active' : 'muted')), tooltip: deliverablestooltip },
     { label: '业务验收', status: acceptanceTone, tooltip: acceptanceTooltip },
   ];

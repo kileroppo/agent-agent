@@ -36,12 +36,12 @@ const VIEW_LABELS: any = Object.freeze({
     all: '全部',
 });
 const BACKLOG_CATEGORY_LABELS: any = Object.freeze({
-    owner_actionable: '待处理',
-    business_active: '运行中',
-    needs_reverification: '待复验',
-    unresolved_failures: '仍失败',
-    validated_by_later_evidence: '已有新证据',
-    historical_archived: '历史归档',
+    owner_actionable: '待我处理',
+    business_active: '正在运行',
+    needs_reverification: '待重新验证',
+    unresolved_failures: '仍需排查的失败',
+    validated_by_later_evidence: '已被后续任务补充交付',
+    historical_archived: '已闭环历史归档',
 });
 export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agentName, initialTaskId = '', }: any): any {
     const elements: any = recordElements();
@@ -368,7 +368,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         }
         const today: any = Number(summary.today || 0);
         const attention: any = Number(summary.attention || 0);
-        elements.routineSummary.innerHTML = html`例行巡检已自动归档 ${hidden} 条${today ? ` · 今日 ${today} 次` : ''}${attention ? ` · ${attention} 条异常历史已保留` : ''}<button type="button" data-show-routine>查看明细</button>`;
+        elements.routineSummary.innerHTML = html`🛡️ 例行巡检已自动归档 ${hidden} 条${today ? ` · 今日 ${today} 次` : ''}${attention ? ` · ${attention} 条异常已保留` : ''}（系统环境自检 · 0 模型 Token 消耗 · 不占用主任务列表）<button type="button" data-show-routine>查看明细</button>`;
         elements.routineSummary.hidden = false;
     }
     function renderDetail(): any {
@@ -1036,6 +1036,14 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
     }
     function emptyDetailLabel(): any {
         return state.view === 'needs_action' ? '没有待处理' : '没有记录';
+    }
+    if (typeof document !== 'undefined') {
+        document.addEventListener('keydown', (event: KeyboardEvent): void => {
+            if (event.key === 'Escape' && state.previewSubtaskData) {
+                state.previewSubtaskData = null;
+                renderDetail();
+            }
+        });
     }
 }
 function missingNextActionMessage(taskView: any): string {
