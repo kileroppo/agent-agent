@@ -27,10 +27,10 @@ export async function assertAdapterPatchInPlace({
   profileHomeFor,
   adapterRelativePath = path.join('plugins', 'platforms', 'feishu', 'adapter.py')
 } = {}) {
-  const hermesHome = typeof profileHomeFor === 'function'
+  const hermesBaseHome = typeof profileHomeFor === 'function'
     ? profileHomeFor('ajun')
-    : process.env.HERMES_HOME || path.join(process.env.HOME || '', '.hermes');
-  const adapterPath = path.join(hermesHome, 'hermes-agent', adapterRelativePath);
+    : path.join(process.env.HOME || '', '.hermes');
+  const adapterPath = path.join(hermesBaseHome, 'hermes-agent', adapterRelativePath);
   let source;
   try {
     source = await fs.readFile(adapterPath, 'utf8');
@@ -42,6 +42,9 @@ export async function assertAdapterPatchInPlace({
     }
     throw error;
   }
+  if (source.includes('AGENT_ARMY_XIAOD_PUBLIC_VIDEO_BRIDGE_V2')) {
+    return { adapterPath, markersChecked: 1, mode: 'v2' };
+  }
   const missing = REQUIRED_ADAPTER_MARKERS.filter((marker) => !source.includes(marker));
   if (missing.length > 0) {
     throw new HermesSkillWhitelistError(
@@ -49,7 +52,7 @@ export async function assertAdapterPatchInPlace({
       + `Hermes 升级可能已覆盖补丁。请先运行 integrations/hermes/scripts/patch-feishu-agent-proposal-router.mjs 并重启 Gateway。`
     );
   }
-  return { adapterPath, markersChecked: REQUIRED_ADAPTER_MARKERS.length };
+  return { adapterPath, markersChecked: REQUIRED_ADAPTER_MARKERS.length, mode: 'v1' };
 }
 
 export async function assertHermesGatewayStartAllowed({

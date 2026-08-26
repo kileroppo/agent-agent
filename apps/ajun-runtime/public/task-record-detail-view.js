@@ -1,4 +1,5 @@
 import { html, raw, escapeHtml } from './html.js';
+import { formatFullDateTime, formatDuration } from './format-utils.js';
 export function taskAttentionView(task = {}) {
     const source = task?.presentation?.attention;
     if (!source || typeof source !== 'object')
@@ -364,4 +365,67 @@ export function renderWorkflowBreadcrumb(detail) {
     <strong class="breadcrumb-current">#${workflowLabel}${raw(stepLabel ? html ` / ${stepLabel}` : '')}</strong>
     ${raw(siblingItems ? html `<ul class="breadcrumb-siblings">${raw(siblingItems)}</ul>` : '')}
   </nav>`;
+}
+export function renderViewModeSwitcher(currentMode = 'flow', isWorkflow = false) {
+    const modes = [
+        { key: 'flow', label: '流程图', icon: 'spark' },
+        { key: 'tree', label: isWorkflow ? '协同树 (多Agent)' : '任务树', icon: 'connections' },
+        { key: 'detail', label: '详细卡片', icon: 'records' },
+    ];
+    const buttons = modes.map((m) => {
+        const active = currentMode === m.key;
+        return html `
+            <button type="button" class="view-mode-btn ${active ? 'is-active' : ''}" data-detail-view-mode="${m.key}" aria-pressed="${active ? 'true' : 'false'}">
+                <svg aria-hidden="true"><use href="#icon-${m.icon}"></use></svg>
+                <span>${m.label}</span>
+            </button>
+        `;
+    }).join('');
+    return html `<div class="view-mode-switcher" role="radiogroup" aria-label="详情展现模式">${raw(buttons)}</div>`;
+}
+export function renderOriginCard(task = {}) {
+    const input = task?.input || {};
+    const sourceUrl = input.sourceUrl || (Array.isArray(input.sourceUrls) ? input.sourceUrls[0] : null);
+    const channel = task?.paperclipIssue ? 'Paperclip 治理工单' : (input.channel || (sourceUrl ? '外部内容链接' : '飞书交互'));
+    const createdAt = formatFullDateTime(task?.createdAt);
+    const desc = cleanAttentionText(input.description || input.focus, 400);
+    return html `
+        <section class="record-origin-card" aria-label="源头诉求与输入">
+            <div class="origin-card-head">
+                <div class="origin-badge-row">
+                    <span class="origin-channel-badge"><svg class="origin-icon" aria-hidden="true"><use href="#icon-${task?.paperclipIssue ? 'shield' : 'message'}"></use></svg> ${channel}</span>
+                    <span class="origin-time-tag">登记于 ${createdAt}</span>
+                </div>
+            </div>
+            ${raw(sourceUrl ? html `
+                <div class="origin-source-link">
+                    <span class="origin-label">原始目标：</span>
+                    <a href="${sourceUrl}" target="_blank" rel="noopener noreferrer" class="origin-link-text">${sourceUrl}</a>
+                </div>
+            ` : '')}
+            ${raw(desc ? html `
+                <div class="origin-desc">
+                    <span class="origin-label">核心诉求：</span>
+                    <p>${desc}</p>
+                </div>
+            ` : '')}
+        </section>
+    `;
+}
+export function renderDeliverySink(task = {}) {
+    const paperclipIssue = task?.paperclipIssue;
+    const isCompleted = ['succeeded', 'cancelled', 'rejected', 'stopped'].includes(task?.status);
+    if (!isCompleted)
+        return '';
+    const sinks = [];
+    if (paperclipIssue?.identifier || paperclipIssue?.detailUrl) {
+        sinks.push(html `<span class="delivery-sink-item">✓ 已回写 Paperclip 工单 <strong>#${paperclipIssue.identifier || 'ISSUE'}</strong></span>`);
+    }
+    sinks.push(html `<span class="delivery-sink-item">✓ 已同步并可供飞书原会话回读</span>`);
+    return html `
+        <div class="record-delivery-sink">
+            <div class="delivery-sink-title"><svg aria-hidden="true"><use href="#icon-share"></use></svg> 交付去向与下游</div>
+            <div class="delivery-sink-list">${raw(sinks.join(''))}</div>
+        </div>
+    `;
 }
