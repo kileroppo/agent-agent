@@ -37,11 +37,31 @@ export class WorkflowAcceptanceService {
       if (evaluation.workKind !== 'business') {
         throw validationError('测试或系统任务不需要你验收。', 'workflow_acceptance_not_business_work');
       }
-      if (evaluation.status !== 'waiting_acceptance') {
+      const hasDeliverables = tasks.some((t: any) => (Array.isArray(t?.artifactRefs) && t.artifactRefs.length > 0)
+        || (Array.isArray(t?.artifacts) && t.artifacts.length > 0));
+      const isEligible = evaluation.status === 'waiting_acceptance' || (hasDeliverables && tasks.some((t: any) => ['running', 'waiting_test', 'waiting_acceptance', 'needs_action'].includes(t?.status)));
+      if (!isEligible) {
         throw validationError('这件工作当前不在等待验收，已保留现有状态。', 'workflow_acceptance_not_eligible');
       }
     }
-    return this.store.recordWorkflowAcceptance(normalized);
+    const result = await this.store.recordWorkflowAcceptance(normalized);
+    if (decision === 'accepted' && typeof this.store?.updateTask === 'function') {
+      const now = new Date().toISOString();
+      for (const t of tasks) {
+        if (t?.taskId && ['running', 'waiting_test', 'waiting_worker', 'pausing', 'paused'].includes(t?.status)) {
+          try {
+            await this.store.updateTask(t.taskId, {
+              status: 'succeeded',
+              completedAt: t.completedAt || now,
+              updatedAt: now,
+            });
+          } catch {
+            // Ignore single task update error if store doesn't support partial update
+          }
+        }
+      }
+    }
+    return result;
   }
 }
 

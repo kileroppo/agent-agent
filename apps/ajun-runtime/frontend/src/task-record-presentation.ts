@@ -237,7 +237,8 @@ export function renderArtifact(artifact: any): any {
 
     const rawSummary = artifact.summary || artifact.description || artifact.data?.summary || artifact.data?.conclusion || (typeof artifact.data?.text === 'string' ? artifact.data.text : '');
     const summary = typeof rawSummary === 'string' ? rawSummary.slice(0, 400).trim() : '';
-    const rawInline = artifact.data?.markdown || artifact.data?.text || artifact.data?.content || artifact.content || '';
+    const formattedFullReport = formatStructuredReportText(artifact.data || artifact);
+    const rawInline = formattedFullReport || artifact.data?.markdown || artifact.data?.text || artifact.data?.content || artifact.content || '';
     const inlineContent = typeof rawInline === 'string' ? rawInline.trim() : '';
     const isReadableText = inlineContent.length > 20 && !inlineContent.startsWith('{') && inlineContent !== summary;
     const copyContent = isReadableText ? inlineContent : summary;
@@ -251,8 +252,8 @@ export function renderArtifact(artifact: any): any {
             </div>
             ${raw(summary ? html`<p class="artifact-summary">${summary}</p>` : '')}
             ${raw(isReadableText ? html`
-                <details class="artifact-inline-preview">
-                    <summary><span>查看报告正文 / 内容详情</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary>
+                <details class="artifact-inline-preview" open>
+                    <summary><span>查看完整调研报告与选题清单</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary>
                     <div class="artifact-preview-body">
                         <pre class="artifact-preview-text">${escapeHtml(inlineContent)}</pre>
                     </div>
@@ -263,7 +264,42 @@ export function renderArtifact(artifact: any): any {
         <div class="artifact-item-actions">
             ${raw(isHttp ? html`<a href="${url}" target="_blank" rel="noopener noreferrer" class="artifact-action-btn primary">打开查看 ↗</a>` : '')}
             ${raw(isRealFilePath ? html`<button type="button" class="artifact-action-btn secondary" data-copy-path="${url}">复制路径</button>` : '')}
-            ${raw(copyContent ? html`<button type="button" class="artifact-action-btn secondary" data-copy-text="${escapeHtml(copyContent)}">复制内容</button>` : '')}
+            ${raw(copyContent ? html`<button type="button" class="artifact-action-btn secondary" data-copy-text="${escapeHtml(copyContent)}">复制完整报告</button>` : '')}
+            <button type="button" class="artifact-action-btn primary" data-acceptance-decision="accepted">✓ 采纳此产物</button>
         </div>
     </li>`;
+}
+
+function formatStructuredReportText(data: any): string {
+    if (!data || typeof data !== 'object') return '';
+    if (typeof data.markdown === 'string' && data.markdown.trim().length > 20) return data.markdown.trim();
+    if (typeof data.text === 'string' && data.text.trim().length > 20 && !data.text.trim().startsWith('{')) return data.text.trim();
+
+    const sections: string[] = [];
+    if (data.topic) sections.push(`【调研主题】${data.topic}`);
+    if (data.summary || data.conclusion) sections.push(`【核心结论】\n${data.summary || data.conclusion}`);
+
+    if (Array.isArray(data.opportunitySignals) && data.opportunitySignals.length > 0) {
+        const signals = data.opportunitySignals.map((s: any, idx: number) => `  ${idx + 1}. ${s.signal || s.text || s.title || ''}`).join('\n');
+        sections.push(`【热门选题机会信号】\n${signals}`);
+    } else if (Array.isArray(data.claims) && data.claims.length > 0) {
+        const claims = data.claims.map((c: any, idx: number) => `  ${idx + 1}. ${c.text || c.claim || c.statement || ''}`).join('\n');
+        sections.push(`【关键事实与选题发现】\n${claims}`);
+    }
+
+    if (Array.isArray(data.originalAngles) && data.originalAngles.length > 0) {
+        const angles = data.originalAngles.map((a: any, idx: number) => `  💡 角度 ${idx + 1}：${a.premise || a.angle || ''}\n     建议创作用法：${a.treatment || '提炼核心观点重新创作'}`).join('\n');
+        sections.push(`【原创切入角度建议】\n${angles}`);
+    }
+
+    if (Array.isArray(data.sources) && data.sources.length > 0) {
+        const sources = data.sources.map((s: any, idx: number) => `  🔗 [来源 ${idx + 1}] ${s.title || '公开资料'} ${s.url ? `(${s.url})` : ''}`).join('\n');
+        sections.push(`【参考信源与数据支撑】\n${sources}`);
+    }
+
+    if (data.limitation) {
+        sections.push(`【事实边界说明】\n${data.limitation}`);
+    }
+
+    return sections.join('\n\n');
 }
