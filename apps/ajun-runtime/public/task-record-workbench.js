@@ -399,9 +399,10 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const isWorkflow = Boolean(task.workflowBreadcrumb && (task.workflowBreadcrumb.workflowId || (task.workflowBreadcrumb.siblings && task.workflowBreadcrumb.siblings.length > 0)));
         const createdFull = formatFullDateTime(task.createdAt);
         const durationText = task.createdAt ? formatDuration(task.createdAt, task.completedAt || (taskView === 'completed' ? task.updatedAt : null)) : '';
+        const isTaskAccepted = acceptanceTarget?.decision === 'accepted' || task.status === 'succeeded';
         const tabNavHtml = renderDetailTabNav(state.detailTab, { deliverablesCount: artifacts.length, isWorkflow });
         const isReworkTask = parsedTitle?.badges?.some((b) => b.tone === 'rework') || /定向返工/i.test(task?.input?.title || task?.title || '');
-        const reworkArtifactsHtml = isReworkTask && artifacts.length ? artifacts.map(renderArtifact).join('') : '';
+        const reworkArtifactsHtml = isReworkTask && artifacts.length ? artifacts.map((a) => renderArtifact(a, { isAccepted: isTaskAccepted })).join('') : '';
         const isWaitingTest = task.status === 'waiting_test';
         const waitingTestGuideHtml = isWaitingTest ? html `
             <div class="record-waiting-test-guide" role="status">
@@ -429,7 +430,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
                     </div>
                     ${raw(artifacts.length ? html `
                         <ul class="record-artifact-list full-grid">
-                            ${raw(artifacts.map(renderArtifact).join(''))}
+                            ${raw(artifacts.map((a) => renderArtifact(a, { isAccepted: isTaskAccepted })).join(''))}
                         </ul>
                     ` : html `
                         <div class="deliverables-empty">

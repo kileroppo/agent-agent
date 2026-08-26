@@ -209,9 +209,10 @@ export function formatArtifactLabel(artifact) {
     }
     return '交付产物';
 }
-export function renderArtifact(artifact) {
+export function renderArtifact(artifact, options = {}) {
     if (!artifact || typeof artifact !== 'object')
         return '';
+    const isAccepted = Boolean(options.isAccepted);
     const label = formatArtifactLabel(artifact);
     const typeLabel = (artifact.type && ARTIFACT_TYPE_LABELS[artifact.type]) || (artifact.type ? String(artifact.type).replace(/[_-]/g, ' ') : '');
     const url = String(artifact.url || artifact.location || artifact.detailUrl || artifact.downloadUrl || artifact.path || '').trim();
@@ -250,7 +251,7 @@ export function renderArtifact(artifact) {
             ${raw(isHttp ? html `<a href="${url}" target="_blank" rel="noopener noreferrer" class="artifact-action-btn primary">打开查看 ↗</a>` : '')}
             ${raw(isRealFilePath ? html `<button type="button" class="artifact-action-btn secondary" data-copy-path="${url}">复制路径</button>` : '')}
             ${raw(copyContent ? html `<button type="button" class="artifact-action-btn secondary" data-copy-text="${escapeHtml(copyContent)}">复制完整报告</button>` : '')}
-            ${raw(!isOpsOrSystemArtifact ? '<button type="button" class="artifact-action-btn primary" data-acceptance-decision="accepted">✓ 采纳此产物</button>' : '')}
+            ${raw(!isOpsOrSystemArtifact ? (isAccepted ? '<span class="artifact-accepted-pill">✓ 已采纳</span>' : '<button type="button" class="artifact-action-btn primary" data-acceptance-decision="accepted">✓ 采纳此产物</button>') : '')}
         </div>
     </li>`;
 }

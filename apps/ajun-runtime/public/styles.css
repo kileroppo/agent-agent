@@ -6218,6 +6218,19 @@ textarea:focus {
   color: var(--mint-deep);
 }
 
+.artifact-accepted-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--mint-soft);
+  color: var(--mint);
+  border: 1px solid var(--mint-line);
+}
+
 .record-row-reason {
   display: block;
   margin-top: 4px;
