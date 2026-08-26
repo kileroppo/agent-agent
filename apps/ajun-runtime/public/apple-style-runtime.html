@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A君运行台 · Apple Style 体验版</title>
+  <style>
+    /* ============================================================
+       Apple Design Tokens & Typography System
+       ============================================================ */
+    :root {
+      /* Typography */
+      --font-apple: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+      --font-mono: "SF Mono", ui-monospace, Menlo, Monaco, monospace;
+
+      /* Palette - Pure & Restrained Light Mode */
+      --apple-canvas: #fbfbfd;
+      --apple-surface: #ffffff;
+      --apple-subtle: #f5f5f7;
+      --apple-subtle-hover: #ebebeb;
+      
+      --apple-ink: #1d1d1f;          /* 标志性深墨黑 */
+      --apple-ink-secondary: #6e6e73;/* 描述性中灰 */
+      --apple-ink-tertiary: #86868b; /* 元数据弱灰 */
+      --apple-orange: #b64400;       /* Eyebrow Accent */
+      --apple-green: #1d883c;        /* 运行正常绿 */
+      
+      --apple-border: #d2d2d7;       /* 细线描边 */
+      --apple-border-light: #e5e5ea;
+      --apple-focus-blue: #0071e3;   /* 经典选中/交互蓝 */
+      --apple-focus-blue-soft: rgba(0, 113, 227, 0.08);
+
+      /* Radius & Shadows */
+      --apple-radius-sm: 10px;
+      --apple-radius-md: 14px;
+      --apple-radius-lg: 22px;
+      --apple-radius-pill: 9999px;
+      
+      --apple-shadow-subtle: 0 4px 24px rgba(0, 0, 0, 0.04);
+      --apple-shadow-card: 0 8px 30px rgba(0, 0, 0, 0.06);
+      --apple-ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --apple-canvas: #000000;
+        --apple-surface: #161617;
+        --apple-subtle: #1c1c1e;
+        --apple-subtle-hover: #2c2c2e;
+        
+        --apple-ink: #f5f5f7;
+        --apple-ink-secondary: #a1a1a6;
+        --apple-ink-tertiary: #86868b;
+        --apple-orange: #ff6934;
+        --apple-green: #30d158;
+        
+        --apple-border: #38383a;
+        --apple-border-light: #2c2c2e;
+        --apple-focus-blue: #2997ff;
+        --apple-focus-blue-soft: rgba(41, 151, 255, 0.15);
+        
+        --apple-shadow-subtle: 0 4px 24px rgba(0, 0, 0, 0.4);
+        --apple-shadow-card: 0 8px 30px rgba(0, 0, 0, 0.6);
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-apple);
+      background-color: var(--apple-canvas);
+      color: var(--apple-ink);
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.5;
+      padding-bottom: 80px;
+    }
+
+    /* ─── 导航栏 (Frosted Navigation Bar) ─── */
+    .apple-nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(251, 251, 253, 0.82);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border-bottom: 1px solid var(--apple-border-light);
+    }
+    .apple-nav-inner {
+      max-width: 1120px;
+      margin: 0 auto;
+      height: 52px;
+      padding: 0 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .apple-brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      text-decoration: none;
+      color: var(--apple-ink);
+    }
+    .apple-brand-badge {
+      width: 22px;
+      height: 22px;
+      background: var(--apple-ink);
+      color: var(--apple-canvas);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .apple-nav-items {
+      display: flex;
+      gap: 6px;
+      background: var(--apple-subtle);
+      padding: 3px;
+      border-radius: var(--apple-radius-pill);
+    }
+    .apple-nav-tab {
+      padding: 5px 14px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--apple-ink-secondary);
+      text-decoration: none;
+      border-radius: var(--apple-radius-pill);
+      transition: all 0.2s var(--apple-ease);
+    }
+    .apple-nav-tab.active {
+      background: var(--apple-surface);
+      color: var(--apple-ink);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+      font-weight: 600;
+    }
+    .apple-status-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--apple-ink-secondary);
+      background: var(--apple-subtle);
+      padding: 4px 12px;
+      border-radius: var(--apple-radius-pill);
+    }
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      background: var(--apple-green);
+      border-radius: 50%;
+      box-shadow: 0 0 0 2px rgba(29, 136, 60, 0.2);
+    }
+
+    /* ─── 页面主容器 (Page Container) ─── */
+    .apple-container {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 48px 24px 0 24px;
+    }
+
+    /* ─── 顶部 Hero 区域 ─── */
+    .apple-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 40px;
+    }
+    .apple-eyebrow {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: var(--apple-orange);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .apple-main-title {
+      font-size: 42px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+      color: var(--apple-ink);
+      margin-bottom: 12px;
+    }
+    .apple-sub-info {
+      font-size: 14px;
+      color: var(--apple-ink);
+      line-height: 1.6;
+    }
+    .apple-sub-info span {
+      color: var(--apple-ink-secondary);
+    }
+    .apple-action-pills {
+      display: flex;
+      gap: 10px;
+    }
+    .apple-pill-btn {
+      padding: 8px 16px;
+      background: var(--apple-subtle);
+      border: 1px solid transparent;
+      border-radius: var(--apple-radius-pill);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--apple-ink);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      text-decoration: none;
+      transition: all 0.2s var(--apple-ease);
+    }
+    .apple-pill-btn:hover {
+      background: var(--apple-subtle-hover);
+    }
+
+    /* ─── 双栏核心排版 (Two-Column Layout) ─── */
+    .apple-layout-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 36px;
+      align-items: start;
+    }
+
+    @media (max-width: 860px) {
+      .apple-layout-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* ─── 左侧：展厅卡片 (Showcase Card) ─── */
+    .apple-showcase-card {
+      background-color: var(--apple-subtle);
+      border-radius: var(--apple-radius-lg);
+      padding: 36px 32px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 480px;
+      position: sticky;
+      top: 80px;
+    }
+    .showcase-header p {
+      font-size: 15px;
+      font-weight: 500;
+      color: var(--apple-ink-secondary);
+      line-height: 1.5;
+      letter-spacing: -0.01em;
+      max-width: 440px;
+    }
+    .showcase-action-box {
+      margin-top: 24px;
+      background: var(--apple-surface);
+      border: 1px solid var(--apple-border-light);
+      border-radius: var(--apple-radius-md);
+      padding: 20px;
+      box-shadow: var(--apple-shadow-subtle);
+    }
+    .action-box-tag {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--apple-focus-blue);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .action-box-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--apple-ink);
+      margin-bottom: 4px;
+      letter-spacing: -0.01em;
+    }
+    .action-box-desc {
+      font-size: 13px;
+      color: var(--apple-ink-secondary);
+      line-height: 1.4;
+      margin-bottom: 14px;
+    }
+    .action-box-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 18px;
+      background: var(--apple-focus-blue);
+      color: #ffffff;
+      border: 0;
+      border-radius: var(--apple-radius-pill);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s var(--apple-ease);
+    }
+    .action-box-btn:hover {
+      background: #0077ed;
+    }
+    
+    /* 展厅硬件/拓扑图示模拟 */
+    .showcase-visual {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin-top: 32px;
+      padding: 24px;
+      background: radial-gradient(circle, rgba(255,255,255,0.8) 0%, rgba(245,245,247,0) 70%);
+    }
+    .runtime-orb-cluster {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .agent-avatar-circle {
+      width: 58px;
+      height: 58px;
+      border-radius: 50%;
+      background: var(--apple-surface);
+      border: 1px solid var(--apple-border);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      box-shadow: var(--apple-shadow-subtle);
+      transition: transform 0.3s var(--apple-ease);
+    }
+    .agent-avatar-circle:hover {
+      transform: translateY(-4px);
+    }
+    .agent-avatar-circle.lead {
+      width: 72px;
+      height: 72px;
+      border-color: var(--apple-focus-blue);
+      box-shadow: 0 0 0 2px var(--apple-focus-blue-soft), var(--apple-shadow-card);
+    }
+    .agent-avatar-circle span {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--apple-ink);
+    }
+    .agent-avatar-circle small {
+      font-size: 9px;
+      color: var(--apple-ink-tertiary);
+    }
+
+    /* ─── 右侧：配置与指标区 (Interactive Selection) ─── */
+    .apple-config-section {
+      display: flex;
+      flex-direction: column;
+      gap: 32px;
+    }
+
+    /* 混合字重标题 */
+    .apple-section-heading {
+      font-size: 20px;
+      letter-spacing: -0.015em;
+      margin-bottom: 14px;
+    }
+    .apple-section-heading .title-bold {
+      font-weight: 700;
+      color: var(--apple-ink);
+    }
+    .apple-section-heading .title-light {
+      font-weight: 400;
+      color: var(--apple-ink-secondary);
+    }
+
+    /* 选项卡片组 */
+    .apple-option-group {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .apple-card {
+      background: var(--apple-surface);
+      border: 1px solid var(--apple-border);
+      border-radius: var(--apple-radius-md);
+      padding: 18px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      cursor: pointer;
+      transition: border-color 0.2s var(--apple-ease), box-shadow 0.2s var(--apple-ease);
+      user-select: none;
+    }
+    .apple-card:hover {
+      border-color: #86868b;
+    }
+    .apple-card.is-selected {
+      border-color: var(--apple-focus-blue);
+      box-shadow: 0 0 0 1px var(--apple-focus-blue);
+    }
+
+    .card-left {
+      flex: 1;
+      padding-right: 16px;
+    }
+    .card-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .card-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--apple-ink);
+      letter-spacing: -0.01em;
+    }
+    .card-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: var(--apple-subtle);
+      color: var(--apple-ink-secondary);
+    }
+    .card-desc {
+      font-size: 12px;
+      color: var(--apple-ink-secondary);
+      line-height: 1.4;
+      margin-bottom: 6px;
+    }
+    .card-meta {
+      font-size: 11px;
+      color: var(--apple-ink-tertiary);
+    }
+
+    .card-right {
+      text-align: right;
+      flex-shrink: 0;
+    }
+    .card-value {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--apple-ink);
+    }
+    .card-subvalue {
+      font-size: 11px;
+      color: var(--apple-ink-secondary);
+      margin-top: 2px;
+    }
+
+    /* 刚刚发生 / 运行动态列表 */
+    .apple-timeline-list {
+      background: var(--apple-surface);
+      border: 1px solid var(--apple-border-light);
+      border-radius: var(--apple-radius-md);
+      overflow: hidden;
+    }
+    .timeline-item {
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--apple-border-light);
+      transition: background 0.15s;
+    }
+    .timeline-item:last-child {
+      border-bottom: none;
+    }
+    .timeline-item:hover {
+      background: var(--apple-subtle);
+    }
+    .timeline-main {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .timeline-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--apple-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+    }
+    .timeline-text strong {
+      display: block;
+      font-size: 13px;
+      color: var(--apple-ink);
+      font-weight: 600;
+    }
+    .timeline-text small {
+      font-size: 11px;
+      color: var(--apple-ink-tertiary);
+    }
+    .timeline-tag {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--apple-green);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 1. Apple 毛玻璃顶部导航 -->
+  <nav class="apple-nav">
+    <div class="apple-nav-inner">
+      <a href="#" class="apple-brand">
+        <span class="apple-brand-badge">A</span>
+        <span>A君 运行台</span>
+      </a>
+      
+      <div class="apple-nav-items">
+        <a href="#now" class="apple-nav-tab active">现在</a>
+        <a href="#runs" class="apple-nav-tab">运行</a>
+        <a href="#system" class="apple-nav-tab">系统</a>
+        <a href="#billing" class="apple-nav-tab">账本</a>
+      </div>
+
+      <div class="apple-status-pill">
+        <span class="status-dot"></span>
+        <span>全链路正常同步</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- 2. 主页面内容 -->
+  <main class="apple-container">
+    
+    <!-- 顶部 Hero 区域 -->
+    <header class="apple-header">
+      <div>
+        <div class="apple-eyebrow">实时在线 · M5 架构</div>
+        <h1 class="apple-main-title">系统当前态</h1>
+        <p class="apple-sub-info">
+          3 项工作正在全速推进。<span>负责人当前无需手动介入。</span><br>
+          算力与链路就绪率 100% · 飞书指令监听中
+        </p>
+      </div>
+      <div class="apple-action-pills">
+        <a href="#" class="apple-pill-btn">折抵算力 省更多 ↗</a>
+        <a href="#" class="apple-pill-btn">导出完整证据链 ↗</a>
+      </div>
+    </header>
+
+    <!-- 双栏布局：左侧展厅 + 右侧配置与选择卡片 -->
+    <div class="apple-layout-grid">
+      
+      <!-- 左侧：沉浸展厅大卡片 (Showcase Card) -->
+      <section class="apple-showcase-card">
+        <div class="showcase-header">
+          <p>
+            A君主控与编队智能体各司其职，采用确定性门禁与飞书链路协同。所有派活、授权与结果交付均在标准契约下闭环运行。
+          </p>
+
+          <!-- 负责人下一步动作框 -->
+          <div class="showcase-action-box">
+            <div class="action-box-tag">唯一步骤 · 建议决策</div>
+            <div class="action-box-title">审核视频素材拆解结果</div>
+            <div class="action-box-desc">小D 已完成《M5 Max 算力基准测试》视频的结构化拆解与关键时间戳提取，等待负责人确认归档。</div>
+            <button class="action-box-btn" onclick="alert('已在飞书确认并通过验收！')">
+              去飞书验收并放行 →
+            </button>
+          </div>
+        </div>
+
+        <!-- 视觉拓扑展示 -->
+        <div class="showcase-visual">
+          <div class="runtime-orb-cluster">
+            <div class="agent-avatar-circle" title="小D (音视频转写)">
+              <span>小D</span>
+              <small>音视频</small>
+            </div>
+            <div class="agent-avatar-circle lead" title="A君 (总控指挥)">
+              <span>A君</span>
+              <small>主控中枢</small>
+            </div>
+            <div class="agent-avatar-circle" title="阿军 (内容创作)">
+              <span>阿军</span>
+              <small>创作者</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 右侧：核心指标与选配卡片 (Configurator Cards) -->
+      <section class="apple-config-section">
+        
+        <!-- 模块一：核心运行指标卡片 -->
+        <div>
+          <h2 class="apple-section-heading">
+            <span class="title-bold">运行指标：</span>
+            <span class="title-light">实时数据一目了然。</span>
+          </h2>
+
+          <div class="apple-option-group">
+            <!-- 指标卡片 1 (选中高亮) -->
+            <div class="apple-card is-selected" onclick="toggleCard(this)">
+              <div class="card-left">
+                <div class="card-title-row">
+                  <span class="card-title">正在运行工作</span>
+                  <span class="card-badge">ACTIVE</span>
+                </div>
+                <div class="card-desc">音视频转写 1 项、情报研究 2 项，无阻塞与超期。</div>
+                <div class="card-meta">平均响应耗时 1.2 秒</div>
+              </div>
+              <div class="card-right">
+                <div class="card-value">3 项进行中</div>
+                <div class="card-subvalue">0 阻塞 · 正常推进</div>
+              </div>
+            </div>
+
+            <!-- 指标卡片 2 -->
+            <div class="apple-card" onclick="toggleCard(this)">
+              <div class="card-left">
+                <div class="card-title-row">
+                  <span class="card-title">系统可靠性</span>
+                  <span class="card-badge">HEALTHY</span>
+                </div>
+                <div class="card-desc">飞书通道、Local AI 与各宿主机心跳稳定在线。</div>
+                <div class="card-meta">近 24 小时可用率 99.98%</div>
+              </div>
+              <div class="card-right">
+                <div class="card-value">100% 在线</div>
+                <div class="card-subvalue">无降级路由</div>
+              </div>
+            </div>
+
+            <!-- 指标卡片 3 -->
+            <div class="apple-card" onclick="toggleCard(this)">
+              <div class="card-left">
+                <div class="card-title-row">
+                  <span class="card-title">业务质量债</span>
+                  <span class="card-badge">ZERO</span>
+                </div>
+                <div class="card-desc">历史交付物验收完成，未发生超时滞留或返工堆积。</div>
+                <div class="card-meta">门禁规范严格遵循</div>
+              </div>
+              <div class="card-right">
+                <div class="card-value">0 项挂起</div>
+                <div class="card-subvalue">健康度极佳</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 模块二：编队成员选型 -->
+        <div>
+          <h2 class="apple-section-heading">
+            <span class="title-bold">员工编队：</span>
+            <span class="title-light">专属岗位随需调用。</span>
+          </h2>
+
+          <div class="apple-option-group">
+            <div class="apple-card is-selected" onclick="toggleCard(this)">
+              <div class="card-left">
+                <div class="card-title">小D · 音视频转写专家</div>
+                <div class="card-desc">负责音视频素材下载、Whisper 高精度转写与结构化分段。</div>
+                <div class="card-meta">挂载 4070 本地加速卡 · 离线安全</div>
+              </div>
+              <div class="card-right">
+                <div class="card-value">工作中</div>
+                <div class="card-subvalue">今日已交付 4 篇</div>
+              </div>
+            </div>
+
+            <div class="apple-card" onclick="toggleCard(this)">
+              <div class="card-left">
+                <div class="card-title">阿军 · 深度内容创作者</div>
+                <div class="card-desc">基于行业事实与结构化大纲生成专业图文、报告与公众号内容。</div>
+                <div class="card-meta">支持多模型交叉核验</div>
+              </div>
+              <div class="card-right">
+                <div class="card-value">待命中</div>
+                <div class="card-subvalue">随时接受派活</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 模块三：刚刚发生 (Apple Timeline) -->
+        <div>
+          <h2 class="apple-section-heading">
+            <span class="title-bold">刚刚发生：</span>
+            <span class="title-light">真实证据链记录。</span>
+          </h2>
+
+          <div class="apple-timeline-list">
+            <div class="timeline-item">
+              <div class="timeline-main">
+                <div class="timeline-icon">🎬</div>
+                <div class="timeline-text">
+                  <strong>小D 完成《M5 发布会全景拆解》转写</strong>
+                  <small>耗时 42 秒 · 纯本地显卡运算</small>
+                </div>
+              </div>
+              <span class="timeline-tag">交付成功</span>
+            </div>
+
+            <div class="timeline-item">
+              <div class="timeline-main">
+                <div class="timeline-icon">📊</div>
+                <div class="timeline-text">
+                  <strong>A君 生成每日晨报并推送至飞书群</strong>
+                  <small>包含 6 个项目进展与 0 风险项</small>
+                </div>
+              </div>
+              <span class="timeline-tag">已同步</span>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+    </div>
+  </main>
+
+  <script>
+    function toggleCard(card) {
+      const parent = card.closest('.apple-option-group');
+      if (parent) {
+        parent.querySelectorAll('.apple-card').forEach(c => c.classList.remove('is-selected'));
+      }
+      card.classList.add('is-selected');
+    }
+  </script>
+</body>
+</html>
