@@ -5,7 +5,9 @@ import { createTaskTimelineLoader } from './task-timeline-view.js';
 import { renderTaskFlowPipeline } from './task-flow-view.js';
 import { renderTaskWorkflowTree } from './task-tree-view.js';
 import { formatFullDateTime, formatDuration } from './format-utils.js';
+import { artifactItems, displayTaskTitle, parseTaskTitle, relativeTime, renderArtifact, resultSummary, } from './task-record-presentation.js';
 export { taskAttentionView } from './task-record-detail-view.js';
+export { parseTaskTitle, displayTaskTitle } from './task-record-presentation.js';
 const VIEW_LABELS = Object.freeze({
     needs_action: '待处理',
     active: '进行中',
@@ -843,12 +845,10 @@ export function renderTechnicalDetails(task, presentation, attention, escapeHtml
     const presentationTechnical = presentation?.technical && typeof presentation.technical === 'object'
         ? presentation.technical
         : {};
-    const rawStatus = cleanAttentionText(presentationTechnical.status, 80);
-    const rawStage = cleanAttentionText(attentionTechnicalView?.stage || presentationTechnical.currentStage, 120);
     const values = {
         taskId: cleanAttentionText(presentationTechnical.taskId || task.taskId, 80),
-        status: rawStatus ? statusLabel(rawStatus) : '',
-        stage: rawStage ? stageLabel(rawStage) : '',
+        status: cleanAttentionText(presentationTechnical.status, 80),
+        stage: cleanAttentionText(attentionTechnicalView?.stage || presentationTechnical.currentStage, 120),
         errorCode: cleanAttentionText(attentionTechnicalView?.code || presentationTechnical.errorCode, 120),
     };
     const rows = [
@@ -856,21 +856,20 @@ export function renderTechnicalDetails(task, presentation, attention, escapeHtml
         ['创建时间', formatFullDateTime(task.createdAt)],
         ['更新时间', formatFullDateTime(task.updatedAt)],
         ['完成时间', formatFullDateTime(task.completedAt)],
-        ['Paperclip 工单', task.paperclipIssue?.identifier ? `#${task.paperclipIssue.identifier}` : ''],
         ['Paperclip 运行', task.paperclipRun?.runId
-                ? `${statusLabel(task.paperclipRun.status)} · ${cleanAttentionText(task.paperclipRun.runId, 80)}`
+                ? `${cleanAttentionText(task.paperclipRun.status, 40)} · ${cleanAttentionText(task.paperclipRun.runId, 80)}`
                 : ''],
-        ['任务状态', values.status],
+        ['原始状态', values.status],
         ['当前阶段', values.stage],
-        ['异常代码', values.errorCode],
+        ['错误代码', values.errorCode],
     ].filter(([, value]) => value);
     if (!rows.length)
         return '';
     const paperclipIssue = (!attention?.paperclipIssue && task.paperclipIssue?.detailUrl)
-        ? html `<a class="record-paperclip-link" href="${task.paperclipIssue.detailUrl}" target="_blank" rel="noopener">打开 Paperclip ${task.paperclipIssue.identifier || '工单'}</a>`
+        ? html `<a class="record-paperclip-link" href="${task.paperclipIssue.detailUrl}" target="_blank" rel="noopener">打开 Paperclip ${task.paperclipIssue.identifier || '任务'}</a>`
         : '';
     const rowsHtml = rows.map(([label, value]) => html `<div><dt>${label}</dt><dd>${value}</dd></div>`).join('');
-    return html `<details class="record-technical" data-disclosure-key="record-technical:${values.taskId}"><summary><span>编号与审计（技术底表）</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><dl>${raw(rowsHtml)}</dl><div class="record-technical-actions">${raw(paperclipIssue)}<button class="text-action record-copy-id" type="button">复制编号</button></div></details>`;
+    return html `<details class="record-technical" data-disclosure-key="record-technical:${values.taskId}"><summary><span>编号与审计</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><dl>${raw(rowsHtml)}</dl><div class="record-technical-actions">${raw(paperclipIssue)}<button class="text-action record-copy-id" type="button">复制编号</button></div></details>`;
 }
 function newIdempotencyKey(taskId, actionKey) {
     const random = globalThis.crypto?.randomUUID?.()
@@ -959,117 +958,4 @@ function stateForTask(status) {
     if (['succeeded', 'cancelled', 'rejected', 'stopped'].includes(status))
         return 'completed';
     return 'active';
-}
-export function parseTaskTitle(rawTitle) {
-    let text = String(rawTitle || '未命名任务').trim();
-    const badges = [];
-    let matched = true;
-    while (matched) {
-        matched = false;
-        // 1. 定向返工
-        const reworkMatch = text.match(/^(?:第\s*(\d+)\s*轮)?定向返工[：:]\s*(.+)$/i);
-        if (reworkMatch) {
-            const round = reworkMatch[1] ? `#${reworkMatch[1]}` : '';
-            badges.push({ label: `返工 ${round}`.trim(), tone: 'rework' });
-            text = reworkMatch[2].trim();
-            matched = true;
-            continue;
-        }
-        // 2. 交付质量复核 / 质量审查
-        const qualityMatch = text.match(/^(?:交付)?质量(?:复核|审查|检查)[：:]\s*(.+)$/i);
-        if (qualityMatch) {
-            badges.push({ label: '质量复核', tone: 'quality' });
-            text = qualityMatch[1].trim();
-            matched = true;
-            continue;
-        }
-        // 3. 诊断任务故障 / 处理任务故障 / 故障恢复
-        const faultMatch = text.match(/^(?:诊断|处理)?(?:任务)?故障(?:恢复)?[：:]\s*(.+)$/i);
-        if (faultMatch) {
-            badges.push({ label: '故障处理', tone: 'fault' });
-            text = faultMatch[1].trim();
-            matched = true;
-            continue;
-        }
-        // 4. Paperclip 产能复盘
-        const productivity = text.match(/^Review productivity for (AGE-\d+)$/i);
-        if (productivity) {
-            badges.push({ label: productivity[1].toUpperCase(), tone: 'paperclip' });
-            text = '产能复盘';
-            matched = true;
-            continue;
-        }
-    }
-    return { cleanTitle: text || '未命名任务', badges };
-}
-function displayTaskTitle(task) {
-    const rawTitle = String(task.input?.title || task.title || '未命名任务').trim();
-    const parsed = parseTaskTitle(rawTitle);
-    if (!parsed.badges.length)
-        return parsed.cleanTitle;
-    const badgeSpans = parsed.badges.map((b) => `<span class="task-badge-pill badge-${b.tone}">${b.label}</span>`).join('');
-    return `${badgeSpans}${parsed.cleanTitle}`;
-}
-function relativeTime(value) {
-    const timestamp = Date.parse(value || '');
-    if (!Number.isFinite(timestamp))
-        return '时间未记录';
-    const delta = timestamp - Date.now();
-    const absolute = Math.abs(delta);
-    const formatter = new Intl.RelativeTimeFormat('zh-CN', { numeric: 'auto' });
-    if (absolute < 60000)
-        return '刚刚';
-    if (absolute < 3600000)
-        return formatter.format(Math.round(delta / 60000), 'minute');
-    if (absolute < 86400000)
-        return formatter.format(Math.round(delta / 3600000), 'hour');
-    if (absolute < 7 * 86400000)
-        return formatter.format(Math.round(delta / 86400000), 'day');
-    return new Date(timestamp).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
-}
-function resultSummary(task) {
-    const artifacts = Array.isArray(task.artifactRefs) ? task.artifactRefs : [];
-    const report = artifacts.find((item) => item?.type === 'health_report')?.data;
-    if (report)
-        return { label: '检查结果', text: `${report.overall === 'healthy' ? '运行正常' : '发现需要关注的项目'}${Array.isArray(report.components) ? `：${report.components.map((item) => `${item.name}${item.status === 'healthy' ? '正常' : '异常'}`).join('、')}` : ''}` };
-    const intake = artifacts.find((item) => item?.type === 'task_intake_record')?.data;
-    if (intake?.nextAction)
-        return { label: '判断结果', text: intake.nextAction };
-    const review = artifacts.find((item) => item?.type === 'review_report')?.data;
-    if (review?.nextAction)
-        return { label: '审核结论', text: review.nextAction };
-    const publicReport = artifacts.find((item) => item?.type === 'public_web_report')?.data;
-    if (publicReport?.summary)
-        return { label: '结果摘要', text: publicReport.summary };
-    if (task.status === 'succeeded')
-        return { label: '完成情况', text: `任务已完成${artifacts.length ? `，留下 ${artifacts.length} 项交付或证据` : ''}。` };
-    return null;
-}
-function artifactItems(artifacts, { hideEmployeeReport = false } = {}) {
-    return (Array.isArray(artifacts) ? artifacts : [])
-        .filter((artifact) => !(hideEmployeeReport && artifact?.type === 'employee_role_report'))
-        .map((artifact, index) => {
-        if (typeof artifact === 'string')
-            return { label: artifact, url: null };
-        const label = String(artifact?.title || artifact?.name || artifact?.type || `产物 ${index + 1}`).replaceAll('_', ' ');
-        const candidate = artifact?.url || artifact?.location || artifact?.href || '';
-        let url = null;
-        try {
-            const parsed = new URL(candidate);
-            if (['http:', 'https:'].includes(parsed.protocol))
-                url = parsed.toString();
-        }
-        catch {
-            // Local references remain evidence labels and are not exposed as unsafe links.
-        }
-        return { label, url };
-    }).slice(0, 12);
-}
-function renderArtifact(artifact) {
-    return artifact.url
-        ? `<li><a href="${escapeStatic(artifact.url)}" target="_blank" rel="noopener noreferrer">${escapeStatic(artifact.label)}</a></li>`
-        : `<li><span>${escapeStatic(artifact.label)}</span></li>`;
-}
-function escapeStatic(value) {
-    return String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 }

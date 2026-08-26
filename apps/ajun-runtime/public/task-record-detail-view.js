@@ -422,10 +422,5 @@ export function renderDeliverySink(task = {}) {
         sinks.push(html `<span class="delivery-sink-item">✓ 已回写 Paperclip 工单 <strong>#${paperclipIssue.identifier || 'ISSUE'}</strong></span>`);
     }
     sinks.push(html `<span class="delivery-sink-item">✓ 已同步并可供飞书原会话回读</span>`);
-    return html `
-        <div class="record-delivery-sink">
-            <div class="delivery-sink-title"><svg aria-hidden="true"><use href="#icon-share"></use></svg> 交付去向与下游</div>
-            <div class="delivery-sink-list">${raw(sinks.join(''))}</div>
-        </div>
-    `;
+    return html `<div class="record-delivery-sink"><div class="delivery-sink-title"><svg aria-hidden="true"><use href="#icon-share"></use></svg> 交付去向与下游</div><div class="delivery-sink-list">${raw(sinks.join(''))}</div></div>`;
 }

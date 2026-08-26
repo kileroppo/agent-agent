@@ -234,7 +234,7 @@ function updateOwnerNavigation() {
 }
 function activateModule(name, { navigationGroup = '', replaceHash = false } = {}) {
     const virtualPage = name === 'system'
-        ? state.localOwner ? 'connections' : 'employees'
+        ? 'release'
         : name === 'tools' ? 'boom-monitor' : name;
     const requested = modulePages.some((page) => page.dataset.modulePage === virtualPage) ? virtualPage : 'overview';
     const selected = ownerOnlyModules.has(requested) && !state.localOwner ? 'overview' : requested;

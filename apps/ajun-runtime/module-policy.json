@@ -63,6 +63,14 @@
       "lineLimit": 450,
       "importLimit": 12
     },
+    "frontend/src/task-record-presentation.ts": {
+      "affectedTests": [
+        "test/console-boundary.test.js",
+        "test/console-operator-flow-ui.test.js",
+        "test/task-record-service.test.js"
+      ],
+      "lineLimit": 200
+    },
     "src/agent-army-client.ts": {
       "lineLimit": 750
     },
