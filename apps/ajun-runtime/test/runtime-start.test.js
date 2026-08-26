@@ -196,6 +196,16 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
   assert.match(taskRecordWorkbench.headers.get('content-type'), /^text\/javascript/);
   assert.match(await taskRecordWorkbench.text(), /createTaskRecordWorkbench/);
 
+  const taskFlowView = await fetch(`${baseUrl}/task-flow-view.js`);
+  assert.equal(taskFlowView.status, 200);
+  assert.match(taskFlowView.headers.get('content-type'), /^text\/javascript/);
+  assert.match(await taskFlowView.text(), /renderTaskFlowPipeline/);
+
+  const taskTreeView = await fetch(`${baseUrl}/task-tree-view.js`);
+  assert.equal(taskTreeView.status, 200);
+  assert.match(taskTreeView.headers.get('content-type'), /^text\/javascript/);
+  assert.match(await taskTreeView.text(), /renderTaskTreeView/);
+
   const billingEntryFilter = await fetch(`${baseUrl}/billing-entry-filter.js`);
   assert.equal(billingEntryFilter.status, 200);
   assert.match(billingEntryFilter.headers.get('content-type'), /^text\/javascript/);

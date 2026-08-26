@@ -12,6 +12,7 @@ export function renderTaskWorkflowTree(task = {}, options = {}) {
     }
     return renderSingleTaskBreakdownTree(task, agentNameFn);
 }
+export const renderTaskTreeView = renderTaskWorkflowTree;
 function renderMultiTaskWorkflowTree(task, breadcrumb, agentNameFn) {
     const workflowId = breadcrumb.workflowId || 'WF-MAIN';
     const workflowLabel = workflowId.slice(0, 10).toUpperCase();

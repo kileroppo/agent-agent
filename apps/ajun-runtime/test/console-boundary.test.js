@@ -14,6 +14,8 @@ async function readConsoleScripts() {
     'console-labels.js',
     'task-record-detail-view.js',
     'task-record-workbench.js',
+    'task-flow-view.js',
+    'task-tree-view.js',
     'overview-view.js',
     'employee-view.js',
     'billing-view.js',
