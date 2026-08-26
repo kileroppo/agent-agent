@@ -429,7 +429,7 @@ export function renderDeliverySink(task = {}) {
     sinks.push(html `<span class="delivery-sink-item">✓ 已同步并可供飞书原会话回读</span>`);
     return html `<div class="record-delivery-sink"><div class="delivery-sink-title"><svg aria-hidden="true"><use href="#icon-share"></use></svg> 交付去向与下游</div><div class="delivery-sink-list">${raw(sinks.join(''))}</div></div>`;
 }
-export function renderTaskLineageCard(task = {}, parsedTitle = null) {
+export function renderTaskLineageCard(task = {}, parsedTitle = null, artifactsHtml = '') {
     const rawTitle = String(task?.input?.title || task?.title || '').trim();
     const isRework = parsedTitle?.badges?.some((b) => b.tone === 'rework') || /定向返工/i.test(rawTitle);
     const isQuality = parsedTitle?.badges?.some((b) => b.tone === 'quality') || /质量(?:复核|审查)/i.test(rawTitle);
@@ -453,10 +453,21 @@ export function renderTaskLineageCard(task = {}, parsedTitle = null) {
             </div>
             <div class="lineage-card-body">
                 <div class="lineage-reason-item">
-                    <span class="lineage-label">返工/衍生原因：</span>
+                    <span class="lineage-label">返工/衍生动因：</span>
                     <p class="lineage-text">${cleanAttentionText(reasonText, 300)}</p>
                 </div>
             </div>
+            ${raw(artifactsHtml ? html `
+                <div class="lineage-artifacts-box">
+                    <div class="lineage-artifacts-head">
+                        <svg width="13" height="13" aria-hidden="true"><use href="#icon-records"></use></svg>
+                        <span>本轮返工交付的修正产物</span>
+                    </div>
+                    <ul class="record-artifact-list">
+                        ${raw(artifactsHtml)}
+                    </ul>
+                </div>
+            ` : '')}
         </section>
     `;
 }
@@ -474,15 +485,30 @@ export function renderSubtaskDrawer(subtask, options = {}) {
     const inputDesc = cleanAttentionText(subtask.input?.description || subtask.input?.focus || subtask.input?.title, 200);
     const statusLabel = subtask.presentation?.statusLabel || statusToChinese(subtask.status);
     const artifactItemsHtml = artifacts.map((a) => {
-        const artTitle = cleanAttentionText(a.title || a.name || a.type || '交付产物', 50);
+        const artTitle = cleanAttentionText(a.title || a.name || a.type || '交付成果', 50);
         const url = a.url || a.downloadUrl || a.location || a.path || '';
+        const rawSummary = a.summary || a.description || a.data?.summary || a.data?.conclusion || (typeof a.data?.text === 'string' ? a.data.text : '');
+        const summary = typeof rawSummary === 'string' ? rawSummary.slice(0, 200).trim() : '';
+        const inlineContent = typeof a.data?.text === 'string' && a.data.text.trim().length > 0 && a.data.text.trim() !== summary
+            ? a.data.text.trim()
+            : (typeof a.content === 'string' && a.content.trim().length > 0 ? a.content.trim() : '');
         return html `
             <li class="subtask-artifact-item">
                 <div class="artifact-item-main">
-                    <svg width="14" height="14" aria-hidden="true"><use href="#icon-records"></use></svg>
-                    <span>${artTitle}</span>
+                    <div class="artifact-item-header">
+                        <svg width="14" height="14" aria-hidden="true"><use href="#icon-records"></use></svg>
+                        <strong>${artTitle}</strong>
+                        <span class="artifact-type-tag">交付产物</span>
+                    </div>
+                    ${raw(summary ? html `<p class="subtask-artifact-summary">${summary}</p>` : '')}
+                    ${raw(inlineContent ? html `
+                        <details class="artifact-inline-preview">
+                            <summary><span>查看产物正文</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary>
+                            <div class="artifact-preview-body"><pre class="artifact-preview-text">${escapeHtml(inlineContent)}</pre></div>
+                        </details>
+                    ` : '')}
                 </div>
-                ${raw(url ? html `<button type="button" class="text-action" data-copy-path="${url}">复制路径</button>` : '')}
+                ${raw(url ? html `<div class="subtask-artifact-actions"><button type="button" class="text-action" data-copy-path="${url}">复制路径</button></div>` : '')}
             </li>
         `;
     }).join('');
@@ -523,13 +549,16 @@ export function renderSubtaskDrawer(subtask, options = {}) {
                         </div>
                     ` : '')}
 
-                    <div class="subtask-section">
-                        <span class="subtask-section-title">交付产物 (${artifacts.length})</span>
+                    <div class="subtask-section subtask-artifacts-container">
+                        <div class="subtask-artifacts-head">
+                            <svg width="14" height="14" aria-hidden="true"><use href="#icon-records"></use></svg>
+                            <span class="subtask-section-title">本环节生成的交付产物 (${artifacts.length})</span>
+                        </div>
                         ${raw(artifacts.length > 0 ? html `
                             <ul class="subtask-artifacts-list">
                                 ${raw(artifactItemsHtml)}
                             </ul>
-                        ` : '<p class="subtask-empty-text">该环节暂未生成业务交付物（仅内部流转）</p>')}
+                        ` : '<p class="subtask-empty-text">该环节暂未生成业务交付物（仅内部协调流转）</p>')}
                     </div>
                 </div>
                 <div class="subtask-drawer-footer">

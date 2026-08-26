@@ -20,6 +20,7 @@ import { renderTaskWorkflowTree } from './task-tree-view.js';
 import { formatFullDateTime, formatDuration } from './format-utils.js';
 import {
     artifactItems,
+    displaySubtaskTitle,
     displayTaskTitle,
     parseTaskTitle,
     relativeTime,
@@ -28,7 +29,7 @@ import {
 } from './task-record-presentation.js';
 
 export { taskAttentionView } from './task-record-detail-view.js';
-export { parseTaskTitle, displayTaskTitle } from './task-record-presentation.js';
+export { parseTaskTitle, displayTaskTitle, displaySubtaskTitle } from './task-record-presentation.js';
 const VIEW_LABELS: any = Object.freeze({
     needs_action: '待处理',
     active: '进行中',
@@ -340,7 +341,23 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
                 return leftCompleted - rightCompleted;
             })
             : state.items;
-        elements.list.innerHTML = displayItems.map((task: any): any => {
+
+        // Group tasks into tree hierarchy: root tasks vs child rework tasks
+        const itemIds = new Set(displayItems.map((t: any) => t.taskId));
+        const childrenMap = new Map<string, any[]>();
+        const rootTasks: any[] = [];
+
+        for (const item of displayItems) {
+            if (item.parentTaskId && itemIds.has(item.parentTaskId)) {
+                const arr = childrenMap.get(item.parentTaskId) || [];
+                arr.push(item);
+                childrenMap.set(item.parentTaskId, arr);
+            } else {
+                rootTasks.push(item);
+            }
+        }
+
+        elements.list.innerHTML = rootTasks.map((task: any): any => {
             const selected: any = state.selectedTaskId === task.taskId;
             const presentation: any = task.presentation || {};
             const tone: any = presentation.tone || 'active';
@@ -349,14 +366,43 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             const updatedFull: string = formatFullDateTime(task.updatedAt);
             const timeHover: string = `创建于 ${createdFull || '未记录'}${task.updatedAt && task.updatedAt !== task.createdAt ? ` · 更新于 ${updatedFull}` : ''}`;
             const timeDisplay: string = createdFull ? `${createdFull.slice(5, 16)} (${relativeTime(task.createdAt || task.updatedAt)})` : relativeTime(task.updatedAt || task.createdAt);
-            return html`<button class="record-row${selected ? ' is-selected' : ''}" type="button" role="option" aria-selected="${selected}" data-record-task-id="${task.taskId}">
-        <span class="record-row-main">
-          <span class="record-row-title">${raw(displayTaskTitle(task))}</span>
-          ${raw(reason ? html`<span class="record-row-reason">${reason}</span>` : '')}
-          <span class="record-row-meta" title="${escapeHtml(timeHover)}"><span>${agentName(task.assigneeAgentId)}</span><span>·</span><span>${timeDisplay}</span></span>
-        </span>
-        <span class="record-row-status ${tone}">${presentation.statusLabel || ''}</span>
-      </button>`;
+            const children = childrenMap.get(task.taskId) || [];
+
+            const childrenHtml = children.length ? html`
+                <div class="record-subtasks-tree">
+                    ${raw(children.map((child: any) => {
+                        const childSelected = state.selectedTaskId === child.taskId;
+                        const childPres = child.presentation || {};
+                        const childTone = childPres.tone || 'active';
+                        const childCreatedFull: string = formatFullDateTime(child.createdAt);
+                        const childTimeDisplay: string = childCreatedFull ? `${childCreatedFull.slice(5, 16)} (${relativeTime(child.createdAt || child.updatedAt)})` : relativeTime(child.updatedAt || child.createdAt);
+                        return html`
+                            <button class="record-row is-subtask${childSelected ? ' is-selected' : ''}" type="button" role="option" aria-selected="${childSelected}" data-record-task-id="${child.taskId}">
+                                <span class="subtask-tree-branch">↳</span>
+                                <span class="record-row-main">
+                                    <span class="record-row-title">${raw(displaySubtaskTitle(child, task))}</span>
+                                    <span class="record-row-meta"><span>${agentName(child.assigneeAgentId)}</span><span>·</span><span>${childTimeDisplay}</span></span>
+                                </span>
+                                <span class="record-row-status ${childTone}">${childPres.statusLabel || ''}</span>
+                            </button>
+                        `;
+                    }).join(''))}
+                </div>
+            ` : '';
+
+            return html`
+                <div class="record-task-tree-node">
+                    <button class="record-row${selected ? ' is-selected' : ''}${children.length ? ' has-subtasks' : ''}" type="button" role="option" aria-selected="${selected}" data-record-task-id="${task.taskId}">
+                        <span class="record-row-main">
+                            <span class="record-row-title">${raw(displayTaskTitle(task))}</span>
+                            ${raw(reason ? html`<span class="record-row-reason">${reason}</span>` : '')}
+                            <span class="record-row-meta" title="${escapeHtml(timeHover)}"><span>${agentName(task.assigneeAgentId)}</span><span>·</span><span>${timeDisplay}</span></span>
+                        </span>
+                        <span class="record-row-status ${tone}">${presentation.statusLabel || ''}</span>
+                    </button>
+                    ${raw(childrenHtml)}
+                </div>
+            `;
         }).join('');
     }
     function renderRoutineSummary(summary: any = {}): any {
@@ -387,101 +433,36 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const actionState: any = state.actionState.get(task.taskId) || null;
         const acceptanceState: any = state.acceptanceState.get(task.taskId) || null;
         const summary: any = presentation.summary || '';
-        const showNextAction: any = (needsAction || taskView === 'active') && !attention;
-        const nextAction: any = showNextAction ? (presentation.nextAction || missingNextActionMessage(taskView)) : '';
         const distinctResult: any = result && result.text && result.text !== summary ? result : null;
-        const outcomeLabel: any = taskView === 'completed' ? '结果' : taskView === 'active' ? '进度' : '下一步';
         const parsedTitle: any = parseTaskTitle(task?.input?.title || task?.title || '');
         
-        let actionChipsHtml: string = '';
-        if (taskView === 'active') {
-            actionChipsHtml = html`
-                <div class="record-primary-actions">
-                    <button type="button" class="action-chip-btn primary" data-action-refresh>
-                        <svg width="13" height="13" aria-hidden="true"><use href="#icon-spark"></use></svg>
-                        <span>刷新最新进展</span>
-                    </button>
-                    <button type="button" class="action-chip-btn secondary" data-action-view-timeline>
-                        <svg width="13" height="13" aria-hidden="true"><use href="#icon-clock"></use></svg>
-                        <span>查看实时过程</span>
-                    </button>
-                    ${raw(artifacts.length ? html`
-                        <button type="button" class="action-chip-btn secondary" data-action-view-deliverables>
-                            <svg width="13" height="13" aria-hidden="true"><use href="#icon-target"></use></svg>
-                            <span>查看已产生交付物 (${artifacts.length})</span>
-                        </button>
-                    ` : '')}
-                </div>
-            `;
-        } else if (taskView === 'completed') {
-            actionChipsHtml = html`
-                <div class="record-primary-actions">
-                    ${raw(artifacts.length ? html`
-                        <button type="button" class="action-chip-btn primary" data-action-view-deliverables>
-                            <svg width="13" height="13" aria-hidden="true"><use href="#icon-target"></use></svg>
-                            <span>查看交付成果 (${artifacts.length})</span>
-                        </button>
-                    ` : '')}
-                    <button type="button" class="action-chip-btn secondary" data-action-view-timeline>
-                        <svg width="13" height="13" aria-hidden="true"><use href="#icon-clock"></use></svg>
-                        <span>查看执行全过程</span>
-                    </button>
-                </div>
-            `;
-        } else if (needsAction && !attention) {
-            actionChipsHtml = html`
-                <div class="record-primary-actions">
-                    <button type="button" class="action-chip-btn primary" data-action-refresh>
-                        <svg width="13" height="13" aria-hidden="true"><use href="#icon-spark"></use></svg>
-                        <span>检查最新状态</span>
-                    </button>
-                    <button type="button" class="action-chip-btn secondary" data-action-view-timeline>
-                        <svg width="13" height="13" aria-hidden="true"><use href="#icon-clock"></use></svg>
-                        <span>查看失败过程</span>
-                    </button>
-                </div>
-            `;
-        }
-
+        // Pure high-value business outcome (No robotic "progress" or "next action" tags)
+        const outcomeContent = distinctResult?.text || (summary && taskView === 'completed' ? summary : '');
         const outcomeHtml: any = attention
             ? renderAttentionDetail(attention, actionState, escapeHtml)
-            : (summary || distinctResult || nextAction || task.pendingApproval?.reason)
-                ? html`<section class="record-primary-summary${needsAction ? ' needs-action' : ''}">
-            <span class="record-outcome-label">${outcomeLabel}</span>
-            ${raw(summary ? html`<p>${summary}</p>` : '')}
-            ${raw(distinctResult ? html`<p>${distinctResult.text}</p>` : '')}
-            ${raw(nextAction && nextAction !== summary ? html`<div class="record-primary-next"><strong>下一步</strong><p>${nextAction}</p></div>` : '')}
-            ${raw(actionChipsHtml)}
-          </section>${raw(task.pendingApproval?.reason ? html`<details class="record-detail-section record-context-details"><summary>待确认原因</summary><p>${task.pendingApproval.reason}</p></details>` : '')}`
+            : (outcomeContent || task.pendingApproval?.reason)
+                ? html`${raw(outcomeContent ? html`
+                    <section class="record-primary-summary${needsAction ? ' needs-action' : ''}">
+                        <p class="record-pure-result">${outcomeContent}</p>
+                    </section>
+                ` : '')}${raw(task.pendingApproval?.reason ? html`<details class="record-detail-section record-context-details"><summary>待确认原因</summary><p>${task.pendingApproval.reason}</p></details>` : '')}`
                 : '';
 
         const isWorkflow: boolean = Boolean(task.workflowBreadcrumb && (task.workflowBreadcrumb.workflowId || (task.workflowBreadcrumb.siblings && task.workflowBreadcrumb.siblings.length > 0)));
         const createdFull: string = formatFullDateTime(task.createdAt);
         const durationText: string = task.createdAt ? formatDuration(task.createdAt, task.completedAt || (taskView === 'completed' ? task.updatedAt : null)) : '';
-
-        // Tab Navigation
         const tabNavHtml = renderDetailTabNav(state.detailTab, { deliverablesCount: artifacts.length, isWorkflow });
+        const isReworkTask = parsedTitle?.badges?.some((b: any) => b.tone === 'rework') || /定向返工/i.test(task?.input?.title || task?.title || '');
+        const reworkArtifactsHtml = isReworkTask && artifacts.length ? artifacts.map(renderArtifact).join('') : '';
 
-        // Tab 1: Overview Panel
-        const previewArtifacts = artifacts.slice(0, 2);
+        // Tab 1: Pure Overview Panel (No duplicate deliverables section)
         const overviewTabHtml = html`
             <div class="detail-tab-pane ${state.detailTab === 'overview' ? 'is-active' : ''}" data-pane="overview">
-                ${raw(renderTaskLineageCard(task, parsedTitle))}
+                ${raw(renderTaskLineageCard(task, parsedTitle, reworkArtifactsHtml))}
                 ${raw(renderTaskProgressBar(task, { agentName }))}
                 ${raw(renderAcceptanceDetail(acceptanceTarget, acceptanceState, escapeHtml))}
                 ${raw(outcomeHtml)}
                 ${raw(renderOriginCard(task))}
-                ${raw(artifacts.length ? html`
-                    <section class="record-deliverables-compact">
-                        <div class="deliverables-compact-header">
-                            <h3>核心交付成果 (${artifacts.length})</h3>
-                            <button type="button" class="text-action" data-action-view-deliverables>查看完整产物库 →</button>
-                        </div>
-                        <ul class="record-artifact-list">
-                            ${raw(previewArtifacts.map(renderArtifact).join(''))}
-                        </ul>
-                    </section>
-                ` : '')}
             </div>
         `;
 
@@ -617,29 +598,6 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         elements.detail.querySelector('.record-detail-back')?.addEventListener('click', (): any => {
             elements.workbench.classList.remove('is-detail-open');
             replaceRecordUrl();
-        });
-
-        elements.detail.querySelector('[data-action-refresh]')?.addEventListener('click', async (e: any): Promise<any> => {
-            const btn = e.currentTarget;
-            if (btn) btn.disabled = true;
-            await loadSelectedDetail({ revealDetail: false, quiet: false });
-            if (btn) btn.disabled = false;
-        });
-
-        elements.detail.querySelector('[data-action-view-timeline]')?.addEventListener('click', async (): Promise<any> => {
-            state.detailTab = 'collaboration';
-            if (!state.timelineHtml) {
-                state.timelineHtml = await loadTimeline(task.taskId);
-            }
-            renderDetail();
-            const timelineSection = elements.detail.querySelector('.collaboration-timeline-section');
-            timelineSection?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        });
-
-        elements.detail.querySelector('[data-action-view-deliverables]')?.addEventListener('click', (): any => {
-            state.detailTab = 'deliverables';
-            renderDetail();
-            elements.detail.scrollTop = 0;
         });
 
         for (const copyBtn of elements.detail.querySelectorAll('[data-copy-path]')) {

@@ -86,6 +86,7 @@ function presentRecordSummary(task: any, approvals: any, detailBaseUrl: any, tas
         status: task.status,
         taskType: task.taskType,
         assigneeAgentId: task.assigneeAgentId,
+        parentTaskId: task.parentTaskId || null,
         input: { title: task.input?.title || '' },
         createdAt: task.createdAt,
         updatedAt: task.updatedAt,

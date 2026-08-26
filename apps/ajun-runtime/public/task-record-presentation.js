@@ -71,6 +71,36 @@ export function displayTaskTitle(task) {
     const badgeSpans = parsed.badges.map((b) => `<span class="task-badge-pill badge-${b.tone}" title="${escapeHtml(b.tooltip)}">${b.label}</span>`).join(' ');
     return `<span class="task-title-wrapper">${badgeSpans} <span class="task-title-text">${escapeHtml(parsed.cleanTitle)}</span></span>`;
 }
+export function displaySubtaskTitle(childTask, parentTask = null) {
+    const rawTitle = String(childTask?.input?.title || childTask?.title || '子任务').trim();
+    const parentRawTitle = String(parentTask?.input?.title || parentTask?.title || '').trim();
+    const parsed = parseTaskTitle(rawTitle);
+    const parentParsed = parseTaskTitle(parentRawTitle);
+    const reworkBadge = parsed.badges.find((b) => b.tone === 'rework');
+    const qualityBadge = parsed.badges.find((b) => b.tone === 'quality');
+    const faultBadge = parsed.badges.find((b) => b.tone === 'fault');
+    // If it is a rework task, display clean round label and eliminate title duplication
+    if (reworkBadge) {
+        const roundNumMatch = reworkBadge.label.match(/\d+/);
+        const roundText = roundNumMatch ? `第 ${roundNumMatch[0]} 轮质量返工` : '定向返工迭代';
+        return `<span class="task-badge-pill badge-rework" title="${escapeHtml(reworkBadge.tooltip)}">${reworkBadge.label}</span> <span class="task-title-text">${roundText}</span>`;
+    }
+    // If it is a quality review task
+    if (qualityBadge) {
+        return `<span class="task-badge-pill badge-quality" title="${escapeHtml(qualityBadge.tooltip)}">${qualityBadge.label}</span> <span class="task-title-text">交付质量复核</span>`;
+    }
+    // If it is a fault recovery task
+    if (faultBadge) {
+        return `<span class="task-badge-pill badge-fault" title="${escapeHtml(faultBadge.tooltip)}">${faultBadge.label}</span> <span class="task-title-text">故障自动恢复</span>`;
+    }
+    // If title is identical to parent's clean title, don't repeat the long text!
+    if (parentParsed.cleanTitle && parsed.cleanTitle.toLowerCase() === parentParsed.cleanTitle.toLowerCase()) {
+        const badgeSpans = parsed.badges.map((b) => `<span class="task-badge-pill badge-${b.tone}" title="${escapeHtml(b.tooltip)}">${b.label}</span>`).join(' ');
+        return `${badgeSpans} <span class="task-title-text">衍生协同环节</span>`;
+    }
+    // Otherwise show its distinct title
+    return displayTaskTitle(childTask);
+}
 export function relativeTime(value) {
     const timestamp = Date.parse(value || '');
     if (!Number.isFinite(timestamp))
