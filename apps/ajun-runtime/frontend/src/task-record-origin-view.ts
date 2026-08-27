@@ -1,5 +1,5 @@
 import { html, raw, escapeHtml } from './html.js';
-import { formatFullDateTime } from './format-utils.js';
+import { formatFullDateTime, isValidHttpUrl } from './format-utils.js';
 import { cleanAttentionText } from './task-record-detail-view.js';
 
 export function renderOriginCard(task: any = {}): string {
@@ -32,10 +32,16 @@ export function renderOriginCard(task: any = {}): string {
             ${raw(sourceUrl ? html`
                 <div class="origin-source-box">
                     <span class="origin-label">原始目标：</span>
-                    <a href="${sourceUrl}" target="_blank" rel="noopener noreferrer" class="origin-link-text">
-                        <span class="link-url">${escapeHtml(sourceUrl)}</span>
-                        <svg class="external-icon" width="12" height="12" aria-hidden="true"><use href="#icon-share"></use></svg>
-                    </a>
+                    ${raw(isValidHttpUrl(sourceUrl) ? html`
+                        <a href="${sourceUrl}" target="_blank" rel="noopener noreferrer" class="origin-link-text">
+                            <span class="link-url">${escapeHtml(sourceUrl)}</span>
+                            <svg class="external-icon" width="12" height="12" aria-hidden="true"><use href="#icon-share"></use></svg>
+                        </a>
+                    ` : html`
+                        <span class="origin-link-text is-plain">
+                            <span class="link-url">${escapeHtml(sourceUrl)}</span>
+                        </span>
+                    `)}
                 </div>
             ` : '')}
 

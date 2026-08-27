@@ -2,6 +2,7 @@ import { html, raw, escapeHtml } from './html.js';
 import { formatFullDateTime, formatDuration } from './format-utils.js';
 import { displaySubtaskTitle } from './task-record-presentation.js';
 import { cleanAttentionText } from './task-record-detail-view.js';
+import { formatStructuredReportText } from './task-record-report-formatter.js';
 export function renderTaskLineageCard(task = {}, parsedTitle = null, artifactsHtml = '') {
     const rawTitle = String(task?.input?.title || task?.title || '').trim();
     const isRework = parsedTitle?.badges?.some((b) => b.tone === 'rework') || /定向返工/i.test(rawTitle);
@@ -76,10 +77,16 @@ export function renderSubtaskDrawer(subtask, options = {}) {
         const isRealFilePath = /^(?:\/|[a-zA-Z]:[/\\]|file:\/\/)/.test(url) && !isRuntimeVirtual;
         const rawSummary = a.summary || a.description || a.data?.summary || a.data?.conclusion || (typeof a.data?.text === 'string' ? a.data.text : '');
         const summary = typeof rawSummary === 'string' ? rawSummary.slice(0, 300).trim() : '';
-        const rawInline = a.data?.markdown || a.data?.text || a.data?.content || a.content || '';
+        const formattedFullReport = formatStructuredReportText(a.data || a, a.type);
+        const rawInline = formattedFullReport || a.data?.markdown || a.data?.text || a.data?.content || a.content || '';
         const inlineContent = typeof rawInline === 'string' ? rawInline.trim() : '';
         const hasReadableContent = inlineContent.length > 20 && !inlineContent.startsWith('{') && inlineContent !== summary;
-        const copyContent = hasReadableContent ? inlineContent : summary;
+        const taskTitle = String(a.title || a.name || '').trim();
+        const isSummaryTrivial = !summary || (taskTitle && (summary === taskTitle ||
+            summary.startsWith(taskTitle) ||
+            taskTitle.startsWith(summary) ||
+            summary.length < 15));
+        const copyContent = hasReadableContent ? inlineContent : (isSummaryTrivial ? '' : summary);
         return html `
             <li class="subtask-artifact-item">
                 <div class="artifact-item-main">

@@ -47,3 +47,13 @@ export function formatDuration(start: any, end: any): string {
     return `${(diffMs / 3600000).toFixed(1)} 小时`;
 }
 
+export function isValidHttpUrl(value: any): boolean {
+    const text = String(value || '').trim();
+    if (!text) return false;
+    try {
+        const url = new URL(text);
+        return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch {
+        return false;
+    }
+}

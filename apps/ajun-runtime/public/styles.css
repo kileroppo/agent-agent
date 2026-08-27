@@ -8197,6 +8197,19 @@ textarea:focus {
   font-weight: 700;
 }
 
+.artifact-source-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+  border: 1px solid var(--border-soft);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
 .artifact-summary-box {
   padding: 8px 12px;
   border-radius: 8px;

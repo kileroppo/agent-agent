@@ -463,7 +463,33 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const attention: any = taskAttentionView(task);
         const acceptanceTarget: any = acceptanceTargetView(task);
         const result: any = resultSummary(task);
-        const artifacts: any = artifactItems(task.artifactRefs || [], { hideEmployeeReport: true });
+        const ownArtifacts: any[] = artifactItems(task.artifactRefs || [], { hideEmployeeReport: true });
+        const siblingArtifacts: any[] = [];
+        const seenArtifactKeys = new Set(ownArtifacts.map((a: any) => a.artifactId || `${a.type}:${a.title || a.name || ''}`));
+
+        if (task.workflowBreadcrumb && Array.isArray(task.workflowBreadcrumb.siblings)) {
+            for (const sibling of task.workflowBreadcrumb.siblings) {
+                const subArtifacts = artifactItems(sibling.artifactRefs || [], { hideEmployeeReport: true });
+                const siblingAgent = sibling.assigneeAgentId ? agentName(sibling.assigneeAgentId) : '';
+                for (const art of subArtifacts) {
+                    const artType = String(art?.type || '');
+                    if (['cross_agent_mission_plan', 'cross_agent_mission_summary'].includes(artType)) {
+                        continue;
+                    }
+                    const key = art.artifactId || `${art.type}:${art.title || art.name || ''}`;
+                    if (seenArtifactKeys.has(key)) continue;
+                    seenArtifactKeys.add(key);
+                    siblingArtifacts.push({
+                        ...art,
+                        _fromAgentName: siblingAgent,
+                        _fromSubtaskTitle: sibling.title,
+                        _fromTaskId: sibling.taskId,
+                    });
+                }
+            }
+        }
+
+        const artifacts: any[] = [...ownArtifacts, ...siblingArtifacts];
         const actionState: any = state.actionState.get(task.taskId) || null;
         const acceptanceState: any = state.acceptanceState.get(task.taskId) || null;
         const summary: any = presentation.summary || '';

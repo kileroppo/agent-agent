@@ -49,3 +49,15 @@ export function formatDuration(start, end) {
         return `${Math.floor(diffMs / 60000)} 分 ${Math.round((diffMs % 60000) / 1000)} 秒`;
     return `${(diffMs / 3600000).toFixed(1)} 小时`;
 }
+export function isValidHttpUrl(value) {
+    const text = String(value || '').trim();
+    if (!text)
+        return false;
+    try {
+        const url = new URL(text);
+        return url.protocol === 'http:' || url.protocol === 'https:';
+    }
+    catch {
+        return false;
+    }
+}

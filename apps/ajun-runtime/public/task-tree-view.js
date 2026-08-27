@@ -1,5 +1,5 @@
 import { html, raw, escapeHtml } from './html.js';
-import { formatFullDateTime, formatDuration } from './format-utils.js';
+import { formatFullDateTime, formatDuration, isValidHttpUrl } from './format-utils.js';
 import { displaySubtaskTitle } from './task-record-presentation.js';
 export function renderTaskWorkflowTree(task = {}, options = {}) {
     if (!task || !task.taskId) {
@@ -160,7 +160,7 @@ function renderSingleTaskBreakdownTree(task, agentNameFn) {
           <div class="tree-branch-tag"><svg class="tree-leaf-icon" aria-hidden="true"><use href="#icon-message"></use></svg> 源头与输入</div>
           <div class="tree-task-main">
             <p class="tree-node-text"><strong>时间：</strong>${sourceTime}</p>
-            ${raw(sourceUrl ? html `<p class="tree-node-text"><strong>源链接：</strong><a href="${sourceUrl}" target="_blank" rel="noopener noreferrer">${cleanTreeText(sourceUrl, 50)}</a></p>` : '')}
+            ${raw(sourceUrl ? html `<p class="tree-node-text"><strong>源链接：</strong>${raw(isValidHttpUrl(sourceUrl) ? html `<a href="${sourceUrl}" target="_blank" rel="noopener noreferrer">${cleanTreeText(sourceUrl, 50)}</a>` : html `<span>${cleanTreeText(sourceUrl, 50)}</span>`)}</p>` : '')}
             ${raw(input.description ? html `<p class="tree-node-text"><strong>原始诉求：</strong>${cleanTreeText(input.description, 100)}</p>` : '')}
           </div>
         </div>

@@ -10,6 +10,7 @@ import {
   acceptanceTargetView,
   renderAcceptanceDetail,
   renderAttentionDetail,
+  renderOriginCard,
   taskAttentionView,
 } from '../public/task-record-detail-view.js';
 import {
@@ -416,6 +417,31 @@ test('任务记录查询支持按状态（包括待验证 waiting_test）进行�
   assert.equal(result.items.length, 1);
   assert.equal(result.items[0].taskId, 'task-1');
   assert.equal(result.items[0].status, 'waiting_test');
+});
+
+test('renderOriginCard 正确渲染有效外链为 <a> 标签，脱敏占位符或非法链接渲染为纯文本防相对路径跳转', () => {
+  const validTask = {
+    taskId: 'valid-1',
+    input: {
+      sourceUrl: 'https://www.bilibili.com/video/BV1xx411c7mD',
+      description: '1. 获取并整理：素材获取\n2. 拆解爆款：分析逻辑',
+    },
+  };
+  const validHtml = renderOriginCard(validTask);
+  assert.match(validHtml, /<a href="https:\/\/www\.bilibili\.com\/video\/BV1xx411c7mD"/);
+  assert.match(validHtml, /class="external-icon"/);
+
+  const maskedTask = {
+    taskId: 'masked-1',
+    input: {
+      sourceUrl: '[链接已脱敏]',
+      description: '1. 获取并整理：素材获取\n2. 拆解爆款：分析逻辑',
+    },
+  };
+  const maskedHtml = renderOriginCard(maskedTask);
+  assert.doesNotMatch(maskedHtml, /<a href="\[链接已脱敏\]"/);
+  assert.match(maskedHtml, /class="origin-link-text is-plain"/);
+  assert.match(maskedHtml, /\[链接已脱敏\]/);
 });
 
 function escapeHtml(value) {

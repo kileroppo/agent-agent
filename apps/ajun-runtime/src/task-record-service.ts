@@ -275,9 +275,9 @@ function safeOwnerInput(value: any): any {
     return {
         title: safeText(value.title, 300),
         description: safeText(value.description, 2000),
-        sourceUrl: safeText(value.sourceUrl, 1000) || null,
+        sourceUrl: safeOwnerUrl(value.sourceUrl),
         sourceUrls: Array.isArray(value.sourceUrls)
-            ? value.sourceUrls.map((item: any): any => safeText(item, 1000)).filter(Boolean).slice(0, 20)
+            ? value.sourceUrls.map((item: any): any => safeOwnerUrl(item)).filter(Boolean).slice(0, 20)
             : [],
         evidenceMode: cleanText(value.evidenceMode, 80) || null,
         analysisIntent: cleanText(value.analysisIntent, 80) || null,
@@ -285,6 +285,24 @@ function safeOwnerInput(value: any): any {
         focus: safeText(value.focus, 500) || null,
         visualMode: cleanText(value.visualMode, 80) || null,
     };
+}
+function safeOwnerUrl(value: any): any {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    try {
+        const url = new URL(raw);
+        if (!['http:', 'https:'].includes(url.protocol)) return null;
+        url.username = '';
+        url.password = '';
+        for (const key of [...url.searchParams.keys()]) {
+            if (/^(?:token|code|auth|secret|password|key|apikey|api_key|access_token|authorization)$/i.test(key)) {
+                url.searchParams.delete(key);
+            }
+        }
+        return url.toString().slice(0, 1000);
+    } catch {
+        return null;
+    }
 }
 function safeOwnerError(value: any): any {
     if (!value || typeof value !== 'object')

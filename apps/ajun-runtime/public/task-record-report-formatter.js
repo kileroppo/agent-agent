@@ -123,7 +123,10 @@ export function formatStructuredReportText(data, artifactType = '') {
         if (Array.isArray(data.prohibitedActions) && data.prohibitedActions.length > 0) {
             sections.push(`【安全合规红线】\n  ⛔ 严格禁止以下非授权操作：\n  ${data.prohibitedActions.join('、')}`);
         }
-        return sections.join('\n\n');
+        if (sections.length > 1 || (Array.isArray(data.subtasks) && data.subtasks.length > 0)) {
+            return sections.join('\n\n');
+        }
+        return '';
     }
     // 2. Cross-Agent Mission Summary
     if (artifactType === 'cross_agent_mission_summary' || (Array.isArray(data.statuses) && data.decision)) {
@@ -154,7 +157,10 @@ export function formatStructuredReportText(data, artifactType = '') {
             if (bLines.length)
                 sections.push(`【决策与行动建议】\n${bLines.join('\n\n')}`);
         }
-        return sections.join('\n\n');
+        if (sections.length > 1 || (Array.isArray(data.statuses) && data.statuses.length > 0) || data.decision?.briefing) {
+            return sections.join('\n\n');
+        }
+        return '';
     }
     // 3. Video Benchmark Analysis
     if (artifactType === 'video_content_analysis_report' || Array.isArray(data.modules) || data.sourceMetadata) {

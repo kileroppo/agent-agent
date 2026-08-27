@@ -267,3 +267,38 @@ test('小D等终态任务即使执行器没有 outcome 也不会把关联 Run �
     finishedAt:'2026-08-17T00:02:00.000Z',
   });
 });
+
+test('本机负责人详情保留合法 sourceUrl 且不将其错误脱敏为占位符文本', async () => {
+  const urlTask = {
+    ...task,
+    input:{
+      title:'分析视频',
+      description:'1. 获取并整理：通过内容获取中心获取公开素材\n2. 拆解爆款候选：分析结构',
+      sourceUrl:'https://www.bilibili.com/video/BV1xx411c7mD?p=1',
+      sourceUrls:['https://www.bilibili.com/video/BV1xx411c7mD?p=1'],
+    },
+  };
+  const service = new TaskRecordService({
+    store:{ getTask:async () => urlTask, listApprovals:async () => [] },
+  });
+  const owner = await service.detail(urlTask.taskId, { audience:'local-owner' });
+  assert.equal(owner.input.sourceUrl, 'https://www.bilibili.com/video/BV1xx411c7mD?p=1');
+  assert.deepEqual(owner.input.sourceUrls, ['https://www.bilibili.com/video/BV1xx411c7mD?p=1']);
+});
+
+test('sourceUrl 包含敏感认证参数时安全剥离认证参数并保留可用基础 URL，非法协议返回 null', async () => {
+  const dirtyUrlTask = {
+    ...task,
+    input:{
+      title:'分析视频',
+      sourceUrl:'https://example.com/video?token=secret123&v=456&auth=abc',
+      sourceUrls:['javascript:alert(1)', 'https://example.com/item?password=123'],
+    },
+  };
+  const service = new TaskRecordService({
+    store:{ getTask:async () => dirtyUrlTask, listApprovals:async () => [] },
+  });
+  const owner = await service.detail(dirtyUrlTask.taskId, { audience:'local-owner' });
+  assert.equal(owner.input.sourceUrl, 'https://example.com/video?v=456');
+  assert.deepEqual(owner.input.sourceUrls, ['https://example.com/item']);
+});

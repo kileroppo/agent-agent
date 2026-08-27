@@ -412,7 +412,32 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const attention = taskAttentionView(task);
         const acceptanceTarget = acceptanceTargetView(task);
         const result = resultSummary(task);
-        const artifacts = artifactItems(task.artifactRefs || [], { hideEmployeeReport: true });
+        const ownArtifacts = artifactItems(task.artifactRefs || [], { hideEmployeeReport: true });
+        const siblingArtifacts = [];
+        const seenArtifactKeys = new Set(ownArtifacts.map((a) => a.artifactId || `${a.type}:${a.title || a.name || ''}`));
+        if (task.workflowBreadcrumb && Array.isArray(task.workflowBreadcrumb.siblings)) {
+            for (const sibling of task.workflowBreadcrumb.siblings) {
+                const subArtifacts = artifactItems(sibling.artifactRefs || [], { hideEmployeeReport: true });
+                const siblingAgent = sibling.assigneeAgentId ? agentName(sibling.assigneeAgentId) : '';
+                for (const art of subArtifacts) {
+                    const artType = String(art?.type || '');
+                    if (['cross_agent_mission_plan', 'cross_agent_mission_summary'].includes(artType)) {
+                        continue;
+                    }
+                    const key = art.artifactId || `${art.type}:${art.title || art.name || ''}`;
+                    if (seenArtifactKeys.has(key))
+                        continue;
+                    seenArtifactKeys.add(key);
+                    siblingArtifacts.push({
+                        ...art,
+                        _fromAgentName: siblingAgent,
+                        _fromSubtaskTitle: sibling.title,
+                        _fromTaskId: sibling.taskId,
+                    });
+                }
+            }
+        }
+        const artifacts = [...ownArtifacts, ...siblingArtifacts];
         const actionState = state.actionState.get(task.taskId) || null;
         const acceptanceState = state.acceptanceState.get(task.taskId) || null;
         const summary = presentation.summary || '';

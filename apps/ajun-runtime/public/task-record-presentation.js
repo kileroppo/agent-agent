@@ -169,7 +169,12 @@ export function renderArtifact(artifact, options = {}) {
     const rawInline = formattedFullReport || artifact.data?.markdown || artifact.data?.text || artifact.data?.content || artifact.content || '';
     const inlineContent = typeof rawInline === 'string' ? rawInline.trim() : '';
     const isReadableText = inlineContent.length > 20 && !inlineContent.startsWith('{') && inlineContent !== summary;
-    const copyContent = isReadableText ? inlineContent : summary;
+    const taskTitle = String(artifact.title || artifact.name || '').trim();
+    const isSummaryTrivial = !summary || (taskTitle && (summary === taskTitle ||
+        summary.startsWith(taskTitle) ||
+        taskTitle.startsWith(summary) ||
+        summary.length < 15));
+    const copyContent = isReadableText ? inlineContent : (isSummaryTrivial ? '' : summary);
     const previewTitle = getArtifactPreviewTitle(artifact);
     const isOpsOrSystemArtifact = String(artifact?.type || '').startsWith('health_')
         || String(artifact?.type || '').startsWith('operations_')
@@ -182,6 +187,7 @@ export function renderArtifact(artifact, options = {}) {
                     <svg class="artifact-icon" aria-hidden="true"><use href="#icon-records"></use></svg>
                     <strong class="artifact-title">${label}</strong>
                     <span class="artifact-type-tag">${typeLabel}</span>
+                    ${raw(artifact._fromAgentName ? html `<span class="artifact-source-tag"><svg width="12" height="12" aria-hidden="true"><use href="#icon-employees"></use></svg> 来自 ${escapeHtml(artifact._fromAgentName)}</span>` : '')}
                 </div>
             </div>
             ${raw(summary ? html `<div class="artifact-summary-box"><p class="artifact-summary">${summary}</p></div>` : '')}
