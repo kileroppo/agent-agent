@@ -365,7 +365,7 @@ export class AjunReleaseSystemAdapter {
     const argv = await this.processArgv(pid);
     const expectedEntrypoint = path.join(liveManifest.releaseRoot, ENTRYPOINT_SUFFIX);
     if (!argv.includes(expectedEntrypoint)) throw new Error('A君实际启动参数不是目标 release。');
-    const response = await this.fetchFn(`http://127.0.0.1:${this.appPort}/api/console-overview`, { signal:AbortSignal.timeout(3_000) });
+    const response = await this.fetchFn(`http://127.0.0.1:${this.appPort}/api/console-overview`, { signal:AbortSignal.timeout(10_000) });
     if (!response.ok) throw new Error(`4321 返回 HTTP ${response.status}。`);
     const overview = await response.json();
     if (overview?.schemaVersion !== 'agent.army/console-overview/v2') throw new Error('4321 响应不符合 A君控制台概览契约。');
