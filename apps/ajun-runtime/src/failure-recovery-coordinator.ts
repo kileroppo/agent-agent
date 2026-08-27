@@ -59,6 +59,10 @@ export class FailureRecoveryCoordinator {
             await this.markCoordination(failedTask, { status: 'retrying', actionKey, operatorTaskId: operatorTask.taskId, retryTaskId: retryTask.taskId, attempt: attempt + 1 }, options);
             return { status: 'retrying', operatorTask, retryTask };
         }
+        if (decision?.action === 'retry_once' && failedTask.execution?.owner === 'paperclip-hermes') {
+            await this.markCoordination(failedTask, { status: 'waiting_operator_action', actionKey, operatorTaskId: operatorTask.taskId, attempt }, options);
+            return { status: 'waiting_operator_action', operatorTask };
+        }
         const diagnosis: any = this.diagnoser && this.projectRoot ? await this.diagnoser.diagnose({ input: { title: failedTask.input?.title, context }, taskId: failedTask.taskId }, this.projectRoot) : null;
         const route: any = diagnosis?.repairScope ? 'isolated_code_repair' : context.failureClassification?.route || 'diagnose_before_action';
         const technicalTask: any = await this.tasks.create({

@@ -3,7 +3,7 @@ import path from 'node:path';
 import express from 'express';
 import multer from 'multer';
 import type { NextFunction, Request, Response } from 'express';
-import { config, configuredCapabilities, prepareTaskRunEventDatabasePath } from './config.ts';
+import { assertPreflightReady, config, configuredCapabilities, prepareTaskRunEventDatabasePath } from './config.ts';
 import { makeJob, normalizeIdempotencyKey, validatePublicHttpUrl } from './domain.ts';
 import { canRetryJob, knownLarkDeliveryRecoveryPatch, retryPatch } from './recovery.ts';
 import { createPersistentOneShotFailpoint, resetPersistentOneShotFailpoint } from './test-failpoint.ts';
@@ -20,6 +20,7 @@ import { TaskRunEventStore } from 'ajun-runtime/task-run-event-store';
 import { CapabilityModelPolicyReader } from './capability-model-policy.ts';
 import { XiaodDataLifecycleService } from './data-lifecycle-service.ts';
 
+const preflight = await assertPreflightReady();
 await fs.mkdir(config.workDir, { recursive: true });
 await fs.chmod(config.workDir, 0o700);
 const uploadsDir = path.join(config.workDir, 'uploads');
@@ -59,6 +60,7 @@ app.get('/api/health', async (_req, res, next) => {
   try {
     res.json({
       ok:true,
+      preflight,
       capabilities:configuredCapabilities(),
       capabilityModelPolicy:await capabilityModelPolicy.snapshot(),
       commonAccess:await contentRuntime.health(),

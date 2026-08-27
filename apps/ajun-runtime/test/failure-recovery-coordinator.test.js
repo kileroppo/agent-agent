@@ -96,6 +96,28 @@ test('Paperclip Hermes 原任务不进入本机安全恢复', async () => {
   assert.deepEqual(created, []);
 });
 
+test('Paperclip Hermes 任务发生 retryable 故障时转为 waiting_operator_action，不盲派技术专家', async () => {
+  const created = [];
+  const tasks = {
+    async create(input) {
+      created.push(input);
+      if (input.taskType === 'operations.failure-recovery') {
+        return { taskId:'operator-task', artifactRefs:[{ type:'recovery_decision', data:{ action:'retry_once', executionAuthorized:true } }] };
+      }
+      return { taskId:'technical-task' };
+    },
+  };
+  let storedRecovery;
+  const store = { async updateTask(_id, patch) { storedRecovery = patch.recovery; return patch; } };
+  const coordinator = new FailureRecoveryCoordinator({ tasks, store });
+  const result = await coordinator.handle(failedTask({
+    execution:{ owner:'paperclip-hermes' },
+  }));
+  assert.equal(result.status, 'waiting_operator_action');
+  assert.deepEqual(created.map((item) => item.taskType), ['operations.failure-recovery']);
+  assert.equal(storedRecovery.coordination.status, 'waiting_operator_action');
+});
+
 function failedTask(patch = {}) {
   return {
     taskId: 'failed-task',

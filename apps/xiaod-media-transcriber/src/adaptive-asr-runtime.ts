@@ -138,7 +138,6 @@ export class AdaptiveAsrRuntime {
           }
         } catch (fallbackError: unknown) {
           fallbackFailureCode = failureCode(fallbackError);
-          // Preserve the primary quality-provider failure below.
         }
       }
       const attempts = [asrRouteAttempt({

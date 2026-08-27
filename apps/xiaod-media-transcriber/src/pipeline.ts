@@ -111,23 +111,36 @@ export class MediaPipeline {
       // exercises retry without creating any external delivery side effect.
       await this.failpoint('transcribing');
       const audioDurationSeconds = acquired.kind === 'audio' ? await probeDuration(acquired.path) : null;
-      const subtitleText = acquired.kind === 'subtitle' ? await fs.readFile(acquired.path, 'utf8') : null;
-      const transcription: DynamicRecord = acquired.kind === 'subtitle'
-        ? {
-            text:subtitleText,
-            timed:null,
-            routing:attachAsrCapabilityResult({
-              job:currentJob,
-              routing:createSubtitleRoutingRecord(currentJob),
-              input:{ subtitleText },
-              payload:{ text:subtitleText, timed:null }
-            })
-          }
-        : await this.transcribe(acquired.path, jobDir, { job:currentJob, durationSeconds:audioDurationSeconds });
+      let transcription: DynamicRecord;
       if (acquired.kind === 'subtitle') {
+        const subtitleText = await fs.readFile(acquired.path, 'utf8');
+        transcription = {
+          text:subtitleText,
+          timed:null,
+          routing:attachAsrCapabilityResult({
+            job:currentJob,
+            routing:createSubtitleRoutingRecord(currentJob),
+            input:{ subtitleText },
+            payload:{ text:subtitleText, timed:null }
+          })
+        };
         await this.runEvents.recordExecutionReceipt(transcription.routing.executionReceipt, {
           qualityResult:transcription.routing.qualityResult
         });
+      } else {
+        try {
+          transcription = await this.transcribe(acquired.path, jobDir, { job:currentJob, durationSeconds:audioDurationSeconds });
+        } catch (firstError: unknown) {
+          const message = firstError instanceof Error ? firstError.message : String(firstError || '');
+          const isRetryable = /ASR 已运行但没有生成|无法启动|执行失败|timeout|temporar|暂时不可用/i.test(message)
+            || (Boolean(firstError) && typeof firstError === 'object' && (firstError as Record<string, unknown>).retryable === true);
+          if (isRetryable) {
+            await this.stage(job.id, 'transcribing', 48, '初次转录遇阻，正在执行原地安全重试');
+            transcription = await this.transcribe(acquired.path, jobDir, { job:currentJob, durationSeconds:audioDurationSeconds });
+          } else {
+            throw firstError;
+          }
+        }
       }
       const rawTranscript = String(transcription.text || '');
       await this.checkpoint(job.id, '转录完成');

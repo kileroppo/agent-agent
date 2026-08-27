@@ -4,12 +4,34 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  assertPreflightReady,
   configuredCapabilities,
   prepareTaskRunEventDatabasePath,
   requireLoopbackHost,
   resolveTaskRunEventDb,
 } from '../src/config.ts';
 import { buildRefinerRequest, extractRefinerMarkdown, fallbackGuide, requestRefinement } from '../src/pipeline.ts';
+
+test('assertPreflightReady passes for writable directory and detects tools', async (context) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'xiaod-preflight-test-'));
+  context.after(() => fs.rm(root, { recursive:true, force:true }));
+  const result = await assertPreflightReady({ workDir: root, asrBin: 'mlx_whisper' });
+  assert.equal(result.workDirWritable, true);
+  assert.equal(result.workDirPath, path.resolve(root));
+  assert.equal(typeof result.ffmpegAvailable, 'boolean');
+  assert.equal(typeof result.asrBinAvailable, 'boolean');
+});
+
+test('assertPreflightReady rejects invalid workDir path with actionable error', async (context) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'xiaod-invalid-workdir-'));
+  const filePath = path.join(root, 'already-a-file');
+  await fs.writeFile(filePath, 'not-a-directory');
+  context.after(() => fs.rm(root, { recursive:true, force:true }));
+  await assert.rejects(
+    assertPreflightReady({ workDir: path.join(filePath, 'sub-dir') }),
+    /小D启动准入失败/
+  );
+});
 
 test('configuration reports only complete optional integrations', () => {
   const capabilities = configuredCapabilities();

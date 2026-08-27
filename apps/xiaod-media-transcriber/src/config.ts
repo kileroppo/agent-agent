@@ -122,6 +122,58 @@ export function requireLoopbackHost(value: unknown): string {
   throw new Error('小D服务只允许监听本机回环地址。');
 }
 
+export async function assertPreflightReady({ workDir = config.workDir, asrBin = config.asrBin }: { workDir?: string; asrBin?: string } = {}): Promise<{
+  workDirWritable: boolean;
+  workDirPath: string;
+  ffmpegAvailable: boolean;
+  asrBinAvailable: boolean;
+}> {
+  const resolvedWorkDir = path.resolve(workDir);
+  try {
+    await fs.mkdir(resolvedWorkDir, { recursive: true, mode: 0o700 });
+    await fs.chmod(resolvedWorkDir, 0o700);
+  } catch (error: unknown) {
+    throw new Error(`[小D启动准入失败] 工作目录创建或权限设置失败: ${resolvedWorkDir} (${error instanceof Error ? error.message : String(error)})`);
+  }
+  
+  // Real filesystem write & delete probe to ensure directory is truly writable
+  const probeFile = path.join(resolvedWorkDir, `.preflight-write-probe-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  try {
+    await fs.writeFile(probeFile, 'probe\n', { mode: 0o600 });
+    await fs.unlink(probeFile);
+  } catch (error: unknown) {
+    throw new Error(`[小D启动准入失败] 工作目录不可写或位于只读目录: ${resolvedWorkDir} (${error instanceof Error ? error.message : String(error)})`);
+  }
+
+  // Probe CLI tools presence in PATH
+  let ffmpegAvailable = false;
+  try {
+    const { execSync } = await import('node:child_process');
+    execSync('which ffmpeg', { stdio: 'ignore' });
+    ffmpegAvailable = true;
+  } catch {
+    ffmpegAvailable = false;
+  }
+
+  let asrBinAvailable = false;
+  if (asrBin) {
+    try {
+      const { execSync } = await import('node:child_process');
+      execSync(`which ${asrBin}`, { stdio: 'ignore' });
+      asrBinAvailable = true;
+    } catch {
+      asrBinAvailable = false;
+    }
+  }
+
+  return {
+    workDirWritable: true,
+    workDirPath: resolvedWorkDir,
+    ffmpegAvailable,
+    asrBinAvailable,
+  };
+}
+
 export const configuredCapabilities = () => ({
   asr: Boolean(config.asrBin),
   adaptiveAsr: config.adaptiveAsr.enabled,
@@ -145,3 +197,4 @@ function errorCode(error: unknown): string {
     ? String(error.code || '')
     : '';
 }
+
