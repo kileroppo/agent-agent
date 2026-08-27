@@ -20,10 +20,17 @@ try {
   if (errorCode(error) !== 'ENOENT') throw error;
 }
 
+export function resolveWorkDir(environment: NodeJS.ProcessEnv = process.env): string {
+  const explicit = String(environment.WORK_DIR || '').trim();
+  if (explicit && explicit !== './data') return path.resolve(explicit);
+  if (explicit === './data' && !appRoot.includes('.agent-army/runtime-releases')) return path.resolve(appRoot, 'data');
+  return path.join(os.homedir(), '.agent-army', 'state', 'xiaod-media-transcriber-data');
+}
+
 export const config = {
   port: Number(process.env.PORT || 4318),
   host: requireLoopbackHost(process.env.HOST || '127.0.0.1'),
-  workDir: path.resolve(process.env.WORK_DIR || './data'),
+  workDir: resolveWorkDir(process.env),
   taskRunEventDb:resolveTaskRunEventDb(process.env),
   capabilityModelPolicyPath:path.resolve(process.env.AGENT_ARMY_MODEL_POLICY_PATH || path.join(sharedDataDir, 'stepfun-model-policy.json')),
   inboundMedia: {
