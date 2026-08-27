@@ -37,8 +37,14 @@ export function view(task: any, { audience = 'local-owner', relatedTasks = [], a
     if (task?.status === 'failed') {
         if (confirmedTranscriptOnlyEligible(task, relatedTasks))
             actions.push(action('use_confirmed_transcript_only', '仅用确认稿继续', 'primary', '将关闭视觉分析，只使用已核验确认稿创建原 Paperclip 任务的子任务；不会重新抓取素材或调用视觉 Provider。'));
-        if (locallyOwnedFailure(task) && recoverableFailure(task))
-            actions.push(action('request_safe_recovery', '请求安全恢复', actions.length ? 'secondary' : 'primary', '系统会先核验故障类型、重试上限和组织归属；不满足安全条件时只会升级受控处理，不会强行重跑。'));
+        if (locallyOwnedFailure(task) && recoverableFailure(task)) {
+            const isCrossAgent = task?.taskType === 'army.cross-agent-mission'
+                || (Array.isArray(task?.artifactRefs) && task.artifactRefs.some((a: any) => a?.type?.startsWith('cross_agent_')));
+            const note = isCrossAgent
+                ? '已完成环节（如小D已交付的确认稿与画面证据）将完整保留；系统将直接接续调度后续员工（如小拆）执行下一步爆款拆解，无需重新下载素材或从头重跑。'
+                : '系统将先核验故障原因与前置依赖，安全接续执行，不丢失已有成果。';
+            actions.push(action('request_safe_recovery', '请求安全恢复', actions.length ? 'secondary' : 'primary', note));
+        }
         if (paperclipDiagnosisEligible(task))
             actions.push(action('request_read_only_diagnosis', '只读诊断', 'secondary', '只在原 Paperclip Issue 下创建诊断子任务；不修改代码、不重跑任务、不扩权。'));
     }

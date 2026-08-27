@@ -126,10 +126,12 @@ export function renderAttentionDetail(attention, actionState, _escapeHtml) {
     const confirmingAction = actionState?.status === 'confirming'
         ? attention.actions.find((action) => action.actionKey === actionState.actionKey)
         : null;
+    const primaryAction = attention.actions.find((action) => action.emphasis === 'primary') || attention.actions[0];
     const actions = attention.actions.map((action, index) => {
         const className = index === primaryIndex ? 'record-attention-primary' : 'secondary-action';
-        return html `<button type="button" class="${className}" data-attention-action="${action.actionKey}"${raw(submitting ? ' disabled' : '')}>${action.label}</button>`;
+        return html `<button type="button" class="${className}" data-attention-action="${action.actionKey}"${raw(submitting ? ' disabled' : '')} title="${action.confirmation || ''}">${action.label}</button>`;
     }).join('');
+    const actionHelpNote = primaryAction?.confirmation ? html `<p class="record-attention-action-help" style="margin: 8px 0 0; font-size: 12px; color: var(--text-secondary, #666); line-height: 1.5;"><span style="font-weight: 600;">💡 动作说明：</span>${primaryAction.confirmation}</p>` : '';
     const confirmation = confirmingAction
         ? cleanAttentionText(actionState?.message, 500) || confirmingAction.confirmation || `确认执行“${confirmingAction.label}”？`
         : '';
@@ -142,9 +144,9 @@ export function renderAttentionDetail(attention, actionState, _escapeHtml) {
         ? html `<p>${attention.nextAction}</p>`
         : '';
     const actionContent = confirmingAction
-        ? html `<div class="record-attention-confirmation" role="alert"><p>${confirmation}</p><div class="record-attention-actions"><button type="button" class="record-attention-primary" data-attention-confirm="${confirmingAction.actionKey}">确认${confirmingAction.label}</button><button type="button" class="secondary-action" data-attention-cancel>取消</button></div></div>`
+        ? html `<div class="record-attention-confirmation" role="alert"><p style="font-size: 13px; line-height: 1.5; margin-bottom: 10px;"><strong>操作确认：</strong>${confirmation}</p><div class="record-attention-actions"><button type="button" class="record-attention-primary" data-attention-confirm="${confirmingAction.actionKey}">确认${confirmingAction.label}</button><button type="button" class="secondary-action" data-attention-cancel>取消</button></div></div>`
         : hasActions
-            ? html `<div class="record-attention-actions">${raw(actions)}${raw(paperclipLink)}</div>`
+            ? html `<div class="record-attention-actions">${raw(actions)}${raw(paperclipLink)}</div>${raw(actionHelpNote)}`
             : fallbackNext;
     const cause = usefulAttentionCause(attention);
     const evidence = usefulAttentionEvidence(attention.evidence, cause);
