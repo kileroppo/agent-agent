@@ -3335,19 +3335,18 @@ button:disabled {
 }
 
 .fleet-model-body { display: grid; gap: 14px; }
-.fleet-model-lead,
-.fleet-default-controls { display: flex; align-items: center; gap: 14px; }
-.fleet-model-lead { justify-content: space-between; }
+.fleet-model-lead { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .fleet-model-lead h3 { margin: 0 0 4px; }
 .fleet-model-lead p { margin: 0; color: var(--muted); }
 .fleet-model-lead a { color: var(--mint-deep); white-space: nowrap; }
 .fleet-model-source-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.fleet-default-controls { padding: 16px; border-radius: 14px; background: var(--surface-soft); flex-wrap: wrap; }
+.fleet-default-controls { display: flex; align-items: flex-end; gap: 14px; padding: 16px; border-radius: 14px; background: var(--surface-soft); flex-wrap: wrap; }
 .fleet-default-controls label,
 .fleet-role-row label { display: grid; gap: 4px; }
 .fleet-default-controls label { min-width: 190px; flex: 1; }
 .fleet-default-controls label span,
 .fleet-role-row label span { color: var(--muted); font-size: 12px; }
+.fleet-default-controls button { min-height: 43px; white-space: nowrap; flex: none; }
 .fleet-role-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
 .fleet-subsection { border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
 .fleet-subsection > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 14px; cursor: pointer; list-style: none; }

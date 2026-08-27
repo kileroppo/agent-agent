@@ -39,7 +39,7 @@ export class WorkflowAcceptanceService {
       }
       const hasDeliverables = tasks.some((t: any) => (Array.isArray(t?.artifactRefs) && t.artifactRefs.length > 0)
         || (Array.isArray(t?.artifacts) && t.artifacts.length > 0));
-      const isEligible = evaluation.status === 'waiting_acceptance' || (hasDeliverables && tasks.some((t: any) => ['running', 'waiting_test', 'waiting_acceptance', 'needs_action'].includes(t?.status)));
+      const isEligible = evaluation.status === 'waiting_acceptance' || (hasDeliverables && tasks.some((t: any) => ['running', 'waiting_test', 'waiting_acceptance', 'needs_action', 'succeeded'].includes(t?.status)));
       if (!isEligible) {
         throw validationError('这件工作当前不在等待验收，已保留现有状态。', 'workflow_acceptance_not_eligible');
       }

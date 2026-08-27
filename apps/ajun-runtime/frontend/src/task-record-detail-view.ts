@@ -67,14 +67,14 @@ export function acceptanceTargetView(task: any = {}): any {
         const sourceRevision: any = source.revision ?? source.version;
         const revision: any = typeof sourceRevision === 'number' && Number.isFinite(sourceRevision)
             ? sourceRevision
-            : cleanAttentionText(sourceRevision, 120) || null;
+            : (Number.isFinite(Number(sourceRevision)) ? Number(sourceRevision) : 0);
         const actionable = !decision && (source.actionable === true || hasArtifacts || isUnsettled);
         return {
             workflowId: workflowId || (task?.taskId ? `WF-${task.taskId.slice(0, 8)}` : 'WF-MAIN'),
             title: cleanAttentionText(source.title, 240) || cleanAttentionText(task?.input?.title, 240) || '本次业务结果',
             status: cleanAttentionText(source.status || source.workflowStatus, 80) || (decision ? 'decided' : 'waiting_acceptance'),
             decision,
-            revision: revision || 1,
+            revision,
             actionable,
         };
     }
@@ -87,7 +87,7 @@ export function acceptanceTargetView(task: any = {}): any {
             title: cleanAttentionText(task?.input?.title || task?.title, 240) || '本次业务结果',
             status: isUnsettled ? 'waiting_acceptance' : 'decided',
             decision,
-            revision: 1,
+            revision: 0,
             actionable: !decision,
         };
     }
