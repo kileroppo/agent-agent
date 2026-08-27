@@ -129,10 +129,10 @@ function renderMultiTaskWorkflowTree(task: any, breadcrumb: any, agentNameFn: (i
             <span class="artifact-type-tag">交付产物</span>
           </div>
           <div class="tree-art-actions">
-            ${isHttp ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="text-action">打开查看 ↗</a>` : ''}
-            ${copyContent ? `<button type="button" class="text-action" data-copy-text="${escapeHtml(copyContent)}">复制内容</button>` : ''}
-            ${isRealFilePath && !copyContent ? `<button type="button" class="text-action" data-copy-path="${escapeHtml(url)}">复制路径</button>` : ''}
-            ${!isHttp && !isRealFilePath && !copyContent && t.taskId ? `<button type="button" class="text-action" data-subtask-preview="${t.taskId}">查看详情 ↗</button>` : ''}
+            ${isHttp ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="tree-micro-btn primary" title="打开查看">打开 ↗</a>` : ''}
+            ${copyContent ? `<button type="button" class="tree-micro-btn" data-copy-text="${escapeHtml(copyContent)}" title="复制内容"><svg width="12" height="12" aria-hidden="true"><use href="#icon-spark"></use></svg><span>复制</span></button>` : ''}
+            ${isRealFilePath && !copyContent ? `<button type="button" class="tree-micro-btn" data-copy-path="${escapeHtml(url)}" title="复制路径"><svg width="12" height="12" aria-hidden="true"><use href="#icon-share"></use></svg><span>路径</span></button>` : ''}
+            ${!isHttp && !isRealFilePath && !copyContent && t.taskId ? `<button type="button" class="tree-micro-btn" data-subtask-preview="${t.taskId}">查看详情 ↗</button>` : ''}
           </div>
         </div>`;
     }

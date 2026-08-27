@@ -196,31 +196,36 @@ export function renderArtifact(artifact, options = {}) {
         || String(artifact?.type || '').startsWith('operations_')
         || /巡检|健康报告|执行审计/i.test(label || '');
     const isPlanOrSummary = ['cross_agent_mission_plan', 'cross_agent_mission_summary'].includes(String(artifact?.type || ''));
-    return html `<li class="record-artifact-item">
-        <div class="artifact-item-main">
-            <div class="artifact-item-header">
-                <div class="artifact-title-wrapper">
-                    <svg class="artifact-icon" aria-hidden="true"><use href="#icon-records"></use></svg>
-                    <strong class="artifact-title">${label}</strong>
-                    <span class="artifact-type-tag">${typeLabel}</span>
-                    ${raw(artifact._fromAgentName ? html `<span class="artifact-source-tag"><svg width="12" height="12" aria-hidden="true"><use href="#icon-employees"></use></svg> 来自 ${escapeHtml(artifact._fromAgentName)}</span>` : '')}
-                </div>
+    const hasExpandableContent = isReadableText || isRealFilePath;
+    return html `<li class="record-artifact-item ${hasExpandableContent ? 'is-expandable' : ''}" data-artifact-item ${isRealFilePath ? `data-file-path="${url}"` : ''}>
+        <div class="artifact-item-header" data-artifact-toggle role="${hasExpandableContent ? 'button' : 'none'}" tabindex="${hasExpandableContent ? '0' : '-1'}" title="${hasExpandableContent ? '点击展开/收起预览' : ''}">
+            <div class="artifact-title-wrapper">
+                <svg class="artifact-icon" aria-hidden="true"><use href="#icon-records"></use></svg>
+                <strong class="artifact-title">${label}</strong>
+                <span class="artifact-type-tag">${typeLabel}</span>
+                ${raw(artifact._fromAgentName ? html `<span class="artifact-source-tag"><svg width="12" height="12" aria-hidden="true"><use href="#icon-employees"></use></svg> 来自 ${escapeHtml(artifact._fromAgentName)}</span>` : '')}
             </div>
+            <div class="artifact-header-actions" onclick="event.stopPropagation()">
+                ${raw(isHttp ? html `<a href="${url}" target="_blank" rel="noopener noreferrer" class="artifact-micro-btn primary" title="打开查看">打开 ↗</a>` : '')}
+                ${raw(copyContent ? html `<button type="button" class="artifact-micro-btn" data-copy-text="${escapeHtml(copyContent)}" title="复制正文内容"><svg width="12" height="12" aria-hidden="true"><use href="#icon-spark"></use></svg><span>复制</span></button>` : '')}
+                ${raw(isRealFilePath ? html `<button type="button" class="artifact-micro-btn" data-copy-path="${url}" title="复制文件路径"><svg width="12" height="12" aria-hidden="true"><use href="#icon-share"></use></svg><span>路径</span></button>` : '')}
+                ${raw(hasExpandableContent ? html `
+                    <button type="button" class="artifact-toggle-chevron" aria-label="展开或收起预览" title="展开/收起">
+                        <svg class="chevron-icon" width="14" height="14" aria-hidden="true"><use href="#icon-chevron"></use></svg>
+                    </button>
+                ` : '')}
+            </div>
+        </div>
+        <div class="artifact-item-body">
             ${raw(displaySummary ? html `<div class="artifact-summary-box"><p class="artifact-summary">${displaySummary}</p></div>` : '')}
             ${raw(isReadableText ? html `
-                <details class="artifact-inline-preview" open>
-                    <summary><span>${previewTitle}</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary>
+                <div class="artifact-inline-preview">
                     <div class="artifact-preview-body">
                         <pre class="artifact-preview-text">${escapeHtml(inlineContent)}</pre>
                     </div>
-                </details>
+                </div>
             ` : '')}
             <div class="artifact-dynamic-preview" style="display:none; margin-top: 8px;"></div>
-        </div>
-        <div class="artifact-item-actions">
-            ${raw(isHttp ? html `<a href="${url}" target="_blank" rel="noopener noreferrer" class="artifact-action-btn primary">打开查看 ↗</a>` : '')}
-            ${raw(isRealFilePath ? html `<button type="button" class="artifact-action-btn secondary" data-preview-path="${url}">查看内容</button><button type="button" class="artifact-action-btn secondary" data-copy-path="${url}">复制路径</button>` : '')}
-            ${raw(copyContent ? html `<button type="button" class="artifact-action-btn secondary" data-copy-text="${escapeHtml(copyContent)}">复制内容</button>` : '')}
         </div>
     </li>`;
 }

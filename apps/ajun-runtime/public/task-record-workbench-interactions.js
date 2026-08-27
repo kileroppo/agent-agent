@@ -17,89 +17,110 @@ export function bindDetailInteractions(options) {
         elements.workbench.classList.remove('is-detail-open');
         replaceRecordUrl();
     });
+    for (const toggleHeader of elements.detail.querySelectorAll('[data-artifact-toggle]')) {
+        toggleHeader.addEventListener('click', async (event) => {
+            if (event.target.closest('.artifact-micro-btn, a, button')) {
+                return;
+            }
+            const item = toggleHeader.closest('.record-artifact-item');
+            if (!item)
+                return;
+            const targetPath = item.dataset.filePath;
+            const container = item.querySelector('.artifact-dynamic-preview');
+            const inlinePreview = item.querySelector('.artifact-inline-preview');
+            if (inlinePreview) {
+                inlinePreview.classList.toggle('is-hidden');
+                item.classList.toggle('is-collapsed');
+                return;
+            }
+            if (targetPath && container) {
+                if (container.style.display !== 'none' && container.dataset.loadedPath === targetPath) {
+                    container.style.display = 'none';
+                    item.classList.add('is-collapsed');
+                    return;
+                }
+                try {
+                    const res = await fetch(`/api/artifacts/content?path=${encodeURIComponent(targetPath)}`);
+                    if (!res.ok)
+                        throw new Error('无法读取文件内容');
+                    const data = await res.json();
+                    container.dataset.loadedPath = targetPath;
+                    if (data.isImage) {
+                        container.innerHTML = `<div class="artifact-preview-image-box" style="padding: 12px; background: rgba(0,0,0,0.03); border-radius: 8px; margin-top: 8px;"><img src="${data.dataUrl}" alt="${data.filename || '产物预览'}" class="artifact-preview-img" style="max-width: 100%; border-radius: 6px; display: block;" /></div>`;
+                    }
+                    else if (data.isJson) {
+                        let formatted = data.content;
+                        try {
+                            formatted = JSON.stringify(JSON.parse(data.content), null, 2);
+                        }
+                        catch { }
+                        container.innerHTML = `<div class="artifact-inline-preview"><div class="artifact-preview-body"><pre class="artifact-preview-text">${escapeHtml(formatted)}</pre></div></div>`;
+                    }
+                    else {
+                        container.innerHTML = `<div class="artifact-inline-preview"><div class="artifact-preview-body"><pre class="artifact-preview-text">${escapeHtml(data.content)}</pre></div></div>`;
+                    }
+                    container.style.display = 'block';
+                    item.classList.remove('is-collapsed');
+                }
+                catch (err) {
+                    alert(err?.message || '读取产物内容失败');
+                }
+            }
+        });
+    }
     for (const copyBtn of elements.detail.querySelectorAll('[data-copy-path]')) {
         copyBtn.addEventListener('click', async (event) => {
+            event.stopPropagation();
             const path = event.currentTarget.dataset.copyPath;
             if (!path)
                 return;
             try {
                 await navigator.clipboard.writeText(path);
-                const originalText = event.currentTarget.textContent;
-                event.currentTarget.textContent = '已复制路径';
+                const span = event.currentTarget.querySelector('span');
+                const originalText = span ? span.textContent : event.currentTarget.textContent;
+                if (span)
+                    span.textContent = '已复制';
+                else
+                    event.currentTarget.textContent = '已复制';
                 setTimeout(() => {
                     if (event.currentTarget && event.currentTarget.isConnected) {
-                        event.currentTarget.textContent = originalText;
+                        if (span)
+                            span.textContent = originalText;
+                        else
+                            event.currentTarget.textContent = originalText;
                     }
                 }, 2000);
             }
             catch {
-                event.currentTarget.textContent = '复制失败';
-            }
-        });
-    }
-    for (const previewBtn of elements.detail.querySelectorAll('[data-preview-path]')) {
-        previewBtn.addEventListener('click', async (event) => {
-            const targetPath = event.currentTarget.dataset.previewPath;
-            if (!targetPath)
-                return;
-            const container = event.currentTarget.closest('.record-artifact-item, .subtask-artifact-item')?.querySelector('.artifact-dynamic-preview');
-            if (!container)
-                return;
-            if (container.style.display !== 'none' && container.dataset.loadedPath === targetPath) {
-                container.style.display = 'none';
-                previewBtn.textContent = '查看内容';
-                return;
-            }
-            const originalText = previewBtn.textContent;
-            previewBtn.textContent = '读取中…';
-            try {
-                const res = await fetch(`/api/artifacts/content?path=${encodeURIComponent(targetPath)}`);
-                if (!res.ok) {
-                    const errJson = await res.json().catch(() => ({}));
-                    throw new Error(errJson.error || '无法读取文件内容');
-                }
-                const data = await res.json();
-                container.dataset.loadedPath = targetPath;
-                if (data.isImage) {
-                    container.innerHTML = `<div class="artifact-preview-image-box" style="padding: 12px; background: rgba(0,0,0,0.03); border-radius: 8px; margin-top: 8px;"><img src="${data.dataUrl}" alt="${data.filename || '产物预览'}" class="artifact-preview-img" style="max-width: 100%; border-radius: 6px; display: block;" /></div>`;
-                }
-                else if (data.isJson) {
-                    let formatted = data.content;
-                    try {
-                        formatted = JSON.stringify(JSON.parse(data.content), null, 2);
-                    }
-                    catch { }
-                    container.innerHTML = `<details class="artifact-inline-preview" open><summary><span>${data.filename || 'JSON 数据预览'} (${(data.size / 1024).toFixed(1)} KB)</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><div class="artifact-preview-body"><pre class="artifact-preview-text">${escapeHtml(formatted)}</pre></div></details>`;
-                }
-                else {
-                    container.innerHTML = `<details class="artifact-inline-preview" open><summary><span>${data.filename || '文稿内容预览'} (${(data.size / 1024).toFixed(1)} KB)</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><div class="artifact-preview-body"><pre class="artifact-preview-text">${escapeHtml(data.content)}</pre></div></details>`;
-                }
-                container.style.display = 'block';
-                previewBtn.textContent = '收起内容';
-            }
-            catch (err) {
-                previewBtn.textContent = originalText;
-                alert(err?.message || '读取产物内容失败');
+                alert('复制路径失败');
             }
         });
     }
     for (const copyTextBtn of elements.detail.querySelectorAll('[data-copy-text]')) {
         copyTextBtn.addEventListener('click', async (event) => {
+            event.stopPropagation();
             const text = event.currentTarget.dataset.copyText;
             if (!text)
                 return;
             try {
                 await navigator.clipboard.writeText(text);
-                const originalText = event.currentTarget.textContent;
-                event.currentTarget.textContent = '已复制内容';
+                const span = event.currentTarget.querySelector('span');
+                const originalText = span ? span.textContent : event.currentTarget.textContent;
+                if (span)
+                    span.textContent = '已复制';
+                else
+                    event.currentTarget.textContent = '已复制';
                 setTimeout(() => {
                     if (event.currentTarget && event.currentTarget.isConnected) {
-                        event.currentTarget.textContent = originalText;
+                        if (span)
+                            span.textContent = originalText;
+                        else
+                            event.currentTarget.textContent = originalText;
                     }
                 }, 2000);
             }
             catch {
-                event.currentTarget.textContent = '复制失败';
+                alert('复制内容失败');
             }
         });
     }

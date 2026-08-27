@@ -8337,47 +8337,95 @@ textarea:focus {
   line-height: 1.4;
 }
 
-.artifact-item-actions {
-  flex-shrink: 0;
+.artifact-header-actions {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.artifact-action-btn {
+.artifact-micro-btn,
+.tree-micro-btn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 6px 12px;
-  border-radius: 7px;
-  font-size: 12px;
+  padding: 3px 8px;
+  font-size: 11.5px;
   font-weight: 600;
-  text-decoration: none;
-  cursor: pointer;
-  transition: all 0.16s var(--ease);
-  white-space: nowrap;
-}
-
-.artifact-action-btn.primary {
-  background: var(--blue);
-  color: #fff;
-  border: 1px solid var(--blue);
-}
-
-.artifact-action-btn.primary:hover {
-  background: color-mix(in srgb, var(--blue) 85%, black);
-  text-decoration: none;
-}
-
-.artifact-action-btn.secondary {
-  background: var(--surface-soft);
   color: var(--ink-soft);
+  background: var(--surface-soft);
   border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s var(--ease);
+  line-height: 1.3;
 }
 
-.artifact-action-btn.secondary:hover {
-  background: var(--surface);
+.artifact-micro-btn:hover,
+.tree-micro-btn:hover {
+  background: var(--mint-soft);
+  color: var(--mint-deep);
+  border-color: var(--mint-line);
+  text-decoration: none;
+}
+
+.artifact-micro-btn.primary,
+.tree-micro-btn.primary {
+  background: var(--mint-soft);
+  color: var(--mint-deep);
+  border-color: var(--mint-line);
+}
+
+.artifact-micro-btn.primary:hover,
+.tree-micro-btn.primary:hover {
+  background: var(--mint);
+  color: #fff;
+  border-color: var(--mint);
+}
+
+.artifact-toggle-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: transform 0.2s ease, color 0.15s ease;
+}
+
+.artifact-toggle-chevron:hover {
   color: var(--ink);
+  background: var(--surface-soft);
+}
+
+.record-artifact-item.is-expandable .artifact-item-header {
+  cursor: pointer;
+  user-select: none;
+  border-radius: 6px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  transition: background 0.15s ease;
+}
+
+.record-artifact-item.is-expandable .artifact-item-header:hover {
+  background: color-mix(in srgb, var(--mint) 5%, transparent);
+}
+
+.record-artifact-item.is-collapsed .artifact-toggle-chevron svg {
+  transform: rotate(-90deg);
+}
+
+.record-artifact-item.is-collapsed .artifact-item-body {
+  display: none;
+}
+
+.artifact-inline-preview.is-hidden {
+  display: none;
+}
   border-color: var(--line-strong);
 }
 
