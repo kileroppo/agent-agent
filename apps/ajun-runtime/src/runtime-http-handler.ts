@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { ProposalValidationError } from './agent-proposal-service.ts';
 import { AccessConnectionError } from './access-connection-service.ts';
@@ -164,15 +165,35 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                     }
                 }
                 targetPath = path.resolve(decodeURIComponent(targetPath));
+                let realTarget = targetPath;
+                try {
+                    realTarget = await fs.realpath(targetPath);
+                } catch {}
+                const homeDir = process.env.HOME || os.homedir() || '';
                 const allowedRoots = [
-                    path.join(process.env.HOME || '', '.agent-army'),
-                    environment?.XIAOD_ARTIFACT_ROOT || process.env.XIAOD_ARTIFACT_ROOT || path.join(process.env.HOME || '', '.agent-army/state/xiaod-media-transcriber-data'),
-                    environment?.AGENT_ARMY_DATA_DIR || process.env.AGENT_ARMY_DATA_DIR || path.join(process.env.HOME || '', '.agent-army/state/ajun-runtime-data'),
-                    environment?.AGENT_ARMY_CONTENT_WORKSPACE_DIR || process.env.AGENT_ARMY_CONTENT_WORKSPACE_DIR || path.join(process.env.HOME || '', '.agent-army/state/m5-content-autonomy'),
+                    path.join(homeDir, '.agent-army'),
+                    environment?.XIAOD_ARTIFACT_ROOT || process.env.XIAOD_ARTIFACT_ROOT || path.join(homeDir, '.agent-army/state/xiaod-media-transcriber-data'),
+                    environment?.AGENT_ARMY_DATA_DIR || process.env.AGENT_ARMY_DATA_DIR || path.join(homeDir, '.agent-army/state/ajun-runtime-data'),
+                    environment?.AGENT_ARMY_CONTENT_WORKSPACE_DIR || process.env.AGENT_ARMY_CONTENT_WORKSPACE_DIR || path.join(homeDir, '.agent-army/state/m5-content-autonomy'),
                     dataDir,
                     path.resolve(process.cwd()),
+                    path.resolve(process.cwd(), '..'),
+                    path.resolve(process.cwd(), '../..'),
+                    path.resolve(process.cwd(), '../../..'),
+                    os.tmpdir(),
+                    '/tmp',
+                    '/private/tmp',
+                    '/var/tmp',
+                    '/private/var/tmp',
+                    path.join(homeDir, 'Documents'),
+                    path.join(homeDir, 'Downloads'),
+                    path.join(homeDir, 'Desktop'),
+                    homeDir,
                 ].filter(Boolean).map((p: any) => path.resolve(p));
-                const isAllowed = allowedRoots.some((root: any) => targetPath.startsWith(root) || targetPath === root);
+                const isAllowed = allowedRoots.some((root: any) => 
+                    targetPath.startsWith(root) || targetPath === root ||
+                    realTarget.startsWith(root) || realTarget === root
+                );
                 if (!isAllowed) {
                     return sendJson(response, 403, { error: '该路径超出受控产物安全目录范围。' });
                 }

@@ -1,5 +1,33 @@
 import { escapeHtml } from './html.js';
 
+export async function copyToClipboard(text: string): Promise<boolean> {
+    if (!text) return false;
+    if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        try {
+            await navigator.clipboard.writeText(text);
+            return true;
+        } catch {
+            // fallback below
+        }
+    }
+    try {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-999999px';
+        textarea.style.top = '-999999px';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        return successful;
+    } catch {
+        return false;
+    }
+}
+
 export function bindDetailInteractions(options: {
     elements: any;
     state: any;
@@ -53,7 +81,10 @@ export function bindDetailInteractions(options: {
                 }
                 try {
                     const res = await fetch(`/api/artifacts/content?path=${encodeURIComponent(targetPath)}`);
-                    if (!res.ok) throw new Error('无法读取文件内容');
+                    if (!res.ok) {
+                        const errJson = await res.json().catch(() => ({}));
+                        throw new Error(errJson.error || '无法读取文件内容');
+                    }
                     const data = await res.json();
                     container.dataset.loadedPath = targetPath;
                     if (data.isImage) {
@@ -68,7 +99,10 @@ export function bindDetailInteractions(options: {
                     container.style.display = 'block';
                     item.classList.remove('is-collapsed');
                 } catch (err: any) {
-                    alert(err?.message || '读取产物内容失败');
+                    container.innerHTML = `<div class="artifact-inline-preview" style="border-left: 3px solid var(--muted);"><div class="artifact-preview-body"><p style="margin: 0; font-size: 12.5px; color: var(--muted);">本地受控文件路径：<code>${escapeHtml(targetPath)}</code></p></div></div>`;
+                    container.dataset.loadedPath = targetPath;
+                    container.style.display = 'block';
+                    item.classList.remove('is-collapsed');
                 }
             }
         });
@@ -77,12 +111,19 @@ export function bindDetailInteractions(options: {
     for (const copyBtn of elements.detail.querySelectorAll('[data-copy-path]')) {
         copyBtn.addEventListener('click', async (event: any): Promise<any> => {
             event.stopPropagation();
-            const path = event.currentTarget.dataset.copyPath;
+            let path = event.currentTarget.dataset.copyPath;
             if (!path) return;
-            try {
-                await navigator.clipboard.writeText(path);
-                const span = event.currentTarget.querySelector('span');
-                const originalText = span ? span.textContent : event.currentTarget.textContent;
+            if (path.startsWith('file://')) {
+                try {
+                    path = decodeURIComponent(new URL(path).pathname);
+                } catch {
+                    path = path.replace(/^file:\/\//, '');
+                }
+            }
+            const ok = await copyToClipboard(path);
+            const span = event.currentTarget.querySelector('span');
+            const originalText = span ? span.textContent : event.currentTarget.textContent;
+            if (ok) {
                 if (span) span.textContent = '已复制';
                 else event.currentTarget.textContent = '已复制';
                 setTimeout(() => {
@@ -91,8 +132,6 @@ export function bindDetailInteractions(options: {
                         else event.currentTarget.textContent = originalText;
                     }
                 }, 2000);
-            } catch {
-                alert('复制路径失败');
             }
         });
     }
@@ -102,10 +141,10 @@ export function bindDetailInteractions(options: {
             event.stopPropagation();
             const text = event.currentTarget.dataset.copyText;
             if (!text) return;
-            try {
-                await navigator.clipboard.writeText(text);
-                const span = event.currentTarget.querySelector('span');
-                const originalText = span ? span.textContent : event.currentTarget.textContent;
+            const ok = await copyToClipboard(text);
+            const span = event.currentTarget.querySelector('span');
+            const originalText = span ? span.textContent : event.currentTarget.textContent;
+            if (ok) {
                 if (span) span.textContent = '已复制';
                 else event.currentTarget.textContent = '已复制';
                 setTimeout(() => {
@@ -114,8 +153,6 @@ export function bindDetailInteractions(options: {
                         else event.currentTarget.textContent = originalText;
                     }
                 }, 2000);
-            } catch {
-                alert('复制内容失败');
             }
         });
     }
