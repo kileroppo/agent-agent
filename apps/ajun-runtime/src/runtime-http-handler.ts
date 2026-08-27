@@ -147,18 +147,18 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 return;
             }
             if (request.method === 'GET' && request.url === '/api/overview')
-                return sendCachedJson(request, response, await tasks.overview());
+                return sendJson(response, 200, await tasks.overview());
             if (request.method === 'GET' && request.url === '/api/console-overview')
-                return sendCachedJson(request, response, await tasks.consoleOverview());
+                return sendJson(response, 200, await tasks.consoleOverview());
             const usageUrl: any = request.method === 'GET' && request.url?.startsWith('/api/usage') ? new URL(request.url, 'http://127.0.0.1') : null;
             if (usageUrl?.pathname === '/api/usage')
-                return sendCachedJson(request, response, await tasks.usageOverview(parseUsageRange(usageUrl)));
+                return sendJson(response, 200, await tasks.usageOverview(parseUsageRange(usageUrl)));
             const taskRecordUrl: any = request.method === 'GET' && request.url?.startsWith('/api/task-records')
                 ? new URL(request.url, 'http://127.0.0.1')
                 : null;
             if (taskRecordUrl?.pathname === '/api/task-records') {
                 const audience: any = isLocalAddress(request.socket.remoteAddress) ? 'local-owner' : 'lan';
-                return sendCachedJson(request, response, await tasks.listTaskRecords(Object.fromEntries(taskRecordUrl.searchParams.entries()), { audience }));
+                return sendJson(response, 200, await tasks.listTaskRecords(Object.fromEntries(taskRecordUrl.searchParams.entries()), { audience }));
             }
             const taskTimelineUrl: any = request.method === 'GET' && request.url?.startsWith('/api/tasks/')
                 ? new URL(request.url, 'http://127.0.0.1')
@@ -728,21 +728,6 @@ async function sendFile(response: any, publicDir: any, name: any, type: any): Pr
 function sendJson(response: any, status: any, data: any): any {
     response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
     response.end(JSON.stringify(data));
-}
-function sendCachedJson(request: any, response: any, data: any): any {
-    const json = JSON.stringify(data);
-    const etag = `"${crypto.createHash('sha1').update(json).digest('base64url')}"`;
-    if (request.headers?.['if-none-match'] === etag) {
-        response.writeHead(304, { 'etag': etag, 'cache-control': 'no-cache' });
-        response.end();
-        return;
-    }
-    response.writeHead(200, {
-        'content-type': 'application/json; charset=utf-8',
-        'cache-control': 'no-cache',
-        'etag': etag,
-    });
-    response.end(json);
 }
 function errorStatus(error: any): any {
     if (Number.isInteger(error?.httpStatus) && error.httpStatus >= 400 && error.httpStatus <= 599)
