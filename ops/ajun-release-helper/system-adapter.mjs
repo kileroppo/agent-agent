@@ -197,8 +197,8 @@ export class AjunReleaseSystemAdapter {
         path.join(sourceRoot, 'apps', 'ajun-runtime', 'scripts', 'manage-immutable-runtime-release.mjs'),
         'freeze', '--repo-root', sourceRoot, '--output-parent', outputParent, '--verify',
       ], { cwd:sourceRoot });
-    } catch {
-      throw new Error('完整验证未通过：A君测试或发布校验失败。请在候选源码运行 npm test 查看首个失败项；未生成新 release，也没有切换线上服务。');
+    } catch (error) {
+      throw new Error(`完整验证未通过：${error?.message || 'A君测试或发布校验失败'}。请在候选源码运行 npm test 查看首个失败项；未生成新 release，也没有切换线上服务。`);
     }
     const candidates = [];
     for (const name of await fs.readdir(outputParent)) {
@@ -543,7 +543,10 @@ export async function defaultRunCommand(command, args, { cwd, env = process.env 
     child.once('close', (code) => {
       const result = { code, stdout:Buffer.concat(stdout).toString('utf8'), stderr:Buffer.concat(stderr).toString('utf8') };
       if (code === 0) resolve(result);
-      else reject(new Error(`${path.basename(command)} 执行失败（${code}）。`));
+      else {
+        const detail = (result.stderr?.trim() || result.stdout?.trim() || '').slice(-300);
+        reject(new Error(`${path.basename(command)} 执行失败（${code}）${detail ? `: ${detail}` : ''}`));
+      }
     });
   });
 }
