@@ -509,7 +509,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const hasActionableAttention = attention && (!isTaskAccepted || (Array.isArray(attention.actions) && attention.actions.length > 0));
         const outcomeContent = distinctResult?.text || (summary && taskView === 'completed' ? summary : '');
         const outcomeHtml: any = hasActionableAttention
-            ? renderAttentionDetail(attention, actionState, escapeHtml)
+            ? renderAttentionDetail(attention, actionState, escapeHtml, { task })
             : (outcomeContent || task.pendingApproval?.reason)
                 ? html`${raw(outcomeContent ? html`
                     <section class="record-primary-summary${needsAction ? ' needs-action' : ''}">
@@ -657,6 +657,77 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             replaceRecordUrl,
             loadSelectedDetail,
         });
+
+        for (const approveBtn of elements.detail.querySelectorAll('[data-task-approve]')) {
+            approveBtn.addEventListener('click', async (e: any): Promise<any> => {
+                const taskId = e.currentTarget.dataset.taskApprove;
+                let approvalId = e.currentTarget.dataset.taskApprovalId;
+                if (!taskId) return;
+                try {
+                    approveBtn.disabled = true;
+                    approveBtn.textContent = '正在确认…';
+                    if (!approvalId) {
+                        const taskPayload = await api(`/api/tasks/${encodeURIComponent(taskId)}`);
+                        approvalId = taskPayload?.pendingApproval?.approvalId
+                            || (Array.isArray(taskPayload?.task?.approvalRefs) && taskPayload.task.approvalRefs[0])
+                            || '';
+                    }
+                    if (approvalId) {
+                        await api(`/api/approvals/${encodeURIComponent(approvalId)}/approve`, {
+                            method: 'POST',
+                            headers: { 'content-type': 'application/json' },
+                            body: JSON.stringify({}),
+                        });
+                    } else {
+                        await api(`/api/tasks/${encodeURIComponent(taskId)}/continue`, {
+                            method: 'POST',
+                            headers: { 'content-type': 'application/json' },
+                            body: JSON.stringify({}),
+                        });
+                    }
+                    await loadSelectedDetail({ revealDetail: false, quiet: false });
+                    await loadRecords();
+                } catch (err: any) {
+                    console.error('Failed to approve task:', err);
+                    alert(err?.message || '确认失败，请重试');
+                } finally {
+                    approveBtn.disabled = false;
+                }
+            });
+        }
+
+        for (const rejectBtn of elements.detail.querySelectorAll('[data-task-reject]')) {
+            rejectBtn.addEventListener('click', async (e: any): Promise<any> => {
+                const taskId = e.currentTarget.dataset.taskReject;
+                let approvalId = e.currentTarget.dataset.taskApprovalId;
+                if (!taskId) return;
+                if (!confirm('确定要拒绝并关闭这项任务吗？')) return;
+                try {
+                    rejectBtn.disabled = true;
+                    rejectBtn.textContent = '正在拒绝…';
+                    if (!approvalId) {
+                        const taskPayload = await api(`/api/tasks/${encodeURIComponent(taskId)}`);
+                        approvalId = taskPayload?.pendingApproval?.approvalId
+                            || (Array.isArray(taskPayload?.task?.approvalRefs) && taskPayload.task.approvalRefs[0])
+                            || '';
+                    }
+                    if (approvalId) {
+                        await api(`/api/approvals/${encodeURIComponent(approvalId)}/reject`, {
+                            method: 'POST',
+                            headers: { 'content-type': 'application/json' },
+                            body: JSON.stringify({}),
+                        });
+                    }
+                    await loadSelectedDetail({ revealDetail: false, quiet: false });
+                    await loadRecords();
+                } catch (err: any) {
+                    console.error('Failed to reject task:', err);
+                    alert(err?.message || '拒绝失败，请重试');
+                } finally {
+                    rejectBtn.disabled = false;
+                }
+            });
+        }
 
         for (const button of elements.detail.querySelectorAll('[data-attention-action]')) {
             button.addEventListener('click', (): any => confirmAttentionAction(task, button.dataset.attentionAction));

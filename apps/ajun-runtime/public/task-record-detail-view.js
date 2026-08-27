@@ -116,7 +116,11 @@ export function renderAcceptanceDetail(target, submission, _escapeHtml) {
       ${raw(controls)}${raw(feedback)}
     </section>`;
 }
-export function renderAttentionDetail(attention, actionState, _escapeHtml) {
+export function renderAttentionDetail(attention, actionState, _escapeHtml, options = {}) {
+    const task = options?.task || null;
+    const isApprovalState = Boolean(task && (attention.kind === 'waiting_approval'
+        || ['waiting_approval', 'pending_approval'].includes(task.status)
+        || Boolean(task.pendingApproval)));
     const recovery = actionState?.status === 'confirming' ? attention.verification : actionState || attention.verification;
     const diagnosis = actionState?.status === 'confirming' ? null : recoveryDiagnosis(recovery?.diagnosis);
     if (diagnosis)
@@ -127,10 +131,26 @@ export function renderAttentionDetail(attention, actionState, _escapeHtml) {
         ? attention.actions.find((action) => action.actionKey === actionState.actionKey)
         : null;
     const primaryAction = attention.actions.find((action) => action.emphasis === 'primary') || attention.actions[0];
-    const actions = attention.actions.map((action, index) => {
+    let actions = attention.actions.map((action, index) => {
         const className = index === primaryIndex ? 'record-attention-primary' : 'secondary-action';
         return html `<button type="button" class="${className}" data-attention-action="${action.actionKey}"${raw(submitting ? ' disabled' : '')} title="${action.confirmation || ''}">${action.label}</button>`;
     }).join('');
+    if (!actions && isApprovalState) {
+        const pendingApprovalId = (task.pendingApproval?.approvalId)
+            || (Array.isArray(task.approvalRefs) && task.approvalRefs.length ? task.approvalRefs[0] : '')
+            || task.approvalId
+            || '';
+        const isWaitingTest = task.status === 'waiting_test';
+        const approveBtnLabel = isWaitingTest ? '✓ 确认采纳并继续' : '✓ 确认执行';
+        actions = html `
+            <button type="button" class="record-attention-primary" data-task-approve="${task.taskId}" data-task-approval-id="${pendingApprovalId}" style="padding: 6px 14px; font-size: 13px; border-radius: 6px; cursor: pointer;">
+                ${approveBtnLabel}
+            </button>
+            <button type="button" class="secondary-action" data-task-reject="${task.taskId}" data-task-approval-id="${pendingApprovalId}" style="padding: 6px 12px; font-size: 13px; color: #dc2626; border-color: rgba(220, 38, 38, 0.3); border-radius: 6px; cursor: pointer;">
+                ✕ 拒绝
+            </button>
+        `;
+    }
     const actionHelpNote = primaryAction?.confirmation ? html `<p class="record-attention-action-help" style="margin: 8px 0 0; font-size: 12px; color: var(--text-secondary, #666); line-height: 1.5;"><span style="font-weight: 600;">💡 动作说明：</span>${primaryAction.confirmation}</p>` : '';
     const confirmation = confirmingAction
         ? cleanAttentionText(actionState?.message, 500) || confirmingAction.confirmation || `确认执行“${confirmingAction.label}”？`
@@ -150,7 +170,11 @@ export function renderAttentionDetail(attention, actionState, _escapeHtml) {
             : fallbackNext;
     const cause = usefulAttentionCause(attention);
     const evidence = usefulAttentionEvidence(attention.evidence, cause);
+    const approvalReason = task?.pendingApproval?.reason
+        ? html `<details class="record-attention-evidence" open><summary><span>待确认原因</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><p>${task.pendingApproval.reason}</p></details>`
+        : '';
     const extras = [
+        approvalReason,
         evidence ? html `<details class="record-attention-evidence"><summary><span>判断依据</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><p>${evidence}</p></details>` : '',
         attention.remainingRisks ? html `<details class="record-attention-evidence"><summary><span>剩余风险</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><p>${attention.remainingRisks}</p></details>` : '',
         usefulAttentionImpact(attention) ? html `<p class="record-attention-impact-line">${attention.impact}</p>` : '',

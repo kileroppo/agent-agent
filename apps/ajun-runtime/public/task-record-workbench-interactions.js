@@ -1,4 +1,28 @@
 import { escapeHtml } from './html.js';
+export function showToast(message, duration = 2200) {
+    let container = document.querySelector('.workbench-toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'workbench-toast-container';
+        document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    toast.className = 'workbench-toast success';
+    toast.innerHTML = `<span>${escapeHtml(message)}</span>`;
+    container.appendChild(toast);
+    requestAnimationFrame(() => {
+        toast.classList.add('is-visible');
+    });
+    setTimeout(() => {
+        toast.classList.remove('is-visible');
+        setTimeout(() => {
+            toast.remove();
+            if (container && container.children.length === 0) {
+                container.remove();
+            }
+        }, 250);
+    }, duration);
+}
 export async function copyToClipboard(text) {
     if (!text)
         return false;
@@ -58,44 +82,85 @@ export function bindDetailInteractions(options) {
             const targetPath = item.dataset.filePath;
             const container = item.querySelector('.artifact-dynamic-preview');
             const inlinePreview = item.querySelector('.artifact-inline-preview');
-            if (inlinePreview) {
-                inlinePreview.classList.toggle('is-hidden');
+            // If it already has inline preview without dynamic file fetching
+            if (inlinePreview && !targetPath) {
                 item.classList.toggle('is-collapsed');
                 return;
             }
             if (targetPath && container) {
-                if (container.style.display !== 'none' && container.dataset.loadedPath === targetPath) {
-                    container.style.display = 'none';
-                    item.classList.add('is-collapsed');
+                // If content is already fetched, simply toggle visibility
+                if (container.dataset.loadedPath === targetPath && container.innerHTML.trim() !== '') {
+                    const isCollapsed = item.classList.contains('is-collapsed');
+                    if (isCollapsed) {
+                        item.classList.remove('is-collapsed');
+                        container.style.display = 'block';
+                    }
+                    else {
+                        item.classList.add('is-collapsed');
+                        container.style.display = 'none';
+                    }
                     return;
                 }
+                // Show loading spinner
+                container.innerHTML = `<div style="padding: 10px 12px; font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 8px;"><svg class="animate-spin" width="14" height="14" aria-hidden="true"><use href="#icon-sync"></use></svg> 正在加载产物内容...</div>`;
+                container.style.display = 'block';
+                item.classList.remove('is-collapsed');
                 try {
-                    const res = await fetch(`/api/artifacts/content?path=${encodeURIComponent(targetPath)}`);
+                    let fetchUrl = targetPath;
+                    if (fetchUrl.startsWith('file://')) {
+                        try {
+                            fetchUrl = decodeURIComponent(new URL(fetchUrl).pathname);
+                        }
+                        catch {
+                            fetchUrl = fetchUrl.replace(/^file:\/\//, '');
+                        }
+                    }
+                    const res = await fetch(`/api/artifacts/content?path=${encodeURIComponent(fetchUrl)}`);
                     if (!res.ok) {
                         const errJson = await res.json().catch(() => ({}));
-                        throw new Error(errJson.error || '无法读取文件内容');
+                        throw new Error(errJson.error || `HTTP ${res.status}`);
                     }
                     const data = await res.json();
                     container.dataset.loadedPath = targetPath;
                     if (data.isImage) {
-                        container.innerHTML = `<div class="artifact-preview-image-box" style="padding: 12px; background: rgba(0,0,0,0.03); border-radius: 8px; margin-top: 8px;"><img src="${data.dataUrl}" alt="${data.filename || '产物预览'}" class="artifact-preview-img" style="max-width: 100%; border-radius: 6px; display: block;" /></div>`;
+                        container.innerHTML = `
+                            <div class="artifact-preview-image-box" style="padding: 12px; background: rgba(0,0,0,0.03); border-radius: 8px; margin-top: 8px;">
+                                <img src="${data.dataUrl}" alt="${data.filename || '产物预览'}" class="artifact-preview-img" style="max-width: 100%; border-radius: 6px; display: block;" />
+                            </div>`;
                     }
                     else if (data.isJson) {
                         let formatted = data.content;
                         try {
-                            formatted = JSON.stringify(JSON.parse(data.content), null, 2);
+                            const parsed = JSON.parse(data.content);
+                            formatted = JSON.stringify(parsed, null, 2);
                         }
                         catch { }
-                        container.innerHTML = `<div class="artifact-inline-preview"><div class="artifact-preview-body"><pre class="artifact-preview-text">${escapeHtml(formatted)}</pre></div></div>`;
+                        container.innerHTML = `
+                            <div class="artifact-inline-preview">
+                                <div class="artifact-preview-body">
+                                    <pre class="artifact-preview-text">${escapeHtml(formatted)}</pre>
+                                </div>
+                            </div>`;
                     }
                     else {
-                        container.innerHTML = `<div class="artifact-inline-preview"><div class="artifact-preview-body"><pre class="artifact-preview-text">${escapeHtml(data.content)}</pre></div></div>`;
+                        container.innerHTML = `
+                            <div class="artifact-inline-preview">
+                                <div class="artifact-preview-body">
+                                    <pre class="artifact-preview-text">${escapeHtml(data.content)}</pre>
+                                </div>
+                            </div>`;
                     }
                     container.style.display = 'block';
                     item.classList.remove('is-collapsed');
                 }
                 catch (err) {
-                    container.innerHTML = `<div class="artifact-inline-preview" style="border-left: 3px solid var(--muted);"><div class="artifact-preview-body"><p style="margin: 0; font-size: 12.5px; color: var(--muted);">本地受控文件路径：<code>${escapeHtml(targetPath)}</code></p></div></div>`;
+                    container.innerHTML = `
+                        <div class="artifact-inline-preview" style="border-left: 3px solid var(--amber);">
+                            <div class="artifact-preview-body" style="padding: 10px 14px;">
+                                <p style="margin: 0 0 6px 0; font-size: 12.5px; color: var(--ink-soft); font-weight: 600;">暂无法直接预览文件正文（${escapeHtml(err.message || '读取失败')}）</p>
+                                <p style="margin: 0; font-size: 11.5px; color: var(--muted); font-family: var(--mono); word-break: break-all;">受控路径：${escapeHtml(targetPath)}</p>
+                            </div>
+                        </div>`;
                     container.dataset.loadedPath = targetPath;
                     container.style.display = 'block';
                     item.classList.remove('is-collapsed');
@@ -118,19 +183,23 @@ export function bindDetailInteractions(options) {
                 }
             }
             const ok = await copyToClipboard(path);
-            const span = event.currentTarget.querySelector('span');
-            const originalText = span ? span.textContent : event.currentTarget.textContent;
+            const btn = event.currentTarget;
+            const span = btn.querySelector('span');
+            const originalText = span ? span.textContent : btn.textContent;
             if (ok) {
+                btn.classList.add('copied');
                 if (span)
-                    span.textContent = '已复制';
+                    span.textContent = '已复制 ✨';
                 else
-                    event.currentTarget.textContent = '已复制';
+                    btn.textContent = '已复制 ✨';
+                showToast('🔗 路径已复制到剪贴板');
                 setTimeout(() => {
-                    if (event.currentTarget && event.currentTarget.isConnected) {
+                    if (btn && btn.isConnected) {
+                        btn.classList.remove('copied');
                         if (span)
                             span.textContent = originalText;
                         else
-                            event.currentTarget.textContent = originalText;
+                            btn.textContent = originalText;
                     }
                 }, 2000);
             }
@@ -143,19 +212,23 @@ export function bindDetailInteractions(options) {
             if (!text)
                 return;
             const ok = await copyToClipboard(text);
-            const span = event.currentTarget.querySelector('span');
-            const originalText = span ? span.textContent : event.currentTarget.textContent;
+            const btn = event.currentTarget;
+            const span = btn.querySelector('span');
+            const originalText = span ? span.textContent : btn.textContent;
             if (ok) {
+                btn.classList.add('copied');
                 if (span)
-                    span.textContent = '已复制';
+                    span.textContent = '已复制 ✨';
                 else
-                    event.currentTarget.textContent = '已复制';
+                    btn.textContent = '已复制 ✨';
+                showToast('📋 内容已复制到剪贴板');
                 setTimeout(() => {
-                    if (event.currentTarget && event.currentTarget.isConnected) {
+                    if (btn && btn.isConnected) {
+                        btn.classList.remove('copied');
                         if (span)
                             span.textContent = originalText;
                         else
-                            event.currentTarget.textContent = originalText;
+                            btn.textContent = originalText;
                     }
                 }, 2000);
             }
@@ -175,20 +248,18 @@ export function bindDetailInteractions(options) {
         });
     }
     elements.detail.querySelector('.record-copy-id')?.addEventListener('click', async (event) => {
-        try {
-            await navigator.clipboard.writeText(task.taskId);
-            const button = event.currentTarget;
-            if (button) {
-                button.textContent = '已复制';
-                setTimeout(() => {
-                    if (button && button.isConnected && button.textContent === '已复制') {
-                        button.textContent = '复制编号';
-                    }
-                }, 2000);
-            }
-        }
-        catch {
-            event.currentTarget.textContent = '复制失败';
+        const ok = await copyToClipboard(task.taskId);
+        const button = event.currentTarget;
+        if (button && ok) {
+            button.classList.add('copied');
+            button.textContent = '已复制 ✨';
+            showToast('📋 任务编号已复制');
+            setTimeout(() => {
+                if (button && button.isConnected) {
+                    button.classList.remove('copied');
+                    button.textContent = '复制编号';
+                }
+            }, 2000);
         }
     });
 }

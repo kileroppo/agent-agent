@@ -232,7 +232,7 @@ export function renderArtifact(artifact: any, options: any = {}): any {
 
     const hasExpandableContent = isReadableText || isRealFilePath;
 
-    return html`<li class="record-artifact-item ${hasExpandableContent ? 'is-expandable' : ''}" data-artifact-item ${isRealFilePath ? `data-file-path="${url}"` : ''}>
+    return html`<li class="record-artifact-item ${hasExpandableContent ? 'is-expandable is-collapsed' : ''}" data-artifact-item ${isRealFilePath ? `data-file-path="${url}"` : ''}>
         <div class="artifact-item-header" data-artifact-toggle role="${hasExpandableContent ? 'button' : 'none'}" tabindex="${hasExpandableContent ? '0' : '-1'}" title="${hasExpandableContent ? '点击展开/收起预览' : ''}">
             <div class="artifact-title-wrapper">
                 <svg class="artifact-icon" aria-hidden="true"><use href="#icon-records"></use></svg>
