@@ -57,9 +57,9 @@ export async function installReleaseHelper({ repositoryRoot, homeDir = os.homedi
   await fs.rename(temporary, plistPath);
   const domain = `gui/${process.getuid()}`;
   await runCommand('launchctl', ['bootout', `${domain}/${LABEL}`]).catch(() => {});
-  await new Promise((resolve) => setTimeout(resolve, 1000));
-  await runCommand('launchctl', ['bootstrap', domain, plistPath]);
-  await runCommand('launchctl', ['kickstart', `${domain}/${LABEL}`]);
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  await runCommand('launchctl', ['bootstrap', domain, plistPath]).catch(() => {});
+  await runCommand('launchctl', ['kickstart', '-k', `${domain}/${LABEL}`]);
   return { label:LABEL, bundleHash, bundleRoot, stateDir, socketPath, plistPath };
 }
 
@@ -222,9 +222,17 @@ async function defaultRunCommand(command, args) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { stdio:['ignore', 'pipe', 'pipe'] });
     const stderr = [];
+    let settled = false;
+    const finish = (err, result) => {
+      if (settled) return;
+      settled = true;
+      if (err) reject(err);
+      else resolve(result);
+    };
     child.stderr.on('data', (chunk) => stderr.push(chunk));
-    child.once('error', reject);
-    child.once('close', (code) => code === 0 ? resolve({ code }) : reject(new Error(`${path.basename(command)} 执行失败（${code}）。`)));
+    child.once('error', (err) => finish(err));
+    child.once('exit', (code) => code === 0 ? finish(null, { code }) : finish(new Error(`${path.basename(command)} 执行失败（${code}）。`)));
+    child.once('close', (code) => code === 0 ? finish(null, { code }) : finish(new Error(`${path.basename(command)} 执行失败（${code}）。`)));
   });
 }
 

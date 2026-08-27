@@ -527,26 +527,55 @@ export class AjunReleaseSystemAdapter {
   }
 }
 
-export async function defaultRunCommand(command, args, { cwd, env = process.env } = {}) {
+export async function defaultRunCommand(command, args, { cwd, env = process.env, timeoutMs = 600_000 } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd, env, stdio:['ignore', 'pipe', 'pipe'] });
     const stdout = [];
     const stderr = [];
     let size = 0;
+    let settled = false;
+    let timer = null;
+
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+    };
+
+    const finish = (err, result) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (err) reject(err);
+      else resolve(result);
+    };
+
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => {
+        try { child.kill('SIGKILL'); } catch {}
+        finish(new Error(`${path.basename(command)} 执行超时（${timeoutMs}ms）`));
+      }, timeoutMs);
+    }
+
     for (const [stream, target] of [[child.stdout, stdout], [child.stderr, stderr]]) {
       stream.on('data', (chunk) => {
         size += chunk.length;
         if (size <= 2 * 1024 * 1024) target.push(chunk);
       });
     }
-    child.once('error', reject);
-    child.once('close', (code) => {
-      const result = { code, stdout:Buffer.concat(stdout).toString('utf8'), stderr:Buffer.concat(stderr).toString('utf8') };
-      if (code === 0) resolve(result);
+    child.once('error', (err) => finish(err));
+    const settleWithExit = (code, signal) => {
+      const exitCode = code ?? (signal ? 1 : 0);
+      const result = { code: exitCode, stdout:Buffer.concat(stdout).toString('utf8'), stderr:Buffer.concat(stderr).toString('utf8') };
+      if (exitCode === 0) finish(null, result);
       else {
         const detail = (result.stderr?.trim() || result.stdout?.trim() || '').slice(-300);
-        reject(new Error(`${path.basename(command)} 执行失败（${code}）${detail ? `: ${detail}` : ''}`));
+        finish(new Error(`${path.basename(command)} 执行失败（${exitCode}）${detail ? `: ${detail}` : ''}`));
       }
+    };
+    child.once('exit', (code, signal) => {
+      setTimeout(() => settleWithExit(code, signal), 300);
+    });
+    child.once('close', (code, signal) => {
+      settleWithExit(code, signal);
     });
   });
 }
