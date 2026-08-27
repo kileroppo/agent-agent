@@ -35,9 +35,11 @@ export function presentTaskAttention(task: any = {}, { pendingApproval = false, 
     const report: any = ['failed', 'waiting_test'].includes(kind) ? currentEmployeeReport(task) : null;
     const reportData: any = report?.data || {};
     const userMessage: any = failureText(task.error?.userMessage, 800);
+    const rawErrorMessage: any = failureText(task.error?.message, 800);
     const reportSummary: any = failureText(reportData.summary, 800);
     const cause: any = reportSummary
         || safeFailureMessage(kind, userMessage)
+        || (rawErrorMessage && rawErrorMessage !== REPORTED_FAILURE_BOILERPLATE ? rawErrorMessage : null)
         || fallbackCause(kind);
     const nextAction: any = failureText(reportData.nextAction, 800)
         || safeNextAction(kind, userMessage, Boolean(reportSummary), task.error?.retryable);
