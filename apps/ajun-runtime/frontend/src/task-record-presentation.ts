@@ -172,6 +172,7 @@ import {
     formatArtifactLabel,
     getArtifactPreviewTitle,
     formatStructuredReportText,
+    agentNameZh,
 } from './task-record-report-formatter.js';
 
 export {
@@ -179,6 +180,7 @@ export {
     formatArtifactLabel,
     getArtifactPreviewTitle,
     formatStructuredReportText,
+    agentNameZh,
 };
 
 export function renderArtifact(artifact: any, options: any = {}): any {
@@ -191,20 +193,35 @@ export function renderArtifact(artifact: any, options: any = {}): any {
     const isRuntimeVirtual = url.startsWith('runtime://');
     const isRealFilePath = /^(?:\/|[a-zA-Z]:[/\\]|file:\/\/)/.test(url) && !isRuntimeVirtual;
 
-    const rawSummary = artifact.summary || artifact.description || artifact.data?.summary || artifact.data?.conclusion || (typeof artifact.data?.text === 'string' ? artifact.data.text : '');
-    const summary = typeof rawSummary === 'string' ? rawSummary.slice(0, 400).trim() : '';
+    // Smart summary generation for specialized artifacts to avoid simply repeating parent task title
+    let summary = '';
+    if (artifact.type === 'cross_agent_mission_plan' && Array.isArray(artifact.data?.subtasks) && artifact.data.subtasks.length > 0) {
+        summary = `共 ${artifact.data.subtasks.length} 个分工环节：${artifact.data.subtasks.map((s: any) => `${agentNameZh(s.agentId)} (${s.title || s.taskType || '分工'})`).join(' ➔ ')}`;
+    } else if (artifact.type === 'cross_agent_mission_summary' && artifact.data) {
+        const totalCount = artifact.data.decision?.totalCount ?? artifact.data.statuses?.length ?? 0;
+        const completedCount = artifact.data.decision?.completedCount ?? (artifact.data.completed ? totalCount : 0);
+        const outcomeText = artifact.data.completed ? '全部完成闭环' : (artifact.data.decision?.outcome === 'partially_completed' ? '部分完成 / 存在异常' : '进行中');
+        summary = `交付达成概况：已完成 ${completedCount} / 共 ${totalCount} 项（${outcomeText}）`;
+    } else {
+        const rawSummary = artifact.summary || artifact.description || artifact.data?.summary || artifact.data?.conclusion || (typeof artifact.data?.text === 'string' ? artifact.data.text : '');
+        summary = typeof rawSummary === 'string' ? rawSummary.slice(0, 400).trim() : '';
+    }
+
     const formattedFullReport = formatStructuredReportText(artifact.data || artifact, artifact.type);
     const rawInline = formattedFullReport || artifact.data?.markdown || artifact.data?.text || artifact.data?.content || artifact.content || '';
     const inlineContent = typeof rawInline === 'string' ? rawInline.trim() : '';
     const isReadableText = inlineContent.length > 20 && !inlineContent.startsWith('{') && inlineContent !== summary;
     
     const taskTitle = String(artifact.title || artifact.name || '').trim();
+    const parentTaskTitle = String(options.task?.input?.title || options.task?.title || '').trim();
     const isSummaryTrivial = !summary || (taskTitle && (
         summary === taskTitle ||
         summary.startsWith(taskTitle) ||
         taskTitle.startsWith(summary) ||
+        (parentTaskTitle && summary === parentTaskTitle) ||
         summary.length < 15
     ));
+    const displaySummary = (!isSummaryTrivial || isReadableText) ? summary : '';
     const copyContent = isReadableText ? inlineContent : (isSummaryTrivial ? '' : summary);
     const previewTitle = getArtifactPreviewTitle(artifact);
 
@@ -223,7 +240,7 @@ export function renderArtifact(artifact: any, options: any = {}): any {
                     ${raw(artifact._fromAgentName ? html`<span class="artifact-source-tag"><svg width="12" height="12" aria-hidden="true"><use href="#icon-employees"></use></svg> 来自 ${escapeHtml(artifact._fromAgentName)}</span>` : '')}
                 </div>
             </div>
-            ${raw(summary ? html`<div class="artifact-summary-box"><p class="artifact-summary">${summary}</p></div>` : '')}
+            ${raw(displaySummary ? html`<div class="artifact-summary-box"><p class="artifact-summary">${displaySummary}</p></div>` : '')}
             ${raw(isReadableText ? html`
                 <details class="artifact-inline-preview" open>
                     <summary><span>${previewTitle}</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary>

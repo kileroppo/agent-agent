@@ -65,7 +65,7 @@ export function renderOverviewTab(options) {
                 </div>
                 ${raw(artifacts.length ? html `
                     <ul class="record-artifact-list full-grid">
-                        ${raw(artifacts.map((a) => renderArtifact(a, { isAccepted: isTaskAccepted })).join(''))}
+                        ${raw(artifacts.map((a) => renderArtifact(a, { isAccepted: isTaskAccepted, task })).join(''))}
                     </ul>
                 ` : html `
                     <div class="deliverables-empty">

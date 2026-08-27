@@ -20,6 +20,9 @@ import {
   renderTaskWorkflowTree,
 } from '../public/task-tree-view.js';
 import {
+  renderArtifact,
+} from '../public/task-record-presentation.js';
+import {
   taskTypeLabel,
   statusLabel,
 } from '../public/console-labels.js';
@@ -486,11 +489,87 @@ test('renderTaskWorkflowTree 产物仅在存在真实正文时提供复制内容
   assert.match(html, /data-copy-text="# 协作规划/);
 });
 
+test('renderArtifact 对多人协作计划与汇总产物生成人话摘要并复制完整结构化报告，不回显父任务标题', () => {
+  const parentTask = {
+    taskId: '0ff744a6-7780-4cfe-8210-305dbb70b40e',
+    input: {
+      title: '爆款候选拆解 | 花41元从中国坐火车去蒙古国，曾经的蒙古帝国现在怎么样了，当地人真实生活又如何',
+    },
+  };
+
+  const planArtifact = {
+    artifactId: 'mission-plan:1',
+    type: 'cross_agent_mission_plan',
+    title: '多人协作分工',
+    data: {
+      summary: parentTask.input.title,
+      subtasks: [
+        {
+          agentId: 'xiaod',
+          taskType: 'media.transcribe-and-refine',
+          title: '获取并整理：花41元从中国坐火车去蒙古国',
+          description: '视频转录与音频提取',
+          acceptance: '交付有效转录稿',
+        },
+        {
+          agentId: 'video-content-analyst',
+          taskType: 'content.analyze-video-benchmark',
+          title: '拆解爆款候选：花41元从中国坐火车去蒙古国',
+          description: '深度拆解爆款结构',
+          acceptance: '交付拆解报告',
+        },
+      ],
+    },
+  };
+
+  const planHtml = renderArtifact(planArtifact, { task: parentTask });
+  // 产物卡片摘要应展示环节明细，而不是盲目展示父任务标题
+  assert.match(planHtml, /共 2 个分工环节：小D \(素材采集\/转录\)/);
+  // 复制内容应复制完整结构化执行清单，而非只复制标题
+  assert.match(planHtml, /data-copy-text="【总任务协同目标】[\s\S]*【多人协同分工执行清单】/);
+  assert.doesNotMatch(planHtml, /data-copy-text="多人协作分工"/);
+  assert.doesNotMatch(planHtml, /data-copy-text="爆款候选拆解 \| 花41元从中国坐火车去蒙古国，曾经的蒙古帝国现在怎么样了，当地人真实生活又如何"/);
+
+  const summaryArtifact = {
+    artifactId: 'mission-summary:1',
+    type: 'cross_agent_mission_summary',
+    title: '老板任务协作汇总',
+    data: {
+      summary: parentTask.input.title,
+      completed: false,
+      statuses: [
+        {
+          key: 'acquire-transcript',
+          title: '获取并整理：花41元从中国坐火车去蒙古国',
+          employeeId: 'xiaod',
+          status: 'failed',
+        },
+        {
+          key: 'analyze-video',
+          title: '拆解爆款候选：花41元从中国坐火车去蒙古国',
+          employeeId: 'video-content-analyst',
+          status: 'planned',
+        },
+      ],
+      decision: {
+        outcome: 'partially_completed',
+        completedCount: 0,
+        totalCount: 2,
+      },
+    },
+  };
+
+  const summaryHtml = renderArtifact(summaryArtifact, { task: parentTask });
+  assert.match(summaryHtml, /交付达成概况：已完成 0 \/ 共 2 项（部分完成 \/ 存在异常）/);
+  assert.match(summaryHtml, /data-copy-text="【协同汇总结论】[\s\S]*【各岗位交付状态明细】/);
+});
+
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (character) => ({
     '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;',
   })[character]);
 }
+
 
 
 
