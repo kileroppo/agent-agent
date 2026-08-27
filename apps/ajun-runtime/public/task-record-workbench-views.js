@@ -19,7 +19,9 @@ export function renderListRows(options) {
     return rootTasks.map((task) => {
         const selected = selectedTaskId === task.taskId;
         const presentation = task.presentation || {};
-        const tone = presentation.tone || 'active';
+        const isTaskAccepted = task.acceptanceTarget?.decision === 'accepted' || task.status === 'succeeded';
+        const tone = isTaskAccepted ? 'completed' : (presentation.tone || 'active');
+        const rowStatusLabel = isTaskAccepted ? (task.status === 'succeeded' ? '已完成' : '已采纳') : (presentation.statusLabel || '');
         const reason = compactAttentionReason(task);
         const createdFull = formatFullDateTime(task.createdAt);
         const updatedFull = formatFullDateTime(task.updatedAt);
@@ -34,7 +36,7 @@ export function renderListRows(options) {
                     ${raw(reason ? html `<span class="record-row-reason">${reason}</span>` : '')}
                     <span class="record-row-meta" title="${escapeHtml(timeHover)}"><span>${agentName(task.assigneeAgentId)}</span><span>·</span><span>${timeDisplay}</span></span>
                 </span>
-                <span class="record-row-status ${tone}">${presentation.statusLabel || ''}</span>
+                <span class="record-row-status ${tone}">${rowStatusLabel}</span>
             </button>
         `;
     }).join('');
@@ -126,6 +128,9 @@ export function renderCollaborationTab(options) {
 }
 export function renderDetailHeader(options) {
     const { task, presentation, agentName, createdFull, durationText, relativeTime, displayTaskTitle } = options;
+    const isTaskAccepted = task.acceptanceTarget?.decision === 'accepted' || task.status === 'succeeded';
+    const headerTone = isTaskAccepted ? 'completed' : (presentation.tone || 'active');
+    const headerStatusLabel = isTaskAccepted ? (task.status === 'succeeded' ? '已完成' : '已采纳') : (presentation.statusLabel || '');
     return html `
         <button class="record-detail-back" type="button">返回</button>
         <header class="record-detail-header">
@@ -141,7 +146,7 @@ export function renderDetailHeader(options) {
                     </p>
                 </div>
                 <div class="record-detail-header-actions">
-                    <span class="record-row-status ${presentation.tone || 'active'}">${presentation.statusLabel || ''}</span>
+                    <span class="record-row-status ${headerTone}">${headerStatusLabel}</span>
                 </div>
             </div>
         </header>

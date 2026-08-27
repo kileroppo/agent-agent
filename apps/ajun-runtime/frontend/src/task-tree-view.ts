@@ -47,18 +47,34 @@ function renderMultiTaskWorkflowTree(task: any, breadcrumb: any, agentNameFn: (i
     isCurrent: s.taskId === task.taskId,
   }));
 
-  // Combine and de-duplicate
-  const allTasks = siblings.some((s: any) => s.taskId === task.taskId)
+  const isParentAccepted = task.acceptanceTarget?.decision === 'accepted' || task.status === 'succeeded';
+
+  // Combine and de-duplicate, filtering out internal recovery / operator tasks
+  const rawTasks = siblings.some((s: any) => s.taskId === task.taskId)
     ? siblings.map((s: any) => s.taskId === task.taskId ? currentTaskItem : s)
     : [currentTaskItem, ...siblings];
+
+  const allTasks = rawTasks.filter((t: any) => {
+    const rawAgent = String(t.assigneeAgentId || '').toLowerCase();
+    const taskType = String(t.taskType || '').toLowerCase();
+    const agentLabel = agentNameFn(t.assigneeAgentId);
+    if (rawAgent === 'operator' || rawAgent === 'technical-recovery' || /运维|技术专家|故障恢复/i.test(agentLabel)) {
+      return false;
+    }
+    if (taskType.startsWith('task.recover') || taskType.startsWith('task.diagnose')) {
+      return false;
+    }
+    return true;
+  });
 
   const parentAssignee = task.assigneeAgentId ? agentNameFn(task.assigneeAgentId) : '';
 
   const tasksTreeHtml = allTasks.map((t: any, index: number) => {
     const isCurrent = t.isCurrent;
     const taskRef = String(t.taskId || '').replace(/[^0-9a-z]/gi, '').slice(0, 8).toUpperCase();
-    const statusTone = statusToTone(t.status);
-    const statusLabel = statusToLabel(t.status);
+    const effectiveStatus = (t.taskId === task.taskId && isParentAccepted) ? 'succeeded' : t.status;
+    const statusTone = statusToTone(effectiveStatus);
+    const statusLabel = statusToLabel(effectiveStatus);
     const rawAgent = t.assigneeAgentId ? agentNameFn(t.assigneeAgentId) : '';
     const isUnassigned = !rawAgent || rawAgent === '等待分配' || rawAgent === '未指派员工' || rawAgent === '未知员工';
     const agent = !isUnassigned

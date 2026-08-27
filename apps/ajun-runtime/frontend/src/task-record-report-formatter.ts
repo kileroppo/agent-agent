@@ -4,7 +4,13 @@ export const ARTIFACT_TYPE_LABELS: Record<string, string> = {
     intel_research_report: '调研报告',
     video_content_analysis_report: '爆款拆解分析',
     content_performance_report: '内容复盘报告',
-    visual_analysis_package: '视觉分析包',
+    visual_analysis_package: '画面证据',
+    visual_evidence_package: '画面证据',
+    confirmed_transcript: '确认逐字稿',
+    source_evidence_record: '来源存证',
+    raw_asr_transcript: '原始转录',
+    transcript_quality_report: '质量报告',
+    human_review_attestation: '听审存证',
     platform_content_draft: '内容草稿',
     article_outline: '文章大纲',
     social_media_copy: '社媒文案',
@@ -55,9 +61,15 @@ export function statusLabelZh(status: string): string {
 
 export function formatArtifactLabel(artifact: any): string {
     if (!artifact || typeof artifact !== 'object') return '交付产物';
-    const title = artifact.title || artifact.name || artifact.label;
+    let title = artifact.title || artifact.name || artifact.label;
     if (typeof title === 'string' && title.trim()) {
-        return title.trim();
+        let clean = title.trim();
+        if (clean.includes('｜')) {
+            clean = clean.split('｜').pop()?.trim() || clean;
+        } else if (clean.includes('|')) {
+            clean = clean.split('|').pop()?.trim() || clean;
+        }
+        return clean;
     }
     if (artifact.type && typeof artifact.type === 'string' && artifact.type.trim()) {
         return ARTIFACT_TYPE_LABELS[artifact.type.trim()] || artifact.type.trim().replace(/[_-]/g, ' ');

@@ -11,6 +11,7 @@ export function renderOriginCard(task = {}) {
         return '';
     }
     const { steps, boomMetrics, caveat, cleanGoal } = parseOriginDescription(rawDesc, task);
+    const validSteps = steps.filter((step) => step.title && !/^\d+|M=|R=|播放=|点赞=|platform_/i.test(step.title) && step.title.length > 2);
     const issueId = task?.paperclipIssue?.identifier ? `#${task.paperclipIssue.identifier}` : '';
     return html `
         <section class="record-origin-card" aria-label="源头诉求与治理工单">
@@ -41,18 +42,18 @@ export function renderOriginCard(task = {}) {
                 </div>
             ` : '')}
 
-            ${raw(cleanGoal ? html `
+            ${raw(cleanGoal && cleanGoal !== sourceUrl ? html `
                 <div class="origin-goal-box">
                     <span class="origin-label">核心诉求：</span>
                     <p class="origin-goal-text">${escapeHtml(cleanGoal)}</p>
                 </div>
             ` : '')}
 
-            ${raw(steps.length > 0 ? html `
+            ${raw(validSteps.length > 0 ? html `
                 <div class="origin-steps-section">
-                    <span class="origin-label">协同分步计划 (${steps.length} 个执行阶段)：</span>
+                    <span class="origin-label">协同分步计划 (${validSteps.length} 个执行阶段)：</span>
                     <ol class="origin-steps-list">
-                        ${raw(steps.map((step, idx) => html `
+                        ${raw(validSteps.map((step, idx) => html `
                             <li class="origin-step-item">
                                 <span class="step-num">${idx + 1}</span>
                                 <div class="step-content">
