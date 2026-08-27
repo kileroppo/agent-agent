@@ -13,6 +13,7 @@ export const TASK_DEFINITIONS: any = Object.freeze([
         taskLabel: '媒体整理',
         intents: ['media_task'],
         directDefault: true,
+        approvalInheritance: 'safe-parent-scope',
     }),
     taskDefinition('wechat.chat.retrieval', {
         defaultAgentId: 'wechat-chat-retriever',
@@ -26,6 +27,7 @@ export const TASK_DEFINITIONS: any = Object.freeze([
         intents: ['public_report'],
         entryCategories: ['research-entry'],
         entryDefault: true,
+        approvalInheritance: 'safe-parent-scope',
     }),
     taskDefinition('research.github-search', {
         defaultAgentId: 'intel-researcher',
@@ -34,6 +36,7 @@ export const TASK_DEFINITIONS: any = Object.freeze([
         intents: ['github_search'],
         entryCategories: ['research-entry'],
         entryDefault: true,
+        approvalInheritance: 'safe-parent-scope',
     }),
     taskDefinition('research.intel-report', {
         defaultAgentId: 'intel-researcher',
@@ -43,6 +46,7 @@ export const TASK_DEFINITIONS: any = Object.freeze([
         entryCategories: ['research-entry'],
         directDefault: true,
         entryDefault: true,
+        approvalInheritance: 'safe-parent-scope',
     }),
     taskDefinition('office.briefing-package', {
         defaultAgentId: 'office-assistant',
@@ -52,6 +56,7 @@ export const TASK_DEFINITIONS: any = Object.freeze([
         entryCategories: ['office-task', 'office-presentation-entry'],
         directDefault: true,
         entryDefault: true,
+        approvalInheritance: 'safe-parent-scope',
     }),
     taskDefinition('office.presentation-package', {
         defaultAgentId: 'office-assistant',
@@ -68,6 +73,7 @@ export const TASK_DEFINITIONS: any = Object.freeze([
         workerName: '小办',
         entryCategories: ['office-task'],
         entryDefault: true,
+        approvalInheritance: 'safe-parent-scope',
     }),
     taskDefinition('content.video-benchmark-analysis', {
         defaultAgentId: 'video-content-analyst',
@@ -77,6 +83,7 @@ export const TASK_DEFINITIONS: any = Object.freeze([
         entryCategories: ['content-analysis'],
         entryDefault: true,
         prerequisiteTaskType: 'media.transcribe-and-refine',
+        approvalInheritance: 'safe-parent-scope',
     }),
     taskDefinition('content.performance-review', {
         defaultAgentId: 'video-content-analyst',
@@ -85,6 +92,7 @@ export const TASK_DEFINITIONS: any = Object.freeze([
         contentArtifactType: 'content_performance_report',
         entryCategories: ['content-analysis'],
         entryDefault: true,
+        approvalInheritance: 'safe-parent-scope',
     }),
     taskDefinition('content.campaign-visual-analysis', {
         defaultAgentId: 'video-content-analyst',

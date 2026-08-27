@@ -647,6 +647,67 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             });
         }
 
+        // Subtask approval action handlers
+        for (const approveBtn of elements.detail.querySelectorAll('[data-subtask-approve]')) {
+            approveBtn.addEventListener('click', async (e: any): Promise<any> => {
+                const subtaskId = e.currentTarget.dataset.subtaskApprove;
+                const approvalId = e.currentTarget.dataset.subtaskApprovalId;
+                if (!subtaskId) return;
+                try {
+                    approveBtn.disabled = true;
+                    approveBtn.textContent = '正在确认…';
+                    if (approvalId) {
+                        await api(`/api/approvals/${encodeURIComponent(approvalId)}/approve`, {
+                            method: 'POST',
+                            headers: { 'content-type': 'application/json' },
+                            body: JSON.stringify({ decisionBy: 'A君运行台', decisionReason: '已在协同环节确认执行。' }),
+                        });
+                    } else {
+                        await api(`/api/tasks/${encodeURIComponent(subtaskId)}/continue`, { method: 'POST' });
+                    }
+                    const payload = await api(`/api/tasks/${encodeURIComponent(subtaskId)}`);
+                    state.previewSubtaskData = payload?.task || payload;
+                    await loadSelectedDetail({ revealDetail: false, quiet: false });
+                } catch (err: any) {
+                    console.error('Failed to approve subtask:', err);
+                    alert(err?.message || '确认失败，请重试');
+                } finally {
+                    if (approveBtn && approveBtn.isConnected) {
+                        approveBtn.disabled = false;
+                    }
+                }
+            });
+        }
+
+        for (const rejectBtn of elements.detail.querySelectorAll('[data-subtask-reject]')) {
+            rejectBtn.addEventListener('click', async (e: any): Promise<any> => {
+                const subtaskId = e.currentTarget.dataset.subtaskReject;
+                const approvalId = e.currentTarget.dataset.subtaskApprovalId;
+                if (!subtaskId) return;
+                if (!confirm('确定拒绝并终止该协作环节吗？')) return;
+                try {
+                    rejectBtn.disabled = true;
+                    rejectBtn.textContent = '正在处理…';
+                    if (approvalId) {
+                        await api(`/api/approvals/${encodeURIComponent(approvalId)}/reject`, {
+                            method: 'POST',
+                            headers: { 'content-type': 'application/json' },
+                            body: JSON.stringify({ decisionBy: 'A君运行台', decisionReason: '已在协同环节拒绝执行。' }),
+                        });
+                    }
+                    const payload = await api(`/api/tasks/${encodeURIComponent(subtaskId)}`);
+                    state.previewSubtaskData = payload?.task || payload;
+                    await loadSelectedDetail({ revealDetail: false, quiet: false });
+                } catch (err: any) {
+                    console.error('Failed to reject subtask:', err);
+                } finally {
+                    if (rejectBtn && rejectBtn.isConnected) {
+                        rejectBtn.disabled = false;
+                    }
+                }
+            });
+        }
+
         // Trigger timeline loading automatically when collaboration tab opens
         if (state.detailTab === 'collaboration' && !state.timelineHtml) {
             loadTimeline(task.taskId).then((htmlStr: string) => {

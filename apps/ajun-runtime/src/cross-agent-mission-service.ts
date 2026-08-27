@@ -157,9 +157,13 @@ export class CrossAgentMissionService {
                     }
                 });
             if (child.status === 'waiting_approval'
-                && (plan.kind !== 'business' || (plan.safeOnly === true && mission.approvalRefs?.length))
+                && (plan.kind !== 'business' || Boolean(mission.approvalRefs?.length))
                 && typeof this.tasks.resumeApprovedMissionChild === 'function') {
-                child = await this.tasks.resumeApprovedMissionChild(child.taskId);
+                try {
+                    child = await this.tasks.resumeApprovedMissionChild(child.taskId);
+                } catch {
+                    // 子任务无法继承时保持原 waiting_approval 状态
+                }
             }
             return child;
         };

@@ -123,6 +123,30 @@ export function renderSubtaskDrawer(subtask: any, options: { agentName?: (id: st
         `;
     }).join('');
 
+    const isWaitingApproval = ['waiting_approval', 'pending_approval'].includes(subtask.status);
+    const pendingApprovalId = Array.isArray(subtask.approvalRefs) && subtask.approvalRefs.length ? subtask.approvalRefs[0] : '';
+    const approvalBannerHtml = isWaitingApproval ? html`
+        <div class="subtask-approval-banner" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+                <div>
+                    <strong style="color: #b45309; display: flex; align-items: center; gap: 6px; font-size: 14px;">
+                        <svg width="16" height="16" aria-hidden="true"><use href="#icon-shield"></use></svg>
+                        等待人工确认执行
+                    </strong>
+                    <p style="margin: 4px 0 0; font-size: 13px; color: var(--text-secondary, #666);">该协作环节因涉及素材读取或内容处理已触发安全待办。确认后将立即指派员工开始执行。</p>
+                </div>
+                <div style="display: flex; gap: 8px; flex-shrink: 0;">
+                    <button type="button" class="focus-primary-action" data-subtask-approve="${subtask.taskId}" data-subtask-approval-id="${pendingApprovalId}" style="padding: 6px 14px; font-size: 13px; border-radius: 6px; cursor: pointer;">
+                        ✓ 确认执行
+                    </button>
+                    <button type="button" class="artifact-action-btn secondary" data-subtask-reject="${subtask.taskId}" data-subtask-approval-id="${pendingApprovalId}" style="padding: 6px 12px; font-size: 13px; color: #dc2626; border-color: rgba(220, 38, 38, 0.3); border-radius: 6px; cursor: pointer;">
+                        ✕ 拒绝
+                    </button>
+                </div>
+            </div>
+        </div>
+    ` : '';
+
     return html`
         <div class="subtask-drawer-overlay" data-subtask-drawer-overlay>
             <aside class="subtask-drawer" role="dialog" aria-label="协作任务预览">
@@ -134,6 +158,7 @@ export function renderSubtaskDrawer(subtask: any, options: { agentName?: (id: st
                     <button type="button" class="subtask-drawer-close" data-subtask-drawer-close aria-label="关闭预览">✕</button>
                 </div>
                 <div class="subtask-drawer-body">
+                    ${raw(approvalBannerHtml)}
                     <div class="subtask-meta-grid">
                         <div class="subtask-meta-item">
                             <span class="meta-label">负责员工</span>
@@ -173,6 +198,11 @@ export function renderSubtaskDrawer(subtask: any, options: { agentName?: (id: st
                     </div>
                 </div>
                 <div class="subtask-drawer-footer">
+                    ${raw(isWaitingApproval ? html`
+                        <button type="button" class="focus-primary-action" data-subtask-approve="${subtask.taskId}" data-subtask-approval-id="${pendingApprovalId}" style="margin-right: 8px;">
+                            ✓ 确认并开始执行
+                        </button>
+                    ` : '')}
                     <button type="button" class="focus-primary-action subtask-drawer-done-btn" data-subtask-drawer-close>
                         ✓ 完成查看，返回主任务
                     </button>

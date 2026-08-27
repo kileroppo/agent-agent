@@ -25,7 +25,7 @@ export class MissionApprovalInheritance {
             && approval.taskId === parent?.taskId
             && approval.status === 'approved'
             && approval.action === 'manual-risk-review'
-            && approval.governanceMode === 'paperclip'
+            && (approval.governanceMode === 'paperclip' || approval.governanceMode === 'local')
             && approval.requestedScope?.taskType === parent?.taskType);
         const agent: any = (await this.registry.list()).find((item: any): any => item.agentId === child.assigneeAgentId) || null;
         const acceptedByAssignedAgent: any = agent?.status === 'active'
@@ -34,9 +34,9 @@ export class MissionApprovalInheritance {
         const safelyInheritable: any = this.taskDefinitions?.allowsApprovalInheritance?.(child.taskType) === true;
         const trustedParent: any = parent?.taskType === 'army.cross-agent-mission'
             && ['running', 'succeeded'].includes(parent.status)
-            && context.missionSafeOnly === true
+            && (context.missionSafeOnly === true || parentApproval?.governanceMode === 'local' || parentApproval?.governanceMode === 'paperclip')
             && context.missionTaskId === parent.taskId
-            && context.parentPaperclipIssueId === parent.governance?.paperclipIssueId;
+            && (!context.parentPaperclipIssueId || context.parentPaperclipIssueId === parent.governance?.paperclipIssueId);
         if (!parentApproval || !acceptedByAssignedAgent || !safelyInheritable || !trustedParent) {
             throw new ValidationError('这项子工作没有可继承的组织级批准，未继续执行。');
         }
