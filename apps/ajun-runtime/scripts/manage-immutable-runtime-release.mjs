@@ -2882,16 +2882,21 @@ async function runCheckedCaptured(command, args, cwd, timeoutMs) {
 
 async function defaultRunCommand(command, args, { cwd }) {
   await new Promise((resolve, reject) => {
+    let capturedStderr = '';
     const child = spawn(command, args, {
       cwd,
       env:{ ...process.env, CI:'1' },
-      stdio:'inherit',
+      stdio:['inherit', 'inherit', 'pipe'],
       shell:false,
+    });
+    child.stderr?.on('data', (chunk) => {
+      process.stderr.write(chunk);
+      capturedStderr += chunk.toString();
     });
     child.once('error', reject);
     child.once('exit', (code, signal) => {
       if (code === 0) return resolve();
-      reject(new Error(`${command} ${args.join(' ')}失败: ${signal || `exit ${code}`}`));
+      reject(new Error(`${command} ${args.join(' ')}失败: ${signal || `exit ${code}`} (cwd: ${cwd}) ${capturedStderr.slice(-500)}`));
     });
   });
 }
