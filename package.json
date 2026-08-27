@@ -23,6 +23,7 @@
     "clean": "node scripts/clean.mjs",
     "clean:work": "node scripts/clean.mjs --work",
     "clean:dry-run": "node scripts/clean.mjs --dry-run",
+    "data:gc": "node scripts/data-lifecycle-gc.mjs",
     "build:boom-frontend": "tsc -p apps/boom-monitor/frontend/tsconfig.json",
     "check:paperclip-compat": "tsc -p integrations/paperclip/tsconfig.json",
     "distribute:tokens": "node packages/ui-tokens/distribute.mjs",

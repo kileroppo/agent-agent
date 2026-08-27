@@ -48,18 +48,33 @@
 
 Hermes Profile 关闭自动记忆提示，记忆写入需要确认。任务成果进入任务账本和产物引用，不复制到每个 Agent 的长期记忆。
 
-## 5. 运行事件分级留存
+## 5. 全系统数据闭环与生命周期留存
 
-| 等级 | 默认期限 | 示例 |
-| --- | ---: | --- |
-| `transient` | 7 天 | 开始、进度、轮询、普通阶段变化 |
-| `detail` | 30 天 | 常规执行详情和诊断元数据 |
-| `audit` | 365 天 | 审批、费用、回执、产物提交、完成与审核结论 |
-| `permanent` | 永久 | 必须长期保留的脱敏事故摘要 |
+为防止系统在多 Agent 长周期运行中无限累积各类中间数据，系统建立了分级留存与自动闭环治理引擎（`DataLifecycleGovernanceReconciler`）：
 
-删除故障事件前会先合并生成永久脱敏事故摘要。旧数据库启动时只迁移约束和值，不删除事件。
+| 数据分类 | 存储介质 | 默认留存周期 | 清理与闭环动作 | 保护边界（绝对安全） |
+| --- | --- | ---: | --- | --- |
+| **活跃与待办任务** | `runtime.sqlite` (`tasks`) | 永久至终态 | 不清理 | `running`, `queued`, `waiting_approval`, `needs_input`, `needs_action` 等所有非终态任务 |
+| **高频例行与诊断任务** | `runtime.sqlite` (`tasks`) | 7 天 | 超期自动清理高频例行巡检与只读诊断任务 | 7 天内的例行与诊断记录 |
+| **已终态历史任务** | `runtime.sqlite` (`tasks`) | 90 天 | 超期清理非关键历史终态记录 | 关联 `workflow_acceptances` 的决策真相与审计记录 |
+| **闲置对话上下文** | `runtime.sqlite` (`conversation_contexts`) | 30 天 | 自动清理超过 30 天无更新的闲置会话上下文 | 30 天内活跃的对话引用 |
+| **测试实例与临时草案** | `runtime.sqlite` (`test_instances`, `proposals`) | 30 天 | 自动清理超时测试实例与废弃草案 | 活跃与待审批草案 |
+| **运行追踪事件** | `task-run-events.sqlite` (`task_run_events`) | `transient`: 7天<br>`detail`: 30天<br>`audit`: 365天 | 物理清理前先聚合生成永久脱敏事故摘要（`task_run_incident_summaries`） | `permanent` 事故摘要、未过期的 `audit` 审计事件 |
+| **小D转录作业与大物料** | `xiaod` (`jobs.json`, `data/jobs/*`) | 终态成功: 14天<br>终态失败: 3天<br>大媒体: 7天<br>临时切片: 24h | 自动删除已完结任务的中间音视频与关键帧大物料，并修剪历史作业账本 | 正在进行中的转录作业、待人工完整听审的作业 |
+| **通用接入操作事件** | `operations-events.json` | 30 天 / 最多 500 条 | 自动滚动淘汰已解决或超期的操作事件 | 未解决的严重告警事件 |
+| **反馈评估数据集** | `eval-cases.json` | 90 天 / 最多 200 条 | 自动容量上限控制，FIFO/优先级淘汰旧用例 | 典型 Benchmark 用例 |
+| **本机构建与生成物** | `work/` | 保留最近 5 个 Release，其余 7 天过期 | 自动执行不可变发布与构建物回收 | 当前生效中的不可变 Release |
 
-历史清理默认是 `dry-run`。只有明确设置 `AGENT_ARMY_EVENT_RETENTION_MODE=apply` 才执行删除；发布前必须先核对预览计数和事故摘要。
+### 治理调度与运维命令
+
+- **常驻后台闭环**：A君稳定性协调器每 60 分钟自动执行一次全系统数据闭环巡检；
+- **控制台接口**：
+  - `GET /api/data-lifecycle`：读取全系统存储水位、记录数与留存策略；
+  - `POST /api/data-lifecycle/reconcile`：手动触发全系统数据闭环清理；
+- **CLI 运维入口**：
+  - `npm run data:gc`（只读预览 dry-run）
+  - `npm run data:gc -- --apply`（执行全系统安全清理）
+  - `npm run data:gc -- --status`（仅查看当前存储水位）
 
 ## 6. 发布与观测
 

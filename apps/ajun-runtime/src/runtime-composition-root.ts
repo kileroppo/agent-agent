@@ -14,14 +14,8 @@ import { RuntimeReleaseClient } from './runtime-release-client.ts';
 import { createRuntimeConfiguration } from './runtime/runtime-configuration.ts';
 import { createRuntimeStateComposition } from './runtime/runtime-state-composition.ts';
 import type { CreateRuntimeInput, RuntimeBackgroundLifecycle } from './runtime/composition-contracts.ts';
-export async function createRuntime({
-  environment = process.env,
-  logger = console,
-}: CreateRuntimeInput = {}) {
-  const configuration = createRuntimeConfiguration({
-    environment,
-    compositionRootUrl:import.meta.url,
-  });
+export async function createRuntime({ environment = process.env, logger = console }: CreateRuntimeInput = {}) {
+  const configuration = createRuntimeConfiguration({ environment, compositionRootUrl:import.meta.url });
   const { paths, network, deployment, features, bootedAt } = configuration;
   const runtimeSource = await resolveRuntimeSourceRoot({
     runtimeRoot:paths.root,
@@ -89,6 +83,7 @@ export async function createRuntime({
       governance,
       localExecution,
       tasks,
+      taskRunEvents:runtimeState.taskRunEvents,
       roleExecution,
       missionChildPolicy,
       logger,
@@ -169,6 +164,7 @@ export async function createRuntime({
         boomMonitorAutoScheduleEnabled:features.boomMonitorAutoScheduleEnabled,
         taskTimeline:runtimeState.taskTimeline,
         productMaturity,
+        dataLifecycleGovernance:(lifecycle.services as any).dataLifecycleGovernance,
       },
       connections:{
         ...feishuCommand.connections,

@@ -36,6 +36,7 @@ import { routeCustomAiApi } from './runtime-http-custom-ai.ts';
 import { CustomAiCapabilityStore } from './custom-ai-capability-store.ts';
 import { routeAgentHealthProbeApi } from './runtime-http-agent-health.ts';
 import { routeTaskSubmitApi } from './runtime-http-task-submit.ts';
+import { routeDataLifecycleApi } from './runtime-http-data-lifecycle.ts';
 import { bearerToken, isBoomLegacyIntegrationAuthorized, isBoomLegacyIntegrationPath } from './runtime-http-boom-legacy.ts';
 import { parseUsageRange } from './task-overview.ts';
 export { isBoomLegacyIntegrationAuthorized, isBoomLegacyIntegrationPath } from './runtime-http-boom-legacy.ts';
@@ -43,7 +44,7 @@ const MAX_JSON_BODY_BYTES: any = 1024 * 1024;
 const OWNER_ACTION_NONCE_TTL_MS: any = 10 * 60 * 1000;
 export function createAjunHttpHandler({ environment, publicDir, dataDir, detailBaseUrl, development = {}, network, paperclip, work, connections, localAi, feishu, m5, runtimeRelease, }: any): any {
     const { deploymentMode, lanEnabled, lanAccess, } = network;
-    const { tasks, store, proposals, missions, macWorker, xiaod, boomMonitor, boomMonitorEnabled, boomMonitorAutoScheduleEnabled, taskTimeline, productMaturity, } = work;
+    const { tasks, store, proposals, missions, macWorker, xiaod, boomMonitor, boomMonitorEnabled, boomMonitorAutoScheduleEnabled, taskTimeline, productMaturity, dataLifecycleGovernance, } = work;
     const { employeeFeishuConnections, employeeModelSetup, modelPolicy, accessConnections, publicWebFetch, } = connections;
     const { commander, officialFeishuChannel, hermesNativeCompletionWatcher, resolveFeishuApproval, commanderChainEvidence = null, } = feishu;
     const { campaigns } = m5;
@@ -134,16 +135,10 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 && !isBoomLegacyIntegrationPath(request.url)
                 && !canAccessApi(request, lanAccess))
                 return sendJson(response, 401, { error: '请输入局域网共享口令。' });
-            const boomMonitorResult: any = await routeBoomMonitorApi({
-                method: request.method,
-                url: request.url,
-                local: isLocalAddress(request.socket.remoteAddress),
-                enabled: boomMonitorEnabled,
-                readBody: (): any => readJsonBody(request),
-                getService: (): any => boomMonitor,
-            });
-            if (boomMonitorResult)
-                return sendJson(response, boomMonitorResult.status, boomMonitorResult.payload);
+            const dataLifecycleResult: any = await routeDataLifecycleApi({ request, dataLifecycleGovernance, local: isLocalAddress(request.socket.remoteAddress), readBody: (): any => readJsonBody(request) });
+            if (dataLifecycleResult) return sendJson(response, dataLifecycleResult.status, dataLifecycleResult.payload);
+            const boomMonitorResult: any = await routeBoomMonitorApi({ method: request.method, url: request.url, local: isLocalAddress(request.socket.remoteAddress), enabled: boomMonitorEnabled, readBody: (): any => readJsonBody(request), getService: (): any => boomMonitor });
+            if (boomMonitorResult) return sendJson(response, boomMonitorResult.status, boomMonitorResult.payload);
             if (request.method === 'GET' && request.url === '/api/overview')
                 return sendJson(response, 200, await tasks.overview());
             if (request.method === 'GET' && request.url === '/api/console-overview')

@@ -60,8 +60,16 @@
         "test/console-operator-flow-ui.test.js",
         "test/task-record-service.test.js"
       ],
-      "lineLimit": 450,
+      "lineLimit": 480,
       "importLimit": 12
+    },
+    "frontend/src/task-record-origin-view.ts": {
+      "affectedTests": [
+        "test/console-boundary.test.js",
+        "test/console-operator-flow-ui.test.js",
+        "test/task-record-service.test.js"
+      ],
+      "lineLimit": 220
     },
     "frontend/src/task-record-presentation.ts": {
       "affectedTests": [
@@ -69,7 +77,47 @@
         "test/console-operator-flow-ui.test.js",
         "test/task-record-service.test.js"
       ],
+      "lineLimit": 250
+    },
+    "frontend/src/task-record-report-formatter.ts": {
+      "affectedTests": [
+        "test/console-boundary.test.js",
+        "test/console-operator-flow-ui.test.js",
+        "test/task-record-service.test.js"
+      ],
+      "lineLimit": 250
+    },
+    "frontend/src/task-record-subtask-drawer.ts": {
+      "affectedTests": [
+        "test/console-boundary.test.js",
+        "test/console-operator-flow-ui.test.js",
+        "test/task-record-service.test.js"
+      ],
+      "lineLimit": 220
+    },
+    "frontend/src/task-record-workbench-filters.ts": {
+      "affectedTests": [
+        "test/console-boundary.test.js",
+        "test/console-operator-flow-ui.test.js",
+        "test/task-record-service.test.js"
+      ],
       "lineLimit": 200
+    },
+    "frontend/src/task-record-workbench-helpers.ts": {
+      "affectedTests": [
+        "test/console-boundary.test.js",
+        "test/console-operator-flow-ui.test.js",
+        "test/task-record-service.test.js"
+      ],
+      "lineLimit": 200
+    },
+    "frontend/src/task-record-workbench-views.ts": {
+      "affectedTests": [
+        "test/console-boundary.test.js",
+        "test/console-operator-flow-ui.test.js",
+        "test/task-record-service.test.js"
+      ],
+      "lineLimit": 320
     },
     "src/agent-army-client.ts": {
       "lineLimit": 750

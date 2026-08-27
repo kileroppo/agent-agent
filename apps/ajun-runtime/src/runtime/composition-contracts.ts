@@ -140,6 +140,7 @@ export type BackgroundLifecycleCompositionInput = Readonly<{
     }>;
     taskLifecycleEvents: unknown;
   }>;
+  taskRunEvents?: unknown;
   roleExecution: Readonly<{
     failureRecovery: Readonly<{ handle(task: unknown): unknown }>;
     executeVideoAnalysisFallback: unknown;

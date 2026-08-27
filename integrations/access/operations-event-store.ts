@@ -64,6 +64,35 @@ export class OperationsEventStore {
     });
   }
 
+  async prune({
+    maxAgeDays = 30,
+    maxEvents = 500,
+    now = Date.now(),
+  }: {
+    maxAgeDays?: number;
+    maxEvents?: number;
+    now?: number;
+  } = {}) {
+    return this.runMutation(async () => {
+      const cutoff = new Date(now - Math.max(1, maxAgeDays) * 86400000).toISOString();
+      const beforeCount = this.events.length;
+      let filtered = this.events.filter((e) => {
+        if (e.severity === 'critical' && !e.resolvedAt) return true;
+        return (e.createdAt || '') >= cutoff;
+      });
+      if (filtered.length > maxEvents) {
+        filtered = filtered.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, maxEvents);
+      }
+      this.events = filtered;
+      await this.persist();
+      return {
+        beforeCount,
+        afterCount: this.events.length,
+        prunedCount: beforeCount - this.events.length,
+      };
+    });
+  }
+
   async persist(): Promise<void> {
     await writePrivateJson(this.file, this.events);
   }

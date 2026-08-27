@@ -140,6 +140,105 @@ export class JobStore {
       throw error;
     }
   }
+
+  async pruneExpiredJobs({
+    now = Date.now(),
+    succeededRetentionMs = 14 * 24 * 3600 * 1000,
+    failedRetentionMs = 3 * 24 * 3600 * 1000,
+    cleanJobDirectory = true,
+    dryRun = false,
+  }: {
+    now?: number;
+    succeededRetentionMs?: number;
+    failedRetentionMs?: number;
+    cleanJobDirectory?: boolean;
+    dryRun?: boolean;
+  } = {}): Promise<{
+    mode: 'dry-run' | 'apply';
+    prunedJobsCount: number;
+    prunedJobIds: string[];
+    reclaimedBytes: number;
+  }> {
+    const nonPrunableStatuses = new Set([
+      ...ACTIVE_STATUSES,
+      'awaiting_review',
+      'awaiting_delivery',
+      'paused',
+    ]);
+
+    const jobsDir = path.join(path.dirname(this.file), 'jobs');
+    const toPrune: StoredJob[] = [];
+
+    for (const job of this.jobs.values()) {
+      if (nonPrunableStatuses.has(job.status)) continue;
+
+      const timestamp = Date.parse(job.updatedAt || job.createdAt || '');
+      if (Number.isNaN(timestamp)) continue;
+
+      const ageMs = now - timestamp;
+      const isSucceeded = job.status === 'completed';
+
+      if (isSucceeded && ageMs > succeededRetentionMs) {
+        toPrune.push(job);
+      } else if (!isSucceeded && ageMs > failedRetentionMs) {
+        toPrune.push(job);
+      }
+    }
+
+    let reclaimedBytes = 0;
+    const prunedJobIds: string[] = [];
+
+    for (const job of toPrune) {
+      prunedJobIds.push(job.id);
+      if (cleanJobDirectory) {
+        const targetDir = path.join(jobsDir, job.id);
+        try {
+          const stats = await calculateDirSize(targetDir);
+          reclaimedBytes += stats;
+          if (!dryRun) {
+            await fs.rm(targetDir, { recursive: true, force: true });
+          }
+        } catch {
+          // ignore directory deletion errors
+        }
+      }
+    }
+
+    if (!dryRun && toPrune.length > 0) {
+      await this.mutate(async () => {
+        for (const job of toPrune) {
+          this.jobs.delete(job.id);
+        }
+        await this.persist();
+      });
+    }
+
+    return {
+      mode: dryRun ? 'dry-run' : 'apply',
+      prunedJobsCount: toPrune.length,
+      prunedJobIds,
+      reclaimedBytes,
+    };
+  }
+}
+
+async function calculateDirSize(dirPath: string): Promise<number> {
+  let total = 0;
+  try {
+    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        total += await calculateDirSize(full);
+      } else if (entry.isFile()) {
+        const stat = await fs.stat(full);
+        total += stat.size;
+      }
+    }
+  } catch {
+    return 0;
+  }
+  return total;
 }
 
 export class JobStoreConflictError extends Error {

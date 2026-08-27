@@ -27,6 +27,21 @@ import {
     renderArtifact,
     resultSummary,
 } from './task-record-presentation.js';
+import {
+    renderFilters as renderFiltersHelper,
+    refreshFilterOptions as refreshFilterOptionsHelper,
+    syncControls as syncControlsHelper,
+    replaceRecordUrl as replaceRecordUrlHelper,
+    renderBatchActions as renderBatchActionsHelper,
+    handleBatchAcceptHelper,
+} from './task-record-workbench-filters.js';
+import {
+    renderDetailHeader,
+    renderCollaborationTab,
+    renderOverviewTab,
+    renderListRows,
+    bindDetailInteractions,
+} from './task-record-workbench-views.js';
 
 export { taskAttentionView } from './task-record-detail-view.js';
 export { parseTaskTitle, displayTaskTitle, displaySubtaskTitle } from './task-record-presentation.js';
@@ -342,49 +357,20 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             })
             : state.items;
 
-        // Group tasks into tree hierarchy: root tasks vs child rework tasks
-        const itemIds = new Set(displayItems.map((t: any) => t.taskId));
-        const childrenMap = new Map<string, any[]>();
-        const rootTasks: any[] = [];
-
-        for (const item of displayItems) {
-            if (item.parentTaskId && itemIds.has(item.parentTaskId)) {
-                const arr = childrenMap.get(item.parentTaskId) || [];
-                arr.push(item);
-                childrenMap.set(item.parentTaskId, arr);
-            } else {
-                rootTasks.push(item);
-            }
-        }
-
-        const nextListHtml = rootTasks.map((task: any): any => {
-            const selected: any = state.selectedTaskId === task.taskId;
-            const presentation: any = task.presentation || {};
-            const tone: any = presentation.tone || 'active';
-            const reason: any = compactAttentionReason(task);
-            const createdFull: string = formatFullDateTime(task.createdAt);
-            const updatedFull: string = formatFullDateTime(task.updatedAt);
-            const timeHover: string = `创建于 ${createdFull || '未记录'}${task.updatedAt && task.updatedAt !== task.createdAt ? ` · 更新于 ${updatedFull}` : ''}`;
-            const timeDisplay: string = createdFull ? `${createdFull.slice(5, 16)} (${relativeTime(task.createdAt || task.updatedAt)})` : relativeTime(task.updatedAt || task.createdAt);
-            const children = childrenMap.get(task.taskId) || [];
-            const retryBadgeHtml = children.length ? `<span class="task-badge-pill badge-rework" title="该任务共产生 ${children.length} 轮重试/协同环节">🔁 ${children.length}</span>` : '';
-
-            return html`
-                <button class="record-row${selected ? ' is-selected' : ''}" type="button" role="option" aria-selected="${selected}" data-record-task-id="${task.taskId}">
-                    <span class="record-row-main">
-                        <span class="record-row-title"><span class="record-row-title-text">${raw(displayTaskTitle(task))}</span>${raw(retryBadgeHtml)}</span>
-                        ${raw(reason ? html`<span class="record-row-reason">${reason}</span>` : '')}
-                        <span class="record-row-meta" title="${escapeHtml(timeHover)}"><span>${agentName(task.assigneeAgentId)}</span><span>·</span><span>${timeDisplay}</span></span>
-                    </span>
-                    <span class="record-row-status ${tone}">${presentation.statusLabel || ''}</span>
-                </button>
-            `;
-        }).join('');
+        const nextListHtml = renderListRows({
+            displayItems,
+            selectedTaskId: state.selectedTaskId,
+            compactAttentionReason,
+            agentName,
+            relativeTime,
+            displayTaskTitle,
+        });
 
         if (elements.list.innerHTML !== nextListHtml) {
             elements.list.innerHTML = nextListHtml;
         }
     }
+
     function renderRoutineSummary(summary: any = {}): any {
         const hidden: any = Number(summary.hidden || 0);
         if (!hidden || state.includeRoutine) {
@@ -436,95 +422,67 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const isReworkTask = parsedTitle?.badges?.some((b: any) => b.tone === 'rework') || /定向返工/i.test(task?.input?.title || task?.title || '');
         const reworkArtifactsHtml = isReworkTask && artifacts.length ? artifacts.map((a: any) => renderArtifact(a, { isAccepted: isTaskAccepted })).join('') : '';
         const isWaitingTest = task.status === 'waiting_test';
-        const waitingTestGuideHtml = isWaitingTest ? html`
-            <div class="record-waiting-test-guide" role="status">
-                <svg width="16" height="16" aria-hidden="true"><use href="#icon-shield"></use></svg>
-                <div class="waiting-test-content">
-                    <strong>待人工核验确认</strong>
-                    <p>当前任务已执行完毕。请在下方交付产物中查验体验；核验满意后，点击下方「有用/采纳」完成任务验收闭环。</p>
-                </div>
-            </div>
-        ` : '';
 
         // Tab 1: Combined Overview & Deliverables Panel
-        const overviewTabHtml = html`
-            <div class="detail-tab-pane ${state.detailTab === 'overview' || state.detailTab === 'deliverables' ? 'is-active' : ''}" data-pane="overview">
-                ${raw(waitingTestGuideHtml)}
-                ${raw(renderTaskLineageCard(task, parsedTitle, reworkArtifactsHtml))}
-                ${raw(renderTaskProgressBar(task, { agentName }))}
-                ${raw(renderAcceptanceDetail(acceptanceTarget, acceptanceState, escapeHtml))}
-                ${raw(outcomeHtml)}
-                <section class="record-deliverables-full">
-                    <div class="deliverables-full-head">
-                        <div>
-                            <h3>交付产物成果 (${artifacts.length})</h3>
-                            <p class="deliverables-full-desc">汇集本次任务生成的全部交付物、拆解分析与证据文件：</p>
-                        </div>
-                    </div>
-                    ${raw(artifacts.length ? html`
-                        <ul class="record-artifact-list full-grid">
-                            ${raw(artifacts.map((a: any) => renderArtifact(a, { isAccepted: isTaskAccepted })).join(''))}
-                        </ul>
-                    ` : html`
-                        <div class="deliverables-empty">
-                            <svg width="24" height="24" aria-hidden="true"><use href="#icon-records"></use></svg>
-                            <p>本次任务暂未产生交付物文件</p>
-                        </div>
-                    `)}
-                    ${raw(renderDeliverySink(task))}
-                </section>
-                ${raw(renderOriginCard(task))}
-            </div>
-        `;
+        const overviewTabHtml = renderOverviewTab({
+            task,
+            state,
+            agentName,
+            parsedTitle,
+            reworkArtifactsHtml,
+            isWaitingTest,
+            acceptanceTarget,
+            acceptanceState,
+            outcomeHtml,
+            artifacts,
+            isTaskAccepted,
+            renderTaskLineageCard,
+            renderTaskProgressBar,
+            renderAcceptanceDetail,
+            renderArtifact,
+            renderDeliverySink,
+            renderOriginCard,
+            escapeHtml,
+        });
+
 
         // Tab 2: Collaboration & Trace Panel
-        const costHtml: string = renderCostSection(task);
-        const costCollapsible: string = costHtml
-            ? html`<details class="record-cost-collapsible"><summary><span>执行开销与费用账本</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary>${raw(costHtml)}</details>`
-            : '';
-
-        const collaborationTabHtml = html`
-            <div class="detail-tab-pane ${state.detailTab === 'collaboration' ? 'is-active' : ''}" data-pane="collaboration">
-                ${raw(renderTaskWorkflowTree(task, { agentName }))}
-                <section class="collaboration-timeline-section">
-                    <h3 class="collaboration-section-title">实施过程流水</h3>
-                    ${raw(state.timelineHtml || '<div class="timeline-loading-shell"><p>正在读取实施过程记录…</p></div>')}
-                </section>
-                ${raw(costCollapsible)}
-                ${raw(renderTechnicalDetails(task, presentation, attention, escapeHtml))}
-            </div>
-        `;
+        const collaborationTabHtml = renderCollaborationTab({
+            task,
+            state,
+            agentName,
+            renderTaskWorkflowTree,
+            renderCostSection,
+            renderTechnicalDetails,
+            presentation,
+            attention,
+            escapeHtml,
+        });
 
         // Drawer overlay for subtask preview
         const subtaskDrawerHtml = state.previewSubtaskData
             ? renderSubtaskDrawer(state.previewSubtaskData, { agentName, parentAgent: agentName(task.assigneeAgentId) })
             : '';
 
+        const headerHtml = renderDetailHeader({
+            task,
+            presentation,
+            agentName,
+            createdFull,
+            durationText,
+            relativeTime,
+            displayTaskTitle,
+        });
+
         const nextDetailHtml = html`
-      <button class="record-detail-back" type="button">返回</button>
-      <header class="record-detail-header">
-        <div class="record-detail-title-row">
-          <div class="record-detail-title-col">
-            <h2>${raw(displayTaskTitle(task))}</h2>
-            <p class="record-detail-meta">
-              <span class="meta-agent">${agentName(task.assigneeAgentId)}</span>
-              <span>·</span>
-              <span class="meta-created" title="任务创建时间">创建于 ${createdFull || '未记录'} (${relativeTime(task.createdAt || task.updatedAt)})</span>
-              ${raw(durationText ? html`<span>·</span><span class="meta-duration" title="执行耗时">耗时 ${durationText}</span>` : '')}
-              ${raw(presentation.taskRef ? html`<span>·</span><span class="meta-ref">${presentation.taskRef}</span>` : '')}
-            </p>
-          </div>
-          <div class="record-detail-header-actions">
-            <span class="record-row-status ${presentation.tone || 'active'}">${presentation.statusLabel || ''}</span>
-          </div>
-        </div>
-      </header>
+      ${raw(headerHtml)}
       ${raw(tabNavHtml)}
       <div class="detail-tab-content">
         ${raw(overviewTabHtml)}
         ${raw(collaborationTabHtml)}
       </div>
       ${raw(subtaskDrawerHtml)}`;
+
 
         if (elements.detail.innerHTML === nextDetailHtml) {
             return;
@@ -575,20 +533,6 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             });
         }
 
-        // Close drawer handlers
-        for (const closeBtn of elements.detail.querySelectorAll('[data-subtask-drawer-close]')) {
-            closeBtn.addEventListener('click', (): any => {
-                state.previewSubtaskData = null;
-                renderDetail();
-            });
-        }
-        elements.detail.querySelector('[data-subtask-drawer-overlay]')?.addEventListener('click', (e: any): any => {
-            if (e.target === e.currentTarget) {
-                state.previewSubtaskData = null;
-                renderDetail();
-            }
-        });
-
         // Trigger timeline loading automatically when collaboration tab opens
         if (state.detailTab === 'collaboration' && !state.timelineHtml) {
             loadTimeline(task.taskId).then((htmlStr: string) => {
@@ -597,80 +541,15 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             });
         }
 
-        elements.detail.querySelector('.record-detail-back')?.addEventListener('click', (): any => {
-            elements.workbench.classList.remove('is-detail-open');
-            replaceRecordUrl();
+        bindDetailInteractions({
+            elements,
+            state,
+            task,
+            renderDetail,
+            replaceRecordUrl,
+            loadSelectedDetail,
         });
 
-        for (const copyBtn of elements.detail.querySelectorAll('[data-copy-path]')) {
-            copyBtn.addEventListener('click', async (event: any): Promise<any> => {
-                const path = event.currentTarget.dataset.copyPath;
-                if (!path) return;
-                try {
-                    await navigator.clipboard.writeText(path);
-                    const originalText = event.currentTarget.textContent;
-                    event.currentTarget.textContent = '已复制路径';
-                    setTimeout(() => {
-                        if (event.currentTarget && event.currentTarget.isConnected) {
-                            event.currentTarget.textContent = originalText;
-                        }
-                    }, 2000);
-                } catch {
-                    event.currentTarget.textContent = '复制失败';
-                }
-            });
-        }
-
-        for (const copyTextBtn of elements.detail.querySelectorAll('[data-copy-text]')) {
-            copyTextBtn.addEventListener('click', async (event: any): Promise<any> => {
-                const text = event.currentTarget.dataset.copyText;
-                if (!text) return;
-                try {
-                    await navigator.clipboard.writeText(text);
-                    const originalText = event.currentTarget.textContent;
-                    event.currentTarget.textContent = '已复制内容';
-                    setTimeout(() => {
-                        if (event.currentTarget && event.currentTarget.isConnected) {
-                            event.currentTarget.textContent = originalText;
-                        }
-                    }, 2000);
-                } catch {
-                    event.currentTarget.textContent = '复制失败';
-                }
-            });
-        }
-
-        for (const switchBtn of elements.detail.querySelectorAll('.tree-switch-btn')) {
-            switchBtn.addEventListener('click', async (): Promise<any> => {
-                const targetId: any = switchBtn.dataset.recordTaskId;
-                if (targetId && targetId !== state.selectedTaskId) {
-                    state.selectedTaskId = targetId;
-                    state.selectedTask = null;
-                    state.previewSubtaskData = null;
-                    state.detailTab = 'overview';
-                    state.selectedDetailLoaded = false;
-                    await loadSelectedDetail({ revealDetail: true });
-                }
-            });
-        }
-
-        elements.detail.querySelector('.record-copy-id')?.addEventListener('click', async (event: any): Promise<any> => {
-            try {
-                await navigator.clipboard.writeText(task.taskId);
-                const button: any = event.currentTarget;
-                if (button) {
-                    button.textContent = '已复制';
-                    setTimeout(() => {
-                        if (button && button.isConnected && button.textContent === '已复制') {
-                            button.textContent = '复制编号';
-                        }
-                    }, 2000);
-                }
-            }
-            catch {
-                event.currentTarget.textContent = '复制失败';
-            }
-        });
         for (const button of elements.detail.querySelectorAll('[data-attention-action]')) {
             button.addEventListener('click', (): any => confirmAttentionAction(task, button.dataset.attentionAction));
         }
@@ -847,135 +726,38 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         throw new Error('本机操作授权刷新失败，请重新打开任务详情后重试。');
     }
 
-    function isTaskAdoptable(task: any): boolean {
-        if (!task) return false;
-        const attention: any = taskAttentionView(task);
-        if (attention?.actions?.some((a: any) => a.actionKey === 'accept_reviewed_artifact')) {
-            return true;
-        }
-        if (task.status === 'waiting_test') {
-            return true;
-        }
-        const target: any = acceptanceTargetView(task);
-        if (target?.actionable) {
-            return true;
-        }
-        return false;
-    }
-
     function renderBatchActions(): void {
-        if (!elements.batchActions || !elements.batchAcceptBtn || !elements.batchCount) return;
-        const adoptableTasks = state.items.filter((task: any) => isTaskAdoptable(task));
-        if (adoptableTasks.length > 0) {
-            elements.batchActions.hidden = false;
-            elements.batchCount.textContent = String(adoptableTasks.length);
-            if (!state.batchSubmitting) {
-                elements.batchAcceptBtn.disabled = false;
-                elements.batchAcceptBtn.innerHTML = `<svg aria-hidden="true" width="12" height="12"><use href="#icon-shield"></use></svg><span>批量采纳 (<b id="batch-adoptable-count">${adoptableTasks.length}</b>)</span>`;
-            }
-        } else {
-            elements.batchActions.hidden = true;
-        }
+        renderBatchActionsHelper(state, elements, isTaskAdoptable);
     }
 
     async function handleBatchAccept(): Promise<any> {
-        const adoptableTasks = state.items.filter((task: any) => isTaskAdoptable(task));
-        if (!adoptableTasks.length || state.batchSubmitting) return;
-        const count = adoptableTasks.length;
-        if (typeof window !== 'undefined' && typeof window.confirm === 'function' && !window.confirm(`确认批量采纳当前 ${count} 项待采纳任务产物？`)) {
-            return;
-        }
-        state.batchSubmitting = true;
-        elements.batchAcceptBtn.disabled = true;
+        await handleBatchAcceptHelper({
+            state,
+            elements,
+            isTaskAdoptable,
+            acceptanceTargetView,
+            newIdempotencyKey,
+            submitAcceptance,
+            api,
+            loadRecords,
+            renderBatchActions,
+        });
+    }
 
-        let success = 0;
-        let failed = 0;
 
-        for (let i = 0; i < adoptableTasks.length; i++) {
-            const task = adoptableTasks[i];
-            elements.batchAcceptBtn.innerHTML = `<span>正在采纳 (${i + 1}/${count})…</span>`;
-            try {
-                const target: any = acceptanceTargetView(task);
-                if (target?.actionable) {
-                    const idempotencyKey: any = newIdempotencyKey(target.workflowId, 'accepted');
-                    await submitAcceptance({ target, decision: 'accepted', idempotencyKey });
-                    success++;
-                } else {
-                    const session: any = await api('/api/owner-action-session');
-                    const nonce: any = String(session?.nonce || '').trim();
-                    if (!nonce) throw new Error('暂时无法取得本机操作授权');
-                    const idempotencyKey: any = newIdempotencyKey(task.taskId, 'accept_reviewed_artifact');
-                    await api(`/api/tasks/${encodeURIComponent(task.taskId)}/recovery-actions/accept_reviewed_artifact`, {
-                        method: 'POST',
-                        headers: {
-                            'content-type': 'application/json',
-                            'Idempotency-Key': idempotencyKey,
-                            'X-Ajun-Owner-Action': nonce,
-                        },
-                        body: JSON.stringify({ expectedUpdatedAt: task.updatedAt || null }),
-                    });
-                    success++;
-                }
-            } catch (err) {
-                console.error('Batch accept task error:', task.taskId, err);
-                failed++;
-            }
-        }
+    function renderFilters(): void {
+        renderFiltersHelper(state, elements, agentName, statusLabel, taskTypeLabel, BACKLOG_CATEGORY_LABELS);
+    }
 
-        state.batchSubmitting = false;
-        await loadRecords();
-        if (elements.batchAcceptBtn) {
-            elements.batchAcceptBtn.innerHTML = `<svg aria-hidden="true" width="12" height="12"><use href="#icon-shield"></use></svg><span>${failed === 0 ? `已成功采纳 ${success} 项` : `完成：成功 ${success}，失败 ${failed}`}</span>`;
-            setTimeout(() => {
-                renderBatchActions();
-            }, 3000);
-        }
+    function refreshFilterOptions(): void {
+        refreshFilterOptionsHelper(state, elements, getAgents, taskTypeLabel);
     }
-    function renderFilters(): any {
-        const chips: any = [];
-        if (state.q)
-            chips.push(`搜索：${state.q}`);
-        if (state.agentId)
-            chips.push(agentName(state.agentId));
-        if (state.status)
-            chips.push(`状态：${statusLabel(state.status)}`);
-        if (state.taskType)
-            chips.push(taskTypeLabel(state.taskType));
-        if (state.time !== '30d')
-            chips.push(state.time === 'all' ? '全部时间' : '近 7 天');
-        if (state.includeRoutine)
-            chips.push('包含例行巡检');
-        if (state.backlogCategory)
-            chips.unshift(`状态：${BACKLOG_CATEGORY_LABELS[state.backlogCategory]}`);
-        elements.activeFilters.innerHTML = chips.map((chip: any): any => html`<span class="record-filter-chip">${chip}</span>`).join('');
-        elements.activeFilters.hidden = !chips.length;
-        const changed: any = Boolean(state.q || state.agentId || state.status || state.taskType || state.time !== '30d' || state.includeRoutine || state.backlogCategory);
-        elements.filterToggle.classList.toggle('has-filters', changed);
+
+    function syncControls(): void {
+        syncControlsHelper(state, elements, renderFilters);
     }
-    function refreshFilterOptions(): any {
-        const selectedAgent: any = state.agentId;
-        const selectedType: any = state.taskType;
-        const selectedStatus: any = state.status;
-        const agents: any = [...(getAgents() || [])].sort((left: any, right: any): any => String(left.name || '').localeCompare(String(right.name || ''), 'zh-CN'));
-        elements.agentFilter.replaceChildren(option('', '全部员工'), ...agents.map((agent: any): any => option(agent.agentId, agent.name || agent.agentId)));
-        const types: any = [...new Set(agents.flatMap((agent: any): any => agent.acceptedTaskTypes || []))].sort((left: any, right: any): any => taskTypeLabel(left).localeCompare(taskTypeLabel(right), 'zh-CN'));
-        elements.typeFilter.replaceChildren(option('', '全部类型'), ...types.map((type: any): any => option(type, taskTypeLabel(type))));
-        elements.agentFilter.value = selectedAgent;
-        elements.typeFilter.value = selectedType;
-        if (elements.statusFilter)
-            elements.statusFilter.value = selectedStatus;
-    }
-    function syncControls(): any {
-        elements.search.value = state.q;
-        elements.agentFilter.value = state.agentId;
-        if (elements.statusFilter)
-            elements.statusFilter.value = state.status;
-        elements.typeFilter.value = state.taskType;
-        elements.timeFilter.value = state.time;
-        elements.routineFilter.checked = state.includeRoutine;
-        renderFilters();
-    }
-    function recordQueryUrl(cursor: any): any {
+
+    function recordQueryUrl(cursor: any): string {
         const params: any = new URLSearchParams({ view: state.view, limit: '24' });
         if (state.backlogCategory)
             params.set('backlogCategory', state.backlogCategory);
@@ -995,27 +777,11 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             params.set('cursor', cursor);
         return `/api/task-records?${params}`;
     }
-    function replaceRecordUrl(): any {
-        const url: any = new URL('/', location.origin);
-        if (state.view !== 'needs_action')
-            url.searchParams.set('recordView', state.view);
-        if (state.q)
-            url.searchParams.set('recordQuery', state.q);
-        if (state.agentId)
-            url.searchParams.set('recordAgent', state.agentId);
-        if (state.status)
-            url.searchParams.set('recordStatus', state.status);
-        if (state.taskType)
-            url.searchParams.set('recordType', state.taskType);
-        if (state.time !== '30d')
-            url.searchParams.set('recordTime', state.time);
-        if (state.includeRoutine)
-            url.searchParams.set('recordRoutine', '1');
-        if (state.backlogCategory)
-            url.searchParams.set('recordCategory', state.backlogCategory);
-        url.hash = 'records';
-        history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+
+    function replaceRecordUrl(): void {
+        replaceRecordUrlHelper(state, BACKLOG_CATEGORY_LABELS);
     }
+
     function renderLoading(): any {
         if (!state.items.length) {
             elements.count.textContent = '读取中';
@@ -1047,18 +813,21 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         });
     }
 }
+
 function missingNextActionMessage(taskView: any): string {
     if (taskView === 'needs_action')
         return '没有可执行动作，去飞书补充信息。';
     return '处理中，有进度会更新。';
 }
+
 function compactAttentionReason(task: any): any {
     const attention: any = taskAttentionView(task);
     if (!attention)
         return '';
     return cleanAttentionText(attention.cause, 90);
 }
-export function renderTechnicalDetails(task: any, presentation: any, attention: any, escapeHtml: any): any {
+
+export function renderTechnicalDetails(task: any, presentation: any, attention: any, _escapeHtml: any): any {
     const attentionTechnicalView: any = attention?.technical || null;
     const presentationTechnical: any = presentation?.technical && typeof presentation.technical === 'object'
         ? presentation.technical
@@ -1089,22 +858,26 @@ export function renderTechnicalDetails(task: any, presentation: any, attention: 
     const rowsHtml: string = rows.map(([label, value]: any): any => html`<div><dt>${label}</dt><dd>${value}</dd></div>`).join('');
     return html`<details class="record-technical" data-disclosure-key="record-technical:${values.taskId}"><summary><span>编号与审计</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><dl>${raw(rowsHtml)}</dl><div class="record-technical-actions">${raw(paperclipIssue)}<button class="text-action record-copy-id" type="button">复制编号</button></div></details>`;
 }
+
 function newIdempotencyKey(taskId: any, actionKey: any): any {
     const random: any = globalThis.crypto?.randomUUID?.()
         || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
     return `ajun-console:${String(taskId).slice(0, 36)}:${String(actionKey).slice(0, 40)}:${random}`;
 }
+
 function withAcceptanceTarget(payload: any): any {
     const task: any = payload?.task && typeof payload.task === 'object' ? payload.task : {};
     const acceptanceTarget: any = task.acceptanceTarget || payload?.acceptanceTarget || null;
     return acceptanceTarget ? { ...task, acceptanceTarget } : task;
 }
+
 function acceptanceRevision(task: any): any {
     const target: any = acceptanceTargetView(task);
     return target
         ? `${String(target.revision ?? '')}:${String(target.decision || '')}:${String(target.actionable)}`
         : '';
 }
+
 function acceptanceErrorMessage(error: any): any {
     if (error?.status === 409)
         return '这项结果刚刚在其他入口被处理了。你的选择没有覆盖新结果，请刷新后查看最新状态。';
@@ -1116,6 +889,23 @@ function acceptanceErrorMessage(error: any): any {
         return '当前运行版本还不能在运行台保存验收。这项待办没有被更改，你仍可在飞书完成验收。';
     return cleanAttentionText(error?.message, 500) || '验收结果没有保存。这项待办仍然保留，请稍后重试。';
 }
+
+function isTaskAdoptable(task: any): boolean {
+    if (!task) return false;
+    const attention: any = taskAttentionView(task);
+    if (attention?.actions?.some((a: any) => a.actionKey === 'accept_reviewed_artifact')) {
+        return true;
+    }
+    if (task.status === 'waiting_test') {
+        return true;
+    }
+    const target: any = acceptanceTargetView(task);
+    if (target?.actionable) {
+        return true;
+    }
+    return false;
+}
+
 function recordElements(): any {
     return {
         workbench: document.querySelector('#record-workbench'),
@@ -1143,6 +933,7 @@ function recordElements(): any {
         detail: document.querySelector('#record-detail'),
     };
 }
+
 function readUrlState(): any {
     const params: any = new URLSearchParams(location.search);
     const view: any = VIEW_LABELS[params.get('recordView')] ? params.get('recordView') : 'needs_action';
@@ -1160,16 +951,19 @@ function readUrlState(): any {
             : '',
     };
 }
+
 function option(value: any, label: any): any {
     const node: any = document.createElement('option');
     node.value = value;
     node.textContent = label;
     return node;
 }
+
 function sinceFor(period: any): any {
     const days: any = period === '7d' ? 7 : 30;
     return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 }
+
 function stateForTask(status: any): any {
     if (['failed', 'needs_input', 'pending_approval', 'waiting_approval', 'waiting_test', 'paused', 'blocked', 'error'].includes(status))
         return 'needs_action';
@@ -1177,3 +971,5 @@ function stateForTask(status: any): any {
         return 'completed';
     return 'active';
 }
+
+

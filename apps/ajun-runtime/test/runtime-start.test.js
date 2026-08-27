@@ -121,6 +121,7 @@ test('真实 createRuntime 使用临时状态和随机端口提供公开 HTTP In
     'technical-repair-watchdog',
     'task-liveness-watchdog',
     'artifact-storage-gc',
+    'data-lifecycle-governance',
     'delivery-unknown',
     'health-mesh',
     'anomaly-alerting',

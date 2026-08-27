@@ -23,6 +23,7 @@ export function createBackgroundLifecycleComposition({
   governance,
   localExecution,
   tasks,
+  taskRunEvents,
   roleExecution,
   missionChildPolicy = null,
   logger = console,
@@ -90,7 +91,7 @@ export function createBackgroundLifecycleComposition({
   const missionReconciler = new CrossAgentMissionReconciler({ store, missions });
 
   // 6大稳定性闭环组件
-  const stability = createStabilityLifecycleComposition({ store, paths, roleExecution });
+  const stability = createStabilityLifecycleComposition({ store, taskRunEvents, paths, roleExecution });
 
   const reconciliationCoordinator = new ReconciliationCoordinator({
     mutationSource:store,

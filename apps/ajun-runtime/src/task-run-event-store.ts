@@ -129,6 +129,19 @@ export class TaskRunEventStore {
             incidentSummariesCreated: 0,
         };
     }
+    inspectCounts(): any {
+        const totalEvents = Number(this.database.prepare('SELECT COUNT(*) AS count FROM task_run_events').get()?.count || 0);
+        const byClass: Record<string, number> = {};
+        for (const cls of ['transient', 'detail', 'audit', 'permanent']) {
+            byClass[cls] = Number(this.database.prepare('SELECT COUNT(*) AS count FROM task_run_events WHERE retention_class = ?').get(cls)?.count || 0);
+        }
+        const incidentSummaries = Number(this.database.prepare('SELECT COUNT(*) AS count FROM task_run_incident_summaries').get()?.count || 0);
+        return {
+            totalEvents,
+            byClass,
+            incidentSummaries,
+        };
+    }
     cleanupExpiredDetails({ now = this.clock(), retentionDays, retentionDaysByClass }: any = {}): any {
         const normalizedNow: any = new Date(now).toISOString();
         const cutoffs: any = retentionCutoffs(normalizedNow, { retentionDays, retentionDaysByClass });

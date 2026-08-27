@@ -18,6 +18,7 @@ import { readTranscriptRevision, reviseTranscript, reviewTranscript, TranscriptR
 import { collectMetricsRequest, MetricsRequestError } from './metrics-api.ts';
 import { TaskRunEventStore } from 'ajun-runtime/task-run-event-store';
 import { CapabilityModelPolicyReader } from './capability-model-policy.ts';
+import { XiaodDataLifecycleService } from './data-lifecycle-service.ts';
 
 await fs.mkdir(config.workDir, { recursive: true });
 await fs.chmod(config.workDir, 0o700);
@@ -26,6 +27,8 @@ await fs.mkdir(uploadsDir, { recursive: true });
 await fs.chmod(uploadsDir, 0o700);
 const store = new JobStore(config.workDir);
 await store.init();
+const dataLifecycle = new XiaodDataLifecycleService({ store });
+dataLifecycle.start();
 const taskRunEventDb = await prepareTaskRunEventDatabasePath(config.taskRunEventDb);
 const taskRunEvents = new TaskRunEventStore(taskRunEventDb);
 type DynamicRecord = Record<string, any>;
@@ -59,7 +62,18 @@ app.get('/api/health', async (_req, res, next) => {
       capabilities:configuredCapabilities(),
       capabilityModelPolicy:await capabilityModelPolicy.snapshot(),
       commonAccess:await contentRuntime.health(),
+      dataLifecycle:dataLifecycle.getStatus(),
     });
+  } catch (error) { next(error); }
+});
+app.get('/api/data-lifecycle', (_req, res) => {
+  res.json(dataLifecycle.getStatus());
+});
+app.post('/api/data-lifecycle/reconcile', async (req, res, next) => {
+  try {
+    const dryRun = req.query.dryRun === 'true' || req.body?.dryRun === true;
+    const result = await dataLifecycle.runGc({ dryRun });
+    res.json({ ok: true, result });
   } catch (error) { next(error); }
 });
 app.get('/api/jobs', (_req, res) => res.json({ jobs: store.list() }));

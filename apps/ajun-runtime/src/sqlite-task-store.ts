@@ -391,6 +391,70 @@ export class SQLiteTaskStore {
         counts.conversationContexts = Number(this.database.prepare('SELECT COUNT(*) AS count FROM conversation_contexts').get().count);
         return counts;
     }
+    async pruneExpiredRecords({
+        now = Date.now(),
+        routineRetentionDays = 7,
+        conversationContextRetentionDays = 30,
+        testInstanceRetentionDays = 30,
+        proposalRetentionDays = 60,
+        terminalTaskRetentionDays = 90,
+        dryRun = false,
+    }: any = {}): Promise<any> {
+        const nowMs = typeof now === 'number' ? now : new Date(now).getTime();
+        const routineCutoff = new Date(nowMs - Math.max(1, routineRetentionDays) * 86400000).toISOString();
+        const contextCutoff = new Date(nowMs - Math.max(1, conversationContextRetentionDays) * 86400000).toISOString();
+        const testInstanceCutoff = new Date(nowMs - Math.max(1, testInstanceRetentionDays) * 86400000).toISOString();
+        const proposalCutoff = new Date(nowMs - Math.max(1, proposalRetentionDays) * 86400000).toISOString();
+        const terminalTaskCutoff = new Date(nowMs - Math.max(1, terminalTaskRetentionDays) * 86400000).toISOString();
+
+        const routineTasksClause = `(${routineTaskSql()} OR ${internalDiagnosticTaskSql()}) AND updated_at < ? AND json_extract(data_json, '$.status') IN ('succeeded', 'failed', 'cancelled')`;
+        const terminalTasksClause = `json_extract(data_json, '$.status') IN ('succeeded', 'failed', 'cancelled') AND updated_at < ? AND ${taskViewSql()} = 'completed' AND NOT (${routineTaskSql()}) AND NOT (${internalDiagnosticTaskSql()})`;
+
+        if (dryRun) {
+            const expiringRoutineTasks = Number(this.database.prepare(`SELECT COUNT(*) AS count FROM tasks WHERE ${routineTasksClause}`).get(routineCutoff)?.count || 0);
+            const expiringTerminalTasks = Number(this.database.prepare(`SELECT COUNT(*) AS count FROM tasks WHERE ${terminalTasksClause}`).get(terminalTaskCutoff)?.count || 0);
+            const expiringContexts = Number(this.database.prepare(`SELECT COUNT(*) AS count FROM conversation_contexts WHERE updated_at < ?`).get(contextCutoff)?.count || 0);
+            const expiringTestInstances = Number(this.database.prepare(`SELECT COUNT(*) AS count FROM test_instances WHERE updated_at < ?`).get(testInstanceCutoff)?.count || 0);
+            const expiringProposals = Number(this.database.prepare(`SELECT COUNT(*) AS count FROM proposals WHERE updated_at < ? AND json_extract(data_json, '$.status') IN ('rejected', 'superseded', 'applied', 'archived', 'withdrawn')`).get(proposalCutoff)?.count || 0);
+
+            return {
+                mode: 'dry-run',
+                cutoffs: { routineCutoff, contextCutoff, testInstanceCutoff, proposalCutoff, terminalTaskCutoff },
+                expiring: {
+                    routineTasks: expiringRoutineTasks,
+                    terminalTasks: expiringTerminalTasks,
+                    conversationContexts: expiringContexts,
+                    testInstances: expiringTestInstances,
+                    proposals: expiringProposals,
+                },
+                totalExpiring: expiringRoutineTasks + expiringTerminalTasks + expiringContexts + expiringTestInstances + expiringProposals,
+                deleted: { routineTasks: 0, terminalTasks: 0, conversationContexts: 0, testInstances: 0, proposals: 0 },
+                totalDeleted: 0,
+            };
+        }
+
+        return this.#transaction((): any => {
+            const deletedRoutineTasks = Number(this.database.prepare(`DELETE FROM tasks WHERE ${routineTasksClause}`).run(routineCutoff)?.changes || 0);
+            const deletedTerminalTasks = Number(this.database.prepare(`DELETE FROM tasks WHERE ${terminalTasksClause}`).run(terminalTaskCutoff)?.changes || 0);
+            const deletedContexts = Number(this.database.prepare(`DELETE FROM conversation_contexts WHERE updated_at < ?`).run(contextCutoff)?.changes || 0);
+            const deletedTestInstances = Number(this.database.prepare(`DELETE FROM test_instances WHERE updated_at < ?`).run(testInstanceCutoff)?.changes || 0);
+            const deletedProposals = Number(this.database.prepare(`DELETE FROM proposals WHERE updated_at < ? AND json_extract(data_json, '$.status') IN ('rejected', 'superseded', 'applied', 'archived', 'withdrawn')`).run(proposalCutoff)?.changes || 0);
+
+            const totalDeleted = deletedRoutineTasks + deletedTerminalTasks + deletedContexts + deletedTestInstances + deletedProposals;
+            return {
+                mode: 'apply',
+                cutoffs: { routineCutoff, contextCutoff, testInstanceCutoff, proposalCutoff, terminalTaskCutoff },
+                deleted: {
+                    routineTasks: deletedRoutineTasks,
+                    terminalTasks: deletedTerminalTasks,
+                    conversationContexts: deletedContexts,
+                    testInstances: deletedTestInstances,
+                    proposals: deletedProposals,
+                },
+                totalDeleted,
+            };
+        });
+    }
     async importSnapshot(snapshot: any, { sourceDigest }: any = {}): Promise<any> {
         const normalized: any = normalizeSnapshot(snapshot);
         const digest: any = sourceDigest || snapshotDigest(normalized);
