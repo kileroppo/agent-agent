@@ -219,6 +219,12 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
                 replaceRecordUrl();
                 page = await api(recordQueryUrl(''));
             }
+            if (!append && !urlState.explicitView && state.view === 'needs_action' && page.counts?.needs_action === 0 && (page.counts?.all > 0 || page.counts?.completed > 0)) {
+                state.view = 'all';
+                syncControls();
+                replaceRecordUrl();
+                page = await api(recordQueryUrl(''));
+            }
             state.items = append ? [...state.items, ...page.items] : page.items;
             state.counts = page.counts;
             state.total = page.total;

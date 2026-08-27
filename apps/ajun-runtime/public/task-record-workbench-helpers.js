@@ -111,10 +111,12 @@ export function recordElements() {
 }
 export function readUrlState() {
     const params = new URLSearchParams(location.search);
-    const view = VIEW_LABELS[params.get('recordView')] ? params.get('recordView') : 'needs_action';
+    const explicitView = params.has('recordView') && Boolean(VIEW_LABELS[params.get('recordView')]);
+    const view = explicitView ? params.get('recordView') : 'needs_action';
     const time = ['7d', '30d', 'all'].includes(params.get('recordTime')) ? params.get('recordTime') : '30d';
     return {
         view,
+        explicitView,
         q: String(params.get('recordQuery') || '').slice(0, 160),
         agentId: String(params.get('recordAgent') || '').slice(0, 80),
         status: String(params.get('recordStatus') || '').slice(0, 80),
