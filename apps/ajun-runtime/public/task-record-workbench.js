@@ -332,7 +332,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
                 rootTasks.push(item);
             }
         }
-        elements.list.innerHTML = rootTasks.map((task) => {
+        const nextListHtml = rootTasks.map((task) => {
             const selected = state.selectedTaskId === task.taskId;
             const presentation = task.presentation || {};
             const tone = presentation.tone || 'active';
@@ -354,6 +354,9 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
                 </button>
             `;
         }).join('');
+        if (elements.list.innerHTML !== nextListHtml) {
+            elements.list.innerHTML = nextListHtml;
+        }
     }
     function renderRoutineSummary(summary = {}) {
         const hidden = Number(summary.hidden || 0);
@@ -463,7 +466,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const subtaskDrawerHtml = state.previewSubtaskData
             ? renderSubtaskDrawer(state.previewSubtaskData, { agentName, parentAgent: agentName(task.assigneeAgentId) })
             : '';
-        elements.detail.innerHTML = html `
+        const nextDetailHtml = html `
       <button class="record-detail-back" type="button">返回</button>
       <header class="record-detail-header">
         <div class="record-detail-title-row">
@@ -488,6 +491,19 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         ${raw(collaborationTabHtml)}
       </div>
       ${raw(subtaskDrawerHtml)}`;
+        if (elements.detail.innerHTML === nextDetailHtml) {
+            return;
+        }
+        const prevScrollTop = elements.detail.scrollTop;
+        const openDisclosures = new Set([...elements.detail.querySelectorAll('details')].filter((d) => d.open).map((d) => d.querySelector('summary')?.textContent?.trim() || ''));
+        elements.detail.innerHTML = nextDetailHtml;
+        for (const details of elements.detail.querySelectorAll('details')) {
+            const sumText = details.querySelector('summary')?.textContent?.trim() || '';
+            if (openDisclosures.has(sumText)) {
+                details.open = true;
+            }
+        }
+        elements.detail.scrollTop = prevScrollTop;
         // Tab Switching Handler
         for (const tabBtn of elements.detail.querySelectorAll('[data-detail-tab]')) {
             tabBtn.addEventListener('click', async (e) => {
@@ -965,8 +981,10 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
     }
     function renderLoading() {
-        elements.count.textContent = '读取中';
-        elements.list.innerHTML = '<div class="record-list-empty"><strong>读取中</strong></div>';
+        if (!state.items.length) {
+            elements.count.textContent = '读取中';
+            elements.list.innerHTML = '<div class="record-list-empty"><strong>读取中</strong></div>';
+        }
     }
     function renderError(error) {
         elements.count.textContent = '读取失败';

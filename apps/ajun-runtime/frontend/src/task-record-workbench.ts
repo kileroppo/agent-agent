@@ -357,7 +357,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             }
         }
 
-        elements.list.innerHTML = rootTasks.map((task: any): any => {
+        const nextListHtml = rootTasks.map((task: any): any => {
             const selected: any = state.selectedTaskId === task.taskId;
             const presentation: any = task.presentation || {};
             const tone: any = presentation.tone || 'active';
@@ -380,6 +380,10 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
                 </button>
             `;
         }).join('');
+
+        if (elements.list.innerHTML !== nextListHtml) {
+            elements.list.innerHTML = nextListHtml;
+        }
     }
     function renderRoutineSummary(summary: any = {}): any {
         const hidden: any = Number(summary.hidden || 0);
@@ -496,7 +500,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             ? renderSubtaskDrawer(state.previewSubtaskData, { agentName, parentAgent: agentName(task.assigneeAgentId) })
             : '';
 
-        elements.detail.innerHTML = html`
+        const nextDetailHtml = html`
       <button class="record-detail-back" type="button">返回</button>
       <header class="record-detail-header">
         <div class="record-detail-title-row">
@@ -521,6 +525,23 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         ${raw(collaborationTabHtml)}
       </div>
       ${raw(subtaskDrawerHtml)}`;
+
+        if (elements.detail.innerHTML === nextDetailHtml) {
+            return;
+        }
+
+        const prevScrollTop = elements.detail.scrollTop;
+        const openDisclosures = new Set([...elements.detail.querySelectorAll('details')].filter((d: any) => d.open).map((d: any) => d.querySelector('summary')?.textContent?.trim() || ''));
+
+        elements.detail.innerHTML = nextDetailHtml;
+
+        for (const details of elements.detail.querySelectorAll('details')) {
+            const sumText = details.querySelector('summary')?.textContent?.trim() || '';
+            if (openDisclosures.has(sumText)) {
+                details.open = true;
+            }
+        }
+        elements.detail.scrollTop = prevScrollTop;
 
         // Tab Switching Handler
         for (const tabBtn of elements.detail.querySelectorAll('[data-detail-tab]')) {
@@ -996,8 +1017,10 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
     }
     function renderLoading(): any {
-        elements.count.textContent = '读取中';
-        elements.list.innerHTML = '<div class="record-list-empty"><strong>读取中</strong></div>';
+        if (!state.items.length) {
+            elements.count.textContent = '读取中';
+            elements.list.innerHTML = '<div class="record-list-empty"><strong>读取中</strong></div>';
+        }
     }
     function renderError(error: any): any {
         elements.count.textContent = '读取失败';
