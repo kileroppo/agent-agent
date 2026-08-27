@@ -136,10 +136,31 @@ export class AjunReleaseSystemAdapter {
     // intentionally left for the next successful write/cleanup rather than
     // turning an already committed release into a reported failure.
     await this.clearRecovery().catch(() => {});
+    await this.gcOldSourceWorktrees({
+      keepHeads:[deployed.gitHead, current?.gitHead].filter(Boolean),
+    }).catch(() => {});
     return {
       current:publicRelease({ ...deployed, verification:{ ...verification, rollbackAvailable:true } }),
       rollback:publicRelease(current),
     };
+  }
+
+  async gcOldSourceWorktrees({ keepHeads = [] } = {}) {
+    const keepSet = new Set(keepHeads.map((head) => shortHash(head)));
+    try {
+      const names = await fs.readdir(this.sourceParent);
+      for (const name of names) {
+        if (!name.startsWith('self-service-')) continue;
+        const hash = name.slice('self-service-'.length);
+        if (keepSet.has(hash)) continue;
+        const worktreePath = path.join(this.sourceParent, name);
+        try {
+          await this.runCommand('git', ['-C', this.repositoryRoot, 'worktree', 'remove', '--force', worktreePath]).catch(() => {});
+          await fs.rm(worktreePath, { recursive:true, force:true }).catch(() => {});
+        } catch {}
+      }
+      await this.runCommand('git', ['-C', this.repositoryRoot, 'worktree', 'prune']).catch(() => {});
+    } catch {}
   }
 
   async rollback({ onStage }) {

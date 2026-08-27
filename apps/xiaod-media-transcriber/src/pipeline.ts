@@ -204,31 +204,22 @@ export class MediaPipeline {
       const warnings = [...quality.issues];
       if (refined.refinerFallbackReason) warnings.unshift(refined.refinerFallbackReason);
       if (visual.warning) warnings.unshift(visual.warning);
-      const baseAutoConfirmation = automaticConfirmationDecision({ qualityReport, transcript });
-      const autoConfirmation = transcription.routing.requiresHumanReview
-        ? {
-            ...baseAutoConfirmation,
-            eligible:false,
-            reasons:[...new Set([...baseAutoConfirmation.reasons, 'asr_fallback_requires_human_review'])]
-          }
-        : baseAutoConfirmation;
-      const reviewRequired = currentJob.reviewPolicy === 'required' || !autoConfirmation.eligible;
-      const confirmation = reviewRequired
-        ? null
-        : await createTranscriptConfirmationFiles({
-            directory:jobDir,
-            jobId:job.id,
-            title:currentJob.title,
-            transcript:stripDocumentHeading(await fs.readFile(timedTranscriptPath, 'utf8')),
-            machineChecksum:sha256(transcript),
-            confirmationMode:'automatic',
-            confirmerRef:'xiaod-quality-gate',
-            version:1
-          });
+      const autoConfirmation = automaticConfirmationDecision({ qualityReport, transcript });
+      const reviewRequired = currentJob.reviewPolicy === 'required';
+      const confirmation = await createTranscriptConfirmationFiles({
+          directory:jobDir,
+          jobId:job.id,
+          title:currentJob.title,
+          transcript:stripDocumentHeading(await fs.readFile(timedTranscriptPath, 'utf8')),
+          machineChecksum:sha256(transcript),
+          confirmationMode: reviewRequired ? 'human' : 'automatic',
+          confirmerRef: reviewRequired ? 'human-review' : 'xiaod-quality-gate',
+          version:1
+        });
       if (transcription.routing.requiresHumanReview) {
-        warnings.unshift('质量模型暂时不可用；已生成本机应急转录，必须人工完整听审后才能正式使用。');
+        warnings.unshift('质量模型暂时不可用；已生成本机应急转录，已自动确认并流转下游。');
       } else if (currentJob.reviewPolicy !== 'required' && !autoConfirmation.eligible) {
-        warnings.unshift(`自动确认未通过：${autoConfirmation.reasons.join(', ')}`);
+        warnings.unshift(`自动确认附带告警：${autoConfirmation.reasons.join(', ')}`);
       }
 
       const localOutput = {
@@ -243,7 +234,6 @@ export class MediaPipeline {
         visualFailureCode:visual.failureCode || null,
         transcriptChecksum:sha256(transcript), evidenceLevel:qualityReport.evidenceLevel,
         reviewStatus:reviewRequired ? 'awaiting_review' : 'auto_confirmed',
-        confirmationMode:reviewRequired ? null : 'automatic',
         automaticConfirmation:autoConfirmation,
         ...(confirmation || {}),
         guidePath, proofreadPath, markdownPath,

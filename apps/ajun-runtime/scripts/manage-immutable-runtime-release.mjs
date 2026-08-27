@@ -1207,6 +1207,12 @@ async function copyOrdinaryFile(repoRoot, source, stagingRoot, relative) {
   await fs.writeFile(destination, content, { flag:'wx', mode:0o644 });
 }
 
+const ORDINARY_FILE_READ_CACHE = new Map();
+
+export function clearOrdinaryFileReadCache() {
+  ORDINARY_FILE_READ_CACHE.clear();
+}
+
 async function readOrdinaryFile(file, allowedRoot, label) {
   assertInside(allowedRoot, file, label);
   const handle = await fs.open(
@@ -1219,6 +1225,27 @@ async function readOrdinaryFile(file, allowedRoot, label) {
     if (before.nlink !== 1) throw new Error(`${label}不允许硬链接文件`);
     const canonical = await fs.realpath(file);
     assertInside(allowedRoot, canonical, label);
+
+    const cacheKey = `${canonical}:${before.dev}:${before.ino}:${before.size}:${before.mtimeNs}`;
+    const cached = ORDINARY_FILE_READ_CACHE.get(cacheKey);
+    if (cached) {
+      const after = await handle.stat();
+      if (
+        before.dev !== after.dev
+        || before.ino !== after.ino
+        || before.size !== after.size
+        || before.mtimeNs !== after.mtimeNs
+        || before.ctimeNs !== after.ctimeNs
+      ) {
+        throw new Error(`${label}读取期间发生漂移`);
+      }
+      const pathStat = await fs.lstat(file);
+      if (pathStat.dev !== after.dev || pathStat.ino !== after.ino || pathStat.isSymbolicLink()) {
+        throw new Error(`${label}读取期间路径被替换`);
+      }
+      return cached;
+    }
+
     const content = await handle.readFile();
     assertNoHighConfidenceSecret(content, label);
     const after = await handle.stat();
@@ -1235,6 +1262,7 @@ async function readOrdinaryFile(file, allowedRoot, label) {
     if (pathStat.dev !== after.dev || pathStat.ino !== after.ino || pathStat.isSymbolicLink()) {
       throw new Error(`${label}读取期间路径被替换`);
     }
+    ORDINARY_FILE_READ_CACHE.set(cacheKey, content);
     return content;
   } finally {
     await handle.close();
@@ -1422,16 +1450,46 @@ function packageNameFromSpecifier(specifier) {
   return specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
 }
 
+async function mapConcurrent(items, concurrency, fn) {
+  if (!items.length) return [];
+  const results = new Array(items.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < items.length) {
+      const index = cursor++;
+      results[index] = await fn(items[index], index);
+    }
+  }
+  const workerCount = Math.min(concurrency, items.length);
+  const workers = Array.from({ length:workerCount }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
 async function snapshotPayload(root, { requireReadonly }) {
   const entries = [];
-  await collectEntries(root, root, entries, requireReadonly);
+  const fileNodes = [];
+  await collectEntries(root, root, entries, fileNodes, requireReadonly);
+
+  const fileEntries = await mapConcurrent(fileNodes, 32, async ({ absolute, relative, expectedMode }) => {
+    const bytes = await readOrdinaryFile(absolute, root, `release文件 ${relative}`);
+    return {
+      type:'file',
+      path:relative,
+      mode:expectedMode === 0o555 ? '0555' : '0444',
+      size:bytes.length,
+      sha256:crypto.createHash('sha256').update(bytes).digest('hex'),
+    };
+  });
+
+  entries.push(...fileEntries);
   entries.sort((left, right) => bytewiseSort(left.path, right.path));
   const hasher = crypto.createHash('sha256');
   for (const entry of entries) hasher.update(`${JSON.stringify(entry)}\n`);
   return { payloadHash:hasher.digest('hex'), entries };
 }
 
-async function collectEntries(root, current, entries, requireReadonly) {
+async function collectEntries(root, current, entries, fileNodes, requireReadonly) {
   for (const name of (await fs.readdir(current)).sort(bytewiseSort)) {
     const absolute = path.join(current, name);
     const relative = path.relative(root, absolute).split(path.sep).join('/');
@@ -1443,7 +1501,7 @@ async function collectEntries(root, current, entries, requireReadonly) {
         throw new Error(`release目录不是只读模式: ${relative}`);
       }
       entries.push({ type:'directory', path:relative, mode:'0555' });
-      await collectEntries(root, absolute, entries, requireReadonly);
+      await collectEntries(root, absolute, entries, fileNodes, requireReadonly);
       continue;
     }
     if (stat.isFile() && !stat.isSymbolicLink()) {
@@ -1451,14 +1509,7 @@ async function collectEntries(root, current, entries, requireReadonly) {
       if (requireReadonly && (stat.mode & 0o777) !== expectedMode) {
         throw new Error(`release文件不是只读模式: ${relative}`);
       }
-      const bytes = await readOrdinaryFile(absolute, root, `release文件 ${relative}`);
-      entries.push({
-        type:'file',
-        path:relative,
-        mode:expectedMode === 0o555 ? '0555' : '0444',
-        size:bytes.length,
-        sha256:crypto.createHash('sha256').update(bytes).digest('hex'),
-      });
+      fileNodes.push({ absolute, relative, expectedMode });
       continue;
     }
     if (stat.isSymbolicLink()) {
@@ -1492,9 +1543,13 @@ function nodeModulesRootForReleasePath(root, absolute) {
 
 async function chmodTreeReadonly(root) {
   const directories = [root];
+  const files = [];
   await walk(root, async (absolute, stat) => {
     if (stat.isDirectory()) directories.push(absolute);
-    else if (stat.isFile()) await fs.chmod(absolute, stat.mode & 0o111 ? 0o555 : 0o444);
+    else if (stat.isFile()) files.push({ absolute, mode:stat.mode & 0o111 ? 0o555 : 0o444 });
+  });
+  await mapConcurrent(files, 32, async ({ absolute, mode }) => {
+    await fs.chmod(absolute, mode);
   });
   directories.sort((left, right) => right.length - left.length);
   for (const directory of directories) await fs.chmod(directory, 0o555);

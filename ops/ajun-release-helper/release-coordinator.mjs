@@ -17,6 +17,16 @@ const CONFIRMATIONS = Object.freeze({
   rollback:'rollback_previous_release',
 });
 
+const STAGE_TIMEOUTS_MS = Object.freeze({
+  checking:60_000,
+  preparing_source:180_000,
+  verifying:360_000,
+  freezing:240_000,
+  activating:120_000,
+  verifying_live:120_000,
+  rolling_back:120_000,
+});
+
 export class ReleaseCoordinator {
   constructor({ stateDir, adapter, clock = () => new Date(), randomUUID = crypto.randomUUID } = {}) {
     if (!stateDir) throw new Error('缺少发布状态目录');
@@ -28,6 +38,7 @@ export class ReleaseCoordinator {
     this.randomUUID = randomUUID;
     this.state = idleState(this.clock());
     this.running = null;
+    this.stageTimer = null;
   }
 
   async initialize() {
@@ -45,7 +56,43 @@ export class ReleaseCoordinator {
   }
 
   status() {
+    if (!this.running && ACTIVE_STATES.has(this.state.state)) {
+      const updatedTime = new Date(this.state.updatedAt).getTime();
+      const nowTime = this.clock().getTime();
+      if (nowTime - updatedTime > 600_000) {
+        this.state = {
+          ...this.state,
+          state:'failed',
+          message:'执行状态已超时脱轨，已自动复位。请重新检查。',
+          finishedAt:this.clock().toISOString(),
+        };
+        this.persist().catch(() => {});
+      }
+    }
     return structuredClone(this.state);
+  }
+
+  armStageWatchdog(stage) {
+    if (this.stageTimer) clearTimeout(this.stageTimer);
+    const timeoutMs = STAGE_TIMEOUTS_MS[stage] || 300_000;
+    this.stageTimer = setTimeout(() => {
+      const error = new Error(`阶段【${stage}】执行超时（${Math.round(timeoutMs / 1000)}秒），已自动熔断。请重新检查。`);
+      this.running = null;
+      this.update({
+        state:'failed',
+        candidate:candidateValidation(this.state.candidate, 'not_completed'),
+        message:publicError(error),
+        finishedAt:this.clock().toISOString(),
+      }).catch(() => {});
+    }, timeoutMs);
+    this.stageTimer.unref?.();
+  }
+
+  clearStageWatchdog() {
+    if (this.stageTimer) {
+      clearTimeout(this.stageTimer);
+      this.stageTimer = null;
+    }
   }
 
   async start(action, input = {}) {
@@ -57,11 +104,12 @@ export class ReleaseCoordinator {
       throw new ReleaseRequestError(400, action === 'publish' ? '请确认发布当前正式版本。' : '请确认退回上一版。');
     }
     const now = this.clock().toISOString();
+    const initialStage = action === 'check' ? 'checking' : action === 'publish' ? 'preparing_source' : 'rolling_back';
     this.state = {
       schemaVersion:'agent.army/self-service-release-status/v1',
       runId:this.randomUUID(),
       action,
-      state:action === 'check' ? 'checking' : action === 'publish' ? 'preparing_source' : 'rolling_back',
+      state:initialStage,
       message:action === 'check' ? '正在检查正式仓库与线上版本。' : action === 'publish' ? '正在重新核对候选版本。' : '正在核对可回滚版本。',
       startedAt:now,
       updatedAt:now,
@@ -71,7 +119,11 @@ export class ReleaseCoordinator {
       rollback:null,
     };
     await this.persist();
-    this.running = this.execute(action).finally(() => { this.running = null; });
+    this.armStageWatchdog(initialStage);
+    this.running = this.execute(action).finally(() => {
+      this.clearStageWatchdog();
+      this.running = null;
+    });
     return { accepted:true, duplicate:false, status:this.status() };
   }
 
@@ -82,6 +134,7 @@ export class ReleaseCoordinator {
 
   async execute(action) {
     try {
+      this.armStageWatchdog(action === 'check' ? 'checking' : 'preparing_source');
       const inspection = await this.adapter.inspect();
       await this.update({ current:inspection.current, candidate:inspection.candidate, rollback:inspection.rollback || null });
       if (action === 'check') {
@@ -94,13 +147,16 @@ export class ReleaseCoordinator {
       }
       if (action === 'publish') {
         if (!inspection.canPublish) throw new Error(inspection.message || '当前版本不能发布。');
-        const result = await this.adapter.publish({ inspection, onStage:(stage, message) => this.update({
-          state:stage,
-          message,
-          candidate:stage === 'verifying' || stage === 'freezing'
-            ? candidateValidation(this.state.candidate, 'running')
-            : this.state.candidate,
-        }) });
+        const result = await this.adapter.publish({ inspection, onStage:(stage, message) => {
+          this.armStageWatchdog(stage);
+          return this.update({
+            state:stage,
+            message,
+            candidate:stage === 'verifying' || stage === 'freezing'
+              ? candidateValidation(this.state.candidate, 'running')
+              : this.state.candidate,
+          });
+        } });
         await this.update({
           ...result,
           candidate:candidateForLiveRelease(this.state.candidate, result.current, {
@@ -113,7 +169,10 @@ export class ReleaseCoordinator {
         });
         return;
       }
-      const result = await this.adapter.rollback({ inspection, onStage:(stage, message) => this.update({ state:stage, message }) });
+      const result = await this.adapter.rollback({ inspection, onStage:(stage, message) => {
+        this.armStageWatchdog(stage);
+        return this.update({ state:stage, message });
+      } });
       await this.update({
         ...result,
         candidate:candidateForLiveRelease(this.state.candidate, result.current),
@@ -147,6 +206,9 @@ export class ReleaseCoordinator {
   }
 
   async update(patch) {
+    if (this.state.finishedAt && !patch.finishedAt && !ACTIVE_STATES.has(this.state.state)) {
+      return;
+    }
     this.state = { ...this.state, ...patch, updatedAt:this.clock().toISOString() };
     await this.persist();
   }

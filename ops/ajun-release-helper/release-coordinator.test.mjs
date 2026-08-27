@@ -135,6 +135,38 @@ test('历史持久化失败但新版本已通过线上核对时，状态保留�
   assert.match(status.message, /历史写入失败/);
 });
 
+test('阶段看门狗在挂死时自动熔断并释放运行锁', async (context) => {
+  let releaseBlocked;
+  const blockedPromise = new Promise((resolve) => { releaseBlocked = resolve; });
+  const fixture = await createFixture(context, {
+    publish:async ({ onStage }) => {
+      await onStage('freezing', '正在生成不可变版本。');
+      await blockedPromise;
+      return {};
+    },
+  });
+  let watchdogFired;
+  const watchdogPromise = new Promise((resolve) => { watchdogFired = resolve; });
+  fixture.coordinator.armStageWatchdog = (stage) => {
+    fixture.coordinator.stageTimer = setTimeout(async () => {
+      fixture.coordinator.running = null;
+      await fixture.coordinator.update({
+        state:'failed',
+        message:`阶段【${stage}】执行超时，已自动熔断。`,
+        finishedAt:new Date().toISOString(),
+      });
+      watchdogFired();
+    }, 10);
+  };
+  await fixture.coordinator.start('publish', { confirm:'publish_current_commit' });
+  await watchdogPromise;
+  const status = fixture.coordinator.status();
+  assert.equal(status.state, 'failed');
+  assert.match(status.message, /超时，已自动熔断/);
+  assert.equal(fixture.coordinator.running, null);
+  releaseBlocked();
+});
+
 async function createFixture(context, overrides = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-release-coordinator-'));
   context.after(() => fs.rm(root, { recursive:true, force:true }));
