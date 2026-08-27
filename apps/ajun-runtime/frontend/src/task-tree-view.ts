@@ -80,7 +80,13 @@ function renderMultiTaskWorkflowTree(task: any, breadcrumb: any, agentNameFn: (i
     const showSeparation = primaryArtifacts.length > 0 && secondaryArtifacts.length > 0;
 
     function renderTreeArtifactLeaf(art: any): string {
-      const name = cleanTreeText(art?.title || art?.name || art?.type || '交付产物', 35);
+      let rawName = String(art?.title || art?.name || art?.type || '交付产物').trim();
+      if (rawName.includes('｜')) {
+        rawName = rawName.split('｜').pop()?.trim() || rawName;
+      } else if (rawName.includes('|')) {
+        rawName = rawName.split('|').pop()?.trim() || rawName;
+      }
+      const name = cleanTreeText(rawName, 35);
       const url = String(art?.url || art?.downloadUrl || art?.location || art?.path || '').trim();
       const isHttp = /^https?:\/\//i.test(url);
       const isRealFilePath = /^(?:\/|[a-zA-Z]:[/\\]|file:\/\/)/.test(url) && !url.startsWith('runtime://');
@@ -108,8 +114,8 @@ function renderMultiTaskWorkflowTree(task: any, breadcrumb: any, agentNameFn: (i
           </div>
           <div class="tree-art-actions">
             ${isHttp ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="text-action">打开查看 ↗</a>` : ''}
-            ${isRealFilePath ? `<button type="button" class="text-action" data-copy-path="${escapeHtml(url)}">复制路径</button>` : ''}
             ${copyContent ? `<button type="button" class="text-action" data-copy-text="${escapeHtml(copyContent)}">复制内容</button>` : ''}
+            ${isRealFilePath && !copyContent ? `<button type="button" class="text-action" data-copy-path="${escapeHtml(url)}">复制路径</button>` : ''}
             ${!isHttp && !isRealFilePath && !copyContent && t.taskId ? `<button type="button" class="text-action" data-subtask-preview="${t.taskId}">查看详情 ↗</button>` : ''}
           </div>
         </div>`;
@@ -156,7 +162,6 @@ function renderMultiTaskWorkflowTree(task: any, breadcrumb: any, agentNameFn: (i
             <span>多 Agent 协作工作流</span>
           </div>
           <h3 class="tree-root-title">#${workflowLabel} · 共 ${allTasks.length} 个协作环节</h3>
-          <p class="tree-root-desc">本任务由团队中多位 AI 员工分工配合完成。点击任意环节的<strong>「查看环节详情」</strong>即可在右侧查看该步骤成果与诉求，无需离开当前页面。</p>
         </div>
       </div>
       <div class="tree-branches">

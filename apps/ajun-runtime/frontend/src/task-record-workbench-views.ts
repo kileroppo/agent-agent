@@ -173,9 +173,15 @@ export function renderCollaborationTab(options: {
     return html`
         <div class="detail-tab-pane ${state.detailTab === 'collaboration' ? 'is-active' : ''}" data-pane="collaboration">
             ${raw(renderTaskWorkflowTree(task, { agentName }))}
-            <section class="collaboration-timeline-section">
-                <h3 class="collaboration-section-title">实施过程流水</h3>
-                ${raw(state.timelineHtml || '<div class="timeline-loading-shell"><p>正在读取实施过程记录…</p></div>')}
+            <section class="collaboration-timeline-section" style="margin-top: 16px;">
+                <details class="collaboration-timeline-details" style="border: 1px dashed var(--border-color, rgba(0,0,0,0.12)); border-radius: 8px; padding: 10px 14px; background: rgba(0,0,0,0.01);">
+                    <summary style="cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-secondary, #666); user-select: none;">
+                        ⏱️ 实施过程流水记录
+                    </summary>
+                    <div style="margin-top: 10px;">
+                        ${raw(state.timelineHtml || '<div class="timeline-loading-shell"><p>正在读取实施过程记录…</p></div>')}
+                    </div>
+                </details>
             </section>
             ${raw(costCollapsible)}
             ${raw(renderTechnicalDetails(task, presentation, attention, escapeHtml))}

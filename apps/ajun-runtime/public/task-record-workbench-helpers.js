@@ -19,10 +19,23 @@ export function missingNextActionMessage(taskView) {
     return '处理中，有进度会更新。';
 }
 export function compactAttentionReason(task) {
+    const isAccepted = task.acceptanceTarget?.decision === 'accepted' || task.status === 'succeeded';
+    if (isAccepted)
+        return '';
     const attention = taskAttentionView(task);
     if (!attention)
         return '';
-    return cleanAttentionText(attention.cause, 90);
+    const cause = cleanAttentionText(attention.cause, 90);
+    const title = cleanAttentionText(task?.input?.title || task?.title, 90);
+    if (!cause)
+        return '';
+    if (cause === title || cause === `获取并整理：${title}` || (title && cause.startsWith(`获取并整理：${title.slice(0, 20)}`))) {
+        return '';
+    }
+    if (cause.includes('本轮自动验证尚未完成') || cause.includes('不能把运行成功当成交付成功') || cause.includes('暂时没有更具体的用户可见原因')) {
+        return '';
+    }
+    return cause;
 }
 export function renderTechnicalDetails(task, presentation, attention, _escapeHtml) {
     const attentionTechnicalView = attention?.technical || null;
