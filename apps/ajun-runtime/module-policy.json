@@ -54,6 +54,12 @@
       "lineLimit": 150,
       "importLimit": 6
     },
+    "frontend/src/runtime-sse-client.ts": {
+      "affectedTests": [
+        "test/console-boundary.test.js"
+      ],
+      "lineLimit": 150
+    },
     "frontend/src/task-record-detail-view.ts": {
       "affectedTests": [
         "test/console-boundary.test.js",
@@ -545,6 +551,12 @@
         "test/runtime-http-feishu.test.js",
         "test/runtime-http-paperclip.test.js",
         "test/runtime-start.test.js"
+      ]
+    },
+    "src/runtime-sse-hub.ts": {
+      "lineLimit": 150,
+      "affectedTests": [
+        "test/runtime-sse-hub.test.js"
       ]
     },
     "src/runtime-http-paperclip.ts": {

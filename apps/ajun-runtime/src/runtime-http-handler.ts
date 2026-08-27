@@ -39,6 +39,7 @@ import { routeTaskSubmitApi } from './runtime-http-task-submit.ts';
 import { routeDataLifecycleApi } from './runtime-http-data-lifecycle.ts';
 import { bearerToken, isBoomLegacyIntegrationAuthorized, isBoomLegacyIntegrationPath } from './runtime-http-boom-legacy.ts';
 import { parseUsageRange } from './task-overview.ts';
+import { defaultRuntimeSseHub } from './runtime-sse-hub.ts';
 export { isBoomLegacyIntegrationAuthorized, isBoomLegacyIntegrationPath } from './runtime-http-boom-legacy.ts';
 const MAX_JSON_BODY_BYTES: any = 1024 * 1024;
 const OWNER_ACTION_NONCE_TTL_MS: any = 10 * 60 * 1000;
@@ -139,6 +140,12 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
             if (dataLifecycleResult) return sendJson(response, dataLifecycleResult.status, dataLifecycleResult.payload);
             const boomMonitorResult: any = await routeBoomMonitorApi({ method: request.method, url: request.url, local: isLocalAddress(request.socket.remoteAddress), enabled: boomMonitorEnabled, readBody: (): any => readJsonBody(request), getService: (): any => boomMonitor });
             if (boomMonitorResult) return sendJson(response, boomMonitorResult.status, boomMonitorResult.payload);
+            if (request.method === 'GET' && (request.url === '/api/events/stream' || request.url?.startsWith('/api/events/stream?'))) {
+                const streamUrl = new URL(request.url, 'http://127.0.0.1');
+                const taskId = streamUrl.searchParams.get('taskId') || undefined;
+                defaultRuntimeSseHub.addClient(response, { taskId });
+                return;
+            }
             if (request.method === 'GET' && request.url === '/api/overview')
                 return sendCachedJson(request, response, await tasks.overview());
             if (request.method === 'GET' && request.url === '/api/console-overview')
