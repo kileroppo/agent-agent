@@ -148,6 +148,7 @@ test('阶段看门狗在挂死时自动熔断并释放运行锁', async (context
   let watchdogFired;
   const watchdogPromise = new Promise((resolve) => { watchdogFired = resolve; });
   fixture.coordinator.armStageWatchdog = (stage) => {
+    if (fixture.coordinator.stageTimer) clearTimeout(fixture.coordinator.stageTimer);
     fixture.coordinator.stageTimer = setTimeout(async () => {
       fixture.coordinator.running = null;
       await fixture.coordinator.update({
@@ -165,11 +166,14 @@ test('阶段看门狗在挂死时自动熔断并释放运行锁', async (context
   assert.match(status.message, /超时，已自动熔断/);
   assert.equal(fixture.coordinator.running, null);
   releaseBlocked();
+  fixture.coordinator.clearStageWatchdog();
 });
 
 async function createFixture(context, overrides = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-release-coordinator-'));
-  context.after(() => fs.rm(root, { recursive:true, force:true }));
+  context.after(async () => {
+    await fs.rm(root, { recursive:true, force:true }).catch(() => {});
+  });
   const calls = { publish:0, rollback:0 };
   const adapter = {
     inspect:overrides.inspect || (async () => inspection({ canPublish:true, updateAvailable:true, message:'发现新版。' })),
