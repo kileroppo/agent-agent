@@ -231,3 +231,119 @@ function statusToChinese(status) {
     };
     return map[status] || status || '处理中';
 }
+export function bindSubtaskDrawerEvents(options) {
+    const { elements, state, api, loadSelectedDetail, loadRecords, renderDetail } = options;
+    for (const previewBtn of elements.detail.querySelectorAll('[data-subtask-preview]')) {
+        previewBtn.addEventListener('click', async (e) => {
+            const subtaskId = e.currentTarget.dataset.subtaskPreview;
+            if (!subtaskId)
+                return;
+            try {
+                previewBtn.disabled = true;
+                const payload = await api(`/api/tasks/${encodeURIComponent(subtaskId)}`);
+                state.previewSubtaskData = payload?.task || payload;
+                renderDetail();
+            }
+            catch (err) {
+                console.error('Failed to preview subtask:', err);
+            }
+            finally {
+                previewBtn.disabled = false;
+            }
+        });
+    }
+    for (const approveBtn of elements.detail.querySelectorAll('[data-subtask-approve]')) {
+        approveBtn.addEventListener('click', async (e) => {
+            const subtaskId = e.currentTarget.dataset.subtaskApprove;
+            let approvalId = e.currentTarget.dataset.subtaskApprovalId;
+            if (!subtaskId)
+                return;
+            try {
+                approveBtn.disabled = true;
+                approveBtn.textContent = '正在确认…';
+                if (!approvalId) {
+                    const taskPayload = await api(`/api/tasks/${encodeURIComponent(subtaskId)}`);
+                    approvalId = taskPayload?.pendingApproval?.approvalId
+                        || (Array.isArray(taskPayload?.task?.approvalRefs) && taskPayload.task.approvalRefs[0])
+                        || '';
+                }
+                if (approvalId) {
+                    await api(`/api/approvals/${encodeURIComponent(approvalId)}/approve`, {
+                        method: 'POST',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({}),
+                    });
+                }
+                else {
+                    await api(`/api/tasks/${encodeURIComponent(subtaskId)}/continue`, {
+                        method: 'POST',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({}),
+                    });
+                }
+                const payload = await api(`/api/tasks/${encodeURIComponent(subtaskId)}`);
+                state.previewSubtaskData = payload?.task || payload;
+                await loadSelectedDetail({ revealDetail: false, quiet: false });
+                await loadRecords();
+            }
+            catch (err) {
+                console.error('Failed to approve subtask:', err);
+                alert(err?.message || '确认失败，请重试');
+            }
+            finally {
+                if (approveBtn && approveBtn.isConnected) {
+                    approveBtn.disabled = false;
+                    approveBtn.textContent = '确认执行';
+                }
+            }
+        });
+    }
+    for (const rejectBtn of elements.detail.querySelectorAll('[data-subtask-reject]')) {
+        rejectBtn.addEventListener('click', async (e) => {
+            const subtaskId = e.currentTarget.dataset.subtaskReject;
+            let approvalId = e.currentTarget.dataset.subtaskApprovalId;
+            if (!subtaskId)
+                return;
+            if (!confirm('确定拒绝并终止该协作环节吗？'))
+                return;
+            try {
+                rejectBtn.disabled = true;
+                rejectBtn.textContent = '正在处理…';
+                if (!approvalId) {
+                    const taskPayload = await api(`/api/tasks/${encodeURIComponent(subtaskId)}`);
+                    approvalId = taskPayload?.pendingApproval?.approvalId
+                        || (Array.isArray(taskPayload?.task?.approvalRefs) && taskPayload.task.approvalRefs[0])
+                        || '';
+                }
+                if (approvalId) {
+                    await api(`/api/approvals/${encodeURIComponent(approvalId)}/reject`, {
+                        method: 'POST',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({}),
+                    });
+                }
+                else {
+                    await api(`/api/tasks/${encodeURIComponent(subtaskId)}/reject`, {
+                        method: 'POST',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({}),
+                    });
+                }
+                const payload = await api(`/api/tasks/${encodeURIComponent(subtaskId)}`);
+                state.previewSubtaskData = payload?.task || payload;
+                await loadSelectedDetail({ revealDetail: false, quiet: false });
+                await loadRecords();
+            }
+            catch (err) {
+                console.error('Failed to reject subtask:', err);
+                alert(err?.message || '拒绝失败，请重试');
+            }
+            finally {
+                if (rejectBtn && rejectBtn.isConnected) {
+                    rejectBtn.disabled = false;
+                    rejectBtn.textContent = '拒绝';
+                }
+            }
+        });
+    }
+}

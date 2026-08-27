@@ -1,6 +1,7 @@
 import { html, raw, escapeHtml } from './html.js';
 import { statusLabel, stageLabel } from './console-labels.js';
 import { acceptanceTargetView, cleanAttentionText, recoverySubmissionView, renderAcceptanceDetail, renderAttentionDetail, renderCostSection, renderDeliverySink, renderDetailTabNav, renderOriginCard, renderSubtaskDrawer, renderTaskLineageCard, taskAttentionView, } from './task-record-detail-view.js';
+import { bindSubtaskDrawerEvents } from './task-record-subtask-drawer.js';
 import { createTaskTimelineLoader } from './task-timeline-view.js';
 import { renderTaskProgressBar } from './task-progress-bar.js';
 import { renderTaskWorkflowTree } from './task-tree-view.js';
@@ -8,11 +9,12 @@ import { formatFullDateTime, formatDuration } from './format-utils.js';
 import { artifactItems, displaySubtaskTitle, displayTaskTitle, parseTaskTitle, relativeTime, renderArtifact, resultSummary, } from './task-record-presentation.js';
 import { renderFilters as renderFiltersHelper, refreshFilterOptions as refreshFilterOptionsHelper, syncControls as syncControlsHelper, replaceRecordUrl as replaceRecordUrlHelper, renderBatchActions as renderBatchActionsHelper, handleBatchAcceptHelper, } from './task-record-workbench-filters.js';
 import { renderDetailHeader, renderCollaborationTab, renderOverviewTab, renderListRows, bindDetailInteractions, } from './task-record-workbench-views.js';
-import { VIEW_LABELS, BACKLOG_CATEGORY_LABELS, compactAttentionReason, recordElements, readUrlState, option, sinceFor, stateForTask, renderTechnicalDetails, missingNextActionMessage, } from './task-record-workbench-helpers.js';
-import { isTaskAdoptable, newIdempotencyKey, withAcceptanceTarget, acceptanceRevision, acceptanceErrorMessage, submitWorkflowAcceptance, } from './task-record-workbench-acceptance.js';
+import { VIEW_LABELS, BACKLOG_CATEGORY_LABELS, compactAttentionReason, recordElements, readUrlState, option, sinceFor, stateForTask, renderTechnicalDetails, } from './task-record-workbench-helpers.js';
+import { isTaskAdoptable, newIdempotencyKey, acceptanceRevision, } from './task-record-workbench-acceptance.js';
 export { taskAttentionView } from './task-record-detail-view.js';
 export { parseTaskTitle, displayTaskTitle, displaySubtaskTitle } from './task-record-presentation.js';
 export { renderTechnicalDetails } from './task-record-workbench-helpers.js';
+// Paperclip 运行 audit projection marker
 export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agentName, initialTaskId = '', }) {
     const elements = recordElements();
     const timeline = createTaskTimelineLoader({ api });
@@ -563,107 +565,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             });
         }
         // Subtask preview drawer handlers
-        for (const previewBtn of elements.detail.querySelectorAll('[data-subtask-preview]')) {
-            previewBtn.addEventListener('click', async (e) => {
-                const subtaskId = e.currentTarget.dataset.subtaskPreview;
-                if (!subtaskId)
-                    return;
-                try {
-                    previewBtn.disabled = true;
-                    const payload = await api(`/api/tasks/${encodeURIComponent(subtaskId)}`);
-                    state.previewSubtaskData = payload?.task || payload;
-                    renderDetail();
-                }
-                catch (err) {
-                    console.error('Failed to preview subtask:', err);
-                }
-                finally {
-                    previewBtn.disabled = false;
-                }
-            });
-        }
-        // Subtask approval action handlers
-        for (const approveBtn of elements.detail.querySelectorAll('[data-subtask-approve]')) {
-            approveBtn.addEventListener('click', async (e) => {
-                const subtaskId = e.currentTarget.dataset.subtaskApprove;
-                let approvalId = e.currentTarget.dataset.subtaskApprovalId;
-                if (!subtaskId)
-                    return;
-                try {
-                    approveBtn.disabled = true;
-                    approveBtn.textContent = '正在确认…';
-                    if (!approvalId) {
-                        const taskPayload = await api(`/api/tasks/${encodeURIComponent(subtaskId)}`);
-                        approvalId = taskPayload?.pendingApproval?.approvalId
-                            || (Array.isArray(taskPayload?.task?.approvalRefs) && taskPayload.task.approvalRefs[0])
-                            || '';
-                    }
-                    if (approvalId) {
-                        await api(`/api/approvals/${encodeURIComponent(approvalId)}/approve`, {
-                            method: 'POST',
-                            headers: { 'content-type': 'application/json' },
-                            body: JSON.stringify({ decisionBy: 'A君运行台', decisionReason: '已在协同环节确认执行。' }),
-                        });
-                    }
-                    else {
-                        await api(`/api/tasks/${encodeURIComponent(subtaskId)}/continue`, { method: 'POST' });
-                    }
-                    const payload = await api(`/api/tasks/${encodeURIComponent(subtaskId)}`);
-                    state.previewSubtaskData = payload?.task || payload;
-                    await loadSelectedDetail({ revealDetail: false, quiet: false });
-                    await loadRecords();
-                }
-                catch (err) {
-                    console.error('Failed to approve subtask:', err);
-                    alert(err?.message || '确认失败，请重试');
-                }
-                finally {
-                    if (approveBtn && approveBtn.isConnected) {
-                        approveBtn.disabled = false;
-                    }
-                }
-            });
-        }
-        for (const rejectBtn of elements.detail.querySelectorAll('[data-subtask-reject]')) {
-            rejectBtn.addEventListener('click', async (e) => {
-                const subtaskId = e.currentTarget.dataset.subtaskReject;
-                let approvalId = e.currentTarget.dataset.subtaskApprovalId;
-                if (!subtaskId)
-                    return;
-                if (!confirm('确定拒绝并终止该协作环节吗？'))
-                    return;
-                try {
-                    rejectBtn.disabled = true;
-                    rejectBtn.textContent = '正在处理…';
-                    if (!approvalId) {
-                        const taskPayload = await api(`/api/tasks/${encodeURIComponent(subtaskId)}`);
-                        approvalId = taskPayload?.pendingApproval?.approvalId
-                            || (Array.isArray(taskPayload?.task?.approvalRefs) && taskPayload.task.approvalRefs[0])
-                            || '';
-                    }
-                    if (approvalId) {
-                        await api(`/api/approvals/${encodeURIComponent(approvalId)}/reject`, {
-                            method: 'POST',
-                            headers: { 'content-type': 'application/json' },
-                            body: JSON.stringify({ decisionBy: 'A君运行台', decisionReason: '已在协同环节拒绝执行。' }),
-                        });
-                    }
-                    const payload = await api(`/api/tasks/${encodeURIComponent(subtaskId)}`);
-                    state.previewSubtaskData = payload?.task || payload;
-                    await loadSelectedDetail({ revealDetail: false, quiet: false });
-                    await loadRecords();
-                }
-                catch (err) {
-                    console.error('Failed to reject subtask:', err);
-                    alert(err?.message || '拒绝失败，请重试');
-                }
-                finally {
-                    if (rejectBtn && rejectBtn.isConnected) {
-                        rejectBtn.disabled = false;
-                    }
-                }
-            });
-        }
+        bindSubtaskDrawerEvents({ elements, state, api, loadSelectedDetail, loadRecords, renderDetail });
         // Trigger timeline loading automatically when collaboration tab opens
         if (state.detailTab === 'collaboration' && !state.timelineHtml) {
             loadTimeline(task.taskId).then((htmlStr) => {
@@ -831,7 +733,31 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         }
     }
     async function submitAcceptance({ target, decision, note, idempotencyKey }) {
-        return submitWorkflowAcceptance({ api, target, decision, note, idempotencyKey });
+        const url = `/api/workflows/${encodeURIComponent(target.workflowId)}/acceptance`;
+        const body = JSON.stringify({ decision, note: note || undefined, expectedRevision: target.revision });
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            const session = await api('/api/owner-action-session');
+            const nonce = String(session?.nonce || '').trim();
+            if (!nonce)
+                throw new Error('暂时无法取得本机操作授权，请重新打开任务详情后重试。');
+            try {
+                return await api(url, {
+                    method: 'POST',
+                    headers: {
+                        'content-type': 'application/json',
+                        'Idempotency-Key': idempotencyKey,
+                        'X-Ajun-Owner-Action': nonce,
+                    },
+                    body,
+                });
+            }
+            catch (error) {
+                const expired = error?.status === 403 && /动作会话.*(?:无效|过期)/.test(String(error?.message || ''));
+                if (!expired || attempt > 0)
+                    throw error;
+            }
+        }
+        throw new Error('本机操作授权刷新失败，请重新打开任务详情后重试。');
     }
     function renderBatchActions() {
         renderBatchActionsHelper(state, elements, isTaskAdoptable);
@@ -911,4 +837,25 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             }
         });
     }
+}
+function missingNextActionMessage(taskView) {
+    if (taskView === 'needs_action')
+        return '没有可执行动作，去飞书补充信息。';
+    return '处理中，有进度会更新。';
+}
+function withAcceptanceTarget(payload) {
+    const task = payload?.task && typeof payload.task === 'object' ? payload.task : {};
+    const acceptanceTarget = task.acceptanceTarget || payload?.acceptanceTarget || null;
+    return acceptanceTarget ? { ...task, acceptanceTarget } : task;
+}
+function acceptanceErrorMessage(error) {
+    if (error?.status === 409)
+        return '这项结果刚刚在其他入口被处理了。你的选择没有覆盖新结果，请刷新后查看最新状态。';
+    if (error?.status === 401)
+        return '当前页面缺少运行台访问授权。这项待办仍然保留，请重新打开运行台后重试。';
+    if (error?.status === 403)
+        return `${cleanAttentionText(error?.message, 400) || '本机操作授权刷新失败。'} 这项待办仍然保留，请重新打开任务详情后重试。`;
+    if (error?.status === 404 || error?.status === 501)
+        return '当前运行版本还不能在运行台保存验收。这项待办没有被更改，你仍可在飞书完成验收。';
+    return cleanAttentionText(error?.message, 500) || '验收结果没有保存。这项待办仍然保留，请稍后重试。';
 }
