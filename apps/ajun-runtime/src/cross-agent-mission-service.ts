@@ -427,18 +427,25 @@ function missionState(children: any, plannedCount: any, { allowDependencyBlocked
     if (allDone)
         return { status: 'succeeded', stage: 'mission_delivered', allDone, allTerminal: true };
     if (!allTerminal) {
-        const waitingApproval: any = children.some((item: any): any => item.status === 'waiting_approval');
+        const waitingApproval: any = children.some((item: any): any => item.status === 'waiting_approval' || Boolean(item.pendingApproval));
         const waitingWorker: any = children.some((item: any): any => item.status === 'waiting_worker');
-        return { status: 'running', stage: waitingApproval ? 'mission_waiting_child_approval' : waitingWorker ? 'mission_waiting_mac_worker' : 'mission_in_progress', allDone: false, allTerminal: false };
+        return {
+            status: 'running',
+            stage: waitingApproval ? 'mission_waiting_child_approval' : waitingWorker ? 'mission_waiting_mac_worker' : 'mission_in_progress',
+            allDone: false,
+            allTerminal: false
+        };
     }
+    if (children.some((item: any): any => item.status === 'waiting_approval' || Boolean(item.pendingApproval)))
+        return { status: 'waiting_approval', stage: 'mission_waiting_child_approval', allDone: false, allTerminal: true };
+    if (children.some((item: any): any => item.status === 'waiting_test' || Boolean(item.acceptanceTarget?.actionable)))
+        return { status: 'waiting_test', stage: 'mission_waiting_test', allDone: false, allTerminal: true };
     if (children.some((item: any): any => item.status === 'failed'))
         return { status: 'failed', stage: 'mission_partially_failed', allDone: false, allTerminal: true };
     if (children.some((item: any): any => item.status === 'needs_input'))
         return { status: 'needs_input', stage: 'mission_needs_input', allDone: false, allTerminal: true };
     if (children.some((item: any): any => item.status === 'cancelled'))
         return { status: 'cancelled', stage: 'mission_cancelled', allDone: false, allTerminal: true };
-    if (children.some((item: any): any => item.status === 'waiting_test'))
-        return { status: 'waiting_test', stage: 'mission_waiting_test', allDone: false, allTerminal: true };
     return { status: 'running', stage: 'mission_in_progress', allDone: false, allTerminal: false };
 }
 function businessDecision(statuses: any, children: any, state: any): any {
