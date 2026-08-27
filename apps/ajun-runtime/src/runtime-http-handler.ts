@@ -157,14 +157,19 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                     return sendJson(response, 403, { error: '产物预览只能由本机调用。' });
                 const urlObj = new URL(request.url || '/', 'http://127.0.0.1');
                 let targetPath = String(urlObj.searchParams.get('path') || '').trim();
-                if (targetPath.startsWith('file://')) {
-                    try {
-                        targetPath = new URL(targetPath).pathname;
-                    } catch {
-                        targetPath = targetPath.replace(/^file:\/\//, '');
-                    }
+                try {
+                    targetPath = decodeURIComponent(targetPath);
+                } catch {}
+                if (targetPath.startsWith('"') && targetPath.endsWith('"')) {
+                    targetPath = targetPath.slice(1, -1).trim();
                 }
-                targetPath = path.resolve(decodeURIComponent(targetPath));
+                if (targetPath.startsWith("'") && targetPath.endsWith("'")) {
+                    targetPath = targetPath.slice(1, -1).trim();
+                }
+                if (targetPath.startsWith('file:')) {
+                    targetPath = targetPath.replace(/^file:\/+/i, '/');
+                }
+                targetPath = path.resolve(targetPath);
                 let realTarget = targetPath;
                 try {
                     realTarget = await fs.realpath(targetPath);

@@ -106,14 +106,15 @@ export function bindDetailInteractions(options) {
                 container.style.display = 'block';
                 item.classList.remove('is-collapsed');
                 try {
-                    let fetchUrl = targetPath;
-                    if (fetchUrl.startsWith('file://')) {
-                        try {
-                            fetchUrl = decodeURIComponent(new URL(fetchUrl).pathname);
-                        }
-                        catch {
-                            fetchUrl = fetchUrl.replace(/^file:\/\//, '');
-                        }
+                    let fetchUrl = String(targetPath || '').trim();
+                    if (fetchUrl.startsWith('"') && fetchUrl.endsWith('"')) {
+                        fetchUrl = fetchUrl.slice(1, -1).trim();
+                    }
+                    if (fetchUrl.startsWith("'") && fetchUrl.endsWith("'")) {
+                        fetchUrl = fetchUrl.slice(1, -1).trim();
+                    }
+                    if (fetchUrl.startsWith('file:')) {
+                        fetchUrl = fetchUrl.replace(/^file:\/+/i, '/');
                     }
                     const res = await fetch(`/api/artifacts/content?path=${encodeURIComponent(fetchUrl)}`);
                     if (!res.ok) {
@@ -171,16 +172,17 @@ export function bindDetailInteractions(options) {
     for (const copyBtn of elements.detail.querySelectorAll('[data-copy-path]')) {
         copyBtn.addEventListener('click', async (event) => {
             event.stopPropagation();
-            let path = event.currentTarget.dataset.copyPath;
+            let path = String(event.currentTarget.dataset.copyPath || '').trim();
             if (!path)
                 return;
-            if (path.startsWith('file://')) {
-                try {
-                    path = decodeURIComponent(new URL(path).pathname);
-                }
-                catch {
-                    path = path.replace(/^file:\/\//, '');
-                }
+            if (path.startsWith('"') && path.endsWith('"')) {
+                path = path.slice(1, -1).trim();
+            }
+            if (path.startsWith("'") && path.endsWith("'")) {
+                path = path.slice(1, -1).trim();
+            }
+            if (path.startsWith('file:')) {
+                path = path.replace(/^file:\/+/i, '/');
             }
             const ok = await copyToClipboard(path);
             const btn = event.currentTarget;
