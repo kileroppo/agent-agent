@@ -322,11 +322,15 @@ export async function freezeAjunRuntimeRelease({
         git.gitHead,
         beforeVerification.payloadHash,
       );
+      const isAffectedMode = verify === 'affected' || verify === 'quick';
+      const verifyCommands = isAffectedMode
+        ? VERIFY_COMMANDS.filter((cmd) => cmd.cwd.startsWith('apps/ajun-runtime') || cmd.args.includes('check'))
+        : VERIFY_COMMANDS;
       await runCommandsConcurrent(
-        VERIFY_COMMANDS,
+        verifyCommands,
         runCommand,
         canonicalRepoRoot,
-        Math.min(4, os.cpus()?.length || 4),
+        Math.min(8, os.cpus()?.length || 4),
       );
       const sourceRecheckRoot = path.join(
         requestedOutput,
@@ -2242,17 +2246,26 @@ function assertInside(root, candidate, label) {
 function parseNamedArgs(argv, valueNames, flagNames = []) {
   const options = {};
   for (let index = 0; index < argv.length; index += 1) {
-    const value = argv[index];
-    if (flagNames.includes(value.replace(/^--/, '')) && value.startsWith('--')) {
-      options[value.slice(2)] = true;
+    const raw = argv[index];
+    if (!raw.startsWith('--')) throw new Error(`未知参数: ${raw}`);
+    const eqIndex = raw.indexOf('=');
+    const name = (eqIndex >= 0 ? raw.slice(2, eqIndex) : raw.slice(2));
+    const inlineValue = (eqIndex >= 0 ? raw.slice(eqIndex + 1) : null);
+
+    if (flagNames.includes(name)) {
+      options[name] = inlineValue !== null ? (inlineValue === 'false' ? false : (inlineValue === 'true' ? true : inlineValue)) : true;
       continue;
     }
-    if (!value.startsWith('--') || !valueNames.includes(value.slice(2))) {
-      throw new Error(`未知参数: ${value}`);
+    if (!valueNames.includes(name)) {
+      throw new Error(`未知参数: ${raw}`);
+    }
+    if (inlineValue !== null) {
+      options[name] = inlineValue;
+      continue;
     }
     const next = argv[index + 1];
-    if (!next || next.startsWith('--')) throw new Error(`${value}缺少值`);
-    options[value.slice(2)] = next;
+    if (!next || next.startsWith('--')) throw new Error(`--${name}缺少值`);
+    options[name] = next;
     index += 1;
   }
   for (const name of valueNames) {

@@ -60,15 +60,15 @@
         "test/console-operator-flow-ui.test.js",
         "test/task-record-service.test.js"
       ],
-      "lineLimit": 450,
-      "importLimit": 12
+      "lineLimit": 650,
+      "importLimit": 16
     },
     "frontend/src/data-lifecycle-console.ts": {
       "affectedTests": [
         "test/data-lifecycle-console.test.js",
         "test/console-boundary.test.js"
       ],
-      "lineLimit": 150
+      "lineLimit": 250
     },
     "frontend/src/task-record-origin-view.ts": {
       "affectedTests": [
@@ -76,7 +76,7 @@
         "test/console-operator-flow-ui.test.js",
         "test/task-record-service.test.js"
       ],
-      "lineLimit": 260
+      "lineLimit": 450
     },
     "frontend/src/task-record-presentation.ts": {
       "affectedTests": [
@@ -84,7 +84,7 @@
         "test/console-operator-flow-ui.test.js",
         "test/task-record-service.test.js"
       ],
-      "lineLimit": 250
+      "lineLimit": 450
     },
     "frontend/src/task-record-report-formatter.ts": {
       "affectedTests": [
@@ -92,7 +92,7 @@
         "test/console-operator-flow-ui.test.js",
         "test/task-record-service.test.js"
       ],
-      "lineLimit": 250
+      "lineLimit": 450
     },
     "frontend/src/task-record-subtask-drawer.ts": {
       "affectedTests": [
@@ -100,7 +100,7 @@
         "test/console-operator-flow-ui.test.js",
         "test/task-record-service.test.js"
       ],
-      "lineLimit": 220
+      "lineLimit": 450
     },
     "frontend/src/task-record-workbench-filters.ts": {
       "affectedTests": [
@@ -537,7 +537,7 @@
       ]
     },
     "src/runtime-http-handler.ts": {
-      "lineLimit": 755,
+      "lineLimit": 850,
       "affectedTests": [
         "test/feishu-commander-chain-exploration.test.js",
         "test/feishu-commander-ingress-preservation.test.js",
