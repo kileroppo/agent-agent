@@ -165,6 +165,7 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 }
                 targetPath = path.resolve(decodeURIComponent(targetPath));
                 const allowedRoots = [
+                    path.join(process.env.HOME || '', '.agent-army'),
                     environment?.XIAOD_ARTIFACT_ROOT || process.env.XIAOD_ARTIFACT_ROOT || path.join(process.env.HOME || '', '.agent-army/state/xiaod-media-transcriber-data'),
                     environment?.AGENT_ARMY_DATA_DIR || process.env.AGENT_ARMY_DATA_DIR || path.join(process.env.HOME || '', '.agent-army/state/ajun-runtime-data'),
                     environment?.AGENT_ARMY_CONTENT_WORKSPACE_DIR || process.env.AGENT_ARMY_CONTENT_WORKSPACE_DIR || path.join(process.env.HOME || '', '.agent-army/state/m5-content-autonomy'),
