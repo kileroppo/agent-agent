@@ -421,37 +421,49 @@ export class MediaPipeline {
     const startedAt = new Date().toISOString();
     try {
       await this.stage(job.id, 'analyzing_visual', 62, '正在提取受控关键帧并建立画面证据');
-      let videoPath = acquired.visualSourcePath || null;
-      if (!videoPath && job.sourceType === 'upload') videoPath = job.sourcePath;
-      if (!videoPath && this.contentCenter && job.sourceUrl) {
-        const visualWorkspace = path.join(jobDir, 'visual-source');
-        await fs.mkdir(visualWorkspace, { recursive:true, mode:0o700 });
-        const visualSource = await this.contentCenter.fetch({
-          taskId:job.agentArmyTaskId || job.taskId || job.id,
-          source:job.sourceUrl,
-          requestedCapabilities:['media'],
-          connectionId:job.connectionId,
-          requestingAgentId:'xiaod',
-          workspace:visualWorkspace,
-          runtimeRequirement:'visual_analysis'
+      const visualPromise = (async () => {
+        let videoPath = acquired.visualSourcePath || null;
+        if (!videoPath && job.sourceType === 'upload') videoPath = job.sourcePath;
+        if (!videoPath && this.contentCenter && job.sourceUrl) {
+          const visualWorkspace = path.join(jobDir, 'visual-source');
+          await fs.mkdir(visualWorkspace, { recursive:true, mode:0o700 });
+          const visualSource = await this.contentCenter.fetch({
+            taskId:job.agentArmyTaskId || job.taskId || job.id,
+            source:job.sourceUrl,
+            requestedCapabilities:['media'],
+            connectionId:job.connectionId,
+            requestingAgentId:'xiaod',
+            workspace:visualWorkspace,
+            runtimeRequirement:'visual_analysis'
+          });
+          await this.runEvents.recordExecutionReceipt(visualSource.acquisitionReceipt);
+          if (!visualSource.ok) throw new ContentAcquisitionError(visualSource);
+          if (visualSource.runtime?.kind !== 'video' || !visualSource.runtime.path) {
+            throw new VisualEvidenceError('visual_video_stream_required', '内容通道只返回了音频，无法建立画面证据。');
+          }
+          videoPath = visualSource.runtime.path;
+        }
+        if (!videoPath) throw new VisualEvidenceError('visual_video_stream_required', '没有取得可用于画面分析的视频。');
+        const result = await this.visualAdapter.invoke({
+          payload:{
+            videoPath,
+            outputDir:path.join(jobDir, 'visual-evidence'),
+            depth:job.analysisDepth,
+            transcriptSegments:segments,
+            sourceMetadata
+          }
         });
-        await this.runEvents.recordExecutionReceipt(visualSource.acquisitionReceipt);
-        if (!visualSource.ok) throw new ContentAcquisitionError(visualSource);
-        if (visualSource.runtime?.kind !== 'video' || !visualSource.runtime.path) {
-          throw new VisualEvidenceError('visual_video_stream_required', '内容通道只返回了音频，无法建立画面证据。');
-        }
-        videoPath = visualSource.runtime.path;
-      }
-      if (!videoPath) throw new VisualEvidenceError('visual_video_stream_required', '没有取得可用于画面分析的视频。');
-      const result = await this.visualAdapter.invoke({
-        payload:{
-          videoPath,
-          outputDir:path.join(jobDir, 'visual-evidence'),
-          depth:job.analysisDepth,
-          transcriptSegments:segments,
-          sourceMetadata
-        }
-      });
+        return result;
+      })();
+
+      // 自动模式下增加 25 秒超时熔断保护，required 模式下不设死限由上层控制
+      const result = visualMode === 'auto'
+        ? await Promise.race([
+            visualPromise,
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('视觉证据提取超时（超过25秒），已安全熔断降级')), 25000))
+          ])
+        : await visualPromise;
+
       const created = result.output;
       await this.runEvents.recordVisualResult({ job, result, startedAt, completedAt:new Date().toISOString() });
       return {

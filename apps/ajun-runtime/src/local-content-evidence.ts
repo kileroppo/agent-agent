@@ -1,3 +1,5 @@
+import { fuzzyTextMatches, timestampNearTimeline } from './local-content-evidence-matcher.ts';
+
 export function evidenceSegments(transcript: any): any {
     const body: any = String(transcript || '').replace(/^---[\s\S]*?---\s*/m, '').replace(/^#\s+[^\n]+\n+/m, '');
     const timed: any = [...body.matchAll(/\[((?:\d{2}:)?\d{2}:\d{2})\]\s*([^\n]+)/g)]
@@ -42,14 +44,17 @@ export function evidenceMatches(transcript: any, evidence: any): any {
     if (!fragment || evidenceText(fragment).length < 4)
         return false;
     const segments: any = evidenceSegments(transcript);
-    const transcriptText: any = segments.map((segment: any): any => segment.text).join(' ');
-    if (!evidenceText(transcriptText).includes(evidenceText(fragment)))
+    const transcriptText: any = evidenceText(segments.map((segment: any): any => segment.text).join(' '));
+    const fragmentClean: any = evidenceText(fragment);
+    if (!fuzzyTextMatches(transcriptText, fragmentClean))
         return false;
     const timeline: any = new Set(segments.map((segment: any): any => segment.timestamp).filter(Boolean));
     if (!timeline.size)
         return true;
     const timestamp: any = clean(evidence?.timestamp, 40);
-    return Boolean(timestamp && timeline.has(timestamp));
+    if (!timestamp)
+        return segments.some((seg: any): any => fuzzyTextMatches(evidenceText(seg.text), fragmentClean));
+    return timestampNearTimeline(timestamp, timeline);
 }
 
 function breakdownEvidence(item: any): any {
@@ -68,3 +73,5 @@ function clean(value: any, limit: any): any {
 }
 
 function normalize(value: any): any { return clean(value, 100000).toLowerCase(); }
+
+

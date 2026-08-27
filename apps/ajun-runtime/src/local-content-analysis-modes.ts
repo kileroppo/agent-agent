@@ -1,3 +1,5 @@
+import { evidenceMatches } from './local-content-evidence.ts';
+
 export function buildModeReport({ analysisIntent, segments, modules, evidenceMode, sourceMetadata = {} }: any = {}): any {
     const usable: any = Array.isArray(segments) && segments.length ? segments : [{ timestamp: null, text: '当前转录没有足够可引用片段。' }];
     if (analysisIntent === 'digest')
@@ -51,16 +53,16 @@ export function validModeReport(report: any, analysisIntent: any, transcript: an
         const digest: any = report?.digest;
         return Boolean(clean(digest?.oneSentenceSummary, 180)
             && Array.isArray(digest?.corePoints) && digest.corePoints.length >= 3 && digest.corePoints.length <= 5
-            && digest.corePoints.every((item: any): any => evidenceMatches(transcript, item?.evidence))
+            && digest.corePoints.every((item: any): any => modeEvidenceMatches(transcript, item?.evidence))
             && Array.isArray(digest?.goldenQuotes) && digest.goldenQuotes.length >= 2 && digest.goldenQuotes.length <= 3
-            && digest.goldenQuotes.every((item: any): any => item?.quote === item?.evidence?.fragment && evidenceMatches(transcript, item.evidence))
+            && digest.goldenQuotes.every((item: any): any => item?.quote === item?.evidence?.fragment && modeEvidenceMatches(transcript, item.evidence))
             && Array.isArray(digest?.actionItems) && digest.actionItems.length >= 1 && digest.actionItems.length <= 3);
     }
     if (analysisIntent === 'template') {
         const template: any = report?.templateLearning;
         return template?.status === 'candidate'
             && Array.isArray(template?.structure) && template.structure.length === 3
-            && template.structure.every((item: any): any => item?.placeholder && item?.replacementGuide && evidenceMatches(transcript, item?.evidence))
+            && template.structure.every((item: any): any => item?.placeholder && item?.replacementGuide && modeEvidenceMatches(transcript, item?.evidence))
             && Array.isArray(template?.openingTemplates) && template.openingTemplates.length === 3
             && Boolean(template?.differentTopicExample && template?.originalityReminder);
     }
@@ -68,13 +70,17 @@ export function validModeReport(report: any, analysisIntent: any, transcript: an
         const style: any = report?.styleExploration;
         return style?.factsLocked === true
             && Array.isArray(style?.facts) && style.facts.length >= 1
-            && style.facts.every((item: any): any => evidenceMatches(transcript, item?.evidence))
+            && style.facts.every((item: any): any => modeEvidenceMatches(transcript, item?.evidence))
             && Array.isArray(style?.variants) && style.variants.length === 4
             && style.variants.every((item: any): any => clean(item?.sample, 250).length >= 150 && clean(item?.sample, 250).length <= 250);
     }
     return Array.isArray(report?.modules)
         && report.modules.length === 13
         && report.modules.every((module: any): any => module?.observedFact?.evidence?.fragment && module?.mechanismInference?.certainty === 'inference');
+}
+function modeEvidenceMatches(transcript: any, evidence: any): any {
+    const fragment: any = clean(evidence?.fragment, 500);
+    return Boolean(fragment && String(transcript || '').includes(fragment));
 }
 function buildDigest(segments: any, modules: any, evidenceMode: any): any {
     const selected: any = coverageSegments(segments, 3);
@@ -152,6 +158,5 @@ function styleVariant(id: any, name: any, sample: any, applicableScene: any, adv
     return { id, name, sample: text, applicableScene, advantage, risk };
 }
 function evidenceFor(segment: any): any { return { timestamp: segment?.timestamp || null, fragment: segment?.text || '' }; }
-function evidenceMatches(transcript: any, evidence: any): any { const fragment: any = clean(evidence?.fragment, 500); return Boolean(fragment && String(transcript || '').includes(fragment)); }
 function verbatimQuote(value: any): any { const text: any = clean(value, 500); return (text.match(/^.{4,136}?[。！？!?](?=\s|$)/u) as any)?.[0] || clean(text, 140); }
 function clean(value: any, max: any): any { return String(value ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max); }
