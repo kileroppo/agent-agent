@@ -1053,3 +1053,43 @@ async function m5VisualCompletionFixture({ projectId, artifact }) {
     completions,
   };
 }
+
+test('Paperclip 任务在 waiting_approval 或 paused 状态下调用 getPaperclipAssignment 保持原有状态不报审批迁移错误', async () => {
+  const xiaod = hermesAgentFixture('xiaod', '小D', ['media.transcribe-and-refine']);
+  const identity = paperclipIdentityFixture('waiting-approval-guard', 'xiaod', '小D', {
+    title:'转录素材并等待确认',
+    description:'需审批的转录指派。',
+  });
+  const governance = paperclipAssignmentGovernanceFixture(identity);
+  const { service } = setup({ agents:[xiaod], governance });
+  const first = await service.getPaperclipAssignment(identity);
+  assert.equal(first.task.status, 'running');
+
+  // 创建 pending 审批并把任务置为 waiting_approval
+  const approval = await service.store.createApproval({
+    taskId:first.task.taskId,
+    action:'wechat-private-chat-read',
+    reason:'等待素材授权',
+    status:'pending',
+  });
+  await service.store.updateTask(first.task.taskId, {
+    status:'waiting_approval',
+    currentStage:'approval_required',
+    approvalRefs:[approval.approvalId],
+  }, { approvals:[approval] });
+
+  // 再次通过 Paperclip heartbeat 调用 getPaperclipAssignment
+  const pendingAssignment = await service.getPaperclipAssignment(identity);
+  assert.equal(pendingAssignment.task.status, 'waiting_approval');
+  assert.equal(pendingAssignment.task.currentStage, 'approval_required');
+  assert.equal(pendingAssignment.task.taskId, first.task.taskId);
+
+  // 验证 paused 状态同样保持
+  await service.store.updateTask(first.task.taskId, {
+    status:'paused',
+    currentStage:'task_paused',
+  });
+  const pausedAssignment = await service.getPaperclipAssignment(identity);
+  assert.equal(pausedAssignment.task.status, 'paused');
+  assert.equal(pausedAssignment.task.currentStage, 'task_paused');
+});

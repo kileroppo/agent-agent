@@ -180,13 +180,18 @@ export const taskPaperclipAssignmentMethods: Record<string, any> = {
             this.taskLifecycleEvents?.recordPersisted(task, { previousTask: queuedTask });
         }
         else if (!isTerminalTask(task)) {
+            const preservesStatus: any = ['waiting_approval', 'paused', 'needs_input', 'waiting_worker'].includes(task.status);
+            const nextStatus: any = preservesStatus ? task.status : 'running';
+            const nextStage: any = preservesStatus
+                ? task.currentStage
+                : task.currentStage === 'delivery_quality_review_pending'
+                ? task.currentStage
+                : task.execution?.paperclipEmployee
+                ? task.currentStage
+                : 'paperclip_hermes_running';
             task = await this.store.updateTask(task.taskId, {
-                status: 'running',
-                currentStage: task.currentStage === 'delivery_quality_review_pending'
-                    ? task.currentStage
-                    : task.execution?.paperclipEmployee
-                    ? task.currentStage
-                    : 'paperclip_hermes_running',
+                status: nextStatus,
+                currentStage: nextStage,
                 taskType: assignmentTask.taskType,
                 assigneeAgentId: agent.agentId,
                 source: {

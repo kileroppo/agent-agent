@@ -254,7 +254,7 @@ export function createAgentArmyMcpServer({ client = new AgentArmyClient(), local
     }));
     action('paperclip_assignment_complete', {
         title: '回报当前 Paperclip 指派结果',
-        description: '仅在 Paperclip heartbeat 中把当前指派的真实结果回写到同一张 Paperclip 任务和 A君任务信封。不得用它关闭别人的任务；失败或待测试必须如实选择对应状态。M5 恢复时只回显受控执行器实际消费的 consumed_revision_id，路线是否改变由执行器回执决定，不能由模型声明。架构师使用 fact_claims、architecture_judgments、candidate_proposals 分开回报事实、推理和未来方案；只有当前事实与判断所引用的 basis_refs 必须来自 groundTruth，候选方案可以提出当前不存在的能力，但必须附验证计划。',
+        description: '仅在 Paperclip heartbeat 中把当前指派的真实结果回写到同一张 Paperclip 任务和 A君任务信封。不得用它关闭别人的任务；失败或待测试必须如实选择对应状态。顶层 status 只接受 succeeded、failed 或 waiting_test（若任务因审批缺失、素材不足等外部原因受阻需标记阻塞，应选 failed 或 waiting_test，底层适配器会自动同步为 Paperclip 的 blocked 状态，切勿传入 blocked）。M5 恢复时只回显受控执行器实际消费的 consumed_revision_id，路线是否改变由执行器回执决定，不能由模型声明。架构师使用 fact_claims、architecture_judgments、candidate_proposals 分开回报事实、推理和未来方案；只有当前事实与判断所引用的 basis_refs 必须来自 groundTruth，候选方案可以提出当前不存在的能力，但必须附验证计划。',
         inputSchema: z.object({
             status: z.enum(PAPERCLIP_COMPLETION_TASK_STATUSES).default('succeeded'),
             summary: z.string().min(1).max(4000),
