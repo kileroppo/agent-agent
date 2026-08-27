@@ -42,7 +42,7 @@ export function bindDetailInteractions(options) {
             const targetPath = event.currentTarget.dataset.previewPath;
             if (!targetPath)
                 return;
-            const container = event.currentTarget.closest('.record-artifact-item')?.querySelector('.artifact-dynamic-preview');
+            const container = event.currentTarget.closest('.record-artifact-item, .subtask-artifact-item')?.querySelector('.artifact-dynamic-preview');
             if (!container)
                 return;
             if (container.style.display !== 'none' && container.dataset.loadedPath === targetPath) {

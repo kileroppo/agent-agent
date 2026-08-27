@@ -51,7 +51,7 @@ export function bindDetailInteractions(options: {
         previewBtn.addEventListener('click', async (event: any): Promise<any> => {
             const targetPath = event.currentTarget.dataset.previewPath;
             if (!targetPath) return;
-            const container = event.currentTarget.closest('.record-artifact-item')?.querySelector('.artifact-dynamic-preview');
+            const container = event.currentTarget.closest('.record-artifact-item, .subtask-artifact-item')?.querySelector('.artifact-dynamic-preview');
             if (!container) return;
             if (container.style.display !== 'none' && container.dataset.loadedPath === targetPath) {
                 container.style.display = 'none';

@@ -112,8 +112,10 @@ export function renderSubtaskDrawer(subtask: any, options: { agentName?: (id: st
                         </details>
                     ` : '')}
                     ${raw(isRealFilePath ? html`<div class="subtask-artifact-path"><span class="path-label">路径：</span><code>${url}</code></div>` : '')}
+                    <div class="artifact-dynamic-preview" style="display: none;"></div>
                 </div>
                 <div class="subtask-artifact-actions">
+                    ${raw(isRealFilePath ? html`<button type="button" class="artifact-action-btn primary" data-preview-path="${url}">查看内容</button>` : '')}
                     ${raw(isHttp ? html`<a href="${url}" target="_blank" rel="noopener noreferrer" class="artifact-action-btn primary">打开查看 ↗</a>` : '')}
                     ${raw(isRealFilePath ? html`<button type="button" class="artifact-action-btn secondary" data-copy-path="${url}">复制路径</button>` : '')}
                     ${raw(copyContent ? html`<button type="button" class="artifact-action-btn secondary" data-copy-text="${escapeHtml(copyContent)}">复制内容</button>` : '')}
@@ -123,24 +125,33 @@ export function renderSubtaskDrawer(subtask: any, options: { agentName?: (id: st
         `;
     }).join('');
 
-    const isWaitingApproval = ['waiting_approval', 'pending_approval'].includes(subtask.status);
+    const isWaitingApproval = ['waiting_approval', 'pending_approval', 'waiting_test'].includes(subtask.status)
+        || Boolean(subtask.pendingApproval)
+        || Boolean(subtask.acceptanceTarget?.actionable);
     const pendingApprovalId = (Array.isArray(subtask.approvalRefs) && subtask.approvalRefs.length ? subtask.approvalRefs[0] : '')
         || subtask.pendingApproval?.approvalId
         || subtask.approvalId
         || '';
+    const isWaitingTest = subtask.status === 'waiting_test' || subtask.acceptanceTarget?.actionable;
+    const bannerTitle = isWaitingTest ? '素材初稿已就绪，等待确认采纳' : '等待人工确认执行';
+    const bannerDesc = isWaitingTest
+        ? '小D已生成人工确认稿与关键帧画面证据。确认采纳后将立即解除挂起，流转至下游进行爆款拆解分析。'
+        : '该协作环节涉及素材读取或外部调用，确认后将指派员工开始执行。';
+    const approveBtnLabel = isWaitingTest ? '✓ 确认采纳并开始拆解' : '✓ 确认执行';
+
     const approvalBannerHtml = isWaitingApproval ? html`
         <div class="subtask-approval-banner" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px;">
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
                 <div>
                     <strong style="color: #b45309; display: flex; align-items: center; gap: 6px; font-size: 14px;">
                         <svg width="16" height="16" aria-hidden="true"><use href="#icon-shield"></use></svg>
-                        等待人工确认执行
+                        ${bannerTitle}
                     </strong>
-                    <p style="margin: 4px 0 0; font-size: 13px; color: var(--text-secondary, #666);">该协作环节因涉及素材读取或内容处理已触发安全待办。确认后将立即指派员工开始执行。</p>
+                    <p style="margin: 4px 0 0; font-size: 13px; color: var(--text-secondary, #666);">${bannerDesc}</p>
                 </div>
                 <div style="display: flex; gap: 8px; flex-shrink: 0;">
                     <button type="button" class="focus-primary-action" data-subtask-approve="${subtask.taskId}" data-subtask-approval-id="${pendingApprovalId}" style="padding: 6px 14px; font-size: 13px; border-radius: 6px; cursor: pointer;">
-                        ✓ 确认执行
+                        ${approveBtnLabel}
                     </button>
                     <button type="button" class="artifact-action-btn secondary" data-subtask-reject="${subtask.taskId}" data-subtask-approval-id="${pendingApprovalId}" style="padding: 6px 12px; font-size: 13px; color: #dc2626; border-color: rgba(220, 38, 38, 0.3); border-radius: 6px; cursor: pointer;">
                         ✕ 拒绝
