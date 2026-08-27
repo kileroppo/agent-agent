@@ -330,7 +330,7 @@ export async function freezeAjunRuntimeRelease({
         verifyCommands,
         runCommand,
         canonicalRepoRoot,
-        Math.min(8, os.cpus()?.length || 4),
+        1,
       );
       const sourceRecheckRoot = path.join(
         requestedOutput,
