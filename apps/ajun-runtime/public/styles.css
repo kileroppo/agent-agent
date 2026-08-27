@@ -7831,6 +7831,29 @@ textarea:focus {
 .record-acceptance.is-closed {
   border-color: var(--line);
   background: var(--surface-soft);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0 16px;
+}
+
+.record-acceptance.is-closed .acceptance-card-header {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.record-acceptance.is-closed .acceptance-card-header h3 {
+  font-size: 13.5px;
+  margin: 0;
+}
+
+.record-acceptance.is-closed p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary, #666);
 }
 
 .record-attention {

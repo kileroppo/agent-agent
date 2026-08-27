@@ -215,7 +215,6 @@ export function renderArtifact(artifact, options = {}) {
                     </div>
                 </details>
             ` : '')}
-            ${raw(isRealFilePath ? html `<div class="artifact-path-row"><span class="artifact-path-label">存储路径：</span><code class="artifact-path" title="${escapeHtml(url)}">${url}</code></div>` : '')}
             <div class="artifact-dynamic-preview" style="display:none; margin-top: 8px;"></div>
         </div>
         <div class="artifact-item-actions">
@@ -231,10 +230,10 @@ export function isPrimaryArtifact(artifact) {
     if (type.includes('source_evidence') || type.includes('raw_asr') || type.includes('transcript_quality')
         || type.includes('human_review_attestation') || type.includes('xiaod_media_delivery')
         || type.includes('employee_role_report') || type.includes('agent_audit') || type.includes('role_draft')
-        || type.includes('mission_plan')
+        || type.includes('mission_plan') || type.includes('mission_summary')
         || title.includes('来源证据') || title.includes('机器原始转录') || title.includes('质量报告')
         || title.includes('听审记录') || title.includes('岗位回报') || title.includes('执行审计')
-        || title.includes('多人协作分工')) {
+        || title.includes('多人协作分工') || title.includes('协作汇总') || title.includes('任务协作汇总')) {
         return false;
     }
     return true;

@@ -448,8 +448,10 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const distinctResult = result && result.text && result.text !== summary ? result : null;
         const parsedTitle = parseTaskTitle(task?.input?.title || task?.title || '');
         // Pure high-value business outcome (No robotic "progress" or "next action" tags)
+        const isTaskAccepted = acceptanceTarget?.decision === 'accepted' || task.status === 'succeeded';
+        const hasActionableAttention = attention && (!isTaskAccepted || (Array.isArray(attention.actions) && attention.actions.length > 0));
         const outcomeContent = distinctResult?.text || (summary && taskView === 'completed' ? summary : '');
-        const outcomeHtml = attention
+        const outcomeHtml = hasActionableAttention
             ? renderAttentionDetail(attention, actionState, escapeHtml)
             : (outcomeContent || task.pendingApproval?.reason)
                 ? html `${raw(outcomeContent ? html `
@@ -461,7 +463,6 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         const isWorkflow = Boolean(task.workflowBreadcrumb && (task.workflowBreadcrumb.workflowId || (task.workflowBreadcrumb.siblings && task.workflowBreadcrumb.siblings.length > 0)));
         const createdFull = formatFullDateTime(task.createdAt);
         const durationText = task.createdAt ? formatDuration(task.createdAt, task.completedAt || (taskView === 'completed' ? task.updatedAt : null)) : '';
-        const isTaskAccepted = acceptanceTarget?.decision === 'accepted' || task.status === 'succeeded';
         const tabNavHtml = renderDetailTabNav(state.detailTab, { deliverablesCount: artifacts.length, isWorkflow });
         const isReworkTask = parsedTitle?.badges?.some((b) => b.tone === 'rework') || /定向返工/i.test(task?.input?.title || task?.title || '');
         const reworkArtifactsHtml = isReworkTask && artifacts.length ? artifacts.map((a) => renderArtifact(a, { isAccepted: isTaskAccepted })).join('') : '';

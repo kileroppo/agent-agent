@@ -7,12 +7,13 @@ export function renderTaskProgressBar(task = {}, options = {}) {
     const agentNameFn = options.agentName || ((id) => id || '未知员工');
     const presentation = task.presentation || {};
     const status = task.status || 'unknown';
-    const isCompleted = ['succeeded', 'cancelled', 'rejected', 'stopped'].includes(status);
-    const isSucceeded = status === 'succeeded';
-    const isFailed = ['failed', 'error'].includes(status);
-    const isActionNeeded = ['needs_input', 'waiting_approval', 'pending_approval', 'waiting_test', 'paused', 'blocked'].includes(status);
-    const isQueued = ['queued', 'waiting_worker'].includes(status);
-    const isRunning = ['running', 'pausing'].includes(status);
+    const isAccepted = task.acceptanceTarget?.decision === 'accepted';
+    const isSucceeded = status === 'succeeded' || isAccepted;
+    const isCompleted = ['succeeded', 'cancelled', 'rejected', 'stopped'].includes(status) || isAccepted;
+    const isFailed = ['failed', 'error'].includes(status) && !isAccepted;
+    const isActionNeeded = ['needs_input', 'waiting_approval', 'pending_approval', 'waiting_test', 'paused', 'blocked'].includes(status) && !isAccepted;
+    const isQueued = ['queued', 'waiting_worker'].includes(status) && !isAccepted;
+    const isRunning = ['running', 'pausing'].includes(status) && !isAccepted;
     // 1. Origin
     const input = task.input || {};
     const sourceUrl = input.sourceUrl || (Array.isArray(input.sourceUrls) ? input.sourceUrls[0] : null);
