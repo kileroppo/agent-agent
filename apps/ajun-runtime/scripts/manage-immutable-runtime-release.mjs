@@ -2003,7 +2003,7 @@ function assertGitIdentityUnchanged(before, after, label) {
   }
 }
 
-async function runCommandsConcurrent(commands, runCommand, canonicalRepoRoot, concurrency = 4) {
+async function runCommandsConcurrent(commands, runCommand, canonicalRepoRoot, concurrency = 1) {
   let index = 0;
   async function worker() {
     while (index < commands.length) {
