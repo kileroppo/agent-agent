@@ -17,6 +17,9 @@ import {
   renderTechnicalDetails,
 } from '../public/task-record-workbench.js';
 import {
+  renderTaskWorkflowTree,
+} from '../public/task-tree-view.js';
+import {
   taskTypeLabel,
   statusLabel,
 } from '../public/console-labels.js';
@@ -442,6 +445,45 @@ test('renderOriginCard 正确渲染有效外链为 <a> 标签，脱敏占位符�
   assert.doesNotMatch(maskedHtml, /<a href="\[链接已脱敏\]"/);
   assert.match(maskedHtml, /class="origin-link-text is-plain"/);
   assert.match(maskedHtml, /\[链接已脱敏\]/);
+});
+
+test('renderTaskWorkflowTree 产物仅在存在真实正文时提供复制内容，无独立正文或仅重复标题时提供查看详情', () => {
+  const task = {
+    taskId: 'main-task-1',
+    workflowBreadcrumb: {
+      workflowId: 'wf-test-1',
+      siblings: [
+        {
+          taskId: 'sub-task-1',
+          title: '分工与规划',
+          status: 'succeeded',
+          assigneeAgentId: 'ajun',
+          artifactRefs: [
+            {
+              title: '多人协作分工',
+              summary: '多人协作分工', // 与标题重复，无正文
+            },
+            {
+              title: '完整方案报告',
+              summary: '这是方案概览',
+              data: {
+                markdown: '# 协作规划\n\n1. 明确各角色分工\n2. 阶段性产物核验标准与交付检查点。',
+              },
+            },
+          ],
+        },
+      ],
+    },
+  };
+
+  const html = renderTaskWorkflowTree(task, { agentName: () => 'A君' });
+  
+  // 对于仅重复标题的产物，不应渲染复制内容，而应渲染查看详情
+  assert.doesNotMatch(html, /data-copy-text="多人协作分工"/);
+  assert.match(html, /data-subtask-preview="sub-task-1">查看详情 ↗<\/button>/);
+
+  // 对于包含真实 markdown/结构化正文的产物，正确渲染复制内容
+  assert.match(html, /data-copy-text="# 协作规划/);
 });
 
 function escapeHtml(value) {

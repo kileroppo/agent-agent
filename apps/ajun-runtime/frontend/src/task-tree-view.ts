@@ -1,6 +1,7 @@
 import { html, raw, escapeHtml } from './html.js';
 import { formatFullDateTime, formatDuration, isValidHttpUrl } from './format-utils.js';
 import { displaySubtaskTitle } from './task-record-presentation.js';
+import { formatStructuredReportText } from './task-record-report-formatter.js';
 
 export interface TaskTreeOptions {
   agentName?: (id: string) => string;
@@ -80,7 +81,20 @@ function renderMultiTaskWorkflowTree(task: any, breadcrumb: any, agentNameFn: (i
       const isHttp = /^https?:\/\//i.test(url);
       const isRealFilePath = /^(?:\/|[a-zA-Z]:[/\\]|file:\/\/)/.test(url) && !url.startsWith('runtime://');
       const rawSummary = art?.summary || art?.description || art?.data?.summary || art?.data?.conclusion || (typeof art?.data?.text === 'string' ? art?.data.text : '');
-      const summary = typeof rawSummary === 'string' ? rawSummary.slice(0, 300).trim() : '';
+      const summary = typeof rawSummary === 'string' ? rawSummary.slice(0, 400).trim() : '';
+      const formattedFullReport = formatStructuredReportText(art?.data || art, art?.type);
+      const rawInline = formattedFullReport || art?.data?.markdown || art?.data?.text || art?.data?.content || art?.content || '';
+      const inlineContent = typeof rawInline === 'string' ? rawInline.trim() : '';
+      const hasReadableContent = inlineContent.length > 20 && !inlineContent.startsWith('{') && inlineContent !== summary;
+
+      const taskTitle = String(art?.title || art?.name || '').trim();
+      const isSummaryTrivial = !summary || (taskTitle && (
+          summary === taskTitle ||
+          summary.startsWith(taskTitle) ||
+          taskTitle.startsWith(summary) ||
+          summary.length < 15
+      ));
+      const copyContent = hasReadableContent ? inlineContent : (isSummaryTrivial ? '' : summary);
 
       return `<div class="tree-artifact-leaf">
           <div class="tree-art-name">
@@ -91,7 +105,8 @@ function renderMultiTaskWorkflowTree(task: any, breadcrumb: any, agentNameFn: (i
           <div class="tree-art-actions">
             ${isHttp ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="text-action">打开查看 ↗</a>` : ''}
             ${isRealFilePath ? `<button type="button" class="text-action" data-copy-path="${escapeHtml(url)}">复制路径</button>` : ''}
-            ${!isRealFilePath && summary ? `<button type="button" class="text-action" data-copy-text="${escapeHtml(summary)}">复制内容</button>` : ''}
+            ${copyContent ? `<button type="button" class="text-action" data-copy-text="${escapeHtml(copyContent)}">复制内容</button>` : ''}
+            ${!isHttp && !isRealFilePath && !copyContent && t.taskId ? `<button type="button" class="text-action" data-subtask-preview="${t.taskId}">查看详情 ↗</button>` : ''}
           </div>
         </div>`;
     }).join('');
