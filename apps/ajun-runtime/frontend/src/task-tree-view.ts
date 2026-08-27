@@ -1,6 +1,6 @@
 import { html, raw, escapeHtml } from './html.js';
 import { formatFullDateTime, formatDuration, isValidHttpUrl } from './format-utils.js';
-import { displaySubtaskTitle } from './task-record-presentation.js';
+import { displaySubtaskTitle, isPrimaryArtifact } from './task-record-presentation.js';
 import { formatStructuredReportText } from './task-record-report-formatter.js';
 
 export interface TaskTreeOptions {
@@ -75,7 +75,11 @@ function renderMultiTaskWorkflowTree(task: any, breadcrumb: any, agentNameFn: (i
         return !/employee_(?:execution_|role_)?report|agent_audit|role_draft/i.test(type)
             && !/员工岗位回报|执行审计|岗位草案/i.test(title);
     });
-    const artifactsHtml = artifacts.map((art: any) => {
+    const primaryArtifacts = artifacts.filter(isPrimaryArtifact);
+    const secondaryArtifacts = artifacts.filter((a: any) => !isPrimaryArtifact(a));
+    const showSeparation = primaryArtifacts.length > 0 && secondaryArtifacts.length > 0;
+
+    function renderTreeArtifactLeaf(art: any): string {
       const name = cleanTreeText(art?.title || art?.name || art?.type || '交付产物', 35);
       const url = String(art?.url || art?.downloadUrl || art?.location || art?.path || '').trim();
       const isHttp = /^https?:\/\//i.test(url);
@@ -109,7 +113,15 @@ function renderMultiTaskWorkflowTree(task: any, breadcrumb: any, agentNameFn: (i
             ${!isHttp && !isRealFilePath && !copyContent && t.taskId ? `<button type="button" class="text-action" data-subtask-preview="${t.taskId}">查看详情 ↗</button>` : ''}
           </div>
         </div>`;
-    }).join('');
+    }
+
+    const artifactsHtml = artifacts.length > 0 ? (showSeparation ? `
+      ${primaryArtifacts.map(renderTreeArtifactLeaf).join('')}
+      <details class="tree-secondary-artifacts" style="margin-top: 6px; font-size: 12px;">
+        <summary style="cursor: pointer; color: var(--text-secondary, #666); padding: 4px 0; user-select: none;">📂 展开底层技术底稿与审计 (${secondaryArtifacts.length})</summary>
+        <div style="margin-top: 4px;">${secondaryArtifacts.map(renderTreeArtifactLeaf).join('')}</div>
+      </details>
+    ` : artifacts.map(renderTreeArtifactLeaf).join('')) : '';
 
     return html`
       <div class="tree-task-node ${isCurrent ? 'is-current-task' : ''} is-${statusTone}">

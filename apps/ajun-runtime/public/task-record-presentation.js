@@ -222,7 +222,20 @@ export function renderArtifact(artifact, options = {}) {
             ${raw(isHttp ? html `<a href="${url}" target="_blank" rel="noopener noreferrer" class="artifact-action-btn primary">打开查看 ↗</a>` : '')}
             ${raw(isRealFilePath ? html `<button type="button" class="artifact-action-btn secondary" data-preview-path="${url}">查看内容</button><button type="button" class="artifact-action-btn secondary" data-copy-path="${url}">复制路径</button>` : '')}
             ${raw(copyContent ? html `<button type="button" class="artifact-action-btn secondary" data-copy-text="${escapeHtml(copyContent)}">复制内容</button>` : '')}
-            ${raw(!isOpsOrSystemArtifact && !isPlanOrSummary ? (isAccepted ? '<span class="artifact-accepted-pill">✓ 已采纳</span>' : '<button type="button" class="artifact-action-btn primary" data-acceptance-decision="accepted">✓ 采纳此产物</button>') : '')}
         </div>
     </li>`;
+}
+export function isPrimaryArtifact(artifact) {
+    const type = String(artifact?.type || '').toLowerCase();
+    const title = String(artifact?.title || artifact?.name || '').toLowerCase();
+    if (type.includes('source_evidence') || type.includes('raw_asr') || type.includes('transcript_quality')
+        || type.includes('human_review_attestation') || type.includes('xiaod_media_delivery')
+        || type.includes('employee_role_report') || type.includes('agent_audit') || type.includes('role_draft')
+        || type.includes('mission_plan')
+        || title.includes('来源证据') || title.includes('机器原始转录') || title.includes('质量报告')
+        || title.includes('听审记录') || title.includes('岗位回报') || title.includes('执行审计')
+        || title.includes('多人协作分工')) {
+        return false;
+    }
+    return true;
 }

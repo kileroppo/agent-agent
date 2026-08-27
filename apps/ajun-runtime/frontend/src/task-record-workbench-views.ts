@@ -1,5 +1,6 @@
 import { html, raw, escapeHtml } from './html.js';
 import { formatFullDateTime } from './format-utils.js';
+import { isPrimaryArtifact } from './task-record-presentation.js';
 
 export function renderListRows(options: {
     displayItems: any[];
@@ -100,6 +101,10 @@ export function renderOverviewTab(options: {
         </div>
     ` : '';
 
+    const primaryArtifacts = artifacts.filter(isPrimaryArtifact);
+    const secondaryArtifacts = artifacts.filter((a: any) => !isPrimaryArtifact(a));
+    const showSeparation = primaryArtifacts.length > 0 && secondaryArtifacts.length > 0;
+
     return html`
         <div class="detail-tab-pane ${state.detailTab === 'overview' || state.detailTab === 'deliverables' ? 'is-active' : ''}" data-pane="overview">
             ${raw(waitingTestGuideHtml)}
@@ -110,15 +115,32 @@ export function renderOverviewTab(options: {
             <section class="record-deliverables-full">
                 <div class="deliverables-full-head">
                     <div>
-                        <h3>交付产物成果 (${artifacts.length})</h3>
-                        <p class="deliverables-full-desc">汇集本次任务生成的全部交付物、拆解分析与证据文件：</p>
+                        <h3>交付成果 (${showSeparation ? primaryArtifacts.length : artifacts.length})</h3>
+                        <p class="deliverables-full-desc">${showSeparation ? '本次任务提炼的核心交付成果与视觉证据：' : '汇集本次任务生成的全部交付物、拆解分析与证据文件：'}</p>
                     </div>
                 </div>
-                ${raw(artifacts.length ? html`
+                ${raw(artifacts.length ? (showSeparation ? html`
+                    <ul class="record-artifact-list full-grid">
+                        ${raw(primaryArtifacts.map((a: any) => renderArtifact(a, { isAccepted: isTaskAccepted, task })).join(''))}
+                    </ul>
+                    <details class="secondary-artifacts-disclosure" style="margin-top: 20px; border: 1px dashed var(--border-color, rgba(0,0,0,0.15)); border-radius: 8px; padding: 12px 16px; background: rgba(0,0,0,0.015);">
+                        <summary style="cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-secondary, #666); display: flex; align-items: center; justify-content: space-between; user-select: none;">
+                            <span style="display: flex; align-items: center; gap: 6px;">
+                                <svg width="14" height="14" aria-hidden="true"><use href="#icon-records"></use></svg>
+                                📂 底层审计存证与技术底稿 (${secondaryArtifacts.length})
+                            </span>
+                            <svg class="chevron" width="14" height="14" aria-hidden="true"><use href="#icon-chevron"></use></svg>
+                        </summary>
+                        <p style="margin: 6px 0 12px; font-size: 12px; color: var(--text-muted, #888);">包含原始下载流数据、Whisper原始粗稿、CER质量评分及合规听审签名（供技术排错与合规存证，日常无需查阅）：</p>
+                        <ul class="record-artifact-list full-grid">
+                            ${raw(secondaryArtifacts.map((a: any) => renderArtifact(a, { isAccepted: isTaskAccepted, task })).join(''))}
+                        </ul>
+                    </details>
+                ` : html`
                     <ul class="record-artifact-list full-grid">
                         ${raw(artifacts.map((a: any) => renderArtifact(a, { isAccepted: isTaskAccepted, task })).join(''))}
                     </ul>
-                ` : html`
+                `) : html`
                     <div class="deliverables-empty">
                         <svg width="24" height="24" aria-hidden="true"><use href="#icon-records"></use></svg>
                         <p>本次任务暂未产生交付物文件</p>

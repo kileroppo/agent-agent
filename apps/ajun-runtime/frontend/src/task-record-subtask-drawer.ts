@@ -1,6 +1,6 @@
 import { html, raw, escapeHtml } from './html.js';
 import { formatFullDateTime, formatDuration } from './format-utils.js';
-import { displaySubtaskTitle } from './task-record-presentation.js';
+import { displaySubtaskTitle, isPrimaryArtifact } from './task-record-presentation.js';
 import { cleanAttentionText } from './task-record-detail-view.js';
 import { formatStructuredReportText } from './task-record-report-formatter.js';
 
@@ -74,7 +74,11 @@ export function renderSubtaskDrawer(subtask: any, options: { agentName?: (id: st
     const humanFocus = humanizeFocusText(rawInputDesc);
     const statusLabel = subtask.presentation?.statusLabel || statusToChinese(subtask.status);
 
-    const artifactItemsHtml = artifacts.map((a: any) => {
+    const primaryArtifacts = artifacts.filter(isPrimaryArtifact);
+    const secondaryArtifacts = artifacts.filter((a: any) => !isPrimaryArtifact(a));
+    const showSeparation = primaryArtifacts.length > 0 && secondaryArtifacts.length > 0;
+
+    function renderSingleSubtaskArtifact(a: any): string {
         const artTitle = cleanAttentionText(a.title || a.name || a.type || '交付成果', 50);
         const url = String(a.url || a.downloadUrl || a.location || a.path || a.detailUrl || '').trim();
         const isHttp = /^https?:\/\//i.test(url);
@@ -123,7 +127,30 @@ export function renderSubtaskDrawer(subtask: any, options: { agentName?: (id: st
                 </div>
             </li>
         `;
-    }).join('');
+    }
+
+    const subtaskArtifactsRenderedHtml = artifacts.length > 0 ? (showSeparation ? html`
+        <ul class="subtask-artifacts-list">
+            ${raw(primaryArtifacts.map(renderSingleSubtaskArtifact).join(''))}
+        </ul>
+        <details class="secondary-artifacts-disclosure" style="margin-top: 16px; border: 1px dashed var(--border-color, rgba(0,0,0,0.15)); border-radius: 8px; padding: 10px 14px; background: rgba(0,0,0,0.015);">
+            <summary style="cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-secondary, #666); display: flex; align-items: center; justify-content: space-between; user-select: none;">
+                <span style="display: flex; align-items: center; gap: 6px;">
+                    <svg width="14" height="14" aria-hidden="true"><use href="#icon-records"></use></svg>
+                    📂 底层审计存证与技术底稿 (${secondaryArtifacts.length})
+                </span>
+                <svg class="chevron" width="14" height="14" aria-hidden="true"><use href="#icon-chevron"></use></svg>
+            </summary>
+            <p style="margin: 6px 0 10px; font-size: 12px; color: var(--text-muted, #888);">包含原始下载流数据、Whisper原始粗稿、CER质量评分及合规听审签名（供技术排错与合规存证）：</p>
+            <ul class="subtask-artifacts-list">
+                ${raw(secondaryArtifacts.map(renderSingleSubtaskArtifact).join(''))}
+            </ul>
+        </details>
+    ` : html`
+        <ul class="subtask-artifacts-list">
+            ${raw(artifacts.map(renderSingleSubtaskArtifact).join(''))}
+        </ul>
+    `) : '<p class="subtask-empty-text">该环节暂未生成独立交付物（数据流已并入主报告）</p>';
 
     const isWaitingApproval = ['waiting_approval', 'pending_approval', 'waiting_test'].includes(subtask.status)
         || Boolean(subtask.pendingApproval)
@@ -202,19 +229,15 @@ export function renderSubtaskDrawer(subtask: any, options: { agentName?: (id: st
                     <div class="subtask-section subtask-artifacts-container">
                         <div class="subtask-artifacts-head">
                             <svg width="14" height="14" aria-hidden="true"><use href="#icon-records"></use></svg>
-                            <span class="subtask-section-title">本环节生成的交付产物 (${artifacts.length})</span>
+                            <span class="subtask-section-title">本环节交付成果 (${showSeparation ? primaryArtifacts.length : artifacts.length})</span>
                         </div>
-                        ${raw(artifacts.length > 0 ? html`
-                            <ul class="subtask-artifacts-list">
-                                ${raw(artifactItemsHtml)}
-                            </ul>
-                        ` : '<p class="subtask-empty-text">该环节暂未生成独立交付物（数据流已并入主报告）</p>')}
+                        ${raw(subtaskArtifactsRenderedHtml)}
                     </div>
                 </div>
                 <div class="subtask-drawer-footer">
                     ${raw(isWaitingApproval ? html`
                         <button type="button" class="focus-primary-action" data-subtask-approve="${subtask.taskId}" data-subtask-approval-id="${pendingApprovalId}" style="margin-right: 8px;">
-                            ✓ 确认并开始执行
+                            ${approveBtnLabel}
                         </button>
                     ` : '')}
                     <button type="button" class="focus-primary-action subtask-drawer-done-btn" data-subtask-drawer-close>
