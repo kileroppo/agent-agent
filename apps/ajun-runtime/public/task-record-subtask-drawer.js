@@ -114,7 +114,10 @@ export function renderSubtaskDrawer(subtask, options = {}) {
         `;
     }).join('');
     const isWaitingApproval = ['waiting_approval', 'pending_approval'].includes(subtask.status);
-    const pendingApprovalId = Array.isArray(subtask.approvalRefs) && subtask.approvalRefs.length ? subtask.approvalRefs[0] : '';
+    const pendingApprovalId = (Array.isArray(subtask.approvalRefs) && subtask.approvalRefs.length ? subtask.approvalRefs[0] : '')
+        || subtask.pendingApproval?.approvalId
+        || subtask.approvalId
+        || '';
     const approvalBannerHtml = isWaitingApproval ? html `
         <div class="subtask-approval-banner" style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px;">
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">

@@ -150,6 +150,61 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
                 return sendJson(response, 200, await tasks.overview());
             if (request.method === 'GET' && request.url === '/api/console-overview')
                 return sendJson(response, 200, await tasks.consoleOverview());
+            const artifactContentMatch: any = request.url?.startsWith('/api/artifacts/content');
+            if (request.method === 'GET' && artifactContentMatch) {
+                if (!isLocalAddress(request.socket.remoteAddress))
+                    return sendJson(response, 403, { error: '产物预览只能由本机调用。' });
+                const urlObj = new URL(request.url || '/', 'http://127.0.0.1');
+                let targetPath = String(urlObj.searchParams.get('path') || '').trim();
+                if (targetPath.startsWith('file://')) {
+                    try {
+                        targetPath = new URL(targetPath).pathname;
+                    } catch {
+                        targetPath = targetPath.replace(/^file:\/\//, '');
+                    }
+                }
+                targetPath = path.resolve(decodeURIComponent(targetPath));
+                const allowedRoots = [
+                    environment?.XIAOD_ARTIFACT_ROOT || process.env.XIAOD_ARTIFACT_ROOT || path.join(process.env.HOME || '', '.agent-army/state/xiaod-media-transcriber-data'),
+                    environment?.AGENT_ARMY_DATA_DIR || process.env.AGENT_ARMY_DATA_DIR || path.join(process.env.HOME || '', '.agent-army/state/ajun-runtime-data'),
+                    environment?.AGENT_ARMY_CONTENT_WORKSPACE_DIR || process.env.AGENT_ARMY_CONTENT_WORKSPACE_DIR || path.join(process.env.HOME || '', '.agent-army/state/m5-content-autonomy'),
+                    dataDir,
+                    path.resolve(process.cwd()),
+                ].filter(Boolean).map((p: any) => path.resolve(p));
+                const isAllowed = allowedRoots.some((root: any) => targetPath.startsWith(root) || targetPath === root);
+                if (!isAllowed) {
+                    return sendJson(response, 403, { error: '该路径超出受控产物安全目录范围。' });
+                }
+                try {
+                    const stats = await fs.stat(targetPath);
+                    if (!stats.isFile()) {
+                        return sendJson(response, 400, { error: '目标路径不是普通文件。' });
+                    }
+                    if (stats.size > 10 * 1024 * 1024) {
+                        return sendJson(response, 400, { error: '文件过大，超出在线预览限制（10MB）。' });
+                    }
+                    const ext = path.extname(targetPath).toLowerCase();
+                    const isImage = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg'].includes(ext);
+                    if (isImage) {
+                        const buffer = await fs.readFile(targetPath);
+                        const mime = ext === '.svg' ? 'image/svg+xml' : (ext === '.png' ? 'image/png' : (ext === '.webp' ? 'image/webp' : 'image/jpeg'));
+                        const dataUrl = `data:${mime};base64,${buffer.toString('base64')}`;
+                        return sendJson(response, 200, { ok: true, isImage: true, dataUrl, filename: path.basename(targetPath), size: stats.size });
+                    }
+                    const text = await fs.readFile(targetPath, 'utf8');
+                    return sendJson(response, 200, {
+                        ok: true,
+                        isImage: false,
+                        isMarkdown: ext === '.md',
+                        isJson: ext === '.json',
+                        content: text,
+                        filename: path.basename(targetPath),
+                        size: stats.size,
+                    });
+                } catch (err: any) {
+                    return sendJson(response, 404, { error: `文件读取失败：${err.message}` });
+                }
+            }
             const usageUrl: any = request.method === 'GET' && request.url?.startsWith('/api/usage') ? new URL(request.url, 'http://127.0.0.1') : null;
             if (usageUrl?.pathname === '/api/usage')
                 return sendJson(response, 200, await tasks.usageOverview(parseUsageRange(usageUrl)));

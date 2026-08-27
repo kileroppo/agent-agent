@@ -143,21 +143,4 @@ export function stateForTask(status) {
         return 'needs_action';
     if (['succeeded', 'cancelled', 'rejected', 'stopped'].includes(status))
         return 'completed';
-    return 'active';
-}
-export function isTaskAdoptable(task) {
-    if (!task)
-        return false;
-    const attention = taskAttentionView(task);
-    if (attention?.actions?.some((a) => a.actionKey === 'accept_reviewed_artifact')) {
-        return true;
-    }
-    if (task.status === 'waiting_test') {
-        return true;
-    }
-    const target = acceptanceTargetView(task);
-    if (target?.actionable) {
-        return true;
-    }
-    return false;
 }

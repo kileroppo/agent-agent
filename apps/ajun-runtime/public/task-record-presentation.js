@@ -216,10 +216,11 @@ export function renderArtifact(artifact, options = {}) {
                 </details>
             ` : '')}
             ${raw(isRealFilePath ? html `<div class="artifact-path-row"><span class="artifact-path-label">存储路径：</span><code class="artifact-path" title="${escapeHtml(url)}">${url}</code></div>` : '')}
+            <div class="artifact-dynamic-preview" style="display:none; margin-top: 8px;"></div>
         </div>
         <div class="artifact-item-actions">
             ${raw(isHttp ? html `<a href="${url}" target="_blank" rel="noopener noreferrer" class="artifact-action-btn primary">打开查看 ↗</a>` : '')}
-            ${raw(isRealFilePath ? html `<button type="button" class="artifact-action-btn secondary" data-copy-path="${url}">复制路径</button>` : '')}
+            ${raw(isRealFilePath ? html `<button type="button" class="artifact-action-btn secondary" data-preview-path="${url}">查看内容</button><button type="button" class="artifact-action-btn secondary" data-copy-path="${url}">复制路径</button>` : '')}
             ${raw(copyContent ? html `<button type="button" class="artifact-action-btn secondary" data-copy-text="${escapeHtml(copyContent)}">复制内容</button>` : '')}
             ${raw(!isOpsOrSystemArtifact && !isPlanOrSummary ? (isAccepted ? '<span class="artifact-accepted-pill">✓ 已采纳</span>' : '<button type="button" class="artifact-action-btn primary" data-acceptance-decision="accepted">✓ 采纳此产物</button>') : '')}
         </div>
