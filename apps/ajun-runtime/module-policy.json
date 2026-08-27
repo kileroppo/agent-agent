@@ -63,13 +63,20 @@
       "lineLimit": 480,
       "importLimit": 12
     },
+    "frontend/src/data-lifecycle-console.ts": {
+      "affectedTests": [
+        "test/data-lifecycle-console.test.js",
+        "test/console-boundary.test.js"
+      ],
+      "lineLimit": 150
+    },
     "frontend/src/task-record-origin-view.ts": {
       "affectedTests": [
         "test/console-boundary.test.js",
         "test/console-operator-flow-ui.test.js",
         "test/task-record-service.test.js"
       ],
-      "lineLimit": 220
+      "lineLimit": 260
     },
     "frontend/src/task-record-presentation.ts": {
       "affectedTests": [

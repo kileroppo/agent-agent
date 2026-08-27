@@ -7,6 +7,8 @@ const CONSOLE_ROUTES: any = Object.freeze({
     employees: { page: 'employees', group: 'system' },
     connections: { page: 'connections', group: 'system' },
     billing: { page: 'billing', group: 'system' },
+    storage: { page: 'storage', group: 'system' },
+    'data-lifecycle': { page: 'storage', group: 'system' },
     release: { page: 'release', group: 'system' },
     tools: { page: 'tools', group: 'tools' },
     campaigns: { page: 'campaigns', group: 'tools' },

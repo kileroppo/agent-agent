@@ -8,6 +8,7 @@ import { startBrowserHotReload } from './hot-reload-client.js';
 import { createTaskRecordWorkbench } from './task-record-workbench.js';
 import { createStepFunModelPolicyConsole } from './stepfun-model-policy-console.js';
 import { createRuntimeReleaseConsole } from './runtime-release-console.js';
+import { createDataLifecycleConsole } from './data-lifecycle-console.js';
 import { canRefreshConsole } from './refresh-scheduler.js';
 import { statusLabel, taskTypeLabel as presentTaskTypeLabel } from './console-labels.js';
 import { createBillingUsageCache } from './billing-usage-cache.js';
@@ -194,6 +195,7 @@ const billingView = createBillingView({
 let boomMonitor;
 let recordWorkbench;
 let runtimeReleaseConsole;
+let dataLifecycleConsole;
 async function load({ background = false } = {}) {
     if (state.loading)
         return;
@@ -284,6 +286,8 @@ function activateModule(name, { navigationGroup = '', replaceHash = false } = {}
         accessViews?.renderContentCampaigns().catch((error) => setSyncStatus(error.message, 'error'));
     if (selected === 'billing')
         billingView.loadBilling().catch((error) => setSyncStatus(error.message, 'error'));
+    if (selected === 'storage')
+        dataLifecycleConsole?.activate();
     if (selected === 'release')
         runtimeReleaseConsole?.activate();
     else
@@ -299,6 +303,7 @@ function moduleTitle(name) {
         connections: '账号接入',
         campaigns: '发布活动',
         billing: 'AI 成本账本',
+        storage: '数据闭环',
         release: '版本管理',
         'boom-monitor': '爆款雷达',
         records: '任务记录'
@@ -343,6 +348,10 @@ boomMonitor = createBoomMonitorConsole({
 });
 runtimeReleaseConsole = createRuntimeReleaseConsole({
     root: document.querySelector('#module-release'),
+    api,
+});
+dataLifecycleConsole = createDataLifecycleConsole({
+    root: document.querySelector('#module-storage'),
     api,
 });
 bindConsoleInteractions({

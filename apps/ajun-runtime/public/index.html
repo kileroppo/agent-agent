@@ -166,6 +166,7 @@
             <a href="#employees" data-context-page="employees">员工编队</a>
             <a href="#connections" data-context-page="connections" data-owner-only hidden>账号接入</a>
             <a href="#billing" data-context-page="billing" data-owner-only hidden>AI 成本账本</a>
+            <a href="#storage" data-context-page="storage" data-owner-only hidden>数据闭环</a>
             <a href="#release" data-context-page="release" data-owner-only hidden>版本管理</a>
           </nav>
         </div>
@@ -191,6 +192,7 @@
             <a href="#employees" data-context-page="employees">员工编队</a>
             <a href="#connections" data-context-page="connections">账号接入</a>
             <a href="#billing" data-context-page="billing">AI 成本账本</a>
+            <a href="#storage" data-context-page="storage">数据闭环</a>
             <a href="#release" data-context-page="release">版本管理</a>
           </nav>
         </div>
@@ -380,6 +382,7 @@
             <a href="#employees" data-context-page="employees">员工编队</a>
             <a href="#connections" data-context-page="connections">账号接入</a>
             <a href="#billing" data-context-page="billing">AI 成本账本</a>
+            <a href="#storage" data-context-page="storage">数据闭环</a>
             <a href="#release" data-context-page="release">版本管理</a>
           </nav>
         </div>
@@ -403,6 +406,64 @@
             <ul id="release-history-list" class="release-history-list"></ul>
           </div>
           <p id="release-component-status" class="hint">正在读取运行组件状态…</p>
+        </section>
+      </section>
+
+      <section id="module-storage" class="module-page" data-module-page="storage" data-owner-only aria-labelledby="storage-title">
+        <div class="module-heading">
+          <div>
+            <h1 id="storage-title">数据生命周期与闭环</h1>
+            <p class="subtle">分级留存与自动淘汰策略；支持只读预览与安全物理清理。</p>
+          </div>
+          <nav class="context-nav" data-nav-group="system" aria-label="系统与接入">
+            <a href="#employees" data-context-page="employees">员工编队</a>
+            <a href="#connections" data-context-page="connections">账号接入</a>
+            <a href="#billing" data-context-page="billing">AI 成本账本</a>
+            <a href="#storage" data-context-page="storage">数据闭环</a>
+            <a href="#release" data-context-page="release">版本管理</a>
+          </nav>
+        </div>
+        <section class="surface-section storage-console" aria-live="polite">
+          <div class="storage-watermark-grid">
+            <div><span>任务库水位</span><strong id="storage-tasks-count">正在读取…</strong></div>
+            <div><span>运行追踪事件</span><strong id="storage-events-count">正在读取…</strong></div>
+            <div><span>评测集用例</span><strong id="storage-eval-count">正在读取…</strong></div>
+            <div><span>存储占用估算</span><strong id="storage-size-bytes">正在读取…</strong></div>
+          </div>
+          <p id="storage-message" class="storage-message" role="status">正在读取全系统数据存储水位…</p>
+          <div class="storage-policy-cards">
+            <div class="policy-card">
+              <h3>高频例行与诊断</h3>
+              <p class="policy-val">留存 7 天</p>
+              <p class="hint">A君定时巡检与只读自愈诊断</p>
+            </div>
+            <div class="policy-card">
+              <h3>闲置会话与测试</h3>
+              <p class="policy-val">留存 30 天</p>
+              <p class="hint">长期无更新的上下文与临时实例</p>
+            </div>
+            <div class="policy-card">
+              <h3>已完结历史任务</h3>
+              <p class="policy-val">留存 90 天</p>
+              <p class="hint">终态任务（保留验收与审计记录）</p>
+            </div>
+            <div class="policy-card">
+              <h3>运行追踪事件</h3>
+              <p class="policy-val">分级 7d / 30d / 365d</p>
+              <p class="hint">自动聚合为永久脱敏事故摘要</p>
+            </div>
+            <div class="policy-card">
+              <h3>小D媒体与切片</h3>
+              <p class="policy-val">成功 14d / 失败 3d</p>
+              <p class="hint">自动清理已完结任务的音视频大物料</p>
+            </div>
+          </div>
+          <div class="storage-actions">
+            <button id="storage-check" type="button" class="secondary-action">扫描待清理项 (Dry-Run)</button>
+            <button id="storage-reconcile" type="button" class="secondary-action danger-action">立即安全清理 (Apply)</button>
+          </div>
+          <p class="storage-boundary hint">所有活跃/进行中/待办任务受系统绝对保护，绝不物理删除。后台每 60 分钟自动调度巡检。</p>
+          <div id="storage-ledger" class="storage-ledger"></div>
         </section>
       </section>
 
@@ -436,6 +497,7 @@
             <a href="#employees" data-context-page="employees">员工编队</a>
             <a href="#connections" data-context-page="connections">账号接入</a>
             <a href="#billing" data-context-page="billing">AI 成本账本</a>
+            <a href="#storage" data-context-page="storage">数据闭环</a>
             <a href="#release" data-context-page="release">版本管理</a>
           </nav>
         </div>

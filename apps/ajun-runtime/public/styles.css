@@ -629,6 +629,108 @@ h3 {
   border-radius: var(--radius-lg);
 }
 
+.storage-watermark-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.storage-watermark-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+
+.storage-watermark-grid > div:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .05);
+  border-color: var(--line-strong);
+}
+
+.storage-watermark-grid span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.storage-watermark-grid strong {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.storage-policy-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.storage-policy-cards .policy-card {
+  padding: 14px 16px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.storage-policy-cards .policy-card h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.storage-policy-cards .policy-val {
+  margin: 0 0 4px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--mint-deep);
+}
+
+.storage-actions {
+  display: flex;
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.storage-message {
+  min-height: 38px;
+  margin: 0 0 16px;
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--canvas-deep);
+  border: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.storage-ledger {
+  margin-top: 16px;
+}
+
+.storage-ledger-summary {
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.storage-ledger-summary p {
+  margin: 4px 0;
+}
+
 .release-version-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -193,3 +193,39 @@ export function parseOriginDescription(desc, task = {}) {
     }
     return { steps, boomMetrics, caveat, cleanGoal };
 }
+export function renderCostSection(detail) {
+    const cost = detail?.costAttribution;
+    if (!cost)
+        return '';
+    const executor = cost.executor || '未知执行者';
+    const duration = typeof cost.durationMs === 'number'
+        ? cost.durationMs >= 60000
+            ? `${(cost.durationMs / 60000).toFixed(1)} 分钟`
+            : `${(cost.durationMs / 1000).toFixed(1)} 秒`
+        : null;
+    const tokens = (cost.inputTokens || cost.outputTokens)
+        ? `输入 ${cost.inputTokens} / 输出 ${cost.outputTokens}`
+        : null;
+    const totalCost = cost.totalCost || null;
+    return html `<section class="record-cost" aria-label="任务开销">
+    <span>这次花了多少</span>
+    <dl>
+      <dt>执行者</dt><dd>${executor}</dd>
+      ${raw(duration ? html `<dt>耗时</dt><dd>${duration}</dd>` : '')}
+      ${raw(tokens ? html `<dt>Token</dt><dd>${tokens}</dd>` : '')}
+      ${raw(totalCost ? html `<dt>费用</dt><dd>${totalCost} ${cost.currency || 'USD'}</dd>` : '')}
+    </dl>
+  </section>`;
+}
+export function renderDeliverySink(task = {}) {
+    const paperclipIssue = task?.paperclipIssue;
+    const isCompleted = ['succeeded', 'cancelled', 'rejected', 'stopped'].includes(task?.status);
+    if (!isCompleted)
+        return '';
+    const sinks = [];
+    if (paperclipIssue?.identifier || paperclipIssue?.detailUrl) {
+        sinks.push(html `<span class="delivery-sink-item">✓ 已回写 Paperclip 工单 <strong>#${paperclipIssue.identifier || 'ISSUE'}</strong></span>`);
+    }
+    sinks.push(html `<span class="delivery-sink-item">✓ 已同步并可供飞书原会话回读</span>`);
+    return html `<div class="record-delivery-sink"><div class="delivery-sink-title"><svg aria-hidden="true"><use href="#icon-share"></use></svg> 交付去向与下游</div><div class="delivery-sink-list">${raw(sinks.join(''))}</div></div>`;
+}

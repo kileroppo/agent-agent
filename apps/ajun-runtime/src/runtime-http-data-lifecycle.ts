@@ -33,8 +33,8 @@ export async function routeDataLifecycleApi({
       return { status: 503, payload: { error: '数据闭环治理模块尚未就绪。' } };
     }
 
-    const body = await readBody().catch(() => ({}));
-    const dryRun = url.searchParams.get('dryRun') === 'true' || body?.dryRun === true;
+    const body = (await readBody().catch(() => ({}))) as Record<string, any> | null;
+    const dryRun = url.searchParams.get('dryRun') === 'true' || Boolean(body?.dryRun);
     const result = await dataLifecycleGovernance.runFullClosedLoop({ dryRun });
     return { status: 200, payload: { ok: true, result } };
   }
