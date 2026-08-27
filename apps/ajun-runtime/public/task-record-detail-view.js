@@ -103,12 +103,8 @@ export function renderAcceptanceDetail(target, submission, _escapeHtml) {
     const controls = target.actionable && !closed
         ? html `<label class="record-acceptance-note">说明（可选）<textarea rows="2" maxlength="1000" data-acceptance-note placeholder="哪里有用，或下次改什么"${raw(submitting ? ' disabled' : '')}>${submission?.note || ''}</textarea></label>
         <div class="record-acceptance-actions">
-          <button type="button" class="focus-primary-action acceptance-btn-accept" data-acceptance-decision="accepted"${raw(submitting ? ' disabled' : '')}>${submitting && submission?.decision === 'accepted' ? '保存中…' : '有用'}</button>
-          <button type="button" class="secondary-action acceptance-btn-revise" data-acceptance-decision="revision_required"${raw(submitting ? ' disabled' : '')}>${submitting && submission?.decision === 'revision_required' ? '保存中…' : '需改进'}</button>
-        </div>
-        <div class="acceptance-actions-hints">
-          <span class="acceptance-hint">✓ 点击「有用」将满意闭环并归档为已完成</span>
-          <span class="acceptance-hint">🔁 点击「需改进」将自动调度 AI 发起下一轮针对性修正</span>
+          <button type="button" class="focus-primary-action acceptance-btn-accept" data-acceptance-decision="accepted" title="点击「有用」将满意闭环并归档为已完成"${raw(submitting ? ' disabled' : '')}>${submitting && submission?.decision === 'accepted' ? '保存中…' : '有用'}</button>
+          <button type="button" class="secondary-action acceptance-btn-revise" data-acceptance-decision="revision_required" title="点击「需改进」将自动调度 AI 发起下一轮针对性修正"${raw(submitting ? ' disabled' : '')}>${submitting && submission?.decision === 'revision_required' ? '保存中…' : '需改进'}</button>
         </div>`
         : '';
     return html `<section class="record-acceptance${raw(closed ? ' is-closed' : '')}" aria-label="业务结果验收">
