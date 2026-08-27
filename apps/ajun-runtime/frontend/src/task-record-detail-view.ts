@@ -124,6 +124,7 @@ export function renderAcceptanceDetail(target: any, submission: any, _escapeHtml
       ${raw(controls)}${raw(feedback)}
     </section>`;
 }
+
 export function renderAttentionDetail(attention: any, actionState: any, _escapeHtml: any): any {
     const recovery: any = actionState?.status === 'confirming' ? attention.verification : actionState || attention.verification;
     const diagnosis: any = actionState?.status === 'confirming' ? null : recoveryDiagnosis(recovery?.diagnosis);
@@ -249,6 +250,7 @@ function renderDiagnosisOutcome(diagnosis: any, recovery: any, paperclipIssue: a
     <details class="record-attention-evidence"><summary>诊断依据</summary><p>${diagnosis.evidence}</p>${raw(recoveryLink)}</details>
   </section>`;
 }
+
 export function recoverySubmissionView(payload: any, label: any): any {
     const verification: any = payload?.recovery?.verification && typeof payload.recovery.verification === 'object'
         ? payload.recovery.verification
@@ -269,9 +271,11 @@ export function recoverySubmissionView(payload: any, label: any): any {
             : {}),
     };
 }
+
 export function cleanAttentionText(value: any, limit: any): any {
     return String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit);
 }
+
 function attentionVerification(value: any): any {
     if (!value || typeof value !== 'object')
         return null;
@@ -289,6 +293,7 @@ function attentionVerification(value: any): any {
         ...(diagnosis ? { diagnosis } : {}),
     };
 }
+
 function recoveryDiagnosis(value: any): any {
     if (!value || typeof value !== 'object')
         return null;
@@ -300,6 +305,7 @@ function recoveryDiagnosis(value: any): any {
     };
     return Object.values(diagnosis).every(Boolean) ? diagnosis : null;
 }
+
 function attentionTechnical(value: any): any {
     if (!value || typeof value !== 'object')
         return null;
@@ -310,6 +316,7 @@ function attentionTechnical(value: any): any {
         occurredAt: cleanAttentionText(value.occurredAt, 80) || null,
     };
 }
+
 function safePaperclipIssue(value: any): any {
     if (!value || typeof value !== 'object')
         return null;
@@ -326,12 +333,14 @@ function safePaperclipIssue(value: any): any {
         return null;
     }
 }
+
 function diagnosisHeadline(diagnosis: any): any {
     const conclusion: any = cleanAttentionText(diagnosis?.conclusion, 800);
     return /paperclip/i.test(conclusion) && /(失败|结束)/.test(conclusion)
         ? 'Paperclip 执行失败'
         : conclusion;
 }
+
 function diagnosisSummary(diagnosis: any): any {
     const conclusion: any = cleanAttentionText(diagnosis?.conclusion, 800);
     const evidence: any = cleanAttentionText(diagnosis?.evidence, 1200);
@@ -339,6 +348,7 @@ function diagnosisSummary(diagnosis: any): any {
         return '未生成可验证产物，原任务未完成。';
     return cleanAttentionText(diagnosis?.impact, 800);
 }
+
 function verificationStateMessage(status: any): any {
     return ({
         accepted: '恢复请求已接受，正在重新读取任务状态。',
@@ -354,6 +364,7 @@ function verificationStateMessage(status: any): any {
         failed: '恢复没有完成，请查看新的失败原因。',
     } as Record<string, string>)[status] || '';
 }
+
 function recoveryTone(status: any): any {
     if (['submitted', 'pending', 'retrying', 'running', 'submitting'].includes(status))
         return 'is-running';
@@ -363,58 +374,13 @@ function recoveryTone(status: any): any {
         return 'is-failed';
     return 'is-pending';
 }
+
 function safeTaskDetailPath(detailPath: any, taskId: any): any {
     const path: any = cleanAttentionText(detailPath, 240);
     if (/^\/tasks\/[0-9a-f-]{36}$/i.test(path))
         return path;
     const normalizedTaskId: any = cleanAttentionText(taskId, 80);
     return /^[0-9a-f-]{36}$/i.test(normalizedTaskId) ? `/tasks/${normalizedTaskId}` : null;
-}
-
-export function renderCostSection(detail: any): any {
-    const cost: any = detail?.costAttribution;
-    if (!cost)
-        return '';
-    const executor: any = cost.executor || '未知执行者';
-    const duration: any = typeof cost.durationMs === 'number'
-        ? cost.durationMs >= 60000
-            ? `${(cost.durationMs / 60000).toFixed(1)} 分钟`
-            : `${(cost.durationMs / 1000).toFixed(1)} 秒`
-        : null;
-    const tokens: any = (cost.inputTokens || cost.outputTokens)
-        ? `输入 ${cost.inputTokens} / 输出 ${cost.outputTokens}`
-        : null;
-    const totalCost: any = cost.totalCost || null;
-    return html`<section class="record-cost" aria-label="任务开销">
-    <span>这次花了多少</span>
-    <dl>
-      <dt>执行者</dt><dd>${executor}</dd>
-      ${raw(duration ? html`<dt>耗时</dt><dd>${duration}</dd>` : '')}
-      ${raw(tokens ? html`<dt>Token</dt><dd>${tokens}</dd>` : '')}
-      ${raw(totalCost ? html`<dt>费用</dt><dd>${totalCost} ${cost.currency || 'USD'}</dd>` : '')}
-    </dl>
-  </section>`;
-}
-
-export function renderWorkflowBreadcrumb(detail: any): any {
-    const breadcrumb: any = detail?.workflowBreadcrumb;
-    if (!breadcrumb)
-        return '';
-    const workflowLabel: any = breadcrumb.workflowId.slice(0, 8).toUpperCase();
-    const stepLabel: any = breadcrumb.currentStepId || '';
-    const parentLabel: any = breadcrumb.parentWorkflowId
-        ? breadcrumb.parentWorkflowId.slice(0, 8).toUpperCase()
-        : '';
-    const siblings: any = Array.isArray(breadcrumb.siblings) ? breadcrumb.siblings.slice(0, 10) : [];
-    const siblingItems: any = siblings.map((sibling: any): any => {
-        const ref: any = String(sibling.taskId || '').replace(/[^0-9a-z]/gi, '').slice(0, 8).toUpperCase();
-        return html`<li><span class="breadcrumb-ref">#${ref}</span> ${sibling.title || '未命名'} <small>${sibling.status || ''}</small></li>`;
-    }).join('');
-    return html`<nav class="record-workflow-breadcrumb" aria-label="工作流上下文">
-    ${raw(parentLabel ? html`<span class="breadcrumb-parent">#${parentLabel}</span> → ` : '')}
-    <strong class="breadcrumb-current">#${workflowLabel}${raw(stepLabel ? html` / ${stepLabel}` : '')}</strong>
-    ${raw(siblingItems ? html`<ul class="breadcrumb-siblings">${raw(siblingItems)}</ul>` : '')}
-  </nav>`;
 }
 
 export function renderDetailTabNav(activeTab: string = 'overview', counts: { deliverablesCount: number; isWorkflow: boolean } = { deliverablesCount: 0, isWorkflow: false }): string {
@@ -439,24 +405,5 @@ export function renderDetailTabNav(activeTab: string = 'overview', counts: { del
     return html`<nav class="detail-tab-nav" role="tablist" aria-label="任务详情分类">${raw(buttons)}</nav>`;
 }
 
-import { renderOriginCard } from './task-record-origin-view.js';
-export { renderOriginCard };
-
-export function renderDeliverySink(task: any = {}): string {
-    const paperclipIssue = task?.paperclipIssue;
-    const isCompleted = ['succeeded', 'cancelled', 'rejected', 'stopped'].includes(task?.status);
-    if (!isCompleted) return '';
-
-    const sinks = [];
-    if (paperclipIssue?.identifier || paperclipIssue?.detailUrl) {
-        sinks.push(html`<span class="delivery-sink-item">✓ 已回写 Paperclip 工单 <strong>#${paperclipIssue.identifier || 'ISSUE'}</strong></span>`);
-    }
-    sinks.push(html`<span class="delivery-sink-item">✓ 已同步并可供飞书原会话回读</span>`);
-    return html`<div class="record-delivery-sink"><div class="delivery-sink-title"><svg aria-hidden="true"><use href="#icon-share"></use></svg> 交付去向与下游</div><div class="delivery-sink-list">${raw(sinks.join(''))}</div></div>`;
-}
-
-import { renderTaskLineageCard, renderSubtaskDrawer } from './task-record-subtask-drawer.js';
-export { renderTaskLineageCard, renderSubtaskDrawer };
-
-
-
+export { renderCostSection, renderDeliverySink, renderOriginCard } from './task-record-origin-view.js';
+export { renderTaskLineageCard, renderSubtaskDrawer } from './task-record-subtask-drawer.js';

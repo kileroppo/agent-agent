@@ -60,7 +60,7 @@
         "test/console-operator-flow-ui.test.js",
         "test/task-record-service.test.js"
       ],
-      "lineLimit": 480,
+      "lineLimit": 450,
       "importLimit": 12
     },
     "frontend/src/data-lifecycle-console.ts": {

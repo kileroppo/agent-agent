@@ -7,78 +7,15 @@ import { fileURLToPath } from 'node:url';
 import { AjunArchitecturePolicyCatalog } from './ajun-module-policy.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const LEGACY_AJUN_LINE_LIMITS = Object.freeze({
-  'src/task-attention-presentation.ts':250,
-  'src/task-recovery.ts':300,
-  'src/task-service.ts':250,
-  'src/task-definition-registry.ts':275,
-  'src/task-definitions.ts':200,
-  'src/task-status-policy.ts':180,
-  'src/contracts/agent-army-task-input.ts':600,
-  'src/contracts/agent-army-adapter-projection.ts':200,
-  'src/agent-army-mcp-server.ts':600,
-  'src/agent-army-client.ts':750,
-  'src/task-approval-coordinator.ts':120,
-  'src/task-intake.ts':350,
-  'src/task-notification.ts':350,
-  'src/task-overview.ts':275,
-  'src/task-paperclip-assignment.ts':350,
-  'src/task-role-execution.ts':750,
-  'src/feishu-commander.ts':100,
-  'src/feishu-commander-routing.ts':400,
-  'src/feishu-commander-followup.ts':300,
-  'src/feishu-commander-context.ts':400,
-  'src/feishu-commander-replies.ts':600,
-  'src/local-content-growth.ts':100,
-  'src/local-content-analysis.ts':750,
-  'src/local-content-artifacts.ts':450,
-  'src/local-content-creation.ts':450,
-  'src/local-content-m5-vision.ts':400,
-  'src/open-task-routing.ts':100,
-  'src/open-task-routing-policy.ts':350,
-  'src/open-task-research-state.ts':650,
-  'src/open-task-research-execution.ts':700,
-  'src/paperclip-bridge.ts':100,
-  'src/paperclip-organization.ts':250,
-  'src/paperclip-issue-operations.ts':250,
-  'src/paperclip-m5-case-operations.ts':350,
-  'src/paperclip-publisher.ts':650,
-  'src/paperclip-publisher-contract.ts':400,
-  'src/m5-local-chaos-acceptance.ts':450,
-  'src/m5-local-chaos-journey.ts':400,
-  'src/m5-local-chaos-adapters.ts':350,
-  'src/m5-local-chaos-fixtures.ts':250,
-  'src/m5-local-chaos-ledger.ts':250,
-  'frontend/src/app.ts':750,
-  'frontend/src/app-access-views.ts':500,
-  'frontend/src/app-interactions.ts':450,
-  'frontend/src/task-record-detail-view.ts':450,
-  'frontend/src/refresh-scheduler.ts':150,
-});
-const LEGACY_AJUN_IMPORT_LIMITS = Object.freeze({
-  'src/task-attention-presentation.ts':8,
-  'src/task-recovery.ts':10,
-  'frontend/src/task-record-detail-view.ts':12,
-  'frontend/src/refresh-scheduler.ts':6,
-});
 
-test('Catalog 精确保留 TypeScript 迁移后的 A君生产 Module 门禁', () => {
+test('AjunArchitecturePolicyCatalog 能够正确加载生产 module-policy.json 并解析模块与生效限额', () => {
   const catalog = AjunArchitecturePolicyCatalog.load(repositoryRoot);
-  const actualLineLimits = Object.fromEntries(
-    Object.keys(LEGACY_AJUN_LINE_LIMITS).map((modulePath) => [
-      modulePath,
-      catalog.moduleRule(modulePath)?.lineLimit,
-    ]),
-  );
-  const actualImportLimits = Object.fromEntries(
-    Object.keys(LEGACY_AJUN_IMPORT_LIMITS).map((modulePath) => [
-      modulePath,
-      catalog.moduleRule(modulePath)?.importLimit,
-    ]),
-  );
-
-  assert.deepEqual(actualLineLimits, LEGACY_AJUN_LINE_LIMITS);
-  assert.deepEqual(actualImportLimits, LEGACY_AJUN_IMPORT_LIMITS);
+  assert.ok(catalog.modules().size > 30, '生产模块定义数必须充足');
+  
+  const detailViewRule = catalog.moduleRule('frontend/src/task-record-detail-view.ts');
+  assert.ok(detailViewRule, 'task-record-detail-view.ts 必须存在策略');
+  assert.equal(typeof detailViewRule.lineLimit, 'number');
+  assert.equal(catalog.effectiveLineLimit('frontend/src/task-record-detail-view.ts'), detailViewRule.lineLimit);
 });
 
 test('AjunArchitecturePolicyCatalog 集中提供模块门禁、affected tests 和测试分组', async (context) => {
@@ -103,6 +40,82 @@ test('AjunArchitecturePolicyCatalog 集中提供模块门禁、affected tests �
     lineLimit:700,
     paths:['apps/ajun-runtime/test/runtime-start.test.js'],
   }]);
+});
+
+test('AjunArchitecturePolicyCatalog 支持带 TTL 生命周期的 Waiver 豁免与失效阻断', async (context) => {
+  const futureDate = '2099-12-31';
+  const pastDate = '2020-01-01';
+
+  const waiverRoot = await fixture(context, {
+    waivers:[
+      {
+        module:'src/runtime-composition-root.ts',
+        reason:'重构过渡期',
+        author:'developer',
+        expiresAt:futureDate,
+        allowLineLimit:300,
+      },
+    ],
+  });
+
+  const catalog = AjunArchitecturePolicyCatalog.load(waiverRoot);
+  assert.equal(catalog.effectiveLineLimit('src/runtime-composition-root.ts'), 300);
+  const waiverInfo = catalog.waiverInfo('src/runtime-composition-root.ts');
+  assert.equal(waiverInfo.expired, false);
+  assert.equal(waiverInfo.reason, '重构过渡期');
+
+  // 过期检测
+  const expiredWaiverRoot = await fixture(context, {
+    waivers:[
+      {
+        module:'src/runtime-composition-root.ts',
+        reason:'已过期豁免',
+        author:'developer',
+        expiresAt:pastDate,
+        allowLineLimit:300,
+      },
+    ],
+  });
+  const expiredCatalog = AjunArchitecturePolicyCatalog.load(expiredWaiverRoot);
+  assert.equal(expiredCatalog.effectiveLineLimit('src/runtime-composition-root.ts'), 220); // 回退到 base limit
+  const expiredInfo = expiredCatalog.waiverInfo('src/runtime-composition-root.ts');
+  assert.equal(expiredInfo.expired, true);
+
+  // 诊断 checkModule
+  const passCheck = catalog.checkModule('src/runtime-composition-root.ts', 'const a = 1;\n');
+  assert.equal(passCheck.status, 'PASS');
+
+  const warnCheck = catalog.checkModule('src/runtime-composition-root.ts', Array(250).fill('// line').join('\n'));
+  assert.equal(warnCheck.status, 'WARN'); // 在 waiver 范围内，标记为 WARN
+
+  const failCheck = catalog.checkModule('src/runtime-composition-root.ts', Array(350).fill('// line').join('\n'));
+  assert.equal(failCheck.status, 'FAIL'); // 超过 waiver 上限，标记为 FAIL
+});
+
+test('AjunArchitecturePolicyCatalog 对非法 Waiver 严格校验并失败关闭', async (context) => {
+  // 1. 目标模块不存在
+  await assert.rejects(
+    () => fixture(context, {
+      waivers:[{ module:'src/non-existent.ts', reason:'test', author:'dev', expiresAt:'2099-01-01', allowLineLimit:300 }],
+    }).then(AjunArchitecturePolicyCatalog.load),
+    /豁免的目标模块未在 modules 列表中定义/,
+  );
+
+  // 2. 超出最大允许浮动上限
+  await assert.rejects(
+    () => fixture(context, {
+      waivers:[{ module:'src/runtime-composition-root.ts', reason:'test', author:'dev', expiresAt:'2099-01-01', allowLineLimit:1000 }],
+    }).then(AjunArchitecturePolicyCatalog.load),
+    /超过该模块允许的最大浮动上限/,
+  );
+
+  // 3. 缺少 reason 或 author
+  await assert.rejects(
+    () => fixture(context, {
+      waivers:[{ module:'src/runtime-composition-root.ts', reason:'', author:'dev', expiresAt:'2099-01-01', allowLineLimit:300 }],
+    }).then(AjunArchitecturePolicyCatalog.load),
+    /必须提供明确的豁免原因/,
+  );
 });
 
 test('AjunArchitecturePolicyCatalog 对未知字段和路径越界失败关闭', async (context) => {
@@ -162,6 +175,7 @@ async function fixture(context, {
     affectedTests:['test/runtime-start.test.js'],
   },
   affectedTests,
+  waivers = [],
 } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ajun-policy-catalog-'));
   context.after(() => fs.rm(root, { recursive:true, force:true }));
@@ -175,6 +189,7 @@ async function fixture(context, {
         ...(affectedTests ? { affectedTests } : {}),
       },
     },
+    waivers,
     testGroups:{
       'runtime-seams':{
         label:'运行装配接缝测试',

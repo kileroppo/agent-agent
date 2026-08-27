@@ -155,11 +155,21 @@ for (const sourceRoot of sourceRoots) {
       ? portableRelative.slice('apps/ajun-runtime/'.length)
       : null;
     const localPolicy = ajunRelative ? ajunModulePolicy.moduleRule(ajunRelative) : null;
-    const lineLimit = localPolicy?.lineLimit || responsibilityLineLimits.get(portableRelative);
+    const waiverInfo = ajunRelative && typeof ajunModulePolicy.waiverInfo === 'function'
+      ? ajunModulePolicy.waiverInfo(ajunRelative)
+      : null;
+    if (waiverInfo?.expired) {
+      violations.push(`${portableRelative}: 责任模块豁免已于 ${waiverInfo.expiresAt} 过期（申请人: ${waiverInfo.author}, 原因: ${waiverInfo.reason}），请完成重构或续期`);
+    }
+    const lineLimit = ajunRelative && typeof ajunModulePolicy.effectiveLineLimit === 'function'
+      ? ajunModulePolicy.effectiveLineLimit(ajunRelative)
+      : (localPolicy?.lineLimit || responsibilityLineLimits.get(portableRelative));
     if (lineLimit && source.split(/\r?\n/).length > lineLimit) {
       violations.push(`${portableRelative}: 责任模块超过 ${lineLimit} 行，请先提取有明确边界的协作者再继续扩展`);
     }
-    const importLimit = localPolicy?.importLimit || responsibilityImportLimits.get(portableRelative);
+    const importLimit = ajunRelative && typeof ajunModulePolicy.effectiveImportLimit === 'function'
+      ? ajunModulePolicy.effectiveImportLimit(ajunRelative)
+      : (localPolicy?.importLimit || responsibilityImportLimits.get(portableRelative));
     const importCount = [...source.matchAll(/^\s*import\b/gm)].length;
     if (importLimit && importCount > importLimit) {
       violations.push(`${portableRelative}: 产品装配根超过 ${importLimit} 个直接 import，请将领域装配知识下沉到深层 Module`);

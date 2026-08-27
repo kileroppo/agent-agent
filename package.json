@@ -30,6 +30,8 @@
     "check": "npm run distribute:tokens && npm run check:architecture && npm run build:boom-frontend && npm run check:paperclip-compat && npm run check --workspaces --if-present",
     "check:architecture": "node scripts/check-architecture-boundaries.mjs",
     "check:any-density": "node scripts/check-any-density.mjs",
+    "gate:doctor": "node scripts/gate-doctor.mjs",
+    "gate:doctor:json": "node scripts/gate-doctor.mjs --json",
     "test:affected": "node scripts/run-affected-tests.mjs",
     "test:contracts": "npm test --workspace=@agent-army/m5-contracts --if-present && npm test --workspace=@agent-army/paperclip-client --if-present",
     "test:core": "npm test --workspace=ajun-runtime",
