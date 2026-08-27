@@ -46,10 +46,14 @@ export function acceptanceTargetView(task = {}) {
     if (isChildSubtask && !source?.actionable && task?.status !== 'waiting_test') {
         return null; // 中间子任务成果由流水线自动向下游传递，无需前置人工业务验收
     }
+    const isRunning = ['running', 'planning', 'acquiring', 'analyzing', 'dispatching'].includes(task?.status);
+    if (isRunning && !source?.actionable) {
+        return null; // 任务正在执行中，尚未产出最终结果，不提前展示验收卡片
+    }
     const workflowId = cleanAttentionText(source?.workflowId || task?.workflow?.workflowId || (task?.taskId ? `WF-${task.taskId.slice(0, 8)}` : ''), 160);
     const artifactsList = Array.isArray(task?.artifactRefs) ? task.artifactRefs : (Array.isArray(task?.artifacts) ? task.artifacts : []);
     const hasArtifacts = artifactsList.length > 0;
-    const isUnsettled = ['running', 'waiting_test', 'waiting_acceptance', 'needs_action'].includes(task?.status);
+    const isUnsettled = ['waiting_test', 'waiting_acceptance', 'needs_action'].includes(task?.status);
     if (source && typeof source === 'object') {
         const decision = ['accepted', 'revision_required'].includes(source.decision)
             ? source.decision
