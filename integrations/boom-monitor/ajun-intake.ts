@@ -4,15 +4,13 @@ const defaultGovernor = new BoomSignalDedupGovernor();
 
 export function normalizeBoomSignal(input: any = {}) {
     const sourceUrl = publicHttpUrl(input.sourceUrl);
-    const grade = ['T1', 'T2', 'T3'].includes(String(input.grade || '').toUpperCase())
-        ? String(input.grade).toUpperCase()
-        : null;
+    const grade = String(input.grade || 'N0').toUpperCase().trim() || 'N0';
     const workId = clean(input.workId, 200);
     const platform = clean(input.platform, 40);
     if (!sourceUrl)
         throw new Error('爆款候选缺少可供小D读取的公开 HTTP(S) 来源。');
-    if (!grade || !workId || !platform)
-        throw new Error('爆款候选缺少等级、平台或作品编号。');
+    if (!workId || !platform)
+        throw new Error('爆款候选缺少平台或作品编号。');
     const observed = input.observedMetrics && typeof input.observedMetrics === 'object' ? input.observedMetrics : {};
     const baseline = input.baseline && typeof input.baseline === 'object' ? input.baseline : {};
     return {

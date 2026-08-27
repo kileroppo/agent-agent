@@ -89,6 +89,10 @@ export function createBoomMonitorConsole({ root, api, formatDate }) {
         filterGrade: element('#boom-filter-grade'),
         filterPlatform: element('#boom-filter-platform'),
         filterCreator: element('#boom-filter-creator'),
+        batchToolbar: element('#boom-batch-toolbar'),
+        selectAll: element('#boom-select-all'),
+        selectedCount: element('#boom-selected-count'),
+        batchDispatchBtn: element('#boom-batch-dispatch-btn'),
         workList: element('#boom-work-list'),
         scanRun: element('#boom-scan-run'),
         queueRefresh: element('#boom-queue-refresh'),
@@ -107,10 +111,26 @@ export function createBoomMonitorConsole({ root, api, formatDate }) {
     let loading = false;
     let settings = { enabled: false, grades: ['T2', 'T3'] };
     let budgetState = { daily_limit: 5, dispatched_today: 0, remaining_today: 5 };
+    const selectedWorkIds = new Set();
     function setMessage(message, tone = '') {
         elements.message.textContent = message;
         elements.message.dataset.tone = tone;
         elements.message.hidden = !message;
+    }
+    function syncBatchToolbar() {
+        const availableCheckboxes = [...elements.workList.querySelectorAll('.boom-select-work-checkbox:not(:disabled)')];
+        const checkedCount = selectedWorkIds.size;
+        if (elements.selectedCount) {
+            elements.selectedCount.textContent = `已选择 ${checkedCount} 条视频`;
+        }
+        if (elements.batchDispatchBtn) {
+            elements.batchDispatchBtn.disabled = checkedCount === 0;
+            elements.batchDispatchBtn.textContent = checkedCount > 0 ? `批量拆解 (${checkedCount} 条视频)` : '批量拆解所选视频';
+        }
+        if (elements.selectAll) {
+            elements.selectAll.checked = availableCheckboxes.length > 0 && availableCheckboxes.every((cb) => cb.checked);
+            elements.selectAll.indeterminate = checkedCount > 0 && !elements.selectAll.checked;
+        }
     }
     function setView(name) {
         for (const tab of elements.tabs) {
@@ -184,18 +204,21 @@ export function createBoomMonitorConsole({ root, api, formatDate }) {
     function renderWorks(works, taskProgress = new Map()) {
         if (!works.length) {
             elements.workList.innerHTML = '<p class="boom-empty">还没有符合条件的作品。</p>';
+            syncBatchToolbar();
             return;
         }
         const autoGrades = new Set(Array.isArray(settings.grades) ? settings.grades : ['T2', 'T3']);
         elements.workList.innerHTML = works.map((work) => {
             const analysisStatus = String(work.analysis_status || '');
             const autoHandlesWork = settings.enabled === true && autoGrades.has(work.grade);
-            const canDispatch = ['T1', 'T2', 'T3'].includes(work.grade)
-                && (!analysisStatus || analysisStatus === 'cancelled' || (analysisStatus === 'queued' && !autoHandlesWork));
-            const workTitle = work.title || work.work_id || `作品 ${work.id}`;
-            const detailId = `boom-score-detail-${work.id}`;
             const taskId = String(work.army_task_id || '');
             const task = taskId ? taskProgress.get(taskId) : null;
+            const inProgress = ['submitted', 'planning', 'acquiring', 'analyzing', 'dispatching'].includes(analysisStatus)
+                || (taskId && ['running', 'active', 'pending_approval', 'waiting_approval', 'waiting_test'].includes(String(task?.status || '')));
+            const isCompleted = analysisStatus === 'completed' || ['succeeded', 'completed'].includes(String(task?.status || ''));
+            const canDispatch = !inProgress && !isCompleted;
+            const workTitle = work.title || work.work_id || `作品 ${work.id}`;
+            const detailId = `boom-score-detail-${work.id}`;
             const pendingApprovalId = String(task?.pendingApproval?.approvalId || '');
             const status = workStatusLabel(analysisStatus, autoHandlesWork, task);
             const progressAction = pendingApprovalId
@@ -203,9 +226,11 @@ export function createBoomMonitorConsole({ root, api, formatDate }) {
                 : taskId
                     ? html `<a class="boom-task-link" href="/tasks/${encodeURIComponent(taskId)}">查看拆解进度</a>`
                     : '';
+            const isChecked = selectedWorkIds.has(Number(work.id));
             return html `
       <article class="boom-list-item">
         <div class="boom-item-head">
+          <label class="boom-checkbox-wrap" aria-label="选择此作品"><input type="checkbox" class="boom-select-work-checkbox" data-boom-select-work="${work.id}" ${isChecked ? 'checked' : ''} ${canDispatch ? '' : 'disabled'}></label>
           ${raw(gradeBadge(work.grade))}
           <span class="boom-item-copy"><strong>${workTitle}</strong><small>${platformLabel(work.platform)} · ${formatDate(work.publish_at)}${status} · ${formatCompact(work.likes)} 赞</small></span>
           ${raw(workVerdict(work))}
@@ -217,6 +242,7 @@ export function createBoomMonitorConsole({ root, api, formatDate }) {
         <div id="${detailId}" class="boom-score-detail" data-boom-detail-output="${work.id}" role="status" aria-live="polite" aria-atomic="true" hidden></div>
       </article>`;
         }).join('');
+        syncBatchToolbar();
     }
     async function showWorkDetail(workId, triggerButton) {
         const output = elements.workList.querySelector(`[data-boom-detail-output="${workId}"]`);
@@ -405,6 +431,43 @@ export function createBoomMonitorConsole({ root, api, formatDate }) {
         }
         return JSON.parse(pasted);
     }
+    async function dispatchBatchManually() {
+        if (!selectedWorkIds.size)
+            return;
+        const count = selectedWorkIds.size;
+        if (!window.confirm(`确定开始所选 ${count} 条视频的拆解吗？系统会先由小D取证，再由小拆分析，不会直接发布内容。`))
+            return;
+        if (elements.batchDispatchBtn) {
+            elements.batchDispatchBtn.disabled = true;
+            elements.batchDispatchBtn.textContent = '正在批量创建任务…';
+        }
+        try {
+            const ids = Array.from(selectedWorkIds);
+            await api(`${API_ROOT}/analysis/queue/batch`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ work_ids: ids }),
+            });
+            const result = await api(`${API_ROOT}/analysis/run`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ manual: true }),
+            });
+            selectedWorkIds.clear();
+            const message = Number(result.processed || 0) > 0
+                ? `批量拆解已启动，已成功创建 ${result.processed} 项拆解任务。`
+                : '已将所选视频加入拆解队列。';
+            setMessage(message, 'ready');
+            await loadSettings();
+            await Promise.all([loadWorks(), loadQueues()]);
+        }
+        catch (error) {
+            showError(error);
+        }
+        finally {
+            syncBatchToolbar();
+        }
+    }
     function bind() {
         elements.refresh.addEventListener('click', () => refreshAll().catch(showError));
         for (const tab of elements.tabs)
@@ -423,6 +486,37 @@ export function createBoomMonitorConsole({ root, api, formatDate }) {
             const approval = event.target.closest('[data-boom-approve]');
             if (approval)
                 approveAndContinue(approval.dataset.boomApprove, approval).catch(showError);
+        });
+        elements.workList.addEventListener('change', (event) => {
+            const checkbox = event.target.closest('[data-boom-select-work]');
+            if (checkbox) {
+                const workId = Number(checkbox.dataset.boomSelectWork);
+                if (checkbox.checked) {
+                    selectedWorkIds.add(workId);
+                }
+                else {
+                    selectedWorkIds.delete(workId);
+                }
+                syncBatchToolbar();
+            }
+        });
+        elements.selectAll?.addEventListener('change', () => {
+            const checked = elements.selectAll.checked;
+            const checkboxes = [...elements.workList.querySelectorAll('.boom-select-work-checkbox:not(:disabled)')];
+            for (const cb of checkboxes) {
+                cb.checked = checked;
+                const workId = Number(cb.dataset.boomSelectWork);
+                if (checked) {
+                    selectedWorkIds.add(workId);
+                }
+                else {
+                    selectedWorkIds.delete(workId);
+                }
+            }
+            syncBatchToolbar();
+        });
+        elements.batchDispatchBtn?.addEventListener('click', () => {
+            dispatchBatchManually().catch(showError);
         });
         elements.analysisList.addEventListener('click', (event) => {
             const dispatch = event.target.closest('[data-boom-dispatch-work]');

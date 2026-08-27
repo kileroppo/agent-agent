@@ -245,8 +245,8 @@ export class BoomMonitorDatabase {
         this.connection.prepare('UPDATE scan_jobs SET status=?,finished_at=?,updated_at=?,error_message=? WHERE id=?')
             .run(status, now, now, errorMessage, jobId);
     }
-    upsertAnalysisQueue(workId: any, grade: any, scoreSnapshot: any = {}, analysisDepth: any = 'fast'): any {
-        const priority: any = ({ T3: 100, T2: 50, T1: 10 } as any)[grade] ?? 0;
+    upsertAnalysisQueue(workId: any, grade: any, scoreSnapshot: any = {}, analysisDepth: any = 'fast', customPriority: any = null): any {
+        const priority: any = customPriority != null ? Number(customPriority) : (({ T3: 100, T2: 50, T1: 10 } as any)[grade] ?? 0);
         const now: any = this.now();
         this.connection.prepare(`
       INSERT INTO analysis_queue(work_id,tier,priority,status,created_at,updated_at,score_snapshot_json,analysis_depth)
@@ -268,6 +268,7 @@ export class BoomMonitorDatabase {
         const result: any = this.connection.prepare(`
       UPDATE analysis_queue SET status='cancelled',dispatch_error=?,updated_at=?
       WHERE status IN ('queued','waiting_source','dispatch_failed')
+        AND priority < 100
         AND NOT EXISTS (
           SELECT 1 FROM scores s
           WHERE s.work_id=analysis_queue.work_id AND s.grade IN ('T1','T2','T3')
@@ -277,12 +278,13 @@ export class BoomMonitorDatabase {
     }
     nextDispatchBatch(limit: any = 20, workId: any = null): any {
         const where: any = workId == null ? "aq.status='queued'" : "aq.status='queued' AND aq.work_id=?";
+        const allowCondition: any = workId != null ? '1=1' : "(s.grade IN ('T1','T2','T3') OR aq.priority >= 100)";
         const statement: any = this.connection.prepare(`
       SELECT aq.*,w.title,w.work_id AS external_work_id,w.source_url,w.platform,w.likes,w.favorites,w.plays,w.publish_at,
       c.creator_id AS creator_external_id,c.creator_name,c.follower_count,
       s.score_version,s.r_value,s.m_value,s.grade,s.tier,s.baseline_metric,s.baseline_sample_count,s.follower_snapshot,s.baseline_at
       FROM analysis_queue aq JOIN works w ON w.id=aq.work_id JOIN creators c ON c.id=w.creator_id JOIN scores s ON s.work_id=aq.work_id
-      WHERE ${where} AND s.grade IN ('T1','T2','T3') ORDER BY aq.priority DESC,aq.created_at ASC LIMIT ?
+      WHERE ${where} AND ${allowCondition} ORDER BY aq.priority DESC,aq.created_at ASC LIMIT ?
     `);
         return (workId == null ? statement.all(integer(limit)) : statement.all(integer(workId), 1)).map(row);
     }

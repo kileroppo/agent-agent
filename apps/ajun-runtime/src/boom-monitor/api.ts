@@ -78,8 +78,13 @@ export async function routeBoomMonitorApi({ method, url, local, enabled = true, 
         }
         const queueMatch: any = pathname.match(/^\/api\/boom-monitor\/analysis\/queue\/(\d+)$/);
         if (method === 'POST' && queueMatch) {
-            const result: any = service.enqueueWorkAnalysis(Number(queueMatch[1]));
+            const result: any = service.enqueueWorkAnalysis(Number(queueMatch[1]), { manual: true });
             return result ? response(200, result) : response(404, { detail: '作品不存在' });
+        }
+        if (method === 'POST' && pathname === '/api/boom-monitor/analysis/queue/batch') {
+            const input: any = await readBody();
+            const result: any = service.enqueueBatchAnalysis(input?.work_ids || input?.workIds || []);
+            return response(200, result);
         }
         if (method === 'GET' && pathname === '/api/boom-monitor/settings')
             return response(200, service.getSettings());

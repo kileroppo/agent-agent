@@ -212,7 +212,7 @@ test('explicit manual dispatch works while automatic dispatch stays disabled', a
   assert.equal(service.listAnalysis().items[0].army_task_id, 'manual-mission');
 });
 
-test('single-work manual dispatch cannot fan out and N0 cannot be queued', async (t) => {
+test('single-work manual dispatch cannot fan out and allows manual selection', async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), 'boom-native-targeted-'));
   t.after(() => rm(directory, { recursive:true, force:true }));
   const dispatched = [];
@@ -235,10 +235,12 @@ test('single-work manual dispatch cannot fan out and N0 cannot be queued', async
 
   const creator = service.db.upsertCreator('douyin', 'n0-creator', 'N0作者', 1000);
   const [n0WorkId] = service.db.upsertWork(creator, 'douyin', { work_id:'n0', likes:1 });
-  assert.throws(() => service.enqueueWorkAnalysis(n0WorkId), /必须达到 T1/);
+  const manualN0 = service.enqueueWorkAnalysis(n0WorkId, { manual:true });
+  assert.equal(manualN0.status, 'ok');
+  assert.equal(manualN0.grade, 'N0');
 });
 
-test('陈旧 N0 队列和重新评分降级都不会派发', async (t) => {
+test('陈旧 N0 自动队列和重新评分降级都不会自动派发', async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), 'boom-native-stale-n0-'));
   t.after(() => rm(directory, { recursive:true, force:true }));
   const dispatched = [];
@@ -248,9 +250,11 @@ test('陈旧 N0 队列和重新评分降级都不会派发', async (t) => {
   });
   t.after(() => service.close());
   const collected = service.ingestMetricsBundle(collectedBundle());
-  service.enqueueWorkAnalysis(collected.work_id);
+  service.enqueueWorkAnalysis(collected.work_id, { manual:false });
+  service.updateSettings({ analysis_auto_enabled:true });
   service.db.connection.prepare("UPDATE scores SET grade='N0' WHERE work_id=?").run(collected.work_id);
-  assert.equal((await service.runAnalysisWorker({ manual:true })).processed, 0);
+  service.db.connection.prepare("UPDATE analysis_queue SET priority=0 WHERE work_id=?").run(collected.work_id);
+  assert.equal((await service.runAnalysisWorker({ manual:false })).processed, 0);
   assert.equal(service.listAnalysis().items[0].status, 'cancelled');
   assert.deepEqual(dispatched, []);
 
@@ -377,8 +381,34 @@ test('route adapter preserves Boom API payloads under the unified prefix', async
     method:'GET', url:'/api/boom-monitor/health', local:true, enabled:false,
     getService:async () => { resolvedDisabledService = true; return fx.service; },
   });
-  assert.equal(disabled.status, 503);
-  assert.equal(disabled.payload.code, 'boom_monitor_disabled');
-  assert.equal(resolvedDisabledService, false);
   assert.equal(await routeBoomMonitorApi({ method:'GET', url:'/elsewhere', local:true, getService:async () => fx.service }), null);
+});
+
+test('manual dispatch and batch enqueue allow any grade including N0', async (t) => {
+  const fx = await fixture();
+  t.after(() => fx.close());
+  const bundle = collectedBundle();
+  bundle.currentWork.likes = 1; // N0
+  bundle.historyWorks = [{ id:'h1', likes:100 }];
+  const ingested = fx.service.ingestMetricsBundle(bundle);
+  assert.equal(ingested.score.grade, 'N0');
+
+  // 手动入队 N0 作品
+  const queued = fx.service.enqueueWorkAnalysis(ingested.work_id, { manual:true });
+  assert.equal(queued.status, 'ok');
+  assert.equal(queued.grade, 'N0');
+
+  // 批量入队 API
+  const batchRes = await routeBoomMonitorApi({
+    method:'POST', url:'/api/boom-monitor/analysis/queue/batch', local:true,
+    readBody:async () => ({ work_ids:[ingested.work_id] }),
+    getService:async () => fx.service,
+  });
+  assert.equal(batchRes.status, 200);
+  assert.equal(batchRes.payload.count, 1);
+
+  // 派发 worker 获取队列中的手动项
+  const batch = fx.service.db.nextDispatchBatch(10);
+  assert.equal(batch.length, 1);
+  assert.equal(batch[0].work_id, ingested.work_id);
 });

@@ -479,21 +479,39 @@ export class BoomMonitorService {
         }
         return { status: 'ok', reconciled };
     }
-    enqueueWorkAnalysis(workId: any): any {
+    enqueueWorkAnalysis(workId: any, { manual = true }: any = {}): any {
         const work: any = this.db.getWorkDetail(workId);
         if (!work)
             return null;
-        if (!['T1', 'T2', 'T3'].includes(String(work.grade))) {
-            throw new Error('作品必须达到 T1、T2 或 T3 才能派发。');
+        const grade: any = String(work.grade ?? 'N0');
+        if (!manual && !['T1', 'T2', 'T3'].includes(grade)) {
+            throw new Error('自动派发作品必须达到 T1、T2 或 T3。');
         }
         const score: Record<string, any> = {
-            score_version: work.score_version, grade: work.grade ?? 'N0', tier: work.tier,
-            r_value: work.r_value, m_value: work.m_value, baseline_metric: work.baseline_metric,
-            sample_count: work.baseline_sample_count, follower_snapshot: work.follower_snapshot,
+            score_version: work.score_version || 'v2', grade: grade || 'N0', tier: work.tier || 'low',
+            r_value: work.r_value || 0, m_value: work.m_value || 0, baseline_metric: work.baseline_metric,
+            sample_count: work.baseline_sample_count || 0, follower_snapshot: work.follower_snapshot || 0,
             baseline_at: work.score_baseline_at,
         };
-        this.db.upsertAnalysisQueue(workId, score.grade, buildBoomSignal(work, score), score.grade === 'T3' ? 'full' : 'fast');
+        const priority: any = manual ? 200 : (({ T3: 100, T2: 50, T1: 10 } as any)[grade] ?? 0);
+        this.db.upsertAnalysisQueue(workId, score.grade, buildBoomSignal(work, score), score.grade === 'T3' ? 'full' : 'fast', priority);
         return { status: 'ok', work_id: workId, grade: score.grade };
+    }
+    enqueueBatchAnalysis(workIds: any[]): any {
+        if (!Array.isArray(workIds) || !workIds.length) {
+            throw new Error('请至少选择一个作品。');
+        }
+        const queued: any[] = [];
+        const errors: any[] = [];
+        for (const id of workIds) {
+            try {
+                const res: any = this.enqueueWorkAnalysis(Number(id), { manual: true });
+                if (res) queued.push(res);
+            } catch (error: any) {
+                errors.push({ work_id: id, error: error.message });
+            }
+        }
+        return { status: 'ok', count: queued.length, queued, errors };
     }
 }
 function projectMissionState(snapshot: any, { now, acceptedAt, stuckAfterMs }: any): any {

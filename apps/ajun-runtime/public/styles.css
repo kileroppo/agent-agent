@@ -5096,6 +5096,47 @@ button:disabled {
   background: var(--surface-soft);
 }
 
+.boom-batch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 12px 0 14px;
+  padding: 10px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  font-size: 13px;
+}
+
+.boom-select-all-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.boom-select-all-label input[type="checkbox"],
+.boom-checkbox-wrap input[type="checkbox"] {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary, #2563eb);
+}
+
+.boom-checkbox-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-right: 4px;
+}
+
+#boom-selected-count {
+  color: var(--muted);
+  font-size: 12px;
+  flex: 1;
+}
+
 .boom-list {
   display: grid;
   gap: 10px;
