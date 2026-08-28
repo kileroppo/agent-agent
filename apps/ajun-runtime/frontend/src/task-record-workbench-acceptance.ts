@@ -79,3 +79,119 @@ export async function submitWorkflowAcceptance({ api, target, decision, note, id
     }
     throw new Error('本机操作授权刷新失败，请重新打开任务详情后重试。');
 }
+
+export function confirmAttentionActionHelper({ task, actionKey, state, renderDetail, elements }: any): void {
+    const attention: any = taskAttentionView(task);
+    const action: any = attention?.actions.find((item: any): any => item.actionKey === actionKey);
+    if (!action || state.actionState.get(task.taskId)?.status === 'submitting')
+        return;
+    state.actionState.set(task.taskId, {
+        status: 'confirming',
+        actionKey: action.actionKey,
+        message: action.confirmation || `确认执行“${action.label}”？`,
+    });
+    renderDetail();
+    elements.detail.querySelector('[data-attention-confirm]')?.focus();
+}
+
+export async function executeAttentionActionHelper({ task, actionKey, state, renderDetail, api, loadSelectedDetail, recoverySubmissionView }: any): Promise<void> {
+    const attention: any = taskAttentionView(task);
+    const action: any = attention?.actions.find((item: any): any => item.actionKey === actionKey);
+    if (!action || state.actionState.get(task.taskId)?.status === 'submitting')
+        return;
+    state.actionState.set(task.taskId, { status: 'submitting', message: `正在${action.label}…` });
+    renderDetail();
+    try {
+        const session: any = await api('/api/owner-action-session');
+        const nonce: any = String(session?.nonce || '').trim();
+        if (!nonce)
+            throw new Error('暂时无法取得本机操作授权，请刷新后重试。');
+        const idempotencyKey: any = newIdempotencyKey(task.taskId, action.actionKey);
+        const payload: any = await api(`/api/tasks/${encodeURIComponent(task.taskId)}/recovery-actions/${encodeURIComponent(action.actionKey)}`, {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                'Idempotency-Key': idempotencyKey,
+                'X-Ajun-Owner-Action': nonce,
+            },
+            body: JSON.stringify({ expectedUpdatedAt: task.updatedAt || null }),
+        });
+        if (payload?.task) {
+            state.selectedTask = payload.task;
+            state.selectedTaskId = task.taskId;
+            state.selectedDetailLoaded = true;
+        }
+        state.actionState.set(task.taskId, recoverySubmissionView(payload, action.label));
+        await loadSelectedDetail({ revealDetail: false, quiet: false });
+    }
+    catch (error: any) {
+        state.actionState.set(task.taskId, {
+            status: 'failed',
+            message: error?.status === 404 || error?.status === 501
+                ? '当前运行版本尚未接入这项恢复动作；任务没有被更改，请按提示前往飞书补充信息。'
+                : error.message || '恢复请求没有提交，请稍后重试。',
+        });
+        renderDetail();
+    }
+}
+
+export async function executeAcceptanceDecisionHelper({ task, decision, state, renderDetail, elements, submitAcceptance, api, loadRecords, withAcceptanceTarget }: any): Promise<void> {
+    const target: any = acceptanceTargetView(task);
+    if (!target?.actionable || !['accepted', 'revision_required'].includes(decision)
+        || state.acceptanceState.get(task.taskId)?.status === 'submitting')
+        return;
+    const note: any = cleanAttentionText(elements.detail.querySelector('[data-acceptance-note]')?.value, 1000);
+    const previous: any = state.acceptanceState.get(task.taskId);
+    const idempotencyKey: any = previous?.status === 'failed'
+        && previous.decision === decision
+        && previous.note === note
+        && previous.revision === target.revision
+        ? previous.idempotencyKey
+        : newIdempotencyKey(target.workflowId, decision);
+    state.acceptanceState.set(task.taskId, { status: 'submitting', decision, note, revision: target.revision, idempotencyKey });
+    renderDetail();
+    try {
+        if (target.workflowId && !target.workflowId.startsWith('WF-')) {
+            const payload: any = await submitAcceptance({ target, decision, note, idempotencyKey });
+            if (payload?.task)
+                state.selectedTask = withAcceptanceTarget(payload);
+        } else {
+            const session: any = await api('/api/owner-action-session');
+            const nonce: any = String(session?.nonce || '').trim();
+            if (!nonce) throw new Error('暂时无法取得本机操作授权');
+            const actionKey = decision === 'accepted' ? 'accept_reviewed_artifact' : 'retry_task';
+            try {
+                await api(`/api/tasks/${encodeURIComponent(task.taskId)}/recovery-actions/${actionKey}`, {
+                    method: 'POST',
+                    headers: {
+                        'content-type': 'application/json',
+                        'Idempotency-Key': idempotencyKey,
+                        'X-Ajun-Owner-Action': nonce,
+                    },
+                    body: JSON.stringify({ expectedUpdatedAt: task.updatedAt || null, note }),
+                });
+            } catch {
+                await submitAcceptance({ target, decision, note, idempotencyKey });
+            }
+        }
+        state.acceptanceState.set(task.taskId, {
+            status: 'saved',
+            decision,
+            message: decision === 'accepted' ? '已记为有用，任务已满意闭环' : '已记为需改进，系统将发起修正',
+        });
+        await loadRecords();
+    }
+    catch (error: any) {
+        state.acceptanceState.set(task.taskId, {
+            status: 'failed',
+            decision,
+            note,
+            revision: target.revision,
+            idempotencyKey,
+            message: acceptanceErrorMessage(error),
+        });
+    }
+    finally {
+        renderDetail();
+    }
+}

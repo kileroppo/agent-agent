@@ -10,7 +10,7 @@ import { artifactItems, displaySubtaskTitle, displayTaskTitle, parseTaskTitle, r
 import { renderFilters as renderFiltersHelper, refreshFilterOptions as refreshFilterOptionsHelper, syncControls as syncControlsHelper, replaceRecordUrl as replaceRecordUrlHelper, renderBatchActions as renderBatchActionsHelper, handleBatchAcceptHelper, } from './task-record-workbench-filters.js';
 import { renderDetailHeader, renderCollaborationTab, renderOverviewTab, renderListRows, bindDetailInteractions, } from './task-record-workbench-views.js';
 import { VIEW_LABELS, BACKLOG_CATEGORY_LABELS, compactAttentionReason, recordElements, readUrlState, option, sinceFor, stateForTask, renderTechnicalDetails, } from './task-record-workbench-helpers.js';
-import { isTaskAdoptable, newIdempotencyKey, acceptanceRevision, } from './task-record-workbench-acceptance.js';
+import { isTaskAdoptable, newIdempotencyKey, acceptanceRevision, confirmAttentionActionHelper, executeAttentionActionHelper, executeAcceptanceDecisionHelper, submitWorkflowAcceptance, } from './task-record-workbench-acceptance.js';
 export { taskAttentionView } from './task-record-detail-view.js';
 export { parseTaskTitle, displayTaskTitle, displaySubtaskTitle } from './task-record-presentation.js';
 export { renderTechnicalDetails } from './task-record-workbench-helpers.js';
@@ -699,145 +699,18 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
         }
     }
     function confirmAttentionAction(task, actionKey) {
-        const attention = taskAttentionView(task);
-        const action = attention?.actions.find((item) => item.actionKey === actionKey);
-        if (!action || state.actionState.get(task.taskId)?.status === 'submitting')
-            return;
-        state.actionState.set(task.taskId, {
-            status: 'confirming',
-            actionKey: action.actionKey,
-            message: action.confirmation || `确认执行“${action.label}”？`,
-        });
-        renderDetail();
-        elements.detail.querySelector('[data-attention-confirm]')?.focus();
+        confirmAttentionActionHelper({ task, actionKey, state, renderDetail, elements });
     }
     async function executeAttentionAction(task, actionKey) {
-        const attention = taskAttentionView(task);
-        const action = attention?.actions.find((item) => item.actionKey === actionKey);
-        if (!action || state.actionState.get(task.taskId)?.status === 'submitting')
-            return;
-        state.actionState.set(task.taskId, { status: 'submitting', message: `正在${action.label}…` });
-        renderDetail();
-        try {
-            const session = await api('/api/owner-action-session');
-            const nonce = String(session?.nonce || '').trim();
-            if (!nonce)
-                throw new Error('暂时无法取得本机操作授权，请刷新后重试。');
-            const idempotencyKey = newIdempotencyKey(task.taskId, action.actionKey);
-            const payload = await api(`/api/tasks/${encodeURIComponent(task.taskId)}/recovery-actions/${encodeURIComponent(action.actionKey)}`, {
-                method: 'POST',
-                headers: {
-                    'content-type': 'application/json',
-                    'Idempotency-Key': idempotencyKey,
-                    'X-Ajun-Owner-Action': nonce,
-                },
-                body: JSON.stringify({ expectedUpdatedAt: task.updatedAt || null }),
-            });
-            if (payload?.task) {
-                state.selectedTask = payload.task;
-                state.selectedTaskId = task.taskId;
-                state.selectedDetailLoaded = true;
-            }
-            state.actionState.set(task.taskId, recoverySubmissionView(payload, action.label));
-            await loadSelectedDetail({ revealDetail: false, quiet: false });
-        }
-        catch (error) {
-            state.actionState.set(task.taskId, {
-                status: 'failed',
-                message: error?.status === 404 || error?.status === 501
-                    ? '当前运行版本尚未接入这项恢复动作；任务没有被更改，请按提示前往飞书补充信息。'
-                    : error.message || '恢复请求没有提交，请稍后重试。',
-            });
-            renderDetail();
-        }
+        await executeAttentionActionHelper({ task, actionKey, state, renderDetail, api, loadSelectedDetail, recoverySubmissionView });
     }
     async function executeAcceptanceDecision(task, decision) {
-        const target = acceptanceTargetView(task);
-        if (!target?.actionable || !['accepted', 'revision_required'].includes(decision)
-            || state.acceptanceState.get(task.taskId)?.status === 'submitting')
-            return;
-        const note = cleanAttentionText(elements.detail.querySelector('[data-acceptance-note]')?.value, 1000);
-        const previous = state.acceptanceState.get(task.taskId);
-        const idempotencyKey = previous?.status === 'failed'
-            && previous.decision === decision
-            && previous.note === note
-            && previous.revision === target.revision
-            ? previous.idempotencyKey
-            : newIdempotencyKey(target.workflowId, decision);
-        state.acceptanceState.set(task.taskId, { status: 'submitting', decision, note, revision: target.revision, idempotencyKey });
-        renderDetail();
-        try {
-            if (target.workflowId && !target.workflowId.startsWith('WF-')) {
-                const payload = await submitAcceptance({ target, decision, note, idempotencyKey });
-                if (payload?.task)
-                    state.selectedTask = withAcceptanceTarget(payload);
-            }
-            else {
-                const session = await api('/api/owner-action-session');
-                const nonce = String(session?.nonce || '').trim();
-                if (!nonce)
-                    throw new Error('暂时无法取得本机操作授权');
-                const actionKey = decision === 'accepted' ? 'accept_reviewed_artifact' : 'retry_task';
-                try {
-                    await api(`/api/tasks/${encodeURIComponent(task.taskId)}/recovery-actions/${actionKey}`, {
-                        method: 'POST',
-                        headers: {
-                            'content-type': 'application/json',
-                            'Idempotency-Key': idempotencyKey,
-                            'X-Ajun-Owner-Action': nonce,
-                        },
-                        body: JSON.stringify({ expectedUpdatedAt: task.updatedAt || null, note }),
-                    });
-                }
-                catch {
-                    await submitAcceptance({ target, decision, note, idempotencyKey });
-                }
-            }
-            state.acceptanceState.set(task.taskId, {
-                status: 'saved',
-                decision,
-                message: decision === 'accepted' ? '已记为有用，任务已满意闭环' : '已记为需改进，系统将发起修正',
-            });
-            await loadRecords();
-        }
-        catch (error) {
-            state.acceptanceState.set(task.taskId, {
-                status: 'failed',
-                decision,
-                note,
-                revision: target.revision,
-                idempotencyKey,
-                message: acceptanceErrorMessage(error),
-            });
-            renderDetail();
-        }
+        await executeAcceptanceDecisionHelper({
+            task, decision, state, renderDetail, elements, submitAcceptance, api, loadRecords, withAcceptanceTarget,
+        });
     }
     async function submitAcceptance({ target, decision, note, idempotencyKey }) {
-        const url = `/api/workflows/${encodeURIComponent(target.workflowId)}/acceptance`;
-        const body = JSON.stringify({ decision, note: note || undefined, expectedRevision: target.revision });
-        for (let attempt = 0; attempt < 2; attempt += 1) {
-            const session = await api('/api/owner-action-session');
-            const nonce = String(session?.nonce || '').trim();
-            if (!nonce)
-                throw new Error('暂时无法取得本机操作授权，请重新打开任务详情后重试。');
-            try {
-                return await api(url, {
-                    method: 'POST',
-                    headers: {
-                        'content-type': 'application/json',
-                        'Idempotency-Key': idempotencyKey,
-                        'X-Ajun-Owner-Action': nonce,
-                    },
-                    body,
-                });
-            }
-            catch (error) {
-                const expired = error?.status === 403 && /动作会话.*(?:无效|过期)/.test(String(error?.message || ''));
-                if (!expired || attempt > 0)
-                    throw error;
-            }
-        }
-        throw new Error('本机操作授权刷新失败，请重新打开任务详情后重试。');
+        return submitWorkflowAcceptance({ api, target, decision, note, idempotencyKey });
     }
     function renderBatchActions() {
         renderBatchActionsHelper(state, elements, isTaskAdoptable);

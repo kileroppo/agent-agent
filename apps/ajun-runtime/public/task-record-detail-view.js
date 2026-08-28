@@ -165,10 +165,11 @@ export function renderAttentionDetail(attention, actionState, _escapeHtml, optio
     const isNeedsInput = Boolean(task && (attention.kind === 'needs_input'
         || task.status === 'needs_input'));
     const needsInputForm = isNeedsInput ? html `
-        <div class="record-attention-needs-input" style="margin-top: 12px; padding: 12px 14px; background: rgba(0, 0, 0, 0.03); border-radius: 8px; border: 1px solid var(--line, rgba(0,0,0,0.08));">
-            <div style="display: flex; gap: 8px; align-items: center;">
-                <input type="text" class="record-needs-input-field" placeholder="请输入素材链接(URL)或补充说明文字…" style="flex: 1; padding: 8px 12px; font-size: 13px; border-radius: 6px; border: 1px solid var(--border-color, rgba(0,0,0,0.2)); background: var(--surface, #fff); color: var(--ink, #111);" data-task-needs-input="${task.taskId}" />
-                <button type="button" class="record-attention-primary record-needs-input-submit" data-task-submit-input="${task.taskId}" style="padding: 8px 16px; font-size: 13px; border-radius: 6px; white-space: nowrap; cursor: pointer;">
+        <div class="record-attention-needs-input" style="margin-top: 12px; padding: 14px 16px; background: rgba(0, 0, 0, 0.02); border-radius: 10px; border: 1px solid var(--line, rgba(0,0,0,0.1));">
+            ${raw(renderNeedsInputContext(task))}
+            <div style="display: flex; gap: 8px; align-items: center; margin-top: 12px;">
+                <input type="text" class="record-needs-input-field" placeholder="请在此粘贴素材链接(URL)或输入补充要求…" style="flex: 1; padding: 8px 12px; font-size: 13px; border-radius: 6px; border: 1px solid var(--border-color, rgba(0,0,0,0.2)); background: var(--surface, #fff); color: var(--ink, #111);" data-task-needs-input="${task.taskId}" />
+                <button type="button" class="record-attention-primary record-needs-input-submit" data-task-submit-input="${task.taskId}" style="padding: 8px 18px; font-size: 13px; border-radius: 6px; white-space: nowrap; cursor: pointer; font-weight: 600;">
                     提交并继续
                 </button>
             </div>
@@ -433,6 +434,72 @@ export function renderDetailTabNav(activeTab = 'overview', counts = { deliverabl
         `;
     }).join('');
     return html `<nav class="detail-tab-nav" role="tablist" aria-label="任务详情分类">${raw(buttons)}</nav>`;
+}
+export function renderNeedsInputContext(task = {}) {
+    if (!task)
+        return '';
+    const input = task?.input || {};
+    const title = cleanAttentionText(input.title || task.title || '', 300);
+    const desc = cleanAttentionText(input.description || input.focus || input.prompt || '', 1000);
+    const assigneeAgentId = String(task.assigneeAgentId || '').trim();
+    const agentName = assigneeAgentId === 'xiaod'
+        ? '小D (素材采集/转录)'
+        : assigneeAgentId === 'ajun'
+            ? 'A君 (调度协调)'
+            : assigneeAgentId === 'content-creator'
+                ? '小拆 (爆款拆解专家)'
+                : assigneeAgentId || '军团员工';
+    const channel = task?.source?.channel === 'feishu' ? '飞书会话' : (task?.source?.channel || (task?.input?.sourceUrl ? '外部链接' : '控制台指派'));
+    const createdAt = formatFullDateTime(task?.createdAt);
+    // 智能提取关联任务编号 (如 #7082B792 或 parentTaskId)
+    const issueMatch = (title + ' ' + desc).match(/#([0-9a-fA-F]{6,36})/);
+    const linkedTaskId = task?.parentTaskId || (issueMatch ? issueMatch[1] : null);
+    const isXiaod = assigneeAgentId === 'xiaod' || /素材|视频|bilibili|转录|音视频/i.test(title + ' ' + desc);
+    return html `
+        <div class="record-needs-input-context">
+            <div class="needs-input-context-header">
+                <div class="context-meta-row">
+                    <span class="context-agent-badge"><svg width="12" height="12" aria-hidden="true"><use href="#icon-employees"></use></svg> 负责员工：<strong>${agentName}</strong></span>
+                    <span class="context-channel-tag"><svg width="12" height="12" aria-hidden="true"><use href="#icon-message"></use></svg> 来源：${channel}</span>
+                    ${raw(createdAt ? html `<span class="context-time-tag">发起于 ${createdAt}</span>` : '')}
+                </div>
+            </div>
+
+            <div class="needs-input-context-body">
+                <div class="context-item">
+                    <span class="context-label">任务诉求：</span>
+                    <span class="context-val highlight">${escapeHtml(title || '未命名任务')}</span>
+                    ${raw(linkedTaskId ? html `
+                        <span class="context-linked-task" title="本任务关联的前序/目标任务编号">
+                            (关联任务: <code>#${linkedTaskId.slice(0, 8)}</code>)
+                        </span>
+                    ` : '')}
+                </div>
+                ${raw(desc && desc !== title ? html `
+                    <div class="context-item">
+                        <span class="context-label">原始说明：</span>
+                        <span class="context-val">${escapeHtml(desc)}</span>
+                    </div>
+                ` : '')}
+            </div>
+
+            ${raw(isXiaod ? html `
+                <div class="needs-input-format-hint">
+                    <span class="format-hint-title">📎 支持的素材格式与示例：</span>
+                    <div class="format-chips">
+                        <span class="format-chip">Bilibili (如 <code>https://www.bilibili.com/video/BV...</code>)</span>
+                        <span class="format-chip">抖音 / 快手 / 小红书 / 视频号分享链接</span>
+                        <span class="format-chip">YouTube / 公开 MP4/MP3 直链</span>
+                    </div>
+                </div>
+            ` : html `
+                <div class="needs-input-format-hint">
+                    <span class="format-hint-title">💡 补充建议：</span>
+                    <span class="format-hint-text" style="font-size: 12px; color: var(--text-muted, #888);">请在下方输入具体的补充素材链接、文案要求或任务背景，提交后将接续执行。</span>
+                </div>
+            `)}
+        </div>
+    `;
 }
 export { renderCostSection, renderDeliverySink, renderOriginCard } from './task-record-origin-view.js';
 export { renderTaskLineageCard, renderSubtaskDrawer } from './task-record-subtask-drawer.js';
