@@ -268,16 +268,15 @@ test('业务验收只渲染后端声明的可操作工作流，并明确展示�
     decision:null, revision:3, actionable:true,
   });
   const html = renderAcceptanceDetail(target, null, escapeHtml);
-  assert.match(html, /这次结果需要你验收/);
-  assert.match(html, /data-acceptance-decision="accepted"[^>]*>有用</);
-  assert.match(html, /data-acceptance-decision="revision_required"[^>]*>需改进</);
-  assert.match(html, /data-acceptance-note/);
+  assert.match(html, /本次结果满意吗/);
+  assert.match(html, /data-acceptance-decision="accepted"/);
+  assert.match(html, /data-acceptance-show-revision/);
+  assert.match(html, /acceptance-inline-bar/);
 
   const failed = renderAcceptanceDetail(target, {
     status:'failed', decision:'accepted', note:'结果准确', message:'验收结果没有保存。这项待办仍然保留，请稍后重试。',
   }, escapeHtml);
-  assert.match(failed, />结果准确<\/textarea>/);
-  assert.match(failed, /is-failed[^>]*" role="status"/);
+  assert.match(failed, /is-failed/);
   assert.match(failed, /这项待办仍然保留/);
 
   const closed = renderAcceptanceDetail({ ...target, actionable:false, decision:'revision_required' }, null, escapeHtml);

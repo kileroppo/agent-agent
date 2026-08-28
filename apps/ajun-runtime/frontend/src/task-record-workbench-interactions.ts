@@ -269,4 +269,40 @@ export function bindDetailInteractions(options: {
             }, 2000);
         }
     });
+
+    // Pipeline red node → recovery popover
+    for (const actionNode of elements.detail.querySelectorAll('[data-pipeline-action]')) {
+        actionNode.addEventListener('click', (event: any): void => {
+            event.stopPropagation();
+            // Remove any existing popover
+            const existing = elements.detail.querySelector('.pipeline-action-popover');
+            if (existing) { existing.remove(); return; }
+            const cause = actionNode.dataset.pipelineCause || '任务中断';
+            const actionKey = actionNode.dataset.pipelineActionKey || '';
+            const actionLabel = actionNode.dataset.pipelineActionLabel || '继续';
+            const popover = document.createElement('div');
+            popover.className = 'pipeline-action-popover';
+            popover.innerHTML = `<p class="pipeline-popover-cause">${escapeHtml(cause)}</p><button type="button" class="pipeline-popover-action" data-attention-action="${escapeHtml(actionKey)}">▶ ${escapeHtml(actionLabel)}</button>`;
+            actionNode.style.position = 'relative';
+            actionNode.appendChild(popover);
+            // Close on outside click
+            const dismiss = (e: any): void => {
+                if (!popover.contains(e.target) && e.target !== actionNode && !actionNode.contains(e.target)) {
+                    popover.remove();
+                    document.removeEventListener('click', dismiss, true);
+                }
+            };
+            setTimeout(() => document.addEventListener('click', dismiss, true), 0);
+        });
+    }
+
+    // "需改进" → show revision input instead of immediately submitting
+    elements.detail.querySelector('[data-acceptance-show-revision]')?.addEventListener('click', (): void => {
+        state.acceptanceState.set(task.taskId, { status: 'revision_input' });
+        renderDetail();
+        setTimeout(() => {
+            const input = elements.detail.querySelector('.acceptance-revision-input input');
+            if (input) input.focus();
+        }, 50);
+    });
 }

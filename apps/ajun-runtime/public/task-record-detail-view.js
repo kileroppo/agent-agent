@@ -72,8 +72,9 @@ export function acceptanceTargetView(task = {}) {
             actionable,
         };
     }
-    // Always create acceptance target if task has deliverables or is unsettled
-    if (hasArtifacts || isUnsettled || task?.status === 'succeeded') {
+    // Only show acceptance when task is fully completed or explicitly waiting for test/acceptance
+    const isFullyDelivered = task?.status === 'succeeded' || isUnsettled;
+    if (isFullyDelivered || (hasArtifacts && !['failed', 'error'].includes(task?.status))) {
         const decision = task?.status === 'succeeded' ? 'accepted' : null;
         return {
             workflowId: workflowId || (task?.taskId ? `WF-${task.taskId.slice(0, 8)}` : 'WF-MAIN'),
@@ -92,35 +93,41 @@ export function renderAcceptanceDetail(target, submission, _escapeHtml) {
     const submitting = submission?.status === 'submitting';
     const decision = submission?.status === 'saved' ? submission.decision : target.decision;
     const closed = decision === 'accepted' || decision === 'revision_required';
-    const headline = decision === 'accepted'
-        ? '已确认有用'
-        : decision === 'revision_required'
-            ? '已标记需改进'
-            : '这次结果需要你验收';
     const feedback = submission?.message
-        ? html `<p class="record-acceptance-message ${submission.status === 'failed' ? 'is-failed' : ''}" role="status">${submission.message}</p>`
+        ? html `<p class="acceptance-inline-feedback ${submission.status === 'failed' ? 'is-failed' : ''}" role="status">${submission.message}</p>`
+        : '';
+    if (closed) {
+        const closedLabel = decision === 'accepted' ? '● 已确认有用' : '● 已标记需改进';
+        return html `<div class="acceptance-inline-bar is-closed" aria-label="业务结果验收"><span class="acceptance-inline-label">${closedLabel}</span></div>`;
+    }
+    const revisionInput = submission?.status === 'revision_input'
+        ? html `<div class="acceptance-revision-input"><input type="text" maxlength="500" data-acceptance-note placeholder="哪里需要改进？" autofocus /><button type="button" class="acceptance-revision-submit" data-acceptance-decision="revision_required"${raw(submitting ? ' disabled' : '')}>${submitting ? '提交中…' : '提交'}</button></div>`
         : '';
     const controls = target.actionable && !closed
-        ? html `<label class="record-acceptance-note">说明（可选）<textarea rows="2" maxlength="1000" data-acceptance-note placeholder="哪里有用，或下次改什么"${raw(submitting ? ' disabled' : '')}>${submission?.note || ''}</textarea></label>
-        <div class="record-acceptance-actions">
-          <button type="button" class="focus-primary-action acceptance-btn-accept" data-acceptance-decision="accepted" title="点击「有用」将满意闭环并归档为已完成"${raw(submitting ? ' disabled' : '')}>${submitting && submission?.decision === 'accepted' ? '保存中…' : '有用'}</button>
-          <button type="button" class="secondary-action acceptance-btn-revise" data-acceptance-decision="revision_required" title="点击「需改进」将自动调度 AI 发起下一轮针对性修正"${raw(submitting ? ' disabled' : '')}>${submitting && submission?.decision === 'revision_required' ? '保存中…' : '需改进'}</button>
-        </div>`
+        ? html `<div class="acceptance-inline-actions">
+          <button type="button" class="acceptance-btn-useful" data-acceptance-decision="accepted"${raw(submitting && submission?.decision === 'accepted' ? ' disabled' : '')}>${submitting && submission?.decision === 'accepted' ? '保存中…' : '👍 满意'}</button>
+          <span class="acceptance-divider">·</span>
+          <button type="button" class="acceptance-btn-revise" data-acceptance-show-revision${raw(submitting ? ' disabled' : '')}>需改进</button>
+        </div>${raw(revisionInput)}`
         : '';
-    return html `<section class="record-acceptance${raw(closed ? ' is-closed' : '')}" aria-label="业务结果验收">
-      <div class="acceptance-card-header">
-        <svg width="18" height="18" aria-hidden="true"><use href="#icon-shield"></use></svg>
-        <h3>${headline}</h3>
-      </div>
-      <p><strong>${target.title}</strong></p>
+    return html `<div class="acceptance-inline-bar" aria-label="业务结果验收">
+      <span class="acceptance-inline-label">本次结果满意吗？</span>
       ${raw(controls)}${raw(feedback)}
-    </section>`;
+    </div>`;
 }
 export function renderAttentionDetail(attention, actionState, _escapeHtml, options = {}) {
     const task = options?.task || null;
     const isApprovalState = Boolean(task && (attention.kind === 'waiting_approval'
         || ['waiting_approval', 'pending_approval'].includes(task.status)
         || Boolean(task.pendingApproval)));
+    // Recovery actions are now handled by the pipeline progress bar popover;
+    // skip rendering the large attention card unless it's an approval or has non-recovery actions.
+    const PIPELINE_RECOVERY_ACTIONS = new Set(['request_safe_recovery', 'resume_approved_mission', 'use_confirmed_transcript_only', 'retry_visual_analysis_after_recovery']);
+    const attentionActions = Array.isArray(attention?.actions) ? attention.actions : [];
+    const allRecoverable = attentionActions.length > 0 && attentionActions.every((a) => PIPELINE_RECOVERY_ACTIONS.has(a.actionKey));
+    if (allRecoverable && !isApprovalState && actionState?.status !== 'confirming' && actionState?.status !== 'submitting') {
+        return '';
+    }
     const recovery = actionState?.status === 'confirming' ? attention.verification : actionState || attention.verification;
     const diagnosis = actionState?.status === 'confirming' ? null : recoveryDiagnosis(recovery?.diagnosis);
     if (diagnosis)

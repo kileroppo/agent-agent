@@ -59,7 +59,7 @@ export function renderOverviewTab(options) {
         <div class="detail-tab-pane ${state.detailTab === 'overview' || state.detailTab === 'deliverables' ? 'is-active' : ''}" data-pane="overview">
             ${raw(waitingTestGuideHtml)}
             ${raw(renderTaskLineageCard(task, parsedTitle, reworkArtifactsHtml))}
-            ${raw(renderTaskProgressBar(task, { agentName }))}
+            ${raw(renderTaskProgressBar(task, { agentName, attention: task?.presentation?.attention || null }))}
             ${raw(renderAcceptanceDetail(acceptanceTarget, acceptanceState, escapeHtml))}
             ${raw(outcomeHtml)}
             <section class="record-deliverables-full">

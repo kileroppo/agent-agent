@@ -3,6 +3,7 @@ import { formatFullDateTime, formatDuration } from './format-utils.js';
 
 export interface TaskProgressOptions {
   agentName?: (id: string) => string;
+  attention?: { headline?: string; cause?: string; actions?: any[] } | null;
 }
 
 export function renderTaskProgressBar(task: any = {}, options: TaskProgressOptions = {}): string {
@@ -11,6 +12,7 @@ export function renderTaskProgressBar(task: any = {}, options: TaskProgressOptio
   }
 
   const agentNameFn = options.agentName || ((id: string) => id || '未知员工');
+  const attentionData = options.attention || null;
   const presentation = task.presentation || {};
   const status = task.status || 'unknown';
   const isAccepted = task.acceptanceTarget?.decision === 'accepted';
@@ -113,7 +115,12 @@ export function renderTaskProgressBar(task: any = {}, options: TaskProgressOptio
   ];
 
   const parts = stages.map((stage, index) => {
-    const stageHtml = html`<div class="progress-stage is-${stage.status}" title="${escapeHtml(stage.tooltip)}" aria-label="${stage.label}"><span class="progress-dot"></span><span class="progress-label">${stage.label}</span></div>`;
+    const isActionable = stage.status === 'danger' && attentionData && Array.isArray(attentionData.actions) && attentionData.actions.length > 0;
+    const actionAttr = isActionable
+      ? ` data-pipeline-action="recovery" data-pipeline-cause="${escapeHtml(attentionData!.cause || attentionData!.headline || '任务中断')}" data-pipeline-action-key="${escapeHtml(attentionData!.actions![0]?.actionKey || '')}" data-pipeline-action-label="${escapeHtml(attentionData!.actions![0]?.label || '继续')}" role="button" tabindex="0"`
+      : '';
+    const actionableClass = isActionable ? ' is-actionable' : '';
+    const stageHtml = html`<div class="progress-stage is-${stage.status}${raw(actionableClass)}"${raw(actionAttr)} title="${escapeHtml(stage.tooltip)}" aria-label="${stage.label}"><span class="progress-dot"></span><span class="progress-label">${stage.label}</span></div>`;
 
     if (index < stages.length - 1) {
       const connectorStatus = stage.status === 'completed' || stage.status === 'success' ? 'completed' : (stage.status === 'active' ? 'active' : 'muted');
