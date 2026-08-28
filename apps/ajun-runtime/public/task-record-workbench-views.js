@@ -26,7 +26,7 @@ export function renderListRows(options) {
         const createdFull = formatFullDateTime(task.createdAt);
         const updatedFull = formatFullDateTime(task.updatedAt);
         const timeHover = `创建于 ${createdFull || '未记录'}${task.updatedAt && task.updatedAt !== task.createdAt ? ` · 更新于 ${updatedFull}` : ''}`;
-        const timeDisplay = createdFull ? `${createdFull.slice(5, 16)} (${relativeTime(task.createdAt || task.updatedAt)})` : relativeTime(task.updatedAt || task.createdAt);
+        const timeDisplay = relativeTime(task.createdAt || task.updatedAt);
         const children = childrenMap.get(task.taskId) || [];
         const retryBadgeHtml = children.length ? `<span class="task-badge-pill badge-rework" title="该任务共产生 ${children.length} 轮重试/协同环节">🔁 ${children.length}</span>` : '';
         return html `
@@ -66,7 +66,6 @@ export function renderOverviewTab(options) {
                 <div class="deliverables-full-head">
                     <div>
                         <h3>交付成果 (${showSeparation ? primaryArtifacts.length : artifacts.length})</h3>
-                        <p class="deliverables-full-desc">${showSeparation ? '本次任务提炼的核心交付成果与视觉证据：' : '汇集本次任务生成的全部交付物、拆解分析与证据文件：'}</p>
                     </div>
                 </div>
                 ${raw(artifacts.length ? (showSeparation ? html `
@@ -98,7 +97,7 @@ export function renderOverviewTab(options) {
                 `)}
                 ${raw(renderDeliverySink(task))}
             </section>
-            ${raw(renderOriginCard(task))}
+            ${raw(renderOriginCard(task, { hideIfInAttention: Boolean(outcomeHtml && task?.paperclipIssue) }))}
         </div>
     `;
 }
@@ -140,7 +139,7 @@ export function renderDetailHeader(options) {
                     <p class="record-detail-meta">
                         <span class="meta-agent">${agentName(task.assigneeAgentId)}</span>
                         <span>·</span>
-                        <span class="meta-created" title="任务创建时间">创建于 ${createdFull || '未记录'} (${relativeTime(task.createdAt || task.updatedAt)})</span>
+                        <span class="meta-created" title="任务创建时间">创建于 ${createdFull || '未记录'}</span>
                         ${raw(durationText ? html `<span>·</span><span class="meta-duration" title="执行耗时">耗时 ${durationText}</span>` : '')}
                         ${raw(presentation.taskRef ? html `<span>·</span><span class="meta-ref">${presentation.taskRef}</span>` : '')}
                     </p>

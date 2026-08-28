@@ -2,7 +2,48 @@ import { html, raw, escapeHtml } from './html.js';
 import { formatFullDateTime, isValidHttpUrl } from './format-utils.js';
 import { cleanAttentionText } from './task-record-detail-view.js';
 
-export function renderOriginCard(task: any = {}): string {
+export function humanizePaperclipText(text: string): string {
+    if (!text || typeof text !== 'string') return '';
+    let result = text.trim();
+    
+    // Check if it's a Paperclip automated monitoring/governance report
+    if (/Paperclip detected|unusual productivity|progression pattern|Primary trigger|Trigger reasons/i.test(result)) {
+        const issueMatch = result.match(/Source issue:\s*\[?(AGE-\d+)\]?(?:\([^)]+\))?/i);
+        const agentMatch = result.match(/Assigned agent:\s*([^-\n]+)/i);
+        const triggerMatch = result.match(/Primary trigger:\s*['"]?([^'"\n]+)['"]?/i);
+        const durationMatch = result.match(/has lasted\s*([\d\w\s]+?)(?:\s*-|\s*$|\.)/i);
+
+        const issueId = issueMatch ? issueMatch[1].toUpperCase() : '';
+        const agent = agentMatch ? agentMatch[1].trim() : '';
+        let trigger = triggerMatch ? triggerMatch[1].trim() : '';
+        
+        if (/long_active_duration/i.test(trigger)) {
+            trigger = '单次持续活跃耗时超限';
+        } else if (/no_progress|stagnant/i.test(trigger)) {
+            trigger = '推进停滞无有效产出';
+        } else if (/high_failure_rate|repeated_failure/i.test(trigger)) {
+            trigger = '多次重复失败';
+        } else if (/budget_exceeded|cost_limit/i.test(trigger)) {
+            trigger = '超出开销/Token限制';
+        }
+
+        const duration = durationMatch ? durationMatch[1].replace(/h\s*/, '小时 ').replace(/m\s*/, '分钟').trim() : '';
+
+        const parts: string[] = [];
+        parts.push(`系统监测到关联工单${issueId ? ` #${issueId}` : ''}存在推进异常${agent ? `（负责员工：${agent}）` : ''}。`);
+        if (trigger) {
+            parts.push(`主要触发动因：${trigger}${duration ? `（已持续 ${duration}）` : ''}。`);
+        }
+        return parts.join(' ');
+    }
+    
+    return result;
+}
+
+export function renderOriginCard(task: any = {}, options: { hideIfInAttention?: boolean } = {}): string {
+    if (options?.hideIfInAttention && task?.paperclipIssue) {
+        return '';
+    }
     const input = task?.input || {};
     const sourceUrl = input.sourceUrl || (Array.isArray(input.sourceUrls) ? input.sourceUrls[0] : null);
     const channel = task?.paperclipIssue ? 'Paperclip 治理工单' : (input.channel || (sourceUrl ? '外部内容链接' : '飞书交互'));
@@ -16,6 +57,7 @@ export function renderOriginCard(task: any = {}): string {
     const { steps, boomMetrics, caveat, cleanGoal } = parseOriginDescription(rawDesc, task);
     const validSteps = steps.filter((step) => step.title && !/^\d+|M=|R=|播放=|点赞=|platform_/i.test(step.title) && step.title.length > 2);
     const issueId = task?.paperclipIssue?.identifier ? `#${task.paperclipIssue.identifier}` : '';
+    const issueUrl = task?.paperclipIssue?.detailUrl || '';
 
     return html`
         <section class="record-origin-card" aria-label="源头诉求与治理工单">
@@ -24,7 +66,7 @@ export function renderOriginCard(task: any = {}): string {
                     <span class="origin-channel-badge ${task?.paperclipIssue ? 'is-paperclip' : ''}">
                         <svg class="origin-icon" aria-hidden="true"><use href="#icon-${task?.paperclipIssue ? 'shield' : 'message'}"></use></svg>
                         <span>${channel}</span>
-                        ${raw(issueId ? html`<strong class="origin-issue-ref">${issueId}</strong>` : '')}
+                        ${raw(issueId ? (issueUrl ? html`<a href="${issueUrl}" target="_blank" rel="noopener noreferrer" class="origin-issue-ref is-link" title="点击打开 Paperclip 工单">${issueId} ↗</a>` : html`<strong class="origin-issue-ref">${issueId}</strong>`) : '')}
                     </span>
                     <span class="origin-time-tag">登记于 ${createdAt || '未记录'}</span>
                 </div>
@@ -204,11 +246,11 @@ export function parseOriginDescription(desc: string, task: any = {}): {
 
     let cleanGoal: string | undefined;
     if (!hasNumberedSteps) {
-        cleanGoal = cleanAttentionText(text.replace(/该评分用于.*$/, ''), 300);
+        cleanGoal = humanizePaperclipText(cleanAttentionText(text.replace(/该评分用于.*$/, ''), 500));
     } else {
         const firstLine = text.split('\n')[0].replace(/^\d+\.\s*/, '').trim();
         if (firstLine && !firstLine.includes('命中 T') && firstLine.length < 120) {
-            cleanGoal = firstLine.slice(0, 120);
+            cleanGoal = humanizePaperclipText(firstLine.slice(0, 120));
         }
     }
 

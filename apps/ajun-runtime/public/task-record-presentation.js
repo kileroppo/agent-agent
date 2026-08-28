@@ -68,7 +68,13 @@ export function displayTaskTitle(task) {
     const parsed = parseTaskTitle(rawTitle);
     if (!parsed.badges.length)
         return parsed.cleanTitle;
-    const badgeSpans = parsed.badges.map((b) => `<span class="task-badge-pill badge-${b.tone}" title="${escapeHtml(b.tooltip)}">${b.label}</span>`).join(' ');
+    const paperclipUrl = task?.paperclipIssue?.detailUrl || '';
+    const badgeSpans = parsed.badges.map((b) => {
+        if (b.tone === 'paperclip' && paperclipUrl) {
+            return `<a href="${paperclipUrl}" target="_blank" rel="noopener noreferrer" class="task-badge-pill badge-${b.tone} is-link" title="${escapeHtml(b.tooltip)} (点击打开 Paperclip 工单)">${b.label} ↗</a>`;
+        }
+        return `<span class="task-badge-pill badge-${b.tone}" title="${escapeHtml(b.tooltip)}">${b.label}</span>`;
+    }).join(' ');
     return `<span class="task-title-wrapper">${badgeSpans} <span class="task-title-text">${escapeHtml(parsed.cleanTitle)}</span></span>`;
 }
 export function displaySubtaskTitle(childTask, _parentTask = null) {

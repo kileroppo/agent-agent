@@ -350,13 +350,14 @@ test('关注态卡片直接提供 Paperclip 处理入口与人话说明，剔除
     },
   });
 
-  const html = renderAttentionDetail(view, null, escapeHtml);
+  const html = renderAttentionDetail(view, null, escapeHtml, { task: view });
   assert.match(html, /<section class="record-attention"/);
   assert.match(html, /<h3>本轮未完成<\/h3>/);
-  assert.match(html, /<p>技术专家没有完成修复，故障和记录已保留，等待下一轮处理。<\/p>/);
+  assert.match(html, /<p class="record-attention-cause">技术专家没有完成修复，故障和记录已保留，等待下一轮处理。<\/p>/);
   assert.doesNotMatch(html, /<span class="record-attention-tag">错误代码/);
   assert.doesNotMatch(html, /<span class="record-attention-tag">阶段/);
-  assert.match(html, /<div class="record-attention-actions"><a class="record-paperclip-link" href="http:\/\/127\.0\.0\.1:3100\/issues\/AGE-1531"[^>]*>打开 Paperclip AGE-1531<\/a><\/div>/);
+  assert.match(html, /AGE-1531/);
+  assert.match(html, /http:\/\/127\.0\.0\.1:3100\/issues\/AGE-1531/);
   // Generic template boilerplate must be filtered out
   assert.doesNotMatch(html, /请根据失败原因决定补充信息/);
   assert.doesNotMatch(html, /已有产物和审计记录仍会保留/);

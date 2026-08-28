@@ -55,6 +55,11 @@ export function acceptanceTargetView(task: any = {}): any {
         return null; // 任务正在执行中，尚未产出最终结果，不提前展示验收卡片
     }
 
+    const isInterrupted = ['failed', 'error', 'stopped', 'cancelled'].includes(task?.status);
+    if (isInterrupted && !['accepted', 'revision_required'].includes(source?.decision)) {
+        return null; // 任务处于中断/未完成状态，待整体跑完后再统一验收
+    }
+
     const workflowId: any = cleanAttentionText(source?.workflowId || task?.workflow?.workflowId || (task?.taskId ? `WF-${task.taskId.slice(0, 8)}` : ''), 160);
     const artifactsList = Array.isArray(task?.artifactRefs) ? task.artifactRefs : (Array.isArray(task?.artifacts) ? task.artifacts : []);
     const hasArtifacts = artifactsList.length > 0;
@@ -176,10 +181,7 @@ export function renderAttentionDetail(attention: any, actionState: any, _escapeH
     const confirmation: any = confirmingAction
         ? cleanAttentionText(actionState?.message, 500) || confirmingAction.confirmation || `确认执行“${confirmingAction.label}”？`
         : '';
-    const paperclipLink: any = attention.paperclipIssue?.detailUrl
-        ? html`<a class="record-paperclip-link" href="${attention.paperclipIssue.detailUrl}" target="_blank" rel="noopener">打开 Paperclip ${attention.paperclipIssue.identifier || '任务'}</a>`
-        : '';
-    const hasActions: boolean = Boolean(actions || paperclipLink);
+    const hasActions: boolean = Boolean(actions);
     const isGeneric: boolean = isGenericNextAction(attention.nextAction);
     const fallbackNext: any = !hasActions && !isGeneric && attention.nextAction
         ? html`<p>${attention.nextAction}</p>`
@@ -187,15 +189,19 @@ export function renderAttentionDetail(attention: any, actionState: any, _escapeH
     const actionContent: any = confirmingAction
         ? html`<div class="record-attention-confirmation" role="alert"><p style="font-size: 13px; line-height: 1.5; margin-bottom: 10px;"><strong>操作确认：</strong>${confirmation}</p><div class="record-attention-actions"><button type="button" class="record-attention-primary" data-attention-confirm="${confirmingAction.actionKey}">确认${confirmingAction.label}</button><button type="button" class="secondary-action" data-attention-cancel>取消</button></div></div>`
         : hasActions
-            ? html`<div class="record-attention-actions">${raw(actions)}${raw(paperclipLink)}</div>${raw(actionHelpNote)}`
+            ? html`<div class="record-attention-actions">${raw(actions)}</div>${raw(actionHelpNote)}`
             : fallbackNext;
     const cause: any = usefulAttentionCause(attention);
     const evidence: string = usefulAttentionEvidence(attention.evidence, cause);
     const approvalReason: string = task?.pendingApproval?.reason
         ? html`<details class="record-attention-evidence" open><summary><span>待确认原因</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><p>${task.pendingApproval.reason}</p></details>`
         : '';
+    const paperclipIssueInfo: string = task?.paperclipIssue
+        ? html`<details class="record-attention-evidence"><summary><span>治理来源与工单依据</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><div class="record-attention-governance-body" style="padding: 10px 14px; font-size: 13px; line-height: 1.6; color: var(--ink-soft);"><p style="margin: 0 0 6px;"><strong>关联工单：</strong>${task.paperclipIssue.detailUrl ? html`<a href="${task.paperclipIssue.detailUrl}" target="_blank" rel="noopener noreferrer" style="color: var(--brand, #2563eb); font-weight: 600;">#${task.paperclipIssue.identifier || 'ISSUE'} ↗</a>` : html`<strong>#${task.paperclipIssue.identifier || 'ISSUE'}</strong>`}</p><p style="margin: 0;"><strong>诉求依据：</strong>${cleanAttentionText(task?.input?.description || task?.input?.focus || '', 500)}</p></div></details>`
+        : '';
     const extras: any = [
         approvalReason,
+        paperclipIssueInfo,
         evidence ? html`<details class="record-attention-evidence"><summary><span>判断依据</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><p>${evidence}</p></details>` : '',
         attention.remainingRisks ? html`<details class="record-attention-evidence"><summary><span>剩余风险</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><p>${attention.remainingRisks}</p></details>` : '',
         usefulAttentionImpact(attention) ? html`<p class="record-attention-impact-line">${attention.impact}</p>` : '',
@@ -208,7 +214,13 @@ export function renderAttentionDetail(attention: any, actionState: any, _escapeH
         ? html`<div class="record-recovery-status ${recoveryTone(recovery.status)}" role="status"><p>${recovery.message}</p>${raw(recoveryLink)}</div>`
         : '';
     return html`<section class="record-attention" aria-label="任务处理说明">
-    <div class="record-attention-head"><h3>${attention.headline}</h3>${raw(cause ? html`<p>${cause}</p>` : '')}</div>
+    <div class="record-attention-head">
+      <div class="record-attention-title-row">
+        <svg class="record-attention-icon" width="18" height="18" aria-hidden="true"><use href="#icon-alert"></use></svg>
+        <h3>${attention.headline}</h3>
+      </div>
+      ${raw(cause ? html`<p class="record-attention-cause">${cause}</p>` : '')}
+    </div>
     ${raw(actionContent ? html`<div class="record-attention-next">${raw(actionContent)}</div>` : '')}
     ${raw(extras)}
     ${raw(recoveryResult)}
