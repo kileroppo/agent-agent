@@ -111,23 +111,73 @@ export function renderAcceptanceDetail(target: any, submission: any, _escapeHtml
         ? html`<p class="acceptance-inline-feedback ${submission.status === 'failed' ? 'is-failed' : ''}" role="status">${submission.message}</p>`
         : '';
     if (closed) {
-        const closedLabel = decision === 'accepted' ? '● 已确认有用' : '● 已标记需改进';
+        const closedLabel = decision === 'accepted' ? '● 已确认采纳 (满意闭环)' : '● 已标记需改进';
         return html`<div class="acceptance-inline-bar is-closed" aria-label="业务结果验收"><span class="acceptance-inline-label">${closedLabel}</span></div>`;
     }
     const revisionInput: any = submission?.status === 'revision_input'
-        ? html`<div class="acceptance-revision-input"><input type="text" maxlength="500" data-acceptance-note placeholder="哪里需要改进？" autofocus /><button type="button" class="acceptance-revision-submit" data-acceptance-decision="revision_required"${raw(submitting ? ' disabled' : '')}>${submitting ? '提交中…' : '提交'}</button></div>`
+        ? html`<div class="acceptance-revision-input"><input type="text" maxlength="500" data-acceptance-note placeholder="哪里需要改进？请描述你的要求或修改建议…" autofocus /><button type="button" class="acceptance-revision-submit" data-acceptance-decision="revision_required"${raw(submitting ? ' disabled' : '')}>${submitting ? '提交中…' : '提交'}</button></div>`
         : '';
     const controls: any = target.actionable && !closed
         ? html`<div class="acceptance-inline-actions">
-          <button type="button" class="acceptance-btn-useful" data-acceptance-decision="accepted"${raw(submitting && submission?.decision === 'accepted' ? ' disabled' : '')}>${submitting && submission?.decision === 'accepted' ? '保存中…' : '👍 满意'}</button>
+          <button type="button" class="acceptance-btn-useful" data-acceptance-decision="accepted"${raw(submitting && submission?.decision === 'accepted' ? ' disabled' : '')}>${submitting && submission?.decision === 'accepted' ? '保存中…' : '👍 确认采纳'}</button>
           <span class="acceptance-divider">·</span>
           <button type="button" class="acceptance-btn-revise" data-acceptance-show-revision${raw(submitting ? ' disabled' : '')}>需改进</button>
         </div>${raw(revisionInput)}`
         : '';
     return html`<div class="acceptance-inline-bar" aria-label="业务结果验收">
-      <span class="acceptance-inline-label">本次结果满意吗？</span>
+      <span class="acceptance-inline-label">成果就绪，请核验产物：</span>
       ${raw(controls)}${raw(feedback)}
     </div>`;
+}
+
+export function renderStructuredEvidence(evidence: string, _cause?: string): string {
+    const rawText = String(evidence || '').trim();
+    if (!rawText) return '';
+
+    const tags: string[] = [];
+    if (/status=succeeded/i.test(rawText)) tags.push(html`<span class="record-evidence-tag is-success">✓ 执行成功</span>`);
+    if (/recommendedCompletionStatus=succeeded/i.test(rawText)) tags.push(html`<span class="record-evidence-tag is-success">✓ 推荐完成</span>`);
+    if (/status=failed|recommendedCompletionStatus=failed/i.test(rawText)) tags.push(html`<span class="record-evidence-tag is-failed">✕ 执行未通过</span>`);
+
+    const stageMatch = rawText.match(/currentStage=([a-zA-Z0-9_-]+)/i);
+    if (stageMatch?.[1]) tags.push(html`<span class="record-evidence-tag">阶段: ${stageMatch[1]}</span>`);
+
+    const verMatch = rawText.match(/报告版本\s*([a-zA-Z0-9_/-]+)/i);
+    if (verMatch?.[1]) tags.push(html`<span class="record-evidence-tag">版本: ${verMatch[1]}</span>`);
+
+    const modeMatch = rawText.match(/证据模式\s*([a-zA-Z0-9_-]+)/i);
+    if (modeMatch?.[1]) tags.push(html`<span class="record-evidence-tag">证据: ${modeMatch[1]}</span>`);
+
+    if (/完整性\s*complete/i.test(rawText)) tags.push(html`<span class="record-evidence-tag is-success">✓ 完整性校验通过</span>`);
+    if (/视觉执行回执.*?有效/i.test(rawText)) tags.push(html`<span class="record-evidence-tag is-success">✓ 视觉回执有效</span>`);
+    if (/转录校验已关联/i.test(rawText)) tags.push(html`<span class="record-evidence-tag is-success">✓ 转录校验已关联</span>`);
+
+    const cleanSentences = rawText.split(/[。；\n]/)
+        .map((s: string) => s.trim())
+        .filter((s: string) => s && !s.startsWith('执行结果：') && !s.includes('sourceTranscriptArtifactId') && !s.includes('status=') && !s.includes('receipt:'))
+        .join('。');
+
+    const summaryText = cleanSentences ? (cleanSentences.endsWith('。') ? cleanSentences : cleanSentences + '。') : '';
+    const desc = summaryText || (tags.length === 0 ? rawText : '');
+    const hasTechnicalTokens = /(?:status=|receipt:|recommendedCompletionStatus=|sourceTranscriptArtifactId=|currentStage=)/i.test(rawText);
+
+    const traceDetails = hasTechnicalTokens ? html`
+        <details class="record-evidence-trace">
+            <summary><span>底层技术追踪与凭证 (Trace)</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary>
+            <div class="record-trace-body"><code>${rawText}</code></div>
+        </details>
+    ` : '';
+
+    return html`
+        <div class="record-evidence-card record-judgment-card">
+            <div class="record-evidence-head">
+                <span class="record-evidence-title">判断依据与校验状态</span>
+            </div>
+            ${raw(tags.length > 0 ? html`<div class="record-evidence-tags">${raw(tags.join(''))}</div>` : '')}
+            ${raw(desc ? html`<p class="record-evidence-desc">${desc}</p>` : '')}
+            ${raw(traceDetails)}
+        </div>
+    `;
 }
 
 export function renderAttentionDetail(attention: any, actionState: any, _escapeHtml: any, options: any = {}): any {
@@ -140,7 +190,9 @@ export function renderAttentionDetail(attention: any, actionState: any, _escapeH
     // Recovery actions are now handled by the pipeline progress bar popover;
     // skip rendering the large attention card unless it's an approval or has non-recovery actions.
     const PIPELINE_RECOVERY_ACTIONS = new Set(['request_safe_recovery', 'resume_approved_mission', 'use_confirmed_transcript_only', 'retry_visual_analysis_after_recovery']);
-    const attentionActions: any[] = Array.isArray(attention?.actions) ? attention.actions : [];
+    // Filter out duplicate accept_reviewed_artifact since it is handled by the unified acceptance bar
+    const rawAttentionActions: any[] = Array.isArray(attention?.actions) ? attention.actions : [];
+    const attentionActions: any[] = rawAttentionActions.filter((action: any) => action?.actionKey !== 'accept_reviewed_artifact');
     const allRecoverable = attentionActions.length > 0 && attentionActions.every((a: any) => PIPELINE_RECOVERY_ACTIONS.has(a.actionKey));
     if (allRecoverable && !isApprovalState && actionState?.status !== 'confirming' && actionState?.status !== 'submitting') {
         return '';
@@ -149,13 +201,13 @@ export function renderAttentionDetail(attention: any, actionState: any, _escapeH
     const diagnosis: any = actionState?.status === 'confirming' ? null : recoveryDiagnosis(recovery?.diagnosis);
     if (diagnosis)
         return renderDiagnosisOutcome(diagnosis, recovery, attention.paperclipIssue, _escapeHtml);
-    const primaryIndex: any = Math.max(0, attention.actions.findIndex((action: any): any => action.emphasis === 'primary'));
+    const primaryIndex: any = Math.max(0, attentionActions.findIndex((action: any): any => action.emphasis === 'primary'));
     const submitting: any = actionState?.status === 'submitting';
     const confirmingAction: any = actionState?.status === 'confirming'
-        ? attention.actions.find((action: any): any => action.actionKey === actionState.actionKey)
+        ? attentionActions.find((action: any): any => action.actionKey === actionState.actionKey)
         : null;
-    const primaryAction: any = attention.actions.find((action: any): any => action.emphasis === 'primary') || attention.actions[0];
-    let actions: any = attention.actions.map((action: any, index: any): any => {
+    const primaryAction: any = attentionActions.find((action: any): any => action.emphasis === 'primary') || attentionActions[0];
+    let actions: any = attentionActions.map((action: any, index: any): any => {
         const className: any = index === primaryIndex ? 'record-attention-primary' : 'secondary-action';
         return html`<button type="button" class="${className}" data-attention-action="${action.actionKey}"${raw(submitting ? ' disabled' : '')} title="${action.confirmation || ''}">${action.label}</button>`;
     }).join('');
@@ -218,13 +270,20 @@ export function renderAttentionDetail(attention: any, actionState: any, _escapeH
     const approvalReason: string = task?.pendingApproval?.reason
         ? html`<details class="record-attention-evidence" open><summary><span>待确认原因</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><p>${task.pendingApproval.reason}</p></details>`
         : '';
+    const issueBadge: string = task?.paperclipIssue ? (
+        task.paperclipIssue.detailUrl
+            ? html`<a href="${task.paperclipIssue.detailUrl}" target="_blank" rel="noopener noreferrer" class="record-issue-badge" title="在 Paperclip 中打开工单">工单 #${task.paperclipIssue.identifier || 'ISSUE'} ↗</a>`
+            : html`<span class="record-issue-badge">工单 #${task.paperclipIssue.identifier || 'ISSUE'}</span>`
+    ) : '';
+    const focusText: string = cleanAttentionText(task?.input?.description || task?.input?.focus || '', 500);
     const paperclipIssueInfo: string = task?.paperclipIssue
-        ? html`<details class="record-attention-evidence"><summary><span>治理来源与工单依据</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><div class="record-attention-governance-body" style="padding: 10px 14px; font-size: 13px; line-height: 1.6; color: var(--ink-soft);"><p style="margin: 0 0 6px;"><strong>关联工单：</strong>${task.paperclipIssue.detailUrl ? html`<a href="${task.paperclipIssue.detailUrl}" target="_blank" rel="noopener noreferrer" style="color: var(--brand, #2563eb); font-weight: 600;">#${task.paperclipIssue.identifier || 'ISSUE'} ↗</a>` : html`<strong>#${task.paperclipIssue.identifier || 'ISSUE'}</strong>`}</p><p style="margin: 0;"><strong>诉求依据：</strong>${cleanAttentionText(task?.input?.description || task?.input?.focus || '', 500)}</p></div></details>`
+        ? html`<div class="record-evidence-card record-governance-card"><div class="record-evidence-head"><span class="record-evidence-title">治理来源与工单依据</span>${raw(issueBadge)}</div>${raw(focusText ? html`<p class="record-evidence-focus"><strong>诉求依据：</strong>${focusText}</p>` : '')}</div>`
         : '';
+    const structuredEvidenceHtml: string = evidence ? renderStructuredEvidence(evidence, cause) : '';
     const extras: any = [
         approvalReason,
         paperclipIssueInfo,
-        evidence ? html`<details class="record-attention-evidence"><summary><span>判断依据</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><p>${evidence}</p></details>` : '',
+        structuredEvidenceHtml,
         attention.remainingRisks ? html`<details class="record-attention-evidence"><summary><span>剩余风险</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><p>${attention.remainingRisks}</p></details>` : '',
         usefulAttentionImpact(attention) ? html`<p class="record-attention-impact-line">${attention.impact}</p>` : '',
     ].filter(Boolean).join('');

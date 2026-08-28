@@ -271,7 +271,7 @@ test('业务验收只渲染后端声明的可操作工作流，并明确展示�
     decision:null, revision:3, actionable:true,
   });
   const html = renderAcceptanceDetail(target, null, escapeHtml);
-  assert.match(html, /本次结果满意吗/);
+  assert.match(html, /成果就绪|本次结果满意/);
   assert.match(html, /data-acceptance-decision="accepted"/);
   assert.match(html, /data-acceptance-show-revision/);
   assert.match(html, /acceptance-inline-bar/);
@@ -646,6 +646,65 @@ test('task-progress-bar 在任务失败/中断时不展示误导性的秒级耗�
   assert.doesNotMatch(html, /2018年许家印出差/);
   assert.doesNotMatch(html, /title="1\.0 秒"/);
   assert.match(html, /title="分析执行中断"/);
+});
+
+test('renderStructuredEvidence 将生硬技术参数解析为结构化标签并收拢底层日志', async () => {
+  const { renderStructuredEvidence } = await import('../public/task-record-detail-view.js');
+  const rawEvidence = '执行结果：video_content_analyze_execute 返回 status=succeeded、recommendedCompletionStatus=succeeded、currentStage=full_analysis_ready。产物为正式深度拆解报告，证据模式 formal，分析意图 deep，报告版本 video-analysis/v2，完整性 complete。转录校验已关联 sourceTranscriptArtifactId=confirmed-transcript:0f452316-3600-4786-9cdd-6e743ca45862:v1，视觉执行回执 receipt:e3dcdef16998ec60cf54e9b29bfbfd4a 有效。本次只完成拆解与交付，未产生模板或策略层面的直接修改。';
+  
+  const html = renderStructuredEvidence(rawEvidence);
+  assert.match(html, /class="record-evidence-card record-judgment-card"/);
+  assert.match(html, /class="record-evidence-tag is-success">✓ 执行成功<\/span>/);
+  assert.match(html, /class="record-evidence-tag is-success">✓ 推荐完成<\/span>/);
+  assert.match(html, /class="record-evidence-tag">阶段: full_analysis_ready<\/span>/);
+  assert.match(html, /class="record-evidence-tag">版本: video-analysis\/v2<\/span>/);
+  assert.match(html, /class="record-evidence-tag is-success">✓ 完整性校验通过<\/span>/);
+  assert.match(html, /class="record-evidence-tag is-success">✓ 视觉回执有效<\/span>/);
+  assert.match(html, /class="record-evidence-tag is-success">✓ 转录校验已关联<\/span>/);
+  assert.match(html, /本次只完成拆解与交付，未产生模板或策略层面的直接修改/);
+  assert.match(html, /class="record-evidence-trace"/);
+  assert.match(html, /底层技术追踪与凭证 \(Trace\)/);
+});
+
+test('renderAttentionDetail 在 waiting_test 状态下过滤重复确认采纳按钮并渲染优雅工单与判断卡片', async () => {
+  const waitingTask = {
+    taskId: 'waiting-task-1',
+    status: 'waiting_test',
+    paperclipIssue: {
+      identifier: 'AGE-1619',
+      detailUrl: 'http://127.0.0.1:3100/issues/AGE-1619',
+    },
+    input: {
+      description: '只基于小D确认稿分析选题、开场钩子、叙事结构、节奏、证据与可复用方法',
+    },
+  };
+  const attention = {
+    kind: 'waiting_test',
+    headline: '等待验证',
+    cause: '小拆已完成基于小D确认稿的深度爆款拆解。',
+    evidence: '执行结果：video_content_analyze_execute 返回 status=succeeded、recommendedCompletionStatus=succeeded。视觉执行回执 receipt:e3dcdef16998 有效。',
+    actions: [{
+      actionKey: 'accept_reviewed_artifact',
+      label: '确认采纳',
+      emphasis: 'primary',
+      confirmation: '核对本次产物无误后，将直接标记为已完成并完成业务闭环。',
+    }],
+  };
+
+  const html = renderAttentionDetail(attention, null, escapeHtml, { task: waitingTask });
+  assert.match(html, /class="record-evidence-card record-governance-card"/);
+  assert.match(html, /href="http:\/\/127\.0\.0\.1:3100\/issues\/AGE-1619"/);
+  assert.match(html, /class="record-issue-badge"/);
+  assert.match(html, /工单 #AGE-1619 ↗/);
+  assert.doesNotMatch(html, /&lt;a href=/); // Must not escape raw HTML string
+  assert.doesNotMatch(html, /\[object Object\]/);
+  // Duplicate accept button and confirmation help note must be filtered out
+  assert.doesNotMatch(html, /<button[^>]*>确认采纳<\/button>/);
+  assert.doesNotMatch(html, /💡 动作说明：/);
+  // Judgment card must be structured
+  assert.match(html, /class="record-evidence-card record-judgment-card"/);
+  assert.match(html, /✓ 执行成功/);
+  assert.match(html, /✓ 推荐完成/);
 });
 
 function escapeHtml(value) {

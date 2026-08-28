@@ -108,6 +108,11 @@ export const feishuCommanderRoutingMethods: Record<string, any> = {
                 ? this.technicalTriage(taskId)
                 : this.clarify('我是技术专家。请发故障任务号和现象；我会先限定排查范围，不会直接改动生产环境。');
         }
+        // 在直聊中优先拦截进度查询等结构化意图，避免误建非业务的空任务
+        const taskDecision: any = taskRoutingDecision(text);
+        if (taskDecision?.action === 'query_task') {
+            return this.taskProgress(source.chatRef, taskDecision.query);
+        }
         const fallbackDirectTaskType: any = agentId === 'office-assistant' && /(?:pptx?|幻灯片|演示文稿)/i.test(text)
             ? 'office.presentation-package'
             : directTaskType;

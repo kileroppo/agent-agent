@@ -8280,6 +8280,137 @@ textarea:focus {
   color: var(--ink-soft);
 }
 
+.record-evidence-card {
+  margin: 0 20px 14px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.record-evidence-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.record-evidence-title {
+  font-weight: 600;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.record-issue-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--brand, #2563eb) 10%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--brand, #2563eb) 25%, transparent);
+  color: var(--brand, #2563eb);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.15s var(--ease);
+}
+
+.record-issue-badge:hover {
+  background: color-mix(in srgb, var(--brand, #2563eb) 18%, var(--surface));
+  border-color: var(--brand, #2563eb);
+}
+
+.record-evidence-focus {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.record-evidence-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.record-evidence-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  background: color-mix(in srgb, var(--ink) 4%, var(--surface));
+  border: 1px solid var(--line);
+  color: var(--ink-soft);
+}
+
+.record-evidence-tag.is-success {
+  background: color-mix(in srgb, var(--mint) 10%, var(--surface));
+  border-color: color-mix(in srgb, var(--mint) 30%, transparent);
+  color: var(--mint-deep);
+}
+
+.record-evidence-tag.is-failed {
+  background: color-mix(in srgb, #dc2626 10%, var(--surface));
+  border-color: color-mix(in srgb, #dc2626 30%, transparent);
+  color: #dc2626;
+}
+
+.record-evidence-desc {
+  margin: 0 0 8px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.record-evidence-trace {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+
+.record-evidence-trace summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  user-select: none;
+}
+
+.record-evidence-trace summary:hover {
+  color: var(--ink);
+}
+
+.record-evidence-trace .chevron {
+  width: 12px;
+  height: 12px;
+  color: var(--muted);
+  transition: transform 0.18s var(--ease);
+}
+
+.record-evidence-trace[open] summary .chevron {
+  transform: rotate(180deg);
+}
+
+.record-evidence-trace .record-trace-body {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.03);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  word-break: break-all;
+  line-height: 1.5;
+}
+
 .record-attention-impact-line {
   margin: 0 20px 14px;
   font-size: 13px;

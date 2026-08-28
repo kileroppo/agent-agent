@@ -199,6 +199,13 @@ export class TaskService {
             ? await this.registry.get(task.assigneeAgentId)
             : (await this.registry.list({ includeManagers: true })).find((item: any): any => item.agentId === task.assigneeAgentId);
         if (agent) {
+            if (typeof this.intake?.projectGovernance === 'function') {
+                try {
+                    task = await this.intake.projectGovernance(task, agent);
+                } catch (govErr: any) {
+                    console.warn('Project governance on provideTaskInput warning:', govErr?.message || govErr);
+                }
+            }
             this.executeTask(task, agent).catch((err: any): void => console.error('Execute task after provideInput error:', err));
         }
         return task;

@@ -8,7 +8,7 @@ import { projectTaskNotification } from './task-notification-projection.ts';
 export { safeAgentId, safeLoopbackBaseUrl, safeRef } from './feishu-commander-input.ts';
 export { employeeCapabilityTruth, employeeRole } from './feishu-employee-status-presentation.ts';
 const CREATE_AGENT_RE: any = /(?:创建|新建|招募|招)\s*(?:一个\s*)?.{0,80}?(?:agent|智能体|岗位|助手)/i;
-const PROGRESS_RE: any = /进度|进展|做到哪|处理得怎么样|完成了吗|结果呢|任务状态/;
+const PROGRESS_RE: any = /进度|进展|做到哪|处理得怎么样|完成了吗|结果呢|任务状态|查看任务/i;
 const EXPLICIT_TASK_CREATION_RE: any = /(?:创建|新建|发起|安排)\s*(?:一个|一项|个|项)?\s*(?:测试)?任务/i;
 const EXPLICIT_NO_TASK_RE: any = /(?:不要|不用|无需|不需要|禁止|别)\s*(?:创建|新建|发起|安排)\s*(?:一个|一项|个|项)?\s*(?:测试)?任务/i;
 export const TASK_ROUTING_DECISION_SCHEMA_VERSION: any = 'agent.army/feishu-task-routing-decision/v1';
@@ -442,13 +442,18 @@ export function mostRecentTask(tasks: any): any {
 }
 function progressQueryFor(text: any): any {
     const value: any = String(text || '').trim();
-    const taskId: any = (value.match(TASK_ID_RE) as any)?.[0] || null;
-    if (taskId)
-        return { taskId };
+    const fullMatch: any = (value.match(TASK_ID_RE) as any)?.[0];
+    if (fullMatch)
+        return { taskId: fullMatch };
+    const shortMatch: any = value.match(/(?:任务|编号|ID|#)\s*#?([0-9a-fA-F]{8,36})\b/i);
+    const shortId: any = shortMatch ? shortMatch[1] : null;
+    if (shortId && (PROGRESS_RE.test(value) || /^(?:查看|查询|核对)?(?:任务|进度|状态)?\s*#?[0-9a-fA-F]{8,36}$/i.test(value))) {
+        return { taskId: shortId };
+    }
     if (!PROGRESS_RE.test(value))
         return null;
     const agentId: any = /(?:小\s*d|小D)/i.test(value) ? 'xiaod' : null;
-    return { agentId };
+    return { agentId, ...(shortId ? { taskId: shortId } : {}) };
 }
 export function isTaskForAgent(task: any, agentId: any): any {
     if (task.assigneeAgentId === agentId || task.execution?.executor === agentId)

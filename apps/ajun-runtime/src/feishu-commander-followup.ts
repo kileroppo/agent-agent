@@ -6,8 +6,10 @@ export const feishuCommanderFollowupMethods: Record<string, any> = {
             return { kind: 'task_progress', reply: '我暂时找不到这条会话里的任务。请直接回复那条任务消息后再问“进度”。' };
         const tasks: any = await this.store.list();
         const inThisChat: any = tasks.filter((task: any): any => isTaskInFeishuChat(task, chatRef));
-        const task: any = taskId
-            ? inThisChat.find((item: any): any => item.taskId === taskId) || null
+        const cleanId: any = taskId ? String(taskId).trim().replace(/^#/, '').toLowerCase() : null;
+        const task: any = cleanId
+            ? inThisChat.find((item: any): any => String(item.taskId || '').toLowerCase() === cleanId || String(item.taskId || '').toLowerCase().startsWith(cleanId))
+                || tasks.find((item: any): any => String(item.taskId || '').toLowerCase() === cleanId || String(item.taskId || '').toLowerCase().startsWith(cleanId)) || null
             : mostRecentTask(agentId ? inThisChat.filter((item: any): any => isTaskForAgent(item, agentId)) : inThisChat);
         if (taskId && !task)
             return { kind: 'task_progress', reply: '这个任务号不属于当前飞书会话，或本机已经没有它的记录。' };

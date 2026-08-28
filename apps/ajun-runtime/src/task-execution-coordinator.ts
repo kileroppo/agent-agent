@@ -69,7 +69,35 @@ export class TaskExecutionCoordinator {
       && task.taskType !== 'army.cross-agent-mission'
       && !isTrustedReadOnlyDiagnosisTask(task)
       && task.status !== 'waiting_approval') {
-      return this.delegateToPaperclip(task, agent);
+      if (!task.governance?.paperclipIssueId && typeof this.governance?.project === 'function') {
+        try {
+          const projection = await this.governance.project(task);
+          if (projection?.paperclipIssueId) {
+            task = await this.store.updateTask(task.taskId, { governance: projection });
+          }
+        } catch {
+          // ignore error and proceed to check local fallback
+        }
+      }
+      if (task.governance?.paperclipIssueId) {
+        return this.delegateToPaperclip(task, agent);
+      }
+      const fallbackExecutor = this.fallbackExecutorResolver();
+      const localExecutor = agent?.status === 'active'
+        ? this.executorResolver(agent.agentId)
+          || (fallbackExecutor?.supports(agent) ? fallbackExecutor : null)
+        : null;
+      if (!localExecutor) {
+        return this.delegateToPaperclip(task, agent);
+      }
+      task = await this.store.updateTask(task.taskId, {
+        governance: {
+          ...(task.governance || {}),
+          status: 'local_fallback',
+          governanceMode: 'local_fallback',
+          reason: 'Paperclip 治理总控工单未建立，转由受控本地执行器接续。',
+        },
+      });
     }
     const fallbackExecutor = this.fallbackExecutorResolver();
     const executor = agent?.status === 'active'
