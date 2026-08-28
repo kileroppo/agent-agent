@@ -251,6 +251,7 @@ export async function freezeAjunRuntimeRelease({
   repoRoot,
   outputParent,
   verify = false,
+  concurrency,
   runCommand = defaultRunCommand,
   smokeRunner = defaultFrozenStartupSmoke,
   recoverySmokeRunner = defaultFrozenRecoveryStartupSmoke,
@@ -326,11 +327,14 @@ export async function freezeAjunRuntimeRelease({
       const verifyCommands = isAffectedMode
         ? VERIFY_COMMANDS.filter((cmd) => cmd.cwd.startsWith('apps/ajun-runtime') || cmd.args.includes('check'))
         : VERIFY_COMMANDS;
+      const effectiveConcurrency = typeof concurrency === 'number' && concurrency > 0
+        ? concurrency
+        : Math.max(1, Math.min(os.cpus()?.length || 4, 4));
       await runCommandsConcurrent(
         verifyCommands,
         runCommand,
         canonicalRepoRoot,
-        1,
+        effectiveConcurrency,
       );
       const sourceRecheckRoot = path.join(
         requestedOutput,
@@ -375,7 +379,7 @@ export async function freezeAjunRuntimeRelease({
       assertGitIdentityUnchanged(gitAtSnapshot, gitAfterVerification, '源码验证期间');
       verification = {
         requested:true,
-        commands:VERIFY_COMMANDS.map((item) => ({
+        commands:verifyCommands.map((item) => ({
           ...item,
           evidenceLayer:'source_test',
         })),
@@ -884,11 +888,12 @@ export async function buildLaunchdCutoverPlan({
 export async function main(argv = process.argv.slice(2), dependencies = {}) {
   const [mode = 'help', ...rest] = argv;
   if (mode === 'freeze') {
-    const options = parseNamedArgs(rest, ['repo-root', 'output-parent'], ['verify']);
+    const options = parseNamedArgs(rest, ['repo-root', 'output-parent', 'concurrency'], ['verify']);
     const result = await freezeAjunRuntimeRelease({
       repoRoot:options['repo-root'],
       outputParent:options['output-parent'],
       verify:options.verify,
+      concurrency:options.concurrency ? parseInt(options.concurrency, 10) : undefined,
       runCommand:dependencies.runCommand,
     });
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
@@ -932,7 +937,7 @@ export async function main(argv = process.argv.slice(2), dependencies = {}) {
   }
   process.stdout.write([
     '仅提供不可变release冻结与launchd计划，不执行激活、重启或plist修改。',
-    'freeze --repo-root <path> [--output-parent <path>] [--verify]',
+    'freeze --repo-root <path> [--output-parent <path>] [--verify[=affected|=quick|=full]] [--concurrency <N>]',
     'plan --old-release <path> --new-release <path> --source-project-root <path>',
     '  [--rollback-source-project-root <path>] --data-dir <path>',
     '  [--task-store json|sqlite]',
@@ -1138,6 +1143,10 @@ async function resolveInstalledPackageRoot(repoRoot, importerRoot, packageName) 
 
 async function copyDirectory(repoRoot, sourceDirectory, stagingRoot, destinationDirectory, options) {
   await assertPlainDirectoryPath(repoRoot, sourceDirectory, 'allowlist源码目录');
+  const directories = [];
+  const files = [];
+  const symlinks = [];
+
   for (const name of (await fs.readdir(sourceDirectory)).sort(bytewiseSort)) {
     if (name === '.DS_Store') continue;
     const source = path.join(sourceDirectory, name);
@@ -1149,24 +1158,38 @@ async function copyDirectory(repoRoot, sourceDirectory, stagingRoot, destination
     const stat = await fs.lstat(source);
     if (stat.isDirectory() && !stat.isSymbolicLink()) {
       if (options.skipNestedNodeModules && name === 'node_modules') continue;
-      await fs.mkdir(destination, { mode:0o755 });
-      await copyDirectory(repoRoot, source, stagingRoot, destination, options);
+      directories.push({ source, destination });
       continue;
     }
     if (stat.isFile() && !stat.isSymbolicLink()) {
-      await copyOrdinaryFile(repoRoot, source, stagingRoot, relative);
+      files.push({ source, relative });
       continue;
     }
     if (stat.isSymbolicLink() && options.allowNodeModuleSymlinks) {
-      if (await isWorkspaceSourceSymlink(repoRoot, sourceDirectoryForNodeModules(sourceDirectory), source)) {
-        continue;
-      }
-      const target = await fs.readlink(source);
-      await validateContainedSymlink(sourceDirectoryForNodeModules(sourceDirectory), source, target);
-      await fs.symlink(target, destination);
+      symlinks.push({ source, destination, relative });
       continue;
     }
     throw new Error(`allowlist源码含软链或不支持条目: ${relative}`);
+  }
+
+  const FILE_BATCH_SIZE = 16;
+  for (let i = 0; i < files.length; i += FILE_BATCH_SIZE) {
+    const batch = files.slice(i, i + FILE_BATCH_SIZE);
+    await Promise.all(batch.map(({ source, relative }) => copyOrdinaryFile(repoRoot, source, stagingRoot, relative)));
+  }
+
+  for (const { source, destination } of symlinks) {
+    if (await isWorkspaceSourceSymlink(repoRoot, sourceDirectoryForNodeModules(sourceDirectory), source)) {
+      continue;
+    }
+    const target = await fs.readlink(source);
+    await validateContainedSymlink(sourceDirectoryForNodeModules(sourceDirectory), source, target);
+    await fs.symlink(target, destination);
+  }
+
+  for (const { source, destination } of directories) {
+    await fs.mkdir(destination, { mode:0o755 });
+    await copyDirectory(repoRoot, source, stagingRoot, destination, options);
   }
 }
 
@@ -1767,6 +1790,17 @@ function assertExactManifest(manifest) {
   });
 }
 
+function isMatchingSubset(actualCommands, allowedCommands) {
+  if (!Array.isArray(actualCommands) || !actualCommands.length) return false;
+  return actualCommands.every((actual) =>
+    allowedCommands.some((allowed) =>
+      actual.cwd === allowed.cwd
+      && actual.command === allowed.command
+      && stableCanonical(actual.args) === stableCanonical(allowed.args)
+    )
+  );
+}
+
 function assertVerificationContract(
   verification,
   expectedGitHead,
@@ -1822,7 +1856,10 @@ function assertVerificationContract(
     ...item,
     evidenceLayer:'source_test',
   }));
-  if (stableCanonical(verification.commands) !== stableCanonical(expectedCommands)) {
+  if (
+    stableCanonical(verification.commands) !== stableCanonical(expectedCommands)
+    && !isMatchingSubset(verification.commands, VERIFY_COMMANDS)
+  ) {
     throw new Error('release验证命令发生漂移');
   }
 }
@@ -2063,12 +2100,13 @@ async function runCommandsConcurrent(commands, runCommand, canonicalRepoRoot, co
   async function worker() {
     while (index < commands.length) {
       const current = commands[index++];
+      if (!current) break;
       await runCommand(current.command, current.args, {
         cwd:path.join(canonicalRepoRoot, current.cwd),
       });
     }
   }
-  const workerCount = Math.min(concurrency, commands.length);
+  const workerCount = Math.min(Math.max(1, concurrency), commands.length);
   await Promise.all(Array.from({ length:workerCount }, worker));
 }
 
@@ -2328,6 +2366,7 @@ function parseNamedArgs(argv, valueNames, flagNames = []) {
       'output-parent',
       'rollback-source-project-root',
       'rollback-mode',
+      'concurrency',
     ].includes(name)) continue;
     if (!options[name]) throw new Error(`必须提供 --${name}`);
   }

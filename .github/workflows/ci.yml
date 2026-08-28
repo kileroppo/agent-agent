@@ -3,32 +3,47 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - 'designs/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+      - 'designs/**'
 
 jobs:
-  ci:
+  gates-and-lint:
+    name: Gates & Architecture
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: '22.x'
           cache: npm
-
       - run: npm ci
-
       - name: Architecture check
         run: npm run check:architecture
+      - name: Gate doctor check
+        run: npm run gate:doctor
+      - name: Any density gate check
+        run: npm run check:any-density
 
+  types-and-frontend:
+    name: Typecheck & Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+      - run: npm ci
       - name: Full check (tsc + frontend build + typescript-ratio)
         run: npm run check
-
-      - name: Run tests
-        run: npm run test:core
-
       - name: Frontend build drift check
         run: |
           npm run build:frontend --workspace=ajun-runtime
@@ -38,5 +53,15 @@ jobs:
           npm run build:frontend --workspace=xiaod-media-transcriber
           git diff --exit-code apps/xiaod-media-transcriber/public/
 
-      - name: Check any-density gate
-        run: node scripts/check-any-density.mjs
+  test-suite:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+      - run: npm ci
+      - name: Run Core Tests
+        run: npm run test:core
