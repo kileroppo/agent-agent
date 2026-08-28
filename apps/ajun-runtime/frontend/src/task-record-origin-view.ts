@@ -68,7 +68,6 @@ export function renderOriginCard(task: any = {}, options: { hideIfInAttention?: 
                         <span>${channel}</span>
                         ${raw(issueId ? (issueUrl ? html`<a href="${issueUrl}" target="_blank" rel="noopener noreferrer" class="origin-issue-ref is-link" title="点击打开 Paperclip 工单">${issueId} ↗</a>` : html`<strong class="origin-issue-ref">${issueId}</strong>`) : '')}
                     </span>
-                    <span class="origin-time-tag">登记于 ${createdAt || '未记录'}</span>
                 </div>
             </div>
 
@@ -202,8 +201,11 @@ export function parseOriginDescription(desc: string, task: any = {}): {
         }
     }
 
+    const rawParentTitle = String(task?.input?.title || task?.title || '').trim();
+    const coreVideoTitle = rawParentTitle.replace(/^(?:爆款候选拆解|视频分析|多人任务)[｜|：:\s]*/i, '').trim();
+
     const steps: Array<{ title: string; agentName: string; desc: string }> = [];
-    const rawStepMatches = text.split(/(?=\b\d+\.\s*)/g).filter((s) => /^\d+\.\s*/.test(s.trim()));
+    const rawStepMatches = text.split(/(?:^|\n)(?=\s*\d+\.\s*)/g).map(s => s.trim()).filter((s) => /^\d+\.\s*/.test(s));
     let hasNumberedSteps = false;
 
     if (rawStepMatches.length >= 2) {
@@ -214,13 +216,35 @@ export function parseOriginDescription(desc: string, task: any = {}): {
             let title = colonIdx !== -1 ? stepText.slice(0, colonIdx).trim() : stepText.slice(0, 40);
             let sDesc = colonIdx !== -1 ? stepText.slice(colonIdx + 1).trim() : '';
 
+            // Strip video title prefix if nested in sDesc (e.g. "<video_title>：<actual_desc>")
+            if (coreVideoTitle && sDesc.startsWith(coreVideoTitle)) {
+                sDesc = sDesc.slice(coreVideoTitle.length).replace(/^[:：\s]+/, '').trim();
+            }
+            const nextColon = sDesc.indexOf('：') !== -1 ? sDesc.indexOf('：') : sDesc.indexOf(':');
+            if (nextColon !== -1 && nextColon < 100 && sDesc.slice(nextColon + 1).trim().length > 5) {
+                const prefixPart = sDesc.slice(0, nextColon).trim();
+                if (coreVideoTitle && (prefixPart === coreVideoTitle || prefixPart.includes(coreVideoTitle) || coreVideoTitle.includes(prefixPart))) {
+                    sDesc = sDesc.slice(nextColon + 1).trim();
+                }
+            }
+
             let agentName = '';
             if (/获取|整理|素材|转录|字幕/i.test(title)) {
                 agentName = '小D (素材采集/转录)';
-                if (title.length > 25) title = '获取并整理素材与证据';
+                title = '获取并整理素材与证据';
+                if (!sDesc) {
+                    sDesc = '通过内容获取中心获取公开或已授权素材，生成来源证据、质量报告、确认稿和可用的关键帧证据。';
+                }
             } else if (/拆解|分析|爆款/i.test(title)) {
                 agentName = '小拆 (爆款拆解专家)';
-                if (title.length > 25) title = '拆解爆款候选逻辑与结构';
+                title = '拆解爆款候选逻辑与结构';
+                if (/命中\s*T|R=|M=|指标证据|点赞=|播放=|基准为该作品/i.test(sDesc)) {
+                    sDesc = '';
+                }
+                sDesc = sDesc.replace(/[:：；;，,\s]+$/, '').trim();
+                if (!sDesc || sDesc === coreVideoTitle || sDesc.length < 5) {
+                    sDesc = String(task?.input?.focus || task?.focus || '解释开场钩子、内容结构、受众触发点、可复制要素和不可复制上下文。').trim();
+                }
             } else if (/写作|创作|草稿/i.test(title)) {
                 agentName = '小创 (内容创作者)';
             } else if (/汇报|简报|汇总/i.test(title)) {
@@ -231,6 +255,10 @@ export function parseOriginDescription(desc: string, task: any = {}): {
             sDesc = sDesc.replace(/该评分用于筛选.*$/s, '').trim();
             if (sDesc.startsWith('【') && sDesc.includes('】')) {
                 sDesc = sDesc.replace(/【[^】]+】\s*/, '').trim();
+            }
+            sDesc = sDesc.replace(/[:：；;，,\s]+$/, '').trim();
+            if (coreVideoTitle && sDesc === coreVideoTitle) {
+                sDesc = '';
             }
 
             steps.push({

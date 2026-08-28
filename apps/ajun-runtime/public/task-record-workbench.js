@@ -267,8 +267,9 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
                     state.selectedTask = nextTask;
                     const durationSpan = elements.detail.querySelector('.record-header-meta');
                     if (durationSpan) {
+                        const isNextAccepted = nextTask.acceptanceTarget?.decision === 'accepted' || nextTask.status === 'succeeded';
                         const createdFull = formatFullDateTime(nextTask.createdAt);
-                        const durationText = nextTask.createdAt ? formatDuration(nextTask.createdAt, nextTask.completedAt || (nextTask.recordView === 'completed' ? nextTask.updatedAt : null)) : '';
+                        const durationText = (isNextAccepted && nextTask.createdAt) ? formatDuration(nextTask.createdAt, nextTask.completedAt || (nextTask.recordView === 'completed' ? nextTask.updatedAt : null)) : '';
                         const relativeTimeStr = relativeTime(nextTask.createdAt || nextTask.updatedAt);
                         durationSpan.textContent = `${createdFull ? `${createdFull} · ` : ''}${durationText ? `耗时 ${durationText} · ` : ''}${relativeTimeStr}`;
                     }
@@ -462,7 +463,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
                 : '';
         const isWorkflow = Boolean(task.workflowBreadcrumb && (task.workflowBreadcrumb.workflowId || (task.workflowBreadcrumb.siblings && task.workflowBreadcrumb.siblings.length > 0)));
         const createdFull = formatFullDateTime(task.createdAt);
-        const durationText = task.createdAt ? formatDuration(task.createdAt, task.completedAt || (taskView === 'completed' ? task.updatedAt : null)) : '';
+        const durationText = (isTaskAccepted && task.createdAt) ? formatDuration(task.createdAt, task.completedAt || (taskView === 'completed' ? task.updatedAt : null)) : '';
         const tabNavHtml = renderDetailTabNav(state.detailTab, { deliverablesCount: artifacts.length, isWorkflow });
         const isReworkTask = parsedTitle?.badges?.some((b) => b.tone === 'rework') || /定向返工/i.test(task?.input?.title || task?.title || '');
         const reworkArtifactsHtml = isReworkTask && artifacts.length ? artifacts.map((a) => renderArtifact(a, { isAccepted: isTaskAccepted })).join('') : '';
@@ -583,6 +584,7 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             loadSelectedDetail,
             api,
             loadRecords,
+            executeAttentionAction,
         });
         for (const approveBtn of elements.detail.querySelectorAll('[data-task-approve]')) {
             approveBtn.addEventListener('click', async (e) => {

@@ -37,13 +37,15 @@ export function renderTaskProgressBar(task: any = {}, options: TaskProgressOptio
 
   // 3. Execution & Cost
   const cost = task.costAttribution || {};
-  const duration = task.createdAt
+  const duration = (isSucceeded && task.createdAt)
     ? formatDuration(task.createdAt, task.completedAt || (isCompleted ? task.updatedAt : null))
     : '';
   const tokenInfo = (cost.inputTokens || cost.outputTokens)
     ? `${Math.round((cost.inputTokens + cost.outputTokens) / 100) / 10}k Tokens`
     : '';
-  const executionTooltip = [duration, tokenInfo].filter(Boolean).join(' · ') || (isRunning ? '正在分析与执行' : '执行完成');
+  const executionTooltip = isFailed
+    ? '分析执行中断'
+    : ([duration, tokenInfo].filter(Boolean).join(' · ') || (isRunning ? '正在分析与执行' : '执行完成'));
 
   // 4. Deliverables
   const artifacts = Array.isArray(task.artifactRefs) ? task.artifactRefs : [];
@@ -114,10 +116,21 @@ export function renderTaskProgressBar(task: any = {}, options: TaskProgressOptio
     { label: '业务验收', status: stage5Status, tooltip: acceptanceTooltip },
   ];
 
+  const rawTitle = String(task?.input?.title || task?.title || '').trim();
+  const coreVideoTitle = rawTitle.replace(/^(?:爆款候选拆解|视频分析|多人任务)[｜|：:\s]*/i, '').trim();
+
+  let cleanCause = attentionData?.cause || attentionData?.headline || '任务中断';
+  if (coreVideoTitle && coreVideoTitle.length > 3) {
+    cleanCause = cleanCause.replaceAll(coreVideoTitle, '').replace(/\s*\|\s*/g, ' ').replace(/^[:：\s]+/, '').trim();
+  }
+  cleanCause = cleanCause.replace(/^获取并整理[：:\s]*(?:未完成[：:]\s*)?/i, '素材获取与转录未完成：');
+  cleanCause = cleanCause.replace(/^拆解爆款候选[：:\s]*(?:未完成[：:]\s*)?/i, '爆款候选拆解未完成：');
+  cleanCause = cleanCause.replace(/^[:：·\s]+/, '').trim();
+
   const parts = stages.map((stage, index) => {
     const isActionable = stage.status === 'danger' && attentionData && Array.isArray(attentionData.actions) && attentionData.actions.length > 0;
     const actionAttr = isActionable
-      ? ` data-pipeline-action="recovery" data-pipeline-cause="${escapeHtml(attentionData!.cause || attentionData!.headline || '任务中断')}" data-pipeline-action-key="${escapeHtml(attentionData!.actions![0]?.actionKey || '')}" data-pipeline-action-label="${escapeHtml(attentionData!.actions![0]?.label || '继续')}" role="button" tabindex="0"`
+      ? ` data-pipeline-action="recovery" data-pipeline-cause="${escapeHtml(cleanCause)}" data-pipeline-action-key="${escapeHtml(attentionData!.actions![0]?.actionKey || '')}" data-pipeline-action-label="${escapeHtml(attentionData!.actions![0]?.label || '继续')}" role="button" tabindex="0"`
       : '';
     const actionableClass = isActionable ? ' is-actionable' : '';
     const stageHtml = html`<div class="progress-stage is-${stage.status}${raw(actionableClass)}"${raw(actionAttr)} title="${escapeHtml(stage.tooltip)}" aria-label="${stage.label}"><span class="progress-dot"></span><span class="progress-label">${stage.label}</span></div>`;

@@ -239,7 +239,10 @@ test('attention 只接受安全动作键并保留恢复任务链接', () => {
 });
 
 test('恢复动作固定走本机安全路径并带并发与幂等保护', async () => {
-  const script = await readFile(new URL('task-record-workbench.js', publicRoot), 'utf8');
+  const script = await readFile(new URL('task-record-workbench.js', publicRoot), 'utf8')
+    + '\n' + await readFile(new URL('task-record-workbench-filters.js', publicRoot), 'utf8')
+    + '\n' + await readFile(new URL('task-record-workbench-interactions.js', publicRoot), 'utf8')
+    + '\n' + await readFile(new URL('task-record-workbench-acceptance.js', publicRoot), 'utf8');
 
   assert.match(script, /api\('\/api\/owner-action-session'\)/);
   assert.match(script, /\/api\/tasks\/\$\{encodeURIComponent\(task\.taskId\)\}\/recovery-actions\/\$\{encodeURIComponent\(action\.actionKey\)\}/);
@@ -286,7 +289,8 @@ test('业务验收只渲染后端声明的可操作工作流，并明确展示�
 });
 
 test('运行台验收复用本机授权并提交版本、幂等键和用户说明', async () => {
-  const script = await readFile(new URL('task-record-workbench.js', publicRoot), 'utf8');
+  const script = await readFile(new URL('task-record-workbench.js', publicRoot), 'utf8')
+    + '\n' + await readFile(new URL('task-record-workbench-acceptance.js', publicRoot), 'utf8');
 
   assert.match(script, /\/api\/workflows\/\$\{encodeURIComponent\(target\.workflowId\)\}\/acceptance/);
   assert.match(script, /newIdempotencyKey\(target\.workflowId, decision\)/);
@@ -562,6 +566,86 @@ test('renderArtifact 对多人协作计划与汇总产物生成人话摘要并�
   const summaryHtml = renderArtifact(summaryArtifact, { task: parentTask });
   assert.match(summaryHtml, /交付达成概况：已完成 0 \/ 共 2 项（部分完成 \/ 存在异常）/);
   assert.match(summaryHtml, /data-copy-text="【协同汇总结论】[\s\S]*【各岗位交付状态明细】/);
+});
+
+test('parseOriginDescription 剥离嵌套的视频标题、清理尾部冒号与指标冗余，并还原纯净分步计划', async () => {
+  const { parseOriginDescription } = await import('../public/task-record-origin-view.js');
+  const task = {
+    taskId: 'test-denoise-1',
+    input: {
+      title: '爆款候选拆解 | 2018年许家印出差比古代皇帝出游还要隆重！',
+      description: '1. 获取并整理：2018年许家印出差比古代皇帝出游还要隆重！：通过内容获取中心获取公开或已授权素材，生成来源证据、质量报告、确认稿和可用的关键帧证据。\n2. 拆解爆款候选：2018年许家印出差比古代皇帝出游还要隆重！：命中 T1，R=391.0000，M=0.1256；点赞=1173，收藏=464，播放=223000，粉丝快照=9339；基线为该作品之前最近 20/20 条作品核心指标中位数 300；指标证据：formal，来源 bilibili，观察时间 2026-08-27 19:05:38；该评分只用于筛选和排序，不构成传播因果判断。',
+      focus: '解释开场钩子、内容结构、受众触发点、可复制要素和不可复制上下文。',
+    },
+  };
+
+  const parsed = parseOriginDescription(task.input.description, task);
+  assert.equal(parsed.steps.length, 2);
+
+  // Step 1: 小D素材获取与转录
+  assert.equal(parsed.steps[0].title, '获取并整理素材与证据');
+  assert.equal(parsed.steps[0].agentName, '小D (素材采集/转录)');
+  assert.equal(parsed.steps[0].desc, '通过内容获取中心获取公开或已授权素材，生成来源证据、质量报告、确认稿和可用的关键帧证据。');
+  assert.doesNotMatch(parsed.steps[0].desc, /2018年许家印出差/);
+
+  // Step 2: 小拆爆款拆解
+  assert.equal(parsed.steps[1].title, '拆解爆款候选逻辑与结构');
+  assert.equal(parsed.steps[1].agentName, '小拆 (爆款拆解专家)');
+  assert.equal(parsed.steps[1].desc, '解释开场钩子、内容结构、受众触发点、可复制要素和不可复制上下文。');
+  assert.doesNotMatch(parsed.steps[1].desc, /2018年许家印出差/);
+  assert.doesNotMatch(parsed.steps[1].desc, /[:：]$/); // 无悬挂冒号
+  assert.doesNotMatch(parsed.steps[1].desc, /命中 T1/);
+
+  // 原始卡片渲染不包含冗余的“登记于”绝对时间
+  const cardHtml = renderOriginCard(task);
+  assert.doesNotMatch(cardHtml, /origin-time-tag/);
+  assert.doesNotMatch(cardHtml, /登记于/);
+});
+
+test('compactAttentionReason 过滤长视频标题并直出精炼行动指引', async () => {
+  const { compactAttentionReason } = await import('../public/task-record-workbench-helpers.js');
+  const task = {
+    taskId: 'test-reason-1',
+    input: {
+      title: '爆款候选拆解 | 2018年许家印出差比古代皇帝出游还要隆重！',
+    },
+    presentation: {
+      attention: {
+        headline: '任务未完成',
+        cause: '获取并整理：2018年许家印出差比古代皇帝出游还要隆重！ 未完成：可在飞书回复“重试小D任务”从安全断点继续，无需重复上传。',
+      },
+    },
+  };
+
+  const reason = compactAttentionReason(task);
+  assert.equal(reason, '小D素材转录未完成 · 可在飞书回复“重试小D任务”');
+  assert.doesNotMatch(reason, /2018年许家印出差/);
+});
+
+test('task-progress-bar 在任务失败/中断时不展示误导性的秒级耗时，并清理 popover 中断原因', async () => {
+  const { renderTaskProgressBar } = await import('../public/task-progress-bar.js');
+  const failedTask = {
+    taskId: 'failed-task-1',
+    status: 'failed',
+    createdAt: '2026-08-27T19:05:38.000Z',
+    updatedAt: '2026-08-27T19:05:39.000Z',
+    input: {
+      title: '爆款候选拆解 | 2018年许家印出差比古代皇帝出游还要隆重！',
+    },
+  };
+  const attention = {
+    cause: '获取并整理：2018年许家印出差比古代皇帝出游还要隆重！ 未完成：可在飞书回复“重试小D任务”从安全断点继续，无需重复上传。',
+    actions: [{ actionKey: 'request_safe_recovery', label: '请求安全恢复' }],
+  };
+
+  const html = renderTaskProgressBar(failedTask, { attention });
+  assert.match(html, /data-pipeline-action="recovery"/);
+  assert.match(html, /data-pipeline-action-key="request_safe_recovery"/);
+  assert.match(html, /data-pipeline-action-label="请求安全恢复"/);
+  assert.match(html, /素材获取与转录未完成：可在飞书回复“重试小D任务”从安全断点继续/);
+  assert.doesNotMatch(html, /2018年许家印出差/);
+  assert.doesNotMatch(html, /title="1\.0 秒"/);
+  assert.match(html, /title="分析执行中断"/);
 });
 
 function escapeHtml(value) {

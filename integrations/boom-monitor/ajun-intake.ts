@@ -73,7 +73,7 @@ export async function dispatchBoomSignal(input: any, { missions, dedupGovernor =
         items: [
             {
                 key: 'acquire-transcript',
-                title: `获取并整理：${signal.title}`,
+                title: '获取并整理素材与证据',
                 taskType: 'media.transcribe-and-refine',
                 agentId: 'xiaod',
                 description: '通过内容获取中心获取公开或已授权素材，生成来源证据、质量报告、确认稿和可用的关键帧证据。',
@@ -86,10 +86,10 @@ export async function dispatchBoomSignal(input: any, { missions, dedupGovernor =
             },
             {
                 key: 'analyze-video',
-                title: `拆解爆款候选：${signal.title}`,
+                title: '拆解爆款候选逻辑与结构',
                 taskType: 'content.video-benchmark-analysis',
                 agentId: 'video-content-analyst',
-                description: metricSummary,
+                description: '解释开场钩子、内容结构、受众触发点、可复制要素和不可复制上下文。',
                 acceptance: '只在确认稿存在后生成证据化拆解；报告保留爆款筛选信号，并明确评分不代表因果。',
                 dependsOnPrevious: true,
                 dependsOn: ['acquire-transcript'],
@@ -97,7 +97,7 @@ export async function dispatchBoomSignal(input: any, { missions, dedupGovernor =
                 depth: signal.depth,
                 visualMode: 'auto',
                 focus: '解释开场钩子、内容结构、受众触发点、可复制要素和不可复制上下文。',
-                context: { boomSignal: signal },
+                context: { boomSignal: signal, metricSummary },
             },
         ],
     });

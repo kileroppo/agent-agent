@@ -54,7 +54,7 @@ export async function copyToClipboard(text) {
     }
 }
 export function bindDetailInteractions(options) {
-    const { elements, state, task, renderDetail, replaceRecordUrl, loadSelectedDetail, api, loadRecords } = options;
+    const { elements, state, task, renderDetail, replaceRecordUrl, loadSelectedDetail, api, loadRecords, executeAttentionAction } = options;
     for (const closeBtn of elements.detail.querySelectorAll('[data-subtask-drawer-close]')) {
         closeBtn.addEventListener('click', () => {
             state.previewSubtaskData = null;
@@ -280,6 +280,39 @@ export function bindDetailInteractions(options) {
             const popover = document.createElement('div');
             popover.className = 'pipeline-action-popover';
             popover.innerHTML = `<p class="pipeline-popover-cause">${escapeHtml(cause)}</p><button type="button" class="pipeline-popover-action" data-attention-action="${escapeHtml(actionKey)}">▶ ${escapeHtml(actionLabel)}</button>`;
+            const actionBtn = popover.querySelector('.pipeline-popover-action');
+            if (actionBtn && actionKey) {
+                actionBtn.addEventListener('click', async (btnEvent) => {
+                    btnEvent.stopPropagation();
+                    popover.remove();
+                    showToast(`正在${actionLabel}…`);
+                    if (executeAttentionAction) {
+                        await executeAttentionAction(task, actionKey);
+                    }
+                    else if (api) {
+                        try {
+                            const session = await api('/api/owner-action-session');
+                            const nonce = String(session?.nonce || '').trim();
+                            await api(`/api/tasks/${encodeURIComponent(task.taskId)}/recovery-actions/${encodeURIComponent(actionKey)}`, {
+                                method: 'POST',
+                                headers: {
+                                    'content-type': 'application/json',
+                                    'X-Ajun-Owner-Action': nonce,
+                                },
+                                body: JSON.stringify({ expectedUpdatedAt: task.updatedAt || null }),
+                            });
+                            showToast(`✅ 已提交${actionLabel}，正在接续执行！`);
+                            if (loadRecords)
+                                await loadRecords();
+                            if (loadSelectedDetail)
+                                await loadSelectedDetail({ revealDetail: false, quiet: false });
+                        }
+                        catch (err) {
+                            showToast(`⚠️ ${err.message || '恢复请求失败'}`);
+                        }
+                    }
+                });
+            }
             actionNode.style.position = 'relative';
             actionNode.appendChild(popover);
             // Close on outside click

@@ -25,17 +25,29 @@ export function compactAttentionReason(task) {
     const attention = taskAttentionView(task);
     if (!attention)
         return '';
-    const cause = cleanAttentionText(attention.cause, 90);
-    const title = cleanAttentionText(task?.input?.title || task?.title, 90);
-    if (!cause)
+    const rawCause = String(attention.cause || attention.headline || '').trim();
+    if (!rawCause)
         return '';
-    if (cause === title || cause === `获取并整理：${title}` || (title && cause.startsWith(`获取并整理：${title.slice(0, 20)}`))) {
+    const rawTitle = String(task?.input?.title || task?.title || '').trim();
+    const coreVideoTitle = rawTitle.replace(/^(?:爆款候选拆解|视频分析|多人任务)[｜|：:\s]*/i, '').trim();
+    let cause = rawCause;
+    if (coreVideoTitle && coreVideoTitle.length > 3) {
+        cause = cause.replaceAll(coreVideoTitle, '').replace(/\s*\|\s*/g, ' ').replace(/^[:：\s]+/, '').trim();
+    }
+    if (/可在飞书回复[“"]([^”"]+)[”"]/i.test(cause)) {
+        const feishuMatch = cause.match(/可在飞书回复[“"]([^”"]+)[”"]/i);
+        const actionWord = feishuMatch ? feishuMatch[1] : '重试';
+        return `小D素材转录未完成 · 可在飞书回复“${actionWord}”`;
+    }
+    cause = cause.replace(/^(?:获取并整理|拆解爆款候选|素材采集|视频拆解)[：:\s]*(?:未完成[：:]\s*)?/i, '执行未完成 · ');
+    cause = cause.replace(/^[:：·\s]+/, '').replace(/[:：\s]+$/, '').trim();
+    if (cause === rawTitle || (rawTitle && cause.startsWith(rawTitle.slice(0, 20)))) {
         return '';
     }
     if (cause.includes('本轮自动验证尚未完成') || cause.includes('不能把运行成功当成交付成功') || cause.includes('暂时没有更具体的用户可见原因')) {
         return '';
     }
-    return cause;
+    return cleanAttentionText(cause, 90);
 }
 export function renderTechnicalDetails(task, presentation, attention, _escapeHtml) {
     const attentionTechnicalView = attention?.technical || null;
