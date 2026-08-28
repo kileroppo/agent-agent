@@ -66,36 +66,38 @@ export function renderOriginCard(task = {}, options = {}) {
             </div>
 
             ${raw(sourceUrl ? html `
-                <div class="origin-source-box">
+                <div class="origin-info-row">
                     <span class="origin-label">原始目标：</span>
-                    ${raw(isValidHttpUrl(sourceUrl) ? html `
-                        <a href="${sourceUrl}" target="_blank" rel="noopener noreferrer" class="origin-link-text">
-                            <span class="link-url">${escapeHtml(sourceUrl)}</span>
-                            <svg class="external-icon" width="12" height="12" aria-hidden="true"><use href="#icon-share"></use></svg>
-                        </a>
-                    ` : html `
-                        <span class="origin-link-text is-plain">
-                            <span class="link-url">${escapeHtml(sourceUrl)}</span>
-                        </span>
-                    `)}
+                    <div class="origin-info-val">
+                        ${raw(isValidHttpUrl(sourceUrl) ? html `
+                            <a href="${sourceUrl}" target="_blank" rel="noopener noreferrer" class="origin-link-text">
+                                <span class="link-url">${escapeHtml(sourceUrl)}</span>
+                                <svg class="external-icon" width="12" height="12" aria-hidden="true"><use href="#icon-share"></use></svg>
+                            </a>
+                        ` : html `
+                            <span class="origin-link-text is-plain">
+                                <span class="link-url">${escapeHtml(sourceUrl)}</span>
+                            </span>
+                        `)}
+                    </div>
                 </div>
             ` : '')}
 
             ${raw(cleanGoal && cleanGoal !== sourceUrl ? html `
-                <div class="origin-goal-box">
+                <div class="origin-info-row">
                     <span class="origin-label">核心诉求：</span>
-                    <p class="origin-goal-text">${escapeHtml(cleanGoal)}</p>
+                    <p class="origin-goal-plain">${escapeHtml(cleanGoal)}</p>
                 </div>
             ` : '')}
 
             ${raw(validSteps.length > 0 ? html `
                 <div class="origin-steps-section">
                     <span class="origin-label">协同分步计划 (${validSteps.length} 个执行阶段)：</span>
-                    <ol class="origin-steps-list">
+                    <ol class="origin-steps-timeline">
                         ${raw(validSteps.map((step, idx) => html `
-                            <li class="origin-step-item">
-                                <span class="step-num">${idx + 1}</span>
-                                <div class="step-content">
+                            <li class="origin-step-timeline-item">
+                                <span class="step-dot">${idx + 1}</span>
+                                <div class="step-timeline-body">
                                     <div class="step-head">
                                         <strong class="step-title">${escapeHtml(step.title)}</strong>
                                         ${raw(step.agentName ? html `<span class="step-agent-pill">${escapeHtml(step.agentName)}</span>` : '')}
@@ -114,14 +116,14 @@ export function renderOriginCard(task = {}, options = {}) {
                         <span class="origin-label">爆款候选评级与关键观测指标：</span>
                         ${raw(boomMetrics.grade ? html `<span class="origin-grade-badge grade-${boomMetrics.grade.toLowerCase()}">${boomMetrics.grade} 爆款候选</span>` : '')}
                     </div>
-                    <div class="origin-metrics-grid">
-                        ${raw(boomMetrics.rValue ? html `<div class="origin-metric-card"><span class="metric-name">R 扩散倍数</span><strong class="metric-val highlight">${boomMetrics.rValue}</strong></div>` : '')}
-                        ${raw(boomMetrics.mValue ? html `<div class="origin-metric-card"><span class="metric-name">M 互动率</span><strong class="metric-val">${boomMetrics.mValue}</strong></div>` : '')}
-                        ${raw(boomMetrics.plays ? html `<div class="origin-metric-card"><span class="metric-name">播放量</span><strong class="metric-val">${boomMetrics.plays}</strong></div>` : '')}
-                        ${raw(boomMetrics.likes ? html `<div class="origin-metric-card"><span class="metric-name">点赞数</span><strong class="metric-val">${boomMetrics.likes}</strong></div>` : '')}
-                        ${raw(boomMetrics.favorites ? html `<div class="origin-metric-card"><span class="metric-name">收藏数</span><strong class="metric-val">${boomMetrics.favorites}</strong></div>` : '')}
-                        ${raw(boomMetrics.followers ? html `<div class="origin-metric-card"><span class="metric-name">粉丝快照</span><strong class="metric-val">${boomMetrics.followers}</strong></div>` : '')}
-                        ${raw(boomMetrics.baseline ? html `<div class="origin-metric-card is-wide"><span class="metric-name">历史基线中位数</span><strong class="metric-val">${boomMetrics.baseline}</strong></div>` : '')}
+                    <div class="origin-metrics-board">
+                        ${raw(boomMetrics.rValue ? html `<div class="origin-metric-stat"><span class="metric-name">R 扩散倍数</span><strong class="metric-val highlight">${boomMetrics.rValue}</strong></div>` : '')}
+                        ${raw(boomMetrics.mValue ? html `<div class="origin-metric-stat"><span class="metric-name">M 互动率</span><strong class="metric-val">${boomMetrics.mValue}</strong></div>` : '')}
+                        ${raw(boomMetrics.plays ? html `<div class="origin-metric-stat"><span class="metric-name">播放量</span><strong class="metric-val">${boomMetrics.plays}</strong></div>` : '')}
+                        ${raw(boomMetrics.likes ? html `<div class="origin-metric-stat"><span class="metric-name">点赞数</span><strong class="metric-val">${boomMetrics.likes}</strong></div>` : '')}
+                        ${raw(boomMetrics.favorites ? html `<div class="origin-metric-stat"><span class="metric-name">收藏数</span><strong class="metric-val">${boomMetrics.favorites}</strong></div>` : '')}
+                        ${raw(boomMetrics.followers ? html `<div class="origin-metric-stat"><span class="metric-name">粉丝快照</span><strong class="metric-val">${boomMetrics.followers}</strong></div>` : '')}
+                        ${raw(boomMetrics.baseline ? html `<div class="origin-metric-stat is-wide"><span class="metric-name">历史基线中位数</span><strong class="metric-val">${boomMetrics.baseline}</strong></div>` : '')}
                     </div>
                 </div>
             ` : '')}

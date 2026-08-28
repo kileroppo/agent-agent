@@ -2,15 +2,21 @@ import { cleanAttentionText, taskAttentionView, acceptanceTargetView } from './t
 export function isTaskAdoptable(task) {
     if (!task)
         return false;
+    if (task.status === 'succeeded' || task.acceptanceTarget?.decision === 'accepted')
+        return false;
+    if (['failed', 'error', 'cancelled', 'stopped', 'needs_input'].includes(task.status))
+        return false;
     const attention = taskAttentionView(task);
     if (attention?.actions?.some((a) => a.actionKey === 'accept_reviewed_artifact')) {
         return true;
     }
-    if (task.status === 'waiting_test') {
-        return true;
-    }
     const target = acceptanceTargetView(task);
     if (target?.actionable) {
+        return true;
+    }
+    const hasArtifacts = (Array.isArray(task.artifactRefs) && task.artifactRefs.length > 0)
+        || (Array.isArray(task.artifacts) && task.artifacts.length > 0);
+    if (task.status === 'waiting_test' && hasArtifacts) {
         return true;
     }
     return false;

@@ -581,6 +581,8 @@ export function createTaskRecordWorkbench({ api, getAgents, taskTypeLabel, agent
             renderDetail,
             replaceRecordUrl,
             loadSelectedDetail,
+            api,
+            loadRecords,
         });
         for (const approveBtn of elements.detail.querySelectorAll('[data-task-approve]')) {
             approveBtn.addEventListener('click', async (e) => {

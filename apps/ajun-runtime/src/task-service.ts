@@ -174,6 +174,35 @@ export class TaskService {
     async notificationStatus(taskId: any, chatRef: any = ''): Promise<any> {
         return this.notification.status(taskId, chatRef);
     }
+    async provideTaskInput(taskId: any, inputPayload: any = {}): Promise<any> {
+        let task: any = await this.store.getTask(taskId);
+        if (!task)
+            throw new ValidationError('找不到要补充信息的任务。');
+        const text: string = String(inputPayload?.input || inputPayload?.sourceUrl || inputPayload?.content || '').trim();
+        if (!text)
+            throw new ValidationError('请输入有效的补充内容或素材链接。');
+        const isUrl: boolean = /^https?:\/\//i.test(text);
+        const updatedInput: any = {
+            ...(task.input || {}),
+            ...(isUrl ? { sourceUrl: text } : {}),
+            focus: task.input?.focus ? `${task.input.focus} (补充: ${text})` : text,
+            description: task.input?.description ? `${task.input.description}\n补充信息: ${text}` : text,
+        };
+        task = await this.store.updateTask(taskId, {
+            status: 'queued',
+            currentStage: 'queued',
+            error: null,
+            input: updatedInput,
+            routing: { ...(task.routing || {}), reason: '本机主人已在控制台补充信息并接续任务。' },
+        });
+        const agent: any = typeof this.registry.get === 'function'
+            ? await this.registry.get(task.assigneeAgentId)
+            : (await this.registry.list({ includeManagers: true })).find((item: any): any => item.agentId === task.assigneeAgentId);
+        if (agent) {
+            this.executeTask(task, agent).catch((err: any): void => console.error('Execute task after provideInput error:', err));
+        }
+        return task;
+    }
 }
 Object.assign(TaskService.prototype, taskServiceExecutionMethods);
 Object.assign(TaskService.prototype, taskApprovalCoordinatorMethods);

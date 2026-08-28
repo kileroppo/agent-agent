@@ -88,21 +88,47 @@ export async function handleBatchAcceptHelper({
         elements.batchAcceptBtn.innerHTML = `<span>正在采纳 (${i + 1}/${count})…</span>`;
         try {
             const target: any = acceptanceTargetView(task);
-            if (target?.actionable) {
-                const idempotencyKey: any = newIdempotencyKey(target.workflowId, 'accepted');
-                await submitAcceptance({ target, decision: 'accepted', idempotencyKey });
-                success++;
-            } else {
+            const idempotencyKey: any = newIdempotencyKey(task.taskId, 'batch_accept');
+            let itemSucceeded = false;
+
+            // 1. 如果有真实的工作流 Target (不是虚拟WF-开头的伪Target)，先尝试工作流采纳
+            if (target?.actionable && target.workflowId && !target.workflowId.startsWith('WF-')) {
+                try {
+                    await submitAcceptance({ target, decision: 'accepted', idempotencyKey });
+                    itemSucceeded = true;
+                } catch (wfErr) {
+                    console.warn('Batch workflow acceptance fallback to recovery action:', task.taskId, wfErr);
+                }
+            }
+
+            // 2. 双轨降级：如果工作流未命中或失败，调用受控恢复动作 accept_reviewed_artifact
+            if (!itemSucceeded) {
                 const session: any = await api('/api/owner-action-session');
                 const nonce: any = String(session?.nonce || '').trim();
                 if (!nonce) throw new Error('暂时无法取得本机操作授权');
-                const idempotencyKey: any = newIdempotencyKey(task.taskId, 'accept_reviewed_artifact');
-                await api(`/api/tasks/${encodeURIComponent(task.taskId)}/recovery-actions/accept_reviewed_artifact`, {
-                    method: 'POST',
-                    headers: { 'content-type': 'application/json', 'Idempotency-Key': idempotencyKey, 'X-Ajun-Owner-Action': nonce },
-                    body: JSON.stringify({ expectedUpdatedAt: task.updatedAt || null }),
-                });
+
+                try {
+                    await api(`/api/tasks/${encodeURIComponent(task.taskId)}/recovery-actions/accept_reviewed_artifact`, {
+                        method: 'POST',
+                        headers: { 'content-type': 'application/json', 'Idempotency-Key': idempotencyKey, 'X-Ajun-Owner-Action': nonce },
+                        body: JSON.stringify({ expectedUpdatedAt: task.updatedAt || null }),
+                    });
+                    itemSucceeded = true;
+                } catch (recErr) {
+                    // 如果 recovery-action 失败，再尝试一次 submitAcceptance (如果有 target)
+                    if (target?.actionable) {
+                        await submitAcceptance({ target, decision: 'accepted', idempotencyKey });
+                        itemSucceeded = true;
+                    } else {
+                        throw recErr;
+                    }
+                }
+            }
+
+            if (itemSucceeded) {
                 success++;
+            } else {
+                failed++;
             }
         } catch (err) {
             console.error('Batch accept task error:', task.taskId, err);

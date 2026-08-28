@@ -654,6 +654,11 @@ export function createAjunHttpHandler({ environment, publicDir, dataDir, detailB
             const continueMatch: any = request.url?.match(/^\/api\/tasks\/([0-9a-f-]+)\/continue$/i);
             if (request.method === 'POST' && continueMatch)
                 return sendJson(response, 201, { task: await tasks.continueFromRecommendation(continueMatch[1]) });
+            const provideInputMatch: any = request.url?.match(/^\/api\/tasks\/([0-9a-f-]+)\/provide-input$/i);
+            if (request.method === 'POST' && provideInputMatch) {
+                const input: any = await readJsonBody(request);
+                return sendJson(response, 200, { task: await tasks.provideTaskInput(provideInputMatch[1], input) });
+            }
             const mcpTaskControlMatch: any = request.url?.match(/^\/api\/mcp\/tasks\/([0-9a-f-]+)\/(pause|resume)$/i);
             if (request.method === 'POST' && mcpTaskControlMatch) {
                 if (!isLocalAddress(request.socket.remoteAddress))

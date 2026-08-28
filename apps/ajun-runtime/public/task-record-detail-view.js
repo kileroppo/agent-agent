@@ -162,21 +162,38 @@ export function renderAttentionDetail(attention, actionState, _escapeHtml, optio
             </button>
         `;
     }
+    const isNeedsInput = Boolean(task && (attention.kind === 'needs_input'
+        || task.status === 'needs_input'));
+    const needsInputForm = isNeedsInput ? html `
+        <div class="record-attention-needs-input" style="margin-top: 12px; padding: 12px 14px; background: rgba(0, 0, 0, 0.03); border-radius: 8px; border: 1px solid var(--line, rgba(0,0,0,0.08));">
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <input type="text" class="record-needs-input-field" placeholder="请输入素材链接(URL)或补充说明文字…" style="flex: 1; padding: 8px 12px; font-size: 13px; border-radius: 6px; border: 1px solid var(--border-color, rgba(0,0,0,0.2)); background: var(--surface, #fff); color: var(--ink, #111);" data-task-needs-input="${task.taskId}" />
+                <button type="button" class="record-attention-primary record-needs-input-submit" data-task-submit-input="${task.taskId}" style="padding: 8px 16px; font-size: 13px; border-radius: 6px; white-space: nowrap; cursor: pointer;">
+                    提交并继续
+                </button>
+            </div>
+            <p style="margin: 8px 0 0; font-size: 12px; color: var(--text-muted, #888); line-height: 1.4;">
+                💡 提示：在此输入可直接唤醒任务接续执行；亦可在原发起的飞书会话中直接回复该任务卡片。
+            </p>
+        </div>
+    ` : '';
     const actionHelpNote = primaryAction?.confirmation ? html `<p class="record-attention-action-help" style="margin: 8px 0 0; font-size: 12px; color: var(--text-secondary, #666); line-height: 1.5;"><span style="font-weight: 600;">💡 动作说明：</span>${primaryAction.confirmation}</p>` : '';
     const confirmation = confirmingAction
         ? cleanAttentionText(actionState?.message, 500) || confirmingAction.confirmation || `确认执行“${confirmingAction.label}”？`
         : '';
     const hasActions = Boolean(actions);
+    const cause = usefulAttentionCause(attention);
+    const nextActionClean = cleanAttentionText(attention.nextAction, 1000);
+    const isNextActionSameAsCause = nextActionClean && (nextActionClean === cause || (cause && cause.includes(nextActionClean)));
     const isGeneric = isGenericNextAction(attention.nextAction);
-    const fallbackNext = !hasActions && !isGeneric && attention.nextAction
+    const fallbackNext = !hasActions && !isGeneric && !isNextActionSameAsCause && attention.nextAction
         ? html `<p>${attention.nextAction}</p>`
         : '';
     const actionContent = confirmingAction
         ? html `<div class="record-attention-confirmation" role="alert"><p style="font-size: 13px; line-height: 1.5; margin-bottom: 10px;"><strong>操作确认：</strong>${confirmation}</p><div class="record-attention-actions"><button type="button" class="record-attention-primary" data-attention-confirm="${confirmingAction.actionKey}">确认${confirmingAction.label}</button><button type="button" class="secondary-action" data-attention-cancel>取消</button></div></div>`
         : hasActions
             ? html `<div class="record-attention-actions">${raw(actions)}</div>${raw(actionHelpNote)}`
-            : fallbackNext;
-    const cause = usefulAttentionCause(attention);
+            : html `${raw(fallbackNext)}${raw(needsInputForm)}`;
     const evidence = usefulAttentionEvidence(attention.evidence, cause);
     const approvalReason = task?.pendingApproval?.reason
         ? html `<details class="record-attention-evidence" open><summary><span>待确认原因</span><svg class="chevron" aria-hidden="true"><use href="#icon-chevron"></use></svg></summary><p>${task.pendingApproval.reason}</p></details>`

@@ -54,7 +54,7 @@ export async function copyToClipboard(text) {
     }
 }
 export function bindDetailInteractions(options) {
-    const { elements, state, task, renderDetail, replaceRecordUrl, loadSelectedDetail } = options;
+    const { elements, state, task, renderDetail, replaceRecordUrl, loadSelectedDetail, api, loadRecords } = options;
     for (const closeBtn of elements.detail.querySelectorAll('[data-subtask-drawer-close]')) {
         closeBtn.addEventListener('click', () => {
             state.previewSubtaskData = null;
@@ -301,5 +301,54 @@ export function bindDetailInteractions(options) {
             if (input)
                 input.focus();
         }, 50);
+    });
+    // Provide missing input for needs_input task
+    const submitNeedsInput = async () => {
+        const inputEl = elements.detail.querySelector(`[data-task-needs-input="${task.taskId}"]`);
+        const submitBtn = elements.detail.querySelector(`[data-task-submit-input="${task.taskId}"]`);
+        const content = String(inputEl?.value || '').trim();
+        if (!content) {
+            showToast('⚠️ 请先输入素材链接或补充内容');
+            inputEl?.focus();
+            return;
+        }
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = '提交中…';
+        }
+        try {
+            if (api) {
+                await api(`/api/tasks/${encodeURIComponent(task.taskId)}/provide-input`, {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ input: content }),
+                });
+            }
+            else {
+                await fetch(`/api/tasks/${encodeURIComponent(task.taskId)}/provide-input`, {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ input: content }),
+                });
+            }
+            showToast('✅ 补充信息已提交，任务正在接续执行！');
+            if (loadRecords)
+                await loadRecords();
+            await loadSelectedDetail({ revealDetail: true });
+        }
+        catch (err) {
+            showToast(`❌ 提交失败: ${err?.message || '请稍后重试'}`);
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = '提交并继续';
+            }
+        }
+    };
+    elements.detail.querySelector(`[data-task-submit-input="${task.taskId}"]`)?.addEventListener('click', submitNeedsInput);
+    elements.detail.querySelector(`[data-task-needs-input="${task.taskId}"]`)?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            submitNeedsInput();
+        }
     });
 }
