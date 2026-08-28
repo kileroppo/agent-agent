@@ -6809,6 +6809,20 @@ textarea:focus {
   cursor: default;
   flex-shrink: 0;
   min-width: 56px;
+  user-select: none;
+}
+
+.progress-stage[data-pipeline-nav] {
+  cursor: pointer;
+}
+
+.progress-stage[data-pipeline-nav]:hover .progress-dot {
+  transform: scale(1.2);
+}
+
+.progress-stage[data-pipeline-nav]:hover .progress-label {
+  color: var(--ink, #111);
+  font-weight: 600;
 }
 
 .progress-dot {

@@ -214,7 +214,10 @@ export function renderArtifact(artifact: any, options: any = {}): any {
     const formattedFullReport = formatStructuredReportText(artifact.data || artifact, artifact.type);
     const rawInline = formattedFullReport || artifact.data?.markdown || artifact.data?.text || artifact.data?.content || artifact.content || '';
     const inlineContent = typeof rawInline === 'string' ? rawInline.trim() : '';
-    const isReadableText = inlineContent.length > 20 && !inlineContent.startsWith('{') && inlineContent !== summary;
+    const hasData = Boolean(artifact.data && typeof artifact.data === 'object' && Object.keys(artifact.data).length > 0);
+    const formattedJson = (!inlineContent && hasData) ? JSON.stringify(artifact.data, null, 2) : '';
+    const previewBodyText = inlineContent || formattedJson;
+    const isReadableText = previewBodyText.length > 0 && previewBodyText !== summary;
     
     const taskTitle = String(artifact.title || artifact.name || '').trim();
     const parentTaskTitle = String(options.task?.input?.title || options.task?.title || '').trim();
@@ -226,7 +229,7 @@ export function renderArtifact(artifact: any, options: any = {}): any {
         summary.length < 15
     ));
     const displaySummary = (!isSummaryTrivial || isReadableText) ? summary : '';
-    const copyContent = isReadableText ? inlineContent : (isSummaryTrivial ? '' : summary);
+    const copyContent = previewBodyText || (isSummaryTrivial ? '' : summary);
     const previewTitle = getArtifactPreviewTitle(artifact);
 
     const isOpsOrSystemArtifact = String(artifact?.type || '').startsWith('health_')
@@ -234,7 +237,7 @@ export function renderArtifact(artifact: any, options: any = {}): any {
         || /巡检|健康报告|执行审计/i.test(label || '');
     const isPlanOrSummary = ['cross_agent_mission_plan', 'cross_agent_mission_summary'].includes(String(artifact?.type || ''));
 
-    const hasExpandableContent = isReadableText || isRealFilePath;
+    const hasExpandableContent = isReadableText || isRealFilePath || Boolean(displaySummary);
 
     return html`<li class="record-artifact-item ${hasExpandableContent ? 'is-expandable is-collapsed' : ''}" data-artifact-item ${isRealFilePath ? `data-file-path="${url}"` : ''}>
         <div class="artifact-item-header" data-artifact-toggle role="${hasExpandableContent ? 'button' : 'none'}" tabindex="${hasExpandableContent ? '0' : '-1'}" title="${hasExpandableContent ? '点击展开/收起预览' : ''}">
@@ -260,7 +263,7 @@ export function renderArtifact(artifact: any, options: any = {}): any {
             ${raw(isReadableText ? html`
                 <div class="artifact-inline-preview">
                     <div class="artifact-preview-body">
-                        <pre class="artifact-preview-text">${escapeHtml(inlineContent)}</pre>
+                        <pre class="artifact-preview-text">${escapeHtml(previewBodyText)}</pre>
                     </div>
                 </div>
             ` : '')}

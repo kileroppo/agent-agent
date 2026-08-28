@@ -250,5 +250,43 @@ export function formatStructuredReportText(data: any, artifactType: string = '')
         sections.push(`【事实边界说明】\n${data.limitation}`);
     }
 
-    return sections.join('\n\n');
+    if (sections.length > 0) {
+        return sections.join('\n\n');
+    }
+
+    // 5. Fallback for other structured artifact data
+    const FIELD_LABELS: Record<string, string> = {
+        title: '标题',
+        description: '描述',
+        summary: '摘要',
+        conclusion: '结论',
+        url: '链接',
+        sourceUrl: '来源地址',
+        author: '创作者',
+        platform: '平台',
+        durationSeconds: '时长(秒)',
+        qualityScore: '质量评分',
+        cer: '字错率 (CER)',
+        status: '状态',
+        evidence: '存证依据',
+        reason: '原因',
+        impact: '影响',
+        nextAction: '下一步',
+        transcript: '转录文本',
+        content: '正文内容',
+        text: '文本',
+    };
+    const entries = Object.entries(data).filter(([k, v]) => !k.startsWith('_') && v !== undefined && v !== null && v !== '');
+    if (entries.length > 0) {
+        const lines = entries.map(([k, v]) => {
+            const label = FIELD_LABELS[k] || k;
+            if (typeof v === 'object') {
+                return `【${label}】\n${JSON.stringify(v, null, 2)}`;
+            }
+            return `【${label}】${String(v)}`;
+        });
+        return lines.join('\n\n');
+    }
+
+    return '';
 }

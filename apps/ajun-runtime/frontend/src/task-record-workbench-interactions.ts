@@ -97,8 +97,8 @@ export function bindDetailInteractions(options: {
             const container = item.querySelector('.artifact-dynamic-preview');
             const inlinePreview = item.querySelector('.artifact-inline-preview');
 
-            // If it already has inline preview without dynamic file fetching
-            if (inlinePreview && !targetPath) {
+            // If it doesn't require dynamic file fetching, simply toggle collapsed
+            if (!targetPath) {
                 item.classList.toggle('is-collapsed');
                 return;
             }
@@ -287,6 +287,39 @@ export function bindDetailInteractions(options: {
             }, 2000);
         }
     });
+
+    // Pipeline stage click navigation
+    for (const navNode of elements.detail.querySelectorAll('[data-pipeline-nav]')) {
+        navNode.addEventListener('click', (event: any): void => {
+            const target = navNode.dataset.pipelineNav;
+            if (!target) return;
+            if (target === 'collaboration') {
+                const collabTab = elements.detail.querySelector('[data-detail-tab="collaboration"]');
+                if (collabTab) collabTab.click();
+            } else if (target === 'deliverables') {
+                const overviewTab = elements.detail.querySelector('[data-detail-tab="overview"]');
+                if (overviewTab) overviewTab.click();
+                const deliverablesSection = elements.detail.querySelector('.record-deliverables-full');
+                if (deliverablesSection) {
+                    deliverablesSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            } else if (target === 'origin') {
+                const overviewTab = elements.detail.querySelector('[data-detail-tab="overview"]');
+                if (overviewTab) overviewTab.click();
+                const originCard = elements.detail.querySelector('.record-governance-card, .record-evidence-card, .record-origin-card');
+                if (originCard) {
+                    originCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            } else if (target === 'acceptance') {
+                const overviewTab = elements.detail.querySelector('[data-detail-tab="overview"]');
+                if (overviewTab) overviewTab.click();
+                const acceptanceSection = elements.detail.querySelector('.acceptance-inline-bar, .record-acceptance');
+                if (acceptanceSection) {
+                    acceptanceSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }
+        });
+    }
 
     // Pipeline red node → recovery popover
     for (const actionNode of elements.detail.querySelectorAll('[data-pipeline-action]')) {

@@ -50,7 +50,9 @@ export function renderTaskProgressBar(task: any = {}, options: TaskProgressOptio
   // 4. Deliverables
   const artifacts = Array.isArray(task.artifactRefs) ? task.artifactRefs : [];
   const artifactCount = artifacts.length;
-  const deliverablestooltip = artifactCount > 0 ? `${artifactCount} 项交付物` : (isSucceeded ? '产物已归档' : (isRunning ? '产物生成中' : '等待生成'));
+  const deliverablestooltip = isFailed
+    ? (artifactCount > 0 ? `任务中断（已暂存 ${artifactCount} 份阶段存证）` : '任务中断未交付')
+    : (artifactCount > 0 ? `${artifactCount} 项交付物` : (isSucceeded ? '产物已归档' : (isRunning ? '产物生成中' : '等待生成')));
 
   // 5. Acceptance
   const acceptance = task.acceptanceTarget || {};
@@ -81,10 +83,10 @@ export function renderTaskProgressBar(task: any = {}, options: TaskProgressOptio
   }
 
   let stage4Status = 'muted';
-  if (artifactCount > 0 || isSucceeded) {
-    stage4Status = 'completed';
-  } else if (isFailed) {
+  if (isFailed) {
     stage4Status = 'muted';
+  } else if (artifactCount > 0 || isSucceeded) {
+    stage4Status = 'completed';
   } else if (isRunning && stage3Status === 'completed') {
     stage4Status = 'active';
   } else {
@@ -127,11 +129,14 @@ export function renderTaskProgressBar(task: any = {}, options: TaskProgressOptio
   cleanCause = cleanCause.replace(/^拆解爆款候选[：:\s]*(?:未完成[：:]\s*)?/i, '爆款候选拆解未完成：');
   cleanCause = cleanCause.replace(/^[:：·\s]+/, '').trim();
 
+  const STAGE_NAV_TARGETS = ['origin', 'collaboration', 'collaboration', 'deliverables', 'acceptance'];
+
   const parts = stages.map((stage, index) => {
     const isActionable = stage.status === 'danger' && attentionData && Array.isArray(attentionData.actions) && attentionData.actions.length > 0;
+    const navTarget = STAGE_NAV_TARGETS[index];
     const actionAttr = isActionable
       ? ` data-pipeline-action="recovery" data-pipeline-cause="${escapeHtml(cleanCause)}" data-pipeline-action-key="${escapeHtml(attentionData!.actions![0]?.actionKey || '')}" data-pipeline-action-label="${escapeHtml(attentionData!.actions![0]?.label || '继续')}" role="button" tabindex="0"`
-      : '';
+      : ` data-pipeline-nav="${navTarget}" role="button" tabindex="0"`;
     const actionableClass = isActionable ? ' is-actionable' : '';
     const stageHtml = html`<div class="progress-stage is-${stage.status}${raw(actionableClass)}"${raw(actionAttr)} title="${escapeHtml(stage.tooltip)}" aria-label="${stage.label}"><span class="progress-dot"></span><span class="progress-label">${stage.label}</span></div>`;
 

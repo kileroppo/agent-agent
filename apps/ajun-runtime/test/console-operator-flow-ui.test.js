@@ -762,6 +762,40 @@ test('renderAttentionDetail 恢复状态展示：同任务完成不展示自跳�
   assert.match(html3, /class="record-recovery-link"[^>]*>查看恢复进度<\/a>/);
 });
 
+test('task-progress-bar 在任务失败时不将交付成果标为已完成(绿色)，并支持阶段点击跳转', async () => {
+  const { renderTaskProgressBar } = await import('../public/task-progress-bar.js');
+  const failedTaskWithArtifacts = {
+    taskId: 'failed-with-artifacts-1',
+    status: 'failed',
+    artifactRefs: [{ type: 'source_evidence_record', title: '来源存证' }, { type: 'raw_asr', title: '粗转录' }],
+  };
+  const barHtml = renderTaskProgressBar(failedTaskWithArtifacts);
+  assert.match(barHtml, /progress-stage is-danger/);
+  // Stage 4 (交付成果) must be muted (not completed) when previous stage failed
+  assert.match(barHtml, /<div class="progress-stage is-muted"[^>]*data-pipeline-nav="deliverables"[^>]*aria-label="交付成果"/);
+  assert.match(barHtml, /任务中断（已暂存 2 份阶段存证）/);
+  assert.match(barHtml, /data-pipeline-nav="origin"/);
+});
+
+test('renderArtifact 支持所有结构化产物点击展开预览与正文复制', async () => {
+  const { renderArtifact } = await import('../public/task-record-presentation.js');
+  const structuredArtifact = {
+    type: 'source_evidence_record',
+    title: '来源存证记录',
+    data: {
+      url: 'https://example.com/video/123',
+      author: '创作者A',
+      platform: '小红书',
+      status: 'extracted',
+    },
+  };
+  const html = renderArtifact(structuredArtifact);
+  assert.match(html, /class="record-artifact-item is-expandable is-collapsed"/);
+  assert.match(html, /data-copy-text/);
+  assert.match(html, /【链接】https:\/\/example\.com\/video\/123/);
+  assert.match(html, /【平台】小红书/);
+});
+
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (character) => ({
     '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;',
