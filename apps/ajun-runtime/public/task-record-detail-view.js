@@ -187,7 +187,7 @@ export function renderAttentionDetail(attention, actionState, _escapeHtml, optio
     const recovery = actionState?.status === 'confirming' ? attention.verification : actionState || attention.verification;
     const diagnosis = actionState?.status === 'confirming' ? null : recoveryDiagnosis(recovery?.diagnosis);
     if (diagnosis)
-        return renderDiagnosisOutcome(diagnosis, recovery, attention.paperclipIssue, _escapeHtml);
+        return renderDiagnosisOutcome(diagnosis, recovery, attention.paperclipIssue, _escapeHtml, task);
     const primaryIndex = Math.max(0, attentionActions.findIndex((action) => action.emphasis === 'primary'));
     const submitting = actionState?.status === 'submitting';
     const confirmingAction = actionState?.status === 'confirming'
@@ -267,8 +267,9 @@ export function renderAttentionDetail(attention, actionState, _escapeHtml, optio
         usefulAttentionImpact(attention) ? html `<p class="record-attention-impact-line">${attention.impact}</p>` : '',
     ].filter(Boolean).join('');
     const recoveryPath = safeTaskDetailPath(recovery?.detailPath, recovery?.taskId);
-    const recoveryLink = recoveryPath
-        ? html `<a class="record-recovery-link" href="${recoveryPath}">恢复进度</a>`
+    const isCurrentTask = Boolean(task?.taskId && (recovery?.taskId === task.taskId || recoveryPath === `/tasks/${task.taskId}`));
+    const recoveryLink = (recoveryPath && !isCurrentTask)
+        ? html `<a class="record-recovery-link" href="${recoveryPath}" data-record-task-id="${recovery?.taskId || ''}">${recoveryLinkLabel(recovery.status)}</a>`
         : '';
     const recoveryResult = recovery
         ? html `<div class="record-recovery-status ${recoveryTone(recovery.status)}" role="status"><p>${recovery.message}</p>${raw(recoveryLink)}</div>`
@@ -335,10 +336,11 @@ function usefulAttentionEvidence(evidence, cause) {
         return '';
     return text;
 }
-function renderDiagnosisOutcome(diagnosis, recovery, paperclipIssue, _escapeHtml) {
+function renderDiagnosisOutcome(diagnosis, recovery, paperclipIssue, _escapeHtml, currentTask = null) {
     const recoveryPath = safeTaskDetailPath(recovery?.detailPath, recovery?.taskId);
-    const recoveryLink = recoveryPath
-        ? html `<a class="record-recovery-link" href="${recoveryPath}">诊断记录</a>`
+    const isCurrentTask = Boolean(currentTask?.taskId && (recovery?.taskId === currentTask.taskId || recoveryPath === `/tasks/${currentTask.taskId}`));
+    const recoveryLink = (recoveryPath && !isCurrentTask)
+        ? html `<a class="record-recovery-link" href="${recoveryPath}" data-record-task-id="${recovery?.taskId || ''}">诊断记录</a>`
         : '';
     const paperclipLink = paperclipIssue?.detailUrl
         ? html `<a class="record-attention-primary record-paperclip-link" href="${paperclipIssue.detailUrl}" target="_blank" rel="noopener">打开 Paperclip 失败记录</a>`
@@ -457,6 +459,15 @@ function verificationStateMessage(status) {
         verified: '恢复已经验证完成。',
         failed: '恢复没有完成，请查看新的失败原因。',
     }[status] || '';
+}
+function recoveryLinkLabel(status) {
+    if (['succeeded', 'completed', 'verified'].includes(status))
+        return '查看已恢复任务';
+    if (['failed', 'rejected', 'blocked'].includes(status))
+        return '查看失败记录';
+    if (status === 'diagnosed')
+        return '查看诊断记录';
+    return '查看恢复进度';
 }
 function recoveryTone(status) {
     if (['submitted', 'pending', 'retrying', 'running', 'submitting'].includes(status))

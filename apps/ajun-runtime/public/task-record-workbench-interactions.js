@@ -249,6 +249,20 @@ export function bindDetailInteractions(options) {
             }
         });
     }
+    for (const link of elements.detail.querySelectorAll('.record-recovery-link')) {
+        link.addEventListener('click', async (e) => {
+            const targetId = link.dataset.recordTaskId;
+            if (targetId && targetId !== state.selectedTaskId) {
+                e.preventDefault();
+                state.selectedTaskId = targetId;
+                state.selectedTask = null;
+                state.previewSubtaskData = null;
+                state.detailTab = 'overview';
+                state.selectedDetailLoaded = false;
+                await loadSelectedDetail({ revealDetail: true });
+            }
+        });
+    }
     elements.detail.querySelector('.record-copy-id')?.addEventListener('click', async (event) => {
         const ok = await copyToClipboard(task.taskId);
         const button = event.currentTarget;

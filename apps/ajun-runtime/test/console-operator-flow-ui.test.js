@@ -707,6 +707,61 @@ test('renderAttentionDetail 在 waiting_test 状态下过滤重复确认采纳�
   assert.match(html, /✓ 推荐完成/);
 });
 
+test('renderAttentionDetail 恢复状态展示：同任务完成不展示自跳转链接，异任务完成展示查看已恢复任务', () => {
+  const currentTask = {
+    taskId: '6043a407-1234-5678-9abc-def012345678',
+    status: 'failed',
+  };
+
+  // Case 1: Recovery completed on the same task -> no redundant link
+  const selfCompletedAttention = {
+    kind: 'failed',
+    headline: '本轮未完成',
+    verification: {
+      status: 'completed',
+      message: '恢复已经完成。',
+      taskId: '6043a407-1234-5678-9abc-def012345678',
+      detailPath: '/tasks/6043a407-1234-5678-9abc-def012345678',
+    },
+  };
+  const html1 = renderAttentionDetail(selfCompletedAttention, null, escapeHtml, { task: currentTask });
+  assert.match(html1, /恢复已经完成。/);
+  assert.doesNotMatch(html1, /class="record-recovery-link"/);
+  assert.doesNotMatch(html1, /恢复进度/);
+
+  // Case 2: Recovery completed on a child task -> link with "查看已恢复任务"
+  const childCompletedAttention = {
+    kind: 'failed',
+    headline: '本轮未完成',
+    verification: {
+      status: 'completed',
+      message: '恢复已经完成。',
+      taskId: '88888888-1234-5678-9abc-def012345678',
+      detailPath: '/tasks/88888888-1234-5678-9abc-def012345678',
+    },
+  };
+  const html2 = renderAttentionDetail(childCompletedAttention, null, escapeHtml, { task: currentTask });
+  assert.match(html2, /恢复已经完成。/);
+  assert.match(html2, /class="record-recovery-link"[^>]*>查看已恢复任务<\/a>/);
+  assert.match(html2, /href="\/tasks\/88888888-1234-5678-9abc-def012345678"/);
+  assert.doesNotMatch(html2, /恢复进度/);
+
+  // Case 3: Recovery in progress on a child task -> link with "查看恢复进度"
+  const childRunningAttention = {
+    kind: 'failed',
+    headline: '本轮未完成',
+    verification: {
+      status: 'running',
+      message: '恢复任务正在执行，尚未完成验证。',
+      taskId: '88888888-1234-5678-9abc-def012345678',
+      detailPath: '/tasks/88888888-1234-5678-9abc-def012345678',
+    },
+  };
+  const html3 = renderAttentionDetail(childRunningAttention, null, escapeHtml, { task: currentTask });
+  assert.match(html3, /恢复任务正在执行/);
+  assert.match(html3, /class="record-recovery-link"[^>]*>查看恢复进度<\/a>/);
+});
+
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (character) => ({
     '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;',
