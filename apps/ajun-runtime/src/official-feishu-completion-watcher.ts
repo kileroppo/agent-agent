@@ -25,7 +25,7 @@ export class OfficialFeishuCompletionWatcher {
     taskStatus: any;
     timer: any;
     timers: any;
-    constructor({ taskStatus, send, store, intervalMs = 1000, leaseMs = 30000, ownerId = crypto.randomUUID(), timers = globalThis, detailBaseUrl = '', logger = console }: any = {}) {
+    constructor({ taskStatus, send, store, intervalMs = 3000, leaseMs = 30000, ownerId = crypto.randomUUID(), timers = globalThis, detailBaseUrl = '', logger = console }: any = {}) {
         if (typeof taskStatus !== 'function')
             throw new OfficialFeishuCompletionWatcherError('官方飞书跟进缺少任务状态读取方法。');
         if (typeof send !== 'function')
@@ -63,7 +63,6 @@ export class OfficialFeishuCompletionWatcher {
         // receipt and thereby make a second external send possible.
         if (!existing)
             await this.store.upsert({ taskId: task, chatId: chat, lastStatus: null, createdAt: new Date().toISOString() });
-        void this.check();
     }
     snapshot(): any { return { ...this.deliverySnapshot }; }
     async resolveDelivery({ taskId, chatId, outcome }: any = {}): Promise<any> {

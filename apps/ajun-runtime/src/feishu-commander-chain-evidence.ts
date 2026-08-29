@@ -134,7 +134,11 @@ export function createFeishuCommanderChainEvidenceLedger(options: Readonly<{
     async record(input: CommanderChainEvidenceInput): Promise<CommanderChainEvidenceRecord | null> {
       try {
         if (!dataDir) return null;
-        return buildEvidenceRecord(input, now());
+        const record = buildEvidenceRecord(input, now());
+        assertNoSecretShaped(record as unknown as Record<string, unknown>);
+        await appendEvidenceLine(dataDir, evidenceFileNameForDate(now()), record);
+        await pruneExpiredEvidence(dataDir, now(), retentionDays);
+        return record;
       } catch {
         return null;
       }

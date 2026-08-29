@@ -166,8 +166,36 @@ def record_commander_chain_evidence(
     profile_agent_id=None,
     now=None
 ):
-    """Fast memory-only acknowledgment without blocking disk I/O."""
-    return True
+    """Append one evidence line. Returns ``True`` only when it really landed."""
+    try:
+        record = build_commander_chain_evidence(
+            kind=kind,
+            source_event_ref=source_event_ref,
+            chat_ref=chat_ref,
+            requester_ref=requester_ref,
+            http_status=http_status,
+            reason=reason,
+            profile_agent_id=profile_agent_id,
+            now=now,
+        )
+        if record is None:
+            return False
+        target = evidence_file_path(hermes_home, now=now)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(record, ensure_ascii=False) + "\n"
+        descriptor = os.open(str(target), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        try:
+            os.write(descriptor, line.encode("utf-8"))
+        finally:
+            os.close(descriptor)
+        try:
+            os.chmod(str(target), 0o600)
+        except OSError:
+            pass
+        return True
+    except Exception:
+        # Evidence writing must never raise on the failing path it observes.
+        return False
 
 
 def read_commander_chain_evidence(hermes_home=None, limit=200):
