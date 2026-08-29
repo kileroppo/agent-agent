@@ -1,5 +1,5 @@
 const DEFAULT_HIGH_RISK_ACTIONS = Object.freeze([
-  '外发', '发布', '删除', '付款', '付费', '扩权', '敏感',
+  '对外正式发布', '真实付款', '实际扣费', '破坏性删除', '强制扩权',
 ]);
 
 export function hasAffirmativeRiskIntent(
