@@ -5,6 +5,7 @@ import { validateTaskCompletion } from './task-completion-contract.ts';
 import { wasVisualAnalysisUsed } from './local-content-artifacts.ts';
 import { isTaskNotificationTerminalStatus, taskStatusLabel, } from './task-status-policy.ts';
 import { taskDeliveryNotification } from './task-delivery-notification.ts';
+import { cleanHumanReadableText } from './text-sanitizer.ts';
 export class TaskNotification {
     executors: any;
     registry: any;
@@ -126,8 +127,10 @@ function verifiedDelivery(current: any, root: any): any {
             const read: any = artifact(current, 'github_code_read')?.data;
             if (report?.results?.length)
                 return formatGithubSearchDelivery(report);
-            if (read?.summary)
-                return `小R已读取 ${read.repo} 的 ${read.path}：${read.summary}\n来源：${read.source || `https://github.com/${read.repo}`}`;
+            if (read?.summary) {
+                const cleanSummary: string = cleanHumanReadableText(read.summary);
+                return `小R已读取 ${read.repo} 的 ${read.path}：\n${cleanSummary}\n来源：${read.source || `https://github.com/${read.repo}`}`;
+            }
             return `小R已经完成“${title}”，但公开 GitHub 产物不可读；系统不会把它当作完整交付。`;
         },
         'research.intel-report': (): any => {

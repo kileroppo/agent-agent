@@ -5,6 +5,7 @@ import { validateTaskCompletion } from './task-completion-contract.ts';
 import { DEFAULT_TASK_DEFINITION_REGISTRY } from './task-definition-registry.ts';
 import { taskStatusLabel as canonicalTaskStatusLabel, taskStatusPriority } from './task-status-policy.ts';
 import { projectTaskNotification } from './task-notification-projection.ts';
+import { cleanHumanReadableText } from './text-sanitizer.ts';
 export { safeAgentId, safeLoopbackBaseUrl, safeRef } from './feishu-commander-input.ts';
 export { employeeCapabilityTruth, employeeRole } from './feishu-employee-status-presentation.ts';
 const CREATE_AGENT_RE: any = /(?:创建|新建|招募|招)\s*(?:一个\s*)?.{0,80}?(?:agent|智能体|岗位|助手)/i;
@@ -484,8 +485,10 @@ export function shortTitle(task: any): any { return String(task.input?.title || 
 export function uniqueTasks(tasks: any): any { return [...new Map(tasks.map((task: any): any => [shortTitle(task), task])).values()]; }
 export function isVisibleEmployee(agent: any): any { return agent.agentId !== 'creator'; }
 function formatGithubReply(data: any): any {
-    if (data.repo)
-        return [`【小R 已读取公开仓库】`, `${data.repo} · ${data.path}`, '', data.summary || '没有可提炼的文本要点。', '', `来源：${data.source || `https://github.com/${data.repo}`}`].join('\n');
+    if (data.repo) {
+        const cleanSummary = cleanHumanReadableText(data.summary);
+        return [`【小R 已读取公开仓库】`, `${data.repo} · ${data.path}`, '', cleanSummary || '没有可提炼的文本要点。', '', `来源：${data.source || `https://github.com/${data.repo}`}`].join('\n');
+    }
     const lines: any = (data.results || []).map((item: any, index: any): any => `${index + 1}. ${item.fullName}（★ ${item.stars}，${item.language || '语言未提供'}）\n   ${item.suitability || item.assessment || ''}${item.suitability && item.assessment ? `\n   元数据判断：${item.assessment}` : ''}\n   ${item.url}`);
     return ['【小R 公开 GitHub 检索】', `关键词：${data.query || '未提供'}`, '', ...lines, '', data.conclusion || '仅根据本次读取的公开 GitHub 元数据整理。'].join('\n');
 }

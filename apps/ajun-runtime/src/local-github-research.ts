@@ -112,7 +112,8 @@ function requestedResultLimit(input: any): any {
         || text.match(/([1-9]\d?)\s*个/)?.[1];
     return Math.min(5, Math.max(1, Number.parseInt(raw, 10) || 5));
 }
+import { summarizeMarkdownOrHtml } from './text-sanitizer.ts';
+
 function summarize(text: any): any {
-    const lines: any = String(text).split(/\r?\n/).map((line: any): any => line.replace(/^#+\s*/, '').replace(/\s+/g, ' ').trim()).filter((line: any): any => line && !/^[-*_`]+$/.test(line));
-    return lines.slice(0, 8).join(' ').slice(0, 1800) || '该文件没有可提炼的文本要点。';
+    return summarizeMarkdownOrHtml(text, 6, 1200);
 }
