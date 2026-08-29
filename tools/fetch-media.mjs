@@ -11,9 +11,16 @@
  */
 
 import fs from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import os from 'node:os';
+
+const BILIBILI_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Referer': 'https://www.bilibili.com/'
+};
 
 function parseArgs(args) {
   const options = {
@@ -62,14 +69,11 @@ function extractBvid(urlString) {
   }
 }
 
-async function tryBilibiliSubtitles(bvid, outputDir) {
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/131 Safari/537.36',
-    'Referer': 'https://www.bilibili.com/'
-  };
-  
+async function handleBilibili(bvid, outputDir) {
+  await fs.mkdir(outputDir, { recursive: true });
+
   // 1. Fetch video metadata
-  const viewRes = await fetch(`https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`, { headers });
+  const viewRes = await fetch(`https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`, { headers: BILIBILI_HEADERS });
   const viewJson = await viewRes.json();
   if (viewJson.code !== 0 || !viewJson.data) {
     throw new Error(viewJson.message || '无法获取B站视频详情');
@@ -79,53 +83,90 @@ async function tryBilibiliSubtitles(bvid, outputDir) {
   const desc = viewJson.data.desc || '';
   const author = viewJson.data.owner?.name || '';
   const cid = viewJson.data.cid;
+  const duration = viewJson.data.duration || 0;
 
-  // 2. Fetch subtitle list
-  const playerRes = await fetch(`https://api.bilibili.com/x/player/v2?bvid=${encodeURIComponent(bvid)}&cid=${encodeURIComponent(cid)}`, { headers });
-  const playerJson = await playerRes.json();
-  const subtitles = playerJson.data?.subtitle?.subtitles || [];
+  // 2. Check subtitles
+  try {
+    const playerRes = await fetch(`https://api.bilibili.com/x/player/v2?bvid=${encodeURIComponent(bvid)}&cid=${encodeURIComponent(cid)}`, { headers: BILIBILI_HEADERS });
+    const playerJson = await playerRes.json();
+    const subtitles = playerJson.data?.subtitle?.subtitles || [];
 
-  if (!subtitles.length) {
-    return { hasSubtitles: false, title, desc, author };
+    if (subtitles.length > 0) {
+      const subCandidate = subtitles.find(s => s.lan?.startsWith('zh') || s.lan_doc?.includes('中')) || subtitles[0];
+      const subUrl = subCandidate?.subtitle_url?.startsWith('//') ? `https:${subCandidate.subtitle_url}` : subCandidate?.subtitle_url;
+
+      if (subUrl) {
+        const subRes = await fetch(subUrl, { headers: BILIBILI_HEADERS });
+        const subBody = await subRes.json();
+        const cues = (subBody.body || []).map(b => ({
+          from: b.from,
+          to: b.to,
+          content: (b.content || '').trim()
+        })).filter(b => b.content);
+
+        if (cues.length >= 5) {
+          const fullText = cues.map(c => c.content).join('\n');
+          const txtPath = path.join(outputDir, 'subtitles.txt');
+          const jsonPath = path.join(outputDir, 'subtitles.json');
+
+          await fs.writeFile(txtPath, fullText, 'utf-8');
+          await fs.writeFile(jsonPath, JSON.stringify({ title, author, desc, cues }, null, 2), 'utf-8');
+
+          return {
+            hasSubtitles: true,
+            title,
+            author,
+            desc,
+            duration,
+            cuesCount: cues.length,
+            subtitlesTextFile: txtPath,
+            subtitlesJsonFile: jsonPath,
+            preview: fullText.slice(0, 300)
+          };
+        }
+      }
+    }
+  } catch (e) {
+    console.error(`[fetch-media] 字幕检查异常: ${e.message}，将下载原生音频...`);
   }
 
-  // Pick first Chinese or available subtitle
-  const subCandidate = subtitles.find(s => s.lan?.startsWith('zh') || s.lan_doc?.includes('中')) || subtitles[0];
-  const subUrl = subCandidate.subtitle_url?.startsWith('//') ? `https:${subCandidate.subtitle_url}` : subCandidate.subtitle_url;
-
-  if (!subUrl) {
-    return { hasSubtitles: false, title, desc, author };
+  // 3. Fallback: Download audio track directly from Bilibili PlayURL API
+  console.error(`[fetch-media] 获取B站原生高音质音频流...`);
+  const playRes = await fetch(`https://api.bilibili.com/x/player/playurl?bvid=${encodeURIComponent(bvid)}&cid=${cid}&fnval=16`, {
+    headers: { ...BILIBILI_HEADERS, Referer: `https://www.bilibili.com/video/${bvid}` }
+  });
+  const playJson = await playRes.json();
+  const audioCandidates = playJson.data?.dash?.audio || [];
+  if (!audioCandidates.length) {
+    throw new Error('未能获取到 B站 音频流地址');
   }
 
-  const subRes = await fetch(subUrl, { headers });
-  const subBody = await subRes.json();
-  const cues = (subBody.body || []).map(b => ({
-    from: b.from,
-    to: b.to,
-    content: (b.content || '').trim()
-  })).filter(b => b.content);
+  const selectedAudio = audioCandidates[0];
+  const streamUrl = selectedAudio.baseUrl || selectedAudio.backupUrl?.[0];
+  if (!streamUrl) throw new Error('音频流链接无效');
 
-  if (cues.length < 5) {
-    return { hasSubtitles: false, title, desc, author };
-  }
+  const rawAudioPath = path.join(outputDir, 'bili_audio.m4a');
+  console.error(`[fetch-media] 下载音频流到 ${rawAudioPath}...`);
+  const audioStreamRes = await fetch(streamUrl, {
+    headers: { ...BILIBILI_HEADERS, Referer: `https://www.bilibili.com/video/${bvid}` }
+  });
+  if (!audioStreamRes.ok) throw new Error(`音频流下载失败: HTTP ${audioStreamRes.status}`);
 
-  await fs.mkdir(outputDir, { recursive: true });
-  const fullText = cues.map(c => c.content).join('\n');
-  const txtPath = path.join(outputDir, 'subtitles.txt');
-  const jsonPath = path.join(outputDir, 'subtitles.json');
+  const fileOut = createWriteStream(rawAudioPath);
+  await pipeline(audioStreamRes.body, fileOut);
 
-  await fs.writeFile(txtPath, fullText, 'utf-8');
-  await fs.writeFile(jsonPath, JSON.stringify({ title, author, desc, cues }, null, 2), 'utf-8');
+  // Convert/ensure mp3 format
+  const finalMp3Path = path.join(outputDir, 'audio.mp3');
+  console.error(`[fetch-media] 转换为标准 MP3 音频...`);
+  await runCmd('ffmpeg', ['-y', '-i', rawAudioPath, '-vn', '-acodec', 'libmp3lame', '-q:a', '2', finalMp3Path]);
 
   return {
-    hasSubtitles: true,
+    hasSubtitles: false,
     title,
     author,
     desc,
-    cuesCount: cues.length,
-    subtitlesTextFile: txtPath,
-    subtitlesJsonFile: jsonPath,
-    preview: fullText.slice(0, 300)
+    duration,
+    audioFile: finalMp3Path
   };
 }
 
@@ -189,26 +230,33 @@ Options:
     if (options.url) {
       const bvid = extractBvid(options.url);
       if (bvid) {
-        console.error(`[fetch-media] 识别到 B站 BV号: ${bvid}，尝试获取官方原生字幕...`);
-        try {
-          const subResult = await tryBilibiliSubtitles(bvid, options.outputDir);
-          if (subResult.hasSubtitles) {
-            console.log(JSON.stringify({
-              status: 'success',
-              type: 'subtitles',
-              source: options.url,
-              title: subResult.title,
-              author: subResult.author,
-              subtitlesFile: subResult.subtitlesTextFile,
-              subtitlesJson: subResult.subtitlesJsonFile,
-              cuesCount: subResult.cuesCount,
-              preview: subResult.preview
-            }, null, 2));
-            return;
-          }
-          console.error(`[fetch-media] B站视频未提供原生字幕，切换到音频下载...`);
-        } catch (e) {
-          console.error(`[fetch-media] 原生字幕提取失败: ${e.message}，切换到音频下载...`);
+        console.error(`[fetch-media] 识别到 B站 BV号: ${bvid}`);
+        const result = await handleBilibili(bvid, options.outputDir);
+        if (result.hasSubtitles) {
+          console.log(JSON.stringify({
+            status: 'success',
+            type: 'subtitles',
+            source: options.url,
+            title: result.title,
+            author: result.author,
+            duration: result.duration,
+            subtitlesFile: result.subtitlesTextFile,
+            subtitlesJson: result.subtitlesJsonFile,
+            cuesCount: result.cuesCount,
+            preview: result.preview
+          }, null, 2));
+          return;
+        } else {
+          console.log(JSON.stringify({
+            status: 'success',
+            type: 'audio',
+            source: options.url,
+            title: result.title,
+            author: result.author,
+            duration: result.duration,
+            audioFile: result.audioFile
+          }, null, 2));
+          return;
         }
       }
 
