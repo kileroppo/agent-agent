@@ -128,11 +128,9 @@ export function validateTaskCompletion(task: any, artifactRefs: any[] = task?.ar
 }
 
 export function isReadableArtifact(artifact: any) {
-  if (!artifact) return false;
-  if (artifact.validation?.exists === true && artifact.validation.readable === true && artifact.validation.nonEmpty === true) return true;
-  if (artifact.data && (typeof artifact.data === 'string' ? artifact.data.trim().length > 0 : Object.keys(artifact.data).length > 0)) return true;
-  if (artifact.location && typeof artifact.location === 'string' && artifact.location.trim().length > 0) return true;
-  return false;
+  return artifact?.validation?.exists === true
+    && artifact.validation.readable === true
+    && artifact.validation.nonEmpty === true;
 }
 
 export function isVerifiedVideoAnalysisArtifact(task: any, artifact: any) {
