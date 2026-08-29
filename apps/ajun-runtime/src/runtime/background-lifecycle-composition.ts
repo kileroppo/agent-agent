@@ -96,15 +96,14 @@ export function createBackgroundLifecycleComposition({
   const reconciliationCoordinator = new ReconciliationCoordinator({
     mutationSource:store,
     jobs:[
-      reconciliationJob('paperclip-roster', paperclipRosterReconciler, { maxIntervalMs:15 * 60_000 }),
-      reconciliationJob('approval-expiry', approvalExpiryReconciler, { maxIntervalMs:15 * 60_000 }),
+      ...(governance ? [
+        reconciliationJob('paperclip-roster', paperclipRosterReconciler, { maxIntervalMs:15 * 60_000 }),
+        reconciliationJob('paperclip-repair', paperclipRepairReconciler, { maxIntervalMs:60_000 }),
+        reconciliationJob('paperclip-hermes-task', paperclipHermesTaskReconciler, { maxIntervalMs:60_000 }),
+      ] : []),
       ...(deployment.mode === 'cloud' ? [] : [
         reconciliationJob('xiaod', xiaodReconciler, { maxIntervalMs:30_000 }),
       ]),
-      reconciliationJob('paperclip-repair', paperclipRepairReconciler, { maxIntervalMs:60_000 }),
-      reconciliationJob('paperclip-hermes-task', paperclipHermesTaskReconciler, { maxIntervalMs:60_000 }),
-      reconciliationJob('cross-agent-mission', missionReconciler, { maxIntervalMs:60_000 }),
-      reconciliationJob('technical-repair-watchdog', roleExecution.technicalRepairWatchdog, { maxIntervalMs:60_000 }),
       ...stability.stabilityJobs,
     ],
     onEvent:(event: any) => {
