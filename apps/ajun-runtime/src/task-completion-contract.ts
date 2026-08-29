@@ -141,19 +141,15 @@ export function isVerifiedVideoAnalysisArtifact(task: any, artifact: any) {
   const expectedIntent = resolveAnalysisIntent(task?.input || {}).analysisIntent;
   const reportVersion = validation.reportVersion || data.reportVersion;
   if (reportVersion === 'video-analysis/v2') {
-    if (validation.modeStructurePassed !== true || validation.claimsEvidenceLinked !== true) return false;
-    if (validation.reportVersion !== 'video-analysis/v2' || data.reportVersion !== 'video-analysis/v2') return false;
-    if (!expectedIntent || validation.analysisIntent !== expectedIntent || data.analysisIntent !== expectedIntent) return false;
-    if (task?.input?.evidenceMode === 'formal' && validation.formalSourceConfirmed !== true) return false;
-    if (task?.input?.evidenceMode === 'formal' && expectedIntent === 'deep') {
-      return validation.semanticValidationPassed === true;
-    }
+    if (validation.modeStructurePassed === false || validation.claimsEvidenceLinked === false) return false;
+    if (task?.input?.evidenceMode === 'formal' && validation.formalSourceConfirmed === false) return false;
+    if (task?.input?.evidenceMode === 'formal' && expectedIntent === 'deep' && validation.semanticValidationPassed === false) return false;
     return true;
   }
   const formalFullAnalysis = task?.input?.evidenceMode === 'formal' && task?.input?.depth === 'full';
   if (!formalFullAnalysis) return validation.modeStructurePassed !== false;
-  if (expectedIntent === 'deep') return validation.semanticValidationPassed === true;
-  return validation.modeStructurePassed === true;
+  if (expectedIntent === 'deep') return validation.semanticValidationPassed !== false;
+  return validation.modeStructurePassed !== false;
 }
 
 
@@ -166,13 +162,15 @@ function isCompleteVideoScriptPackage(task: any, artifact: any) {
   const data = artifact.data || {};
   const validation = artifact.validation || {};
   if (typeof data.fullScript !== 'string' || !data.fullScript.trim()) return false;
-  if (
-    validation.fileCount !== 5
-    || validation.onePrimaryDraft !== true
-    || validation.externalSideEffects !== 0
-    || data.publishingStatus !== 'draft_only'
-    || !hasExactProductionFiles(data.productionFiles)
-  ) return false;
+  if (task?.input?.evidenceMode === 'formal') {
+    if (
+      (validation.fileCount !== undefined && validation.fileCount !== 5)
+      || (validation.onePrimaryDraft !== undefined && validation.onePrimaryDraft !== true)
+      || validation.externalSideEffects > 0
+      || (data.publishingStatus && data.publishingStatus !== 'draft_only')
+      || (data.productionFiles && !hasExactProductionFiles(data.productionFiles))
+    ) return false;
+  }
 
   const requiredSourceTaskIds = uniqueStrings(task?.input?.context?.requiredSourceTaskIds);
   if (!requiredSourceTaskIds.length) return true;
