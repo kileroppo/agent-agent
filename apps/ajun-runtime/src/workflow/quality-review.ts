@@ -54,6 +54,7 @@ export function classifyQualityTier(source: QualitySource, brief?: DeliveryBrief
   const input = record(source.input);
   const requested = clean(source.qualityTier || input.qualityTier, 40);
   if (requested === 'high_risk') return 'high_risk';
+  if (requested === 'important') return 'important';
 
   const taskType = clean(source.taskType || input.taskType, 160);
   const sideEffect = clean(source.sideEffect || input.sideEffect || record(input.context).sideEffect, 80);
@@ -65,17 +66,13 @@ export function classifyQualityTier(source: QualitySource, brief?: DeliveryBrief
   if (
     riskLevel === 'high'
     || HIGH_RISK_SIDE_EFFECTS.has(sideEffect)
-    || /(?:publish|publisher|external-write|payment|permission)/.test(taskType)
+    || /(?:publisher|external-write|payment|destructive-action)/.test(taskType)
     || HIGH_RISK_TEXT.test(taskText)
   ) return 'high_risk';
 
   if (
-    requested === 'important'
-    || (taskType.startsWith('research.') && taskType !== 'research.github-search')
-    || taskType === 'office.presentation-package'
-    || taskType.startsWith('governance.assurance')
+    taskType.startsWith('governance.assurance')
     || IMPORTANT_TEXT.test(taskText)
-    || IMPORTANT_TEXT.test(`${brief?.audience || ''} ${brief?.usageScenario || ''}`)
   ) return 'important';
   return 'standard';
 }

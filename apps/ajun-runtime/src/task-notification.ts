@@ -190,8 +190,13 @@ function unfinishedStatus(root: any, current: any): any {
         return status(root, 'recovery_pending', false, `“${title}”遇到故障，正在交给运维官判断恢复办法。`, current);
     if (current.recovery?.coordination?.status === 'pending')
         return status(root, 'recovery_pending', false, `“${title}”遇到故障，正在等待运维官接手。`, current);
-    if (current.status === 'waiting_test')
+    if (current.status === 'waiting_test') {
+        const roleReport: any = artifact(current, 'employee_role_report')?.data;
+        if (roleReport?.summary) {
+            return status(root, 'waiting_test', true, `“${title}”当前版本：\n${roleReport.summary}`, current);
+        }
         return status(root, 'waiting_test', true, `“${title}”本轮自动检查没有完成，已标为待测试。其他工作会继续推进；这项检查恢复后会按记录继续。`, current);
+    }
     if (current.status === 'needs_input')
         return status(root, 'needs_input', true, current.error?.userMessage || `“${title}”缺少必要信息，暂时不能继续。`, current);
     if (current.status === 'failed')
