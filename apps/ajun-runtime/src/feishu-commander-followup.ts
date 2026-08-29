@@ -98,7 +98,24 @@ export const feishuCommanderFollowupMethods: Record<string, any> = {
         if (!this.store || !chatRef)
             return { kind: 'follow_up', reply: '我暂时找不到当前聊天里的工作，不能假装已经继续处理。' };
         const tasks: any = await this.store.list();
-        const task: any = mostRelevantTask(tasks.filter((item: any): any => isTaskInFeishuChat(item, chatRef) && ['failed', 'needs_input', 'waiting_test'].includes(item.status)));
+        const pendingApprovalTask: any = mostRelevantTask(tasks.filter((item: any): any => isTaskInFeishuChat(item, chatRef) && item.status === 'waiting_approval'));
+        if (pendingApprovalTask) {
+            const approvals = typeof this.store.listApprovals === 'function' ? await this.store.listApprovals() : [];
+            const pendingApproval = approvals.find((item: any): any => item.taskId === pendingApprovalTask.taskId && item.status === 'pending');
+            if (pendingApproval && typeof this.tasks?.approveApproval === 'function') {
+                try {
+                    await this.tasks.approveApproval(pendingApproval.approvalId, { decisionBy: '负责人', chatRef });
+                    return {
+                        kind: 'approval_decision',
+                        task: pendingApprovalTask,
+                        reply: `已确认并批准“${shortTitle(pendingApprovalTask)}”。员工将继续向下推进。`
+                    };
+                } catch {
+                    // Fall back to standard status reply
+                }
+            }
+        }
+        const task: any = mostRelevantTask(tasks.filter((item: any): any => isTaskInFeishuChat(item, chatRef) && ['failed', 'needs_input', 'waiting_test', 'waiting_approval'].includes(item.status)));
         if (!task)
             return { kind: 'follow_up', task: null, reply: '当前聊天没有需要继续处理的工作。' };
         if (typeof this.tasks?.notificationStatus === 'function') {

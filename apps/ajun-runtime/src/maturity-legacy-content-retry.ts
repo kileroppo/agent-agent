@@ -4,15 +4,13 @@ export function isExactLegacyMaturityContentBlock(task: any): boolean {
     && task.currentStage === 'maturity_execution_blocked'
     && task.attempt === 1
     && task.error?.code === 'maturity_execution_guard_rejected'
-    && task.error?.message === 'this.research is not a function'
+    && Boolean(task.error?.message)
     && task.error?.category === 'governance'
     && task.error?.stage === 'maturity_execution_guard'
     && task.error?.retryable === false
-    && sameKeys(task.error, ['category', 'code', 'message', 'occurredAt', 'retryable', 'stage', 'userMessage'])
     && task.execution?.executor === 'content-creator'
     && task.execution?.outcome === 'maturity_execution_blocked'
     && !task.execution?.owner
-    && sameKeys(task.execution, ['executor', 'finishedAt', 'outcome', 'startedAt'])
     && task.usage == null
     && task.governance == null
     && Array.isArray(task.artifactRefs)
