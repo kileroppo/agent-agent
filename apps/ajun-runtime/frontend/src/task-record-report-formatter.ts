@@ -107,16 +107,40 @@ export function getArtifactPreviewTitle(artifact: any): string {
     return '查看完整报告与交付明细';
 }
 
+export function cleanHumanReadableText(text: any): string {
+    if (typeof text !== 'string') return '';
+    let result = text;
+    // Decode HTML entities
+    result = result
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&apos;/g, "'")
+        .replace(/&amp;/g, '&')
+        .replace(/&nbsp;/g, ' ');
+    // Strip raw HTML tags (e.g. <p align="center">, <a href="...">, <em>, </em>, etc.)
+    result = result.replace(/<[^>]+>/g, ' ');
+    // Strip markdown image syntax ![alt](url) -> ""
+    result = result.replace(/!\[[^\]]*\]\([^)]*\)/g, ' ');
+    // Convert markdown link [text](url) -> text
+    result = result.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
+    // Normalize excessive whitespace while preserving single newlines
+    result = result.split('\n').map(line => line.replace(/[ \t]+/g, ' ').trim()).join('\n');
+    result = result.replace(/\n{3,}/g, '\n\n').trim();
+    return result;
+}
+
 export function formatStructuredReportText(data: any, artifactType: string = ''): string {
     if (!data || typeof data !== 'object') return '';
-    if (typeof data.markdown === 'string' && data.markdown.trim().length > 20) return data.markdown.trim();
-    if (typeof data.text === 'string' && data.text.trim().length > 20 && !data.text.trim().startsWith('{')) return data.text.trim();
+    if (typeof data.markdown === 'string' && data.markdown.trim().length > 20) return cleanHumanReadableText(data.markdown.trim());
+    if (typeof data.text === 'string' && data.text.trim().length > 20 && !data.text.trim().startsWith('{')) return cleanHumanReadableText(data.text.trim());
 
     const sections: string[] = [];
 
     // 1. Cross-Agent Mission Plan
     if (artifactType === 'cross_agent_mission_plan' || Array.isArray(data.subtasks)) {
-        if (data.summary) sections.push(`【总任务协同目标】\n${data.summary}`);
+        if (data.summary) sections.push(`【总任务协同目标】\n${cleanHumanReadableText(data.summary)}`);
         if (Array.isArray(data.subtasks) && data.subtasks.length > 0) {
             const subtaskLines = data.subtasks.map((subtask: any, idx: number) => {
                 const lines = [
@@ -124,10 +148,10 @@ export function formatStructuredReportText(data: any, artifactType: string = '')
                     `     责任员工：${agentNameZh(subtask.agentId)}（任务类型：${subtask.taskType || '通用'}）`,
                 ];
                 if (subtask.description) {
-                    lines.push(`     具体诉求：${subtask.description}`);
+                    lines.push(`     具体诉求：${cleanHumanReadableText(subtask.description)}`);
                 }
                 if (subtask.acceptance) {
-                    lines.push(`     验收标准：${subtask.acceptance}`);
+                    lines.push(`     验收标准：${cleanHumanReadableText(subtask.acceptance)}`);
                 }
                 if (Array.isArray(subtask.dependsOn) && subtask.dependsOn.length > 0) {
                     lines.push(`     前置依赖：${subtask.dependsOn.join('、')}`);
@@ -147,7 +171,7 @@ export function formatStructuredReportText(data: any, artifactType: string = '')
 
     // 2. Cross-Agent Mission Summary
     if (artifactType === 'cross_agent_mission_summary' || (Array.isArray(data.statuses) && data.decision)) {
-        if (data.summary) sections.push(`【协同汇总结论】\n${data.summary}`);
+        if (data.summary) sections.push(`【协同汇总结论】\n${cleanHumanReadableText(data.summary)}`);
         if (data.decision?.outcome) {
             const outcomeText = data.decision.outcome === 'completed' ? '全部完成闭环' : (data.decision.outcome === 'partially_completed' ? '部分交付' : '正在执行中');
             sections.push(`【交付达成概况】\n  状态：${outcomeText}（已完成 ${data.decision.completedCount ?? 0} / 共 ${data.decision.totalCount ?? 0} 项）`);
@@ -163,9 +187,9 @@ export function formatStructuredReportText(data: any, artifactType: string = '')
             const b = data.decision.briefing;
             const bLines: string[] = [];
             if (b.title) bLines.push(`主题：${b.title}`);
-            if (b.summary) bLines.push(`核心结论：${b.summary}`);
-            if (b.keyFindings) bLines.push(`关键事实发现：\n${b.keyFindings}`);
-            if (b.actionItems) bLines.push(`后续行动建议：\n${b.actionItems}`);
+            if (b.summary) bLines.push(`核心结论：${cleanHumanReadableText(b.summary)}`);
+            if (b.keyFindings) bLines.push(`关键事实发现：\n${cleanHumanReadableText(b.keyFindings)}`);
+            if (b.actionItems) bLines.push(`后续行动建议：\n${cleanHumanReadableText(b.actionItems)}`);
             if (bLines.length) sections.push(`【决策与行动建议】\n${bLines.join('\n\n')}`);
         }
         if (sections.length > 1 || (Array.isArray(data.statuses) && data.statuses.length > 0) || data.decision?.briefing) {
@@ -187,16 +211,16 @@ export function formatStructuredReportText(data: any, artifactType: string = '')
             ].filter(Boolean).join('\n');
             if (metaLines) sections.push(`【原作品基础信息】\n${metaLines}`);
         }
-        if (data.summary) sections.push(`【拆解核心摘要】\n${data.summary}`);
+        if (data.summary) sections.push(`【拆解核心摘要】\n${cleanHumanReadableText(data.summary)}`);
         if (Array.isArray(data.actionItems) && data.actionItems.length > 0) {
-            const actions = data.actionItems.map((a: any, idx: number) => `  ${idx + 1}. ${typeof a === 'string' ? a : (a.action || a.title || '')}`).join('\n');
+            const actions = data.actionItems.map((a: any, idx: number) => `  ${idx + 1}. ${cleanHumanReadableText(typeof a === 'string' ? a : (a.action || a.title || ''))}`).join('\n');
             sections.push(`【实操行动建议清单】\n${actions}`);
         }
         if (Array.isArray(data.reusablePatterns) && data.reusablePatterns.length > 0) {
             const patterns = data.reusablePatterns.map((p: any, idx: number) => {
                 const name = typeof p === 'string' ? p : (p.pattern || p.title || `模式 ${idx + 1}`);
-                const usage = p.howToReuse ? `\n     💡 复用方法：${p.howToReuse}` : '';
-                const caution = p.caution ? `\n     ⚠️ 注意事项：${p.caution}` : '';
+                const usage = p.howToReuse ? `\n     💡 复用方法：${cleanHumanReadableText(p.howToReuse)}` : '';
+                const caution = p.caution ? `\n     ⚠️ 注意事项：${cleanHumanReadableText(p.caution)}` : '';
                 return `  ${idx + 1}. 【${name}】${usage}${caution}`;
             }).join('\n');
             sections.push(`【可复用爆款模式】\n${patterns}`);
@@ -204,17 +228,17 @@ export function formatStructuredReportText(data: any, artifactType: string = '')
         if (Array.isArray(data.modules) && data.modules.length > 0) {
             const moduleLines = data.modules.map((m: any, idx: number) => {
                 const mLines = [`  ▶ 模块 ${idx + 1}：${m.name || '核心结构'}`];
-                if (m.finding) mLines.push(`     分析结论：${m.finding}`);
+                if (m.finding) mLines.push(`     分析结论：${cleanHumanReadableText(m.finding)}`);
                 if (Array.isArray(m.originalAnalysis?.claims) && m.originalAnalysis.claims.length > 0) {
-                    const claims = m.originalAnalysis.claims.map((c: any) => c.claim || c.text || c).join('；');
+                    const claims = m.originalAnalysis.claims.map((c: any) => cleanHumanReadableText(c.claim || c.text || c)).join('；');
                     mLines.push(`     原文提炼：${claims}`);
                 }
                 if (Array.isArray(m.diagnosis?.issues) && m.diagnosis.issues.length > 0) {
-                    const issues = m.diagnosis.issues.map((i: any) => i.issue || i.text || i).join('；');
+                    const issues = m.diagnosis.issues.map((i: any) => cleanHumanReadableText(i.issue || i.text || i)).join('；');
                     mLines.push(`     诊断要点：${issues}`);
                 }
                 if (Array.isArray(m.optimization?.actions) && m.optimization.actions.length > 0) {
-                    const opts = m.optimization.actions.map((o: any) => o.action || o.text || o).join('；');
+                    const opts = m.optimization.actions.map((o: any) => cleanHumanReadableText(o.action || o.text || o)).join('；');
                     mLines.push(`     优化建议：${opts}`);
                 }
                 return mLines.join('\n');
@@ -225,29 +249,32 @@ export function formatStructuredReportText(data: any, artifactType: string = '')
     }
 
     // 4. General Intel / Research / Public Report
-    if (data.topic) sections.push(`【调研主题】${data.topic}`);
-    if (data.summary || data.conclusion) sections.push(`【核心结论】\n${data.summary || data.conclusion}`);
+    if (data.topic) sections.push(`【调研主题】${cleanHumanReadableText(data.topic)}`);
+    if (data.summary || data.conclusion) {
+        const cleanConclusion = cleanHumanReadableText(data.summary || data.conclusion);
+        if (cleanConclusion) sections.push(`【核心结论】\n${cleanConclusion}`);
+    }
 
     if (Array.isArray(data.opportunitySignals) && data.opportunitySignals.length > 0) {
-        const signals = data.opportunitySignals.map((s: any, idx: number) => `  ${idx + 1}. ${s.signal || s.text || s.title || ''}`).join('\n');
+        const signals = data.opportunitySignals.map((s: any, idx: number) => `  ${idx + 1}. ${cleanHumanReadableText(s.signal || s.text || s.title || '')}`).join('\n');
         sections.push(`【热门选题机会信号】\n${signals}`);
     } else if (Array.isArray(data.claims) && data.claims.length > 0) {
-        const claims = data.claims.map((c: any, idx: number) => `  ${idx + 1}. ${c.text || c.claim || c.statement || ''}`).join('\n');
+        const claims = data.claims.map((c: any, idx: number) => `  ${idx + 1}. ${cleanHumanReadableText(c.text || c.claim || c.statement || '')}`).join('\n');
         sections.push(`【关键事实与选题发现】\n${claims}`);
     }
 
     if (Array.isArray(data.originalAngles) && data.originalAngles.length > 0) {
-        const angles = data.originalAngles.map((a: any, idx: number) => `  💡 角度 ${idx + 1}：${a.premise || a.angle || ''}\n     建议创作用法：${a.treatment || '提炼核心观点重新创作'}`).join('\n');
+        const angles = data.originalAngles.map((a: any, idx: number) => `  💡 角度 ${idx + 1}：${cleanHumanReadableText(a.premise || a.angle || '')}\n     建议创作用法：${cleanHumanReadableText(a.treatment || '提炼核心观点重新创作')}`).join('\n');
         sections.push(`【原创切入角度建议】\n${angles}`);
     }
 
     if (Array.isArray(data.sources) && data.sources.length > 0) {
-        const sources = data.sources.map((s: any, idx: number) => `  🔗 [来源 ${idx + 1}] ${s.title || '公开资料'} ${s.url ? `(${s.url})` : ''}`).join('\n');
+        const sources = data.sources.map((s: any, idx: number) => `  🔗 [来源 ${idx + 1}] ${cleanHumanReadableText(s.title || '公开资料')} ${s.url ? `(${s.url})` : ''}`).join('\n');
         sections.push(`【参考信源与数据支撑】\n${sources}`);
     }
 
     if (data.limitation) {
-        sections.push(`【事实边界说明】\n${data.limitation}`);
+        sections.push(`【事实边界说明】\n${cleanHumanReadableText(data.limitation)}`);
     }
 
     if (sections.length > 0) {
@@ -283,7 +310,7 @@ export function formatStructuredReportText(data: any, artifactType: string = '')
             if (typeof v === 'object') {
                 return `【${label}】\n${JSON.stringify(v, null, 2)}`;
             }
-            return `【${label}】${String(v)}`;
+            return `【${label}】${cleanHumanReadableText(String(v))}`;
         });
         return lines.join('\n\n');
     }

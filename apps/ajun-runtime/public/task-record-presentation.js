@@ -157,8 +157,8 @@ export function artifactItems(artifacts, { hideEmployeeReport = true } = {}) {
         return true;
     });
 }
-import { ARTIFACT_TYPE_LABELS, formatArtifactLabel, getArtifactPreviewTitle, formatStructuredReportText, agentNameZh, } from './task-record-report-formatter.js';
-export { ARTIFACT_TYPE_LABELS, formatArtifactLabel, getArtifactPreviewTitle, formatStructuredReportText, agentNameZh, };
+import { ARTIFACT_TYPE_LABELS, formatArtifactLabel, getArtifactPreviewTitle, formatStructuredReportText, cleanHumanReadableText, agentNameZh, } from './task-record-report-formatter.js';
+export { ARTIFACT_TYPE_LABELS, formatArtifactLabel, getArtifactPreviewTitle, formatStructuredReportText, cleanHumanReadableText, agentNameZh, };
 export function renderArtifact(artifact, options = {}) {
     if (!artifact || typeof artifact !== 'object')
         return '';
@@ -182,29 +182,30 @@ export function renderArtifact(artifact, options = {}) {
     }
     else {
         const rawSummary = artifact.summary || artifact.description || artifact.data?.summary || artifact.data?.conclusion || (typeof artifact.data?.text === 'string' ? artifact.data.text : '');
-        summary = typeof rawSummary === 'string' ? rawSummary.slice(0, 400).trim() : '';
+        summary = typeof rawSummary === 'string' ? cleanHumanReadableText(rawSummary).slice(0, 400).trim() : '';
     }
     const formattedFullReport = formatStructuredReportText(artifact.data || artifact, artifact.type);
     const rawInline = formattedFullReport || artifact.data?.markdown || artifact.data?.text || artifact.data?.content || artifact.content || '';
-    const inlineContent = typeof rawInline === 'string' ? rawInline.trim() : '';
+    const inlineContent = typeof rawInline === 'string' ? cleanHumanReadableText(rawInline).trim() : '';
     const hasData = Boolean(artifact.data && typeof artifact.data === 'object' && Object.keys(artifact.data).length > 0);
     const formattedJson = (!inlineContent && hasData) ? JSON.stringify(artifact.data, null, 2) : '';
     const previewBodyText = inlineContent || formattedJson;
-    const isReadableText = previewBodyText.length > 0 && previewBodyText !== summary;
     const taskTitle = String(artifact.title || artifact.name || '').trim();
     const parentTaskTitle = String(options.task?.input?.title || options.task?.title || '').trim();
-    const isSummaryTrivial = !summary || (taskTitle && (summary === taskTitle ||
-        summary.startsWith(taskTitle) ||
-        taskTitle.startsWith(summary) ||
-        (parentTaskTitle && summary === parentTaskTitle) ||
-        summary.length < 15));
-    const displaySummary = (!isSummaryTrivial || isReadableText) ? summary : '';
-    const copyContent = previewBodyText || (isSummaryTrivial ? '' : summary);
-    const previewTitle = getArtifactPreviewTitle(artifact);
-    const isOpsOrSystemArtifact = String(artifact?.type || '').startsWith('health_')
-        || String(artifact?.type || '').startsWith('operations_')
-        || /巡检|健康报告|执行审计/i.test(label || '');
-    const isPlanOrSummary = ['cross_agent_mission_plan', 'cross_agent_mission_summary'].includes(String(artifact?.type || ''));
+    const cleanSummary = cleanHumanReadableText(summary);
+    const isSummaryTrivial = !cleanSummary || (taskTitle && (cleanSummary === taskTitle ||
+        cleanSummary.startsWith(taskTitle) ||
+        taskTitle.startsWith(cleanSummary) ||
+        (parentTaskTitle && cleanSummary === parentTaskTitle) ||
+        cleanSummary.length < 15));
+    const cleanPreview = cleanHumanReadableText(previewBodyText);
+    const isPreviewDuplicate = Boolean(cleanPreview && cleanSummary && (cleanPreview === cleanSummary ||
+        cleanPreview === `【核心结论】\n${cleanSummary}` ||
+        cleanPreview === `【核心结论】 ${cleanSummary}` ||
+        cleanPreview === `【核心结论】${cleanSummary}`));
+    const isReadableText = previewBodyText.length > 0 && !isPreviewDuplicate && cleanPreview !== cleanSummary;
+    const displaySummary = (!isSummaryTrivial || isReadableText) ? cleanSummary : (isPreviewDuplicate ? cleanSummary : '');
+    const copyContent = cleanPreview || displaySummary;
     const hasExpandableContent = isReadableText || isRealFilePath || Boolean(displaySummary);
     return html `<li class="record-artifact-item ${hasExpandableContent ? 'is-expandable is-collapsed' : ''}" data-artifact-item ${isRealFilePath ? `data-file-path="${url}"` : ''}>
         <div class="artifact-item-header" data-artifact-toggle role="${hasExpandableContent ? 'button' : 'none'}" tabindex="${hasExpandableContent ? '0' : '-1'}" title="${hasExpandableContent ? '点击展开/收起预览' : ''}">
@@ -226,7 +227,7 @@ export function renderArtifact(artifact, options = {}) {
             </div>
         </div>
         <div class="artifact-item-body">
-            ${raw(displaySummary ? html `<div class="artifact-summary-box"><p class="artifact-summary">${displaySummary}</p></div>` : '')}
+            ${raw(displaySummary ? html `<div class="artifact-summary-box"><p class="artifact-summary">${escapeHtml(displaySummary)}</p></div>` : '')}
             ${raw(isReadableText ? html `
                 <div class="artifact-inline-preview">
                     <div class="artifact-preview-body">
