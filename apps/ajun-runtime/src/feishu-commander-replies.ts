@@ -272,7 +272,7 @@ export function replyFor(task: any, taskType: any): any {
         if (artifact)
             return { kind: 'github_search', task, reply: formatGithubReply(artifact) };
         if (task.status === 'needs_input')
-            return { kind: 'github_search', task, reply: task.currentStage === 'waiting_for_agent_activation' ? '小R的 GitHub 检索能力尚未启用，不能开始检索。' : task.error?.userMessage || '小R还缺少检索条件，暂未开始。' };
+            return { kind: 'github_search', task, reply: task.error?.userMessage || '小R还缺少检索条件，暂未开始。' };
         return { kind: 'github_search', task, reply: `已交给小R检索公开 GitHub 信息，任务号：${task.taskId}。完成后会回到当前飞书会话。` };
     }
     if (taskType === 'research.intel-report') {
@@ -280,7 +280,7 @@ export function replyFor(task: any, taskType: any): any {
         if (report)
             return { kind: 'intel_research', task, reply: formatIntelReply(report) };
         if (task.status === 'needs_input')
-            return { kind: 'intel_research', task, reply: task.currentStage === 'waiting_for_agent_activation' ? '小R目前还是草案，尚未通过审核和受限测试，不能开始研究。' : task.error?.userMessage || '小R还缺少研究条件，暂未开始。' };
+            return { kind: 'intel_research', task, reply: task.error?.userMessage || '小R还缺少研究条件，暂未开始。' };
         return { kind: 'intel_research', task, reply: `已交给小R研究，任务号：${task.taskId}。完成后会回到当前飞书会话。` };
     }
     if (taskType === 'office.briefing-package') {

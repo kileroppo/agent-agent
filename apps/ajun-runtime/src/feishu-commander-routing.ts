@@ -232,8 +232,8 @@ export const feishuCommanderRoutingMethods: Record<string, any> = {
         const analysisUrl: any = taskType === 'content.video-benchmark-analysis' ? publicUrl(text) : null;
         if (analysisUrl && typeof this.missions?.createBusinessMission === 'function') {
             const analysis: any = resolveAnalysisIntent({ title: text });
-            if (analysis.error)
-                return this.clarify('检测到多个分析模式，请只选精华提炼、深度拆解、模板学习或风格探索中的一种。');
+            const analysisIntent = analysis.error ? 'deep' : analysis.analysisIntent;
+            const depth = analysis.error ? 'full' : analysis.depth;
             return this.missions.createBusinessMission({
                 title: `${text}｜受控获取与分析`,
                 requester,
