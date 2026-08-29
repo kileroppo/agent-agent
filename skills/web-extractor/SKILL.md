@@ -14,7 +14,7 @@ description: 当用户发送微信公众号、知乎专栏、技术博客或新�
 运行网页正文提取工具：
 
 ```bash
-node tools/fetch-web-article.mjs --url "<文章链接>"
+node /Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/tools/fetch-web-article.mjs --url "<文章链接>"
 ```
 
 ### 工具返回说明：
@@ -70,7 +70,7 @@ node tools/fetch-web-article.mjs --url "<文章链接>"
 运行飞书文档创建工具：
 
 ```bash
-node tools/create-feishu-doc.mjs --title "<文章标题>·深度整理" --content-file "/tmp/article_summary.md"
+node /Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/tools/create-feishu-doc.mjs --title "<文章标题>·深度整理" --content-file "/tmp/article_summary.md"
 ```
 
 并将生成的飞书文档链接返回给用户。

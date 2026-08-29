@@ -15,10 +15,10 @@ description: 当用户需要调研 GitHub 开源项目、对比技术选型、�
 
 ```bash
 # 调研指定项目（支持 owner/repo 或 GitHub 链接）：
-node tools/github-research.mjs --repo "<owner/repo>"
+node /Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/tools/github-research.mjs --repo "<owner/repo>"
 
 # 搜索开源项目（如寻找同类方案）：
-node tools/github-research.mjs --search "<关键词>"
+node /Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/tools/github-research.mjs --search "<关键词>"
 ```
 
 ### 工具返回字段重点关注：

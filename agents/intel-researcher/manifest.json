@@ -31,7 +31,9 @@
     "content.public.dynamic.read",
     "content.public.pdf.read",
     "github.public.search",
-    "github.public.read"
+    "github.public.read",
+    "github-research",
+    "web-extractor"
   ],
   "toolExecutionPolicy": {
     "unknownToolDecision": "deny",
@@ -120,7 +122,7 @@
       "model": "step-3.7-flash"
     },
     "fallbackModels": [],
-    "skills": ["paperclip", "pdf", "yichen-web-research", "yichen-unified-search", "yichen-content-archive", "yichen-grok-consult"],
+    "skills": ["paperclip", "pdf", "yichen-web-research", "yichen-unified-search", "yichen-content-archive", "yichen-grok-consult", "github-research", "web-extractor"],
     "mcpTools": [
       "agent_manual",
       "capabilities",

@@ -43,7 +43,7 @@
       "model": "step-3.7-flash"
     },
     "fallbackModels": [],
-    "skills": ["paperclip"],
+    "skills": ["paperclip", "github-research", "web-extractor", "video-transcribe"],
     "gatewaySkills": [],
     "mcpTools": [
       "agent_manual",

@@ -15,10 +15,10 @@ description: 当用户需要将音视频链接（B站、YouTube、播客、公�
 
 ```bash
 # 若为网页链接（支持 B站、YouTube、播客等）：
-node tools/fetch-media.mjs --url "<视频链接>"
+node /Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/tools/fetch-media.mjs --url "<视频链接>"
 
 # 若为本地文件：
-node tools/fetch-media.mjs --file "<本地音视频路径>"
+node /Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/tools/fetch-media.mjs --file "<本地音视频路径>"
 ```
 
 ### 结果处理逻辑：
@@ -32,7 +32,7 @@ node tools/fetch-media.mjs --file "<本地音视频路径>"
 运行本地 faster-whisper 转录脚本：
 
 ```bash
-python3 tools/transcribe-whisper.py --audio "<audioFile路径>"
+python3 /Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/tools/transcribe-whisper.py --audio "<audioFile路径>"
 ```
 
 脚本将在本地完成语音转录并生成逐字稿。读取 `textFile`（完整纯文本）或 `srtFile`（带时间戳字幕）。
@@ -62,7 +62,7 @@ python3 tools/transcribe-whisper.py --audio "<audioFile路径>"
 ## 二、 结构化内容导览（带时间线）
 ### 1. <章节 1 标题> (00:00 - 05:30)
 - 核心论点...
-- 案例或数据...
+- 案例或数据支持...
 
 ### 2. <章节 2 标题> (05:31 - 15:40)
 - 核心论点...
@@ -89,7 +89,7 @@ python3 tools/transcribe-whisper.py --audio "<audioFile路径>"
 运行飞书文档创建工具：
 
 ```bash
-node tools/create-feishu-doc.mjs --title "<视频标题> 精华整理" --content-file "/tmp/summary.md"
+node /Users/pengaro/Documents/work/codeDevelop/ideaSpace/agent-agent/tools/create-feishu-doc.mjs --title "<视频标题> 精华整理" --content-file "/tmp/summary.md"
 ```
 
 ### 反馈用户：

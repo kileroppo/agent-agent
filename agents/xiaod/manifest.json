@@ -128,7 +128,7 @@
       "model": "step-3.7-flash"
     },
     "fallbackModels": [],
-    "skills": ["paperclip", "yichen-asr", "yichen-content-archive"],
+    "skills": ["paperclip", "yichen-asr", "yichen-content-archive", "video-transcribe"],
     "mcpTools": [
       "agent_manual",
       "paperclip_assignment_get",
