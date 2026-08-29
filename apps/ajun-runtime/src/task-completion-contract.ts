@@ -114,10 +114,6 @@ export function validateTaskCompletion(task: any, artifactRefs: any[] = task?.ar
       valid = artifacts.some(isReadableArtifact);
   }
 
-  // Delivery-First Fallback: if any readable artifact or report exists, never block delivery
-  if (!valid && artifacts.some(isReadableArtifact)) {
-    valid = true;
-  }
 
   return {
     valid,

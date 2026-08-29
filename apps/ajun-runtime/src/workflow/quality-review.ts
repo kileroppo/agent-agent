@@ -71,8 +71,12 @@ export function classifyQualityTier(source: QualitySource, brief?: DeliveryBrief
   ) return 'high_risk';
 
   if (
-    taskType.startsWith('governance.assurance')
+    requested === 'important'
+    || (taskType.startsWith('research.') && taskType !== 'research.github-search')
+    || taskType === 'office.presentation-package'
+    || taskType.startsWith('governance.assurance')
     || IMPORTANT_TEXT.test(taskText)
+    || IMPORTANT_TEXT.test(`${brief?.audience || ''} ${brief?.usageScenario || ''}`)
   ) return 'important';
   return 'standard';
 }
