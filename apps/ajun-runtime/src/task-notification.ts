@@ -79,8 +79,10 @@ export class TaskNotification {
     }
 }
 function assertSameChat(task: any, chatRef: any): any {
-    // Cross-chat unblocked: allow querying task status from any chat session
-    return;
+    const expected: any = String(task.source?.chatRef || '').trim();
+    const actual: any = String(chatRef || '').trim();
+    if (expected && actual && expected !== actual)
+        throw new ValidationError('当前会话不能读取这条任务。');
 }
 function technicalOrPausedStatus(root: any, chain: any): any {
     if (root.status === 'paused')
