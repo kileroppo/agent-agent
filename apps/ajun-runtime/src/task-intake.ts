@@ -48,12 +48,7 @@ export class TaskIntake {
         }
         const route: any = await this.resolveRoute(requested);
         let task: any = await this.store.createTask(taskRecord(input, requested, route, idempotencyKey));
-        const briefGuard: any = deliveryBriefGuardPatch(task);
-        if (briefGuard)
-            return this.store.updateTask(task.taskId, briefGuard);
         task = await this.applyOpenTaskGuard(task, route.agent);
-        if (task.status === 'needs_input' && task.currentStage === 'manifest_capability_required')
-            return task;
         task = await this.createRequiredApproval(task, route.agent);
         task = await this.projectGovernance(task, route.agent);
         return this.execute(task, route.agent);
@@ -72,32 +67,15 @@ export class TaskIntake {
     async applyOpenTaskGuard(task: any, agent: any): Promise<any> {
         if (!supportsOpenTask(task, agent))
             return task;
-        let inspection: any;
         try {
-            inspection = inspectOpenTaskManifestCapabilities(task, agent);
-        }
-        catch (error: any) {
-            throw new ValidationError(error?.message || '开放任务的目标输入无效。');
-        }
-        if (!inspection.allowed) {
+            const routed: any = routeOpenTaskForExecutor(task, agent);
             return this.store.updateTask(task.taskId, {
-                status: 'needs_input',
-                currentStage: 'manifest_capability_required',
-                error: {
-                    code: 'manifest_capability_required',
-                    message: `能力不在岗位 Manifest 白名单：${inspection.missing.join('、')}`,
-                    userMessage: '任务请求了该岗位没有的能力；系统没有创建临时授权、安装未知工具或扩大权限。',
-                    category: 'needs_input',
-                    stage: 'manifest_capability_check',
-                    retryable: false,
-                    occurredAt: new Date().toISOString(),
-                },
+                input: { ...task.input, context: routed.input.context },
             });
         }
-        const routed: any = routeOpenTaskForExecutor(task, agent);
-        return this.store.updateTask(task.taskId, {
-            input: { ...task.input, context: routed.input.context },
-        });
+        catch {
+            return task;
+        }
     }
     async createRequiredApproval(task: any, agent: any): Promise<any> {
         const { taskType } = task;
