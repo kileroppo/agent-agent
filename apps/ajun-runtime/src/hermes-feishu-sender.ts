@@ -1,27 +1,55 @@
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { chunkFeishuMarkdown } from './feishu-payload-chunker.ts';
+
 export class HermesFeishuSender {
     command: any;
     hermesHome: any;
+    profileRoot: any;
     spawn: any;
     timeoutMs: any;
-    constructor({ command = path.join(os.homedir(), '.local/bin/hermes'), hermesHome = path.join(os.homedir(), '.hermes'), spawnImpl = spawn, timeoutMs = 20000 }: any = {}) {
+    constructor({ command = path.join(os.homedir(), '.local/bin/hermes'), hermesHome = path.join(os.homedir(), '.hermes'), profileRoot = path.join(os.homedir(), '.hermes/profiles'), spawnImpl = spawn, timeoutMs = 20000 }: any = {}) {
         this.command = command;
         this.hermesHome = hermesHome;
+        this.profileRoot = profileRoot;
         this.spawn = spawnImpl;
         this.timeoutMs = timeoutMs;
     }
-    async send(chatId: any, payload: any = {}): Promise<any> {
-        const chat: any = safeChatId(chatId);
-        const message: any = safeMessage(payload.markdown || payload.text);
-        if (!message)
-            throw new HermesFeishuSenderError('飞书回话内容为空。');
-        const idempotencyKey: any = safeIdempotencyKey(payload.idempotencyKey || payload.deliveryId);
-        const acknowledgement: any = await new Promise((resolve: any, reject: any): any => {
+
+    resolveCandidateHomes(agentId?: string): string[] {
+        const homes: string[] = [];
+        if (agentId && typeof agentId === 'string') {
+            const clean = agentId.trim();
+            const profileDir = path.join(this.profileRoot, clean);
+            if (fs.existsSync(profileDir)) {
+                homes.push(profileDir);
+            }
+        }
+        homes.push(this.hermesHome);
+        if (fs.existsSync(this.profileRoot)) {
+            try {
+                const entries = fs.readdirSync(this.profileRoot, { withFileTypes: true });
+                for (const entry of entries) {
+                    if (entry.isDirectory() && !entry.name.startsWith('.')) {
+                        const dir = path.join(this.profileRoot, entry.name);
+                        if (!homes.includes(dir)) {
+                            homes.push(dir);
+                        }
+                    }
+                }
+            } catch {
+                // ignore readdir error
+            }
+        }
+        return homes;
+    }
+
+    async spawnSend(chat: string, message: string, idempotencyKey: string | undefined, hermesHome: string): Promise<string> {
+        return new Promise((resolve, reject) => {
             let child: any;
-            let stdout: any = '';
+            let stdout = '';
             try {
                 child = this.spawn(this.command, [
                     'send',
@@ -35,57 +63,88 @@ export class HermesFeishuSender {
                     // idempotency argument. This crosses the process boundary
                     // for a future adapter, but local atomic leases remain the
                     // only asserted de-duplication guarantee today.
-                    env: { ...process.env, HERMES_HOME: this.hermesHome, ...(idempotencyKey ? { HERMES_DELIVERY_IDEMPOTENCY_KEY:idempotencyKey } : {}) },
+                    env: { ...process.env, HERMES_HOME: hermesHome, ...(idempotencyKey ? { HERMES_DELIVERY_IDEMPOTENCY_KEY: idempotencyKey } : {}) },
                     stdio: ['pipe', 'pipe', 'ignore']
                 });
-            }
-            catch {
+            } catch {
                 reject(new HermesFeishuSenderError('Hermes 飞书回话进程未启动，将保留任务跟进记录后重试。', { deliveryState: 'not_started' }));
                 return;
             }
-            let settled: any = false;
-            const finish: any = (error: any = null): any => {
-                if (settled)
-                    return;
+
+            let settled = false;
+            const finish = (error: any = null) => {
+                if (settled) return;
                 settled = true;
                 clearTimeout(timer);
-                if (error)
-                    reject(error);
-                else
-                    resolve(stdout);
+                if (error) reject(error);
+                else resolve(stdout);
             };
-            const timer: any = setTimeout((): any => {
+
+            const timer = setTimeout(() => {
                 child.kill('SIGTERM');
                 finish(new HermesFeishuSenderError('Hermes 飞书回话超时；无法确认平台是否已经收件。', { deliveryState: 'unknown' }));
             }, this.timeoutMs);
             timer.unref?.();
-            child.once('error', (): any => finish(new HermesFeishuSenderError('Hermes 飞书回话进程未启动，将保留任务跟进记录后重试。', { deliveryState: 'not_started' })));
-            child.once('close', (code: any): any => finish(code === 0 ? null : new HermesFeishuSenderError('Hermes 飞书回话未确认成功；无法判断平台是否已经收件。', { deliveryState: 'unknown' })));
-            child.stdout?.on?.('data', (chunk: any): any => {
+
+            child.once('error', () => finish(new HermesFeishuSenderError('Hermes 飞书回话进程未启动，将保留任务跟进记录后重试。', { deliveryState: 'not_started' })));
+            child.once('close', (code: any) => finish(code === 0 ? null : new HermesFeishuSenderError('Hermes 飞书回话未确认成功；无法判断平台是否已经收件。', { deliveryState: 'unknown' })));
+            child.stdout?.on?.('data', (chunk: any) => {
                 // The JSON result is tiny. A large or malformed response is
                 // deliberately not persisted or echoed into errors/logs.
-                if (stdout.length < 16384)
+                if (stdout.length < 16384) {
                     stdout += String(chunk).slice(0, 16384 - stdout.length);
+                }
             });
-            child.stdin.once('error', (): any => undefined);
+            child.stdin.once('error', () => undefined);
             child.stdin.end(message);
         });
-        const providerMessageId: any = confirmedProviderMessageId(acknowledgement);
-        if (!providerMessageId)
-            throw new HermesFeishuSenderError('Hermes 命令已结束，但没有可核验的飞书回执；投递结果不确定。', { deliveryState:'unknown', code:'hermes_send_unconfirmed' });
-        const observedAt: any = new Date().toISOString();
-        return {
-            success: true,
-            deliveryConfirmed:true,
-            deliveryState:'delivered',
-            deliveryEvidence:{
-                type:'hermes_feishu_provider_acknowledged',
-                observedAt,
-                reference:providerMessageId,
-            },
-            idempotencyKey,
-            providerIdempotency:{ forwardedToHermesProcess:Boolean(idempotencyKey), providerDeduplication:'unsupported' },
-        };
+    }
+
+    async send(chatId: any, payload: any = {}): Promise<any> {
+        const chat: any = safeChatId(chatId);
+        const message: any = safeMessage(payload.markdown || payload.text);
+        if (!message)
+            throw new HermesFeishuSenderError('飞书回话内容为空。');
+        const idempotencyKey: any = safeIdempotencyKey(payload.idempotencyKey || payload.deliveryId);
+        const targetAgentId: any = payload.agentId || payload.assignedAgentId;
+        const candidateHomes = this.resolveCandidateHomes(targetAgentId);
+
+        let lastError: any = null;
+        let lastNotStarted = false;
+
+        for (const home of candidateHomes) {
+            try {
+                const acknowledgement = await this.spawnSend(chat, message, idempotencyKey, home);
+                const providerMessageId = confirmedProviderMessageId(acknowledgement);
+                if (providerMessageId) {
+                    const observedAt = new Date().toISOString();
+                    return {
+                        success: true,
+                        deliveryConfirmed: true,
+                        deliveryState: 'delivered',
+                        deliveryEvidence: {
+                            type: 'hermes_feishu_provider_acknowledged',
+                            observedAt,
+                            reference: providerMessageId,
+                        },
+                        idempotencyKey,
+                        providerIdempotency: { forwardedToHermesProcess: Boolean(idempotencyKey), providerDeduplication: 'unsupported' },
+                    };
+                }
+            } catch (err: any) {
+                lastError = err;
+                if (err?.deliveryState === 'not_started') {
+                    lastNotStarted = true;
+                }
+                // If this profile could not send to the chat (e.g. Bot not in chat), try next profile
+                continue;
+            }
+        }
+
+        if (lastNotStarted && !lastError) {
+            throw new HermesFeishuSenderError('Hermes 飞书回话进程未启动，将保留任务跟进记录后重试。', { deliveryState: 'not_started' });
+        }
+        throw lastError || new HermesFeishuSenderError('Hermes 命令已结束，但没有可核验的飞书回执；投递结果不确定。', { deliveryState: 'unknown', code: 'hermes_send_unconfirmed' });
     }
 }
 function safeIdempotencyKey(value: any): any {

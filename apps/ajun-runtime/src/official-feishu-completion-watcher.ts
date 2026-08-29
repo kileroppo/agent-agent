@@ -143,11 +143,11 @@ export class OfficialFeishuCompletionWatcher {
             const message: any = withTaskLink(status.message, watch.taskId, this.detailBaseUrl);
             const changed: any = watch.lastStatus !== status.status;
             if (status.terminal) {
-                await this.deliver(watch, status.status, 'terminal', message);
+                await this.deliver(watch, status.status, 'terminal', message, status.agentId || watch.agentId);
                 return;
             }
             if (changed && shouldReportProgress(status.status)) {
-                await this.deliver(watch, status.status, 'progress', message);
+                await this.deliver(watch, status.status, 'progress', message, status.agentId || watch.agentId);
                 return;
             }
             if (changed)
@@ -159,7 +159,7 @@ export class OfficialFeishuCompletionWatcher {
             // not be retried as if the provider had definitely received nothing.
         }
     }
-    async deliver(watch: any, targetStatus: any, kind: any, message: any): Promise<any> {
+    async deliver(watch: any, targetStatus: any, kind: any, message: any, agentId?: any): Promise<any> {
         const previous: any = normalizeDeliveryReceipt(watch.delivery);
         const nextDeliveryId: any = deliveryId(watch.taskId, watch.chatId, kind, targetStatus);
         const prepared: Record<string, any> = createReceipt({
@@ -186,7 +186,7 @@ export class OfficialFeishuCompletionWatcher {
         // sending state now so concurrent UI/API reads cannot project ready.
         await this.refreshSnapshot();
         try {
-            const sent: any = await this.send(watch.chatId, { markdown: message, deliveryId: delivery.deliveryId, idempotencyKey:delivery.idempotencyKey });
+            const sent: any = await this.send(watch.chatId, { markdown: message, deliveryId: delivery.deliveryId, idempotencyKey:delivery.idempotencyKey, agentId: agentId || watch.agentId });
             const delivered: any = deliveredReceipt(delivery, sent);
             if (!delivered) {
                 await this.markDeliveryUncertain(sendingWatch, safeDeliveryError(sent));

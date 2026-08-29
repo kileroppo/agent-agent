@@ -204,7 +204,8 @@ function unfinishedStatus(root: any, current: any): any {
     return status(root, current.status || 'unknown', isTaskNotificationTerminalStatus(current.status), `“${title}”已经登记，等待新的进度。`, current);
 }
 function status(root: any, state: any, terminal: any, message: any, sourceTask: any = root, extensions: any = {}): any {
-    const result: Record<string, any> = { terminal, status: state, taskId: root.taskId, message, ...(extensions && typeof extensions === 'object' ? extensions : {}) };
+    const agentId = root.assigneeAgentId || root.agentId || root.input?.agentId || root.routing?.agentId || sourceTask?.assigneeAgentId || sourceTask?.agentId;
+    const result: Record<string, any> = { terminal, status: state, taskId: root.taskId, message, ...(agentId ? { agentId } : {}), ...(extensions && typeof extensions === 'object' ? extensions : {}) };
     if (!sourceTask?.taskId || sourceTask.taskId === root.taskId)
         return result;
     return {
