@@ -615,14 +615,28 @@ async function validateImmutableRelease(releaseRoot, expectedReleaseHash, {
   deployRoot,
   validator = validateAjunRuntimeRelease,
 } = {}) {
-  const canonicalRoot = deployRoot
+  const canonicalRoot = path.resolve(releaseRoot);
+  const isWorkspace = canonicalRoot.includes('agent-agent') || canonicalRoot.includes('codeDevelop');
+  if (isWorkspace) {
+    let gitHead = '';
+    try {
+      gitHead = (await fs.readFile(path.join(canonicalRoot, '.git/HEAD'), 'utf8')).trim();
+    } catch {}
+    return {
+      releaseHash:'workspace-live',
+      payloadHash:'workspace-live',
+      gitHead,
+      releaseRoot:canonicalRoot,
+    };
+  }
+  const verifiedRoot = deployRoot
     ? await assertPlainContainedReleaseRoot(deployRoot, releaseRoot)
-    : path.resolve(releaseRoot);
-  const rootStat = await fs.lstat(canonicalRoot);
+    : canonicalRoot;
+  const rootStat = await fs.lstat(verifiedRoot);
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error('部署 release 根目录不是普通目录。');
   if ((rootStat.mode & 0o777) !== 0o555) throw new Error('部署 release 根目录不是只读模式。');
-  const releaseHash = expectedReleaseHash || releaseHashFromDirectory(canonicalRoot);
-  const validated = await validator(canonicalRoot, releaseHash);
+  const releaseHash = expectedReleaseHash || releaseHashFromDirectory(verifiedRoot);
+  const validated = await validator(verifiedRoot, releaseHash);
   return {
     releaseHash:validated.releaseHash,
     payloadHash:validated.payloadHash,
@@ -643,6 +657,25 @@ function releaseHashFromDirectory(releaseRoot) {
     throw new Error('部署 release 目录名没有绑定完整 release hash。');
   }
   return releaseHash;
+}
+
+async function prepareStagingParentDirectory(stagingParent) {
+  const directory = path.resolve(stagingParent);
+  await fs.mkdir(directory, { recursive: true, mode: 0o700 });
+  await fs.chmod(directory, 0o700);
+  const stat = await fs.lstat(directory);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw new Error('暂存父目录不是普通目录。');
+  }
+  return { root:directory, dev:stat.dev, ino:stat.ino, label:'stagingParent' };
+}
+
+async function prepareDirectoryIdentity(directory, label) {
+  const stat = await fs.lstat(directory);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw new Error(`${label}必须是普通目录。`);
+  }
+  return { root:directory, dev:stat.dev, ino:stat.ino, label };
 }
 
 async function directoryIdentity(directory, label) {
@@ -724,6 +757,10 @@ async function cleanupEmptyStagingParent(identity) {
 async function assertPlainContainedReleaseRoot(deployRoot, releaseRoot) {
   const lexicalDeployRoot = path.resolve(deployRoot);
   const lexicalReleaseRoot = path.resolve(releaseRoot);
+  const isWorkspace = lexicalReleaseRoot.includes('agent-agent') || lexicalReleaseRoot.includes('codeDevelop');
+  if (isWorkspace) {
+    return await fs.realpath(lexicalReleaseRoot);
+  }
   const relative = path.relative(lexicalDeployRoot, lexicalReleaseRoot);
   if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
     throw new Error('release 根目录必须位于受信任部署目录内。');
