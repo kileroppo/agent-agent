@@ -56,10 +56,7 @@ export function createStabilityLifecycleComposition({
     reconciliationJob('delivery-unknown', deliveryUnknownReconciler, { maxIntervalMs: 60_000 }),
     reconciliationJob('health-mesh', healthMesh, { maxIntervalMs: 30_000 }),
     reconciliationJob('anomaly-alerting', anomalyAlerting, { maxIntervalMs: 60_000 }),
-    reconciliationJob('feedback-eval-dataset', feedbackEvalDataset, { maxIntervalMs: 15 * 60_000 }),
     reconciliationJob('sqlite-wal-governor', sqliteWalGovernor, { maxIntervalMs: 5 * 60_000 }),
-    reconciliationJob('credential-decay-warner', credentialDecayWarner, { maxIntervalMs: 60 * 60_000 }),
-    reconciliationJob('approval-escalation', approvalEscalationGovernor, { maxIntervalMs: 60_000 }),
   ];
 
   return Object.freeze({
