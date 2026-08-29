@@ -91,14 +91,15 @@ export async function resolveRuntimeSourceRoot({
   );
 
   const legacyMode = !configured && canonicalSourceRoot === canonicalRuntimeRoot;
-  if (!legacyMode && sourceIdentity.dirty) {
+  const localDirectMode = canonicalSourceRoot === canonicalRuntimeRoot;
+  if (!localDirectMode && !legacyMode && sourceIdentity.dirty) {
     throw new RuntimeSourceRootError(
       'source_root_dirty',
       '外置 AGENT_ARMY_SOURCE_PROJECT_ROOT 必须是干净的专用 Git worktree。',
       { sourceProjectRoot:canonicalSourceRoot },
     );
   }
-  if (!legacyMode) {
+  if (!localDirectMode && !legacyMode) {
     const boundaries: Array<readonly [string, string | undefined]> = [
       ['runtime release', canonicalRuntimeRoot],
       ['AGENT_ARMY_DATA_DIR', dataDir],
