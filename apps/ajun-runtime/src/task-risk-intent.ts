@@ -1,5 +1,5 @@
 const DEFAULT_HIGH_RISK_ACTIONS = Object.freeze([
-  '对外正式发布', '真实付款', '实际扣费', '破坏性删除', '强制扩权',
+  '外发', '发布', '删除', '付款', '付费', '扩权', '敏感',
 ]);
 
 export function hasAffirmativeRiskIntent(
@@ -7,6 +7,9 @@ export function hasAffirmativeRiskIntent(
   actions: readonly string[] = DEFAULT_HIGH_RISK_ACTIONS,
 ): boolean {
   const text = String(value || '');
+  if (/(?:发布|下发|安排|创建)\s*(?:一个|一项|个|项)?\s*(?:测试)?任务|(?:发布|生成)\s*(?:平台)?(?:草稿|草案|脚本)/.test(text)) {
+    return false;
+  }
   return actions.some((action) => {
     let startAt = 0;
     while (startAt < text.length) {
