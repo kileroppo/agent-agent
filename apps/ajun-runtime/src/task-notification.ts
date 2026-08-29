@@ -47,9 +47,13 @@ export class TaskNotification {
         }
         if (['queued', 'running'].includes(current.status)) {
             const worker: any = await taskWorkerName(this.registry, current);
+            let stageDetail = '';
+            if (current.currentStage === 'delivery_quality_review_pending') {
+                stageDetail = `“${shortTaskTitle(root)}”已完成初步数据检索，目前正在进行交付质量复核。`;
+            }
             return status(root, current.status, false, retried
                 ? `“${shortTaskTitle(root)}”第一次处理失败，运维官已自动重试，当前仍在处理中。`
-                : `“${shortTaskTitle(root)}”正在由${worker}处理。`, current);
+                : stageDetail || `“${shortTaskTitle(root)}”正在由${worker}处理。`, current);
         }
         return unfinishedStatus(root, current);
     }

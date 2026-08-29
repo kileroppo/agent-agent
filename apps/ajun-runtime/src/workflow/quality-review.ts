@@ -71,7 +71,7 @@ export function classifyQualityTier(source: QualitySource, brief?: DeliveryBrief
 
   if (
     requested === 'important'
-    || taskType.startsWith('research.')
+    || (taskType.startsWith('research.') && taskType !== 'research.github-search')
     || taskType === 'office.presentation-package'
     || taskType.startsWith('governance.assurance')
     || IMPORTANT_TEXT.test(taskText)
