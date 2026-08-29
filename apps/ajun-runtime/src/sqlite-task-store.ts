@@ -24,7 +24,7 @@ export class SQLiteTaskStore {
         this.mutationListeners = new Set();
         fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
         this.database = new DatabaseSync(this.filePath);
-        this.database.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
+        this.database.exec('PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;');
         this.#migrateSchema();
         this.#secureFiles();
     }
