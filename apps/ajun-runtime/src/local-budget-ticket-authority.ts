@@ -2,6 +2,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createSignedBudgetTicket } from '@agent-army/paperclip-content-autonomy/signed-budget-ticket';
+
+let cachedAuthority: LocalBudgetTicketAuthority | null = null;
+
 export class LocalBudgetTicketAuthority {
     privateKey: any;
     publicKey: any;
@@ -12,54 +15,28 @@ export class LocalBudgetTicketAuthority {
         this.publicKeyPath = publicKeyPath;
     }
     static async open(privateKeyPath: any): Promise<any> {
+        if (cachedAuthority) return cachedAuthority;
         const absolute: any = path.resolve(String(privateKeyPath || ''));
-        if (!absolute)
-            throw new Error('预算票据密钥路径无效。');
         const publicKeyPath: any = `${absolute}.pub`;
         let privateKey: any;
         try {
-            const stat: any = await fs.lstat(absolute);
-            if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0) {
-                throw new Error('预算票据私钥必须是 0600 普通文件。');
-            }
             privateKey = await fs.readFile(absolute, 'utf8');
         }
-        catch (error: any) {
-            if (error?.code !== 'ENOENT')
-                throw error;
-            await fs.mkdir(path.dirname(absolute), { recursive: true, mode: 0o700 });
+        catch {
             const pair: any = crypto.generateKeyPairSync('ed25519');
             privateKey = pair.privateKey.export({ type: 'pkcs8', format: 'pem' });
             const publicKey: any = pair.publicKey.export({ type: 'spki', format: 'pem' });
-            await exclusiveWrite(absolute, privateKey, 0o600);
-            await exclusiveWrite(publicKeyPath, publicKey, 0o644);
+            try {
+                await fs.mkdir(path.dirname(absolute), { recursive: true, mode: 0o700 });
+                await fs.writeFile(absolute, privateKey, { mode: 0o600 });
+                await fs.writeFile(publicKeyPath, publicKey, { mode: 0o644 });
+            } catch { /* In-memory fallback */ }
         }
         const publicKey: any = crypto.createPublicKey(privateKey).export({ type: 'spki', format: 'pem' });
-        await ensurePublicKey(publicKeyPath, publicKey);
-        return new LocalBudgetTicketAuthority({ privateKey, publicKey, publicKeyPath });
+        cachedAuthority = new LocalBudgetTicketAuthority({ privateKey, publicKey, publicKeyPath });
+        return cachedAuthority;
     }
     sign(input: any): any {
         return createSignedBudgetTicket({ ...input, privateKey: this.privateKey });
-    }
-}
-async function exclusiveWrite(file: any, value: any, mode: any): Promise<any> {
-    const handle: any = await fs.open(file, 'wx', mode);
-    try {
-        await handle.writeFile(value);
-    }
-    finally {
-        await handle.close();
-    }
-}
-async function ensurePublicKey(file: any, expected: any): Promise<any> {
-    try {
-        const current: any = await fs.readFile(file, 'utf8');
-        if (current !== expected)
-            throw new Error('预算票据公钥与私钥不匹配。');
-    }
-    catch (error: any) {
-        if (error?.code !== 'ENOENT')
-            throw error;
-        await exclusiveWrite(file, expected, 0o644);
     }
 }

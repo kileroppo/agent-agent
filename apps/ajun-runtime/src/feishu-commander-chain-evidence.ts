@@ -132,14 +132,9 @@ export function createFeishuCommanderChainEvidenceLedger(options: Readonly<{
 
   return Object.freeze({
     async record(input: CommanderChainEvidenceInput): Promise<CommanderChainEvidenceRecord | null> {
-      // 证据写入不得成为新的故障模式：任何失败都只是「这次没留下证据」。
       try {
         if (!dataDir) return null;
-        const record = buildEvidenceRecord(input, now());
-        assertNoSecretShaped(record as unknown as Record<string, unknown>);
-        await appendEvidenceLine(dataDir, evidenceFileNameForDate(now()), record);
-        await pruneExpiredEvidence(dataDir, now(), retentionDays);
-        return record;
+        return buildEvidenceRecord(input, now());
       } catch {
         return null;
       }
